@@ -509,7 +509,16 @@ async function propose(
 	let asking = "";
 	if (params.reviewers?.length) {
 		try {
-			await authoring.requestReviewers?.(made.ref, params.reviewers);
+			// Not an optional call. Reporting "asked alice, bob" because the
+			// method was absent is the one degradation nobody can detect: it
+			// is said in the past tense about something that never happened,
+			// and the reviewers are simply never asked.
+			if (authoring.requestReviewers === undefined) {
+				throw new Error(
+					"the provider declares it can request reviewers but has no way to do it",
+				);
+			}
+			await authoring.requestReviewers(made.ref, params.reviewers);
 			asking = `\n   asked ${params.reviewers.join(", ")}`;
 		} catch (error) {
 			asking = `\n   ${GLYPH.refused} the change is up, but asking ${params.reviewers.join(", ")} failed: ${messageOf(error)}`;
@@ -674,6 +683,18 @@ async function reviewers(
 	);
 	if (!approved) return say("Nobody was asked.");
 
-	await authoring.requestReviewers?.(change, asking);
+	// Said in the past tense, so it has to be true. An optional call here
+	// reported that people had been asked whenever the method was missing,
+	// which is a degradation with no symptom: the change simply sits there
+	// with nobody looking at it. The capability gate refuses first for every
+	// provider that ships today, and this is what happens when one declares
+	// the capability without the method behind it.
+	if (authoring.requestReviewers === undefined) {
+		return refuse(
+			`The ${change.provider} provider declares it can request reviewers but has no way to do it, so nobody was asked. Ask them directly instead.`,
+		);
+	}
+
+	await authoring.requestReviewers(change, asking);
 	return say(`${GLYPH.lands} asked ${asking.join(", ")}.`);
 }

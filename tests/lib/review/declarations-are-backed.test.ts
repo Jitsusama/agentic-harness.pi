@@ -40,25 +40,66 @@ import {
  * the opposite gap and a milder one. `commentOn`, `unreact` and `fileAt`
  * can only be discovered by looking for the method, so a consumer cannot
  * ask ahead of time and has to degrade on absence instead. Nothing lies;
- * it just cannot be asked. `react` and `requestReviewers` look like they
- * belong in that list and do not: they are declared through `reactions`
- * and `reviewersAt`, which say more than a boolean could.
+ * it just cannot be asked.
+ *
+ * `reactions` and `reviewersAt` say more than a boolean can, and were once
+ * left out for that reason. That was wrong, and it left the worst hole in
+ * the gate uncovered, because `reviewersAt` is the one declaration a
+ * caller is told about in the past tense: `review_offer` reports "asked
+ * alice, bob" from an optional call that quietly does nothing when the
+ * method is missing. So a row carries a predicate over the declared value
+ * rather than assuming `true`, and both are held to the same standard as
+ * the rest. What each promises is narrower than its type: a non-empty
+ * reaction set promises `react`, and only an "any-time" policy promises
+ * `requestReviewers`, since "creation" is served through `propose`.
+ *
+ * A row also says whether the contract requires the method, because the
+ * two directions are not symmetric. Where a method is mandatory its
+ * presence is guaranteed by the type and proves nothing about what the
+ * provider means, so demanding a declaration to match it would push a
+ * provider that legitimately cannot propose into saying it can.
  */
 const BACKED_BY: ReadonlyArray<{
 	facet: "proposals" | "conversation" | "authoring";
 	capability: string;
 	method: string;
+	/** When the declared value amounts to a promise. Defaults to `=== true`. */
+	promises?: (declared: unknown) => boolean;
+	/** The facet requires this method, so its presence says nothing. */
+	mandatory?: true;
 }> = [
 	{ facet: "proposals", capability: "checks", method: "checks" },
 	{ facet: "proposals", capability: "list", method: "list" },
 	{ facet: "proposals", capability: "fetchAsRef", method: "fetchAsRef" },
 	{ facet: "conversation", capability: "unresolve", method: "unresolve" },
-	{ facet: "authoring", capability: "propose", method: "propose" },
+	{
+		facet: "authoring",
+		capability: "propose",
+		method: "propose",
+		mandatory: true,
+	},
 	{ facet: "authoring", capability: "proposeStack", method: "proposeStack" },
 	{ facet: "authoring", capability: "setDraft", method: "setDraft" },
-	{ facet: "authoring", capability: "close", method: "close" },
+	{ facet: "authoring", capability: "close", method: "close", mandatory: true },
 	{ facet: "authoring", capability: "reopen", method: "reopen" },
-	{ facet: "authoring", capability: "merge", method: "merge" },
+	{ facet: "authoring", capability: "merge", method: "merge", mandatory: true },
+	{
+		facet: "conversation",
+		capability: "reactions",
+		method: "react",
+		// Naming the reactions it accepts is the promise. An empty set is
+		// the contract's own way of saying it does none.
+		promises: (declared) => Array.isArray(declared) && declared.length > 0,
+	},
+	{
+		facet: "authoring",
+		capability: "reviewersAt",
+		method: "requestReviewers",
+		// Meteorite is the live example of the other value: it declares
+		// "creation", omits the method deliberately, and the offer gate
+		// refuses before anything is called.
+		promises: (declared) => declared === "any-time",
+	},
 ];
 
 /** An exec that must never run, since nothing here executes a command. */
@@ -80,16 +121,17 @@ const REPO_FOR: Record<string, { key: string }> = {
 
 for (const [id, provider] of PROVIDERS) {
 	describe(`${id}: every capability that promises a method has one`, () => {
-		for (const { facet, capability, method } of BACKED_BY) {
+		for (const { facet, capability, method, promises } of BACKED_BY) {
 			it(`backs ${facet}.${capability} with a callable`, async () => {
 				const declared = await provider.capabilities(REPO_FOR[id]);
 				const claims = declared[facet] as Record<string, unknown> | undefined;
-				if (claims?.[capability] !== true) return;
+				const amounts = promises ?? ((value: unknown) => value === true);
+				if (!claims || !amounts(claims[capability])) return;
 
 				const built = provider[facet] as Record<string, unknown> | undefined;
 				expect(
 					typeof built?.[method],
-					`${id} declares ${facet}.${capability}: true, so ${method} has to exist. Either implement it or stop claiming it: the engine calls it through an optional chain, so the hole reads as a backend without the feature rather than as a bug.`,
+					`${id} declares ${facet}.${capability} as ${JSON.stringify(claims[capability])}, which promises ${method}, so it has to exist. Either implement it or stop claiming it: the engine calls it through an optional chain, so the hole reads as a backend without the feature rather than as a bug.`,
 				).toBe("function");
 			});
 		}
@@ -99,16 +141,24 @@ for (const [id, provider] of PROVIDERS) {
 		// The quieter lie, and still a lie: a facet that can do something
 		// while its capabilities say it cannot means a consumer politely
 		// declines to use a working feature.
-		for (const { facet, capability, method } of BACKED_BY) {
+		for (const {
+			facet,
+			capability,
+			method,
+			promises,
+			mandatory,
+		} of BACKED_BY) {
+			if (mandatory) continue;
 			it(`declares ${capability} when ${method} is there`, async () => {
 				const built = provider[facet] as Record<string, unknown> | undefined;
 				if (typeof built?.[method] !== "function") return;
 
 				const declared = await provider.capabilities(REPO_FOR[id]);
 				const claims = declared[facet] as Record<string, unknown> | undefined;
+				const amounts = promises ?? ((value: unknown) => value === true);
 				expect(
-					claims?.[capability],
-					`${id} implements ${facet}.${method} but does not declare ${capability}, so a consumer that asks first will never call it.`,
+					claims !== undefined && amounts(claims[capability]),
+					`${id} implements ${facet}.${method} but declares ${capability} as ${JSON.stringify(claims?.[capability])}, which does not promise it, so a consumer that asks first will never call it.`,
 				).toBe(true);
 			});
 		}
