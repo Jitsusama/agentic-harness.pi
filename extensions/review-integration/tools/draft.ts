@@ -18,9 +18,13 @@ import {
 	createDraftStore,
 	createFindingStore,
 	type DiffSide,
+	type DraftStore,
+	publishAcross,
 	type Reaction,
 	type ReviewDraft,
+	type ReviewTarget,
 	resumeDraft,
+	type StackPublishEntry,
 	type Verdict,
 } from "../../../lib/review/index.js";
 import { draftDir, findingDir, reviewEngine } from "../engine.js";
@@ -92,6 +96,7 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 					Type.Literal("drop"),
 					Type.Literal("plan"),
 					Type.Literal("publish"),
+					Type.Literal("publish-stack"),
 					Type.Literal("render"),
 				],
 				{ description: "What to do with the draft." },
@@ -202,6 +207,15 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 
 				if (params.action === "decide") {
 					return decideFinding(bound, draft, params);
+				}
+
+				if (params.action === "publish-stack") {
+					if (!bound) {
+						return refuse(
+							"Publishing a stack needs the target, so the stack can be read. Name a change in it rather than a draft id.",
+						);
+					}
+					return publishStack(pi, bound, store, ctx);
 				}
 
 				if (params.action === "finding") {
@@ -327,6 +341,101 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 			}
 		},
 	});
+}
+
+/**
+ * Publish every draft in the stack, in the order the stack applies.
+ *
+ * A draft is about one change, so a review of a stack is several
+ * drafts, and publishing them one at a time by hand loses the only
+ * thing worth knowing afterwards: which changes now carry a review.
+ *
+ * Only changes that actually have a draft are published. A stack of
+ * six where two drew remarks should send two reviews, not four empty
+ * ones, and an empty review posted to a change nobody had anything to
+ * say about is noise on somebody else's notifications.
+ */
+async function publishStack(
+	pi: ExtensionAPI,
+	bound: BoundTarget,
+	store: DraftStore,
+	ctx: Parameters<Parameters<ExtensionAPI["registerTool"]>[0]["execute"]>[4],
+): Promise<Answer> {
+	const stack = await bound.stack();
+	if (!stack) {
+		return refuse(
+			`The ${bound.provider.id} provider does not read stacks, so there is no stack to publish across. Publish this one change with publish.`,
+		);
+	}
+
+	const { engine } = await reviewEngine(pi);
+	const entries: StackPublishEntry[] = [];
+	const skipped: string[] = [];
+
+	for (const node of stack.nodes) {
+		if (node.proposal === undefined) continue;
+		const change = node.proposal.ref;
+		const target: ReviewTarget = { kind: "proposal", change };
+
+		const held = await store.forTarget(target);
+		if (held.length === 0) {
+			skipped.push(node.ref);
+			continue;
+		}
+
+		const one = await engine.openDraft(target);
+		const at = await engine.bound(change);
+		const diff = await at.diffModel().catch(() => undefined);
+		const plan = one.plan({
+			capabilities: at.capabilities,
+			...(diff ? { diff } : {}),
+		});
+		if (plan.ops.length === 0) {
+			skipped.push(node.ref);
+			continue;
+		}
+		entries.push({ ref: node.ref, change, plan });
+	}
+
+	if (entries.length === 0) {
+		return refuse(
+			"No change in this stack has a draft with anything publishable in it. Plan one to see why.",
+		);
+	}
+
+	const approved = await confirmWrite(
+		ctx,
+		`Publish ${entries.length} ${entries.length === 1 ? "review" : "reviews"} across this stack?`,
+		entries.map((one) => `${one.ref}\n${planNarration(one.plan)}`).join("\n\n"),
+	);
+	if (!approved) {
+		return say("Left in the drafts. Nothing was sent.");
+	}
+
+	const outcome = await publishAcross(entries, bound.provider);
+	return say(
+		[
+			...outcome.changes.map(
+				(one) => `${one.ref}: ${outcomeNarration(one.outcome)}`,
+			),
+			...(skipped.length === 0
+				? []
+				: [
+						`\nNothing to say about ${skipped.join(", ")}, so nothing was sent there.`,
+					]),
+			...(outcome.remaining.length === 0
+				? []
+				: [
+						`\nStill unsent: ${outcome.remaining.join(", ")}. Publishing again sends only those, since what landed is kept out of the drafts.`,
+					]),
+		].join("\n"),
+		{
+			ok: outcome.ok,
+			landed: outcome.landed,
+			remaining: outcome.remaining,
+			skipped,
+		},
+	);
 }
 
 /**

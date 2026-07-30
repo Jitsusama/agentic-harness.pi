@@ -183,6 +183,12 @@ export {
 	lineNumberOn,
 	parseUnifiedDiff,
 } from "./diff.js";
+export type {
+	ChangePublishOutcome,
+	StackPublishEntry,
+	StackPublishOutcome,
+} from "./draft/fanout.js";
+export { publishAcross } from "./draft/fanout.js";
 export type { DraftDeps, ReviewDraft } from "./draft/handle.js";
 export { openDraft, resumeDraft } from "./draft/handle.js";
 export type {

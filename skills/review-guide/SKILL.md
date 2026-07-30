@@ -78,6 +78,22 @@ survived scrutiny and which a reviewer thinks are wrong, and
 the finding it disputes. Silence means no position, never agreement,
 so do not read an uncontested finding as a corroborated one.
 
+## Publishing Across a Stack
+
+`review_draft publish-stack` sends every draft in the stack, in the
+order the stack applies. A draft is about one change, so a review of a
+stack is several drafts, and publishing them by hand loses the only
+thing worth knowing afterwards: which changes now carry a review.
+
+Only changes that have a draft with something in it are published. A
+stack of six where two drew remarks sends two reviews, not four empty
+ones, and the answer names the changes it skipped.
+
+**A failure on one change does not stop the others**, and the answer
+names what is still unsent so publishing again sends only the
+remainder. Report that plainly: a partly published stack that reads as
+a total failure gets posted twice.
+
 ## Personas Are What Make Six Reviewers Worth Asking
 
 A roster entry may name a `persona`, and the charter behind it becomes
