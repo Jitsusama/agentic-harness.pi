@@ -66,6 +66,7 @@ const MUST_BOUND = [
 	"pr-workflow",
 	"review-integration",
 	"result-store-workflow",
+	"work-integration",
 ] as const;
 
 /**

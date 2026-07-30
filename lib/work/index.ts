@@ -13,6 +13,12 @@
  * forge-shaped question.
  */
 
+export type {
+	AskedRepo,
+	TreeAsk,
+	TreeRequestOutcome,
+} from "./ask.js";
+export { treeRequestFrom } from "./ask.js";
 export type { HeldTree, TreeBroker, TreeProvider } from "./broker.js";
 export { createTreeBroker } from "./broker.js";
 export type { WorkApi } from "./events.js";
