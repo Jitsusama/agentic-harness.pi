@@ -24,7 +24,11 @@ import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import type { Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
-import { loadPackageConfig } from "../../../lib/internal/config/loader.js";
+import {
+	type ConfigLoadResult,
+	loadPackageConfig,
+} from "../../../lib/internal/config/loader.js";
+import { packageConfigPath } from "../../../lib/internal/paths.js";
 import {
 	type AskAnswer,
 	type AskRound,
@@ -64,6 +68,7 @@ import {
 	runReviewer,
 	summarizeStreamActivity,
 } from "../../../lib/subagent/index.js";
+import { REVIEW_SLUG } from "../config.js";
 import { findingDir, personaDir, reviewEngine, runDir } from "../engine.js";
 import { PARTICIPANT_TIMEOUT_MS, statusLineProgress } from "../progress.js";
 import { GLYPH } from "../render.js";
@@ -798,25 +803,43 @@ async function claimIdentities(
  * not something to retype per call.
  */
 async function rosterOrThrow(): Promise<Roster> {
-	const loaded = await loadPackageConfig();
+	const path = packageConfigPath();
+	return rosterFromConfig(await loadPackageConfig(path), path);
+}
+
+/**
+ * The roster held in a loaded config, or a throw saying why not.
+ *
+ * Separated from the loading so the lookup can be tested against a
+ * file on disk. It reads `sections.review.ask`, which is where every
+ * extension's settings live: reading one level higher finds nothing
+ * for every well-formed config there is, and the refusal that follows
+ * blames the config rather than the lookup.
+ */
+export async function rosterFromConfig(
+	loaded: ConfigLoadResult,
+	path: string,
+): Promise<Roster> {
 	if (!loaded.ok) {
 		throw new Error(
 			`The config at ${loaded.path} could not be read, so there is no roster to ask: ${loaded.error}`,
 		);
 	}
-	const held = (loaded.config as unknown as Record<string, unknown>).review;
-	const section =
-		typeof held === "object" && held !== null
-			? (held as Record<string, unknown>).ask
-			: undefined;
+	const review = loaded.config.sections[REVIEW_SLUG];
+	const section = isRecord(review) ? review.ask : undefined;
 	if (section === undefined) {
 		throw new Error(
-			`No roster is configured, so there is nobody to ask. Add a review.ask section to ${loaded.path} with a reviewers array, and optionally a judge with an id of its own.`,
+			`No roster is configured, so there is nobody to ask. Add a review.ask section to ${path} with a reviewers array, and optionally a judge with an id of its own.`,
 		);
 	}
 	const parsed = parseRoster(section);
 	if ("refusal" in parsed) throw new Error(parsed.refusal);
 	return parsed.roster;
+}
+
+/** Whether a value is an object we can read keys off. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**
