@@ -5,7 +5,10 @@ import type {
 	Roster,
 	StackCouncilDeps,
 } from "../../../lib/review/index.js";
-import { runStackCouncil } from "../../../lib/review/index.js";
+import {
+	runStackCouncil,
+	trackAskProgress,
+} from "../../../lib/review/index.js";
 
 const stack = ["refs/heads/base", "refs/heads/tip"] as const;
 
@@ -178,6 +181,39 @@ describe("a stack-wide round", () => {
 		expect(run.participants.map((p) => p.role)).toEqual([
 			"reviewer",
 			"reviewer",
+		]);
+	});
+
+	it("reports its progress, being the longest round there is", async () => {
+		// It shipped without this. A stack round reads every change in
+		// the stack, so it is the round most likely to look hung, and it
+		// was the one round reporting nothing at all.
+		const { progress, entries } = trackAskProgress();
+		const { deps: d } = deps({
+			wren: {
+				text: answer(one({ refs: ["refs/heads/base"], subject: "a" })),
+			},
+			finch: { text: answer() },
+		});
+
+		await runStackCouncil(
+			{ roster, prompt: "p", seq: 1, stackRefs: [...stack] },
+			{ ...d, progress },
+		);
+
+		expect(entries()).toEqual([
+			{
+				participantId: "wren",
+				state: "answered",
+				activity: "",
+				findings: 1,
+			},
+			{
+				participantId: "finch",
+				state: "answered",
+				activity: "",
+				findings: 0,
+			},
 		]);
 	});
 

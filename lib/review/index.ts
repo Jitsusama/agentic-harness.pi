@@ -75,6 +75,13 @@ export type {
 	PersonaParse,
 } from "./ask/persona.js";
 export { bindPersonas, parsePersona } from "./ask/persona.js";
+export {
+	type AskProgress,
+	type AskProgressEntry,
+	type AskProgressState,
+	noAskProgress,
+	trackAskProgress,
+} from "./ask/progress.js";
 export type {
 	AuditPromptInput,
 	CritiquePromptInput,

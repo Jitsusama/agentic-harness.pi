@@ -24,6 +24,9 @@ import type {
 	ReviewerUsage,
 } from "../../lib/subagent/subagent.js";
 
+// Moved to lib/subagent, which is where its test already lived.
+export { summarizeStreamActivity } from "../../lib/subagent/activity.js";
+
 /** Per-reviewer lifecycle state surfaced to the UI. */
 export type CouncilProgressState =
 	| "pending"
@@ -128,110 +131,3 @@ export const NULL_PROGRESS: CouncilProgress = {
 	reviewerFailed() {},
 	finish() {},
 };
-
-/**
- * Translate one pi `--mode json` stream event into a
- * short activity string for the UI.
- *
- * Returns `null` for events that don't move the
- * reviewer's surface state (text deltas, message_end,
- * etc) so the caller can skip notification without
- * branching. Tool start events render as a verb + a
- * short argument hint scraped from `args`; tool end
- * events deliberately say the tool has finished so a
- * long model-thinking gap doesn't look like a file read
- * or verifier call is still running.
- */
-export function summarizeStreamActivity(event: unknown): string | null {
-	if (typeof event !== "object" || event === null) return null;
-	const e = event as Record<string, unknown>;
-	if (e.type === "activity" && typeof e.activity === "string") {
-		return e.activity;
-	}
-	const toolName = typeof e.toolName === "string" ? e.toolName : "";
-	if (!toolName) return null;
-	if (e.type === "tool_execution_end") {
-		return summarizeToolEnd(toolName, e.isError === true);
-	}
-	if (e.type !== "tool_execution_start") return null;
-	const args =
-		typeof e.args === "object" && e.args !== null
-			? (e.args as Record<string, unknown>)
-			: {};
-	switch (toolName) {
-		case "read":
-		case "Read": {
-			const path =
-				typeof args.path === "string"
-					? args.path
-					: typeof args.file === "string"
-						? args.file
-						: "";
-			return path ? `reading ${trim(path, 40)}` : "reading";
-		}
-		case "grep":
-		case "Grep": {
-			const pattern =
-				typeof args.pattern === "string"
-					? args.pattern
-					: typeof args.query === "string"
-						? args.query
-						: "";
-			return pattern ? `grep ${trim(pattern, 40)}` : "grep";
-		}
-		case "glob":
-		case "Glob": {
-			const pattern = typeof args.pattern === "string" ? args.pattern : "";
-			return pattern ? `glob ${trim(pattern, 40)}` : "glob";
-		}
-		case "ls":
-		case "Ls": {
-			const path = typeof args.path === "string" ? args.path : "";
-			return path ? `ls ${trim(path, 40)}` : "ls";
-		}
-		case "bash":
-		case "Bash": {
-			const cmd = typeof args.command === "string" ? args.command : "";
-			return cmd ? `bash ${trim(cmd, 40)}` : "bash";
-		}
-		case "verify_output":
-			return "verifying output";
-		default:
-			return `running ${toolName}`;
-	}
-}
-
-function summarizeToolEnd(toolName: string, failed: boolean): string {
-	const action = toolEndAction(toolName);
-	return failed ? `${action} failed` : `finished ${action}; waiting for model`;
-}
-
-function toolEndAction(toolName: string): string {
-	switch (toolName) {
-		case "read":
-		case "Read":
-			return "reading";
-		case "grep":
-		case "Grep":
-			return "grep";
-		case "glob":
-		case "Glob":
-			return "glob";
-		case "ls":
-		case "Ls":
-			return "ls";
-		case "bash":
-		case "Bash":
-			return "bash";
-		case "verify_output":
-			return "verifying output";
-		default:
-			return toolName;
-	}
-}
-
-function trim(s: string, max: number): string {
-	const clean = s.replace(/\s+/g, " ").trim();
-	if (clean.length <= max) return clean;
-	return `${clean.slice(0, max - 1)}…`;
-}
