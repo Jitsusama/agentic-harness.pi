@@ -57,6 +57,7 @@ in the loop:
 | [`judge.ts`](ask/judge.ts) | Consolidating what they said |
 | [`critique.ts`](ask/critique.ts) | Pushing back on what was consolidated |
 | [`audit.ts`](ask/audit.ts) | Whether the change answers what people asked for |
+| [`authoring.ts`](authoring.ts) | Whether an authoring intent will work here |
 | [`fanout.ts`](draft/fanout.ts) | Publishing one review across a stack |
 | [`persona.ts`](ask/persona.ts) | The lens a reviewer reads through |
 | [`span.ts`](ask/span.ts) | Which changes a finding is about |
@@ -195,6 +196,39 @@ operation separately and continuing past a failure, because a
 posted review with one failed reply is not a failure to
 publish. The handle keeps exactly what did not land, so a retry
 sends the remainder.
+
+[`publishAcross`](draft/fanout.ts) applies the same bargain one
+level up, for a stack. A change that failed does not stop the
+changes after it, and the answer names what landed and what is
+left as refs, so a retry sends only the remainder rather than
+posting the lot twice.
+
+## Authoring Does Not Degrade, So It Is Asked First
+
+Reviewing degrades well. A comment that cannot anchor becomes
+prose and the reader still gets the remark. Authoring has no
+equivalent: a retarget that means something different on this
+backend moves changes nobody asked to move, and touching a
+change that sits in a merge queue ejects it along with
+everything speculatively batched with it.
+
+So [`offerable`](authoring.ts) answers before the call, and
+answers three things rather than one: whether it will work, why
+not, and what to do instead. The third is what makes a refusal
+useful, since a caller told only that something is unsupported
+has to go and read a CLI's help to find the door that is open.
+
+Two of the capabilities behind it are enums where a boolean
+would have been a lie. `reviewersAt` is `creation`, `any-time`
+or `never`, because one backend takes reviewers only as a
+change is created and a caller told "not supported" would never
+learn about the one moment it is. `retarget` is `change`,
+`stack` or `never`, because on one backend a base change goes
+through resubmitting the whole stack, so retargeting one change
+is not a smaller version of the same operation.
+
+Every field there is a difference the CLI survey actually
+found, rather than a difference somebody expected to exist.
 
 Where a target has no host, [`renderDraft`](draft/render.ts)
 writes the review out as a document instead, with the verdict

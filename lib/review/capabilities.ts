@@ -78,9 +78,63 @@ export interface ProposalCapabilities {
 	list: boolean;
 }
 
+/**
+ * When a backend will accept reviewers on a change.
+ *
+ * Three states rather than a boolean, because one backend takes them
+ * only as the change is created. A caller told "not supported" would
+ * never learn about the one moment it is.
+ */
+export type ReviewersAt = "creation" | "any-time" | "never";
+
+/**
+ * What retargeting a change's base means here.
+ *
+ * Not a boolean either. On one backend a base change goes through
+ * resubmitting the whole stack, so retargeting one change is not a
+ * smaller version of the same operation and a caller that treats it as
+ * one will move changes it did not mean to touch.
+ */
+export type RetargetScope = "change" | "stack" | "never";
+
+/**
+ * What a provider's authoring facet can do.
+ *
+ * Every field here is a difference the CLI survey actually found. The
+ * ones that are booleans elsewhere and enums here are the ones where a
+ * boolean would have been a lie.
+ */
+export interface AuthoringCapabilities {
+	propose: boolean;
+	/** Propose a whole stack in dependency order, in one go. */
+	proposeStack: boolean;
+	reviewersAt: ReviewersAt;
+	retarget: RetargetScope;
+	/** Flip an existing change between draft and ready. */
+	setDraft: boolean;
+	close: boolean;
+	reopen: boolean;
+	merge: boolean;
+	labels: boolean;
+	assignees: boolean;
+	/** Ask the backend to merge once checks pass. */
+	autoMerge: boolean;
+	deleteBranchOnMerge: boolean;
+	/**
+	 * Whether mutating a change ejects it from a merge queue.
+	 *
+	 * The expensive one. On a queue-backed backend a push, a rebase or a
+	 * base change ejects the change and everything speculatively batched
+	 * with it, and re-running CI for the rest is measured in hundreds of
+	 * jobs. A caller has to be able to ask before it acts.
+	 */
+	refusesWhileEnqueued: boolean;
+}
+
 /** Everything a provider declares about itself, per repo. */
 export interface Capabilities {
 	proposals?: ProposalCapabilities;
 	stacking?: StackingCapabilities;
 	conversation?: ConversationCapabilities;
+	authoring?: AuthoringCapabilities;
 }

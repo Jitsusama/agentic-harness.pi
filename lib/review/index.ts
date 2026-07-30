@@ -129,6 +129,8 @@ export {
 	chooseChange,
 	createAttachmentStore,
 } from "./attach.js";
+export type { AuthoringIntent, Offerable } from "./authoring.js";
+export { offerable } from "./authoring.js";
 export type { TargetResolution } from "./bind.js";
 export {
 	bindTarget,
@@ -136,9 +138,12 @@ export {
 	resolveTarget,
 } from "./bind.js";
 export type {
+	AuthoringCapabilities,
 	Capabilities,
 	ConversationCapabilities,
 	ProposalCapabilities,
+	RetargetScope,
+	ReviewersAt,
 	StackingCapabilities,
 	StalenessModel,
 } from "./capabilities.js";
