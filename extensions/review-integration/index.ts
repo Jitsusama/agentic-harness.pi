@@ -31,6 +31,7 @@ import {
 import {
 	registerAskTool,
 	registerDraftTool,
+	registerOfferTool,
 	registerReviewTool,
 	registerSayTool,
 	registerSeeTool,
@@ -62,6 +63,7 @@ export default function reviewIntegration(pi: ExtensionAPI) {
 	registerSayTool(pi);
 	registerAskTool(pi);
 	registerDraftTool(pi);
+	registerOfferTool(pi);
 
 	const api: ReviewSubstrateApi = {
 		registerProvider(provider: ReviewProvider) {

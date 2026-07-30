@@ -13,6 +13,7 @@ commands.
 | `review_see` | Every read: change, diff, checks, stack, changes, threads, reviews, messages |
 | `review_say` | Saying something now: reply, comment, resolve, unresolve, react |
 | `review_ask` | Putting the change to other models: council, judge, critique, audit, stack, runs, retry, release |
+| `review_offer` | Putting work up and moving it along: propose, edit, ready, draft, reviewers, close, reopen, merge |
 | `review_draft` | Composing a review, seeing what publishing would do, then publishing or rendering it |
 
 Split by intent rather than by subject. The subject is nearly
@@ -25,8 +26,12 @@ One tool per intent rather than one per verb. Twenty-five tools
 would crowd out everything else in a session; one tool with
 twenty-five actions is unreadable in a registry listing.
 
-`review_author` joins them when the authoring facet is
-implemented.
+`review_offer` is the sixth, and the one that makes the set an
+arc rather than a reading surface: it puts a branch up as a
+change and moves it along to a merge. It asks the provider
+whether an intent is possible before it asks the network,
+because authoring has no graceful degradation the way an
+unanchorable comment does.
 
 ## Every Write Asks First
 

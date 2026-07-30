@@ -11,6 +11,7 @@
 
 export { registerAskTool } from "./tools/ask.js";
 export { registerDraftTool } from "./tools/draft.js";
+export { registerOfferTool } from "./tools/offer.js";
 export { registerReviewTool } from "./tools/read.js";
 export { registerSayTool } from "./tools/say.js";
 export { registerSeeTool } from "./tools/see.js";

@@ -1,30 +1,35 @@
 ---
 name: review-guide
 description: >
-  How to read and review a change through the `review`,
-  `review_see`, `review_say`, `review_ask` and
-  `review_draft` tools, whatever system hosts it: GitHub,
+  How to put up, read and review a change through the
+  `review`, `review_see`, `review_say`, `review_ask`,
+  `review_draft` and `review_offer` tools, whatever system
+  hosts it: GitHub,
   Meteorite, a GitLab merge request, or a range of commits
   nobody has proposed at all. Covers attaching the change
   you are working on, reading a diff and a conversation,
   judging a stack by its provenance, asking other models
   through a council and a judge, composing a review as a
-  draft, planning what publishing will do, and reporting
+  draft, planning what publishing will do, proposing a
+  branch as a change and moving it to merge, and reporting
   degradation honestly.
   Use when asked to "review
   this change", "read this PR", "what did people say about
   it", "reply to that thread", "resolve those comments",
   "approve it", "review these commits", "run a council",
   "get several models to review this", "have a judge
-  consolidate that", or any request to look at or comment on
-  a change. Pairs with
+  consolidate that", "open a PR", "put this up for review",
+  "mark it ready", "ask someone to review it", "merge it",
+  or any request to look at, comment on or land a change.
+  Pairs with
   code-review-standard for what to evaluate, comment-format
   for how a remark reads, and prose-standard for voice.
 ---
 
 # Review Guide
 
-Five tools cover reviewing. They speak one vocabulary
+Six tools cover the whole arc, from a branch to a merge. They
+speak one vocabulary
 regardless of what hosts the change, so the same phrasing
 works on a GitHub pull request, a Meteorite change and a
 stack of local branches.
@@ -40,6 +45,7 @@ owned which question.
 | `review_see` | Everything reading tells you: change, diff, checks, stack, changes, threads, reviews, messages, findings |
 | `review_say` | Saying something now: reply, comment, resolve, unresolve, react |
 | `review_ask` | Putting the change to other models: council, judge, critique, audit, stack, runs, retry, release |
+| `review_offer` | Putting work up and moving it along: propose, edit, ready, draft, reviewers, close, reopen, merge |
 | `review_draft` | Composing a whole review, then planning and publishing it |
 
 ## One Question Per Tool, Which Settles Where Deciding Lives
@@ -77,6 +83,38 @@ survived scrutiny and which a reviewer thinks are wrong, and
 `disagree` from a model that went and read the code is worth more than
 the finding it disputes. Silence means no position, never agreement,
 so do not read an uncontested finding as a corroborated one.
+
+## Putting Work Up
+
+`review_offer propose` turns a branch into a change. It needs a base, a
+head, a title, and **`draft` explicitly**: it is not defaulted, because
+the backends disagree about what silence means. One opens a new change
+ready and another opens it as a draft, so guessing makes the same call
+produce a live change on one and an invisible one on the other.
+
+Every action asks the provider before it asks the network, and a
+refusal carries **what to do instead**. Pass that on rather than
+reporting a generic failure: "retargeting is a stack operation here,
+restack locally and submit the stack" is actionable, and "unsupported"
+sends somebody to read a CLI's help.
+
+The refusals you will actually meet:
+
+- **Retargeting** is a change-level edit on some backends and a
+  **stack** operation on others. Where it is a stack operation, moving
+  one change means resubmitting the stack it sits in.
+- **Reviewers** are settable any time on some backends and **only at
+  creation** on others. Where they are creation-only, name them on the
+  propose call; afterwards, ask people directly.
+- **A change queued to merge** refuses mutation on a queue-backed
+  backend, because touching it ejects it and everything speculatively
+  batched with it, and re-running the checks for the rest is measured
+  in hundreds of jobs. Merging is not a mutation the queue objects to.
+
+On merging: pass `expectedHead` when you have it. It is the only guard
+against merging work pushed since you last looked, and the gate says so
+plainly when you leave it out. Leave `method` alone unless you mean to
+override the repo's own policy.
 
 ## Publishing Across a Stack
 

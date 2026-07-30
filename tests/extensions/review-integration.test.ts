@@ -63,6 +63,7 @@ describe("the review integration", () => {
 			"review_say",
 			"review_ask",
 			"review_draft",
+			"review_offer",
 		]);
 	});
 
