@@ -21,6 +21,15 @@ export type AskProgressState = "pending" | "running" | "answered" | "failed";
 /** One participant's row, as a reporter would draw it. */
 export interface AskProgressEntry {
 	readonly participantId: string;
+	/**
+	 * Which model is answering, when the participant named one.
+	 *
+	 * Carried for the panel to show, because on a roster of seven personas
+	 * the model is what tells you whether the slow one is slow for a
+	 * reason. It is on the participant already; a reporter that dropped it
+	 * would have to be handed the roster a second time to draw a row.
+	 */
+	readonly model?: string;
 	readonly state: AskProgressState;
 	/** What it is doing right now, or empty once it has settled. */
 	readonly activity: string;
@@ -128,6 +137,7 @@ export function trackAskProgress(): {
 				for (const one of participants) {
 					rows.set(one.id, {
 						participantId: one.id,
+						...(one.model === undefined ? {} : { model: one.model }),
 						state: "pending",
 						activity: "",
 					});

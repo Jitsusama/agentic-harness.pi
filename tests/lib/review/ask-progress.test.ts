@@ -56,9 +56,16 @@ describe("tracking an ask round", () => {
 
 		progress.start([alice, bob]);
 
+		// The model rides along so a panel can name it without being handed
+		// the roster a second time.
 		expect(entries()).toEqual([
-			{ participantId: "alice", state: "pending", activity: "" },
-			{ participantId: "bob", state: "pending", activity: "" },
+			{
+				participantId: "alice",
+				model: "a/one",
+				state: "pending",
+				activity: "",
+			},
+			{ participantId: "bob", model: "b/two", state: "pending", activity: "" },
 		]);
 	});
 
@@ -81,8 +88,13 @@ describe("tracking an ask round", () => {
 		progress.activity("alice", "reading app.ts");
 
 		expect(entries()).toEqual([
-			{ participantId: "alice", state: "running", activity: "reading app.ts" },
-			{ participantId: "bob", state: "pending", activity: "" },
+			{
+				participantId: "alice",
+				model: "a/one",
+				state: "running",
+				activity: "reading app.ts",
+			},
+			{ participantId: "bob", model: "b/two", state: "pending", activity: "" },
 		]);
 	});
 
@@ -98,6 +110,7 @@ describe("tracking an ask round", () => {
 
 		expect(entries()[0]).toEqual({
 			participantId: "alice",
+			model: "a/one",
 			state: "answered",
 			activity: "",
 		});

@@ -54,6 +54,34 @@ export function createGitTreeProvider(deps: {
 			}
 
 			const path = join(deps.stateDir, treeIdentity(request).key);
+
+			// Already there is the ordinary case, not a failure. `ensure` means
+			// make sure it exists, a snapshot is shareable between readers by
+			// design, and the broker holding one only remembers for as long as
+			// the session does while the directory outlives it. So the second
+			// session to review a commit found the tree its predecessor cut and
+			// died on `fatal: already exists`, then fell back to letting
+			// reviewers read the working checkout.
+			const standing = await deps.exec("git", [
+				"-C",
+				path,
+				"rev-parse",
+				"HEAD",
+			]);
+			if (standing.code === 0) {
+				const head = standing.stdout.trim();
+				// A snapshot's commit is part of its identity, so a tree under
+				// this name standing anywhere else is not the thing being asked
+				// for. Refuse rather than hand it over: silently reviewing a
+				// different commit is the one outcome nobody could detect.
+				if (request.intent === "snapshot" && head !== request.commit) {
+					throw new Error(
+						`A tree for ${request.repo.key} already sits at ${path} but stands at ${head} rather than ${request.commit}. Release it before pinning a snapshot there.`,
+					);
+				}
+				return { path };
+			}
+
 			const at =
 				request.intent === "snapshot"
 					? ["--detach", path, request.commit]

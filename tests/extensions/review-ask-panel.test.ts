@@ -34,11 +34,14 @@ const theme = {
 	dim: (text: string) => text,
 } as unknown as Parameters<typeof panelLines>[2];
 
+/** The one model a roster of personas usually shares. */
+const MODEL = "anthropic/claude-opus-5";
+
 /** Participants, as a roster really carries them. */
 const PARTICIPANTS = [
-	{ id: "correctness-and-tests" },
-	{ id: "test-skeptic" },
-	{ id: "architecture-hawk" },
+	{ id: "correctness-and-tests", model: MODEL },
+	{ id: "test-skeptic", model: MODEL },
+	{ id: "architecture-hawk", model: MODEL },
 ];
 
 /** Their ids, for the assertions that only care about names. */
@@ -80,18 +83,82 @@ describe("the panel names every participant", () => {
 
 		const drawn = panelLines("council", entries(), theme).join("\n");
 
-		expect(drawn).toContain("esc");
-		expect(drawn).toContain("cancel");
+		expect(drawn).toContain("esc cancel round");
+		expect(drawn).toContain("r cancel selected");
 	});
 
-	it("marks the selected participant in its label, not only by colour", () => {
+	it("marks the selected participant with a cursor, not only by colour", () => {
 		// So it still reads on a terminal that dropped the styling.
 		const { progress, entries } = trackAskProgress();
 		progress.start(PARTICIPANTS);
 
-		const drawn = panelLines("council", entries(), theme, 1).join("\n");
+		const drawn = panelLines("council", entries(), theme, 1);
 
-		expect(drawn).toMatch(/test-skeptic\s*\u25c0/);
+		expect(drawn.find((line) => line.includes("test-skeptic"))).toMatch(
+			/^\u25b8 /,
+		);
+		expect(drawn.find((line) => line.includes("architecture-hawk"))).toMatch(
+			/^ {2}/,
+		);
+	});
+
+	it("draws one framed row per participant, not a stack of stages", () => {
+		// The shape is the whole complaint that brought the panel back, and it
+		// regressed once by reaching for the widget renderer because it was
+		// already imported. So the frame and the one-row-per-participant rule
+		// are pinned rather than left to whichever renderer is nearest.
+		const { progress, entries } = trackAskProgress();
+		progress.start(PARTICIPANTS);
+		progress.started("correctness-and-tests");
+		progress.activity("correctness-and-tests", "reading provider.ts");
+
+		const drawn = panelLines("council", entries(), theme, -1, 40);
+
+		expect(drawn[0]).toBe("\u2500".repeat(40));
+		expect(drawn.at(-1)).toBe("\u2500".repeat(40));
+		for (const id of IDS) {
+			expect(drawn.filter((line) => line.includes(id))).toHaveLength(1);
+		}
+	});
+
+	it("names a shared model once in the title, not on every row", () => {
+		// A roster is usually one model wearing several personas, and its name
+		// down seven rows crowds out the activity beside it.
+		const { progress, entries } = trackAskProgress();
+		progress.start(PARTICIPANTS);
+
+		const drawn = panelLines("council", entries(), theme);
+
+		expect(drawn[1]).toContain(MODEL);
+		expect(drawn.filter((line) => line.includes(MODEL))).toHaveLength(1);
+	});
+
+	it("names each model on its row when they differ", () => {
+		// Then which model is answering is the most interesting thing on it.
+		const { progress, entries } = trackAskProgress();
+		progress.start([
+			{ id: "one", model: "a/first" },
+			{ id: "two", model: "b/second" },
+		] as never);
+
+		const drawn = panelLines("council", entries(), theme).join("\n");
+
+		expect(drawn).toContain("one \u00b7 a/first");
+		expect(drawn).toContain("two \u00b7 b/second");
+	});
+
+	it("says a failure's reason once, on its own line", () => {
+		// It was said twice while the row carried it too, and a reason is the
+		// one thing here long enough to need the width to itself.
+		const { progress, entries } = trackAskProgress();
+		progress.start(PARTICIPANTS);
+		progress.failed("test-skeptic", "exited 1 without answering");
+
+		const drawn = panelLines("council", entries(), theme);
+
+		expect(
+			drawn.filter((line) => line.includes("exited 1 without answering")),
+		).toHaveLength(1);
 	});
 
 	it("names a failure with its reason", () => {

@@ -28,7 +28,24 @@ const worktree = (repo = checkedOut): TreeRequest => ({
 	branch: "fix/thing",
 });
 
-const ok = [{ when: ["worktree"], stdout: "" }];
+/**
+ * A repo where `worktree add` works and no tree has been cut yet.
+ *
+ * The second half matters: `ensure` asks whether one is already there
+ * before cutting, so a fake that answers every command happily would
+ * report a tree at every path and nothing would ever be cut.
+ */
+const ok = [
+	{ when: ["rev-parse", "HEAD"], code: 128, stderr: "not a git repository" },
+	{ when: ["worktree"], stdout: "" },
+];
+
+/** The `worktree add` among the calls, which is no longer the first one. */
+function addition(
+	calls: readonly { command: string; args: string[] }[],
+): { command: string; args: string[] } | undefined {
+	return calls.find((call) => call.args.includes("add"));
+}
 
 describe("createGitTreeProvider", () => {
 	it("applies to any repo, as the general case", () => {
@@ -46,8 +63,8 @@ describe("createGitTreeProvider", () => {
 
 		const { path } = await provider.ensure(snapshot());
 
-		expect(calls[0]?.command).toBe("git");
-		expect(calls[0]?.args).toEqual([
+		expect(addition(calls)?.command).toBe("git");
+		expect(addition(calls)?.args).toEqual([
 			"-C",
 			"/src/world",
 			"worktree",
@@ -64,7 +81,7 @@ describe("createGitTreeProvider", () => {
 
 		const { path } = await provider.ensure(worktree());
 
-		expect(calls[0]?.args).toEqual([
+		expect(addition(calls)?.args).toEqual([
 			"-C",
 			"/src/world",
 			"worktree",
@@ -91,7 +108,7 @@ describe("createGitTreeProvider", () => {
 
 		await provider.ensure(snapshot());
 
-		expect(calls[0]?.args.slice(0, 2)).toEqual(["-C", "/src/world"]);
+		expect(addition(calls)?.args.slice(0, 2)).toEqual(["-C", "/src/world"]);
 	});
 
 	it("refuses a remote-only repo rather than cloning it", async () => {
@@ -151,5 +168,83 @@ describe("createGitTreeProvider", () => {
 			"remove",
 			"/state/snapshot-github-Shopify-world-abc123",
 		]);
+	});
+});
+
+describe("a tree that is already there", () => {
+	/** An exec that reports a worktree standing at the given commit. */
+	function standingAt(head: string, seen: string[][]) {
+		return async (_file: string, args: readonly string[]) => {
+			seen.push([...args]);
+			if (args.includes("rev-parse") && args.includes("HEAD")) {
+				return { code: 0, stdout: `${head}\n`, stderr: "" };
+			}
+			return { code: 0, stdout: "", stderr: "" };
+		};
+	}
+
+	const SHA = "1f271300bc9bfff279d77f012281c6c1f20af598";
+
+	it("hands back the snapshot a previous session cut", async () => {
+		// The broker only remembers within a session while the directory
+		// outlives it, so the second reader of a commit found the tree and
+		// died on `already exists`, then read the working checkout instead.
+		const seen: string[][] = [];
+		const provider = createGitTreeProvider({
+			exec: standingAt(SHA, seen),
+			stateDir: "/state",
+		});
+
+		const held = await provider.ensure({
+			intent: "snapshot",
+			repo: { key: "github:o/r", localPath: "/checkout" },
+			purpose: "review",
+			commit: SHA,
+		});
+
+		expect(held.path).toContain("snapshot-github-o-r-");
+		expect(seen.some((args) => args.includes("add"))).toBe(false);
+	});
+
+	it("refuses one standing at a different commit", async () => {
+		// Reviewing a commit nobody asked about, while reporting the one
+		// they did, is the only outcome here that cannot be noticed.
+		const provider = createGitTreeProvider({
+			exec: standingAt("0000000000000000000000000000000000000000", []),
+			stateDir: "/state",
+		});
+
+		await expect(
+			provider.ensure({
+				intent: "snapshot",
+				repo: { key: "github:o/r", localPath: "/checkout" },
+				purpose: "review",
+				commit: SHA,
+			}),
+		).rejects.toThrow(/stands at 0000000/);
+	});
+
+	it("cuts one when nothing is there", async () => {
+		const seen: string[][] = [];
+		const provider = createGitTreeProvider({
+			exec: async (_file, args) => {
+				seen.push([...args]);
+				// What git says from a path that is not a worktree.
+				if (args.includes("rev-parse")) {
+					return { code: 128, stdout: "", stderr: "not a git repository" };
+				}
+				return { code: 0, stdout: "", stderr: "" };
+			},
+			stateDir: "/state",
+		});
+
+		await provider.ensure({
+			intent: "snapshot",
+			repo: { key: "github:o/r", localPath: "/checkout" },
+			purpose: "review",
+			commit: SHA,
+		});
+
+		expect(seen.some((args) => args.includes("add"))).toBe(true);
 	});
 });

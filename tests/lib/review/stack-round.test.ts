@@ -204,12 +204,16 @@ describe("a stack-wide round", () => {
 		expect(entries()).toEqual([
 			{
 				participantId: "wren",
+				// Carried so a panel can say which model is answering without
+				// being handed the roster a second time.
+				model: "opus",
 				state: "answered",
 				activity: "",
 				findings: 1,
 			},
 			{
 				participantId: "finch",
+				model: "sonnet",
 				state: "answered",
 				activity: "",
 				findings: 0,

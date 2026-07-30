@@ -22,18 +22,18 @@
  */
 
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { Key, matchesKey, type TUI } from "@earendil-works/pi-tui";
+import {
+	Key,
+	matchesKey,
+	type TUI,
+	truncateToWidth,
+} from "@earendil-works/pi-tui";
 import {
 	type AskProgress,
 	type AskProgressEntry,
 	type AskRound,
 	trackAskProgress,
 } from "../../lib/review/index.js";
-import {
-	type PipelineStage,
-	renderPipelineProgressLines,
-	type StageState,
-} from "../../lib/ui/index.js";
 
 /** Ours alone, so clearing it cannot clear somebody else's. */
 const STATUS_KEY = "review-ask-progress";
@@ -69,18 +69,36 @@ const GLYPH: Record<AskProgressEntry["state"], string> = {
 	failed: "\u2715",
 };
 
-/** How a participant's state reads to the shared pipeline renderer. */
-function stageState(state: AskProgressEntry["state"]): StageState {
-	switch (state) {
+/** The glyph and the word for it, coloured by what it means. */
+function status(entry: AskProgressEntry, theme: Theme): string {
+	switch (entry.state) {
 		case "pending":
-			return "pending";
+			return theme.fg("muted", `${GLYPH.pending} pending`);
 		case "running":
-			return "running";
+			return theme.fg("accent", `${GLYPH.running} running`);
 		case "answered":
-			return "complete";
+			return theme.fg("success", `${GLYPH.answered} answered`);
 		case "failed":
-			return "failed";
+			return theme.fg("error", `${GLYPH.failed} failed`);
 	}
+}
+
+/** One participant on one line: where it is, who it is, what it is doing. */
+function participantLine(
+	entry: AskProgressEntry,
+	theme: Theme,
+	selected: boolean,
+	shared: string | undefined,
+): string {
+	const cursor = selected ? "▸" : " ";
+	const model =
+		entry.model === undefined || entry.model === shared
+			? ""
+			: ` · ${entry.model}`;
+	const said = subtext(entry);
+	const tail = said === undefined ? "" : ` · ${said}`;
+	const line = `${cursor} ${status(entry, theme)} ${entry.participantId}${model}${tail}`;
+	return selected ? theme.fg("accent", line) : line;
 }
 
 /** What to say under a participant's name. */
@@ -94,9 +112,25 @@ function subtext(entry: AskProgressEntry): string | undefined {
 		return entry.activity === "" ? "in flight" : entry.activity;
 	}
 	if (entry.state === "pending") return "queued";
-	return entry.reason === undefined || entry.reason === ""
-		? undefined
-		: entry.reason;
+	// Nothing for a failure: the reason gets its own line under the rows,
+	// where there is room for it, and saying it in both places printed it
+	// twice.
+	return undefined;
+}
+
+/**
+ * The model, when saying it per row would tell you something.
+ *
+ * A roster is usually one strong model wearing several personas, and
+ * repeating its name down seven rows is noise that crowds out the activity
+ * beside it. Said once in the title instead. When the models differ it is
+ * the opposite: which model is answering is then the most interesting thing
+ * on the row, so each row carries its own.
+ */
+function sharedModel(entries: readonly AskProgressEntry[]): string | undefined {
+	const first = entries[0]?.model;
+	if (first === undefined) return undefined;
+	return entries.every((one) => one.model === first) ? first : undefined;
 }
 
 /** The one line: who is where, and what the busiest one is doing. */
@@ -116,40 +150,53 @@ function summary(
 	return parts.join("  ");
 }
 
-/** The panel body, which is the part a status line cannot hold. */
+/**
+ * The panel body, which is the part a status line cannot hold.
+ *
+ * Composed here rather than handed to `renderPipelineProgressLines`. That
+ * is the widget renderer, and reaching for it because it was already
+ * imported produced a stack of two-line stages where the old panel drew
+ * one line per reviewer inside a frame. A panel is a different shape of
+ * thing from a widget: it takes the whole prompt area, so it is framed and
+ * titled, and each row has room for a name, a model and an activity side
+ * by side.
+ */
 export function panelLines(
 	round: AskRound,
 	entries: readonly AskProgressEntry[],
 	theme: Theme,
 	selected = -1,
+	width = 80,
 ): string[] {
 	if (entries.length === 0) return [];
-	const stages: PipelineStage[] = entries.map((entry, index) => ({
-		// The selected one is marked in its label rather than by colour, so
-		// it still reads on a terminal that has dropped the styling.
-		label:
-			index === selected ? `${entry.participantId} ◀` : entry.participantId,
-		state: stageState(entry.state),
-		...(subtext(entry) === undefined ? {} : { subtext: subtext(entry) }),
-	}));
+	const rule = theme.fg("accent", "─".repeat(Math.max(1, width)));
+	const answered = entries.filter((one) => one.state === "answered").length;
+	const shared = sharedModel(entries);
+	const title =
+		`${round} · ${answered}/${entries.length} answered` +
+		(shared === undefined ? "" : ` · ${shared}`);
 	const lines = [
-		theme.fg("accent", `${round}, ${entries.length} participants`),
-		...renderPipelineProgressLines(stages, theme, { vertical: true }),
+		rule,
+		` ${theme.fg("accent", theme.bold(title))}`,
+		` ${theme.fg("dim", "↑/↓ select · r cancel selected · esc cancel round")}`,
+		"",
 	];
+	for (const [index, entry] of entries.entries()) {
+		lines.push(participantLine(entry, theme, index === selected, shared));
+	}
+	// A reason gets its own line under the rows: it is the one thing here
+	// long enough that squeezing it onto a row would truncate it away.
 	for (const entry of entries) {
 		if (entry.state === "failed" && entry.reason) {
 			lines.push(
-				theme.fg("error", `  \u2715 ${entry.participantId}: ${entry.reason}`),
+				theme.fg(
+					"error",
+					`   ${GLYPH.failed} ${entry.participantId}: ${entry.reason}`,
+				),
 			);
 		}
 	}
-	// Said plainly, because a panel that can stop work has to say so.
-	lines.push(
-		theme.fg(
-			"muted",
-			"up/down to select · r to cancel one · esc to cancel all",
-		),
-	);
+	lines.push(rule);
 	return lines;
 }
 
@@ -192,13 +239,16 @@ class RoundPanel {
 			this.entries,
 			this.theme,
 			this.selected,
+			width,
 		);
-		if (this.notice !== "") lines.push(this.theme.fg("warning", this.notice));
-		return lines.map((line) =>
-			line.length > width
-				? `${line.slice(0, Math.max(0, width - 1))}\u2026`
-				: line,
-		);
+		if (this.notice !== "") {
+			lines.push(` ${this.theme.fg("warning", this.notice)}`);
+		}
+		// pi's own truncation, which counts what a terminal shows rather than
+		// what a string holds. Every line here carries colour escapes, and
+		// slicing by length cuts inside one, which spills the styling across
+		// the rest of the screen.
+		return lines.map((line) => truncateToWidth(line, width));
 	}
 
 	handleInput(data: string): void {
