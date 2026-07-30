@@ -137,9 +137,19 @@ describe("createGitTreeProvider", () => {
 			providerId: provider.id,
 		});
 
-		expect(calls[0]?.args).toContain("remove");
-		expect(calls[0]?.args).toContain(
+		// The whole argv, not two things it contains. This assertion
+		// used toContain and so could not see that the command carried
+		// no -C at all, which meant release ran against whatever repo
+		// the process happened to sit in. git then says the path is not
+		// a working tree, which is true of that repo and beside the
+		// point. A loose assertion about argv cannot catch a missing
+		// scope flag, and scope is most of what a git argv says.
+		expect(calls[0]?.args).toEqual([
+			"-C",
 			"/state/snapshot-github-Shopify-world-abc123",
-		);
+			"worktree",
+			"remove",
+			"/state/snapshot-github-Shopify-world-abc123",
+		]);
 	});
 });

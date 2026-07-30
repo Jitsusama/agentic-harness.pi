@@ -68,10 +68,17 @@ export function createGitTreeProvider(deps: {
 		},
 
 		async release(held) {
+			// Scoped to the tree itself, which is the one repo guaranteed
+			// to know about it. Without a -C this ran against whatever
+			// repo the process happened to be sitting in, and git then
+			// reports that the path is not a working tree, which is true
+			// of that repo and beside the point. A worktree's .git file
+			// names its main repo, so asking from inside is enough and
+			// needs no source path carried on the held tree.
 			await run(
 				deps.exec,
 				"git",
-				["worktree", "remove", held.path],
+				["-C", held.path, "worktree", "remove", held.path],
 				`Releasing the tree at ${held.path}`,
 			);
 		},
