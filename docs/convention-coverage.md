@@ -407,6 +407,19 @@ is followed by judgment, not by a regex.
   `pr-workflow-stack-review-output`. Loaded into subagents via
   `--skill`; enforcement is the `verify_output` tool from
   `pr-workflow-verify`, not the main-agent gate stack.
+- **Review round output contracts**: `review-council-format`,
+  `review-judge-format`, `review-critique-format`,
+  `review-audit-format`, `review-stack-format`. The substrate's
+  own contracts, loaded into each round's subagent via `--skill`.
+  Enforcement is the harvest reader rather than a verify tool: a
+  malformed entry is dropped and warned about rather than
+  refused, so a reviewer that half-follows the contract still
+  contributes what it got right. `tests/extensions/
+  review-contract-skills.test.ts` checks that every round a
+  prompt cites a contract for has one on disk, since a missing
+  file is silent at runtime: the subagent starts, is told to
+  follow a contract it was never given, and answers
+  unparseably for no stated reason.
 
 ## Why a Coverage Matrix Exists at All
 

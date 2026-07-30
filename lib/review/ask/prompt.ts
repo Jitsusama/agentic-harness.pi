@@ -17,6 +17,17 @@ import type { DiffModel } from "../diff.js";
 import { filePath, hunkHeader } from "../diff.js";
 import { anchorableRanges, describeRanges } from "./anchorable.js";
 
+/**
+ * How a discovery round closes.
+ *
+ * It names the contract skill rather than restating it, and it does not
+ * promise a verify tool: nothing in this path attaches one, and telling
+ * a reviewer to call a tool it cannot see spends a turn on a failed
+ * lookup and teaches it to distrust the rest of the prompt.
+ */
+const ANSWER_AS_CONTRACTED =
+	"Answer in the JSON your output contract skill describes. A pass with nothing to say answers with an empty findings list rather than prose.";
+
 /** What a round needs to say to whoever it asks. */
 export interface PromptInput {
 	proposal: Proposal;
@@ -41,7 +52,7 @@ export function councilPrompt(input: PromptInput): string {
 		intentSection(input.intent),
 		changeSection(input.proposal),
 		diffSection(input.diff),
-		"Answer in the JSON your output contract skill describes, and call the verify tool before you finish. A pass with nothing to say answers with an empty findings list rather than prose.",
+		ANSWER_AS_CONTRACTED,
 	]
 		.filter((part) => part !== "")
 		.join("\n\n");
@@ -61,7 +72,7 @@ export function judgePrompt(input: JudgePromptInput): string {
 			? "(nothing was raised, so there is nothing to consolidate)"
 			: input.findings.trim(),
 		diffSection(input.diff),
-		"Answer in the JSON your output contract skill describes, and call the verify tool before you finish.",
+		"Answer in the JSON your output contract skill describes.",
 	]
 		.filter((part) => part !== "")
 		.join("\n\n");
@@ -157,7 +168,7 @@ export function stackPrompt(input: StackPromptInput): string {
 		"Read the changes below, then use your tools on the tree to check what the diffs cannot tell you. When a change looks wrong on its own, check whether a later change in the stack fixes it before you say so.",
 		intentSection(input.intent),
 		...input.changes.map(stackChangeSection),
-		"Answer in the JSON your output contract skill describes, and call the verify tool before you finish. A pass with nothing to say answers with an empty findings list rather than prose.",
+		ANSWER_AS_CONTRACTED,
 	]
 		.filter((part) => part !== "")
 		.join("\n\n");

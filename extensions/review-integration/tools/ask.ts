@@ -19,13 +19,15 @@
  */
 
 import { readdir, readFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import type { Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { loadPackageConfig } from "../../../lib/internal/config/loader.js";
 import {
 	type AskAnswer,
+	type AskRound,
 	type AskRun,
 	auditPrompt,
 	bindPersonas,
@@ -263,7 +265,7 @@ async function askCouncil(
 				? {}
 				: { witness: proposal.headCommit }),
 		},
-		deps(change, tree.path, charters),
+		deps(change, tree.path, charters, "council"),
 	);
 
 	await createRunStore(runDir()).record(change, run);
@@ -316,7 +318,7 @@ async function askJudge(
 				? {}
 				: { witness: proposal.headCommit }),
 		},
-		deps(change, tree.path, charters),
+		deps(change, tree.path, charters, "judge"),
 	);
 
 	await store.record(change, run);
@@ -367,7 +369,10 @@ async function askCritique(
 			seq: 1,
 			findingIds: raised.map((finding) => finding.id),
 		},
-		{ ask: deps(change, tree.path, charters).ask, now: () => new Date() },
+		{
+			ask: deps(change, tree.path, charters, "critique").ask,
+			now: () => new Date(),
+		},
 	);
 
 	await store.record(change, run);
@@ -472,7 +477,7 @@ async function askStack(
 			witnessFor: (ref) => witnesses.get(ref),
 		},
 		{
-			ask: deps(tip.change, tree.path, charters).ask,
+			ask: deps(tip.change, tree.path, charters, "stack").ask,
 			async record(ref, raised) {
 				const change = changeFor.get(ref);
 				if (change === undefined) return [];
@@ -564,7 +569,10 @@ async function askAudit(
 			seq: 1,
 			threadIndices,
 		},
-		{ ask: deps(change, tree.path, charters).ask, now: () => new Date() },
+		{
+			ask: deps(change, tree.path, charters, "audit").ask,
+			now: () => new Date(),
+		},
 	);
 
 	await createRunStore(runDir()).record(change, run);
@@ -700,7 +708,7 @@ async function retryOne(
 						seq: 1,
 						...witness,
 					},
-					deps(change, tree.path, charters),
+					deps(change, tree.path, charters, "judge"),
 				)
 			: await runCouncil(
 					{
@@ -709,7 +717,7 @@ async function retryOne(
 						seq: 1,
 						...witness,
 					},
-					deps(change, tree.path, charters),
+					deps(change, tree.path, charters, "council"),
 				);
 
 	const outcome = fresh.outcomes[0];
@@ -806,6 +814,26 @@ async function rosterOrThrow(): Promise<Roster> {
 }
 
 /**
+ * The output contract for one round.
+ *
+ * A path rather than prose, because it is loaded into the subagent as a
+ * skill. Resolved from this file so it works whatever directory the
+ * session was started in.
+ */
+function contractSkill(round: AskRound): string {
+	const here = dirname(fileURLToPath(import.meta.url));
+	return join(
+		here,
+		"..",
+		"..",
+		"..",
+		"skills",
+		`review-${round}-format`,
+		"SKILL.md",
+	);
+}
+
+/**
  * Every charter on disk, by persona id.
  *
  * Read once per round rather than per participant, since six reviewers
@@ -887,8 +915,10 @@ function deps(
 	change: ChangeRef,
 	cwd: string,
 	charters: ReadonlyMap<string, string> = new Map(),
+	round: AskRound = "council",
 ) {
 	const findings = createFindingStore(findingDir());
+	const contract = contractSkill(round);
 	return {
 		async ask(participant: Participant, prompt: string): Promise<AskAnswer> {
 			const result = await runReviewer({
@@ -909,6 +939,12 @@ function deps(
 				},
 				prompt,
 				cwd,
+				// The round's output contract, which is what the prompt means
+				// by "your output contract skill". Attaching it here rather
+				// than restating it in the prompt keeps one copy: a contract
+				// stated twice drifts, and the copy in the prompt is the one
+				// nobody updates.
+				extraSkills: [contract],
 				// The charter is a standing instruction, so it goes as the
 				// system prompt rather than being glued onto the front of the
 				// round's prompt: a lens is what the reviewer is, not part of
