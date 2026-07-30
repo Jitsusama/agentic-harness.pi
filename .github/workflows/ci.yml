@@ -32,51 +32,16 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
 
-  # Sharded because the work is the work: step timings put 61s of
-  # this job's 77s in vitest itself, so trimming setup would buy
-  # nothing. Shards are independent machines, so this changes no
-  # test's environment, unlike raising the worker cap inside one
-  # runner, which is what the pool cap in vitest.config.ts exists to
-  # prevent.
+  # One job running the whole suite, browser included. It was two
+  # jobs and then briefly six, which was work routed around a
+  # problem rather than through it: the browser lane was running
+  # twice and serially, and both facts were consequences of each
+  # other. With that fixed the whole suite is about 94s locally, so
+  # there is nothing left worth sharding and no second command for
+  # anyone to forget.
   test:
-    name: Test (vitest ${{ matrix.shard }}/2)
+    name: Test (vitest)
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm test --shard=${{ matrix.shard }}/2
-
-  # The browser suite skips itself when no Chrome is present, which
-  # on the runners above is always, so none of it has ever run in
-  # CI. It gets its own job because it needs a browser, because it
-  # is slower than everything else put together, and because the
-  # emulation race guard is only dependable when it is not
-  # competing with three hundred other files for the machine.
-  #
-  # Sharded four ways, which is the only kind of parallelism this
-  # lane can safely take. Each file launches its own Chrome, and
-  # running four at once on one machine lost a race the emulation
-  # suite documents: under that contention Chrome can run a page's
-  # first script before an override already sent has landed. A shard
-  # is a separate runner, so every shard still runs one browser at a
-  # time and no test's environment changes. It was 263s serial on one
-  # machine.
-  browser:
-    name: Test (browser ${{ matrix.shard }}/4)
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4]
     env:
       CHROME_PATH: /usr/bin/google-chrome
     steps:
@@ -88,7 +53,9 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       # Fail loudly rather than skipping silently: a suite that
-      # quietly decides it has nothing to do is how this went
-      # unnoticed in the first place.
+      # quietly decides it has nothing to do is how the browser
+      # tests went unrun in CI for months.
       - run: test -x "$CHROME_PATH"
-      - run: pnpm test:browser --shard=${{ matrix.shard }}/4
+      # The race guard only runs when asked, and the point of
+      # running the browser tests at all is to run that one.
+      - run: PI_RACE_TESTS=1 pnpm test

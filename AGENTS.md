@@ -436,9 +436,9 @@ Specs live under `tests/` mirroring the source layout (e.g.
 Run the suite with:
 
 ```sh
-pnpm test            # the unit lane, about 26s
-pnpm test:browser    # the Chrome lane, several minutes
-pnpm test:all        # both, rarely what you want
+pnpm test            # everything, about 94s
+pnpm test:unit       # skip the browser tests, about 26s
+pnpm test:browser    # only the browser tests
 pnpm test:watch      # re-run on save
 pnpm test:coverage   # v8 coverage report
 ```
@@ -467,20 +467,32 @@ been fixed hours earlier. Before treating a live tool run as
 evidence, `/reload`, or check the claim against the test
 suite, which always runs the tree.
 
-`pnpm test` runs the unit project only, and that is deliberate.
-The browser tests drive a real Chrome, so they run one file at a
-time and measured 223 seconds of a 302 second suite. CI has a
-separate browser job which runs that lane with
-`PI_RACE_TESTS=1`, making it a strict superset, so including it in
-`pnpm test` meant every change paid for a serial Chrome lane twice.
+`pnpm test` runs everything, browser tests included, in about 94
+seconds. Set `CHROME_PATH` or the browser tests skip themselves.
 
-The consequence to remember: a change under `lib/web` or
-`extensions/browser-integration` is not covered by `pnpm test`.
-Run `pnpm test:browser` for those.
+It was not always this fast, and the reason is worth knowing because
+it was not a slow test anywhere. The browser lane ran twice, once in
+its own job and once inside `pnpm test`, and it ran one file at a
+time because four workers had been observed putting seven browsers on
+the machine. Seven was the tell: four workers cannot make seven
+browsers unless something else is running them too. The duplication
+caused the contention, the contention justified the serial lane, and
+the serial lane made the duplication expensive. Removing the
+duplication let the lane run four wide, which took it from 275s to
+70s and the whole suite from roughly five minutes to 94s, with the
+race guard enabled and no race.
 
-CI runs `pnpm lint`, `pnpm test`, `pnpm typecheck` and
-`pnpm test:browser` on every push and pull request via
-`.github/workflows/ci.yml`, as four parallel jobs.
+The pool cap counts workers, not processes, which matters when a test
+spawns one: a supervisor test is node spawning a script spawning a
+child. That is how the suite used to drive the load average to 24 on
+a twelve-core machine and then starve its own subprocess tests until
+they blew a two-minute budget. If you add a test that spawns
+something, keep its budget small enough that a starved run says so in
+seconds.
+
+CI runs `pnpm lint`, `pnpm typecheck` and `pnpm test` on every push
+and pull request via `.github/workflows/ci.yml`, as three parallel
+jobs.
 
 ## What Not to Do
 
