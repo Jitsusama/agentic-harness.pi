@@ -59,6 +59,7 @@ in the loop:
 | [`audit.ts`](ask/audit.ts) | Whether the change answers what people asked for |
 | [`authoring.ts`](authoring.ts) | Whether an authoring intent will work here |
 | [`propose-from.ts`](propose-from.ts) | What to propose, from the checkout you are in |
+| [`fix.ts`](fix.ts) | Findings decided to fix rather than say |
 | [`fanout.ts`](draft/fanout.ts) | Publishing one review across a stack |
 | [`persona.ts`](ask/persona.ts) | The lens a reviewer reads through |
 | [`span.ts`](ask/span.ts) | Which changes a finding is about |

@@ -248,6 +248,13 @@ export type {
 	FindingStore,
 } from "./finding.js";
 export { createFindingStore } from "./finding.js";
+export type {
+	FixOutcome,
+	FixQueue,
+	FixTally,
+	QueuedFix,
+} from "./fix.js";
+export { createFixQueue } from "./fix.js";
 export { changeKey, repoKey, targetKey } from "./keys.js";
 export type {
 	CheckoutFacts,
