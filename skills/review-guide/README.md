@@ -23,7 +23,7 @@ registers a provider; this skill covers how to use the tools.
   evaluate in a change.
 - [comment-format](../comment-format/) for how a remark reads.
 - [prose-standard](../prose-standard/) for voice.
-- [pr-workflow-guide](../pr-workflow-guide/) for the
-  multi-model council pipeline, which is GitHub-only.
+- [review-council-format](../review-council-format/) and its
+  siblings for the JSON each round answers in.
 
 See [SKILL.md](SKILL.md) for the full reference.

@@ -29,6 +29,7 @@
  * would be rude.
  */
 
+import { detectProseViolations } from "../../lib/prose/index.js";
 import type {
 	Anchor,
 	ChecksRollup,
@@ -136,6 +137,56 @@ export function threadLines(thread: Thread, index: number): string {
 			? `\n     …${count(thread.comments.length - 1, "more reply", "more replies")}`
 			: "";
 	return `${mark} [T${index + 1}] ${GLYPH.thread} ${where}${stale}\n     ${opener}${more}`;
+}
+
+/**
+ * Every piece of prose a plan is about to send.
+ *
+ * Not every op carries text: resolving a thread and adding a
+ * reaction do not, and a review carries a body plus one per
+ * anchored comment.
+ */
+function bodiesIn(plan: PublishPlan): string[] {
+	const bodies: string[] = [];
+	for (const op of plan.ops) {
+		if (op.kind === "review") {
+			bodies.push(op.body, ...op.comments.map((one) => one.body));
+		} else if (op.kind === "comment" || op.kind === "reply") {
+			bodies.push(op.body);
+		}
+	}
+	return bodies.filter((body) => body.trim() !== "");
+}
+
+/**
+ * A refusal naming the prose that must be fixed, or nothing.
+ *
+ * This existed in the extension the review tools replaced, and
+ * came back because it is the one gate whose absence is
+ * invisible until somebody else reads the comment. Most of the
+ * text here was written by a model, and models emit emdashes,
+ * curly quotes and Unicode ellipses by default, so without this
+ * the standard holds everywhere in the repo except the one
+ * place the writing leaves it.
+ */
+export function proseComplaint(plan: PublishPlan): string | undefined {
+	const found = bodiesIn(plan).flatMap((body) => detectProseViolations(body));
+	if (found.length === 0) return undefined;
+
+	// Deduplicated, because one habit repeated forty times is one
+	// thing to fix and forty lines of noise.
+	const seen = new Map<string, number>();
+	for (const violation of found) {
+		seen.set(violation.rule, (seen.get(violation.rule) ?? 0) + 1);
+	}
+
+	return [
+		"This review is not ready to send: the prose standard applies to what goes on somebody else's change.",
+		...[...seen].map(
+			([rule, count]) => `   ${rule}${count > 1 ? ` (${count} times)` : ""}`,
+		),
+		"Rewrite the bodies with review_draft finding or reply, then publish.",
+	].join("\n");
 }
 
 /**

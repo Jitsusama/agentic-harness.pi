@@ -85,9 +85,8 @@ it does:
 
 - **Workflows** (`*-workflow`): orchestrate a multi-step or
   session-wide process with state and stages. This covers
-  both persistent session workflows (planning, TDD) and
-  task-scoped orchestration (PR review and reply).
-  `quest-workflow`, `tdd-workflow`, `pr-workflow`,
+  persistent session workflows such as planning and TDD.
+  `quest-workflow`, `tdd-workflow`,
   `ask-workflow`, `git-bypass-workflow`,
   `guardian-status-workflow`, `result-store-workflow`
 
@@ -120,20 +119,22 @@ it does:
   different package from its host.
 
 - **Verifiers** (`*-verify`): expose a tool that subagents
-  call to self-validate their structured output against the
-  parent extension's schema before completion. Loaded into
-  the subagent via `pi --extension <path>`, not
-  auto-discovered, which is why the only one lives at
-  `lib/internal/pr-workflow-verify/` rather than under
-  `extensions/`: nothing should discover it, and a directory
-  pi scans is the wrong place for a thing pi must not load.
+  call to self-validate their structured output against a
+  schema before completion. A pack is loaded into the
+  subagent via `pi --extension <path>` and is never
+  auto-discovered, so one must not live under `extensions/`:
+  a directory pi scans is the wrong place for a thing pi
+  must not load. None currently ship; the `subagent` tool's
+  `verify` option is how a caller attaches one.
 
-  The substrate's own rounds take the other approach and
+  The review substrate's rounds take the other approach and
   attach a contract skill without a verify tool. A malformed
   entry there is dropped and warned about rather than
   refused, so a reviewer that half-follows the contract still
   contributes what it got right, and nothing tells a subagent
-  to call a tool that is not attached.
+  to call a tool that is not attached. That choice is why the
+  one pack this package used to ship is gone: it validated a
+  contract nothing states any more.
 
 ## Skill Categories
 

@@ -81,10 +81,10 @@ working.
 - **`isolated` defaults to `true`** at this extension's
   tool boundary, even though the library default is
   `false`. The fleet use case is "give me a clean slate"
-  far more often than not; pr-workflow's reviewers
-  inherit the user's ambient setup and own that
-  decision themselves. The skill teaches when to flip
-  the default back.
+  far more often than not, whereas a review round's
+  participants inherit the user's ambient setup and own
+  that decision themselves. The skill teaches when to
+  flip the default back.
 - **No worktree provisioning.** Callers pass `cwd`
   directly. Use the project root for ad-hoc work, or set
   up a git worktree yourself when you need detachment.
@@ -110,7 +110,7 @@ values. Use this for credentials helpers, telemetry
 hooks, or org-wide setup that every subagent needs.
 
 Two events make this work, mirroring the bidirectional
-`pr-workflow:ready:v1` handshake used elsewhere in the
+`review:ready:v1` handshake used elsewhere in the
 package. Listening to *both* is the load-order-safe
 pattern: it covers extensions that activate before this
 one AND extensions that activate after.
@@ -189,8 +189,10 @@ panel and just return results.
 - `progress-render.ts` — production status-line +
   focused-panel reporter.
 - `cancellation.ts` — fleet-shaped cancellation
-  registry (copied from pr-workflow's review-shaped one;
-  see plan PR 6 for why they're separate).
+  registry. A review-shaped sibling once lived beside it;
+  the review substrate bounds a participant's run with a
+  timeout instead, since a tool's execute is handed no
+  cancellation signal to hang a keystroke off.
 
 The library at `lib/subagent/` is the substrate. The
 `subagent-fleet-guide` skill is the methodology — read it

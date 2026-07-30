@@ -25,6 +25,7 @@ import type {
 	Proposal,
 } from "../../../lib/review/index.js";
 import { fillProposal, offerable } from "../../../lib/review/index.js";
+import { proposalComplaint } from "../conventions.js";
 import { confirmWrite } from "../gate.js";
 import { GLYPH, proposalLine } from "../render.js";
 import {
@@ -211,6 +212,15 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 					return refuse(
 						`The ${bound.provider.id} provider says it can author changes but exposes no way to, which is a bug in that provider rather than in what you asked.`,
 					);
+				}
+
+				// Whatever text is about to become a proposal is held to the
+				// same conventions the guardian enforces on `gh pr create`.
+				// Without this, authoring through a tool is a way around
+				// every rule the shell path cannot be talked past.
+				if (params.action === "propose" || params.action === "edit") {
+					const complaint = proposalComplaint(params.title, params.body);
+					if (complaint) return refuse(complaint);
 				}
 
 				if (params.action === "propose") {

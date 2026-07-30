@@ -9,7 +9,7 @@
  * a full message or opening a panel. Example uses:
  *
  *   ※ nvim: opened state.ts at line 160
- *   ※ pr-workflow: endorsed finding 3
+ *   ※ review: promoted finding 3
  *   ※ tdd-workflow: tests green (12 pass, 0 fail)
  *
  * The glyph and dim styling give the user a consistent

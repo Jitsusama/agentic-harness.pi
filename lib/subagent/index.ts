@@ -27,6 +27,8 @@
  * pack; the engine never inspects them.
  */
 
+// What a subagent is doing right now, for a caller that is waiting.
+export { summarizeStreamActivity } from "./activity.js";
 // Durable artifacts and recovery (supervisor path).
 export { ReviewerArtifactsStore } from "./artifacts.js";
 // Engine-wide always-load defaults.

@@ -13,8 +13,9 @@
  * here: it makes a weakly supported finding look corroborated.
  */
 
-import type { AskAnswer } from "./council.js";
+import { type AskAnswer, askRoster } from "./council.js";
 import { type Participant, participantIdentity } from "./identity.js";
+import type { AskProgress } from "./progress.js";
 import type { Roster } from "./roster.js";
 import { type AskRun, newRunId, type ParticipantOutcome } from "./run.js";
 import { findJson, isRecord, wireText } from "./wire.js";
@@ -38,8 +39,14 @@ export interface CritiqueHarvest {
 
 /** The impure things a critique needs. */
 export interface CritiqueDeps {
-	ask(participant: Participant, prompt: string): Promise<AskAnswer>;
+	ask(
+		participant: Participant,
+		prompt: string,
+		report?: (activity: string) => void,
+	): Promise<AskAnswer>;
 	now(): Date;
+	/** Told what is happening while it happens. Optional. */
+	progress?: AskProgress;
 }
 
 /** What to put to whom. */
@@ -113,12 +120,11 @@ export async function runCritique(
 		};
 	}
 
-	const replies = await Promise.all(
-		request.roster.reviewers.map(async (participant) => ({
-			participant,
-			answer: await asked(participant, request.prompt, deps),
-		})),
-	);
+	// askRoster rather than a second fan-out of its own. Everything
+	// that makes asking correct lives there, and it would all have to
+	// change together: concurrent asking, a thrown failure and a
+	// reported one being one event, roster ordering, reporting.
+	const replies = await askRoster(request.roster, request.prompt, deps);
 
 	const critiques: Critique[] = [];
 	const warnings: string[] = [];
@@ -164,19 +170,6 @@ export async function runCritique(
 		critiques,
 		warnings,
 	};
-}
-
-/** Ask one critic, turning a thrown error into a reported one. */
-async function asked(
-	participant: Participant,
-	prompt: string,
-	deps: CritiqueDeps,
-): Promise<AskAnswer> {
-	try {
-		return await deps.ask(participant, prompt);
-	} catch (error) {
-		return { failure: error instanceof Error ? error.message : String(error) };
-	}
 }
 
 /** One critique, or nothing plus a warning saying why. */

@@ -23,6 +23,7 @@ import {
 	type ParticipantIdentity,
 	participantIdentity,
 } from "./identity.js";
+import { type AskProgress, noAskProgress, settleReplies } from "./progress.js";
 import type { Roster } from "./roster.js";
 import {
 	type AskRound,
@@ -39,11 +40,24 @@ export type AskAnswer =
 
 /** The impure things asking needs. */
 export interface CouncilDeps {
-	/** Run one participant against the prompt. */
-	ask(participant: Participant, prompt: string): Promise<AskAnswer>;
+	/**
+	 * Run one participant against the prompt.
+	 *
+	 * `report` is how a long-running ask says what it is doing. It is
+	 * optional to call and optional to receive: the library cannot see
+	 * a subprocess, so activity only exists if the implementation
+	 * volunteers it.
+	 */
+	ask(
+		participant: Participant,
+		prompt: string,
+		report?: (activity: string) => void,
+	): Promise<AskAnswer>;
 	/** Put findings on the change, numbering them as they land. */
 	record(findings: Omit<Finding, "id">[]): Promise<Finding[]>;
 	now(): Date;
+	/** Told what is happening while it happens. Optional. */
+	progress?: AskProgress;
 }
 
 /** What to ask, of whom. */
@@ -84,15 +98,22 @@ export interface Reply {
 export async function askRoster(
 	roster: Roster,
 	prompt: string,
-	deps: Pick<CouncilDeps, "ask">,
+	deps: Pick<CouncilDeps, "ask" | "progress">,
 ): Promise<Reply[]> {
+	const progress = deps.progress ?? noAskProgress;
+	progress.start(roster.reviewers);
 	return await Promise.all(
-		roster.reviewers.map(
-			async (participant): Promise<Reply> => ({
-				participant,
-				answer: await asked(participant, prompt, deps),
-			}),
-		),
+		roster.reviewers.map(async (participant): Promise<Reply> => {
+			progress.started(participant.id);
+			const answer = await asked(participant, prompt, deps, (activity) =>
+				progress.activity(participant.id, activity),
+			);
+			// A failure the runner hands back and one it throws are the
+			// same event to somebody watching a board.
+			if ("failure" in answer) progress.failed(participant.id, answer.failure);
+			else progress.answered(participant.id);
+			return { participant, answer };
+		}),
 	);
 }
 
@@ -108,20 +129,21 @@ export async function runCouncil(
 	const replies = await askRoster(request.roster, request.prompt, deps);
 
 	const warnings: string[] = [];
-	const outcomes: ParticipantOutcome[] = [];
-	// Sequential and in roster order, which is what makes the
-	// numbering deterministic. Recording concurrently would hand out
-	// ids in completion order.
-	for (const reply of replies) {
-		outcomes.push(
-			await recordReply(
+	const outcomes = await settleReplies(
+		replies,
+		(reply) =>
+			recordReply(
 				reply,
 				{ runId: id, witness: request.witness },
 				deps,
 				warnings,
 			),
-		);
-	}
+		(outcome) => ({
+			participantId: outcome.participantId,
+			findings: outcome.findingIds.length,
+		}),
+		deps.progress,
+	);
 
 	const participants: ParticipantIdentity[] = request.roster.reviewers.map(
 		(participant) => participantIdentity("reviewer", participant),
@@ -150,9 +172,10 @@ async function asked(
 	participant: Participant,
 	prompt: string,
 	deps: Pick<CouncilDeps, "ask">,
+	report?: (activity: string) => void,
 ): Promise<AskAnswer> {
 	try {
-		return await deps.ask(participant, prompt);
+		return await deps.ask(participant, prompt, report);
 	} catch (error) {
 		return {
 			failure: error instanceof Error ? error.message : String(error),

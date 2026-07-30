@@ -62,8 +62,10 @@ import {
 	createSpawnRunPi,
 	getParentPiInstall,
 	runReviewer,
+	summarizeStreamActivity,
 } from "../../../lib/subagent/index.js";
 import { findingDir, personaDir, reviewEngine, runDir } from "../engine.js";
+import { PARTICIPANT_TIMEOUT_MS, statusLineProgress } from "../progress.js";
 import { GLYPH } from "../render.js";
 import { treeForRound } from "../work.js";
 import {
@@ -372,6 +374,7 @@ async function askCritique(
 		{
 			ask: deps(change, tree.path, charters, "critique").ask,
 			now: () => new Date(),
+			progress: statusLineProgress("critique"),
 		},
 	);
 
@@ -484,6 +487,8 @@ async function askStack(
 				return await findings.record(change, raised);
 			},
 			now: () => new Date(),
+			// The longest round of all: it reads every change in the stack.
+			progress: statusLineProgress("stack"),
 		},
 	);
 
@@ -572,6 +577,7 @@ async function askAudit(
 		{
 			ask: deps(change, tree.path, charters, "audit").ask,
 			now: () => new Date(),
+			progress: statusLineProgress("audit"),
 		},
 	);
 
@@ -920,7 +926,11 @@ function deps(
 	const findings = createFindingStore(findingDir());
 	const contract = contractSkill(round);
 	return {
-		async ask(participant: Participant, prompt: string): Promise<AskAnswer> {
+		async ask(
+			participant: Participant,
+			prompt: string,
+			report?: (activity: string) => void,
+		): Promise<AskAnswer> {
 			const result = await runReviewer({
 				reviewer: {
 					id: participant.id,
@@ -953,6 +963,20 @@ function deps(
 					? {}
 					: { systemPrompt: charters.get(participant.id) }),
 				runPi: createSpawnRunPi({ piInstall: getParentPiInstall() }),
+				// Bounded, because nothing else can stop it: pi hands a tool's
+				// execute no cancellation signal, so a wedged participant runs
+				// to the runner's ceiling, which is forty-five minutes.
+				timeoutMs: PARTICIPANT_TIMEOUT_MS,
+				// The one place a subprocess becomes something a person can
+				// watch. The library cannot see a stream, so it is told.
+				...(report === undefined
+					? {}
+					: {
+							onEvent(event) {
+								const activity = summarizeStreamActivity(event);
+								if (activity !== null) report(activity);
+							},
+						}),
 			});
 			if (result.exitCode !== 0 && result.finalAssistantText.trim() === "") {
 				const said = result.error?.message ?? result.stderr.trim();
@@ -979,6 +1003,10 @@ function deps(
 			return findings.record(change, raised);
 		},
 		now: () => new Date(),
+		// Every round reports. A round that fans out and says nothing for
+		// minutes is indistinguishable from one that has hung, which is
+		// the whole reason this exists.
+		progress: statusLineProgress(round),
 	};
 }
 

@@ -24,10 +24,17 @@ import {
 function stubPi() {
 	const tools: string[] = [];
 	const handlers = new Map<string, (data: unknown) => void>();
+	const lifecycle = new Map<string, (event: unknown, ctx: unknown) => void>();
 	const emitted: { event: string; data: unknown }[] = [];
 	const pi = {
 		registerTool(definition: { name: string }) {
 			tools.push(definition.name);
+		},
+		// pi's typed lifecycle hook, which hands over a context. Distinct
+		// from the untyped `events` bus below: the progress reporter needs
+		// the context, and only this one carries it.
+		on(event: string, handler: (event: unknown, ctx: unknown) => void) {
+			lifecycle.set(event, handler);
 		},
 		exec: vi.fn(async () => ({ code: 0, stdout: "", stderr: "" })),
 		events: {
@@ -39,7 +46,7 @@ function stubPi() {
 			},
 		},
 	};
-	return { pi, tools, handlers, emitted };
+	return { pi, tools, handlers, lifecycle, emitted };
 }
 
 /** Run the extension against a stub. */
@@ -55,6 +62,23 @@ function activate() {
 afterEach(() => clearReviewProviders());
 
 describe("the review integration", () => {
+	it("takes a session context for the progress reporter", () => {
+		const { lifecycle } = activate();
+
+		expect(lifecycle.has("session_start")).toBe(true);
+	});
+
+	it("survives a session with no UI to draw on", () => {
+		// The reporter must never take a round down. A headless session
+		// hands over a context with hasUI false, and a round asked in one
+		// has to run exactly as it would with a terminal attached.
+		const { lifecycle } = activate();
+
+		expect(() =>
+			lifecycle.get("session_start")?.({}, { hasUI: false }),
+		).not.toThrow();
+	});
+
 	it("registers one tool per intent, not one per subject", () => {
 		const { tools } = activate();
 		expect(tools).toEqual([

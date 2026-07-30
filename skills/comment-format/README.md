@@ -6,7 +6,7 @@ guidance.
 
 Activates when writing review comments, giving code feedback
 or formatting review observations. It's reusable across the
-pr-workflow extension and casual code feedback.
+review tools and casual code feedback.
 
 Independent of any specific review workflow; it can be loaded
 on its own whenever the agent needs to format feedback.

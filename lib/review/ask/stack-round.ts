@@ -28,17 +28,29 @@ import {
 	type ParticipantIdentity,
 	participantIdentity,
 } from "./identity.js";
+import { type AskProgress, settleReplies } from "./progress.js";
 import type { Roster } from "./roster.js";
 import { newRunId, type ParticipantOutcome } from "./run.js";
 import { harvestStackFindings, saidAt } from "./span.js";
 
 /** The impure things a stack round needs. */
 export interface StackCouncilDeps {
-	/** Run one participant against the prompt. */
-	ask(participant: Participant, prompt: string): Promise<AskAnswer>;
+	/**
+	 * Run one participant against the prompt.
+	 *
+	 * `report` is how a long-running ask says what it is doing, and a
+	 * stack round is the longest there is: it reads every change.
+	 */
+	ask(
+		participant: Participant,
+		prompt: string,
+		report?: (activity: string) => void,
+	): Promise<AskAnswer>;
 	/** File findings against one change in the stack. */
 	record(ref: string, findings: Omit<Finding, "id">[]): Promise<Finding[]>;
 	now(): Date;
+	/** Told what is happening while it happens. Optional. */
+	progress?: AskProgress;
 }
 
 /** What to ask, of whom, about which changes. */
@@ -70,13 +82,15 @@ export async function runStackCouncil(
 	const replies = await askRoster(request.roster, request.prompt, deps);
 
 	const warnings: string[] = [];
-	const outcomes: ParticipantOutcome[] = [];
-	// Sequential and in roster order, which is what makes the numbering
-	// deterministic. Recording concurrently would hand out ids in
-	// completion order.
-	for (const reply of replies) {
-		outcomes.push(await fileReply(reply, id, request, deps, warnings));
-	}
+	const outcomes = await settleReplies(
+		replies,
+		(reply) => fileReply(reply, id, request, deps, warnings),
+		(outcome) => ({
+			participantId: outcome.participantId,
+			findings: outcome.findingIds.length,
+		}),
+		deps.progress,
+	);
 
 	const participants: ParticipantIdentity[] = request.roster.reviewers.map(
 		(participant) => participantIdentity("reviewer", participant),

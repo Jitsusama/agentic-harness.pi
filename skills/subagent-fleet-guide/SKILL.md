@@ -444,5 +444,5 @@ convergent findings plus the three full investigations.
 | Several framings of the same problem      | Multi-angle (this skill)   |
 | Multiple model takes on the same prompt   | Fleet brainstorm (this skill) |
 | Sequential investigation                  | The agent's main loop      |
-| Code review with structured findings      | `pr_workflow` tool         |
+| Code review with structured findings      | `review_ask` tool          |
 | One subagent with a tight contract        | `subagent` with a single job |

@@ -15,6 +15,7 @@ import { Type } from "@sinclair/typebox";
 import {
 	type Anchor,
 	type BoundTarget,
+	createDecisionLedger,
 	createDraftStore,
 	createFindingStore,
 	createFixQueue,
@@ -28,13 +29,20 @@ import {
 	type StackPublishEntry,
 	type Verdict,
 } from "../../../lib/review/index.js";
-import { draftDir, findingDir, fixDir, reviewEngine } from "../engine.js";
+import {
+	decisionDir,
+	draftDir,
+	findingDir,
+	fixDir,
+	reviewEngine,
+} from "../engine.js";
 import { confirmWrite } from "../gate.js";
 import {
 	anchorLabel,
 	GLYPH,
 	outcomeNarration,
 	planNarration,
+	proseComplaint,
 } from "../render.js";
 import {
 	type Answer,
@@ -350,6 +358,11 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 						"There is nothing in this draft that can be published. Plan it to see why.",
 					);
 				}
+				// Before the gate, not after: the text about to go on
+				// somebody else's change is mostly written by models, and
+				// models emit emdashes and curly quotes by default.
+				const prose = proseComplaint(plan);
+				if (prose) return refuse(prose);
 				const approved = await confirmWrite(
 					ctx,
 					"Publish this review?",
@@ -428,6 +441,15 @@ async function publishStack(
 		return refuse(
 			"No change in this stack has a draft with anything publishable in it. Plan one to see why.",
 		);
+	}
+
+	// Every change, before any of them. Publishing across a stack is
+	// sequential and keeps what landed, so letting the first two
+	// through and refusing the third would leave a review half sent
+	// over a habit that is the same in all three.
+	for (const entry of entries) {
+		const prose = proseComplaint(entry.plan);
+		if (prose) return refuse(`${entry.ref}: ${prose}`);
 	}
 
 	const approved = await confirmWrite(
@@ -632,6 +654,14 @@ async function decideFinding(
 	}
 
 	if (params.settle === "dismiss") {
+		// Recorded, or the findings listing reads the same before and
+		// after: a dismissal leaves no other trace anywhere.
+		await createDecisionLedger(decisionDir()).record(
+			change,
+			finding.id,
+			"dismiss",
+			params.body,
+		);
 		return say(
 			`${GLYPH.refused} F${finding.id} dismissed, and left out of the draft.\n   ${finding.subject}`,
 			{ ok: true, finding: finding.id, settled: "dismiss" },
@@ -647,6 +677,12 @@ async function decideFinding(
 			finding,
 			...(params.body === undefined ? [] : [params.body]),
 		);
+		await createDecisionLedger(decisionDir()).record(
+			change,
+			finding.id,
+			"fix",
+			params.body,
+		);
 		const tally = await createFixQueue(fixDir()).tally(change);
 		return say(
 			[
@@ -660,6 +696,12 @@ async function decideFinding(
 
 	const body = params.body ?? `${finding.subject}\n\n${finding.discussion}`;
 	const id = await draft.addFinding({ anchor: finding.anchor, body });
+	await createDecisionLedger(decisionDir()).record(
+		change,
+		finding.id,
+		"promote",
+		params.body,
+	);
 	return say(
 		`${GLYPH.finding} F${finding.id} promoted into draft ${draft.id} as #${id}, at ${anchorLabel(finding.anchor)}${params.body ? "\n   in your words rather than its own" : ""}`,
 		{ ok: true, finding: finding.id, item: id, settled: "promote" },
