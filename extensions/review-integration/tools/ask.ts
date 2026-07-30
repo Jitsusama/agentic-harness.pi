@@ -28,12 +28,14 @@ import {
 	type ChangeRef,
 	councilPrompt,
 	createFindingStore,
+	createIdentityLedger,
 	createRunStore,
 	type Finding,
 	judgePrompt,
 	type Participant,
 	parseRoster,
 	type Roster,
+	type RunStore,
 	runCouncil,
 	runJudge,
 	runSummary,
@@ -61,7 +63,17 @@ import {
 } from "./shared.js";
 
 /** What the tool can be asked to do. */
-type AskAction = "council" | "judge" | "runs" | "retry";
+type AskAction = "council" | "judge" | "runs" | "retry" | "release";
+
+/**
+ * Which ids mean what, for as long as this module is loaded.
+ *
+ * A session's worth of rounds is the scope that matters: within one,
+ * a reader comparing two findings by their reviewer id has to be able
+ * to trust the comparison. Across sessions the ledger is rebuilt, and
+ * the findings themselves still carry the run they came from.
+ */
+const ledger = createIdentityLedger();
 
 interface AskParams extends TargetParams {
 	action?: AskAction;
@@ -82,7 +94,8 @@ export function registerAskTool(pi: ExtensionAPI): void {
 		promptGuidelines: [
 			"The roster comes from config, not from the call. A refusal names the path in the config file that is wrong.",
 			"A council is the discovery pass and a judge consolidates it, so run a council first; a judge with no council to read is refused rather than asked to invent one.",
-			"Participants run in the session's working directory, so a change that is not checked out there gets reviewed against the wrong tree. Say so rather than letting the caller trust the result.",
+			"An id that has raised findings is held to the model, thinking level, tools and persona it meant. Reconfiguring one is refused, and the refusal names both ways out: another id, or release this one and accept that its findings no longer identify who raised them.",
+			"A round reads a snapshot pinned to the commit under review. When it cannot, the answer carries a caveat saying which tree was read instead: pass that on, because a round against the wrong tree still returns plausible findings.",
 			"Reading findings is review_see findings and deciding them is review_draft decide. This tool only produces them.",
 		],
 		parameters: Type.Object({
@@ -163,6 +176,8 @@ export function registerAskTool(pi: ExtensionAPI): void {
 						return await askJudge(bound, change, params);
 					case "retry":
 						return await retryOne(bound, change, params);
+					case "release":
+						return releaseIdentity(params);
 				}
 			} catch (error) {
 				return refuse(messageOf(error));
@@ -194,6 +209,7 @@ async function askCouncil(
 	params: AskParams,
 ): Promise<Answer> {
 	const roster = await rosterOrThrow();
+	await claimIdentities(change, "reviewer", roster.reviewers);
 	const { proposal, diff } = await material(bound);
 	const prompt = councilPrompt({
 		proposal,
@@ -243,6 +259,7 @@ async function askJudge(
 		);
 	}
 
+	await claimIdentities(change, "judge", [roster.judge]);
 	const raised = await findingsOf(change, council);
 	const { proposal, diff } = await material(bound);
 	const prompt = judgePrompt({
@@ -315,28 +332,49 @@ async function retryOne(
 		);
 	}
 
+	await claimIdentities(change, asked.role, [participant]);
 	const { proposal, diff } = await material(bound);
 	const tree = await treeForRound(
 		bound.repo,
 		proposal.headCommit,
 		process.cwd(),
 	);
-	const single: Roster = { reviewers: [participant] };
-	const { run: fresh, warnings } = await runCouncil(
-		{
-			roster: single,
-			prompt: councilPrompt({
-				proposal,
-				diff,
-				...(params.intent === undefined ? {} : { intent: params.intent }),
-			}),
-			seq: 1,
-			...(proposal.headCommit === undefined
-				? {}
-				: { witness: proposal.headCommit }),
-		},
-		deps(change, tree.path),
-	);
+	const witness =
+		proposal.headCommit === undefined ? {} : { witness: proposal.headCommit };
+	const intent = params.intent === undefined ? {} : { intent: params.intent };
+
+	// Retried in the role the round asked under, not always as a
+	// reviewer. Re-running a judge through the council path would
+	// record its findings with a reviewer's origin, and the
+	// consolidation would become indistinguishable from the thing it
+	// consolidated: exactly what the two rounds are kept apart for.
+	const { run: fresh, warnings } =
+		asked.role === "judge"
+			? await runJudge(
+					{
+						judge: participant,
+						prompt: judgePrompt({
+							proposal,
+							diff,
+							findings: renderFindings(
+								await councilFindingsBehind(change, store),
+							),
+							...intent,
+						}),
+						seq: 1,
+						...witness,
+					},
+					deps(change, tree.path),
+				)
+			: await runCouncil(
+					{
+						roster: { reviewers: [participant] } satisfies Roster,
+						prompt: councilPrompt({ proposal, diff, ...intent }),
+						seq: 1,
+						...witness,
+					},
+					deps(change, tree.path),
+				);
 
 	const outcome = fresh.outcomes[0];
 	if (outcome === undefined) {
@@ -354,6 +392,52 @@ async function retryOne(
 		].join("\n"),
 		{ run: updated, warnings },
 	);
+}
+
+/**
+ * Free an id, so it can mean something else.
+ *
+ * The escape hatch the refusal names. It is deliberately explicit
+ * rather than automatic: releasing one costs the ability to tell which
+ * participant older findings came from, and that is a person's call
+ * rather than a convenience the tool applies quietly.
+ */
+function releaseIdentity(params: AskParams): Answer {
+	if (params.participant === undefined) {
+		return refuse(
+			"Say which participant id to release. Releasing one lets it mean a different model, at the cost of its existing findings no longer identifying who raised them.",
+		);
+	}
+	if (!ledger.release(params.participant)) {
+		return say(
+			`Nothing holds "${params.participant}", so it is already free to mean whatever the roster says.`,
+			{ released: false },
+		);
+	}
+	return say(
+		`Released "${params.participant}". Findings already attributed to it keep that name, so they no longer say which participant raised them.`,
+		{ released: true },
+	);
+}
+
+/**
+ * Hold every participant to what its id means, before asking any.
+ *
+ * Checked up front rather than per participant, so a round either runs
+ * whole or refuses whole. Discovering the conflict after four of six
+ * models had answered would leave a round nobody can read, and a bill
+ * for it.
+ */
+async function claimIdentities(
+	change: ChangeRef,
+	role: "reviewer" | "judge",
+	participants: readonly Participant[],
+): Promise<void> {
+	const raised = await createFindingStore(findingDir()).list(change);
+	for (const participant of participants) {
+		const outcome = ledger.claim(role, participant, raised);
+		if ("refusal" in outcome) throw new Error(outcome.refusal);
+	}
 }
 
 /**
@@ -457,6 +541,21 @@ function deps(change: ChangeRef, cwd: string) {
 		},
 		now: () => new Date(),
 	};
+}
+
+/**
+ * What the latest council raised, for a judge being asked again.
+ *
+ * A retried judge has to see the same material it saw the first time,
+ * or it is answering a different question and its substituted outcome
+ * would not be comparable to the one it replaced.
+ */
+async function councilFindingsBehind(
+	change: ChangeRef,
+	store: RunStore,
+): Promise<Finding[]> {
+	const council = await store.latest(change, "council");
+	return council === undefined ? [] : await findingsOf(change, council);
 }
 
 /** The findings one round raised, in the order it raised them. */
