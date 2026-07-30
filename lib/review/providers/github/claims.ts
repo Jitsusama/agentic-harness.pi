@@ -55,6 +55,31 @@ function change(owner: string, repo: string, number: string): ChangeRef {
 }
 
 /**
+ * The richer of two locators for the same repo.
+ *
+ * A reference written out in full carries an owner and a name and nothing
+ * else, so it used to describe the repo as a key alone even when the
+ * caller was standing in a checkout of it. Anything wanting the working
+ * copy then had nowhere to look: a round asking for a snapshot pinned to
+ * the commit under review was refused for a repo with "neither a local
+ * checkout nor a remote", and reviewers silently read the mutable
+ * directory they happened to be in instead.
+ *
+ * Only ever the same repo. Keys are compared before anything is borrowed,
+ * because standing in one checkout says nothing about where a different
+ * repo lives, and quietly attaching the wrong path would have a round
+ * review the wrong code.
+ */
+function enriched(named: RepoLocator, probed?: RepoLocator): RepoLocator {
+	if (!probed || probed.key !== named.key) return named;
+	return {
+		...named,
+		...(probed.remoteUrl === undefined ? {} : { remoteUrl: probed.remoteUrl }),
+		...(probed.localPath === undefined ? {} : { localPath: probed.localPath }),
+	};
+}
+
+/**
  * A reference to a pull request in a repo this provider
  * already identified. Every GitHub reference is built here, so
  * one place decides how a pull request is spelled: the way a
@@ -82,19 +107,29 @@ export function claimGitHubReference(
 ): ChangeRef | null {
 	const trimmed = input.trim();
 
+	// Each explicit form is told what the caller is standing in, so a
+	// reference to the repo around you knows where that repo is on disk.
+	const here = (named: ChangeRef): ChangeRef => ({
+		...named,
+		repo: enriched(named.repo, repo),
+	});
+
 	const pull = PULL_URL.exec(trimmed);
-	if (pull) return change(pull[1], pull[2], pull[3]);
+	if (pull) return here(change(pull[1], pull[2], pull[3]));
 
 	const graphite = GRAPHITE_URL.exec(trimmed);
-	if (graphite) return change(graphite[1], graphite[2], graphite[3]);
+	if (graphite) return here(change(graphite[1], graphite[2], graphite[3]));
 
 	const short = SHORT_FORM.exec(trimmed);
-	if (short) return change(short[1], short[2], short[3]);
+	if (short) return here(change(short[1], short[2], short[3]));
 
 	const bare = BARE_NUMBER.exec(trimmed);
 	if (!bare || !repo) return null;
 	const owned = ownerRepoFromKey(repo.key);
-	return owned ? change(owned.owner, owned.repo, bare[1]) : null;
+	// Enriched like the rest. This form reads the repo off the probe to
+	// understand the number at all, and then threw the rest of it away by
+	// rebuilding the locator from the owner and name it had just read.
+	return owned ? here(change(owned.owner, owned.repo, bare[1])) : null;
 }
 
 /** Recognize a checkout by its remotes. */
