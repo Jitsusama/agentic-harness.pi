@@ -1,0 +1,207 @@
+/**
+ * Who gets asked about a change.
+ *
+ * A roster comes from config rather than from the tool surface, so
+ * it arrives as whatever was in a file. Everything here is about
+ * turning that into participants or saying precisely what was
+ * wrong with it, since a config error found at fan-out time has
+ * already cost the caller a wait.
+ *
+ * Every refusal names the path it found the trouble at. A sentence
+ * saying a roster is invalid is true and useless when the roster
+ * has six reviewers.
+ */
+
+import type { Participant } from "./identity.js";
+
+/** Who to ask, and who consolidates what they say. */
+export interface Roster {
+	reviewers: Participant[];
+	judge?: Participant;
+}
+
+/** A roster, or the reason there is not one. */
+export type RosterParse = { roster: Roster } | { refusal: string };
+
+/** One participant, or the reason there is not one. */
+export type ParticipantParse =
+	| { participant: Participant }
+	| { refusal: string };
+
+/**
+ * Read one participant out of untrusted config.
+ *
+ * A participant with a persona and no id takes the persona's name,
+ * because naming a reviewer twice to say one thing is noise and the
+ * persona is the more meaningful of the two. An explicit id wins,
+ * which is how the same persona runs twice at different settings.
+ */
+export function parseParticipant(
+	value: unknown,
+	path: string,
+): ParticipantParse {
+	if (!isRecord(value)) {
+		return {
+			refusal: `${path} must be an object describing a participant, with an id or a persona.`,
+		};
+	}
+
+	const persona = optionalText(value, "persona", path);
+	if ("refusal" in persona) return persona;
+	const id = optionalText(value, "id", path);
+	if ("refusal" in id) return id;
+	const model = optionalText(value, "model", path);
+	if ("refusal" in model) return model;
+	const thinkingLevel = optionalText(value, "thinkingLevel", path);
+	if ("refusal" in thinkingLevel) return thinkingLevel;
+
+	const name = id.text ?? persona.text;
+	if (name === undefined) {
+		return {
+			refusal: `${path} names nobody. Give it an id, or a persona whose id it can take.`,
+		};
+	}
+
+	if (model.text?.includes(":")) {
+		// Pi reads a colon as a thinking-level separator, so a model
+		// carrying one silently becomes a different request than the
+		// one written down. Refusing beats sending something nobody
+		// asked for.
+		return {
+			refusal: `${path}.model is "${model.text}", and a colon there reads as a thinking-level separator rather than part of the model name. Write the model with a slash, and set thinkingLevel separately.`,
+		};
+	}
+
+	const tools = optionalTools(value, path);
+	if ("refusal" in tools) return tools;
+
+	return {
+		participant: {
+			id: name,
+			...(persona.text === undefined ? {} : { persona: persona.text }),
+			...(model.text === undefined ? {} : { model: model.text }),
+			...(thinkingLevel.text === undefined
+				? {}
+				: { thinkingLevel: thinkingLevel.text }),
+			...(tools.tools === undefined ? {} : { tools: tools.tools }),
+		},
+	};
+}
+
+/**
+ * Read a whole roster out of untrusted config.
+ *
+ * Ids are checked for collisions after persona naming rather than
+ * before, since one entry named by its persona and one named
+ * explicitly can collide in a way that is invisible in the file.
+ */
+export function parseRoster(value: unknown): RosterParse {
+	if (!isRecord(value)) {
+		return {
+			refusal:
+				"A roster must be an object with a reviewers array, and optionally a judge.",
+		};
+	}
+
+	if (!("reviewers" in value) || value.reviewers === undefined) {
+		return {
+			refusal:
+				"This roster names no reviewers. Add a reviewers array holding at least one participant.",
+		};
+	}
+	if (!Array.isArray(value.reviewers)) {
+		return { refusal: "reviewers must be an array of participants." };
+	}
+	if (value.reviewers.length === 0) {
+		// A council of nobody is not a smaller council. Running one
+		// would report success having asked no one, which is worse than
+		// refusing.
+		return {
+			refusal:
+				"reviewers is empty, so there is nobody to ask. Add at least one participant.",
+		};
+	}
+
+	const reviewers: Participant[] = [];
+	const taken = new Map<string, string>();
+	for (const [index, entry] of value.reviewers.entries()) {
+		const path = `reviewers[${index}]`;
+		const parsed = parseParticipant(entry, path);
+		if ("refusal" in parsed) return parsed;
+		const claimed = taken.get(parsed.participant.id);
+		if (claimed !== undefined) {
+			// Two participants under one name make every origin
+			// mentioning it ambiguous, which is what the identity ledger
+			// exists to prevent. Catching it here is much cheaper.
+			return {
+				refusal: `${path} and ${claimed} are both called "${parsed.participant.id}", so nothing they raise could be told apart. Give one of them a different id.`,
+			};
+		}
+		taken.set(parsed.participant.id, path);
+		reviewers.push(parsed.participant);
+	}
+
+	if (!("judge" in value) || value.judge === undefined) {
+		return { roster: { reviewers } };
+	}
+
+	const judge = parseParticipant(value.judge, "judge");
+	if ("refusal" in judge) return judge;
+	const claimed = taken.get(judge.participant.id);
+	if (claimed !== undefined) {
+		// The judge reads the reviewers' findings, so sharing a name
+		// makes the consolidation indistinguishable from the thing it
+		// consolidated.
+		return {
+			refusal: `The judge is called "${judge.participant.id}", which is already ${claimed}. A judge reads what the reviewers said, so it needs a name of its own.`,
+		};
+	}
+
+	return { roster: { reviewers, judge: judge.participant } };
+}
+
+/** A plain object, as against an array or a primitive. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** A string field that may be absent, refused if present and wrong. */
+function optionalText(
+	value: Record<string, unknown>,
+	key: string,
+	path: string,
+): { text?: string } | { refusal: string } {
+	if (!(key in value) || value[key] === undefined) return {};
+	const held = value[key];
+	if (typeof held !== "string") {
+		return { refusal: `${path}.${key} must be a string.` };
+	}
+	const text = held.trim();
+	if (text === "") {
+		return {
+			refusal: `${path}.${key} is blank. Give it a value, or leave it out.`,
+		};
+	}
+	return { text };
+}
+
+/** The tool palette, refused as a whole if any entry is not a name. */
+function optionalTools(
+	value: Record<string, unknown>,
+	path: string,
+): { tools?: string[] } | { refusal: string } {
+	if (!("tools" in value) || value.tools === undefined) return {};
+	if (!Array.isArray(value.tools)) {
+		return { refusal: `${path}.tools must be an array of tool names.` };
+	}
+	const tools: string[] = [];
+	for (const [index, entry] of value.tools.entries()) {
+		if (typeof entry !== "string" || entry.trim() === "") {
+			return {
+				refusal: `${path}.tools[${index}] must be a tool name.`,
+			};
+		}
+		tools.push(entry.trim());
+	}
+	return { tools };
+}

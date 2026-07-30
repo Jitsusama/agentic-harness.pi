@@ -37,6 +37,8 @@ export {
 	createIdentityLedger,
 	participantIdentity,
 } from "./ask/identity.js";
+export type { ParticipantParse, Roster, RosterParse } from "./ask/roster.js";
+export { parseParticipant, parseRoster } from "./ask/roster.js";
 export type {
 	Attachment,
 	AttachmentStore,

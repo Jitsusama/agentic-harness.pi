@@ -35,9 +35,28 @@ the mixture is held here and compiled later.
 | Contract | [`provider.ts`](provider.ts), [`capabilities.ts`](capabilities.ts) | Facets a provider implements, and how far each one goes |
 | Selection | [`register.ts`](register.ts), [`resolve.ts`](resolve.ts), [`bind.ts`](bind.ts), [`config.ts`](config.ts) | Which provider handles this, decided in a declared order |
 | Findings | [`finding.ts`](finding.ts) | Observations about a change, numbered and stored, outliving whatever raised them |
-| Asking | [`ask/`](ask/) | Asking other models about a change, and keeping what their names mean stable |
+| Asking | [`ask/`](ask/) | Who gets asked about a change, and keeping what their names mean stable |
 | Drafts | [`draft/`](draft/) | State, plan compilation, persistence, rendering, publishing |
 | Bus | [`events.ts`](events.ts) | How a provider in another package registers |
+
+## A Roster Is Read From Config, Not From a Call
+
+[`ask/roster.ts`](ask/roster.ts) turns whatever was in a config
+file into participants, or says precisely what was wrong with it.
+Every refusal names the path it found the trouble at, because a
+sentence saying a roster is invalid is true and useless when the
+roster has six reviewers, and a config error found at fan-out time
+has already cost the caller a wait.
+
+A participant with a persona and no id takes the persona's name,
+since naming a reviewer twice to say one thing is noise. An
+explicit id wins, which is how the same persona runs twice at two
+mechanism settings.
+
+Duplicate ids are checked **after** persona naming rather than
+before. One entry named by its persona and one named explicitly can
+collide in a way that is invisible in the file, so validating the
+input shape would miss exactly the case a human cannot see.
 
 ## An Id Keeps Meaning One Thing
 
