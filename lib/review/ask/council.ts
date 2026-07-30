@@ -117,6 +117,38 @@ export async function askRoster(
 	);
 }
 
+/**
+ * Ask one participant, reported the same way a roster is.
+ *
+ * A round with a single participant is still a round somebody is waiting
+ * on, and the wait is no shorter for being one subagent: a judge
+ * consolidating sixty findings takes as long as the council that raised
+ * them. Reporting was left to each round to remember, and the judge did
+ * not, so it ran to completion showing nothing at all.
+ *
+ * Beside `askRoster` rather than inside it, because a fan-out of one is
+ * not what this is: there is no ordering rule to share and no concurrency
+ * to arrange. What the two have in common is the beats they report, and
+ * this is the place that says what those are for one participant.
+ */
+export async function askOne(
+	participant: Participant,
+	prompt: string,
+	deps: Pick<CouncilDeps, "ask" | "progress">,
+): Promise<AskAnswer> {
+	const progress = deps.progress ?? noAskProgress;
+	progress.start([participant]);
+	progress.started(participant.id);
+	const answer = await asked(participant, prompt, deps, (activity) =>
+		progress.activity(participant.id, activity),
+	);
+	// A failure the runner hands back and one it throws are the same event
+	// to somebody watching a board.
+	if ("failure" in answer) progress.failed(participant.id, answer.failure);
+	else progress.answered(participant.id);
+	return answer;
+}
+
 /** Ask a roster about a change and record what it says. */
 export async function runCouncil(
 	request: CouncilRequest,

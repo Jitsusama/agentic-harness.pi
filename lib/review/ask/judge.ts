@@ -13,7 +13,7 @@
  * thing it consolidated.
  */
 
-import type { CouncilDeps } from "./council.js";
+import { askOne, type CouncilDeps } from "./council.js";
 import { harvestFindings } from "./harvest.js";
 import { type Participant, participantIdentity } from "./identity.js";
 import { type AskRun, newRunId, type ParticipantOutcome } from "./run.js";
@@ -43,18 +43,13 @@ export async function runJudge(
 	const id = newRunId("judge", startedAt, request.seq);
 	const warnings: string[] = [];
 
-	const answer = await (async () => {
-		try {
-			return await deps.ask(request.judge, request.prompt);
-		} catch (error) {
-			// A runner that rejects and one that reports a failure are
-			// the same event, and the caller should not have to care
-			// which shape it arrived in.
-			return {
-				failure: error instanceof Error ? error.message : String(error),
-			};
-		}
-	})();
+	// Reported, which this round did not used to be. A judge is one
+	// participant, so it never went through the roster path that does the
+	// reporting, and nothing here did it instead: a consolidation of sixty
+	// findings ran to completion showing no sign of life. `askOne` also
+	// folds a thrown runner into a reported failure, which is why the
+	// try/catch that used to say so is gone rather than kept beside it.
+	const answer = await askOne(request.judge, request.prompt, deps);
 
 	const outcome: ParticipantOutcome = await (async () => {
 		if ("failure" in answer) {
@@ -76,6 +71,11 @@ export async function runJudge(
 
 		const recorded =
 			harvest.findings.length === 0 ? [] : await deps.record(harvest.findings);
+		// Counted from what was filed rather than from the answer, the same
+		// rule the roster rounds settle by: a finding that would not parse
+		// never became one, and saying otherwise on the way past would
+		// overcount the round in the only place anyone sees it live.
+		deps.progress?.recorded(request.judge.id, recorded.length);
 
 		return {
 			participantId: request.judge.id,
@@ -83,6 +83,10 @@ export async function runJudge(
 			...(answer.usage === undefined ? {} : { usage: answer.usage }),
 		};
 	})();
+
+	// The board is about to be replaced by the round's own answer, and a
+	// stale one outlives the thing it described.
+	deps.progress?.finish();
 
 	return {
 		run: {

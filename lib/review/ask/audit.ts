@@ -14,6 +14,7 @@
  * informed.
  */
 
+import { askOne } from "./council.js";
 import type { CritiqueDeps } from "./critique.js";
 import { type Participant, participantIdentity } from "./identity.js";
 import { type AskRun, newRunId, type ParticipantOutcome } from "./run.js";
@@ -122,27 +123,11 @@ export async function runAudit(
 
 	// One auditor rather than a roster, so askRoster would be a fan-out
 	// of one. It still reports: a lone audit reading a long thread looks
-	// just as hung as six reviewers do.
-	const progress = deps.progress;
-	progress?.start([request.auditor]);
-	progress?.started(request.auditor.id);
-	const answer = await (async () => {
-		try {
-			return await deps.ask(request.auditor, request.prompt, (activity) =>
-				progress?.activity(request.auditor.id, activity),
-			);
-		} catch (error) {
-			return {
-				failure: error instanceof Error ? error.message : String(error),
-			};
-		}
-	})();
-	if ("failure" in answer) {
-		progress?.failed(request.auditor.id, answer.failure);
-	} else {
-		progress?.answered(request.auditor.id);
-	}
-	progress?.finish();
+	// just as hung as six reviewers do. That is `askOne`'s job now, said
+	// once for every round with a single participant rather than spelled
+	// out here in beats the judge then forgot to copy.
+	const answer = await askOne(request.auditor, request.prompt, deps);
+	deps.progress?.finish();
 
 	const warnings: string[] = [];
 	const audits: ThreadAudit[] = [];

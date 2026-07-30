@@ -157,6 +157,12 @@ export async function runCritique(
 		});
 	}
 
+	// Raising no findings is why this has to say so itself: the rounds
+	// that record them finish through `settleReplies`, and a critique never
+	// goes near it, so the board it put up would have outlived the round
+	// and sat there describing work that had stopped.
+	deps.progress?.finish();
+
 	return {
 		run: {
 			id,
