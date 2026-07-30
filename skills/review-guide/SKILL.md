@@ -2,25 +2,29 @@
 name: review-guide
 description: >
   How to read and review a change through the `review`,
-  `review_see`, `review_say` and `review_draft` tools,
-  whatever system hosts it: GitHub, Meteorite, a GitLab
-  merge request, or a range of commits nobody has proposed
-  at all. Covers attaching the change you are working on,
-  reading a diff and a conversation, judging a stack by its
-  provenance, composing a review as a draft, planning what
-  publishing will do, and reporting degradation honestly.
+  `review_see`, `review_say`, `review_ask` and
+  `review_draft` tools, whatever system hosts it: GitHub,
+  Meteorite, a GitLab merge request, or a range of commits
+  nobody has proposed at all. Covers attaching the change
+  you are working on, reading a diff and a conversation,
+  judging a stack by its provenance, asking other models
+  through a council and a judge, composing a review as a
+  draft, planning what publishing will do, and reporting
+  degradation honestly.
   Use when asked to "review
   this change", "read this PR", "what did people say about
   it", "reply to that thread", "resolve those comments",
-  "approve it", "review these commits", or any request to
-  look at or comment on a change. Pairs with
+  "approve it", "review these commits", "run a council",
+  "get several models to review this", "have a judge
+  consolidate that", or any request to look at or comment on
+  a change. Pairs with
   code-review-standard for what to evaluate, comment-format
   for how a remark reads, and prose-standard for voice.
 ---
 
 # Review Guide
 
-Four tools cover reviewing. They speak one vocabulary
+Five tools cover reviewing. They speak one vocabulary
 regardless of what hosts the change, so the same phrasing
 works on a GitHub pull request, a Meteorite change and a
 stack of local branches.
@@ -35,7 +39,45 @@ owned which question.
 | `review` | What you are working on: attach, detach, next, prev, capabilities |
 | `review_see` | Everything reading tells you: change, diff, checks, stack, changes, threads, reviews, messages, findings |
 | `review_say` | Saying something now: reply, comment, resolve, unresolve, react |
+| `review_ask` | Putting the change to other models: council, judge, runs, retry |
 | `review_draft` | Composing a whole review, then planning and publishing it |
+
+## One Question Per Tool, Which Settles Where Deciding Lives
+
+The division that stops these overlapping:
+
+- `review_ask` **produces** findings
+- `review_see findings` **reads** them, because reading is a read
+  wherever the thing came from
+- `review_draft decide` **curates** them into the review
+
+So `review_draft` is the single place where what you will say gets
+settled, whether a remark came from a model or you wrote it yourself.
+A council does not post, and a draft does not run models.
+
+## Asking Other Models
+
+`review_ask council` asks every reviewer on the configured roster,
+independently and at once. `review_ask judge` then consolidates what
+they found. Run them in that order: a judge with no council to read is
+refused rather than asked to invent findings.
+
+The roster lives in a `review.ask` section of the package config, not
+in the call, because who reviews is a standing choice. A malformed one
+is refused with the path inside it that is wrong.
+
+Two things worth knowing before you trust a result.
+
+Participants run in the session's working directory, not in a tree cut
+for the round, so a change that is not checked out where you are gets
+reviewed against the wrong tree. Check that before reporting what a
+council said.
+
+And a round survives its participants failing. `review_ask runs`
+reports how many of them answered, so read that rather than assuming
+six reviewers means six opinions. `review_ask retry participant:"id"`
+asks one of them again and substitutes the outcome in place, keeping
+the rest of the round.
 
 ## Attach the Change, Then Stop Naming It
 

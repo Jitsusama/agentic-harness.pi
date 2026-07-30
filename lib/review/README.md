@@ -35,9 +35,50 @@ the mixture is held here and compiled later.
 | Contract | [`provider.ts`](provider.ts), [`capabilities.ts`](capabilities.ts) | Facets a provider implements, and how far each one goes |
 | Selection | [`register.ts`](register.ts), [`resolve.ts`](resolve.ts), [`bind.ts`](bind.ts), [`config.ts`](config.ts) | Which provider handles this, decided in a declared order |
 | Findings | [`finding.ts`](finding.ts) | Observations about a change, numbered and stored, outliving whatever raised them |
-| Asking | [`ask/`](ask/) | Who gets asked about a change, and keeping what their names mean stable |
+| Asking | [`ask/`](ask/) | Putting a change to other models: who is asked, what they are told, what comes back, and what it is recorded as |
 | Drafts | [`draft/`](draft/) | State, plan compilation, persistence, rendering, publishing |
 | Bus | [`events.ts`](events.ts) | How a provider in another package registers |
+
+## Asking Is Nine Small Things, Not One Big One
+
+[`ask/`](ask/) holds the rounds a review can run. Each file answers
+one question, which is what keeps any of it testable without a model
+in the loop:
+
+| File | What it decides |
+|---|---|
+| [`roster.ts`](ask/roster.ts) | Who gets asked, out of untrusted config |
+| [`identity.ts`](ask/identity.ts) | What a participant id is allowed to mean |
+| [`anchorable.ts`](ask/anchorable.ts) | Where a finding may point |
+| [`prompt.ts`](ask/prompt.ts) | What a participant is told |
+| [`harvest.ts`](ask/harvest.ts) | What its answer amounts to |
+| [`council.ts`](ask/council.ts) | Asking everybody at once |
+| [`judge.ts`](ask/judge.ts) | Consolidating what they said |
+| [`run.ts`](ask/run.ts) | What a round was, as a record |
+| [`store.ts`](ask/store.ts) | Finding a round somebody else ran |
+
+The seam that makes it testable is [`CouncilDeps`](ask/council.ts):
+asking, recording and the clock. Everything else is a pure function of
+what came back, so the whole pipeline can be driven from a script of
+fake answers.
+
+**One bad entry costs one finding, not the batch.** A round is
+expensive to run, so nine findings survive the tenth being malformed,
+and every drop leaves a warning naming the index and the reason. The
+principle is graded: a bad label or a missing location drops the
+finding, since guessing either puts words in a reviewer's mouth, while
+a bad severity drops only itself, because the severity is a decoration
+and the observation is the value.
+
+**Findings are recorded in roster order even though participants are
+asked at once.** People say finding numbers out loud, and a number
+that depended on which model was quickest would make the same round
+describe itself differently every time.
+
+**Nothing one participant does takes a round down.** A failure the
+runner reports and an exception it throws are the same event seen from
+two sides, and both are recorded against that participant so the rest
+of the round survives.
 
 ## A Roster Is Read From Config, Not From a Call
 
