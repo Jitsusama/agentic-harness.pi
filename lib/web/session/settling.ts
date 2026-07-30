@@ -58,8 +58,16 @@ export class PageSettler {
 	 * settles: something that animates or polls for ever is still
 	 * worth reading, as long as the answer does not pretend it was
 	 * final.
+	 *
+	 * The budget is a parameter rather than only a constant because
+	 * what it has to exceed is the quiet interval, and both stretch
+	 * on a machine under load. A caller that needs "this page is
+	 * quiet" to be answered reliably has to be able to say how long
+	 * it is willing to wait for that, rather than inheriting a number
+	 * chosen for an interactive read. Two browser tests asserting
+	 * exactly that property failed intermittently for want of this.
 	 */
-	async settle(): Promise<Settled> {
+	async settle(budgetMs: number = SETTLE_BUDGET_MS): Promise<Settled> {
 		const started = Date.now();
 		let mutations = 0;
 		let quiet = false;
@@ -76,8 +84,8 @@ export class PageSettler {
 		// So both have to hold at once, and since satisfying one can
 		// disturb the other, they are rechecked together until they
 		// agree or the budget runs out.
-		while (Date.now() - started < SETTLE_BUDGET_MS) {
-			const left = SETTLE_BUDGET_MS - (Date.now() - started);
+		while (Date.now() - started < budgetMs) {
+			const left = budgetMs - (Date.now() - started);
 			const outcome = await this.wires
 				.page()
 				.evaluate(settleSource(SETTLE_QUIET_MS, left))
