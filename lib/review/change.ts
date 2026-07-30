@@ -13,6 +13,8 @@
  * not anyone has proposed it anywhere.
  */
 
+import type { QueueState } from "./queue.js";
+
 /**
  * Where a repo lives. Providers claim locators; the `key`
  * is the stable identity everything else is scoped by.
@@ -112,6 +114,27 @@ export interface Proposal {
 	additions?: number;
 	deletions?: number;
 	changedFiles?: number;
+	/**
+	 * Where the change stands with a merge queue, when the backend
+	 * has one and says.
+	 *
+	 * Carried on the proposal because the authoring gate has to know
+	 * before it acts, and a caller cannot be trusted to have asked:
+	 * the gate spent a release reading this off an intent nobody set,
+	 * which made it unreachable. Absent means the provider has no
+	 * queue or did not report one, which is not the same as unqueued.
+	 */
+	queue?: QueueState;
+	/**
+	 * Labels on the change, where the backend has labels.
+	 *
+	 * An empty array and an absent field are different facts: the first
+	 * says the backend has labels and this change has none, the second
+	 * says nobody reported any.
+	 */
+	labels?: string[];
+	/** Who it is assigned to, where the backend assigns changes. */
+	assignees?: Actor[];
 	/**
 	 * Anything the provider knows that the neutral model
 	 * does not name. Consumers may read it opportunistically;

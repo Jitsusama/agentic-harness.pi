@@ -121,11 +121,39 @@ export interface ConversationFacet {
 /** A field being changed, where clearing differs from leaving. */
 export type FieldEdit<T> = { action: "set"; value: T } | { action: "clear" };
 
+/**
+ * A set being changed, where adding differs from replacing.
+ *
+ * Labels and assignees need more than {@link FieldEdit} offers. Adding
+ * one label through a wholesale `set` means reading the current list
+ * first and writing it back, which loses whatever somebody else added in
+ * between, and that race is precisely what a busy change is full of.
+ *
+ * The backends express these natively: `gh pr edit` takes `--add-label`
+ * and `--remove-label` beside `--label`. A provider whose backend can
+ * only replace implements `add` by reading first, which is its business
+ * rather than the contract's.
+ */
+export type SetEdit<T> =
+	| { action: "set"; value: T[] }
+	| { action: "add"; value: T[] }
+	| { action: "remove"; value: T[] }
+	| { action: "clear" };
+
 /** What to change about a proposal. */
 export interface ProposalEdit {
 	title?: FieldEdit<string>;
 	body?: FieldEdit<string>;
 	base?: FieldEdit<string>;
+	/** Labels, named as the backend names them. */
+	labels?: SetEdit<string>;
+	/**
+	 * Assignees, named as the backend names people. GitHub wants logins
+	 * and Meteorite wants Shopify email addresses, which is why this is
+	 * a string rather than an {@link Actor}: the caller is passing the
+	 * backend's own identifier through, not a resolved person.
+	 */
+	assignees?: SetEdit<string>;
 }
 
 /** What to propose. */
@@ -146,6 +174,10 @@ export interface ProposalDraft {
 	 * looked at. Saying so every time costs a word.
 	 */
 	draft: boolean;
+	/** Labels to open it with, where the backend has labels. */
+	labels?: string[];
+	/** Assignees to open it with, in the backend's own naming. */
+	assignees?: string[];
 }
 
 /** How a change should be integrated. */

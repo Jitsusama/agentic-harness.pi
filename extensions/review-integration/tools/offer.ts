@@ -23,6 +23,7 @@ import type {
 	CheckoutFacts,
 	FieldEdit,
 	Proposal,
+	SetEdit,
 } from "../../../lib/review/index.js";
 import { fillProposal, offerable } from "../../../lib/review/index.js";
 import { proposalComplaint } from "../conventions.js";
@@ -61,10 +62,37 @@ interface OfferParams {
 	method?: string;
 	expectedHead?: string;
 	reviewers?: string[];
+	labels?: string[];
+	labelMode?: "add" | "set";
+	unlabels?: string[];
+	assignees?: string[];
+	unassignees?: string[];
 	clear?: string[];
 }
 
-/** Which authoring intent an action amounts to. */
+/**
+ * Actions whose intent a merge queue objects to.
+ *
+ * Named here so the queue is only fetched when the answer could change
+ * what happens. Proposing has no change to be queued yet, and merging is
+ * what a queue is for.
+ */
+const ASKS_THE_QUEUE: ReadonlySet<OfferParams["action"]> = new Set([
+	"edit",
+	"ready",
+	"unready",
+]);
+
+/**
+ * Which authoring intent an action amounts to.
+ *
+ * `edit` is the interesting one and is decided per call by
+ * {@link intentFor} rather than here, because an edit is only a retarget
+ * when it moves the base. Mapping every edit to `retarget` made a title
+ * change ask Meteorite whether it could retarget, which it answers by
+ * explaining that retargeting is a stack operation there: a true
+ * sentence, and no reason at all to refuse a new title.
+ */
 const INTENT: Record<OfferParams["action"], AuthoringIntent["kind"]> = {
 	propose: "propose",
 	edit: "retarget",
@@ -75,6 +103,22 @@ const INTENT: Record<OfferParams["action"], AuthoringIntent["kind"]> = {
 	merge: "merge",
 	reviewers: "request-reviewers",
 };
+
+/**
+ * What this call actually amounts to, which for an edit depends on what
+ * it is editing.
+ *
+ * Only a base change is a retarget. Everything else an edit can touch,
+ * meaning a title, a body, labels or assignees, is available wherever
+ * proposing is, so asking about retargeting would refuse work that was
+ * never in question.
+ */
+function intentFor(params: OfferParams): AuthoringIntent["kind"] {
+	if (params.action !== "edit") return INTENT[params.action];
+	const movesBase =
+		params.base !== undefined || (params.clear ?? []).includes("base");
+	return movesBase ? "retarget" : "edit";
+}
 
 /** Register the `review_offer` tool. */
 export function registerOfferTool(pi: ExtensionAPI): void {
@@ -167,9 +211,38 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 					description: "For reviewers: who to ask.",
 				}),
 			),
+			labels: Type.Optional(
+				Type.Array(Type.String(), {
+					description:
+						"For propose and edit: labels to put on the change. On edit these are added to whatever is already there, so naming one does not remove the others. Use labelMode to replace instead, or clear to strip them all.",
+				}),
+			),
+			labelMode: Type.Optional(
+				Type.Union([Type.Literal("add"), Type.Literal("set")], {
+					description:
+						"For edit: whether labels are added to the change or replace what it has. Defaults to add, since replacing loses labels somebody else put there.",
+				}),
+			),
+			unlabels: Type.Optional(
+				Type.Array(Type.String(), {
+					description: "For edit: labels to take off the change.",
+				}),
+			),
+			assignees: Type.Optional(
+				Type.Array(Type.String(), {
+					description:
+						"For propose and edit: who to assign, named the way the backend names people. GitHub wants logins; some backends want email addresses. Added rather than replacing, like labels.",
+				}),
+			),
+			unassignees: Type.Optional(
+				Type.Array(Type.String(), {
+					description: "For edit: who to unassign.",
+				}),
+			),
 			clear: Type.Optional(
 				Type.Array(Type.String(), {
-					description: "For edit: fields to empty, e.g. body.",
+					description:
+						"For edit: fields to empty, e.g. body, labels, assignees.",
 				}),
 			),
 		}),
@@ -193,15 +266,30 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 				const bound = await boundFor(pi, params, process.cwd());
 				const authoring = bound.provider.authoring;
 
+				// Where the change stands with a merge queue, read from the
+				// provider rather than taken on the caller's word. This is the
+				// line that was missing: the refusal below has always been able
+				// to fire on a queued change, and nothing ever told it one was.
+				const intent = intentFor(params);
+
+				const queue =
+					ASKS_THE_QUEUE.has(params.action) &&
+					bound.capabilities.authoring?.refusesWhileEnqueued &&
+					bound.target.kind === "proposal"
+						? (await bound.provider.proposals?.fetch(bound.target.change))
+								?.queue
+						: undefined;
+
 				// Asked before anything is sent, and asked of this repo
 				// rather than of the provider in general, since a provider
 				// can be able to do something everywhere but here.
 				const allowed = offerable(
 					{
-						kind: INTENT[params.action],
+						kind: intent,
 						...(params.action === "propose" && params.reviewers?.length
 							? { withReviewers: true }
 							: {}),
+						...(queue ? { queue } : {}),
 					},
 					bound.capabilities.authoring,
 					bound.provider.id,
@@ -404,6 +492,8 @@ async function propose(
 		title,
 		body,
 		draft: params.draft,
+		...(params.labels?.length ? { labels: params.labels } : {}),
+		...(params.assignees?.length ? { assignees: params.assignees } : {}),
 	});
 
 	// Reviewers after the change exists, since there is nothing to ask
@@ -427,7 +517,32 @@ async function propose(
 	});
 }
 
-/** Change a title, a body or a base. */
+/**
+ * How a set of labels or assignees is changing, or nothing.
+ *
+ * Adding is the default and replacing has to be asked for, because a
+ * caller naming one label almost always means "also this" rather than
+ * "only this", and guessing wrong silently removes work somebody else
+ * did. Clearing is separate again, through `clear`, so emptying a set is
+ * always deliberate.
+ *
+ * Removal wins when both are named for the same field, since asking to
+ * add and remove the same label at once is a contradiction and taking it
+ * off is the safer reading of it.
+ */
+function setEditFor(
+	add: string[] | undefined,
+	remove: string[] | undefined,
+	cleared: boolean,
+	mode: "add" | "set" | undefined,
+): SetEdit<string> | undefined {
+	if (cleared) return { action: "clear" };
+	if (remove?.length) return { action: "remove", value: remove };
+	if (!add?.length) return undefined;
+	return { action: mode === "set" ? "set" : "add", value: add };
+}
+
+/** Change a title, a body, a base, labels or assignees. */
 async function edit(
 	ctx: Parameters<Parameters<ExtensionAPI["registerTool"]>[0]["execute"]>[4],
 	change: NonNullable<ReturnType<typeof hostedChange>>,
@@ -443,16 +558,31 @@ async function edit(
 		return value === undefined ? undefined : { action: "set", value };
 	};
 
+	const labels = setEditFor(
+		params.labels,
+		params.unlabels,
+		clearing.has("labels"),
+		params.labelMode,
+	);
+	const assignees = setEditFor(
+		params.assignees,
+		params.unassignees,
+		clearing.has("assignees"),
+		params.labelMode,
+	);
+
 	const edits = {
 		...(set(params.title, "title")
 			? { title: set(params.title, "title") }
 			: {}),
 		...(set(params.body, "body") ? { body: set(params.body, "body") } : {}),
 		...(set(params.base, "base") ? { base: set(params.base, "base") } : {}),
+		...(labels ? { labels } : {}),
+		...(assignees ? { assignees } : {}),
 	};
 	if (Object.keys(edits).length === 0) {
 		return refuse(
-			"Editing needs something to change: a title, a body, a base, or a field to clear.",
+			"Editing needs something to change: a title, a body, a base, labels, assignees, or a field to clear.",
 		);
 	}
 

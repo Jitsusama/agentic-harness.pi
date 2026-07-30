@@ -76,10 +76,27 @@ function count(n: number, singular: string, plural = `${singular}s`): string {
 	return `${n} ${n === 1 ? singular : plural}`;
 }
 
+/**
+ * Where a change stands with a merge queue, when that is worth saying.
+ *
+ * Unqueued is the normal case and goes unsaid, since a line that reports
+ * the absence of everything reports nothing. Queued is worth interrupting
+ * for: it is the state in which touching the change is expensive, and a
+ * reader who cannot see it will find out by causing it.
+ */
+function queueNote(proposal: Proposal): string {
+	const queue = proposal.queue;
+	if (!queue || queue.posture === "unqueued") return "";
+	if (queue.posture === "waiting") return " · waiting to merge";
+	const place = queue.position === undefined ? "" : ` #${queue.position}`;
+	const batched = queue.solo === false ? ", batched" : "";
+	return ` · in the merge queue${place}${batched}`;
+}
+
 /** A change, in one line. */
 export function proposalLine(proposal: Proposal): string {
 	const draft = proposal.draft ? " (draft)" : "";
-	return `${GLYPH.target} ${proposal.ref.label} ${proposal.title}${draft}\n   ${proposal.state} · ${proposal.author.id} · ${proposal.head} → ${proposal.base}`;
+	return `${GLYPH.target} ${proposal.ref.label} ${proposal.title}${draft}\n   ${proposal.state} · ${proposal.author.id} · ${proposal.head} → ${proposal.base}${queueNote(proposal)}`;
 }
 
 /** CI, with unreported kept apart from failed. */

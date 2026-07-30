@@ -211,6 +211,32 @@ The refusals you will actually meet:
   batched with it, and re-running the checks for the rest is measured
   in hundreds of jobs. Merging is not a mutation the queue objects to.
 
+  The queue is read from the provider, not taken on your word, so this
+  refusal fires on its own. It distinguishes two postures. **Queued**
+  means the change is holding a place, and the refusal names the batch
+  when the backend says the change is not being tested alone. **Waiting**
+  means somebody asked for it to land and the backend is waiting on
+  checks that already ran once; a new commit does not retrigger them, so
+  the change would sit there with results describing code nobody has.
+  Different fixes, so they are different messages.
+
+  A backend that reports no queue at all permits the mutation. Unknown
+  is not the same as queued, and refusing on silence would make every
+  queueless backend read-only.
+
+**Editing is not retargeting.** Changing a title, a body, labels or
+assignees is available wherever proposing is. Only moving the **base**
+asks the retarget question, so an edit that leaves the base alone is
+never refused with an explanation about stacks.
+
+**Labels and assignees add rather than replace.** `review_offer edit
+labels:[...]` puts those labels on beside whatever is already there,
+because naming one almost always means "also this". Pass
+`labelMode:set` to replace the set, `unlabels` to take some off, or
+`clear:[labels]` to strip them all. Assignees behave the same way and
+take whatever identifier the backend names people by: a login on
+GitHub, an email address on some others.
+
 On merging: pass `expectedHead` when you have it. It is the only guard
 against merging work pushed since you last looked, and the gate says so
 plainly when you leave it out. Leave `method` alone unless you mean to
