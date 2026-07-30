@@ -179,6 +179,8 @@ export type {
 	Verdict,
 	WireReview,
 } from "./conversation.js";
+export type { Decision, DecisionLedger, Settlement } from "./decided.js";
+export { createDecisionLedger } from "./decided.js";
 export type {
 	DiffFile,
 	DiffHunk,

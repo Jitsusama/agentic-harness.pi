@@ -14,14 +14,19 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { citeListing, openSessionStore } from "../../../lib/result/index.js";
-import type { BoundTarget, Finding } from "../../../lib/review/index.js";
+import type {
+	BoundTarget,
+	Decision,
+	Finding,
+} from "../../../lib/review/index.js";
 import {
+	createDecisionLedger,
 	createFindingStore,
 	createFixQueue,
 	describeAnchor,
 	type QueuedFix,
 } from "../../../lib/review/index.js";
-import { findingDir, fixDir, reviewEngine } from "../engine.js";
+import { decisionDir, findingDir, fixDir, reviewEngine } from "../engine.js";
 import {
 	checksLines,
 	GLYPH,
@@ -313,17 +318,33 @@ async function seeFindings(bound: BoundTarget): Promise<Answer> {
 			one,
 		]),
 	);
+	// The same for the other two verdicts. Promoting and dismissing leave
+	// no mark on the finding either, so without this a finding already
+	// dealt with reads exactly like one nobody has looked at.
+	const decided = new Map(
+		(await createDecisionLedger(decisionDir()).list(change)).map((one) => [
+			one.findingId,
+			one,
+		]),
+	);
 
 	return say(
 		citeListing(openSessionStore(), {
 			view: findings
-				.map((finding) => findingLine(finding, queued.get(finding.id)))
+				.map((finding) =>
+					findingLine(finding, queued.get(finding.id), decided.get(finding.id)),
+				)
 				.join("\n"),
 			records: findings,
 			unit: "findings",
 			narrowing: "Query the stored result for a finding's full discussion.",
 		}),
-		{ ok: true, count: findings.length, queued: queued.size },
+		{
+			ok: true,
+			count: findings.length,
+			queued: queued.size,
+			decided: decided.size,
+		},
 	);
 }
 
@@ -335,7 +356,11 @@ async function seeFindings(bound: BoundTarget): Promise<Answer> {
  * reviewer and the same claim from three deserve different
  * weight.
  */
-function findingLine(finding: Finding, queued?: QueuedFix): string {
+function findingLine(
+	finding: Finding,
+	queued?: QueuedFix,
+	decided?: Decision,
+): string {
 	const where =
 		finding.anchor.subject === "change"
 			? "on the change"
@@ -357,7 +382,15 @@ function findingLine(finding: Finding, queued?: QueuedFix): string {
 				: queued.outcome.kind === "committed"
 					? ` · fixed in ${queued.outcome.commit}`
 					: ` · fix dropped: ${queued.outcome.reason}`;
-	return `${GLYPH.finding} [F${finding.id}] ${finding.label}: ${finding.subject}\n     ${where} · ${from}${severity}${agreed}${fixing}`;
+	// A queued fix already says so above, so saying it twice would be
+	// noise on the one line a reader scans.
+	const settled =
+		decided === undefined || decided.verdict === "fix"
+			? ""
+			: decided.verdict === "promote"
+				? " · promoted into a draft"
+				: " · dismissed";
+	return `${GLYPH.finding} [F${finding.id}] ${finding.label}: ${finding.subject}\n     ${where} · ${from}${severity}${agreed}${fixing}${settled}`;
 }
 
 /**

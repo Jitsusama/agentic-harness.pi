@@ -65,7 +65,7 @@ import {
 	summarizeStreamActivity,
 } from "../../../lib/subagent/index.js";
 import { findingDir, personaDir, reviewEngine, runDir } from "../engine.js";
-import { statusLineProgress } from "../progress.js";
+import { PARTICIPANT_TIMEOUT_MS, statusLineProgress } from "../progress.js";
 import { GLYPH } from "../render.js";
 import { treeForRound } from "../work.js";
 import {
@@ -963,6 +963,10 @@ function deps(
 					? {}
 					: { systemPrompt: charters.get(participant.id) }),
 				runPi: createSpawnRunPi({ piInstall: getParentPiInstall() }),
+				// Bounded, because nothing else can stop it: pi hands a tool's
+				// execute no cancellation signal, so a wedged participant runs
+				// to the runner's ceiling, which is forty-five minutes.
+				timeoutMs: PARTICIPANT_TIMEOUT_MS,
 				// The one place a subprocess becomes something a person can
 				// watch. The library cannot see a stream, so it is told.
 				...(report === undefined

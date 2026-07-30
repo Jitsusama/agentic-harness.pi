@@ -24,6 +24,22 @@ import {
 const STATUS_KEY = "review-ask-progress";
 
 /**
+ * How long one participant gets before it is treated as wedged.
+ *
+ * The runner's own default is forty-five minutes, which is a sensible
+ * ceiling for a long autonomous job and absurd for this: a reviewer
+ * reads a diff and writes findings, and a council round is minutes.
+ * Left at the default, a model that stops responding holds a dead
+ * status line for the better part of an hour with no way to intervene,
+ * because a tool's execute gets no cancellation signal from pi.
+ *
+ * Fifteen minutes is roughly six times the longest round observed, so
+ * it does not truncate honest work, and it turns "wedged forever" into
+ * a failure with a reason, which the round already knows how to report.
+ */
+export const PARTICIPANT_TIMEOUT_MS = 15 * 60 * 1000;
+
+/**
  * The session's context, once pi has handed one over.
  *
  * A tool's execute has no context argument, and a round needs to draw

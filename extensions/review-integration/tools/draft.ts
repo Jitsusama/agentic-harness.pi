@@ -15,6 +15,7 @@ import { Type } from "@sinclair/typebox";
 import {
 	type Anchor,
 	type BoundTarget,
+	createDecisionLedger,
 	createDraftStore,
 	createFindingStore,
 	createFixQueue,
@@ -28,7 +29,13 @@ import {
 	type StackPublishEntry,
 	type Verdict,
 } from "../../../lib/review/index.js";
-import { draftDir, findingDir, fixDir, reviewEngine } from "../engine.js";
+import {
+	decisionDir,
+	draftDir,
+	findingDir,
+	fixDir,
+	reviewEngine,
+} from "../engine.js";
 import { confirmWrite } from "../gate.js";
 import {
 	anchorLabel,
@@ -632,6 +639,14 @@ async function decideFinding(
 	}
 
 	if (params.settle === "dismiss") {
+		// Recorded, or the findings listing reads the same before and
+		// after: a dismissal leaves no other trace anywhere.
+		await createDecisionLedger(decisionDir()).record(
+			change,
+			finding.id,
+			"dismiss",
+			params.body,
+		);
 		return say(
 			`${GLYPH.refused} F${finding.id} dismissed, and left out of the draft.\n   ${finding.subject}`,
 			{ ok: true, finding: finding.id, settled: "dismiss" },
@@ -647,6 +662,12 @@ async function decideFinding(
 			finding,
 			...(params.body === undefined ? [] : [params.body]),
 		);
+		await createDecisionLedger(decisionDir()).record(
+			change,
+			finding.id,
+			"fix",
+			params.body,
+		);
 		const tally = await createFixQueue(fixDir()).tally(change);
 		return say(
 			[
@@ -660,6 +681,12 @@ async function decideFinding(
 
 	const body = params.body ?? `${finding.subject}\n\n${finding.discussion}`;
 	const id = await draft.addFinding({ anchor: finding.anchor, body });
+	await createDecisionLedger(decisionDir()).record(
+		change,
+		finding.id,
+		"promote",
+		params.body,
+	);
 	return say(
 		`${GLYPH.finding} F${finding.id} promoted into draft ${draft.id} as #${id}, at ${anchorLabel(finding.anchor)}${params.body ? "\n   in your words rather than its own" : ""}`,
 		{ ok: true, finding: finding.id, item: id, settled: "promote" },

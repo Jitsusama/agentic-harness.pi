@@ -48,6 +48,11 @@ export function fixDir(): string {
 	return join(stateDir("review"), "fixes");
 }
 
+/** Where the record of what has been settled lives. */
+export function decisionDir(): string {
+	return join(stateDir("review"), "decisions");
+}
+
 /**
  * Where persona charters are read from.
  *
