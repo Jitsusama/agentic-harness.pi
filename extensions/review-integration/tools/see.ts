@@ -17,9 +17,11 @@ import { citeListing, openSessionStore } from "../../../lib/result/index.js";
 import type { BoundTarget, Finding } from "../../../lib/review/index.js";
 import {
 	createFindingStore,
+	createFixQueue,
 	describeAnchor,
+	type QueuedFix,
 } from "../../../lib/review/index.js";
-import { findingDir, reviewEngine } from "../engine.js";
+import { findingDir, fixDir, reviewEngine } from "../engine.js";
 import {
 	checksLines,
 	GLYPH,
@@ -301,14 +303,27 @@ async function seeFindings(bound: BoundTarget): Promise<Answer> {
 			count: 0,
 		});
 	}
+	// What is already queued to fix, so a reader can tell settled from
+	// undecided. Without it the list looks the same before and after
+	// deciding, and the only thing that says otherwise is the error you
+	// get from queueing something twice.
+	const queued = new Map(
+		(await createFixQueue(fixDir()).list(change)).map((one) => [
+			one.findingId,
+			one,
+		]),
+	);
+
 	return say(
 		citeListing(openSessionStore(), {
-			view: findings.map(findingLine).join("\n"),
+			view: findings
+				.map((finding) => findingLine(finding, queued.get(finding.id)))
+				.join("\n"),
 			records: findings,
 			unit: "findings",
 			narrowing: "Query the stored result for a finding's full discussion.",
 		}),
-		{ ok: true, count: findings.length },
+		{ ok: true, count: findings.length, queued: queued.size },
 	);
 }
 
@@ -320,7 +335,7 @@ async function seeFindings(bound: BoundTarget): Promise<Answer> {
  * reviewer and the same claim from three deserve different
  * weight.
  */
-function findingLine(finding: Finding): string {
+function findingLine(finding: Finding, queued?: QueuedFix): string {
 	const where =
 		finding.anchor.subject === "change"
 			? "on the change"
@@ -334,7 +349,15 @@ function findingLine(finding: Finding): string {
 			? "by hand"
 			: `${finding.origin.kind} ${finding.origin.reviewerId}`;
 	const severity = finding.severity ? ` · ${finding.severity}` : "";
-	return `${GLYPH.finding} [F${finding.id}] ${finding.label}: ${finding.subject}\n     ${where} · ${from}${severity}${agreed}`;
+	const fixing =
+		queued === undefined
+			? ""
+			: queued.outcome === undefined
+				? " · queued to fix"
+				: queued.outcome.kind === "committed"
+					? ` · fixed in ${queued.outcome.commit}`
+					: ` · fix dropped: ${queued.outcome.reason}`;
+	return `${GLYPH.finding} [F${finding.id}] ${finding.label}: ${finding.subject}\n     ${where} · ${from}${severity}${agreed}${fixing}`;
 }
 
 /**
