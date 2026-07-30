@@ -32,6 +32,15 @@ export type {
 	CouncilResult,
 } from "./ask/council.js";
 export { runCouncil } from "./ask/council.js";
+export type {
+	Critique,
+	CritiqueDeps,
+	CritiqueHarvest,
+	CritiqueRequest,
+	CritiqueResult,
+	Position,
+} from "./ask/critique.js";
+export { harvestCritiques, runCritique } from "./ask/critique.js";
 export type { Harvest } from "./ask/harvest.js";
 export { harvestFindings } from "./ask/harvest.js";
 // Asking other models about a change: who is asked, and keeping
