@@ -94,6 +94,12 @@ export {
 	runSummary,
 	substituteOutcome,
 } from "./ask/run.js";
+export type {
+	FindingSpan,
+	SpannedFinding,
+	StackHarvest,
+} from "./ask/span.js";
+export { harvestStackFindings, saidAt } from "./ask/span.js";
 export type { RunStore } from "./ask/store.js";
 export { createRunStore } from "./ask/store.js";
 export type {

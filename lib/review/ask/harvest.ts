@@ -31,6 +31,19 @@ export interface Harvest {
 	warnings: string[];
 }
 
+/**
+ * What came out of one entry: a finding when it was readable, and
+ * anything worth saying either way.
+ *
+ * Exported because a stack-wide answer groups its entries by the
+ * change each is about, and every entry still has to be read the same
+ * way. One place knows a finding's wire shape.
+ */
+export interface FindingRead {
+	finding?: Omit<Finding, "id">;
+	warnings: string[];
+}
+
 /** The labels a finding may carry. */
 const LABELS: readonly string[] = [
 	"praise",
@@ -93,21 +106,38 @@ export function harvestFindings(
 
 	const findings: Omit<Finding, "id">[] = [];
 	for (const [index, entry] of held.entries()) {
-		const one = readFinding(entry, index, origin, witness, warnings);
-		if (one !== undefined) findings.push(one);
+		const read = readWireFinding(entry, `findings[${index}]`, origin, witness);
+		warnings.push(...read.warnings);
+		if (read.finding !== undefined) findings.push(read.finding);
 	}
 	return { findings, warnings };
+}
+
+/**
+ * Read one entry off the wire.
+ *
+ * `at` is how the entry is named in a warning, and the caller supplies
+ * it because only the caller knows what the entry was found inside.
+ */
+export function readWireFinding(
+	entry: unknown,
+	at: string,
+	origin: FindingOrigin,
+	witness?: string,
+): FindingRead {
+	const warnings: string[] = [];
+	const finding = readFinding(entry, at, origin, witness, warnings);
+	return { ...(finding === undefined ? {} : { finding }), warnings };
 }
 
 /** One finding, or nothing plus a warning saying why. */
 function readFinding(
 	entry: unknown,
-	index: number,
+	at: string,
 	origin: FindingOrigin,
 	witness: string | undefined,
 	warnings: string[],
 ): Omit<Finding, "id"> | undefined {
-	const at = `findings[${index}]`;
 	if (!isRecord(entry)) {
 		warnings.push(`${at} is not an object, so it was dropped.`);
 		return undefined;
