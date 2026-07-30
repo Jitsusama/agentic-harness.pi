@@ -39,7 +39,7 @@ owned which question.
 | `review` | What you are working on: attach, detach, next, prev, capabilities |
 | `review_see` | Everything reading tells you: change, diff, checks, stack, changes, threads, reviews, messages, findings |
 | `review_say` | Saying something now: reply, comment, resolve, unresolve, react |
-| `review_ask` | Putting the change to other models: council, judge, runs, retry |
+| `review_ask` | Putting the change to other models: council, judge, critique, runs, retry, release |
 | `review_draft` | Composing a whole review, then planning and publishing it |
 
 ## One Question Per Tool, Which Settles Where Deciding Lives
@@ -57,10 +57,33 @@ A council does not post, and a draft does not run models.
 
 ## Asking Other Models
 
-`review_ask council` asks every reviewer on the configured roster,
-independently and at once. `review_ask judge` then consolidates what
-they found. Run them in that order: a judge with no council to read is
-refused rather than asked to invent findings.
+Three rounds, in order, each refusing to run ahead of the one before:
+
+- `review_ask council` asks every reviewer on the configured roster,
+  independently and at once. This is the discovery pass.
+- `review_ask judge` consolidates what they found, merging the same
+  observation stated three ways and recording who raised it.
+- `review_ask critique` puts the judge's conclusions back to the
+  roster for pushback, recording positions rather than findings.
+
+A judge with no council to read is refused rather than asked to invent
+findings, and a critique with nothing consolidated is refused the same
+way. Stopping after the council is perfectly reasonable; the later
+rounds cost real money and earn their keep on a change where the
+findings disagree with each other.
+
+**A position is not a finding.** A critique tells you which findings
+survived scrutiny and which a reviewer thinks are wrong, and
+`disagree` from a model that went and read the code is worth more than
+the finding it disputes. Silence means no position, never agreement,
+so do not read an uncontested finding as a corroborated one.
+
+An id that has raised findings is held to the model, thinking level,
+tools and persona it meant. Reconfiguring one mid-session is refused,
+because every origin recorded before the change would quietly start
+lying. The refusal names both ways out, and `review_ask release` is
+the second one: it frees the id at the cost of its existing findings
+no longer identifying who raised them.
 
 The roster lives in a `review.ask` section of the package config, not
 in the call, because who reviews is a standing choice. A malformed one

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Proposal } from "../../../lib/review/index.js";
 import {
 	councilPrompt,
+	critiquePrompt,
 	judgePrompt,
 	parseUnifiedDiff,
 } from "../../../lib/review/index.js";
@@ -160,6 +161,57 @@ describe("what a judge is told", () => {
 		expect(
 			judgePrompt({ proposal: proposal(), diff, findings: "x" }),
 		).toContain("lib/a.ts: new 10-12");
+	});
+});
+
+describe("what a critic is told", () => {
+	it("carries the findings put to it", () => {
+		expect(
+			critiquePrompt({
+				proposal: proposal(),
+				diff,
+				findings: "[F7] this leaks",
+			}),
+		).toContain("[F7] this leaks");
+	});
+
+	it("names every position it may take", () => {
+		const prompt = critiquePrompt({
+			proposal: proposal(),
+			diff,
+			findings: "x",
+		});
+
+		for (const position of ["agree", "disagree", "qualify", "unsure"]) {
+			expect(prompt, position).toContain(position);
+		}
+	});
+
+	it("says silence is not agreement", () => {
+		// The critic has to know there is no cost to leaving a finding
+		// out, or it will guess to look thorough and manufacture the
+		// consensus the round exists to test.
+		expect(
+			critiquePrompt({ proposal: proposal(), diff, findings: "x" }),
+		).toMatch(/silence/i);
+	});
+
+	it("says a rationale is the whole value", () => {
+		expect(
+			critiquePrompt({ proposal: proposal(), diff, findings: "x" }),
+		).toMatch(/rationale/i);
+	});
+
+	it("tells the critic it is not raising findings", () => {
+		expect(
+			critiquePrompt({ proposal: proposal(), diff, findings: "x" }),
+		).toMatch(/not raising new findings/i);
+	});
+
+	it("says plainly when there is nothing to challenge", () => {
+		expect(
+			critiquePrompt({ proposal: proposal(), diff, findings: " " }),
+		).toMatch(/nothing to challenge/i);
 	});
 });
 

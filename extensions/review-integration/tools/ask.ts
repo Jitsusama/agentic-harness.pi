@@ -26,10 +26,12 @@ import {
 	type AskAnswer,
 	type AskRun,
 	type ChangeRef,
+	type Critique,
 	councilPrompt,
 	createFindingStore,
 	createIdentityLedger,
 	createRunStore,
+	critiquePrompt,
 	type Finding,
 	judgePrompt,
 	type Participant,
@@ -37,6 +39,7 @@ import {
 	type Roster,
 	type RunStore,
 	runCouncil,
+	runCritique,
 	runJudge,
 	runSummary,
 	substituteOutcome,
@@ -63,7 +66,13 @@ import {
 } from "./shared.js";
 
 /** What the tool can be asked to do. */
-type AskAction = "council" | "judge" | "runs" | "retry" | "release";
+type AskAction =
+	| "council"
+	| "judge"
+	| "critique"
+	| "runs"
+	| "retry"
+	| "release";
 
 /**
  * Which ids mean what, for as long as this module is loaded.
@@ -104,12 +113,13 @@ export function registerAskTool(pi: ExtensionAPI): void {
 					[
 						Type.Literal("council"),
 						Type.Literal("judge"),
+						Type.Literal("critique"),
 						Type.Literal("runs"),
 						Type.Literal("retry"),
 					],
 					{
 						description:
-							"What to do. council: ask every reviewer on the roster, independently and at once. judge: ask the roster's judge to consolidate the latest council. runs: what rounds have been asked about this change. retry: ask one participant again and substitute their outcome in place. Defaults to runs, which changes nothing.",
+							"What to do. council: ask every reviewer on the roster, independently and at once. judge: ask the roster's judge to consolidate the latest council. critique: ask the roster to push back on what the judge concluded, recording positions rather than findings. runs: what rounds have been asked about this change. retry: ask one participant again and substitute their outcome in place. Defaults to runs, which changes nothing.",
 					},
 				),
 			),
@@ -174,6 +184,8 @@ export function registerAskTool(pi: ExtensionAPI): void {
 						return await askCouncil(bound, change, params);
 					case "judge":
 						return await askJudge(bound, change, params);
+					case "critique":
+						return await askCritique(bound, change, params);
 					case "retry":
 						return await retryOne(bound, change, params);
 					case "release":
@@ -288,6 +300,81 @@ async function askJudge(
 
 	await store.record(change, run);
 	return say(answerFor(run, warnings, tree.caveat), { run, warnings });
+}
+
+/**
+ * Ask the roster to push back on what the judge concluded.
+ *
+ * Positions are recorded on the run rather than as findings, so a
+ * critique is readable beside the findings it challenges instead of
+ * being mixed into them.
+ */
+async function askCritique(
+	bound: Awaited<ReturnType<typeof boundFor>>,
+	change: ChangeRef,
+	params: AskParams,
+): Promise<Answer> {
+	const roster = await rosterOrThrow();
+	await claimIdentities(change, "reviewer", roster.reviewers);
+
+	const store = createRunStore(runDir());
+	const judged = await store.latest(change, "judge");
+	if (judged === undefined) {
+		return refuse(
+			`No judge has consolidated anything on ${change.label}, so there is nothing settled enough to push back on. Run a council, then a judge.`,
+		);
+	}
+
+	const raised = await findingsOf(change, judged);
+	const { proposal, diff } = await material(bound);
+	const tree = await treeForRound(
+		bound.repo,
+		proposal.headCommit,
+		process.cwd(),
+	);
+
+	const { run, critiques, warnings } = await runCritique(
+		{
+			roster,
+			prompt: critiquePrompt({
+				proposal,
+				diff,
+				findings: renderFindings(raised),
+				...(params.intent === undefined ? {} : { intent: params.intent }),
+			}),
+			seq: 1,
+			findingIds: raised.map((finding) => finding.id),
+		},
+		{ ask: deps(change, tree.path).ask, now: () => new Date() },
+	);
+
+	await store.record(change, run);
+	return say(
+		[
+			answerFor(run, warnings, tree.caveat),
+			...(critiques.length === 0
+				? ["Nobody took a position."]
+				: ["", ...describeCritiques(critiques)]),
+		].join("\n"),
+		{ run, critiques, warnings },
+	);
+}
+
+/** Positions as a reader weighs them, grouped by finding. */
+function describeCritiques(critiques: readonly Critique[]): string[] {
+	const byFinding = new Map<number, Critique[]>();
+	for (const critique of critiques) {
+		const held = byFinding.get(critique.findingId) ?? [];
+		held.push(critique);
+		byFinding.set(critique.findingId, held);
+	}
+	return [...byFinding.entries()].flatMap(([findingId, held]) => [
+		`[F${findingId}]`,
+		...held.map(
+			(critique) =>
+				`  ${critique.participantId} ${critique.position}: ${critique.rationale}`,
+		),
+	]);
 }
 
 /** Ask one participant again, in place. */

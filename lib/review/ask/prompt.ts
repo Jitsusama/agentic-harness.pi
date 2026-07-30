@@ -67,6 +67,33 @@ export function judgePrompt(input: JudgePromptInput): string {
 		.join("\n\n");
 }
 
+/** What a critic needs: the findings, and leave to disagree. */
+export interface CritiquePromptInput extends PromptInput {
+	/** The findings put up for challenge, numbered as they will be cited. */
+	findings: string;
+}
+
+/** The prompt a critic answers. */
+export function critiquePrompt(input: CritiquePromptInput): string {
+	return [
+		"A judge consolidated several reviewers' findings on this change into the list below. Your pass is to push back on it. For each finding you have a view on, say where you stand and why.",
+		"Take a position of agree, disagree, qualify or unsure. Disagree when you think the finding is wrong about the code. Qualify when it is right but overstated, or right only under a condition it does not name. Unsure when you can see the argument and cannot settle it from what is here.",
+		"Every position needs a rationale, and the rationale is the whole value: a bare vote cannot be weighed against the finding it disputes, so one without an argument is worth less than saying nothing. Go and read the code before you disagree with somebody about it.",
+		"Say nothing about a finding you have no view on. Silence is read as no position, never as agreement, so there is no cost to leaving one out and a real cost to guessing.",
+		"You are not raising new findings here. If you notice something nobody raised, that is worth knowing, but this round records positions only.",
+		intentSection(input.intent),
+		changeSection(input.proposal),
+		"## The findings put to you",
+		input.findings.trim() === ""
+			? "(nothing was consolidated, so there is nothing to challenge)"
+			: input.findings.trim(),
+		diffSection(input.diff),
+		"Answer in the JSON your output contract skill describes, citing each finding by the number it was given.",
+	]
+		.filter((part) => part !== "")
+		.join("\n\n");
+}
+
 /** Where anchors may land, so a finding does not degrade for nothing. */
 function anchorGuidance(diff: DiffModel): string {
 	return [

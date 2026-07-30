@@ -54,6 +54,7 @@ in the loop:
 | [`harvest.ts`](ask/harvest.ts) | What its answer amounts to |
 | [`council.ts`](ask/council.ts) | Asking everybody at once |
 | [`judge.ts`](ask/judge.ts) | Consolidating what they said |
+| [`critique.ts`](ask/critique.ts) | Pushing back on what was consolidated |
 | [`run.ts`](ask/run.ts) | What a round was, as a record |
 | [`store.ts`](ask/store.ts) | Finding a round somebody else ran |
 
@@ -79,6 +80,14 @@ describe itself differently every time.
 runner reports and an exception it throws are the same event seen from
 two sides, and both are recorded against that participant so the rest
 of the round survives.
+
+**A critique records positions, not findings.** A critic that could
+also raise findings would make the round both a discovery pass and a
+challenge to one, and afterwards neither could be read alone. Silence
+about a finding is no position and never assent: reading an absent
+critique as agreement would manufacture consensus out of a critic that
+ran out of budget, making a weakly supported finding look
+corroborated.
 
 ## A Roster Is Read From Config, Not From a Call
 
