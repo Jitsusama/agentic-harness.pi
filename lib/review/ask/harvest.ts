@@ -175,6 +175,7 @@ function readFinding(
 		origin,
 		...readSeverity(entry.severity, at, warnings),
 		...readConfidence(entry.confidence, at, warnings),
+		...readRaisedBy(entry.raisedBy, at, warnings),
 	};
 }
 
@@ -231,6 +232,34 @@ function readAnchor(
 		`${at} has location kind "${kind ?? "none"}", which is not line, file or global, so it was dropped.`,
 	);
 	return undefined;
+}
+
+/**
+ * Who else raised this, when a consolidating pass says.
+ *
+ * Agreement between independent reviewers is evidence, and a
+ * consolidating pass is the only one that knows about it, so losing
+ * it here would throw away the reason a finding is more likely to be
+ * real. Blank names are dropped rather than held, since an empty id
+ * matches nobody and would make an attribution check answer wrongly.
+ */
+function readRaisedBy(
+	value: unknown,
+	at: string,
+	warnings: string[],
+): { raisedBy?: string[] } {
+	if (value === undefined) return {};
+	if (!Array.isArray(value)) {
+		warnings.push(
+			`${at} has raisedBy that is not a list of participant ids, so the finding was kept without its agreement.`,
+		);
+		return {};
+	}
+	const raisedBy = value.flatMap((entry) => {
+		const name = text(entry);
+		return name === undefined ? [] : [name];
+	});
+	return raisedBy.length === 0 ? {} : { raisedBy };
 }
 
 /** A severity, dropped with a warning when it is not one. */
