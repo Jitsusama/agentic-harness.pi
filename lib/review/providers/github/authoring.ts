@@ -26,9 +26,11 @@ import type {
 	MergeRequest,
 	ProposalDraft,
 	ProposalEdit,
+	SetEdit,
 } from "../../provider.js";
 import { type Exec, run } from "../exec.js";
 import { githubChange, ownerRepoFromKey } from "./claims.js";
+import { labelsAndAssignees } from "./fields.js";
 
 /** `owner/name`, as every GitHub route wants it. */
 function slugOf(repo: RepoLocator): string {
@@ -47,7 +49,7 @@ export function githubAuthoring(exec: Exec): AuthoringFacet {
 	 * fail would turn a successful write into a reported error.
 	 */
 	async function send(
-		method: "POST" | "PATCH" | "PUT",
+		method: "POST" | "PATCH" | "PUT" | "DELETE",
 		route: string,
 		payload: Record<string, unknown>,
 		what: string,
@@ -88,6 +90,72 @@ export function githubAuthoring(exec: Exec): AuthoringFacet {
 		);
 	}
 
+	/** One API call with no body, for the routes that take none. */
+	async function call(
+		method: "DELETE" | "GET",
+		route: string,
+		what: string,
+	): Promise<void> {
+		await run(exec, "gh", ["api", "--method", method, route], what);
+	}
+
+	/**
+	 * Apply a set edit to labels or assignees.
+	 *
+	 * Both live on the issue rather than the pull request. GitHub models a
+	 * pull request as an issue with a branch attached, so `PATCH
+	 * /pulls/{n}` takes a title, a body and a base and knows nothing about
+	 * labels; the `/issues/{n}` routes own those. The pull request
+	 * representation does report them on the way out, which is why reading
+	 * costs nothing extra and writing costs a separate call.
+	 *
+	 * `add` and `remove` are native here, and that is the point of
+	 * {@link SetEdit}: doing either through a wholesale replace means
+	 * reading the current list and writing it back, which drops whatever
+	 * anybody else changed in between.
+	 */
+	async function applySetEdit(
+		ref: ChangeRef,
+		field: "labels" | "assignees",
+		edit: SetEdit<string>,
+	): Promise<void> {
+		const issue = `repos/${slugOf(ref.repo)}/issues/${ref.id}`;
+		const what = `changing the ${field} of pull request ${ref.id}`;
+
+		if (edit.action === "clear") {
+			await send("PATCH", issue, { [field]: [] }, what);
+			return;
+		}
+		if (edit.action === "set") {
+			await send("PATCH", issue, { [field]: edit.value }, what);
+			return;
+		}
+		if (edit.value.length === 0) return;
+		if (edit.action === "add") {
+			await send("POST", `${issue}/${field}`, { [field]: edit.value }, what);
+			return;
+		}
+		// Removing differs between the two, which is GitHub's asymmetry
+		// rather than a choice here: a label is named in the path, one call
+		// each, and assignees come off together in a body.
+		if (field === "assignees") {
+			await send(
+				"DELETE",
+				`${issue}/assignees`,
+				{ assignees: edit.value },
+				what,
+			);
+			return;
+		}
+		for (const label of edit.value) {
+			await call(
+				"DELETE",
+				`${issue}/labels/${encodeURIComponent(label)}`,
+				what,
+			);
+		}
+	}
+
 	/** The node id GitHub's GraphQL wants, which REST does not carry. */
 	async function nodeId(ref: ChangeRef): Promise<string> {
 		const stdout = await run(
@@ -117,7 +185,26 @@ export function githubAuthoring(exec: Exec): AuthoringFacet {
 				},
 				`proposing ${draft.head} onto ${draft.base}`,
 			);
-			return proposalFrom(draft.repo, raw);
+			const proposed = proposalFrom(draft.repo, raw);
+
+			// A second call, because the create route does not take them: a
+			// pull request is an issue with a branch, and labels belong to
+			// the issue half. Sent after the change exists rather than not
+			// at all, since a caller who asked for a label and silently did
+			// not get one has no way to tell.
+			if (draft.labels?.length) {
+				await applySetEdit(proposed.ref, "labels", {
+					action: "add",
+					value: draft.labels,
+				});
+			}
+			if (draft.assignees?.length) {
+				await applySetEdit(proposed.ref, "assignees", {
+					action: "add",
+					value: draft.assignees,
+				});
+			}
+			return proposed;
 		},
 
 		async edit(ref: ChangeRef, edit: ProposalEdit): Promise<Proposal> {
@@ -140,12 +227,28 @@ export function githubAuthoring(exec: Exec): AuthoringFacet {
 				payload.base = edit.base.value;
 			}
 
-			const raw = await send(
-				"PATCH",
-				`repos/${slugOf(ref.repo)}/pulls/${ref.id}`,
-				payload,
-				`editing pull request ${ref.id}`,
-			);
+			if (edit.labels) await applySetEdit(ref, "labels", edit.labels);
+			if (edit.assignees) await applySetEdit(ref, "assignees", edit.assignees);
+
+			// Read the change back rather than PATCHing nothing, for an edit
+			// that only touched labels. Sending an empty body here is
+			// accepted and returns the change unchanged, so this is about
+			// saying what happened rather than about correctness.
+			const route = `repos/${slugOf(ref.repo)}/pulls/${ref.id}`;
+			const raw =
+				Object.keys(payload).length === 0
+					? await run(
+							exec,
+							"gh",
+							["api", route],
+							`reading pull request ${ref.id} back`,
+						)
+					: await send(
+							"PATCH",
+							route,
+							payload,
+							`editing pull request ${ref.id}`,
+						);
 			return proposalFrom(ref.repo, raw);
 		},
 
@@ -286,5 +389,6 @@ function restProposal(
 		...(str(raw.created_at) ? { createdAt: str(raw.created_at) } : {}),
 		...(str(raw.updated_at) ? { updatedAt: str(raw.updated_at) } : {}),
 		...(str(raw.html_url) ? { url: str(raw.html_url) } : {}),
+		...labelsAndAssignees(raw),
 	};
 }

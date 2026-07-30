@@ -80,10 +80,19 @@ function githubCapabilities(): Capabilities {
 			assignees: true,
 			autoMerge: true,
 			deleteBranchOnMerge: true,
-			// Plain GitHub has no merge queue of its own that ejects a
-			// change when it is touched. A backend layered on top of it
-			// that does have one says so for itself.
-			refusesWhileEnqueued: false,
+			// This said false, on the belief that a merge queue was
+			// something a backend layered on top of GitHub added. GitHub
+			// has its own: `MergeQueueEntry` is on the GraphQL pull
+			// request, it reports a position and whether the change is
+			// being tested `solo`, and pushing to a queued change ejects
+			// it the same way. Saying false here made the queue gate dead
+			// on GitHub as well as unreachable everywhere.
+			//
+			// Declaring true is not the same as refusing: the proposals
+			// facet reports the posture, and a change with no queue entry
+			// reads as unqueued and is permitted. The gate bites only when
+			// there is really something to eject.
+			refusesWhileEnqueued: true,
 		},
 	};
 }

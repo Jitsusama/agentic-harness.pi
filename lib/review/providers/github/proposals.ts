@@ -15,6 +15,8 @@ import type { ChangeFilter, ProposalsFacet } from "../../provider.js";
 import type { Exec } from "../exec.js";
 import { run } from "../exec.js";
 import { GHOST, githubChange, ownerRepoFromKey } from "./claims.js";
+import { labelsAndAssignees } from "./fields.js";
+import { QUEUE_QUERY, queueStateFrom } from "./queue.js";
 
 /** Where a materialized change lands, so it is easy to spot. */
 const LOCAL_REF_PREFIX = "refs/pi-review/github";
@@ -114,6 +116,7 @@ function proposalFromRest(
 		...(str(raw.updated_at) ? { updatedAt: str(raw.updated_at) } : {}),
 		...(str(raw.html_url) ? { url: str(raw.html_url) } : {}),
 		...sizeOf(raw),
+		...labelsAndAssignees(raw),
 	};
 }
 
@@ -139,6 +142,7 @@ function proposalFromListing(
 		head: str(raw.headRefName) ?? "",
 		...(str(raw.url) ? { url: str(raw.url) } : {}),
 		...sizeOf(raw),
+		...labelsAndAssignees(raw),
 	};
 }
 
@@ -175,13 +179,63 @@ export function githubProposals(exec: Exec): ProposalsFacet {
 		return JSON.parse(stdout) as T;
 	}
 
+	/**
+	 * Where the change stands with a merge queue, or nothing.
+	 *
+	 * A second call, and a GraphQL one, because REST does not carry the
+	 * queue and neither does `gh pr view --json`. Both were checked
+	 * against the live API rather than assumed.
+	 *
+	 * Failure is swallowed on purpose, and this is the one place in the
+	 * provider where that is right: the queue is an extra fact about a
+	 * change, and a token that cannot run GraphQL, or a GitHub instance
+	 * too old to have merge queues, must still be able to read the change
+	 * itself. An absent queue reads as unknown downstream, which permits
+	 * the mutation, so guessing wrong here costs a gate that does not fire
+	 * rather than one that fires wrongly.
+	 */
+	async function queueOf(
+		repo: RepoLocator,
+		id: string,
+	): Promise<Proposal["queue"]> {
+		const owned = ownerRepoFromKey(repo.key);
+		if (!owned) return undefined;
+		const number = Number(id);
+		if (!Number.isInteger(number)) return undefined;
+		try {
+			const raw = await json<unknown>(
+				[
+					"api",
+					"graphql",
+					"-f",
+					`query=${QUEUE_QUERY}`,
+					"-F",
+					`owner=${owned.owner}`,
+					"-F",
+					`name=${owned.repo}`,
+					"-F",
+					`number=${number}`,
+				],
+				`reading the merge queue state of pull request ${id}`,
+			);
+			return queueStateFrom(raw);
+		} catch {
+			return undefined;
+		}
+	}
+
 	return {
 		async fetch(ref) {
 			const raw = await json<unknown>(
 				["api", `repos/${slugOf(ref.repo)}/pulls/${ref.id}`],
 				`reading pull request ${ref.id}`,
 			);
-			return proposalFromRest(ref.repo, asRecord(raw, "pull request"));
+			const proposal = proposalFromRest(
+				ref.repo,
+				asRecord(raw, "pull request"),
+			);
+			const queue = await queueOf(ref.repo, ref.id);
+			return queue ? { ...proposal, queue } : proposal;
 		},
 
 		async diff(ref) {

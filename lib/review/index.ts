@@ -271,7 +271,6 @@ export type {
 	ProposalWanted,
 } from "./propose-from.js";
 export { fillProposal } from "./propose-from.js";
-
 export type {
 	AuthoringFacet,
 	ChangeFilter,
@@ -284,6 +283,7 @@ export type {
 	ProposalsFacet,
 	RepoProbe,
 	ReviewProvider,
+	SetEdit,
 	StackingFacet,
 } from "./provider.js";
 export type { Exec, ExecResult, ProviderDeps } from "./providers/exec.js";
@@ -306,6 +306,8 @@ export {
 	ownerRepoFromKey,
 } from "./providers/github/claims.js";
 export { createGitHubProvider } from "./providers/github/index.js";
+export type { QueuePosture, QueueRefusal, QueueState } from "./queue.js";
+export { queueRefusal } from "./queue.js";
 export {
 	clearReviewProviders,
 	getReviewProvider,

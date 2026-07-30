@@ -126,7 +126,7 @@ describe("mutating a change that is queued to merge", () => {
 		// a base change ejects the PR and everything batched with it, and
 		// re-running CI for the rest reaches into the hundreds.
 		const answer = offerable(
-			{ kind: "retarget", enqueued: true },
+			{ kind: "retarget", queue: { posture: "queued", solo: false } },
 			{ ...meteorite, retarget: "change" },
 			"meteorite",
 		);
@@ -138,7 +138,19 @@ describe("mutating a change that is queued to merge", () => {
 	it("allows the same mutation once it is not enqueued", () => {
 		expect(
 			offerable(
-				{ kind: "retarget", enqueued: false },
+				{ kind: "retarget", queue: { posture: "unqueued" } },
+				{ ...meteorite, retarget: "change" },
+				"meteorite",
+			).ok,
+		).toBe(true);
+	});
+
+	it("allows the mutation when no queue state was reported at all", () => {
+		// Absent is unknown, not queued. Refusing on silence would break
+		// every provider that has no queue.
+		expect(
+			offerable(
+				{ kind: "retarget" },
 				{ ...meteorite, retarget: "change" },
 				"meteorite",
 			).ok,
@@ -147,7 +159,11 @@ describe("mutating a change that is queued to merge", () => {
 
 	it("allows a mutation while enqueued where the backend does not care", () => {
 		expect(
-			offerable({ kind: "retarget", enqueued: true }, github, "github").ok,
+			offerable(
+				{ kind: "retarget", queue: { posture: "queued" } },
+				github,
+				"github",
+			).ok,
 		).toBe(true);
 	});
 
@@ -155,8 +171,25 @@ describe("mutating a change that is queued to merge", () => {
 		// Merging is what the queue is for, so it is not a mutation the
 		// queue objects to.
 		expect(
-			offerable({ kind: "merge", enqueued: true }, meteorite, "meteorite").ok,
+			offerable(
+				{ kind: "merge", queue: { posture: "queued" } },
+				meteorite,
+				"meteorite",
+			).ok,
 		).toBe(true);
+	});
+
+	it("refuses a mutation while waiting on checks, for a different reason", () => {
+		// Not ejection: the checks ran once when it was marked ready, and a
+		// new commit does not retrigger them.
+		const answer = offerable(
+			{ kind: "retarget", queue: { posture: "waiting" } },
+			{ ...meteorite, retarget: "change" },
+			"meteorite",
+		);
+
+		expect(answer.ok).toBe(false);
+		expect(!answer.ok && answer.reason).toMatch(/waiting/i);
 	});
 });
 
