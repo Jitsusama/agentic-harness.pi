@@ -1,0 +1,173 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { AskRun, ChangeRef } from "../../../lib/review/index.js";
+import { createRunStore } from "../../../lib/review/index.js";
+
+const change: ChangeRef = {
+	provider: "github",
+	repo: { key: "github:Shopify/world" },
+	id: "42",
+	label: "Shopify/world#42",
+};
+const other: ChangeRef = { ...change, id: "43" };
+
+function run(over: Partial<AskRun> = {}): AskRun {
+	return {
+		id: "council-20260730000000000-000001",
+		round: "council",
+		startedAt: "2026-07-30T00:00:00.000Z",
+		participants: [{ id: "hawk", role: "reviewer" }],
+		outcomes: [{ participantId: "hawk", findingIds: [1] }],
+		...over,
+	};
+}
+
+describe("keeping runs per change", () => {
+	let root: string;
+
+	beforeEach(() => {
+		root = mkdtempSync(join(tmpdir(), "run-store-"));
+	});
+
+	afterEach(() => {
+		rmSync(root, { recursive: true, force: true });
+	});
+
+	it("has nothing to report about a change nobody has reviewed", async () => {
+		// Absence is an answer, not a failure: a fresh change simply has
+		// no rounds behind it.
+		expect(await createRunStore(root).list(change)).toEqual([]);
+	});
+
+	it("remembers a run and hands it back", async () => {
+		const store = createRunStore(root);
+		await store.record(change, run());
+
+		expect(await store.list(change)).toEqual([run()]);
+	});
+
+	it("keeps every round, not just the last", async () => {
+		// A judge consolidates a council, so the council has to still be
+		// there afterwards.
+		const store = createRunStore(root);
+		await store.record(change, run());
+		await store.record(change, run({ id: "judge-1", round: "judge" }));
+
+		expect((await store.list(change)).map((r) => r.round)).toEqual([
+			"council",
+			"judge",
+		]);
+	});
+
+	it("keeps one change's runs away from another's", async () => {
+		const store = createRunStore(root);
+		await store.record(change, run());
+
+		expect(await store.list(other)).toEqual([]);
+	});
+
+	it("survives a new store over the same directory", async () => {
+		// The rounds outlive the session that ran them, which is the
+		// whole reason they are on disk.
+		await createRunStore(root).record(change, run());
+
+		expect(await createRunStore(root).list(change)).toHaveLength(1);
+	});
+});
+
+describe("finding the run you mean", () => {
+	let root: string;
+
+	beforeEach(() => {
+		root = mkdtempSync(join(tmpdir(), "run-store-"));
+	});
+
+	afterEach(() => {
+		rmSync(root, { recursive: true, force: true });
+	});
+
+	it("gives the latest round of a kind", async () => {
+		const store = createRunStore(root);
+		await store.record(change, run({ id: "council-1" }));
+		await store.record(change, run({ id: "council-2" }));
+
+		expect((await store.latest(change, "council"))?.id).toBe("council-2");
+	});
+
+	it("ignores rounds of another kind when asked for one", async () => {
+		// A judge asked for the latest council must not be handed its own
+		// previous run.
+		const store = createRunStore(root);
+		await store.record(change, run({ id: "council-1" }));
+		await store.record(change, run({ id: "judge-1", round: "judge" }));
+
+		expect((await store.latest(change, "council"))?.id).toBe("council-1");
+	});
+
+	it("says nothing when no round of that kind has run", async () => {
+		const store = createRunStore(root);
+		await store.record(change, run());
+
+		expect(await store.latest(change, "critique")).toBeUndefined();
+	});
+
+	it("finds a run by its id", async () => {
+		const store = createRunStore(root);
+		await store.record(change, run({ id: "council-1" }));
+		await store.record(change, run({ id: "council-2" }));
+
+		expect((await store.byId(change, "council-1"))?.id).toBe("council-1");
+	});
+
+	it("says nothing about an id it never recorded", async () => {
+		expect(
+			await createRunStore(root).byId(change, "council-nope"),
+		).toBeUndefined();
+	});
+});
+
+describe("replacing a run", () => {
+	let root: string;
+
+	beforeEach(() => {
+		root = mkdtempSync(join(tmpdir(), "run-store-"));
+	});
+
+	afterEach(() => {
+		rmSync(root, { recursive: true, force: true });
+	});
+
+	it("swaps a run in place, keeping its position", async () => {
+		// This is what a retry lands. Appending instead would leave two
+		// runs claiming the same id, and every later read would have to
+		// guess which was current.
+		const store = createRunStore(root);
+		await store.record(change, run({ id: "council-1" }));
+		await store.record(change, run({ id: "judge-1", round: "judge" }));
+
+		await store.replace(
+			change,
+			run({
+				id: "council-1",
+				outcomes: [{ participantId: "hawk", findingIds: [9] }],
+			}),
+		);
+
+		const held = await store.list(change);
+		expect(held).toHaveLength(2);
+		expect(held[0]?.outcomes[0]?.findingIds).toEqual([9]);
+		expect(held[1]?.id).toBe("judge-1");
+	});
+
+	it("refuses to replace a run it does not hold", async () => {
+		// Silently adding it would make a retry look like it patched
+		// something when it invented a run instead.
+		const store = createRunStore(root);
+
+		await expect(store.replace(change, run({ id: "ghost" }))).rejects.toThrow(
+			/ghost/,
+		);
+	});
+});

@@ -29,11 +29,14 @@ import {
 	reviewEngine,
 } from "./engine.js";
 import {
+	registerAskTool,
 	registerDraftTool,
+	registerOfferTool,
 	registerReviewTool,
 	registerSayTool,
 	registerSeeTool,
 } from "./tools.js";
+import { forgetWorkLayer, watchForWorkLayer } from "./work.js";
 
 /**
  * Whether a bus payload is a usable provider. The bus is
@@ -58,7 +61,9 @@ export default function reviewIntegration(pi: ExtensionAPI) {
 	registerReviewTool(pi);
 	registerSeeTool(pi);
 	registerSayTool(pi);
+	registerAskTool(pi);
 	registerDraftTool(pi);
+	registerOfferTool(pi);
 
 	const api: ReviewSubstrateApi = {
 		registerProvider(provider: ReviewProvider) {
@@ -83,11 +88,21 @@ export default function reviewIntegration(pi: ExtensionAPI) {
 	});
 	pi.events.emit(REVIEW_READY, api);
 
+	// This package is a consumer of the working layer as well as a
+	// host of the review one: a round asks it for a tree pinned to
+	// the commit under review. The dependency is optional, so a
+	// missing working layer costs a caveat rather than the round.
+	watchForWorkLayer(pi);
+
 	pi.events.on("session_start", () => {
 		// A new session must not inherit the last one's bindings, or
 		// a target could stay pinned to a provider the user has since
 		// reconfigured away from.
 		clearTargetBindings();
 		forgetReviewEngine();
+		// Nor the last one's broker, which would hand out trees from a
+		// registry the new session has not rebuilt yet.
+		forgetWorkLayer();
+		watchForWorkLayer(pi);
 	});
 }

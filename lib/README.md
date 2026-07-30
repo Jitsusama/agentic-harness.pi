@@ -28,7 +28,19 @@ from internal files.
   neutral model for changes, stacks, diffs, anchors and
   conversation, with facet-based providers behind it, and
   drafts that compose a review before compiling it into what a
-  given backend will accept.
+  given backend will accept. Also asking other models about a
+  change (council, judge, critique, audit and a stack-wide
+  round, under [`ask/`](review/ask/)) and authoring changes
+  rather than only reading them, which asks the provider what
+  it will accept before anything is sent.
+- **[`work/`](work/)** — The working layer under a review:
+  where a tree is cut from and what pins it, a broker holding
+  the trees a session is using, and reading or writing the
+  history inside one. A worktree is pinned to a branch and
+  exclusive; a snapshot is pinned to a commit and shareable,
+  which is what lets six reviewers of one commit share a
+  single tree. Tree providers register over the event bus, so
+  one can live in another package.
 - **[`subagent/`](subagent/)** — Subagent engine for
   running pi as a child process: spec/job composition,
   fleet fan-out, durable supervisor runs, stream parsing,

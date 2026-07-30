@@ -23,6 +23,34 @@ export type {
 	LineAnchor,
 } from "./anchor.js";
 export { anchorable, anchorPath, describeAnchor } from "./anchor.js";
+export type { FileRanges, LineRange } from "./ask/anchorable.js";
+export { anchorableRanges, describeRanges } from "./ask/anchorable.js";
+export type {
+	AuditHarvest,
+	AuditRequest,
+	AuditResult,
+	Standing,
+	ThreadAudit,
+} from "./ask/audit.js";
+export { harvestAudits, runAudit } from "./ask/audit.js";
+export type {
+	AskAnswer,
+	CouncilDeps,
+	CouncilRequest,
+	CouncilResult,
+} from "./ask/council.js";
+export { runCouncil } from "./ask/council.js";
+export type {
+	Critique,
+	CritiqueDeps,
+	CritiqueHarvest,
+	CritiqueRequest,
+	CritiqueResult,
+	Position,
+} from "./ask/critique.js";
+export { harvestCritiques, runCritique } from "./ask/critique.js";
+export type { Harvest } from "./ask/harvest.js";
+export { harvestFindings } from "./ask/harvest.js";
 // Asking other models about a change: who is asked, and keeping
 // what their names mean stable while findings accumulate.
 export type {
@@ -37,8 +65,59 @@ export {
 	createIdentityLedger,
 	participantIdentity,
 } from "./ask/identity.js";
+export type { JudgeRequest, JudgeResult } from "./ask/judge.js";
+export { runJudge } from "./ask/judge.js";
+export type {
+	CharterLookup,
+	Persona,
+	PersonaBind,
+	PersonaBinding,
+	PersonaParse,
+} from "./ask/persona.js";
+export { bindPersonas, parsePersona } from "./ask/persona.js";
+export type {
+	AuditPromptInput,
+	CritiquePromptInput,
+	JudgePromptInput,
+	PromptInput,
+	StackChangePrompt,
+	StackPromptInput,
+} from "./ask/prompt.js";
+export {
+	auditPrompt,
+	councilPrompt,
+	critiquePrompt,
+	judgePrompt,
+	stackPrompt,
+} from "./ask/prompt.js";
 export type { ParticipantParse, Roster, RosterParse } from "./ask/roster.js";
 export { parseParticipant, parseRoster } from "./ask/roster.js";
+export type {
+	AskRound,
+	AskRun,
+	AskUsage,
+	ParticipantOutcome,
+	RunSummary,
+} from "./ask/run.js";
+export {
+	askedOf,
+	newRunId,
+	runSummary,
+	substituteOutcome,
+} from "./ask/run.js";
+export type {
+	FindingSpan,
+	SpannedFinding,
+	StackHarvest,
+} from "./ask/span.js";
+export { harvestStackFindings, saidAt } from "./ask/span.js";
+export type {
+	StackCouncilDeps,
+	StackCouncilRequest,
+} from "./ask/stack-round.js";
+export { runStackCouncil } from "./ask/stack-round.js";
+export type { RunStore } from "./ask/store.js";
+export { createRunStore } from "./ask/store.js";
 export type {
 	Attachment,
 	AttachmentStore,
@@ -50,6 +129,8 @@ export {
 	chooseChange,
 	createAttachmentStore,
 } from "./attach.js";
+export type { AuthoringIntent, Offerable } from "./authoring.js";
+export { offerable } from "./authoring.js";
 export type { TargetResolution } from "./bind.js";
 export {
 	bindTarget,
@@ -57,9 +138,12 @@ export {
 	resolveTarget,
 } from "./bind.js";
 export type {
+	AuthoringCapabilities,
 	Capabilities,
 	ConversationCapabilities,
 	ProposalCapabilities,
+	RetargetScope,
+	ReviewersAt,
 	StackingCapabilities,
 	StalenessModel,
 } from "./capabilities.js";
@@ -104,6 +188,12 @@ export {
 	lineNumberOn,
 	parseUnifiedDiff,
 } from "./diff.js";
+export type {
+	ChangePublishOutcome,
+	StackPublishEntry,
+	StackPublishOutcome,
+} from "./draft/fanout.js";
+export { publishAcross } from "./draft/fanout.js";
 export type { DraftDeps, ReviewDraft } from "./draft/handle.js";
 export { openDraft, resumeDraft } from "./draft/handle.js";
 export type {
@@ -158,7 +248,20 @@ export type {
 	FindingStore,
 } from "./finding.js";
 export { createFindingStore } from "./finding.js";
+export type {
+	FixOutcome,
+	FixQueue,
+	FixTally,
+	QueuedFix,
+} from "./fix.js";
+export { createFixQueue } from "./fix.js";
 export { changeKey, repoKey, targetKey } from "./keys.js";
+export type {
+	CheckoutFacts,
+	ProposalFill,
+	ProposalWanted,
+} from "./propose-from.js";
+export { fillProposal } from "./propose-from.js";
 
 export type {
 	AuthoringFacet,
@@ -180,6 +283,7 @@ export type { Exec, ExecResult, ProviderDeps } from "./providers/exec.js";
 // and writing that again per library produces worse diagnostics.
 export { run } from "./providers/exec.js";
 export { createGitProvider } from "./providers/git/index.js";
+export { githubAuthoring } from "./providers/github/authoring.js";
 /**
  * The GitHub provider's pure helpers, for consumers still
  * bridging GitHub-shaped code onto the substrate. Neither

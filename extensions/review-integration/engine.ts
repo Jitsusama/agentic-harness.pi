@@ -8,6 +8,7 @@
  * only when the configuration it was built from changes.
  */
 
+import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { stateDir } from "../../lib/internal/paths.js";
@@ -35,6 +36,38 @@ export function attachmentDir(): string {
 /** Where findings raised against a change live. */
 export function findingDir(): string {
 	return join(stateDir("review"), "findings");
+}
+
+/** Where the rounds asked about a change live. */
+export function runDir(): string {
+	return join(stateDir("review"), "runs");
+}
+
+/** Where findings queued to fix rather than say live. */
+export function fixDir(): string {
+	return join(stateDir("review"), "fixes");
+}
+
+/**
+ * Where persona charters are read from.
+ *
+ * Beside the config a person edits rather than under the state
+ * directory, because a persona is something somebody writes and argues
+ * with, not something the tool accumulates. `REVIEW_PERSONAS_DIR`
+ * wins, then `$XDG_CONFIG_HOME/pi/personas`, then
+ * `~/.config/pi/personas`.
+ */
+export function personaDir(
+	env: NodeJS.ProcessEnv = process.env,
+	home = homedir(),
+): string {
+	const explicit = env.REVIEW_PERSONAS_DIR;
+	if (explicit !== undefined && explicit.trim() !== "") return explicit;
+	const xdg = env.XDG_CONFIG_HOME;
+	if (xdg !== undefined && xdg.trim() !== "") {
+		return join(xdg, "pi", "personas");
+	}
+	return join(home, ".config", "pi", "personas");
 }
 
 /** Adapt pi's exec to the library's seam. */

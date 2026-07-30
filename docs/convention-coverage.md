@@ -372,6 +372,25 @@ is followed by judgment, not by a regex.
   else: an answer that cited a handle only when the budget cut it,
   so an audit eliding eight thousand elements cited nothing, and
   a citation naming a reader that the session had not loaded.
+  A rule that is not in any skill is gated the same way, because
+  the failure it prevents is silent and already happened:
+  🟢 every git command a library shells out must say which repo
+  it means.
+  `lib/review`'s `Exec` is `(command, args)` with no working
+  directory, so `-C` is the only way to scope a call and leaving
+  it off runs against whatever repo the process sits in. That
+  shipped once, in `createGitTreeProvider.release`, and stayed
+  shipped because the unit test asserted `toContain` on the argv,
+  which cannot see a missing flag.
+  `tests/package/git-scoping.test.ts` reads every git invocation
+  in `lib/review` and `lib/work` and fails on any that does not
+  scope itself, naming the file and line. Verified against both
+  real instances: the bug that shipped, and dropping `-C` from
+  the engine's range diff. Reading source text is blunt on
+  purpose, since a type change would have to reach providers in
+  other packages and a runtime assertion only fires on paths a
+  test exercises, which is exactly the gap that let the original
+  through.
   A third AGENTS-level rule is gated in the same family:
   🟢 a capability these tools offer is written down where an
   agent will look for it.
@@ -407,6 +426,19 @@ is followed by judgment, not by a regex.
   `pr-workflow-stack-review-output`. Loaded into subagents via
   `--skill`; enforcement is the `verify_output` tool from
   `pr-workflow-verify`, not the main-agent gate stack.
+- **Review round output contracts**: `review-council-format`,
+  `review-judge-format`, `review-critique-format`,
+  `review-audit-format`, `review-stack-format`. The substrate's
+  own contracts, loaded into each round's subagent via `--skill`.
+  Enforcement is the harvest reader rather than a verify tool: a
+  malformed entry is dropped and warned about rather than
+  refused, so a reviewer that half-follows the contract still
+  contributes what it got right. `tests/extensions/
+  review-contract-skills.test.ts` checks that every round a
+  prompt cites a contract for has one on disk, since a missing
+  file is silent at runtime: the subagent starts, is told to
+  follow a contract it was never given, and answers
+  unparseably for no stated reason.
 
 ## Why a Coverage Matrix Exists at All
 

@@ -135,7 +135,17 @@ export interface ProposalDraft {
 	head: string;
 	title: string;
 	body: string;
-	draft?: boolean;
+	/**
+	 * Whether it opens as a draft. Required, deliberately.
+	 *
+	 * The backends disagree about what silence means: one defaults a new
+	 * change to ready and another defaults it to draft. An optional flag
+	 * would make the same call produce a live change on one and an
+	 * invisible one on the other, and the caller who gets it wrong finds
+	 * out either from a surprised reviewer or from a change nobody ever
+	 * looked at. Saying so every time costs a word.
+	 */
+	draft: boolean;
 }
 
 /** How a change should be integrated. */
