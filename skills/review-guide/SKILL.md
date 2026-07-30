@@ -78,6 +78,26 @@ survived scrutiny and which a reviewer thinks are wrong, and
 the finding it disputes. Silence means no position, never agreement,
 so do not read an uncontested finding as a corroborated one.
 
+## Personas Are What Make Six Reviewers Worth Asking
+
+A roster entry may name a `persona`, and the charter behind it becomes
+that reviewer's system prompt. Without one, six reviewers are one
+reviewer asked six times.
+
+Charters are markdown files in `~/.config/pi/personas` (or
+`$XDG_CONFIG_HOME/pi/personas`, or wherever `REVIEW_PERSONAS_DIR`
+points). The file name is the persona id. Frontmatter carries `name`
+and `description` and **no mechanism**: which model a lens runs on, how
+hard it thinks and what tools it can reach live in the roster beside
+the other participants, so the same lens at two thinking levels is two
+roster entries rather than two nearly identical files. The body is the
+charter.
+
+**A persona named in the roster and missing on disk refuses the whole
+round.** It does not quietly run a generic reviewer: that reviewer
+would still file its findings under the specialist's name, and whoever
+read them afterwards would weigh them as a specialist's.
+
 ## Reviewing a Stack as a Stack
 
 `review_ask stack` puts every change in the stack to every reviewer

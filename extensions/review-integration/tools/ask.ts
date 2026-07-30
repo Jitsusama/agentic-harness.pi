@@ -18,6 +18,8 @@
  * than both.
  */
 
+import { readdir, readFile } from "node:fs/promises";
+import { basename, join } from "node:path";
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import type { Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
@@ -26,6 +28,7 @@ import {
 	type AskAnswer,
 	type AskRun,
 	auditPrompt,
+	bindPersonas,
 	type ChangeRef,
 	type Critique,
 	councilPrompt,
@@ -37,6 +40,7 @@ import {
 	type Finding,
 	judgePrompt,
 	type Participant,
+	parsePersona,
 	parseRoster,
 	type Roster,
 	type RunStore,
@@ -57,7 +61,7 @@ import {
 	getParentPiInstall,
 	runReviewer,
 } from "../../../lib/subagent/index.js";
-import { findingDir, reviewEngine, runDir } from "../engine.js";
+import { findingDir, personaDir, reviewEngine, runDir } from "../engine.js";
 import { GLYPH } from "../render.js";
 import { treeForRound } from "../work.js";
 import {
@@ -236,6 +240,7 @@ async function askCouncil(
 	params: AskParams,
 ): Promise<Answer> {
 	const roster = await rosterOrThrow();
+	const charters = await chartersFor(roster);
 	await claimIdentities(change, "reviewer", roster.reviewers);
 	const { proposal, diff } = await material(bound);
 	const prompt = councilPrompt({
@@ -258,7 +263,7 @@ async function askCouncil(
 				? {}
 				: { witness: proposal.headCommit }),
 		},
-		deps(change, tree.path),
+		deps(change, tree.path, charters),
 	);
 
 	await createRunStore(runDir()).record(change, run);
@@ -272,6 +277,7 @@ async function askJudge(
 	params: AskParams,
 ): Promise<Answer> {
 	const roster = await rosterOrThrow();
+	const charters = await chartersFor(roster);
 	if (roster.judge === undefined) {
 		return refuse(
 			"This roster names no judge, so there is nobody to consolidate with. Add a judge to the config, with an id of its own: a judge reads what the reviewers said, so it cannot share a reviewer's name.",
@@ -310,7 +316,7 @@ async function askJudge(
 				? {}
 				: { witness: proposal.headCommit }),
 		},
-		deps(change, tree.path),
+		deps(change, tree.path, charters),
 	);
 
 	await store.record(change, run);
@@ -330,6 +336,7 @@ async function askCritique(
 	params: AskParams,
 ): Promise<Answer> {
 	const roster = await rosterOrThrow();
+	const charters = await chartersFor(roster);
 	await claimIdentities(change, "reviewer", roster.reviewers);
 
 	const store = createRunStore(runDir());
@@ -360,7 +367,7 @@ async function askCritique(
 			seq: 1,
 			findingIds: raised.map((finding) => finding.id),
 		},
-		{ ask: deps(change, tree.path).ask, now: () => new Date() },
+		{ ask: deps(change, tree.path, charters).ask, now: () => new Date() },
 	);
 
 	await store.record(change, run);
@@ -390,6 +397,7 @@ async function askStack(
 	params: AskParams,
 ): Promise<Answer> {
 	const roster = await rosterOrThrow();
+	const charters = await chartersFor(roster);
 
 	const stack = await bound.stack();
 	if (!stack) {
@@ -464,7 +472,7 @@ async function askStack(
 			witnessFor: (ref) => witnesses.get(ref),
 		},
 		{
-			ask: deps(tip.change, tree.path).ask,
+			ask: deps(tip.change, tree.path, charters).ask,
 			async record(ref, raised) {
 				const change = changeFor.get(ref);
 				if (change === undefined) return [];
@@ -500,6 +508,7 @@ async function askAudit(
 	params: AskParams,
 ): Promise<Answer> {
 	const roster = await rosterOrThrow();
+	const charters = await chartersFor(roster);
 	// The judge audits, because weighing what exists against a change
 	// is the judging role and a roster should not need a fourth kind of
 	// participant to say so.
@@ -555,7 +564,7 @@ async function askAudit(
 			seq: 1,
 			threadIndices,
 		},
-		{ ask: deps(change, tree.path).ask, now: () => new Date() },
+		{ ask: deps(change, tree.path, charters).ask, now: () => new Date() },
 	);
 
 	await createRunStore(runDir()).record(change, run);
@@ -649,6 +658,7 @@ async function retryOne(
 	}
 
 	const roster = await rosterOrThrow();
+	const charters = await chartersFor(roster);
 	const participant =
 		roster.reviewers.find((r) => r.id === asked.id) ??
 		(roster.judge?.id === asked.id ? roster.judge : undefined);
@@ -690,7 +700,7 @@ async function retryOne(
 						seq: 1,
 						...witness,
 					},
-					deps(change, tree.path),
+					deps(change, tree.path, charters),
 				)
 			: await runCouncil(
 					{
@@ -699,7 +709,7 @@ async function retryOne(
 						seq: 1,
 						...witness,
 					},
-					deps(change, tree.path),
+					deps(change, tree.path, charters),
 				);
 
 	const outcome = fresh.outcomes[0];
@@ -795,6 +805,62 @@ async function rosterOrThrow(): Promise<Roster> {
 	return parsed.roster;
 }
 
+/**
+ * Every charter on disk, by persona id.
+ *
+ * Read once per round rather than per participant, since six reviewers
+ * naming three personas should not be six directory walks. A file that
+ * will not parse stops the round: a roster naming it would otherwise
+ * fail with "no such persona" while the file sits right there, which
+ * sends somebody looking in the wrong place.
+ */
+async function chartersOnDisk(): Promise<Map<string, string>> {
+	const dir = personaDir();
+	const charters = new Map<string, string>();
+
+	let names: string[];
+	try {
+		names = await readdir(dir);
+	} catch {
+		// No persona directory at all is the ordinary case for anybody who
+		// has never written one, and a roster naming no persona never
+		// asks. bindPersonas refuses if one is named.
+		return charters;
+	}
+
+	for (const name of names) {
+		if (!name.endsWith(".md")) continue;
+		const id = basename(name, ".md");
+		const parsed = parsePersona(id, await readFile(join(dir, name), "utf8"));
+		if ("refusal" in parsed) throw new Error(parsed.refusal);
+		charters.set(id, parsed.persona.charter);
+	}
+	return charters;
+}
+
+/**
+ * Each participant's charter, by participant id.
+ *
+ * Keyed by participant rather than by persona, because a round asks by
+ * participant id and the same lens can be on a roster twice at two
+ * thinking levels. A missing persona stops the round here, before
+ * anybody is asked, since a reviewer running without its lens files
+ * generic findings under a specialist's name.
+ */
+async function chartersFor(roster: Roster): Promise<Map<string, string>> {
+	const onDisk = await chartersOnDisk();
+	const bound = bindPersonas(roster, (id) => onDisk.get(id));
+	if ("refusal" in bound) throw new Error(bound.refusal);
+
+	const byParticipant = new Map<string, string>();
+	for (const binding of bound.bindings) {
+		if (binding.charter !== undefined) {
+			byParticipant.set(binding.participant.id, binding.charter);
+		}
+	}
+	return byParticipant;
+}
+
 /** The change and its diff, which every round needs. */
 async function material(bound: Awaited<ReturnType<typeof boundFor>>) {
 	const [proposal, diff] = await Promise.all([
@@ -817,7 +883,11 @@ async function material(bound: Awaited<ReturnType<typeof boundFor>>) {
  * whatever `pi` resolves to on PATH, so a reviewer runs the same
  * build as the session that asked it.
  */
-function deps(change: ChangeRef, cwd: string) {
+function deps(
+	change: ChangeRef,
+	cwd: string,
+	charters: ReadonlyMap<string, string> = new Map(),
+) {
 	const findings = createFindingStore(findingDir());
 	return {
 		async ask(participant: Participant, prompt: string): Promise<AskAnswer> {
@@ -839,6 +909,13 @@ function deps(change: ChangeRef, cwd: string) {
 				},
 				prompt,
 				cwd,
+				// The charter is a standing instruction, so it goes as the
+				// system prompt rather than being glued onto the front of the
+				// round's prompt: a lens is what the reviewer is, not part of
+				// what it was asked this time.
+				...(charters.get(participant.id) === undefined
+					? {}
+					: { systemPrompt: charters.get(participant.id) }),
 				runPi: createSpawnRunPi({ piInstall: getParentPiInstall() }),
 			});
 			if (result.exitCode !== 0 && result.finalAssistantText.trim() === "") {

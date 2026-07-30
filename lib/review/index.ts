@@ -68,6 +68,14 @@ export {
 export type { JudgeRequest, JudgeResult } from "./ask/judge.js";
 export { runJudge } from "./ask/judge.js";
 export type {
+	CharterLookup,
+	Persona,
+	PersonaBind,
+	PersonaBinding,
+	PersonaParse,
+} from "./ask/persona.js";
+export { bindPersonas, parsePersona } from "./ask/persona.js";
+export type {
 	AuditPromptInput,
 	CritiquePromptInput,
 	JudgePromptInput,
