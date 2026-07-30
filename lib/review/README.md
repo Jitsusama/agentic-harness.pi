@@ -58,6 +58,7 @@ in the loop:
 | [`critique.ts`](ask/critique.ts) | Pushing back on what was consolidated |
 | [`audit.ts`](ask/audit.ts) | Whether the change answers what people asked for |
 | [`authoring.ts`](authoring.ts) | Whether an authoring intent will work here |
+| [`propose-from.ts`](propose-from.ts) | What to propose, from the checkout you are in |
 | [`fanout.ts`](draft/fanout.ts) | Publishing one review across a stack |
 | [`persona.ts`](ask/persona.ts) | The lens a reviewer reads through |
 | [`span.ts`](ask/span.ts) | Which changes a finding is about |
@@ -229,6 +230,26 @@ is not a smaller version of the same operation.
 
 Every field there is a difference the CLI survey actually
 found, rather than a difference somebody expected to exist.
+
+## A Guess Is Fine When Somebody Sees It
+
+The provider infers nothing. It is handed explicit values,
+because a layer that quietly overrules a caller who already
+decided is a layer nobody can predict.
+
+[`fillProposal`](propose-from.ts) infers freely, and the two
+are not in tension. It runs where the answer goes into a
+confirmation gate before anything is sent, so every inference
+is on screen with a person looking at it. That is why
+`guessed` is part of the result rather than an implementation
+detail: the gate reads it out, and a wrong guess is caught by
+the one person who can tell.
+
+What it refuses to guess is as considered as what it guesses.
+A base with no trunk to read is refused rather than assumed
+to be `main`, because a wrong head is obvious to whoever
+approves while a wrong base proposes against something nobody
+meant and asks the wrong team to look at it.
 
 Where a target has no host, [`renderDraft`](draft/render.ts)
 writes the review out as a document instead, with the verdict

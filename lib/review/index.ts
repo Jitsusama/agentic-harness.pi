@@ -249,6 +249,12 @@ export type {
 } from "./finding.js";
 export { createFindingStore } from "./finding.js";
 export { changeKey, repoKey, targetKey } from "./keys.js";
+export type {
+	CheckoutFacts,
+	ProposalFill,
+	ProposalWanted,
+} from "./propose-from.js";
+export { fillProposal } from "./propose-from.js";
 
 export type {
 	AuthoringFacet,

@@ -153,11 +153,24 @@ so do not read an uncontested finding as a corroborated one.
 
 ## Putting Work Up
 
-`review_offer propose` turns a branch into a change. It needs a base, a
-head, a title, and **`draft` explicitly**: it is not defaulted, because
-the backends disagree about what silence means. One opens a new change
-ready and another opens it as a draft, so guessing makes the same call
-produce a live change on one and an invisible one on the other.
+`review_offer propose` turns a branch into a change. From a checkout,
+`review_offer propose draft:false` is usually the whole call: the head
+comes from the branch you are on, the base from the repo's trunk, and
+the title from the last commit's subject.
+
+**The gate names everything it took from the checkout.** Read that line
+rather than approving past it; it is there so a wrong guess is caught
+by the one person who can tell. It also says when the tree has
+uncommitted work in it, since what goes up is what was pushed.
+
+Two things are never guessed. **`draft` is required**, because the
+backends disagree about what silence means: one opens a new change
+ready and another opens it as a draft, so a default makes the same call
+produce a live change on one and an invisible one on the other. And a
+**base** with no trunk to read is refused rather than assumed to be
+`main`: a wrong head is obvious to whoever approves, while a wrong base
+proposes against something nobody meant and asks the wrong team to look
+at it.
 
 Every action asks the provider before it asks the network, and a
 refusal carries **what to do instead**. Pass that on rather than

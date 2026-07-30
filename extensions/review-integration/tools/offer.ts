@@ -20,10 +20,11 @@ import { Type } from "@sinclair/typebox";
 import type {
 	AuthoringIntent,
 	BoundTarget,
+	CheckoutFacts,
 	FieldEdit,
 	Proposal,
 } from "../../../lib/review/index.js";
-import { offerable } from "../../../lib/review/index.js";
+import { fillProposal, offerable } from "../../../lib/review/index.js";
 import { confirmWrite } from "../gate.js";
 import { GLYPH, proposalLine } from "../render.js";
 import {
@@ -85,6 +86,7 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 			"Put work up for review: propose, edit, ready, draft, reviewers, close, reopen, merge.",
 		promptGuidelines: [
 			"Say whether a new change is a draft. It is required, because the backends disagree about what silence means and the same call otherwise produces a live change on one and an invisible one on the other.",
+			"Proposing takes the head, base, title and body from the checkout when you do not name them, and the gate names everything it took. Read that line back rather than approving past it.",
 			"When an action is refused, pass on what it says to do instead rather than reporting a generic failure. The refusal names the door that is open.",
 			"Never retarget, ready or draft a change that is queued to merge without saying what that costs: on a queue-backed backend it ejects the change and everything batched with it.",
 			"Every action here opens a confirmation gate, so describe what you are about to do before calling it.",
@@ -116,15 +118,22 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 			),
 			base: Type.Optional(
 				Type.String({
-					description: "For propose: what it merges into. For edit: retarget.",
+					description:
+						"For propose: what it merges into, defaulting to the repo's trunk. For edit: retarget.",
 				}),
 			),
 			head: Type.Optional(
 				Type.String({
-					description: "For propose: the branch holding the work.",
+					description:
+						"For propose: the branch holding the work, defaulting to the one checked out.",
 				}),
 			),
-			title: Type.Optional(Type.String({ description: "Title." })),
+			title: Type.Optional(
+				Type.String({
+					description:
+						"Title. For propose, defaults to the last commit's subject.",
+				}),
+			),
 			body: Type.Optional(Type.String({ description: "Description." })),
 			draft: Type.Optional(
 				Type.Boolean({
@@ -205,7 +214,7 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 				}
 
 				if (params.action === "propose") {
-					return propose(ctx, bound, authoring, params);
+					return propose(pi, ctx, bound, authoring, params);
 				}
 
 				const change = hostedChange(bound);
@@ -272,29 +281,86 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 	});
 }
 
+/**
+ * What the checkout can tell us, for filling a proposal in.
+ *
+ * Every read is allowed to fail. A detached head has no branch, a repo
+ * with no origin has no trunk, and a fresh repo has no commit; each of
+ * those is a fact rather than an error, and `fillProposal` decides
+ * which ones it can live without.
+ */
+async function checkoutFacts(
+	pi: ExtensionAPI,
+	cwd: string,
+): Promise<CheckoutFacts> {
+	const git = async (...args: string[]): Promise<string | undefined> => {
+		try {
+			const result = await pi.exec("git", ["-C", cwd, ...args]);
+			const out = result.stdout.trim();
+			return result.code === 0 && out !== "" ? out : undefined;
+		} catch {
+			// Not a repo, or git is not here. Either way there is nothing
+			// to learn, and the caller says what it needed.
+			return undefined;
+		}
+	};
+
+	const [branch, originHead, subject, body, status] = await Promise.all([
+		git("rev-parse", "--abbrev-ref", "HEAD"),
+		git("symbolic-ref", "--short", "refs/remotes/origin/HEAD"),
+		git("log", "-1", "--format=%s"),
+		git("log", "-1", "--format=%b"),
+		git("status", "--porcelain"),
+	]);
+
+	return {
+		// A detached head reports the literal word HEAD, which is not a
+		// branch anybody can push.
+		...(branch !== undefined && branch !== "HEAD" ? { branch } : {}),
+		...(originHead === undefined
+			? {}
+			: { trunk: originHead.replace(/^origin\//, "") }),
+		...(subject === undefined ? {} : { subject }),
+		...(body === undefined ? {} : { bodyFromCommits: body }),
+		...(status === undefined ? {} : { dirty: true }),
+	};
+}
+
 /** Put a branch up as a change. */
 async function propose(
+	pi: ExtensionAPI,
 	ctx: Parameters<Parameters<ExtensionAPI["registerTool"]>[0]["execute"]>[4],
 	bound: BoundTarget,
 	authoring: NonNullable<BoundTarget["provider"]["authoring"]>,
 	params: OfferParams,
 ): Promise<Answer> {
-	const { base, head, title } = params;
-	if (!base || !head || !title) {
-		return refuse(
-			"Proposing needs a base, a head and a title. The base is what it merges into, the head is the branch holding the work.",
-		);
-	}
 	if (params.draft === undefined) {
-		// Not defaulted, on purpose. One backend opens a new change ready
-		// and another opens it as a draft, so guessing here means the same
-		// call produces a live change on one and an invisible one on the
-		// other, and the caller finds out from a surprised reviewer or
-		// from a change nobody ever looked at.
+		// Not defaulted, on purpose, and not guessable from the checkout
+		// either. One backend opens a new change ready and another opens
+		// it as a draft, so guessing means the same call produces a live
+		// change on one and an invisible one on the other, and the caller
+		// finds out from a surprised reviewer or from a change nobody ever
+		// looked at.
 		return refuse(
 			"Say whether this opens as a draft. It is not defaulted, because the backends disagree about what silence means: one opens a new change ready and another opens it as a draft.",
 		);
 	}
+
+	// Everything else the checkout already knows. Guessing is safe here
+	// because the gate below shows every guess to a person before
+	// anything is sent, which is exactly what a provider inferring the
+	// same things could not promise.
+	const filled = fillProposal(
+		{
+			...(params.base === undefined ? {} : { base: params.base }),
+			...(params.head === undefined ? {} : { head: params.head }),
+			...(params.title === undefined ? {} : { title: params.title }),
+			...(params.body === undefined ? {} : { body: params.body }),
+		},
+		await checkoutFacts(pi, params.repo ?? process.cwd()),
+	);
+	if ("refusal" in filled) return refuse(filled.refusal);
+	const { base, head, title, body, guessed, warnings } = filled.fill;
 
 	const approved = await confirmWrite(
 		ctx,
@@ -302,10 +368,16 @@ async function propose(
 		[
 			`${GLYPH.target} ${title}${params.draft ? " (draft)" : ""}`,
 			`   ${head} → ${base}`,
-			...(params.body ? ["", params.body] : []),
+			...(body ? ["", body] : []),
 			...(params.reviewers?.length
 				? ["", `Asking: ${params.reviewers.join(", ")}`]
 				: []),
+			// Named rather than merely used, so a wrong guess is caught
+			// here by the one person who can tell.
+			...(guessed.length === 0
+				? []
+				: ["", `Taken from the checkout: ${guessed.join(", ")}.`]),
+			...warnings.map((warning) => `\n${GLYPH.refused} ${warning}`),
 		].join("\n"),
 	);
 	if (!approved) return say("Not proposed.");
@@ -315,7 +387,7 @@ async function propose(
 		base,
 		head,
 		title,
-		body: params.body ?? "",
+		body,
 		draft: params.draft,
 	});
 
