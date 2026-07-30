@@ -6,5 +6,5 @@ guidance.
 Activates when creating pull requests, writing PR descriptions
 or discussing what makes a good PR.
 
-Pairs with the [pr-workflow extension](../../extensions/pr-workflow/)
+Pairs with the [review-integration extension](../../extensions/review-integration/)
 for inline self-review comments.

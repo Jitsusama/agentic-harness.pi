@@ -98,6 +98,9 @@ is `~/.local/share/pi/agentic-harness.pi/quest-workflow/quests/`
   (the stage machine, plan-doc scaffolding, the status-bar
   widget) live here now, with plans positioned as one of
   four document kinds under a quest.
-- `pr-workflow` cooperates by writing PR review notes as
-  research documents under a sidequest with `github-pr`
-  aliases.
+- The bridge in `lib/quest/pr-bridge.ts` lets a review tool
+  write review notes as research documents under a sidequest
+  found by a `github-pr` alias. Nothing consumes it at
+  present: the review substrate would need an alias type per
+  provider first, since a change on a system other than
+  GitHub has no `github-pr` form to be found by.

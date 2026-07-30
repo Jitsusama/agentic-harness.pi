@@ -41,8 +41,8 @@ authoring flows eventually stop leaning on the shell guardians:
 the gate lives where the action is, instead of downstream of a
 command line that has to be parsed back into intent.
 
-Without a UI the gate approves, matching the pr-workflow gates.
-A tool running inside a subagent has nobody to ask.
+Without a UI the gate approves. A tool running inside a subagent
+has nobody to ask.
 
 ## Publishing Is Planned Out Loud
 

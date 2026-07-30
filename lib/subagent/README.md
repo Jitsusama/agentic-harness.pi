@@ -7,8 +7,8 @@ Each subagent is its own pi run (`pi --mode json --no-session
 tool palette. The library composes the args, watches the
 JSON stream and surfaces tokens, costs, warnings and verify
 outcomes back to the parent. It is the substrate underneath
-the pr-workflow council and the future
-`subagent-workflow` extension.
+the review substrate's ask rounds and the `subagent`
+fleet tool.
 
 ## Public surface
 
@@ -36,9 +36,9 @@ const { results } = await runFleet({
 `SubagentJob` captures the work; `SubagentSpec` captures
 the role. `runPi` is the runtime (`createSpawnRunPi` for
 fire-and-forget, `createSupervisorRunPi` for durable runs
-with crash recovery). The legacy `runReviewer` shape (one
-flat options bag, used by pr-workflow's existing
-callsites) remains exported during the migration.
+with crash recovery). The older `runReviewer` shape, one
+flat options bag, remains exported because the review
+substrate's ask rounds still call it.
 
 ## Always-load defaults
 

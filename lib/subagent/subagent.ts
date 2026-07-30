@@ -10,7 +10,7 @@
  * do that.
  *
  * This module is the per-subagent dispatcher. Higher-level
- * orchestrators (the pr-workflow council, the
+ * orchestrators (the review ask rounds, the
  * subagent-workflow tool) compose multiple subagents,
  * feed them prompts plus working directories and collect
  * their outputs.
@@ -49,7 +49,7 @@ const STALE_RUNTIME_EXIT_CODE = 127;
  * Lower bound on per-call timeout overrides. Mirrors the
  * tool schema's `Type.Integer({ minimum: 1000 })` so the
  * library boundary applies the same floor regardless of
- * which entry point fires (the fleet tool, pr-workflow,
+ * which entry point fires (the fleet tool, a review round,
  * a direct library consumer).
  */
 const MIN_TIMEOUT_MS = 1000;
@@ -165,11 +165,10 @@ export { extractUsageFromPiStream } from "./stream.js";
 
 /**
  * A subagent spec: identity, model, thinking level, tool
- * palette. This is the per-job input the engine reads; the
- * pr-workflow council layer uses the same shape to
- * describe one reviewer slot. The runner moves into
- * `lib/subagent/` in a later step, and the `CouncilReviewer`
- * alias below is retired then.
+ * palette. This is the per-job input the engine reads, and
+ * a review round uses the same shape to describe one
+ * participant. The `CouncilReviewer` alias below is
+ * retired once its remaining callers use this name.
  */
 export interface SubagentSpec {
 	/** Stable id used in finding origin and result correlation. */
@@ -192,11 +191,9 @@ export interface SubagentSpec {
 }
 
 /**
- * Legacy alias for {@link SubagentSpec}. Retained so the
- * pr-workflow internals don't churn during the engine
- * extraction; removed once the engine lifts into
- * `lib/subagent/` and pr-workflow imports `SubagentSpec`
- * directly.
+ * Legacy alias for {@link SubagentSpec}, from when the only
+ * caller was a council of reviewers. Kept because callers
+ * still name it; removed once they say `SubagentSpec`.
  */
 export type CouncilReviewer = SubagentSpec;
 
@@ -489,8 +486,8 @@ export async function runReviewer(
 	// from the public API (library consumers and the fleet
 	// tool). The schema enforces a floor at the tool
 	// boundary, but the library is also a public entry
-	// point: pr-workflow's reviewers and any future caller
-	// land here directly. Validate once at the boundary so
+	// point: a review round's participants and any future
+	// caller land here. Validate once at the boundary so
 	// nonsense values (NaN, negatives, idle > wall) never
 	// reach the runner where they'd kill the child or
 	// silently bypass the ceiling.
@@ -952,9 +949,10 @@ function isMeaningfulStderrLine(line: string): boolean {
 }
 
 /**
- * Tool name registered by the `pr-workflow-verify` sibling
- * extension. Reviewer subagents call this tool to validate
- * their JSON output before ending the run. Pi's `--tools`
+ * Tool name a verify pack registers. A subagent calls it to
+ * validate its JSON output before ending the run, when the
+ * caller attached a pack; the `subagent` tool's `verify`
+ * option is what does so. Pi's `--tools`
  * flag is an allowlist that applies to extension tools too,
  * so the dispatcher must include this in any non-empty
  * allowlist or the reviewer would be denied access to a
@@ -1065,12 +1063,12 @@ function truncate(s: string, max: number): string {
 // ---------------------------------------------------------------------------
 //
 // The library publishes a small composite API on top of
-// the flat `RunReviewerOptions`/`runReviewer` legacy used
-// by pr-workflow. New consumers should prefer the
-// `SubagentJob` + `runSubagent` shape; the legacy names
-// remain so the existing pr-workflow callsites keep
-// working unchanged. The two converge once pr-workflow
-// migrates its callsites.
+// the flat `RunReviewerOptions`/`runReviewer` shape. New
+// consumers should prefer `SubagentJob` + `runSubagent`.
+// The flat names remain because review-integration's ask
+// rounds still call them; they were kept for pr-workflow,
+// which no longer exists, and inherited rather than
+// chosen. The two converge when that caller moves.
 
 /**
  * A bundle of (extension, skill) paths that teach a

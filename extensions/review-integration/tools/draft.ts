@@ -42,6 +42,7 @@ import {
 	GLYPH,
 	outcomeNarration,
 	planNarration,
+	proseComplaint,
 } from "../render.js";
 import {
 	type Answer,
@@ -357,6 +358,11 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 						"There is nothing in this draft that can be published. Plan it to see why.",
 					);
 				}
+				// Before the gate, not after: the text about to go on
+				// somebody else's change is mostly written by models, and
+				// models emit emdashes and curly quotes by default.
+				const prose = proseComplaint(plan);
+				if (prose) return refuse(prose);
 				const approved = await confirmWrite(
 					ctx,
 					"Publish this review?",
@@ -435,6 +441,15 @@ async function publishStack(
 		return refuse(
 			"No change in this stack has a draft with anything publishable in it. Plan one to see why.",
 		);
+	}
+
+	// Every change, before any of them. Publishing across a stack is
+	// sequential and keeps what landed, so letting the first two
+	// through and refusing the third would leave a review half sent
+	// over a habit that is the same in all three.
+	for (const entry of entries) {
+		const prose = proseComplaint(entry.plan);
+		if (prose) return refuse(`${entry.ref}: ${prose}`);
 	}
 
 	const approved = await confirmWrite(

@@ -190,7 +190,7 @@ PR review comment structure.
 | Decorations (`(blocking)`, `(non-blocking)`, `(if-minor)`, `(security)`) | Decorations | ⚪ | Judgment about whether a comment blocks the merge. |
 | Tone (Canadian-polite, instructional, no praise unless real) | Tone | ⚪ | Judgment. |
 | Evidence-based claims | Evidence-Based Comments | ⚪ | Judgment. |
-| Prose conventions inside comment bodies | (inherits prose-standard) | 🟢 | `pr-workflow` post action gates the review summary and every comment body via `buildReviewProseGate` |
+| Prose conventions inside comment bodies | (inherits prose-standard) | 🟢 | `review_draft publish` and `publish-stack` refuse via `proseComplaint`, over the review body and every anchored comment. Found by the deletion sweep: the gate had lived in the extension being removed, and nothing else covered the one place the writing leaves the repo |
 
 ### slack-guide
 
@@ -288,7 +288,7 @@ is followed by judgment, not by a regex.
 
 - **Methodology guides**: `code-investigation-guide`,
   `code-tdd-guide`, `planning-guide`, `subagent-fleet-guide`,
-  `pr-workflow-guide`, `review-guide`,
+  `review-guide`,
   `convention-recurrence-sensor-guide`, `session-log-guide`.
 
   `review-guide` is worth a note, because it looks gateable and
@@ -420,12 +420,6 @@ is followed by judgment, not by a regex.
   agent writes about a result, not in the result.
 - **GitHub navigation guides**: `github-project-guide`,
   `github-sub-issue-guide`.
-- **Subagent output contracts**: `pr-workflow-council-output`,
-  `pr-workflow-critique-output`, `pr-workflow-judge-output`,
-  `pr-workflow-stack-judge-output`,
-  `pr-workflow-stack-review-output`. Loaded into subagents via
-  `--skill`; enforcement is the `verify_output` tool from
-  `pr-workflow-verify`, not the main-agent gate stack.
 - **Review round output contracts**: `review-council-format`,
   `review-judge-format`, `review-critique-format`,
   `review-audit-format`, `review-stack-format`. The substrate's

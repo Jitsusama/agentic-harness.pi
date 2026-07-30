@@ -80,11 +80,14 @@ all. Providers register over the event bus, which means a
 provider for a private review system can live in a different
 package entirely. `review-guide` teaches the tools.
 
-**Review pull requests with a council.** The `pr-workflow`
-extension runs a conversation-first, multi-model review: a
-council of reviewers fans out, a judge consolidates, an optional
-critique round pushes back, and you synthesize before anything
-posts. `pr-workflow-guide` teaches the tool,
+**Ask other models about a change.** `review_ask` runs a
+conversation-first, multi-model review through the same
+substrate: a council of reviewers fans out, a judge
+consolidates, an optional critique round pushes back, an audit
+weighs the threads already on the change, and a stack round
+reads every change at once. Nothing posts until you decide, and
+a finding you agree with on your own change becomes queued work
+rather than a remark. `review-guide` teaches it,
 `code-review-standard` the evaluation criteria and
 `comment-format` the comment shape.
 

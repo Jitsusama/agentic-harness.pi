@@ -63,7 +63,6 @@ const MUST_BOUND = [
 	"lsp-integration",
 	"memory-integration",
 	"quest-workflow",
-	"pr-workflow",
 	"review-integration",
 	"result-store-workflow",
 	"work-integration",
@@ -202,7 +201,6 @@ describe("tools that can answer big must bound their answers", () => {
 			"issue-guardian",
 			"history-guardian",
 			"prompt-coordinator-workflow",
-			"pr-workflow-verify",
 		]);
 		const accounted = new Set<string>([
 			...MUST_BOUND,

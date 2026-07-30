@@ -99,7 +99,7 @@ sorted in opposite directions:
 | Broker | Order | Built-in at | Downstream declared |
 |---|---|---|---|
 | `lib/tree` | smallest first | 100 | `PROVIDER_PRIORITY = 50` |
-| pr-workflow worktrees | largest first | 0 | `PROVIDER_PRIORITY = 100` |
+| the review extension's worktrees | largest first | 0 | `PROVIDER_PRIORITY = 100` |
 
 Both downstream World providers were correct under their own
 broker, holding the same constant name at two values that meant

@@ -126,7 +126,7 @@ number you can report. Query for it.
 | `slack` | Message records with `user`, `text`, `ts`, `thread_ts` |
 | `google` | Message records, or a document's `file`, `content` and `comments` |
 | `lsp` | Locations with `path`, `line`, `character` |
-| `pr_workflow` | The consolidated findings of the most recent judge run |
+| `review_see` | The findings raised on a change, newest run last |
 | `quest` | The verb's own details, with rows under `listing` |
 | `subagent` | Per-subagent results, alongside the files each one wrote |
 
