@@ -5,7 +5,6 @@ import {
 	readFileSync,
 	realpathSync,
 	rmSync,
-	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,6 +18,7 @@ import {
 	clearTreeProviders,
 	registerBuiltinTreeProviders,
 } from "../../../lib/tree/index";
+import { freshRepo } from "../../support/git-fixture.js";
 import { createEnvGuard } from "./_helpers";
 
 const execFileAsync = promisify(execFile);
@@ -42,14 +42,7 @@ const envGuard = createEnvGuard();
 beforeEach(async () => {
 	envGuard.enter();
 	tmpRoot = mkdtempSync(join(tmpdir(), "tree-adopt-state-"));
-	repoRoot = mkdtempSync(join(tmpdir(), "tree-adopt-repo-"));
-	const git = (...a: string[]) => execFileAsync("git", a, { cwd: repoRoot });
-	await git("init", "-q", "-b", "main");
-	await git("config", "user.email", "t@t");
-	await git("config", "user.name", "t");
-	writeFileSync(join(repoRoot, "README.md"), "x\n");
-	await git("add", "README.md");
-	await git("commit", "-qm", "seed");
+	repoRoot = await freshRepo("tree-adopt-repo");
 	clearTreeProviders();
 	registerBuiltinTreeProviders();
 });

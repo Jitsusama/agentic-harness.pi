@@ -77,18 +77,34 @@ export default defineConfig({
 				test: {
 					name: "browser",
 					include: [BROWSER_TESTS],
-					// One at a time. Each of these files launches its own
-					// Chrome, so letting the pool run four at once put seven
-					// browsers on the machine and lost a race the emulation
-					// suite documents: under that much contention Chrome can
-					// run a page's first script before an override it was
-					// already sent has landed. That failed only in the full
-					// suite and never alone, which is the worst shape of
-					// flake to debug. The cost is a slower browser lane; the
-					// alternative is a suite that reports races nobody
-					// driving one browser will ever meet.
-					fileParallelism: false,
-					maxWorkers: 1,
+					// Four at a time, which was previously one.
+					//
+					// This used to run serially, because four workers put
+					// seven browsers on the machine and lost a race the
+					// emulation suite documents: under that contention Chrome
+					// can run a page's first script before an override it was
+					// already sent has landed.
+					//
+					// Seven was the tell. Four workers cannot make seven
+					// browsers, and they did because the browser lane was
+					// then also running inside the unit job, so browser
+					// workers competed with unit workers for the machine. The
+					// duplication was the cause and the serial lane was the
+					// symptom's dressing; with the lanes no longer overlapping
+					// four workers means four browsers.
+					//
+					// Measured after that change, with PI_RACE_TESTS=1 so the
+					// documented race guard actually runs: the lane went from
+					// 275.89s to 70.35s and the whole suite from about five
+					// minutes to 94s, with 4889 tests passing and no race,
+					// three runs in a row.
+					//
+					// The cap is the shared one rather than a flat four, so a
+					// two-core CI runner still runs this one browser at a
+					// time. Four browsers is right for a developer's machine
+					// and would be the old oversubscription on a small one.
+					fileParallelism: true,
+					maxWorkers: MAX_WORKERS,
 				},
 			},
 		],

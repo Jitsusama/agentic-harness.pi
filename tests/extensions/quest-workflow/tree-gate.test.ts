@@ -1,8 +1,6 @@
-import { execFile } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { enforceQuest } from "../../../extensions/quest-workflow/enforce";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
@@ -12,9 +10,8 @@ import {
 	clearTreeProviders,
 	registerBuiltinTreeProviders,
 } from "../../../lib/tree/index";
+import { freshRepo } from "../../support/git-fixture.js";
 import { createEnvGuard } from "./_helpers";
-
-const execFileAsync = promisify(execFile);
 
 // The state dir is not a git repo, so paths under it read as
 // loose files; tempRoots is forced to [] so the system temp
@@ -38,20 +35,7 @@ function buildState() {
 	return createQuestState({ questsRoot: join(tmpRoot, "quests") });
 }
 
-async function git(cwd: string, ...args: string[]) {
-	await execFileAsync("git", args, { cwd });
-}
-
-async function makeRepo(): Promise<string> {
-	const dir = mkdtempSync(join(tmpdir(), "tree-gate-repo-"));
-	await git(dir, "init", "-q", "-b", "main");
-	await git(dir, "config", "user.email", "test@example.com");
-	await git(dir, "config", "user.name", "Test");
-	writeFileSync(join(dir, "README.md"), "scratch\n");
-	await git(dir, "add", "README.md");
-	await git(dir, "commit", "-qm", "initial");
-	return dir;
-}
+const makeRepo = (): Promise<string> => freshRepo("tree-gate-repo");
 
 const envGuard = createEnvGuard();
 

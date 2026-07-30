@@ -1,43 +1,17 @@
-import { execFile } from "node:child_process";
-import {
-	existsSync,
-	mkdtempSync,
-	readFileSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createGitWorktreeProvider } from "../../../lib/internal/tree/providers/git-worktree";
-
-const execFileAsync = promisify(execFile);
+import { disposeRepo, freshRepo, git } from "../../support/git-fixture.js";
 
 let repoRoot: string;
 
-async function git(cwd: string, ...args: string[]): Promise<string> {
-	const { stdout } = await execFileAsync("git", args, { cwd });
-	return stdout.toString();
-}
-
-async function makeRepo(): Promise<string> {
-	const dir = mkdtempSync(join(tmpdir(), "tree-test-"));
-	await git(dir, "init", "-q", "-b", "main");
-	await git(dir, "config", "user.email", "test@example.com");
-	await git(dir, "config", "user.name", "Test");
-	writeFileSync(join(dir, "README.md"), "scratch repo\n");
-	await git(dir, "add", "README.md");
-	await git(dir, "commit", "-qm", "initial");
-	return dir;
-}
-
 beforeEach(async () => {
-	repoRoot = await makeRepo();
+	repoRoot = await freshRepo("tree-test");
 });
 
 afterEach(() => {
-	if (repoRoot) rmSync(repoRoot, { recursive: true, force: true });
+	disposeRepo(repoRoot);
 });
 
 describe("git-worktree provider", () => {

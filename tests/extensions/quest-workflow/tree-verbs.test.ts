@@ -1,4 +1,3 @@
-import { execFile } from "node:child_process";
 import {
 	existsSync,
 	mkdtempSync,
@@ -8,7 +7,6 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
@@ -22,9 +20,8 @@ import {
 	clearTreeProviders,
 	registerBuiltinTreeProviders,
 } from "../../../lib/tree/index";
+import { disposeRepo, freshRepo } from "../../support/git-fixture.js";
 import { createEnvGuard, succeeded } from "./_helpers";
-
-const execFileAsync = promisify(execFile);
 
 let tmpRoot: string;
 let repoRoot: string;
@@ -46,28 +43,12 @@ function buildState() {
 	return createQuestState({ questsRoot: join(tmpRoot, "quests") });
 }
 
-async function git(cwd: string, ...args: string[]): Promise<string> {
-	const { stdout } = await execFileAsync("git", args, { cwd });
-	return stdout.toString();
-}
-
-async function makeRepo(): Promise<string> {
-	const dir = mkdtempSync(join(tmpdir(), "tree-verbs-repo-"));
-	await git(dir, "init", "-q", "-b", "main");
-	await git(dir, "config", "user.email", "test@example.com");
-	await git(dir, "config", "user.name", "Test");
-	writeFileSync(join(dir, "README.md"), "scratch\n");
-	await git(dir, "add", "README.md");
-	await git(dir, "commit", "-qm", "initial");
-	return dir;
-}
-
 const envGuard = createEnvGuard();
 
 beforeEach(async () => {
 	envGuard.enter();
 	tmpRoot = mkdtempSync(join(tmpdir(), "tree-verbs-state-"));
-	repoRoot = await makeRepo();
+	repoRoot = await freshRepo("tree-verbs-repo");
 	clearRefTypes();
 	registerBuiltinRefTypes();
 	clearUrlFetchers();
@@ -77,7 +58,7 @@ beforeEach(async () => {
 
 afterEach(() => {
 	rmSync(tmpRoot, { recursive: true, force: true });
-	rmSync(repoRoot, { recursive: true, force: true });
+	disposeRepo(repoRoot);
 	clearRefTypes();
 	clearUrlFetchers();
 	clearTreeProviders();
