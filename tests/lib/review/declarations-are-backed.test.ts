@@ -24,6 +24,7 @@ import { describe, expect, it } from "vitest";
 import {
 	createGitHubProvider,
 	createGitProvider,
+	type RepoLocator,
 	type ReviewProvider,
 } from "../../../lib/review/index.js";
 
@@ -102,28 +103,55 @@ const BACKED_BY: ReadonlyArray<{
 	},
 ];
 
-/** An exec that must never run, since nothing here executes a command. */
-const unused = async () => {
+/**
+ * An exec that refuses, since building a provider must run no command.
+ *
+ * Rolled here rather than reached for from support/fake-exec.ts on purpose:
+ * a fake that answers cleanly would let a construction-time command through
+ * and nobody would see it. That is what the name has to carry, and calling
+ * it `unused` said the one thing about it that is false, since it is passed
+ * to every provider in the file.
+ */
+const refusesToRun = async () => {
 	throw new Error("building a provider must not run a command");
 };
 
 /** Every provider this package ships. */
 const PROVIDERS: ReadonlyArray<[string, ReviewProvider]> = [
-	["github", createGitHubProvider({ exec: unused })],
-	["git", createGitProvider({ exec: unused })],
+	["github", createGitHubProvider({ exec: refusesToRun })],
+	["git", createGitProvider({ exec: refusesToRun })],
 ];
 
-/** The repo each provider is asked about, in its own key space. */
-const REPO_FOR: Record<string, { key: string }> = {
+/**
+ * The repo each provider is asked about, in its own key space.
+ *
+ * The git provider's space is `local:`, not `git:`, which is what its own
+ * `claimRepo` mints and what every other test of it uses. The wrong prefix
+ * sat here contradicting the sentence above it, and was invisible because
+ * neither provider's `capabilities` reads its argument at all. It would
+ * stop being invisible for the first provider whose answer varies by repo,
+ * which is the kind this gate is being copied for: handed a key it does not
+ * recognize, it would return a default and every row would take the early
+ * return, reporting greens having compared nothing.
+ *
+ * `localPath` rides along because it is the only field a local provider
+ * ever reads off a locator.
+ */
+const REPO_FOR: Record<string, RepoLocator> = {
 	github: { key: "github:Shopify/world" },
-	git: { key: "git:/tmp/repo" },
+	git: { key: "local:/tmp/repo", localPath: "/tmp/repo" },
 };
 
 for (const [id, provider] of PROVIDERS) {
 	describe(`${id}: every capability that promises a method has one`, () => {
 		for (const { facet, capability, method, promises } of BACKED_BY) {
-			it(`backs ${facet}.${capability} with a callable`, async () => {
-				const declared = await provider.capabilities(REPO_FOR[id]);
+			it(`backs ${facet}.${capability} with a callable`, () => {
+				// Not awaited: `capabilities` returns a `Capabilities`, not a
+				// promise, and the engine calls it plainly while building a bound
+				// target. Awaiting it here described asking a provider what it can
+				// do as I/O, in the one file whose subject is what the contract
+				// actually requires.
+				const declared = provider.capabilities(REPO_FOR[id]);
 				const claims = declared[facet] as Record<string, unknown> | undefined;
 				const amounts = promises ?? ((value: unknown) => value === true);
 				if (!claims || !amounts(claims[capability])) return;
@@ -149,11 +177,11 @@ for (const [id, provider] of PROVIDERS) {
 			mandatory,
 		} of BACKED_BY) {
 			if (mandatory) continue;
-			it(`declares ${capability} when ${method} is there`, async () => {
+			it(`declares ${capability} when ${method} is there`, () => {
 				const built = provider[facet] as Record<string, unknown> | undefined;
 				if (typeof built?.[method] !== "function") return;
 
-				const declared = await provider.capabilities(REPO_FOR[id]);
+				const declared = provider.capabilities(REPO_FOR[id]);
 				const claims = declared[facet] as Record<string, unknown> | undefined;
 				const amounts = promises ?? ((value: unknown) => value === true);
 				expect(
@@ -166,17 +194,38 @@ for (const [id, provider] of PROVIDERS) {
 }
 
 describe("the gate itself", () => {
-	it("finds capabilities to check, rather than passing on an empty table", async () => {
+	it("compares exactly these declarations, named rather than counted", () => {
 		// A mapping that matched nothing would pass every case above by
 		// returning early, which is how a gate stops meaning anything.
-		const github = await createGitHubProvider({
-			exec: unused,
+		//
+		// This was a floor, and a floor was the wrong instrument. It read
+		// `toBeGreaterThan(5)` against eleven live rows, so four could be
+		// typoed dead in silence, and the number itself was underivable from
+		// anything: two separate readers worked out its slack and both got it
+		// wrong, in different directions. Naming the set says strictly more,
+		// needs no arithmetic from anybody, and turns losing a row from a
+		// silent shrinkage into a diff with a name on it.
+		const github = createGitHubProvider({
+			exec: refusesToRun,
 		}).capabilities(REPO_FOR.github);
-		const live = BACKED_BY.filter(({ facet, capability }) => {
+		const live = BACKED_BY.filter(({ facet, capability, promises }) => {
 			const claims = github[facet] as Record<string, unknown> | undefined;
-			return claims?.[capability] === true;
-		});
+			const amounts = promises ?? ((value: unknown) => value === true);
+			return claims !== undefined && amounts(claims[capability]);
+		}).map(({ facet, capability }) => `${facet}.${capability}`);
 
-		expect(live.length).toBeGreaterThan(5);
+		expect(live.sort()).toEqual([
+			"authoring.close",
+			"authoring.merge",
+			"authoring.propose",
+			"authoring.reopen",
+			"authoring.reviewersAt",
+			"authoring.setDraft",
+			"conversation.reactions",
+			"conversation.unresolve",
+			"proposals.checks",
+			"proposals.fetchAsRef",
+			"proposals.list",
+		]);
 	});
 });

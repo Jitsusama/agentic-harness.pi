@@ -113,6 +113,25 @@ const INTENT: Record<OfferParams["action"], AuthoringIntent["kind"]> = {
  * proposing is, so asking about retargeting would refuse work that was
  * never in question.
  */
+/**
+ * What to say when a capability promised a method the provider does not have.
+ *
+ * Every write in this file announces itself in the past tense on the line
+ * after the call, so an optional call that resolves to undefined because
+ * the method is absent tells somebody their change moved when it did not.
+ * Nothing logs it, nothing retries, and the backend is untouched while the
+ * session's account of it is wrong: recovery needs a person to go and look.
+ *
+ * The capability gate above refuses first for every provider that ships
+ * today, so this is what happens when one declares a capability without the
+ * method behind it. That case is exactly the one a build-time check cannot
+ * reach, since a provider arrives over the bus from a package that may
+ * never have copied the check.
+ */
+function missingMethod(providerId: string, what: string): string {
+	return `The ${providerId} provider declares it can ${what} but exposes no way to do it, so nothing happened. This is a bug in the provider rather than something you did.`;
+}
+
 function intentFor(params: OfferParams): AuthoringIntent["kind"] {
 	if (params.action !== "edit") return INTENT[params.action];
 	const movesBase =
@@ -345,7 +364,15 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 							cautioned(`${GLYPH.target} ${change.label}`, caution),
 						);
 						if (!approved) return say("Left as it was.");
-						await authoring.setDraft?.(change, wanted);
+						if (authoring.setDraft === undefined) {
+							return refuse(
+								missingMethod(
+									bound.provider.id,
+									"move a change between draft and ready",
+								),
+							);
+						}
+						await authoring.setDraft(change, wanted);
 						return say(
 							`${GLYPH.lands} ${change.label} is now ${wanted ? "a draft" : "ready for review"}.`,
 						);
@@ -375,7 +402,12 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 							`${GLYPH.target} ${change.label}`,
 						);
 						if (!approved) return say("Left closed.");
-						await authoring.reopen?.(change);
+						if (authoring.reopen === undefined) {
+							return refuse(
+								missingMethod(bound.provider.id, "reopen a closed change"),
+							);
+						}
+						await authoring.reopen(change);
 						return say(`${GLYPH.lands} ${change.label} reopened.`);
 					}
 					case "merge":
@@ -491,6 +523,14 @@ async function propose(
 	);
 	if (!approved) return say("Not proposed.");
 
+	// Where the reviewers go depends on when the backend can take them. One
+	// that takes them only at creation has to be told now, because after
+	// this call there is no moment left; one that takes them any time is
+	// asked afterwards, against the change that now exists.
+	const atCreation =
+		bound.capabilities.authoring?.reviewersAt === "creation" &&
+		(params.reviewers?.length ?? 0) > 0;
+
 	const made: Proposal = await authoring.propose({
 		repo: bound.repo,
 		base,
@@ -500,23 +540,24 @@ async function propose(
 		draft: params.draft,
 		...(params.labels?.length ? { labels: params.labels } : {}),
 		...(params.assignees?.length ? { assignees: params.assignees } : {}),
+		...(atCreation && params.reviewers ? { reviewers: params.reviewers } : {}),
 	});
 
-	// Reviewers after the change exists, since there is nothing to ask
+	// Otherwise after the change exists, since there is nothing to ask
 	// anyone to look at before that. A failure here leaves a real change
 	// behind, so it is reported rather than thrown: losing the change
 	// because the ask failed would be the worse trade.
-	let asking = "";
-	if (params.reviewers?.length) {
+	let asking = atCreation
+		? `\n   asked ${(params.reviewers ?? []).join(", ")}`
+		: "";
+	if (params.reviewers?.length && !atCreation) {
 		try {
 			// Not an optional call. Reporting "asked alice, bob" because the
 			// method was absent is the one degradation nobody can detect: it
 			// is said in the past tense about something that never happened,
 			// and the reviewers are simply never asked.
 			if (authoring.requestReviewers === undefined) {
-				throw new Error(
-					"the provider declares it can request reviewers but has no way to do it",
-				);
+				throw new Error(missingMethod(bound.provider.id, "request reviewers"));
 			}
 			await authoring.requestReviewers(made.ref, params.reviewers);
 			asking = `\n   asked ${params.reviewers.join(", ")}`;
@@ -691,7 +732,7 @@ async function reviewers(
 	// the capability without the method behind it.
 	if (authoring.requestReviewers === undefined) {
 		return refuse(
-			`The ${change.provider} provider declares it can request reviewers but has no way to do it, so nobody was asked. Ask them directly instead.`,
+			`${missingMethod(change.provider, "request reviewers")} Ask them directly instead.`,
 		);
 	}
 

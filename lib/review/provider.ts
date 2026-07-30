@@ -178,6 +178,20 @@ export interface ProposalDraft {
 	labels?: string[];
 	/** Assignees to open it with, in the backend's own naming. */
 	assignees?: string[];
+	/**
+	 * Reviewers to open it with, for a backend that takes them only then.
+	 *
+	 * Without this, `reviewersAt: "creation"` was a value nothing could
+	 * honour. It says the backend takes reviewers as the change is made, and
+	 * the only route the contract offered was `requestReviewers` afterwards,
+	 * which is precisely what such a backend cannot do. So a caller naming
+	 * reviewers on a creation-only provider had them silently dropped, or
+	 * asked for them after the one moment they could be given.
+	 *
+	 * A provider declaring `"any-time"` may ignore this and be asked through
+	 * `requestReviewers` instead. One declaring `"creation"` reads them here.
+	 */
+	reviewers?: string[];
 }
 
 /** How a change should be integrated. */
