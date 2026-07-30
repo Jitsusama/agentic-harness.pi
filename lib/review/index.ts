@@ -40,6 +40,19 @@ export {
 export type { ParticipantParse, Roster, RosterParse } from "./ask/roster.js";
 export { parseParticipant, parseRoster } from "./ask/roster.js";
 export type {
+	AskRound,
+	AskRun,
+	AskUsage,
+	ParticipantOutcome,
+	RunSummary,
+} from "./ask/run.js";
+export {
+	askedOf,
+	newRunId,
+	runSummary,
+	substituteOutcome,
+} from "./ask/run.js";
+export type {
 	Attachment,
 	AttachmentStore,
 	ChangeAmbiguous,
