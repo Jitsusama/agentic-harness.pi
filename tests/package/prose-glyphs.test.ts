@@ -39,7 +39,8 @@
  * break it.
  */
 
-import { readdirSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { detectProseViolations } from "../../lib/prose/index.js";
@@ -47,19 +48,31 @@ import { detectProseViolations } from "../../lib/prose/index.js";
 /** The rules about characters, as opposed to the ones about markup. */
 const GLYPH_RULES = ["emdash", "curly-quote", "ellipsis"];
 
-/** Every markdown file in the package. */
-function markdownUnder(dir: string): string[] {
-	return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-		const path = join(dir, entry.name);
-		if (entry.isDirectory()) {
-			// A worktree holds another checkout of this same repo, and
-			// node_modules holds other people's prose.
-			return [".git", "node_modules", ".worktrees"].includes(entry.name)
-				? []
-				: markdownUnder(path);
-		}
-		return entry.name.endsWith(".md") ? [path] : [];
-	});
+/**
+ * Every file of one extension that this repo actually tracks.
+ *
+ * Asking git rather than walking the disk, because the rule is about the
+ * prose this package ships and a walk cannot tell that from whatever else
+ * is lying around. This was not a theoretical distinction: a working
+ * checkout had 73 markdown files under a gitignored `.pi/plans/` and one
+ * of them tracked, so the walking version failed on 72 files nobody could
+ * commit, while a fresh worktree with none of that clutter passed. A gate
+ * whose answer depends on which checkout you run it in is not a gate.
+ *
+ * It also retires the hand-maintained skip list. `.git`, `node_modules`
+ * and `.worktrees` were named there so the walk would avoid them, and a
+ * tracked-file listing never mentions them in the first place.
+ */
+function trackedFiles(extension: string): string[] {
+	const listing = execFileSync(
+		"git",
+		["-C", process.cwd(), "ls-files", "-z", `*${extension}`],
+		{ encoding: "utf8", maxBuffer: 32 * 1024 * 1024 },
+	);
+	return listing
+		.split("\0")
+		.filter((path) => path !== "")
+		.map((path) => join(process.cwd(), path));
 }
 
 /**
@@ -79,18 +92,10 @@ const GLYPH_BEARING = [
 ];
 
 /** Every TypeScript file whose prose is held to the standard. */
-function typescriptUnder(dir: string): string[] {
-	return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-		const path = join(dir, entry.name);
-		if (entry.isDirectory()) {
-			return [".git", "node_modules", ".worktrees", "dist"].includes(entry.name)
-				? []
-				: typescriptUnder(path);
-		}
-		if (!entry.name.endsWith(".ts")) return [];
-		const relative = path.replace(`${process.cwd()}/`, "");
-		return GLYPH_BEARING.includes(relative) ? [] : [path];
-	});
+function heldTypescript(): string[] {
+	return trackedFiles(".ts").filter(
+		(path) => !GLYPH_BEARING.includes(path.replace(`${process.cwd()}/`, "")),
+	);
 }
 
 /**
@@ -110,7 +115,7 @@ function isRenderedSeparator(line: string): boolean {
 }
 
 describe("this package's own TypeScript", () => {
-	const files = typescriptUnder(process.cwd());
+	const files = heldTypescript();
 
 	it("has TypeScript to check", () => {
 		expect(files.length).toBeGreaterThan(200);
@@ -154,10 +159,10 @@ describe("this package's own TypeScript", () => {
 });
 
 describe("this package's own markdown", () => {
-	const files = markdownUnder(process.cwd());
+	const files = trackedFiles(".md");
 
 	it("has markdown to check", () => {
-		// A walk that found nothing would pass the rule below by default.
+		// A listing that found nothing would pass the rule below by default.
 		expect(files.length).toBeGreaterThan(50);
 	});
 
