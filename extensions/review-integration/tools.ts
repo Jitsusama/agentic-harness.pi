@@ -9,6 +9,7 @@
  * of paths.
  */
 
+export { registerAskTool } from "./tools/ask.js";
 export { registerDraftTool } from "./tools/draft.js";
 export { registerReviewTool } from "./tools/read.js";
 export { registerSayTool } from "./tools/say.js";

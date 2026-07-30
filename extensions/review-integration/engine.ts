@@ -37,6 +37,11 @@ export function findingDir(): string {
 	return join(stateDir("review"), "findings");
 }
 
+/** Where the rounds asked about a change live. */
+export function runDir(): string {
+	return join(stateDir("review"), "runs");
+}
+
 /** Adapt pi's exec to the library's seam. */
 function execFor(pi: ExtensionAPI): Exec {
 	return async (command, args) => {

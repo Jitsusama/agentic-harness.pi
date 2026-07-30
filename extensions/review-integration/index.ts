@@ -29,6 +29,7 @@ import {
 	reviewEngine,
 } from "./engine.js";
 import {
+	registerAskTool,
 	registerDraftTool,
 	registerReviewTool,
 	registerSayTool,
@@ -58,6 +59,7 @@ export default function reviewIntegration(pi: ExtensionAPI) {
 	registerReviewTool(pi);
 	registerSeeTool(pi);
 	registerSayTool(pi);
+	registerAskTool(pi);
 	registerDraftTool(pi);
 
 	const api: ReviewSubstrateApi = {
