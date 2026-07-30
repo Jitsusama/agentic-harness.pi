@@ -34,8 +34,34 @@ the mixture is held here and compiled later.
 | Model | [`change.ts`](change.ts), [`anchor.ts`](anchor.ts), [`diff.ts`](diff.ts), [`conversation.ts`](conversation.ts), [`stack.ts`](stack.ts), [`checks.ts`](checks.ts) | The neutral vocabulary, plus diff parsing and anchor checking |
 | Contract | [`provider.ts`](provider.ts), [`capabilities.ts`](capabilities.ts) | Facets a provider implements, and how far each one goes |
 | Selection | [`register.ts`](register.ts), [`resolve.ts`](resolve.ts), [`bind.ts`](bind.ts), [`config.ts`](config.ts) | Which provider handles this, decided in a declared order |
+| Findings | [`finding.ts`](finding.ts) | Observations about a change, numbered and stored, outliving whatever raised them |
+| Asking | [`ask/`](ask/) | Asking other models about a change, and keeping what their names mean stable |
 | Drafts | [`draft/`](draft/) | State, plan compilation, persistence, rendering, publishing |
 | Bus | [`events.ts`](events.ts) | How a provider in another package registers |
+
+## An Id Keeps Meaning One Thing
+
+A finding's origin names the participant that raised it, and a
+reader trusts that name to identify one thing. Re-point an id at
+a different model halfway through a session and every origin
+recorded before the change quietly starts lying, with nothing on
+the record to say so.
+
+So [`ask/identity.ts`](ask/identity.ts) holds an id to what it
+meant, once findings are attributed to it. Two details are worth
+knowing:
+
+It is told the findings rather than going to look for them.
+Whether a finding is attributed to an id is a fact about the
+finding, so a module that had to know where findings are stored
+would be answerable to every future place they might live.
+
+An id nothing points at is re-pointed in silence. The trail only
+matters where there is output to attribute, and refusing
+otherwise would make fixing a roster typo a chore. When it does
+refuse, it names both ways out: use another id, which keeps the
+trail exact, or release this one and accept that its findings
+become ambiguous about which participant they came from.
 
 ## Facets, Not One Interface
 
