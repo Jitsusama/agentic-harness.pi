@@ -1,7 +1,11 @@
 .pi/*
 !.pi/skills/
 .worktrees/
-node_modules/
+# No trailing slash: a git worktree that shares the root's install has
+# `node_modules` as a symlink, and `node_modules/` matches a directory
+# only. The slash let a bare `git add -A` commit the symlink, which CI
+# then tried to mkdir over and died with ENOTDIR before installing.
+node_modules
 extensions/*/package-lock.json
 package-lock.json
 coverage/
