@@ -48,6 +48,73 @@ owned which question.
 | `review_offer` | Putting work up and moving it along: propose, edit, ready, draft, reviewers, close, reopen, merge |
 | `review_draft` | Composing a whole review, then planning and publishing it |
 
+## What You Want, and What to Call
+
+Start here. Find the row, make the call.
+
+| You want to | Call |
+|---|---|
+| Work on a change and stop naming it | `review attach change:...` |
+| Know what this change is | `review_see change` |
+| Read the diff | `review_see diff` |
+| Know if CI is happy | `review_see checks` |
+| See what it sits on | `review_see stack` |
+| Read what people said | `review_see threads` |
+| Answer one remark | `review_say reply thread:N` |
+| Close a thread out | `review_say resolve thread:N` |
+| Say one thing on the change | `review_say comment` |
+| Get several models to review it | `review_ask council` |
+| Boil their findings down to one list | `review_ask judge` |
+| Have them argue with that list | `review_ask critique` |
+| Know which inbound threads are already fixed | `review_ask audit` |
+| Review a whole stack together | `review_ask stack` |
+| See what a round raised | `review_see findings` |
+| Keep a finding, in your own words | `review_draft decide settle:promote` |
+| Drop a finding | `review_draft decide settle:dismiss` |
+| Add a remark of your own | `review_draft finding path:... line:N` |
+| Know what publishing will do | `review_draft plan` |
+| Send the review | `review_draft publish` |
+| Send a review to every change in the stack | `review_draft publish-stack` |
+| Write it up when nothing hosts it | `review_draft render` |
+| Put a branch up for review | `review_offer propose draft:false` |
+| Fix a title or description | `review_offer edit` |
+| Move it out of draft | `review_offer ready` |
+| Ask people to look | `review_offer reviewers` |
+| Land it | `review_offer merge expectedHead:...` |
+
+## Three Ways This Gets Used
+
+**Reviewing someone else's change.** Attach it, read the diff and the
+checks, run a council and a judge, decide each finding into a draft,
+plan, publish. The audit round is worth a call first when the change
+already has threads on it: it tells you which of them the change now
+answers, so you are not re-raising something somebody already fixed.
+
+**Reviewing your own before you ship.** The same council, but nothing
+gets published. Read the findings, fix what is real, and never post: a
+review of your own change posted to your own change is noise. This is
+the flow with the highest value per token, because the findings go
+straight into the code.
+
+**Answering reviews on your own change.** Read the threads, audit them
+against what the change now does, then reply thread by thread with
+`review_say`. Keep the audit advisory. It tells you where to look; it
+does not write the reply, because how you talk to somebody who took
+the time to review your work is not a thing to automate.
+
+## When Not to Reach for This
+
+A one-line diff does not need a council. Six models reading a typo fix
+costs real money and produces six ways of saying it is fine. Read it
+yourself.
+
+A change you already understand does not need a judge. The rounds earn
+their cost on changes that are large, unfamiliar, or in code where
+being wrong is expensive.
+
+And nothing here replaces reading the code. A council that finds
+nothing is not a change with nothing wrong with it.
+
 ## One Question Per Tool, Which Settles Where Deciding Lives
 
 The division that stops these overlapping:
