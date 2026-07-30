@@ -65,9 +65,35 @@ export interface CouncilResult {
 }
 
 /** What one participant came back with, before it was recorded. */
-interface Reply {
+export interface Reply {
 	participant: Participant;
 	answer: AskAnswer;
+}
+
+/**
+ * Ask every reviewer at once and hand the answers back in roster
+ * order.
+ *
+ * Shared with the stack round rather than written twice, because this
+ * is the part with the rules in it: concurrent asking, a thrown error
+ * and a reported one becoming the same thing, and the ordering that
+ * makes finding numbers stable. A stack round differs in what a reply
+ * *means*, not in how a roster is asked, and if the ordering rule ever
+ * changes both rounds have to change with it.
+ */
+export async function askRoster(
+	roster: Roster,
+	prompt: string,
+	deps: Pick<CouncilDeps, "ask">,
+): Promise<Reply[]> {
+	return await Promise.all(
+		roster.reviewers.map(
+			async (participant): Promise<Reply> => ({
+				participant,
+				answer: await asked(participant, prompt, deps),
+			}),
+		),
+	);
 }
 
 /** Ask a roster about a change and record what it says. */
@@ -79,14 +105,7 @@ export async function runCouncil(
 	const startedAt = deps.now();
 	const id = newRunId(round, startedAt, request.seq);
 
-	const replies = await Promise.all(
-		request.roster.reviewers.map(
-			async (participant): Promise<Reply> => ({
-				participant,
-				answer: await asked(participant, request.prompt, deps),
-			}),
-		),
-	);
+	const replies = await askRoster(request.roster, request.prompt, deps);
 
 	const warnings: string[] = [];
 	const outcomes: ParticipantOutcome[] = [];
@@ -130,7 +149,7 @@ export async function runCouncil(
 async function asked(
 	participant: Participant,
 	prompt: string,
-	deps: CouncilDeps,
+	deps: Pick<CouncilDeps, "ask">,
 ): Promise<AskAnswer> {
 	try {
 		return await deps.ask(participant, prompt);

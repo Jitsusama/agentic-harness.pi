@@ -15,7 +15,13 @@
 import type { ParticipantIdentity } from "./identity.js";
 
 /** Which pass of a review this was. */
-export type AskRound = "council" | "judge" | "critique" | "audit";
+export type AskRound =
+	| "council"
+	| "judge"
+	| "critique"
+	| "audit"
+	/** A council that saw the whole stack rather than one change. */
+	| "stack";
 
 /** What one participant's run cost, where the runner said. */
 export interface AskUsage {
