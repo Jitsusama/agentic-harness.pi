@@ -72,12 +72,15 @@ export type {
 	CritiquePromptInput,
 	JudgePromptInput,
 	PromptInput,
+	StackChangePrompt,
+	StackPromptInput,
 } from "./ask/prompt.js";
 export {
 	auditPrompt,
 	councilPrompt,
 	critiquePrompt,
 	judgePrompt,
+	stackPrompt,
 } from "./ask/prompt.js";
 export type { ParticipantParse, Roster, RosterParse } from "./ask/roster.js";
 export { parseParticipant, parseRoster } from "./ask/roster.js";

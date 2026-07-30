@@ -125,6 +125,56 @@ export function auditPrompt(input: AuditPromptInput): string {
 		.join("\n\n");
 }
 
+/** One change in a stack, as a reviewer reading the whole stack sees it. */
+export interface StackChangePrompt {
+	/** How a finding names this change. */
+	ref: string;
+	proposal: Proposal;
+	diff: DiffModel;
+}
+
+/** What a stack-wide reviewer needs: every change, in order. */
+export interface StackPromptInput {
+	/** Roots before children, the order the stack reports them in. */
+	changes: StackChangePrompt[];
+	intent?: string;
+}
+
+/**
+ * The prompt a stack-wide reviewer answers.
+ *
+ * The one thing this prompt has to get across that no other does: a
+ * finding names the changes it is about. A reviewer that reports
+ * everything against the change it happened to be reading turns a
+ * cross-change finding into three unrelated ones, which is the whole
+ * failure this round exists to avoid.
+ */
+export function stackPrompt(input: StackPromptInput): string {
+	return [
+		"You are reading a stack of changes together, in the order they apply. Your pass is for discovery, and specifically for what only becomes visible across changes: an interface introduced early and used wrongly later, a split that leaves a middle change unable to stand on its own, a decision made once and contradicted afterwards.",
+		"Name the changes each finding is about, by the refs given below. A finding about one change names one. A finding that only exists between changes names every change it involves, and stays one finding: reporting it separately against each change turns one observation into several unrelated ones and loses the thing that made it worth saying.",
+		"Review each change on its own merits too. A stack pass that only reports cross-change findings is half a review.",
+		"Read the changes below, then use your tools on the tree to check what the diffs cannot tell you. When a change looks wrong on its own, check whether a later change in the stack fixes it before you say so.",
+		intentSection(input.intent),
+		...input.changes.map(stackChangeSection),
+		"Answer in the JSON your output contract skill describes, and call the verify tool before you finish. A pass with nothing to say answers with an empty findings list rather than prose.",
+	]
+		.filter((part) => part !== "")
+		.join("\n\n");
+}
+
+/** One change, named by the ref a finding uses to refer to it. */
+function stackChangeSection(change: StackChangePrompt): string {
+	return [
+		`## ${change.ref}`,
+		changeSection(change.proposal),
+		anchorGuidance(change.diff),
+		diffSection(change.diff),
+	]
+		.filter((part) => part !== "")
+		.join("\n\n");
+}
+
 /** Where anchors may land, so a finding does not degrade for nothing. */
 function anchorGuidance(diff: DiffModel): string {
 	return [

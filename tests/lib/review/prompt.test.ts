@@ -6,6 +6,7 @@ import {
 	critiquePrompt,
 	judgePrompt,
 	parseUnifiedDiff,
+	stackPrompt,
 } from "../../../lib/review/index.js";
 
 // A valid hunk: the header promises two old lines and three new
@@ -213,6 +214,50 @@ describe("what a critic is told", () => {
 		expect(
 			critiquePrompt({ proposal: proposal(), diff, findings: " " }),
 		).toMatch(/nothing to challenge/i);
+	});
+});
+
+describe("what a stack-wide reviewer is told", () => {
+	const changes = [
+		{ ref: "refs/heads/base", proposal: proposal(), diff },
+		{ ref: "refs/heads/tip", proposal: proposal(), diff },
+	];
+
+	it("names every change by the ref a finding refers to it by", () => {
+		const prompt = stackPrompt({ changes });
+
+		expect(prompt).toContain("refs/heads/base");
+		expect(prompt).toContain("refs/heads/tip");
+	});
+
+	it("keeps the changes in the order they apply", () => {
+		const prompt = stackPrompt({ changes });
+
+		expect(prompt.indexOf("refs/heads/base")).toBeLessThan(
+			prompt.indexOf("refs/heads/tip"),
+		);
+	});
+
+	it("tells the reviewer a spanning finding stays one finding", () => {
+		// The failure this round exists to avoid: one observation reported
+		// three times as three unrelated findings.
+		expect(stackPrompt({ changes })).toMatch(/stays one finding/i);
+	});
+
+	it("asks for per-change findings too", () => {
+		// A stack pass that only reports cross-change findings is half a
+		// review, and a reviewer told only about spans will produce one.
+		expect(stackPrompt({ changes })).toMatch(/on its own merits/i);
+	});
+
+	it("says to check whether a later change already fixes it", () => {
+		expect(stackPrompt({ changes })).toMatch(/later change/i);
+	});
+
+	it("carries the intent when one is given", () => {
+		expect(
+			stackPrompt({ changes, intent: "watch the migration split" }),
+		).toContain("watch the migration split");
 	});
 });
 

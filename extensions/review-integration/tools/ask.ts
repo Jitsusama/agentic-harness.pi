@@ -44,7 +44,9 @@ import {
 	runCouncil,
 	runCritique,
 	runJudge,
+	runStackCouncil,
 	runSummary,
+	stackPrompt,
 	substituteOutcome,
 	type Thread,
 	type ThreadAudit,
@@ -55,7 +57,7 @@ import {
 	getParentPiInstall,
 	runReviewer,
 } from "../../../lib/subagent/index.js";
-import { findingDir, runDir } from "../engine.js";
+import { findingDir, reviewEngine, runDir } from "../engine.js";
 import { GLYPH } from "../render.js";
 import { treeForRound } from "../work.js";
 import {
@@ -76,6 +78,7 @@ type AskAction =
 	| "judge"
 	| "critique"
 	| "audit"
+	| "stack"
 	| "runs"
 	| "retry"
 	| "release";
@@ -121,12 +124,13 @@ export function registerAskTool(pi: ExtensionAPI): void {
 						Type.Literal("judge"),
 						Type.Literal("critique"),
 						Type.Literal("audit"),
+						Type.Literal("stack"),
 						Type.Literal("runs"),
 						Type.Literal("retry"),
 					],
 					{
 						description:
-							"What to do. council: ask every reviewer on the roster, independently and at once. judge: ask the roster's judge to consolidate the latest council. critique: ask the roster to push back on what the judge concluded, recording positions rather than findings. audit: judge each unresolved inbound thread against the change, so a reply is informed rather than guessed. runs: what rounds have been asked about this change. retry: ask one participant again and substitute their outcome in place. Defaults to runs, which changes nothing.",
+							"What to do. council: ask every reviewer on the roster, independently and at once. judge: ask the roster's judge to consolidate the latest council. critique: ask the roster to push back on what the judge concluded, recording positions rather than findings. audit: judge each unresolved inbound thread against the change, so a reply is informed rather than guessed. stack: put every change in the stack to the roster together, so a finding that only exists between changes can be seen. runs: what rounds have been asked about this change. retry: ask one participant again and substitute their outcome in place. Defaults to runs, which changes nothing.",
 					},
 				),
 			),
@@ -195,6 +199,8 @@ export function registerAskTool(pi: ExtensionAPI): void {
 						return await askCritique(bound, change, params);
 					case "audit":
 						return await askAudit(bound, change, params);
+					case "stack":
+						return await askStack(pi, bound, params);
 					case "retry":
 						return await retryOne(bound, change, params);
 					case "release":
@@ -366,6 +372,118 @@ async function askCritique(
 				: ["", ...describeCritiques(critiques)]),
 		].join("\n"),
 		{ run, critiques, warnings },
+	);
+}
+
+/**
+ * Ask the roster about the whole stack at once.
+ *
+ * Every change is put to every reviewer together, which is the only
+ * way a finding that lives between changes can be seen at all. The
+ * tree is cut at the tip, since the tip's checkout holds every change
+ * below it: a stack applies in order, so reading the tip is reading
+ * the stack as it will land.
+ */
+async function askStack(
+	pi: ExtensionAPI,
+	bound: Awaited<ReturnType<typeof boundFor>>,
+	params: AskParams,
+): Promise<Answer> {
+	const roster = await rosterOrThrow();
+
+	const stack = await bound.stack();
+	if (!stack) {
+		return refuse(
+			`The ${bound.provider.id} provider does not read stacks, so there is no stack to put to anybody. Ask about the one change with review_ask council.`,
+		);
+	}
+
+	// A node's own ref is a git ref and its proposal's ref is a
+	// ChangeRef. Both are called ref and they are not the same thing, so
+	// they stay in separate fields rather than being spread together.
+	const proposed = stack.nodes.flatMap((node) =>
+		node.proposal === undefined
+			? []
+			: [{ ref: node.ref, proposal: node.proposal }],
+	);
+	if (proposed.length === 0) {
+		return refuse(
+			"No change in this stack has a proposal on it, so there is nothing to read. A stack of branches nobody has proposed is still a stack, but it carries no bodies or diffs to review.",
+		);
+	}
+
+	const { engine } = await reviewEngine(pi);
+	const changes = await Promise.all(
+		proposed.map(async ({ ref, proposal }) => {
+			const target = await engine.bound(proposal.ref);
+			return {
+				ref,
+				change: proposal.ref,
+				proposal,
+				diff: await target.diffModel(),
+			};
+		}),
+	);
+
+	await Promise.all(
+		changes.map((one) =>
+			claimIdentities(one.change, "reviewer", roster.reviewers),
+		),
+	);
+
+	const tip = changes[changes.length - 1];
+	if (tip === undefined) {
+		return refuse("This stack reports no changes to read.");
+	}
+	const tree = await treeForRound(
+		bound.repo,
+		tip.proposal.headCommit,
+		process.cwd(),
+	);
+
+	const stackRefs = changes.map((one) => one.ref);
+	const witnesses = new Map(
+		changes.map((one) => [one.ref, one.proposal.headCommit]),
+	);
+	const changeFor = new Map(changes.map((one) => [one.ref, one.change]));
+	const findings = createFindingStore(findingDir());
+
+	const { run, warnings } = await runStackCouncil(
+		{
+			roster,
+			prompt: stackPrompt({
+				changes: changes.map((one) => ({
+					ref: one.ref,
+					proposal: one.proposal,
+					diff: one.diff,
+				})),
+				...(params.intent === undefined ? {} : { intent: params.intent }),
+			}),
+			seq: 1,
+			stackRefs,
+			witnessFor: (ref) => witnesses.get(ref),
+		},
+		{
+			ask: deps(tip.change, tree.path).ask,
+			async record(ref, raised) {
+				const change = changeFor.get(ref);
+				if (change === undefined) return [];
+				return await findings.record(change, raised);
+			},
+			now: () => new Date(),
+		},
+	);
+
+	// Recorded against the tip, because a stack round is one round and
+	// splitting it across every change would make it unreadable as the
+	// single thing it was.
+	await createRunStore(runDir()).record(tip.change, run);
+	return say(
+		[
+			`${stackRefs.length} changes put to ${roster.reviewers.length} reviewers together.`,
+			answerFor(run, warnings, tree.caveat),
+		].join("\n"),
+		{ run, warnings, refs: stackRefs },
 	);
 }
 

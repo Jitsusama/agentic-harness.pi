@@ -39,7 +39,7 @@ owned which question.
 | `review` | What you are working on: attach, detach, next, prev, capabilities |
 | `review_see` | Everything reading tells you: change, diff, checks, stack, changes, threads, reviews, messages, findings |
 | `review_say` | Saying something now: reply, comment, resolve, unresolve, react |
-| `review_ask` | Putting the change to other models: council, judge, critique, audit, runs, retry, release |
+| `review_ask` | Putting the change to other models: council, judge, critique, audit, stack, runs, retry, release |
 | `review_draft` | Composing a whole review, then planning and publishing it |
 
 ## One Question Per Tool, Which Settles Where Deciding Lives
@@ -77,6 +77,31 @@ survived scrutiny and which a reviewer thinks are wrong, and
 `disagree` from a model that went and read the code is worth more than
 the finding it disputes. Silence means no position, never agreement,
 so do not read an uncontested finding as a corroborated one.
+
+## Reviewing a Stack as a Stack
+
+`review_ask stack` puts every change in the stack to every reviewer
+together. Reach for it when the changes only make sense as a sequence:
+an interface introduced at the base and used wrongly at the tip, a
+migration split so the middle change cannot deploy on its own. Those
+findings are invisible to a per-change pass, because no single diff
+contains them.
+
+A finding names the changes it is about. One change for an ordinary
+finding, several for a cross-change one, and a cross-change finding
+stays **one** finding filed once at its **earliest** change. That is
+where the decision was made and where a reader walking the stack meets
+it first; filing it at the tip sends somebody to the consequence and
+leaves them to work back to the cause.
+
+Spans name refs, never positions. A stack renumbers itself whenever
+somebody restacks it, so a finding recorded as "the second change"
+becomes a finding about something else the moment anything lands
+underneath.
+
+It needs a provider that reads stacks, and it needs proposals: a stack
+of branches nobody has proposed is still a stack, but it carries no
+bodies or diffs to read. Both refusals say which.
 
 ## Auditing What Other People Asked For
 
