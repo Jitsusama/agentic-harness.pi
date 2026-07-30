@@ -14,6 +14,7 @@ import type { Capabilities } from "../../capabilities.js";
 import type { Reaction } from "../../conversation.js";
 import type { ReviewProvider } from "../../provider.js";
 import type { ProviderDeps } from "../exec.js";
+import { githubAuthoring } from "./authoring.js";
 import {
 	claimGitHubReference,
 	claimGitHubRepo,
@@ -62,6 +63,28 @@ function githubCapabilities(): Capabilities {
 			staleness: "flagged",
 			selfVerdicts: ["comment"],
 		},
+		authoring: {
+			propose: true,
+			// One change at a time. GitHub has no notion of a stack, so
+			// there is nothing to submit as one.
+			proposeStack: false,
+			reviewersAt: "any-time",
+			// A base is a field on the change here, so retargeting one
+			// change moves that change and nothing else.
+			retarget: "change",
+			setDraft: true,
+			close: true,
+			reopen: true,
+			merge: true,
+			labels: true,
+			assignees: true,
+			autoMerge: true,
+			deleteBranchOnMerge: true,
+			// Plain GitHub has no merge queue of its own that ejects a
+			// change when it is touched. A backend layered on top of it
+			// that does have one says so for itself.
+			refusesWhileEnqueued: false,
+		},
 	};
 }
 
@@ -76,5 +99,6 @@ export function createGitHubProvider(deps: ProviderDeps): ReviewProvider {
 		proposals: githubProposals(deps.exec),
 		conversation: githubConversation(deps.exec),
 		stacking: githubStacking(deps.exec),
+		authoring: githubAuthoring(deps.exec),
 	};
 }

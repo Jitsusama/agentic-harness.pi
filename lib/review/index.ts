@@ -270,6 +270,7 @@ export type { Exec, ExecResult, ProviderDeps } from "./providers/exec.js";
 // and writing that again per library produces worse diagnostics.
 export { run } from "./providers/exec.js";
 export { createGitProvider } from "./providers/git/index.js";
+export { githubAuthoring } from "./providers/github/authoring.js";
 /**
  * The GitHub provider's pure helpers, for consumers still
  * bridging GitHub-shaped code onto the substrate. Neither
