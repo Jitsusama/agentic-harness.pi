@@ -49,8 +49,24 @@ export interface WorkAuthor {
  * legitimately carry slashes, dots and unicode, and an allow list
  * narrow enough to be safe would refuse names people already use.
  */
-const UNSAFE_IN_REF =
-	/[\s~^:?*[\\\u0000-\u001f\u007f]|\.\.|^-|^\/|\/$|\.lock$|^$/;
+const UNSAFE_IN_REF = /[\s~^:?*[\\]|\.\.|^-|^\/|\/$|\.lock$|^$/;
+
+/**
+ * Highest code point that is a control character, plus delete.
+ *
+ * Tested by code point rather than folded into the pattern above,
+ * because a regex holding literal control characters is
+ * unreadable and reads to a linter as a mistake. The intent is the
+ * same and the check is easier to be sure of.
+ */
+function hasControlCharacter(name: string): boolean {
+	for (const character of name) {
+		const code = character.codePointAt(0);
+		if (code === undefined) continue;
+		if (code <= 0x1f || code === 0x7f) return true;
+	}
+	return false;
+}
 
 /**
  * A ref name, trimmed, or nothing when it is not safe to use.
@@ -61,7 +77,9 @@ const UNSAFE_IN_REF =
  */
 export function safeBranchName(name: string): string | undefined {
 	const trimmed = name?.trim() ?? "";
-	if (trimmed === "" || UNSAFE_IN_REF.test(trimmed)) return undefined;
+	if (trimmed === "") return undefined;
+	if (hasControlCharacter(trimmed)) return undefined;
+	if (UNSAFE_IN_REF.test(trimmed)) return undefined;
 	return trimmed;
 }
 
