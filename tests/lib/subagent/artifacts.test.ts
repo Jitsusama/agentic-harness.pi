@@ -71,6 +71,63 @@ describe("ReviewerArtifactsStore", () => {
 		expect((await stat(active.runDir)).isDirectory()).toBe(true);
 	});
 
+	it("reclaims a run abandoned long enough that recovery is moot", async () => {
+		// A run killed before its reviewer wrote a result is never
+		// terminal, so the terminal-only rule can never reclaim it and it
+		// lives forever. Two such runs, 24 and 28 days old, were found on
+		// disk after a month of use.
+		const store = await tempStore();
+		const abandoned = store.paths("abandoned", "fast");
+		await store.writeJsonAtomic(abandoned.progressPath, { state: "running" });
+
+		const result = await store.cleanupTerminalRuns({
+			maxAgeMs: 60_000,
+			maxRuns: 100,
+			abandonedAfterMs: -1,
+			now: new Date(),
+		});
+
+		expect(result.removed).toBe(1);
+		await expect(stat(abandoned.runDir)).rejects.toMatchObject({
+			code: "ENOENT",
+		});
+	});
+
+	it("keeps an unfinished run while recovery is still plausible", async () => {
+		// The reason the abandoned window is separate from the terminal
+		// one: a run that is merely in progress must survive a cleanup
+		// that is aggressive about finished ones.
+		const store = await tempStore();
+		const active = store.paths("active", "fast");
+		await store.writeJsonAtomic(active.progressPath, { state: "running" });
+
+		const result = await store.cleanupTerminalRuns({
+			maxAgeMs: -1,
+			maxRuns: 0,
+			abandonedAfterMs: 60_000,
+			now: new Date(),
+		});
+
+		expect(result.removed).toBe(0);
+		expect((await stat(active.runDir)).isDirectory()).toBe(true);
+	});
+
+	it("leaves unfinished runs alone when no abandoned window is set", async () => {
+		// The policy predates the window, so an omitted one has to mean
+		// "never reclaim an unfinished run" rather than "reclaim it now".
+		const store = await tempStore();
+		const active = store.paths("active", "fast");
+		await store.writeJsonAtomic(active.progressPath, { state: "running" });
+
+		const result = await store.cleanupTerminalRuns({
+			maxAgeMs: -1,
+			maxRuns: 0,
+			now: new Date(),
+		});
+
+		expect(result.removed).toBe(0);
+	});
+
 	it("writes run and reviewer cancellation requests", async () => {
 		const store = await tempStore();
 
