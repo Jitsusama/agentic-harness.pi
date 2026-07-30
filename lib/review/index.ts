@@ -23,6 +23,20 @@ export type {
 	LineAnchor,
 } from "./anchor.js";
 export { anchorable, anchorPath, describeAnchor } from "./anchor.js";
+// Asking other models about a change: who is asked, and keeping
+// what their names mean stable while findings accumulate.
+export type {
+	ClaimOutcome,
+	IdentityLedger,
+	Participant,
+	ParticipantIdentity,
+	ParticipantRole,
+} from "./ask/identity.js";
+export {
+	attributedTo,
+	createIdentityLedger,
+	participantIdentity,
+} from "./ask/identity.js";
 export type {
 	Attachment,
 	AttachmentStore,
