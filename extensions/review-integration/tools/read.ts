@@ -102,7 +102,7 @@ export function registerReviewTool(pi: ExtensionAPI): void {
 			try {
 				if (params.action === undefined) return reportAttached();
 				if (params.action === "attach") return attachChange(pi, params);
-				if (params.action === "detach") return detachChange(params);
+				if (params.action === "detach") return detachChange(pi, params);
 				if (params.action === "next" || params.action === "prev") {
 					return stepAttachment(pi, params, params.action);
 				}
@@ -124,6 +124,44 @@ export function registerReviewTool(pi: ExtensionAPI): void {
  * rather than silently becoming the thing every later call
  * fails on.
  */
+/**
+ * Which attached change a person meant, spelled however they spelled it.
+ *
+ * Detaching used to compare the raw string against the stored labels, so
+ * `detach 424` failed where `attach 424` had worked moments earlier: attach
+ * resolves a reference through the provider and stores the canonical label,
+ * and nothing put the same resolution on the way back out. Being able to
+ * attach something by a name you cannot detach it by is the surface
+ * contradicting itself within one session.
+ *
+ * An exact label is taken as given, since that costs nothing. Otherwise the
+ * same resolution attach used decides it, and if that cannot reach a
+ * provider, a spelling that picks out exactly one attached change is
+ * accepted: this only ever names one of a handful of strings a person has
+ * already attached, and detaching the wrong one costs a re-attach.
+ */
+async function detachable(
+	pi: ExtensionAPI,
+	asked: string | undefined,
+	attached: readonly string[],
+): Promise<string | undefined> {
+	if (asked === undefined || attached.includes(asked)) return asked;
+
+	try {
+		const bound = await boundFor(pi, { change: asked }, process.cwd());
+		const change = hostedChange(bound);
+		if (change && attached.includes(change.label)) return change.label;
+	} catch {
+		// Resolution needs a provider and a repo it recognizes, and neither is
+		// required to take a change back out of a local list. Fall through.
+	}
+
+	const suffix = attached.filter(
+		(label) => label === asked || label.endsWith(`#${asked}`),
+	);
+	return suffix.length === 1 ? suffix[0] : asked;
+}
+
 async function attachChange(
 	pi: ExtensionAPI,
 	params: TargetParams,
@@ -143,13 +181,17 @@ async function attachChange(
 }
 
 /** Stop working on a change. */
-async function detachChange(params: TargetParams): Promise<Answer> {
+async function detachChange(
+	pi: ExtensionAPI,
+	params: TargetParams,
+): Promise<Answer> {
 	const store = createAttachmentStore(attachmentDir());
 	const attached = await store.list();
+	const labels = attached.map((a) => a.change.label);
 	const chosen = changeInPlay(
-		params.change,
+		await detachable(pi, params.change, labels),
 		undefined,
-		attached.map((a) => a.change.label),
+		labels,
 	);
 	if ("candidates" in chosen) return refuse(chooseChange(chosen.candidates));
 	if (!(await store.detach(chosen.label))) {
@@ -285,5 +327,45 @@ function describeCapabilities(
 			`   stale anchors: ${conversation.staleness}`,
 		);
 	}
+
+	// Authoring was missing entirely, which made this answer wrong rather
+	// than merely short: a person asking what a provider can do was told
+	// about reading and never learned the surface could propose a change,
+	// move it between draft and ready, or land it. Said as verbs, because
+	// the question this answers is what can I do here.
+	const authoring = caps.authoring;
+	if (authoring) {
+		const can = [
+			...(authoring.propose ? ["propose"] : []),
+			...(authoring.proposeStack ? ["propose a stack"] : []),
+			...(authoring.setDraft ? ["draft and ready"] : []),
+			...(authoring.close ? ["close"] : []),
+			...(authoring.reopen ? ["reopen"] : []),
+			...(authoring.merge ? ["merge"] : []),
+			...(authoring.labels ? ["labels"] : []),
+			...(authoring.assignees ? ["assignees"] : []),
+			...(authoring.autoMerge ? ["auto-merge"] : []),
+		];
+		lines.push(
+			`   authoring: ${can.length > 0 ? can.join(" · ") : "nothing"}`,
+			`   reviewers: ${reviewersRead(authoring.reviewersAt)} · retarget: ${authoring.retarget}`,
+		);
+		// The one thing here that costs somebody else something if they learn
+		// it too late, so it is said whether or not it is in force.
+		if (authoring.refusesWhileEnqueued) {
+			lines.push(
+				"   refuses to touch a change that is queued to merge, since that would eject it and everything batched with it",
+			);
+		}
+	} else {
+		lines.push("   authoring: nothing, so this change can only be read");
+	}
 	return lines.join("\n");
+}
+
+/** When reviewers can be asked, in words rather than in the enum's. */
+function reviewersRead(when: string): string {
+	if (when === "any-time") return "any time";
+	if (when === "creation") return "only as a change is created";
+	return "not at all";
 }

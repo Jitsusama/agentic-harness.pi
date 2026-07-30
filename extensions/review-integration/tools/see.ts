@@ -26,7 +26,7 @@ import {
 	describeAnchor,
 	type QueuedFix,
 } from "../../../lib/review/index.js";
-import { decisionDir, findingDir, fixDir, reviewEngine } from "../engine.js";
+import { decisionDir, findingDir, fixDir } from "../engine.js";
 import {
 	checksLines,
 	GLYPH,
@@ -407,15 +407,19 @@ async function seeChanges(
 		limit?: number;
 	},
 ): Promise<Answer> {
-	const { engine } = await reviewEngine(pi);
 	const cwd = params.repo ?? process.cwd();
-	const bound = params.change
-		? await engine.resolve(params.change, cwd)
-		: undefined;
-	const lister = bound?.provider.proposals?.list;
-	if (!bound || !lister) {
+	// Through the shared resolution, so the attached change counts here like
+	// it does everywhere else. This used to resolve `params.change` alone and
+	// refuse without it, telling a person to name a change in the repo they
+	// meant while one sat attached naming that very repo. The reasoning
+	// written above it was that listing is about a repo rather than a change;
+	// true, and beside the point, since a change is how this surface has
+	// always named a repo.
+	const bound = await boundFor(pi, params, cwd);
+	const lister = bound.provider.proposals?.list;
+	if (!lister) {
 		return refuse(
-			"Listing needs a provider that can list changes. Name any change in the repo you mean, so the provider can be resolved from it.",
+			`The ${bound.provider.id} provider cannot list the changes in a repo, so there is nothing to show. Read one change at a time instead.`,
 		);
 	}
 	const found = await lister(bound.repo, {

@@ -168,7 +168,17 @@ export function createReviewEngine(deps: ReviewEngineDeps): ReviewEngine {
 				if (!provider.proposals) {
 					throw new Error(`the ${provider.id} provider cannot read a diff`);
 				}
-				return provider.proposals.diff(target.change);
+				try {
+					return await provider.proposals.diff(target.change);
+				} catch (error) {
+					// A big change is the case a diff is most wanted for and the one
+					// that failed hardest: a backend that caps its own diff route
+					// answered with a raw upstream refusal and the read was over,
+					// while the same provider offered `fetchAsRef` for exactly this
+					// and nothing reached for it. Bringing the commits down and
+					// diffing them locally has no such cap.
+					return await diffFromRef(target.change, error);
+				}
 			}
 			const root = repo.localPath ?? target.repo.localPath;
 			if (!root) {
@@ -181,6 +191,55 @@ export function createReviewEngine(deps: ReviewEngineDeps): ReviewEngine {
 				["-C", root, "diff", `${base}...${head}`],
 				`diffing ${base}...${head}`,
 			);
+		}
+
+		/**
+		 * The diff read from a ref the provider fetched, when its own route
+		 * would not answer.
+		 *
+		 * The original failure is carried into anything said here, because the
+		 * fallback can fail for reasons of its own and being told only about
+		 * the second one sends somebody after the wrong problem.
+		 */
+		async function diffFromRef(
+			change: ChangeRef,
+			cause: unknown,
+		): Promise<string> {
+			const why = cause instanceof Error ? cause.message : String(cause);
+			const fetchAsRef = provider.proposals?.fetchAsRef;
+			const root = repo.localPath ?? change.repo.localPath;
+			if (!fetchAsRef || !root) {
+				throw new Error(
+					`${why}\n\nThe ${provider.id} provider ${fetchAsRef ? `has no local checkout of ${repo.key} to read ${change.label} into` : "cannot fetch a change as a ref"}, so there is no way around that. Read the change a file at a time instead.`,
+				);
+			}
+
+			const head = await fetchAsRef(change, root);
+			// The base is not fetched with it, and the diff is against the base.
+			// Asking the provider what the base is costs one read and beats
+			// guessing at a default branch name.
+			const base = (await provider.proposals?.fetch(change))?.base;
+			if (base === undefined) {
+				throw new Error(
+					`${why}\n\n${change.label} was fetched to ${head}, but the ${provider.id} provider did not say what it is based on, so there is nothing to diff it against.`,
+				);
+			}
+
+			const read = await deps.exec("git", [
+				"-C",
+				root,
+				"diff",
+				`${base}...${head}`,
+			]);
+			if (read.code !== 0) {
+				// Both causes, because the fallback fails for its own reasons and
+				// hearing only the second sends somebody after the wrong problem.
+				// The usual one is a checkout that has never seen the base.
+				throw new Error(
+					`${why}\n\nReading it from a fetched ref instead did not work either: diffing ${base}...${head} in ${root} said ${read.stderr.trim() || `exit ${read.code}`}. Fetch ${base} into that checkout and try again.`,
+				);
+			}
+			return read.stdout;
 		}
 
 		function diff(): Promise<string> {

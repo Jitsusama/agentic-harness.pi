@@ -173,14 +173,35 @@ export function changeInPlay(
 	attached: readonly string[],
 ): ChangeInPlay | ChangeAmbiguous {
 	if (asked !== undefined) return { label: asked };
-	if (attached.length === 1 && attached[0] !== undefined) {
+	if (hint !== undefined && attached.includes(hint)) return { label: hint };
+
+	const [newest, ...rest] = attached;
+	if (newest === undefined) return { candidates: attached };
+	if (rest.length === 0) {
 		return {
-			label: attached[0],
-			note: `Using ${attached[0]}, the only change attached.`,
+			label: newest,
+			note: `Using ${newest}, the only change attached.`,
 		};
 	}
-	if (hint !== undefined && attached.includes(hint)) return { label: hint };
-	return { candidates: attached };
+
+	// Recency settles it, because attaching a change is how you say what you
+	// are working on now. This used to refuse whenever two were attached, on
+	// the grounds that choosing could report on the wrong change, and the
+	// result was worse than the risk: a second attachment paralysed every
+	// tool, and the way out was to detach something. Meanwhile `attach`
+	// promised that later calls could leave the change out, and the listing
+	// promised newest first, and the store had kept a monotonic sequence all
+	// along for exactly this. Three claims that only a rule like this makes
+	// true.
+	//
+	// Said out loud every time, and it names the others, because the whole
+	// objection to choosing was silence rather than choice: a person who
+	// meant the other one has to be told which was taken and that the rest
+	// are still there.
+	return {
+		label: newest,
+		note: `Using ${newest}, attached most recently. Also attached: ${rest.join(", ")}. Name a change to act on one of those instead.`,
+	};
 }
 
 /** Say what to choose between, when the choice cannot be made here. */
