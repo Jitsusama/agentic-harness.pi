@@ -27,14 +27,39 @@ export type StalenessModel =
 	/** The provider says nothing either way. */
 	| "none";
 
+/**
+ * Where a remark about a whole file is allowed to be posted.
+ *
+ * `standalone` means it has to be posted on its own, outside a batch
+ * review, which is what both backends surveyed require. `batch` means it can
+ * ride along with a verdict and the line-anchored remarks, which is what a
+ * boolean used to claim for backends that do not allow it.
+ */
+export type FileLevelComments = "never" | "standalone" | "batch";
+
 /** What a provider's conversation facet can do. */
 export interface ConversationCapabilities {
 	/** Post a verdict and anchored comments in one submission. */
 	anchoredBatchReview: boolean;
 	/** Cap on comments per batch, when there is one. */
 	maxBatchComments?: number;
-	/** Anchor a remark to a file rather than a line. */
-	fileLevelComments: boolean;
+	/**
+	 * Where a remark about a whole file can be posted, if anywhere.
+	 *
+	 * A boolean here could not be honest, and both backends proved it. Each
+	 * declared `anchoredBatchReview: true` and `fileLevelComments: true` and
+	 * each statement was true on its own, while their conjunction was false:
+	 * neither will take a file-level comment inside a batch review. GitHub
+	 * refuses the batch with `0.position (Expected value to not be null)` and
+	 * gitstream with `comments[0].line missing_field`, and in both cases the
+	 * whole review is rejected rather than the one remark. Posted on its own,
+	 * with a subject type of file, both accept it.
+	 *
+	 * So the question is not whether a file-level remark is possible but
+	 * where it can go, and a capability that cannot express a conjunction
+	 * will lie about one.
+	 */
+	fileLevelComments: FileLevelComments;
 	/** Anchor a remark to a run of lines. */
 	multiLineRanges: boolean;
 	/** Carry a suggested edit a reader can apply. */

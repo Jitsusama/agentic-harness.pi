@@ -49,7 +49,11 @@ function githubCapabilities(): Capabilities {
 		stacking: { provenance: "derived", fanOut: true },
 		conversation: {
 			anchoredBatchReview: true,
-			fileLevelComments: true,
+			// On its own, not in a review. The batch route refuses a
+			// file-level comment and rejects the whole review with it, and
+			// declaring this as a bare `true` beside `anchoredBatchReview:
+			// true` said the pair was possible when only each half was.
+			fileLevelComments: "standalone",
 			multiLineRanges: true,
 			suggestions: true,
 			unresolve: true,

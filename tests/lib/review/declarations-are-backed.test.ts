@@ -86,6 +86,16 @@ const BACKED_BY: ReadonlyArray<{
 	{ facet: "authoring", capability: "merge", method: "merge", mandatory: true },
 	{
 		facet: "conversation",
+		capability: "fileLevelComments",
+		method: "commentOn",
+		// "standalone" is the value that promises a method: it says a remark
+		// about a whole file has to be posted outside a batch review, and
+		// `commentOn` is the only way to post one. "batch" is served by
+		// `postReview`, which every conversation facet has.
+		promises: (declared) => declared === "standalone",
+	},
+	{
+		facet: "conversation",
 		capability: "reactions",
 		method: "react",
 		// Naming the reactions it accepts is the promise. An empty set is
@@ -221,6 +231,7 @@ describe("the gate itself", () => {
 			"authoring.reopen",
 			"authoring.reviewersAt",
 			"authoring.setDraft",
+			"conversation.fileLevelComments",
 			"conversation.reactions",
 			"conversation.unresolve",
 			"proposals.checks",

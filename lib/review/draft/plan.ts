@@ -61,6 +61,20 @@ export type PlannedOp =
 			itemIds: string[];
 	  }
 	| { kind: "comment"; body: string; itemIds: string[] }
+	| {
+			/**
+			 * One anchored remark, posted on its own.
+			 *
+			 * For a remark a batch review will not carry. Both backends
+			 * surveyed reject a whole review that contains a file-level
+			 * comment while accepting the same comment posted alone, so this
+			 * is what keeps one such remark from costing every other remark
+			 * beside it.
+			 */
+			kind: "commentOn";
+			comment: AnchoredComment;
+			itemIds: string[];
+	  }
 	| { kind: "reply"; thread: Thread; body: string; itemIds: string[] }
 	| { kind: "resolve"; thread: Thread; itemIds: string[] }
 	| {
@@ -141,6 +155,8 @@ function collapseRange(anchor: Anchor): Anchor {
 /** The outcome of sorting one finding. */
 interface SortedFinding {
 	comment?: AnchoredComment;
+	/** Posted on its own, because a batch will not carry it. */
+	alone?: AnchoredComment;
 	spill?: FindingItem;
 	degradation?: Degradation;
 }
@@ -155,16 +171,31 @@ function sortFinding(
 	diff: DiffModel | undefined,
 ): SortedFinding {
 	const spillTo = "the review body";
-	if (finding.anchor.subject === "file" && !conversation.fileLevelComments) {
-		return {
-			spill: finding,
-			degradation: {
-				itemId: finding.id,
-				from: "a file-level comment",
-				to: spillTo,
-				reason: "this provider does not anchor comments to a whole file",
-			},
-		};
+	if (finding.anchor.subject === "file") {
+		if (conversation.fileLevelComments === "never") {
+			return {
+				spill: finding,
+				degradation: {
+					itemId: finding.id,
+					from: "a file-level comment",
+					to: spillTo,
+					reason: "this provider does not anchor comments to a whole file",
+				},
+			};
+		}
+		if (conversation.fileLevelComments === "standalone") {
+			// Out of the batch and onto its own post, which is where both
+			// backends surveyed will take it. In the batch it does not merely
+			// fail, it takes the whole review down with it, so this is not a
+			// preference: a review carrying one file-level remark was rejected
+			// entirely, and every other remark in it was lost to a retry.
+			//
+			// No degradation is recorded, because nothing about the remark
+			// changed. It lands where it was aimed, said by the same person
+			// about the same file; only the request carrying it is different,
+			// and that is the provider's business rather than the author's.
+			return { alone: { anchor: finding.anchor, body: finding.body } };
+		}
 	}
 
 	if (diff) {
@@ -261,6 +292,8 @@ function planReview(
 	const degraded: Degradation[] = [];
 	const refused: PlanRefusal[] = [];
 	const comments: AnchoredComment[] = [];
+	/** Remarks the batch will not carry, each posted on its own. */
+	const alone: { comment: AnchoredComment; itemId: string }[] = [];
 	const spilled: FindingItem[] = [];
 	const itemIds: string[] = [];
 
@@ -285,6 +318,10 @@ function planReview(
 		const sorted = sortFinding(finding, conversation, context.diff);
 		if (sorted.degradation) degraded.push(sorted.degradation);
 		if (sorted.spill) spilled.push(sorted.spill);
+		if (sorted.alone) {
+			alone.push({ comment: sorted.alone, itemId: finding.id });
+			continue;
+		}
 		if (!sorted.comment) continue;
 
 		const cap = conversation.maxBatchComments;
@@ -315,9 +352,28 @@ function planReview(
 		}
 	}
 
+	// Each on its own, so one that the backend refuses costs only itself.
+	const standalone: PlannedOp[] = alone.map(({ comment, itemId }) => ({
+		kind: "commentOn",
+		comment,
+		itemIds: [itemId],
+	}));
+
 	if (findings.length === 0 && verdict === undefined) {
-		return { ops: [], degraded, refused };
+		return { ops: standalone, degraded, refused };
 	}
+
+	// Nothing left for the review itself is possible now that a remark can
+	// travel on its own: a draft holding one file-level finding and no
+	// verdict has its whole content in the standalone ops, and an empty
+	// review posted beside them would be a message saying nothing.
+	const onlyStandalone =
+		comments.length === 0 &&
+		spilled.length === 0 &&
+		verdict === undefined &&
+		state.summary === undefined &&
+		standalone.length > 0;
+	if (onlyStandalone) return { ops: standalone, degraded, refused };
 
 	const body = reviewBody(state.summary, spilled);
 	const op: PlannedOp = conversation.anchoredBatchReview
@@ -329,7 +385,7 @@ function planReview(
 				itemIds,
 			}
 		: { kind: "comment", body, itemIds };
-	return { ops: [op], degraded, refused };
+	return { ops: [op, ...standalone], degraded, refused };
 }
 
 /**

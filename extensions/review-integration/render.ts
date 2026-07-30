@@ -232,6 +232,15 @@ export function planNarration(plan: PublishPlan): string {
 			lines.push(`${GLYPH.lands} a reply into ${GLYPH.thread} ${op.thread.id}`);
 		} else if (op.kind === "resolve") {
 			lines.push(`${GLYPH.lands} resolving ${GLYPH.thread} ${op.thread.id}`);
+		} else if (op.kind === "commentOn") {
+			// Said as its own line, and said to be separate, because that is
+			// what a person is approving: two posts rather than one, so a
+			// backend refusing this remark cannot take the review with it.
+			const anchor = op.comment.anchor;
+			const at = anchor.subject === "change" ? "the change" : anchor.path;
+			lines.push(
+				`${GLYPH.lands} a remark on ${at}, posted on its own, since a review cannot carry one`,
+			);
 		} else {
 			lines.push(`${GLYPH.reaction} ${op.reaction} on ${op.subject.id}`);
 		}

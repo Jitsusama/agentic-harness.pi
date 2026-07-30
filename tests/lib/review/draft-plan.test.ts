@@ -41,7 +41,7 @@ index 83db48f..bf269f4 100644
 /** Everything a well-appointed forge can do. */
 const fullConversation: ConversationCapabilities = {
 	anchoredBatchReview: true,
-	fileLevelComments: true,
+	fileLevelComments: "batch",
 	multiLineRanges: true,
 	suggestions: true,
 	unresolve: true,
@@ -211,16 +211,78 @@ describe("compilePlan", () => {
 			expect(plan.degraded[0].reason).toMatch(/range/i);
 		});
 
-		it("moves a file-level remark into the body", () => {
+		it("moves a file-level remark into the body when there is nowhere else", () => {
 			const state = addFinding(draft(), {
 				anchor: { subject: "file", path: "lib/app.ts" },
 				body: "whole file problem",
 			});
-			const plan = compilePlan(state, context({ fileLevelComments: false }));
+			const plan = compilePlan(state, context({ fileLevelComments: "never" }));
 			const [op] = plan.ops;
 			expect(op.kind === "review" && op.comments).toEqual([]);
 			expect(op.kind === "review" && op.body).toContain("whole file problem");
 			expect(plan.degraded).toHaveLength(1);
+		});
+
+		it("posts a file-level remark on its own where a batch will not take it", () => {
+			// Both backends surveyed reject an entire review that contains one
+			// of these while accepting the same remark posted alone, so this is
+			// what stops one file-level remark costing every remark beside it.
+			let state = addFinding(draft(), {
+				anchor: onNewLine,
+				body: "this line",
+			});
+			state = addFinding(state, {
+				anchor: { subject: "file", path: "lib/app.ts" },
+				body: "whole file problem",
+			});
+
+			const plan = compilePlan(
+				state,
+				context({ fileLevelComments: "standalone" }),
+			);
+
+			const review = plan.ops.find((op) => op.kind === "review");
+			const alone = plan.ops.find((op) => op.kind === "commentOn");
+			expect(review?.kind === "review" && review.comments).toHaveLength(1);
+			expect(alone?.kind === "commentOn" && alone.comment.body).toBe(
+				"whole file problem",
+			);
+			// The review body does not also carry it, or it would be said twice.
+			expect(review?.kind === "review" && review.body).not.toContain(
+				"whole file problem",
+			);
+		});
+
+		it("calls that no degradation, since nothing about the remark changed", () => {
+			// It lands where it was aimed, said by the same person about the same
+			// file. Which request carries it is the provider's business.
+			const state = addFinding(draft(), {
+				anchor: { subject: "file", path: "lib/app.ts" },
+				body: "whole file problem",
+			});
+
+			const plan = compilePlan(
+				state,
+				context({ fileLevelComments: "standalone" }),
+			);
+
+			expect(plan.degraded).toEqual([]);
+		});
+
+		it("posts nothing but the remark when there is nothing else to say", () => {
+			// An empty review beside it would be a message saying nothing.
+			const state = addFinding(draft(), {
+				anchor: { subject: "file", path: "lib/app.ts" },
+				body: "whole file problem",
+			});
+
+			const plan = compilePlan(
+				state,
+				context({ fileLevelComments: "standalone" }),
+			);
+
+			expect(plan.ops).toHaveLength(1);
+			expect(plan.ops[0]?.kind).toBe("commentOn");
 		});
 
 		it("spills comments past the batch cap into the body", () => {

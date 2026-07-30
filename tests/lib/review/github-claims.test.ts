@@ -153,7 +153,14 @@ describe("what the GitHub provider says it can do", () => {
 	it("batches anchored comments into one review", () => {
 		expect(capabilities.conversation?.anchoredBatchReview).toBe(true);
 		expect(capabilities.conversation?.multiLineRanges).toBe(true);
-		expect(capabilities.conversation?.fileLevelComments).toBe(true);
+	});
+
+	it("takes a whole-file remark only on its own, not in that batch", () => {
+		// This read `fileLevelComments: true` beside `anchoredBatchReview:
+		// true`, and both halves were honest while the pair was not: the batch
+		// route refuses a file-level comment with `0.position (Expected value
+		// to not be null)` and rejects the entire review along with it.
+		expect(capabilities.conversation?.fileLevelComments).toBe("standalone");
 	});
 
 	it("flags a stranded anchor rather than pinning it", () => {

@@ -23,7 +23,7 @@ const anchor: LineAnchor = {
 
 const capabilities: ConversationCapabilities = {
 	anchoredBatchReview: true,
-	fileLevelComments: true,
+	fileLevelComments: "batch",
 	multiLineRanges: true,
 	suggestions: false,
 	unresolve: true,

@@ -397,6 +397,40 @@ export function githubConversation(exec: Exec): ConversationFacet {
 			);
 		},
 
+		/**
+		 * One anchored remark, posted on its own rather than in a review.
+		 *
+		 * This is where a remark about a whole file has to go. The batch route
+		 * refuses one with `0.position (Expected value to not be null)` and
+		 * rejects the entire review with it, so a single file-level remark used
+		 * to cost every other remark beside it; adding `subject_type` to the
+		 * batch is refused too, as `0.subjectType (Field is not defined on
+		 * DraftPullRequestReviewComment)`. This route takes the same comment
+		 * without complaint.
+		 *
+		 * It needs a commit to hang the comment from, which a review does not,
+		 * so the change is read first to learn its head.
+		 */
+		async commentOn(ref: ChangeRef, anchor: Anchor, body: string) {
+			const change = record(
+				await api<unknown>(
+					[`repos/${slugOf(ref.repo)}/pulls/${ref.id}`],
+					`reading pull request ${ref.id} for the commit to anchor a comment to`,
+				),
+			);
+			const head = str(record(change.head).sha);
+			if (!head) {
+				throw new Error(
+					`GitHub did not say what commit pull request ${ref.id} is at, and a comment posted on its own has to name one.`,
+				);
+			}
+			return postJson(
+				`repos/${slugOf(ref.repo)}/pulls/${ref.id}/comments`,
+				{ ...wireComment(anchor, body), commit_id: head },
+				`posting a remark on ${anchor.subject === "file" ? anchor.path : "a line"} in pull request ${ref.id}`,
+			);
+		},
+
 		async reply(_ref, thread, body): Promise<Posted> {
 			const raw = await graphql<unknown>(
 				REPLY_MUTATION,

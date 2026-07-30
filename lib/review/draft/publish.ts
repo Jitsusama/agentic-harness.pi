@@ -74,6 +74,19 @@ async function perform(
 	if (op.kind === "comment") {
 		return conversation.comment(change, op.body);
 	}
+	if (op.kind === "commentOn") {
+		if (!conversation.commentOn) {
+			// The planner only makes one of these for a provider declaring
+			// `fileLevelComments: "standalone"`, which is a promise of this
+			// method, so reaching here means the declaration was wrong. Said
+			// plainly rather than swallowed: the remark is in the draft still,
+			// and publishing again after the provider is fixed will send it.
+			throw new Error(
+				`the ${provider.id} provider says a remark about a whole file has to be posted on its own, and then offers no way to post one`,
+			);
+		}
+		return conversation.commentOn(change, op.comment.anchor, op.comment.body);
+	}
 	if (op.kind === "reply") {
 		return conversation.reply(change, op.thread, op.body);
 	}
