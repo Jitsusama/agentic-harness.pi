@@ -94,7 +94,18 @@ it does:
 - **Integrations** (`*-integration`): bridge to external
   services via registered tools.
   `google-workspace-integration`, `web-search-integration`,
-  `browser-integration`
+  `browser-integration`, `review-integration`,
+  `work-integration`
+
+  The last two are worth a note, because they bridge to
+  whatever hosts a change rather than to one named service.
+  `review-integration` hosts the six review tools over
+  `lib/review`, and every provider behind them registers over
+  the event bus, so the extension has no idea which backends
+  exist. `work-integration` does the same for `lib/work` and
+  the trees underneath. Neither imports the other: the review
+  side reaches the working layer over the bus, so a consumer
+  needs the work *library* and never the work *extension*.
 
 - **Widgets** (`*-widget`): add UI elements to the interface.
   `content-viewer-widget`, `status-line-widget`,
@@ -112,7 +123,17 @@ it does:
   call to self-validate their structured output against the
   parent extension's schema before completion. Loaded into
   the subagent via `pi --extension <path>`, not
-  auto-discovered. `pr-workflow-verify`
+  auto-discovered, which is why the only one lives at
+  `lib/internal/pr-workflow-verify/` rather than under
+  `extensions/`: nothing should discover it, and a directory
+  pi scans is the wrong place for a thing pi must not load.
+
+  The substrate's own rounds take the other approach and
+  attach a contract skill without a verify tool. A malformed
+  entry there is dropped and warned about rather than
+  refused, so a reviewer that half-follows the contract still
+  contributes what it got right, and nothing tells a subagent
+  to call a tool that is not attached.
 
 ## Skill Categories
 
