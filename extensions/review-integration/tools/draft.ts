@@ -73,9 +73,26 @@ function draftLines(draft: ReviewDraft): string {
 		if (item.kind === "resolution") {
 			return `${GLYPH.resolved} #${item.id} resolve ${item.thread.id}`;
 		}
-		return `${GLYPH.reaction} #${item.id} ${item.reaction} on ${item.subject.id}`;
+		// Said by who wrote it and what they said, rather than by the
+		// provider's id for it. Every other listing in the surface addresses a
+		// comment as [C3] or names its author, and this line still read `on
+		// rc:5136027779`, which is the id nobody could discover in the first
+		// place. Reviewing a draft before publishing it means checking each
+		// item is aimed where you meant, and an id is the one form that cannot
+		// be checked by looking at it.
+		return `${GLYPH.reaction} #${item.id} ${item.reaction} on ${item.subject.author.id}: ${firstLine(item.subject.body)}`;
 	});
 	return `${GLYPH.document} draft ${draft.id}\n${verdict}\n${items.join("\n") || "nothing in it yet"}`;
+}
+
+/**
+ * The opening line of a body, for naming something in a list.
+ *
+ * A comment can be a page long, and a draft listing has one line per item.
+ */
+function firstLine(body: string): string {
+	const opener = body.split("\n")[0] ?? "";
+	return opener.length > 60 ? `${opener.slice(0, 59)}\u2026` : opener;
 }
 
 /** Register the `review_draft` tool. */
