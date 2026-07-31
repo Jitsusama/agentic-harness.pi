@@ -42,23 +42,42 @@ import type {
 import { describeAnchor } from "../../lib/review/index.js";
 
 /** The vocabulary. One glyph per concept, used everywhere. */
+/**
+ * The review surface's glyphs.
+ *
+ * Triangles, because the other families are taken and a glyph that means two
+ * things means neither. The harness runs these tools in one session, so the
+ * allocation is package-wide rather than per-extension:
+ *
+ * - diamonds belong to quests, which are the spine everything else hangs off
+ * - circle fills belong to the TDD phase, where the fill is a progression
+ * - squares belong to work, where a tree is a place
+ * - triangles are review's, and they point, which is what a remark does
+ *
+ * `tests/package/glyphs-are-owned.test.ts` holds the line. Before this, a
+ * filled diamond was a quest and a finding, a hollow one a sidequest and a
+ * verdict, and a filled circle was a review that landed and a tree with
+ * uncommitted work in it: the same mark for the best and worst news on screen.
+ */
 export const GLYPH = {
-	// Diamonds: the review and its parts. Filled is something
-	// said, hollow is a stance taken, nested is the thing itself.
-	target: "\u25c8",
-	finding: "\u25c6",
-	verdict: "\u25c7",
+	// Triangles: the review and its parts. Size reads as scope, so the
+	// change is the largest and a remark inside it the smallest, and
+	// hollow is a stance rather than a thing.
+	target: "\u25b6",
+	finding: "\u25b8",
+	verdict: "\u25bd",
 
-	// Circles: what becomes of a remark. Fill reads as how much
-	// of it survives, so a half circle is a remark that landed
-	// somewhere less precise than it asked for.
-	lands: "\u25cf",
-	degrades: "\u25d0",
+	// What becomes of a remark. Not a fill progression: that is the TDD
+	// phase's, and borrowing it made landing and degrading look like two
+	// steps of one process rather than two different outcomes.
+	lands: "\u2714",
+	degrades: "\u2193",
 	refused: "\u2298",
-	checks: "\u25c9",
+	checks: "\u25ce",
 
-	// Containers and marks.
-	stack: "\u25a4",
+	// Containers and marks. A stack is layers rather than a square,
+	// which is work's family and would read as a tree.
+	stack: "\u2261",
 	document: "\u00b6",
 	thread: "\u276f",
 	reaction: "\u2726",

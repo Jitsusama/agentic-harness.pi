@@ -17,12 +17,20 @@ export const GLYPH = {
 
 	// A snapshot is pinned rather than checked out, so it reads as
 	// a point instead of an area.
-	snapshot: "\u25aa",
+	snapshot: "\u25a4",
 
-	// State of the work inside a tree. A tree with changes in it
-	// is the one case a caller must not be allowed to overlook.
-	clean: "\u25cb",
-	dirty: "\u25cf",
+	// State of the work inside a tree, in the same family as the tree
+	// itself but smaller, since it describes what is inside one rather
+	// than being one. A tree with changes in it is the one case a caller
+	// must not be allowed to overlook.
+	//
+	// These were an open and a filled circle, which quests use for a
+	// status and the TDD phase uses for a progression. That made a filled
+	// circle mean a concluded quest, a passing test, and a tree with
+	// uncommitted work in it: two of those are good news and the third is
+	// the one thing here you must not miss.
+	clean: "\u25ab",
+	dirty: "\u25aa",
 
 	// Refusals, matching the review tools so the two surfaces do
 	// not disagree about what a refusal looks like.

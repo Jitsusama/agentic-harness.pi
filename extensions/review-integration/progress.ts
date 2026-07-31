@@ -35,9 +35,6 @@ import {
 	trackAskProgress,
 } from "../../lib/review/index.js";
 
-/** Ours alone, so clearing it cannot clear somebody else's. */
-const STATUS_KEY = "review-ask-progress";
-
 /**
  * How long one participant gets before it is treated as wedged.
  *
@@ -58,14 +55,18 @@ const STATUS_KEY = "review-ask-progress";
 export const PARTICIPANT_TIMEOUT_MS = 15 * 60 * 1000;
 
 /**
- * Geometry, not emoji, per the review tools' convention: a filled
- * diamond has answered, a half one is working, an open one is waiting
- * and a cross has failed.
+ * Geometry, not emoji, per the review tools' convention: triangles, since
+ * that is the review surface's family, and a participant in a round is part
+ * of a review. An open one is waiting, a small one is working, a filled one
+ * has answered and a cross has failed.
+ *
+ * These were diamonds, which quests own. A round drawn in quest glyphs put
+ * seven reviewers on screen looking like seven subquests.
  */
 const GLYPH: Record<AskProgressEntry["state"], string> = {
-	pending: "\u25c7",
-	running: "\u25c8",
-	answered: "\u25c6",
+	pending: "\u25b7",
+	running: "\u25b8",
+	answered: "\u25b6",
 	failed: "\u2715",
 };
 
@@ -131,23 +132,6 @@ function sharedModel(entries: readonly AskProgressEntry[]): string | undefined {
 	const first = entries[0]?.model;
 	if (first === undefined) return undefined;
 	return entries.every((one) => one.model === first) ? first : undefined;
-}
-
-/** The one line: who is where, and what the busiest one is doing. */
-function summary(
-	round: AskRound,
-	entries: readonly AskProgressEntry[],
-): string {
-	const board = entries.map((one) => GLYPH[one.state]).join("");
-	const answered = entries.filter((one) => one.state === "answered").length;
-	const failed = entries.filter((one) => one.state === "failed").length;
-	const parts = [`${round} ${board} ${answered}/${entries.length}`];
-	if (failed > 0) parts.push(`${failed} failed`);
-	const busy = entries.find(
-		(one) => one.state === "running" && one.activity !== "",
-	);
-	if (busy) parts.push(`${busy.participantId}: ${busy.activity}`);
-	return parts.join("  ");
 }
 
 /**
@@ -352,20 +336,21 @@ export function watchRound(
 	let unsubscribe: (() => void) | undefined;
 	let installed = false;
 
+	// The panel and nothing else. The status bar is for what stays true across
+	// a session, and a round in flight already owns the editor area, titled
+	// with the same round, the same tally and the same shared model the status
+	// line was writing. Two copies of one fact is not twice the reassurance:
+	// it costs the one line the whole harness shares, so a loaded quest and a
+	// disabled git interception have to compete with a transient.
 	const draw = (): void => {
 		if (!ctx?.hasUI) return;
 		const rows = entries();
 		if (rows.length === 0) return;
-		ctx.ui.setStatus(
-			STATUS_KEY,
-			ctx.ui.theme.fg("muted", summary(round, rows)),
-		);
 		panel?.setEntries(rows);
 	};
 
 	const teardown = (): void => {
 		if (!ctx?.hasUI) return;
-		ctx.ui.setStatus(STATUS_KEY, undefined);
 		unsubscribe?.();
 		unsubscribe = undefined;
 		// Restoring the editor must not depend on the round still being

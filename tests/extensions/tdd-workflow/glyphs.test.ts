@@ -39,7 +39,11 @@ describe("glyph", () => {
 		expect(glyph("red-unverified")).toEqual({ char: "\u25d1", token: "error" });
 		expect(glyph("red-verified")).toEqual({ char: "\u25d5", token: "error" });
 		expect(glyph("green")).toEqual({ char: "\u25cf", token: "success" });
-		expect(glyph("refactor")).toEqual({ char: "\u25c6", token: "accent" });
+		// A centred circle, staying inside the fill series the other phases
+		// use. It was a filled diamond, which is what the quest surface draws
+		// for a quest, so refactoring under a loaded quest showed the same mark
+		// for both. Held here because a glyph is the thing a person reads.
+		expect(glyph("refactor")).toEqual({ char: "\u25c9", token: "accent" });
 	});
 
 	it("gives write and red-unverified distinct shapes, not just colours", () => {

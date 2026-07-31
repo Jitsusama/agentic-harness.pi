@@ -50,7 +50,11 @@ const GLYPHS: Record<VisualState, Glyph> = {
 	"red-unverified": { char: "\u25d1", token: "error" },
 	"red-verified": { char: "\u25d5", token: "error" },
 	green: { char: "\u25cf", token: "success" },
-	refactor: { char: "\u25c6", token: "accent" },
+	// A circle with a centre: the same family as the phases before it,
+	// since refactoring is the last of them and not a different kind of
+	// thing. This was a filled diamond, which is what a quest is, so a
+	// session refactoring under a loaded quest drew the same mark for both.
+	refactor: { char: "\u25c9", token: "accent" },
 };
 
 /** The glyph and colour for a visual state. */
