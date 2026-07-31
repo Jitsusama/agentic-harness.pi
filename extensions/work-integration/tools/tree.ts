@@ -15,6 +15,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { sessionGateDeps } from "../../../lib/internal/gate/session-deps.js";
+import { complaintsAbout } from "../../../lib/internal/guardian/commit-format.js";
 import { runProseGate } from "../../../lib/internal/guardian/prose-gate.js";
 import { citeListing, openSessionStore } from "../../../lib/result/index.js";
 import type { Exec } from "../../../lib/review/index.js";
@@ -29,6 +30,7 @@ import {
 	createGitRebaser,
 	createGitStacks,
 	type HeldTree,
+	namingComplaints,
 	refusalFrom,
 	tidyPlan,
 	treeInPlay,
@@ -105,29 +107,30 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 			checkout: Type.Optional(
 				Type.String({
 					description:
-						"Path to a local checkout to cut from. Much cheaper than a remote, and required unless a remote is given.",
+						"For tree and snapshot: a local checkout to cut from. Much cheaper than a remote, and required unless a remote is given.",
 				}),
 			),
 			remote: Type.Optional(
 				Type.String({
 					description:
-						"Remote URL, for a repo with no local checkout. Note the git provider refuses to clone rather than spending ten minutes unasked.",
+						"For tree and snapshot: a remote URL, for a repo with no local checkout. Note the git provider refuses to clone rather than spending ten minutes unasked.",
 				}),
 			),
 			purpose: Type.Optional(
 				Type.String({
-					description: "What the tree is for, e.g. 'fix-410'. Names the tree.",
+					description:
+						"For tree and snapshot: what it is for, e.g. 'fix-410'. Names the tree.",
 				}),
 			),
 			branch: Type.Optional(
-				Type.String({ description: "Branch to check out, for a worktree." }),
+				Type.String({ description: "For tree: the branch to check out." }),
 			),
 			commit: Type.Optional(
-				Type.String({ description: "Commit to pin, for a snapshot." }),
+				Type.String({ description: "For snapshot: the commit to pin." }),
 			),
 			paths: Type.Optional(
 				Type.Array(Type.String(), {
-					description: "Restrict a snapshot to these paths.",
+					description: "For snapshot: restrict it to these paths.",
 				}),
 			),
 			tree: Type.Optional(
@@ -139,28 +142,28 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 			subject: Type.Optional(
 				Type.String({
 					description:
-						"Commit subject, for record. Conventional form: type(scope): subject.",
+						"For record: the commit subject, in conventional form, type(scope): subject.",
 				}),
 			),
 			body: Type.Optional(
 				Type.String({
 					description:
-						"Commit body, for record. Say why, not what: the diff already says what.",
+						"For record: the commit body. Say why, not what: the diff already says what.",
 				}),
 			),
 			name: Type.Optional(
-				Type.String({ description: "Branch name, for branch." }),
+				Type.String({ description: "For branch: the name to give it." }),
 			),
 			from: Type.Optional(
 				Type.String({
 					description:
-						"Where a new branch starts, for branch. Defaults to where the tree already points.",
+						"For branch: where the new branch starts. Defaults to where the tree already points.",
 				}),
 			),
 			onto: Type.Optional(
 				Type.String({
 					description:
-						"What to replay onto, for rebase. A branch, a tag or a commit.",
+						"For rebase: what to replay onto, as a branch, a tag or a commit.",
 				}),
 			),
 			replace: Type.Optional(
@@ -172,7 +175,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 			trunk: Type.Optional(
 				Type.String({
 					description:
-						"What the bottom of the stack sits on, for restack. Required there: a restack replays every tracked branch, so a guessed base rewrites all of them onto the wrong thing.",
+						"For restack, sync and tidy: what the bottom of the stack sits on. Required for a restack, which replays every tracked branch, so a guessed base rewrites all of them onto the wrong thing.",
 				}),
 			),
 			order: Type.Optional(
@@ -350,6 +353,20 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 						return refuse(`${GLYPH.refused} ${objection.reason}`);
 					}
 
+					// The shape rules the guardian holds a shell commit to. It
+					// shows them as warnings beside a panel and lets the person
+					// decide, which works because somebody is looking. Nobody is
+					// looking here, so the same rules have to refuse: a warning
+					// returned after the commit has landed is a note about
+					// history, and rewriting history is the expensive way to fix
+					// a subject nobody had to accept in the first place.
+					const shape = complaintsAbout(proposed);
+					if (shape.length > 0) {
+						return refuse(
+							`${GLYPH.refused} That message does not meet the commit format: ${shape.join("; ")}.`,
+						);
+					}
+
 					const author = createGitAuthor({ exec });
 					const before = await history.status(found.path);
 					if (before.changed.length === 0) {
@@ -388,8 +405,18 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 						args.name,
 						args.from ? { from: args.from } : undefined,
 					);
+					// Said after the branch exists, because the name is workable
+					// and the convention is a preference rather than a rule git
+					// enforces. Refusing here would make a repo with its own
+					// habits unusable through the tool.
+					const naming = namingComplaints(args.name);
 					return say(
-						`${GLYPH.tree} ${found.identity.key} is on ${args.name}.`,
+						[
+							`${GLYPH.tree} ${found.identity.key} is on ${args.name}.`,
+							...(naming.length === 0
+								? []
+								: [`   Against the convention: ${naming.join("; ")}.`]),
+						].join("\n"),
 						{ ok: true, branch: args.name },
 					);
 				}

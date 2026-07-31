@@ -24,7 +24,11 @@ export type {
 	CommitMessage,
 	WorkAuthor,
 } from "./author.js";
-export { createGitAuthor, safeBranchName } from "./author.js";
+export {
+	createGitAuthor,
+	namingComplaints,
+	safeBranchName,
+} from "./author.js";
 export type { HeldTree, TreeBroker, TreeProvider } from "./broker.js";
 export { createTreeBroker } from "./broker.js";
 export type { WorkApi } from "./events.js";

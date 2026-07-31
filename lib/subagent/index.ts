@@ -38,6 +38,13 @@ export {
 	registerSubagentDefaultExtension,
 	registerSubagentDefaultSkill,
 } from "./defaults.js";
+// The bus names the domain answers to, so a consumer registering a
+// default needs this library and never the extension that hosts it.
+export {
+	SUBAGENT_READY,
+	SUBAGENT_REGISTER_DEFAULT_EXTENSION,
+	SUBAGENT_REGISTER_DEFAULT_SKILL,
+} from "./events.js";
 // Parent-install resolution (pins subagents to the running install).
 export {
 	getParentPiInstall,

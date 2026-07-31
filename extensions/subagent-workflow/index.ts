@@ -45,6 +45,11 @@ import {
 	registerSubagentDefaultExtension,
 	registerSubagentDefaultSkill,
 } from "../../lib/subagent/defaults.js";
+import {
+	SUBAGENT_READY,
+	SUBAGENT_REGISTER_DEFAULT_EXTENSION,
+	SUBAGENT_REGISTER_DEFAULT_SKILL,
+} from "../../lib/subagent/events.js";
 import { getParentPiInstall } from "../../lib/subagent/install.js";
 import { createSupervisorRunPi } from "../../lib/subagent/runpi/supervisor.js";
 import {
@@ -61,40 +66,24 @@ import {
 } from "./run.js";
 
 /**
- * Event the extension emits once on activation. Carries
- * a {@link SubagentWorkflowApi} so other pi extensions
- * can register defaults without importing this package's
- * internals.
+ * The domain's bus names, re-exported under their old spellings.
  *
- * Late-binding extensions that activate AFTER this one
- * miss the emit. They can still register defaults by
- * emitting {@link SUBAGENT_WORKFLOW_REGISTER_DEFAULT_EXTENSION}
- * or {@link SUBAGENT_WORKFLOW_REGISTER_DEFAULT_SKILL}
- * directly, since the listeners stay subscribed for the
- * lifetime of the session. Mirrors the bidirectional
- * `pr-workflow:ready:v1` + `pr-workflow:*-provider:register:v1`
- * handshake used elsewhere in the package.
+ * They are declared in `lib/subagent/events.ts` now, because a name
+ * that only an extension can hand you is a name a downstream package
+ * has to hardcode. These aliases stay so nothing importing them
+ * breaks; the names on the wire moved from `subagent-workflow:` to
+ * `subagent:`, since a topic belongs to a domain rather than to
+ * whichever extension currently hosts it.
  */
-export const SUBAGENT_WORKFLOW_READY = "subagent-workflow:ready:v1";
+export const SUBAGENT_WORKFLOW_READY = SUBAGENT_READY;
 
-/**
- * Reverse-registration event. Listened to from extension
- * activation; payload is the absolute extension path to
- * inject into every subagent. Use this when listening for
- * {@link SUBAGENT_WORKFLOW_READY} isn't enough because
- * your extension may activate after this one.
- */
+/** See {@link SUBAGENT_REGISTER_DEFAULT_EXTENSION}. */
 export const SUBAGENT_WORKFLOW_REGISTER_DEFAULT_EXTENSION =
-	"subagent-workflow:register-default-extension:v1";
+	SUBAGENT_REGISTER_DEFAULT_EXTENSION;
 
-/**
- * Reverse-registration event for default skills. Payload
- * is the absolute path to a `SKILL.md` file. Same
- * load-order-safe motivation as
- * {@link SUBAGENT_WORKFLOW_REGISTER_DEFAULT_EXTENSION}.
- */
+/** See {@link SUBAGENT_REGISTER_DEFAULT_SKILL}. */
 export const SUBAGENT_WORKFLOW_REGISTER_DEFAULT_SKILL =
-	"subagent-workflow:register-default-skill:v1";
+	SUBAGENT_REGISTER_DEFAULT_SKILL;
 
 /**
  * Public hook surface for other pi extensions. Delivered

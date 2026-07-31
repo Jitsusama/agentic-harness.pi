@@ -210,7 +210,7 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 			title: Type.Optional(
 				Type.String({
 					description:
-						"Title. For propose, defaults to the last commit's subject.",
+						"For propose and edit: the title. On propose it defaults to the last commit's subject.",
 				}),
 			),
 			body: Type.Optional(

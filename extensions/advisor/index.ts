@@ -32,11 +32,11 @@ import {
 	type RuleStore,
 } from "../../lib/governance/index.js";
 import { dataDir } from "../../lib/internal/paths.js";
+import { entriesToTurns } from "../../lib/internal/transcript.js";
 import {
 	recordRunEverywhere,
 	runRecordFrom,
 } from "../../lib/observability/index.js";
-import { entriesToTurns } from "../correction-capture/transcript.js";
 import { advisorCharter, reviewPrompt } from "./charter.js";
 import {
 	channelFor,

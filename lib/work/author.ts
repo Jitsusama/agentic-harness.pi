@@ -86,6 +86,45 @@ export function safeBranchName(name: string): string | undefined {
 	return trimmed;
 }
 
+/** How long a whole branch name should stay under, by convention. */
+const BRANCH_NAME_BUDGET = 40;
+
+/**
+ * Where a branch name departs from the house convention.
+ *
+ * Advice, not a verdict. {@link safeBranchName} decides what git will
+ * accept and this decides what the convention prefers, and the two
+ * must not be confused: a name git accepts is workable, and a repo
+ * with its own conventions is entitled to it. So this decorates the
+ * answer rather than blocking the branch, which is the same shape as
+ * every other caution here.
+ *
+ * The `username/` prefix is checked for shape and not for identity.
+ * Who the authenticated user is belongs to whatever hosts the repo,
+ * and this layer speaks git; asking a forge would put a network call
+ * behind making a branch.
+ */
+export function namingComplaints(name: string): string[] {
+	const said: string[] = [];
+	if (!name.includes("/")) {
+		said.push(
+			"it has no username prefix, and the form is username/what-it-does",
+		);
+	}
+	if (name.length > BRANCH_NAME_BUDGET) {
+		said.push(
+			`it is ${name.length} characters and the convention keeps them under ${BRANCH_NAME_BUDGET}`,
+		);
+	}
+	if (name !== name.toLowerCase()) {
+		said.push("it has capitals, and these are lower case with hyphens");
+	}
+	if (name.includes("_")) {
+		said.push("it separates words with underscores rather than hyphens");
+	}
+	return said;
+}
+
 /** Write to a tree with plain git. */
 export function createGitAuthor(deps: { exec: Exec }): WorkAuthor {
 	return {

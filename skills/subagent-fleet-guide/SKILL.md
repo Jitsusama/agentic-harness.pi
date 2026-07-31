@@ -154,22 +154,25 @@ extension activation never matters:
 ```ts
 const EXT = "/abs/path/to/creds.ts";
 
-// Covers "we activated AFTER subagent-workflow".
-pi.events.emit(
-  "subagent-workflow:register-default-extension:v1",
-  EXT,
-);
+// Covers "we activated AFTER the host".
+pi.events.emit("subagent:register-default-extension:v1", EXT);
 
-// Covers "we activated BEFORE subagent-workflow".
-pi.events.on("subagent-workflow:ready:v1", (api) => {
+// Covers "we activated BEFORE the host".
+pi.events.on("subagent:ready:v1", (api) => {
   api.registerDefaultExtension(EXT);
 });
 ```
 
 The registry dedupes by path, so both paths firing the
 same entry is safe. The skill equivalent is
-`subagent-workflow:register-default-skill:v1` with a
-`SKILL.md` path payload.
+`subagent:register-default-skill:v1` with a `SKILL.md`
+path payload.
+
+The names say `subagent`, not `subagent-workflow`. A topic
+belongs to a domain rather than to whichever extension
+hosts it, and the constants are exported from
+`agentic-harness.pi/subagent` so nothing has to hardcode
+them.
 
 For package-internal callers, import the functions from
 `agentic-harness.pi/subagent` directly.

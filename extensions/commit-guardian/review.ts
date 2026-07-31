@@ -17,13 +17,16 @@ import {
 } from "../../lib/guardian/index.js";
 import { readCommitFile } from "../../lib/internal/guardian/commit-file.js";
 import {
+	type CommitValidation,
+	validate,
+} from "../../lib/internal/guardian/commit-format.js";
+import {
 	runProseGate,
 	sessionGateDeps,
 } from "../../lib/internal/guardian/prose-gate.js";
 import { isVerificationFailing } from "../../lib/internal/verification/signal.js";
 import { promptSingle } from "../../lib/ui/index.js";
 import { extractMessage, isCommitCommand } from "./parse.js";
-import { type CommitValidation, validate } from "./validate.js";
 
 const COMMIT_ACTIONS = [{ key: "r", label: "Reject" }];
 

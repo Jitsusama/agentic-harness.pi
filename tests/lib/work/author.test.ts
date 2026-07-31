@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { createGitAuthor, safeBranchName } from "../../../lib/work/index.js";
+import {
+	createGitAuthor,
+	namingComplaints,
+	safeBranchName,
+} from "../../../lib/work/index.js";
 import { fakeExec } from "../review/support/fake-exec.js";
 
 const ok = [{ when: [], stdout: "" }];
@@ -168,5 +172,35 @@ describe("moving a tree onto a branch", () => {
 			author.branch("/trees/one", "topic", { from: "--upload-pack=evil" }),
 		).rejects.toThrow(/start/i);
 		expect(calls).toEqual([]);
+	});
+});
+
+describe("where a branch name departs from the convention", () => {
+	it("is quiet about a name that follows it", () => {
+		expect(namingComplaints("joel/oauth-refresh")).toEqual([]);
+	});
+
+	it("notices a missing username prefix", () => {
+		expect(namingComplaints("oauth-refresh")[0]).toContain(
+			"username/what-it-does",
+		);
+	});
+
+	it("counts the characters rather than saying too long", () => {
+		const long = `joel/${"x".repeat(40)}`;
+
+		expect(namingComplaints(long)[0]).toContain("45 characters");
+	});
+
+	it("notices capitals and underscores", () => {
+		expect(namingComplaints("joel/Fix_The_Thing")).toHaveLength(2);
+	});
+
+	// Advice and safety answer different questions, and confusing them
+	// would either block a workable branch or wave through an unusable
+	// one. A name can be perfectly safe for git and still off-convention.
+	it("is separate from whether git will accept the name", () => {
+		expect(namingComplaints("Some_Branch")).not.toEqual([]);
+		expect(safeBranchName("Some_Branch")).toBe("Some_Branch");
 	});
 });

@@ -21,8 +21,8 @@
  * runReviewer.
  *
  * The canonical way for an outside pi extension to add a
- * default is to listen for the `subagent-workflow:ready:v1`
- * event (see the `subagent-workflow` extension) and call
+ * default is to listen for the `subagent:ready:v1`
+ * event (see `./events.ts`) and call
  * the registration methods on the `SubagentWorkflowApi`
  * object the event carries. Direct imports of the
  * functions below are supported too, primarily for tests

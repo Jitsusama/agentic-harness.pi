@@ -7,9 +7,14 @@
  * the distiller needs, so tool calls, images and non-message
  * entries are dropped and each message reduces to its role and
  * concatenated text.
+ *
+ * Lives here rather than in either extension that wants it. Two do,
+ * and while it sat in one of them the other reached across for it,
+ * which is the coupling the bus registration exists to avoid: an
+ * extension that imports a sibling cannot be installed without it.
  */
 
-import type { Turn } from "../../lib/governance/index.js";
+import type { Turn } from "../governance/index.js";
 
 /** A content block that may carry text. */
 interface TextBlock {

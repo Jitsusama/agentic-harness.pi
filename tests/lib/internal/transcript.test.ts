@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { entriesToTurns } from "../../../extensions/correction-capture/transcript.js";
+import { entriesToTurns } from "../../../lib/internal/transcript.js";
 
 describe("entriesToTurns", () => {
 	it("keeps user and assistant messages with text", () => {
