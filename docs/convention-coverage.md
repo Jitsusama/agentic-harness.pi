@@ -288,8 +288,21 @@ is followed by judgment, not by a regex.
 
 - **Methodology guides**: `code-investigation-guide`,
   `code-tdd-guide`, `planning-guide`, `subagent-fleet-guide`,
-  `review-guide`,
+  `review-guide`, `work-guide`,
   `convention-recurrence-sensor-guide`, `session-log-guide`.
+
+  One rule in each of `review-guide` and `work-guide` is gated,
+  and it is not about artifact shape at all:
+  🟢 every action a tool offers is shown being called in its
+  guide, in `tests/extensions/review-indexed.test.ts` and
+  `tests/extensions/work-indexed.test.ts`. A capability nobody
+  can find does not exist, and this fails the way a real gate
+  should: it has caught four actions shipping undiscoverable,
+  the last two of them in `work-guide` minutes after the gate
+  was written, in a guide whose author believed it complete.
+  It checks the incantation rather than the bare word, because
+  half these names are ordinary English that appears in prose
+  about something else.
 
   `review-guide` is worth a note, because it looks gateable and
   is not. Its rules are about what to say rather than what to

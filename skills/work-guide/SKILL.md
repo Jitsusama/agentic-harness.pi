@@ -62,10 +62,25 @@ the command is blocked outright.
 
 ## Reading Before Writing
 
-`status` before anything that moves a tree. An untracked file
-is work, and overwriting one cannot be undone, so `release`
-and any repoint refuse over uncommitted changes rather than
+```
+work status tree:…
+```
+
+Run it before anything that moves a tree. An untracked file is
+work, and overwriting one cannot be undone, so `release` and
+any repoint refuse over uncommitted changes rather than
 deciding for you.
+
+## Making a Branch
+
+```
+work branch tree:… name:fix-410
+work branch tree:… name:fix-410 from:main
+```
+
+Without `from`, it starts where the tree already points, which
+is usually what you want and occasionally not: check `status`
+first if you are not sure where that is.
 
 ## Recording and Publishing
 
