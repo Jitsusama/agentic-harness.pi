@@ -93,10 +93,37 @@ function queueNote(proposal: Proposal): string {
 	return ` · in the merge queue${place}${batched}`;
 }
 
+/**
+ * How big the change is, when the provider said.
+ *
+ * Absent means unreported, which is not the same as zero, so nothing is
+ * printed rather than a confident `0 files`. Reported piecemeal for the same
+ * reason: a backend that gives a file count and no line counts should say the
+ * part it knows.
+ *
+ * Worth printing at all because it is the first thing anybody wants to know
+ * about a change they have not read, and because the contract carried these
+ * three for a while without a single reader. Meteorite reads the API rather
+ * than the CLI largely to get them, so they were fetched on every change and
+ * dropped on the floor.
+ */
+function sizeNote(proposal: Proposal): string {
+	const files =
+		proposal.changedFiles === undefined
+			? undefined
+			: `${proposal.changedFiles} ${proposal.changedFiles === 1 ? "file" : "files"}`;
+	const lines =
+		proposal.additions === undefined && proposal.deletions === undefined
+			? undefined
+			: `+${proposal.additions ?? 0} -${proposal.deletions ?? 0}`;
+	const said = [files, lines].filter((part) => part !== undefined);
+	return said.length === 0 ? "" : ` · ${said.join(", ")}`;
+}
+
 /** A change, in one line. */
 export function proposalLine(proposal: Proposal): string {
 	const draft = proposal.draft ? " (draft)" : "";
-	return `${GLYPH.target} ${proposal.ref.label} ${proposal.title}${draft}\n   ${proposal.state} · ${proposal.author.id} · ${proposal.head} → ${proposal.base}${queueNote(proposal)}`;
+	return `${GLYPH.target} ${proposal.ref.label} ${proposal.title}${draft}\n   ${proposal.state} · ${proposal.author.id} · ${proposal.head} → ${proposal.base}${sizeNote(proposal)}${queueNote(proposal)}`;
 }
 
 /** CI, with unreported kept apart from failed. */

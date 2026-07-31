@@ -27,6 +27,14 @@ export interface ProviderDeps {
  * Run a command, throwing with the backend's own words when it
  * fails. A CLI's stderr is usually the most useful diagnostic
  * available, so it is preserved rather than replaced.
+ *
+ * Both streams are kept when both said something, because they carry
+ * different halves of the same answer and the useful half was being thrown
+ * away. `gh api` writes its own summary to stderr and the server's response
+ * body to stdout, so preferring stderr reduced a 422 that named the exact
+ * offending field to `gh: Unprocessable Entity (HTTP 422)`. That is a
+ * complete sentence about nothing: the field name is what tells you the
+ * request was wrong rather than the change.
  */
 export async function run(
 	exec: Exec,
@@ -36,8 +44,30 @@ export async function run(
 ): Promise<string> {
 	const result = await exec(command, args);
 	if (result.code !== 0) {
-		const detail = result.stderr.trim() || result.stdout.trim();
-		throw new Error(`${what} failed: ${detail || `${command} exited nonzero`}`);
+		throw new Error(`${what} failed: ${failureDetail(result, command)}`);
 	}
 	return result.stdout;
+}
+
+/**
+ * How much of a stream to keep in a failure message.
+ *
+ * An error body is a line or two; a command that fails after writing real
+ * output can put a whole diff on stdout, and a message nobody will read to
+ * the end is its own kind of silence.
+ */
+const DETAIL_LIMIT = 2000;
+
+/** As much of both streams as says something, in the order they matter. */
+function failureDetail(result: ExecResult, command: string): string {
+	const said = [result.stderr.trim(), result.stdout.trim()]
+		.filter((stream) => stream !== "")
+		// The same words on both streams read like two problems.
+		.filter((stream, at, all) => all.indexOf(stream) === at)
+		.map((stream) =>
+			stream.length > DETAIL_LIMIT
+				? `${stream.slice(0, DETAIL_LIMIT)}\u2026`
+				: stream,
+		);
+	return said.join("\n") || `${command} exited nonzero`;
 }
