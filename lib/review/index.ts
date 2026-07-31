@@ -175,7 +175,12 @@ export type {
 	RepoLocator,
 	ReviewTarget,
 } from "./change.js";
-export type { Check, CheckState, ChecksRollup } from "./checks.js";
+export type {
+	Check,
+	CheckState,
+	ChecksRollup,
+	RerunOutcome,
+} from "./checks.js";
 export type {
 	ReferenceMapping,
 	RepoMapping,
