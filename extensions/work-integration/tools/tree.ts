@@ -12,6 +12,7 @@
  * a promise the surface cannot keep.
  */
 
+import { realpathSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { sessionGateDeps } from "../../../lib/internal/gate/session-deps.js";
@@ -31,6 +32,7 @@ import {
 	createGitStacks,
 	type HeldTree,
 	namingComplaints,
+	orphanedTrees,
 	refusalFrom,
 	tidyPlan,
 	treeInPlay,
@@ -533,6 +535,37 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 						tracked: tracked.map((step) => step.name),
 					});
 
+					// Trees are asked about in the same breath as branches,
+					// because they leak for a reason branches do not: a hard kill
+					// takes the broker's record with it and leaves the directory,
+					// so nothing owns the tree and no verb can see it. Anybody who
+					// has come here to clean up has come to clean up.
+					//
+					// Both path sets go through the same lens first. Git reports
+					// a worktree with every symlink resolved and the broker wrote
+					// down whatever it was handed, so on macOS the same tree can
+					// be `/private/var/...` from one and `/var/...` from the
+					// other. Compared raw, a tree somebody is holding right now
+					// reads as abandoned.
+					const resolved = (path: string): string => {
+						try {
+							return realpathSync(path);
+						} catch {
+							// Gone from disk, which is not this verb's problem: the
+							// broker's memory already drops what it cannot find, and
+							// a path git named cannot be missing. Either way the
+							// unresolved path is still the best name for it.
+							return path;
+						}
+					};
+					const orphans = orphanedTrees({
+						mainPath: resolved(found.path),
+						worktrees: (await history.worktrees(found.path, trunk)).map(
+							(tree) => ({ ...tree, path: resolved(tree.path) }),
+						),
+						remembered: broker.held().map((one) => resolved(one.path)),
+					});
+
 					const lines: string[] = [];
 					for (const gone of plan.removable) {
 						lines.push(
@@ -549,6 +582,21 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 					if (plan.prunable) {
 						lines.push(
 							`   ${GLYPH.named} tracking refs for branches the remote dropped`,
+						);
+					}
+					for (const tree of orphans.reclaimable) {
+						lines.push(
+							`   ${GLYPH.named} ${displayPath(tree.path)}, a tree nothing holds${tree.branch ? ` (${tree.branch})` : ""}`,
+						);
+					}
+					for (const tree of orphans.retained) {
+						// The checkout itself is left out. It is retained for a
+						// reason nobody needs telling, and saying it every time
+						// trains people to skip the list that also holds the one
+						// line they must read.
+						if (tree.path === found.path) continue;
+						lines.push(
+							`   ${tree.decide ? GLYPH.undecided : GLYPH.refused} ${displayPath(tree.path)}: ${tree.why}`,
 						);
 					}
 

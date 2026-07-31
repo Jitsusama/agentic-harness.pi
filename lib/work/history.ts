@@ -10,7 +10,7 @@
 
 import { type Exec, run } from "../exec/index.js";
 import { displayPath } from "../ui/path.js";
-import type { LocalBranch } from "./tidy.js";
+import type { LocalBranch, WorktreeOnDisk } from "./tidy.js";
 
 /** One path git reports as changed, and how. */
 export interface ChangedPath {
@@ -50,6 +50,16 @@ export interface WorkHistory {
 	 * tell a squash merge from lost work.
 	 */
 	branches(treePath: string, trunk: string): Promise<LocalBranch[]>;
+	/**
+	 * Every worktree git tracks for this repo, with what is in each.
+	 *
+	 * Reported rather than acted on, for the same reason as
+	 * {@link branches}: whether a tree has been left behind is
+	 * {@link orphanedTrees}'s decision, and it needs the merge state and
+	 * the dirty state together to tell an abandoned tree from the only
+	 * copy of somebody's work.
+	 */
+	worktrees(treePath: string, trunk: string): Promise<WorktreeOnDisk[]>;
 }
 
 /** Porcelain v1 status codes, mapped to what they mean. */
@@ -175,6 +185,67 @@ export function createGitHistory(deps: { exec: Exec }): WorkHistory {
 					// which is the only place it says so without a fetch.
 					...(track === "gone" ? { remoteGone: true } : {}),
 				}));
+		},
+
+		async worktrees(treePath, trunk) {
+			// Porcelain, because the human-readable listing puts the branch
+			// in square brackets and a detached tree in the same column, so
+			// parsing it means telling those apart by punctuation.
+			const listed = await run(
+				deps.exec,
+				"git",
+				["-C", treePath, "worktree", "list", "--porcelain"],
+				`Listing the worktrees beside ${displayPath(treePath)}`,
+			);
+			const merged = new Set(
+				(
+					await run(
+						deps.exec,
+						"git",
+						[
+							"-C",
+							treePath,
+							"branch",
+							"--format=%(refname:short)",
+							"--merged",
+							trunk,
+						],
+						`Asking which branches ${trunk} already contains`,
+					)
+				)
+					.split("\n")
+					.map((line) => line.trim())
+					.filter((line) => line !== ""),
+			);
+
+			// A porcelain record is a run of lines per tree, separated by a
+			// blank one: `worktree <path>`, then optionally `branch <ref>`
+			// or `detached`.
+			const trees: WorktreeOnDisk[] = [];
+			for (const record of listed.split("\n\n")) {
+				let path: string | undefined;
+				let branch: string | undefined;
+				for (const line of record.split("\n")) {
+					if (line.startsWith("worktree ")) path = line.slice(9).trim();
+					if (line.startsWith("branch ")) {
+						branch = line
+							.slice(7)
+							.trim()
+							.replace(/^refs\/heads\//, "");
+					}
+				}
+				if (!path) continue;
+				// Asked per tree, because a dirty tree is the one refusal here
+				// that cannot be recovered from and no listing reports it.
+				const state = await this.status(path);
+				trees.push({
+					path,
+					...(branch ? { branch } : {}),
+					...(state.clean ? {} : { dirty: true }),
+					...(branch && merged.has(branch) ? { mergedIntoTrunk: true } : {}),
+				});
+			}
+			return trees;
 		},
 	};
 }

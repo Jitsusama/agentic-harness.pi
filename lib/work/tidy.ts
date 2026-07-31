@@ -13,6 +13,121 @@
  * moment nothing is cleanable yet.
  */
 
+/** One worktree, as git describes it. */
+export interface WorktreeOnDisk {
+	path: string;
+	/** The branch checked out there, when one is. */
+	branch?: string;
+	/** Whether it holds changes that are not committed anywhere. */
+	dirty?: boolean;
+	/** Whether trunk already contains that branch's commits. */
+	mergedIntoTrunk?: boolean;
+}
+
+/** What is known when asking which trees were left behind. */
+export interface OrphanAsk {
+	/** The checkout the worktrees hang off, which is never an orphan. */
+	mainPath: string;
+	/** Every worktree git knows about, the main checkout included. */
+	worktrees: WorktreeOnDisk[];
+	/**
+	 * Paths the broker still remembers holding.
+	 *
+	 * Must be comparable with the worktree paths above, which means the
+	 * caller resolves both through the same lens before asking. The two
+	 * arrive from different places, git and the broker's own record, and
+	 * git reports a path with every symlink resolved: on macOS a tree
+	 * under the system temp comes back as `/private/var/...` where the
+	 * broker wrote `/var/...`. Compared raw, a tree somebody is actively
+	 * holding reads as abandoned, which is the one wrong answer here
+	 * that costs work.
+	 */
+	remembered: readonly string[];
+}
+
+/** A tree nothing claims any more, and what was in it. */
+export interface Reclaimable {
+	path: string;
+	branch?: string;
+}
+
+/** A tree being left alone, and the reason. */
+export interface Retained {
+	path: string;
+	why: string;
+	/** Set when this is a judgement call rather than a refusal. */
+	decide?: boolean;
+}
+
+/** What reclaiming would do, and what it would decline to do. */
+export interface OrphanPlan {
+	reclaimable: Reclaimable[];
+	retained: Retained[];
+}
+
+/**
+ * Which trees have been left behind, without reclaiming any of them.
+ *
+ * A worktree outlives the process that cut it, which is the point of
+ * one, and it also outlives a process that was killed before it could
+ * put the tree back. Nothing then owns it: the broker's memory has no
+ * record, so every verb answers "no held tree", while git still tracks
+ * it and the disk still carries it. Fifteen accumulated in one repo
+ * over four months, all of them from an extension that no longer
+ * exists, which is what this looks like when nobody is watching.
+ *
+ * The order of the questions is the safety, as with {@link tidyPlan}.
+ * The checkout itself and anything the broker still holds are excluded
+ * before merge state is considered, so no confusion further down can
+ * propose removing either.
+ */
+export function orphanedTrees(ask: OrphanAsk): OrphanPlan {
+	const held = new Set(ask.remembered);
+	const reclaimable: Reclaimable[] = [];
+	const retained: Retained[] = [];
+
+	for (const tree of ask.worktrees) {
+		const keep = (why: string, decide?: boolean): void => {
+			retained.push({ path: tree.path, why, ...(decide ? { decide } : {}) });
+		};
+
+		if (tree.path === ask.mainPath) {
+			keep("it is the checkout the others hang off");
+			continue;
+		}
+		if (held.has(tree.path)) {
+			// Not an orphan at all, and saying so matters: releasing it
+			// goes back through the provider that cut it, which knows
+			// things about taking a tree down that this does not.
+			keep(
+				"the broker still holds it, so release it rather than reclaiming it",
+			);
+			continue;
+		}
+		if (tree.dirty) {
+			// A refusal, not a decision. An uncommitted change exists in
+			// exactly one place and removing the tree ends it.
+			keep("it has uncommitted changes, which exist nowhere else");
+			continue;
+		}
+		if (tree.mergedIntoTrunk) {
+			reclaimable.push({
+				path: tree.path,
+				...(tree.branch ? { branch: tree.branch } : {}),
+			});
+			continue;
+		}
+		// The same ambiguity a branch has, for the same reason, and named
+		// the same way rather than guessed at.
+		keep(
+			`nothing holds it, but ${tree.branch ?? "its branch"} is not contained in trunk, so it is either a squash merge or the only copy of that work`,
+			true,
+		);
+	}
+
+	return { reclaimable, retained };
+}
+
 /** One local branch, as git describes it. */
 export interface LocalBranch {
 	name: string;

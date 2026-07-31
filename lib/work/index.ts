@@ -102,10 +102,15 @@ export { createGitStacks } from "./stacks.js";
 export type {
 	Kept,
 	LocalBranch,
+	OrphanAsk,
+	OrphanPlan,
+	Reclaimable,
 	Removable,
+	Retained,
 	TidyAsk,
 	TidyPlan,
+	WorktreeOnDisk,
 } from "./tidy.js";
-export { tidyPlan } from "./tidy.js";
+export { orphanedTrees, tidyPlan } from "./tidy.js";
 export type { TreeIdentity, TreeRequest, TreeSource } from "./tree.js";
 export { satisfies, treeIdentity, treeSource } from "./tree.js";

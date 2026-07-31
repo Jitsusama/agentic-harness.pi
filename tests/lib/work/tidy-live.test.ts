@@ -10,8 +10,14 @@
  */
 
 import { execFile } from "node:child_process";
+import { realpathSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { afterEach, describe, expect, it } from "vitest";
-import { createGitHistory, tidyPlan } from "../../../lib/work/index.js";
+import {
+	createGitHistory,
+	orphanedTrees,
+	tidyPlan,
+} from "../../../lib/work/index.js";
 import { disposeRepo, freshRepo, git } from "../../support/git-fixture.js";
 
 /** An exec over real processes, shaped the way the library expects. */
@@ -131,5 +137,70 @@ describe("reading branch state from a real repository", () => {
 			true,
 		);
 		expect(plan.prunable).toBe(true);
+	});
+});
+
+describe("reading worktree state from a real repository", () => {
+	// Performed rather than faked, for the reason the branch tests above
+	// are: the porcelain format is a run of lines per tree and a wrong
+	// parse of it produces an empty listing, which a fake would hand back
+	// as cheerfully as a right one. Only real git can say the format is
+	// what the code thinks it is.
+	it("finds a merged tree nothing holds, and leaves a dirty one", async () => {
+		const { local } = await repoWithRemote();
+		const history = createGitHistory({ exec });
+
+		// One tree whose branch main contains, which is the reclaimable
+		// case, and one holding an uncommitted file, which is the refusal.
+		await git(local, "branch", "spent", "main");
+		await git(local, "worktree", "add", "-q", `${local}/.wt/spent`, "spent");
+		await git(local, "checkout", "-q", "-b", "busy", "main");
+		await git(local, "commit", "-q", "--allow-empty", "-m", "unlanded");
+		await git(local, "checkout", "-q", "main");
+		await git(local, "worktree", "add", "-q", `${local}/.wt/busy`, "busy");
+		await writeFile(`${local}/.wt/busy/scratch.txt`, "not committed");
+
+		const trees = await history.worktrees(local, "main");
+		// The parse itself: three trees, the checkout and the two added.
+		expect(trees).toHaveLength(3);
+		expect(trees.map((t) => t.branch).sort()).toEqual([
+			"busy",
+			"main",
+			"spent",
+		]);
+
+		const plan = orphanedTrees({
+			// Resolved, as the caller is required to do, because git already
+			// has: on macOS these fixtures live under a symlinked temp, so
+			// git says `/private/var` where the test said `/var`.
+			mainPath: realpathSync(local),
+			worktrees: trees,
+			remembered: [],
+		});
+
+		expect(plan.reclaimable).toEqual([
+			{ path: realpathSync(`${local}/.wt/spent`), branch: "spent" },
+		]);
+		const busy = plan.retained.find((t) => t.path.endsWith("busy"));
+		expect(busy?.why).toContain("uncommitted");
+		expect(busy?.decide).toBeUndefined();
+	});
+
+	it("leaves a tree the broker still remembers", async () => {
+		const { local } = await repoWithRemote();
+		const history = createGitHistory({ exec });
+		await git(local, "branch", "spent", "main");
+		await git(local, "worktree", "add", "-q", `${local}/.wt/spent`, "spent");
+
+		const plan = orphanedTrees({
+			mainPath: realpathSync(local),
+			worktrees: await history.worktrees(local, "main"),
+			remembered: [realpathSync(`${local}/.wt/spent`)],
+		});
+
+		expect(plan.reclaimable).toEqual([]);
+		expect(plan.retained.find((t) => t.path.endsWith("spent"))?.why).toContain(
+			"release",
+		);
 	});
 });

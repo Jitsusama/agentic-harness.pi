@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { tidyPlan } from "../../../lib/work/tidy.js";
+import {
+	type OrphanAsk,
+	orphanedTrees,
+	tidyPlan,
+	type WorktreeOnDisk,
+} from "../../../lib/work/tidy.js";
 
 /** A tree sitting on trunk with one merged branch beside it. */
 const AFTER_A_MERGE = {
@@ -106,5 +111,71 @@ describe("a branch whose remote is gone but which trunk does not contain", () =>
 	it("reports that there are refs worth pruning", () => {
 		expect(tidyPlan(squashed).prunable).toBe(true);
 		expect(tidyPlan(AFTER_A_MERGE).prunable).toBe(false);
+	});
+});
+
+describe("trees left behind", () => {
+	const main = "/repo";
+	const ask = (
+		worktrees: WorktreeOnDisk[],
+		remembered: string[] = [],
+	): OrphanAsk => ({ mainPath: main, worktrees, remembered });
+
+	it("never offers the checkout the others hang off", () => {
+		const plan = orphanedTrees(ask([{ path: main, mergedIntoTrunk: true }]));
+
+		expect(plan.reclaimable).toEqual([]);
+		expect(plan.retained[0]?.why).toContain("hang off");
+	});
+
+	it("offers a merged tree nothing holds", () => {
+		const plan = orphanedTrees(
+			ask([
+				{ path: main },
+				{
+					path: "/repo/.worktrees/old",
+					branch: "plan-1",
+					mergedIntoTrunk: true,
+				},
+			]),
+		);
+
+		expect(plan.reclaimable).toEqual([
+			{ path: "/repo/.worktrees/old", branch: "plan-1" },
+		]);
+	});
+
+	it("sends a tree the broker still holds back through release", () => {
+		const held = { path: "/repo/.worktrees/live", mergedIntoTrunk: true };
+		const plan = orphanedTrees(ask([{ path: main }, held], [held.path]));
+
+		expect(plan.reclaimable).toEqual([]);
+		expect(plan.retained.at(-1)?.why).toContain("release");
+	});
+
+	it("refuses a dirty tree outright, ahead of merge state", () => {
+		const plan = orphanedTrees(
+			ask([
+				{ path: main },
+				{ path: "/repo/.worktrees/wip", dirty: true, mergedIntoTrunk: true },
+			]),
+		);
+
+		expect(plan.reclaimable).toEqual([]);
+		const kept = plan.retained.at(-1);
+		expect(kept?.why).toContain("uncommitted");
+		// A refusal, not something for a person to weigh up.
+		expect(kept?.decide).toBeUndefined();
+	});
+
+	it("names both readings when nothing can prove the work landed", () => {
+		const plan = orphanedTrees(
+			ask([{ path: main }, { path: "/repo/.worktrees/x", branch: "plan-9" }]),
+		);
+
+		const kept = plan.retained.at(-1);
+		expect(kept?.decide).toBe(true);
+		expect(kept?.why).toContain("squash");
+		expect(kept?.why).toContain("only copy");
 	});
 });
