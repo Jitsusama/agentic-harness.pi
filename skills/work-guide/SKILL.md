@@ -193,13 +193,27 @@ rather than shrugging at.
 Putting it up, changing it, and landing it belong to
 `review_offer`; see the review-guide.
 
-One seam is worth stating because it will bite. `work push`
-cannot refuse while a change is queued to merge. Queue state
-lives on the review contract and the working layer has no
-route to it, so on a backend with a merge queue, check with
-`review_see change` before pushing to a branch that is
-enqueued. Mutating an enqueued branch ejects it and everything
-batched with it.
+One thing crosses the boundary, and it is worth knowing how.
+Mutating a branch that is queued to merge ejects it and
+everything speculatively batched with it, and re-running the
+checks for the rest is measured in hundreds of jobs. That is a
+fact only the hosting layer holds, so `work push` **asks**
+before it publishes, and anything that knows a reason to stop
+objects in its own words.
+
+The asking is advisory, on purpose:
+
+- Silence means nobody objected, **not** that it is safe. A
+  session with no hosting provider loaded has to be able to
+  publish.
+- A listener that throws, hangs or is missing does not block
+  the push. A working layer that stops working when an
+  unrelated extension has a bad day is the first thing anybody
+  would turn off, and then it would protect nobody.
+
+So treat an objection as reliable and its absence as unproven.
+Where the stakes are high and you have not seen an objection,
+`review_see change` reads the queue state directly.
 
 ## When a Backend Knows Better
 

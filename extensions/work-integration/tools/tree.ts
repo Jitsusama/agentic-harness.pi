@@ -23,9 +23,10 @@ import {
 	createGitRebaser,
 	createGitStacks,
 	type HeldTree,
+	refusalFrom,
 	treeRequestFrom,
 } from "../../../lib/work/index.js";
-import { execFor, treeBroker } from "../broker.js";
+import { execFor, objectionsTo, treeBroker } from "../broker.js";
 import { GLYPH, treeLine } from "../render.js";
 import {
 	type Answer,
@@ -336,6 +337,23 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 				}
 
 				if (action === "push") {
+					// Ask before publishing, because the reason not to is often a
+					// fact this layer cannot see. On a backend with a merge queue,
+					// pushing to an enqueued branch ejects it and everything batched
+					// with it, and that is knowledge the hosting layer holds.
+					const head = await history.head(found.path);
+					if (head.branch !== undefined) {
+						const objected = await objectionsTo(pi, {
+							repoKey: found.identity.key,
+							branch: head.branch,
+							treePath: found.path,
+							replacing: args.replace === true,
+						});
+						const blocked = refusalFrom(objected);
+						if (blocked !== undefined) {
+							return refuse(`${GLYPH.refused} ${blocked}`);
+						}
+					}
 					const publisher = createGitPublisher({ exec: execFor(pi) });
 					const outcome = await publisher.push(
 						found.path,

@@ -28,6 +28,7 @@ import {
 	registerBuiltinReviewProviders,
 	reviewEngine,
 } from "./engine.js";
+import { guardPublishes } from "./guard-publish.js";
 import {
 	registerAskTool,
 	registerDraftTool,
@@ -93,6 +94,12 @@ export default function reviewIntegration(pi: ExtensionAPI) {
 	// the commit under review. The dependency is optional, so a
 	// missing working layer costs a caveat rather than the round.
 	watchForWorkLayer(pi);
+
+	// And an answerer for it. The working layer asks before publishing a
+	// branch, and whether a change is queued to merge is a fact only this side
+	// holds. Registered unconditionally: either something asks and this
+	// answers, or nothing asks and it costs nothing.
+	guardPublishes(pi);
 
 	pi.events.on("session_start", () => {
 		// A new session must not inherit the last one's bindings, or
