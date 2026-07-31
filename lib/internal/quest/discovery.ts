@@ -41,7 +41,10 @@ import { createHash } from "node:crypto";
 import { type Dirent, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { extname, join } from "node:path";
 import type { QuestDoc, QuestDocumentDoc } from "../../quest/types.js";
-import { parseDocumentFrontMatter } from "./frontmatter.js";
+import {
+	explainDocumentFrontMatter,
+	parseDocumentFrontMatter,
+} from "./frontmatter.js";
 import { isId, prefixOf } from "./id.js";
 import { extractTitle, parseQuestDoc } from "./quest-doc.js";
 
@@ -300,7 +303,18 @@ function discoverQuestsUncached(questsRoot: string): DiscoveryResult {
 				const docText = readMaybe(childPath);
 				if (!docText) continue;
 				const docDoc = parseDocumentFile(docText);
-				if (docDoc) documents.push({ path: childPath, doc: docDoc });
+				if (docDoc) {
+					documents.push({ path: childPath, doc: docDoc });
+					continue;
+				}
+				// Surfaced rather than skipped. A file named like a document,
+				// sitting where documents live, that nothing can read is the
+				// one case where silence is indistinguishable from the file
+				// not existing, and the record does exist.
+				errors.push({
+					path: childPath,
+					message: `Document "${child}" could not be read: ${explainDocumentFrontMatter(docText).join("; ")}.`,
+				});
 			}
 		}
 		return documents;

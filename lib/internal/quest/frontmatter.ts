@@ -398,6 +398,47 @@ export function parseQuestFrontMatter(
 	return { frontMatter, body: split.body };
 }
 
+/**
+ * Why a document's front-matter would not parse, in plain words.
+ *
+ * Discovery drops what it cannot read, and a dropped document is
+ * worse than a broken one: it exists on disk, it is not in any
+ * listing, and nothing anywhere says a record was skipped. Three
+ * documents were invisible this way, two carrying a stage of
+ * `verified` and one `final`, neither of which is a stage.
+ *
+ * Kept apart from {@link parseDocumentFrontMatter} rather than
+ * changing what it returns. The parser has a dozen callers that all
+ * want the same yes-or-no answer, and only the one walking the tree
+ * needs to explain itself.
+ */
+export function explainDocumentFrontMatter(text: string): string[] {
+	if (!splitFrontMatter(text)) return ["it has no front-matter block"];
+	const raw = parseFrontMatterBlock(text);
+	if (!raw) return ["its front-matter block is not readable"];
+
+	const said: string[] = [];
+	if (!asString(raw.id)) said.push("it has no id");
+	if (!asString(raw.quest)) said.push("it names no quest");
+	if (!asString(raw.updated)) said.push("it has no updated date");
+	// The two closed vocabularies, reported with the offending value,
+	// because "kind is invalid" sends the reader to go and look and the
+	// whole point is that they cannot see the record.
+	for (const [field, options] of [
+		["kind", DOCUMENT_KINDS],
+		["stage", DOCUMENT_STAGES],
+	] as const) {
+		const value = raw[field];
+		if (asEnum(value, options as unknown as string[])) continue;
+		said.push(
+			value === undefined
+				? `it has no ${field}`
+				: `its ${field} is ${JSON.stringify(value)}, and the ${field}s are ${options.join(", ")}`,
+		);
+	}
+	return said;
+}
+
 /** Parse a quest document (plan/research/brief/report) front-matter. */
 export function parseDocumentFrontMatter(
 	text: string,
