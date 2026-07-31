@@ -14,6 +14,8 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { sessionGateDeps } from "../../../lib/internal/gate/session-deps.js";
+import { runProseGate } from "../../../lib/internal/guardian/prose-gate.js";
 import { citeListing, openSessionStore } from "../../../lib/result/index.js";
 import type { Exec } from "../../../lib/review/index.js";
 import { displayPath } from "../../../lib/ui/index.js";
@@ -180,7 +182,13 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 		// string, so every field comes back undefined and every call silently
 		// falls to its default. That shipped: `work` answered the tree listing
 		// whatever action it was given.
-		execute: async (_toolCallId, rawArgs, signal): Promise<Answer> => {
+		execute: async (
+			_toolCallId,
+			rawArgs,
+			signal,
+			_onUpdate,
+			ctx,
+		): Promise<Answer> => {
 			const args = rawArgs as {
 				action?:
 					| "tree"
@@ -307,6 +315,28 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 							`${GLYPH.refused} Say what the commit is for, as a subject. Conventional form: type(scope): subject.`,
 						);
 					}
+					// The same prose gate a commit typed into a shell meets. That one is
+					// reached by intercepting the command, and this path never runs a
+					// command: it commits through the exec seam directly, so it arrived
+					// behind the guardian rather than in front of it. A convention
+					// enforced on one road into the same repository and not the other is
+					// not enforced, it is just inconvenient in one place.
+					//
+					// Only the gate is shared, not the review panel. Approving a message
+					// is what a human does to a command they did not write; here the
+					// subject and body are arguments in a tool call they can already see.
+					const proposed = [args.subject, args.body]
+						.filter((part) => part !== undefined && part !== "")
+						.join("\n\n");
+					// A guardian result may also ask for a rewrite, which is a shell
+					// concept: there is no command here to substitute. Narrowed by asking
+					// what the value has rather than asserting what it is, so a third arm
+					// added later is a type error here instead of a silent skip.
+					const objection = runProseGate(sessionGateDeps(ctx, pi), proposed);
+					if (objection !== undefined && "block" in objection) {
+						return refuse(`${GLYPH.refused} ${objection.reason}`);
+					}
+
 					const author = createGitAuthor({ exec });
 					const before = await history.status(found.path);
 					if (before.changed.length === 0) {

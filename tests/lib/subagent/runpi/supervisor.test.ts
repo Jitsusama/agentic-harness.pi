@@ -48,6 +48,18 @@ import type { RunPiResult } from "../../../../lib/subagent/subagent.js";
 // vitest give up, which reports nothing but a duration. CI failed
 // at 60006ms on a run that had plenty left to say, because the rungs
 // were in the other order.
+//
+// This file was carried on a list of suspect tests for a while, on the
+// reasoning that it spawns real processes inside a suite that spawns
+// freely and would therefore fail again on a busy enough machine. That
+// was true of the version that waited for the operating system to
+// report a process exit. It is not true of this one, and the numbers
+// are here so the suspicion is not re-derived from the shape of the
+// file: measured on a twelve-core machine, the whole file runs in 9.5s
+// idle and 9.8s at a load average of 18.9 with sixteen busy loops
+// competing for the cores. Twenty-four tests, no failures, against a
+// ceiling of 150s. If this file starts failing, something has changed;
+// it is not the old flake coming back.
 vi.setConfig({ testTimeout: 150_000 });
 
 interface FakeChild {
