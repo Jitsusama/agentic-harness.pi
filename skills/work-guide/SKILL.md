@@ -60,6 +60,15 @@ Never call `git worktree` yourself. A tree cut outside the
 broker is one nothing will clean up, and in the World monorepo
 the command is blocked outright.
 
+**Holding one tree means you can stop naming it.** Every action
+but `tree`, `snapshot` and `trees` works on a held tree, and
+when exactly one is held it is used without being asked for.
+Hold two and it becomes a question, naming both: these actions
+commit, push and replay, and there is no statement anywhere of
+which of the two you meant. An explicit `tree:` is never
+second-guessed, so a typo is reported rather than redirected to
+whatever else is open.
+
 **A repo it can only reach by remote is refused.** There has to
 be a checkout on disk, and if there is not, the refusal names the
 missing path rather than fetching one. That is deliberate: cloning

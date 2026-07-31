@@ -22,6 +22,7 @@ import { displayPath } from "../../../lib/ui/index.js";
 import {
 	blocksRepoint,
 	cautionsFrom,
+	chooseTree,
 	createGitAuthor,
 	createGitHistory,
 	createGitPublisher,
@@ -29,6 +30,7 @@ import {
 	createGitStacks,
 	type HeldTree,
 	refusalFrom,
+	treeInPlay,
 	treeRequestFrom,
 } from "../../../lib/work/index.js";
 import { execFor, objectionsTo, treeBroker } from "../broker.js";
@@ -128,7 +130,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 			tree: Type.Optional(
 				Type.String({
 					description:
-						"Which held tree to act on, by its key or its path. Needed by everything that acts on a tree you already hold: release, status, record, branch, push, rebase, resume, abandon, and every stack verb. Only tree, snapshot and trees do without it.",
+						"Which held tree to act on, by its key or its path. Every action but tree, snapshot and trees works on one: release, status, record, branch, push, rebase, resume, abandon and every stack verb. Leave it out when you hold exactly one and that one is used, said out loud; holding several makes it a question, since these actions commit and push and the wrong directory is not recoverable.",
 				}),
 			),
 			subject: Type.Optional(
@@ -289,12 +291,19 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 				}
 
 				const held = broker.held();
-				if (!args.tree) {
-					return refuse(
-						`${GLYPH.refused} Say which tree, by its key or its path. ${held.length} held.`,
-					);
+				// A session holding one tree should not have to name it fifteen times.
+				// Several stay a question rather than resolving by recency, which is
+				// where this parts company with the change version: these actions
+				// commit, push and replay, and nothing here states which tree you
+				// meant the way attaching a change does.
+				const inPlay = treeInPlay(
+					args.tree,
+					held.map((h) => h.identity.key),
+				);
+				if ("candidates" in inPlay) {
+					return refuse(`${GLYPH.refused} ${chooseTree(inPlay.candidates)}`);
 				}
-				const found = heldByName(held, args.tree);
+				const found = heldByName(held, inPlay.key);
 				if (!found) {
 					// Naming what is held turns a typo into a correction
 					// rather than a second guess.
@@ -303,7 +312,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 							? "none are held"
 							: held.map((h) => h.identity.key).join(", ");
 					return refuse(
-						`${GLYPH.refused} No held tree called ${args.tree}: ${names}.`,
+						`${GLYPH.refused} No held tree called ${inPlay.key}: ${names}.`,
 					);
 				}
 

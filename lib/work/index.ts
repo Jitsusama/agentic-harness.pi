@@ -40,6 +40,8 @@ export type {
 	WorkingState,
 } from "./history.js";
 export { blocksRepoint, createGitHistory } from "./history.js";
+export type { TreeAmbiguous, TreeInPlay } from "./inplay.js";
+export { chooseTree, treeInPlay } from "./inplay.js";
 export { createTreeMemory, type TreeMemory } from "./memory.js";
 export type {
 	Objection,
