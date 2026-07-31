@@ -10,6 +10,8 @@
  * draft about itself.
  */
 
+import type { Exec } from "../exec/index.js";
+import { run } from "../exec/index.js";
 import { resolveTarget } from "./bind.js";
 import type { Capabilities } from "./capabilities.js";
 import type {
@@ -30,8 +32,6 @@ import type {
 	RepoProbe,
 	ReviewProvider,
 } from "./provider.js";
-import type { Exec } from "./providers/exec.js";
-import { run } from "./providers/exec.js";
 import { getReviewProvider } from "./register.js";
 import type { ResolvedVia } from "./resolve.js";
 import { resolveReference } from "./resolve.js";

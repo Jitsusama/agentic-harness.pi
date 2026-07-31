@@ -40,6 +40,7 @@ import { registerBuiltinRefTypes } from "../../lib/refs/index.js";
 import { boundedByDetails, openSessionStore } from "../../lib/result/index.js";
 import { registerBuiltinTerminalDrivers } from "../../lib/terminal/index.js";
 import { registerBuiltinTreeProviders } from "../../lib/tree/index.js";
+import { firstText } from "../../lib/ui/index.js";
 import { QUEST_ACTIONS } from "./actions.js";
 import {
 	parseQuestWorkflowConfig,
@@ -361,10 +362,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			if (d && d.ok === false) {
 				return new Text(theme.fg("warning", d.guidance ?? "Refused"), 0, 0);
 			}
-			const content =
-				result.content?.[0] && "text" in result.content[0]
-					? result.content[0].text
-					: "";
+			const content = firstText(result);
 			const listing = isListingDetails(d?.listing) ? d.listing : undefined;
 			if (listing) {
 				if (options.expanded) {

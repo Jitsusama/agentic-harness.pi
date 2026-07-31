@@ -25,7 +25,7 @@ import {
 	reactables,
 	type Thread,
 } from "../../../lib/review/index.js";
-import { renderToolCall } from "../../../lib/ui/index.js";
+import { firstText, renderToolCall } from "../../../lib/ui/index.js";
 import { attachmentDir, reviewEngine } from "../engine.js";
 import { GLYPH } from "../render.js";
 
@@ -77,8 +77,7 @@ export function refuseFailure(
 
 /** The renderer every review tool shares. */
 export function renderAnswer(result: Answer, theme: Theme): Text {
-	const first = result.content?.[0];
-	const text = first?.type === "text" ? first.text : "";
+	const text = firstText(result);
 	return new Text(
 		isRefusal(result.details) ? theme.fg("error", text) : text,
 		0,

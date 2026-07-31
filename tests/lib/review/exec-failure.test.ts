@@ -9,8 +9,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import type { Exec } from "../../../lib/review/providers/exec.js";
-import { run } from "../../../lib/review/providers/exec.js";
+import type { Exec } from "../../../lib/exec/index.js";
+import { run } from "../../../lib/exec/index.js";
 
 /** An exec that fails with whatever the two streams should say. */
 function failingWith(stderr: string, stdout: string): Exec {

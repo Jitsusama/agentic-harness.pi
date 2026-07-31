@@ -9,11 +9,11 @@
  * what `closed` meant.
  */
 
+import type { Exec } from "../../../exec/index.js";
+import { run } from "../../../exec/index.js";
 import type { ChangeState, Proposal, RepoLocator } from "../../change.js";
 import type { Check, CheckState, ChecksRollup } from "../../checks.js";
 import type { ChangeFilter, ProposalsFacet } from "../../provider.js";
-import type { Exec } from "../exec.js";
-import { run } from "../exec.js";
 import { GHOST, githubChange, ownerRepoFromKey } from "./claims.js";
 import { labelsAndAssignees } from "./fields.js";
 import { QUEUE_QUERY, queueStateFrom } from "./queue.js";

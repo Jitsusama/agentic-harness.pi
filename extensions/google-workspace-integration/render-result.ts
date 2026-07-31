@@ -4,6 +4,7 @@
 
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
+import { firstText } from "../../lib/ui/index.js";
 
 interface RenderOptions {
 	terminalWidth?: number;
@@ -49,11 +50,7 @@ interface RenderableResult {
 }
 
 /** The text of a result's first block, when it has one. */
-function leadingText(result: RenderableResult): string {
-	const first = result.content?.[0];
-	if (first === undefined || first.type !== "text") return "";
-	return (first as { type: "text"; text: string }).text;
-}
+const leadingText = (result: RenderableResult): string => firstText(result);
 
 /**
  * Render a Google Workspace tool result with action-specific formatting.

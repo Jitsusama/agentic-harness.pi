@@ -26,6 +26,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
+import { firstText } from "../../lib/ui/index.js";
 import { MermaidRenderError, renderMermaid } from "../../lib/web/mermaid.js";
 
 /** The platform command that opens a file in its default app. */
@@ -122,8 +123,7 @@ export default function mermaidWidget(pi: ExtensionAPI) {
 		},
 
 		renderResult(result, _options, theme) {
-			const first = result.content?.[0];
-			const text = first && first.type === "text" ? first.text : "";
+			const text = firstText(result);
 			if (!isSuccess(result.details)) {
 				return new Text(theme.fg("error", text), 0, 0);
 			}

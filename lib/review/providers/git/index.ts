@@ -16,6 +16,8 @@
  * claim and belong in providers of their own.
  */
 
+import type { Exec, ProviderDeps } from "../../../exec/index.js";
+import { run } from "../../../exec/index.js";
 import type { Capabilities } from "../../capabilities.js";
 import type { ChangeRef, RepoLocator } from "../../change.js";
 import type {
@@ -25,8 +27,6 @@ import type {
 	StackingFacet,
 } from "../../provider.js";
 import type { Stack, StackNode } from "../../stack.js";
-import type { Exec, ProviderDeps } from "../exec.js";
-import { run } from "../exec.js";
 
 /** Provider id. */
 export const GIT_PROVIDER_ID = "git";

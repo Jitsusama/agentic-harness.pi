@@ -1,11 +1,14 @@
 /**
- * The one impure thing a provider needs.
+ * The one impure thing a library here needs: running a command.
  *
- * Providers reach their backends by running a CLI, which is
- * the only seam between this library and a process. Taking it
- * as a dependency rather than importing pi's own exec keeps
- * every provider testable, and keeps the library usable by
- * anything that can run a command.
+ * Taking it as a dependency rather than importing pi's own exec keeps every caller
+ * testable, and keeps these libraries usable by anything that can run a command.
+ *
+ * It lived under the review providers until two libraries needed it. Review reaches
+ * a backend by running its CLI and work reaches git the same way, so `lib/work`
+ * imported the type out of `lib/review/providers`, which said the working layer
+ * depended on the reviewing one when the only thing it wanted was the shape of a
+ * subprocess. Neither owns this. It sits at the level that matches what it is.
  */
 
 /** What running a command returns. */

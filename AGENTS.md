@@ -37,6 +37,12 @@ The package manager is **pnpm**. `pnpm-lock.yaml` is canonical;
     the broker holding the trees a session is using (public).
     Tree providers register over the event bus, so one can live
     in another package entirely
+  - `lib/exec/`: running a command, taken as a dependency rather
+    than imported (public). One type, one result shape and one
+    runner that throws with the backend's own words. Its own
+    module because both `lib/review` and `lib/work` need it and
+    neither owns it; `lib/review` re-exports it, since downstream
+    packages import `Exec` from that barrel
   - `lib/result/`: tool answers that are bounded without being
     lossy: the session result store, the bounded structural
     digest, the shared JSONPath query and the citation rule

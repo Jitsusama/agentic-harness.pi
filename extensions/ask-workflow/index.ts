@@ -15,6 +15,7 @@ import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 import {
+	firstText,
 	type ListChoice,
 	type PromptItem,
 	promptSingle,
@@ -274,8 +275,7 @@ export default function ask(pi: ExtensionAPI) {
 		renderResult(result, _options, theme) {
 			const details = result.details as AskResult | undefined;
 			if (!details) {
-				const text = result.content[0];
-				return new Text(text?.type === "text" ? text.text : "", 0, 0);
+				return new Text(firstText(result), 0, 0);
 			}
 			if (details.cancelled) {
 				return new Text(theme.fg("warning", "Cancelled"), 0, 0);

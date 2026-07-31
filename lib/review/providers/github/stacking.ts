@@ -15,10 +15,10 @@
  * of them would be a lie of omission.
  */
 
+import type { Exec } from "../../../exec/index.js";
 import type { ChangeRef, Proposal } from "../../change.js";
 import type { LocalBranch, StackingFacet } from "../../provider.js";
 import type { Stack, StackNode } from "../../stack.js";
-import type { Exec } from "../exec.js";
 import { githubProposals } from "./proposals.js";
 
 /** How far to walk in each direction before giving up. */

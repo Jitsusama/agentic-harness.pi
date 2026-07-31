@@ -8,7 +8,7 @@
  * untracked file counts as work here rather than as noise.
  */
 
-import { type Exec, run } from "../review/index.js";
+import { type Exec, run } from "../exec/index.js";
 import { displayPath } from "../ui/path.js";
 
 /** One path git reports as changed, and how. */

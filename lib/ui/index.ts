@@ -79,6 +79,8 @@ export {
 	renderToolCall,
 	type ToolCallLine,
 } from "./tool-call.js";
+// ── Tool results ───────────────────────
+export { firstText, type MaybeTextBlock } from "./tool-result.js";
 
 // ── Types ───────────────────────────────────────────────────
 export type {

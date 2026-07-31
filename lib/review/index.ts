@@ -14,6 +14,17 @@
  * inventions stay inside their providers.
  */
 
+// Re-exported, not owned. These live in `lib/exec` now, because the working layer
+// needed the same subprocess shape and reaching into this library's provider folder
+// for it said the two domains were related when only the seam is. Kept here because
+// downstream packages import them from this barrel, and moving a file is not a
+// reason to break them.
+//
+// `run` goes out beside `Exec` for the same reason it always did: a consumer handed
+// an `Exec` needs a runner that keeps the CLI's own words on failure, and writing
+// that again per library produces worse diagnostics.
+export type { Exec, ExecResult, ProviderDeps } from "../exec/index.js";
+export { run } from "../exec/index.js";
 export type {
 	Anchor,
 	AnchorCheck,
@@ -296,11 +307,6 @@ export type {
 	SetEdit,
 	StackingFacet,
 } from "./provider.js";
-export type { Exec, ExecResult, ProviderDeps } from "./providers/exec.js";
-// `run` goes out with the seam it belongs to. A consumer handed an
-// `Exec` needs a runner that keeps the CLI's own words on failure,
-// and writing that again per library produces worse diagnostics.
-export { run } from "./providers/exec.js";
 export { createGitProvider } from "./providers/git/index.js";
 export { githubAuthoring } from "./providers/github/authoring.js";
 /**

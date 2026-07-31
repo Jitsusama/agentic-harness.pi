@@ -13,7 +13,7 @@
  * refused before it reaches a command line rather than after.
  */
 
-import { type Exec, run } from "../review/providers/exec.js";
+import { type Exec, run } from "../exec/index.js";
 // The leaf rather than the barrel, so a working layer that never draws anything
 // does not pull the TUI in behind one string helper.
 import { displayPath } from "../ui/path.js";

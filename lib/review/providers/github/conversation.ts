@@ -16,6 +16,8 @@
 import { unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Exec } from "../../../exec/index.js";
+import { run } from "../../../exec/index.js";
 import type { Anchor, DiffSide } from "../../anchor.js";
 import type { ChangeRef, RepoLocator } from "../../change.js";
 import type {
@@ -29,8 +31,6 @@ import type {
 	WireReview,
 } from "../../conversation.js";
 import type { ConversationFacet } from "../../provider.js";
-import type { Exec } from "../exec.js";
-import { run } from "../exec.js";
 import { GHOST, ownerRepoFromKey } from "./claims.js";
 
 /** Message id prefixes, naming which REST route owns the id. */
