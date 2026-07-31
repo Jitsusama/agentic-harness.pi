@@ -23,14 +23,17 @@ import {
 	createDecisionLedger,
 	createFindingStore,
 	createFixQueue,
+	createVisitLog,
 	describeAnchor,
+	describeVisit,
 	followUpOn,
 	type QueuedFix,
 	reactableAddresses,
 	reactables,
+	sinceLastVisit,
 	tallyReceptions,
 } from "../../../lib/review/index.js";
-import { decisionDir, findingDir, fixDir } from "../engine.js";
+import { decisionDir, findingDir, fixDir, visitDir } from "../engine.js";
 import {
 	checksLines,
 	GLYPH,
@@ -190,7 +193,24 @@ async function seeChange(bound: BoundTarget): Promise<Answer> {
 			`${GLYPH.target} a ${bound.target.kind} in ${bound.repo.key}, which nothing hosts. Review it and render the result.`,
 		);
 	}
-	return say(`${proposalLine(proposal)}\n\n${proposal.body}`);
+	// Whether you have been here before, said before the body rather than after
+	// it. A change that has moved since you reviewed it is the thing to know
+	// first, not a footnote under two hundred lines of description.
+	const change = hostedChange(bound);
+	const visited =
+		change === undefined
+			? undefined
+			: sinceLastVisit(createVisitLog(visitDir()).last(change), proposal);
+	const note =
+		visited === undefined || visited.kind === "never"
+			? undefined
+			: `${visited.kind === "moved" ? GLYPH.finding : GLYPH.lands} ${describeVisit(visited)}`;
+	return say(
+		[proposalLine(proposal), ...(note ? [note] : []), "", proposal.body].join(
+			"\n",
+		),
+		{ ok: true, ...(visited === undefined ? {} : { since: visited.kind }) },
+	);
 }
 
 /** The whole diff, stored so a big one stays reachable. */

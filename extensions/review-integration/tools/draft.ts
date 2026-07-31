@@ -19,6 +19,7 @@ import {
 	createDraftStore,
 	createFindingStore,
 	createFixQueue,
+	createVisitLog,
 	type DiffSide,
 	type DraftStore,
 	isReactableRefusal,
@@ -36,6 +37,7 @@ import {
 	findingDir,
 	fixDir,
 	reviewEngine,
+	visitDir,
 } from "../engine.js";
 import { confirmWrite } from "../gate.js";
 import {
@@ -433,6 +435,11 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 					return say("Left in the draft. Nothing was sent.");
 				}
 				const outcome = await draft.publish(plan, bound.provider);
+				// Record where the change stood, so coming back to it later can say
+				// whether it has moved. Recorded after publishing rather than
+				// before: a review that failed to land is not a review of anything,
+				// and claiming otherwise would mark work as seen that nobody said.
+				if (outcome.ok) await noteVisit(bound);
 				return say(outcomeNarration(outcome), {
 					ok: outcome.ok,
 					landed: outcome.outcomes.filter((entry) => entry.ok).length,
@@ -442,6 +449,31 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 			}
 		},
 	});
+}
+
+/**
+ * Record that a review of this change landed, and where it stood.
+ *
+ * Quietly. A failure here loses a convenience and must not cost a review that
+ * has already been posted: the remarks are on the change either way, and
+ * throwing now would report a publish that worked as one that did not.
+ */
+async function noteVisit(bound: BoundTarget): Promise<void> {
+	try {
+		const change = hostedChange(bound);
+		if (change === undefined) return;
+		const proposal = await bound.proposal();
+		if (!proposal) return;
+		createVisitLog(visitDir()).record(change, {
+			at: new Date().toISOString(),
+			...(proposal.headCommit === undefined
+				? {}
+				: { commit: proposal.headCommit }),
+		});
+	} catch {
+		// Nothing to do about it and nothing worth interrupting for. The next
+		// visit simply reads as the first one.
+	}
 }
 
 /**

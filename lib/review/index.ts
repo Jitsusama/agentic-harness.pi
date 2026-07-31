@@ -345,6 +345,12 @@ export type {
 	ResolvedVia,
 } from "./resolve.js";
 export { resolveReference } from "./resolve.js";
+export type { SinceLastVisit, Visit, VisitLog } from "./revisited.js";
+export {
+	createVisitLog,
+	describeVisit,
+	sinceLastVisit,
+} from "./revisited.js";
 export type {
 	Stack,
 	StackNode,

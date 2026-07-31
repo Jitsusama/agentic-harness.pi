@@ -419,8 +419,15 @@ look identical in a thread listing.
 review_see followup
 ```
 
-It reports only threads you spoke in, worst first, and each
-one as how the remark was received:
+`review_see change` opens by telling you whether you have been
+here before, and whether it has moved since. That is recorded
+when a review of yours lands, so it says a change moved, not
+what changed in it. Knowing it has not moved is the useful
+half: it is the difference between re-reading a diff and
+knowing you do not have to.
+
+Then the threads. It reports only ones you spoke in, worst
+first, and each as how the remark was received:
 
 | Reception | Means |
 |---|---|

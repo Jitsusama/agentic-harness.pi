@@ -15,7 +15,10 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createGitRebaser } from "../../../lib/work/rebase.js";
-import { createGitStacks } from "../../../lib/work/stacks.js";
+import {
+	createGitStacks,
+	type RestackOutcome,
+} from "../../../lib/work/stacks.js";
 import { disposeRepo, freshRepo, git } from "../../support/git-fixture.js";
 
 /** An exec over real processes, shaped the way the library expects. */
@@ -33,6 +36,32 @@ const exec = (command: string, args: readonly string[]) =>
 
 function stacksIn() {
 	return createGitStacks({ exec, rebaser: createGitRebaser({ exec }) });
+}
+
+/**
+ * A restack that worked, or a failure that says why it did not.
+ *
+ * Asserting the kind alone reports "expected 'refused' to be 'restacked'" and
+ * throws the reason away, which cost an hour of guessing at a run that failed
+ * under load. The library already explains itself; the test only has to not
+ * discard the explanation.
+ */
+async function mustRestack(
+	stacks: ReturnType<typeof stacksIn>,
+	dir: string,
+	trunk: string,
+): Promise<Extract<RestackOutcome, { kind: "restacked" }>> {
+	const outcome = await stacks.restack(dir, trunk);
+	if (outcome.kind === "restacked") return outcome;
+	throw new Error(
+		`restack answered ${outcome.kind}: ${
+			outcome.kind === "refused"
+				? outcome.reason
+				: outcome.kind === "faulted"
+					? outcome.fault.reason
+					: `halted at ${outcome.at} over ${outcome.conflicted.join(", ")}`
+		}`,
+	);
 }
 
 const built: string[] = [];
@@ -96,9 +125,8 @@ describe("a stack in a real repository", () => {
 		await stacks.track(dir, "b", "a");
 		await stacks.track(dir, "c", "b");
 
-		const outcome = await stacks.restack(dir, "main");
+		await mustRestack(stacks, dir, "main");
 
-		expect(outcome.kind).toBe("restacked");
 		const subjects = await log(dir, "c");
 		expect(subjects.filter((one) => one === "b work")).toHaveLength(1);
 		expect(subjects.filter((one) => one === "a work")).toHaveLength(1);
@@ -113,7 +141,7 @@ describe("a stack in a real repository", () => {
 		await stacks.track(dir, "b", "a");
 		await stacks.track(dir, "c", "b");
 
-		await stacks.restack(dir, "main");
+		await mustRestack(stacks, dir, "main");
 
 		// A parent's tip must be an ancestor of its child, which is what makes
 		// the stack a stack rather than three branches that happen to exist.

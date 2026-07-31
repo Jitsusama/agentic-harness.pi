@@ -53,6 +53,11 @@ export function decisionDir(): string {
 	return join(stateDir("review"), "decisions");
 }
 
+/** Where the record of reviews you have posted lives. */
+export function visitDir(): string {
+	return join(stateDir("review"), "visits");
+}
+
 /**
  * Where persona charters are read from.
  *
