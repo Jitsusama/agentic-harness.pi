@@ -12,15 +12,25 @@ GitHub Issues supports parent/child relationships via sub-issues.
 These are managed through GraphQL mutations that require a special
 header.
 
-## Critical Requirement
+## The Feature Header
 
-All sub-issue GraphQL calls **must** include this header:
+Keep sending this header on sub-issue GraphQL calls:
 
 ```
 GraphQL-Features: sub_issues
 ```
 
-Without it, the API silently ignores sub-issue fields and mutations.
+It used to be load-bearing: without it the API silently ignored
+sub-issue fields and mutations, which is the worst way for a
+requirement to be enforced. Sub-issues have since gone generally
+available, and the read path no longer needs it: `subIssues`
+resolves identically with and without, verified against a live
+repository.
+
+The mutations have not been checked the same way, since checking
+means reordering somebody's real issues. So the header stays in
+the recipes and the scripts. It costs nothing when redundant, and
+the failure it used to guard against was a silent one.
 
 ## Querying Sub-Issues
 

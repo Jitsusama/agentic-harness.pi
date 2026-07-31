@@ -247,13 +247,22 @@ Before submitting:
 
 ## After Creating
 
-Immediately after `gh pr create`, always run:
+Every PR must have an assignee. This is not optional; only the
+way you set it depends on how the PR was opened.
+
+Through the tool, it is not a second step at all: `review_offer
+propose` takes `assignees` when it opens the change, and
+`review_offer edit` sets them afterwards. Note that the backends
+name people differently, GitHub by login and Meteorite by
+Shopify email, so `@me` is a `gh` convenience rather than
+something to send through the tool.
+
+Through the CLI, it is its own call immediately after
+`gh pr create`:
 
 ```bash
 gh pr edit NUMBER --add-assignee @me
 ```
-
-This is not optional. Every PR must have an assignee.
 
 ## CLI Format
 

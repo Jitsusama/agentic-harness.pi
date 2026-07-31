@@ -20,6 +20,14 @@ succeeds and is read by nobody. `review capabilities` says which
 provider answers for a change, and `review-guide` covers reading
 and reviewing without assuming a forge.
 
+Prefer the tool to the CLI where it reaches. `review_offer
+propose` opens a change, `edit` changes its title, body or base,
+and `add` and `set` handle labels and assignees, on whichever
+system hosts the repo and without the host and repo spelled out.
+Reach for `gh` when you want something the tool does not cover,
+which is mainly issues, projects and sub-issues. What follows is
+the mechanics for that case.
+
 ## Heredoc Syntax for Body Content
 
 Use `--body-file -` with a heredoc to pass multi-line bodies:
@@ -28,10 +36,18 @@ Use `--body-file -` with a heredoc to pass multi-line bodies:
 gh pr create \
   --title "Add Token Refresh to Prevent Session Timeouts" \
   --body-file - <<'EOF'
-### 🔍 What We're Doing
+### 🌐 Situation
 
 Body content here. Backticks and special characters all
 work reliably without escaping.
+
+### 🔧 Resolution
+
+What the change does about it.
+
+### 🔬 Validation
+
+How you know it worked.
 EOF
 ```
 
@@ -153,3 +169,10 @@ use `--body-file -` piped from a heredoc.
 The `github-pr-format` and `github-issue-format` skills cover the
 *content* of descriptions. This skill covers the command
 mechanics.
+
+The section set in the example above is not decoration: it is
+closed and enforced, and a body carrying any other heading is
+blocked. This example used to show `### 🔍 What We're Doing`,
+which no gate would have let through, so the one command in the
+file a reader is most likely to copy was the one that could not
+run.
