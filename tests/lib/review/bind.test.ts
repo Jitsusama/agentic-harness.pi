@@ -175,3 +175,56 @@ describe("resolveTarget", () => {
 		expect(result.resolved && result.repo.localPath).toBe("/src/app");
 	});
 });
+
+describe("resolving a local target from what the probe found", () => {
+	// The engine probes the checkout, discovers every remote URL, and hands the probe
+	// down as context. This asserts the claim actually reads it, which it did not: the
+	// probe offered to each provider was rebuilt from the target's own RepoLocator, and
+	// the one the engine builds for a local target carries no remote at all. So every
+	// provider was asked to claim a checkout with no remotes, and only the provider that
+	// claims anything local could answer.
+	//
+	// The symptom was three steps away and looked like a different bug entirely:
+	// `review_offer propose` bound to the plain git provider, which has no authoring
+	// facet, so the pivot of the whole arc refused unless you had first attached some
+	// other hosted change from the same repo. In a repo with no changes yet there was
+	// nothing to attach and no way through at all.
+	it("offers the probe's remotes to the provider, not an empty list", () => {
+		const seen: string[][] = [];
+		registerReviewProvider(
+			stubProvider({
+				id: "hosted",
+				priority: 10,
+				claimRepo: (probe) => {
+					seen.push([...(probe.remoteUrls ?? [])]);
+					return (probe.remoteUrls ?? []).some((url) =>
+						url.includes("github.com"),
+					)
+						? { key: "github:Shopify/world" }
+						: null;
+				},
+			}),
+		);
+
+		const resolution = resolveTarget(localRange, {
+			probe: {
+				repoRoot: "/src/app",
+				remoteUrls: ["git@github.com:Shopify/world.git"],
+			},
+		});
+
+		expect(seen).toEqual([["git@github.com:Shopify/world.git"]]);
+		expect(resolution.resolved).toBe(true);
+		expect(resolution.resolved && resolution.repo.key).toBe(
+			"github:Shopify/world",
+		);
+	});
+
+	it("falls back to the target's own locator when no probe is given", () => {
+		registerReviewProvider(
+			claimingProvider("local-ish", 10, { key: "local:/src/app" }),
+		);
+
+		expect(resolveTarget(localRange).resolved).toBe(true);
+	});
+});

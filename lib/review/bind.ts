@@ -66,7 +66,16 @@ function mappedIds(
 	context: ResolveContext | undefined,
 ): string[] {
 	const repo = repoOf(target);
-	const haystacks = [repo.key, repo.localPath ?? "", repo.remoteUrl ?? ""];
+	// The probe's remotes count here too. A pin written against a remote URL,
+	// which is the spelling somebody reaches for first, could not match a local
+	// target at all: the locator minted for one carries no remote, so the only
+	// strings on offer were a `local:` key and a path.
+	const haystacks = [
+		repo.key,
+		repo.localPath ?? "",
+		repo.remoteUrl ?? "",
+		...(context?.probe?.remoteUrls ?? []),
+	];
 	const mapping = context?.config?.repos?.find((entry) =>
 		haystacks.some((value) => value.includes(entry.match)),
 	);
@@ -81,9 +90,18 @@ function claimRepo(
 	providers: ReviewProvider[],
 	target: ReviewTarget,
 	tried: string[],
+	context?: ResolveContext,
 ): { provider: ReviewProvider; repo: RepoLocator } | undefined {
 	const repo = repoOf(target);
-	const probe = {
+	// The caller's probe wins where there is one, because it is what somebody
+	// actually went and looked at: the engine reads every remote out of the
+	// checkout and passes them down. Reconstructing a probe from the target
+	// instead throws that away, and for a local target it throws away all of
+	// it, since the locator the engine mints there carries a path and no
+	// remote. Every provider was then asked to claim a checkout with no
+	// remotes, which only a provider claiming anything local can answer, so a
+	// hosted repo resolved to plain git and lost its authoring facet with it.
+	const probe = context?.probe ?? {
 		repoRoot: repo.localPath,
 		remoteUrls: repo.remoteUrl ? [repo.remoteUrl] : [],
 	};
@@ -147,7 +165,7 @@ export function resolveTarget(
 	const mapped = ids
 		.map((id) => getReviewProvider(id))
 		.filter((provider): provider is ReviewProvider => provider !== undefined);
-	const byConfig = claimRepo(mapped, target, tried);
+	const byConfig = claimRepo(mapped, target, tried, context);
 	if (byConfig) {
 		bindTarget(target, byConfig.provider.id);
 		return { resolved: true, ...byConfig, via: "config-repo" };
@@ -156,7 +174,7 @@ export function resolveTarget(
 	const remaining = listReviewProviders().filter(
 		(provider) => !tried.includes(provider.id),
 	);
-	const byClaim = claimRepo(remaining, target, tried);
+	const byClaim = claimRepo(remaining, target, tried, context);
 	if (byClaim) {
 		bindTarget(target, byClaim.provider.id);
 		return { resolved: true, ...byClaim, via: "claim" };

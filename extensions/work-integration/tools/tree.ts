@@ -128,7 +128,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 			tree: Type.Optional(
 				Type.String({
 					description:
-						"Which held tree to act on, by its key or its path. For release, status, record and branch.",
+						"Which held tree to act on, by its key or its path. Needed by everything that acts on a tree you already hold: release, status, record, branch, push, rebase, resume, abandon, and every stack verb. Only tree, snapshot and trees do without it.",
 				}),
 			),
 			subject: Type.Optional(

@@ -31,7 +31,12 @@ const STEP = "  ";
  */
 export function stackLines(
 	branches: readonly StackedBranch[],
-	options: { on?: string; trunk?: string; drifted?: readonly string[] } = {},
+	options: {
+		on?: string;
+		trunk?: string;
+		drifted?: readonly string[];
+		undecided?: readonly string[];
+	} = {},
 ): string[] {
 	const order = orderStack(branches);
 	if (order.kind === "faulted") {
@@ -52,6 +57,14 @@ export function stackLines(
 					: `on ${options.trunk}`
 				: undefined,
 			options.drifted?.includes(branch.name) ? "needs replaying" : undefined,
+			// Undecided is not aligned. A branch nothing could judge, most often a
+			// root with no trunk named, drew exactly like one known to be in place,
+			// and that silence is how somebody trusts a stale stack. The shape verbs
+			// have said this since they were written; the listing, which is where a
+			// person actually looks at the whole thing, could not say it at all.
+			options.undecided?.includes(branch.name)
+				? "alignment unknown"
+				: undefined,
 			here ? "you are here" : undefined,
 		].filter((note) => note !== undefined);
 		lines.push(
@@ -129,6 +142,7 @@ export async function runStackAction(
 					...(args.on === undefined ? {} : { on: args.on }),
 					...(args.trunk === undefined ? {} : { trunk: args.trunk }),
 					drifted: standing.drifted,
+					undecided: standing.undecided,
 				}),
 				...(standing.drifted.length > 0
 					? [
@@ -136,8 +150,19 @@ export async function runStackAction(
 							`Restack to replay ${standing.drifted.length === 1 ? "it" : "them"} onto what ${standing.drifted.length === 1 ? "it sits" : "they sit"} on.`,
 						]
 					: []),
+				...(standing.undecided.length > 0 && args.trunk === undefined
+					? [
+							"",
+							"Name trunk to judge the roots. Without it there is nothing to compare them against.",
+						]
+					: []),
 			].join("\n"),
-			{ ok: true, branches: held, drifted: standing.drifted },
+			{
+				ok: true,
+				branches: held,
+				drifted: standing.drifted,
+				undecided: standing.undecided,
+			},
 		);
 	}
 

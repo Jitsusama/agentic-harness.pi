@@ -33,9 +33,13 @@ const anchor: LineAnchor = {
 	line: 3,
 };
 
+// Anchored, so the reply these tests publish is an ordinary thread reply rather
+// than one onto a top-level message, which the capabilities below decline. The
+// third fixture in this suite to carry no anchor while asserting a reply lands.
 const thread: Thread = {
 	id: "t1",
 	resolved: false,
+	anchor,
 	comments: [{ id: "c1", author: { id: "someone" }, body: "why?" }],
 };
 

@@ -1135,8 +1135,13 @@ function answerFor(run: AskRun, warnings: string[], caveat?: string): string {
 	}
 	for (const outcome of run.outcomes) {
 		if (outcome.failure !== undefined) {
+			// GLYPH.failed, not GLYPH.refused, and the same mark the live panel draws
+			// against the same line. A participant whose run broke did not refuse
+			// anything, and watching one fail with one mark and then reading the
+			// identical fact under another invites the question of whether two things
+			// happened to it.
 			lines.push(
-				`${GLYPH.refused} ${outcome.participantId}: ${outcome.failure}`,
+				`${GLYPH.failed} ${outcome.participantId}: ${outcome.failure}`,
 			);
 		}
 	}

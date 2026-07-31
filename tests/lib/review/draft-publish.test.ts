@@ -35,9 +35,13 @@ const anchor: LineAnchor = {
 	line: 3,
 };
 
+// Anchored, because these tests are about publishing an ordinary thread reply and
+// the capabilities below decline to thread onto a top-level message. Without the
+// anchor the plan now refuses the reply, correctly, and every op count here shifts.
 const thread: Thread = {
 	id: "t1",
 	resolved: false,
+	anchor,
 	comments: [{ id: "c1", author: { id: "someone" }, body: "why?" }],
 };
 

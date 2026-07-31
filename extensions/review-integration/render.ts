@@ -75,6 +75,13 @@ export const GLYPH = {
 	refused: "\u2298",
 	checks: "\u25ce",
 
+	// A run that broke, as against one that said no. The round progress panel
+	// draws this against a participant that failed, and the recorded answer used
+	// to draw the identical line with `refused`, so watching a reviewer fail and
+	// then reading about it suggested two different things had happened to it.
+	// One definition, so the two cannot drift apart again.
+	failed: "\u2715",
+
 	// Containers and marks. A stack is layers rather than a square,
 	// which is work's family and would read as a tree.
 	stack: "\u2261",

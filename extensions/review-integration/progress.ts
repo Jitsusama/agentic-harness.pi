@@ -34,6 +34,7 @@ import {
 	type AskRound,
 	trackAskProgress,
 } from "../../lib/review/index.js";
+import { GLYPH as REVIEW_GLYPH } from "./render.js";
 
 /**
  * How long one participant gets before it is treated as wedged.
@@ -67,7 +68,9 @@ const GLYPH: Record<AskProgressEntry["state"], string> = {
 	pending: "\u25b7",
 	running: "\u25b8",
 	answered: "\u25b6",
-	failed: "\u2715",
+	// Taken from the shared set rather than spelled again, so the panel and the
+	// recorded answer cannot disagree about what a failed participant looks like.
+	failed: REVIEW_GLYPH.failed,
 };
 
 /** The glyph and the word for it, coloured by what it means. */

@@ -401,12 +401,27 @@ function planThreadWork(
 
 	for (const item of state.items) {
 		if (item.kind === "reply") {
-			ops.push({
-				kind: "reply",
-				thread: item.thread,
-				body: item.body,
-				itemIds: [item.id],
-			});
+			// A thread with no anchor is a top-level message the provider hung off
+			// the change, and not every backend lets a reply thread onto one. The
+			// capability saying so was declared by every provider and read by none,
+			// so this was planned as landing and rejected at submit: the worst
+			// moment to find out, and the exact case the capability exists for.
+			if (item.thread.anchor === undefined && !conversation.topLevelThreading) {
+				refused.push({
+					itemId: item.id,
+					subject: "reply",
+					reason:
+						"this provider cannot thread a reply onto a top-level message; " +
+						"say it as a comment on the change instead",
+				});
+			} else {
+				ops.push({
+					kind: "reply",
+					thread: item.thread,
+					body: item.body,
+					itemIds: [item.id],
+				});
+			}
 		} else if (item.kind === "resolution") {
 			if (item.thread.resolved) {
 				refused.push({

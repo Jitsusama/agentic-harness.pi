@@ -74,4 +74,32 @@ describe("drawing a stack", () => {
 		expect(lines).toHaveLength(1);
 		expect(lines[0]).toContain(GLYPH.refused);
 	});
+
+	// Undecided is not aligned, and a listing that cannot say so is the same defect
+	// as the drift marker that had no supplier: it reads as a stack with nothing
+	// wrong. Worse here, because the commonest call names no trunk, so every root
+	// was undecided and every one of them drew as though it had been checked.
+	it("marks a branch nothing could judge, rather than drawing it as fine", () => {
+		const lines = stackLines([{ name: "root" }], { undecided: ["root"] });
+
+		expect(lines[0]).toContain("alignment unknown");
+	});
+
+	it("does not confuse undecided with drifted", () => {
+		const lines = stackLines([{ name: "a" }, { name: "b", parent: "a" }], {
+			drifted: ["b"],
+			undecided: ["a"],
+		});
+
+		expect(lines[0]).toContain("alignment unknown");
+		expect(lines[0]).not.toContain("needs replaying");
+		expect(lines[1]).toContain("needs replaying");
+		expect(lines[1]).not.toContain("alignment unknown");
+	});
+
+	it("says nothing extra when everything could be judged", () => {
+		const lines = stackLines([{ name: "a" }], { trunk: "main" });
+
+		expect(lines[0]).not.toContain("alignment unknown");
+	});
 });

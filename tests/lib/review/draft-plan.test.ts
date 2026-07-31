@@ -70,10 +70,22 @@ const onNewLine: LineAnchor = {
 	line: 3,
 };
 
+// Anchored, which is what the tests using it mean by "a thread". It carried no
+// anchor until a reply onto a top-level message started being refused, and three
+// tests here were quietly asserting that a reply onto one gets planned against a
+// provider declaring it cannot thread onto one. They were describing the bug.
 const thread: Thread = {
 	id: "t1",
 	resolved: false,
+	anchor: onNewLine,
 	comments: [{ id: "c1", author: { id: "someone" }, body: "why?" }],
+};
+
+/** A thread the provider hung off the change itself, with nowhere to point. */
+const topLevelThread: Thread = {
+	id: "t0",
+	resolved: false,
+	comments: [{ id: "c0", author: { id: "someone" }, body: "nice one" }],
 };
 
 function draft(): DraftState {
@@ -127,6 +139,25 @@ describe("compilePlan", () => {
 			"resolve",
 			"react",
 		]);
+	});
+
+	it("refuses a reply onto a top-level message where that cannot be threaded", () => {
+		// Planned as landing until the capability was read, then rejected at submit.
+		const state = addReply(draft(), topLevelThread, "thanks");
+		const plan = compilePlan(state, context({ topLevelThreading: false }));
+
+		expect(plan.ops).toEqual([]);
+		expect(plan.refused).toHaveLength(1);
+		expect(plan.refused[0]?.reason).toContain("top-level message");
+		expect(plan.refused[0]?.reason).toContain("comment on the change");
+	});
+
+	it("plans that same reply where the provider can thread onto one", () => {
+		const state = addReply(draft(), topLevelThread, "thanks");
+		const plan = compilePlan(state, context({ topLevelThreading: true }));
+
+		expect(plan.ops.map((op) => op.kind)).toEqual(["reply"]);
+		expect(plan.refused).toEqual([]);
 	});
 
 	it("puts the review first so its comments exist before replies", () => {
