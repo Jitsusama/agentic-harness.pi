@@ -28,7 +28,6 @@ import {
 	loadPackageConfig,
 } from "../../lib/internal/config/loader.js";
 import { dataDir } from "../../lib/internal/paths.js";
-import { appendJourneyByPath } from "../../lib/internal/quest/append-journey.js";
 import { discoverQuests } from "../../lib/internal/quest/discovery.js";
 import { currentInstanceId } from "../../lib/internal/quest/process-liveness.js";
 import { formatRelativeAge } from "../../lib/internal/quest/session-liveness.js";
@@ -36,11 +35,7 @@ import {
 	registerBuiltinHandleTypes,
 	registerBuiltinPersonResolvers,
 } from "../../lib/people/index.js";
-import {
-	registerBuiltinUrlFetchers,
-	registerQuestPrBridge,
-	unregisterQuestPrBridge,
-} from "../../lib/quest/index.js";
+import { registerBuiltinUrlFetchers } from "../../lib/quest/index.js";
 import { registerBuiltinRefTypes } from "../../lib/refs/index.js";
 import { boundedByDetails, openSessionStore } from "../../lib/result/index.js";
 import { registerBuiltinTerminalDrivers } from "../../lib/terminal/index.js";
@@ -114,22 +109,6 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		autoloadFromCwd: section.value.autoloadFromCwd,
 		sessionRetentionDays: section.value.sessionRetentionDays,
 	});
-
-	// Expose the PR-workflow bridge so pr-workflow can
-	// scaffold a sidequest when it loads a PR. The
-	// integration is additive: pr-workflow checks for the
-	// bridge and skips quietly when absent. We hold a
-	// reference to our own bridge so a session_shutdown
-	// from a stale extension instance can only clear its
-	// own registration, not a fresher one that a later
-	// activation installed.
-	const ownBridge = {
-		questsRoot: () => state.questsRoot,
-		loadedQuestId: () => state.questId,
-		logJourney: (questDir: string, prose: string) =>
-			appendJourneyByPath(questDir, prose),
-	};
-	registerQuestPrBridge(ownBridge);
 
 	pi.registerTool({
 		name: "quest",
@@ -655,7 +634,6 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 				detachSessionIfOwner(state.questDir, sid, currentInstanceId());
 			}
 		}
-		unregisterQuestPrBridge(ownBridge);
 	});
 
 	// Inject the loaded-quest context into every agent

@@ -68,12 +68,7 @@ export {
 	type UrlFetcher,
 	unregisterUrlFetcher,
 } from "../internal/quest/url-fetchers.js";
-export {
-	getQuestPrBridge,
-	type QuestPrBridge,
-	registerQuestPrBridge,
-	unregisterQuestPrBridge,
-} from "./pr-bridge.js";
+
 export type {
 	CastEntry,
 	DocumentFrontMatter,
