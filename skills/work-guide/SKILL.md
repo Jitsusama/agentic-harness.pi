@@ -53,9 +53,33 @@ work trees          # what this session holds
 work release tree:…  # give one back
 ```
 
-Never call `git worktree` yourself. A tree cut outside the
-broker is one nothing will clean up, and in the World monorepo
-the command is blocked outright.
+Never call `git worktree` yourself. A tree cut by hand is one
+nothing will clean up, and in the World monorepo the command is
+blocked outright.
+
+## Which Tool Cuts the Tree
+
+Two tools can get you a worktree and they are not competing.
+The rule is who is going to remember it.
+
+**A quest is loaded: use `quest tree-add`.** The quest records
+the tree in its own frontmatter, prunes it on conclude, and
+that record is what makes the tree findable next week. `work
+tree` records it against this session instead, which is the
+wrong lifetime for work a quest owns.
+
+**No quest owns the work: use `work tree`.** Reviewing
+somebody else's change, a one-off errand, anything that ends
+when the session does.
+
+**Reading rather than editing: use `work snapshot`,** whichever
+is true. Quest has no equivalent, because a snapshot is pinned
+to a commit and shared between readers rather than owned.
+
+After that the distinction stops mattering. `branch`, `record`,
+`push`, `rebase` and every stack verb work on a tree however it
+was cut, and quest has none of them. Quest gets you the tree;
+this moves the work along inside it.
 
 **Holding one tree means you can stop naming it.** Every action
 but `tree`, `snapshot` and `trees` works on a held tree, and

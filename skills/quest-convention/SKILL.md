@@ -177,6 +177,18 @@ session without changing your session's directory: point
 `cwd` at a path inside the tree to adopt, or at the repo to
 scaffold from.
 
+Quest cuts the tree; the `work` tool moves the work along
+inside it. That boundary is worth stating because both tools
+can produce a worktree and only one of them remembers it for
+longer than a session. A tree a quest owns is scaffolded with
+`tree-add`, recorded in frontmatter and pruned on conclude, so
+it is still findable next week. `work tree` records against the
+session instead, which is the right lifetime for an errand and
+the wrong one for a quest. Once the tree exists, quest has no
+verbs for branching, committing, pushing, rebasing or stacking,
+and `work` has all of them: reach for it there rather than for
+raw git.
+
 The two origins prune differently. A scaffolded tree is the
 tool's to remove: it auto-prunes when the quest concludes or
 retires, and a manual `tree-prune` removes it freely. An
