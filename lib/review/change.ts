@@ -13,6 +13,7 @@
  * not anyone has proposed it anywhere.
  */
 
+import type { Landability } from "./landing.js";
 import type { QueueState } from "./queue.js";
 
 /**
@@ -125,6 +126,14 @@ export interface Proposal {
 	 * queue or did not report one, which is not the same as unqueued.
 	 */
 	queue?: QueueState;
+	/**
+	 * Whether it could land, and what is in the way.
+	 *
+	 * Absent where the backend does not say. That is not the same as clear to
+	 * land, and the narration keeps them apart: a change nobody has judged
+	 * reads as unreported rather than as ready.
+	 */
+	landing?: Landability;
 	/**
 	 * Labels on the change, where the backend has labels.
 	 *

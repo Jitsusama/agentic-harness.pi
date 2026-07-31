@@ -16,7 +16,7 @@ import type { Check, CheckState, ChecksRollup } from "../../checks.js";
 import type { ChangeFilter, ProposalsFacet } from "../../provider.js";
 import { GHOST, githubChange, ownerRepoFromKey } from "./claims.js";
 import { labelsAndAssignees } from "./fields.js";
-import { QUEUE_QUERY, queueStateFrom } from "./queue.js";
+import { landabilityFrom, QUEUE_QUERY, queueStateFrom } from "./queue.js";
 
 /** Where a materialized change lands, so it is easy to spot. */
 const LOCAL_REF_PREFIX = "refs/pi-review/github";
@@ -194,14 +194,19 @@ export function githubProposals(exec: Exec): ProposalsFacet {
 	 * the mutation, so guessing wrong here costs a gate that does not fire
 	 * rather than one that fires wrongly.
 	 */
-	async function queueOf(
+	/**
+	 * The two things only GraphQL will say: where the change stands with the
+	 * queue, and whether it could land. One query for both, since they come
+	 * from the same node and a second round trip would buy nothing.
+	 */
+	async function standingOf(
 		repo: RepoLocator,
 		id: string,
-	): Promise<Proposal["queue"]> {
+	): Promise<Pick<Proposal, "queue" | "landing">> {
 		const owned = ownerRepoFromKey(repo.key);
-		if (!owned) return undefined;
+		if (!owned) return {};
 		const number = Number(id);
-		if (!Number.isInteger(number)) return undefined;
+		if (!Number.isInteger(number)) return {};
 		try {
 			const raw = await json<unknown>(
 				[
@@ -216,11 +221,18 @@ export function githubProposals(exec: Exec): ProposalsFacet {
 					"-F",
 					`number=${number}`,
 				],
-				`reading the merge queue state of pull request ${id}`,
+				`reading where pull request ${id} stands`,
 			);
-			return queueStateFrom(raw);
+			const landing = landabilityFrom(raw);
+			return {
+				queue: queueStateFrom(raw),
+				...(landing === undefined ? {} : { landing }),
+			};
 		} catch {
-			return undefined;
+			// Neither is worth failing a read of the change over: both are
+			// decoration on a proposal that was fetched successfully, and a
+			// caller can tell unreported from clear.
+			return {};
 		}
 	}
 
@@ -234,8 +246,7 @@ export function githubProposals(exec: Exec): ProposalsFacet {
 				ref.repo,
 				asRecord(raw, "pull request"),
 			);
-			const queue = await queueOf(ref.repo, ref.id);
-			return queue ? { ...proposal, queue } : proposal;
+			return { ...proposal, ...(await standingOf(ref.repo, ref.id)) };
 		},
 
 		async diff(ref) {

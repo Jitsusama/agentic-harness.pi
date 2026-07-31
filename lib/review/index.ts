@@ -286,6 +286,8 @@ export {
 	tallyReceptions,
 } from "./followup.js";
 export { changeKey, repoKey, targetKey } from "./keys.js";
+export type { Landability } from "./landing.js";
+export { standsAt } from "./landing.js";
 export type {
 	CheckoutFacts,
 	ProposalFill,

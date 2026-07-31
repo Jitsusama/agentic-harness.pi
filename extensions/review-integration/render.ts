@@ -39,7 +39,7 @@ import type {
 	Stack,
 	Thread,
 } from "../../lib/review/index.js";
-import { describeAnchor } from "../../lib/review/index.js";
+import { describeAnchor, standsAt } from "../../lib/review/index.js";
 import { count } from "../../lib/ui/count.js";
 
 /** The vocabulary. One glyph per concept, used everywhere. */
@@ -153,7 +153,13 @@ function sizeNote(proposal: Proposal): string {
 /** A change, in one line. */
 export function proposalLine(proposal: Proposal): string {
 	const draft = proposal.draft ? " (draft)" : "";
-	return `${GLYPH.target} ${proposal.ref.label} ${proposal.title}${draft}\n   ${proposal.state} · ${proposal.author.id} · ${proposal.head} → ${proposal.base}${sizeNote(proposal)}${queueNote(proposal)}`;
+	// Landing on its own line rather than appended to the first. It is the
+	// question somebody asks before merging, it can name two blockers at once,
+	// and burying that at the end of a line about size and authorship is how a
+	// failing check goes unread.
+	const standing = standsAt(proposal.landing);
+	const landing = standing === "" ? "" : `\n   ${standing}`;
+	return `${GLYPH.target} ${proposal.ref.label} ${proposal.title}${draft}\n   ${proposal.state} · ${proposal.author.id} · ${proposal.head} → ${proposal.base}${sizeNote(proposal)}${queueNote(proposal)}${landing}`;
 }
 
 /** CI, with unreported kept apart from failed. */

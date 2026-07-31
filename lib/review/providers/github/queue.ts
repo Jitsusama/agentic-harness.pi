@@ -16,6 +16,7 @@
  * and ejecting a batch's, which is the whole reason a caller asks.
  */
 
+import type { Landability } from "../../landing.js";
 import type { QueueState } from "../../queue.js";
 
 /** The GraphQL selection this module reads. */
@@ -25,6 +26,9 @@ export const QUEUE_QUERY = `query($owner:String!,$name:String!,$number:Int!){
       isInMergeQueue
       autoMergeRequest{enabledAt}
       mergeQueueEntry{state position solo}
+      reviewDecision
+      mergeStateStatus
+      mergeable
     }
   }
 }`;
@@ -33,6 +37,52 @@ function record(value: unknown): Record<string, unknown> {
 	return typeof value === "object" && value !== null
 		? (value as Record<string, unknown>)
 		: {};
+}
+
+/**
+ * Where GitHub says the change stands with landing.
+ *
+ * Read from the query the queue already runs, so it costs nothing extra. Three fields
+ * rather than one, because GitHub splits the question the same way this model does:
+ * `reviewDecision` is the people, `mergeStateStatus` is the checks and the base, and
+ * `mergeable` is whether the trees still agree.
+ *
+ * `BLOCKED` deliberately does not become `failingRequiredCheck`. It means a required
+ * status has not passed, which covers one that has not run as well as one that failed, and
+ * naming a check as failing when it merely has not started sends somebody to read a log
+ * that does not exist. The word itself is passed through instead.
+ */
+export function landabilityFrom(raw: unknown): Landability | undefined {
+	const pull = record(record(record(record(raw).data).repository).pullRequest);
+	const decision =
+		typeof pull.reviewDecision === "string" ? pull.reviewDecision : undefined;
+	const status =
+		typeof pull.mergeStateStatus === "string"
+			? pull.mergeStateStatus
+			: undefined;
+	const mergeable =
+		typeof pull.mergeable === "string" ? pull.mergeable : undefined;
+
+	if (
+		decision === undefined &&
+		status === undefined &&
+		mergeable === undefined
+	) {
+		return undefined;
+	}
+
+	return {
+		...(status === undefined ? {} : { reason: status.toLowerCase() }),
+		...(decision === undefined
+			? {}
+			: {
+					approved: decision === "APPROVED",
+					changesRequested: decision === "CHANGES_REQUESTED",
+				}),
+		...(mergeable === undefined
+			? {}
+			: { conflicted: mergeable === "CONFLICTING" }),
+	};
 }
 
 /**
