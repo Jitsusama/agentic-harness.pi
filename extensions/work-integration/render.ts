@@ -8,6 +8,8 @@
  * disk and a change is a thing said about one.
  */
 
+import { displayPath } from "../../lib/ui/index.js";
+
 /** Glyphs for the working layer. */
 export const GLYPH = {
 	// Squares: a tree, which is a place. Filled is one that exists
@@ -62,5 +64,5 @@ export function treeLine(
 	cutHere = true,
 ): string {
 	const from = cutHere ? "" : " · from an earlier session";
-	return `${GLYPH.tree} ${held.identity.key}${from}\n   ${held.path} · ${held.providerId}`;
+	return `${GLYPH.tree} ${held.identity.key}${from}\n   ${displayPath(held.path)} · ${held.providerId}`;
 }

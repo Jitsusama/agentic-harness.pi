@@ -52,6 +52,8 @@ export {
 	view,
 	workspace,
 } from "./panel.js";
+// ── Paths ──────────────────────────────────────────
+export { displayPath } from "./path.js";
 // ── Pipeline progress ───────────────────────────────────────
 export {
 	type PipelineProgressOptions,

@@ -9,6 +9,7 @@
  */
 
 import { type Exec, run } from "../review/index.js";
+import { displayPath } from "../ui/path.js";
 
 /** One path git reports as changed, and how. */
 export interface ChangedPath {
@@ -84,7 +85,7 @@ export function createGitHistory(deps: { exec: Exec }): WorkHistory {
 				deps.exec,
 				"git",
 				["-C", treePath, "status", "--porcelain=v1", "--untracked-files=all"],
-				`Reading what ${treePath} holds`,
+				`Reading what ${displayPath(treePath)} holds`,
 			);
 			const changed = out
 				.split("\n")
@@ -99,7 +100,7 @@ export function createGitHistory(deps: { exec: Exec }): WorkHistory {
 					deps.exec,
 					"git",
 					["-C", treePath, "rev-parse", "HEAD"],
-					`Reading where ${treePath} points`,
+					`Reading where ${displayPath(treePath)} points`,
 				)
 			).trim();
 			// A detached tree makes this fail rather than answer, which

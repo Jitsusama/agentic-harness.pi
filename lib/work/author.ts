@@ -14,6 +14,9 @@
  */
 
 import { type Exec, run } from "../review/providers/exec.js";
+// The leaf rather than the barrel, so a working layer that never draws anything
+// does not pull the TUI in behind one string helper.
+import { displayPath } from "../ui/path.js";
 
 /** What a commit says. */
 export interface CommitMessage {
@@ -95,7 +98,7 @@ export function createGitAuthor(deps: { exec: Exec }): WorkAuthor {
 				deps.exec,
 				"git",
 				["-C", treePath, ...args],
-				`Staging work in ${treePath}`,
+				`Staging work in ${displayPath(treePath)}`,
 			);
 		},
 
@@ -122,7 +125,7 @@ export function createGitAuthor(deps: { exec: Exec }): WorkAuthor {
 					// done differently in two places.
 					...(body ? ["-m", body] : []),
 				],
-				`Recording work in ${treePath}`,
+				`Recording work in ${displayPath(treePath)}`,
 			);
 		},
 
@@ -150,7 +153,7 @@ export function createGitAuthor(deps: { exec: Exec }): WorkAuthor {
 				deps.exec,
 				"git",
 				["-C", treePath, "checkout", "-b", safe, ...(from ? [from] : [])],
-				`Making ${safe} in ${treePath}`,
+				`Making ${safe} in ${displayPath(treePath)}`,
 			);
 		},
 	};

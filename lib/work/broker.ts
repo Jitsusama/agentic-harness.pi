@@ -47,12 +47,34 @@ export interface TreeProvider extends TreeProviderInfo {
 	release(held: HeldTree): Promise<void>;
 }
 
+/**
+ * What became of a release.
+ *
+ * A discriminated answer rather than nothing, because the interesting case is
+ * the one that used to be silent: no provider registered under the id the tree
+ * was cut by, so there is nothing to remove it through. That used to drop the
+ * record and return, and the tool said "Released" about a directory still on
+ * disk and still tracked by git, now with no record pointing at it. Reporting
+ * success for doing nothing is the one outcome nobody can detect.
+ */
+export type ReleaseOutcome =
+	| { kind: "released" }
+	/** Nothing here can remove it, so it is still there and still recorded. */
+	| {
+			kind: "no-provider";
+			/** Who cut it, which is who is missing. */
+			wanted: string;
+			/** Who is registered, so a mismatch reads as a correction. */
+			registered: readonly string[];
+			path: string;
+	  };
+
 /** Custody of the trees a session is using. */
 export interface TreeBroker {
 	/** Get a tree for this request, reusing one where possible. */
 	ensure(request: TreeRequest): Promise<HeldTree>;
-	/** Hand a tree back to the provider that cut it. */
-	release(held: HeldTree): Promise<void>;
+	/** Hand a tree back to the provider that cut it, and say what happened. */
+	release(held: HeldTree): Promise<ReleaseOutcome>;
 	/**
 	 * Every tree held, this session's first and then any left behind by an
 	 * earlier one.
@@ -158,9 +180,23 @@ export function createTreeBroker(
 		},
 
 		async release(held) {
-			const owner = roster().find(
-				(provider) => provider.id === held.providerId,
-			);
+			const all = roster();
+			const owner = all.find((provider) => provider.id === held.providerId);
+
+			// Nothing to release through, so nothing is released. The record
+			// stays, because it is the only pointer at a directory that is still
+			// there: dropping it is how a tree becomes garbage nothing can name.
+			// A tree that keeps appearing in a listing is recoverable once the
+			// provider loads; one nobody has a record of is not.
+			if (!owner) {
+				return {
+					kind: "no-provider",
+					wanted: held.providerId,
+					registered: all.map((provider) => provider.id),
+					path: held.path,
+				};
+			}
+
 			const at = trees.findIndex((tree) => tree.path === held.path);
 			if (at >= 0) trees.splice(at, 1);
 			// Forgotten before the provider acts, so a provider that throws
@@ -168,10 +204,8 @@ export function createTreeBroker(
 			// half-gone. A record for a tree still on disk is recoverable on the
 			// next cut; a record for a broken one is a trap.
 			memory?.forget(held.path);
-			// A provider that has since unregistered leaves nothing
-			// to release through. Dropping our record of the tree is
-			// the whole of what we can still do.
-			if (owner) await owner.release(held);
+			await owner.release(held);
+			return { kind: "released" };
 		},
 
 		held: () => everything(),

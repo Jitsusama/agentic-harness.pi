@@ -17,6 +17,7 @@
 
 import { join } from "node:path";
 import { type Exec, run } from "../../review/index.js";
+import { displayPath } from "../../ui/path.js";
 import type { TreeProvider } from "../broker.js";
 import { treeIdentity, treeSource } from "../tree.js";
 
@@ -76,7 +77,7 @@ export function createGitTreeProvider(deps: {
 				// different commit is the one outcome nobody could detect.
 				if (request.intent === "snapshot" && head !== request.commit) {
 					throw new Error(
-						`A tree for ${request.repo.key} already sits at ${path} but stands at ${head} rather than ${request.commit}. Release it before pinning a snapshot there.`,
+						`A tree for ${request.repo.key} already sits at ${displayPath(path)} but stands at ${head} rather than ${request.commit}. Release it before pinning a snapshot there.`,
 					);
 				}
 				return { path };
@@ -107,7 +108,7 @@ export function createGitTreeProvider(deps: {
 				deps.exec,
 				"git",
 				["-C", held.path, "worktree", "remove", held.path],
-				`Releasing the tree at ${held.path}`,
+				`Releasing the tree at ${displayPath(held.path)}`,
 			);
 		},
 	};

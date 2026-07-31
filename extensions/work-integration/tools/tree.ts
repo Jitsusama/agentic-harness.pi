@@ -15,6 +15,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { citeListing, openSessionStore } from "../../../lib/result/index.js";
+import { displayPath } from "../../../lib/ui/index.js";
 import {
 	blocksRepoint,
 	cautionsFrom,
@@ -265,7 +266,10 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 					const held = await broker.ensure(outcome.request);
 					const glyph = action === "snapshot" ? GLYPH.snapshot : GLYPH.tree;
 					return say(
-						`${glyph} ${held.identity.key}\n   ${held.path} · ${held.providerId}`,
+						`${glyph} ${held.identity.key}\n   ${displayPath(held.path)} · ${held.providerId}`,
+						// The details keep the absolute path on purpose. A tilde is a
+						// courtesy for a reader, not something a caller can open, and
+						// this is the value another call gets fed.
 						{ ok: true, path: held.path, key: held.identity.key },
 					);
 				}
@@ -465,7 +469,19 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 				if (blocked) {
 					return refuse(`${GLYPH.refused} ${blocked}`);
 				}
-				await broker.release(found);
+				const gone = await broker.release(found);
+				if (gone.kind === "no-provider") {
+					// Said as a refusal because nothing happened. This used to
+					// report success, leaving a tree on disk, tracked by git, with
+					// its record dropped and nothing able to name it again.
+					const who =
+						gone.registered.length === 0
+							? "none are registered"
+							: gone.registered.join(", ");
+					return refuse(
+						`${GLYPH.refused} ${found.identity.key} was cut by ${gone.wanted}, which is not registered here, so nothing can remove it. Registered: ${who}. The tree is still at ${displayPath(gone.path)} and still listed, so this can be retried once that provider loads.`,
+					);
+				}
 				return say(`${GLYPH.named} Released ${found.identity.key}.`, {
 					ok: true,
 					released: found.identity.key,

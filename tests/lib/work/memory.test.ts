@@ -111,8 +111,9 @@ describe("a tree outlives the session that cut it", () => {
 			providers: [provider(released)],
 			memory: memoryAt(),
 		});
-		await second.release(second.held()[0]);
+		const gone = await second.release(second.held()[0]);
 
+		expect(gone.kind).toBe("released");
 		expect(released).toEqual([cut.path]);
 		expect(second.held()).toEqual([]);
 		// And the record went with it, so it does not come back next session.
@@ -231,6 +232,95 @@ describe("the directory is the truth, not the record", () => {
 		);
 
 		expect(memoryAt().recall()).toEqual([]);
+	});
+});
+
+describe("a release that cannot happen says so", () => {
+	// Found live, and the reason this is a discriminated answer rather than void.
+	// A record naming a provider nobody registered used to drop the record and
+	// return, and the tool reported "Released" about a directory still on disk and
+	// still tracked by git, now with nothing able to name it. Reporting success
+	// for doing nothing is the one outcome nobody can detect.
+	const memoryAt = () => createTreeMemory(join(root, "cut"));
+
+	it("does not claim to have released a tree nothing could remove", async () => {
+		const first = createTreeBroker({
+			providers: [provider()],
+			memory: memoryAt(),
+		});
+		const cut = await first.ensure(asked("fix-410"));
+
+		// A session where the provider that cut it never loaded.
+		const without = createTreeBroker({ providers: [], memory: memoryAt() });
+		const gone = await without.release(without.held()[0]);
+
+		expect(gone.kind).toBe("no-provider");
+		if (gone.kind !== "no-provider") return;
+		expect(gone.wanted).toBe("git");
+		expect(gone.path).toBe(cut.path);
+	});
+
+	it("names what is registered, so a mismatched id reads as a correction", async () => {
+		// This is how the live fault would have announced itself in one line. The
+		// record said `git`; the provider is `git-worktree`. A refusal that names
+		// both turns a wrong id into a typo somebody fixes.
+		const first = createTreeBroker({
+			providers: [provider()],
+			memory: memoryAt(),
+		});
+		await first.ensure(asked("fix-410"));
+
+		const renamed: TreeProvider = { ...provider(), id: "git-worktree" };
+		const other = createTreeBroker({
+			providers: [renamed],
+			memory: memoryAt(),
+		});
+		const gone = await other.release(other.held()[0]);
+
+		if (gone.kind !== "no-provider") throw new Error("expected no-provider");
+		expect(gone.registered).toEqual(["git-worktree"]);
+	});
+
+	it("keeps the record, so the tree can still be named later", async () => {
+		// Dropping it is how a tree becomes garbage nothing can point at. A tree
+		// that keeps appearing in a listing is recoverable once the provider
+		// loads; one nobody has a record of is not.
+		const first = createTreeBroker({
+			providers: [provider()],
+			memory: memoryAt(),
+		});
+		const cut = await first.ensure(asked("fix-410"));
+
+		const without = createTreeBroker({ providers: [], memory: memoryAt() });
+		await without.release(without.held()[0]);
+
+		expect(
+			memoryAt()
+				.recall()
+				.map((one) => one.path),
+		).toEqual([cut.path]);
+		expect(without.held()).toHaveLength(1);
+	});
+
+	it("releases it once the provider is back", async () => {
+		const released: string[] = [];
+		const first = createTreeBroker({
+			providers: [provider()],
+			memory: memoryAt(),
+		});
+		const cut = await first.ensure(asked("fix-410"));
+
+		const without = createTreeBroker({ providers: [], memory: memoryAt() });
+		await without.release(without.held()[0]);
+
+		const back = createTreeBroker({
+			providers: [provider(released)],
+			memory: memoryAt(),
+		});
+		const gone = await back.release(back.held()[0]);
+
+		expect(gone.kind).toBe("released");
+		expect(released).toEqual([cut.path]);
 	});
 });
 
