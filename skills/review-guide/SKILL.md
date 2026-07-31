@@ -263,7 +263,22 @@ GitHub, an email address on some others.
 On merging: pass `expectedHead` when you have it. It is the only guard
 against merging work pushed since you last looked, and the gate says so
 plainly when you leave it out. Leave `method` alone unless you mean to
-override the repo's own policy.
+override the repo's own policy. Where you do choose, prefer a merge
+commit: the individual commits carry why a change was made and what
+drove it, and a squash throws that away.
+
+**Never delete the branch as part of merging.** `gh pr merge
+--delete-branch` deletes through a second API call, and GitHub
+permanently closes every open PR based on that branch. Closed that way
+they cannot be reopened, so one flag can destroy the rest of a stack
+with no way back. `review_offer merge` does not offer the flag, and the
+shell form is blocked. Merge, confirm nothing is based on the branch,
+then delete it.
+
+Merging the bottom of a stack retargets nothing on its own. Read
+`review_see stack` afterwards and check each remaining change points at
+what you expect, since a change whose base was merged away is the one
+that quietly starts showing a diff nobody wrote.
 
 ## Findings You Fix Rather Than Say
 

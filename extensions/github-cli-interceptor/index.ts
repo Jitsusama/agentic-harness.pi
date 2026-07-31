@@ -18,6 +18,7 @@ import {
 import { stripHeredocBodies, stripShellData } from "../../lib/shell/parse.js";
 import {
 	detectBodyFilePath,
+	detectDeleteBranchOnMerge,
 	detectInlineBody,
 	detectMissingHeredoc,
 	detectPackedMetadata,
@@ -38,6 +39,7 @@ export default function githubCliInterceptor(pi: ExtensionAPI) {
 			const strippedViolation =
 				detectInlineBody(command) ??
 				detectPackedMetadata(stripped) ??
+				detectDeleteBranchOnMerge(stripped) ??
 				detectBodyFilePath(stripped) ??
 				detectMissingHeredoc(stripped, command);
 			if (strippedViolation) {

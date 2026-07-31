@@ -226,6 +226,23 @@ Running it twice is a no-op. If a second run replays anything,
 something moved underneath you, and that is worth knowing
 rather than shrugging at.
 
+## After Something Lands
+
+Nothing here cleans up after a merge, so it is done by hand and
+it is worth doing: stale locals and tracking refs accumulate
+silently until a branch listing stops being readable.
+
+```bash
+work sync tree:… trunk:main    # trunk, then replay what is left
+git -C <tree> fetch --prune    # drop refs for branches gone from the remote
+git -C <tree> branch -d one two three   # delete the merged locals
+```
+
+`-d` rather than `-D`: it refuses a branch that is not merged,
+which is the check, not an obstacle. If it refuses, the work is
+not where you think it is. And `work untrack` the branch as
+well, or the stack still lists something that no longer exists.
+
 ## Where This Ends and Review Begins
 
 `work` gets a branch into a state worth showing somebody.

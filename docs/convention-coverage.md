@@ -328,10 +328,30 @@ is followed by judgment, not by a regex.
   `code-review-standard`. These describe how the agent should
   write and review code; the gates do not parse code semantics.
 - **Operational conventions**: `git-branch-convention`,
-  `git-commit-convention`, `git-rebase-convention`,
-  `github-pr-merge-convention`, `github-pr-stack-convention`.
-  These govern when and how to perform an operation, not the
-  shape of an artifact that goes through a gate.
+  `git-commit-convention`, `git-rebase-convention`. These govern
+  when and how to perform an operation, not the shape of an
+  artifact that goes through a gate.
+
+  `github-pr-merge-convention` and `github-pr-stack-convention`
+  were here until the tools took over what they described.
+  Detecting a stack, creating one, merge order and rebasing are
+  now `review_see stack`, `review_offer propose-stack`, `work
+  stack` and `work restack`, which read the real topology rather
+  than telling somebody how to. Both are retired, but only after
+  their residue was placed, because two rules in them were not
+  superseded by anything:
+
+  | Residual rule | Now covered by |
+  | --- | --- |
+  | `--delete-branch` permanently closes dependent PRs | 🟢 `extensions/github-cli-interceptor/patterns.ts` `detectDeleteBranchOnMerge`, plus the reasoning in `review-guide` |
+  | Post-merge local cleanup: prune refs, delete merged locals | `work-guide`, as prose. No tool does it and none is claimed to |
+
+  The `--delete-branch` rule is the one worth pausing on. It was
+  stated in both skills, correct in both, and enforced by
+  nothing, while being the only rule in the set whose failure
+  cannot be undone: the dependent PRs it closes cannot be
+  reopened. A skill is the wrong home for a rule like that, and
+  retiring the skills is what surfaced it.
 - **Tool integration guides**: `google-workspace-guide`,
   `slack-guide`'s methodology sections, `browser-guide`.
   Translate user intent to API calls; not artifact shape.

@@ -74,6 +74,35 @@ export function detectInlineBody(command: string): string | null {
 	);
 }
 
+/**
+ * Refuse `gh pr merge --delete-branch`.
+ *
+ * The flag deletes the branch through a separate API call, and GitHub auto-closes
+ * every open PR that used it as a base. Those cannot be reopened, so a stacked PR
+ * merged this way destroys the rest of the stack with no way back. The flag saves one
+ * command and the failure is unrecoverable, which is the trade a gate exists for.
+ *
+ * Blocked whether or not anything is stacked on it, because the interceptor cannot
+ * know that from the command, and the safe sequence costs one extra call. This rule
+ * used to live in a skill, where it was correct and unenforced.
+ */
+export function detectDeleteBranchOnMerge(command: string): string | null {
+	if (!/\bgh\s+pr\s+merge\b/.test(command)) return null;
+	if (!/(?:--delete-branch|(?<![\w-])-d(?![\w-]))/.test(command)) return null;
+
+	return (
+		"Blocked: --delete-branch on a merge deletes the branch through a " +
+		"separate API call, and GitHub permanently closes every open PR that " +
+		"used it as a base. Closed that way, they cannot be reopened.\n\n" +
+		"Merge without it, then delete the branch once you have confirmed " +
+		"nothing is based on it:\n\n" +
+		"gh pr merge <number> --merge\n" +
+		"gh pr list --base <branch>   # empty means nothing depends on it\n" +
+		"git push origin --delete <branch>\n\n" +
+		"Prefer `review_offer merge`, which does not offer the flag at all."
+	);
+}
+
 /** Find a gh pr/issue create or edit command in a bash command. */
 function findGhEntityCommand(command: string): SimpleCommand | undefined {
 	return tokenize(command).commands.find(
