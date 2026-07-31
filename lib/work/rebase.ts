@@ -160,9 +160,38 @@ export function createGitRebaser(deps: { exec: Exec }): WorkRebaser {
 		return {
 			// Git records the full ref; a reader wants the branch.
 			...(head ? { branch: head.replace(/^refs\/heads\//, "") } : {}),
-			...(onto ? { onto: onto.slice(0, 8) } : {}),
+			...(onto ? { onto: await nameFor(treePath, onto) } : {}),
 			...(at ? { at } : {}),
 		};
+	}
+
+	/**
+	 * What to call the commit a replay is heading for.
+	 *
+	 * Git records the target as a commit, because by then the ref that named it is
+	 * beside the point: the replay is onto that commit whatever anybody does to the
+	 * branch afterwards. But a halt reported from a resume then said "onto fc00dccd"
+	 * where the same halt from starting the replay said "onto main", and the two are
+	 * the same event to the person reading them.
+	 *
+	 * So the commit is named after a branch when exactly one branch is sitting on it.
+	 * Exactly one, because more than one is genuinely ambiguous: the replay was onto
+	 * some ref and nothing here records which, so picking one would be inventing the
+	 * answer rather than reading it. The commit is the honest fallback, and it is
+	 * what git had.
+	 */
+	async function nameFor(treePath: string, commit: string): Promise<string> {
+		const short = commit.slice(0, 8);
+		const said = await ask(exec, treePath, [
+			"for-each-ref",
+			"--format=%(refname:short)",
+			"--points-at",
+			commit,
+			"refs/heads",
+		]);
+		if (said === undefined) return short;
+		const names = said.split("\n").filter((one) => one !== "");
+		return names.length === 1 && names[0] !== undefined ? names[0] : short;
 	}
 
 	return {

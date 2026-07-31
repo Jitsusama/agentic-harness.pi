@@ -663,3 +663,51 @@ describe("a restack that skipped a branch", () => {
 		expect(await git(dir, "rev-parse", "a")).toBe(before);
 	}, 30_000);
 });
+
+describe("how a halt names what it was replaying onto", () => {
+	it("names the branch, the way the first halt already did", async () => {
+		// Git records the target as a commit, since by then the ref that named it is
+		// beside the point. But the halt from starting a replay said "onto main" and
+		// the halt from resuming said "onto fc00dccd", and those are the same event
+		// to whoever is reading them.
+		const dir = await freshRepo("halt-names-onto");
+		built.push(dir);
+		const rebaser = createGitRebaser({ exec });
+		// Two conflicting commits on the branch, so settling the first runs into a
+		// second and the resume has a halt of its own to report. With one, the resume
+		// finishes, and a test that only asserts inside `if (halted)` passes without
+		// checking anything: the first draft of this did exactly that.
+		await conflictingSides(dir);
+		writeFileSync(join(dir, "shared.txt"), "and again\n", "utf8");
+		await git(dir, "commit", "-qam", "branch writes shared again");
+
+		expect(await rebaser.rebase(dir, "main")).toMatchObject({ kind: "halted" });
+		writeFileSync(join(dir, "shared.txt"), "settled\n", "utf8");
+		await git(dir, "add", "shared.txt");
+		const again = await rebaser.resume(dir);
+
+		expect(again).toMatchObject({ kind: "halted", onto: "main" });
+	}, 30_000);
+
+	it("falls back to the commit when two branches sit on it", async () => {
+		// Ambiguous on purpose: the replay was onto some ref and nothing records
+		// which, so naming one would be inventing the answer rather than reading it.
+		const dir = await freshRepo("halt-names-ambiguous");
+		built.push(dir);
+		const rebaser = createGitRebaser({ exec });
+		await conflictingSides(dir);
+		writeFileSync(join(dir, "shared.txt"), "and again\n", "utf8");
+		await git(dir, "commit", "-qam", "branch writes shared again");
+		await git(dir, "branch", "also-here", "main");
+
+		await rebaser.rebase(dir, "main");
+		writeFileSync(join(dir, "shared.txt"), "settled\n", "utf8");
+		await git(dir, "add", "shared.txt");
+		const again = await rebaser.resume(dir);
+
+		expect(again).toMatchObject({ kind: "halted" });
+		if (again.kind !== "halted") return;
+		expect(again.onto).not.toBe("main");
+		expect(again.onto).toMatch(/^[0-9a-f]{8}$/);
+	}, 30_000);
+});
