@@ -465,18 +465,31 @@ export function createGitStacks(deps: {
 		},
 
 		async sync(treePath, trunk) {
-			const before = await tipOf(treePath, trunk);
+			// What the stack is replayed onto, and deliberately not the local branch.
+			//
+			// This used to fetch `main:main` so the local ref moved, on the reasoning
+			// that a bare fetch leaves `main` where it was and replaying onto a stale
+			// trunk is the failure this verb exists to prevent. The goal was right and
+			// the conclusion was wrong: git refuses to fetch into a branch that is
+			// checked out in any worktree of the repo, and trunk checked out in the
+			// primary tree while the work happens in a linked one is not an unusual
+			// arrangement, it is the normal one. So the daily verb failed outright on
+			// the commonest layout, and said only what git said.
+			//
+			// A remote-tracking ref cannot be checked out anywhere, so it cannot be
+			// blocked, and a bare fetch always moves it. Replaying onto that is what
+			// the original comment wanted: a trunk that is genuinely current. The
+			// local branch is not needed for any of this, which also means a tree with
+			// no local trunk at all now syncs.
+			const fetchedTrunk = `origin/${trunk}`;
+			const before = await tipOf(treePath, fetchedTrunk);
 
-			// The branch is fetched by name so the local ref moves, not only the
-			// remote-tracking one. A bare fetch updates `origin/main` and leaves
-			// `main` where it was, and replaying onto a local trunk that never
-			// moved is precisely the failure this verb exists to prevent.
 			const fetched = await exec("git", [
 				"-C",
 				treePath,
 				"fetch",
 				"origin",
-				`${trunk}:${trunk}`,
+				trunk,
 			]);
 			if (fetched.code !== 0) {
 				const said = [fetched.stderr.trim(), fetched.stdout.trim()]
@@ -491,11 +504,11 @@ export function createGitStacks(deps: {
 				};
 			}
 
-			const after = await tipOf(treePath, trunk);
+			const after = await tipOf(treePath, fetchedTrunk);
 			return {
 				kind: "synced",
 				moved: before !== after,
-				replay: await this.restack(treePath, trunk),
+				replay: await this.restack(treePath, fetchedTrunk),
 			};
 		},
 	};

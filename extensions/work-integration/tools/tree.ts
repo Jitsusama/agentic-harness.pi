@@ -530,7 +530,10 @@ async function replay(
 			return refuse(`${GLYPH.refused} ${outcome.reason}`);
 		}
 		if (outcome.kind === "halted") {
-			return refuse(haltLines(outcome.conflicted));
+			// Said the same way the first halt is said. A stack halts more than once,
+			// and the second one used to print no branch at all, which is the moment
+			// a reader most needs to know which branch they are being asked about.
+			return refuse(haltLines(outcome.conflicted, subjectOfHalt(outcome)));
 		}
 		if (outcome.kind === "abandoned") {
 			return say(
@@ -581,6 +584,23 @@ async function replay(
  * named. A halt is reported through the refusal path because the tree is not
  * where it was asked to be, but it is a state to act on rather than an error.
  */
+/**
+ * How a halt names itself, when git's replay state said enough to.
+ *
+ * Built to read the same whether it came from starting a replay or carrying one
+ * on, because to the person reading it they are the same event.
+ */
+function subjectOfHalt(halt: {
+	branch?: string;
+	onto?: string;
+	at?: string;
+}): string | undefined {
+	if (halt.branch === undefined) return undefined;
+	const onto = halt.onto ? ` onto ${halt.onto}` : "";
+	const at = halt.at ? `, at ${halt.at}` : "";
+	return `${halt.branch}${onto}${at}`;
+}
+
 function haltLines(conflicted: readonly string[], what?: string): string {
 	const head =
 		what === undefined ? "Replay halted." : `Replay halted: ${what}.`;

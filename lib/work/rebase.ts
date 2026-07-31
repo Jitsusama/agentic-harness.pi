@@ -14,7 +14,7 @@
  * guess rather than missing features.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import type { Exec } from "../review/providers/exec.js";
 import { unattended } from "./unattended.js";
@@ -37,7 +37,22 @@ export type RebaseOutcome =
 /** How a halted replay ends. */
 export type ResumeOutcome =
 	| { kind: "replayed"; branch: string }
-	| { kind: "halted"; conflicted: readonly string[] }
+	| {
+			kind: "halted";
+			/**
+			 * Which branch stopped, and onto what, when git's replay state says.
+			 *
+			 * Optional because a halt is reported from a tree whose HEAD is detached,
+			 * so this is read from the replay in progress rather than from the tree,
+			 * and a state git has half torn down may no longer say. It went unread
+			 * for a while and the second halt of a stack printed no branch at all,
+			 * which is the moment a reader most needs to know which one.
+			 */
+			branch?: string;
+			onto?: string;
+			at?: string;
+			conflicted: readonly string[];
+	  }
 	| { kind: "abandoned"; branch: string }
 	| { kind: "refused"; reason: string };
 
@@ -98,6 +113,56 @@ export function createGitRebaser(deps: { exec: Exec }): WorkRebaser {
 				return true;
 		}
 		return false;
+	}
+
+	/**
+	 * What the replay in progress is doing, as far as git's state says.
+	 *
+	 * Read from the replay rather than from the tree, because a tree part-way
+	 * through one has a detached HEAD: every ordinary way of asking which branch
+	 * you are on answers "HEAD", which is why this went unreported for so long.
+	 * Git writes the answer down, so the fix is to read what it wrote.
+	 *
+	 * Every field is best-effort. Nothing here is worth failing a halt over: a
+	 * halt with no branch named is thin, and a halt that errored while trying to
+	 * name one is worse.
+	 */
+	async function replaying(treePath: string): Promise<{
+		branch?: string;
+		onto?: string;
+		at?: string;
+	}> {
+		const read = async (what: string): Promise<string | undefined> => {
+			const said = await ask(exec, treePath, [
+				"rev-parse",
+				"--git-path",
+				`rebase-merge/${what}`,
+			]);
+			if (said === undefined) return undefined;
+			const where = isAbsolute(said) ? said : join(treePath, said);
+			if (!existsSync(where)) return undefined;
+			try {
+				const text = readFileSync(where, "utf8").trim();
+				return text === "" ? undefined : text;
+			} catch {
+				// Unreadable is the same as unsaid here: the halt is still a halt.
+				return undefined;
+			}
+		};
+
+		const head = await read("head-name");
+		const onto = await read("onto");
+		const at = await ask(exec, treePath, [
+			"rev-parse",
+			"--short",
+			"REBASE_HEAD",
+		]);
+		return {
+			// Git records the full ref; a reader wants the branch.
+			...(head ? { branch: head.replace(/^refs\/heads\//, "") } : {}),
+			...(onto ? { onto: onto.slice(0, 8) } : {}),
+			...(at ? { at } : {}),
+		};
 	}
 
 	return {
@@ -193,7 +258,11 @@ export function createGitRebaser(deps: { exec: Exec }): WorkRebaser {
 			}
 			const left = await conflictedIn(exec, treePath);
 			if (left.length > 0) {
-				return { kind: "halted", conflicted: left };
+				return {
+					kind: "halted",
+					conflicted: left,
+					...(await replaying(treePath)),
+				};
 			}
 
 			// The call that hung. Continuing a conflicted pick commits with `-e`,
@@ -205,7 +274,12 @@ export function createGitRebaser(deps: { exec: Exec }): WorkRebaser {
 			);
 			if (result.code !== 0) {
 				const still = await conflictedIn(exec, treePath);
-				if (still.length > 0) return { kind: "halted", conflicted: still };
+				if (still.length > 0)
+					return {
+						kind: "halted",
+						conflicted: still,
+						...(await replaying(treePath)),
+					};
 				return {
 					kind: "refused",
 					reason:

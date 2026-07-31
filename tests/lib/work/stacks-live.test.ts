@@ -281,10 +281,9 @@ describe("publishing against a real remote", () => {
 });
 
 describe("syncing a stack", () => {
-	it("fetches trunk into the local ref, then replays onto where it moved", async () => {
-		// The failure this verb exists to prevent: a bare fetch updates
-		// `origin/main` and leaves `main` where it was, so a restack replays onto
-		// a trunk as stale as the one it started on and reports success.
+	it("replays onto the trunk it just fetched", async () => {
+		// The failure this verb exists to prevent: replaying onto a trunk as stale
+		// as the one it started on, and reporting success.
 		const upstream = await freshRepo("upstream");
 		built.push(upstream);
 		const dir = await freshRepo("consumer");
@@ -303,10 +302,41 @@ describe("syncing a stack", () => {
 		expect(synced).toMatchObject({ kind: "synced", moved: true });
 		if (synced.kind !== "synced") return;
 		expect(synced.replay.kind).toBe("restacked");
-		// The local trunk really moved, and the branch really sits on it.
-		expect(await subjects(dir, "main")).toContain("their work");
+		// The fetched trunk really moved, and the branch really sits on it.
+		expect(await subjects(dir, "origin/main")).toContain("their work");
 		expect(await subjects(dir, "topic")).toContain("their work");
 	});
+
+	it("syncs while trunk is checked out in another worktree", async () => {
+		// Found by driving the tool, not by this suite, which had trunk checked out
+		// nowhere and so never met the refusal. Git will not fetch into a branch
+		// that is checked out in any worktree of the repo, and trunk sitting in the
+		// primary tree while the work happens in a linked one is the normal
+		// arrangement, so the daily verb failed on the commonest layout.
+		const upstream = await freshRepo("upstream-shared");
+		built.push(upstream);
+		const dir = await freshRepo("consumer-shared");
+		built.push(dir);
+		await git(dir, "remote", "add", "origin", upstream);
+		await git(dir, "checkout", "-qb", "topic");
+		await commitFile(dir, "mine.txt", "my work");
+		const stacks = stacksIn();
+		await stacks.track(dir, "topic");
+
+		// A linked worktree holding trunk, which is what blocks the fetch.
+		const linked = mkdtempSync(join(tmpdir(), "linked-"));
+		built.push(linked);
+		await git(dir, "worktree", "add", "-q", linked, "main");
+
+		await commitFile(upstream, "theirs.txt", "their work");
+
+		const synced = await stacks.sync(dir, "main");
+
+		expect(synced).toMatchObject({ kind: "synced", moved: true });
+		if (synced.kind !== "synced") return;
+		expect(synced.replay.kind).toBe("restacked");
+		expect(await subjects(dir, "topic")).toContain("their work");
+	}, 30_000);
 
 	it("refuses rather than replaying onto a trunk it could not fetch", async () => {
 		// Carrying on would replay onto a stale trunk and call that success.
@@ -376,6 +406,32 @@ describe("settling a conflict and carrying on", () => {
 		expect(carried).toMatchObject({ kind: "replayed" });
 		// And the settled content is what landed, rather than either side.
 		expect(await git(dir, "show", "HEAD:shared.txt")).toContain("settled");
+	}, 30_000);
+
+	it("names the branch when a resume halts again", async () => {
+		// A stack halts more than once, and a halt reported from a resume printed no
+		// branch: HEAD is detached mid-replay, so every ordinary way of asking which
+		// branch you are on answers "HEAD". Git writes it down, so it can be read.
+		const dir = await freshRepo("resume-halts-again");
+		built.push(dir);
+		const rebaser = createGitRebaser({ exec });
+
+		// Two commits on the branch that each touch the contested file, so settling
+		// the first conflict runs into a second.
+		await conflictingSides(dir);
+		writeFileSync(join(dir, "shared.txt"), "and again\n", "utf8");
+		await git(dir, "commit", "-qam", "branch writes shared again");
+
+		expect(await rebaser.rebase(dir, "main")).toMatchObject({ kind: "halted" });
+		writeFileSync(join(dir, "shared.txt"), "settled once\n", "utf8");
+		await git(dir, "add", "shared.txt");
+
+		const again = await rebaser.resume(dir);
+
+		expect(again).toMatchObject({ kind: "halted", branch: "topic" });
+		if (again.kind !== "halted") return;
+		// The full ref is what git records; a reader wants the branch.
+		expect(again.branch).not.toContain("refs/heads");
 	}, 30_000);
 
 	it("puts the tree back when a halted replay is abandoned", async () => {
