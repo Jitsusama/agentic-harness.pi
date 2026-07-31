@@ -57,5 +57,29 @@ export {
 	registerTreeProvider,
 	unregisterTreeProvider,
 } from "./register.js";
+export type {
+	Faulted,
+	ReorderPlan,
+	ReparentStep,
+	ReplayStep,
+	RestackPlan,
+	StackedBranch,
+	StackFault,
+	StackOrder,
+} from "./stack.js";
+export {
+	descendantsOf,
+	orderStack,
+	planReorder,
+	planRestack,
+	reparentFault,
+} from "./stack.js";
+export type {
+	ReplayResult,
+	RestackOutcome,
+	ShapeOutcome,
+	WorkStacks,
+} from "./stacks.js";
+export { createGitStacks } from "./stacks.js";
 export type { TreeIdentity, TreeRequest, TreeSource } from "./tree.js";
 export { satisfies, treeIdentity, treeSource } from "./tree.js";

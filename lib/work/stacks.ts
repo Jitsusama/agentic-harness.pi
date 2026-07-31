@@ -1,0 +1,456 @@
+/**
+ * Keeping a stack, and replaying it when what it sits on moves.
+ *
+ * The thinking lives in `stack.ts` and never touches a repository. This is the
+ * adapter: it stores parentage, asks git to replay, and stops the moment a
+ * replay halts.
+ *
+ * Parentage is stored in git's own config, under the branch it describes. That
+ * puts it in the repository rather than in this package's state, which is the
+ * property that matters: the record survives a session, is visible to anybody
+ * who runs `git config`, and is deleted by git itself when the branch is. A
+ * stack recorded in a tool's private state is a stack that quietly outlives the
+ * branches it names.
+ *
+ * A stacked backend that tracks parentage itself is the reason this is a facet
+ * rather than the implementation. On a repository driven by such a tool, its
+ * record is the truth and this one would be a second opinion; a provider there
+ * should offer its own `WorkStacks` instead of teaching this one a second
+ * vocabulary.
+ *
+ * Restacking stops at the first halt and says what it did not reach. Carrying
+ * on would replay later branches onto a parent that is mid-rebase, which
+ * produces a stack that looks restacked and is built on a commit that is about
+ * to be rewritten.
+ */
+
+import type { Exec } from "../review/providers/exec.js";
+import type { WorkRebaser } from "./rebase.js";
+import {
+	orderStack,
+	planReorder,
+	planRestack,
+	reparentFault,
+	type StackedBranch,
+	type StackFault,
+} from "./stack.js";
+
+/**
+ * Where parentage is recorded, under the branch it belongs to.
+ *
+ * Lowercase because that is what git stores. Config variable names are
+ * case-insensitive and git normalizes them, so a key written as `workParent`
+ * reads back as `workparent`: writing one spelling and comparing the other
+ * found nothing, and every branch read as untracked. A fake exec cannot catch
+ * that, since it answers with whatever spelling the test wrote.
+ */
+const PARENT_KEY = "workparent";
+/** Where the last-aligned base is recorded. */
+const BASE_KEY = "workbase";
+
+/** What happened to one branch during a restack. */
+export interface ReplayResult {
+	branch: string;
+	onto: string;
+	outcome: "replayed" | "already-there" | "halted" | "skipped";
+	/** Paths that disagree, when it halted. */
+	conflicted?: readonly string[];
+}
+
+/** How a restack went. */
+export type RestackOutcome =
+	| {
+			kind: "restacked";
+			results: readonly ReplayResult[];
+			/** Where the tree was left, which is where it started. */
+			on?: string;
+	  }
+	| {
+			kind: "halted";
+			/** What was done, what stopped, and what was never reached. */
+			results: readonly ReplayResult[];
+			at: string;
+			conflicted: readonly string[];
+	  }
+	| { kind: "faulted"; fault: StackFault }
+	| { kind: "refused"; reason: string };
+
+/** How a change to the stack's shape went. */
+export type ShapeOutcome =
+	| { kind: "shaped"; changed: readonly string[] }
+	| { kind: "unchanged" }
+	| { kind: "faulted"; fault: StackFault }
+	| { kind: "refused"; reason: string };
+
+/** Keeping and replaying a stack of branches. */
+export interface WorkStacks {
+	/** What this repository records about its stack. */
+	read(treePath: string): Promise<readonly StackedBranch[]>;
+	/** Record that a branch sits on another, or on trunk. */
+	track(
+		treePath: string,
+		branch: string,
+		parent?: string,
+	): Promise<ShapeOutcome>;
+	/** Forget a branch, moving whatever sat on it down onto its parent. */
+	untrack(treePath: string, branch: string): Promise<ShapeOutcome>;
+	/** Point a branch at a different parent. */
+	reparent(
+		treePath: string,
+		branch: string,
+		parent?: string,
+	): Promise<ShapeOutcome>;
+	/** Rearrange a chain into the order given, lowest first. */
+	reorder(treePath: string, desired: readonly string[]): Promise<ShapeOutcome>;
+	/** Replay the whole stack onto trunk, in order. */
+	restack(treePath: string, trunk: string): Promise<RestackOutcome>;
+}
+
+/** Read one git value, scoped to the tree. */
+async function ask(
+	exec: Exec,
+	treePath: string,
+	args: readonly string[],
+): Promise<string | undefined> {
+	const result = await exec("git", ["-C", treePath, ...args]);
+	if (result.code !== 0) return undefined;
+	const said = result.stdout.trim();
+	return said === "" ? undefined : said;
+}
+
+/** Every branch that exists in the repository. */
+async function branchesIn(
+	exec: Exec,
+	treePath: string,
+): Promise<readonly string[]> {
+	const said = await ask(exec, treePath, [
+		"for-each-ref",
+		"--format=%(refname:short)",
+		"refs/heads",
+	]);
+	return said === undefined ? [] : said.split("\n").filter((one) => one !== "");
+}
+
+/** Read the stack from git config. */
+async function readStack(
+	exec: Exec,
+	treePath: string,
+): Promise<readonly StackedBranch[]> {
+	const said = await ask(exec, treePath, [
+		"config",
+		"--get-regexp",
+		`^branch\\..*\\.(${PARENT_KEY}|${BASE_KEY})$`,
+	]);
+	if (said === undefined) return [];
+
+	const byName = new Map<string, { parent?: string; base?: string }>();
+	for (const line of said.split("\n")) {
+		// A root records an empty parent, and git prints that as the key, a
+		// space, and nothing. Trimming the output eats that trailing space, so a
+		// line with no separator is a key whose value is empty rather than a line
+		// to skip. Skipping it made every root branch invisible, which read as
+		// "nothing is tracked" and refused every restack.
+		const gap = line.indexOf(" ");
+		const key = gap === -1 ? line : line.slice(0, gap);
+		const value = gap === -1 ? "" : line.slice(gap + 1).trim();
+		// `branch.<name>.workParent`, and a branch name may carry dots, so the
+		// name is everything between the first and last separator.
+		const first = key.indexOf(".");
+		const last = key.lastIndexOf(".");
+		if (first === -1 || last <= first) continue;
+		const name = key.slice(first + 1, last);
+		// Lowercased for the same reason the keys are: git decides the case of
+		// what it hands back, not the caller that wrote it.
+		const which = key.slice(last + 1).toLowerCase();
+		const held = byName.get(name) ?? {};
+		if (which === PARENT_KEY) held.parent = value;
+		if (which === BASE_KEY) held.base = value;
+		byName.set(name, held);
+	}
+
+	return [...byName.entries()].map(([name, held]) => ({
+		name,
+		...(held.parent === undefined || held.parent === ""
+			? {}
+			: { parent: held.parent }),
+		...(held.base === undefined ? {} : { base: held.base }),
+	}));
+}
+
+/** Keep and replay a stack with plain git. */
+export function createGitStacks(deps: {
+	exec: Exec;
+	rebaser: WorkRebaser;
+}): WorkStacks {
+	const { exec, rebaser } = deps;
+
+	async function set(
+		treePath: string,
+		branch: string,
+		key: string,
+		value: string | undefined,
+	): Promise<void> {
+		const at = `branch.${branch}.${key}`;
+		if (value === undefined) {
+			// A missing key is not an error here: unsetting what was never set
+			// is the state the caller asked for.
+			await exec("git", ["-C", treePath, "config", "--unset", at]);
+			return;
+		}
+		await exec("git", ["-C", treePath, "config", at, value]);
+	}
+
+	/** Where a ref currently points, if it exists. */
+	async function tipOf(
+		treePath: string,
+		ref: string,
+	): Promise<string | undefined> {
+		return await ask(exec, treePath, ["rev-parse", "--verify", "--quiet", ref]);
+	}
+
+	/**
+	 * Record where a branch now sits on its parent.
+	 *
+	 * Called after a replay, when the branch genuinely sits on that commit.
+	 * Not called when parentage changes, and that distinction is the whole
+	 * correctness argument: the base is the boundary between a branch's own
+	 * commits and its parent's, so writing the new parent's tip before
+	 * anything has been replayed declares a boundary above the branch's own
+	 * work and the next restack replays nothing at all.
+	 */
+	async function recordBase(
+		treePath: string,
+		branch: string,
+		sitsOn: string,
+	): Promise<void> {
+		const tip = await tipOf(treePath, sitsOn);
+		if (tip !== undefined) await set(treePath, branch, BASE_KEY, tip);
+	}
+
+	/**
+	 * Record the boundary for a branch being tracked for the first time.
+	 *
+	 * Where the two have diverged, not where the parent is now. A parent that
+	 * has moved since the branch was cut would otherwise put the boundary
+	 * above commits the branch owns, and they would be dropped by the first
+	 * replay rather than carried onto the new base.
+	 */
+	async function recordDivergence(
+		treePath: string,
+		branch: string,
+		parent: string | undefined,
+	): Promise<void> {
+		if (parent === undefined) return;
+		const shared = await ask(exec, treePath, ["merge-base", parent, branch]);
+		if (shared !== undefined) await set(treePath, branch, BASE_KEY, shared);
+	}
+
+	return {
+		read: (treePath) => readStack(exec, treePath),
+
+		async track(treePath, branch, parent) {
+			const exists = await branchesIn(exec, treePath);
+			if (!exists.includes(branch)) {
+				return {
+					kind: "refused",
+					reason: `There is no branch called ${branch} in this tree, so there is nothing to track.`,
+				};
+			}
+			if (parent !== undefined && !exists.includes(parent)) {
+				return {
+					kind: "refused",
+					reason: `There is no branch called ${parent} in this tree, so ${branch} cannot sit on it.`,
+				};
+			}
+			const held = await readStack(exec, treePath);
+			const already = held.some((one) => one.name === branch);
+			const candidate = already
+				? held.map((one) => (one.name === branch ? { ...one, parent } : one))
+				: [...held, { name: branch, parent }];
+			const fault = orderStack(candidate);
+			if (fault.kind === "faulted") return fault;
+
+			await set(treePath, branch, PARENT_KEY, parent ?? "");
+			await recordDivergence(treePath, branch, parent);
+			return { kind: "shaped", changed: [branch] };
+		},
+
+		async untrack(treePath, branch) {
+			const held = await readStack(exec, treePath);
+			const one = held.find((candidate) => candidate.name === branch);
+			if (one === undefined) {
+				return {
+					kind: "refused",
+					reason: `${branch} is not tracked, so there is nothing to forget.`,
+				};
+			}
+			// Whatever sat on it moves down onto its parent. Leaving them
+			// pointing at a branch nobody tracks is how a stack becomes
+			// unorderable by removing one member of it.
+			const changed = [branch];
+			for (const above of held.filter(
+				(candidate) => candidate.parent === branch,
+			)) {
+				await set(treePath, above.name, PARENT_KEY, one.parent ?? "");
+				// The boundary is left alone. Nothing has been replayed, and the
+				// commits this branch owns are still the ones above its old base.
+				changed.push(above.name);
+			}
+			await set(treePath, branch, PARENT_KEY, undefined);
+			await set(treePath, branch, BASE_KEY, undefined);
+			return { kind: "shaped", changed };
+		},
+
+		async reparent(treePath, branch, parent) {
+			const held = await readStack(exec, treePath);
+			const fault = reparentFault(held, branch, parent);
+			if (fault !== undefined) return { kind: "faulted", fault };
+			const one = held.find((candidate) => candidate.name === branch);
+			if (one?.parent === parent) return { kind: "unchanged" };
+			await set(treePath, branch, PARENT_KEY, parent ?? "");
+			// Deliberately not touching the boundary: the record has changed and
+			// the commits have not, and a restack is what reconciles them.
+			return { kind: "shaped", changed: [branch] };
+		},
+
+		async reorder(treePath, desired) {
+			const held = await readStack(exec, treePath);
+			const plan = planReorder(held, desired);
+			if (plan.kind === "faulted") return plan;
+			if (plan.steps.length === 0) return { kind: "unchanged" };
+			for (const step of plan.steps) {
+				await set(treePath, step.branch, PARENT_KEY, step.parent ?? "");
+				// Same as a single reparent: the shape moves now, the commits move
+				// when something replays them.
+			}
+			return {
+				kind: "shaped",
+				changed: plan.steps.map((step) => step.branch),
+			};
+		},
+
+		async restack(treePath, trunk) {
+			if (await rebaser.halted(treePath)) {
+				return {
+					kind: "refused",
+					reason:
+						"A replay is already part-way through in this tree. Settle it first, then restack.",
+				};
+			}
+			const held = await readStack(exec, treePath);
+			if (held.length === 0) {
+				return {
+					kind: "refused",
+					reason:
+						"Nothing in this tree is tracked as part of a stack, so there is nothing to replay. Track a branch against what it sits on first.",
+				};
+			}
+			const plan = planRestack(held, trunk);
+			if (plan.kind === "faulted") return plan;
+
+			// Where to come back to. A restack that leaves you on whichever
+			// branch it replayed last has moved you without asking.
+			const started = await ask(exec, treePath, [
+				"rev-parse",
+				"--abbrev-ref",
+				"HEAD",
+			]);
+
+			const results: ReplayResult[] = [];
+			for (const [at, step] of plan.steps.entries()) {
+				const from =
+					step.from ??
+					(await ask(exec, treePath, ["merge-base", step.onto, step.branch]));
+				const tip = await tipOf(treePath, step.onto);
+
+				// Nothing to do when the branch already sits on its parent's tip.
+				const already = from !== undefined && tip !== undefined && from === tip;
+				if (already) {
+					results.push({
+						branch: step.branch,
+						onto: step.onto,
+						outcome: "already-there",
+					});
+					continue;
+				}
+
+				const checkout = await exec("git", [
+					"-C",
+					treePath,
+					"checkout",
+					step.branch,
+				]);
+				if (checkout.code !== 0) {
+					return {
+						kind: "refused",
+						reason: `Could not check out ${step.branch}: ${checkout.stderr.trim() || `git checkout exited ${checkout.code}`}`,
+					};
+				}
+
+				const args = ["-C", treePath, "rebase"];
+				// The boundary is what separates this branch's commits from its
+				// parent's. Without it the branch is handed copies of
+				// everything the parent already carries.
+				if (from !== undefined) args.push("--onto", step.onto, from);
+				else args.push(step.onto);
+				const replay = await exec("git", args);
+
+				if (replay.code !== 0) {
+					const conflicted = await conflictsIn(exec, treePath);
+					results.push({
+						branch: step.branch,
+						onto: step.onto,
+						outcome: "halted",
+						conflicted,
+					});
+					// Everything above this is unreachable until the halt is
+					// settled, and saying so is the difference between a
+					// partial restack and a mystery.
+					for (const later of plan.steps.slice(at + 1)) {
+						results.push({
+							branch: later.branch,
+							onto: later.onto,
+							outcome: "skipped",
+						});
+					}
+					return {
+						kind: "halted",
+						results,
+						at: step.branch,
+						conflicted,
+					};
+				}
+
+				await recordBase(treePath, step.branch, step.onto);
+				// Now true: the replay just put the branch on that commit.
+				results.push({
+					branch: step.branch,
+					onto: step.onto,
+					outcome: "replayed",
+				});
+			}
+
+			if (started !== undefined && started !== "HEAD") {
+				await exec("git", ["-C", treePath, "checkout", started]);
+			}
+			return {
+				kind: "restacked",
+				results,
+				...(started === undefined || started === "HEAD" ? {} : { on: started }),
+			};
+		},
+	};
+}
+
+/** Paths git reports as unmerged. */
+async function conflictsIn(
+	exec: Exec,
+	treePath: string,
+): Promise<readonly string[]> {
+	const said = await ask(exec, treePath, [
+		"diff",
+		"--name-only",
+		"--diff-filter=U",
+	]);
+	return said === undefined ? [] : said.split("\n").filter((one) => one !== "");
+}

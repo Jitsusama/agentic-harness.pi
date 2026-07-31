@@ -158,8 +158,10 @@ describe("glyph ownership across the package", () => {
 			"review-integration":
 				/[\u25b0-\u25bf\u2714\u2193\u2298\u25ce\u2261\u00b6\u276f\u2726\u2611\u2610\u2715]/,
 			// Squares, all of them, including the two describing what is inside
-			// a tree rather than the tree itself.
-			"work-integration": /[\u25a0-\u25af\u2298\u2026]/,
+			// a tree rather than the tree itself. Plus the stack mark, which is
+			// deliberately the review tools' own: a stack of branches and a stack
+			// of changes are one idea seen from two sides.
+			"work-integration": /[\u25a0-\u25af\u2298\u2026\u2261]/,
 			// Diamonds for kind, and the circle statuses a quest has always had.
 			"quest-workflow": /[\u25c0-\u25d5\u2297\u2298]/,
 			// The circle-fill progression, a phase getting fuller, ending on a

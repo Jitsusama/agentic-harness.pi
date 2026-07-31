@@ -7,6 +7,8 @@
  * caller has to diagnose from nothing.
  */
 
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createGitRebaser } from "../../../lib/work/rebase.js";
 import { fakeExec, type Reply } from "../review/support/fake-exec.js";
@@ -14,22 +16,25 @@ import { fakeExec, type Reply } from "../review/support/fake-exec.js";
 const TREE = "/trees/topic";
 
 /**
- * Not mid-rebase: neither state directory is there.
+ * Paths standing in for git's rebase state directory.
  *
- * The directory test matches on the path as well as the flag. Matching on
- * `-d` alone also matched `--diff-filter=U`, so the conflict query answered
- * the directory probe's reply and a halt read as a plain refusal.
+ * Whether a replay is part-way through is read off the filesystem, not asked of
+ * a subprocess: a subprocess runs in pi's own working directory while git
+ * reports that path relative to the tree, so the old probe answered "not
+ * rebasing" for a tree that was mid-rebase. The fake therefore hands back a
+ * path that really exists, or one that really does not.
  */
+const PRESENT = tmpdir();
+const ABSENT = join(tmpdir(), "no-such-rebase-state-directory");
+
+/** Not mid-rebase: neither state directory is there. */
 const settled: Reply[] = [
-	{
-		when: ["rev-parse", "--git-path", "rebase-merge"],
-		stdout: ".git/rebase-merge\n",
-	},
-	{
-		when: ["rev-parse", "--git-path", "rebase-apply"],
-		stdout: ".git/rebase-apply\n",
-	},
-	{ when: ["-d", ".git/rebase"], code: 1 },
+	{ when: ["rev-parse", "--git-path"], stdout: `${ABSENT}\n` },
+];
+
+/** Mid-rebase: the state directory exists. */
+const midway: Reply[] = [
+	{ when: ["rev-parse", "--git-path"], stdout: `${PRESENT}\n` },
 ];
 
 /** On `topic`, clean, three commits above the base. */
@@ -104,13 +109,7 @@ describe("refusing to replay", () => {
 	});
 
 	it("refuses to start a second replay over a halted one, naming both ways out", async () => {
-		const { exec } = fakeExec([
-			{
-				when: ["rev-parse", "--git-path", "rebase-merge"],
-				stdout: ".git/rebase-merge\n",
-			},
-			{ when: ["-d", ".git/rebase"], code: 0 },
-		]);
+		const { exec } = fakeExec(midway);
 
 		const outcome = await createGitRebaser({ exec }).rebase(TREE, "main");
 
@@ -166,11 +165,7 @@ describe("halting on a conflict", () => {
 describe("ending a halted replay", () => {
 	it("will not carry on while paths still disagree", async () => {
 		const { exec } = fakeExec([
-			{
-				when: ["rev-parse", "--git-path", "rebase-merge"],
-				stdout: ".git/rebase-merge\n",
-			},
-			{ when: ["-d", ".git/rebase"], code: 0 },
+			...midway,
 			{ when: ["--diff-filter=U"], stdout: "lib/work/tree.ts\n" },
 		]);
 
@@ -184,11 +179,7 @@ describe("ending a halted replay", () => {
 
 	it("carries on once nothing disagrees", async () => {
 		const { exec } = fakeExec([
-			{
-				when: ["rev-parse", "--git-path", "rebase-merge"],
-				stdout: ".git/rebase-merge\n",
-			},
-			{ when: ["-d", ".git/rebase"], code: 0 },
+			...midway,
 			{ when: ["--diff-filter=U"], stdout: "" },
 			{ when: ["rebase", "--continue"], code: 0 },
 			{ when: ["rev-parse", "--abbrev-ref", "HEAD"], stdout: "topic\n" },
@@ -201,11 +192,7 @@ describe("ending a halted replay", () => {
 
 	it("puts the tree back when asked to abandon", async () => {
 		const { exec } = fakeExec([
-			{
-				when: ["rev-parse", "--git-path", "rebase-merge"],
-				stdout: ".git/rebase-merge\n",
-			},
-			{ when: ["-d", ".git/rebase"], code: 0 },
+			...midway,
 			{ when: ["rebase", "--abort"], code: 0 },
 			{ when: ["rev-parse", "--abbrev-ref", "HEAD"], stdout: "topic\n" },
 		]);

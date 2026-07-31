@@ -32,6 +32,13 @@ export const GLYPH = {
 	clean: "\u25ab",
 	dirty: "\u25aa",
 
+	// A stack, borrowed from the review tools on purpose: a stack of
+	// branches and a stack of changes are the same idea seen from two
+	// sides, and giving them separate marks would say they are not.
+	// The glyph check permits this because both domains call it a stack;
+	// what it refuses is one mark meaning two different things.
+	stack: "\u2261",
+
 	// Refusals, matching the review tools so the two surfaces do
 	// not disagree about what a refusal looks like.
 	refused: "\u2298",

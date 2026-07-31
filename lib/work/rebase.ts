@@ -14,6 +14,8 @@
  * guess rather than missing features.
  */
 
+import { existsSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
 import type { Exec } from "../review/providers/exec.js";
 
 /** Where a replay got to. */
@@ -79,22 +81,20 @@ export function createGitRebaser(deps: { exec: Exec }): WorkRebaser {
 	const { exec } = deps;
 
 	async function isHalted(treePath: string): Promise<boolean> {
-		// Git keeps a directory while a rebase is in progress, and asking for
-		// it is cheaper and more certain than parsing status output.
-		const said = await ask(exec, treePath, [
-			"rev-parse",
-			"--git-path",
-			"rebase-merge",
-		]);
-		const apply = await ask(exec, treePath, [
-			"rev-parse",
-			"--git-path",
-			"rebase-apply",
-		]);
-		for (const path of [said, apply]) {
-			if (path === undefined) continue;
-			const seen = await exec("test", ["-d", path]);
-			if (seen.code === 0) return true;
+		// Git keeps a directory while a rebase is in progress, and asking for it
+		// is cheaper and more certain than parsing status output.
+		//
+		// Looked at directly rather than through `test -d`. A subprocess runs in
+		// the process's own working directory, and git reports this path relative
+		// to the tree, so the probe was asking about a directory beside whatever
+		// directory pi happened to be started in. It answered "not rebasing" for
+		// a tree that was mid-rebase, which is the answer that makes resume and
+		// abandon refuse to work at the exact moment they are needed.
+		for (const what of ["rebase-merge", "rebase-apply"]) {
+			const said = await ask(exec, treePath, ["rev-parse", "--git-path", what]);
+			if (said === undefined) continue;
+			if (existsSync(isAbsolute(said) ? said : join(treePath, said)))
+				return true;
 		}
 		return false;
 	}

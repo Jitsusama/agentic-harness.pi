@@ -21,6 +21,7 @@ import {
 	createGitHistory,
 	createGitPublisher,
 	createGitRebaser,
+	createGitStacks,
 	type HeldTree,
 	treeRequestFrom,
 } from "../../../lib/work/index.js";
@@ -34,6 +35,7 @@ import {
 	renderInvocation,
 	say,
 } from "./shared.js";
+import { runStackAction } from "./stack.js";
 
 /** Find a held tree by the key or path a caller named. */
 function heldByName(held: readonly HeldTree[], name: string) {
@@ -69,10 +71,16 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 						Type.Literal("rebase"),
 						Type.Literal("resume"),
 						Type.Literal("abandon"),
+						Type.Literal("stack"),
+						Type.Literal("track"),
+						Type.Literal("untrack"),
+						Type.Literal("reparent"),
+						Type.Literal("reorder"),
+						Type.Literal("restack"),
 					],
 					{
 						description:
-							"tree: cut a worktree at a branch. snapshot: pin a snapshot at a commit. trees: list what this session holds. release: give a tree back. status: what has changed inside a tree. record: stage and commit the work in a tree. branch: make a branch in a tree and check it out. push: publish the branch, setting upstream the first time. rebase: replay the branch onto another ref, reporting a conflict as a halt rather than a failure. resume: carry a halted replay on once the conflicts are settled. abandon: put the tree back the way it was before a halted replay. Defaults to trees.",
+							"tree: cut a worktree at a branch. snapshot: pin a snapshot at a commit. trees: list what this session holds. release: give a tree back. status: what has changed inside a tree. record: stage and commit the work in a tree. branch: make a branch in a tree and check it out. push: publish the branch, setting upstream the first time. rebase: replay the branch onto another ref, reporting a conflict as a halt rather than a failure. resume: carry a halted replay on once the conflicts are settled. abandon: put the tree back the way it was before a halted replay. stack: show what sits on what. track: record that a branch sits on another, or on trunk. untrack: forget a branch, moving whatever sat on it down. reparent: point a branch at a different parent. reorder: rearrange a chain into the order you name, lowest first. restack: replay every tracked branch onto trunk, in order, stopping at the first halt. Defaults to trees.",
 					},
 				),
 			),
@@ -149,6 +157,18 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 						"For push: replace what the remote has, needed after a rebase. Always a lease, so it is refused rather than overwriting work that arrived since this tree last fetched.",
 				}),
 			),
+			trunk: Type.Optional(
+				Type.String({
+					description:
+						"What the bottom of the stack sits on, for restack. Required there: a restack replays every tracked branch, so a guessed base rewrites all of them onto the wrong thing.",
+				}),
+			),
+			order: Type.Optional(
+				Type.Array(Type.String(), {
+					description:
+						"For reorder: the branches in the order you want them, lowest first. Name every branch above the lowest one you are moving, or the reorder would leave one sitting on a branch that moved out from under it.",
+				}),
+			),
 		}),
 		// The first argument is the tool call's id, not the arguments. Taking
 		// only one parameter here reads the id as the payload, which is a
@@ -168,7 +188,13 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 					| "push"
 					| "rebase"
 					| "resume"
-					| "abandon";
+					| "abandon"
+					| "stack"
+					| "track"
+					| "untrack"
+					| "reparent"
+					| "reorder"
+					| "restack";
 				repo?: string;
 				checkout?: string;
 				remote?: string;
@@ -183,6 +209,8 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 				from?: string;
 				onto?: string;
 				replace?: boolean;
+				trunk?: string;
+				order?: string[];
 			};
 			const action = args.action ?? "trees";
 			const broker = treeBroker();
@@ -341,6 +369,32 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 					action === "abandon"
 				) {
 					return await replay(pi, found, action, args.onto);
+				}
+
+				if (
+					action === "stack" ||
+					action === "track" ||
+					action === "untrack" ||
+					action === "reparent" ||
+					action === "reorder" ||
+					action === "restack"
+				) {
+					const exec = execFor(pi);
+					const stacks = createGitStacks({
+						exec,
+						rebaser: createGitRebaser({ exec }),
+					});
+					// Which branch is checked out is what marks "you are here" in a
+					// listing, and a stack you cannot locate yourself in is a
+					// diagram rather than a tool.
+					const head = await history.head(found.path);
+					return await runStackAction(pi, stacks, found, action, {
+						...(args.name === undefined ? {} : { name: args.name }),
+						...(args.onto === undefined ? {} : { onto: args.onto }),
+						...(args.order === undefined ? {} : { order: args.order }),
+						...(args.trunk === undefined ? {} : { trunk: args.trunk }),
+						...(head.branch === undefined ? {} : { on: head.branch }),
+					});
 				}
 
 				if (action === "status") {
