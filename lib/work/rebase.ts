@@ -17,6 +17,7 @@
 import { existsSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import type { Exec } from "../review/providers/exec.js";
+import { unattended } from "./unattended.js";
 
 /** Where a replay got to. */
 export type RebaseOutcome =
@@ -145,7 +146,10 @@ export function createGitRebaser(deps: { exec: Exec }): WorkRebaser {
 				return { kind: "already-there", branch, onto };
 			}
 
-			const result = await exec("git", ["-C", treePath, "rebase", onto]);
+			const result = await exec(
+				"git",
+				unattended(["-C", treePath, "rebase", onto]),
+			);
 			if (result.code === 0) {
 				return {
 					kind: "replayed",
@@ -192,12 +196,13 @@ export function createGitRebaser(deps: { exec: Exec }): WorkRebaser {
 				return { kind: "halted", conflicted: left };
 			}
 
-			const result = await exec("git", [
-				"-C",
-				treePath,
-				"rebase",
-				"--continue",
-			]);
+			// The call that hung. Continuing a conflicted pick commits with `-e`,
+			// so without this git opens an editor on a stdin nobody is attached to
+			// and waits for a human who will never arrive.
+			const result = await exec(
+				"git",
+				unattended(["-C", treePath, "rebase", "--continue"]),
+			);
 			if (result.code !== 0) {
 				const still = await conflictedIn(exec, treePath);
 				if (still.length > 0) return { kind: "halted", conflicted: still };
@@ -222,7 +227,10 @@ export function createGitRebaser(deps: { exec: Exec }): WorkRebaser {
 					reason: "No replay is part-way through in this tree.",
 				};
 			}
-			const result = await exec("git", ["-C", treePath, "rebase", "--abort"]);
+			const result = await exec(
+				"git",
+				unattended(["-C", treePath, "rebase", "--abort"]),
+			);
 			if (result.code !== 0) {
 				return {
 					kind: "refused",

@@ -53,9 +53,23 @@ export function treeRecordDir(): string {
  * own, and three call sites reaching for the same six lines is
  * what a shared helper is for.
  */
-export function execFor(pi: ExtensionAPI): Exec {
+export function execFor(pi: ExtensionAPI, signal?: AbortSignal): Exec {
 	return async (command, args) => {
-		const result = await pi.exec(command, args);
+		// The signal is the difference between a slow command and a wedged
+		// session. pi hands every tool one and this dropped it, so when a git
+		// call blocked waiting for a human there was nothing the human could
+		// press: the child outlived the request that started it and went on
+		// holding a repository mid-rebase.
+		//
+		// The timeout is a backstop for what a signal cannot reach, a signing
+		// key's passphrase prompt among them. Generous on purpose, because the
+		// slow things here are real: a fetch against a large remote, a replay
+		// over a long stack. It is there to end a wait that will never finish,
+		// not to put a budget on honest work.
+		const result = await pi.exec(command, args, {
+			...(signal ? { signal } : {}),
+			timeout: UNATTENDED_LIMIT_MS,
+		});
 		return {
 			code: result.code,
 			stdout: result.stdout,
@@ -63,6 +77,15 @@ export function execFor(pi: ExtensionAPI): Exec {
 		};
 	};
 }
+
+/**
+ * How long a single git call may run before it is treated as stuck.
+ *
+ * Ten minutes, which is longer than any operation here has ever taken and
+ * shorter than forever. A World fetch is minutes, so anything tighter would
+ * start failing honest work on the repository that needs this most.
+ */
+const UNATTENDED_LIMIT_MS = 10 * 60 * 1000;
 
 /**
  * Register the tree providers this package ships. Idempotent,

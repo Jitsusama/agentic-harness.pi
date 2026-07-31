@@ -15,6 +15,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { citeListing, openSessionStore } from "../../../lib/result/index.js";
+import type { Exec } from "../../../lib/review/index.js";
 import { displayPath } from "../../../lib/ui/index.js";
 import {
 	blocksRepoint,
@@ -179,7 +180,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 		// string, so every field comes back undefined and every call silently
 		// falls to its default. That shipped: `work` answered the tree listing
 		// whatever action it was given.
-		execute: async (_toolCallId, rawArgs): Promise<Answer> => {
+		execute: async (_toolCallId, rawArgs, signal): Promise<Answer> => {
 			const args = rawArgs as {
 				action?:
 					| "tree"
@@ -219,6 +220,11 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 			};
 			const action = args.action ?? "trees";
 			const broker = treeBroker();
+			// Built once per call and carrying the caller's signal, so pressing
+			// escape reaches the git child rather than only the promise waiting on
+			// it. Without it a blocked command outlives the request that started
+			// it, which is how a hung rebase became unstoppable.
+			const exec = execFor(pi, signal);
 
 			try {
 				if (action === "trees") {
@@ -293,7 +299,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 					);
 				}
 
-				const history = createGitHistory({ exec: execFor(pi) });
+				const history = createGitHistory({ exec });
 
 				if (action === "record") {
 					if (!args.subject) {
@@ -301,7 +307,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 							`${GLYPH.refused} Say what the commit is for, as a subject. Conventional form: type(scope): subject.`,
 						);
 					}
-					const author = createGitAuthor({ exec: execFor(pi) });
+					const author = createGitAuthor({ exec });
 					const before = await history.status(found.path);
 					if (before.changed.length === 0) {
 						// Committing nothing succeeds at the git level and
@@ -333,7 +339,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 					if (!args.name) {
 						return refuse(`${GLYPH.refused} Name the branch to make.`);
 					}
-					const author = createGitAuthor({ exec: execFor(pi) });
+					const author = createGitAuthor({ exec });
 					await author.branch(
 						found.path,
 						args.name,
@@ -367,7 +373,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 						// happened rather than becoming what happened.
 						cautions = cautionsFrom(objected);
 					}
-					const publisher = createGitPublisher({ exec: execFor(pi) });
+					const publisher = createGitPublisher({ exec });
 					const outcome = await publisher.push(
 						found.path,
 						args.replace ? { replace: true } : undefined,
@@ -407,7 +413,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 					action === "resume" ||
 					action === "abandon"
 				) {
-					return await replay(pi, found, action, args.onto);
+					return await replay(exec, found, action, args.onto);
 				}
 
 				if (
@@ -419,7 +425,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 					action === "restack" ||
 					action === "sync"
 				) {
-					const exec = execFor(pi);
+					// Already built above with the caller's signal on it.
 					const stacks = createGitStacks({
 						exec,
 						rebaser: createGitRebaser({ exec }),
@@ -508,12 +514,12 @@ export function registerWorkTool(pi: ExtensionAPI): void {
  * is part-way through, which is exactly the knowledge the tool already had.
  */
 async function replay(
-	pi: ExtensionAPI,
+	exec: Exec,
 	found: HeldTree,
 	action: "rebase" | "resume" | "abandon",
 	onto: string | undefined,
 ): Promise<Answer> {
-	const rebaser = createGitRebaser({ exec: execFor(pi) });
+	const rebaser = createGitRebaser({ exec });
 
 	if (action === "resume" || action === "abandon") {
 		const outcome =

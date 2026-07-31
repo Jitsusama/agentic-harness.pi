@@ -324,3 +324,74 @@ describe("syncing a stack", () => {
 		expect(outcome.reason).toContain("nothing was moved");
 	});
 });
+
+/**
+ * A branch and a trunk that each changed the same line differently.
+ *
+ * Leaves the tree on `topic`, one commit off a `main` that touched the same file,
+ * so replaying one onto the other has to stop and ask.
+ */
+async function conflictingSides(dir: string): Promise<void> {
+	writeFileSync(join(dir, "shared.txt"), "from trunk\n", "utf8");
+	await git(dir, "add", "shared.txt");
+	await git(dir, "commit", "-qm", "trunk writes shared");
+	await git(dir, "checkout", "-qb", "topic", "HEAD~1");
+	writeFileSync(join(dir, "shared.txt"), "from the branch\n", "utf8");
+	await git(dir, "add", "shared.txt");
+	await git(dir, "commit", "-qm", "branch writes shared");
+}
+
+describe("settling a conflict and carrying on", () => {
+	// The test that would have caught a wedged session. `git rebase --continue`
+	// finishes a conflicted pick with `git commit -e`, so without the editor
+	// turned off git waits for a human on a stdin nobody is attached to. Nothing
+	// asserted argv, so nothing noticed; the tool simply never came back, and the
+	// tree was left mid-rebase with no verb willing to discuss it.
+	//
+	// A real conflict is the only way to reach that code. The budget is small on
+	// purpose: if the editor ever comes back, this fails in seconds by timeout
+	// rather than hanging the suite, and the timeout is the finding.
+	it("resumes a halted replay without waiting for an editor", async () => {
+		const dir = await freshRepo("resume-conflict");
+		built.push(dir);
+		const rebaser = createGitRebaser({ exec });
+
+		// Written by hand rather than through commitFile, whose third argument is
+		// the commit subject: it always writes the filename as the content, so two
+		// sides of a would-be conflict come out byte-identical and git merges them
+		// without a murmur. That is correct for the tests it was built for, where a
+		// conflict is the thing being avoided.
+		await conflictingSides(dir);
+
+		const halted = await rebaser.rebase(dir, "main");
+		expect(halted).toMatchObject({ kind: "halted" });
+		if (halted.kind !== "halted") return;
+		expect(halted.conflicted).toContain("shared.txt");
+
+		writeFileSync(join(dir, "shared.txt"), "settled by hand\n", "utf8");
+		await git(dir, "add", "shared.txt");
+
+		const carried = await rebaser.resume(dir);
+
+		expect(carried).toMatchObject({ kind: "replayed" });
+		// And the settled content is what landed, rather than either side.
+		expect(await git(dir, "show", "HEAD:shared.txt")).toContain("settled");
+	}, 30_000);
+
+	it("puts the tree back when a halted replay is abandoned", async () => {
+		// The other exit the halt offers. It has to work, or the advice the halt
+		// prints is a dead end.
+		const dir = await freshRepo("abandon-conflict");
+		built.push(dir);
+		const rebaser = createGitRebaser({ exec });
+
+		await conflictingSides(dir);
+		const before = (await git(dir, "rev-parse", "HEAD")).trim();
+
+		expect(await rebaser.rebase(dir, "main")).toMatchObject({ kind: "halted" });
+		const back = await rebaser.abandon(dir);
+
+		expect(back).toMatchObject({ kind: "abandoned" });
+		expect((await git(dir, "rev-parse", "HEAD")).trim()).toBe(before);
+	}, 30_000);
+});

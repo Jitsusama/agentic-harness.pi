@@ -56,11 +56,29 @@ const holding: Reply[] = [
 	{ when: ["rebase"], code: 0 },
 ];
 
-/** Every rebase git was asked to run, as strings. */
+/**
+ * Every rebase git was asked to run, as strings.
+ *
+ * The global flags that turn the editor off are dropped, because this asserts what
+ * was replayed onto what. Keeping them put a constant on the front of every
+ * expected string, which is noise that hides the one part that differs, and it
+ * made these cases fail when the editor was disabled rather than when a replay
+ * went to the wrong base. The flags have a test of their own.
+ */
 function replays(calls: { args: string[] }[]): string[] {
 	return calls
 		.filter((call) => call.args.includes("rebase"))
-		.map((call) => call.args.join(" "));
+		.map((call) => {
+			const kept: string[] = [];
+			for (let at = 0; at < call.args.length; at += 1) {
+				if (call.args[at] === "-c") {
+					at += 1;
+					continue;
+				}
+				kept.push(call.args[at]);
+			}
+			return kept.join(" ");
+		});
 }
 
 describe("reading a stack from the repository", () => {

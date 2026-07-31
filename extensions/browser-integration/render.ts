@@ -27,19 +27,18 @@ import type {
 	ToolRenderResultOptions,
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
+import { type RenderTheme, renderToolCall } from "../../lib/ui/index.js";
 import type { BrowserDetails } from "./result.js";
 
 /**
  * The colouring surface a renderer is handed.
  *
- * Pi exports the concrete Theme from an internal path rather
- * than from either package root, so the two calls used here are
- * declared structurally instead of reaching into its internals.
+ * Declared structurally because pi exports the concrete Theme from an internal
+ * path rather than from either package root. This file had its own copy until
+ * three surfaces wanted the same call line and the declaration moved to `lib/ui`
+ * with it, so the alias is what is left: one definition, named where it is used.
  */
-interface Theme {
-	fg(role: string, text: string): string;
-	bold(text: string): string;
-}
+type Theme = RenderTheme;
 
 /** Everything any of the four tools might be called with. */
 interface CallArgs {
@@ -64,16 +63,6 @@ interface CallArgs {
 	throttle?: string;
 	mock?: string;
 	block?: string;
-}
-
-/** How much of a long argument to show before cutting it. */
-const MAX_ARGUMENT = 48;
-
-function clip(value: string): string {
-	const flat = value.replace(/\s+/g, " ").trim();
-	return flat.length <= MAX_ARGUMENT
-		? flat
-		: `${flat.slice(0, MAX_ARGUMENT)}...`;
 }
 
 /**
@@ -108,24 +97,30 @@ export function renderBrowserCall(
 	theme: Theme,
 ): Text {
 	const call = (args ?? {}) as CallArgs;
-	let line = theme.fg("toolTitle", theme.bold(`browser ${verb}`));
-
-	if (call.kind) line += ` ${call.kind}`;
-
 	const subject = subjectOf(call);
-	if (subject) line += theme.fg("dim", ` ${clip(subject)}`);
 
-	if (call.widths && call.widths.length > 0) {
-		line += theme.fg("dim", ` across ${call.widths.length} widths`);
-	}
-	if (call.at) line += theme.fg("dim", ` at ${call.at}`);
-
-	// The session only earns space when it is not the only one.
-	if (call.session && call.session !== "default") {
-		line += theme.fg("dim", ` [${call.session}]`);
-	}
-
-	return new Text(line, 0, 0);
+	// This shape was the one the other two surfaces were measured against and
+	// found wanting, so it moved to `lib/ui` rather than being copied twice. It
+	// draws the same as it always did; what changed is that three tools now share
+	// one implementation instead of three that happen to agree.
+	return renderToolCall(
+		{
+			tool: `browser ${verb}`,
+			...(call.kind ? { action: call.kind } : {}),
+			...(subject ? { subject } : {}),
+			notes: [
+				...(call.widths && call.widths.length > 0
+					? [`across ${call.widths.length} widths`]
+					: []),
+				...(call.at ? [`at ${call.at}`] : []),
+				// The session only earns space when it is not the only one.
+				...(call.session && call.session !== "default"
+					? [`[${call.session}]`]
+					: []),
+			],
+		},
+		theme,
+	);
 }
 
 /** The verdict marks a check may open with. */

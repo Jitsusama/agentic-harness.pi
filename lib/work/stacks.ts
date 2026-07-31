@@ -34,6 +34,7 @@ import {
 	type StackedBranch,
 	type StackFault,
 } from "./stack.js";
+import { unattended } from "./unattended.js";
 
 /**
  * Where parentage is recorded, under the branch it belongs to.
@@ -412,7 +413,11 @@ export function createGitStacks(deps: {
 				// everything the parent already carries.
 				if (from !== undefined) args.push("--onto", step.onto, from);
 				else args.push(step.onto);
-				const replay = await exec("git", args);
+				// Unattended for the same reason `resume` is: a replay that conflicts
+				// and then continues will otherwise reach for an editor, and a
+				// restack walks several branches, so one wedged step strands the rest
+				// of the stack behind it.
+				const replay = await exec("git", unattended(args));
 
 				if (replay.code !== 0) {
 					const conflicted = await conflictsIn(exec, treePath);

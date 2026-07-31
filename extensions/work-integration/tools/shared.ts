@@ -17,6 +17,7 @@
 
 import type { AgentToolResult, Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
+import { renderToolCall } from "../../../lib/ui/index.js";
 
 /** What a tool answers with. */
 export type Answer = AgentToolResult<unknown>;
@@ -60,13 +61,33 @@ export function renderAnswer(result: Answer, theme: Theme): Text {
 	);
 }
 
-/** How a tool call reads in the transcript. */
+/**
+ * How a tool call reads in the transcript.
+ *
+ * This used to draw the whole line muted and never name the tool, so a work call
+ * was the one row in a transcript you had to stop and decode. It now uses the
+ * shared line, which puts the tool in bold and the rest in plain and dim, the way
+ * the browser tools always did.
+ */
 export function renderInvocation(args: unknown, theme: Theme): Text {
-	const a = args as { action?: string; purpose?: string; tree?: string };
-	const what = a.purpose ?? a.tree ?? "";
-	return new Text(
-		theme.fg("muted", `${a.action ?? "trees"}${what ? ` ${what}` : ""}`),
-		0,
-		0,
+	const a = args as {
+		action?: string;
+		purpose?: string;
+		tree?: string;
+		onto?: string;
+		name?: string;
+	};
+	// The purpose names a tree being cut; the tree names one already held. Only
+	// one of the two is ever meaningful for a given verb, and the branch or
+	// parent is what a stack verb is actually about.
+	const subject = a.purpose ?? a.tree ?? a.name;
+	return renderToolCall(
+		{
+			tool: "work",
+			action: a.action ?? "trees",
+			...(subject ? { subject } : {}),
+			...(a.onto ? { notes: [`onto ${a.onto}`] } : {}),
+		},
+		theme,
 	);
 }

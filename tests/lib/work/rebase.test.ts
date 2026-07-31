@@ -84,8 +84,29 @@ describe("replaying a branch", () => {
 		await createGitRebaser({ exec }).rebase(TREE, "main");
 
 		for (const call of calls.filter((one) => one.command === "git")) {
-			expect(call.args.slice(0, 2)).toEqual(["-C", TREE]);
+			// Scoping is what matters, not its position: global flags may precede
+			// it, and pinning the index made this test fail when the editor was
+			// turned off rather than when the scoping broke.
+			const at = call.args.indexOf("-C");
+			expect(at).toBeGreaterThanOrEqual(0);
+			expect(call.args[at + 1]).toBe(TREE);
 		}
+	});
+
+	it("tells git there is no editor to open", async () => {
+		// A replay that conflicts is continued with `git commit -e`, which opens
+		// an editor on a stdin nobody is attached to and never returns. The live
+		// test proves the behaviour by conflicting for real; this one pins the
+		// argument, because the live one takes seconds and this takes none.
+		const { exec, calls } = fakeExec([
+			...ready,
+			{ when: ["rebase", "main"], code: 0 },
+		]);
+
+		await createGitRebaser({ exec }).rebase(TREE, "main");
+
+		const replay = calls.find((one) => one.args.includes("rebase"));
+		expect(replay?.args).toContain("core.editor=true");
 	});
 });
 

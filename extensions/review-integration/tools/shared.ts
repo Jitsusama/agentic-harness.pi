@@ -25,6 +25,7 @@ import {
 	reactables,
 	type Thread,
 } from "../../../lib/review/index.js";
+import { renderToolCall } from "../../../lib/ui/index.js";
 import { attachmentDir, reviewEngine } from "../engine.js";
 import { GLYPH } from "../render.js";
 
@@ -85,21 +86,27 @@ export function renderAnswer(result: Answer, theme: Theme): Text {
 	);
 }
 
-/** How a tool call reads in the transcript. */
+/**
+ * How a tool call reads in the transcript.
+ *
+ * This used to bold the tool and the action together, which meant the two ran
+ * into each other and neither stood out. The shared line bolds the tool alone, so
+ * the eye finds which tool without reading the row, and the action reads as that
+ * tool's own word.
+ */
 export function renderInvocation(
 	theme: Theme,
 	tool: string,
 	action: string | undefined,
 	subject: string | undefined,
 ): Text {
-	const label = theme.fg(
-		"toolTitle",
-		theme.bold(action ? `${tool} ${action}` : tool),
-	);
-	return new Text(
-		label + (subject ? theme.fg("dim", ` ${subject}`) : ""),
-		0,
-		0,
+	return renderToolCall(
+		{
+			tool,
+			...(action ? { action } : {}),
+			...(subject ? { subject } : {}),
+		},
+		theme,
 	);
 }
 

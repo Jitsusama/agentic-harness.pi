@@ -71,9 +71,14 @@ export {
 	type ToggleRow,
 	type ToggleSection,
 } from "./prompt-toggle-list.js";
-
 // ── Text layout ─────────────────────────────────────────────
 export { contentWrapWidth, wordWrap } from "./text-layout.js";
+// ── Tool call lines ───────────────────────────────────
+export {
+	type RenderTheme,
+	renderToolCall,
+	type ToolCallLine,
+} from "./tool-call.js";
 
 // ── Types ───────────────────────────────────────────────────
 export type {
