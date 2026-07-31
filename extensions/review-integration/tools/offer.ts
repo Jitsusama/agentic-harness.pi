@@ -44,6 +44,7 @@ import {
 interface OfferParams {
 	action:
 		| "propose"
+		| "propose-stack"
 		| "edit"
 		| "ready"
 		| "unready"
@@ -55,6 +56,7 @@ interface OfferParams {
 	repo?: string;
 	base?: string;
 	head?: string;
+	heads?: string[];
 	title?: string;
 	body?: string;
 	draft?: boolean;
@@ -95,6 +97,7 @@ const ASKS_THE_QUEUE: ReadonlySet<OfferParams["action"]> = new Set([
  */
 const INTENT: Record<OfferParams["action"], AuthoringIntent["kind"]> = {
 	propose: "propose",
+	"propose-stack": "propose-stack",
 	edit: "retarget",
 	ready: "set-draft",
 	unready: "set-draft",
@@ -159,6 +162,7 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 			action: Type.Union(
 				[
 					Type.Literal("propose"),
+					Type.Literal("propose-stack"),
 					Type.Literal("edit"),
 					Type.Literal("ready"),
 					Type.Literal("unready"),
@@ -169,7 +173,7 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 				],
 				{
 					description:
-						"What to do. propose: put a branch up as a change. edit: change its title, body or base. ready: mark it ready for review; unready: put it back to a draft. reviewers: ask people to look. close and reopen. merge: land it.",
+						"What to do. propose: put a branch up as a change. propose-stack: put up several at once, each based on the one before it. edit: change its title, body or base. ready: mark it ready for review; unready: put it back to a draft. reviewers: ask people to look. close and reopen. merge: land it.",
 				},
 			),
 			change: Type.Optional(
@@ -190,6 +194,12 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 				Type.String({
 					description:
 						"For propose: the branch holding the work, defaulting to the one checked out.",
+				}),
+			),
+			heads: Type.Optional(
+				Type.Array(Type.String(), {
+					description:
+						"For propose-stack: the branches, in dependency order with the root first. Each is proposed onto the one before it, and the first onto base. The order is yours because nothing here can work it out.",
 				}),
 			),
 			title: Type.Optional(
@@ -340,9 +350,17 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 					const complaint = proposalComplaint(params.title, params.body);
 					if (complaint) return refuse(complaint);
 				}
+				// A stack's titles come from commit subjects rather than from
+				// the caller, and those are already held to the standard by the
+				// commit guardian, so there is nothing here to check ahead of
+				// the gate that shows them.
 
 				if (params.action === "propose") {
 					return propose(pi, ctx, bound, authoring, params);
+				}
+
+				if (params.action === "propose-stack") {
+					return proposeStack(pi, ctx, bound, authoring, params);
 				}
 
 				const change = hostedChange(bound);
@@ -465,6 +483,136 @@ async function checkoutFacts(
 		...(body === undefined ? {} : { bodyFromCommits: body }),
 		...(status === undefined ? {} : { dirty: true }),
 	};
+}
+
+/**
+ * The subject of a branch's tip commit, for naming its change.
+ *
+ * One call per branch rather than a walk of the whole stack, because the
+ * branches are named by the caller and need not be contiguous in any order
+ * git knows about.
+ */
+async function tipSubject(
+	pi: ExtensionAPI,
+	cwd: string,
+	branch: string,
+): Promise<string | undefined> {
+	try {
+		const result = await pi.exec("git", [
+			"-C",
+			cwd,
+			"log",
+			"-1",
+			"--format=%s",
+			branch,
+		]);
+		const out = result.stdout.trim();
+		return result.code === 0 && out !== "" ? out : undefined;
+	} catch {
+		// No such branch, or no git. The caller refuses by name rather than
+		// proposing a change called nothing.
+		return undefined;
+	}
+}
+
+/**
+ * Put a whole stack up, each change based on the one before it.
+ *
+ * The order is the caller's, roots first, because nothing here can work it
+ * out. A stack lives in a tool that tracks parentage, and the working layer
+ * has no stacks facet yet, so asking the caller is honest where inferring
+ * from merge-base would be a guess dressed as a fact.
+ *
+ * This exists because `proposeStack` had been declared, implemented and
+ * advertised by `review capabilities` as "propose a stack" while no verb
+ * could reach it. A capability a caller is told about and cannot use is the
+ * same lie as one that does not work, told from the other end.
+ */
+async function proposeStack(
+	pi: ExtensionAPI,
+	ctx: Parameters<Parameters<ExtensionAPI["registerTool"]>[0]["execute"]>[4],
+	bound: BoundTarget,
+	authoring: NonNullable<BoundTarget["provider"]["authoring"]>,
+	params: OfferParams,
+): Promise<Answer> {
+	if (params.draft === undefined) {
+		return refuse(
+			"Say whether these open as drafts. It is not defaulted, because the backends disagree about what silence means.",
+		);
+	}
+	const heads = params.heads ?? [];
+	if (heads.length < 2) {
+		return refuse(
+			"A stack needs at least two branches, named roots first. For one branch, propose it.",
+		);
+	}
+	if (authoring.proposeStack === undefined) {
+		return refuse(missingMethod(bound.provider.id, "propose a stack"));
+	}
+
+	const repeated = heads.filter((one, at) => heads.indexOf(one) !== at);
+	if (repeated.length > 0) {
+		// A branch twice in a stack would be proposed onto itself, and the
+		// backend's refusal for that is not worth passing on.
+		return refuse(
+			`${repeated[0]} is named twice. A stack is an order, so each branch appears once.`,
+		);
+	}
+
+	const cwd = params.repo ?? process.cwd();
+	const facts = await checkoutFacts(pi, cwd);
+	const base = params.base ?? facts.trunk;
+	if (base === undefined) {
+		return refuse(
+			"There is no trunk here to stack onto, so name the base the first change merges into.",
+		);
+	}
+
+	const subjects = await Promise.all(
+		heads.map((head) => tipSubject(pi, cwd, head)),
+	);
+	const missing = heads.filter((_, at) => subjects[at] === undefined);
+	if (missing.length > 0) {
+		return refuse(
+			`This checkout has no branch called ${missing.join(" or ")}, so there is nothing to propose for it.`,
+		);
+	}
+
+	// Each onto the one before it, which is what makes this a stack rather
+	// than a handful of changes proposed together.
+	const drafts = heads.map((head, at) => ({
+		repo: bound.repo,
+		base: at === 0 ? base : heads[at - 1],
+		head,
+		title: subjects[at] ?? head,
+		body: "",
+		draft: params.draft === true,
+	}));
+
+	const approved = await confirmWrite(
+		ctx,
+		`Propose ${heads.length} changes as a stack?`,
+		[
+			...drafts.map(
+				(one, at) =>
+					`${GLYPH.target} ${at + 1}. ${one.title}\n   ${one.head} \u2192 ${one.base}`,
+			),
+			"",
+			// Said plainly, because a stack is the case where a partial
+			// outcome is most likely and hardest to read afterwards.
+			"Each is based on the one above it, so an earlier one failing leaves the rest without a base.",
+		].join("\n"),
+	);
+	if (!approved) return say("Not proposed.");
+
+	const made = await authoring.proposeStack(drafts);
+	return say(
+		[
+			`${GLYPH.lands} ${made.length} of ${drafts.length} proposed`,
+			...made.map((one) => `   ${proposalLine(one)}`),
+		].join("\n"),
+		{ ok: true, proposed: made.length, asked: drafts.length },
+	);
 }
 
 /** Put a branch up as a change. */

@@ -94,6 +94,7 @@ Start here. Find the row, make the call.
 | Send a review to every change in the stack | `review_draft publish-stack` |
 | Write it up when nothing hosts it | `review_draft render` |
 | Put a branch up for review | `review_offer propose draft:false` |
+| Put a whole stack up at once | `review_offer propose-stack heads:[a,b] draft:false` |
 | Fix a title or description | `review_offer edit` |
 | Move it out of draft | `review_offer ready` |
 | Put it back into draft | `review_offer unready` |
@@ -191,6 +192,18 @@ produce a live change on one and an invisible one on the other. And a
 `main`: a wrong head is obvious to whoever approves, while a wrong base
 proposes against something nobody meant and asks the wrong team to look
 at it.
+
+`review_offer propose-stack` puts several branches up together, each
+based on the one before it and the first on the base. **The order is
+yours, roots first**, because nothing in the substrate can work it out:
+a stack lives in whatever tool tracks parentage, and inferring one from
+merge-base would be a guess dressed as a fact.
+
+Not every backend can do this, and the ones that cannot say so before
+anything is sent, with the instruction to propose each change in
+dependency order instead. Where it does work it is one operation rather
+than several, which matters because an earlier change failing leaves
+the rest of the stack with no base to sit on. The gate says that too.
 
 Every action asks the provider before it asks the network, and a
 refusal carries **what to do instead**. Pass that on rather than
