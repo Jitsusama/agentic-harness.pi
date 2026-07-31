@@ -40,8 +40,8 @@ import {
 	type Answer,
 	boundFor,
 	hostedChange,
-	messageOf,
 	refuse,
+	refuseFailure,
 	renderAnswer,
 	renderInvocation,
 	say,
@@ -146,18 +146,20 @@ export function registerSeeTool(pi: ExtensionAPI): void {
 		},
 
 		async execute(_id, params): Promise<Answer> {
+			// Held outside the try so a failure can say which provider was asked.
+			let bound: BoundTarget | undefined;
 			try {
 				// Siblings are the one read that is about a repo rather
 				// than a change, so it resolves differently.
 				if (params.action === "changes") return seeChanges(pi, params);
 
-				const bound = await boundFor(pi, params, process.cwd());
+				bound = await boundFor(pi, params, process.cwd());
 				return await readFrom(
 					bound,
 					params.action as Exclude<SeeAction, "changes">,
 				);
 			} catch (error) {
-				return refuse(messageOf(error));
+				return refuseFailure(error, bound);
 			}
 		},
 	});

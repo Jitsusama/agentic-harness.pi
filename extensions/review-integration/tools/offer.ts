@@ -35,6 +35,7 @@ import {
 	hostedChange,
 	messageOf,
 	refuse,
+	refuseFailure,
 	renderAnswer,
 	renderInvocation,
 	say,
@@ -291,8 +292,12 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 		},
 
 		async execute(_id, params, _signal, _onUpdate, ctx): Promise<Answer> {
+			// Held outside the try so a failure can say which provider was
+			// asked. Most of what fails here fails against a backend, and the
+			// backend's own message is about its own request.
+			let bound: BoundTarget | undefined;
 			try {
-				const bound = await boundFor(pi, params, process.cwd());
+				bound = await boundFor(pi, params, process.cwd());
 				const authoring = bound.provider.authoring;
 
 				// Proposing takes its repo from whatever change is attached,
@@ -460,7 +465,7 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 						return reviewers(ctx, change, authoring, params);
 				}
 			} catch (error) {
-				return refuse(messageOf(error));
+				return refuseFailure(error, bound);
 			}
 		},
 	});

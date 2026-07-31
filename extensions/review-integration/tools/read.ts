@@ -13,6 +13,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import {
+	type BoundTarget,
 	changeInPlay,
 	chooseChange,
 	createAttachmentStore,
@@ -25,8 +26,8 @@ import {
 	type Answer,
 	boundFor,
 	hostedChange,
-	messageOf,
 	refuse,
+	refuseFailure,
 	renderAnswer,
 	renderInvocation,
 	say,
@@ -100,6 +101,8 @@ export function registerReviewTool(pi: ExtensionAPI): void {
 		},
 
 		async execute(_id, params): Promise<Answer> {
+			// Held outside the try so a failure can say which provider was asked.
+			let bound: BoundTarget | undefined;
 			try {
 				if (params.action === undefined) return reportAttached();
 				if (params.action === "attach") return attachChange(pi, params);
@@ -108,10 +111,10 @@ export function registerReviewTool(pi: ExtensionAPI): void {
 					return stepAttachment(pi, params, params.action);
 				}
 
-				const bound = await boundFor(pi, params, process.cwd());
+				bound = await boundFor(pi, params, process.cwd());
 				return say(describeCapabilities(bound));
 			} catch (error) {
-				return refuse(messageOf(error));
+				return refuseFailure(error, bound);
 			}
 		},
 	});

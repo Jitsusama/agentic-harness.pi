@@ -50,8 +50,8 @@ import {
 	boundFor,
 	findReactableOn,
 	hostedChange,
-	messageOf,
 	refuse,
+	refuseFailure,
 	renderAnswer,
 	renderInvocation,
 	say,
@@ -242,9 +242,10 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 		},
 
 		async execute(_id, params, _signal, _onUpdate, ctx): Promise<Answer> {
+			// Held outside the try so a failure can say which provider was asked.
+			let bound: BoundTarget | undefined;
 			try {
 				const store = createDraftStore(draftDir());
-				let bound: BoundTarget | undefined;
 				let draft: ReviewDraft;
 
 				if (params.draft) {
@@ -437,7 +438,7 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 					landed: outcome.outcomes.filter((entry) => entry.ok).length,
 				});
 			} catch (error) {
-				return refuse(messageOf(error));
+				return refuseFailure(error, bound);
 			}
 		},
 	});

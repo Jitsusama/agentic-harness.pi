@@ -13,11 +13,22 @@ import type { RepoLocator, ReviewTarget } from "./change.js";
 import { targetKey } from "./keys.js";
 import type { ReviewProvider } from "./provider.js";
 import { getReviewProvider, listReviewProviders } from "./register.js";
-import type { ResolveContext } from "./resolve.js";
+import type { ResolveContext, ResolvedVia } from "./resolve.js";
 
-/** The answer for a whole target. */
+/**
+ * The answer for a whole target.
+ *
+ * Carries how the provider was arrived at, because a later failure against it
+ * reads differently depending on the answer: claimed by shape is a guess that
+ * happened to win, and mapped by config is a decision somebody made.
+ */
 export type TargetResolution =
-	| { resolved: true; provider: ReviewProvider; repo: RepoLocator }
+	| {
+			resolved: true;
+			provider: ReviewProvider;
+			repo: RepoLocator;
+			via: ResolvedVia;
+	  }
 	| { resolved: false; tried: string[]; message: string };
 
 /**
@@ -98,10 +109,13 @@ export function resolveTarget(
 ): TargetResolution {
 	const remembered = bound(target);
 	if (remembered) {
+		// A binding is a decision already taken, so it reports as one. What is
+		// remembered here is the answer, not the argument that produced it.
 		return {
 			resolved: true,
 			provider: remembered,
 			repo: repoOf(target),
+			via: "config-repo",
 		};
 	}
 
@@ -119,7 +133,13 @@ export function resolveTarget(
 			};
 		}
 		bindTarget(target, provider.id);
-		return { resolved: true, provider, repo: target.change.repo };
+		// The change names its own provider, so nothing was guessed.
+		return {
+			resolved: true,
+			provider,
+			repo: target.change.repo,
+			via: "config-repo",
+		};
 	}
 
 	const tried: string[] = [];
@@ -130,7 +150,7 @@ export function resolveTarget(
 	const byConfig = claimRepo(mapped, target, tried);
 	if (byConfig) {
 		bindTarget(target, byConfig.provider.id);
-		return { resolved: true, ...byConfig };
+		return { resolved: true, ...byConfig, via: "config-repo" };
 	}
 
 	const remaining = listReviewProviders().filter(
@@ -139,7 +159,7 @@ export function resolveTarget(
 	const byClaim = claimRepo(remaining, target, tried);
 	if (byClaim) {
 		bindTarget(target, byClaim.provider.id);
-		return { resolved: true, ...byClaim };
+		return { resolved: true, ...byClaim, via: "claim" };
 	}
 
 	const absent = ids.filter((id) => !getReviewProvider(id));

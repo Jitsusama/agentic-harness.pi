@@ -17,6 +17,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import {
+	type BoundTarget,
 	type ConversationFacet,
 	isReactableRefusal,
 	type Reaction,
@@ -29,8 +30,8 @@ import {
 	boundFor,
 	findReactableOn,
 	hostedChange,
-	messageOf,
 	refuse,
+	refuseFailure,
 	renderAnswer,
 	renderInvocation,
 	say,
@@ -114,8 +115,10 @@ export function registerSayTool(pi: ExtensionAPI): void {
 		},
 
 		async execute(_id, params, _signal, _onUpdate, ctx): Promise<Answer> {
+			// Held outside the try so a failure can say which provider was asked.
+			let bound: BoundTarget | undefined;
 			try {
-				const bound = await boundFor(pi, params, process.cwd());
+				bound = await boundFor(pi, params, process.cwd());
 				const conversation = bound.conversation;
 				const change = hostedChange(bound);
 				if (!conversation || !change) {
@@ -182,7 +185,7 @@ export function registerSayTool(pi: ExtensionAPI): void {
 					`${reopening ? GLYPH.unresolved : GLYPH.resolved} ${reopening ? "reopened" : "resolved"}.`,
 				);
 			} catch (error) {
-				return refuse(messageOf(error));
+				return refuseFailure(error, bound);
 			}
 		},
 	});

@@ -17,6 +17,8 @@ import {
 	changeInPlay,
 	chooseChange,
 	createAttachmentStore,
+	explainFailure,
+	type FailureContext,
 	findReactable,
 	type Reactable,
 	type ReactableRefusal,
@@ -54,6 +56,22 @@ export function isRefusal(details: unknown): boolean {
 
 export function messageOf(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Refuse with a failure, saying which provider was asked and why.
+ *
+ * Every tool here can be handed a reference whose shape belongs to no system
+ * in particular, so every one of them can fail against the wrong backend. The
+ * context is optional because a failure can happen before anything is bound,
+ * and a bare message is still better than swallowing it.
+ */
+export function refuseFailure(
+	error: unknown,
+	context: FailureContext | undefined,
+): Answer {
+	const message = messageOf(error);
+	return refuse(context ? explainFailure(message, context) : message);
 }
 
 /** The renderer every review tool shares. */

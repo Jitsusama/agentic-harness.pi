@@ -33,6 +33,7 @@ import type {
 import type { Exec } from "./providers/exec.js";
 import { run } from "./providers/exec.js";
 import { getReviewProvider } from "./register.js";
+import type { ResolvedVia } from "./resolve.js";
 import { resolveReference } from "./resolve.js";
 import type { Stack } from "./stack.js";
 
@@ -52,6 +53,18 @@ export interface BoundTarget {
 	target: ReviewTarget;
 	provider: ReviewProvider;
 	repo: RepoLocator;
+	/**
+	 * How this provider came to own the target.
+	 *
+	 * Carried because a failure reads completely differently depending on
+	 * the answer. A reference resolved by claim landed on a provider that
+	 * recognized its shape, and a shape like `owner/repo#n` belongs to no
+	 * system in particular, so a not-found is as likely to mean the wrong
+	 * system as a missing change. Resolved by config, the same not-found
+	 * means what it says, and suggesting a pin would be noise about a pin
+	 * that already decided.
+	 */
+	via: ResolvedVia;
 	capabilities: Capabilities;
 	/** The hosted change, when the target is one. */
 	proposal(): Promise<Proposal | null>;
@@ -160,6 +173,7 @@ export function createReviewEngine(deps: ReviewEngineDeps): ReviewEngine {
 		target: ReviewTarget,
 		provider: ReviewProvider,
 		repo: RepoLocator,
+		via: ResolvedVia,
 	): BoundTarget {
 		let diffText: Promise<string> | undefined;
 
@@ -253,6 +267,7 @@ export function createReviewEngine(deps: ReviewEngineDeps): ReviewEngine {
 			target,
 			provider,
 			repo,
+			via,
 			capabilities: provider.capabilities(repo),
 			conversation:
 				target.kind === "proposal" ? (provider.conversation ?? null) : null,
@@ -296,7 +311,7 @@ export function createReviewEngine(deps: ReviewEngineDeps): ReviewEngine {
 			...(context.probe ? { probe: context.probe } : {}),
 		});
 		if (!resolved.resolved) throw new Error(resolved.message);
-		return bind(target, resolved.provider, resolved.repo);
+		return bind(target, resolved.provider, resolved.repo, resolved.via);
 	}
 
 	return {
@@ -313,14 +328,24 @@ export function createReviewEngine(deps: ReviewEngineDeps): ReviewEngine {
 				kind: "proposal",
 				change: resolution.change,
 			};
-			return bind(target, resolution.provider, resolution.change.repo);
+			return bind(
+				target,
+				resolution.provider,
+				resolution.change.repo,
+				resolution.via,
+			);
 		},
 
 		async bound(change) {
+			// A change kept from an earlier resolution names its own provider,
+			// which is the whole reason this path exists rather than asking
+			// again. Nothing was claimed here, so nothing about claiming is
+			// true of it: it resolved the way a pin does, by being told.
 			return bind(
 				{ kind: "proposal", change },
 				providerFor(change.provider),
 				change.repo,
+				"config-repo",
 			);
 		},
 

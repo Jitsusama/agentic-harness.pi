@@ -251,6 +251,8 @@ export {
 	REVIEW_REGISTER_PROVIDER,
 	REVIEW_REQUEST_SUBSTRATE,
 } from "./events.js";
+export type { FailureContext } from "./failed.js";
+export { explainFailure, readsAsMissing } from "./failed.js";
 export type {
 	ConventionalLabel,
 	Finding,
