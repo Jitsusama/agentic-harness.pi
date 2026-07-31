@@ -623,3 +623,43 @@ describe("a restack that halted and was settled by hand", () => {
 		await expect(stacks.settled(dir, "c")).resolves.toBeUndefined();
 	}, 30_000);
 });
+
+describe("a restack that skipped a branch", () => {
+	it("repairs the record it did not need to act on", async () => {
+		// A skip is the one moment that knows where the boundary belongs without
+		// having to work it out: aligned means the branch sits on this tip. Left
+		// unwritten, a branch reached only by skips stays stale for good, and the
+		// reasoning that tolerates a stale record has to hold forever rather than
+		// until the next restack.
+		const { dir, stacks } = await tracked();
+		await mustRestack(stacks, dir, "main");
+		const stale = await git(dir, "rev-parse", "main~1");
+		await git(dir, "config", "branch.a.workbase", stale);
+
+		const again = await mustRestack(stacks, dir, "main");
+
+		expect(again.results.find((one) => one.branch === "a")).toMatchObject({
+			outcome: "already-there",
+		});
+		expect(await git(dir, "config", "branch.a.workbase")).toBe(
+			await git(dir, "rev-parse", "main"),
+		);
+	}, 30_000);
+
+	it("still leaves the commits alone while repairing the record", async () => {
+		// The repair must not become a reason to touch the branch.
+		const { dir, stacks } = await tracked();
+		await mustRestack(stacks, dir, "main");
+		const before = await git(dir, "rev-parse", "a");
+		await git(
+			dir,
+			"config",
+			"branch.a.workbase",
+			await git(dir, "rev-parse", "main~1"),
+		);
+
+		await mustRestack(stacks, dir, "main");
+
+		expect(await git(dir, "rev-parse", "a")).toBe(before);
+	}, 30_000);
+});

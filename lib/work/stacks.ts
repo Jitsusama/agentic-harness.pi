@@ -581,6 +581,14 @@ export function createGitStacks(deps: {
 					step.onto,
 				);
 				if (standing === "aligned") {
+					// Write the boundary down even though nothing was replayed. Aligned
+					// means the branch sits on this tip, so this is either the value
+					// already there or the repair of a record that had gone stale, and a
+					// skip is the one moment that knows which without having to ask. Left
+					// undone, a branch reached only by skips stays stale for good, and the
+					// reasoning that tolerates a stale record has to hold forever instead
+					// of just until the next restack.
+					await recordBase(treePath, step.branch, step.onto);
 					results.push({
 						branch: step.branch,
 						onto: step.onto,
