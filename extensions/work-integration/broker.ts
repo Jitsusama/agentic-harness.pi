@@ -21,6 +21,7 @@ import type { Exec } from "../../lib/review/index.js";
 import {
 	createGitTreeProvider,
 	createTreeBroker,
+	createTreeMemory,
 	listTreeProviders,
 	type Objection,
 	type PublishIntent,
@@ -32,6 +33,17 @@ import {
 /** Where trees this package cuts are put. */
 export function treeDir(): string {
 	return join(stateDir("work"), "trees");
+}
+
+/**
+ * Where the record of a cut tree goes.
+ *
+ * Beside the trees rather than inside one: a file written into a worktree shows
+ * up as an untracked change in somebody's status, and `status` refusing to
+ * repoint over uncommitted work would then be refusing over our own bookkeeping.
+ */
+export function treeRecordDir(): string {
+	return join(stateDir("work"), "cut");
 }
 
 /**
@@ -66,7 +78,17 @@ let broker: TreeBroker | undefined;
 
 /** The session's broker, built on first use. */
 export function treeBroker(): TreeBroker {
-	if (!broker) broker = createTreeBroker(() => listTreeProviders());
+	if (!broker) {
+		broker = createTreeBroker({
+			providers: () => listTreeProviders(),
+			// Given a memory here and nowhere else, because this is the one
+			// broker that outlives nothing and needs to: a session ends with its
+			// trees still on disk, and without this the next one cannot see
+			// them, cannot push what is committed in them, and cannot release
+			// them either.
+			memory: createTreeMemory(treeRecordDir()),
+		});
+	}
 	return broker;
 }
 

@@ -40,6 +40,7 @@ export type {
 	WorkingState,
 } from "./history.js";
 export { blocksRepoint, createGitHistory } from "./history.js";
+export { createTreeMemory, type TreeMemory } from "./memory.js";
 export type {
 	Objection,
 	PublishIntent,

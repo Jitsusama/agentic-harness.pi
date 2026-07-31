@@ -9,6 +9,7 @@
  * `provider.ts`, so what is left here is genuinely just custody.
  */
 
+import type { TreeMemory } from "./memory.js";
 import { chooseTreeProvider, type TreeProviderInfo } from "./provider.js";
 import {
 	satisfies,
@@ -52,8 +53,29 @@ export interface TreeBroker {
 	ensure(request: TreeRequest): Promise<HeldTree>;
 	/** Hand a tree back to the provider that cut it. */
 	release(held: HeldTree): Promise<void>;
-	/** Every tree currently held, in the order it was cut. */
+	/**
+	 * Every tree held, this session's first and then any left behind by an
+	 * earlier one.
+	 *
+	 * A tree outlives the process that cut it, so "held" cannot mean "cut by
+	 * me". It used to, and the result was every verb refusing on a tree that
+	 * plainly existed, with commits inside it and no way back to them.
+	 */
 	held(): readonly HeldTree[];
+	/** Whether this session is the one that cut a tree, for a listing to say so. */
+	cutHere(path: string): boolean;
+}
+
+/** What a broker needs beyond its providers. */
+export interface BrokerDeps {
+	providers: readonly TreeProvider[] | (() => readonly TreeProvider[]);
+	/**
+	 * Where to write down what was cut, so the next session can find it.
+	 *
+	 * Optional because a caller with no interest in outliving itself, which
+	 * means every test, should not have to supply a directory to get a broker.
+	 */
+	memory?: TreeMemory;
 }
 
 /**
@@ -73,15 +95,42 @@ export interface TreeBroker {
  * fixed set, such as a test.
  */
 export function createTreeBroker(
-	providers: readonly TreeProvider[] | (() => readonly TreeProvider[]),
+	said: readonly TreeProvider[] | (() => readonly TreeProvider[]) | BrokerDeps,
 ): TreeBroker {
+	const deps: BrokerDeps =
+		Array.isArray(said) || typeof said === "function"
+			? { providers: said as BrokerDeps["providers"] }
+			: (said as BrokerDeps);
+	const { providers, memory } = deps;
 	const trees: HeldTree[] = [];
 	const roster = (): readonly TreeProvider[] =>
 		typeof providers === "function" ? providers() : providers;
 
+	/**
+	 * This session's trees, then remembered ones it does not already hold.
+	 *
+	 * Ordered that way deliberately: a tree cut here is the one the caller just
+	 * asked about, and deduping by path keeps a remembered copy of it from
+	 * appearing twice under two names for the same directory.
+	 */
+	const everything = (): readonly HeldTree[] => {
+		const mine = new Set(trees.map((tree) => tree.path));
+		const earlier = (memory?.recall() ?? []).filter(
+			(tree) => !mine.has(tree.path),
+		);
+		return [...trees, ...earlier];
+	};
+
 	return {
 		async ensure(request) {
-			const reusable = trees.find((tree) => satisfies(tree.identity, request));
+			// Searches remembered trees too, so a second session reuses what the
+			// first cut instead of asking a provider to cut a tree that is
+			// already there. The git provider survives that (it treats "already
+			// there" as the ordinary case) but only because it was taught to;
+			// asking is still wrong when we know the answer.
+			const reusable = everything().find((tree) =>
+				satisfies(tree.identity, request),
+			);
 			if (reusable) return reusable;
 
 			const choice = chooseTreeProvider(roster(), request.repo);
@@ -104,6 +153,7 @@ export function createTreeBroker(
 				providerId: choice.provider.id,
 			};
 			trees.push(held);
+			memory?.remember(held);
 			return held;
 		},
 
@@ -113,12 +163,19 @@ export function createTreeBroker(
 			);
 			const at = trees.findIndex((tree) => tree.path === held.path);
 			if (at >= 0) trees.splice(at, 1);
+			// Forgotten before the provider acts, so a provider that throws
+			// halfway does not leave a record claiming a tree that is now
+			// half-gone. A record for a tree still on disk is recoverable on the
+			// next cut; a record for a broken one is a trap.
+			memory?.forget(held.path);
 			// A provider that has since unregistered leaves nothing
 			// to release through. Dropping our record of the tree is
 			// the whole of what we can still do.
 			if (owner) await owner.release(held);
 		},
 
-		held: () => [...trees],
+		held: () => everything(),
+
+		cutHere: (path) => trees.some((tree) => tree.path === path),
 	};
 }

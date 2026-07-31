@@ -63,10 +63,18 @@ the command is blocked outright.
 ## Reading Before Writing
 
 ```
+work trees
 work status tree:…
 ```
 
-Run it before anything that moves a tree. An untracked file is
+`trees` lists what is held, and marks any tree left behind by an
+earlier session. Read those before touching them: a tree can
+hold work this session knows nothing about, and it is listed at
+all because a worktree outlives the process that cut it. That
+is the point of a worktree, and the reason `release` is a verb
+rather than something a session does on its way out.
+
+Run `status` before anything that moves a tree. An untracked file is
 work, and overwriting one cannot be undone, so `release` and
 any repoint refuse over uncommitted changes rather than
 deciding for you.

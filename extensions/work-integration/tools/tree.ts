@@ -230,7 +230,9 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 					}
 					return say(
 						citeListing(openSessionStore(), {
-							view: held.map(treeLine).join("\n"),
+							view: held
+								.map((one) => treeLine(one, broker.cutHere(one.path)))
+								.join("\n"),
 							records: [...held],
 							unit: "trees",
 							narrowing: "Query the stored result for the trees you need.",

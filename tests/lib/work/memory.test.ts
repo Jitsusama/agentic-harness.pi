@@ -1,0 +1,249 @@
+/**
+ * The fault here needed two sessions, so these tests use two brokers.
+ *
+ * Every existing broker test builds one broker and drives it, which is one
+ * process, and the whole fault was that a tree outlives the process. So the suite
+ * was green while `work status` on a tree that plainly existed answered "no held
+ * tree: none are held", with commits inside it and no way back to them but the
+ * `git worktree` call the guide forbids.
+ *
+ * A second broker over the same memory directory is what a second session is.
+ * That is the shape to keep: if these ever collapse into one broker, they stop
+ * testing the thing they exist for.
+ */
+
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+	createTreeBroker,
+	type TreeProvider,
+} from "../../../lib/work/broker.js";
+import { createTreeMemory } from "../../../lib/work/memory.js";
+import type { TreeRequest } from "../../../lib/work/tree.js";
+
+let root: string;
+
+beforeEach(() => {
+	root = mkdtempSync(join(tmpdir(), "work-memory-"));
+});
+
+afterEach(() => {
+	rmSync(root, { recursive: true, force: true });
+});
+
+/** A provider that makes the directory, so existence checks are real. */
+function provider(released: string[] = []): TreeProvider {
+	return {
+		id: "git",
+		specificity: 0,
+		appliesTo: () => true,
+		async ensure(request: TreeRequest) {
+			const path = join(root, "trees", request.purpose);
+			mkdirSync(path, { recursive: true });
+			return { path };
+		},
+		async release(held) {
+			released.push(held.path);
+			rmSync(held.path, { recursive: true, force: true });
+		},
+	};
+}
+
+/**
+ * A request for a tree.
+ *
+ * The branch is a parameter because a worktree's identity is its repo and its
+ * branch, deliberately not its purpose: two requests for the same branch are the
+ * same tree however differently they are described. Writing this test with one
+ * branch and two purposes produced a confusing failure that turned out to be the
+ * identity rule working correctly.
+ */
+function asked(purpose: string, branch = "topic"): TreeRequest {
+	return {
+		intent: "worktree",
+		repo: { key: "github:o/r" },
+		branch,
+		purpose,
+	};
+}
+
+describe("a tree outlives the session that cut it", () => {
+	const memoryAt = () => createTreeMemory(join(root, "cut"));
+
+	it("is found by the next session", async () => {
+		const first = createTreeBroker({
+			providers: [provider()],
+			memory: memoryAt(),
+		});
+		const cut = await first.ensure(asked("fix-410"));
+
+		// A new broker over the same directory. This is the whole point.
+		const second = createTreeBroker({
+			providers: [provider()],
+			memory: memoryAt(),
+		});
+
+		expect(second.held().map((one) => one.path)).toEqual([cut.path]);
+		expect(second.held()[0].identity.key).toBe(cut.identity.key);
+		expect(second.held()[0].providerId).toBe("git");
+	});
+
+	it("can be released by the session that did not cut it", async () => {
+		// The half that made this urgent rather than untidy. Without it a tree
+		// is not merely invisible, it is unreleasable: the only escape is the
+		// git call the guide tells you never to make.
+		const released: string[] = [];
+		const first = createTreeBroker({
+			providers: [provider()],
+			memory: memoryAt(),
+		});
+		const cut = await first.ensure(asked("fix-410"));
+
+		const second = createTreeBroker({
+			providers: [provider(released)],
+			memory: memoryAt(),
+		});
+		await second.release(second.held()[0]);
+
+		expect(released).toEqual([cut.path]);
+		expect(second.held()).toEqual([]);
+		// And the record went with it, so it does not come back next session.
+		expect(
+			createTreeBroker({ providers: [provider()], memory: memoryAt() }).held(),
+		).toEqual([]);
+	});
+
+	it("is reused rather than cut again", async () => {
+		const first = createTreeBroker({
+			providers: [provider()],
+			memory: memoryAt(),
+		});
+		const cut = await first.ensure(asked("fix-410"));
+
+		const second = createTreeBroker({
+			providers: [provider()],
+			memory: memoryAt(),
+		});
+		const again = await second.ensure(asked("fix-410"));
+
+		expect(again.path).toBe(cut.path);
+		expect(second.held()).toHaveLength(1);
+	});
+
+	it("says which trees this session cut and which it inherited", async () => {
+		const first = createTreeBroker({
+			providers: [provider()],
+			memory: memoryAt(),
+		});
+		const inherited = await first.ensure(asked("fix-410", "topic"));
+
+		const second = createTreeBroker({
+			providers: [provider()],
+			memory: memoryAt(),
+		});
+		const mine = await second.ensure(asked("fix-411", "other"));
+
+		// The distinction a listing needs: an inherited tree may hold work this
+		// session knows nothing about, so it is the one to read status on first.
+		expect(second.cutHere(mine.path)).toBe(true);
+		expect(second.cutHere(inherited.path)).toBe(false);
+	});
+
+	it("lists this session's trees before the ones it inherited", async () => {
+		const first = createTreeBroker({
+			providers: [provider()],
+			memory: memoryAt(),
+		});
+		await first.ensure(asked("older", "topic"));
+
+		const second = createTreeBroker({
+			providers: [provider()],
+			memory: memoryAt(),
+		});
+		const mine = await second.ensure(asked("newer", "other"));
+
+		expect(second.held()[0].path).toBe(mine.path);
+	});
+
+	it("does not list the same tree twice", async () => {
+		// A tree this session cut is also written down, so a naive union reports
+		// one directory under two entries.
+		const one = createTreeBroker({
+			providers: [provider()],
+			memory: memoryAt(),
+		});
+		await one.ensure(asked("fix-410"));
+
+		expect(one.held()).toHaveLength(1);
+	});
+});
+
+describe("the directory is the truth, not the record", () => {
+	const memoryAt = () => createTreeMemory(join(root, "cut"));
+
+	it("drops a record whose tree somebody deleted by hand", async () => {
+		const first = createTreeBroker({
+			providers: [provider()],
+			memory: memoryAt(),
+		});
+		const cut = await first.ensure(asked("fix-410"));
+		rmSync(cut.path, { recursive: true, force: true });
+
+		const second = createTreeBroker({
+			providers: [provider()],
+			memory: memoryAt(),
+		});
+
+		// Somebody who cleaned up by hand has said something; a stale record has
+		// not. So they stop being told about a tree they already dealt with.
+		expect(second.held()).toEqual([]);
+		expect(memoryAt().recall()).toEqual([]);
+	});
+
+	it("survives a record it cannot read", () => {
+		// A half-written file, which a concurrent write can produce. Reporting a
+		// tree with a broken identity is worse than not reporting it.
+		const dir = join(root, "cut");
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(join(dir, "half.json"), "{not json", "utf8");
+
+		expect(memoryAt().recall()).toEqual([]);
+		// And it is left alone rather than tidied away, since deleting somebody
+		// else's file to clean up a listing is not this code's decision.
+		expect(existsSync(join(dir, "half.json"))).toBe(true);
+	});
+
+	it("ignores a record missing the identity a caller would rely on", () => {
+		const dir = join(root, "cut");
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(
+			join(dir, "partial.json"),
+			JSON.stringify({ path: root, providerId: "git" }),
+			"utf8",
+		);
+
+		expect(memoryAt().recall()).toEqual([]);
+	});
+});
+
+describe("a broker with no memory", () => {
+	it("still works, and forgets as it always did", async () => {
+		// Every existing caller passes providers positionally and wants nothing
+		// to do with disk. That has to keep working, or this fix breaks far more
+		// than it repairs.
+		const one = createTreeBroker([provider()]);
+		const cut = await one.ensure(asked("fix-410"));
+
+		expect(one.held()).toHaveLength(1);
+		expect(one.cutHere(cut.path)).toBe(true);
+		expect(createTreeBroker([provider()]).held()).toEqual([]);
+	});
+});

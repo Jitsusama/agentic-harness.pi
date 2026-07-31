@@ -45,10 +45,22 @@ export const GLYPH = {
 } as const;
 
 /** One held tree, as a line. */
-export function treeLine(held: {
-	identity: { key: string };
-	path: string;
-	providerId: string;
-}): string {
-	return `${GLYPH.tree} ${held.identity.key}\n   ${held.path} · ${held.providerId}`;
+export function treeLine(
+	held: {
+		identity: { key: string };
+		path: string;
+		providerId: string;
+	},
+	/**
+	 * Whether this session cut it.
+	 *
+	 * Said because the two cases want different care. A tree from an earlier
+	 * session may have somebody's uncommitted work in it that this session knows
+	 * nothing about, so it is the one to read `status` on before touching, and a
+	 * listing that presents both identically is the reason nobody would.
+	 */
+	cutHere = true,
+): string {
+	const from = cutHere ? "" : " · from an earlier session";
+	return `${GLYPH.tree} ${held.identity.key}${from}\n   ${held.path} · ${held.providerId}`;
 }
