@@ -16,10 +16,13 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import type {
-	ConversationFacet,
-	Reaction,
-	Thread,
+import {
+	type ConversationFacet,
+	findReactable,
+	isReactableRefusal,
+	type Reaction,
+	reactables,
+	type Thread,
 } from "../../../lib/review/index.js";
 import { confirmWrite } from "../gate.js";
 import { anchorLabel, GLYPH } from "../render.js";
@@ -51,6 +54,7 @@ export function registerSayTool(pi: ExtensionAPI): void {
 			"Say something on a change now: reply, comment, resolve, unresolve, react.",
 		promptGuidelines: [
 			"Read the threads with review_see first, and refer to a thread by the [T#] index that listing shows. Never invent or guess a thread id.",
+			"React by the address a listing prints: [C#] for a remark inside a thread, [M#] for a top-level message. A bare number is refused, since it does not say which of the two.",
 			"Leave the change out to speak on whatever is attached.",
 			"Use this to answer one remark. To compose several remarks and a verdict together, use review_draft.",
 			"Every action here opens a confirmation gate, so describe what you are about to post before calling it.",
@@ -90,7 +94,8 @@ export function registerSayTool(pi: ExtensionAPI): void {
 			),
 			comment: Type.Optional(
 				Type.String({
-					description: "For react: the comment id to react to.",
+					description:
+						"For react: which comment, as the [C#] a thread listing prints beside a remark or the [M#] a messages listing prints beside a top-level one.",
 				}),
 			),
 		}),
@@ -194,7 +199,9 @@ async function react(
 	const change = hostedChange(bound);
 	if (!change) return refuse("This target is not a hosted change.");
 	if (!params.reaction || !params.comment) {
-		return refuse("Reacting needs a reaction and the comment id to put it on.");
+		return refuse(
+			"Reacting needs a reaction and the comment to put it on, addressed as the [C#] or [M#] a listing prints.",
+		);
 	}
 	if (!conversation.react) {
 		return refuse(
@@ -209,16 +216,32 @@ async function react(
 				: "That provider accepts no reactions.",
 		);
 	}
+	// Resolved against the conversation as it actually is, rather than
+	// trusting whatever was typed. This used to hand the provider a comment
+	// invented on the spot, `{ id: whatever was asked for, author: "", body:
+	// "" }`, which works only for a provider that reads nothing but the id and
+	// sends every other one a comment with no author and nothing said. It also
+	// meant a wrong id was found out by the backend rather than here, so the
+	// failure arrived as somebody else's error message.
+	const [threads, messages] = await Promise.all([
+		conversation.threads(change),
+		conversation.messages(change),
+	]);
+	const found = findReactable(
+		params.comment,
+		reactables({ threads, messages }),
+	);
+	if (isReactableRefusal(found)) return refuse(found.reason);
+
+	// The gate quotes the remark being reacted to, since an address is not
+	// something a person can check. `[C4]` approved against the wrong comment
+	// is indistinguishable from `[C4]` approved against the right one.
 	const approved = await confirmWrite(
 		ctx,
 		`React ${params.reaction}?`,
-		`${GLYPH.reaction} on comment ${params.comment}`,
+		`${GLYPH.reaction} ${params.reaction} on ${found.label} ${found.message.author.id}: ${found.message.body}`,
 	);
 	if (!approved) return say("Left as it was.");
-	await conversation.react(
-		change,
-		{ id: params.comment, author: { id: "" }, body: "" },
-		params.reaction as Reaction,
-	);
-	return say(`${GLYPH.reaction} reacted.`);
+	await conversation.react(change, found.message, params.reaction as Reaction);
+	return say(`${GLYPH.reaction} reacted to ${found.label}.`);
 }

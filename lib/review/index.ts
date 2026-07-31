@@ -138,6 +138,8 @@ export {
 } from "./attach.js";
 export type { AuthoringIntent, Offerable } from "./authoring.js";
 export { offerable } from "./authoring.js";
+export type { Unbacked } from "./backed.js";
+export { BACKED_BY, unbackedDeclarations } from "./backed.js";
 export type { TargetResolution } from "./bind.js";
 export {
 	bindTarget,
@@ -308,6 +310,19 @@ export {
 export { createGitHubProvider } from "./providers/github/index.js";
 export type { QueuePosture, QueueRefusal, QueueState } from "./queue.js";
 export { queueRefusal } from "./queue.js";
+export type {
+	Reactable,
+	ReactableKind,
+	ReactableRefusal,
+} from "./reactable.js";
+export {
+	findReactable,
+	isReactableRefusal,
+	reactableAddresses,
+	reactableLabel,
+	reactables,
+} from "./reactable.js";
+export type { ProviderComplaint } from "./register.js";
 export {
 	clearReviewProviders,
 	getReviewProvider,

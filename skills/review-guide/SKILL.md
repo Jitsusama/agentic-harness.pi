@@ -68,7 +68,7 @@ Start here. Find the row, make the call.
 | Close a thread out | `review_say resolve thread:N` |
 | Reopen one you closed too early | `review_say unresolve thread:N` |
 | Say one thing on the change | `review_say comment` |
-| Put a reaction on a comment | `review_say react comment:... reaction:rocket` |
+| Put a reaction on a comment | `review_say react comment:C3 reaction:rocket` |
 | Get several models to review it | `review_ask council` |
 | Boil their findings down to one list | `review_ask judge` |
 | Have them argue with that list | `review_ask critique` |
@@ -85,7 +85,7 @@ Start here. Find the row, make the call.
 | Add a remark of your own | `review_draft finding path:... line:N` |
 | Answer a thread as part of the review | `review_draft reply thread:N` |
 | Close a thread as part of the review | `review_draft resolve thread:N` |
-| React as part of the review | `review_draft react comment:...` |
+| React as part of the review | `review_draft react comment:C3` |
 | Say approve, request changes or comment | `review_draft verdict verdict:approve` |
 | See what is in the draft so far | `review_draft show` |
 | Take something back out of it | `review_draft drop item:...` |
@@ -497,12 +497,25 @@ Publishing keeps whatever did not land, so a retry sends
 only the remainder. Say so when something fails, rather than
 letting a second attempt look like it duplicated the first.
 
-## Threads Are Named by Index
+## Threads and Comments Are Named by Index
 
 Refer to a thread by the `[T#]` index the threads listing
 shows. Never invent or guess a thread id: the backends key
 them differently, and one keys a reply by the comment that
 started the exchange rather than by the thread.
+
+A comment is addressed the same way, and reacting to one
+takes that address. A remark inside a thread is `[C#]`, which
+the threads listing prints beside it; a top-level message is
+`[M#]`, which the messages listing prints. The two families
+are numbered apart on purpose, so each listing can address
+what it shows without reading the rest of the conversation, and
+a bare number is refused rather than guessed at, since it does
+not say which family it belongs to.
+
+A provider's own id still works where you have one. It is not
+the form to reach for: nothing prints it, which is why the
+addresses exist.
 
 ## Every Write Asks First
 

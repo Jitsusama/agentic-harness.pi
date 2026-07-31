@@ -232,6 +232,68 @@ is not a smaller version of the same operation.
 Every field there is a difference the CLI survey actually
 found, rather than a difference somebody expected to exist.
 
+## A Capability That Cannot State a Conjunction Will Lie
+
+`fileLevelComments` was a boolean, and beside
+`anchoredBatchReview: true` it made a claim neither backend
+honours. Both accept a remark about a whole file. Neither
+accepts one inside a batch review, and both reject the entire
+review rather than the one remark, so a single file-level
+remark used to cost every remark beside it.
+
+Each half of the declaration was true. Their conjunction was
+not, and a boolean has nowhere to say so. The capability now
+says where such a remark can go, `never`, `standalone` or
+`batch`, and [`plan.ts`](draft/plan.ts) routes a standalone one
+out of the review onto its own post. That costs an extra
+request and is not recorded as a degradation: nothing about the
+remark changed, and which request carries it is the provider's
+business.
+
+## A Declaration Is Checked Against the Object at the Seam
+
+[`backed.ts`](backed.ts) holds the mapping from each capability
+that promises a method to the method it promises, and
+`unbackedDeclarations` compares the two in both directions. A
+declaration with no method behind it is a lie a consumer acts
+on. A method with no declaration is work already done that
+nothing will ever call, which is how one provider's
+`requestReviewers` sat unreachable for a release while the
+provider said reviewers could only be named at creation.
+
+It lives in the library rather than in a test because a test
+cannot reach the providers that matter. They arrive over the
+event bus from other packages, so a build-time check can only
+see the ones shipped here, and the answer to that used to be a
+hand-copied table in each package: one rule and one guess about
+it. Both sides now read the same table, `registerReviewProvider`
+will report on a provider when given a repo to check it
+against, and `review capabilities` runs the comparison with the
+repo actually in play, which is the only place a real locator
+is to hand.
+
+A complaint is reported, never thrown. A provider with one bad
+declaration still does everything else it says, and refusing to
+register it would take a working backend off the surface over a
+capability this session may never reach for.
+
+## A Comment Has an Address a Person Can Read
+
+Threads are numbered `[T1]` upward and every tool that acts on
+one takes that number. Comments had no such address: reacting
+to one needed a provider's internal id that no listing printed,
+so the only way to name a comment was to guess at a number the
+surface had never shown, and the rule against inventing ids was
+stated without anything backing it.
+
+[`reactable.ts`](reactable.ts) numbers them the same way, in two
+families: `[C#]` for a remark inside a thread, `[M#]` for a
+top-level message. The families are numbered apart so that a
+listing holding half the conversation computes the same
+addresses as a caller holding all of it. Sharing one space
+would have forced every listing to read the whole conversation
+before it could address a part of it.
+
 ## A Guess Is Fine When Somebody Sees It
 
 The provider infers nothing. It is handed explicit values,

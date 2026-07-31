@@ -143,15 +143,43 @@ export function stackLines(stack: Stack): string {
 }
 
 /** One thread, with its anchor and its state. */
-export function threadLines(thread: Thread, index: number): string {
+export function threadLines(
+	thread: Thread,
+	index: number,
+	/**
+	 * What each comment in the thread is addressed as, by comment id.
+	 *
+	 * Passed in rather than computed, because the numbering spans the whole
+	 * conversation and a single thread cannot see the rest of it. Absent where
+	 * a caller is rendering threads for something other than acting on them.
+	 */
+	addresses?: Map<string, string>,
+): string {
 	const mark = thread.resolved ? GLYPH.resolved : GLYPH.unresolved;
 	const where = thread.anchor ? anchorLabel(thread.anchor) : "on the change";
 	const stale = thread.stale ? " · stale" : "";
 	const first = thread.comments[0];
-	const opener = first ? `${first.author.id}: ${first.body}` : "(empty)";
+	const at = first ? addresses?.get(first.id) : undefined;
+	// The opener carries its own address, since reacting to the remark that
+	// started an exchange is the common case and having to read further to
+	// find its number would defeat printing numbers at all.
+	const opener = first
+		? `${at ? `${at} ` : ""}${first.author.id}: ${first.body}`
+		: "(empty)";
+	const rest = thread.comments.slice(1);
 	const more =
-		thread.comments.length > 1
-			? `\n     …${count(thread.comments.length - 1, "more reply", "more replies")}`
+		rest.length > 0
+			? addresses
+				? // With addresses to hand, each reply is listed rather than
+					// counted: a reply nobody can name cannot be reacted to, and
+					// a count is exactly as much use as no listing at all.
+					`\n${rest
+						.map((one) => {
+							const label = addresses.get(one.id);
+							return `     ${label ? `${label} ` : ""}${one.author.id}: ${one.body}`;
+						})
+						.join("\n")}`
+				: `\n     …${count(rest.length, "more reply", "more replies")}`
 			: "";
 	return `${mark} [T${index + 1}] ${GLYPH.thread} ${where}${stale}\n     ${opener}${more}`;
 }

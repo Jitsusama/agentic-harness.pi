@@ -10,108 +10,34 @@
  * rather than a provider with a hole in it, while a consumer that asked
  * the capabilities first was told yes.
  *
- * It lives here as well as there because the fault is a property of the
- * contract, not of one backend, and because a provider in another package
- * cannot be reached from this suite. Every package shipping a provider
- * needs its own copy of this question.
+ * The table this checks against used to live in this file, and a second
+ * hand-copied one lived in the package shipping the Meteorite provider,
+ * because a test here cannot import a provider that arrives over the event
+ * bus from somewhere else. Two copies of a rule is one rule and one guess
+ * about it, and the copy was free to drift from the contract it was
+ * checking. Both now read `BACKED_BY` out of the library, and the same
+ * comparison runs in production through `unbackedDeclarations`, which
+ * `review capabilities` calls with the repo actually in play.
  *
- * The comparison is mechanical on purpose. A test that reads a
- * declaration back and asserts it equals itself is exactly the test this
- * class of fault passes.
+ * So what is left here is narrower than what was here before: that the
+ * providers this package ships pass, that the shared table still describes
+ * the contract, and that the comparison itself catches what it claims to.
+ * The comparison is mechanical on purpose. A test that reads a declaration
+ * back and asserts it equals itself is exactly the test this class of
+ * fault passes.
  */
 
 import { describe, expect, it } from "vitest";
 import {
+	BACKED_BY,
 	createGitHubProvider,
 	createGitProvider,
 	type RepoLocator,
 	type ReviewProvider,
+	registerReviewProvider,
+	unbackedDeclarations,
+	unregisterReviewProvider,
 } from "../../../lib/review/index.js";
-
-/**
- * Which method has to exist for each capability that promises one.
- *
- * Only capabilities promising a callable belong here. One describing
- * behaviour, like `staleness: "pinned"` or `maxBatchComments`, is a fact
- * about the backend rather than a promise about this object.
- *
- * This table was checked against the contract rather than assembled from
- * memory: every boolean capability whose name matches a facet method is
- * in it. Three optional methods have no capability of any kind, which is
- * the opposite gap and a milder one. `commentOn`, `unreact` and `fileAt`
- * can only be discovered by looking for the method, so a consumer cannot
- * ask ahead of time and has to degrade on absence instead. Nothing lies;
- * it just cannot be asked.
- *
- * `reactions` and `reviewersAt` say more than a boolean can, and were once
- * left out for that reason. That was wrong, and it left the worst hole in
- * the gate uncovered, because `reviewersAt` is the one declaration a
- * caller is told about in the past tense: `review_offer` reports "asked
- * alice, bob" from an optional call that quietly does nothing when the
- * method is missing. So a row carries a predicate over the declared value
- * rather than assuming `true`, and both are held to the same standard as
- * the rest. What each promises is narrower than its type: a non-empty
- * reaction set promises `react`, and only an "any-time" policy promises
- * `requestReviewers`, since "creation" is served through `propose`.
- *
- * A row also says whether the contract requires the method, because the
- * two directions are not symmetric. Where a method is mandatory its
- * presence is guaranteed by the type and proves nothing about what the
- * provider means, so demanding a declaration to match it would push a
- * provider that legitimately cannot propose into saying it can.
- */
-const BACKED_BY: ReadonlyArray<{
-	facet: "proposals" | "conversation" | "authoring";
-	capability: string;
-	method: string;
-	/** When the declared value amounts to a promise. Defaults to `=== true`. */
-	promises?: (declared: unknown) => boolean;
-	/** The facet requires this method, so its presence says nothing. */
-	mandatory?: true;
-}> = [
-	{ facet: "proposals", capability: "checks", method: "checks" },
-	{ facet: "proposals", capability: "list", method: "list" },
-	{ facet: "proposals", capability: "fetchAsRef", method: "fetchAsRef" },
-	{ facet: "conversation", capability: "unresolve", method: "unresolve" },
-	{
-		facet: "authoring",
-		capability: "propose",
-		method: "propose",
-		mandatory: true,
-	},
-	{ facet: "authoring", capability: "proposeStack", method: "proposeStack" },
-	{ facet: "authoring", capability: "setDraft", method: "setDraft" },
-	{ facet: "authoring", capability: "close", method: "close", mandatory: true },
-	{ facet: "authoring", capability: "reopen", method: "reopen" },
-	{ facet: "authoring", capability: "merge", method: "merge", mandatory: true },
-	{
-		facet: "conversation",
-		capability: "fileLevelComments",
-		method: "commentOn",
-		// "standalone" is the value that promises a method: it says a remark
-		// about a whole file has to be posted outside a batch review, and
-		// `commentOn` is the only way to post one. "batch" is served by
-		// `postReview`, which every conversation facet has.
-		promises: (declared) => declared === "standalone",
-	},
-	{
-		facet: "conversation",
-		capability: "reactions",
-		method: "react",
-		// Naming the reactions it accepts is the promise. An empty set is
-		// the contract's own way of saying it does none.
-		promises: (declared) => Array.isArray(declared) && declared.length > 0,
-	},
-	{
-		facet: "authoring",
-		capability: "reviewersAt",
-		method: "requestReviewers",
-		// Meteorite is the live example of the other value: it declares
-		// "creation", omits the method deliberately, and the offer gate
-		// refuses before anything is called.
-		promises: (declared) => declared === "any-time",
-	},
-];
 
 /**
  * An exec that refuses, since building a provider must run no command.
@@ -201,9 +127,16 @@ for (const [id, provider] of PROVIDERS) {
 			});
 		}
 	});
+
+	it(`${id} passes the check that runs in production`, () => {
+		// The rows above walk the table by hand and give a per-row failure
+		// message. This asks the one function a running session uses, which is
+		// what would actually report a fault to a person.
+		expect(unbackedDeclarations(provider, REPO_FOR[id])).toEqual([]);
+	});
 }
 
-describe("the gate itself", () => {
+describe("the shared table", () => {
 	it("compares exactly these declarations, named rather than counted", () => {
 		// A mapping that matched nothing would pass every case above by
 		// returning early, which is how a gate stops meaning anything.
@@ -238,5 +171,131 @@ describe("the gate itself", () => {
 			"proposals.fetchAsRef",
 			"proposals.list",
 		]);
+	});
+});
+
+/**
+ * A provider built to be wrong, so the comparison is exercised against a
+ * fault rather than only against providers that pass.
+ *
+ * Every case above returns green, which is what a gate whose failure path
+ * has never run looks like from the outside. The council raised exactly
+ * this: twenty of forty-one cases were permanently green, and nothing had
+ * ever proved the check could fail.
+ */
+function providerThatLies(over: {
+	declare: Record<string, unknown>;
+	implement: Record<string, unknown>;
+}): ReviewProvider {
+	return {
+		id: "liar",
+		priority: 99,
+		claimRepo: () => undefined,
+		claimChange: () => undefined,
+		capabilities: () => ({ conversation: over.declare }) as never,
+		conversation: over.implement as never,
+	} as unknown as ReviewProvider;
+}
+
+describe("the comparison itself", () => {
+	const reactions = ["rocket"];
+
+	it("catches a declaration with no method behind it", () => {
+		const lying = providerThatLies({
+			declare: { reactions, unresolve: true },
+			implement: {},
+		});
+
+		const found = unbackedDeclarations(lying, { key: "any:repo" });
+
+		expect(found.map((one) => one.capability).sort()).toEqual([
+			"reactions",
+			"unresolve",
+		]);
+		expect(found.every((one) => one.fault === "declared-without-method")).toBe(
+			true,
+		);
+	});
+
+	it("catches a method nothing will ever call", () => {
+		// The direction that hid Meteorite's `requestReviewers` for a release:
+		// implemented, working, and undeclared, so every consumer politely
+		// declined to use it.
+		const lying = providerThatLies({
+			declare: { reactions: [] },
+			implement: { react: () => {} },
+		});
+
+		const found = unbackedDeclarations(lying, { key: "any:repo" });
+
+		expect(found).toHaveLength(1);
+		expect(found[0].fault).toBe("method-without-declaration");
+	});
+
+	it("says nothing about a facet the provider does not have at all", () => {
+		// Declaring nothing and implementing nothing is a coherent position,
+		// not a disagreement. A provider that only reads is not lying.
+		const quiet = {
+			id: "quiet",
+			priority: 99,
+			claimRepo: () => undefined,
+			claimChange: () => undefined,
+			capabilities: () => ({}),
+		} as unknown as ReviewProvider;
+
+		expect(unbackedDeclarations(quiet, { key: "any:repo" })).toEqual([]);
+	});
+
+	it("does not read an unmentioned capability as a claim", () => {
+		// Undefined is not a promise. A capability a provider never spoke
+		// about is one it has not claimed, and reporting it would make every
+		// small provider look like a liar.
+		const lying = providerThatLies({ declare: {}, implement: {} });
+
+		expect(unbackedDeclarations(lying, { key: "any:repo" })).toEqual([]);
+	});
+});
+
+describe("registering a provider", () => {
+	it("hands back what the provider was found saying wrongly", () => {
+		// The seam every provider crosses however it got here, which is the
+		// only place this can be asked of the ones that arrive over the bus.
+		const lying = providerThatLies({
+			declare: { reactions: ["rocket"] },
+			implement: {},
+		});
+
+		const complaint = registerReviewProvider(lying, { key: "any:repo" });
+
+		expect(complaint?.provider).toBe("liar");
+		expect(complaint?.repo).toBe("any:repo");
+		expect(complaint?.unbacked).toHaveLength(1);
+		unregisterReviewProvider("liar");
+	});
+
+	it("registers it anyway, since one bad claim is not a bad provider", () => {
+		// Refusing would take a working backend off the surface over a
+		// capability nobody in this session may reach for. Said out loud
+		// instead, which is the bargain the rest of the substrate makes.
+		const lying = providerThatLies({
+			declare: { reactions: ["rocket"] },
+			implement: {},
+		});
+
+		registerReviewProvider(lying, { key: "any:repo" });
+
+		expect(unregisterReviewProvider("liar")).toBeUndefined();
+	});
+
+	it("says nothing when no repo is given to check against", () => {
+		// A provider may answer differently for different repos, so checking
+		// against a locator nobody supplied would mean inventing one.
+		const lying = providerThatLies({
+			declare: { reactions: ["rocket"] },
+			implement: {},
+		});
+
+		expect(registerReviewProvider(lying)).toBeUndefined();
+		unregisterReviewProvider("liar");
 	});
 });

@@ -16,14 +16,51 @@ import {
 	register,
 	unregister,
 } from "../internal/review/registry.js";
+import { type Unbacked, unbackedDeclarations } from "./backed.js";
+import type { RepoLocator } from "./change.js";
 import type { ReviewProvider } from "./provider.js";
+
+/**
+ * What a provider was found saying about itself that is not true.
+ *
+ * Reported rather than thrown. A provider with one bad declaration still does
+ * everything else it says, and refusing to register it would take a working
+ * backend off the surface over a capability nobody in this session is going to
+ * reach for. The host says this out loud instead, which is the same bargain the
+ * rest of the substrate makes about degradation.
+ */
+export interface ProviderComplaint {
+	provider: string;
+	repo: string;
+	unbacked: Unbacked[];
+}
 
 /**
  * Register a provider. Replaces any provider already
  * registered under the same id.
+ *
+ * Pass a repo to have the provider's declarations checked against its methods
+ * as it arrives, and act on whatever comes back. This is the only place that
+ * check can be made of every provider: the ones that matter arrive over the
+ * event bus from other packages, and a build-time gate cannot import one. For
+ * weeks the answer to that was a hand-copied table in each package, which is
+ * one rule and one guess about it.
+ *
+ * The repo is asked for rather than invented because a provider is entitled to
+ * answer differently for different repos, and one handed a key from a space it
+ * does not recognize returns a default and reports greens having compared
+ * nothing.
  */
-export function registerReviewProvider(provider: ReviewProvider): void {
+export function registerReviewProvider(
+	provider: ReviewProvider,
+	against?: RepoLocator,
+): ProviderComplaint | undefined {
 	register(provider);
+	if (!against) return undefined;
+	const unbacked = unbackedDeclarations(provider, against);
+	return unbacked.length > 0
+		? { provider: provider.id, repo: against.key, unbacked }
+		: undefined;
 }
 
 /** Remove a provider from the registry. Idempotent. */

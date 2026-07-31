@@ -16,6 +16,7 @@ import {
 	changeInPlay,
 	chooseChange,
 	createAttachmentStore,
+	unbackedDeclarations,
 } from "../../../lib/review/index.js";
 import { stackStep } from "../../../lib/review/stack.js";
 import { attachmentDir } from "../engine.js";
@@ -359,6 +360,24 @@ function describeCapabilities(
 		}
 	} else {
 		lines.push("   authoring: nothing, so this change can only be read");
+	}
+
+	// Everything above is the provider's own account of itself, and this is
+	// the one place that account is read out loud, so it is the right place to
+	// say where it is not true. Asked here rather than at registration because
+	// this is where a real repo is to hand: a provider may answer differently
+	// for different repos, and one handed a key from a space it does not know
+	// returns a default and reports greens having compared nothing.
+	//
+	// It cannot be asked at build time at all. Every provider that matters
+	// arrives over the event bus from another package, which a test in this
+	// one cannot import.
+	const unbacked = unbackedDeclarations(bound.provider, bound.repo);
+	if (unbacked.length > 0) {
+		lines.push(
+			`${GLYPH.degrades} this provider does not do everything it says:`,
+		);
+		for (const one of unbacked) lines.push(`   ${one.reason}`);
 	}
 	return lines.join("\n");
 }

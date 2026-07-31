@@ -25,6 +25,8 @@ import {
 	createFixQueue,
 	describeAnchor,
 	type QueuedFix,
+	reactableAddresses,
+	reactables,
 } from "../../../lib/review/index.js";
 import { decisionDir, findingDir, fixDir } from "../engine.js";
 import {
@@ -241,11 +243,17 @@ async function seeConversation(
 
 	if (action === "threads") {
 		const threads = await threadsOf(bound);
+		// Each remark carries the address a reaction is aimed by. Computed
+		// from the threads alone, which is enough: the address says which
+		// family it belongs to, so these are the same numbers whatever else
+		// of the conversation a later call happens to be holding.
+		const addresses = reactableAddresses(reactables({ threads }));
 		return say(
 			citeListing(openSessionStore(), {
 				view:
-					threads.map((t, index) => threadLines(t, index)).join("\n") ||
-					"No threads yet.",
+					threads
+						.map((t, index) => threadLines(t, index, addresses))
+						.join("\n") || "No threads yet.",
 				records: threads,
 				unit: "threads",
 				narrowing: "Query the stored result for a thread's full exchange.",
@@ -274,11 +282,16 @@ async function seeConversation(
 	}
 
 	const messages = await conversation.messages(change);
+	const said = reactables({ messages });
 	return say(
 		citeListing(openSessionStore(), {
 			view:
-				messages.map((m) => `${m.author.id}: ${m.body}`).join("\n\n") ||
-				"No messages yet.",
+				said
+					.map(
+						(one) =>
+							`${one.label} ${one.message.author.id}: ${one.message.body}`,
+					)
+					.join("\n\n") || "No messages yet.",
 			records: messages,
 			unit: "messages",
 			narrowing: "Query the stored result for the rest.",
