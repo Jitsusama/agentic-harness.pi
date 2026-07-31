@@ -15,8 +15,9 @@ imported the type out of the reviewing layer's provider folder, which reads as a
 dependency between two domains when the only shared thing is the shape of a
 subprocess. Neither owns it, so it sits on its own.
 
-`lib/review` still re-exports `Exec` and `run`, because downstream packages import
-them from there and a move is not a reason to break them.
+`lib/review` still re-exports `Exec` and `run`, because downstream
+packages import them from there and a move is not a reason to break
+them.
 
 ## What Is Here
 
@@ -29,14 +30,16 @@ them from there and a move is not a reason to break them.
 
 ## Notes
 
-`run` keeps both streams when both said something. They carry different halves of
-the same answer, and the useful half was being thrown away: `gh api` writes its
-summary to stderr and the server's response body to stdout, so preferring stderr
-reduced a 422 naming the exact offending field to `gh: Unprocessable Entity (HTTP
-422)`, which is a complete sentence about nothing.
+`run` keeps both streams when both said something. They carry
+different halves of the same answer, and the useful half was being
+thrown away: `gh api` writes its summary to stderr and the server's
+response body to stdout, so preferring stderr reduced a 422 naming the
+exact offending field to `gh: Unprocessable Entity (HTTP 422)`, which
+is a complete sentence about nothing.
 
-There is no `cwd` here on purpose, and it is a sharp edge worth knowing. A caller
-that needs a command scoped to a directory has to say so in the arguments, which
-for git means `-C <path>`. Forgetting it does not fail; the command runs wherever
-the process happens to sit and answers confidently about the wrong repository. That
-shipped as a real bug once.
+There is no `cwd` here on purpose, and it is a sharp edge worth
+knowing. A caller that needs a command scoped to a directory has to
+say so in the arguments, which for git means `-C <path>`. Forgetting
+it does not fail; the command runs wherever the process happens to sit
+and answers confidently about the wrong repository. That shipped as a
+real bug once.

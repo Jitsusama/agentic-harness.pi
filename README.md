@@ -131,9 +131,8 @@ Every piece works independently. Mix and match:
 - **Both together**: plan, TDD, review and commit flow
   seamlessly.
 
-Use [package filtering](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent#package-filtering)
-to load only what you want. For example, to take just the TDD
-workflow:
+Use [package filtering][filtering] to load only what you want. For
+example, to take just the TDD workflow:
 
 ```json
 {
@@ -210,3 +209,5 @@ Commit scopes for this project: api, cli, core, db
 ## Licence
 
 [MIT](LICENSE)
+
+[filtering]: https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent#package-filtering

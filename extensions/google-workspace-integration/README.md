@@ -5,7 +5,8 @@ and Slides through a single `google` tool.
 
 ## Features
 
-- 📧 **Gmail** - search, read, send, reply, draft, archive, delete, mark read/unread
+- 📧 **Gmail** - search, read, send, reply, draft, archive, delete,
+  mark read/unread
 - 📅 **Calendar** - view, create, update, delete events, respond to invites
 - 📁 **Drive** - search, list files (personal + shared drives)
 - 📝 **Docs/Sheets/Slides** - read content with optional comments
@@ -163,7 +164,8 @@ google-workspace/
 
 - **Device Flow** - User explicitly authorizes on Google's servers
 - **Local storage** - Tokens stored in Pi session (ephemeral)
-- **Confirmation gates** - Sensitive operations (send email, delete event) require approval
+- **Confirmation gates** - Sensitive operations (send email, delete
+  event) require approval
 - **Editable gates** - User can edit subject/body before sending
 
 ## Current Limitations

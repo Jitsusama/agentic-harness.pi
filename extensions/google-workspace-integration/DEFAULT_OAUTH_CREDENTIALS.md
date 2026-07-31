@@ -2,7 +2,9 @@
 
 ## Purpose
 
-To provide a zero-configuration authentication experience, this extension can ship with default OAuth credentials. This follows industry best practices used by:
+To provide a zero-configuration authentication experience, this
+extension can ship with default OAuth credentials. This follows
+industry best practices used by:
 
 - GitHub CLI (`gh`)
 - Heroku CLI
@@ -72,7 +74,8 @@ const OAUTH_CONFIG = {
 4. Client secret provides minimal protection in device flow
 5. Rate limits can be increased by requesting quota
 
-**Users can still provide their own credentials** via environment variables if they prefer.
+**Users can still provide their own credentials** via environment
+variables if they prefer.
 
 ## Rate Limits
 

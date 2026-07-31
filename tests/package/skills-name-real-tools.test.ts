@@ -100,15 +100,6 @@ function registered(): Map<string, Set<string>> {
 }
 
 /**
- * Tool-shaped words a skill uses, as `tool` or `tool action`.
- *
- * Only underscored names and the bare families are recognized, so ordinary prose about
- * reviewing or working does not trip this.
- */
-const MENTION =
-	/\b((?:review|work|quest|tdd)(?:_[a-z]+)?)\s+([a-z][a-z-]{2,})\b/g;
-
-/**
  * A skill's prose, with fenced blocks in a real language taken out.
  *
  * A SQL column called `review_comments` is not a tool. Unlabelled and `text` fences stay,
