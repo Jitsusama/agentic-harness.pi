@@ -103,6 +103,22 @@ export interface WorkStacks {
 	): Promise<ShapeOutcome>;
 	/** Rearrange a chain into the order given, lowest first. */
 	reorder(treePath: string, desired: readonly string[]): Promise<ShapeOutcome>;
+	/**
+	 * Which tracked branches no longer sit on the branch beneath them.
+	 *
+	 * The one fact about a stack that git will not tell you and that a listing of
+	 * names cannot show. A branch drifts whenever what it sits on moves without it:
+	 * its parent gets amended, or rebased, or reparented, and now the branch is
+	 * built on a commit that is no longer anybody's tip. Until it is replayed the
+	 * shape on paper and the shape in the commits disagree, and the whole point of
+	 * recording a stack is to be told when that has happened.
+	 *
+	 * A root branch is judged against trunk, so trunk has to be named to judge one.
+	 * Without it the roots are reported as undecidable rather than as aligned,
+	 * because a listing that quietly calls an unknown "fine" is worse than one that
+	 * says it does not know.
+	 */
+	drifted(treePath: string, trunk?: string): Promise<DriftReport>;
 	/** Replay the whole stack onto trunk, in order. */
 	restack(treePath: string, trunk: string): Promise<RestackOutcome>;
 	/**
@@ -114,6 +130,20 @@ export interface WorkStacks {
 	 * everything exactly as behind as it was.
 	 */
 	sync(treePath: string, trunk: string): Promise<SyncOutcome>;
+}
+
+/** Which branches are out of step with what they sit on. */
+export interface DriftReport {
+	/** Tracked branches no longer sitting on their parent's tip. */
+	drifted: readonly string[];
+	/**
+	 * Branches whose alignment could not be judged, and why not.
+	 *
+	 * Reported rather than folded into either answer. Absent means unreported, not
+	 * aligned, and a diagram that draws "could not tell" as "fine" is the reason
+	 * somebody trusts a stale stack.
+	 */
+	undecided: readonly string[];
 }
 
 /** How a sync went. */
@@ -226,6 +256,41 @@ export function createGitStacks(deps: {
 		ref: string,
 	): Promise<string | undefined> {
 		return await ask(exec, treePath, ["rev-parse", "--verify", "--quiet", ref]);
+	}
+
+	/**
+	 * Whether a branch still sits on what it is supposed to sit on.
+	 *
+	 * One rule, in one place, because two callers ask this: a restack, deciding
+	 * whether there is anything to replay, and a listing, deciding whether to warn.
+	 * They were the same rule written once and read once, which is a rule waiting to
+	 * be changed in one place only.
+	 *
+	 * The recorded base is preferred over a merge base, and the difference matters
+	 * exactly when the parent has been rewritten: a merge base then finds the old
+	 * shared commit and calls the branch aligned with a parent it has never seen.
+	 * Undefined where neither ref resolves, which is not the same answer as aligned.
+	 */
+	async function standingOf(
+		treePath: string,
+		branch: { name: string; base?: string },
+		onto: string,
+	): Promise<{
+		standing: "aligned" | "drifted" | "unknown";
+		/** The boundary, which a replay needs and a listing does not. */
+		from?: string;
+	}> {
+		const from =
+			branch.base ??
+			(await ask(exec, treePath, ["merge-base", onto, branch.name]));
+		const tip = await tipOf(treePath, onto);
+		const standing =
+			from === undefined || tip === undefined
+				? "unknown"
+				: from === tip
+					? "aligned"
+					: "drifted";
+		return { standing, ...(from === undefined ? {} : { from }) };
 	}
 
 	/**
@@ -369,6 +434,24 @@ export function createGitStacks(deps: {
 			};
 		},
 
+		async drifted(treePath, trunk) {
+			const held = await readStack(exec, treePath);
+			const drifted: string[] = [];
+			const undecided: string[] = [];
+			for (const branch of held) {
+				const onto = branch.parent ?? trunk;
+				if (onto === undefined) {
+					// A root with no trunk named. Nothing to compare against.
+					undecided.push(branch.name);
+					continue;
+				}
+				const { standing } = await standingOf(treePath, branch, onto);
+				if (standing === "unknown") undecided.push(branch.name);
+				else if (standing === "drifted") drifted.push(branch.name);
+			}
+			return { drifted, undecided };
+		},
+
 		async restack(treePath, trunk) {
 			if (await rebaser.halted(treePath)) {
 				return {
@@ -398,14 +481,18 @@ export function createGitStacks(deps: {
 
 			const results: ReplayResult[] = [];
 			for (const [at, step] of plan.steps.entries()) {
-				const from =
-					step.from ??
-					(await ask(exec, treePath, ["merge-base", step.onto, step.branch]));
-				const tip = await tipOf(treePath, step.onto);
-
-				// Nothing to do when the branch already sits on its parent's tip.
-				const already = from !== undefined && tip !== undefined && from === tip;
-				if (already) {
+				// The same question the listing asks, asked the same way. Two rules for
+				// "is this branch where it should be" is how a diagram comes to say
+				// needs replaying about a branch a restack then calls already in place.
+				const { standing, from } = await standingOf(
+					treePath,
+					{
+						name: step.branch,
+						...(step.from === undefined ? {} : { base: step.from }),
+					},
+					step.onto,
+				);
+				if (standing === "aligned") {
 					results.push({
 						branch: step.branch,
 						onto: step.onto,

@@ -451,3 +451,82 @@ describe("settling a conflict and carrying on", () => {
 		expect((await git(dir, "rev-parse", "HEAD")).trim()).toBe(before);
 	}, 30_000);
 });
+
+describe("telling a drifted branch from an aligned one", () => {
+	// This is the fact a stack is drawn for. Nothing computed it: the renderer had
+	// been able to say "needs replaying" since it was written and never once said
+	// it, because the only supplier of that answer did not exist. A listing that
+	// cannot warn reads exactly like a stack with nothing wrong.
+	it("has nothing to say about a tree with no stack recorded", async () => {
+		const dir = await threeHigh();
+
+		const standing = await stacksIn().drifted(dir, "main");
+
+		expect(standing).toEqual({ drifted: [], undecided: [] });
+	}, 30_000);
+
+	it("names the branch left behind when trunk moves, and only that one", async () => {
+		// Trunk moved under the whole stack in the fixture, so the root is behind.
+		// Only the root: b sits on a, and a has not moved yet. Asserting the exact
+		// list is what makes this a test of the rule rather than of one branch, and
+		// it is what caught a first draft of this test that assumed a fresh stack
+		// was aligned when the fixture deliberately makes it stale.
+		const { dir, stacks } = await tracked();
+
+		const standing = await stacks.drifted(dir, "main");
+
+		expect(standing.drifted).toEqual(["a"]);
+		expect(standing.undecided).toEqual([]);
+	}, 30_000);
+
+	it("says nothing needs replaying once a restack has run", async () => {
+		const { dir, stacks } = await tracked();
+		await mustRestack(stacks, dir, "main");
+
+		const standing = await stacks.drifted(dir, "main");
+
+		expect(standing.drifted).toEqual([]);
+	}, 30_000);
+
+	it("catches a branch whose parent was reparented under it", async () => {
+		// How the gap was found: reparent records where a branch should sit without
+		// replaying it, by design, and the listing then drew the new shape as
+		// though the commits already matched it.
+		const { dir, stacks } = await tracked();
+		await mustRestack(stacks, dir, "main");
+		await git(dir, "checkout", "-qb", "d", "main");
+		await commitFile(dir, "d.txt", "d work");
+		await stacks.track(dir, "d");
+		await stacks.reparent(dir, "c", "d");
+
+		const standing = await stacks.drifted(dir, "main");
+
+		expect(standing.drifted).toContain("c");
+	}, 30_000);
+
+	it("agrees with what a restack then does about each branch", async () => {
+		// The two used to be the same comparison written out twice, in two files.
+		// Whichever drifted, a restack must replay, or the diagram is a rumour.
+		const { dir, stacks } = await tracked();
+		const standing = await stacks.drifted(dir, "main");
+
+		const done = await mustRestack(stacks, dir, "main");
+
+		const replayed = done.results
+			.filter((one) => one.outcome === "replayed")
+			.map((one) => one.branch);
+		expect(replayed).toEqual(expect.arrayContaining([...standing.drifted]));
+	}, 30_000);
+
+	it("reports a root it cannot judge rather than calling it aligned", async () => {
+		// Absent means unreported, not fine. Without a trunk to compare against
+		// there is no answer for a root, and inventing the reassuring one is how
+		// somebody trusts a stale stack.
+		const { dir, stacks } = await tracked();
+
+		const standing = await stacks.drifted(dir);
+
+		expect(standing.undecided).toContain("a");
+		expect(standing.drifted).not.toContain("a");
+	}, 30_000);
+});

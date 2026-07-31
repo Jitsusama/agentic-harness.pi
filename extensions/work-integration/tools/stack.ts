@@ -113,15 +113,31 @@ export async function runStackAction(
 				{ ok: true, branches: [] },
 			);
 		}
+		// Whether each branch still sits on the one under it. The renderer has been
+		// able to say "needs replaying" since it was written and never once said it,
+		// because nothing computed the answer: a decoration with no supplier, which
+		// reads as a clean stack rather than as an unasked question. It is the one
+		// fact a listing of names cannot carry and the reason to draw a stack at all.
+		const standing = await stacks.drifted(
+			tree.path,
+			args.trunk === undefined ? undefined : args.trunk,
+		);
 		return say(
 			[
 				`${GLYPH.stack} ${held.length} ${held.length === 1 ? "branch" : "branches"} in ${tree.identity.key}`,
 				...stackLines(held, {
 					...(args.on === undefined ? {} : { on: args.on }),
 					...(args.trunk === undefined ? {} : { trunk: args.trunk }),
+					drifted: standing.drifted,
 				}),
+				...(standing.drifted.length > 0
+					? [
+							"",
+							`Restack to replay ${standing.drifted.length === 1 ? "it" : "them"} onto what ${standing.drifted.length === 1 ? "it sits" : "they sit"} on.`,
+						]
+					: []),
 			].join("\n"),
-			{ ok: true, branches: held },
+			{ ok: true, branches: held, drifted: standing.drifted },
 		);
 	}
 
