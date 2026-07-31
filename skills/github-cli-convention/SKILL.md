@@ -93,6 +93,20 @@ For PRs, use descriptive titles, not conventional commit
 format. "Add Token Refresh to Prevent Session Timeouts"
 rather than "feat(auth): implement refresh token logic".
 
+## Keep the Command Reachable
+
+Every `gh pr` and `gh issue` create or edit is reviewed and has an
+attribution footer spliced into its body before it runs. Both of
+those need to find the command, so it has to be issued plainly:
+not wrapped in command substitution (`$(gh pr create ...)`), not
+inside a subshell, and not on either side of a pipe. A wrapped
+command is blocked rather than run unattributed, and the message
+says so, but the reason reads oddly if you did not know
+attribution was happening at all.
+
+This is also why metadata goes in separate calls, below, and why a
+commit and a `gh` command never share a bash call.
+
 ## Metadata in Separate Commands
 
 After creating or editing, assign metadata in separate

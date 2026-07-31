@@ -1,13 +1,14 @@
 /**
  * Git CLI Interceptor Extension
  *
- * Enforces the git-cli-convention skill's "one concern per
- * bash call" rule by blocking compound commands that chain
+ * Enforces the commit-format skill's "one concern per bash
+ * call" rule by blocking compound commands that chain
  * multiple guardable targets or mix state changes with
  * guardable commands.
  *
- * Block messages direct the LLM to read the convention skill
- * and retry with separate bash calls. This ensures guardians
+ * Block messages state the corrective action rather than
+ * naming a skill to read, so a retry needs nothing loaded.
+ * This ensures guardians
  * can process each command independently.
  */
 

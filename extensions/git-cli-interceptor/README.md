@@ -1,9 +1,14 @@
 # Git CLI Interceptor
 
-Enforces the `git-cli-convention` skill's "one concern per
-bash call" rule. Blocks compound commands that would bypass
-guardians, directing the LLM to read the convention skill
-and retry with separate bash calls.
+Enforces the `commit-format` skill's "one concern per bash
+call" rule. Blocks compound commands that would bypass
+guardians, telling the caller to retry with one command per
+bash call.
+
+Each block states the corrective action itself. They used to
+end by naming a skill to read, which only helps while that
+skill is loaded; one of them named `git-cli-convention`,
+whose worked example the amend check blocked.
 
 ## What It Catches
 

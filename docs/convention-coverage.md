@@ -224,12 +224,19 @@ Command syntax for `gh` operations.
 | Title Case | Title Conventions | 🟢 | `lib/title/detect.ts` `detectSentenceCase` flags sentence case (lowercase major words at least two and outnumbering the capitalized ones), gated in pr-guardian and issue-guardian, including title-only edits with no body (the parser keeps a null body so the title gate still runs). A title made mostly of lowercase proper nouns can still false-positive, bounded by the gate relenting on the identical resubmission; over-capitalized minor words remain judgment. |
 | Title length ≤ 72 characters (upper bound) | Title Conventions | 🟢 | `lib/title/detect.ts` `MAX_TITLE_LENGTH`, gated in pr-guardian and issue-guardian; the skill text is asserted by `tests/lib/title/skill-binding.test.ts` |
 | Aim for 50+ characters (lower bound) | Title Conventions | ⚪ | Guidance, not enforced. A short descriptive title ("Add Dark Mode Toggle") is fine; blocking would mark legitimate prose wrong. The skill is explicit about which bound is the wall and which is the nudge. |
-| Metadata in separate commands (not packed into `create`) | Metadata in Separate Commands | ⚪ | Judgment about which metadata calls to chain. |
+| Metadata in separate commands (not packed into `create`) | Metadata in Separate Commands | 🟢 | `extensions/github-cli-interceptor/patterns.ts` `detectPackedMetadata` blocks a `create` carrying labels, assignees, reviewers, milestones or projects. Recorded as ⚪ judgment until an audit read the code: the gate had been there the whole time, and a matrix that says a rule is unenforced when it is blocks somebody's command with no warning and tells the next maintainer not to bother writing the gate they already have. |
 | Line wrapping in bodies | Line Wrapping in Bodies | ⚪ | Judgment. |
 
-### git-cli-convention
+### commit-format (command syntax)
 
-Command syntax for `git` operations.
+Getting a commit message into git. These rules lived in a
+`git-cli-convention` skill until an audit found it teaching a
+`git commit --amend` example that the interceptor blocks
+unconditionally, three files away from the rule forbidding it. The
+live content moved into `commit-format`, which already owned the
+message, and the skill was retired: the command that carries a
+message and the message itself are one subject, and splitting them
+is what let a rule and its counterexample drift apart.
 
 | Rule | Section in skill | Status | Enforced by |
 | --- | --- | --- | --- |
@@ -238,7 +245,8 @@ Command syntax for `git` operations.
 | AI co-authorship on every gh pr/issue body | n/a (attribution) | 🔇 | `extensions/attribution-interceptor` splices the footer into the body in place; an unsupported command shape or an unquoted inline body is blocked so the command never runs un-attributed. |
 | Guardable command in a reviewable shape | n/a (enforcement) | 🟢 | `lib/guardian/enforce.ts` `blockIfUnsupported`, wired into the guardian pipeline, blocks a detected git commit (including `git -C dir commit` and other global-option forms) or gh pr/issue create/edit wrapped in command substitution, a subshell, a brace group or control flow, so it is reissued in a shape the gates can review. |
 | Quoted heredoc delimiter | Shell Quoting | 🟢 | Same `hasUnquotedHeredoc` check applies to commit heredocs through the guardian |
-| One concern per bash call | One Concern Per Bash Call | ⚪ | Judgment about what constitutes "one concern". |
+| One concern per bash call | Getting the Message Into Git | 🟢 | `extensions/git-cli-interceptor/patterns.ts` `detectCompoundViolation` blocks two reviewable commands in one call, and a reviewable command chained with a state change (`push`, `checkout`, `switch`, `pull`, `merge`, `rebase`, `reset`, `stash`, `fetch`). Recorded as ⚪ judgment until an audit read the code. Staging alongside a commit stays allowed, which is the judgment the old note was reaching for: what counts as one concern is decided by the pattern list, not left open. |
+| Never `--amend` | Getting the Message Into Git | 🟢 | `extensions/git-cli-interceptor/patterns.ts` `detectAmendViolation` refuses it outright. Stated in `git-commit-convention` as well, and the retired `git-cli-convention` contradicted both with a worked example. |
 
 ### quest-format
 

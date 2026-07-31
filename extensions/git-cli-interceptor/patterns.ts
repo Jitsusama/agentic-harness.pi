@@ -6,11 +6,16 @@
  *   unconditionally (git-commit-convention skill).
  * - Unquoted heredoc: `<<EOF` instead of `<<'EOF'`
  *   allows variable expansion that corrupts content
- *   (git-cli-convention skill).
+ *   (commit-format skill).
  * - Compound commands: multiple guardable targets or
  *   state changes mixed with guardable commands are
  *   blocked so guardians can process each independently
- *   (git-cli-convention skill).
+ *   (commit-format skill).
+ *
+ * Every message here states the corrective action itself. They
+ * used to end by naming a skill to go and read, which is only
+ * actionable while that skill is loaded, and one of them named a
+ * skill whose worked example the next check blocked.
  *
  * The git add + git commit pattern is explicitly allowed
  * because git add is a staging prefix, not a guardable target.
@@ -56,8 +61,7 @@ export function detectAmendViolation(stripped: string): string | null {
 			"Blocked: --amend is not allowed. Make a new commit " +
 			"instead.\n\n" +
 			"Amending rewrites history and is almost never necessary. " +
-			"A new commit is cleaner and preserves the work trail. " +
-			"Read the git-commit-convention skill for guidance."
+			"A new commit is cleaner and preserves the work trail."
 		);
 	}
 	return null;
@@ -80,9 +84,9 @@ export function detectUnquotedCommitHeredoc(
 		"`<<EOF`), which allows shell variable expansion. " +
 		"Use a quoted delimiter (`<<'EOF'`) to prevent " +
 		"`$variable` and backtick expansion from corrupting " +
-		"the commit message.\n\n" +
-		"Read the git-cli-convention skill for the correct " +
-		"pattern, then retry."
+		"the commit message:\n\n" +
+		"git commit -F- <<'EOF'\n" +
+		"type(scope): subject\n\nWhy, not what.\nEOF"
 	);
 }
 
@@ -116,9 +120,7 @@ export function detectCompoundViolation(stripped: string): string | null {
 			"Blocked: multiple guardable commands in one bash call. " +
 			"Each git commit, gh pr create/edit and gh issue create/edit " +
 			"must be its own bash call so guardians can review them " +
-			"independently.\n\n" +
-			"Read the git-cli-convention skill for the correct pattern, " +
-			"then retry with separate bash calls."
+			"independently. Retry with one command per bash call."
 		);
 	}
 
@@ -127,9 +129,7 @@ export function detectCompoundViolation(stripped: string): string | null {
 			"Blocked: git state change chained with a guardable command. " +
 			"Commands like git push, git checkout and git pull must be " +
 			"separate bash calls from git commit, gh pr create/edit and " +
-			"gh issue create/edit.\n\n" +
-			"Read the git-cli-convention skill for the correct pattern, " +
-			"then retry with separate bash calls."
+			"gh issue create/edit. Retry with one command per bash call."
 		);
 	}
 

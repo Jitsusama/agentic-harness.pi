@@ -2,10 +2,10 @@
 name: commit-format
 description: >
   Conventional commit message structure: types, scopes,
-  subject and body rules. Use when writing a commit message
-  or amending a commit. Pairs with git-cli-convention for
-  command syntax and git-commit-convention for when to
-  commit. Follow the user's writing voice and prose style
+  subject and body rules, and how to get the message into
+  git. Use when writing a commit message. Pairs with
+  git-commit-convention for when to commit and what belongs
+  in one. Follow the user's writing voice and prose style
   guides for body text.
 ---
 
@@ -14,9 +14,6 @@ description: >
 Follow the [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/) specification.
 
 ## Format
-
-See `git-cli-convention` for the heredoc command syntax
-(`git commit -F- <<'EOF'`).
 
 ## Subject Line
 
@@ -93,3 +90,36 @@ clean and the link recoverable.
 Use scopes that match the project's domain. If the project's
 AGENTS.md defines scopes, use those. Otherwise, infer from the
 directory or module structure.
+
+## Getting the Message Into Git
+
+Prefer the `work record` tool, which takes the subject and body as
+arguments and needs no quoting at all. When committing through a
+shell, pass the message on stdin with a quoted heredoc delimiter:
+
+```bash
+git commit -F- <<'EOF'
+feat(auth): add token refresh
+
+Why, not what.
+EOF
+```
+
+The quotes around `'EOF'` are what stop the shell expanding
+`$variable`, a backtick or `$(command)` inside the message. An
+unquoted delimiter is refused, because the corruption is silent:
+the commit lands with the expansion already applied and looks
+fine until somebody reads it.
+
+Staging in the same call is fine (`git add -A && git commit -F-
+...`). Chaining a second reviewable command is not: each `git
+commit`, `gh pr create` and `gh issue create` gets its own bash
+call, and so does any state change like `git push` or `git
+checkout`. Guardians rewrite the command they are reviewing, and a
+compound call risks losing the parts that were not the target.
+
+Never `--amend`. It is refused outright rather than reviewed: a
+new commit is cleaner and keeps the work trail. This used to be
+documented in a skill that also carried an `--amend` example, which
+is how a rule and its counterexample lived three files apart for
+months.

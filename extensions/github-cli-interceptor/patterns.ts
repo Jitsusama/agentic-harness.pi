@@ -18,6 +18,22 @@ import {
 	hasUnquotedHeredoc,
 } from "../../lib/shell/parse.js";
 
+/**
+ * The form every one of these blocks is asking for, written out.
+ *
+ * Here rather than in the skill it came from, because a block that names a rule and
+ * sends the reader elsewhere for the fix is only actionable while the elsewhere is
+ * loaded. Four of these messages used to end with "read the github-cli-convention
+ * skill for the heredoc pattern", which is a redirect to a document the reader may
+ * not have and cannot be sure of. The pattern is three lines. It fits here.
+ */
+const REQUIRED_FORM =
+	"The required form is:\n\n" +
+	"gh pr create --title '...' --body-file - <<'EOF'\n" +
+	"### \u{1F310} Situation\n...\nEOF\n\n" +
+	"A quoted delimiter, stdin rather than a path, and nothing piped or wrapped " +
+	"around the command.";
+
 /** Matches gh pr or issue create/edit commands. */
 const GH_ENTITY_COMMAND = /\bgh\s+(?:pr|issue)\s+(?:create|edit)\b/;
 
@@ -54,9 +70,7 @@ export function detectInlineBody(command: string): string | null {
 	return (
 		"Blocked: gh pr/issue command uses an inline body (--body or " +
 		"-b) instead of --body-file with a heredoc. An inline body has " +
-		"quoting issues with markdown content.\n\n" +
-		"Read the github-cli-convention skill for the heredoc " +
-		"pattern, then retry."
+		`quoting issues with markdown content.\n\n${REQUIRED_FORM}`
 	);
 }
 
@@ -83,9 +97,9 @@ export function detectPackedMetadata(command: string): string | null {
 		"Blocked: gh create command includes metadata flags " +
 		"(labels, assignees, reviewers, milestones, projects). " +
 		"Assign metadata in separate gh edit commands after " +
-		"creation.\n\n" +
-		"Read the github-cli-convention skill for the correct " +
-		"pattern, then retry."
+		"creation, one concern per call:\n\n" +
+		"gh pr edit <number> --add-label bug\n" +
+		"gh pr edit <number> --add-assignee someone"
 	);
 }
 
@@ -102,9 +116,7 @@ export function detectBodyFilePath(command: string): string | null {
 	return (
 		"Blocked: --body-file points to a file path " +
 		`(${path}) instead of stdin. Use \`--body-file -\` ` +
-		"with a heredoc to pipe the body content.\n\n" +
-		"Read the github-cli-convention skill for the heredoc " +
-		"pattern, then retry."
+		`with a heredoc to pipe the body content.\n\n${REQUIRED_FORM}`
 	);
 }
 
@@ -128,10 +140,7 @@ export function detectMissingHeredoc(
 	return (
 		"Blocked: --body-file - has no heredoc to provide the " +
 		"body content. The command will hang waiting for stdin.\n\n" +
-		"Add a heredoc after the command: " +
-		"`--body-file - <<'EOF'\n...body...\nEOF`\n\n" +
-		"Read the github-cli-convention skill for the correct " +
-		"pattern, then retry."
+		`Add a heredoc after the command.\n\n${REQUIRED_FORM}`
 	);
 }
 
@@ -157,8 +166,6 @@ export function detectUnsafeHeredoc(
 		"`<<EOF`), which allows shell variable expansion. " +
 		"Use a quoted delimiter (`<<'EOF'`) to prevent " +
 		"`$variable` and backtick expansion from corrupting " +
-		"the body content.\n\n" +
-		"Read the github-cli-convention skill for the correct " +
-		"pattern, then retry."
+		`the body content.\n\n${REQUIRED_FORM}`
 	);
 }

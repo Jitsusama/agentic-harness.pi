@@ -60,6 +60,13 @@ Never call `git worktree` yourself. A tree cut outside the
 broker is one nothing will clean up, and in the World monorepo
 the command is blocked outright.
 
+**A repo it can only reach by remote is refused.** There has to
+be a checkout on disk, and if there is not, the refusal names the
+missing path rather than fetching one. That is deliberate: cloning
+World takes about ten minutes, and a dead end you can read beats a
+command that silently spends the afternoon. Pass `checkout:` when
+the repo lives somewhere the provider would not guess.
+
 ## Reading Before Writing
 
 ```
