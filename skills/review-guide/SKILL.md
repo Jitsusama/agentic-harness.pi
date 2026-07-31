@@ -63,6 +63,7 @@ Start here. Find the row, make the call.
 | Find other changes in the repo | `review_see changes state:open` |
 | Read what people said | `review_see threads` |
 | Read the verdicts people left | `review_see reviews` |
+| Check whether you already gave a verdict | `review_see reviews mine:true` |
 | Read top-level remarks | `review_see messages` |
 | Check whether your own remarks landed | `review_see followup` |
 | Answer one remark | `review_say reply thread:N` |

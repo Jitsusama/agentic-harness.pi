@@ -136,6 +136,12 @@ export function registerSeeTool(pi: ExtensionAPI): void {
 			limit: Type.Optional(
 				Type.Number({ description: "For changes: how many." }),
 			),
+			mine: Type.Optional(
+				Type.Boolean({
+					description:
+						"For reviews: only your own, which is how to check whether you have already given a verdict here. Needs the backend to say who you are, and is refused rather than guessed at where it will not.",
+				}),
+			),
 		}),
 
 		renderCall(args, theme) {
@@ -164,6 +170,7 @@ export function registerSeeTool(pi: ExtensionAPI): void {
 				return await readFrom(
 					bound,
 					params.action as Exclude<SeeAction, "changes">,
+					(params as { mine?: boolean }).mine === true,
 				);
 			} catch (error) {
 				return refuseFailure(error, bound);
@@ -176,13 +183,14 @@ export function registerSeeTool(pi: ExtensionAPI): void {
 async function readFrom(
 	bound: BoundTarget,
 	action: Exclude<SeeAction, "changes">,
+	mine = false,
 ): Promise<Answer> {
 	if (action === "change") return seeChange(bound);
 	if (action === "diff") return seeDiff(bound);
 	if (action === "checks") return seeChecks(bound);
 	if (action === "stack") return seeStack(bound);
 	if (action === "findings") return seeFindings(bound);
-	return seeConversation(bound, action);
+	return seeConversation(bound, action, mine);
 }
 
 /** The change itself, with its body. */
@@ -258,6 +266,7 @@ async function seeStack(bound: BoundTarget): Promise<Answer> {
 async function seeConversation(
 	bound: BoundTarget,
 	action: "threads" | "reviews" | "messages" | "followup",
+	mine = false,
 ): Promise<Answer> {
 	const conversation = bound.conversation;
 	const change = hostedChange(bound);
@@ -336,7 +345,22 @@ async function seeConversation(
 	}
 
 	if (action === "reviews") {
-		const reviews = await conversation.reviews(change);
+		const all = await conversation.reviews(change);
+		// Whose reviews to show. Narrowing to your own needs the backend to say
+		// who you are, and a backend that will not is told so rather than
+		// silently showing everybody's under a heading that says mine.
+		let reviews = all;
+		let whose = "";
+		if (mine) {
+			if (conversation.viewer === undefined) {
+				return refuse(
+					`${GLYPH.refused} The ${bound.provider.id} provider cannot say who you are, so it cannot pick out your reviews. Read them all and look for your own name.`,
+				);
+			}
+			const viewer = await conversation.viewer(bound.repo);
+			reviews = all.filter((review) => review.author.id === viewer.id);
+			whose = ` by ${viewer.name ?? viewer.id}`;
+		}
 		return say(
 			citeListing(openSessionStore(), {
 				view:
@@ -345,7 +369,10 @@ async function seeConversation(
 							(review) =>
 								`${GLYPH.verdict} ${review.author.id} · ${review.verdict}\n   ${review.body.split("\n")[0] ?? ""}`,
 						)
-						.join("\n") || "No reviews yet.",
+						.join("\n") ||
+					(mine
+						? `No reviews${whose} yet, though there are ${all.length} from other people.`
+						: "No reviews yet."),
 				records: reviews,
 				unit: "reviews",
 				narrowing: "Query the stored result for a review's full body.",
