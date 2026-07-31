@@ -14,7 +14,7 @@ import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import { ReviewerArtifactsStore } from "../../../../lib/subagent/artifacts.js";
 import {
-	createSupervisorRunPi,
+	createSupervisorRunPi as createRealSupervisorRunPi,
 	parentGraceMs,
 } from "../../../../lib/subagent/runpi/supervisor.js";
 import type { RunPiResult } from "../../../../lib/subagent/subagent.js";
@@ -160,6 +160,46 @@ async function tempStateDir(): Promise<string> {
  * reporting a duration.
  */
 const GENEROUS_MS = 120_000;
+
+/**
+ * The real factory, wrapped so a run that never happened says so.
+ *
+ * The parent's last-resort deadline answers with a shaped result rather
+ * than by throwing, which is right for a fleet caller and wrong for a
+ * test: a starved supervisor arrives here looking exactly like a
+ * reviewer that ran and reported nothing. Every assertion then fails on
+ * the shape and reports the shape, so three separate reproductions of
+ * this file's load-dependent failure all said "expected undefined to be
+ * 'error'" while the postmortem naming the cause sat unread in the
+ * warnings beside it.
+ *
+ * The postmortem is the whole point of this wrapper. It distinguishes a
+ * supervisor starved of CPU, whose last written word is seconds old,
+ * from one that wedged early, whose last word is as old as the wait,
+ * and that is the question an unreproducible hang turns on.
+ */
+function createSupervisorRunPi(
+	...args: Parameters<typeof createRealSupervisorRunPi>
+): ReturnType<typeof createRealSupervisorRunPi> {
+	const runPi = createRealSupervisorRunPi(...args);
+	return async (request) => {
+		const result = await runPi(request);
+		const gaveUp = result.warnings?.some((warning) =>
+			warning.includes("never reported within"),
+		);
+		if (gaveUp) {
+			throw new Error(
+				[
+					"the supervisor never reported, so nothing asserted below " +
+						"is about this run",
+					...(result.warnings ?? []),
+					`stderr: ${result.stderrTail || "(none)"}`,
+				].join("\n"),
+			);
+		}
+		return result;
+	};
+}
 
 function expectRan(result: RunPiResult): void {
 	if (result.exitCode !== 0) {
@@ -1078,7 +1118,10 @@ describe("a supervisor that never reports", () => {
 		const childPath = join(stateDir, "child.mjs");
 		await writeFile(childPath, "");
 
-		const runPi = createSupervisorRunPi({
+		// The real factory, deliberately. This is the test of the
+		// give-up path itself, so the wrapper that turns giving up into a
+		// thrown postmortem would swallow exactly what is being asserted.
+		const runPi = createRealSupervisorRunPi({
 			piInstall: { node: process.execPath, entry: childPath },
 			stateDir,
 			idleTimeoutMs: 500,
@@ -1128,7 +1171,8 @@ describe("a supervisor that never reports", () => {
 		await mkdir(paths.reviewerDir, { recursive: true });
 		await writeFile(paths.progressPath, JSON.stringify({ state: "running" }));
 
-		const runPi = createSupervisorRunPi({
+		// The real factory, for the same reason as the test above.
+		const runPi = createRealSupervisorRunPi({
 			piInstall: { node: process.execPath, entry: childPath },
 			stateDir,
 			idleTimeoutMs: 500,
