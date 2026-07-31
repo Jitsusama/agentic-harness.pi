@@ -5,20 +5,17 @@ description: >
   through the `work` tool: cut a worktree or pin a snapshot,
   make a branch, record a commit, publish it, replay it onto
   a new base, and keep a stack of branches each sitting on
-  the one below it. Covers what a snapshot is for and what a
-  worktree is for, why a tree is read before it is repointed,
-  the boundary that stops a restack duplicating commits, how
-  a halted replay is settled, and which of these a stacked
-  backend answers better than plain git does.
-  Use when asked to "get me a worktree", "cut a tree for
-  this", "make a branch", "commit that", "push it",
-  "rebase onto main", "the rebase stopped", "stack this on
-  top of that", "reorder the stack", "restack everything",
-  "what does my stack look like", or any request to work on
-  code rather than to review it.
-  Pairs with review-guide for putting the work up once it is
-  ready, git-branch-convention for naming, commit-format for
-  the message, and prose-standard for voice.
+  the one below it. Covers what a snapshot is for against
+  what a worktree is for, why a tree is read before it is
+  repointed, how a halted replay is settled, and what a
+  stacked backend answers better than plain git.
+  Use when asked to "get me a worktree", "make a branch",
+  "commit that", "push it", "rebase onto main", "the rebase
+  stopped", "stack this on top of that", "reorder the
+  stack", "restack everything", "what does my stack look
+  like", or any request to work on code rather than review
+  it. Pairs with review-guide, git-branch-convention,
+  commit-format and prose-standard.
 ---
 
 # Working on Code

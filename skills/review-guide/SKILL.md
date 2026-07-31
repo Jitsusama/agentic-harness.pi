@@ -4,29 +4,28 @@ description: >
   How to put up, read and review a change through the
   `review`, `review_see`, `review_say`, `review_ask`,
   `review_draft` and `review_offer` tools, whatever system
-  hosts it: GitHub,
-  Meteorite, a GitLab merge request, or a range of commits
-  nobody has proposed at all. Covers attaching the change
-  you are working on, reading a diff and a conversation,
-  judging a stack by its provenance, asking other models
-  through a council and a judge, composing a review as a
-  draft, planning what publishing will do, proposing a
-  branch as a change and moving it to merge, and reporting
-  degradation honestly.
-  Use when asked to "review
-  this change", "read this PR", "what did people say about
-  it", "reply to that thread", "resolve those comments",
-  "approve it", "review these commits", "run a council",
-  "get several models to review this", "have a judge
-  consolidate that", "open a PR", "put this up for review",
-  "mark it ready", "ask someone to review it", "merge it",
-  or any request to look at, comment on or land a change.
-  Pairs with
-  code-review-standard for what to evaluate, comment-format
-  for how a remark reads, and prose-standard for voice.
+  hosts it: GitHub, Meteorite, a GitLab merge request, or a
+  range of commits nobody has proposed at all. Covers
+  attaching a change so later calls need not name it,
+  reading a diff, a conversation and a stack, asking other
+  models through a council and a judge, composing a review
+  as a draft, and proposing a branch and moving it to merge.
+  The council is these tools: never build one by hand out of
+  subagents.
+  Use when asked to "review this change", "read this PR",
+  "what did people say about it", "reply to that thread",
+  "resolve those comments", "approve it", "run a council",
+  "get several models to review this", "open a PR", "put
+  this up for review", "mark it ready", "merge it", or any
+  request to look at, comment on or land a change.
 ---
 
 # Review Guide
+
+Three skills go with this one: **code-review-standard** for
+what to evaluate, **comment-format** for how a remark reads,
+and **prose-standard** for voice. Load them when you are
+writing the review rather than reading the change.
 
 Six tools cover the whole arc, from a branch to a merge. They
 speak one vocabulary
