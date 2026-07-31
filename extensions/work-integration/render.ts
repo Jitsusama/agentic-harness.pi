@@ -49,7 +49,16 @@ export const GLYPH = {
 /** One held tree, as a line. */
 export function treeLine(
 	held: {
-		identity: { key: string };
+		/**
+		 * The tree's identity, whose `shareable` is what tells a snapshot from a
+		 * worktree. This listing used to draw every held tree with the worktree mark,
+		 * including the snapshots, while the answer that cut one drew it with the
+		 * snapshot mark: one tree with two appearances depending on which verb was
+		 * speaking. The distinction is worth the same care as `cutHere` below and for
+		 * the same reason, since a snapshot is pinned and shared and a worktree has
+		 * somebody's work in it.
+		 */
+		identity: { key: string; shareable?: boolean };
 		path: string;
 		providerId: string;
 	},
@@ -64,5 +73,6 @@ export function treeLine(
 	cutHere = true,
 ): string {
 	const from = cutHere ? "" : " · from an earlier session";
-	return `${GLYPH.tree} ${held.identity.key}${from}\n   ${displayPath(held.path)} · ${held.providerId}`;
+	const mark = held.identity.shareable ? GLYPH.snapshot : GLYPH.tree;
+	return `${mark} ${held.identity.key}${from}\n   ${displayPath(held.path)} · ${held.providerId}`;
 }

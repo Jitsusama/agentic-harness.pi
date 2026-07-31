@@ -155,7 +155,15 @@ export async function runStackAction(
 						args.onto === undefined ? undefined : args.onto,
 					)
 				: await stacks.untrack(tree.path, args.name);
-		return shaped(outcome, action, args.name, args.onto);
+		// Read after the change, so the note describes the stack the caller now has.
+		// Every verb here moves the record and no commits, so every one of them can
+		// leave the two disagreeing, and untrack does it at one remove: whatever sat
+		// on the forgotten branch moves down onto its parent without being replayed.
+		const standing = await stacks.drifted(
+			tree.path,
+			args.trunk === undefined ? undefined : args.trunk,
+		);
+		return shaped(outcome, action, args.name, args.onto, standing);
 	}
 
 	if (action === "reparent") {
@@ -167,7 +175,11 @@ export async function runStackAction(
 			args.name,
 			args.onto === undefined ? undefined : args.onto,
 		);
-		return shaped(outcome, action, args.name, args.onto);
+		const standing = await stacks.drifted(
+			tree.path,
+			args.trunk === undefined ? undefined : args.trunk,
+		);
+		return shaped(outcome, action, args.name, args.onto, standing);
 	}
 
 	if (action === "reorder") {
@@ -179,17 +191,24 @@ export async function runStackAction(
 		const outcome = await stacks.reorder(tree.path, args.order);
 		if (outcome.kind === "shaped") {
 			const held = await stacks.read(tree.path);
+			// The record moved; the commits have not. This used to be said
+			// unconditionally, which cries wolf on the reorder that needs no replay,
+			// and said nothing about which branches were affected. Computed now, and
+			// shared with the other shape verbs so the four cannot drift apart.
+			const standing = await stacks.drifted(
+				tree.path,
+				args.trunk === undefined ? undefined : args.trunk,
+			);
 			return say(
 				[
 					`${GLYPH.stack} Reordered. ${outcome.changed.length} ${outcome.changed.length === 1 ? "branch" : "branches"} now sit somewhere new.`,
-					...stackLines(held, args.on === undefined ? {} : { on: args.on }),
-					"",
-					// The record moved; the commits have not. Saying so is the
-					// difference between a reorder somebody finishes and one
-					// they believe is already done.
-					"The record says this now, but nothing has been replayed yet. Restack to make the commits match.",
+					...stackLines(held, {
+						...(args.on === undefined ? {} : { on: args.on }),
+						drifted: standing.drifted,
+					}),
+					...alignmentNote(standing),
 				].join("\n"),
-				{ ok: true, changed: outcome.changed },
+				{ ok: true, changed: outcome.changed, drifted: standing.drifted },
 			);
 		}
 		return shaped(outcome, action, args.order.join(", "), undefined);
@@ -255,6 +274,33 @@ export async function runStackAction(
 }
 
 /** A shape change, or the reason there was not one. */
+/**
+ * What a shape change left out of step, said in one sentence.
+ *
+ * Every verb here records where a branch should sit without moving any commits, so
+ * every one of them can leave the record and the commits disagreeing. Only reorder
+ * used to mention it, and it mentioned it unconditionally, which is a warning that
+ * cries wolf on the reorder that happens to need no replay at all. Now the answer
+ * is computed, so it can name the branches and be believed.
+ *
+ * Silent when nothing could be judged, because a root cannot be judged without a
+ * trunk to judge it against, and "nothing to do" is not a thing to say when the
+ * question was never answered.
+ */
+export function alignmentNote(standing: {
+	drifted: readonly string[];
+	undecided: readonly string[];
+}): string[] {
+	if (standing.drifted.length > 0) {
+		return [
+			"",
+			`The record says this now, but ${standing.drifted.join(", ")} ${standing.drifted.length === 1 ? "is" : "are"} not sitting on ${standing.drifted.length === 1 ? "its" : "their"} parent yet. Restack to make the commits match.`,
+		];
+	}
+	if (standing.undecided.length > 0) return [];
+	return ["", "The commits already match, so there is nothing to replay."];
+}
+
 function shaped(
 	outcome:
 		| { kind: "shaped"; changed: readonly string[] }
@@ -264,6 +310,7 @@ function shaped(
 	action: string,
 	what: string,
 	onto: string | undefined,
+	standing?: { drifted: readonly string[]; undecided: readonly string[] },
 ): Answer {
 	if (outcome.kind === "refused") {
 		return refuse(`${GLYPH.refused} ${outcome.reason}`);
@@ -290,7 +337,12 @@ function shaped(
 			...(also.length > 0
 				? [`   ${also.join(", ")} moved down to keep the stack whole.`]
 				: []),
+			...(standing === undefined ? [] : alignmentNote(standing)),
 		].join("\n"),
-		{ ok: true, changed: outcome.changed },
+		{
+			ok: true,
+			changed: outcome.changed,
+			...(standing === undefined ? {} : { drifted: standing.drifted }),
+		},
 	);
 }
