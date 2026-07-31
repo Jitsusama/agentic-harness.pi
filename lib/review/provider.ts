@@ -17,6 +17,7 @@
 import type { Anchor } from "./anchor.js";
 import type { Capabilities } from "./capabilities.js";
 import type {
+	Actor,
 	ChangeRef,
 	ChangeState,
 	Proposal,
@@ -116,6 +117,21 @@ export interface ConversationFacet {
 	commentOn?(ref: ChangeRef, anchor: Anchor, body: string): Promise<Posted>;
 	react?(ref: ChangeRef, subject: Message, reaction: Reaction): Promise<void>;
 	unreact?(ref: ChangeRef, subject: Message, reaction: Reaction): Promise<void>;
+	/**
+	 * Who the calling principal is, as this backend names them.
+	 *
+	 * Needed for any question about your own remarks: which threads are mine,
+	 * whether my findings were answered, whether I have already reviewed this.
+	 * Every one of those is unanswerable without it, and the tempting
+	 * alternatives are worse than a refusal. Matching a display name matches
+	 * the wrong person eventually; taking the most recent reviewer assumes the
+	 * caller is whoever spoke last.
+	 *
+	 * Optional because a backend may genuinely not say. A caller that cannot
+	 * learn who it is should refuse the question rather than answer it about
+	 * somebody else.
+	 */
+	viewer?(repo: RepoLocator): Promise<Actor>;
 }
 
 /** A field being changed, where clearing differs from leaving. */

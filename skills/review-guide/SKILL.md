@@ -64,6 +64,7 @@ Start here. Find the row, make the call.
 | Read what people said | `review_see threads` |
 | Read the verdicts people left | `review_see reviews` |
 | Read top-level remarks | `review_see messages` |
+| Check whether your own remarks landed | `review_see followup` |
 | Answer one remark | `review_say reply thread:N` |
 | Close a thread out | `review_say resolve thread:N` |
 | Reopen one you closed too early | `review_say unresolve thread:N` |
@@ -407,6 +408,44 @@ attached change is used and said out loud, several are
 listed rather than guessed between, and a change you name
 explicitly is never second-guessed. Acting on the wrong
 change is worse than being asked which one.
+
+## Coming Back To a Change You Reviewed
+
+You left findings, they pushed, and the question is whether
+they addressed them or simply closed the threads. Those two
+look identical in a thread listing.
+
+```
+review_see followup
+```
+
+It reports only threads you spoke in, worst first, and each
+one as how the remark was received:
+
+| Reception | Means |
+|---|---|
+| `resolved-in-silence` | Closed, nobody replied, nothing changed under it |
+| `waiting` | Still open, nothing said, nothing moved |
+| `answered` | Somebody replied after your remark |
+| `changed` | The code under your remark moved |
+| `unknown` | The backend does not say whether the anchor still holds |
+
+`resolved-in-silence` is the one to read. It is not proof of
+anything: a remark can be answered in a conversation
+elsewhere, or be wrong, or be about something the author
+decided against. But it is the only reception where the
+thread says settled and nothing supports that.
+
+Do not treat `unknown` as `waiting`. A backend that reports
+less is not a change that moved less, and the two are kept
+apart so a quiet provider cannot look like a quiet author.
+
+This needs the backend to say who you are. Where it will not,
+the call is refused rather than guessing: matching a display
+name attributes somebody else's remark to you eventually, and
+taking the most recent reviewer assumes you are whoever spoke
+last. Read `review_see threads` and judge them yourself
+instead.
 
 `review next` and `review prev` move the attachment along
 the stack, which is how to walk a stack without naming each

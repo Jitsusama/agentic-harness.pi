@@ -268,6 +268,12 @@ export type {
 	QueuedFix,
 } from "./fix.js";
 export { createFixQueue } from "./fix.js";
+export type { FollowUp, Reception } from "./followup.js";
+export {
+	followUpOn,
+	receptionOf,
+	tallyReceptions,
+} from "./followup.js";
 export { changeKey, repoKey, targetKey } from "./keys.js";
 export type {
 	CheckoutFacts,

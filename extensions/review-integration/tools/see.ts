@@ -24,9 +24,11 @@ import {
 	createFindingStore,
 	createFixQueue,
 	describeAnchor,
+	followUpOn,
 	type QueuedFix,
 	reactableAddresses,
 	reactables,
+	tallyReceptions,
 } from "../../../lib/review/index.js";
 import { decisionDir, findingDir, fixDir } from "../engine.js";
 import {
@@ -59,7 +61,8 @@ type SeeAction =
 	| "threads"
 	| "reviews"
 	| "messages"
-	| "findings";
+	| "findings"
+	| "followup";
 
 /** Register the `review_see` tool. */
 export function registerSeeTool(pi: ExtensionAPI): void {
@@ -90,10 +93,11 @@ export function registerSeeTool(pi: ExtensionAPI): void {
 					Type.Literal("reviews"),
 					Type.Literal("messages"),
 					Type.Literal("findings"),
+					Type.Literal("followup"),
 				],
 				{
 					description:
-						"What to read. change: the proposal and its body. diff: the whole diff. checks: what CI says. stack: what it sits on, with provenance. changes: siblings in the repo. threads: anchored conversation, numbered. reviews: verdicts people left. messages: top-level remarks. findings: what a review pass raised, not yet said to anybody.",
+						"What to read. change: the proposal and its body. diff: the whole diff. checks: what CI says. stack: what it sits on, with provenance. changes: siblings in the repo. threads: anchored conversation, numbered. reviews: verdicts people left. messages: top-level remarks. findings: what a review pass raised, not yet said to anybody. followup: where your own remarks stand now the change has moved on, worst first, which is how a thread closed in silence is told apart from one somebody fixed.",
 				},
 			),
 			change: Type.Optional(
@@ -230,16 +234,63 @@ async function seeStack(bound: BoundTarget): Promise<Answer> {
 	});
 }
 
-/** Threads, reviews or messages, from whatever hosts the change. */
+/** Threads, reviews, messages or your own follow-up, from whatever hosts it. */
 async function seeConversation(
 	bound: BoundTarget,
-	action: "threads" | "reviews" | "messages",
+	action: "threads" | "reviews" | "messages" | "followup",
 ): Promise<Answer> {
 	const conversation = bound.conversation;
 	const change = hostedChange(bound);
 	if (!conversation || !change) {
 		return refuse(
 			"Nothing hosts this target, so it has no conversation. Compose a review with review_draft and render it as a document.",
+		);
+	}
+
+	if (action === "followup") {
+		if (conversation.viewer === undefined) {
+			// Refused rather than guessed. Matching a display name attributes
+			// somebody else's remark to you eventually, and taking the most
+			// recent reviewer assumes you are whoever spoke last.
+			return refuse(
+				`${GLYPH.refused} The ${bound.provider.id} provider cannot say who you are, so it cannot tell which remarks are yours. Read the threads instead and judge them yourself.`,
+			);
+		}
+		const viewer = await conversation.viewer(bound.repo);
+		const found = followUpOn(await threadsOf(bound), viewer);
+		if (found.length === 0) {
+			return say(
+				`${GLYPH.finding} You have not remarked on this change, so there is nothing of yours to follow up.`,
+				{ ok: true, followups: [] },
+			);
+		}
+		const counted = tallyReceptions(found);
+		const quiet = counted["resolved-in-silence"] ?? 0;
+		return say(
+			citeListing(openSessionStore(), {
+				view: [
+					`${GLYPH.finding} ${found.length} of your ${found.length === 1 ? "thread" : "threads"} on this change, as ${viewer.name ?? viewer.id}`,
+					...(quiet > 0
+						? [
+								`   ${quiet} ${quiet === 1 ? "was" : "were"} closed with no reply and nothing changed underneath. Worth re-reading.`,
+							]
+						: []),
+					"",
+					...found.map(
+						(one, index) =>
+							`[T${index + 1}] ${one.reception === "resolved-in-silence" ? GLYPH.refused : GLYPH.finding} ${
+								one.thread.anchor === undefined
+									? "the change as a whole"
+									: describeAnchor(one.thread.anchor)
+							}\n   ${one.reception} · ${one.because}`,
+					),
+				].join("\n"),
+				records: found,
+				unit: "followups",
+				narrowing:
+					"Query the stored result for a thread's full exchange, or read threads for everybody's.",
+			}),
+			{ ok: true, followups: found, viewer, counted },
 		);
 	}
 

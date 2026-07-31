@@ -502,5 +502,24 @@ export function githubConversation(exec: Exec): ConversationFacet {
 				`reacting to ${subject.id}`,
 			);
 		},
+
+		async viewer() {
+			// The login, which is how every other GitHub payload names an
+			// author, so a comparison against a comment's author is comparing
+			// like with like. The display name is carried for a listing and
+			// never used to decide identity.
+			const answer = await api<{ login?: unknown; name?: unknown }>(
+				["user"],
+				"asking who you are",
+			);
+			const login = str(answer.login);
+			if (login === undefined) {
+				throw new Error(
+					"GitHub did not say who you are, so a question about your own remarks cannot be answered about the right person",
+				);
+			}
+			const name = str(answer.name);
+			return { id: login, ...(name === undefined ? {} : { name }) };
+		},
 	};
 }
