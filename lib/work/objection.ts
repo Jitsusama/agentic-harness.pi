@@ -39,6 +39,21 @@ export interface Objection {
 	reason: string;
 	/** What to do instead, when there is a sensible alternative. */
 	instead?: string;
+	/**
+	 * Whether this stops the push or merely says something about it.
+	 *
+	 * The distinction is not politeness, it is the difference between a guard
+	 * people keep and a guard people disable. A backend that knows a change is
+	 * queued can block; a backend that only knows it *would* refuse a queued
+	 * change, without being able to say whether this one is queued, has a real
+	 * thing to tell you and no business stopping every push you make. Blocking
+	 * on a suspicion would refuse every push on such a backend, and a guard
+	 * that refuses everything protects nothing once it is turned off.
+	 *
+	 * Defaults to blocking, since an objection whose author did not think about
+	 * this is more likely to be a genuine one.
+	 */
+	blocking?: boolean;
 }
 
 /**
@@ -73,20 +88,42 @@ export const WORK_PUBLISH_CHECK = "work:publish:check:v1";
 export function refusalFrom(
 	objections: readonly Objection[],
 ): string | undefined {
-	if (objections.length === 0) return undefined;
-	if (objections.length === 1) {
-		const [only] = objections;
+	const blocking = objections.filter((one) => one.blocking !== false);
+	if (blocking.length === 0) return undefined;
+	if (blocking.length === 1) {
+		const [only] = blocking;
 		return [
 			`${only.from} says not to publish this yet. ${only.reason}`,
 			...(only.instead === undefined ? [] : ["", only.instead]),
 		].join("\n");
 	}
 	return [
-		`${objections.length} systems say not to publish this yet.`,
-		...objections.flatMap((one) => [
+		`${blocking.length} systems say not to publish this yet.`,
+		...blocking.flatMap((one) => [
 			"",
 			`${one.from}: ${one.reason}`,
 			...(one.instead === undefined ? [] : [`   ${one.instead}`]),
 		]),
 	].join("\n");
+}
+
+/**
+ * What was said that did not stop the push, to print beside what happened.
+ *
+ * Said after the fact rather than before it, because that is what a caution is:
+ * it decorates the outcome instead of becoming one. Printed at all because the
+ * alternative is a backend that knows something useful and has no way to say it
+ * without also blocking.
+ */
+export function cautionsFrom(
+	objections: readonly Objection[],
+): readonly string[] {
+	return objections
+		.filter((one) => one.blocking === false)
+		.map((one) =>
+			[
+				`${one.from}: ${one.reason}`,
+				...(one.instead === undefined ? [] : [one.instead]),
+			].join(" "),
+		);
 }

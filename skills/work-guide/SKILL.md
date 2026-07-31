@@ -225,18 +225,33 @@ fact only the hosting layer holds, so `work push` **asks**
 before it publishes, and anything that knows a reason to stop
 objects in its own words.
 
-The asking is advisory, on purpose:
+An objection comes in one of two strengths, and the difference
+is which backend you are on:
+
+- **Blocking.** The backend knows the change is queued. The
+  push is refused and says what to do first.
+- **A caution.** The backend knows it ejects a queued change
+  and cannot tell whether this one is queued. Meteorite is
+  exactly this: Merge Garden is a separate service and the pull
+  route carries no posture. The push goes ahead and the caution
+  is printed beside the result.
+
+A caution rather than a refusal because blocking on a suspicion
+would refuse every push on the backend where the hazard is
+worst, and a guard that refuses everything is a guard somebody
+turns off. Read it and decide: if you did not queue it, you
+have lost one line of reading.
+
+The asking is advisory in two more ways:
 
 - Silence means nobody objected, **not** that it is safe. A
   session with no hosting provider loaded has to be able to
   publish.
 - A listener that throws, hangs or is missing does not block
-  the push. A working layer that stops working when an
-  unrelated extension has a bad day is the first thing anybody
-  would turn off, and then it would protect nobody.
+  the push, for the same reason.
 
 So treat an objection as reliable and its absence as unproven.
-Where the stakes are high and you have not seen an objection,
+Where the stakes are high and you have seen nothing,
 `review_see change` reads the queue state directly.
 
 ## When a Backend Knows Better

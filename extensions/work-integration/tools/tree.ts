@@ -17,6 +17,7 @@ import { Type } from "@sinclair/typebox";
 import { citeListing, openSessionStore } from "../../../lib/result/index.js";
 import {
 	blocksRepoint,
+	cautionsFrom,
 	createGitAuthor,
 	createGitHistory,
 	createGitPublisher,
@@ -344,6 +345,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 					// pushing to an enqueued branch ejects it and everything batched
 					// with it, and that is knowledge the hosting layer holds.
 					const head = await history.head(found.path);
+					let cautions: readonly string[] = [];
 					if (head.branch !== undefined) {
 						const objected = await objectionsTo(pi, {
 							repoKey: found.identity.key,
@@ -355,6 +357,9 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 						if (blocked !== undefined) {
 							return refuse(`${GLYPH.refused} ${blocked}`);
 						}
+						// Kept for after the push. A caution decorates what
+						// happened rather than becoming what happened.
+						cautions = cautionsFrom(objected);
 					}
 					const publisher = createGitPublisher({ exec: execFor(pi) });
 					const outcome = await publisher.push(
@@ -378,8 +383,16 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 						outcome.replaced ? "replacing what was there" : undefined,
 					].filter((note) => note !== undefined);
 					return say(
-						`${GLYPH.tree} ${outcome.branch} published to ${outcome.remote}${notes.length > 0 ? `, ${notes.join(", ")}` : ""}.`,
-						{ ok: true, branch: outcome.branch, published: true },
+						[
+							`${GLYPH.tree} ${outcome.branch} published to ${outcome.remote}${notes.length > 0 ? `, ${notes.join(", ")}` : ""}.`,
+							...cautions.map((caution) => `   ${GLYPH.dirty} ${caution}`),
+						].join("\n"),
+						{
+							ok: true,
+							branch: outcome.branch,
+							published: true,
+							...(cautions.length > 0 ? { cautions } : {}),
+						},
 					);
 				}
 

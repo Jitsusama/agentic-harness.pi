@@ -68,13 +68,40 @@ async function objectIfQueued(
 		);
 		const proposal = await bound.proposal();
 		if (!proposal) return;
+
 		const refusal = queueRefusal(proposal.queue, bound.provider.id);
-		if (refusal === undefined) return;
-		asked.object({
-			from: bound.provider.id,
-			reason: refusal.reason,
-			...(refusal.instead === undefined ? {} : { instead: refusal.instead }),
-		});
+		if (refusal !== undefined) {
+			asked.object({
+				from: bound.provider.id,
+				reason: refusal.reason,
+				...(refusal.instead === undefined ? {} : { instead: refusal.instead }),
+			});
+			return;
+		}
+
+		// A backend can know it refuses to touch a queued change and still be
+		// unable to say whether this one is queued. Meteorite is exactly that:
+		// Merge Garden is a separate service and the pull route carries no
+		// posture, which is an honest silence rather than an omission.
+		//
+		// Blocking on it would refuse every push on the backend where the hazard
+		// is worst, so this cautions instead. Saying nothing was the other
+		// option and is worse: the cost of being wrong here is somebody else's
+		// batch, measured in hundreds of jobs, and a person who knows they did
+		// not queue it loses nothing by reading one line.
+		if (
+			bound.capabilities.authoring?.refusesWhileEnqueued === true &&
+			proposal.queue === undefined &&
+			proposal.state === "open"
+		) {
+			asked.object({
+				from: bound.provider.id,
+				blocking: false,
+				reason: `${bound.provider.id} ejects a change from its merge queue when the branch moves, and does not report whether this one is queued.`,
+				instead:
+					"If it is queued, cancel the merge before pushing: ejecting it takes everything batched with it, and re-running their checks is measured in hundreds of jobs.",
+			});
+		}
 	} catch {
 		// Knowing less is the cost. Refusing a push because a lookup failed
 		// would make this the first thing anybody turned off.

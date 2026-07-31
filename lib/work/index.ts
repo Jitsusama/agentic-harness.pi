@@ -45,7 +45,11 @@ export type {
 	PublishIntent,
 	PublishReview,
 } from "./objection.js";
-export { refusalFrom, WORK_PUBLISH_CHECK } from "./objection.js";
+export {
+	cautionsFrom,
+	refusalFrom,
+	WORK_PUBLISH_CHECK,
+} from "./objection.js";
 export type { TreeProviderChoice, TreeProviderInfo } from "./provider.js";
 export { chooseTreeProvider } from "./provider.js";
 export { createGitTreeProvider } from "./providers/git.js";
