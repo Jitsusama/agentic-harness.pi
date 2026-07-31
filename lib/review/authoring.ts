@@ -36,7 +36,15 @@ export interface AuthoringIntent {
 		| "close"
 		| "reopen"
 		| "merge"
-		| "request-reviewers";
+		| "request-reviewers"
+		/**
+		 * Asking CI to run again.
+		 *
+		 * Not in {@link MUTATES}: a rerun starts a build, it does not
+		 * move the branch or the base, so it does not eject a change
+		 * from a merge queue the way an edit or a retarget does.
+		 */
+		| "rerun-checks";
 	/** Naming reviewers as part of proposing. */
 	withReviewers?: boolean;
 	/**
@@ -176,6 +184,15 @@ function decide(
 					};
 		case "request-reviewers":
 			return reviewable(capabilities, providerId);
+		case "rerun-checks":
+			return capabilities.rerunChecks
+				? { ok: true }
+				: {
+						ok: false,
+						reason: `The ${providerId} provider cannot ask CI to run again.`,
+						instead:
+							"Retrigger it wherever that backend's CI is driven from, which is not always the same system that hosts the change.",
+					};
 	}
 }
 

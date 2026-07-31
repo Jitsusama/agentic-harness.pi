@@ -23,7 +23,7 @@ import type {
 	Proposal,
 	RepoLocator,
 } from "./change.js";
-import type { ChecksRollup } from "./checks.js";
+import type { ChecksRollup, RerunOutcome } from "./checks.js";
 import type {
 	Message,
 	Posted,
@@ -262,6 +262,15 @@ export interface AuthoringFacet {
 	reopen?(ref: ChangeRef): Promise<void>;
 	merge(ref: ChangeRef, request: MergeRequest): Promise<MergeOutcome>;
 	requestReviewers?(ref: ChangeRef, actors: string[]): Promise<void>;
+	/**
+	 * Ask CI to run again, optionally naming one pipeline.
+	 *
+	 * A write, which is why it is here and not beside `checks`, and
+	 * what runs is the backend's business. The contract says only
+	 * that somebody was asked and, through `RerunOutcome`, whether
+	 * they agreed.
+	 */
+	rerun?(ref: ChangeRef, which?: string): Promise<RerunOutcome>;
 }
 
 /** A backend the substrate can review through. */

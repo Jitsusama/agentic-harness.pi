@@ -15,6 +15,7 @@ const github: AuthoringCapabilities = {
 	labels: true,
 	assignees: true,
 	refusesWhileEnqueued: false,
+	rerunChecks: true,
 };
 
 /** What Meteorite answered. Every difference here was measured. */
@@ -30,6 +31,7 @@ const meteorite: AuthoringCapabilities = {
 	labels: true,
 	assignees: true,
 	refusesWhileEnqueued: true,
+	rerunChecks: false,
 };
 
 describe("what a provider will accept", () => {

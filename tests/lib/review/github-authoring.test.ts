@@ -317,6 +317,77 @@ describe("requesting reviewers", () => {
 	});
 });
 
+/** Which rerun routes were POSTed, in order. */
+function routesRerun(calls: { args: string[] }[]): string[] {
+	return calls.flatMap((call) => {
+		const route = call.args.find((arg) => arg.endsWith("/rerun"));
+		return route ? [route] : [];
+	});
+}
+
+describe("asking CI to run again", () => {
+	/** The head read, then the runs listed for it. */
+	function ciAnswers(runs: string) {
+		return [
+			{ when: ["pr", "view", "headRefOid"], stdout: "abc123\n" },
+			{ when: ["actions/runs?head_sha=abc123"], stdout: runs },
+			// The POST answers empty, which is what the API does. Listed
+			// after the query above because a reply matches on fragments
+			// and `/rerun` is what tells the two apart.
+			{ when: ["/rerun"], stdout: "" },
+		];
+	}
+
+	it("reruns every run on the head commit", async () => {
+		const { exec, calls } = fakeExec(ciAnswers("11\tCI\n12\tLint\n"));
+
+		const outcome = await githubAuthoring(exec).rerun?.(ref);
+
+		expect(outcome).toEqual({ kind: "started" });
+		// Found by shape rather than by position: `send` appends
+		// `--input <tempfile>`, so the last argument is never the route.
+		expect(routesRerun(calls)).toEqual([
+			"repos/o/r/actions/runs/11/rerun",
+			"repos/o/r/actions/runs/12/rerun",
+		]);
+	});
+
+	it("reruns only the pipeline named", async () => {
+		const { exec, calls } = fakeExec(ciAnswers("11\tCI\n12\tLint\n"));
+
+		const outcome = await githubAuthoring(exec).rerun?.(ref, "Lint");
+
+		expect(outcome).toEqual({ kind: "started", which: "Lint" });
+		expect(routesRerun(calls)).toEqual(["repos/o/r/actions/runs/12/rerun"]);
+	});
+
+	// The case that decides whether this feature is honest. A check can be
+	// reported by an app that has no Actions run behind it, and answering
+	// "started" there leaves somebody waiting on a build nobody queued.
+	it("declines rather than reporting a start, when nothing can be rerun", async () => {
+		const { exec, calls } = fakeExec(ciAnswers(""));
+
+		const outcome = await githubAuthoring(exec).rerun?.(ref);
+
+		expect(outcome?.kind).toBe("declined");
+		expect(outcome).toMatchObject({
+			reason: expect.stringContaining("no GitHub Actions run exists"),
+		});
+		expect(routesRerun(calls)).toEqual([]);
+	});
+
+	it("declines by name when the pipeline asked for is not there", async () => {
+		const { exec } = fakeExec(ciAnswers("11\tCI\n"));
+
+		const outcome = await githubAuthoring(exec).rerun?.(ref, "Nightly");
+
+		expect(outcome).toMatchObject({
+			kind: "declined",
+			reason: expect.stringContaining("Nightly"),
+		});
+	});
+});
+
 describe("when the API refuses", () => {
 	it("says what GitHub said", async () => {
 		const { exec } = fakeExec([

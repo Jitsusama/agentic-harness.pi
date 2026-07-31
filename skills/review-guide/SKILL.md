@@ -100,6 +100,7 @@ Start here. Find the row, make the call.
 | Move it out of draft | `review_offer ready` |
 | Put it back into draft | `review_offer unready` |
 | Ask people to look | `review_offer reviewers` |
+| Run CI again | `review_offer rerun` |
 | Withdraw it | `review_offer close` |
 | Put a withdrawn one back | `review_offer reopen` |
 | Land it | `review_offer merge expectedHead:...` |
@@ -291,6 +292,23 @@ Merging the bottom of a stack retargets nothing on its own. Read
 `review_see stack` afterwards and check each remaining change points at
 what you expect, since a change whose base was merged away is the one
 that quietly starts showing a diff nobody wrote.
+
+## Running CI Again
+
+`review_offer rerun` asks CI to run again on the change's head commit,
+or on one pipeline when you name it in `which`. That matters most where
+CI runs once and no later commit retriggers it, which is the case on
+some monorepos and a surprise everywhere else.
+
+Two answers come back and they are not the same. Started means the
+build was queued and the result arrives later, so read it with
+`review_see checks` rather than expecting it here. Declined means the
+backend understood and said no, and the reason is its own: a check
+reported by an app that has no run behind it cannot be rerun from the
+change at all, and has to be retriggered where it lives.
+
+`review capabilities` says which of the two you are dealing with before
+you try, on the checks line.
 
 ## Findings You Fix Rather Than Say
 

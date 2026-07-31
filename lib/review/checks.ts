@@ -28,6 +28,25 @@ export interface Check {
 	summary?: string;
 }
 
+/**
+ * What came of asking for checks to run again.
+ *
+ * A union rather than nothing, because the two outcomes need
+ * different things from the reader. `started` means CI has been
+ * asked and the answer will arrive later, so a caller polls or
+ * waits. `declined` means the backend understood and refused, and
+ * the reason belongs to the backend rather than to us: a change
+ * that has already landed, a queue that will not accept a retry, a
+ * pipeline nobody recognizes.
+ *
+ * `which` echoes back what was actually rerun. Asking for one
+ * pipeline by name and being given all of them is a difference the
+ * caller cannot otherwise see, and it costs real CI minutes.
+ */
+export type RerunOutcome =
+	| { kind: "started"; which?: string; url?: string }
+	| { kind: "declined"; reason: string };
+
 /** Every check on a change, plus the answer people want. */
 export interface ChecksRollup {
 	/**

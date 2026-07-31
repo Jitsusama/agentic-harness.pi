@@ -330,6 +330,19 @@ function describeCapabilities(
 		}`,
 		`   proposals: ${caps.proposals ? "yes" : "no"}`,
 	];
+	// Checks get their own line when the provider reports them, because
+	// reading CI and retriggering it are different permissions and the
+	// difference decides whether a red build is something you can act on
+	// from here or something you have to leave for a shell.
+	if (caps.proposals?.checks) {
+		lines.push(
+			`   checks: reported${
+				caps.authoring?.rerunChecks
+					? " \u00b7 can be rerun"
+					: " \u00b7 rerun elsewhere, since this backend does not offer it"
+			}`,
+		);
+	}
 	const conversation = caps.conversation;
 	if (conversation) {
 		const cap = conversation.maxBatchComments;

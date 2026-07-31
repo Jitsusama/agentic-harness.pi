@@ -162,6 +162,7 @@ describe("the shared table", () => {
 			"authoring.merge",
 			"authoring.propose",
 			"authoring.reopen",
+			"authoring.rerunChecks",
 			"authoring.reviewersAt",
 			"authoring.setDraft",
 			"conversation.fileLevelComments",

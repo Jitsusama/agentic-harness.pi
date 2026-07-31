@@ -32,6 +32,7 @@ const STACKED: AuthoringCapabilities = {
 	labels: true,
 	assignees: true,
 	refusesWhileEnqueued: true,
+	rerunChecks: false,
 };
 
 describe("the edit intent", () => {

@@ -52,8 +52,10 @@ interface OfferParams {
 		| "close"
 		| "reopen"
 		| "merge"
-		| "reviewers";
+		| "reviewers"
+		| "rerun";
 	change?: string;
+	which?: string;
 	repo?: string;
 	base?: string;
 	head?: string;
@@ -106,6 +108,7 @@ const INTENT: Record<OfferParams["action"], AuthoringIntent["kind"]> = {
 	reopen: "reopen",
 	merge: "merge",
 	reviewers: "request-reviewers",
+	rerun: "rerun-checks",
 };
 
 /**
@@ -171,10 +174,11 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 					Type.Literal("reopen"),
 					Type.Literal("merge"),
 					Type.Literal("reviewers"),
+					Type.Literal("rerun"),
 				],
 				{
 					description:
-						"What to do. propose: put a branch up as a change. propose-stack: put up several at once, each based on the one before it. edit: change its title, body or base. ready: mark it ready for review; unready: put it back to a draft. reviewers: ask people to look. close and reopen. merge: land it.",
+						"What to do. propose: put a branch up as a change. propose-stack: put up several at once, each based on the one before it. edit: change its title, body or base. ready: mark it ready for review; unready: put it back to a draft. reviewers: ask people to look. close and reopen. merge: land it. rerun: ask CI to run again, optionally naming one pipeline in 'which'.",
 				},
 			),
 			change: Type.Optional(
@@ -223,6 +227,12 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 			),
 			comment: Type.Optional(
 				Type.String({ description: "For close: why, said on the change." }),
+			),
+			which: Type.Optional(
+				Type.String({
+					description:
+						"For rerun: one pipeline to run, named as the backend names it. Omit to rerun everything on the change's head commit, which costs whatever that costs.",
+				}),
 			),
 			method: Type.Optional(
 				Type.String({
@@ -458,6 +468,39 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 						}
 						await authoring.reopen(change);
 						return say(`${GLYPH.lands} ${change.label} reopened.`);
+					}
+					case "rerun": {
+						const approved = await confirmWrite(
+							ctx,
+							`Run CI again on ${change.label}?`,
+							[
+								`${GLYPH.target} ${change.label}`,
+								params.which
+									? `\nJust ${params.which}.`
+									: "\nEverything on its head commit, which on a large repo is not free.",
+							].join("\n"),
+						);
+						if (!approved) return say("Left alone.");
+						if (authoring.rerun === undefined) {
+							return refuse(
+								missingMethod(bound.provider.id, "ask CI to run again"),
+							);
+						}
+						const outcome = await authoring.rerun(
+							change,
+							...(params.which === undefined ? [] : [params.which]),
+						);
+						// Declined is reported as plainly as started. A backend that
+						// understood and said no is not a failure, and narrating it
+						// as success is how somebody ends up waiting on a build that
+						// was never queued.
+						return outcome.kind === "started"
+							? say(
+									`${GLYPH.queued} CI asked to run again on ${change.label}${outcome.which ? `, ${outcome.which} only` : ""}. Results arrive later; read them with review_see checks.`,
+								)
+							: refuse(
+									`${bound.provider.id} declined to rerun CI on ${change.label}: ${outcome.reason}.`,
+								);
 					}
 					case "merge":
 						return merge(ctx, change, authoring, params);

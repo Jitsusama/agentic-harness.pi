@@ -80,6 +80,11 @@ function githubCapabilities(): Capabilities {
 			merge: true,
 			labels: true,
 			assignees: true,
+			// True because Actions runs can be reposted, not because every
+			// check on a GitHub change can be. A check contributed by some
+			// other app has no run behind it, and the implementation
+			// declines by name rather than pretending it started one.
+			rerunChecks: true,
 			// This said false, on the belief that a merge queue was
 			// something a backend layered on top of GitHub added. GitHub
 			// has its own: `MergeQueueEntry` is on the GraphQL pull

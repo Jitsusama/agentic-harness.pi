@@ -22,6 +22,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Exec, run } from "../../../exec/index.js";
 import type { ChangeRef, Proposal, RepoLocator } from "../../change.js";
+import type { RerunOutcome } from "../../checks.js";
 import type {
 	AuthoringFacet,
 	MergeOutcome,
@@ -321,6 +322,80 @@ export function githubAuthoring(exec: Exec): AuthoringFacet {
 			// and look up.
 			const commit = shaFrom(answered);
 			return { kind: "merged", ...(commit === undefined ? {} : { commit }) };
+		},
+
+		async rerun(ref: ChangeRef, which?: string): Promise<RerunOutcome> {
+			// Actions reruns are keyed by run and a change is not a run, so
+			// the head commit is the join between them. Read back rather
+			// than taken on trust: a rerun aimed at a commit that has been
+			// pushed past spends CI on code nobody is looking at.
+			const head = await run(
+				exec,
+				"gh",
+				[
+					"pr",
+					"view",
+					ref.id,
+					"--repo",
+					slugOf(ref.repo),
+					"--json",
+					"headRefOid",
+					"--jq",
+					".headRefOid",
+				],
+				`reading the head of pull request ${ref.id}`,
+			);
+			const sha = head.trim();
+			if (sha === "") {
+				return {
+					kind: "declined",
+					reason: "its head commit could not be read",
+				};
+			}
+
+			const listed = await run(
+				exec,
+				"gh",
+				[
+					"api",
+					`/repos/${slugOf(ref.repo)}/actions/runs?head_sha=${sha}&per_page=20`,
+					"--jq",
+					".workflow_runs[] | [.id, .name] | @tsv",
+				],
+				`listing workflow runs for ${sha.slice(0, 7)}`,
+			);
+			const runs = listed
+				.split("\n")
+				.map((line) => line.split("\t"))
+				.flatMap(([id, name]) =>
+					id && name && (which === undefined || name === which)
+						? [{ id, name }]
+						: [],
+				);
+
+			// Declined rather than a start nobody made. A repo can report
+			// checks this cannot rerun, because a check can come from any
+			// app and only Actions has runs, and a silent no-op here reads
+			// as "CI is going again" while nothing is.
+			if (runs.length === 0) {
+				return {
+					kind: "declined",
+					reason:
+						which === undefined
+							? `no GitHub Actions run exists for ${sha.slice(0, 7)}, so whatever reports these checks is not Actions and has to be rerun where it lives`
+							: `no GitHub Actions run named ${which} exists for ${sha.slice(0, 7)}`,
+				};
+			}
+
+			for (const { id } of runs) {
+				await send(
+					"POST",
+					`repos/${slugOf(ref.repo)}/actions/runs/${id}/rerun`,
+					{},
+					`rerunning workflow run ${id}`,
+				);
+			}
+			return { kind: "started", ...(which ? { which } : {}) };
 		},
 
 		async requestReviewers(ref: ChangeRef, actors: string[]): Promise<void> {

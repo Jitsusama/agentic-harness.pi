@@ -68,8 +68,10 @@ export const BACKED_BY: ReadonlyArray<{
 	mandatory?: true;
 }> = [
 	{ facet: "proposals", capability: "checks", method: "checks" },
+
 	{ facet: "proposals", capability: "list", method: "list" },
 	{ facet: "proposals", capability: "fetchAsRef", method: "fetchAsRef" },
+	{ facet: "authoring", capability: "rerunChecks", method: "rerun" },
 	{ facet: "conversation", capability: "unresolve", method: "unresolve" },
 	{
 		facet: "conversation",

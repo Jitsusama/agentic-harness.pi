@@ -168,6 +168,24 @@ export interface AuthoringCapabilities {
 	labels: boolean;
 	assignees: boolean;
 	/**
+	 * Ask CI to run again.
+	 *
+	 * Here rather than beside `checks` on the proposals facet, which
+	 * is where it reads more naturally, because this is a write and
+	 * that facet is how a change is read. Every write goes through
+	 * one gate and one `offerable` check, and a second write path
+	 * hanging off the read facet would have to duplicate both or
+	 * skip them.
+	 *
+	 * Reading CI and retriggering it are still different
+	 * permissions, so a provider can report checks and decline to
+	 * rerun them. What counts as a rerun is the backend's business:
+	 * an API call against the change's own runs on one, and on
+	 * another a build tool that is simply how that monorepo
+	 * triggers CI.
+	 */
+	rerunChecks: boolean;
+	/**
 	 * Whether mutating a change ejects it from a merge queue.
 	 *
 	 * The expensive one. On a queue-backed backend a push, a rebase or a
