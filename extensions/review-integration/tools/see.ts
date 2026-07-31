@@ -294,20 +294,24 @@ async function seeConversation(
 			);
 		}
 		const counted = tallyReceptions(found);
-		const quiet = counted["resolved-in-silence"] ?? 0;
+		const quiet = counted["resolved-quietly"] ?? 0;
 		return say(
 			citeListing(openSessionStore(), {
 				view: [
 					`${GLYPH.finding} ${found.length} of your ${found.length === 1 ? "thread" : "threads"} on this change, as ${viewer.name ?? viewer.id}`,
 					...(quiet > 0
 						? [
-								`   ${quiet} ${quiet === 1 ? "was" : "were"} closed with no reply and nothing changed underneath. Worth re-reading.`,
+								// Careful wording. This does not know the code is
+								// unchanged, and saying so would accuse an author
+								// who fixed it on a backend that reports no
+								// staleness at all.
+								`   ${quiet} ${quiet === 1 ? "was" : "were"} closed without a word. Worth re-reading.`,
 							]
 						: []),
 					"",
 					...found.map(
 						(one, index) =>
-							`[T${index + 1}] ${one.reception === "resolved-in-silence" ? GLYPH.refused : GLYPH.finding} ${
+							`[T${index + 1}] ${one.reception === "resolved-quietly" ? GLYPH.refused : GLYPH.finding} ${
 								one.thread.anchor === undefined
 									? "the change as a whole"
 									: describeAnchor(one.thread.anchor)

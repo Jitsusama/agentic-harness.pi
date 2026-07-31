@@ -432,21 +432,30 @@ first, and each as how the remark was received:
 
 | Reception | Means |
 |---|---|
-| `resolved-in-silence` | Closed, nobody replied, nothing changed under it |
-| `waiting` | Still open, nothing said, nothing moved |
+| `resolved-quietly` | Closed, and nobody replied |
+| `waiting` | Still open, and nobody replied |
 | `answered` | Somebody replied after your remark |
-| `changed` | The code under your remark moved |
-| `unknown` | The backend does not say whether the anchor still holds |
+| `changed` | The anchor no longer describes the change |
+| `unknown` | You have not spoken in this thread |
 
-`resolved-in-silence` is the one to read. It is not proof of
-anything: a remark can be answered in a conversation
-elsewhere, or be wrong, or be about something the author
-decided against. But it is the only reception where the
-thread says settled and nothing supports that.
+`resolved-quietly` is the one to read, and read the sentence
+beside it rather than the word. It does **not** say the code
+is unchanged, because a thread cannot tell you that. What it
+says is narrower: the thread says settled and nothing in the
+thread supports that. A remark can equally have been answered
+in a conversation elsewhere, or been wrong, or been about
+something the author decided against.
 
-Do not treat `unknown` as `waiting`. A backend that reports
-less is not a change that moved less, and the two are kept
-apart so a quiet provider cannot look like a quiet author.
+That caution is not decoration. `changed` comes from the
+backend saying an anchor no longer describes the change, and
+the backends do not mean the same thing by its absence.
+GitHub's flag tracks whether the diff hunk is still there, so
+absence does correlate with unchanged code. Meteorite reports
+it absent **always**, because its server keeps the witness
+commit reachable and an anchor there can never strand. So a
+positive signal is evidence and its absence is not evidence of
+the opposite, which is why the reception never claims nothing
+moved and the wording says which backend you are looking at.
 
 This needs the backend to say who you are. Where it will not,
 the call is refused rather than guessing: matching a display

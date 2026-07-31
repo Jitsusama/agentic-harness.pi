@@ -31,27 +31,22 @@ import type { Thread } from "./conversation.js";
 export type Reception =
 	/** Somebody replied after my last remark. Read it. */
 	| "answered"
-	/** The code under the remark moved, so something was done about it. */
+	/** The anchor no longer describes the change, so something moved under it. */
 	| "changed"
 	/**
-	 * Closed with no reply and nothing touched under it.
+	 * Closed with no reply, and nothing here shows the code moved.
 	 *
-	 * The one worth looking at. It is not necessarily wrong: a remark can be
-	 * answered by a conversation elsewhere, or be wrong, or be about something
-	 * the author decided against. But it is the only standing where the thread
-	 * says settled and nothing supports that.
+	 * The one worth looking at, and worth stating carefully. It does not claim
+	 * the code is unchanged, because that is not knowable from a thread: a
+	 * remark can be answered by a conversation elsewhere, or be wrong, or be
+	 * about something the author decided against. What it says is narrower and
+	 * still useful: the thread says settled and nothing in the thread supports
+	 * that, so it is the one to re-read.
 	 */
-	| "resolved-in-silence"
-	/** Still open, nobody has replied, nothing has moved. */
+	| "resolved-quietly"
+	/** Still open and nobody has replied. */
 	| "waiting"
-	/**
-	 * Cannot be told apart, because the backend does not report whether an
-	 * anchor still describes the change.
-	 *
-	 * Kept separate from `waiting` on purpose. "Nothing happened" and "I cannot
-	 * see whether anything happened" are different answers, and merging them
-	 * would let a backend that reports less look like a change that moved less.
-	 */
+	/** Not one of mine, so there is nothing to say about it. */
 	| "unknown";
 
 /** One of my threads, and how it was received. */
@@ -80,11 +75,21 @@ function lastFrom(thread: Thread, who: Actor): number {
 }
 
 /**
- * Where one thread stands for the actor who remarked on it.
+ * How one thread was received, for the actor who remarked on it.
  *
  * Order matters. A reply is the strongest signal, because somebody wrote words
  * aimed at the remark; a moved anchor is next, because something happened even
- * if nobody said so. Silence is only reported once neither of those is true.
+ * if nobody said so. Quiet is only reported once neither of those is true.
+ *
+ * What this deliberately does **not** do is read `stale: false` as "the code did
+ * not move". Those are different claims, and the backends prove it: GitHub's
+ * flag is whether the diff hunk is still present, so false does correlate with
+ * unchanged code, while Meteorite reports false always, because its server keeps
+ * the witness commit reachable and an anchor there can never strand. Inferring
+ * "nothing changed" from that would accuse an author who fixed the code of
+ * closing a thread and ignoring it, on the backend where most of this work
+ * happens. So a positive `stale` is evidence and its absence is not evidence of
+ * the opposite.
  */
 export function receptionOf(thread: Thread, viewer: Actor): Reception {
 	const mine = lastFrom(thread, viewer);
@@ -95,29 +100,37 @@ export function receptionOf(thread: Thread, viewer: Actor): Reception {
 		return "answered";
 	}
 
-	// `stale` means the anchor no longer describes the change, which is the
-	// backend telling us the code under the remark moved.
 	if (thread.stale === true) return "changed";
-	if (thread.stale === undefined) return "unknown";
-
-	return thread.resolved ? "resolved-in-silence" : "waiting";
+	return thread.resolved ? "resolved-quietly" : "waiting";
 }
 
-/** Why a reception reads the way it does, in words a listing can print. */
+/**
+ * Why a reception reads the way it does, in words a listing can print.
+ *
+ * The wording carries the uncertainty, which is where it belongs. A quiet
+ * resolution reads differently depending on whether the backend says anything
+ * about the anchor at all, and saying which of the two you are looking at is the
+ * difference between a reader who checks and a reader who accuses.
+ */
 function becauseOf(reception: Reception, thread: Thread): string {
 	switch (reception) {
 		case "answered":
 			return "somebody replied after your remark";
 		case "changed":
-			return "the code under your remark moved";
-		case "resolved-in-silence":
-			return thread.resolvedBy === undefined
-				? "resolved, with no reply and nothing changed under it"
-				: `resolved by ${thread.resolvedBy.name ?? thread.resolvedBy.id}, with no reply and nothing changed under it`;
+			return "the anchor no longer describes the change, so something moved under it";
+		case "resolved-quietly": {
+			const who =
+				thread.resolvedBy === undefined
+					? "resolved"
+					: `resolved by ${thread.resolvedBy.name ?? thread.resolvedBy.id}`;
+			return thread.stale === undefined
+				? `${who} with no reply, and this backend does not say whether the code moved`
+				: `${who} with no reply, and the anchor still describes the change`;
+		}
 		case "waiting":
-			return "still open, nothing said and nothing moved";
+			return "still open, and nobody has replied";
 		case "unknown":
-			return "this backend does not say whether the anchor still describes the change";
+			return "you have not spoken in this thread";
 	}
 }
 
@@ -134,7 +147,7 @@ export function followUpOn(
 	viewer: Actor,
 ): readonly FollowUp[] {
 	const rank: Record<Reception, number> = {
-		"resolved-in-silence": 0,
+		"resolved-quietly": 0,
 		waiting: 1,
 		answered: 2,
 		changed: 3,

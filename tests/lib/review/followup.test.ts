@@ -55,11 +55,32 @@ describe("where one of my threads stands", () => {
 		expect(receptionOf(one, ME)).toBe("changed");
 	});
 
-	it("reports a thread closed with no reply and no movement", () => {
+	it("reports a thread closed with no reply", () => {
 		// The one worth looking at, and the reason this exists.
 		const one = thread([ME], { stale: false, resolved: true });
 
-		expect(receptionOf(one, ME)).toBe("resolved-in-silence");
+		expect(receptionOf(one, ME)).toBe("resolved-quietly");
+	});
+
+	it("does not read a backend that never marks anything stale as proof nothing moved", () => {
+		// The fault this test exists for. GitHub's flag is whether the diff hunk
+		// is still present, so false correlates with unchanged code. Meteorite
+		// reports false always, because its server keeps the witness commit
+		// reachable and an anchor cannot strand. Reading that as "nothing
+		// changed" would accuse an author who fixed the code, on the backend
+		// where most of this work happens.
+		const onMeteorite = thread([ME], { stale: false, resolved: true });
+		const onSilentBackend = thread([ME], { resolved: true });
+
+		// Same reception, because the same amount is known either way.
+		expect(receptionOf(onMeteorite, ME)).toBe("resolved-quietly");
+		expect(receptionOf(onSilentBackend, ME)).toBe("resolved-quietly");
+
+		// The words, not the reception, carry which one you are looking at.
+		const [meteorite] = followUpOn([onMeteorite], ME);
+		const [silent] = followUpOn([onSilentBackend], ME);
+		expect(meteorite.because).toContain("anchor still describes");
+		expect(silent.because).toContain("does not say whether the code moved");
 	});
 
 	it("names who closed it, when the backend says", () => {
@@ -79,13 +100,14 @@ describe("where one of my threads stands", () => {
 		expect(receptionOf(one, ME)).toBe("waiting");
 	});
 
-	it("keeps 'cannot tell' apart from 'nothing happened'", () => {
-		// Merging them would let a backend that reports less look like a change
-		// that moved less.
+	it("still flags a quiet resolution on a backend that says nothing about anchors", () => {
+		// This used to report unknown, which hid the signal entirely on any
+		// backend that does not track staleness. The interesting fact is that a
+		// thread was closed without a word, and that is knowable everywhere.
 		const silent = thread([ME], { resolved: true });
 
 		expect(silent.stale).toBeUndefined();
-		expect(receptionOf(silent, ME)).toBe("unknown");
+		expect(receptionOf(silent, ME)).toBe("resolved-quietly");
 	});
 
 	it("prefers a reply over a moved anchor", () => {
@@ -126,7 +148,7 @@ describe("my threads on a change", () => {
 		);
 
 		expect(found.map((one) => one.reception)).toEqual([
-			"resolved-in-silence",
+			"resolved-quietly",
 			"waiting",
 			"answered",
 		]);
@@ -143,7 +165,7 @@ describe("my threads on a change", () => {
 		);
 
 		expect(tallyReceptions(found)).toEqual({
-			"resolved-in-silence": 2,
+			"resolved-quietly": 2,
 			changed: 1,
 		});
 	});
