@@ -21,6 +21,7 @@ import {
 	createFixQueue,
 	type DiffSide,
 	type DraftStore,
+	isReactableRefusal,
 	publishAcross,
 	type Reaction,
 	type ReviewDraft,
@@ -47,6 +48,7 @@ import {
 import {
 	type Answer,
 	boundFor,
+	findReactableOn,
 	hostedChange,
 	messageOf,
 	refuse,
@@ -160,7 +162,10 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 				Type.String({ description: "For react: the reaction name." }),
 			),
 			comment: Type.Optional(
-				Type.String({ description: "For react: the comment id." }),
+				Type.String({
+					description:
+						"For react: which comment, as the [C#] a thread listing prints beside a remark or the [M#] a messages listing prints beside a top-level one.",
+				}),
 			),
 			verdict: Type.Optional(
 				Type.Union(
@@ -315,13 +320,31 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 
 				if (params.action === "react") {
 					if (!params.reaction || !params.comment) {
-						return refuse("Reacting needs a reaction and a comment id.");
+						return refuse(
+							"Reacting needs a reaction and the comment to put it on, addressed as the [C#] or [M#] a listing prints.",
+						);
 					}
+					// The same reason replying needs it: an address is resolved
+					// against the conversation, and a draft id alone cannot say
+					// which conversation.
+					if (!bound) {
+						return refuse(
+							"Reacting needs the change itself, so the comment can be found. Name the change rather than a draft id.",
+						);
+					}
+					const found = await findReactableOn(bound, params.comment);
+					if (isReactableRefusal(found)) return refuse(found.reason);
+					// The whole comment goes into the draft, not an id typed into
+					// it. A draft outlives the call that filled it, so an
+					// unresolved id here would be a wrong reaction published later
+					// by somebody reading a plan that looked right.
 					const id = await draft.react(
-						{ id: params.comment, author: { id: "" }, body: "" },
+						found.message,
 						params.reaction as Reaction,
 					);
-					return say(`${GLYPH.reaction} #${id} queued in the draft.`);
+					return say(
+						`${GLYPH.reaction} #${id} queued in the draft, on ${found.label} ${found.message.author.id}.`,
+					);
 				}
 
 				if (params.action === "render") {

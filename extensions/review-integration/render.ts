@@ -198,6 +198,12 @@ function bodiesIn(plan: PublishPlan): string[] {
 			bodies.push(op.body, ...op.comments.map((one) => one.body));
 		} else if (op.kind === "comment" || op.kind === "reply") {
 			bodies.push(op.body);
+		} else if (op.kind === "commentOn") {
+			// A remark that travels on its own is still prose somebody else
+			// reads. Leaving it out would have made the gate's coverage depend
+			// on which request happened to carry the text, and the same remark
+			// would pass or fail by where the provider makes it go.
+			bodies.push(op.comment.body);
 		}
 	}
 	return bodies.filter((body) => body.trim() !== "");

@@ -91,4 +91,28 @@ describe("refusing to publish prose that breaks the standard", () => {
 			proseComplaint(planWith("Look at `a \u2014 b` here.")),
 		).toBeUndefined();
 	});
+
+	it("reads a remark that travels on its own", () => {
+		// A whole-file remark is posted outside the review, because neither
+		// backend will carry one inside a batch. It is still prose somebody
+		// else reads, and leaving it out would have made this gate's coverage
+		// depend on which request happened to carry the text: the same remark
+		// would pass or fail by where the provider decided to put it.
+		const plan = {
+			ops: [
+				{
+					kind: "commentOn",
+					comment: {
+						body: "This file leaks \u2014 badly.",
+						anchor: { subject: "file", path: "lib/app.ts" },
+					},
+					itemIds: ["0"],
+				},
+			],
+			degraded: [],
+			refused: [],
+		} as unknown as PublishPlan;
+
+		expect(proseComplaint(plan)).toBeDefined();
+	});
 });

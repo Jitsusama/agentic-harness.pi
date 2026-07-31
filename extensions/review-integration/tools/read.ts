@@ -323,7 +323,7 @@ function describeCapabilities(
 		const cap = conversation.maxBatchComments;
 		lines.push(
 			`   anchored batch review: ${conversation.anchoredBatchReview}${cap ? ` (at most ${cap} per review)` : ""}`,
-			`   ranges: ${conversation.multiLineRanges} · whole-file remarks: ${conversation.fileLevelComments} · reopen: ${conversation.unresolve}`,
+			`   ranges: ${conversation.multiLineRanges} · whole-file remarks: ${fileRemarksRead(conversation.fileLevelComments)} · reopen: ${conversation.unresolve}`,
 			`   reactions: ${conversation.reactions.length > 0 ? conversation.reactions.join(" ") : "none"}`,
 			`   stale anchors: ${conversation.staleness}`,
 		);
@@ -380,6 +380,20 @@ function describeCapabilities(
 		for (const one of unbacked) lines.push(`   ${one.reason}`);
 	}
 	return lines.join("\n");
+}
+
+/**
+ * Where a whole-file remark can go, in words rather than in the enum's.
+ *
+ * "standalone" is the interesting answer and the reason the enum exists, so
+ * it says what it costs: an extra post, which is what a reader of the plan
+ * will see. Printing the bare word would have made the report say `whole-file
+ * remarks: standalone`, which reads like a setting rather than an answer.
+ */
+function fileRemarksRead(where: string): string {
+	if (where === "batch") return "yes, inside a review";
+	if (where === "standalone") return "yes, but posted on their own";
+	return "no";
 }
 
 /** When reviewers can be asked, in words rather than in the enum's. */

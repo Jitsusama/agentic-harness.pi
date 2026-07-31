@@ -18,10 +18,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import {
 	type ConversationFacet,
-	findReactable,
 	isReactableRefusal,
 	type Reaction,
-	reactables,
 	type Thread,
 } from "../../../lib/review/index.js";
 import { confirmWrite } from "../gate.js";
@@ -29,6 +27,7 @@ import { anchorLabel, GLYPH } from "../render.js";
 import {
 	type Answer,
 	boundFor,
+	findReactableOn,
 	hostedChange,
 	messageOf,
 	refuse,
@@ -223,14 +222,7 @@ async function react(
 	// sends every other one a comment with no author and nothing said. It also
 	// meant a wrong id was found out by the backend rather than here, so the
 	// failure arrived as somebody else's error message.
-	const [threads, messages] = await Promise.all([
-		conversation.threads(change),
-		conversation.messages(change),
-	]);
-	const found = findReactable(
-		params.comment,
-		reactables({ threads, messages }),
-	);
+	const found = await findReactableOn(bound, params.comment);
 	if (isReactableRefusal(found)) return refuse(found.reason);
 
 	// The gate quotes the remark being reacted to, since an address is not

@@ -17,6 +17,10 @@ import {
 	changeInPlay,
 	chooseChange,
 	createAttachmentStore,
+	findReactable,
+	type Reactable,
+	type ReactableRefusal,
+	reactables,
 	type Thread,
 } from "../../../lib/review/index.js";
 import { attachmentDir, reviewEngine } from "../engine.js";
@@ -148,4 +152,34 @@ export async function threadsOf(bound: BoundTarget): Promise<Thread[]> {
 		);
 	}
 	return bound.conversation.threads(change);
+}
+
+/**
+ * Find the comment an address names, on the change in play.
+ *
+ * Shared because both tools that react need the same step, and because the
+ * step is the point: what the caller typed is an address off a listing, and
+ * the provider needs the comment itself. Reacting used to skip it and hand
+ * over a comment invented from the id, which works for a provider that reads
+ * nothing else and gives every other one a comment by nobody.
+ *
+ * Both halves of the conversation are read, since an address may name a remark
+ * inside a thread or a message standing on its own and the caller is not
+ * obliged to know which.
+ */
+export async function findReactableOn(
+	bound: BoundTarget,
+	address: string,
+): Promise<Reactable | ReactableRefusal> {
+	const change = hostedChange(bound);
+	if (!bound.conversation || !change) {
+		return {
+			reason: "Nothing hosts this target, so it has no comments to react to.",
+		};
+	}
+	const [threads, messages] = await Promise.all([
+		bound.conversation.threads(change),
+		bound.conversation.messages(change),
+	]);
+	return findReactable(address, reactables({ threads, messages }));
 }
