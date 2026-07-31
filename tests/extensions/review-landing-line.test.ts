@@ -30,6 +30,28 @@ function change(landing?: Landability): Proposal {
 	};
 }
 
+describe("labels and assignees on the change line", () => {
+	it("shows them, since both providers parse them on every read", () => {
+		// They were fetched by both providers and drawn by nothing, so editing
+		// a label said a field had changed and then showed a change carrying
+		// none.
+		const line = proposalLine({
+			...change(),
+			labels: ["needs-review", "zone:web"],
+			assignees: [{ id: "someone", name: "Some One" }],
+		});
+
+		expect(line).toContain("needs-review, zone:web");
+		expect(line).toContain("assigned to Some One");
+	});
+
+	it("says nothing when a change carries none", () => {
+		expect(proposalLine({ ...change(), labels: [], assignees: [] })).toBe(
+			proposalLine(change()),
+		);
+	});
+});
+
 describe("the change line", () => {
 	it("says what is stopping a change landing", () => {
 		const line = proposalLine(

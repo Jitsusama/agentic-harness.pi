@@ -81,6 +81,49 @@ describe("reading reviews", () => {
 });
 
 describe("reading threads", () => {
+	it("names who resolved a thread, which the follow-up view reports", async () => {
+		// `resolvedBy` was read by the follow-up view and selected by no query,
+		// so every resolved thread degraded to "resolved with no reply" and
+		// never named anybody. That attribution is the whole feature.
+		const { gh } = provider([
+			{
+				when: ["reviewThreads"],
+				stdout: threadPage(
+					[
+						{
+							...oneThread,
+							isResolved: true,
+							resolvedBy: { login: "closer", name: "Cl Oser" },
+						},
+					],
+					{ hasNextPage: false, endCursor: null },
+				),
+			},
+		]);
+
+		const [thread] = (await gh.conversation?.threads(ref)) ?? [];
+
+		expect(thread.resolvedBy).toEqual({ id: "closer", name: "Cl Oser" });
+	});
+
+	it("leaves the resolver unnamed on a thread nobody has closed", async () => {
+		// Nobody, not the ghost user: an absent actor means the thread is open,
+		// and a placeholder would assert that somebody acted.
+		const { gh } = provider([
+			{
+				when: ["reviewThreads"],
+				stdout: threadPage([{ ...oneThread, resolvedBy: null }], {
+					hasNextPage: false,
+					endCursor: null,
+				}),
+			},
+		]);
+
+		const [thread] = (await gh.conversation?.threads(ref)) ?? [];
+
+		expect(thread.resolvedBy).toBeUndefined();
+	});
+
 	it("maps a thread onto the neutral shape with a git-side anchor", async () => {
 		const { gh } = provider([
 			{

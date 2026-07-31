@@ -31,7 +31,6 @@ const STACKED: AuthoringCapabilities = {
 	merge: true,
 	labels: true,
 	assignees: true,
-	autoMerge: false,
 	refusesWhileEnqueued: true,
 };
 

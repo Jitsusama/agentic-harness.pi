@@ -40,6 +40,28 @@ describe("standsAt", () => {
 		expect(said).not.toContain("changes_requested");
 	});
 
+	it("says a change is approved, since somebody wants to know a human looked", () => {
+		expect(standsAt({ approved: true })).toContain("approved");
+	});
+
+	it("says approved beside a blocker, since those are different situations", () => {
+		// Approved with a failing check is not the same as nobody having looked
+		// and a check failing, and the fix differs.
+		const said = standsAt({ approved: true, failingRequiredCheck: true });
+
+		expect(said).toContain("a required check is failing");
+		expect(said).toContain("approved");
+	});
+
+	it("never reports the absence of approval, which it cannot know matters", () => {
+		// `approved: false` does not mean a review is required. Plenty of repos
+		// ask for none, so saying so would invent a blocker nobody claimed.
+		const said = standsAt({ approved: false, reason: "mergeable" });
+
+		expect(said).toContain("can land");
+		expect(said).not.toContain("approv");
+	});
+
 	it("reports a conflict, which is the one nobody can fix by reviewing", () => {
 		expect(standsAt({ conflicted: true })).toContain("conflicts with its base");
 	});

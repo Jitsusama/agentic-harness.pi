@@ -80,7 +80,6 @@ function githubCapabilities(): Capabilities {
 			merge: true,
 			labels: true,
 			assignees: true,
-			autoMerge: true,
 			// This said false, on the belief that a merge queue was
 			// something a backend layered on top of GitHub added. GitHub
 			// has its own: `MergeQueueEntry` is on the GraphQL pull

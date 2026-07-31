@@ -72,15 +72,27 @@ export function standsAt(landing: Landability | undefined): string {
 	// reads as the same sentence twice in two vocabularies.
 	const aside = word === undefined || word === "" || spoken ? "" : ` (${word})`;
 
+	// Approval is said only when it is true. `approved: false` does not mean a
+	// review is required, since plenty of repos ask for none, so reporting the
+	// negative would invent a blocker the backend never claimed. Said even
+	// alongside blockers, because "approved, but a check is failing" is a
+	// different situation from "nobody has looked and a check is failing".
+	const reviewed = landing.approved === true ? ", approved" : "";
+
 	if (stopping.length > 0) {
-		return `cannot land: ${stopping.map((blocker) => blocker.said).join(", and ")}${aside}`;
+		return `cannot land: ${stopping.map((blocker) => blocker.said).join(", and ")}${aside}${reviewed}`;
 	}
 	// Only the backend can say a change is clear. Nothing in the way is not the
 	// same fact, since this model has no flag for every reason a backend has.
 	if (word !== undefined && word !== "") {
-		return CLEAR.includes(word) ? `can land${aside}` : `cannot land${aside}`;
+		return CLEAR.includes(word)
+			? `can land${aside}${reviewed}`
+			: `cannot land${aside}${reviewed}`;
 	}
-	return "";
+	// Approval on its own is worth saying even when the backend named no state,
+	// since somebody asking whether a change is ready wants to know a human has
+	// looked at it.
+	return reviewed === "" ? "" : "approved";
 }
 
 /** Backend words that mean nothing is holding the change up. */

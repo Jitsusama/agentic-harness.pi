@@ -19,7 +19,7 @@ import { join } from "node:path";
 import type { Exec } from "../../../exec/index.js";
 import { run } from "../../../exec/index.js";
 import type { Anchor, DiffSide } from "../../anchor.js";
-import type { ChangeRef, RepoLocator } from "../../change.js";
+import type { Actor, ChangeRef, RepoLocator } from "../../change.js";
 import type {
 	Message,
 	Posted,
@@ -48,6 +48,7 @@ const THREADS_QUERY = `query PrReviewThreads($owner: String!, $repo: String!, $n
         nodes {
           id
           isResolved
+          resolvedBy { login name }
           isOutdated
           subjectType
           path
@@ -210,11 +211,31 @@ function anchorOf(raw: Record<string, unknown>): Anchor | undefined {
 	};
 }
 
+/**
+ * A person, from a GraphQL actor node, or nobody.
+ *
+ * Nobody rather than the ghost user: an absent actor here means the field was not
+ * selected or the thread is open, and naming a placeholder would assert somebody acted.
+ */
+function actorFrom(raw: unknown): Actor | undefined {
+	const login = str(record(raw).login);
+	if (login === undefined) return undefined;
+	const name = str(record(raw).name);
+	return { id: login, ...(name === undefined ? {} : { name }) };
+}
+
 function threadFrom(raw: Record<string, unknown>): Thread {
 	const anchor = anchorOf(raw);
+	const closedBy = actorFrom(raw.resolvedBy);
 	return {
 		id: str(raw.id) ?? "",
 		resolved: raw.isResolved === true,
+		// Who closed it. The follow-up view reads this to say a thread was
+		// resolved by somebody other than you, which is the attribution that
+		// whole feature exists to give, and it was asking for a field the query
+		// never selected, so every follow-up degraded to "resolved with no
+		// reply" and never named anyone.
+		...(closedBy === undefined ? {} : { resolvedBy: closedBy }),
 		stale: raw.isOutdated === true,
 		...(anchor ? { anchor } : {}),
 		comments: list(record(raw.comments).nodes).map((node) =>

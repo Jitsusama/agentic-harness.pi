@@ -357,7 +357,6 @@ function describeCapabilities(
 			...(authoring.merge ? ["merge"] : []),
 			...(authoring.labels ? ["labels"] : []),
 			...(authoring.assignees ? ["assignees"] : []),
-			...(authoring.autoMerge ? ["auto-merge"] : []),
 		];
 		lines.push(
 			`   authoring: ${can.length > 0 ? can.join(" · ") : "nothing"}`,

@@ -159,7 +159,18 @@ export function proposalLine(proposal: Proposal): string {
 	// failing check goes unread.
 	const standing = standsAt(proposal.landing);
 	const landing = standing === "" ? "" : `\n   ${standing}`;
-	return `${GLYPH.target} ${proposal.ref.label} ${proposal.title}${draft}\n   ${proposal.state} · ${proposal.author.id} · ${proposal.head} → ${proposal.base}${sizeNote(proposal)}${queueNote(proposal)}${landing}`;
+	// Labels and assignees were parsed on every read by both providers and
+	// drawn by nothing, so editing a label reported that a field had changed
+	// and then showed a change with no labels on it. An empty array is a
+	// different fact from an absent one and neither is worth a line, so both
+	// go unsaid; only actually having some does.
+	const tagged = proposal.labels?.length
+		? `\n   ${proposal.labels.join(", ")}`
+		: "";
+	const owned = proposal.assignees?.length
+		? `\n   assigned to ${proposal.assignees.map((who) => who.name ?? who.id).join(", ")}`
+		: "";
+	return `${GLYPH.target} ${proposal.ref.label} ${proposal.title}${draft}\n   ${proposal.state} · ${proposal.author.id} · ${proposal.head} → ${proposal.base}${sizeNote(proposal)}${queueNote(proposal)}${landing}${tagged}${owned}`;
 }
 
 /** CI, with unreported kept apart from failed. */

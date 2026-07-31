@@ -107,6 +107,58 @@ describe("reading a stack from a checkout", () => {
 		expect(callMatching(calls, "merge-base")?.args).toContain("/src/app");
 	});
 
+	it("says a node is behind when its parent has moved since it forked", async () => {
+		// The one warning the stack view carries, and it was declared by the
+		// contract and set by no provider, so a stack needing a restack drew
+		// exactly like a current one.
+		const { git } = provider([
+			upstreamOf("topic", "main"),
+			upstreamOf("main", null),
+			{ when: ["for-each-ref"], stdout: "" },
+			{ when: ["merge-base"], stdout: "forkedhere\n" },
+			{ when: ["rev-parse", "main"], stdout: "mainmovedon\n" },
+			{ when: ["rev-parse", "topic"], stdout: "topichead\n" },
+		]);
+
+		const stack = await git.stacking?.stack({ repo, ref: "topic" });
+
+		expect(
+			stack?.nodes.find((node) => node.ref === "topic")?.behindParent,
+		).toBe(true);
+	});
+
+	it("says a node is not behind when it forked from where its parent still is", async () => {
+		const { git } = provider([
+			upstreamOf("topic", "main"),
+			upstreamOf("main", null),
+			{ when: ["for-each-ref"], stdout: "" },
+			{ when: ["merge-base"], stdout: "sameplace\n" },
+			{ when: ["rev-parse", "main"], stdout: "sameplace\n" },
+			{ when: ["rev-parse", "topic"], stdout: "topichead\n" },
+		]);
+
+		const stack = await git.stacking?.stack({ repo, ref: "topic" });
+
+		expect(
+			stack?.nodes.find((node) => node.ref === "topic")?.behindParent,
+		).toBe(false);
+	});
+
+	it("leaves it unsaid when there is nothing to measure against", async () => {
+		// Absent rather than false. The field means "where the provider can
+		// tell", and a root with no trunk named cannot, so drawing it as
+		// current would be the same lie the drift report used to tell.
+		const { git } = provider([
+			upstreamOf("lonely", null),
+			{ when: ["for-each-ref"], stdout: "" },
+			{ when: ["rev-parse"], stdout: "head1\n" },
+		]);
+
+		const stack = await git.stacking?.stack({ repo, ref: "lonely" });
+
+		expect(stack?.nodes[0]?.behindParent).toBeUndefined();
+	});
+
 	it("reports a lone branch with no upstream as its own stack", async () => {
 		const { git } = provider([
 			upstreamOf("orphan", null),

@@ -31,6 +31,17 @@
  *
  * A field is added here when a reader is added with it. That
  * is the whole discipline, and these three are why.
+ *
+ * `autoMerge` went the same way and is the interesting one,
+ * because unlike those three it named something real. GitHub
+ * does merge once checks pass, and the capability report
+ * listed `auto-merge` among the verbs a caller was told they
+ * could use. There was no verb: no method on the authoring
+ * facet, no flag on a merge request, no action on the tool.
+ * Advertising a door that is painted on is worse than having
+ * no door, so it comes back the day it opens, which now means
+ * a `whenReady` flag on {@link MergeRequest} answered with an
+ * `enqueued` outcome, since that is exactly what it is.
  */
 
 import type { Reaction, Verdict } from "./conversation.js";
@@ -156,8 +167,6 @@ export interface AuthoringCapabilities {
 	merge: boolean;
 	labels: boolean;
 	assignees: boolean;
-	/** Ask the backend to merge once checks pass. */
-	autoMerge: boolean;
 	/**
 	 * Whether mutating a change ejects it from a merge queue.
 	 *

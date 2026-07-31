@@ -14,7 +14,6 @@ const github: AuthoringCapabilities = {
 	merge: true,
 	labels: true,
 	assignees: true,
-	autoMerge: true,
 	refusesWhileEnqueued: false,
 };
 
@@ -30,7 +29,6 @@ const meteorite: AuthoringCapabilities = {
 	merge: true,
 	labels: true,
 	assignees: true,
-	autoMerge: false,
 	refusesWhileEnqueued: true,
 };
 

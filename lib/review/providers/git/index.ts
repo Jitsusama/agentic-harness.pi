@@ -213,11 +213,24 @@ function gitStacking(exec: Exec): StackingFacet {
 		const forkPoint = against
 			? await forkPointOf(root, branch, against)
 			: undefined;
+		// Behind means the thing this branch left has moved since it left. The
+		// fork point is where they last agreed, so comparing it against that
+		// thing's tip is the whole question, and both are already to hand.
+		//
+		// This is the only warning the stack view carries and it was declared
+		// and never set, by any provider, so a stack needing a restack drew
+		// exactly like a current one and a reader built on a stale base. It
+		// stays absent rather than false when there is nothing to measure
+		// against, since the field means "where the provider can tell" and a
+		// root with no trunk named cannot.
+		const ahead = against ? await tipOf(root, against) : undefined;
+		const behindParent = forkPoint && ahead ? forkPoint !== ahead : undefined;
 		return {
 			ref: branch,
 			...(parent ? { parent } : {}),
 			...(headCommit ? { headCommit } : {}),
 			...(forkPoint ? { forkPoint } : {}),
+			...(behindParent === undefined ? {} : { behindParent }),
 		};
 	}
 }
