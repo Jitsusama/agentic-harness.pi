@@ -517,7 +517,9 @@ function findingLine(
 				? " · queued to fix"
 				: queued.outcome.kind === "committed"
 					? ` · fixed in ${queued.outcome.commit}`
-					: ` · fix dropped: ${queued.outcome.reason}`;
+					: queued.outcome.kind === "answered"
+						? " · answered"
+						: ` · fix dropped: ${queued.outcome.reason}`;
 	// A queued fix already says so above, so saying it twice would be
 	// noise on the one line a reader scans.
 	const settled =

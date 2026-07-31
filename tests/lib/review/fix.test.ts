@@ -7,7 +7,11 @@ import type {
 	Finding,
 	FixQueue,
 } from "../../../lib/review/index.js";
-import { createFixQueue } from "../../../lib/review/index.js";
+import {
+	createFixQueue,
+	describeSubject,
+	subjectOf,
+} from "../../../lib/review/index.js";
 
 const pr: ChangeRef = {
 	provider: "github",
@@ -48,6 +52,7 @@ describe("queueing a fix", () => {
 			pending: 0,
 			committed: 0,
 			skipped: 0,
+			answered: 0,
 		});
 	});
 
@@ -56,7 +61,7 @@ describe("queueing a fix", () => {
 
 		const held = await queue.next(pr);
 		expect(held?.findingId).toBe(1);
-		expect(held?.finding.subject).toBe("leaks");
+		expect(held && describeSubject(held)).toBe("leaks");
 	});
 
 	it("carries the note the decision was made with", async () => {
@@ -140,6 +145,7 @@ describe("recording what happened", () => {
 			pending: 1,
 			committed: 1,
 			skipped: 0,
+			answered: 0,
 		});
 	});
 
@@ -182,5 +188,96 @@ describe("across sessions", () => {
 		} finally {
 			await rm(root, { recursive: true, force: true });
 		}
+	});
+});
+
+describe("somebody's remark on the worklist", () => {
+	let root: string;
+	let queue: FixQueue;
+
+	beforeEach(async () => {
+		root = await mkdtemp(join(tmpdir(), "fix-queue-"));
+		queue = createFixQueue(root);
+	});
+
+	afterEach(async () => {
+		await rm(root, { recursive: true, force: true });
+	});
+
+	const remark = {
+		id: "PRRT_abc",
+		author: "wren",
+		where: "src/a.ts:12",
+		said: "this allocates on every frame",
+	};
+
+	it("queues a thread and numbers it in the same sequence", async () => {
+		await queue.queue(pr, finding(1));
+
+		const id = await queue.queueThread(pr, remark);
+
+		expect(id).toBe(2);
+	});
+
+	// One sequence for both kinds, because a person working through a
+	// morning's review does not care which half of the surface an item
+	// came from, and two schemes make "item 4" ambiguous out loud.
+	it("does not collide with a finding queued afterwards", async () => {
+		const first = await queue.queueThread(pr, remark);
+		await queue.queue(pr, finding(7));
+
+		const ids = (await queue.list(pr)).map((one) => one.findingId);
+
+		expect(first).toBe(1);
+		expect(new Set(ids).size).toBe(ids.length);
+	});
+
+	it("hands it back with who said it and where", async () => {
+		await queue.queueThread(pr, remark);
+
+		const held = await queue.next(pr);
+
+		expect(held && describeSubject(held)).toBe(
+			"wren on src/a.ts:12: this allocates on every frame",
+		);
+	});
+
+	it("refuses the same thread twice, naming the item it is already", async () => {
+		await queue.queueThread(pr, remark);
+
+		await expect(queue.queueThread(pr, remark)).rejects.toThrow(/item 1/);
+	});
+
+	// An answered remark has been dealt with. Recording it as skipped
+	// would file it beside the ones nobody got to.
+	it("counts an answer apart from a skip", async () => {
+		const id = await queue.queueThread(pr, remark);
+		await queue.record(pr, id, { kind: "answered", reply: "it is pooled" });
+
+		const tally = await queue.tally(pr);
+
+		expect(tally).toEqual({
+			pending: 0,
+			committed: 0,
+			skipped: 0,
+			answered: 1,
+		});
+	});
+});
+
+describe("a queue written before threads could be on it", () => {
+	// Adapted on read rather than rewritten on disk. A queue is small,
+	// read often and written rarely, so this cannot half-finish the way
+	// a migration can.
+	it("still reads an entry stored in the old shape", () => {
+		const old = { findingId: 3, finding: finding(3) };
+
+		expect(subjectOf(old)).toEqual({ kind: "finding", finding: finding(3) });
+		expect(describeSubject(old)).toBe("leaks");
+	});
+
+	it("says so rather than throwing when an entry carries neither", () => {
+		expect(subjectOf({ findingId: 9 })).toBeUndefined();
+		expect(describeSubject({ findingId: 9 })).toContain("nothing recorded");
 	});
 });

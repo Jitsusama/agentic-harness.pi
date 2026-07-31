@@ -79,8 +79,10 @@ Start here. Find the row, make the call.
 | Keep a finding, in your own words | `review_draft decide settle:promote` |
 | Drop a finding | `review_draft decide settle:dismiss` |
 | Keep a finding as work, not a remark | `review_draft decide settle:fix` |
+| Take every unresolved thread as work | `review_draft take-threads` |
 | Get the next thing to fix | `review_draft fix-next` |
 | Record a fix that landed | `review_draft fix-done commit:...` |
+| Record an answer with no code change | `review_draft fix-answered body:"what you said"` |
 | Drop a queued fix | `review_draft fix-skip body:"why"` |
 | See the fix queue | `review_draft fixes` |
 | Add a remark of your own | `review_draft finding path:... line:N` |
@@ -329,6 +331,30 @@ reads the same as forgetting.
 
 This is the shape of reviewing your own change before you ship: council,
 judge, then `fix` every finding that holds and never publish anything.
+
+## The Morning After a Review
+
+The other half of the worklist, and the commonest journey there is:
+somebody reviewed your change and you are working through what they
+said. `review_draft take-threads` sweeps every unresolved thread onto
+the same queue the findings are on, numbered in one sequence, because
+nobody working through a morning cares which half of the surface an
+item came from and two numbering schemes make "item 4" ambiguous out
+loud.
+
+Then the same walk. `fix-next` hands back one item at a time, and for
+a thread it shows who said it and where. Answer it with `review_say
+reply`, then record which of two things happened:
+
+- `fix-done commit:...` when the code changed.
+- `fix-answered body:"what you said"` when the reply was the whole of
+  it, because explaining why the code is as it is deals with a remark
+  just as much as changing it does. Recording that as a skip would
+  file it beside the ones nobody got to.
+
+Sweeping twice is normal rather than an error: run `take-threads`
+again after replying to some and it takes only what is new, saying how
+many were already there.
 
 ## Publishing Across a Stack
 

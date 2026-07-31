@@ -16,6 +16,14 @@
  * reason it was abandoned, because somebody deciding a finding was
  * wrong is a judgement worth reading back, and a queue that forgets
  * its refusals will offer the same finding again next week.
+ *
+ * Two kinds of thing land here, and for a while only one of them
+ * could. A finding is something a reviewer raised, ours or a model's.
+ * A thread is somebody else's remark on our change, waiting for an
+ * answer, and working through those is the commonest review journey
+ * there is: it is what a person does on the morning after a review.
+ * A queue that held only findings could not represent that day at
+ * all, so it was a worklist for the rarer half of the work.
  */
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -27,17 +35,98 @@ import { changeKey } from "./keys.js";
 /** What became of a queued fix. */
 export type FixOutcome =
 	| { kind: "committed"; commit: string }
-	| { kind: "skipped"; reason: string };
+	| { kind: "skipped"; reason: string }
+	/**
+	 * Answered in the conversation, with no code change.
+	 *
+	 * Only a thread can end this way, and it is not a skip. A remark
+	 * answered by explaining why the code is as it is has been dealt
+	 * with, and recording it as skipped would put it in the same bucket
+	 * as one nobody got to.
+	 */
+	| { kind: "answered"; reply: string };
 
-/** One finding on the queue. */
+/**
+ * What a queued item is about.
+ *
+ * A discriminated union rather than two optional fields, so a reader
+ * cannot forget to check which one it has. The two need different
+ * things done to them: a finding is closed by a commit, a thread is
+ * closed by an answer and often a commit as well.
+ */
+export type FixSubject =
+	| { kind: "finding"; finding: Finding }
+	| { kind: "thread"; thread: QueuedThread };
+
+/**
+ * The part of a thread worth carrying into the queue.
+ *
+ * Flattened rather than holding the whole {@link Thread}, because a
+ * queue entry is read weeks later and the live thread will have moved
+ * on. What is kept is what a person needs to recognise the item
+ * without fetching anything: who said it, where, and what they said.
+ */
+export interface QueuedThread {
+	/** Provider-scoped id, so the answer can be posted to it later. */
+	id: string;
+	/** Who opened it, when the provider says. */
+	author?: string;
+	/** Where it attaches, as a path and line when it has one. */
+	where?: string;
+	/** The opening remark, which is what is being answered. */
+	said: string;
+}
+
+/** One item on the queue. */
 export interface QueuedFix {
+	/** Stable within a change, and what `record` is called with. */
 	findingId: number;
-	/** The whole finding, so a later session needs nothing else. */
-	finding: Finding;
+	/**
+	 * What the item is about.
+	 *
+	 * Optional only for the sake of ledgers written before threads
+	 * could be queued; {@link subjectOf} fills it in from the older
+	 * shape rather than making every reader handle both.
+	 */
+	subject?: FixSubject;
+	/**
+	 * The finding, as the first version of this file stored it.
+	 *
+	 * Kept so an existing queue still reads. Nothing writes it now.
+	 */
+	finding?: Finding;
 	/** What whoever queued it knew about how to fix it. */
 	note?: string;
 	/** Absent while it is still pending. */
 	outcome?: FixOutcome;
+}
+
+/**
+ * What an entry is about, however old the entry is.
+ *
+ * The migration lives here rather than in a one-shot rewrite of every
+ * file on disk. A queue is small, read often and written rarely, so
+ * adapting on read costs nothing and cannot half-finish. Returns
+ * undefined only for an entry that carries neither, which is a
+ * corrupt record rather than an old one.
+ */
+export function subjectOf(entry: QueuedFix): FixSubject | undefined {
+	if (entry.subject !== undefined) return entry.subject;
+	if (entry.finding !== undefined) {
+		return { kind: "finding", finding: entry.finding };
+	}
+	return undefined;
+}
+
+/** A one-line description of what a queued item is, for a listing. */
+export function describeSubject(entry: QueuedFix): string {
+	const subject = subjectOf(entry);
+	if (subject === undefined) return "an item with nothing recorded on it";
+	if (subject.kind === "finding") return subject.finding.subject;
+	const { thread } = subject;
+	const who = thread.author === undefined ? "somebody" : thread.author;
+	const where = thread.where === undefined ? "" : ` on ${thread.where}`;
+	return `${who}${where}: ${thread.said}`;
 }
 
 /** How the queue stands. */
@@ -45,11 +134,27 @@ export interface FixTally {
 	pending: number;
 	committed: number;
 	skipped: number;
+	/** Threads answered in the conversation, with no code change. */
+	answered: number;
 }
 
 /** The queue of fixes for a change. */
 export interface FixQueue {
 	queue(change: ChangeRef, finding: Finding, note?: string): Promise<void>;
+	/**
+	 * Put somebody's remark on the worklist.
+	 *
+	 * Numbered in the same sequence as findings, because a person
+	 * working through a morning's review does not care which half of
+	 * the surface an item came from, and two numbering schemes on one
+	 * change would make "item 4" ambiguous out loud. Answers the number
+	 * it was given.
+	 */
+	queueThread(
+		change: ChangeRef,
+		thread: QueuedThread,
+		note?: string,
+	): Promise<number>;
 	/** The oldest fix with no outcome yet. */
 	next(change: ChangeRef): Promise<QueuedFix | undefined>;
 	record(
@@ -109,12 +214,43 @@ export function createFixQueue(root: string): FixQueue {
 			}
 			ledger.fixes.push({
 				findingId: finding.id,
-				finding,
+				subject: { kind: "finding", finding },
 				...(note === undefined || note.trim() === ""
 					? {}
 					: { note: note.trim() }),
 			});
 			await write(change, ledger);
+		},
+
+		async queueThread(change, thread, note) {
+			const ledger = await read(change);
+			const already = ledger.fixes.find((one) => {
+				const subject = subjectOf(one);
+				return subject?.kind === "thread" && subject.thread.id === thread.id;
+			});
+			if (already) {
+				// Same reasoning as a finding queued twice, and more likely
+				// here: a caller sweeping unresolved threads will sweep the
+				// same ones again tomorrow.
+				throw new Error(
+					`That thread is already on the worklist for ${change.label}, as item ${already.findingId}.`,
+				);
+			}
+			// One sequence for both kinds. Findings carry numbers minted by
+			// the finding store, so this takes the next number above
+			// everything present rather than counting its own entries,
+			// which would collide the moment a finding was queued after it.
+			const id =
+				ledger.fixes.reduce((top, one) => Math.max(top, one.findingId), 0) + 1;
+			ledger.fixes.push({
+				findingId: id,
+				subject: { kind: "thread", thread },
+				...(note === undefined || note.trim() === ""
+					? {}
+					: { note: note.trim() }),
+			});
+			await write(change, ledger);
+			return id;
 		},
 
 		async next(change) {
@@ -155,6 +291,8 @@ export function createFixQueue(root: string): FixQueue {
 				committed: fixes.filter((one) => one.outcome?.kind === "committed")
 					.length,
 				skipped: fixes.filter((one) => one.outcome?.kind === "skipped").length,
+				answered: fixes.filter((one) => one.outcome?.kind === "answered")
+					.length,
 			};
 		},
 	};

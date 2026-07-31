@@ -280,10 +280,12 @@ export { createFindingStore } from "./finding.js";
 export type {
 	FixOutcome,
 	FixQueue,
+	FixSubject,
 	FixTally,
 	QueuedFix,
+	QueuedThread,
 } from "./fix.js";
-export { createFixQueue } from "./fix.js";
+export { createFixQueue, describeSubject, subjectOf } from "./fix.js";
 export type { FollowUp, Reception } from "./followup.js";
 export {
 	followUpOn,

@@ -22,6 +22,7 @@ import {
 	createVisitLog,
 	type DiffSide,
 	type DraftStore,
+	describeSubject,
 	isReactableRefusal,
 	publishAcross,
 	type Reaction,
@@ -29,8 +30,11 @@ import {
 	type ReviewTarget,
 	resumeDraft,
 	type StackPublishEntry,
+	subjectOf,
+	type Thread,
 	type Verdict,
 } from "../../../lib/review/index.js";
+import { count } from "../../../lib/ui/index.js";
 import {
 	decisionDir,
 	draftDir,
@@ -131,7 +135,9 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 					Type.Literal("fix-next"),
 					Type.Literal("fix-done"),
 					Type.Literal("fix-skip"),
+					Type.Literal("fix-answered"),
 					Type.Literal("fixes"),
+					Type.Literal("take-threads"),
 				],
 				{ description: "What to do with the draft." },
 			),
@@ -168,7 +174,7 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 			body: Type.Optional(
 				Type.String({
 					description:
-						"The text. For finding, the remark; for reply, the answer; for verdict, the summary; for decide, the finding in your own words.",
+						"For finding, reply, verdict, decide and fix-answered: the text. The remark for finding, the answer for reply, the summary for verdict, the finding in your own words for decide, and what you said for fix-answered.",
 				}),
 			),
 			thread: Type.Optional(
@@ -211,7 +217,7 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 			finding: Type.Optional(
 				Type.Number({
 					description:
-						"For decide, fix-done and fix-skip: the [F#] number of the finding, as review_see findings lists it.",
+						"For decide, fix-done, fix-skip and fix-answered: the [F#] number of the item, as review_see findings and review_draft fixes list them.",
 				}),
 			),
 			settle: Type.Optional(
@@ -278,15 +284,17 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 					params.action === "fix-next" ||
 					params.action === "fix-done" ||
 					params.action === "fix-skip" ||
-					params.action === "fixes"
+					params.action === "fix-answered" ||
+					params.action === "fixes" ||
+					params.action === "take-threads"
 				) {
 					const change = bound && hostedChange(bound);
-					if (!change) {
+					if (!bound || !change) {
 						return refuse(
 							"The fix queue belongs to a change, so name the change rather than a draft id.",
 						);
 					}
-					return walkFixes(change, params);
+					return walkFixes(bound, change, params);
 				}
 
 				if (params.action === "publish-stack") {
@@ -591,6 +599,7 @@ async function publishStack(
  * anybody wants from a list of changes to their own code.
  */
 async function walkFixes(
+	bound: BoundTarget,
 	change: NonNullable<ReturnType<typeof hostedChange>>,
 	params: {
 		action: string;
@@ -620,8 +629,10 @@ async function walkFixes(
 							? ` (${one.outcome.commit})`
 							: one.outcome?.kind === "skipped"
 								? ` (skipped: ${one.outcome.reason})`
-								: "";
-					return `${mark} F${one.findingId} ${one.finding.subject}${tail}`;
+								: one.outcome?.kind === "answered"
+									? " (answered)"
+									: "";
+					return `${mark} F${one.findingId} ${describeSubject(one)}${tail}`;
 				})
 				.join("\n"),
 			{ ok: true, ...(await queue.tally(change)) },
@@ -633,31 +644,114 @@ async function walkFixes(
 		if (held === undefined) {
 			const tally = await queue.tally(change);
 			return say(
-				tally.committed + tally.skipped === 0
+				tally.committed + tally.skipped + tally.answered === 0
 					? `Nothing is queued to fix on ${change.label}.`
-					: `Every queued fix on ${change.label} is settled: ${tally.committed} committed, ${tally.skipped} skipped.`,
+					: `Every queued item on ${change.label} is settled: ${tally.committed} committed, ${tally.skipped} skipped, ${tally.answered} answered.`,
 				{ ok: true, ...tally },
 			);
 		}
+		// What to say next depends on which kind it is, and this is the
+		// place that difference is felt: a finding is closed by a commit,
+		// while somebody's remark is not dealt with until they have been
+		// answered, whether or not the code changed.
+		const subject = subjectOf(held);
+		const body =
+			subject?.kind === "thread"
+				? [
+						`${GLYPH.thread} F${held.findingId} ${describeSubject(held)}`,
+						"",
+						...(held.note === undefined
+							? []
+							: [`How you meant to: ${held.note}`, ""]),
+						"Answer it with review_say reply, then record it: fix-done with the commit when the code changed, or fix-answered when the reply was the whole of it.",
+					]
+				: [
+						`${GLYPH.finding} F${held.findingId} ${describeSubject(held)}`,
+						...(subject === undefined
+							? []
+							: [
+									`   ${anchorLabel(subject.finding.anchor)}`,
+									"",
+									subject.finding.discussion,
+								]),
+						...(held.note === undefined
+							? []
+							: ["", `How you meant to: ${held.note}`]),
+						"",
+						"Fix it in your own loop, then record it with fix-done and the commit, or drop it with fix-skip and a reason.",
+					];
+		return say(body.join("\n"), { ok: true, finding: held.findingId });
+	}
+
+	if (params.action === "take-threads") {
+		// The morning-after journey, in one call. Sweeping every
+		// unresolved thread onto the worklist is what a person does by
+		// hand otherwise, and doing it by hand is how one gets missed.
+		const threads = await bound.provider.conversation?.threads(change);
+		if (threads === undefined) {
+			return refuse(
+				`The ${bound.provider.id} provider does not read conversation, so there are no threads here to take.`,
+			);
+		}
+		const taken: string[] = [];
+		let already = 0;
+		for (const thread of threads.filter((one: Thread) => !one.resolved)) {
+			const opener = thread.comments[0];
+			try {
+				const id = await queue.queueThread(change, {
+					id: thread.id,
+					...(opener?.author?.name === undefined
+						? {}
+						: { author: opener.author.name }),
+					...(thread.anchor === undefined
+						? {}
+						: { where: anchorLabel(thread.anchor) }),
+					said: opener?.body ?? "",
+				});
+				taken.push(
+					`   ${GLYPH.thread} F${id} ${opener?.author?.name ?? "somebody"}`,
+				);
+			} catch {
+				// Already on the list. Sweeping twice is the normal case, not
+				// an error: a person runs this again after replying to some.
+				already += 1;
+			}
+		}
+		const tally = await queue.tally(change);
 		return say(
 			[
-				`${GLYPH.finding} F${held.findingId} ${held.finding.subject}`,
-				`   ${anchorLabel(held.finding.anchor)}`,
-				"",
-				held.finding.discussion,
-				...(held.note === undefined
+				taken.length === 0
+					? `Nothing new to take on ${change.label}: ${already} unresolved ${already === 1 ? "thread is" : "threads are"} already on the worklist.`
+					: `${GLYPH.thread} Took ${count(taken.length, "thread", "threads")} onto the worklist for ${change.label}.`,
+				...taken,
+				...(already === 0 || taken.length === 0
 					? []
-					: ["", `How you meant to: ${held.note}`]),
-				"",
-				"Fix it in your own loop, then record it with fix-done and the commit, or drop it with fix-skip and a reason.",
+					: [`   ${already} were already there.`]),
 			].join("\n"),
-			{ ok: true, finding: held.findingId },
+			{ ok: true, taken: taken.length, ...tally },
 		);
 	}
 
 	if (params.finding === undefined) {
 		return refuse(
-			"Recording against a fix needs the finding's number. review_draft fixes lists them.",
+			"Recording against a fix needs the item's number. review_draft fixes lists them.",
+		);
+	}
+
+	if (params.action === "fix-answered") {
+		if (!params.body) {
+			return refuse(
+				"Recording an item as answered needs what you said, so the worklist reads back as a record of the conversation rather than a list of ticks.",
+			);
+		}
+		await queue.record(change, params.finding, {
+			kind: "answered",
+			reply: params.body,
+		});
+		const tally = await queue.tally(change);
+		return say(
+			`${GLYPH.thread} F${params.finding} answered. ${tally.pending} left.`,
+			{ ok: true, ...tally },
 		);
 	}
 
