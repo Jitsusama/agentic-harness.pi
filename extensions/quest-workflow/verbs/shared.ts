@@ -53,10 +53,22 @@ export const DOCUMENT_KINDS_SET = new Set([
 	"report",
 ]);
 
-/** Build a structured refusal result. */
+/**
+ * Build a structured refusal result.
+ *
+ * The mark goes on here, in the text the model reads, not only in the colour a
+ * human sees. `\u2298` is the package's one mark for no, shared by all three
+ * surfaces and asserted by tests/package/glyphs-are-owned.test.ts. Quest was the
+ * exception: it refused with no mark at all and painted the refusal in the warning
+ * colour while its successes glowed green, so the one surface a person meets first
+ * inverted the severity signal every other surface agrees on.
+ */
 export function refuse(guidance: string): QuestResult {
-	return { ok: false, guidance };
+	return { ok: false, guidance: `${REFUSED} ${guidance}` };
 }
+
+/** The shared mark for no. */
+const REFUSED = "\u2298";
 
 /** Build a structured success result. */
 export function ok(

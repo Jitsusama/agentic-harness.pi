@@ -40,6 +40,7 @@ import type {
 	Thread,
 } from "../../lib/review/index.js";
 import { describeAnchor } from "../../lib/review/index.js";
+import { count } from "../../lib/ui/count.js";
 
 /** The vocabulary. One glyph per concept, used everywhere. */
 /**
@@ -97,10 +98,9 @@ export function anchorLabel(anchor: Anchor): string {
 	return describeAnchor(anchor);
 }
 
-/** Pluralize without the "1 items" tell. */
-function count(n: number, singular: string, plural = `${singular}s`): string {
-	return `${n} ${n === 1 ? singular : plural}`;
-}
+// The pluralizer this file used to define privately now lives in lib/ui/count.ts,
+// so quest and work share it rather than spelling `(s)` inline.
+export { count };
 
 /**
  * Where a change stands with a merge queue, when that is worth saying.

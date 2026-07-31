@@ -33,6 +33,7 @@ import {
 } from "../../lib/governance/index.js";
 import { dataDir } from "../../lib/internal/paths.js";
 import { registerPromptContributor } from "../../lib/prompt/index.js";
+import { count } from "../../lib/ui/count.js";
 import { entriesToTurns } from "./transcript.js";
 
 /** Captured lessons sit just below the enforced conventions. */
@@ -177,7 +178,7 @@ export default function correctionCapture(pi: ExtensionAPI) {
 						{
 							type: "text" as const,
 							text:
-								`Filed ${filed.length} rule(s):\n` +
+								`Filed ${count(filed.length, "rule")}:\n` +
 								filed.map((r) => `- [${r.id}] ${r.text}`).join("\n"),
 						},
 					],

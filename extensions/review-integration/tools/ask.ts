@@ -72,6 +72,7 @@ import {
 	runReviewer,
 	summarizeStreamActivity,
 } from "../../../lib/subagent/index.js";
+import { count } from "../../../lib/ui/count.js";
 import { REVIEW_SLUG } from "../config.js";
 import { findingDir, personaDir, reviewEngine, runDir } from "../engine.js";
 import {
@@ -262,7 +263,7 @@ async function reportRuns(change: ChangeRef): Promise<Answer> {
 	}
 	const lines = runs.map((run) => describeRun(run));
 	return say(
-		[`${runs.length} round(s) on ${change.label}:`, ...lines].join("\n"),
+		[`${count(runs.length, "round")} on ${change.label}:`, ...lines].join("\n"),
 		{ runs },
 	);
 }
@@ -1118,7 +1119,7 @@ function renderFindings(findings: Finding[]): string {
 function describeRun(run: AskRun): string {
 	const summary = runSummary(run);
 	const failed = summary.failed > 0 ? `, ${summary.failed} failed` : "";
-	return `${run.id}: ${summary.answered}/${summary.asked} answered${failed}, ${summary.findings} finding(s)`;
+	return `${run.id}: ${summary.answered}/${summary.asked} answered${failed}, ${count(summary.findings, "finding")}`;
 }
 
 /** What a round's answer says. */

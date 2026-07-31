@@ -2,6 +2,7 @@
  * Format reaction data as readable text.
  */
 
+import { count } from "../../ui/count.js";
 import type { MessageReactions, ReactedMessage } from "../api/reactions.js";
 import { displayNameForId } from "../resolvers/user.js";
 import { formatSlackText } from "./message.js";
@@ -35,7 +36,7 @@ export function renderReactedMessages(messages: ReactedMessage[]): string {
 	}
 
 	const lines: string[] = [];
-	lines.push(`${messages.length} message(s) with reactions:\n`);
+	lines.push(`${count(messages.length, "message")} with reactions:\n`);
 
 	for (const msg of messages) {
 		const user = msg.user ? `@${displayNameForId(msg.user)}` : "unknown";

@@ -2,6 +2,7 @@
  * Format search results as readable text.
  */
 
+import { count } from "../../ui/count.js";
 import type { SlackFileResult } from "../api/search.js";
 
 /** Render file search results. */
@@ -22,7 +23,7 @@ export function renderFileList(
 	const showing = truncated
 		? `, showing ${files.length} (limit reached, so pass a higher limit or 0 for all)`
 		: `, showing ${files.length}`;
-	lines.push(`Found ${total} file(s)${showing}:\n`);
+	lines.push(`Found ${count(total, "file")}${showing}:\n`);
 
 	for (const f of files) {
 		const size = f.size ? ` (${formatBytes(f.size)})` : "";

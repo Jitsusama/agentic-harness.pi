@@ -23,6 +23,7 @@ import {
 	recordStructuralOp,
 } from "../../../lib/internal/quest/structural-journal.js";
 import type { QuestFrontMatter } from "../../../lib/quest/index.js";
+import { count, verb } from "../../../lib/ui/count.js";
 import {
 	sealQuestDocuments,
 	setQuestKindByDir,
@@ -55,7 +56,7 @@ export function reparent(
 		.filter((t) => t.length > 0);
 	if (targets.length === 0) {
 		return refuse(
-			"Pass the quest id(s) to move in `id` (comma-separated for a batch).",
+			"Pass the quest id to move in `id`, comma-separated for a batch.",
 		);
 	}
 	if (params.parent === undefined) {
@@ -87,7 +88,7 @@ export function reparent(
 			)
 			.join("\n");
 		return ok(
-			`Dry run: would reparent ${plan.changes.length} quest(s).\n${lines}`,
+			`Dry run: would reparent ${count(plan.changes.length, "quest")}.\n${lines}`,
 			{ changes: plan.changes, dryRun: true },
 		);
 	}
@@ -141,7 +142,7 @@ export function reparent(
 			if (!rankResult.ok) {
 				recordStructuralOp(state.questsRoot, "reparent", applied);
 				return refuse(
-					`${rankResult.guidance} Applied ${applied.length} change(s) before the failure; recorded for undo.`,
+					`${rankResult.guidance} Applied ${count(applied.length, "change")} before the failure; recorded for undo.`,
 				);
 			}
 			applied.push({
@@ -153,7 +154,7 @@ export function reparent(
 		}
 	}
 	recordStructuralOp(state.questsRoot, "reparent", applied);
-	return ok(`Reparented ${plan.changes.length} quest(s).`, {
+	return ok(`Reparented ${count(plan.changes.length, "quest")}.`, {
 		changes: plan.changes,
 		dryRun: false,
 	});
@@ -208,7 +209,7 @@ export function bulkConcludeOrRetire(
 			.map((c) => `  ${c.id}: ${c.oldStatus} -> ${c.newStatus}`)
 			.join("\n");
 		return ok(
-			`Dry run: would ${action} ${plan.changes.length} quest(s).\n${lines}`,
+			`Dry run: would ${action} ${count(plan.changes.length, "quest")}.\n${lines}`,
 			{ changes: plan.changes, dryRun: true },
 		);
 	}
@@ -271,10 +272,10 @@ export function bulkConcludeOrRetire(
 	}
 	const warning =
 		liveChildren.length > 0
-			? ` Warning: ${liveChildren.length} live child quest(s) remain under a sealed parent: ${liveChildren.join(", ")}.`
+			? ` Warning: ${count(liveChildren.length, "live child quest")} ${verb(liveChildren.length, "remains", "remain")} under a sealed parent: ${liveChildren.join(", ")}.`
 			: "";
 	return ok(
-		`${action === "conclude" ? "Concluded" : "Retired"} ${plan.changes.length} quest(s).${warning}`,
+		`${action === "conclude" ? "Concluded" : "Retired"} ${count(plan.changes.length, "quest")}.${warning}`,
 		{
 			changes: plan.changes,
 			dryRun: false,
@@ -395,9 +396,9 @@ export function undo(state: QuestState): QuestResult {
 	}
 	const note =
 		skipped.length > 0
-			? ` (skipped ${skipped.length} quest(s) missing or changed since: ${skipped.join(", ")})`
+			? ` (skipped ${count(skipped.length, "quest")} missing or changed since: ${skipped.join(", ")})`
 			: "";
-	return ok(`Undid ${last.op} of ${reverted.length} quest(s)${note}.`, {
+	return ok(`Undid ${last.op} of ${count(reverted.length, "quest")}${note}.`, {
 		op: last.op,
 		changes: last.changes,
 		reverted,

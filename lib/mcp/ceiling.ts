@@ -1,4 +1,5 @@
 import { MINTED_HANDLE_SHAPE } from "../result/store.js";
+import { count } from "../ui/count.js";
 import { joinTextContent, spillToFile } from "./content.js";
 import type { McpContent, McpToolResult } from "./types.js";
 
@@ -196,7 +197,7 @@ function ceilingNotice(info: {
 }): string {
 	const dropped =
 		info.droppedImages > 0
-			? ` ${info.droppedImages} image block(s) omitted.`
+			? ` ${count(info.droppedImages, "image block")} omitted.`
 			: "";
 	const fate = spillFate(info.originalBytes, info.spill);
 	const guidance = info.guidance ? ` ${info.guidance}` : "";

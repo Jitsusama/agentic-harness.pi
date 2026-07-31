@@ -30,6 +30,7 @@ import type {
 	SubagentUsage,
 } from "../../lib/subagent/subagent.js";
 import { runSubagent } from "../../lib/subagent/subagent.js";
+import { noun } from "../../lib/ui/count.js";
 import {
 	type FleetCancellationRegistry,
 	isSubagentCancelledError,
@@ -399,7 +400,7 @@ function assertUniqueIds(assignments: readonly FleetAssignment[]): void {
 	if (duplicates.size === 0) return;
 	const names = [...duplicates].map((id) => `"${id}"`).join(", ");
 	throw new Error(
-		`Duplicate subagent id(s) in fleet: ${names}. Each job must have a unique id.`,
+		`Duplicate subagent ${noun(names.split(", ").length, "id")} in fleet: ${names}. Each job must have a unique id.`,
 	);
 }
 

@@ -6,6 +6,7 @@
  */
 
 import type { QuestPriority } from "../../../lib/quest/index.js";
+import { count } from "../../../lib/ui/count.js";
 import {
 	appendJourneyEntry,
 	bumpLoadedPriority,
@@ -62,7 +63,7 @@ export function reorder(
 	const result = reorderSiblings(state, questId, action);
 	if (!result.ok) return refuse(result.guidance);
 	return ok(
-		`Reordered ${result.result.changes.length} quest(s) in the sibling set.`,
+		`Reordered ${count(result.result.changes.length, "quest")} in the sibling set.`,
 		{ changes: result.result.changes },
 	);
 }

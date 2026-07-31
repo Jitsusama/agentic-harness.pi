@@ -12,6 +12,7 @@ import {
 	type QuestIndex,
 } from "../../../lib/internal/quest/discovery.js";
 import { restoreRecipe } from "../../../lib/internal/quest/session-registry.js";
+import { count } from "../../../lib/ui/count.js";
 import {
 	ancestorsOf,
 	buildRowExpansion,
@@ -162,7 +163,7 @@ export function linksAction(
 		links.outgoing.urls.length;
 	const lines: string[] = [];
 	lines.push(
-		`Outgoing (${outgoingCount}): ${links.outgoing.quests.length} quest(s), ${links.outgoing.refs.length} ref(s), ${links.outgoing.urls.length} url(s).`,
+		`Outgoing (${outgoingCount}): ${count(links.outgoing.quests.length, "quest")}, ${count(links.outgoing.refs.length, "ref")}, ${count(links.outgoing.urls.length, "url")}.`,
 	);
 	for (const q of links.outgoing.quests) {
 		lines.push(`  -> ${q.id} ${q.title ?? ""}`.trimEnd());
@@ -259,7 +260,7 @@ export async function restore(
 	);
 	if (!opts.act) {
 		const body = [
-			`${lost.length} session(s) to restore:`,
+			`${count(lost.length, "session")} to restore:`,
 			...rows,
 			"",
 			"Run to reopen them, or pass force to have restore do it:",
@@ -284,7 +285,7 @@ export async function restore(
 	}
 	const outcome = await reopenLostSessions(lost);
 	const lines = [
-		`Reopened ${outcome.reopened.length} of ${lost.length} session(s).`,
+		`Reopened ${outcome.reopened.length} of ${count(lost.length, "session")}.`,
 	];
 	if (outcome.failed.length > 0) {
 		lines.push(

@@ -11,6 +11,8 @@
  * thrash.
  */
 
+import { count } from "../ui/count.js";
+
 /** One error-severity diagnostic on a touched file. */
 export interface FileError {
 	readonly path: string;
@@ -42,7 +44,7 @@ export function fastLayerVerdict(input: FastLayerInput): FastLayerVerdict {
 		return {
 			action: "giveUp",
 			message:
-				`Verification still reports ${input.errors.length} error(s) on files ` +
+				`Verification still reports ${count(input.errors.length, "error")} on files ` +
 				`changed this turn after ${input.attempts} fix attempts. I could not ` +
 				"get them green:\n" +
 				formatErrors(input.errors),
@@ -52,7 +54,7 @@ export function fastLayerVerdict(input: FastLayerInput): FastLayerVerdict {
 		action: "inject",
 		attempt: input.attempts + 1,
 		message:
-			`Verification found ${input.errors.length} error(s) in files you changed ` +
+			`Verification found ${count(input.errors.length, "error")} in files you changed ` +
 			"this turn. Fix them before yielding:\n" +
 			formatErrors(input.errors),
 	};

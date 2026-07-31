@@ -64,6 +64,7 @@ import {
 	type ToolContent,
 	type ToolResult,
 } from "../../lib/slack/types.js";
+import { count, verb } from "../../lib/ui/count.js";
 import { boundedAnswer } from "./bounded.js";
 import {
 	confirmEditMessage,
@@ -1071,7 +1072,7 @@ async function dispatchThread(
 			const reason = error instanceof Error ? error.message : String(error);
 			return text(
 				`\u2717 ${noun} failed at message ${i + 1} of ${parsed.length}: ${reason}. ` +
-					`${sent} message(s) were already sent.`,
+					`${count(sent, "message")} ${verb(sent, "was", "were")} already sent.`,
 			);
 		}
 	}

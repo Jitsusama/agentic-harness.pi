@@ -30,6 +30,8 @@ export {
 	renderDiff,
 	renderMarkdown,
 } from "./content-renderer.js";
+// ── Counts ─────────────────────────────────────────
+export { count, noun, verb } from "./count.js";
 // ── Narration ───────────────────────────────────────────────
 export {
 	NARRATION_GLYPH,

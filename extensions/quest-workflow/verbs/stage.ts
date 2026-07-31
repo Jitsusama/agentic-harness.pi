@@ -33,6 +33,8 @@ import {
 	scaffoldDocument,
 } from "../../../lib/quest/index.js";
 import { resolveTreeProvider } from "../../../lib/tree/index.js";
+import { count, noun, verb } from "../../../lib/ui/count.js";
+import { displayPath } from "../../../lib/ui/path.js";
 import {
 	appendJourneyEntry,
 	createDocument,
@@ -183,7 +185,7 @@ export function stageTransition(
 		}
 		refreshProgress(state);
 		appendJourneyEntry(state, `Drafted ${kind} ${id}.`);
-		return ok(`Drafted ${kind} ${id} at ${path}.`, {
+		return ok(`Drafted ${kind} ${id} at ${displayPath(path)}.`, {
 			stage: "draft",
 			id,
 			path,
@@ -301,7 +303,7 @@ async function pruneAllTreesOnQuest(state: QuestState): Promise<{
 			const names = attached.map((s) => s.name ?? s.id).join(", ");
 			blocked.push({
 				path: tree.path,
-				reason: `attached session(s): ${names}`,
+				reason: `attached ${noun(attached.length, "session")}: ${names}`,
 			});
 			continue;
 		}
@@ -535,11 +537,11 @@ export async function concludeOrRetire(
 	if (sealedDocs > 0) {
 		appendJourneyEntry(
 			state,
-			`Sealed ${sealedDocs} document(s) with the quest.`,
+			`Sealed ${count(sealedDocs, "document")} with the quest.`,
 		);
-		message += ` Sealed ${sealedDocs} document(s).`;
+		message += ` Sealed ${count(sealedDocs, "document")}.`;
 	}
-	if (pruned.length > 0) message += ` Pruned ${pruned.length} tree(s).`;
+	if (pruned.length > 0) message += ` Pruned ${count(pruned.length, "tree")}.`;
 	// Warn about live children, matching the bulk path: sealing a loaded
 	// parent leaves its live subquests orphaned but live, so surface them
 	// rather than cascading or silently stranding them.
@@ -553,13 +555,13 @@ export async function concludeOrRetire(
 			}
 		}
 		if (liveChildren.length > 0) {
-			message += ` Warning: ${liveChildren.length} live child quest(s) remain under a sealed parent: ${liveChildren.join(", ")}.`;
+			message += ` Warning: ${count(liveChildren.length, "live child quest")} ${verb(liveChildren.length, "remains", "remain")} under a sealed parent: ${liveChildren.join(", ")}.`;
 		}
 	}
 	const drift = action === "conclude" ? primaryPlanDrift(state) : undefined;
 	if (drift) {
 		const open = drift.total - drift.done;
-		message += ` Warning: primary plan ${drift.planId} still has ${open} unchecked item(s) (${drift.done}/${drift.total} done); concluded anyway.`;
+		message += ` Warning: primary plan ${drift.planId} still has ${count(open, "unchecked item")} (${drift.done}/${drift.total} done); concluded anyway.`;
 	}
 	if (blocked.length > 0) {
 		const detectedAt = new Date().toISOString();
@@ -570,7 +572,7 @@ export async function concludeOrRetire(
 				detectedAt,
 			});
 		}
-		message += ` ${blocked.length} tree(s) need manual resolution.`;
+		message += ` ${count(blocked.length, "tree")} ${verb(blocked.length, "needs", "need")} manual resolution.`;
 	}
 	return ok(message, {
 		scope: "quest",

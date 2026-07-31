@@ -6,6 +6,7 @@
  * when possible.
  */
 
+import { count } from "../../ui/count.js";
 import { cacheChannelName } from "../resolvers/conversation.js";
 import { cacheUser, displayNameForId } from "../resolvers/user.js";
 import type { SlackMessage, SlackTable } from "../types.js";
@@ -191,7 +192,7 @@ export function renderMessageList(
 		const showing = truncated
 			? `, showing ${messages.length} (limit reached, so pass a higher limit or 0 for all)`
 			: `, showing ${messages.length}`;
-		lines.push(`Found ${total} message(s)${showing}:\n`);
+		lines.push(`Found ${count(total, "message")}${showing}:\n`);
 	}
 
 	for (const msg of messages) {
@@ -209,7 +210,7 @@ export function renderThread(messages: SlackMessage[]): string {
 	}
 
 	const lines: string[] = [];
-	lines.push(`Thread with ${messages.length} message(s):\n`);
+	lines.push(`Thread with ${count(messages.length, "message")}:\n`);
 
 	for (let i = 0; i < messages.length; i++) {
 		const msg = messages[i];

@@ -36,6 +36,8 @@ import {
 	scaffoldQuestReadme,
 } from "../../../lib/quest/index.js";
 import { parseRef, urlForRef } from "../../../lib/refs/index.js";
+import { count } from "../../../lib/ui/count.js";
+import { displayPath } from "../../../lib/ui/path.js";
 import {
 	appendJourneyEntry,
 	attachCurrentSession,
@@ -340,7 +342,11 @@ export async function create(
 		);
 	}
 
-	return ok(`Created ${kind} ${id} at ${path}`, { id, path, kind });
+	return ok(`Created ${kind} ${id} at ${displayPath(path)}`, {
+		id,
+		path,
+		kind,
+	});
 }
 
 /** Load a quest by id (or via cwd lookup when no id given). */
@@ -435,16 +441,16 @@ export async function load(
 
 	let message = `Loaded ${state.questId}: ${state.questTitle ?? ""}`;
 	if (resumable.length > 0) {
-		message += `. ${resumable.length} prior session(s) on file; run \`quest recent\` to pick one to resume`;
+		message += `. ${count(resumable.length, "prior session")} on file; run \`quest recent\` to pick one to resume`;
 	}
 	if (attached) {
 		message += `. Tracking this pi session on the quest.`;
 	}
 	if (pruned > 0) {
-		message += `. Pruned ${pruned} phantom session(s).`;
+		message += `. Pruned ${count(pruned, "phantom session")}.`;
 	}
 	if (reconciled.length > 0) {
-		message += `. Detached this session from ${reconciled.length} other quest(s).`;
+		message += `. Detached this session from ${count(reconciled.length, "other quest")}.`;
 	}
 
 	return ok(message, {
@@ -534,7 +540,7 @@ function renderShow(
 			const age = formatRelativeAge(s.lastActivity, now);
 			const facts = [s.liveness, ...(age ? [age] : [])].join(", ");
 			const name = s.name ? ` "${s.name}"` : "";
-			const where = s.cwd ? ` ${s.cwd}` : "";
+			const where = s.cwd ? ` ${displayPath(s.cwd)}` : "";
 			const mark = s.resumeTarget ? "  <- resumes on reopen" : "";
 			lines.push(`  - ${s.id}${name} (${facts})${where}${mark}`);
 		}

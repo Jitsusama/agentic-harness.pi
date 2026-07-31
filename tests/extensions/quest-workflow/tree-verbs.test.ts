@@ -303,7 +303,9 @@ describe("retire auto-prunes trees", () => {
 			};
 			expect(details.prunedTrees).toHaveLength(0);
 			expect(details.blockedTrees.map((b) => b.path)).toContain(treePath);
-			expect(retired.message).toMatch(/need manual resolution/);
+			// One tree, so the verb agrees with it. The message said "1 tree(s) need"
+			// until the counting went through the shared pluralizer.
+			expect(retired.message).toMatch(/1 tree needs manual resolution/);
 		}
 		expect(existsSync(treePath)).toBe(true);
 	});

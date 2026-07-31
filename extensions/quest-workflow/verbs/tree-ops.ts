@@ -26,6 +26,8 @@ import {
 	getTreeProvider,
 	resolveTreeProvider,
 } from "../../../lib/tree/index.js";
+import { count, noun } from "../../../lib/ui/count.js";
+import { displayPath } from "../../../lib/ui/path.js";
 import { appendJourneyEntry, inventoryWorktrees } from "../lifecycle.js";
 import type { QuestState } from "../state.js";
 import {
@@ -201,14 +203,17 @@ export function treeList(state: QuestState): QuestResult {
 		// the per-quest records are not.
 		const missing = inventory.filter((t) => !t.exists).length;
 		const missingNote = missing > 0 ? ` (${missing} missing on disk)` : "";
-		return ok(`${inventory.length} tree(s) across all quests${missingNote}.`, {
-			scope: "global",
-			trees: inventory,
-		});
+		return ok(
+			`${count(inventory.length, "tree")} across all quests${missingNote}.`,
+			{
+				scope: "global",
+				trees: inventory,
+			},
+		);
 	}
 	const result = listTreesOnQuest(state.questDir);
 	if (!result.ok) return refuse(result.reason);
-	return ok(`${result.trees.length} tree(s) on the loaded quest.`, {
+	return ok(`${count(result.trees.length, "tree")} on the loaded quest.`, {
 		scope: "quest",
 		trees: result.trees,
 	});
@@ -243,7 +248,7 @@ export async function treePrune(
 	if (target.origin !== "scaffolded" && !force) {
 		const kind = target.origin ?? "unmarked";
 		return refuse(
-			`Tree at ${target.path} is ${kind}, not scaffolded by the tool. Pruning it would delete a shared checkout; pass force:true after confirming with the user.`,
+			`Tree at ${displayPath(target.path)} is ${kind}, not scaffolded by the tool. Pruning it would delete a shared checkout; pass force:true after confirming with the user.`,
 		);
 	}
 	const sessions = readSessionsFromQuest(state);
@@ -253,7 +258,7 @@ export async function treePrune(
 	if (attached.length > 0 && !force) {
 		const names = attached.map((s) => s.name ?? s.id).join(", ");
 		return refuse(
-			`Tree at ${target.path} has attached session(s) (${names}). Detach them with \`session-detach\` before pruning, or pass force:true after confirming with the user.`,
+			`Tree at ${displayPath(target.path)} has an attached ${noun(attached.length, "session")} (${names}). Detach them with \`session-detach\` before pruning, or pass force:true after confirming with the user.`,
 		);
 	}
 	// Prefer the provider that created the tree, recorded as its
@@ -287,7 +292,11 @@ export async function treePrune(
 	if (!removal.ok) return refuse(removal.reason);
 	setPendingPrune(state.questDir, null, { clearPath: target.path });
 	appendJourneyEntry(state, `Pruned tree at ${target.path}.`);
-	return ok(`Tree at ${target.path} pruned.`, { path: target.path });
+	// The tilde form for the person reading; the absolute path stays in details,
+	// which is what a caller acts on.
+	return ok(`Tree at ${displayPath(target.path)} pruned.`, {
+		path: target.path,
+	});
 }
 
 export async function treeExpand(
@@ -322,7 +331,7 @@ export async function treeExpand(
 	try {
 		await expander({ path: target.path, zone });
 		appendJourneyEntry(state, `Expanded ${target.path} with zone ${zone}.`);
-		return ok(`Zone ${zone} added to ${target.path}.`, { zone });
+		return ok(`Zone ${zone} added to ${displayPath(target.path)}.`, { zone });
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		return refuse(`Tree expand failed: ${message}`);

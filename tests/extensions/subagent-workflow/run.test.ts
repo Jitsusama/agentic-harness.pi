@@ -416,7 +416,7 @@ describe("dispatchFleet", () => {
 				runPi,
 				cancellations,
 			}),
-		).rejects.toThrow(/Duplicate subagent id\(s\) in fleet: "twin"/);
+		).rejects.toThrow(/Duplicate subagent id in fleet: "twin"/);
 	});
 
 	it("calls finish even when an observer method throws", async () => {

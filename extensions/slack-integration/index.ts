@@ -23,6 +23,7 @@ import { formatSlackText } from "../../lib/slack/renderers/message.js";
 import { parseSlackUrl } from "../../lib/slack/resolvers/url.js";
 import { displayNameForId } from "../../lib/slack/resolvers/user.js";
 import type { OAuthApp, SlackUser } from "../../lib/slack/types.js";
+import { count } from "../../lib/ui/count.js";
 import { handleSlackAuthCommand } from "./auth-command.js";
 import { identityContext } from "./context.js";
 import { routeAction } from "./router.js";
@@ -623,7 +624,10 @@ export default function slackIntegration(pi: ExtensionAPI) {
 			// Thread or message list
 			if (Array.isArray(d?.messages)) {
 				const msgs = d.messages as MessagePreview[];
-				const summary = theme.fg("success", `✓ ${msgs.length} message(s)`);
+				const summary = theme.fg(
+					"success",
+					`✓ ${count(msgs.length, "message")}`,
+				);
 				const previews = renderMessagePreviews(msgs, theme);
 				if (!options.expanded) {
 					return new Text(`${summary}\n${previews}`, 0, 0);

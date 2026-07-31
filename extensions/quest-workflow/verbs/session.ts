@@ -19,6 +19,7 @@ import {
 	resolveDriver,
 	type TerminalLayout,
 } from "../../../lib/terminal/index.js";
+import { count } from "../../../lib/ui/count.js";
 import {
 	attachSessionToLoaded,
 	captureSessionIdentity,
@@ -116,7 +117,7 @@ export async function sessionAudit(
 		if (result.ok && result.detached) deadDetached += 1;
 	}
 	const summary = [
-		`Repaired ${plan.resolvable.length} divergent session(s), detached ${detached} stray membership(s); detached ${deadDetached} dead session(s). ${plan.conflicted.length} conflicted record(s) left untouched.`,
+		`Repaired ${count(plan.resolvable.length, "divergent session")}, detached ${count(detached, "stray membership")}; detached ${count(deadDetached, "dead session")}. ${count(plan.conflicted.length, "conflicted record")} left untouched.`,
 		...conflictedLines,
 	];
 	return ok(summary.join("\n"), {

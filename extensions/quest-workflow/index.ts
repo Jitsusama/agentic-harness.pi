@@ -40,7 +40,7 @@ import { registerBuiltinRefTypes } from "../../lib/refs/index.js";
 import { boundedByDetails, openSessionStore } from "../../lib/result/index.js";
 import { registerBuiltinTerminalDrivers } from "../../lib/terminal/index.js";
 import { registerBuiltinTreeProviders } from "../../lib/tree/index.js";
-import { firstText } from "../../lib/ui/index.js";
+import { count, firstText } from "../../lib/ui/index.js";
 import { QUEST_ACTIONS } from "./actions.js";
 import {
 	parseQuestWorkflowConfig,
@@ -135,7 +135,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			id: Type.Optional(
 				Type.String({
 					description:
-						"Target id. For load/focus: the quest or document id. For spawn-tab/pane/window: open the new terminal pointed at this quest without touching the caller's loaded state. For reparent: the quest id(s) to move, comma-separated for a batch. For conclude/retire: a comma-separated id set triggers a bulk, reversible status sweep over those quests (no tree pruning), distinct from concluding the loaded quest. For locate: the needle to resolve to its owning quest (a quest id, document id, alias ref or session id). For ancestors: the quest whose parent chain to trace (defaults to the loaded quest). For create: ignored.",
+						"Target id. For load/focus: the quest or document id. For spawn-tab/pane/window: open the new terminal pointed at this quest without touching the caller's loaded state. For reparent: the quest id to move, comma-separated for a batch. For conclude/retire: a comma-separated id set triggers a bulk, reversible status sweep over those quests (no tree pruning), distinct from concluding the loaded quest. For locate: the needle to resolve to its owning quest (a quest id, document id, alias ref or session id). For ancestors: the quest whose parent chain to trace (defaults to the loaded quest). For create: ignored.",
 				}),
 			),
 			url: Type.Optional(
@@ -153,7 +153,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			parent: Type.Optional(
 				Type.String({
 					description:
-						"create: parent quest id when minting a subquest. reparent: the new parent quest id, or `null` to move the target(s) to top level.",
+						"create: parent quest id when minting a subquest. reparent: the new parent quest id, or `null` to move the targets to top level.",
 				}),
 			),
 			kind: Type.Optional(
@@ -360,7 +360,10 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 				  }
 				| undefined;
 			if (d && d.ok === false) {
-				return new Text(theme.fg("warning", d.guidance ?? "Refused"), 0, 0);
+				// The error colour, as review and work both use for a refusal. Warning
+				// read as a soft advisory next to a green success, which is backwards:
+				// the tool did not proceed.
+				return new Text(theme.fg("error", d.guidance ?? "Refused"), 0, 0);
 			}
 			const content = firstText(result);
 			const listing = isListingDetails(d?.listing) ? d.listing : undefined;
@@ -538,7 +541,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		if (errors.length > 0) {
 			const preview = errors.slice(0, 5);
 			console.error(
-				`[quest-workflow] discovery surfaced ${errors.length} layout error(s):`,
+				`[quest-workflow] discovery surfaced ${count(errors.length, "layout error")}:`,
 			);
 			for (const err of preview) {
 				console.error(`  ${err.path}: ${err.message}`);
@@ -744,7 +747,7 @@ function showSessionHint(
 	const lost = lostSessionCount();
 	if (lost > 0) {
 		ctx.ui.notify(
-			`${lost} quest session(s) ended without being closed. Run \`quest restore\` to see them, or \`quest restore force\` to reopen them.`,
+			`${count(lost, "quest session")} ended without being closed. Run \`quest restore\` to see them, or \`quest restore force\` to reopen them.`,
 			"info",
 		);
 	}
