@@ -32,7 +32,6 @@ const STACKED: AuthoringCapabilities = {
 	labels: true,
 	assignees: true,
 	autoMerge: false,
-	deleteBranchOnMerge: false,
 	refusesWhileEnqueued: true,
 };
 

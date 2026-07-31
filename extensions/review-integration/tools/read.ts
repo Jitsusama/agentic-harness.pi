@@ -318,7 +318,16 @@ function describeCapabilities(
 	const lines = [
 		`${GLYPH.target} ${bound.provider.id} handles ${subject}`,
 		`   conversation: ${caps.conversation ? "yes" : "no"}`,
-		`   stacking: ${caps.stacking?.provenance ?? "none"}`,
+		// fanOut alongside provenance, because a provider that cannot report a
+		// branching stack draws a chain either way, and a chain that might be
+		// hiding siblings is worth knowing about before you trust the shape.
+		`   stacking: ${caps.stacking?.provenance ?? "none"}${
+			caps.stacking === undefined
+				? ""
+				: caps.stacking.fanOut
+					? " · reports branching stacks"
+					: " · chains only, so siblings may not show"
+		}`,
 		`   proposals: ${caps.proposals ? "yes" : "no"}`,
 	];
 	const conversation = caps.conversation;

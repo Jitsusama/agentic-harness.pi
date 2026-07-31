@@ -43,11 +43,9 @@ const fullConversation: ConversationCapabilities = {
 	anchoredBatchReview: true,
 	fileLevelComments: "batch",
 	multiLineRanges: true,
-	suggestions: true,
 	unresolve: true,
 	reactions: ["+1", "rocket", "eyes"],
 	topLevelThreading: false,
-	pendingReviews: true,
 	staleness: "pinned",
 };
 

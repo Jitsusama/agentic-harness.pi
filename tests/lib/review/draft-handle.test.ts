@@ -47,11 +47,9 @@ const capabilities: ConversationCapabilities = {
 	anchoredBatchReview: true,
 	fileLevelComments: "batch",
 	multiLineRanges: true,
-	suggestions: false,
 	unresolve: true,
 	reactions: ["rocket"],
 	topLevelThreading: false,
-	pendingReviews: false,
 	staleness: "pinned",
 };
 

@@ -13,6 +13,24 @@
  * Declaring capabilities is how degradation stays loud. The
  * publish plan reads them, decides what will land and what
  * will not, and says so before anything is sent.
+ *
+ * Which means a capability nothing reads is not a capability,
+ * it is a promise. Three were removed once an audit went
+ * looking for readers and found none:
+ *
+ * - `suggestions`, a suggested edit a reader can apply. No
+ *   finding or draft item in this substrate can carry one, so
+ *   the field described a feature nothing could express.
+ * - `pendingReviews`, holding a review as a draft on the
+ *   backend. The draft here is local and outlives the call,
+ *   which is what lets it work identically on a backend with
+ *   no such notion. The capability was obsolete by design.
+ * - `deleteBranchOnMerge`. The one thing the system now
+ *   deliberately refuses, because GitHub permanently closes
+ *   the dependent PRs and they cannot be reopened.
+ *
+ * A field is added here when a reader is added with it. That
+ * is the whole discipline, and these three are why.
  */
 
 import type { Reaction, Verdict } from "./conversation.js";
@@ -62,16 +80,12 @@ export interface ConversationCapabilities {
 	fileLevelComments: FileLevelComments;
 	/** Anchor a remark to a run of lines. */
 	multiLineRanges: boolean;
-	/** Carry a suggested edit a reader can apply. */
-	suggestions: boolean;
 	/** Reopen a resolved thread. */
 	unresolve: boolean;
 	/** Reactions the provider accepts. Empty means none. */
 	reactions: readonly Reaction[];
 	/** Reply onto a top-level message, not just a thread. */
 	topLevelThreading: boolean;
-	/** Hold a review as a draft before submitting it. */
-	pendingReviews: boolean;
 	/** How the provider treats an anchor that no longer fits. */
 	staleness: StalenessModel;
 	/**
@@ -144,7 +158,6 @@ export interface AuthoringCapabilities {
 	assignees: boolean;
 	/** Ask the backend to merge once checks pass. */
 	autoMerge: boolean;
-	deleteBranchOnMerge: boolean;
 	/**
 	 * Whether mutating a change ejects it from a merge queue.
 	 *

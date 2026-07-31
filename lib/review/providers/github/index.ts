@@ -55,13 +55,11 @@ function githubCapabilities(): Capabilities {
 			// true` said the pair was possible when only each half was.
 			fileLevelComments: "standalone",
 			multiLineRanges: true,
-			suggestions: true,
 			unresolve: true,
 			reactions: GITHUB_REACTIONS,
 			// A reply must target a review thread; issue comments
 			// have no thread to hang from.
 			topLevelThreading: false,
-			pendingReviews: true,
 			// A force-push strands a thread and GitHub marks it,
 			// rather than keeping the anchor's commit reachable.
 			staleness: "flagged",
@@ -83,7 +81,6 @@ function githubCapabilities(): Capabilities {
 			labels: true,
 			assignees: true,
 			autoMerge: true,
-			deleteBranchOnMerge: true,
 			// This said false, on the belief that a merge queue was
 			// something a backend layered on top of GitHub added. GitHub
 			// has its own: `MergeQueueEntry` is on the GraphQL pull
