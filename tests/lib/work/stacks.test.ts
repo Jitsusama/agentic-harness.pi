@@ -351,3 +351,50 @@ describe("changing the shape of a stack", () => {
 		expect(written).toContain("branch.b.workparent c");
 	});
 });
+
+describe("tracking the first branch of a stack", () => {
+	it("names omitting onto, rather than telling you to track the trunk", async () => {
+		// The refusal that used to arrive here came from orderStack, which sees a
+		// parent it does not know and says "track it, or point this at something
+		// that is here". Sound for a reorder, actively wrong for the commonest
+		// track there is: following it makes trunk a stack member, and a restack
+		// then replays trunk onto itself. orderStack cannot know better, because
+		// nothing tells a pure function over a candidate stack which ref is trunk.
+		const { exec } = fakeExec([
+			{ when: ["for-each-ref"], stdout: "main\nfeature-one\n" },
+			// Nothing tracked yet, which is the situation this refusal is about.
+			{ when: ["config", "--get-regexp"], code: 1 },
+		]);
+
+		const outcome = await createGitStacks({
+			exec,
+			rebaser: settled(),
+		}).track(TREE, "feature-one", "main");
+
+		expect(outcome).toMatchObject({ kind: "refused" });
+		if (outcome.kind !== "refused") return;
+		// The option that is actually wanted, named first.
+		expect(outcome.reason).toContain("leave onto off");
+		expect(outcome.reason).toContain("replay it onto itself");
+		// And the other reading is still offered, since a parent that genuinely
+		// belongs in the stack is a real case.
+		expect(outcome.reason).toContain("track it first");
+	});
+
+	it("still refuses a parent that is not a branch at all", async () => {
+		// A different fault with different advice: this one is a typo, not a
+		// misunderstanding about trunk.
+		const { exec } = fakeExec([
+			{ when: ["for-each-ref"], stdout: "main\nfeature-one\n" },
+		]);
+
+		const outcome = await createGitStacks({
+			exec,
+			rebaser: settled(),
+		}).track(TREE, "feature-one", "typo");
+
+		expect(outcome).toMatchObject({ kind: "refused" });
+		if (outcome.kind !== "refused") return;
+		expect(outcome.reason).toContain("no branch called typo");
+	});
+});

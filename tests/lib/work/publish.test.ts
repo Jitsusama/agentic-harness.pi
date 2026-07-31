@@ -164,3 +164,65 @@ describe("refusing to publish", () => {
 		expect(outcome).toMatchObject({ kind: "already-there", branch: "topic" });
 	});
 });
+
+describe("a branch that has diverged from its remote", () => {
+	// Git reports this with a hint to run `git pull`. That hint is why the case is
+	// handled instead of passed along: the commonest way to arrive here is having
+	// rebased, and pulling merges the old history back into the rewritten one,
+	// producing the tangle the rebase was for. This layer does the rebasing, so it
+	// is the layer that knows.
+	const rejected = [
+		{ when: ["rev-parse", "--abbrev-ref", "HEAD"], stdout: "topic\n" },
+		{
+			when: ["rev-parse", "--abbrev-ref", "topic@{upstream}"],
+			stdout: "origin/topic\n",
+		},
+		{ when: ["remote"], stdout: "origin\n" },
+		{
+			when: ["push"],
+			code: 1,
+			stderr:
+				" ! [rejected]        topic -> topic (non-fast-forward)\nhint: Updates were rejected because the tip of your current branch is behind\nhint: use 'git pull' before pushing again.\n",
+		},
+		{
+			when: ["rev-list", "--left-right", "--count", "topic...origin/topic"],
+			stdout: "5\t3\n",
+		},
+	];
+
+	it("points at the lease rather than at a pull", async () => {
+		const { exec } = fakeExec(rejected);
+
+		const outcome = await createGitPublisher({ exec }).push(TREE);
+
+		expect(outcome).toMatchObject({ kind: "refused", branch: "topic" });
+		if (outcome.kind !== "refused") return;
+		expect(outcome.reason).toContain("replace");
+		expect(outcome.reason).toContain("lease");
+	});
+
+	it("says how far apart the two are, in both directions", async () => {
+		// Which side is ahead is what tells a reader whether they rebased or
+		// somebody else pushed, and one number cannot say it.
+		const { exec } = fakeExec(rejected);
+
+		const outcome = await createGitPublisher({ exec }).push(TREE);
+
+		if (outcome.kind !== "refused") throw new Error("expected a refusal");
+		expect(outcome.reason).toContain("3 commits this branch does not");
+		expect(outcome.reason).toContain("topic has 5 commits");
+	});
+
+	it("names the other possibility too, since the refs cannot tell them apart", async () => {
+		// A rewritten history and somebody else's push look identical at the ref.
+		// Naming only the likelier one would repeat git's own mistake.
+		const { exec } = fakeExec(rejected);
+
+		const outcome = await createGitPublisher({ exec }).push(TREE);
+
+		if (outcome.kind !== "refused") throw new Error("expected a refusal");
+		expect(outcome.reason).toContain("somebody else pushed");
+		// And git's own words are kept, so the evidence is not thrown away.
+		expect(outcome.reason).toContain("[rejected]");
+	});
+});

@@ -180,6 +180,30 @@ export function registerSeeTool(pi: ExtensionAPI): void {
 }
 
 /** Dispatch one read against an already-bound change. */
+/**
+ * One review as a line: who, what they decided, and the first thing they said.
+ *
+ * A verdict with no words is a real thing to leave, and this used to render it as
+ * a line of three spaces, because the first line of an empty body is an empty
+ * string. It read as a body that had failed to load rather than one that was
+ * never written, and those want telling apart. Saying so out loud is the whole
+ * difference between an absence and a bug.
+ *
+ * Exported to be testable. It was unreachable from a test while it lived inside
+ * the tool's execute, which is why nobody noticed the blank line for so long.
+ */
+export function reviewLine(review: {
+	author: { id: string };
+	verdict: string;
+	body: string;
+}): string {
+	const head = `${GLYPH.verdict} ${review.author.id} · ${review.verdict}`;
+	// The first line with something on it, so a body that opens with a blank line
+	// still reports what it says rather than reporting nothing.
+	const first = review.body.split("\n").find((one) => one.trim() !== "");
+	return first === undefined ? `${head} · no comment` : `${head}\n   ${first}`;
+}
+
 async function readFrom(
 	bound: BoundTarget,
 	action: Exclude<SeeAction, "changes">,
@@ -368,12 +392,7 @@ async function seeConversation(
 		return say(
 			citeListing(openSessionStore(), {
 				view:
-					reviews
-						.map(
-							(review) =>
-								`${GLYPH.verdict} ${review.author.id} · ${review.verdict}\n   ${review.body.split("\n")[0] ?? ""}`,
-						)
-						.join("\n") ||
+					reviews.map(reviewLine).join("\n") ||
 					(mine
 						? `No reviews${whose} yet, though there are ${all.length} from other people.`
 						: "No reviews yet."),

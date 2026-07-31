@@ -125,12 +125,49 @@ export function createGitPublisher(deps: { exec: Exec }): WorkPublisher {
 					.filter((stream) => stream !== "")
 					.join("\n");
 				const stale = said.includes("stale info");
+				if (stale) {
+					return {
+						kind: "refused",
+						branch,
+						reason: `${remote}/${branch} moved since this tree last fetched it, so the lease was refused rather than overwriting work that arrived in the meantime. Fetch, look at what landed, then push again.\n\n${said}`,
+					};
+				}
+
+				// A branch that has diverged from its remote, which git reports with a
+				// hint to run `git pull`. That hint is the reason this case is handled
+				// rather than passed along: the commonest way to arrive here is having
+				// rebased, and pulling then merges the old history back into the
+				// rewritten one, producing exactly the tangle the rebase was for. The
+				// right move is the lease, and this layer knows that because it is the
+				// layer that does the rebasing.
+				//
+				// Which of the two happened is not knowable from here: a rewritten
+				// history and somebody else's push look the same at the ref. So both
+				// are named, with the counts, and the reader picks. Saying only the
+				// likelier one would be the same mistake git's hint makes.
+				if (!options.replace && said.includes("[rejected]")) {
+					const counts = await ask(exec, treePath, [
+						"rev-list",
+						"--left-right",
+						"--count",
+						`${branch}...${remote}/${branch}`,
+					]);
+					const [mine, theirs] = (counts ?? "").split(/\s+/);
+					const apart =
+						mine && theirs
+							? `${remote}/${branch} has ${theirs} ${theirs === "1" ? "commit" : "commits"} this branch does not, and ${branch} has ${mine} ${mine === "1" ? "commit" : "commits"} it does not. `
+							: `${branch} and ${remote}/${branch} have diverged. `;
+					return {
+						kind: "refused",
+						branch,
+						reason: `${apart}Git refused rather than dropping either side.\n\nIf you rebased this branch, that is your own history rewritten: push again with replace, which is a lease and still refuses if the remote moved since this tree last fetched. If somebody else pushed, fetch and read what landed first. Git's own hint below suggests pulling, which would merge their work into your rebase.\n\n${said}`,
+					};
+				}
+
 				return {
 					kind: "refused",
 					branch,
-					reason: stale
-						? `${remote}/${branch} moved since this tree last fetched it, so the lease was refused rather than overwriting work that arrived in the meantime. Fetch, look at what landed, then push again.\n\n${said}`
-						: said || `git push exited ${result.code}`,
+					reason: said || `git push exited ${result.code}`,
 				};
 			}
 

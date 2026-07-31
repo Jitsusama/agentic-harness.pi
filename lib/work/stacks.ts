@@ -283,6 +283,26 @@ export function createGitStacks(deps: {
 				};
 			}
 			const held = await readStack(exec, treePath);
+
+			// Caught here rather than left to orderStack, whose advice for a parent it
+			// does not know is "track it, or point this at something that is here".
+			// That is sound for a reorder and actively wrong for the commonest track
+			// there is: the first branch of a stack, named onto trunk. Following it
+			// would make trunk a stack member, and a restack would then replay trunk
+			// onto itself. The option that is actually wanted is the one orderStack
+			// cannot see, because a pure function over a candidate stack is not told
+			// which ref the trunk is.
+			if (
+				parent !== undefined &&
+				!held.some((one) => one.name === parent) &&
+				parent !== branch
+			) {
+				return {
+					kind: "refused",
+					reason: `${branch} cannot sit on ${parent} yet, because ${parent} is not tracked as part of this stack.\n\nIf ${parent} is your trunk, leave onto off entirely: a branch that sits directly on trunk is a root of the stack, and tracking the trunk would have a restack replay it onto itself.\n\nIf ${parent} belongs in the stack, track it first, then track ${branch} onto it.`,
+				};
+			}
+
 			const already = held.some((one) => one.name === branch);
 			const candidate = already
 				? held.map((one) => (one.name === branch ? { ...one, parent } : one))
