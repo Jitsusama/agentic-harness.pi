@@ -115,6 +115,42 @@ describe("reading threads", () => {
 		expect(thread.anchor?.subject === "line" && thread.anchor.blob).toBe("old");
 	});
 
+	it("reads a whole-file remark as one, not as a remark on line 1", async () => {
+		// GitHub answers `line: 1` for a file-level comment, so reading the
+		// line first meant posting a remark about a file, reading it back, and
+		// reporting it somewhere it was never aimed. Nobody would catch that
+		// from a listing: line 1 is a plausible place to have said something.
+		// Found by driving it, after the write side already worked.
+		const aboutTheFile = { ...oneThread, subjectType: "FILE", line: 1 };
+		const { gh } = provider([
+			{
+				when: ["reviewThreads"],
+				stdout: threadPage([aboutTheFile], {
+					hasNextPage: false,
+					endCursor: null,
+				}),
+			},
+		]);
+		const [thread] = (await gh.conversation?.threads(ref)) ?? [];
+		expect(thread.anchor?.subject).toBe("file");
+	});
+
+	it("still reads a line remark as a line remark", async () => {
+		// The other half, since a check for one value is half a check.
+		const onALine = { ...oneThread, subjectType: "LINE" };
+		const { gh } = provider([
+			{
+				when: ["reviewThreads"],
+				stdout: threadPage([onALine], {
+					hasNextPage: false,
+					endCursor: null,
+				}),
+			},
+		]);
+		const [thread] = (await gh.conversation?.threads(ref)) ?? [];
+		expect(thread.anchor?.subject).toBe("line");
+	});
+
 	it("reports an outdated thread as stale", async () => {
 		const stranded = { ...oneThread, isOutdated: true, line: null };
 		const { gh } = provider([

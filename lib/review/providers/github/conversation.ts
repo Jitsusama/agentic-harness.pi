@@ -49,6 +49,7 @@ const THREADS_QUERY = `query PrReviewThreads($owner: String!, $repo: String!, $n
           id
           isResolved
           isOutdated
+          subjectType
           path
           line
           startLine
@@ -182,6 +183,14 @@ function messageFromThreadComment(raw: Record<string, unknown>): Message {
 function anchorOf(raw: Record<string, unknown>): Anchor | undefined {
 	const path = str(raw.path);
 	if (!path) return undefined;
+
+	// A remark about the whole file says so, and GitHub answers `line: 1` for
+	// one anyway. Reading the line first made a file-level remark come back as
+	// a remark on the first line: we would post one, read it back, and report
+	// it somewhere it was never aimed. Nobody would notice from the listing,
+	// since line 1 of a file is a plausible place to have said something.
+	if (str(raw.subjectType) === "FILE") return { subject: "file", path };
+
 	const line = raw.line;
 	if (typeof line !== "number") {
 		// GitHub nulls the line when a force-push strands the
