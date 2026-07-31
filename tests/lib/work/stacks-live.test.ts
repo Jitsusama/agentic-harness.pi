@@ -2,23 +2,31 @@
  * A stack, against a real repository.
  *
  * The unit tests prove the argv. This proves the argv was the right argv, which
- * is a different claim and the one that has repeatedly turned out to be false
- * here: a fake answers whatever it was told to, so a replay that duplicates
- * every commit its parent carries passes a fake and ruins a repository.
+ * is a different claim and the one that keeps turning out to be false here: a
+ * fake answers whatever it was told to, so a replay that hands every branch its
+ * parent's commits passes a fake and ruins a repository. Four faults in the
+ * stack adapter were invisible to a green fake and appeared on the first real
+ * repo, which is why this file exists.
  *
- * So this builds three branches, moves trunk under them, restacks, and counts
- * the commits. A duplicated commit is the specific failure worth a real repo.
+ * The stacked repo is built once and copied, the way the shared fixture builds
+ * its template, and for the same reason. Building it per test cost about a dozen
+ * process spawns each, and spawns are what this suite starves on: a supervisor
+ * test elsewhere drives a child process and loses its budget when the machine is
+ * busy. A test file that makes an unrelated file flaky is a test file with a bug
+ * in it.
  */
 
 import { execFile } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createGitRebaser } from "../../../lib/work/rebase.js";
 import {
+	createGitPublisher,
+	createGitRebaser,
 	createGitStacks,
 	type RestackOutcome,
-} from "../../../lib/work/stacks.js";
+} from "../../../lib/work/index.js";
 import { disposeRepo, freshRepo, git } from "../../support/git-fixture.js";
 
 /** An exec over real processes, shaped the way the library expects. */
@@ -65,35 +73,66 @@ async function mustRestack(
 }
 
 const built: string[] = [];
-
-afterEach(async () => {
-	for (const dir of built.splice(0)) await disposeRepo(dir);
+afterEach(() => {
+	for (const dir of built.splice(0)) disposeRepo(dir);
 });
 
+/** Commit one new file, which is two spawns rather than three. */
+async function commitFile(
+	dir: string,
+	name: string,
+	subject: string,
+): Promise<void> {
+	writeFileSync(join(dir, name), `${name}\n`);
+	await git(dir, "add", name);
+	await git(dir, "commit", "-qm", subject);
+}
+
+/** The memoized stacked template, built at most once per worker. */
+let stacked: Promise<string> | undefined;
+
 /**
- * Three branches stacked on each other, then trunk moves under all of them.
+ * Three branches each on the one below, then trunk moves under all of them.
  *
- * Each branch adds its own file, so a conflict is not what is being tested and
- * a duplicated commit is easy to count.
+ * Each branch adds its own file, so a conflict is not what is being tested and a
+ * duplicated commit is easy to count.
  */
-async function threeHigh(): Promise<string> {
-	const dir = await freshRepo("stack");
-	built.push(dir);
+async function buildStacked(): Promise<string> {
+	const dir = await freshRepo("stacked-template");
 	for (const name of ["a", "b", "c"]) {
 		await git(dir, "checkout", "-qb", name);
-		writeFileSync(join(dir, `${name}.txt`), `${name}\n`);
-		await git(dir, "add", `${name}.txt`);
-		await git(dir, "commit", "-qm", `${name} work`);
+		await commitFile(dir, `${name}.txt`, `${name} work`);
 	}
 	await git(dir, "checkout", "-q", "main");
-	writeFileSync(join(dir, "trunk.txt"), "moved\n");
-	await git(dir, "add", "trunk.txt");
-	await git(dir, "commit", "-qm", "trunk moves");
+	await commitFile(dir, "trunk.txt", "trunk moves");
 	return dir;
 }
 
-/** Commit subjects on a branch, newest first. */
-async function log(dir: string, ref: string): Promise<string[]> {
+/** A private copy of the stacked repo, with nothing tracked yet. */
+async function threeHigh(): Promise<string> {
+	stacked ??= buildStacked();
+	const source = await stacked;
+	const dir = mkdtempSync(join(tmpdir(), "stack-"));
+	cpSync(source, dir, { recursive: true });
+	built.push(dir);
+	return dir;
+}
+
+/** The same three branches, tracked as a stack. */
+async function tracked(): Promise<{
+	dir: string;
+	stacks: ReturnType<typeof stacksIn>;
+}> {
+	const dir = await threeHigh();
+	const stacks = stacksIn();
+	await stacks.track(dir, "a");
+	await stacks.track(dir, "b", "a");
+	await stacks.track(dir, "c", "b");
+	return { dir, stacks };
+}
+
+/** Commit subjects on a ref, newest first. */
+async function subjects(dir: string, ref: string): Promise<string[]> {
 	const said = await git(dir, "log", "--format=%s", ref);
 	return said.split("\n").filter((one) => one !== "");
 }
@@ -107,39 +146,28 @@ describe("a stack in a real repository", () => {
 		await stacks.track(dir, "b", "a");
 
 		// Visible to anybody with git, not just to this package.
-		const said = await git(dir, "config", "--get", "branch.b.workParent");
-		expect(said).toBe("a");
+		expect(await git(dir, "config", "--get", "branch.b.workParent")).toBe("a");
 
 		await git(dir, "branch", "-D", "b");
-		const after = await stacks.read(dir);
-		expect(after.map((one) => one.name)).not.toContain("b");
+		expect((await stacks.read(dir)).map((one) => one.name)).not.toContain("b");
 	});
 
 	it("replays the whole stack onto trunk without duplicating a commit", async () => {
 		// The failure this exists to catch: replaying without the recorded base
-		// hands each branch every commit its parent already carries, so `c`
-		// ends up with two copies of `b work`.
-		const dir = await threeHigh();
-		const stacks = stacksIn();
-		await stacks.track(dir, "a");
-		await stacks.track(dir, "b", "a");
-		await stacks.track(dir, "c", "b");
+		// hands each branch every commit its parent already carries, so `c` ends
+		// up with two copies of `b work`.
+		const { dir, stacks } = await tracked();
 
 		await mustRestack(stacks, dir, "main");
 
-		const subjects = await log(dir, "c");
-		expect(subjects.filter((one) => one === "b work")).toHaveLength(1);
-		expect(subjects.filter((one) => one === "a work")).toHaveLength(1);
-		// And trunk's commit is now underneath all of it.
-		expect(subjects).toContain("trunk moves");
+		const held = await subjects(dir, "c");
+		expect(held.filter((one) => one === "b work")).toHaveLength(1);
+		expect(held.filter((one) => one === "a work")).toHaveLength(1);
+		expect(held).toContain("trunk moves");
 	});
 
 	it("leaves each branch sitting on the one below it", async () => {
-		const dir = await threeHigh();
-		const stacks = stacksIn();
-		await stacks.track(dir, "a");
-		await stacks.track(dir, "b", "a");
-		await stacks.track(dir, "c", "b");
+		const { dir, stacks } = await tracked();
 
 		await mustRestack(stacks, dir, "main");
 
@@ -150,64 +178,49 @@ describe("a stack in a real repository", () => {
 			["a", "b"],
 			["b", "c"],
 		]) {
-			const merged = await git(dir, "branch", "--contains", parent);
-			expect(merged).toContain(child);
+			expect(await git(dir, "branch", "--contains", parent)).toContain(child);
 		}
 	});
 
 	it("puts the tree back on the branch it started on", async () => {
-		const dir = await threeHigh();
-		const stacks = stacksIn();
-		await stacks.track(dir, "a");
-		await stacks.track(dir, "b", "a");
+		const { dir, stacks } = await tracked();
 		await git(dir, "checkout", "-q", "b");
 
-		await stacks.restack(dir, "main");
+		await mustRestack(stacks, dir, "main");
 
 		expect(await git(dir, "rev-parse", "--abbrev-ref", "HEAD")).toBe("b");
 	});
 
 	it("is a no-op the second time, because the base was recorded", async () => {
-		const dir = await threeHigh();
-		const stacks = stacksIn();
-		await stacks.track(dir, "a");
-		await stacks.track(dir, "b", "a");
-		await stacks.restack(dir, "main");
+		const { dir, stacks } = await tracked();
+		await mustRestack(stacks, dir, "main");
 
-		const again = await stacks.restack(dir, "main");
+		const again = await mustRestack(stacks, dir, "main");
 
-		if (again.kind !== "restacked") throw new Error("expected a restack");
 		expect(again.results.every((one) => one.outcome === "already-there")).toBe(
 			true,
 		);
 	});
 
 	it("reorders a stack, and the commits follow after a restack", async () => {
-		const dir = await threeHigh();
-		const stacks = stacksIn();
-		await stacks.track(dir, "a");
-		await stacks.track(dir, "b", "a");
-		await stacks.track(dir, "c", "b");
-		await stacks.restack(dir, "main");
+		const { dir, stacks } = await tracked();
+		await mustRestack(stacks, dir, "main");
 
-		const shaped = await stacks.reorder(dir, ["a", "c", "b"]);
-		expect(shaped.kind).toBe("shaped");
-		await stacks.restack(dir, "main");
+		expect((await stacks.reorder(dir, ["a", "c", "b"])).kind).toBe("shaped");
+		await mustRestack(stacks, dir, "main");
 
 		// `b` now sits above `c`, so its history carries c's commit and not the
 		// other way round.
-		expect(await log(dir, "b")).toContain("c work");
-		expect(await log(dir, "c")).not.toContain("b work");
+		expect(await subjects(dir, "b")).toContain("c work");
+		expect(await subjects(dir, "c")).not.toContain("b work");
 	});
 
 	it("halts on a real conflict and names the file", async () => {
 		const dir = await freshRepo("conflict");
 		built.push(dir);
-		// Both branches touch the same line, which is what makes a replay stop.
+		// Both branches touch the same file, which is what makes a replay stop.
 		await git(dir, "checkout", "-qb", "lower");
-		writeFileSync(join(dir, "shared.txt"), "lower\n");
-		await git(dir, "add", "shared.txt");
-		await git(dir, "commit", "-qm", "lower writes");
+		await commitFile(dir, "shared.txt", "lower writes");
 		await git(dir, "checkout", "-q", "main");
 		writeFileSync(join(dir, "shared.txt"), "trunk\n");
 		await git(dir, "add", "shared.txt");
@@ -222,9 +235,92 @@ describe("a stack in a real repository", () => {
 		expect(outcome.at).toBe("lower");
 		expect(outcome.conflicted).toContain("shared.txt");
 
-		// And the halt is real: git agrees a rebase is in progress, which is
-		// what resume and abandon act on.
-		expect(await createGitRebaser({ exec }).halted(dir)).toBe(true);
-		await createGitRebaser({ exec }).abandon(dir);
+		// And the halt is real: git agrees a rebase is in progress, which is what
+		// resume and abandon act on.
+		const rebaser = createGitRebaser({ exec });
+		expect(await rebaser.halted(dir)).toBe(true);
+		await rebaser.abandon(dir);
+	});
+});
+
+describe("publishing against a real remote", () => {
+	it("sets upstream the first time, and says so the second", async () => {
+		const remote = await freshRepo("remote");
+		built.push(remote);
+		await git(remote, "config", "core.bare", "true");
+		const dir = await freshRepo("local");
+		built.push(dir);
+		await git(dir, "remote", "add", "origin", remote);
+		await git(dir, "checkout", "-qb", "topic");
+		await commitFile(dir, "work.txt", "some work");
+
+		const publisher = createGitPublisher({ exec });
+
+		expect(await publisher.push(dir)).toMatchObject({
+			kind: "published",
+			tracked: true,
+		});
+		// Git itself confirms the tracking, rather than us believing our argv.
+		expect(
+			await git(dir, "rev-parse", "--abbrev-ref", "topic@{upstream}"),
+		).toBe("origin/topic");
+		// A second push with nothing new says so rather than claiming a publish.
+		expect(await publisher.push(dir)).toMatchObject({ kind: "already-there" });
+	});
+
+	it("refuses a branch with nowhere to go", async () => {
+		const dir = await freshRepo("nowhere");
+		built.push(dir);
+
+		const outcome = await createGitPublisher({ exec }).push(dir);
+
+		expect(outcome).toMatchObject({ kind: "refused" });
+		if (outcome.kind !== "refused") return;
+		expect(outcome.reason).toMatch(/remote/);
+	});
+});
+
+describe("syncing a stack", () => {
+	it("fetches trunk into the local ref, then replays onto where it moved", async () => {
+		// The failure this verb exists to prevent: a bare fetch updates
+		// `origin/main` and leaves `main` where it was, so a restack replays onto
+		// a trunk as stale as the one it started on and reports success.
+		const upstream = await freshRepo("upstream");
+		built.push(upstream);
+		const dir = await freshRepo("consumer");
+		built.push(dir);
+		await git(dir, "remote", "add", "origin", upstream);
+		await git(dir, "checkout", "-qb", "topic");
+		await commitFile(dir, "mine.txt", "my work");
+		const stacks = stacksIn();
+		await stacks.track(dir, "topic");
+
+		// Somebody else lands on trunk upstream.
+		await commitFile(upstream, "theirs.txt", "their work");
+
+		const synced = await stacks.sync(dir, "main");
+
+		expect(synced).toMatchObject({ kind: "synced", moved: true });
+		if (synced.kind !== "synced") return;
+		expect(synced.replay.kind).toBe("restacked");
+		// The local trunk really moved, and the branch really sits on it.
+		expect(await subjects(dir, "main")).toContain("their work");
+		expect(await subjects(dir, "topic")).toContain("their work");
+	});
+
+	it("refuses rather than replaying onto a trunk it could not fetch", async () => {
+		// Carrying on would replay onto a stale trunk and call that success.
+		const dir = await freshRepo("noremote");
+		built.push(dir);
+		const stacks = stacksIn();
+		await git(dir, "checkout", "-qb", "topic");
+		await commitFile(dir, "mine.txt", "my work");
+		await stacks.track(dir, "topic");
+
+		const outcome = await stacks.sync(dir, "main");
+
+		expect(outcome).toMatchObject({ kind: "refused" });
+		if (outcome.kind !== "refused") return;
+		expect(outcome.reason).toContain("nothing was moved");
 	});
 });

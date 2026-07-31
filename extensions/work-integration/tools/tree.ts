@@ -78,10 +78,11 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 						Type.Literal("reparent"),
 						Type.Literal("reorder"),
 						Type.Literal("restack"),
+						Type.Literal("sync"),
 					],
 					{
 						description:
-							"tree: cut a worktree at a branch. snapshot: pin a snapshot at a commit. trees: list what this session holds. release: give a tree back. status: what has changed inside a tree. record: stage and commit the work in a tree. branch: make a branch in a tree and check it out. push: publish the branch, setting upstream the first time. rebase: replay the branch onto another ref, reporting a conflict as a halt rather than a failure. resume: carry a halted replay on once the conflicts are settled. abandon: put the tree back the way it was before a halted replay. stack: show what sits on what. track: record that a branch sits on another, or on trunk. untrack: forget a branch, moving whatever sat on it down. reparent: point a branch at a different parent. reorder: rearrange a chain into the order you name, lowest first. restack: replay every tracked branch onto trunk, in order, stopping at the first halt. Defaults to trees.",
+							"tree: cut a worktree at a branch. snapshot: pin a snapshot at a commit. trees: list what this session holds. release: give a tree back. status: what has changed inside a tree. record: stage and commit the work in a tree. branch: make a branch in a tree and check it out. push: publish the branch, setting upstream the first time. rebase: replay the branch onto another ref, reporting a conflict as a halt rather than a failure. resume: carry a halted replay on once the conflicts are settled. abandon: put the tree back the way it was before a halted replay. stack: show what sits on what. track: record that a branch sits on another, or on trunk. untrack: forget a branch, moving whatever sat on it down. reparent: point a branch at a different parent. reorder: rearrange a chain into the order you name, lowest first. restack: replay every tracked branch onto trunk, in order, stopping at the first halt. sync: fetch trunk and then restack onto where it now is, which is the daily operation and one verb because doing half of it replays the stack onto a trunk as stale as before. Defaults to trees.",
 					},
 				),
 			),
@@ -195,7 +196,8 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 					| "untrack"
 					| "reparent"
 					| "reorder"
-					| "restack";
+					| "restack"
+					| "sync";
 				repo?: string;
 				checkout?: string;
 				remote?: string;
@@ -395,7 +397,8 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 					action === "untrack" ||
 					action === "reparent" ||
 					action === "reorder" ||
-					action === "restack"
+					action === "restack" ||
+					action === "sync"
 				) {
 					const exec = execFor(pi);
 					const stacks = createGitStacks({

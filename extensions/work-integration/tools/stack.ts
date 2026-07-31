@@ -85,7 +85,14 @@ export async function runStackAction(
 	_pi: ExtensionAPI,
 	stacks: WorkStacks,
 	tree: { path: string; identity: { key: string } },
-	action: "stack" | "track" | "untrack" | "reparent" | "reorder" | "restack",
+	action:
+		| "stack"
+		| "track"
+		| "untrack"
+		| "reparent"
+		| "reorder"
+		| "restack"
+		| "sync",
 	args: {
 		name?: string;
 		onto?: string;
@@ -175,10 +182,27 @@ export async function runStackAction(
 	const trunk = args.trunk;
 	if (trunk === undefined) {
 		return refuse(
-			`${GLYPH.refused} Say what the bottom of the stack sits on, with trunk. A restack replays every tracked branch, and guessing the base would rewrite all of them onto the wrong thing.`,
+			`${GLYPH.refused} Say what the bottom of the stack sits on, with trunk. A ${action} replays every tracked branch, and guessing the base would rewrite all of them onto the wrong thing.`,
 		);
 	}
-	const outcome = await stacks.restack(tree.path, trunk);
+
+	let fetched: string | undefined;
+	let outcome: Awaited<ReturnType<typeof stacks.restack>>;
+	if (action === "sync") {
+		const synced = await stacks.sync(tree.path, trunk);
+		if (synced.kind === "refused") {
+			return refuse(`${GLYPH.refused} ${synced.reason}`);
+		}
+		// Whether the fetch moved anything is worth saying either way: an
+		// unchanged trunk explains why nothing needed replaying, and a moved one
+		// explains why everything did.
+		fetched = synced.moved
+			? `${trunk} moved, so the stack needed replaying.`
+			: `${trunk} was already up to date.`;
+		outcome = synced.replay;
+	} else {
+		outcome = await stacks.restack(tree.path, trunk);
+	}
 	if (outcome.kind === "refused") {
 		return refuse(`${GLYPH.refused} ${outcome.reason}`);
 	}
@@ -188,6 +212,7 @@ export async function runStackAction(
 	if (outcome.kind === "halted") {
 		return refuse(
 			[
+				...(fetched === undefined ? [] : [`${GLYPH.stack} ${fetched}`, ""]),
 				`${GLYPH.refused} Restack halted at ${outcome.at}.`,
 				...outcome.results.map(replayLine),
 				"",
@@ -202,6 +227,7 @@ export async function runStackAction(
 	).length;
 	return say(
 		[
+			...(fetched === undefined ? [] : [`${GLYPH.stack} ${fetched}`]),
 			moved === 0
 				? `${GLYPH.clean} Every branch was already in place. Nothing to replay.`
 				: `${GLYPH.stack} Restacked ${moved} of ${outcome.results.length} onto ${trunk}.`,

@@ -84,6 +84,7 @@ export type {
 	ReplayResult,
 	RestackOutcome,
 	ShapeOutcome,
+	SyncOutcome,
 	WorkStacks,
 } from "./stacks.js";
 export { createGitStacks } from "./stacks.js";

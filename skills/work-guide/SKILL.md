@@ -166,12 +166,21 @@ stack whose record and commits disagree looks correct in a
 listing and is wrong in the repository.
 
 ```
-work restack tree:… trunk:main
+work sync tree:… trunk:main       # the daily one
+work restack tree:… trunk:main    # when trunk is already current
 ```
 
-`trunk` is required for the same reason `onto` is: a restack
-replays every tracked branch, so a guessed base rewrites all
-of them onto the wrong thing.
+**Reach for `sync`.** It fetches trunk and then replays onto
+where it moved to, and it is one verb because doing half of it
+is the mistake: restacking without fetching replays the stack
+onto a trunk as stale as the one it was already on, reports
+success, and leaves everything exactly as behind as it was. It
+says whether trunk actually moved, which is what explains why
+anything did or did not need replaying.
+
+`trunk` is required for both, for the same reason `onto` is: a
+restack replays every tracked branch, so a guessed base
+rewrites all of them onto the wrong thing.
 
 A restack replays in order, roots first, and each branch from
 the base it was last aligned at. That boundary is what

@@ -104,7 +104,26 @@ export interface WorkStacks {
 	reorder(treePath: string, desired: readonly string[]): Promise<ShapeOutcome>;
 	/** Replay the whole stack onto trunk, in order. */
 	restack(treePath: string, trunk: string): Promise<RestackOutcome>;
+	/**
+	 * Fetch trunk, then replay the stack onto where it now is.
+	 *
+	 * The daily operation, and one verb rather than two because doing half of it
+	 * is the mistake: restacking without fetching replays the stack onto a trunk
+	 * as stale as the one it was already on, reports success, and leaves
+	 * everything exactly as behind as it was.
+	 */
+	sync(treePath: string, trunk: string): Promise<SyncOutcome>;
 }
+
+/** How a sync went. */
+export type SyncOutcome =
+	| {
+			kind: "synced";
+			/** True when fetching actually moved trunk. */
+			moved: boolean;
+			replay: RestackOutcome;
+	  }
+	| { kind: "refused"; reason: string };
 
 /** Read one git value, scoped to the tree. */
 async function ask(
@@ -437,6 +456,41 @@ export function createGitStacks(deps: {
 				kind: "restacked",
 				results,
 				...(started === undefined || started === "HEAD" ? {} : { on: started }),
+			};
+		},
+
+		async sync(treePath, trunk) {
+			const before = await tipOf(treePath, trunk);
+
+			// The branch is fetched by name so the local ref moves, not only the
+			// remote-tracking one. A bare fetch updates `origin/main` and leaves
+			// `main` where it was, and replaying onto a local trunk that never
+			// moved is precisely the failure this verb exists to prevent.
+			const fetched = await exec("git", [
+				"-C",
+				treePath,
+				"fetch",
+				"origin",
+				`${trunk}:${trunk}`,
+			]);
+			if (fetched.code !== 0) {
+				const said = [fetched.stderr.trim(), fetched.stdout.trim()]
+					.filter((stream) => stream !== "")
+					.join("\n");
+				// A failed fetch stops the sync. Carrying on would replay the stack
+				// onto a trunk as stale as the one it started on and call that
+				// success, which is worse than doing nothing and saying so.
+				return {
+					kind: "refused",
+					reason: `Could not fetch ${trunk} from origin, so there is nothing newer to replay onto and nothing was moved.\n\n${said || `git fetch exited ${fetched.code}`}`,
+				};
+			}
+
+			const after = await tipOf(treePath, trunk);
+			return {
+				kind: "synced",
+				moved: before !== after,
+				replay: await this.restack(treePath, trunk),
 			};
 		},
 	};
