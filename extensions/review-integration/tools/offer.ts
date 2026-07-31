@@ -295,6 +295,32 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 				const bound = await boundFor(pi, params, process.cwd());
 				const authoring = bound.provider.authoring;
 
+				// Proposing takes its repo from whatever change is attached,
+				// because there is no path that resolves the repo you are
+				// standing in to the system hosting it: `fromLocal` mints a
+				// `local:` key, which the plain git provider claims and which has
+				// no authoring facet at all.
+				//
+				// For every other action that is right, and it is the point of
+				// having an attachment. For proposing it is wrong whenever it
+				// disagrees with the checkout, because the branch being proposed
+				// only exists in the repo it was committed in. Reading a change
+				// on one backend and then proposing from a checkout of another
+				// would offer the local branch to the attached repo, and nothing
+				// said so: the gate named a head and a base and never a repo, so
+				// the only clue was a base branch that looked ordinary.
+				//
+				// Refused rather than quietly corrected, since the right answer
+				// is not available here to substitute.
+				if (params.action === "propose" || params.action === "propose-stack") {
+					const elsewhere = await proposingElsewhere(
+						pi,
+						params.repo ?? process.cwd(),
+						bound,
+					);
+					if (elsewhere) return refuse(elsewhere);
+				}
+
 				// Where the change stands with a merge queue, read from the
 				// provider rather than taken on the caller's word. This is the
 				// line that was missing: the refusal below has always been able
@@ -486,6 +512,55 @@ async function checkoutFacts(
 }
 
 /**
+ * A refusal when the repo being proposed to is not the one you are in.
+ *
+ * The repo comes from the attached change, and the branch comes from the
+ * checkout, so the two can disagree and the result is a proposal offering a
+ * branch to a repo that does not have it. The backend's own refusal for that
+ * is about a missing ref and says nothing about why.
+ *
+ * The comparison is deliberately coarse: a hosted repo's key ends in the
+ * owner and name the backend knows it by, and a remote URL for that repo
+ * contains the same pair however it is spelled, ssh or https. Anything more
+ * exact would need a URL parser per backend, and this only has to catch a
+ * disagreement, not adjudicate a match.
+ *
+ * Says nothing when there is no remote to compare against, since a checkout
+ * with no origin is a legitimate place to propose from: the work may be going
+ * up to a repo this clone has never spoken to.
+ */
+export async function proposingElsewhere(
+	pi: Pick<ExtensionAPI, "exec">,
+	cwd: string,
+	bound: Pick<BoundTarget, "repo">,
+): Promise<string | undefined> {
+	const slug = bound.repo.key.split(":").slice(1).join(":");
+	if (slug === "" || bound.repo.key.startsWith("local:")) return undefined;
+
+	let remote: string | undefined;
+	try {
+		const result = await pi.exec("git", [
+			"-C",
+			cwd,
+			"remote",
+			"get-url",
+			"origin",
+		]);
+		remote = result.code === 0 ? result.stdout.trim() : undefined;
+	} catch {
+		// Not a repo, or no git. Nothing to compare, so nothing to say.
+		return undefined;
+	}
+	if (!remote || remote === "") return undefined;
+
+	// Trailing .git and a trailing slash are spellings, not differences.
+	const tidied = remote.replace(/\.git$/, "").replace(/\/$/, "");
+	if (tidied.toLowerCase().includes(slug.toLowerCase())) return undefined;
+
+	return `This checkout is ${tidied}, and the change in play is on ${bound.repo.key}, so a branch here cannot be proposed there. Detach that change, or name the repo to propose from with repo.`;
+}
+
+/**
  * The subject of a branch's tip commit, for naming its change.
  *
  * One call per branch rather than a walk of the whole stack, because the
@@ -593,9 +668,10 @@ async function proposeStack(
 		ctx,
 		`Propose ${heads.length} changes as a stack?`,
 		[
+			`${GLYPH.target} on ${bound.repo.key}`,
 			...drafts.map(
 				(one, at) =>
-					`${GLYPH.target} ${at + 1}. ${one.title}\n   ${one.head} \u2192 ${one.base}`,
+					`   ${at + 1}. ${one.title}\n      ${one.head} \u2192 ${one.base}`,
 			),
 			"",
 			// Said plainly, because a stack is the case where a partial
@@ -656,7 +732,10 @@ async function propose(
 		`Propose ${head} onto ${base}?`,
 		[
 			`${GLYPH.target} ${title}${params.draft ? " (draft)" : ""}`,
-			`   ${head} → ${base}`,
+			// The repo is named because it is the one thing here not taken from
+			// the checkout, so it is the one thing a reader cannot verify by
+			// knowing where they are standing.
+			`   ${head} → ${base} on ${bound.repo.key}`,
 			...(body ? ["", body] : []),
 			...(params.reviewers?.length
 				? ["", `Asking: ${params.reviewers.join(", ")}`]
