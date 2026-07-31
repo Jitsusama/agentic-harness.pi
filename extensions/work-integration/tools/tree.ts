@@ -541,6 +541,13 @@ async function replay(
 				{ ok: true, branch: outcome.branch },
 			);
 		}
+		// The replay landed, so the stack's record of where this branch sits is now
+		// out of date, and only a restack that ran to completion used to update it. A
+		// halt settled by hand is the documented way out of the commonest failure
+		// here, and it left the boundary describing the branch as it was before the
+		// replay: the next restack then measured from there and handed the branch
+		// copies of its parent's history.
+		await createGitStacks({ exec, rebaser }).settled(found.path);
 		return say(`${GLYPH.tree} ${outcome.branch} replayed.`, {
 			ok: true,
 			branch: outcome.branch,

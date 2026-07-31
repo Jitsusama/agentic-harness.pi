@@ -50,6 +50,14 @@ const holding: Reply[] = [
 	},
 	{ when: ["rev-parse", "--abbrev-ref", "HEAD"], stdout: "c\n" },
 	{ when: ["rev-parse", "--verify"], stdout: "tip0\n" },
+	// Answered before the plain merge-base below, because a reply matches when every
+	// fragment appears among the args and the looser one therefore also matches this
+	// call. It did, and it answered zero, which reads as "the branch already carries
+	// its parent" and had the restack skip every branch in the stack.
+	//
+	// One says not an ancestor, which is the ordinary case for a branch waiting to be
+	// replayed: its parent has moved and it does not carry the new tip yet.
+	{ when: ["merge-base", "--is-ancestor"], code: 1 },
 	{ when: ["merge-base"], stdout: "mb0\n" },
 	{ when: ["checkout"], code: 0 },
 	{ when: ["config", "branch."], code: 0 },

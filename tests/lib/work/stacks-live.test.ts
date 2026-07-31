@@ -530,3 +530,96 @@ describe("telling a drifted branch from an aligned one", () => {
 		expect(standing.drifted).not.toContain("a");
 	}, 30_000);
 });
+
+describe("a restack that halted and was settled by hand", () => {
+	// The worst bug this surface has had, and it took driving the tool to find. The
+	// boundary between a branch's commits and its parent's was written only by a
+	// restack that ran to completion. A restack that halts is settled by resuming,
+	// resume belongs to the rebaser, and the rebaser knows nothing about stacks, so
+	// the record stayed as it was before the replay. The next restack then measured
+	// the replay from a boundary below its parent's history and handed the branch
+	// copies of it, conflicting on each one. That is what it looked like from
+	// outside: a restack that conflicted four times over one file against a trunk
+	// the branch had already been replayed onto.
+	it("does not replay a branch that is already in place", async () => {
+		const { dir, stacks } = await tracked();
+		// A stale record, exactly as a settled halt used to leave one: the branch
+		// genuinely sits on trunk, and the record says it sits further back.
+		await mustRestack(stacks, dir, "main");
+		await git(
+			dir,
+			"config",
+			"branch.a.workbase",
+			await git(dir, "rev-parse", "main~1"),
+		);
+
+		const again = await mustRestack(stacks, dir, "main");
+
+		expect(again.results.find((one) => one.branch === "a")).toMatchObject({
+			outcome: "already-there",
+		});
+	}, 30_000);
+
+	it("does not hand a branch copies of its parent's commits", async () => {
+		// The consequence the skip prevents, asserted on the commits rather than on
+		// the outcome word, because "already-there" is only the right answer if what
+		// follows leaves the branch alone.
+		const { dir, stacks } = await tracked();
+		await mustRestack(stacks, dir, "main");
+		const before = await subjects(dir, "a");
+		await git(
+			dir,
+			"config",
+			"branch.a.workbase",
+			await git(dir, "rev-parse", "main~1"),
+		);
+
+		await mustRestack(stacks, dir, "main");
+
+		expect(await subjects(dir, "a")).toEqual(before);
+	}, 30_000);
+
+	it("reads alignment from the commits, not from what was written down", async () => {
+		const { dir, stacks } = await tracked();
+		await mustRestack(stacks, dir, "main");
+		await git(
+			dir,
+			"config",
+			"branch.a.workbase",
+			await git(dir, "rev-parse", "main~1"),
+		);
+
+		const standing = await stacks.drifted(dir, "main");
+
+		expect(standing.drifted).not.toContain("a");
+	}, 30_000);
+
+	it("writes the boundary down when a replay is settled outside a restack", async () => {
+		// The other half. Reading alignment from the commits stops the damage, but
+		// the record is still what a replay is measured from, so it has to be
+		// repaired or the next trunk move measures from the wrong place again.
+		const { dir, stacks } = await tracked();
+		await git(
+			dir,
+			"config",
+			"branch.b.workbase",
+			await git(dir, "rev-parse", "main~1"),
+		);
+
+		await git(dir, "checkout", "-q", "b");
+		await stacks.settled(dir);
+
+		expect(await git(dir, "config", "branch.b.workbase")).toBe(
+			await git(dir, "merge-base", "a", "b"),
+		);
+	}, 30_000);
+
+	it("leaves an untracked branch alone rather than refusing", async () => {
+		// Called on the way out of an operation that already succeeded, so it has no
+		// standing to fail one.
+		const dir = await threeHigh();
+		const stacks = stacksIn();
+
+		await expect(stacks.settled(dir, "c")).resolves.toBeUndefined();
+	}, 30_000);
+});

@@ -119,6 +119,26 @@ export interface WorkStacks {
 	 * says it does not know.
 	 */
 	drifted(treePath: string, trunk?: string): Promise<DriftReport>;
+	/**
+	 * Record where a branch sits, after a replay this object did not run.
+	 *
+	 * The boundary between a branch's commits and its parent's is written by a
+	 * restack as it goes, which is fine until a restack halts. The way out of a halt
+	 * is to settle the conflict and resume, and resume belongs to the rebaser, which
+	 * knows nothing about stacks and so recorded nothing. That is the documented
+	 * recovery from the commonest failure here, and it left the record describing a
+	 * branch as it was several commits ago.
+	 *
+	 * The consequence was not a wrong label. The next restack measured the replay
+	 * from that stale boundary, which sat below six of trunk's own commits, and so
+	 * handed the branch copies of trunk's history and a conflict on each one.
+	 *
+	 * Naming no branch means the one checked out, which is where a resume leaves you.
+	 * Untracked branches are ignored rather than refused: this is called on the way
+	 * out of an operation that has already succeeded, and it has no standing to fail
+	 * it.
+	 */
+	settled(treePath: string, branch?: string): Promise<void>;
 	/** Replay the whole stack onto trunk, in order. */
 	restack(treePath: string, trunk: string): Promise<RestackOutcome>;
 	/**
@@ -259,6 +279,29 @@ export function createGitStacks(deps: {
 	}
 
 	/**
+	 * Whether one commit is reachable from another.
+	 *
+	 * False rather than undefined when git cannot read a ref, because every caller
+	 * here is asking in order to skip work, and an unreadable ref is not a reason to
+	 * believe there is none to do.
+	 */
+	async function isAncestor(
+		treePath: string,
+		maybe: string,
+		of: string,
+	): Promise<boolean> {
+		const said = await exec("git", [
+			"-C",
+			treePath,
+			"merge-base",
+			"--is-ancestor",
+			maybe,
+			of,
+		]);
+		return said.code === 0;
+	}
+
+	/**
 	 * Whether a branch still sits on what it is supposed to sit on.
 	 *
 	 * One rule, in one place, because two callers ask this: a restack, deciding
@@ -266,10 +309,33 @@ export function createGitStacks(deps: {
 	 * They were the same rule written once and read once, which is a rule waiting to
 	 * be changed in one place only.
 	 *
-	 * The recorded base is preferred over a merge base, and the difference matters
-	 * exactly when the parent has been rewritten: a merge base then finds the old
-	 * shared commit and calls the branch aligned with a parent it has never seen.
-	 * Undefined where neither ref resolves, which is not the same answer as aligned.
+	 * The record says where the boundary is, and the boundary being the parent's tip
+	 * is what aligned means. That cannot be replaced by asking the commits whether
+	 * the parent's tip is an ancestor: a reordered branch still contains its old
+	 * parent's tip while carrying commits that are no longer its own, so an ancestor
+	 * test calls it settled and skips the replay that would put it right. Tried, and
+	 * caught by the reorder test, which is the one place that distinction shows.
+	 *
+	 * But a record can be stale, and one stale case is not drift at all. It is only
+	 * written by a restack that ran to completion, so a replay finished any other
+	 * way leaves it describing a branch as it was, and that is the documented way out
+	 * of a halt. The damage was not a wrong label: the next restack measured from a
+	 * boundary sitting below six of trunk's own commits and handed the branch copies
+	 * of them, conflicting on every one.
+	 *
+	 * The two are distinguishable, which is the whole reason this can be fixed here
+	 * as well as at the source. A boundary that is itself an ancestor of the parent's
+	 * tip, on a branch that already contains that tip, is describing a world that no
+	 * longer exists: the branch has since been rebuilt on top of the parent, so there
+	 * is nothing to replay and replaying anyway is what duplicates the parent's
+	 * history. A reordered branch fails that test, because its boundary is its old
+	 * parent's tip, which is a descendant of the new parent rather than an ancestor.
+	 *
+	 * An earlier version of this comment claimed a merge base would call a branch
+	 * aligned with a parent it had never seen. That is not so, and it is worth saying
+	 * plainly: where a parent has been rewritten the merge base is the old shared
+	 * commit and the parent's tip is the new one, so they differ, which is the drifted
+	 * answer and the right one.
 	 */
 	async function standingOf(
 		treePath: string,
@@ -284,13 +350,18 @@ export function createGitStacks(deps: {
 			branch.base ??
 			(await ask(exec, treePath, ["merge-base", onto, branch.name]));
 		const tip = await tipOf(treePath, onto);
-		const standing =
-			from === undefined || tip === undefined
-				? "unknown"
-				: from === tip
-					? "aligned"
-					: "drifted";
-		return { standing, ...(from === undefined ? {} : { from }) };
+		if (from === undefined || tip === undefined) {
+			return { standing: "unknown", ...(from === undefined ? {} : { from }) };
+		}
+		if (from === tip) return { standing: "aligned", from };
+
+		// The record disagrees with the parent's tip, which is drift unless the record
+		// is the thing that is wrong. Two questions settle it, and both are cheap
+		// enough to ask only here, on the branch that looked out of step.
+		const holds = await isAncestor(treePath, onto, branch.name);
+		const beneath = await isAncestor(treePath, from, onto);
+		if (holds && beneath) return { standing: "aligned", from };
+		return { standing: "drifted", from };
 	}
 
 	/**
@@ -432,6 +503,23 @@ export function createGitStacks(deps: {
 				kind: "shaped",
 				changed: plan.steps.map((step) => step.branch),
 			};
+		},
+
+		async settled(treePath, branch) {
+			const which =
+				branch ??
+				(await ask(exec, treePath, ["rev-parse", "--abbrev-ref", "HEAD"]));
+			// Mid-replay HEAD is detached and answers "HEAD", which names no branch to
+			// record against. Nothing to do rather than something wrong.
+			if (which === undefined || which === "HEAD") return;
+			const held = await readStack(exec, treePath);
+			const one = held.find((candidate) => candidate.name === which);
+			if (one?.parent === undefined) return;
+			// Where the two now diverge, read from the commits. After a replay that
+			// landed, this is the parent's tip; asking the commits rather than assuming
+			// it keeps the answer right when the parent moved while the conflict was
+			// being settled.
+			await recordDivergence(treePath, which, one.parent);
 		},
 
 		async drifted(treePath, trunk) {
