@@ -43,6 +43,14 @@ export { blocksRepoint, createGitHistory } from "./history.js";
 export type { TreeProviderChoice, TreeProviderInfo } from "./provider.js";
 export { chooseTreeProvider } from "./provider.js";
 export { createGitTreeProvider } from "./providers/git.js";
+export type { PushOptions, PushOutcome, WorkPublisher } from "./publish.js";
+export { createGitPublisher } from "./publish.js";
+export type {
+	RebaseOutcome,
+	ResumeOutcome,
+	WorkRebaser,
+} from "./rebase.js";
+export { createGitRebaser } from "./rebase.js";
 export {
 	clearTreeProviders,
 	listTreeProviders,

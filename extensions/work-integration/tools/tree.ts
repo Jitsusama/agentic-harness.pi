@@ -19,6 +19,8 @@ import {
 	blocksRepoint,
 	createGitAuthor,
 	createGitHistory,
+	createGitPublisher,
+	createGitRebaser,
 	type HeldTree,
 	treeRequestFrom,
 } from "../../../lib/work/index.js";
@@ -63,10 +65,14 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 						Type.Literal("status"),
 						Type.Literal("record"),
 						Type.Literal("branch"),
+						Type.Literal("push"),
+						Type.Literal("rebase"),
+						Type.Literal("resume"),
+						Type.Literal("abandon"),
 					],
 					{
 						description:
-							"tree: cut a worktree at a branch. snapshot: pin a snapshot at a commit. trees: list what this session holds. release: give a tree back. status: what has changed inside a tree. record: stage and commit the work in a tree. branch: make a branch in a tree and check it out. Defaults to trees.",
+							"tree: cut a worktree at a branch. snapshot: pin a snapshot at a commit. trees: list what this session holds. release: give a tree back. status: what has changed inside a tree. record: stage and commit the work in a tree. branch: make a branch in a tree and check it out. push: publish the branch, setting upstream the first time. rebase: replay the branch onto another ref, reporting a conflict as a halt rather than a failure. resume: carry a halted replay on once the conflicts are settled. abandon: put the tree back the way it was before a halted replay. Defaults to trees.",
 					},
 				),
 			),
@@ -131,6 +137,18 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 						"Where a new branch starts, for branch. Defaults to where the tree already points.",
 				}),
 			),
+			onto: Type.Optional(
+				Type.String({
+					description:
+						"What to replay onto, for rebase. A branch, a tag or a commit.",
+				}),
+			),
+			replace: Type.Optional(
+				Type.Boolean({
+					description:
+						"For push: replace what the remote has, needed after a rebase. Always a lease, so it is refused rather than overwriting work that arrived since this tree last fetched.",
+				}),
+			),
 		}),
 		// The first argument is the tool call's id, not the arguments. Taking
 		// only one parameter here reads the id as the payload, which is a
@@ -146,7 +164,11 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 					| "release"
 					| "status"
 					| "record"
-					| "branch";
+					| "branch"
+					| "push"
+					| "rebase"
+					| "resume"
+					| "abandon";
 				repo?: string;
 				checkout?: string;
 				remote?: string;
@@ -159,6 +181,8 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 				body?: string;
 				name?: string;
 				from?: string;
+				onto?: string;
+				replace?: boolean;
 			};
 			const action = args.action ?? "trees";
 			const broker = treeBroker();
@@ -283,6 +307,42 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 					);
 				}
 
+				if (action === "push") {
+					const publisher = createGitPublisher({ exec: execFor(pi) });
+					const outcome = await publisher.push(
+						found.path,
+						args.replace ? { replace: true } : undefined,
+					);
+					if (outcome.kind === "refused") {
+						return refuse(`${GLYPH.refused} ${outcome.reason}`);
+					}
+					if (outcome.kind === "already-there") {
+						// Said rather than dressed as a push, because "published"
+						// about a no-op is how somebody concludes their commit went
+						// up when it did not.
+						return say(
+							`${GLYPH.clean} ${outcome.remote}/${outcome.branch} already has this. Nothing to publish.`,
+							{ ok: true, branch: outcome.branch, published: false },
+						);
+					}
+					const notes = [
+						outcome.tracked ? "tracking it from now on" : undefined,
+						outcome.replaced ? "replacing what was there" : undefined,
+					].filter((note) => note !== undefined);
+					return say(
+						`${GLYPH.tree} ${outcome.branch} published to ${outcome.remote}${notes.length > 0 ? `, ${notes.join(", ")}` : ""}.`,
+						{ ok: true, branch: outcome.branch, published: true },
+					);
+				}
+
+				if (
+					action === "rebase" ||
+					action === "resume" ||
+					action === "abandon"
+				) {
+					return await replay(pi, found, action, args.onto);
+				}
+
 				if (action === "status") {
 					const state = await history.status(found.path);
 					const head = await history.head(found.path);
@@ -331,4 +391,95 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 			return renderAnswer(result, theme);
 		},
 	});
+}
+
+/**
+ * Replay a branch, or end a replay that stopped.
+ *
+ * The three verbs live together because they are one state machine, and the
+ * halt is the state worth writing carefully: a caller who is told only that
+ * something failed has to work out from the repository itself whether a rebase
+ * is part-way through, which is exactly the knowledge the tool already had.
+ */
+async function replay(
+	pi: ExtensionAPI,
+	found: HeldTree,
+	action: "rebase" | "resume" | "abandon",
+	onto: string | undefined,
+): Promise<Answer> {
+	const rebaser = createGitRebaser({ exec: execFor(pi) });
+
+	if (action === "resume" || action === "abandon") {
+		const outcome =
+			action === "resume"
+				? await rebaser.resume(found.path)
+				: await rebaser.abandon(found.path);
+		if (outcome.kind === "refused") {
+			return refuse(`${GLYPH.refused} ${outcome.reason}`);
+		}
+		if (outcome.kind === "halted") {
+			return refuse(haltLines(outcome.conflicted));
+		}
+		if (outcome.kind === "abandoned") {
+			return say(
+				`${GLYPH.tree} Replay abandoned. ${outcome.branch} is back where it was.`,
+				{ ok: true, branch: outcome.branch },
+			);
+		}
+		return say(`${GLYPH.tree} ${outcome.branch} replayed.`, {
+			ok: true,
+			branch: outcome.branch,
+		});
+	}
+
+	if (onto === undefined) {
+		return refuse(
+			`${GLYPH.refused} Name what to replay onto, with onto. A rebase has no sensible default: replaying onto the wrong base rewrites every commit on the branch.`,
+		);
+	}
+
+	const outcome = await rebaser.rebase(found.path, onto);
+	if (outcome.kind === "refused") {
+		return refuse(`${GLYPH.refused} ${outcome.reason}`);
+	}
+	if (outcome.kind === "already-there") {
+		return say(
+			`${GLYPH.clean} ${outcome.branch} is already on top of ${outcome.onto}. Nothing to replay.`,
+			{ ok: true, branch: outcome.branch, replayed: 0 },
+		);
+	}
+	if (outcome.kind === "halted") {
+		return refuse(
+			haltLines(
+				outcome.conflicted,
+				`${outcome.branch} onto ${outcome.onto}${outcome.at === undefined ? "" : `, at ${outcome.at}`}`,
+			),
+		);
+	}
+	return say(
+		`${GLYPH.tree} ${outcome.branch} replayed onto ${outcome.onto}, ${outcome.commits} ${outcome.commits === 1 ? "commit" : "commits"}.`,
+		{ ok: true, branch: outcome.branch, replayed: outcome.commits },
+	);
+}
+
+/**
+ * A halt, said so the next move is obvious.
+ *
+ * The paths are the work, and the two verbs are the only ways out, so both are
+ * named. A halt is reported through the refusal path because the tree is not
+ * where it was asked to be, but it is a state to act on rather than an error.
+ */
+function haltLines(conflicted: readonly string[], what?: string): string {
+	const head =
+		what === undefined ? "Replay halted." : `Replay halted: ${what}.`;
+	const paths =
+		conflicted.length === 0
+			? ["   nothing is unmerged, so something else stopped it"]
+			: conflicted.map((path) => `   ${GLYPH.dirty} ${path}`);
+	return [
+		`${GLYPH.refused} ${head}`,
+		...paths,
+		"",
+		"Settle these, then resume. Or abandon, and the tree goes back to where it started.",
+	].join("\n");
 }
