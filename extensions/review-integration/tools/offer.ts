@@ -673,7 +673,18 @@ async function edit(
 	if (!approved) return say("Left as it was.");
 
 	const after = await authoring.edit(change, edits);
-	return say(`${GLYPH.lands} ${proposalLine(after)}`);
+	// Named in the past tense, because the proposal line alone does not show
+	// most of what an edit can change: labels and assignees are not on it, so
+	// an edit that set a label answered with exactly what an edit that did
+	// nothing would answer. It was landing correctly and reporting nothing,
+	// which is only one step better than the reverse and just as hard to
+	// notice, since the gate said what was coming and nothing said what came.
+	const changed = Object.entries(edits).map(([field, edit]) =>
+		edit?.action === "clear" ? `${field} cleared` : field,
+	);
+	return say(
+		`${GLYPH.lands} ${proposalLine(after)}\n   ${changed.join(", ")} updated`,
+	);
 }
 
 /** Land the change. */
