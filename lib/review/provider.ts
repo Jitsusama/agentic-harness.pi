@@ -226,6 +226,25 @@ export interface MergeRequest {
 }
 
 /**
+ * What a merge call actually did.
+ *
+ * Merging used to return nothing, so the only thing a caller could say was that it had
+ * asked. On a backend that merges when asked, saying `merged` is true. On one fronted by
+ * a queue it is a lie with consequences: the change has been accepted for a batch that
+ * may still fail CI and never land, and a caller told `merged` goes on to prune the
+ * branch and report the work done. The same call, the same success, two different facts.
+ *
+ * A refusal is not a case here. Refusing to merge is decided before the call, by the
+ * objection path, so what reaches this point has been accepted and the only open question
+ * is what acceptance meant.
+ */
+export type MergeOutcome =
+	/** In the base branch now. The commit when the backend named one. */
+	| { kind: "merged"; commit?: string }
+	/** Accepted by a queue. It lands later, or it fails CI and does not. */
+	| { kind: "enqueued"; detail?: string };
+
+/**
  * Creating and changing proposals.
  *
  * Typed now, implemented later. The shapes are here so the
@@ -241,7 +260,7 @@ export interface AuthoringFacet {
 	setDraft?(ref: ChangeRef, draft: boolean): Promise<void>;
 	close(ref: ChangeRef, comment?: string): Promise<void>;
 	reopen?(ref: ChangeRef): Promise<void>;
-	merge(ref: ChangeRef, request: MergeRequest): Promise<void>;
+	merge(ref: ChangeRef, request: MergeRequest): Promise<MergeOutcome>;
 	requestReviewers?(ref: ChangeRef, actors: string[]): Promise<void>;
 }
 

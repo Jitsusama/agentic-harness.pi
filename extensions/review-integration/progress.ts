@@ -65,7 +65,10 @@ export const PARTICIPANT_TIMEOUT_MS = 15 * 60 * 1000;
  * seven reviewers on screen looking like seven subquests.
  */
 const GLYPH: Record<AskProgressEntry["state"], string> = {
-	pending: "\u25b7",
+	// The shared set's mark for accepted but not finished. A participant not yet
+	// run and a change sitting in a merge queue are the same fact about
+	// different subjects, so they are the same mark, spelled in one place.
+	pending: REVIEW_GLYPH.queued,
 	running: "\u25b8",
 	answered: "\u25b6",
 	// Taken from the shared set rather than spelled again, so the panel and the

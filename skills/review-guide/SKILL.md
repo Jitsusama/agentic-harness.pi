@@ -234,6 +234,19 @@ The refusals you will actually meet:
   checks that already ran once; a new commit does not retrigger them, so
   the change would sit there with results describing code nobody has.
   Different fixes, so they are different messages.
+- **Merging says which act it performed**, because success means two
+  different facts. A backend that merges when asked reports the change
+  landed, and names the commit when it gave one. A backend fronted by a
+  queue reports it **enqueued**: accepted for a batch that lands later,
+  or fails its checks and never lands at all. Read the word before you
+  act on it. Enqueued is not landed, so pruning the branch on the
+  strength of it removes work that is still in flight.
+
+  Where the queue is asked by comment rather than by API, the head guard
+  cannot travel with the request. It is checked before the comment goes
+  instead, so `expectedHead` means the same thing on both roads. A
+  strategy cannot: the queue picks its own, so naming one is refused
+  rather than dropped.
 
   A backend that reports no queue at all permits the mutation. Unknown
   is not the same as queued, and refusing on silence would make every

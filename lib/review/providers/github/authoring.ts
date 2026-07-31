@@ -24,6 +24,7 @@ import { type Exec, run } from "../../../exec/index.js";
 import type { ChangeRef, Proposal, RepoLocator } from "../../change.js";
 import type {
 	AuthoringFacet,
+	MergeOutcome,
 	MergeRequest,
 	ProposalDraft,
 	ProposalEdit,
@@ -293,8 +294,8 @@ export function githubAuthoring(exec: Exec): AuthoringFacet {
 			);
 		},
 
-		async merge(ref: ChangeRef, request: MergeRequest): Promise<void> {
-			await send(
+		async merge(ref: ChangeRef, request: MergeRequest): Promise<MergeOutcome> {
+			const answered = await send(
 				"PUT",
 				`repos/${slugOf(ref.repo)}/pulls/${ref.id}/merge`,
 				{
@@ -310,6 +311,16 @@ export function githubAuthoring(exec: Exec): AuthoringFacet {
 				},
 				`merging pull request ${ref.id}`,
 			);
+			// This endpoint lands the change then and there, so `merged` is the
+			// honest word for it. A repo fronted by GitHub's own merge queue does
+			// not merge through here at all, which is why there is no second case.
+			//
+			// The sha is passed on when the answer carries one and left out when
+			// it does not, rather than being defaulted to the head we sent: absent
+			// means unreported, and a commit is the one field a caller might go
+			// and look up.
+			const commit = shaFrom(answered);
+			return { kind: "merged", ...(commit === undefined ? {} : { commit }) };
 		},
 
 		async requestReviewers(ref: ChangeRef, actors: string[]): Promise<void> {
@@ -346,6 +357,20 @@ const MARK_READY =
 /** A string, or nothing. */
 function str(value: unknown): string | undefined {
 	return typeof value === "string" && value !== "" ? value : undefined;
+}
+
+/** The commit a merge answer names, when it names one and the text parses. */
+function shaFrom(answered: string): string | undefined {
+	try {
+		const body: unknown = JSON.parse(answered);
+		if (typeof body !== "object" || body === null) return undefined;
+		return str((body as Record<string, unknown>).sha);
+	} catch {
+		// The merge went through; only the sha is unreadable. Failing the call
+		// over that would turn a landed change into a reported error, which is
+		// the one outcome worse than not naming the commit.
+		return undefined;
+	}
 }
 
 /** A nested object, or an empty one. */

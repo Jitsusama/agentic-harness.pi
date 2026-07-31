@@ -72,6 +72,10 @@ export const GLYPH = {
 	// phase's, and borrowing it made landing and degrading look like two
 	// steps of one process rather than two different outcomes.
 	lands: "\u2714",
+	// Accepted but not landed. The round panel already draws an open triangle
+	// for a participant not finished, and a queued change is the same fact
+	// about a different subject, so it is the same mark rather than a new one.
+	queued: "\u25b7",
 	degrades: "\u2193",
 	refused: "\u2298",
 	checks: "\u25ce",

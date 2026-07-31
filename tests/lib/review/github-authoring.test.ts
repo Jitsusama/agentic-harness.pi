@@ -236,6 +236,30 @@ describe("closing, reopening and drafting", () => {
 });
 
 describe("merging", () => {
+	it("reports that it merged, and the commit it produced", async () => {
+		// GitHub's merge endpoint lands the change then and there, so it can
+		// say so. The point of the outcome is the backends that cannot: a
+		// caller told `merged` will go and prune the branch.
+		const { exec } = fakeExec([
+			{ when: ["merge"], stdout: '{"merged":true,"sha":"f00dcafe1234"}' },
+		]);
+
+		const outcome = await githubAuthoring(exec).merge(ref, {});
+
+		expect(outcome.kind).toBe("merged");
+		expect(outcome.kind === "merged" && outcome.commit).toBe("f00dcafe1234");
+	});
+
+	it("reports the merge without a commit when the backend named none", async () => {
+		// Absent means unreported, not zero: inventing a commit here would be
+		// worse than saying it landed and leaving the sha out.
+		const { exec } = fakeExec([{ when: ["merge"], stdout: "{}" }]);
+
+		const outcome = await githubAuthoring(exec).merge(ref, {});
+
+		expect(outcome).toEqual({ kind: "merged" });
+	});
+
 	it("guards on the commit it was told to expect", async () => {
 		// The only protection against merging work nobody looked at.
 		const { exec, calls } = fakeExec([{ when: ["merge"], stdout: "{}" }]);

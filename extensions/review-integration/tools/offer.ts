@@ -939,13 +939,31 @@ async function merge(
 	);
 	if (!approved) return say("Not merged.");
 
-	await authoring.merge(change, {
+	const outcome = await authoring.merge(change, {
 		...(params.method === undefined ? {} : { method: params.method }),
 		...(params.expectedHead === undefined
 			? {}
 			: { expectedHead: params.expectedHead }),
 	});
-	return say(`${GLYPH.lands} ${change.label} merged.`);
+
+	// This used to say `merged` whatever came back, which is true on a backend
+	// that merges when asked and a lie on one fronted by a queue, where the
+	// change has been accepted for a batch that may still fail CI. The reader
+	// of that sentence goes on to prune the branch and call the work done.
+	if (outcome.kind === "enqueued") {
+		return say(
+			`${GLYPH.queued} ${change.label} enqueued${outcome.detail ? `: ${outcome.detail}` : ""}. It lands when the queue reaches it, and not at all if its checks fail, so do not prune the branch on the strength of this.`,
+			{ ok: true, merged: false, enqueued: true },
+		);
+	}
+	return say(
+		`${GLYPH.lands} ${change.label} merged${outcome.commit ? ` at ${outcome.commit.slice(0, 12)}` : ""}.`,
+		{
+			ok: true,
+			merged: true,
+			...(outcome.commit === undefined ? {} : { commit: outcome.commit }),
+		},
+	);
 }
 
 /** Ask people to look. */

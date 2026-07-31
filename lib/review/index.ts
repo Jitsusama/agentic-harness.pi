@@ -298,6 +298,7 @@ export type {
 	ConversationFacet,
 	FieldEdit,
 	LocalBranch,
+	MergeOutcome,
 	MergeRequest,
 	ProposalDraft,
 	ProposalEdit,
