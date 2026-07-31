@@ -41,6 +41,14 @@ export const GLYPH = {
 	// what it refuses is one mark meaning two different things.
 	stack: "\u2261",
 
+	// Hatched, because it is neither of the other two answers. A branch
+	// whose remote is gone while trunk does not contain it is what a
+	// squash merge looks like and also what losing work looks like, and
+	// nothing here can tell them apart. Marking that as a refusal would
+	// say the tools decided, and marking it as removable would decide
+	// for the caller; a caution is not a weaker refusal.
+	undecided: "\u25a8",
+
 	// Refusals, matching the review tools so the two surfaces do
 	// not disagree about what a refusal looks like.
 	refused: "\u2298",

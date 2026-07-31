@@ -10,6 +10,7 @@
 
 import { type Exec, run } from "../exec/index.js";
 import { displayPath } from "../ui/path.js";
+import type { LocalBranch } from "./tidy.js";
 
 /** One path git reports as changed, and how. */
 export interface ChangedPath {
@@ -41,6 +42,14 @@ export interface TreeHead {
 export interface WorkHistory {
 	status(treePath: string): Promise<WorkingState>;
 	head(treePath: string): Promise<TreeHead>;
+	/**
+	 * Every local branch, with what trunk and the remote say about it.
+	 *
+	 * Reported rather than acted on: deciding what is spent is
+	 * {@link tidyPlan}'s job, and it needs all three facts together to
+	 * tell a squash merge from lost work.
+	 */
+	branches(treePath: string, trunk: string): Promise<LocalBranch[]>;
 }
 
 /** Porcelain v1 status codes, mapped to what they mean. */
@@ -115,6 +124,57 @@ export function createGitHistory(deps: { exec: Exec }): WorkHistory {
 			if (branch.code !== 0) return { commit };
 			const name = branch.stdout.trim();
 			return name === "" ? { commit } : { commit, branch: name };
+		},
+
+		async branches(treePath, trunk) {
+			// One pass for the whole picture. Asking `--merged` separately
+			// and joining the answers means two listings taken at different
+			// moments, and the join is on a name that can move between them.
+			const listed = await run(
+				deps.exec,
+				"git",
+				[
+					"-C",
+					treePath,
+					"for-each-ref",
+					"--format=%(refname:short)\t%(upstream:short)\t%(upstream:track,nobracket)",
+					"refs/heads",
+				],
+				`Listing the branches in ${displayPath(treePath)}`,
+			);
+			const merged = new Set(
+				(
+					await run(
+						deps.exec,
+						"git",
+						[
+							"-C",
+							treePath,
+							"branch",
+							"--format=%(refname:short)",
+							"--merged",
+							trunk,
+						],
+						`Asking which branches ${trunk} already contains`,
+					)
+				)
+					.split("\n")
+					.map((line) => line.trim())
+					.filter((line) => line !== ""),
+			);
+
+			return listed
+				.split("\n")
+				.map((line) => line.split("\t"))
+				.filter(([name]) => name !== undefined && name !== "")
+				.map(([name, upstream, track]) => ({
+					name: name as string,
+					mergedIntoTrunk: merged.has(name as string),
+					...(upstream ? { tracking: upstream } : {}),
+					// Git spells a vanished upstream "gone" in the track field,
+					// which is the only place it says so without a fetch.
+					...(track === "gone" ? { remoteGone: true } : {}),
+				}));
 		},
 	};
 }

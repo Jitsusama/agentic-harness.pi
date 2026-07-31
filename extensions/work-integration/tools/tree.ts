@@ -18,7 +18,7 @@ import { sessionGateDeps } from "../../../lib/internal/gate/session-deps.js";
 import { runProseGate } from "../../../lib/internal/guardian/prose-gate.js";
 import { citeListing, openSessionStore } from "../../../lib/result/index.js";
 import type { Exec } from "../../../lib/review/index.js";
-import { displayPath } from "../../../lib/ui/index.js";
+import { count, displayPath } from "../../../lib/ui/index.js";
 import {
 	blocksRepoint,
 	cautionsFrom,
@@ -30,6 +30,7 @@ import {
 	createGitStacks,
 	type HeldTree,
 	refusalFrom,
+	tidyPlan,
 	treeInPlay,
 	treeRequestFrom,
 } from "../../../lib/work/index.js";
@@ -57,7 +58,8 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 		label: "Work",
 		description:
 			"Get somewhere to work and know what is in it: cut a worktree at a branch, pin a snapshot at a commit, list the trees this session holds, give one back, or read what has changed inside one. Call with no action to list what is held.",
-		promptSnippet: "Somewhere to work: tree, snapshot, trees, release, status.",
+		promptSnippet:
+			"Somewhere to work: tree, snapshot, trees, release, status, tidy.",
 		promptGuidelines: [
 			"A worktree is checked out at a branch and is yours alone; a snapshot is pinned to a commit and may be shared with another reader. Ask for the one that matches what you are about to do.",
 			"Always say what the tree is for. The purpose names it, which is how it is recognised later and how a second caller avoids cutting a duplicate.",
@@ -73,6 +75,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 						Type.Literal("trees"),
 						Type.Literal("release"),
 						Type.Literal("status"),
+						Type.Literal("tidy"),
 						Type.Literal("record"),
 						Type.Literal("branch"),
 						Type.Literal("push"),
@@ -89,7 +92,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 					],
 					{
 						description:
-							"tree: cut a worktree at a branch. snapshot: pin a snapshot at a commit. trees: list what this session holds. release: give a tree back. status: what has changed inside a tree. record: stage and commit the work in a tree. branch: make a branch in a tree and check it out. push: publish the branch, setting upstream the first time. rebase: replay the branch onto another ref, reporting a conflict as a halt rather than a failure. resume: carry a halted replay on once the conflicts are settled. abandon: put the tree back the way it was before a halted replay. stack: show what sits on what. track: record that a branch sits on another, or on trunk. untrack: forget a branch, moving whatever sat on it down. reparent: point a branch at a different parent. reorder: rearrange a chain into the order you name, lowest first. restack: replay every tracked branch onto trunk, in order, stopping at the first halt. sync: fetch trunk and then restack onto where it now is, which is the daily operation and one verb because doing half of it replays the stack onto a trunk as stale as before. Defaults to trees.",
+							"tree: cut a worktree at a branch. snapshot: pin a snapshot at a commit. trees: list what this session holds. release: give a tree back. status: what has changed inside a tree. tidy: what has been spent once work landed, reported rather than removed, since deleting a branch is not undoable and a queued change merges later. record: stage and commit the work in a tree. branch: make a branch in a tree and check it out. push: publish the branch, setting upstream the first time. rebase: replay the branch onto another ref, reporting a conflict as a halt rather than a failure. resume: carry a halted replay on once the conflicts are settled. abandon: put the tree back the way it was before a halted replay. stack: show what sits on what. track: record that a branch sits on another, or on trunk. untrack: forget a branch, moving whatever sat on it down. reparent: point a branch at a different parent. reorder: rearrange a chain into the order you name, lowest first. restack: replay every tracked branch onto trunk, in order, stopping at the first halt. sync: fetch trunk and then restack onto where it now is, which is the daily operation and one verb because doing half of it replays the stack onto a trunk as stale as before. Defaults to trees.",
 					},
 				),
 			),
@@ -130,7 +133,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 			tree: Type.Optional(
 				Type.String({
 					description:
-						"Which held tree to act on, by its key or its path. Every action but tree, snapshot and trees works on one: release, status, record, branch, push, rebase, resume, abandon and every stack verb. Leave it out when you hold exactly one and that one is used, said out loud; holding several makes it a question, since these actions commit and push and the wrong directory is not recoverable.",
+						"Which held tree to act on, by its key or its path. Every action but tree, snapshot and trees works on one: release, status, tidy, record, branch, push, rebase, resume, abandon and every stack verb. Leave it out when you hold exactly one and that one is used, said out loud; holding several makes it a question, since these actions commit and push and the wrong directory is not recoverable.",
 				}),
 			),
 			subject: Type.Optional(
@@ -198,6 +201,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 					| "trees"
 					| "release"
 					| "status"
+					| "tidy"
 					| "record"
 					| "branch"
 					| "push"
@@ -480,6 +484,62 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 						...(args.trunk === undefined ? {} : { trunk: args.trunk }),
 						...(head.branch === undefined ? {} : { on: head.branch }),
 					});
+				}
+
+				if (action === "tidy") {
+					// Reported, never done. Landing is not an instant: a change
+					// handed to a merge queue merges later and from somewhere
+					// else, so the moment somebody asks to merge is the moment
+					// nothing is cleanable yet. This is the verb they come back
+					// to afterwards, and it hands back a plan rather than a
+					// result because deleting a branch is not undoable.
+					const trunk = args.trunk ?? "main";
+					const head = await history.head(found.path);
+					const tracked = await createGitStacks({
+						exec,
+						rebaser: createGitRebaser({ exec }),
+					}).read(found.path);
+					const plan = tidyPlan({
+						trunk,
+						current: head.branch ?? "",
+						branches: await history.branches(found.path, trunk),
+						tracked: tracked.map((step) => step.name),
+					});
+
+					const lines: string[] = [];
+					for (const gone of plan.removable) {
+						lines.push(
+							`   ${GLYPH.named} ${gone.branch}${gone.alsoUntrack ? ", and untrack it" : ""}`,
+						);
+					}
+					for (const kept of plan.keeping) {
+						// A judgement call is marked apart from a refusal. The
+						// difference is whether anybody could act on it.
+						lines.push(
+							`   ${kept.decide ? GLYPH.undecided : GLYPH.refused} ${kept.branch}: ${kept.why}`,
+						);
+					}
+					if (plan.prunable) {
+						lines.push(
+							`   ${GLYPH.named} tracking refs for branches the remote dropped`,
+						);
+					}
+
+					const headline =
+						plan.removable.length === 0
+							? `${GLYPH.clean} Nothing in ${found.identity.key} has been spent yet, against ${trunk}.`
+							: `${GLYPH.named} ${count(plan.removable.length, "branch", "branches")} in ${found.identity.key} can go, against ${trunk}.`;
+					return say(
+						[
+							headline,
+							...lines,
+							"",
+							"Nothing has been removed. Delete what you agree with, and",
+							"prefer git branch -d, which refuses anything trunk does not",
+							"contain and is the check rather than the obstacle.",
+						].join("\n"),
+						{ ok: true, removable: plan.removable.length },
+					);
 				}
 
 				if (action === "status") {

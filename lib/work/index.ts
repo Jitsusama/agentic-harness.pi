@@ -95,5 +95,13 @@ export type {
 	WorkStacks,
 } from "./stacks.js";
 export { createGitStacks } from "./stacks.js";
+export type {
+	Kept,
+	LocalBranch,
+	Removable,
+	TidyAsk,
+	TidyPlan,
+} from "./tidy.js";
+export { tidyPlan } from "./tidy.js";
 export type { TreeIdentity, TreeRequest, TreeSource } from "./tree.js";
 export { satisfies, treeIdentity, treeSource } from "./tree.js";

@@ -258,20 +258,39 @@ rather than shrugging at.
 
 ## After Something Lands
 
-Nothing here cleans up after a merge, so it is done by hand and
-it is worth doing: stale locals and tracking refs accumulate
-silently until a branch listing stops being readable.
+`work tidy tree:… trunk:main` says what has been spent: which
+local branches trunk already contains, which of those the stack
+still lists and so need untracking too, and whether any
+tracking refs point at branches the remote has dropped. Left
+undone, those accumulate silently until a branch listing stops
+being readable.
+
+It removes nothing. That is deliberate twice over. Deleting a
+branch is not undoable, and landing is not an instant: a change
+handed to a merge queue merges later and from somewhere else,
+so the moment you ask to merge is the moment nothing is
+cleanable yet. This is the verb you come back to afterwards.
 
 ```bash
 work sync tree:… trunk:main    # trunk, then replay what is left
+work tidy tree:… trunk:main    # what has been spent, and what has not
 git -C <tree> fetch --prune    # drop refs for branches gone from the remote
 git -C <tree> branch -d one two three   # delete the merged locals
 ```
 
 `-d` rather than `-D`: it refuses a branch that is not merged,
 which is the check, not an obstacle. If it refuses, the work is
-not where you think it is. And `work untrack` the branch as
-well, or the stack still lists something that no longer exists.
+not where you think it is.
+
+One case is left for you on purpose, and it is the one worth
+understanding. A branch whose upstream is gone while trunk does
+not contain it is exactly what a squash merge produces: the
+work landed as a new commit, so git will not call the branch
+merged, and the remote branch went away with the merge. It is
+also exactly what losing work looks like. Nothing here can tell
+those apart, so it is reported as a decision rather than as a
+refusal, and clearing it needs `-D`, which throws the commits
+away if you guessed wrong.
 
 ## Where This Ends and Review Begins
 
