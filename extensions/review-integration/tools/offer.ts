@@ -26,7 +26,13 @@ import type {
 	Proposal,
 	SetEdit,
 } from "../../../lib/review/index.js";
-import { fillProposal, offerable } from "../../../lib/review/index.js";
+import {
+	fillProposal,
+	offerable,
+	retargetPlan,
+	retargetRoute,
+} from "../../../lib/review/index.js";
+import { count } from "../../../lib/ui/index.js";
 import { createGitRebaser, createGitStacks } from "../../../lib/work/index.js";
 import { proposalComplaint } from "../conventions.js";
 import { confirmWrite } from "../gate.js";
@@ -55,7 +61,8 @@ interface OfferParams {
 		| "reopen"
 		| "merge"
 		| "reviewers"
-		| "rerun";
+		| "rerun"
+		| "retarget-stack";
 	change?: string;
 	which?: string;
 	repo?: string;
@@ -104,6 +111,11 @@ const INTENT: Record<OfferParams["action"], AuthoringIntent["kind"]> = {
 	propose: "propose",
 	"propose-stack": "propose-stack",
 	edit: "retarget",
+	// Retargeting a stack is a retarget, whichever route carries it out,
+	// so it meets the same queue gate as moving one change's base. That
+	// is the point of mapping it here rather than exempting it: a stack
+	// with an enqueued change in it ejects that change too.
+	"retarget-stack": "retarget",
 	ready: "set-draft",
 	unready: "set-draft",
 	close: "close",
@@ -177,10 +189,11 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 					Type.Literal("merge"),
 					Type.Literal("reviewers"),
 					Type.Literal("rerun"),
+					Type.Literal("retarget-stack"),
 				],
 				{
 					description:
-						"What to do. propose: put a branch up as a change. propose-stack: put up several at once, each based on the one before it. edit: change its title, body or base. ready: mark it ready for review; unready: put it back to a draft. reviewers: ask people to look. close and reopen. merge: land it. rerun: ask CI to run again, optionally naming one pipeline in 'which'.",
+						"What to do. propose: put a branch up as a change. propose-stack: put up several at once, each based on the one before it. edit: change its title, body or base. ready: mark it ready for review; unready: put it back to a draft. reviewers: ask people to look. close and reopen. merge: land it. rerun: ask CI to run again, optionally naming one pipeline in 'which'. retarget-stack: after a local restack, point every change in the stack back at the branch it now sits on, natively where the backend holds the stack and change by change where it does not.",
 				},
 			),
 			change: Type.Optional(
@@ -504,6 +517,8 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 									`${bound.provider.id} declined to rerun CI on ${change.label}: ${outcome.reason}.`,
 								);
 					}
+					case "retarget-stack":
+						return retargetStack(ctx, bound, change, authoring);
 					case "merge":
 						return merge(ctx, change, authoring, params);
 					case "reviewers":
@@ -1081,4 +1096,99 @@ async function reviewers(
 
 	await authoring.requestReviewers(change, asking);
 	return say(`${GLYPH.lands} asked ${asking.join(", ")}.`);
+}
+
+/**
+ * Point a stack's changes back at what they now sit on.
+ *
+ * A local restack moves branches and leaves the changes claiming to
+ * merge into wherever they targeted when they went up. On a stack
+ * whose bottom has landed, that is a change aimed at a branch nobody
+ * is merging any more.
+ */
+async function retargetStack(
+	ctx: Parameters<Parameters<ExtensionAPI["registerTool"]>[0]["execute"]>[4],
+	bound: BoundTarget,
+	change: NonNullable<ReturnType<typeof hostedChange>>,
+	authoring: NonNullable<BoundTarget["provider"]["authoring"]>,
+): Promise<Answer> {
+	if (bound.provider.stacking === undefined) {
+		return refuse(
+			`${bound.provider.id} does not read stacks, so there is nothing here to retarget. Move each change with review_offer edit base:...`,
+		);
+	}
+
+	const route = retargetRoute(bound.provider.stacking, authoring);
+	if ("refusal" in route) return refuse(route.refusal);
+
+	const stack = await bound.provider.stacking.stack(change);
+	const plan = retargetPlan(stack);
+	if (plan.moves.length === 0) {
+		// A no-op reported as a no-op. Saying "retargeted" about nothing
+		// is how somebody concludes the stack was wrong and goes looking.
+		return say(
+			[
+				`${GLYPH.lands} Every change in ${change.label}'s stack already targets what it sits on.`,
+				...plan.skipped.map((one) => `   ${one.ref}: ${one.why}`),
+			].join("\n"),
+			{ ok: true, moved: 0 },
+		);
+	}
+
+	const approved = await confirmWrite(
+		ctx,
+		`Retarget ${count(plan.moves.length, "change", "changes")} in ${change.label}'s stack?`,
+		[
+			...plan.moves.map(
+				(move) => `${GLYPH.target} ${move.ref}: ${move.from} → ${move.to}`,
+			),
+			"",
+			// Which route runs is shown, because the two fail differently
+			// and this is the moment to know which one is about to.
+			route.kind === "native"
+				? `Moved as one: ${route.why}.`
+				: `Moved one at a time: ${route.why}, so a failure part way leaves some moved and some not.`,
+		].join("\n"),
+	);
+	if (!approved) return say("Left pointing where they were.");
+
+	if (route.kind === "native") {
+		// Non-null because retargetRoute only says native when it is there.
+		await bound.provider.stacking.restack?.(change);
+		return say(
+			`${GLYPH.lands} Retargeted ${count(plan.moves.length, "change", "changes")} in ${change.label}'s stack, as one operation.`,
+			{ ok: true, moved: plan.moves.length },
+		);
+	}
+
+	// One at a time, reporting how far it got. A walk that stops half
+	// way has genuinely moved some of them, and a bare failure would
+	// leave somebody unable to tell that from having moved none.
+	const moved: string[] = [];
+	for (const move of plan.moves) {
+		try {
+			await authoring.edit(
+				{ ...change, id: move.ref, label: move.ref },
+				{ base: { action: "set", value: move.to } },
+			);
+			moved.push(`${move.ref} → ${move.to}`);
+		} catch (error) {
+			return refuse(
+				[
+					`Stopped at ${move.ref}: ${error instanceof Error ? error.message : String(error)}`,
+					...(moved.length === 0
+						? ["Nothing was moved."]
+						: [
+								`Already moved, and left that way: ${moved.join(", ")}.`,
+								"Run this again once the cause is dealt with; what is already right is skipped.",
+							]),
+				].join("\n"),
+			);
+		}
+	}
+
+	return say(
+		`${GLYPH.lands} Retargeted ${count(moved.length, "change", "changes")}: ${moved.join(", ")}.`,
+		{ ok: true, moved: moved.length },
+	);
 }

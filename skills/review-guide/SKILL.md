@@ -212,6 +212,22 @@ yours, roots first**, because nothing in the substrate can work it out:
 a stack lives in whatever tool tracks parentage, and inferring one from
 merge-base would be a guess dressed as a fact.
 
+`review_offer retarget-stack` is what you run after a local restack.
+Restacking moves branches; it does not touch the changes those
+branches are proposed as, so each one still claims to merge into
+whatever it targeted when it went up. Once the bottom of the stack
+lands, the change above it is aimed at a branch nobody is merging any
+more, and its diff is against the wrong thing.
+
+How it runs depends on the backend and the gate says which. Where the
+backend holds the stack itself it moves as one operation, because
+moving a single change would leave the backend's own model
+inconsistent. Where it does not, each change is moved in turn, and a
+failure part way leaves some moved and some not, so the refusal names
+which ones already moved and tells you to run it again. Roots are left
+alone: a root proposed against a release branch is somebody's
+decision, and retargeting it to trunk asks a different team to review.
+
 Not every backend can do this, and the ones that cannot say so before
 anything is sent, with the instruction to propose each change in
 dependency order instead. Where it does work it is one operation rather

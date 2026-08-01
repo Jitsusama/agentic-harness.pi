@@ -95,6 +95,21 @@ export interface StackingFacet {
 	 * provider reports what it can see rather than failing.
 	 */
 	stack(subject: ChangeRef | LocalBranch): Promise<Stack>;
+	/**
+	 * Point every change in the stack back at what it now sits on.
+	 *
+	 * Optional, and its absence is not a gap. A backend with no notion
+	 * of a stack has nothing to implement here, and the substrate moves
+	 * each change in turn through {@link AuthoringFacet.edit} instead,
+	 * which is the whole operation on such a backend rather than a
+	 * degraded form of it.
+	 *
+	 * Implement it where the backend holds the stack itself, since
+	 * moving one change without the others would leave the backend's
+	 * own model inconsistent, and a walk that stops half way would
+	 * leave it inconsistent and say it succeeded partly.
+	 */
+	restack?(subject: ChangeRef | LocalBranch): Promise<Stack>;
 }
 
 /** Reading and writing the conversation on a change. */
