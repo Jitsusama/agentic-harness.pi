@@ -20,6 +20,7 @@ import {
 	createFindingStore,
 	createFixQueue,
 	createVisitLog,
+	type DiffModel,
 	type DiffSide,
 	type DraftStore,
 	describeSubject,
@@ -43,7 +44,7 @@ import {
 	reviewEngine,
 	visitDir,
 } from "../engine.js";
-import { confirmWrite } from "../gate.js";
+import { confirmBatch } from "../gate.js";
 import {
 	anchorLabel,
 	GLYPH,
@@ -52,6 +53,8 @@ import {
 	proseComplaint,
 } from "../render.js";
 import { treeForFixing } from "../work.js";
+import { PLAN_TAB, publishTabs } from "./publish-gate.js";
+import type { Settle } from "./settle.js";
 import {
 	type Answer,
 	boundFor,
@@ -79,6 +82,9 @@ function draftLines(draft: ReviewDraft): string {
 		}
 		if (item.kind === "resolution") {
 			return `${GLYPH.resolved} #${item.id} resolve ${item.thread.id}`;
+		}
+		if (item.kind === "unresolution") {
+			return `${GLYPH.unresolved} #${item.id} reopen ${item.thread.id}`;
 		}
 		// Said by who wrote it and what they said, rather than by the
 		// provider's id for it. Every other listing in the surface addresses a
@@ -126,6 +132,7 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 					Type.Literal("decide"),
 					Type.Literal("reply"),
 					Type.Literal("resolve"),
+					Type.Literal("unresolve"),
 					Type.Literal("react"),
 					Type.Literal("verdict"),
 					Type.Literal("drop"),
@@ -155,11 +162,14 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 				Type.String({ description: "Draft id, to resume a specific one." }),
 			),
 			path: Type.Optional(
-				Type.String({ description: "File a finding is about." }),
+				Type.String({
+					description: "For finding: the file the remark is about.",
+				}),
 			),
 			line: Type.Optional(
 				Type.Number({
-					description: "Line for a finding; omit for a whole-file remark.",
+					description:
+						"For finding: the line it points at; omit for a whole-file remark.",
 				}),
 			),
 			startLine: Type.Optional(
@@ -181,8 +191,24 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 			thread: Type.Optional(
 				Type.Number({
 					description:
-						"For reply and resolve: the 1-based [T#] index of a thread.",
+						"For reply, resolve and unresolve: the 1-based [T#] index of a thread.",
 				}),
+			),
+			// Not `settle`, which this tool already uses for what becomes of a
+			// finding. One word, one meaning: a parameter bag where `settle`
+			// means two things depending on the action is a bag nobody can read.
+			settleThread: Type.Optional(
+				Type.Union(
+					[
+						Type.Literal("resolve"),
+						Type.Literal("unresolve"),
+						Type.Literal("leave"),
+					],
+					{
+						description:
+							"For reply: what to do with the thread once the reply lands, queued as its own item beside the reply. Defaults to leaving it as it is.",
+					},
+				),
 			),
 			reaction: Type.Optional(
 				Type.String({ description: "For react: the reaction name." }),
@@ -213,7 +239,9 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 				}),
 			),
 			item: Type.Optional(
-				Type.String({ description: "Item id to drop from the draft." }),
+				Type.String({
+					description: "For drop: the item id to take out of the draft.",
+				}),
 			),
 			finding: Type.Optional(
 				Type.Number({
@@ -381,10 +409,14 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 					return say(`${GLYPH.document} ${document.markdown}`);
 				}
 
-				if (params.action === "reply" || params.action === "resolve") {
+				if (
+					params.action === "reply" ||
+					params.action === "resolve" ||
+					params.action === "unresolve"
+				) {
 					if (!bound) {
 						return refuse(
-							"Replying or resolving needs the change itself, so its threads can be read. Name the change rather than a draft id.",
+							"Replying, resolving or reopening needs the change itself, so its threads can be read. Name the change rather than a draft id.",
 						);
 					}
 					const threads = await threadsOf(bound);
@@ -398,9 +430,33 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 						const id = await draft.resolveThread(thread);
 						return say(`${GLYPH.resolved} #${id} queued in the draft.`);
 					}
+					if (params.action === "unresolve") {
+						const id = await draft.reopenThread(thread);
+						return say(`${GLYPH.unresolved} #${id} queued in the draft.`);
+					}
 					if (!params.body) return refuse("A reply needs a body.");
 					const id = await draft.replyTo(thread, params.body);
-					return say(`${GLYPH.thread} #${id} queued in the draft.`);
+					// Two items rather than one, appended in the order they will
+					// happen. A combined item would be a second kind of reply that
+					// only the draft knows about, and dropping the settling would
+					// mean editing the reply.
+					const settle = params.settleThread as Settle | undefined;
+					const also =
+						settle === "resolve"
+							? await draft.resolveThread(thread)
+							: settle === "unresolve"
+								? await draft.reopenThread(thread)
+								: undefined;
+					return say(
+						[
+							`${GLYPH.thread} #${id} queued in the draft.`,
+							...(also
+								? [
+										`${settle === "resolve" ? GLYPH.resolved : GLYPH.unresolved} #${also} queued too, ${settle === "resolve" ? "resolving" : "reopening"} the same thread.`,
+									]
+								: []),
+						].join("\n"),
+					);
 				}
 
 				// Planning and publishing both need the provider's
@@ -435,15 +491,42 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 				// models emit emdashes and curly quotes by default.
 				const prose = proseComplaint(plan);
 				if (prose) return refuse(prose);
-				const approved = await confirmWrite(
+
+				const destination = `${hostedChange(bound)?.label ?? "this target"} \u00b7 ${bound.provider.id}`;
+				const tabs = publishTabs(plan, destination, diff);
+				const decision = await confirmBatch(
 					ctx,
 					"Publish this review?",
-					planNarration(plan),
+					tabs.map((tab) => tab.item),
 				);
-				if (!approved) {
-					return say("Left in the draft. Nothing was sent.");
+				if (!decision.proceed) {
+					return decision.redirect
+						? refuse(decision.redirect)
+						: say("Left in the draft. Nothing was sent.");
 				}
-				const outcome = await draft.publish(plan, bound.provider);
+
+				// A tab is a draft item, not a request: rejecting one drops what
+				// it came from and the plan is compiled again without it. That is
+				// what makes the gate the last chance to drop a remark, rather
+				// than something you run review_draft drop for beforehand and
+				// then cannot see what you dropped.
+				const dropped = tabs
+					.filter((tab) => decision.rejected.includes(tab.item.label))
+					.flatMap((tab) => tab.itemIds);
+				let sending = plan;
+				if (dropped.length > 0) {
+					for (const id of dropped) await draft.remove(id);
+					sending = draft.plan({
+						capabilities: bound.capabilities,
+						...(diff ? { diff } : {}),
+					});
+					if (sending.ops.length === 0) {
+						return say(
+							`${GLYPH.refused} everything in the draft was dropped at the gate. Nothing was sent.`,
+						);
+					}
+				}
+				const outcome = await draft.publish(sending, bound.provider);
 				// Record where the change stood, so coming back to it later can say
 				// whether it has moved. Recorded after publishing rather than
 				// before: a review that failed to land is not a review of anything,
@@ -513,6 +596,9 @@ async function publishStack(
 	const { engine } = await reviewEngine(pi);
 	const entries: StackPublishEntry[] = [];
 	const skipped: string[] = [];
+	// Kept so the gate can show each remark against the code it points at,
+	// using the diff already fetched to plan with rather than a second one.
+	const diffs = new Map<string, DiffModel | undefined>();
 
 	for (const node of stack.nodes) {
 		if (node.proposal === undefined) continue;
@@ -537,6 +623,7 @@ async function publishStack(
 			continue;
 		}
 		entries.push({ ref: node.ref, change, plan });
+		diffs.set(node.ref, diff);
 	}
 
 	if (entries.length === 0) {
@@ -554,16 +641,52 @@ async function publishStack(
 		if (prose) return refuse(`${entry.ref}: ${prose}`);
 	}
 
-	const approved = await confirmWrite(
+	// Grouped by change: every tab is prefixed with the ref it belongs to,
+	// so a stack of three reviews reads as three groups rather than one
+	// undifferentiated run of remarks.
+	const grouped = entries.flatMap((entry) =>
+		publishTabs(
+			entry.plan,
+			`${entry.change.label} \u00b7 ${bound.provider.id}`,
+			diffs.get(entry.ref),
+		).map((tab) => ({
+			ref: entry.ref,
+			tab: {
+				...tab,
+				item: { ...tab.item, label: `${entry.ref}:${tab.item.label}` },
+			},
+		})),
+	);
+
+	const decision = await confirmBatch(
 		ctx,
 		`Publish ${entries.length} ${entries.length === 1 ? "review" : "reviews"} across this stack?`,
-		entries.map((one) => `${one.ref}\n${planNarration(one.plan)}`).join("\n\n"),
+		grouped.map((one) => one.tab.item),
 	);
-	if (!approved) {
-		return say("Left in the drafts. Nothing was sent.");
+	if (!decision.proceed) {
+		return decision.redirect
+			? refuse(decision.redirect)
+			: say("Left in the drafts. Nothing was sent.");
 	}
 
-	const outcome = await publishAcross(entries, bound.provider);
+	// Rejecting a change's Plan tab drops that whole change from the run.
+	// Rejecting one of its other tabs is not honoured here, since the plans
+	// were compiled against drafts this function does not hold open.
+	const dropped = new Set(
+		grouped
+			.filter(
+				(one) =>
+					one.tab.item.label === `${one.ref}:${PLAN_TAB}` &&
+					decision.rejected.includes(one.tab.item.label),
+			)
+			.map((one) => one.ref),
+	);
+	const sending = entries.filter((entry) => !dropped.has(entry.ref));
+	if (sending.length === 0) {
+		return say("Every change was dropped at the gate. Nothing was sent.");
+	}
+
+	const outcome = await publishAcross(sending, bound.provider);
 	return say(
 		[
 			...outcome.changes.map(

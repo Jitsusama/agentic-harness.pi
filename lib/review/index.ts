@@ -242,12 +242,14 @@ export type {
 	ReactionItem,
 	ReplyItem,
 	ResolutionItem,
+	UnresolutionItem,
 } from "./draft/state.js";
 export {
 	addFinding,
 	addReaction,
 	addReply,
 	addResolution,
+	addUnresolution,
 	emptyDraft,
 	removeItem,
 	setVerdict,

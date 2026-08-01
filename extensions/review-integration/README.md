@@ -44,6 +44,35 @@ command line that has to be parsed back into intent.
 Without a UI the gate approves. A tool running inside a subagent
 has nobody to ask.
 
+One renderer draws all of them, in four parts and a fixed order,
+so the shape is learned once: where this is going, what it is
+answering, what is being sent, and what follows. The payload is
+never clipped, because it is the one thing the gate exists to
+show. Quoted context is, one remark at a time rather than across
+the exchange, so a long opening cannot push the reply that
+prompted all this off the bottom.
+
+A gate can be argued with. `Shift+Escape` redirects and
+`Shift+r` annotates a rejection, and both come back as a refusal
+carrying what was said, for the model to read as an instruction.
+A bare rejection keeps the tool's own wording, because the
+person said no and nothing else.
+
+## One Gate Per Intent
+
+A gate interrupts once per human intent, never once per request,
+and only when it can show something the transcript could not.
+
+Answering a thread and closing it is one intent, so `reply`
+carries `settleThread` and costs one call. Answering five is one
+intent too, so `items` takes them all and opens one gate with a
+tab each. A tab nobody touched is sent when the panel is
+submitted, which diverges from the Slack gate deliberately: the
+items were composed in one breath and are all on screen, so the
+keypresses being saved decide nothing. A tab explicitly rejected
+stays rejected, and a redirect anywhere abandons the batch,
+since steering one item means composing them again.
+
 ## Publishing Is Planned Out Loud
 
 `review_draft plan` narrates what will happen before anything is
@@ -54,6 +83,14 @@ degradation discovered from a rejected request is a surprise.
 
 `publish` keeps whatever failed in the draft, so a retry sends
 the remainder rather than duplicating what already landed.
+
+The gate itself gives every operation a tab and shows each
+payload whole, with the plan leading. Rejecting a tab drops the
+draft items behind it and the plan is compiled again without
+them, so the gate is the last chance to drop a remark rather
+than something you run `drop` for beforehand and then cannot see
+what you dropped. Remarks are shown against the code they point
+at, from the diff already fetched to judge degradation.
 
 ## Configuration
 

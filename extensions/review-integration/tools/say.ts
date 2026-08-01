@@ -12,36 +12,26 @@
  *
  * Reading the conversation belongs to `review_see`. This tool
  * only writes, so every action here asks first.
+ *
+ * Registration only. What each action does, and what its gate shows,
+ * lives in `batch.ts`, because the singular parameters are read as a
+ * batch of one and both go down the same road.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import {
-	type BoundTarget,
-	type ConversationFacet,
-	isReactableRefusal,
-	type Reaction,
-	type Thread,
-} from "../../../lib/review/index.js";
-import { confirmWrite } from "../gate.js";
-import { anchorLabel, GLYPH } from "../render.js";
+import type { BoundTarget } from "../../../lib/review/index.js";
+import { batchRefusal, runBatch, type SayItem } from "./batch.js";
 import {
 	type Answer,
 	boundFor,
-	findReactableOn,
 	hostedChange,
 	refuse,
 	refuseFailure,
 	renderAnswer,
 	renderInvocation,
-	say,
 	threadsOf,
 } from "./shared.js";
-
-/** Where a thread hangs, for a gate to show. */
-function threadWhere(thread: Thread): string {
-	return thread.anchor ? anchorLabel(thread.anchor) : "on the change itself";
-}
 
 /** Register the `review_say` tool. */
 export function registerSayTool(pi: ExtensionAPI): void {
@@ -49,29 +39,34 @@ export function registerSayTool(pi: ExtensionAPI): void {
 		name: "review_say",
 		label: "Review Say",
 		description:
-			"Say something on a change, straight away: reply into a thread, resolve or reopen one, react to a comment, or post a top-level message. Reading the conversation is review_see.",
+			"Say something on a change, straight away: reply into a thread, resolve or reopen one, react to a comment, start a thread on a line, or post a top-level message. Several at once through items, behind one gate. Reading the conversation is review_see.",
 		promptSnippet:
-			"Say something on a change now: reply, comment, resolve, unresolve, react.",
+			"Say something on a change now: reply, comment, annotate, resolve, unresolve, react, or several at once.",
 		promptGuidelines: [
 			"Read the threads with review_see first, and refer to a thread by the [T#] index that listing shows. Never invent or guess a thread id.",
 			"React by the address a listing prints: [C#] for a remark inside a thread, [M#] for a top-level message. A bare number is refused, since it does not say which of the two.",
 			"Leave the change out to speak on whatever is attached.",
-			"Use this to answer one remark. To compose several remarks and a verdict together, use review_draft.",
+			"Answering several threads is one call: put them in items, which opens one gate with a tab each rather than one gate per reply.",
+			"Set settleThread to resolve when the reply answers what the thread asked for, so answering and closing cost one call rather than two. The gate prints the decision either way, so say it rather than leaving it to be guessed.",
+			"Use this to answer remarks. To compose several remarks and a verdict as one review, use review_draft.",
 			"Every action here opens a confirmation gate, so describe what you are about to post before calling it.",
 		],
 		parameters: Type.Object({
-			action: Type.Union(
-				[
-					Type.Literal("reply"),
-					Type.Literal("comment"),
-					Type.Literal("resolve"),
-					Type.Literal("unresolve"),
-					Type.Literal("react"),
-				],
-				{
-					description:
-						"What to say. reply: answer one thread. comment: a top-level remark on the change. resolve and unresolve: close or reopen a thread. react: put a reaction on one comment.",
-				},
+			action: Type.Optional(
+				Type.Union(
+					[
+						Type.Literal("reply"),
+						Type.Literal("comment"),
+						Type.Literal("annotate"),
+						Type.Literal("resolve"),
+						Type.Literal("unresolve"),
+						Type.Literal("react"),
+					],
+					{
+						description:
+							"What to say. reply: answer one thread. comment: a top-level remark on the change. annotate: start a thread on a line. resolve and unresolve: close or reopen a thread. react: put a reaction on one comment. Omit it when using items, where every entry names its own.",
+					},
+				),
 			),
 			change: Type.Optional(
 				Type.String({
@@ -81,16 +76,17 @@ export function registerSayTool(pi: ExtensionAPI): void {
 			),
 			thread: Type.Optional(
 				Type.Number({
-					description: "1-based [T#] index from the threads listing.",
+					description:
+						"For reply, resolve and unresolve: 1-based [T#] index from the threads listing.",
 				}),
 			),
 			body: Type.Optional(
 				Type.String({
-					description: "For reply and comment: the text to post.",
+					description: "For reply, comment and annotate: the text to post.",
 				}),
 			),
 			reaction: Type.Optional(
-				Type.String({ description: "Reaction name, e.g. rocket." }),
+				Type.String({ description: "For react: the reaction, e.g. rocket." }),
 			),
 			comment: Type.Optional(
 				Type.String({
@@ -98,14 +94,72 @@ export function registerSayTool(pi: ExtensionAPI): void {
 						"For react: which comment, as the [C#] a thread listing prints beside a remark or the [M#] a messages listing prints beside a top-level one.",
 				}),
 			),
+			path: Type.Optional(
+				Type.String({
+					description: "For annotate: the file the remark is about.",
+				}),
+			),
+			line: Type.Optional(
+				Type.Number({ description: "For annotate: the line it points at." }),
+			),
+			startLine: Type.Optional(
+				Type.Number({
+					description: "For annotate: the first line of a range.",
+				}),
+			),
+			side: Type.Optional(
+				Type.Union([Type.Literal("old"), Type.Literal("new")], {
+					description: "For annotate: which side of the diff. Defaults to new.",
+				}),
+			),
+			// Named the same as review_draft's, since it is the same decision on
+			// the same thing, and that tool's plain `settle` was already spoken
+			// for by what becomes of a finding.
+			settleThread: Type.Optional(
+				Type.Union(
+					[
+						Type.Literal("resolve"),
+						Type.Literal("unresolve"),
+						Type.Literal("leave"),
+					],
+					{
+						description:
+							"For reply: what to do with the thread once the reply lands, so answering and closing cost one call rather than two. Defaults to leaving it as it is, since resolving closes somebody else's conversation.",
+					},
+				),
+			),
+			items: Type.Optional(
+				Type.Array(
+					Type.Object({
+						action: Type.String(),
+						thread: Type.Optional(Type.Number()),
+						body: Type.Optional(Type.String()),
+						settleThread: Type.Optional(Type.String()),
+						comment: Type.Optional(Type.String()),
+						reaction: Type.Optional(Type.String()),
+						path: Type.Optional(Type.String()),
+						line: Type.Optional(Type.Number()),
+						startLine: Type.Optional(Type.Number()),
+						side: Type.Optional(Type.String()),
+					}),
+					{
+						description:
+							"Several things to say at once, each shaped like the singular parameters and each naming its own action. One gate covers them all, a tab each. Do not pass the singular parameters alongside it.",
+					},
+				),
+			),
 		}),
 
 		renderCall(args, theme) {
-			const params = args as { action?: string; change?: string };
+			const params = args as {
+				action?: string;
+				change?: string;
+				items?: SayItem[];
+			};
 			return renderInvocation(
 				theme,
 				"review_say",
-				params.action,
+				params.items ? `${params.items.length} things` : params.action,
 				params.change,
 			);
 		},
@@ -127,116 +181,29 @@ export function registerSayTool(pi: ExtensionAPI): void {
 					);
 				}
 
-				if (params.action === "comment") {
-					if (!params.body) return refuse("A comment needs a body.");
-					const approved = await confirmWrite(
-						ctx,
-						"Post a comment?",
-						`${GLYPH.target} ${change.label}\n\n${params.body}`,
-					);
-					if (!approved) return say("Left unposted.");
-					const posted = await conversation.comment(change, params.body);
-					return say(
-						`${GLYPH.lands} posted${posted.url ? `\n   ${posted.url}` : ""}`,
-					);
+				const cannot = batchRefusal(params as Record<string, unknown>);
+				if (cannot) return refuse(cannot);
+				if (!params.action && !params.items) {
+					return refuse("Say what to do: an action, or a batch of items.");
 				}
 
-				if (params.action === "react") {
-					return react(ctx, conversation, bound, params);
-				}
+				// The singular parameters are read as a batch of one, so there is
+				// one road through this tool rather than two that agree today.
+				const items = (params.items as SayItem[] | undefined) ?? [
+					params as SayItem,
+				];
 
-				const threads = await threadsOf(bound);
-				const thread = threads[(params.thread ?? 0) - 1];
-				if (!thread) {
-					return refuse(
-						`There is no [T${params.thread ?? "?"}] on this change. Read the threads first; the listing numbers them.`,
-					);
-				}
+				// One read of the conversation for the whole call, so [T26] cannot
+				// mean two different threads inside one gate. Skipped entirely
+				// when nothing in the batch refers to a thread.
+				const threads = items.some((one) => one.thread !== undefined)
+					? await threadsOf(bound)
+					: [];
 
-				if (params.action === "reply") {
-					if (!params.body) return refuse("A reply needs a body.");
-					const approved = await confirmWrite(
-						ctx,
-						"Post this reply?",
-						`${GLYPH.thread} ${threadWhere(thread)}\n\n${params.body}`,
-					);
-					if (!approved) return say("Left unposted.");
-					const posted = await conversation.reply(change, thread, params.body);
-					return say(
-						`${GLYPH.lands} replied${posted.url ? `\n   ${posted.url}` : ""}`,
-					);
-				}
-
-				const reopening = params.action === "unresolve";
-				if (reopening && !conversation.unresolve) {
-					return refuse(
-						`The ${bound.provider.id} provider cannot reopen a resolved thread.`,
-					);
-				}
-				const approved = await confirmWrite(
-					ctx,
-					reopening ? "Reopen this thread?" : "Resolve this thread?",
-					`${GLYPH.thread} ${threadWhere(thread)}`,
-				);
-				if (!approved) return say("Left as it was.");
-				if (reopening) await conversation.unresolve?.(change, thread);
-				else await conversation.resolve(change, thread);
-				return say(
-					`${reopening ? GLYPH.unresolved : GLYPH.resolved} ${reopening ? "reopened" : "resolved"}.`,
-				);
+				return await runBatch(ctx, bound, conversation, change, threads, items);
 			} catch (error) {
 				return refuseFailure(error, bound);
 			}
 		},
 	});
-}
-
-/** React to one comment, if the provider accepts that reaction. */
-async function react(
-	ctx: Parameters<typeof confirmWrite>[0],
-	conversation: ConversationFacet,
-	bound: Awaited<ReturnType<typeof boundFor>>,
-	params: { reaction?: string; comment?: string },
-): Promise<Answer> {
-	const change = hostedChange(bound);
-	if (!change) return refuse("This target is not a hosted change.");
-	if (!params.reaction || !params.comment) {
-		return refuse(
-			"Reacting needs a reaction and the comment to put it on, addressed as the [C#] or [M#] a listing prints.",
-		);
-	}
-	if (!conversation.react) {
-		return refuse(
-			`The ${bound.provider.id} provider does not support reactions.`,
-		);
-	}
-	const allowed = bound.capabilities.conversation?.reactions ?? [];
-	if (!allowed.includes(params.reaction as Reaction)) {
-		return refuse(
-			allowed.length > 0
-				? `That provider accepts ${allowed.join(", ")}.`
-				: "That provider accepts no reactions.",
-		);
-	}
-	// Resolved against the conversation as it actually is, rather than
-	// trusting whatever was typed. This used to hand the provider a comment
-	// invented on the spot, `{ id: whatever was asked for, author: "", body:
-	// "" }`, which works only for a provider that reads nothing but the id and
-	// sends every other one a comment with no author and nothing said. It also
-	// meant a wrong id was found out by the backend rather than here, so the
-	// failure arrived as somebody else's error message.
-	const found = await findReactableOn(bound, params.comment);
-	if (isReactableRefusal(found)) return refuse(found.reason);
-
-	// The gate quotes the remark being reacted to, since an address is not
-	// something a person can check. `[C4]` approved against the wrong comment
-	// is indistinguishable from `[C4]` approved against the right one.
-	const approved = await confirmWrite(
-		ctx,
-		`React ${params.reaction}?`,
-		`${GLYPH.reaction} ${params.reaction} on ${found.label} ${found.message.author.id}: ${found.message.body}`,
-	);
-	if (!approved) return say("Left as it was.");
-	await conversation.react(change, found.message, params.reaction as Reaction);
-	return say(`${GLYPH.reaction} reacted to ${found.label}.`);
 }

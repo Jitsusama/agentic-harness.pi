@@ -57,22 +57,24 @@ function renderTab(
 	return `${glyph} ${num} ${text}`;
 }
 
-/** Build the progress bar: [▓▓░░░] N/M */
-function renderProgress(
-	completed: number,
-	total: number,
-	theme: Theme,
-): string {
+/**
+ * Progress through a batch, as a bar and a count: ▓▓░░░ 2/7
+ *
+ * Plain rather than themed, because it is written to the session status
+ * line rather than into a panel, and that line owns its own colouring.
+ * No brackets either: they held the bar apart from the tabs when it lived
+ * inside the strip, and the status line's separators already do that.
+ */
+export function renderProgressBar(completed: number, total: number): string {
 	const barWidth = Math.min(total, PROGRESS_BAR_WIDTH);
 	const filled =
 		total <= PROGRESS_BAR_WIDTH
 			? completed
 			: Math.round((completed / total) * barWidth);
-	const empty = barWidth - filled;
 	const bar =
-		theme.fg("accent", GLYPH.scrollFilled.repeat(filled)) +
-		theme.fg("dim", GLYPH.scrollEmpty.repeat(empty));
-	return `[${bar}] ${completed}/${total}`;
+		GLYPH.scrollFilled.repeat(filled) +
+		GLYPH.scrollEmpty.repeat(barWidth - filled);
+	return `${bar} ${completed}/${total}`;
 }
 
 /**
@@ -99,19 +101,10 @@ export function renderTabStrip(
 			? [...statuses, userItemCount > 0 ? "complete" : "pending"]
 			: [...statuses];
 
-	// Progress tracking excludes the user tab.
-	const total = labels.length;
-	const completed = statuses.filter(
-		(s) => s === "complete" || s === "rejected",
-	).length;
-	const progress = renderProgress(completed, total, theme);
-	const suffix = progress;
-	const suffixWidth = visibleWidth(suffix);
-
-	// This is the available width for tabs (minus indent, progress and spacing).
+	// Every column goes to tabs. The bar that used to sit on the right,
+	// with four columns of gap reserved before it, is on the status line.
 	const indent = 1;
-	const spacing = 4; // gap between tabs and progress
-	const availableWidth = width - indent - suffixWidth - spacing;
+	const availableWidth = width - indent;
 
 	// We build all the tab segments.
 	const segments = allLabels.map((label, i) =>
@@ -124,12 +117,7 @@ export function renderTabStrip(
 	// We try to fit all tabs on one line.
 	const totalTabWidth = segmentWidths.reduce((a, b) => a + b, 0);
 	if (totalTabWidth <= availableWidth) {
-		const tabLine = segments.join("  ");
-		const tabWidth = visibleWidth(tabLine);
-		const gap = " ".repeat(
-			Math.max(2, width - indent - tabWidth - suffixWidth),
-		);
-		return truncateToWidth(`${" "}${tabLine}${gap}${suffix}`, width);
+		return truncateToWidth(` ${segments.join("  ")}`, width);
 	}
 
 	// Overflow: show first, current neighborhood, and last with ellipsis
@@ -149,10 +137,7 @@ export function renderTabStrip(
 		lastShown = idx;
 	}
 
-	const tabLine = parts.join("  ");
-	const tabWidth = visibleWidth(tabLine);
-	const gap = " ".repeat(Math.max(2, width - indent - tabWidth - suffixWidth));
-	return truncateToWidth(`${" "}${tabLine}${gap}${suffix}`, width);
+	return truncateToWidth(` ${parts.join("  ")}`, width);
 }
 
 /**

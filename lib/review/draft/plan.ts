@@ -77,6 +77,7 @@ export type PlannedOp =
 	  }
 	| { kind: "reply"; thread: Thread; body: string; itemIds: string[] }
 	| { kind: "resolve"; thread: Thread; itemIds: string[] }
+	| { kind: "unresolve"; thread: Thread; itemIds: string[] }
 	| {
 			kind: "react";
 			subject: Message;
@@ -432,6 +433,20 @@ function planThreadWork(
 			} else {
 				ops.push({
 					kind: "resolve",
+					thread: item.thread,
+					itemIds: [item.id],
+				});
+			}
+		} else if (item.kind === "unresolution") {
+			if (!item.thread.resolved) {
+				refused.push({
+					itemId: item.id,
+					subject: "unresolution",
+					reason: "that thread is not resolved",
+				});
+			} else {
+				ops.push({
+					kind: "unresolve",
 					thread: item.thread,
 					itemIds: [item.id],
 				});

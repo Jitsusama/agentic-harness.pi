@@ -14,6 +14,26 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
  * Only the methods the lib/ui primitives actually call are
  * implemented; the rest throw to surface accidental coupling.
  */
+/**
+ * A theme that styles nothing, for tests about layout.
+ *
+ * `fakeTheme` wraps every styled run in markers, which the layout code
+ * counts as visible width: a strip measured through it reports itself far
+ * wider than it is and elides tabs that fit. Use this one whenever the
+ * assertion is about how much fits, and `fakeTheme` when it is about which
+ * colour was asked for.
+ */
+export function plainTheme(): Theme {
+	const stub: Partial<Theme> = {
+		fg: ((_color: string, text: string) => text) as Theme["fg"],
+		bg: ((_color: string, text: string) => text) as Theme["bg"],
+		bold: ((text: string) => text) as Theme["bold"],
+		italic: ((text: string) => text) as Theme["italic"],
+		underline: ((text: string) => text) as Theme["underline"],
+	};
+	return stub as Theme;
+}
+
 export function fakeTheme(): Theme {
 	const stub: Partial<Theme> = {
 		fg: ((color: string, text: string) =>

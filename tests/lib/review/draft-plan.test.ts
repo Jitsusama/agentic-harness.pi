@@ -4,6 +4,7 @@ import {
 	addReaction,
 	addReply,
 	addResolution,
+	addUnresolution,
 	type ConversationCapabilities,
 	compilePlan,
 	type DraftState,
@@ -413,6 +414,31 @@ describe("compilePlan", () => {
 			const plan = compilePlan(state, context());
 			expect(plan.ops).toEqual([]);
 			expect(plan.refused[0].reason).toMatch(/already resolved/i);
+		});
+	});
+
+	// The draft could close a thread but not open one, while review_say could
+	// do both. Asymmetry between two roads to the same job is what produced
+	// the invalid comment_id bug this work came out of.
+	describe("reopenings", () => {
+		it("plans reopening a resolved thread", () => {
+			const state = addUnresolution(draft(), { ...thread, resolved: true });
+			const plan = compilePlan(state, context());
+			expect(plan.ops.map((op) => op.kind)).toEqual(["unresolve"]);
+			expect(plan.refused).toEqual([]);
+		});
+
+		it("refuses to reopen a thread that is not resolved", () => {
+			const state = addUnresolution(draft(), thread);
+			const plan = compilePlan(state, context());
+			expect(plan.ops).toEqual([]);
+			expect(plan.refused[0].reason).toMatch(/not resolved/i);
+		});
+
+		it("carries the item id, so rejecting the tab can drop it", () => {
+			const state = addUnresolution(draft(), { ...thread, resolved: true });
+			const [op] = compilePlan(state, context()).ops;
+			expect(op?.itemIds).toHaveLength(1);
 		});
 	});
 });

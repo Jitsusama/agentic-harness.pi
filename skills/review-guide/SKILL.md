@@ -66,6 +66,9 @@ Start here. Find the row, make the call.
 | Read top-level remarks | `review_see messages` |
 | Check whether your own remarks landed | `review_see followup` |
 | Answer one remark | `review_say reply thread:N` |
+| Answer it and close it, in one call | `review_say reply thread:N settleThread:resolve` |
+| Answer several, behind one gate | `review_say items:[{action:reply,...},...]` |
+| Start a thread on a line | `review_say annotate path:... line:N body:"..."` |
 | Close a thread out | `review_say resolve thread:N` |
 | Reopen one you closed too early | `review_say unresolve thread:N` |
 | Say one thing on the change | `review_say comment` |
@@ -87,7 +90,9 @@ Start here. Find the row, make the call.
 | See the fix queue | `review_draft fixes` |
 | Add a remark of your own | `review_draft finding path:... line:N` |
 | Answer a thread as part of the review | `review_draft reply thread:N` |
+| Answer and close it in one item | `review_draft reply thread:N settleThread:resolve` |
 | Close a thread as part of the review | `review_draft resolve thread:N` |
+| Reopen a thread as part of the review | `review_draft unresolve thread:N` |
 | React as part of the review | `review_draft react comment:C3` |
 | Say approve, request changes or comment | `review_draft verdict verdict:approve` |
 | See what is in the draft so far | `review_draft show` |
@@ -720,6 +725,49 @@ already understands rather than presenting them with one.
 Without a UI the gate approves, so a tool running inside a
 subagent has nobody to ask. Do not rely on the gate as the
 only thing standing between a draft and a stranger's change.
+
+The gate shows the whole of what is being sent, so there is
+no need to paste the body into the transcript first. Say
+what you are doing and why; the words themselves are on
+screen.
+
+A gate can be argued with. `Shift+Escape` redirects and
+`Shift+r` annotates a rejection, and either comes back to
+you as a refusal carrying what the person said. Read it as
+an instruction and come back with a new gate rather than
+treating it as a flat no.
+
+## One Call Per Intent, Not One Per Request
+
+Answering a thread and closing it is one intent, so it is
+one call:
+
+```
+review_say reply thread:3 body:"Fixed in 0671cb0." settleThread:resolve
+```
+
+Set `settleThread` whenever the reply answers what the
+thread asked for. The gate prints the decision either way,
+including when you leave the thread open, so silence is
+never left to be interpreted. It defaults to leaving the
+thread alone, because resolving closes somebody else's
+conversation.
+
+Answering several threads is also one intent:
+
+```
+review_say items:[
+  {action:"reply", thread:3, body:"...", settleThread:"resolve"},
+  {action:"reply", thread:4, body:"..."},
+  {action:"react", comment:"C7", reaction:"rocket"}
+]
+```
+
+One gate, a tab per item. Compose the whole answer to a
+review and send it in one call rather than one call per
+thread: five separate gates is how a gate stops being read.
+Do not pass the singular parameters alongside `items`; that
+is refused, since the two can disagree.
 
 ## Reads Degrade, Writes Refuse
 

@@ -47,6 +47,17 @@ const SURFACES: readonly {
 		file: "extensions/review-integration/tools/see.ts",
 		universal: ["action", "change", "repo", "base", "head", "refs"],
 	},
+	// `items` is universal in the sense that matters here: it is the plural
+	// form of the whole tool rather than a parameter belonging to some of its
+	// actions, and every entry inside it names its own.
+	{
+		file: "extensions/review-integration/tools/say.ts",
+		universal: ["action", "change", "repo", "items"],
+	},
+	{
+		file: "extensions/review-integration/tools/draft.ts",
+		universal: ["action", "change", "repo", "draft", "base", "head", "refs"],
+	},
 	{
 		file: "extensions/work-integration/tools/tree.ts",
 		universal: ["action", "tree", "repo"],

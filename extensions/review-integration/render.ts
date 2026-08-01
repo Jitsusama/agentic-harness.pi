@@ -29,18 +29,29 @@
  * would be rude.
  */
 
+import type { Theme } from "@earendil-works/pi-coding-agent";
 import { detectProseViolations } from "../../lib/prose/index.js";
 import type {
 	Anchor,
 	ChecksRollup,
+	DiffModel,
 	Proposal,
 	PublishOutcome,
 	PublishPlan,
 	Stack,
 	Thread,
 } from "../../lib/review/index.js";
-import { describeAnchor, standsAt } from "../../lib/review/index.js";
+import {
+	anchorable,
+	describeAnchor,
+	standsAt,
+} from "../../lib/review/index.js";
+import { languageFromPath, renderCode } from "../../lib/ui/content-renderer.js";
 import { count } from "../../lib/ui/count.js";
+import { wordWrap } from "../../lib/ui/text-layout.js";
+
+/** Below this a gate is not wrapping text, it is shredding it. */
+const MIN_GATE_WIDTH = 24;
 
 /** The vocabulary. One glyph per concept, used everywhere. */
 /**
@@ -95,7 +106,204 @@ export const GLYPH = {
 	reaction: "\u2726",
 	resolved: "\u2611",
 	unresolved: "\u2610",
+
+	// What is about to be said, as against what was already said. Only a
+	// write gate draws it, to hold the outgoing text apart from the exchange
+	// quoted above it, which is the one distinction those panels must not
+	// blur: approving a reply against the wrong remark is invisible.
+	reply: "\u21b3",
 } as const;
+
+/** One remark quoted into a gate, so a person sees what is being answered. */
+export interface GateQuote {
+	/** Who said it, with their address where it has one: "C4 binks". */
+	who: string;
+	/** What they said. Clipped: the outgoing text matters more than this. */
+	body: string;
+}
+
+/** The text a gate is about to send. */
+export interface GatePayload {
+	/** "replying as joel.gerber". Absent for a remark answering nobody. */
+	as?: string;
+	body: string;
+}
+
+/**
+ * What a write gate is about, in the order a person needs it.
+ *
+ * Four parts, always the same four, so the shape is learned once and every
+ * gate in the surface reads the same way.
+ */
+export interface GatePanel {
+	/** The change and its provider: "shop/world#2000980 · meteorite". */
+	destination: string;
+	/** Where it hangs: "policy.go:166 · open · 3 replies". */
+	where?: string;
+	/** The exchange being answered or reacted to. */
+	context?: GateQuote[];
+	/** What is being sent. Never clipped. */
+	payload?: GatePayload;
+	/** What follows: settling, a verdict, a degradation. */
+	consequence?: string[];
+}
+
+/**
+ * How many lines of any one quoted remark a gate shows.
+ *
+ * Per remark rather than across the exchange, so an opening wall of text
+ * cannot push the reply that prompted all this off the bottom.
+ */
+const QUOTE_LINES = 6;
+
+/** Indent for anything quoted or being sent, holding it off the margin. */
+const INSET = "   ";
+
+/**
+ * Draw one write gate.
+ *
+ * Pure: data in, lines out, no terminal and no context. That is what makes
+ * the panels above testable, and it is the reason nothing here reaches for
+ * `ctx`. Everything untestable stays in the thin call to the prompt.
+ */
+export function gateLines(
+	panel: GatePanel,
+	theme: Theme,
+	width: number,
+): string[] {
+	return rowsOf(panel, width).map((row) =>
+		row.muted && row.text ? theme.fg("muted", row.text) : row.text,
+	);
+}
+
+/**
+ * The same panel as plain text, for the redirect to quote back.
+ *
+ * One layout, two outputs. A second rendering would let what the redirect
+ * says was on screen drift from what was on screen.
+ */
+export function gateText(panel: GatePanel, width: number): string {
+	return rowsOf(panel, width)
+		.map((row) => row.text)
+		.join("\n");
+}
+
+/** One line of a gate, and whether it is chrome or the thing itself. */
+interface GateRow {
+	text: string;
+	muted?: boolean;
+}
+
+/** The layout, once, before anything decides how to colour it. */
+function rowsOf(panel: GatePanel, width: number): GateRow[] {
+	const room = Math.max(MIN_GATE_WIDTH, width - INSET.length);
+	const rows: GateRow[] = [
+		{ text: `${GLYPH.target} ${panel.destination}`, muted: true },
+	];
+	if (panel.where) {
+		rows.push({ text: `${GLYPH.thread} ${panel.where}`, muted: true });
+	}
+
+	for (const quote of panel.context ?? []) {
+		rows.push({ text: "" }, ...quoted(quote, room));
+	}
+
+	if (panel.payload) {
+		rows.push({ text: "" });
+		if (panel.payload.as) {
+			rows.push({
+				text: `${INSET}${GLYPH.reply} ${panel.payload.as}`,
+				muted: true,
+			});
+		}
+		// Whole, however long. This is the one thing the gate exists to show,
+		// and a gate that elides it is the gate this surface used to have.
+		rows.push(
+			...inset(wordWrap(panel.payload.body, room)).map((text) => ({ text })),
+		);
+	}
+
+	if (panel.consequence?.length) {
+		rows.push({ text: "" });
+		for (const one of panel.consequence) {
+			rows.push(...wordWrap(one, width).map((text) => ({ text })));
+		}
+	}
+	return rows;
+}
+
+/**
+ * The code a remark points at, drawn from the diff already in hand.
+ *
+ * `renderCode` does the drawing, so this looks like the content viewer
+ * and the history guardian, because it is the same function. It never
+ * fetches: the publish flows hold a diff to judge degradation with, and
+ * a flow that does not hold one shows the path and no hunk rather than
+ * buying one to fill a panel.
+ *
+ * When the anchor cannot be placed, that is said out loud. An empty
+ * panel reads as "no code here", which is a different claim from "this
+ * anchor has come loose".
+ */
+export function anchorView(
+	anchor: Anchor,
+	diff: DiffModel | undefined,
+	theme: Theme,
+	width: number,
+): string[] {
+	if (anchor.subject === "change") {
+		return [theme.fg("muted", "   about the whole change, not a line in it")];
+	}
+	if (!diff) {
+		return [theme.fg("muted", `   ${describeAnchor(anchor)}`)];
+	}
+
+	const check = anchorable(diff, anchor);
+	if (!check.anchored || !check.hunk) {
+		return [
+			theme.fg("muted", `   ${describeAnchor(anchor)}`),
+			theme.fg(
+				"muted",
+				`   not in this diff (${check.anchored ? "whole file" : check.reason})`,
+			),
+		];
+	}
+
+	// A file anchor has no line to point at, so the hunk is shown whole.
+	const side = anchor.blob ?? "new";
+	const lines = check.hunk.lines.filter(
+		(one) => numberOn(one, side) !== undefined,
+	);
+	const first = numberOn(lines[0], side) ?? 1;
+	return renderCode(lines.map((one) => one.text).join("\n"), theme, width, {
+		startLine: first,
+		...(anchor.subject === "line"
+			? { highlightLines: new Set([anchor.line]) }
+			: {}),
+		language: languageFromPath(anchor.path),
+	});
+}
+
+/** A line's number on one side, when it exists there. */
+function numberOn(
+	line: { oldLine?: number; newLine?: number } | undefined,
+	side: "old" | "new",
+): number | undefined {
+	return side === "old" ? line?.oldLine : line?.newLine;
+}
+
+/** One remark, attributed and clipped, with the clip owned up to. */
+function quoted(quote: GateQuote, room: number): GateRow[] {
+	const wrapped = wordWrap(`${quote.who}: ${quote.body}`, room);
+	const kept = wrapped.slice(0, QUOTE_LINES);
+	if (wrapped.length > QUOTE_LINES) kept.push("\u2026");
+	return inset(kept).map((text) => ({ text, muted: true }));
+}
+
+/** Hold lines off the margin, leaving blank ones blank. */
+function inset(lines: string[]): string[] {
+	return lines.map((line) => (line ? `${INSET}${line}` : line));
+}
 
 /** Where a remark points, in a form a person can scan. */
 export function anchorLabel(anchor: Anchor): string {
@@ -340,6 +548,8 @@ export function planNarration(plan: PublishPlan): string {
 			lines.push(`${GLYPH.lands} a reply into ${GLYPH.thread} ${op.thread.id}`);
 		} else if (op.kind === "resolve") {
 			lines.push(`${GLYPH.lands} resolving ${GLYPH.thread} ${op.thread.id}`);
+		} else if (op.kind === "unresolve") {
+			lines.push(`${GLYPH.lands} reopening ${GLYPH.thread} ${op.thread.id}`);
 		} else if (op.kind === "commentOn") {
 			// Said as its own line, and said to be separate, because that is
 			// what a person is approving: two posts rather than one, so a

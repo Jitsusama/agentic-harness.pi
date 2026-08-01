@@ -11,7 +11,10 @@ top of Pi's TUI primitives.
 - **`promptSingle`**: show a single interactive prompt with
   content, options and actions. Returns the user's decision.
 - **`promptTabbed`**: show a tabbed prompt where each tab is
-  an independent decision.
+  an independent decision. It writes progress through the
+  batch to the session status line while it is open and
+  clears it on the way out, so a caller neither has to set it
+  nor can forget to clear it.
 - **`workspace`**: show a stateful workspace with per-tab
   views and input handlers.
 - **`view`**: show read-only scrollable content.
@@ -35,6 +38,23 @@ top of Pi's TUI primitives.
 - **`renderNarrationLine`**: single-line transcript
   annotation (`※ <prefix>: <body>`) for side-effect actions
   and cross-surface coordination.
+
+### What the panels tell you about themselves
+
+Both prompts scroll, vertically and horizontally, keeping an
+offset per tab and per view. The footer says so, through
+`needsVScroll` and `needsHScroll`, and only when the content
+actually overflows: a hint that is always on is chrome, and
+chrome is what people stop reading. Without those hints,
+content that scrolls is indistinguishable from content that
+was cut off, which is what they looked like for a long time.
+
+Progress through a batch is a session-level fact, so it goes
+on the status line rather than inside the tab strip. The
+strip spends its whole width on tabs. It used to reserve
+thirteen columns for a bar plus four for the gap, which is
+what pushed tabs into an ellipsis on panels that had room
+for all of them.
 
 ### Text layout
 

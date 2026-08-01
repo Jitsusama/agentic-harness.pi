@@ -473,6 +473,16 @@ is followed by judgment, not by a regex.
   received it. Its description half found ten parameters naming
   none of the actions that read them.
 
+  The neighbouring rule, that an action-specific description
+  opens by naming its actions, is
+  🟢 `tests/package/parameters-name-their-kinds.test.ts`. Its
+  scope is a named list of surfaces rather than a pattern, which
+  keeps it explainable and makes the omissions visible: it
+  covered `review_offer` and `review_see` and not `review_say`
+  or `review_draft`, which is how those two grew descriptions
+  that never said which actions read them. Both are now listed,
+  and adding a tool to that list is part of adding a tool.
+
   One more rule is gated because the surface grew past the point
   of holding it in your head:
   🟢 no action repeats its own tool's name, and none names a
