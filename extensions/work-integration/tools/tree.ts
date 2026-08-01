@@ -18,6 +18,7 @@ import { Type } from "@sinclair/typebox";
 import { sessionGateDeps } from "../../../lib/internal/gate/session-deps.js";
 import { complaintsAbout } from "../../../lib/internal/guardian/commit-format.js";
 import { runProseGate } from "../../../lib/internal/guardian/prose-gate.js";
+import { gitTreeRootOf } from "../../../lib/internal/quest/git-signals.js";
 import { citeListing, openSessionStore } from "../../../lib/result/index.js";
 import type { Exec } from "../../../lib/review/index.js";
 import { count, displayPath } from "../../../lib/ui/index.js";
@@ -36,6 +37,7 @@ import {
 	orphanedTrees,
 	reclaimTrees,
 	refusalFrom,
+	surveyTarget,
 	type TreeBroker,
 	type TreeClaims,
 	tidyPlan,
@@ -116,6 +118,162 @@ async function treesLeftBehind(
 			resolved,
 		),
 	});
+}
+
+/**
+ * Report or act on what a repository has finished with.
+ *
+ * These two are the survey verbs, and they read a checkout rather
+ * than operate on a held tree. That is why they take a target from
+ * `surveyTarget` instead of the broker: the main checkout is where
+ * the question comes up and the one place the broker never holds.
+ */
+async function surveyRepo(
+	pi: ExtensionAPI,
+	exec: Exec,
+	target: { key: string; path: string },
+	action: "tidy" | "reclaim",
+	trunk: string,
+): Promise<Answer> {
+	const history = createGitHistory({ exec });
+	const orphans = await treesLeftBehind(
+		pi,
+		history,
+		treeBroker(),
+		target.path,
+		trunk,
+	);
+
+	if (action === "reclaim") {
+		// The one cleanup verb here that acts. Removing a worktree
+		// takes the directory and git's bookkeeping and leaves the
+		// branch, so the commits stay reachable and re-cutting the
+		// tree at the same branch puts a person back where they were.
+		// That is what a branch deletion cannot offer, and why tidy
+		// refuses to act while this does not.
+		if (orphans.reclaimable.length === 0) {
+			// Said as a no-op rather than as a success, and it names
+			// what was considered so the answer is not mistaken for
+			// having looked in the wrong place.
+			const kept = orphans.retained.filter(
+				(tree) => tree.path !== resolved(target.path),
+			);
+			return say(
+				[
+					`${GLYPH.clean} No tree beside ${target.key} is going spare, against ${trunk}.`,
+					...kept.map(
+						(tree) =>
+							`   ${tree.decide ? GLYPH.undecided : GLYPH.refused} ${displayPath(tree.path)}: ${tree.why}`,
+					),
+				].join("\n"),
+				{ ok: true, reclaimed: 0 },
+			);
+		}
+
+		const outcome = await reclaimTrees(
+			{ exec, mainPath: target.path },
+			orphans.reclaimable,
+		);
+		const took = outcome.trees.filter((t) => t.kind === "reclaimed");
+		return say(
+			[
+				// Past tense, because this one did something.
+				`${GLYPH.named} Took back ${count(took.length, "tree", "trees")} beside ${target.key}.`,
+				...outcome.trees.map((tree) =>
+					tree.kind === "reclaimed"
+						? `   ${GLYPH.named} ${displayPath(tree.path)}${tree.branch ? `, ${tree.branch} kept` : ""}`
+						: `   ${GLYPH.refused} ${displayPath(tree.path)}: ${tree.why}`,
+				),
+				"",
+				"Every branch is still where it was. Cut a tree at one again",
+				"to pick that work back up.",
+			].join("\n"),
+			{ ok: true, reclaimed: took.length },
+		);
+	}
+
+	// Reported, never done. Landing is not an instant: a change
+	// handed to a merge queue merges later and from somewhere
+	// else, so the moment somebody asks to merge is the moment
+	// nothing is cleanable yet. This is the verb they come back
+	// to afterwards, and it hands back a plan rather than a
+	// result because deleting a branch is not undoable.
+	const head = await history.head(target.path);
+	const tracked = await createGitStacks({
+		exec,
+		rebaser: createGitRebaser({ exec }),
+	}).read(target.path);
+	const plan = tidyPlan({
+		trunk,
+		current: head.branch ?? "",
+		branches: await history.branches(target.path, trunk),
+		tracked: tracked.map((step) => step.name),
+	});
+
+	const lines: string[] = [];
+	for (const gone of plan.removable) {
+		lines.push(
+			`   ${GLYPH.named} ${gone.branch}${gone.alsoUntrack ? ", and untrack it" : ""}`,
+		);
+	}
+	for (const kept of plan.keeping) {
+		// A judgement call is marked apart from a refusal. The
+		// difference is whether anybody could act on it.
+		lines.push(
+			`   ${kept.decide ? GLYPH.undecided : GLYPH.refused} ${kept.branch}: ${kept.why}`,
+		);
+	}
+	if (plan.prunable) {
+		lines.push(
+			`   ${GLYPH.named} tracking refs for branches the remote dropped`,
+		);
+	}
+	for (const tree of orphans.reclaimable) {
+		lines.push(
+			`   ${GLYPH.named} ${displayPath(tree.path)}, a tree nothing holds${tree.branch ? ` (${tree.branch})` : ""}`,
+		);
+	}
+	for (const tree of orphans.retained) {
+		// The checkout itself is left out. It is retained for a
+		// reason nobody needs telling, and saying it every time
+		// trains people to skip the list that also holds the one
+		// line they must read.
+		if (tree.path === resolved(target.path)) continue;
+		lines.push(
+			`   ${tree.decide ? GLYPH.undecided : GLYPH.refused} ${displayPath(tree.path)}: ${tree.why}`,
+		);
+	}
+
+	const spent = plan.removable.length + orphans.reclaimable.length;
+	return say(
+		[
+			spent === 0
+				? `${GLYPH.clean} Nothing in ${target.key} has been spent yet, against ${trunk}.`
+				: `${GLYPH.named} ${count(spent, "thing", "things")} in ${target.key} can go, against ${trunk}.`,
+			...lines,
+			"",
+			"Nothing has been removed. Delete the branches you agree with,",
+			"and prefer git branch -d, which refuses anything trunk does not",
+			"contain and is the check rather than the obstacle.",
+			...(orphans.reclaimable.length === 0
+				? []
+				: [
+						// The one place a reader is sent to a verb rather than
+						// left with a git call the guide tells them never to
+						// make. Trees are reclaimable precisely because the
+						// branch survives the removal.
+						"",
+						`For the ${count(orphans.reclaimable.length, "tree", "trees")} nothing holds, work reclaim takes them`,
+						"back. Each branch stays exactly where it is, so re-cutting",
+						"the tree puts you back.",
+					]),
+		].join("\n"),
+		{
+			ok: true,
+			removable: plan.removable.length,
+			reclaimable: orphans.reclaimable.length,
+		},
+	);
 }
 
 /** Register the `work` tool. */
@@ -364,6 +522,33 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 					);
 				}
 
+				// tidy and reclaim survey a repository rather than operate on a
+				// tree, and the checkout a person naturally asks from is the main
+				// one, which the broker never holds. Routing them past the
+				// held-tree gate is what lets the question be asked where it
+				// actually comes up. The verbs below this stay gated: they
+				// commit, push and replay.
+				if (action === "tidy" || action === "reclaim") {
+					const target = surveyTarget({
+						...(args.tree ? { tree: args.tree } : {}),
+						held: broker
+							.held()
+							.map((one) => ({ key: one.identity.key, path: one.path })),
+						cwd: process.cwd(),
+						gitRootOf: gitTreeRootOf,
+					});
+					if (!target.ok) {
+						return refuse(`${GLYPH.refused} ${target.refusal}`);
+					}
+					return await surveyRepo(
+						pi,
+						exec,
+						target,
+						action,
+						args.trunk ?? "main",
+					);
+				}
+
 				const held = broker.held();
 				// A session holding one tree should not have to name it fifteen times.
 				// Several stay a question rather than resolving by recency, which is
@@ -578,161 +763,6 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 						...(args.trunk === undefined ? {} : { trunk: args.trunk }),
 						...(head.branch === undefined ? {} : { on: head.branch }),
 					});
-				}
-
-				if (action === "tidy") {
-					// Reported, never done. Landing is not an instant: a change
-					// handed to a merge queue merges later and from somewhere
-					// else, so the moment somebody asks to merge is the moment
-					// nothing is cleanable yet. This is the verb they come back
-					// to afterwards, and it hands back a plan rather than a
-					// result because deleting a branch is not undoable.
-					const trunk = args.trunk ?? "main";
-					const head = await history.head(found.path);
-					const tracked = await createGitStacks({
-						exec,
-						rebaser: createGitRebaser({ exec }),
-					}).read(found.path);
-					const plan = tidyPlan({
-						trunk,
-						current: head.branch ?? "",
-						branches: await history.branches(found.path, trunk),
-						tracked: tracked.map((step) => step.name),
-					});
-
-					const orphans = await treesLeftBehind(
-						pi,
-						history,
-						broker,
-						found.path,
-						trunk,
-					);
-
-					const lines: string[] = [];
-					for (const gone of plan.removable) {
-						lines.push(
-							`   ${GLYPH.named} ${gone.branch}${gone.alsoUntrack ? ", and untrack it" : ""}`,
-						);
-					}
-					for (const kept of plan.keeping) {
-						// A judgement call is marked apart from a refusal. The
-						// difference is whether anybody could act on it.
-						lines.push(
-							`   ${kept.decide ? GLYPH.undecided : GLYPH.refused} ${kept.branch}: ${kept.why}`,
-						);
-					}
-					if (plan.prunable) {
-						lines.push(
-							`   ${GLYPH.named} tracking refs for branches the remote dropped`,
-						);
-					}
-					for (const tree of orphans.reclaimable) {
-						lines.push(
-							`   ${GLYPH.named} ${displayPath(tree.path)}, a tree nothing holds${tree.branch ? ` (${tree.branch})` : ""}`,
-						);
-					}
-					for (const tree of orphans.retained) {
-						// The checkout itself is left out. It is retained for a
-						// reason nobody needs telling, and saying it every time
-						// trains people to skip the list that also holds the one
-						// line they must read.
-						if (tree.path === found.path) continue;
-						lines.push(
-							`   ${tree.decide ? GLYPH.undecided : GLYPH.refused} ${displayPath(tree.path)}: ${tree.why}`,
-						);
-					}
-
-					const spent = plan.removable.length + orphans.reclaimable.length;
-					const headline =
-						spent === 0
-							? `${GLYPH.clean} Nothing in ${found.identity.key} has been spent yet, against ${trunk}.`
-							: `${GLYPH.named} ${count(spent, "thing", "things")} in ${found.identity.key} can go, against ${trunk}.`;
-					return say(
-						[
-							headline,
-							...lines,
-							"",
-							"Nothing has been removed. Delete the branches you agree with,",
-							"and prefer git branch -d, which refuses anything trunk does not",
-							"contain and is the check rather than the obstacle.",
-							...(orphans.reclaimable.length === 0
-								? []
-								: [
-										// The one place a reader is sent to a verb rather than
-										// left with a git call the guide tells them never to
-										// make. Trees are reclaimable precisely because the
-										// branch survives the removal.
-										"",
-										`For the ${count(orphans.reclaimable.length, "tree", "trees")} nothing holds, work reclaim takes them`,
-										"back. Each branch stays exactly where it is, so re-cutting",
-										"the tree puts you back.",
-									]),
-						].join("\n"),
-						{
-							ok: true,
-							removable: plan.removable.length,
-							reclaimable: orphans.reclaimable.length,
-						},
-					);
-				}
-
-				if (action === "reclaim") {
-					// The one cleanup verb here that acts. Removing a worktree
-					// takes the directory and git's bookkeeping and leaves the
-					// branch, so the commits stay reachable and re-cutting the
-					// tree at the same branch puts a person back where they were.
-					// That is what a branch deletion cannot offer, and why tidy
-					// refuses to act while this does not.
-					const trunk = args.trunk ?? "main";
-					const orphans = await treesLeftBehind(
-						pi,
-						history,
-						broker,
-						found.path,
-						trunk,
-					);
-
-					if (orphans.reclaimable.length === 0) {
-						// Said as a no-op rather than as a success, and it names
-						// what was considered so the answer is not mistaken for
-						// having looked in the wrong place.
-						const held = orphans.retained.filter(
-							(tree) => tree.path !== resolved(found.path),
-						);
-						return say(
-							[
-								`${GLYPH.clean} No tree beside ${found.identity.key} is going spare, against ${trunk}.`,
-								...held.map(
-									(tree) =>
-										`   ${tree.decide ? GLYPH.undecided : GLYPH.refused} ${displayPath(tree.path)}: ${tree.why}`,
-								),
-							].join("\n"),
-							{ ok: true, reclaimed: 0 },
-						);
-					}
-
-					const outcome = await reclaimTrees(
-						{ exec, mainPath: found.path },
-						orphans.reclaimable,
-					);
-					const took = outcome.trees.filter((t) => t.kind === "reclaimed");
-					const lines = outcome.trees.map((tree) =>
-						tree.kind === "reclaimed"
-							? `   ${GLYPH.named} ${displayPath(tree.path)}${tree.branch ? `, ${tree.branch} kept` : ""}`
-							: `   ${GLYPH.refused} ${displayPath(tree.path)}: ${tree.why}`,
-					);
-
-					return say(
-						[
-							// Past tense, because this one did something.
-							`${GLYPH.named} Took back ${count(took.length, "tree", "trees")} beside ${found.identity.key}.`,
-							...lines,
-							"",
-							"Every branch is still where it was. Cut a tree at one again",
-							"to pick that work back up.",
-						].join("\n"),
-						{ ok: true, reclaimed: took.length },
-					);
 				}
 
 				if (action === "status") {

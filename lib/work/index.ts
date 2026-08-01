@@ -106,6 +106,8 @@ export type {
 	WorkStacks,
 } from "./stacks.js";
 export { createGitStacks } from "./stacks.js";
+export type { SurveyRequest, SurveyTarget } from "./survey.js";
+export { surveyTarget } from "./survey.js";
 export type {
 	Kept,
 	LocalBranch,
