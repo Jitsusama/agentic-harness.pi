@@ -31,6 +31,19 @@ export interface CheckoutFacts {
 	branch?: string;
 	/** The repo's trunk, when it is known. */
 	trunk?: string;
+	/**
+	 * What the branch sits on, when a stack says it sits on anything.
+	 *
+	 * Preferred over the trunk, because a stacked branch proposed onto
+	 * trunk shows every commit below it as part of this change. The
+	 * reviewer is then reading three changes' worth of diff with no
+	 * indication that two of them are already up for review
+	 * separately, and the usual outcome is that they review all of it
+	 * again. Absent when the branch sits directly on trunk or when
+	 * nothing tracks a stack here, which are the same answer as far as
+	 * the base is concerned.
+	 */
+	parent?: string;
 	/** The last commit's subject. */
 	subject?: string;
 	/** Anything the commits offer as a description. */
@@ -75,7 +88,10 @@ export function fillProposal(
 	}
 	if (wanted.head === undefined) guessed.push("head");
 
-	const base = wanted.base ?? facts.trunk;
+	// The parent first. A branch in a stack merges into the branch
+	// below it, and only falls back to trunk when it is the bottom of
+	// one or there is no stack at all.
+	const base = wanted.base ?? facts.parent ?? facts.trunk;
 	if (base === undefined) {
 		// Not guessed at. A change proposed against something nobody
 		// meant asks the wrong people to look at it, and on a busy repo
@@ -85,7 +101,18 @@ export function fillProposal(
 				"This repo does not say what its trunk is, so there is nothing safe to target. Name the base this should merge into.",
 		};
 	}
-	if (wanted.base === undefined) guessed.push("base");
+	if (wanted.base === undefined) {
+		// Named apart from an ordinary guess, because the two are wrong in
+		// different ways and the gate is where somebody catches it. A base
+		// taken from the trunk is the boring default; a base taken from a
+		// stack is a claim about what this branch sits on, and if the
+		// stack is stale that claim targets a branch that has moved.
+		guessed.push(
+			facts.parent !== undefined && wanted.base === undefined
+				? `base (${facts.parent}, the branch it is stacked on)`
+				: "base",
+		);
+	}
 
 	if (base === head) {
 		return {

@@ -152,3 +152,47 @@ describe("uncommitted work", () => {
 		expect("fill" in answer && answer.fill.warnings).toEqual([]);
 	});
 });
+
+describe("a branch that sits on another branch", () => {
+	it("targets what it is stacked on rather than the trunk", () => {
+		// Proposed onto trunk, a stacked branch shows every commit below
+		// it as part of this change, and the reviewer reads three changes'
+		// worth of diff with nothing saying two are already up separately.
+		const answer = fillProposal({}, facts({ parent: "the-one-below" }));
+
+		expect("fill" in answer && answer.fill.base).toBe("the-one-below");
+	});
+
+	it("says the base came from the stack, not just that it was guessed", () => {
+		const answer = fillProposal({}, facts({ parent: "the-one-below" }));
+
+		// The gate shows this to a person, and it is the only chance to
+		// catch a stale stack pointing at a branch that has moved. "base"
+		// alone would not tell them anything worth checking.
+		const guessed = "fill" in answer ? answer.fill.guessed.join(" ") : "";
+		expect(guessed).toContain("the-one-below");
+		expect(guessed).toContain("stacked on");
+	});
+
+	it("still lets the caller name a base themselves", () => {
+		const answer = fillProposal(
+			{ base: "somewhere-else" },
+			facts({ parent: "the-one-below" }),
+		);
+
+		expect("fill" in answer && answer.fill.base).toBe("somewhere-else");
+		// Nothing was guessed about the base, so nothing is announced.
+		expect("fill" in answer && answer.fill.guessed.join(" ")).not.toContain(
+			"base",
+		);
+	});
+
+	it("falls back to the trunk for the bottom of a stack", () => {
+		// No parent is the same answer as no stack at all, as far as the
+		// base is concerned.
+		const answer = fillProposal({}, facts());
+
+		expect("fill" in answer && answer.fill.base).toBe("main");
+		expect("fill" in answer && answer.fill.guessed).toContain("base");
+	});
+});

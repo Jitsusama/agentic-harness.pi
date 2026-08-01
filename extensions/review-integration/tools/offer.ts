@@ -17,6 +17,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import type { Exec } from "../../../lib/exec/index.js";
 import type {
 	AuthoringIntent,
 	BoundTarget,
@@ -26,6 +27,7 @@ import type {
 	SetEdit,
 } from "../../../lib/review/index.js";
 import { fillProposal, offerable } from "../../../lib/review/index.js";
+import { createGitRebaser, createGitStacks } from "../../../lib/work/index.js";
 import { proposalComplaint } from "../conventions.js";
 import { confirmWrite } from "../gate.js";
 import { GLYPH, proposalLine } from "../render.js";
@@ -522,6 +524,33 @@ export function registerOfferTool(pi: ExtensionAPI): void {
  * those is a fact rather than an error, and `fillProposal` decides
  * which ones it can live without.
  */
+/**
+ * What a branch is stacked on, or nothing if it is not stacked.
+ *
+ * Every failure is nothing rather than a throw. A stack is an
+ * optional convenience here: not having one means the base falls back
+ * to the trunk, which is what happened before any of this existed.
+ */
+async function parentOf(
+	pi: ExtensionAPI,
+	cwd: string,
+	branch: string,
+): Promise<string | undefined> {
+	try {
+		const exec: Exec = (command, args) => pi.exec(command, [...args]);
+		const stacks = createGitStacks({
+			exec,
+			rebaser: createGitRebaser({ exec }),
+		});
+		const tracked = await stacks.read(cwd);
+		return tracked.find((step) => step.name === branch)?.parent;
+	} catch {
+		// No stack tracked here, or not a repo at all. The base falls
+		// back to the trunk, which is the behaviour that predates stacks.
+		return undefined;
+	}
+}
+
 async function checkoutFacts(
 	pi: ExtensionAPI,
 	cwd: string,
@@ -546,6 +575,15 @@ async function checkoutFacts(
 		git("status", "--porcelain"),
 	]);
 
+	// What this branch sits on, when a stack says it sits on anything.
+	// Asked here rather than in the filler because it is the checkout
+	// that knows, and the filler is pure so it can be tested without
+	// one.
+	const parent =
+		branch === undefined || branch === "HEAD"
+			? undefined
+			: await parentOf(pi, cwd, branch);
+
 	return {
 		// A detached head reports the literal word HEAD, which is not a
 		// branch anybody can push.
@@ -553,6 +591,7 @@ async function checkoutFacts(
 		...(originHead === undefined
 			? {}
 			: { trunk: originHead.replace(/^origin\//, "") }),
+		...(parent === undefined ? {} : { parent }),
 		...(subject === undefined ? {} : { subject }),
 		...(body === undefined ? {} : { bodyFromCommits: body }),
 		...(status === undefined ? {} : { dirty: true }),

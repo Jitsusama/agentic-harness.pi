@@ -183,6 +183,15 @@ so do not read an uncontested finding as a corroborated one.
 comes from the branch you are on, the base from the repo's trunk, and
 the title from the last commit's subject.
 
+If a stack says the branch sits on another branch, that becomes the
+base instead of the trunk, and the gate says which branch and why.
+Proposed onto trunk, a stacked branch carries every commit below it
+into the diff, so a reviewer reads three changes' worth with nothing
+saying two of them are already up for review separately, and reviews
+all of it again. The announcement matters as much as the inference: a
+stale stack points at a branch that has moved, and the gate is where
+somebody notices.
+
 **The gate names everything it took from the checkout.** Read that line
 rather than approving past it; it is there so a wrong guess is caught
 by the one person who can tell. It also says when the tree has
