@@ -2,9 +2,10 @@
  * Append a Journey bullet to a quest README at a known
  * path. Pure file operation, no extension state involved.
  * The extension's `appendJourneyEntry` wraps this for the
- * loaded-quest case; downstream callers (the PR-sidequest
- * bridge in particular) use this directly so they can write
- * to any quest the alias index points them at.
+ * loaded-quest case; a caller holding a path uses this
+ * directly so it can write to any quest the alias index
+ * points it at. That caller used to be named here as the
+ * PR-sidequest bridge, which no longer exists.
  */
 
 import { readFileSync } from "node:fs";

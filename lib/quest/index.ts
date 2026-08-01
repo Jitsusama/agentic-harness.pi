@@ -3,17 +3,22 @@
  *
  * Pure data model: ID minting, frontmatter parsing,
  * scaffolding, TOC generation and the pluggable URL-hint
- * fetchers. Plus the pr-workflow bridge registration
- * surface, which is the one cross-extension hook downstream
- * packages need.
+ * fetchers.
  *
- * Discovery, alias indexing, mention indexing and the
- * pr-review-doc round writer live under
+ * This used to claim a pr-workflow bridge registration
+ * surface as well, "the one cross-extension hook downstream
+ * packages need". No such thing was exported, and the
+ * extension it named has been deleted; the round writer it
+ * pointed at went with it, having ended up with no reader
+ * but its own test. Both sentences are gone rather than
+ * reworded, because a barrel comment describing exports
+ * that are not there is worse than no comment.
+ *
+ * Discovery, alias indexing and mention indexing live under
  * `lib/internal/quest/` and are not part of this barrel.
- * They are consumed by `extensions/quest-workflow` and
- * `extensions/pr-workflow` (same package) directly. If a
- * downstream package needs them, promote the specific
- * function here intentionally.
+ * They are consumed by `extensions/quest-workflow`
+ * directly. If a downstream package needs them, promote the
+ * specific function here intentionally.
  */
 
 export {
