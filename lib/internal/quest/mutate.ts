@@ -16,11 +16,11 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { QuestFrontMatter } from "../../quest/types.js";
 import { nowYmd } from "./dates.js";
+import { lensForField, reversibleFields } from "./fields.js";
 import { parseQuestFrontMatter, serializeReadable } from "./frontmatter.js";
 import { atomicWriteFile, withQuestLock } from "./io.js";
 import {
 	type JournalChange,
-	type MutableField,
 	recordStructuralOp,
 } from "./structural-journal.js";
 
@@ -38,41 +38,20 @@ interface MutateOptions {
 	stampUpdated?: boolean;
 }
 
-/** Quest front-matter fields the journal tracks and undo reverses. */
-const TRACKED_FIELDS: MutableField[] = [
-	"parent",
-	"status",
-	"priority",
-	"rank",
-	"kind",
-];
-
-function fieldValue(fm: QuestFrontMatter, field: MutableField): string | null {
-	switch (field) {
-		case "parent":
-			return fm.parent ?? null;
-		case "status":
-			return fm.status;
-		case "priority":
-			return fm.priority;
-		case "rank":
-			return String(fm.rank);
-		case "kind":
-			return fm.kind;
-		default:
-			return null;
-	}
-}
-
 function diffTracked(
 	id: string,
 	before: QuestFrontMatter,
 	after: QuestFrontMatter,
 ): JournalChange[] {
 	const changes: JournalChange[] = [];
-	for (const field of TRACKED_FIELDS) {
-		const old = fieldValue(before, field);
-		const next = fieldValue(after, field);
+	// The fields worth journalling are exactly the ones undo can put
+	// back, so both read the one lens table rather than keeping a list
+	// here that has to be remembered to match.
+	for (const field of reversibleFields()) {
+		const lens = lensForField(field);
+		if (!lens) continue;
+		const old = lens.read(before);
+		const next = lens.read(after);
 		if (old !== next) changes.push({ id, field, old, new: next });
 	}
 	return changes;

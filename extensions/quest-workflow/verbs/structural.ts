@@ -10,6 +10,7 @@ import {
 	discoverQuests,
 	siblingRanks,
 } from "../../../lib/internal/quest/discovery.js";
+import { lensForField } from "../../../lib/internal/quest/fields.js";
 import { nextRank } from "../../../lib/internal/quest/ranking.js";
 import { isSealedStatus } from "../../../lib/internal/quest/status.js";
 import {
@@ -26,7 +27,7 @@ import type { QuestFrontMatter } from "../../../lib/quest/index.js";
 import { count, verb } from "../../../lib/ui/count.js";
 import {
 	sealQuestDocuments,
-	setQuestKindByDir,
+	setQuestFieldByDir,
 	setQuestParent,
 	setQuestPriorityByDir,
 	setQuestRankByDir,
@@ -292,25 +293,13 @@ function currentValue(
 	fm: QuestFrontMatter,
 	field: JournalChange["field"],
 ): string | null {
-	switch (field) {
-		case "parent":
-			return fm.parent ?? null;
-		case "priority":
-			return fm.priority;
-		case "status":
-			return fm.status;
-		case "rank":
-			return String(fm.rank);
-		case "kind":
-			return fm.kind;
-		default:
-			// The field type is wider than the fields undo can reverse
-			// (stage is journallable but lives on a document, not the
-			// quest README this reverses). Return a sentinel that can
-			// never equal the recorded `new`, so the change is skipped
-			// and preserved in the journal rather than mis-reverted.
-			return UNREVERTABLE_FIELD;
-	}
+	const lens = lensForField(field);
+	if (lens) return lens.read(fm);
+	// No lens means the field is not on a quest README at all (`stage`
+	// is journallable but belongs to a document). Return a sentinel that
+	// can never equal the recorded `new`, so the change is skipped and
+	// preserved in the journal rather than mis-reverted.
+	return UNREVERTABLE_FIELD;
 }
 
 /**
@@ -324,30 +313,28 @@ function revertField(
 	dir: string,
 	change: JournalChange,
 ): { ok: true } | { ok: false; guidance: string } {
-	switch (change.field) {
-		case "parent":
-			return setQuestParent(dir, change.old);
-		case "priority":
-			return setQuestPriorityByDir(
-				dir,
-				change.old as QuestFrontMatter["priority"],
-			);
-		case "status":
-			return setQuestStatusByDir(dir, change.old as QuestFrontMatter["status"]);
-		case "rank":
-			return setQuestRankByDir(dir, Number(change.old));
-		case "kind":
-			return setQuestKindByDir(dir, change.old as QuestFrontMatter["kind"]);
-		default:
-			// Unreachable for today's journalled ops: currentValue skips an
-			// unhandled field before revertField is ever called for it. Kept
-			// as a defensive refusal so a future field that starts being
-			// journalled cannot silently corrupt the status field.
-			return {
-				ok: false,
-				guidance: `undo cannot reverse a ${change.field} change yet.`,
-			};
+	const lens = lensForField(change.field);
+	if (!lens) {
+		// Unreachable for today's journalled ops, since currentValue skips
+		// a lensless field before this is ever called for it. Kept as a
+		// refusal so a field that starts being journalled without a lens
+		// cannot land on whichever branch happened to be last.
+		return {
+			ok: false,
+			guidance: `undo cannot reverse a ${change.field} change yet.`,
+		};
 	}
+	// Validate the journalled value against the field's vocabulary
+	// before writing it. This used to be an unchecked cast, which is
+	// safe only while every entry was written by the current build.
+	const result = setQuestFieldByDir(dir, lens, change.old);
+	if (!result.ok) return result;
+	// Reparenting announces itself in the Journey, and undoing one has
+	// to say so too, or the original line stands uncontradicted.
+	if (change.field === "parent") {
+		appendJourneyByPath(dir, `Reparented to ${change.old ?? "top level"}.`);
+	}
+	return { ok: true };
 }
 
 export function undo(state: QuestState): QuestResult {
@@ -378,8 +365,8 @@ export function undo(state: QuestState): QuestResult {
 		}
 		const result = revertField(entry.dir, change);
 		if (!result.ok) return refuse(result.guidance);
-		// setQuestParent appends its own "Reparented to ..." line; a
-		// status reversal needs an explicit compensating entry so the
+		// revertField announces a reparent in the Journey; a status
+		// reversal needs an explicit compensating entry too, so the
 		// original conclude/retire line does not stand uncontradicted.
 		if (change.field === "status") {
 			appendJourneyByPath(entry.dir, `Reverted the ${last.op} (undo).`);

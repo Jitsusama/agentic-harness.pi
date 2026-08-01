@@ -30,6 +30,7 @@ import {
 	type QuestEntry,
 	siblingRanks,
 } from "../../lib/internal/quest/discovery.js";
+import type { QuestFieldLens } from "../../lib/internal/quest/fields.js";
 import { explainDocumentFrontMatter } from "../../lib/internal/quest/frontmatter.js";
 import {
 	atomicWriteFile,
@@ -844,14 +845,28 @@ export function setQuestRankByDir(
 }
 
 /**
- * Set a quest's kind by directory. Exported so undo can reverse a
- * journalled kind change made by reclassify.
+ * Set any journalled field by directory, through the lens that knows
+ * how to write it.
+ *
+ * Undo used to reach for one exported setter per field and cast the
+ * journalled string to that field's type on the way in. The lens
+ * checks the value against the field's vocabulary instead, so a
+ * journal entry carrying a word the vocabulary has since lost is
+ * refused with a reason rather than written back unexamined.
  */
-export function setQuestKindByDir(
+export function setQuestFieldByDir(
 	questDir: string,
-	kind: QuestFrontMatter["kind"],
+	lens: QuestFieldLens,
+	value: string | null,
 ): { ok: true } | { ok: false; guidance: string } {
-	const result = writeQuestFrontMatter(questDir, (fm) => ({ ...fm, kind }));
+	let refusal: string | undefined;
+	const result = writeQuestFrontMatter(questDir, (fm) => {
+		const written = lens.write(fm, value);
+		if (written.ok) return written.fm;
+		refusal = written.reason;
+		return undefined;
+	});
+	if (refusal) return { ok: false, guidance: refusal };
 	if (!result.ok) return result;
 	return { ok: true };
 }
