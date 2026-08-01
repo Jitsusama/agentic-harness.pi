@@ -22,6 +22,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { RepoLocator } from "../../lib/review/index.js";
 import {
+	satisfies,
 	treeRequestFrom,
 	WORK_READY,
 	WORK_REQUEST,
@@ -49,6 +50,67 @@ export function watchForWorkLayer(pi: ExtensionAPI): void {
 /** Forget it, so a reload does not answer with a dead broker. */
 export function forgetWorkLayer(): void {
 	work = undefined;
+}
+
+/** Whether a change already has somewhere to read it. */
+export type TreeStanding =
+	/** One is cut and pinned to this commit. */
+	| { kind: "cut"; path: string }
+	/** None is, and this is the call that would make one. */
+	| { kind: "none"; would: string }
+	/** Nothing can say, because there is no working layer or no commit. */
+	| { kind: "unknown"; why: string };
+
+/**
+ * Whether a tree is already cut for this change, cutting nothing.
+ *
+ * Attaching a change must not build a tree. A World tree costs
+ * minutes, and most of the time only the diff is wanted, so paying
+ * for one at attach time bills every reader for what few of them
+ * need. What attaching can do is say where things stand and name the
+ * call that would change it, which is the difference between a slow
+ * surprise and a choice.
+ */
+export function treeStandingFor(
+	repo: RepoLocator,
+	commit: string | undefined,
+): TreeStanding {
+	if (work === undefined) {
+		return { kind: "unknown", why: "no working layer is loaded" };
+	}
+	if (commit === undefined) {
+		return {
+			kind: "unknown",
+			why: "this provider does not report the commit under review",
+		};
+	}
+
+	const asked = treeRequestFrom({
+		intent: "snapshot",
+		repo: {
+			key: repo.key,
+			...(repo.localPath === undefined ? {} : { localPath: repo.localPath }),
+			...(repo.remoteUrl === undefined ? {} : { remoteUrl: repo.remoteUrl }),
+		},
+		purpose: "review",
+		commit,
+	});
+	if ("refusal" in asked) return { kind: "unknown", why: asked.refusal };
+
+	const already = work
+		.broker()
+		.held()
+		.find((tree) => satisfies(tree.identity, asked.request));
+	if (already) return { kind: "cut", path: already.path };
+
+	// The call itself, spelled out. A reader told only that no tree
+	// exists has to go and work out which of nineteen actions makes
+	// one, and with which arguments, which is the moment they give up
+	// and run git themselves.
+	return {
+		kind: "none",
+		would: `work snapshot repo:${repo.key} commit:${commit.slice(0, 12)} purpose:review`,
+	};
 }
 
 /** Where a round will run, and whether that is what was wanted. */

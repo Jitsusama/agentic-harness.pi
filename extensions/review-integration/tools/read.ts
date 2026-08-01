@@ -20,8 +20,10 @@ import {
 	unbackedDeclarations,
 } from "../../../lib/review/index.js";
 import { stackStep } from "../../../lib/review/stack.js";
+import { displayPath } from "../../../lib/ui/index.js";
 import { attachmentDir } from "../engine.js";
 import { GLYPH } from "../render.js";
+import { treeStandingFor } from "../work.js";
 import {
 	type Answer,
 	boundFor,
@@ -178,9 +180,24 @@ async function attachChange(
 		);
 	}
 	await createAttachmentStore(attachmentDir()).attach(change);
+
+	// Said, never done. Attaching is the cheap act that makes later
+	// calls terser, and cutting a tree here would make it the expensive
+	// one: a World tree costs minutes and most readers only want the
+	// diff. So this reports where things stand and names the call that
+	// would change it, which is a choice rather than a slow surprise.
+	const proposal = await bound.proposal();
+	const standing = treeStandingFor(bound.repo, proposal?.headCommit);
+	const aboutTrees =
+		standing.kind === "cut"
+			? `\n   Reading it in ${displayPath(standing.path)}.`
+			: standing.kind === "none"
+				? `\n   No tree is cut for it. ${standing.would} would make one.`
+				: "";
+
 	return say(
-		`${GLYPH.target} attached ${change.label}, handled by ${bound.provider.id}.\n   Later calls can leave the change out.`,
-		{ ok: true, attached: change.label },
+		`${GLYPH.target} attached ${change.label}, handled by ${bound.provider.id}.\n   Later calls can leave the change out.${aboutTrees}`,
+		{ ok: true, attached: change.label, tree: standing.kind },
 	);
 }
 

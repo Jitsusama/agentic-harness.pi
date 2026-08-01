@@ -481,6 +481,24 @@ listed rather than guessed between, and a change you name
 explicitly is never second-guessed. Acting on the wrong
 change is worse than being asked which one.
 
+Attaching does not cut a tree, and says so. A tree in a
+large repository costs minutes to materialize, and most of
+the time you only want the diff, which the provider serves
+without one. So attaching reports where the tree stands and
+names the call that would make one:
+
+```
+No tree is cut for it. work snapshot repo:shop/world
+commit:a1b2c3d4e5f6 purpose:review would make one.
+```
+
+That is the whole rule for anything slow: name the call
+rather than start it. Provisioning stays automatic only
+where asking for the thing already means asking for a tree,
+which is `review_ask`, since a reviewer with nowhere to read
+reviews whatever directory you happen to be standing in and
+the answer looks perfectly plausible.
+
 ## Coming Back To a Change You Reviewed
 
 You left findings, they pushed, and the question is whether
