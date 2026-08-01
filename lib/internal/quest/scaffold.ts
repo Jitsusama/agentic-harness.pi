@@ -13,6 +13,7 @@
  * when they need them. We do not enforce their presence.
  */
 
+import { wrapProse } from "../../prose/wrap.js";
 import type {
 	DocumentFrontMatter,
 	DocumentKind,
@@ -69,15 +70,23 @@ export function scaffoldQuestReadme(input: QuestScaffoldInput): string {
 	const fm = serializeQuestFrontMatter(input.frontMatter);
 	const parts: string[] = [fm, "", `# ${input.title}`, ""];
 
+	// Wrapped on the way in, so a quest is born meeting the column rule
+	// its own plan documents are held to. A summary arrives as one long
+	// line, since it is assembled from a note and a seeded excerpt, and
+	// nothing downstream was rewrapping it.
 	parts.push("## 📜 Summary", "");
 	parts.push(
-		input.summary ?? "_One paragraph: what this quest is and why it exists._",
+		wrapProse(
+			input.summary ?? "_One paragraph: what this quest is and why it exists._",
+		),
 		"",
 	);
 
 	parts.push("## 🧭 Purpose", "");
 	parts.push(
-		input.purpose ?? "_Why now, what good looks like, what is in scope._",
+		wrapProse(
+			input.purpose ?? "_Why now, what good looks like, what is in scope._",
+		),
 		"",
 	);
 

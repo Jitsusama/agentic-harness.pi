@@ -5,3 +5,4 @@ export {
 	proseGateDecision,
 	violationSignature,
 } from "./gate.js";
+export { wrapProse } from "./wrap.js";

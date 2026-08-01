@@ -16,10 +16,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { QuestFrontMatter } from "../../quest/types.js";
 import { nowYmd } from "./dates.js";
-import {
-	parseQuestFrontMatter,
-	serializeQuestFrontMatter,
-} from "./frontmatter.js";
+import { parseQuestFrontMatter, serializeReadable } from "./frontmatter.js";
 import { atomicWriteFile, withQuestLock } from "./io.js";
 import {
 	type JournalChange,
@@ -115,17 +112,16 @@ export function mutateQuestFrontMatter(
 		}
 		const stamped: QuestFrontMatter =
 			opts.stampUpdated === false ? next : { ...next, updated: nowYmd() };
-		const outText = `${serializeQuestFrontMatter(stamped)}\n${parsed.body}`;
-
 		// Write-time validation: refuse a mutation that would produce a
 		// record the strict parser cannot read back, so an out-of-vocab
-		// value is blocked instead of written to invisible drift.
-		if (!parseQuestFrontMatter(outText)) {
-			return {
-				ok: false as const,
-				guidance: `Refusing the write: it would give ${parsed.frontMatter.id} frontmatter the parser cannot read back.`,
-			};
+		// value is blocked instead of written to invisible drift. Shared
+		// with every other quest writer, which is the point of it living
+		// beside the parser rather than here.
+		const serialized = serializeReadable(stamped, parsed.body);
+		if (!serialized.ok) {
+			return { ok: false as const, guidance: serialized.reason };
 		}
+		const outText = serialized.text;
 
 		const changes = diffTracked(
 			parsed.frontMatter.id,

@@ -30,6 +30,7 @@ import {
 	type QuestEntry,
 	siblingRanks,
 } from "../../lib/internal/quest/discovery.js";
+import { explainDocumentFrontMatter } from "../../lib/internal/quest/frontmatter.js";
 import {
 	atomicWriteFile,
 	atomicWriteUnderLock,
@@ -668,6 +669,14 @@ export function createDocument(
 		brief: "briefs",
 		report: "reports",
 	};
+	// Born readable or not born at all, the same rule the quest README
+	// writers meet. This is the writer that produced the five documents
+	// found invisible to discovery, and repairing the reader to fail
+	// open and explain itself left this end of it untouched: a document
+	// whose front matter will not parse is written, reported as drafted,
+	// and never listed again.
+	const complaints = explainDocumentFrontMatter(opts.scaffoldBody);
+	if (complaints.length > 0) return undefined;
 	const dir = join(state.questDir, subDir[opts.kind]);
 	mkdirSync(dir, { recursive: true });
 	const path = join(dir, `${opts.id}.md`);

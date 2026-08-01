@@ -21,6 +21,7 @@ import {
 	discoverQuests,
 	siblingRanks,
 } from "../../../lib/internal/quest/discovery.js";
+import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter.js";
 import { atomicWriteFile } from "../../../lib/internal/quest/io.js";
 import { nextRank } from "../../../lib/internal/quest/ranking.js";
 import { formatRelativeAge } from "../../../lib/internal/quest/session-liveness.js";
@@ -325,6 +326,17 @@ export async function create(
 	if (existsSync(path)) {
 		return refuse(
 			`Quest directory ${dir} already exists. Mint a new ID and retry.`,
+		);
+	}
+	// Born readable or not born at all. Every other quest writer refuses
+	// front matter the strict parser cannot read back, and this one wrote
+	// the very first copy without asking. A quest that fails the check
+	// here is invisible to discovery from the moment it exists, which is
+	// the hardest version of the fault to trace: there is no earlier
+	// good state to compare against.
+	if (!parseQuestFrontMatter(body)) {
+		return refuse(
+			`Refusing to create ${id}: the scaffolded README has front matter the parser cannot read back, so the quest would exist and never be found.`,
 		);
 	}
 	mkdirSync(dir, { recursive: true });

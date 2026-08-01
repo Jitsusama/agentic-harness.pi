@@ -12,10 +12,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import type { QuestFrontMatter } from "../../quest/types.js";
-import {
-	parseQuestFrontMatter,
-	serializeQuestFrontMatter,
-} from "./frontmatter.js";
+import { parseQuestFrontMatter, serializeReadable } from "./frontmatter.js";
 import { isWithin } from "./git-signals.js";
 import { atomicWriteFile, withQuestLock } from "./io.js";
 
@@ -31,6 +28,12 @@ function questReadme(questDir: string): string {
  * Write the quest's scratchDir into already-parsed frontmatter,
  * preserving the body, using the atomic torn-read-safe write the
  * other quest writers use. The caller holds the quest lock.
+ *
+ * Refuses rather than writing a README the strict parser cannot read
+ * back, which this writer alone used to skip. A scratch path is
+ * ordinary text and the failure it caused was not: an unreadable
+ * README drops the quest out of discovery entirely, and the write
+ * that did it reported success.
  */
 function writeScratchDir(
 	path: string,
@@ -40,7 +43,9 @@ function writeScratchDir(
 	const fm = { ...parsed.frontMatter };
 	if (value) fm.scratchDir = value;
 	else delete fm.scratchDir;
-	atomicWriteFile(path, `${serializeQuestFrontMatter(fm)}\n${parsed.body}`);
+	const serialized = serializeReadable(fm, parsed.body);
+	if (!serialized.ok) throw new Error(serialized.reason);
+	atomicWriteFile(path, serialized.text);
 }
 
 /**

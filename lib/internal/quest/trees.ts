@@ -10,12 +10,13 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { QuestAlias, QuestTree } from "../../quest/types.js";
-import {
-	parseQuestFrontMatter,
-	serializeQuestFrontMatter,
-} from "./frontmatter.js";
-import { atomicWriteFile, withQuestLock } from "./io.js";
+import type {
+	QuestAlias,
+	QuestFrontMatter,
+	QuestTree,
+} from "../../quest/types.js";
+import { parseQuestFrontMatter } from "./frontmatter.js";
+import { mutateQuestFrontMatter } from "./mutate.js";
 
 /** Path to a quest's README. */
 function questReadme(questDir: string): string {
@@ -23,46 +24,25 @@ function questReadme(questDir: string): string {
 }
 
 /**
- * Read a quest README, run `mutate` on the parsed
- * frontmatter, write the result back. Returns the mutated
- * frontmatter on success or undefined on parse failure.
+ * Apply a tree or alias change through the shared mutation core.
+ *
+ * This used to be a second copy of that core, living here because
+ * trees were written before it existed. It locked, parsed, validated
+ * by parse-back and wrote, all correctly, and stamped no `updated`
+ * and journalled nothing, so adopting a tree left the quest reading
+ * older than it was. Two implementations of one rule means one of
+ * them is wrong, and it was this one.
+ *
+ * The transform reports what it did through the caller's own
+ * closure, so nothing needs to travel back out of the lock.
  */
-function withQuestFrontMatter<T>(
+function changeQuestFrontMatter(
 	questDir: string,
-	mutate: (
-		fm: ReturnType<typeof parseQuestFrontMatter>,
-	) => { fm: T; ok: true } | { fm?: never; ok: false; reason: string },
-): { ok: true; result: T } | { ok: false; reason: string } {
-	const path = questReadme(questDir);
-	if (!existsSync(path))
-		return { ok: false, reason: "Quest README not found." };
-	return withQuestLock(questDir, () => {
-		const text = readFileSync(path, "utf8");
-		const parsed = parseQuestFrontMatter(text);
-		if (!parsed) {
-			return {
-				ok: false as const,
-				reason: "Quest README has no readable frontmatter.",
-			};
-		}
-		const outcome = mutate(parsed);
-		if (!outcome.ok) return outcome;
-		const next = outcome.fm as unknown as Parameters<
-			typeof serializeQuestFrontMatter
-		>[0];
-		const serialized = `${serializeQuestFrontMatter(next)}\n${parsed.body}`;
-		// Validate by parse-back before writing, matching the quest
-		// mutation core: a tree or alias write must never leave a README
-		// the strict parser cannot read back.
-		if (!parseQuestFrontMatter(serialized)) {
-			return {
-				ok: false as const,
-				reason: "Tree write would produce an unreadable quest README.",
-			};
-		}
-		atomicWriteFile(path, serialized);
-		return { ok: true as const, result: outcome.fm };
-	});
+	transform: (fm: QuestFrontMatter) => QuestFrontMatter | undefined,
+	op: string,
+): { ok: true } | { ok: false; reason: string } {
+	const outcome = mutateQuestFrontMatter(questDir, transform, { op });
+	return outcome.ok ? { ok: true } : { ok: false, reason: outcome.guidance };
 }
 
 function ensureAlias(aliases: QuestAlias[], alias: QuestAlias): boolean {
@@ -90,26 +70,24 @@ export function addTreeToQuest(
 	tree: QuestTree,
 ): { ok: true; added: boolean } | { ok: false; reason: string } {
 	let addedFlag = false;
-	const outcome = withQuestFrontMatter(questDir, (parsed) => {
-		if (!parsed) return { ok: false, reason: "Quest README missing." };
-		const fm = parsed.frontMatter;
-		const trees = fm.trees ?? [];
-		const already = trees.some((t) => t.path === tree.path);
-		if (already) {
-			return { fm: { ...fm, trees }, ok: true };
-		}
-		addedFlag = true;
-		const nextTrees = [...trees, tree];
-		const nextAliases = [...fm.aliases];
-		ensureAlias(nextAliases, { type: "git-worktree", value: tree.path });
-		if (tree.branch) {
-			ensureAlias(nextAliases, { type: "git-branch", value: tree.branch });
-		}
-		return {
-			fm: { ...fm, trees: nextTrees, aliases: nextAliases },
-			ok: true,
-		};
-	});
+	const outcome = changeQuestFrontMatter(
+		questDir,
+		(fm) => {
+			const trees = fm.trees ?? [];
+			// Already there: no change at all, rather than a rewrite that
+			// stamps `updated` for a quest nothing happened to.
+			if (trees.some((t) => t.path === tree.path)) return undefined;
+			addedFlag = true;
+			const nextTrees = [...trees, tree];
+			const nextAliases = [...fm.aliases];
+			ensureAlias(nextAliases, { type: "git-worktree", value: tree.path });
+			if (tree.branch) {
+				ensureAlias(nextAliases, { type: "git-branch", value: tree.branch });
+			}
+			return { ...fm, trees: nextTrees, aliases: nextAliases };
+		},
+		"tree-add",
+	);
 	if (!outcome.ok) return outcome;
 	return { ok: true, added: addedFlag };
 }
@@ -120,26 +98,26 @@ export function removeTreeFromQuest(
 	path: string,
 ): { ok: true; removed: boolean } | { ok: false; reason: string } {
 	let removedFlag = false;
-	const outcome = withQuestFrontMatter(questDir, (parsed) => {
-		if (!parsed) return { ok: false, reason: "Quest README missing." };
-		const fm = parsed.frontMatter;
-		const trees = fm.trees ?? [];
-		const target = trees.find((t) => t.path === path);
-		if (!target) {
-			return { fm, ok: true };
-		}
-		removedFlag = true;
-		const nextTrees = trees.filter((t) => t.path !== path);
-		const nextAliases = [...fm.aliases];
-		removeAlias(nextAliases, { type: "git-worktree", value: path });
-		if (target.branch) {
-			removeAlias(nextAliases, { type: "git-branch", value: target.branch });
-		}
-		const next = { ...fm, aliases: nextAliases } as typeof fm;
-		if (nextTrees.length > 0) next.trees = nextTrees;
-		else delete (next as { trees?: QuestTree[] }).trees;
-		return { fm: next, ok: true };
-	});
+	const outcome = changeQuestFrontMatter(
+		questDir,
+		(fm) => {
+			const trees = fm.trees ?? [];
+			const target = trees.find((t) => t.path === path);
+			if (!target) return undefined;
+			removedFlag = true;
+			const nextTrees = trees.filter((t) => t.path !== path);
+			const nextAliases = [...fm.aliases];
+			removeAlias(nextAliases, { type: "git-worktree", value: path });
+			if (target.branch) {
+				removeAlias(nextAliases, { type: "git-branch", value: target.branch });
+			}
+			const next = { ...fm, aliases: nextAliases } as typeof fm;
+			if (nextTrees.length > 0) next.trees = nextTrees;
+			else delete (next as { trees?: QuestTree[] }).trees;
+			return next;
+		},
+		"tree-remove",
+	);
 	if (!outcome.ok) return outcome;
 	return { ok: true, removed: removedFlag };
 }
@@ -175,23 +153,26 @@ export function setPendingPrune(
 	pending: { path: string; reason: string; detectedAt: string } | null,
 	options?: { clearPath?: string },
 ): { ok: true } | { ok: false; reason: string } {
-	const outcome = withQuestFrontMatter(questDir, (parsed) => {
-		if (!parsed) return { ok: false, reason: "Quest README missing." };
-		const next = { ...parsed.frontMatter };
-		const existing = next.pendingPrune ?? [];
-		let merged = existing;
-		if (pending === null && !options?.clearPath) {
-			merged = [];
-		} else if (options?.clearPath) {
-			merged = existing.filter((e) => e.path !== options.clearPath);
-		}
-		if (pending) {
-			merged = [...merged.filter((e) => e.path !== pending.path), pending];
-		}
-		if (merged.length > 0) next.pendingPrune = merged;
-		else delete (next as { pendingPrune?: unknown }).pendingPrune;
-		return { fm: next, ok: true };
-	});
+	const outcome = changeQuestFrontMatter(
+		questDir,
+		(fm) => {
+			const next = { ...fm };
+			const existing = next.pendingPrune ?? [];
+			let merged = existing;
+			if (pending === null && !options?.clearPath) {
+				merged = [];
+			} else if (options?.clearPath) {
+				merged = existing.filter((e) => e.path !== options.clearPath);
+			}
+			if (pending) {
+				merged = [...merged.filter((e) => e.path !== pending.path), pending];
+			}
+			if (merged.length > 0) next.pendingPrune = merged;
+			else delete (next as { pendingPrune?: unknown }).pendingPrune;
+			return next;
+		},
+		"tree-pending-prune",
+	);
 	if (!outcome.ok) return outcome;
 	return { ok: true };
 }

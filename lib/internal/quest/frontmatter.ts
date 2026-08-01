@@ -492,6 +492,32 @@ function renderYamlBlock(payload: Record<string, unknown>): string {
 	return ["---", text, "---"].join("\n");
 }
 
+/**
+ * Serialize front matter over a body, refusing a result the strict
+ * parser cannot read back.
+ *
+ * Every quest writer has to meet this rule, and until now each one
+ * decided for itself whether to. The mutation core checked, the tree
+ * writer carried its own copy of the check, and the scratch writer
+ * did not check at all, which is how a write can leave a README that
+ * discovery then cannot see. Serializing and checking is the part
+ * they genuinely share; taking the lock is not, since a caller
+ * already holding one cannot take it again.
+ */
+export function serializeReadable(
+	fm: QuestFrontMatter,
+	body: string,
+): { ok: true; text: string } | { ok: false; reason: string } {
+	const text = `${serializeQuestFrontMatter(fm)}\n${body}`;
+	if (!parseQuestFrontMatter(text)) {
+		return {
+			ok: false,
+			reason: `Refusing the write: it would give ${fm.id} front matter the parser cannot read back.`,
+		};
+	}
+	return { ok: true, text };
+}
+
 /** Serialize a quest front-matter back to a `---` block. */
 export function serializeQuestFrontMatter(fm: QuestFrontMatter): string {
 	const payload: Record<string, unknown> = {
