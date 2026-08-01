@@ -34,7 +34,7 @@ import {
 	type Thread,
 	type Verdict,
 } from "../../../lib/review/index.js";
-import { count } from "../../../lib/ui/index.js";
+import { count, displayPath } from "../../../lib/ui/index.js";
 import {
 	decisionDir,
 	draftDir,
@@ -51,6 +51,7 @@ import {
 	planNarration,
 	proseComplaint,
 } from "../render.js";
+import { treeForFixing } from "../work.js";
 import {
 	type Answer,
 	boundFor,
@@ -650,6 +651,26 @@ async function walkFixes(
 				{ ok: true, ...tally },
 			);
 		}
+		// Handed a tree along with the item, because being told what to
+		// fix and left to find somewhere to fix it is the last mile
+		// nobody walks. One tree serves the whole change: a worktree's
+		// identity is its repo and branch, so the second item resolves to
+		// the same directory as the first.
+		// The head branch, from the provider rather than from the ref: a
+		// reference carries a label, and a label is not something you can
+		// check out.
+		const proposal = await bound.proposal();
+		const where =
+			proposal === null
+				? {
+						refusal: `The ${bound.provider.id} provider does not report this change's head branch, so there is nothing to check a tree out at.`,
+					}
+				: await treeForFixing(bound.repo, proposal.head);
+		const somewhere =
+			"refusal" in where
+				? ["", `Nowhere to work: ${where.refusal}`]
+				: ["", `Fix it in ${displayPath(where.path)}.`];
+
 		// What to say next depends on which kind it is, and this is the
 		// place that difference is felt: a finding is closed by a commit,
 		// while somebody's remark is not dealt with until they have been
@@ -680,7 +701,11 @@ async function walkFixes(
 						"",
 						"Fix it in your own loop, then record it with fix-done and the commit, or drop it with fix-skip and a reason.",
 					];
-		return say(body.join("\n"), { ok: true, finding: held.findingId });
+		return say([...body, ...somewhere].join("\n"), {
+			ok: true,
+			finding: held.findingId,
+			...("refusal" in where ? {} : { tree: where.path }),
+		});
 	}
 
 	if (params.action === "take-threads") {

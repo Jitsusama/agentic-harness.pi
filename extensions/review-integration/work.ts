@@ -113,6 +113,59 @@ export function treeStandingFor(
 	};
 }
 
+/**
+ * Somewhere to fix the next item, cut if it is not there yet.
+ *
+ * Provisioning is eager here and lazy at attach time, and the line
+ * between them is whether asking for the thing is already asking for
+ * a tree. Reading a change wants a diff, which the provider serves
+ * without one. Being handed the next thing to fix wants a working
+ * directory, and there is no cheaper substitute: sending somebody off
+ * to cut their own is the last mile nobody walks.
+ *
+ * One tree serves every item on a change, not one per item. A
+ * worktree's identity is its repo and branch, so the broker reuses
+ * the same tree for the second finding as for the first, which is
+ * also just true of the work: you fix them all on the one branch.
+ */
+export async function treeForFixing(
+	repo: RepoLocator,
+	branch: string,
+): Promise<RoundTree | { refusal: string }> {
+	if (work === undefined) {
+		return {
+			refusal:
+				"No working layer is loaded, so there is nowhere to hand you. " +
+				"Load the work integration, or fix this in a tree you cut yourself.",
+		};
+	}
+
+	const asked = treeRequestFrom({
+		intent: "worktree",
+		repo: {
+			key: repo.key,
+			...(repo.localPath === undefined ? {} : { localPath: repo.localPath }),
+			...(repo.remoteUrl === undefined ? {} : { remoteUrl: repo.remoteUrl }),
+		},
+		purpose: "fix",
+		branch,
+	});
+	if ("refusal" in asked) return { refusal: asked.refusal };
+
+	try {
+		const held = await work.broker().ensure(asked.request);
+		return { path: held.path };
+	} catch (error) {
+		// Reported rather than thrown, because the item is still worth
+		// handing over. Somebody who knows what to fix and has to find
+		// their own directory is inconvenienced; somebody shown an error
+		// instead of the item has lost the thing they asked for.
+		return {
+			refusal: error instanceof Error ? error.message : String(error),
+		};
+	}
+}
+
 /** Where a round will run, and whether that is what was wanted. */
 export interface RoundTree {
 	path: string;

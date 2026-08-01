@@ -324,6 +324,16 @@ loop**, where the person watching can interrupt with a sentence, then
 `fix-done commit:...` records it. The commit is required: it is what
 makes the claim checkable later against the history.
 
+It hands you somewhere to work as well as something to do. This is the
+one place provisioning is eager rather than lazy, and the line is
+whether asking already means asking for a tree: reading a change wants
+a diff, while fixing one wants a working directory and has no cheaper
+substitute. A worktree is cut at the change's head branch, and every
+later item on that change gets the same one, because you fix them all
+on the one branch. When there is no working layer it says so and still
+hands over the item, since knowing what to fix is worth more than
+being shown an error instead of it.
+
 `fix-skip body:"why"` drops one, and the reason is required too. The
 queue keeps skips rather than deleting them, because deciding a finding
 was wrong is a judgement worth reading back, and a skip with no reason
