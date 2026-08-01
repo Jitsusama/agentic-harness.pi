@@ -43,6 +43,37 @@ export const WORK_REGISTER_TREE_PROVIDER = "work:tree-provider:register:v1";
  */
 export const WORK_REQUEST = "work:request:v1";
 
+/**
+ * Emitted before reclaiming trees, asking who else holds one.
+ *
+ * The working layer is not the only thing that cuts a worktree. A
+ * quest holds trees against a piece of work and knows nothing about
+ * this broker's memory, and any other package may do the same. From
+ * git's side those are indistinguishable from a tree somebody leaked:
+ * the directory is there, the broker has no record, and every check
+ * short of asking says abandoned.
+ *
+ * So reclamation asks first, and anything holding trees answers by
+ * pushing its paths onto {@link TreeClaims.paths}. Silence is the
+ * dangerous default here rather than the safe one, which is why this
+ * is a broadcast question and not a lookup against a registry: an
+ * owner that never registered still gets to speak, and an owner that
+ * is not loaded cannot be spoken for.
+ */
+export const WORK_TREE_CLAIMS = "work:tree-claims:v1";
+
+/** What holders write their trees into, in answer to the question. */
+export interface TreeClaims {
+	/**
+	 * Every tree some other substrate is holding.
+	 *
+	 * Appended to rather than returned, because there is no telling how
+	 * many holders exist and a handler that replaced this would silently
+	 * drop the answers of everything that ran before it.
+	 */
+	paths: string[];
+}
+
 /** What the host hands out over {@link WORK_READY}. */
 export interface WorkApi {
 	/** Register a tree provider. Replaces one with the same id. */

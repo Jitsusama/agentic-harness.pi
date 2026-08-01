@@ -32,11 +32,17 @@ import {
 	createGitStacks,
 	type HeldTree,
 	namingComplaints,
+	type OrphanPlan,
 	orphanedTrees,
+	reclaimTrees,
 	refusalFrom,
+	type TreeBroker,
+	type TreeClaims,
 	tidyPlan,
 	treeInPlay,
 	treeRequestFrom,
+	WORK_TREE_CLAIMS,
+	type WorkHistory,
 } from "../../../lib/work/index.js";
 import { execFor, objectionsTo, treeBroker } from "../broker.js";
 import { GLYPH, treeLine } from "../render.js";
@@ -53,6 +59,63 @@ import { runStackAction } from "./stack.js";
 /** Find a held tree by the key or path a caller named. */
 function heldByName(held: readonly HeldTree[], name: string) {
 	return held.find((h) => h.identity.key === name || h.path === name);
+}
+
+/**
+ * One path, resolved the way git reports one.
+ *
+ * Git names a worktree with every symlink resolved and the broker
+ * wrote down whatever it was handed, so on macOS the same tree is
+ * `/private/var/...` from one and `/var/...` from the other. Compared
+ * raw, a tree somebody is holding right now reads as abandoned, and
+ * that is the one wrong answer here that costs work.
+ */
+function resolved(path: string): string {
+	try {
+		return realpathSync(path);
+	} catch {
+		// Gone from disk, which is not this verb's problem: the broker's
+		// memory already drops what it cannot find, and a path git just
+		// named cannot be missing. Either way the unresolved path is
+		// still the best name for it.
+		return path;
+	}
+}
+
+/**
+ * Which trees beside this one nothing owns any more.
+ *
+ * Shared by `tidy`, which reports them, and `reclaim`, which acts on
+ * exactly what it offered. One function because the two must never
+ * disagree about what is safe: a reclaim that recomputed the set with
+ * a subtly different question would remove something the report never
+ * showed anybody.
+ */
+async function treesLeftBehind(
+	pi: ExtensionAPI,
+	history: WorkHistory,
+	broker: TreeBroker,
+	mainPath: string,
+	trunk: string,
+): Promise<OrphanPlan> {
+	// This broker is not the only thing that cuts a worktree. A quest
+	// holds trees against a piece of work and knows nothing about this
+	// memory, and from git's side that is indistinguishable from a tree
+	// somebody leaked. Asking is the only way to tell, and the very
+	// first run against a real repo offered up a tree a quest owned.
+	const claims: TreeClaims = { paths: [] };
+	pi.events.emit(WORK_TREE_CLAIMS, claims);
+
+	return orphanedTrees({
+		mainPath: resolved(mainPath),
+		worktrees: (await history.worktrees(mainPath, trunk)).map((tree) => ({
+			...tree,
+			path: resolved(tree.path),
+		})),
+		remembered: [...broker.held().map((one) => one.path), ...claims.paths].map(
+			resolved,
+		),
+	});
 }
 
 /** Register the `work` tool. */
@@ -80,6 +143,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 						Type.Literal("release"),
 						Type.Literal("status"),
 						Type.Literal("tidy"),
+						Type.Literal("reclaim"),
 						Type.Literal("record"),
 						Type.Literal("branch"),
 						Type.Literal("push"),
@@ -96,7 +160,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 					],
 					{
 						description:
-							"tree: cut a worktree at a branch. snapshot: pin a snapshot at a commit. trees: list what this session holds. release: give a tree back. status: what has changed inside a tree. tidy: what has been spent once work landed, reported rather than removed, since deleting a branch is not undoable and a queued change merges later. record: stage and commit the work in a tree. branch: make a branch in a tree and check it out. push: publish the branch, setting upstream the first time. rebase: replay the branch onto another ref, reporting a conflict as a halt rather than a failure. resume: carry a halted replay on once the conflicts are settled. abandon: put the tree back the way it was before a halted replay. stack: show what sits on what. track: record that a branch sits on another, or on trunk. untrack: forget a branch, moving whatever sat on it down. reparent: point a branch at a different parent. reorder: rearrange a chain into the order you name, lowest first. restack: replay every tracked branch onto trunk, in order, stopping at the first halt. sync: fetch trunk and then restack onto where it now is, which is the daily operation and one verb because doing half of it replays the stack onto a trunk as stale as before. Defaults to trees.",
+							"tree: cut a worktree at a branch. snapshot: pin a snapshot at a commit. trees: list what this session holds. release: give a tree back. status: what has changed inside a tree. tidy: what has been spent once work landed, reported rather than removed, since deleting a branch is not undoable and a queued change merges later. reclaim: take back the trees tidy found that nothing owns any more, which is the one cleanup that acts, because removing a worktree leaves its branch and therefore its commits exactly where they were. record: stage and commit the work in a tree. branch: make a branch in a tree and check it out. push: publish the branch, setting upstream the first time. rebase: replay the branch onto another ref, reporting a conflict as a halt rather than a failure. resume: carry a halted replay on once the conflicts are settled. abandon: put the tree back the way it was before a halted replay. stack: show what sits on what. track: record that a branch sits on another, or on trunk. untrack: forget a branch, moving whatever sat on it down. reparent: point a branch at a different parent. reorder: rearrange a chain into the order you name, lowest first. restack: replay every tracked branch onto trunk, in order, stopping at the first halt. sync: fetch trunk and then restack onto where it now is, which is the daily operation and one verb because doing half of it replays the stack onto a trunk as stale as before. Defaults to trees.",
 					},
 				),
 			),
@@ -207,6 +271,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 					| "release"
 					| "status"
 					| "tidy"
+					| "reclaim"
 					| "record"
 					| "branch"
 					| "push"
@@ -535,36 +600,13 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 						tracked: tracked.map((step) => step.name),
 					});
 
-					// Trees are asked about in the same breath as branches,
-					// because they leak for a reason branches do not: a hard kill
-					// takes the broker's record with it and leaves the directory,
-					// so nothing owns the tree and no verb can see it. Anybody who
-					// has come here to clean up has come to clean up.
-					//
-					// Both path sets go through the same lens first. Git reports
-					// a worktree with every symlink resolved and the broker wrote
-					// down whatever it was handed, so on macOS the same tree can
-					// be `/private/var/...` from one and `/var/...` from the
-					// other. Compared raw, a tree somebody is holding right now
-					// reads as abandoned.
-					const resolved = (path: string): string => {
-						try {
-							return realpathSync(path);
-						} catch {
-							// Gone from disk, which is not this verb's problem: the
-							// broker's memory already drops what it cannot find, and
-							// a path git named cannot be missing. Either way the
-							// unresolved path is still the best name for it.
-							return path;
-						}
-					};
-					const orphans = orphanedTrees({
-						mainPath: resolved(found.path),
-						worktrees: (await history.worktrees(found.path, trunk)).map(
-							(tree) => ({ ...tree, path: resolved(tree.path) }),
-						),
-						remembered: broker.held().map((one) => resolved(one.path)),
-					});
+					const orphans = await treesLeftBehind(
+						pi,
+						history,
+						broker,
+						found.path,
+						trunk,
+					);
 
 					const lines: string[] = [];
 					for (const gone of plan.removable) {
@@ -600,20 +642,96 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 						);
 					}
 
+					const spent = plan.removable.length + orphans.reclaimable.length;
 					const headline =
-						plan.removable.length === 0
+						spent === 0
 							? `${GLYPH.clean} Nothing in ${found.identity.key} has been spent yet, against ${trunk}.`
-							: `${GLYPH.named} ${count(plan.removable.length, "branch", "branches")} in ${found.identity.key} can go, against ${trunk}.`;
+							: `${GLYPH.named} ${count(spent, "thing", "things")} in ${found.identity.key} can go, against ${trunk}.`;
 					return say(
 						[
 							headline,
 							...lines,
 							"",
-							"Nothing has been removed. Delete what you agree with, and",
-							"prefer git branch -d, which refuses anything trunk does not",
+							"Nothing has been removed. Delete the branches you agree with,",
+							"and prefer git branch -d, which refuses anything trunk does not",
 							"contain and is the check rather than the obstacle.",
+							...(orphans.reclaimable.length === 0
+								? []
+								: [
+										// The one place a reader is sent to a verb rather than
+										// left with a git call the guide tells them never to
+										// make. Trees are reclaimable precisely because the
+										// branch survives the removal.
+										"",
+										`For the ${count(orphans.reclaimable.length, "tree", "trees")} nothing holds, work reclaim takes them`,
+										"back. Each branch stays exactly where it is, so re-cutting",
+										"the tree puts you back.",
+									]),
 						].join("\n"),
-						{ ok: true, removable: plan.removable.length },
+						{
+							ok: true,
+							removable: plan.removable.length,
+							reclaimable: orphans.reclaimable.length,
+						},
+					);
+				}
+
+				if (action === "reclaim") {
+					// The one cleanup verb here that acts. Removing a worktree
+					// takes the directory and git's bookkeeping and leaves the
+					// branch, so the commits stay reachable and re-cutting the
+					// tree at the same branch puts a person back where they were.
+					// That is what a branch deletion cannot offer, and why tidy
+					// refuses to act while this does not.
+					const trunk = args.trunk ?? "main";
+					const orphans = await treesLeftBehind(
+						pi,
+						history,
+						broker,
+						found.path,
+						trunk,
+					);
+
+					if (orphans.reclaimable.length === 0) {
+						// Said as a no-op rather than as a success, and it names
+						// what was considered so the answer is not mistaken for
+						// having looked in the wrong place.
+						const held = orphans.retained.filter(
+							(tree) => tree.path !== resolved(found.path),
+						);
+						return say(
+							[
+								`${GLYPH.clean} No tree beside ${found.identity.key} is going spare, against ${trunk}.`,
+								...held.map(
+									(tree) =>
+										`   ${tree.decide ? GLYPH.undecided : GLYPH.refused} ${displayPath(tree.path)}: ${tree.why}`,
+								),
+							].join("\n"),
+							{ ok: true, reclaimed: 0 },
+						);
+					}
+
+					const outcome = await reclaimTrees(
+						{ exec, mainPath: found.path },
+						orphans.reclaimable,
+					);
+					const took = outcome.trees.filter((t) => t.kind === "reclaimed");
+					const lines = outcome.trees.map((tree) =>
+						tree.kind === "reclaimed"
+							? `   ${GLYPH.named} ${displayPath(tree.path)}${tree.branch ? `, ${tree.branch} kept` : ""}`
+							: `   ${GLYPH.refused} ${displayPath(tree.path)}: ${tree.why}`,
+					);
+
+					return say(
+						[
+							// Past tense, because this one did something.
+							`${GLYPH.named} Took back ${count(took.length, "tree", "trees")} beside ${found.identity.key}.`,
+							...lines,
+							"",
+							"Every branch is still where it was. Cut a tree at one again",
+							"to pick that work back up.",
+						].join("\n"),
+						{ ok: true, reclaimed: took.length },
 					);
 				}
 

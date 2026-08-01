@@ -75,6 +75,7 @@ describe("bus names are declared by a library, not an extension", () => {
 			"subagent:register-default-skill:v1",
 			"work:ready:v1",
 			"work:request:v1",
+			"work:tree-claims:v1",
 		]);
 	});
 

@@ -77,7 +77,7 @@ export interface OrphanPlan {
  * exists, which is what this looks like when nobody is watching.
  *
  * The order of the questions is the safety, as with {@link tidyPlan}.
- * The checkout itself and anything the broker still holds are excluded
+ * The checkout itself and anything still claimed are excluded
  * before merge state is considered, so no confusion further down can
  * propose removing either.
  */
@@ -96,11 +96,14 @@ export function orphanedTrees(ask: OrphanAsk): OrphanPlan {
 			continue;
 		}
 		if (held.has(tree.path)) {
-			// Not an orphan at all, and saying so matters: releasing it
-			// goes back through the provider that cut it, which knows
-			// things about taking a tree down that this does not.
+			// Not an orphan at all, and saying so matters: giving it back
+			// goes through whatever cut it, which knows things about taking
+			// a tree down that this does not. Deliberately vague about who
+			// holds it, because the broker is not the only one that can: a
+			// quest holds trees against a piece of work and answers the
+			// same question. Naming the broker would be wrong for those.
 			keep(
-				"the broker still holds it, so release it rather than reclaiming it",
+				"something still holds it, so give it back rather than reclaiming it",
 			);
 			continue;
 		}

@@ -31,11 +31,12 @@ export {
 } from "./author.js";
 export type { HeldTree, TreeBroker, TreeProvider } from "./broker.js";
 export { createTreeBroker } from "./broker.js";
-export type { WorkApi } from "./events.js";
+export type { TreeClaims, WorkApi } from "./events.js";
 export {
 	WORK_READY,
 	WORK_REGISTER_TREE_PROVIDER,
 	WORK_REQUEST,
+	WORK_TREE_CLAIMS,
 } from "./events.js";
 export type {
 	ChangedPath,
@@ -68,6 +69,12 @@ export type {
 	WorkRebaser,
 } from "./rebase.js";
 export { createGitRebaser } from "./rebase.js";
+export type {
+	ReclaimDeps,
+	ReclaimedTree,
+	ReclaimOutcome,
+} from "./reclaim.js";
+export { reclaimTrees } from "./reclaim.js";
 export {
 	clearTreeProviders,
 	listTreeProviders,

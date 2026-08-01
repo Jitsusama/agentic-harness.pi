@@ -42,6 +42,7 @@ import { registerBuiltinTerminalDrivers } from "../../lib/terminal/index.js";
 import { registerBuiltinTreeProviders } from "../../lib/tree/index.js";
 import { count, firstText } from "../../lib/ui/index.js";
 import { QUEST_ACTIONS } from "./actions.js";
+import { answerTreeClaims } from "./claims.js";
 import {
 	parseQuestWorkflowConfig,
 	QUEST_WORKFLOW_SLUG,
@@ -110,6 +111,9 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		autoloadFromCwd: section.value.autoloadFromCwd,
 		sessionRetentionDays: section.value.sessionRetentionDays,
 	});
+
+	// So the working layer does not reclaim a tree a quest is holding.
+	answerTreeClaims(pi, questsRoot);
 
 	pi.registerTool({
 		name: "quest",

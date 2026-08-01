@@ -292,6 +292,48 @@ those apart, so it is reported as a decision rather than as a
 refusal, and clearing it needs `-D`, which throws the commits
 away if you guessed wrong.
 
+## Trees Nobody Owns Any More
+
+`tidy` reports leaked trees beside the spent branches, because
+they pile up for a reason branches do not. A worktree outlives
+the process that cut it, which is the point of one, and it also
+outlives a process killed before it could hand the tree back.
+The broker's record goes with the process and the directory
+stays, so nothing owns the tree, every verb answers "no held
+tree", and git still tracks it. Fifteen accumulated in one repo
+over four months this way, every one of them cut by an
+extension that no longer exists.
+
+`work reclaim tree:… trunk:main` takes those back. It is the
+one cleanup verb here that acts, and the asymmetry with `tidy`
+is the whole point:
+
+```bash
+work tidy tree:… trunk:main       # what is spent, branches and trees
+work reclaim tree:… trunk:main    # take back the trees nothing holds
+```
+
+Deleting a branch destroys the only name a commit had, so
+`tidy` refuses to do it. Removing a worktree destroys a
+directory and git's bookkeeping for it and **leaves the branch
+exactly where it was**, so the commits stay reachable and
+cutting a tree at that branch again puts you back. Recoverable
+is what earns a verb the right to act.
+
+It removes only what `tidy` offered, and the two ask one
+question so they cannot disagree. A tree the broker still holds
+is sent back through `release` instead, since the provider that
+cut it knows things about taking it down that this does not. A
+dirty tree is refused outright rather than offered as a
+judgement call: an uncommitted change exists in one place, and
+removing the tree ends it. A tree whose branch trunk does not
+contain gets both readings named, the same squash-or-lost-work
+call the branch path leaves you.
+
+One tree git will not give up does not strand the ones behind
+it. Each is reported on its own line, in git's words, and the
+sweep carries on.
+
 ## Where This Ends and Review Begins
 
 `work` gets a branch into a state worth showing somebody.

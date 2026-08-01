@@ -186,7 +186,7 @@ describe("reading worktree state from a real repository", () => {
 		expect(busy?.decide).toBeUndefined();
 	});
 
-	it("leaves a tree the broker still remembers", async () => {
+	it("leaves a tree something still claims", async () => {
 		const { local } = await repoWithRemote();
 		const history = createGitHistory({ exec });
 		await git(local, "branch", "spent", "main");
@@ -200,7 +200,7 @@ describe("reading worktree state from a real repository", () => {
 
 		expect(plan.reclaimable).toEqual([]);
 		expect(plan.retained.find((t) => t.path.endsWith("spent"))?.why).toContain(
-			"release",
+			"give it back",
 		);
 	});
 });

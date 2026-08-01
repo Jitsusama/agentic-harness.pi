@@ -145,12 +145,17 @@ describe("trees left behind", () => {
 		]);
 	});
 
-	it("sends a tree the broker still holds back through release", () => {
+	it("sends a tree something still holds back to its holder", () => {
 		const held = { path: "/repo/.worktrees/live", mergedIntoTrunk: true };
 		const plan = orphanedTrees(ask([{ path: main }, held], [held.path]));
 
 		expect(plan.reclaimable).toEqual([]);
-		expect(plan.retained.at(-1)?.why).toContain("release");
+		const kept = plan.retained.at(-1)?.why ?? "";
+		expect(kept).toContain("give it back");
+		// Never named, because the broker is one holder among several and
+		// a quest is the common other. Blaming the broker for a quest's
+		// tree sends the reader to the wrong verb.
+		expect(kept).not.toContain("broker");
 	});
 
 	it("refuses a dirty tree outright, ahead of merge state", () => {
