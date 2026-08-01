@@ -23,8 +23,11 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { promptSingle } from "../../lib/ui/panel.js";
 import { formatRedirectReason } from "../../lib/ui/redirect.js";
+import { wordWrap } from "../../lib/ui/text-layout.js";
 import type { PromptResult } from "../../lib/ui/types.js";
 
+/** Narrower than this and wrapping does more harm than the overflow. */
+const MIN_WRAP = 20;
 const REJECT_KEY = "r";
 const REJECT = [{ key: REJECT_KEY, label: "Reject" }];
 
@@ -89,7 +92,7 @@ export async function confirmWrite(
 	const decision = decisionOf(
 		await promptSingle(ctx, {
 			title,
-			content: (_theme, width) => wrapAll(body, width),
+			content: (_theme, width) => wordWrap(body, Math.max(MIN_WRAP, width)),
 			actions: REJECT,
 		}),
 	);
@@ -98,28 +101,4 @@ export async function confirmWrite(
 		approved: false,
 		redirect: formatRedirectReason(decision.redirect, `${title}\n\n${body}`),
 	};
-}
-
-/** Wrap text to the panel width, keeping blank lines. */
-function wrapAll(text: string, width: number): string[] {
-	const usable = Math.max(20, width);
-	return text.split("\n").flatMap((line) => wrapOne(line, usable));
-}
-
-function wrapOne(line: string, width: number): string[] {
-	if (line.length <= width) return [line];
-	const words = line.split(" ");
-	const rows: string[] = [];
-	let current = "";
-	for (const word of words) {
-		const candidate = current ? `${current} ${word}` : word;
-		if (candidate.length > width && current) {
-			rows.push(current);
-			current = word;
-		} else {
-			current = candidate;
-		}
-	}
-	if (current) rows.push(current);
-	return rows;
 }
