@@ -6,7 +6,7 @@
  * uses when no id is passed.
  */
 
-import { existsSync, mkdirSync, realpathSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type {
 	ExtensionAPI,
@@ -24,6 +24,7 @@ import {
 import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter.js";
 import { atomicWriteFile } from "../../../lib/internal/quest/io.js";
 import { nextRank } from "../../../lib/internal/quest/ranking.js";
+import { questIdForCwd } from "../../../lib/internal/quest/resolve-cwd.js";
 import { formatRelativeAge } from "../../../lib/internal/quest/session-liveness.js";
 import { isSealedStatus } from "../../../lib/internal/quest/status.js";
 import { recordStructuralOp } from "../../../lib/internal/quest/structural-journal.js";
@@ -107,69 +108,12 @@ import {
  * is canonicalised through realpath so /var vs /private/var
  * and bind-mounts compare correctly.
  */
-function canonical(path: string): string {
-	try {
-		return realpathSync(path);
-	} catch {
-		return path;
-	}
-}
-
-function isUnder(child: string, parent: string): boolean {
-	if (child === parent) return true;
-	return child.startsWith(`${parent}/`);
-}
-
 export function questIdFromCwd(
 	state: QuestState,
 	cwd: string,
 ): string | undefined {
 	const { index } = discoverQuests(state.questsRoot);
-	const realCwd = canonical(cwd);
-	// A quest's own directory is the strongest claim. Prefer a live
-	// quest over a sealed one when both directories cover the cwd.
-	let dirMatch: string | undefined;
-	let dirMatchLive = false;
-	for (const entry of index.quests.values()) {
-		if (!isUnder(realCwd, canonical(entry.dir))) continue;
-		const live = !isSealedStatus(entry.doc.frontMatter.status);
-		if (dirMatch === undefined || (live && !dirMatchLive)) {
-			dirMatch = entry.doc.frontMatter.id;
-			dirMatchLive = live;
-		}
-	}
-	if (dirMatch !== undefined) return dirMatch;
-
-	// Otherwise fall back to tree and worktree-alias paths. The longest
-	// covering path wins; a live quest breaks a tie against a sealed one.
-	// Only `scaffolded` trees resolve: an adopted or unmarked tree, and a
-	// `git-worktree:` alias, is a reference to a possibly shared checkout,
-	// so a cwd-only load in a checkout adopted by many quests refuses to
-	// guess rather than magnetize an arbitrary one.
-	let bestId: string | undefined;
-	let bestLen = -1;
-	let bestLive = false;
-	for (const entry of index.quests.values()) {
-		const fm = entry.doc.frontMatter;
-		const live = !isSealedStatus(fm.status);
-		const paths: string[] = [];
-		for (const tree of fm.trees ?? []) {
-			if (tree.origin === "scaffolded") paths.push(tree.path);
-		}
-		for (const p of paths) {
-			const real = canonical(p);
-			if (!isUnder(realCwd, real)) continue;
-			if (
-				real.length > bestLen ||
-				(real.length === bestLen && live && !bestLive)
-			) {
-				bestLen = real.length;
-				bestId = fm.id;
-				bestLive = live;
-			}
-		}
-	}
-	return bestId;
+	return questIdForCwd(index, cwd);
 }
 
 /** Mint a new quest, optionally seeded from a URL. */

@@ -15,6 +15,7 @@ import {
 	isMainWorkingTree,
 	isWithin,
 } from "../../../lib/internal/quest/git-signals.js";
+import { isSealedStatus } from "../../../lib/internal/quest/status.js";
 import {
 	addTreeToQuest,
 	listTreesOnQuest,
@@ -186,6 +187,14 @@ function pathAdoptedByAnotherQuest(
 	for (const entry of index.quests.values()) {
 		const fm = entry.doc.frontMatter;
 		if (fm.id === state.questId) continue;
+		// Only a live quest is a competing claim. The guard exists because
+		// two quests holding one checkout make a fresh session resolve to
+		// an arbitrary one, and a sealed quest cannot magnetize a session:
+		// the cwd resolver prefers a live quest over a sealed one wherever
+		// both match. Counting a finished quest's claim strands the
+		// checkout instead, because the only quest that could release it
+		// is the one that is over.
+		if (isSealedStatus(fm.status)) continue;
 		for (const tree of fm.trees ?? []) {
 			if (canonicalPath(tree.path) === target) return fm.id;
 		}

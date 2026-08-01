@@ -11,9 +11,8 @@ import {
 	mkdirSync,
 	readdirSync,
 	readFileSync,
-	realpathSync,
 } from "node:fs";
-import { join, sep } from "node:path";
+import { join } from "node:path";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
@@ -53,6 +52,7 @@ import {
 	sink as rankSink,
 	top as rankTop,
 } from "../../lib/internal/quest/ranking.js";
+import { questIdForCwd } from "../../lib/internal/quest/resolve-cwd.js";
 import {
 	indexSessionFiles,
 	prunePhantomSessions,
@@ -382,19 +382,6 @@ export function stampQuestUpdated(state: QuestState): void {
  * case-insensitive filesystem. Returns the input on failure
  * so a missing path still compares against something stable.
  */
-function canonicalForCompare(path: string): string {
-	try {
-		return realpathSync(path);
-	} catch {
-		return path;
-	}
-}
-
-function isUnder(child: string, parent: string): boolean {
-	if (child === parent) return true;
-	return child.startsWith(`${parent}${sep}`);
-}
-
 /**
  * Customtype tag used to persist the loaded quest and
  * focused document into the session history. The pi
@@ -589,62 +576,9 @@ export function restoreFromCwd(
 ): void {
 	const rawCwd = ctx.cwd;
 	if (!rawCwd) return;
-	const cwd = canonicalForCompare(rawCwd);
 	const { index } = discoverQuests(state.questsRoot);
-	// 1. Quest directory match: the session's cwd is
-	//    inside a quest's own folder. Prefer a live quest
-	//    over a sealed one when both directories cover the
-	//    cwd, so a fresh pi launched inside a concluded
-	//    quest's tree does not auto-load the concluded
-	//    quest, matching the explicit load verb's resolver.
-	let dirMatch: string | undefined;
-	let dirMatchLive = false;
-	for (const entry of index.quests.values()) {
-		if (!isUnder(cwd, canonicalForCompare(entry.dir))) continue;
-		const live = !isSealedStatus(entry.doc.frontMatter.status);
-		if (dirMatch === undefined || (live && !dirMatchLive)) {
-			dirMatch = entry.doc.frontMatter.id;
-			dirMatchLive = live;
-		}
-	}
-	if (dirMatch !== undefined) {
-		loadQuest(state, pi, dirMatch);
-		return;
-	}
-	// 2. Scaffolded-tree match: the cwd is inside a tree the
-	//    tool created for some quest. Only `scaffolded` trees
-	//    magnetize a fresh session; an adopted or unmarked
-	//    tree, and a `git-worktree:` alias, is a reference to a
-	//    possibly shared checkout, so it never auto-loads (a
-	//    shared checkout adopted by many quests would otherwise
-	//    resolve arbitrarily). Pick the deepest match so nested
-	//    trees resolve to the innermost owner, with a live quest
-	//    breaking a tie against a sealed one. Each candidate path
-	//    is canonicalized so /var and /private/var (and
-	//    bind-mounts in containers) match.
-	let bestQuestId: string | undefined;
-	let bestMatchLen = -1;
-	let bestLive = false;
-	const consider = (questId: string, treePath: string, live: boolean) => {
-		const real = canonicalForCompare(treePath);
-		if (!isUnder(cwd, real)) return;
-		if (
-			real.length > bestMatchLen ||
-			(real.length === bestMatchLen && live && !bestLive)
-		) {
-			bestMatchLen = real.length;
-			bestQuestId = questId;
-			bestLive = live;
-		}
-	};
-	for (const entry of index.quests.values()) {
-		const fm = entry.doc.frontMatter;
-		const live = !isSealedStatus(fm.status);
-		for (const tree of fm.trees ?? []) {
-			if (tree.origin === "scaffolded") consider(fm.id, tree.path, live);
-		}
-	}
-	if (bestQuestId) loadQuest(state, pi, bestQuestId);
+	const questId = questIdForCwd(index, rawCwd);
+	if (questId) loadQuest(state, pi, questId);
 }
 
 function extractTitle(body: string): string | null {

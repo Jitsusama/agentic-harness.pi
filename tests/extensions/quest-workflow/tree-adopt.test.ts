@@ -127,6 +127,81 @@ describe("tree-adopt", () => {
 		expect(blocked.guidance).toMatch(/already tracked|force/i);
 	});
 
+	it("lets a live quest adopt a checkout a concluded quest still lists", async () => {
+		// The guard exists because two quests holding one checkout make a
+		// fresh session resolve to an arbitrary one. A sealed quest cannot
+		// magnetize a session at all, and the cwd resolver already prefers
+		// a live quest over a sealed one, so a concluded holder is not a
+		// competing claim and blocking on it strands the checkout for good:
+		// the quest that could release it is finished.
+		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
+		const wt = join(tmpRoot, "handed-on-wt");
+		await execFileAsync("git", ["worktree", "add", "-b", "handed-on", wt], {
+			cwd: repoRoot,
+		});
+		const first = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "create",
+			title: "Finished Owner",
+		});
+		if (!first.ok) throw new Error(first.guidance);
+		expect(
+			(
+				await handle(state, fakePi(), fakeCtx(wt), {
+					action: "tree-adopt",
+					cwd: wt,
+				})
+			).ok,
+		).toBe(true);
+		const concluded = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "conclude",
+			scope: "quest",
+		});
+		if (!concluded.ok) throw new Error(concluded.guidance);
+
+		const second = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "create",
+			title: "Live Successor",
+		});
+		if (!second.ok) throw new Error(second.guidance);
+		const adopted = await handle(state, fakePi(), fakeCtx(wt), {
+			action: "tree-adopt",
+			cwd: wt,
+		});
+
+		expect(adopted.ok).toBe(true);
+	});
+
+	it("still refuses when the other holder is live", async () => {
+		// The complement of the test above: gating on status must not turn
+		// the guard off, only narrow it to claims that can actually compete.
+		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
+		const wt = join(tmpRoot, "contested-wt");
+		await execFileAsync("git", ["worktree", "add", "-b", "contested", wt], {
+			cwd: repoRoot,
+		});
+		const first = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "create",
+			title: "Live Holder",
+		});
+		if (!first.ok) throw new Error(first.guidance);
+		await handle(state, fakePi(), fakeCtx(wt), {
+			action: "tree-adopt",
+			cwd: wt,
+		});
+		const second = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "create",
+			title: "Other Live Quest",
+		});
+		if (!second.ok) throw new Error(second.guidance);
+
+		const blocked = await handle(state, fakePi(), fakeCtx(wt), {
+			action: "tree-adopt",
+			cwd: wt,
+		});
+
+		expect(blocked.ok).toBe(false);
+	});
+
 	it("refuses a manual prune of an adopted tree without force", async () => {
 		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
 		const created = await handle(state, fakePi(), fakeCtx(tmpRoot), {
