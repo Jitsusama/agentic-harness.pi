@@ -25,9 +25,19 @@ import { promptSingle } from "../../lib/ui/panel.js";
 import { formatRedirectReason } from "../../lib/ui/redirect.js";
 import { wordWrap } from "../../lib/ui/text-layout.js";
 import type { PromptResult } from "../../lib/ui/types.js";
+import { type GatePanel, gateLines, gateText } from "./render.js";
 
 /** Narrower than this and wrapping does more harm than the overflow. */
 const MIN_WRAP = 20;
+
+/**
+ * How wide the panel is assumed to have been when quoting it back.
+ *
+ * The real width belongs to a terminal that has already gone by the time a
+ * redirect is being written up, and the quote is read by a model rather
+ * than laid out on screen, so a settled width beats a remembered one.
+ */
+const REDIRECT_QUOTE_WIDTH = 72;
 const REJECT_KEY = "r";
 const REJECT = [{ key: REJECT_KEY, label: "Reject" }];
 
@@ -82,23 +92,35 @@ function said(note: string | undefined): string | undefined {
 	return trimmed ? trimmed : undefined;
 }
 
-/** Ask the user to approve one write. Enter approves. */
+/**
+ * Ask the user to approve one write. Enter approves.
+ *
+ * A panel is the shape to reach for: it draws the four parts every gate
+ * has and the redirect quotes it back. A bare string is the older shape,
+ * kept for the gates in `offer.ts`, which are about a change rather than
+ * about something somebody said and have nothing to quote.
+ */
 export async function confirmWrite(
 	ctx: ExtensionContext,
 	title: string,
-	body: string,
+	body: string | GatePanel,
 ): Promise<GateDecision> {
 	if (!ctx.hasUI) return { approved: true };
 	const decision = decisionOf(
 		await promptSingle(ctx, {
 			title,
-			content: (_theme, width) => wordWrap(body, Math.max(MIN_WRAP, width)),
+			content: (theme, width) =>
+				typeof body === "string"
+					? wordWrap(body, Math.max(MIN_WRAP, width))
+					: gateLines(body, theme, width),
 			actions: REJECT,
 		}),
 	);
 	if (decision.approved || !decision.redirect) return decision;
+	const shown =
+		typeof body === "string" ? body : gateText(body, REDIRECT_QUOTE_WIDTH);
 	return {
 		approved: false,
-		redirect: formatRedirectReason(decision.redirect, `${title}\n\n${body}`),
+		redirect: formatRedirectReason(decision.redirect, `${title}\n\n${shown}`),
 	};
 }

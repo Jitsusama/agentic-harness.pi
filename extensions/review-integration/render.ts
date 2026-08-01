@@ -29,6 +29,7 @@
  * would be rude.
  */
 
+import type { Theme } from "@earendil-works/pi-coding-agent";
 import { detectProseViolations } from "../../lib/prose/index.js";
 import type {
 	Anchor,
@@ -41,6 +42,10 @@ import type {
 } from "../../lib/review/index.js";
 import { describeAnchor, standsAt } from "../../lib/review/index.js";
 import { count } from "../../lib/ui/count.js";
+import { wordWrap } from "../../lib/ui/text-layout.js";
+
+/** Below this a gate is not wrapping text, it is shredding it. */
+const MIN_GATE_WIDTH = 24;
 
 /** The vocabulary. One glyph per concept, used everywhere. */
 /**
@@ -95,7 +100,144 @@ export const GLYPH = {
 	reaction: "\u2726",
 	resolved: "\u2611",
 	unresolved: "\u2610",
+
+	// What is about to be said, as against what was already said. Only a
+	// write gate draws it, to hold the outgoing text apart from the exchange
+	// quoted above it, which is the one distinction those panels must not
+	// blur: approving a reply against the wrong remark is invisible.
+	reply: "\u21b3",
 } as const;
+
+/** One remark quoted into a gate, so a person sees what is being answered. */
+export interface GateQuote {
+	/** Who said it, with their address where it has one: "C4 binks". */
+	who: string;
+	/** What they said. Clipped: the outgoing text matters more than this. */
+	body: string;
+}
+
+/** The text a gate is about to send. */
+export interface GatePayload {
+	/** "replying as joel.gerber". Absent for a remark answering nobody. */
+	as?: string;
+	body: string;
+}
+
+/**
+ * What a write gate is about, in the order a person needs it.
+ *
+ * Four parts, always the same four, so the shape is learned once and every
+ * gate in the surface reads the same way.
+ */
+export interface GatePanel {
+	/** The change and its provider: "shop/world#2000980 · meteorite". */
+	destination: string;
+	/** Where it hangs: "policy.go:166 · open · 3 replies". */
+	where?: string;
+	/** The exchange being answered or reacted to. */
+	context?: GateQuote[];
+	/** What is being sent. Never clipped. */
+	payload?: GatePayload;
+	/** What follows: settling, a verdict, a degradation. */
+	consequence?: string[];
+}
+
+/**
+ * How many lines of any one quoted remark a gate shows.
+ *
+ * Per remark rather than across the exchange, so an opening wall of text
+ * cannot push the reply that prompted all this off the bottom.
+ */
+const QUOTE_LINES = 6;
+
+/** Indent for anything quoted or being sent, holding it off the margin. */
+const INSET = "   ";
+
+/**
+ * Draw one write gate.
+ *
+ * Pure: data in, lines out, no terminal and no context. That is what makes
+ * the panels above testable, and it is the reason nothing here reaches for
+ * `ctx`. Everything untestable stays in the thin call to the prompt.
+ */
+export function gateLines(
+	panel: GatePanel,
+	theme: Theme,
+	width: number,
+): string[] {
+	return rowsOf(panel, width).map((row) =>
+		row.muted && row.text ? theme.fg("muted", row.text) : row.text,
+	);
+}
+
+/**
+ * The same panel as plain text, for the redirect to quote back.
+ *
+ * One layout, two outputs. A second rendering would let what the redirect
+ * says was on screen drift from what was on screen.
+ */
+export function gateText(panel: GatePanel, width: number): string {
+	return rowsOf(panel, width)
+		.map((row) => row.text)
+		.join("\n");
+}
+
+/** One line of a gate, and whether it is chrome or the thing itself. */
+interface GateRow {
+	text: string;
+	muted?: boolean;
+}
+
+/** The layout, once, before anything decides how to colour it. */
+function rowsOf(panel: GatePanel, width: number): GateRow[] {
+	const room = Math.max(MIN_GATE_WIDTH, width - INSET.length);
+	const rows: GateRow[] = [
+		{ text: `${GLYPH.target} ${panel.destination}`, muted: true },
+	];
+	if (panel.where) {
+		rows.push({ text: `${GLYPH.thread} ${panel.where}`, muted: true });
+	}
+
+	for (const quote of panel.context ?? []) {
+		rows.push({ text: "" }, ...quoted(quote, room));
+	}
+
+	if (panel.payload) {
+		rows.push({ text: "" });
+		if (panel.payload.as) {
+			rows.push({
+				text: `${INSET}${GLYPH.reply} ${panel.payload.as}`,
+				muted: true,
+			});
+		}
+		// Whole, however long. This is the one thing the gate exists to show,
+		// and a gate that elides it is the gate this surface used to have.
+		rows.push(
+			...inset(wordWrap(panel.payload.body, room)).map((text) => ({ text })),
+		);
+	}
+
+	if (panel.consequence?.length) {
+		rows.push({ text: "" });
+		for (const one of panel.consequence) {
+			rows.push(...wordWrap(one, width).map((text) => ({ text })));
+		}
+	}
+	return rows;
+}
+
+/** One remark, attributed and clipped, with the clip owned up to. */
+function quoted(quote: GateQuote, room: number): GateRow[] {
+	const wrapped = wordWrap(`${quote.who}: ${quote.body}`, room);
+	const kept = wrapped.slice(0, QUOTE_LINES);
+	if (wrapped.length > QUOTE_LINES) kept.push("\u2026");
+	return inset(kept).map((text) => ({ text, muted: true }));
+}
+
+/** Hold lines off the margin, leaving blank ones blank. */
+function inset(lines: string[]): string[] {
+	return lines.map((line) => (line ? `${INSET}${line}` : line));
+}
 
 /** Where a remark points, in a form a person can scan. */
 export function anchorLabel(anchor: Anchor): string {

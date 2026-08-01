@@ -24,7 +24,7 @@ import {
 	type Thread,
 } from "../../../lib/review/index.js";
 import { confirmWrite } from "../gate.js";
-import { anchorLabel, GLYPH } from "../render.js";
+import { anchorLabel, count, type GateQuote, GLYPH } from "../render.js";
 import {
 	type Answer,
 	boundFor,
@@ -39,9 +39,38 @@ import {
 	threadsOf,
 } from "./shared.js";
 
-/** Where a thread hangs, for a gate to show. */
+/** Where a thread hangs, and how it stands, for a gate to show. */
 function threadWhere(thread: Thread): string {
-	return thread.anchor ? anchorLabel(thread.anchor) : "on the change itself";
+	const where = thread.anchor
+		? anchorLabel(thread.anchor)
+		: "on the change itself";
+	const replies = thread.comments.length - 1;
+	return [
+		where,
+		thread.resolved ? "resolved" : "open",
+		...(replies > 0 ? [count(replies, "reply", "replies")] : []),
+		...(thread.stale ? ["stale"] : []),
+	].join(" \u00b7 ");
+}
+
+/**
+ * The exchange so far, for the gate to quote.
+ *
+ * What is being answered is as much a part of the decision as what is
+ * being said. This surface learned that once already, on the react gate,
+ * and did not carry it across: an address approved against the wrong
+ * comment is indistinguishable from one approved against the right one.
+ */
+function exchange(thread: Thread): GateQuote[] {
+	return thread.comments.map((one) => ({
+		who: one.author.id,
+		body: one.body,
+	}));
+}
+
+/** The change a gate is about to write on, and who hosts it. */
+function destinationOf(bound: BoundTarget, label: string): string {
+	return `${label} \u00b7 ${bound.provider.id}`;
 }
 
 /** Register the `review_say` tool. */
@@ -130,11 +159,10 @@ export function registerSayTool(pi: ExtensionAPI): void {
 
 				if (params.action === "comment") {
 					if (!params.body) return refuse("A comment needs a body.");
-					const decision = await confirmWrite(
-						ctx,
-						"Post a comment?",
-						`${GLYPH.target} ${change.label}\n\n${params.body}`,
-					);
+					const decision = await confirmWrite(ctx, "Post a comment?", {
+						destination: destinationOf(bound, change.label),
+						payload: { body: params.body },
+					});
 					if (!decision.approved) return declined(decision, "Left unposted.");
 					const posted = await conversation.comment(change, params.body);
 					return say(
@@ -156,11 +184,12 @@ export function registerSayTool(pi: ExtensionAPI): void {
 
 				if (params.action === "reply") {
 					if (!params.body) return refuse("A reply needs a body.");
-					const decision = await confirmWrite(
-						ctx,
-						"Post this reply?",
-						`${GLYPH.thread} ${threadWhere(thread)}\n\n${params.body}`,
-					);
+					const decision = await confirmWrite(ctx, "Post this reply?", {
+						destination: destinationOf(bound, change.label),
+						where: threadWhere(thread),
+						context: exchange(thread),
+						payload: { as: "replying", body: params.body },
+					});
 					if (!decision.approved) return declined(decision, "Left unposted.");
 					const posted = await conversation.reply(change, thread, params.body);
 					return say(
@@ -177,7 +206,14 @@ export function registerSayTool(pi: ExtensionAPI): void {
 				const decision = await confirmWrite(
 					ctx,
 					reopening ? "Reopen this thread?" : "Resolve this thread?",
-					`${GLYPH.thread} ${threadWhere(thread)}`,
+					{
+						destination: destinationOf(bound, change.label),
+						where: threadWhere(thread),
+						// The whole exchange and no payload: what is being approved
+						// is the judgement that it is finished, so the exchange is
+						// the entire question.
+						context: exchange(thread),
+					},
 				);
 				if (!decision.approved) return declined(decision, "Left as it was.");
 				if (reopening) await conversation.unresolve?.(change, thread);
@@ -232,11 +268,16 @@ async function react(
 	// The gate quotes the remark being reacted to, since an address is not
 	// something a person can check. `[C4]` approved against the wrong comment
 	// is indistinguishable from `[C4]` approved against the right one.
-	const decision = await confirmWrite(
-		ctx,
-		`React ${params.reaction}?`,
-		`${GLYPH.reaction} ${params.reaction} on ${found.label} ${found.message.author.id}: ${found.message.body}`,
-	);
+	const decision = await confirmWrite(ctx, `React ${params.reaction}?`, {
+		destination: destinationOf(bound, change.label),
+		context: [
+			{
+				who: `${found.label} ${found.message.author.id}`,
+				body: found.message.body,
+			},
+		],
+		consequence: [`${GLYPH.reaction} ${params.reaction}`],
+	});
 	if (!decision.approved) return declined(decision, "Left as it was.");
 	await conversation.react(change, found.message, params.reaction as Reaction);
 	return say(`${GLYPH.reaction} reacted to ${found.label}.`);
