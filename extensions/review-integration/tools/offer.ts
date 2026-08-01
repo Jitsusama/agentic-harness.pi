@@ -40,6 +40,7 @@ import { GLYPH, proposalLine } from "../render.js";
 import {
 	type Answer,
 	boundFor,
+	checkoutElsewhere,
 	hostedChange,
 	messageOf,
 	refuse,
@@ -636,30 +637,10 @@ export async function proposingElsewhere(
 	cwd: string,
 	bound: Pick<BoundTarget, "repo">,
 ): Promise<string | undefined> {
-	const slug = bound.repo.key.split(":").slice(1).join(":");
-	if (slug === "" || bound.repo.key.startsWith("local:")) return undefined;
+	const apart = await checkoutElsewhere(pi, cwd, bound);
+	if (!apart) return undefined;
 
-	let remote: string | undefined;
-	try {
-		const result = await pi.exec("git", [
-			"-C",
-			cwd,
-			"remote",
-			"get-url",
-			"origin",
-		]);
-		remote = result.code === 0 ? result.stdout.trim() : undefined;
-	} catch {
-		// Not a repo, or no git. Nothing to compare, so nothing to say.
-		return undefined;
-	}
-	if (!remote || remote === "") return undefined;
-
-	// Trailing .git and a trailing slash are spellings, not differences.
-	const tidied = remote.replace(/\.git$/, "").replace(/\/$/, "");
-	if (tidied.toLowerCase().includes(slug.toLowerCase())) return undefined;
-
-	return `This checkout is ${tidied}, and the change in play is on ${bound.repo.key}, so a branch here cannot be proposed there. Detach that change, or name the repo to propose from with repo.`;
+	return `This checkout is ${apart.checkout}, and the change in play is on ${apart.repo}, so a branch here cannot be proposed there. Detach that change, or name the repo to propose from with repo.`;
 }
 
 /**

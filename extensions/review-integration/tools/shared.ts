@@ -23,6 +23,7 @@ import {
 	type Reactable,
 	type ReactableRefusal,
 	reactables,
+	repoElsewhere,
 	type Thread,
 } from "../../../lib/review/index.js";
 import { firstText, renderToolCall } from "../../../lib/ui/index.js";
@@ -160,6 +161,37 @@ export async function boundFor(
 	const held = attached.find((a) => a.change.label === chosen.label);
 	if (held && params.change === undefined) return engine.bound(held.change);
 	return engine.resolve(chosen.label, cwd);
+}
+
+/**
+ * Whether a checkout is a different place from the repo in play.
+ *
+ * Reads the checkout's origin and hands the comparison to
+ * {@link repoElsewhere}. The caller phrases the sentence, because the
+ * same disagreement means different things: a branch cannot be
+ * proposed into another repo at all, while listing another repo's
+ * changes succeeds and answers a question nobody asked.
+ */
+export async function checkoutElsewhere(
+	pi: Pick<ExtensionAPI, "exec">,
+	cwd: string,
+	bound: Pick<BoundTarget, "repo">,
+): Promise<{ checkout: string; repo: string } | undefined> {
+	let remote: string | undefined;
+	try {
+		const result = await pi.exec("git", [
+			"-C",
+			cwd,
+			"remote",
+			"get-url",
+			"origin",
+		]);
+		remote = result.code === 0 ? result.stdout.trim() : undefined;
+	} catch {
+		// Not a repo, or no git. Nothing to compare, so nothing to say.
+		return undefined;
+	}
+	return repoElsewhere(remote, bound.repo.key);
 }
 
 /** The hosted change behind a bound target, when there is one. */

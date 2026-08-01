@@ -254,6 +254,7 @@ export {
 } from "./draft/state.js";
 export type { DraftStore, DraftSummary } from "./draft/store.js";
 export { createDraftStore } from "./draft/store.js";
+export { repoElsewhere } from "./elsewhere.js";
 export type {
 	BoundTarget,
 	LocalSpec,

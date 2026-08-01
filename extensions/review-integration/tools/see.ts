@@ -44,6 +44,7 @@ import {
 import {
 	type Answer,
 	boundFor,
+	checkoutElsewhere,
 	hostedChange,
 	refuse,
 	refuseFailure,
@@ -554,6 +555,23 @@ async function seeChanges(
 	// true, and beside the point, since a change is how this surface has
 	// always named a repo.
 	const bound = await boundFor(pi, params, cwd);
+
+	// Naming a repo and being answered about another one is the failure
+	// this guards. Resolution prefers the change in play, which is right
+	// nearly everywhere and wrong here: listing is the one action whose
+	// whole subject is the repo, so an explicitly named repo that
+	// disagrees with the attachment is a contradiction rather than a
+	// detail. Only checked when the caller named one, since falling back
+	// to the attachment's repo is the documented convenience.
+	if (params.repo) {
+		const apart = await checkoutElsewhere(pi, params.repo, bound);
+		if (apart) {
+			return refuse(
+				`You named ${apart.checkout}, and the change in play is on ${apart.repo}, so this would list ${apart.repo} instead. Detach that change, or name a change in ${apart.checkout}.`,
+			);
+		}
+	}
+
 	const lister = bound.provider.proposals?.list;
 	if (!lister) {
 		return refuse(
@@ -564,10 +582,20 @@ async function seeChanges(
 		...(params.state ? { state: params.state } : {}),
 		...(params.limit !== undefined ? { limit: params.limit } : {}),
 	});
-	if (found.length === 0) return say(`${GLYPH.target} no changes match.`);
+	// The repo is named in the headline because it was not always the
+	// one asked for: with a change attached, resolution answers about
+	// that change's repo, and every row here reads the same whichever
+	// repo it came from.
+	if (found.length === 0) {
+		return say(`${GLYPH.target} no changes match in ${bound.repo.key}.`);
+	}
 	return say(
 		citeListing(openSessionStore(), {
-			view: found.map(proposalLine).join("\n\n"),
+			view: [
+				`${GLYPH.target} ${bound.repo.key}`,
+				"",
+				found.map(proposalLine).join("\n\n"),
+			].join("\n"),
 			records: found,
 			unit: "changes",
 			narrowing: "Narrow with 'state', or lower 'limit'.",
