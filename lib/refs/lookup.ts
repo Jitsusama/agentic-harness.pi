@@ -55,5 +55,53 @@ export function parseAllRefs(text: string): Ref[] {
  * when the value cannot be encoded.
  */
 export function urlForRef(ref: Ref): string | undefined {
-	return get(ref.type)?.url?.(ref.value);
+	const encoded = get(ref.type)?.url?.(ref.value);
+	if (encoded !== undefined) return encoded;
+	// A value that is already a link is its own link. Sweeping the live
+	// store turned up refs under types nobody registered, several of
+	// them holding a whole `https://` URL and rendering as no link at
+	// all, which is absurd: `url: https://...` had a link in it the
+	// entire time. This is the identity function rather than an
+	// inference, so it invents nothing, and it runs second so a
+	// registered type's own encoding always wins.
+	return absoluteUrl(ref.value);
+}
+
+/** The value itself, when the value is already an http or https URL. */
+function absoluteUrl(value: string): string | undefined {
+	if (!/^https?:\/\//.test(value)) return undefined;
+	try {
+		return new URL(value).href === "" ? undefined : value;
+	} catch {
+		// Starts like a URL and is not one. Nothing to hand back, and
+		// nothing worth complaining about either: an unregistered type
+		// never promised a link.
+		return undefined;
+	}
+}
+
+/**
+ * Why this ref has no URL, or nothing when it has one.
+ *
+ * The counterpart to {@link urlForRef}, kept separate for the same
+ * reason the front-matter parser and its explainer are separate: most
+ * callers want a link or nothing, and only the one rendering a list a
+ * person reads has to account for the gap.
+ *
+ * Silence here is not the same as a missing link. A type with no URL
+ * form at all, like a person identity, is not failing to encode
+ * anything, so it says nothing and the caller shows no link and no
+ * complaint. A type that could encode and did not is where the reason
+ * comes from.
+ */
+export function whyRefHasNoUrl(ref: Ref): string | undefined {
+	const type = get(ref.type);
+	if (type?.url === undefined) return undefined;
+	if (type.url(ref.value) !== undefined) return undefined;
+	return (
+		type.whyNoUrl?.(ref.value) ??
+		// A type that can decline without explaining itself. Better than
+		// nothing, and it names the type so somebody knows where to look.
+		`"${ref.value}" is not a value the ${ref.type} type can turn into a link.`
+	);
 }

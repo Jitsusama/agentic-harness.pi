@@ -111,6 +111,43 @@ const githubRepo: RefType = {
 const SLACK_URL_REGEX =
 	/https:\/\/([\w-]+)\.slack\.com\/archives\/([A-Z0-9]+)\/(p\d+)(\?[^\s"')\]]*)?/g;
 
+/**
+ * Why a Slack ref will not become a URL, or nothing when it will.
+ *
+ * Shared by both Slack types, which store and encode identically.
+ *
+ * The two-part case is called out by name because it is not a typo,
+ * it is the overwhelming majority: a value written from Slack API
+ * data has the channel and the timestamp and no workspace, since the
+ * API never says which workspace you are talking to. Only a value
+ * parsed out of a URL carries all three. Naming the missing part and
+ * where it comes from is the difference between a fixable record and
+ * a link that is simply absent.
+ */
+function whyNoSlackUrl(value: string): string | undefined {
+	if (SLACK_VALUE_REGEX.test(value)) return undefined;
+	if (/^[A-Z0-9]+\/p?\d+(\.\d+)?$/.test(value)) {
+		return (
+			`"${value}" names a channel and a timestamp but no workspace, ` +
+			"which is what a ref written from Slack API data looks like: the " +
+			"API never says which workspace you are talking to. A link needs " +
+			"workspace/CHANNEL/pTIMESTAMP, so add the workspace this came from."
+		);
+	}
+	return (
+		`"${value}" is not workspace/CHANNEL/pTIMESTAMP, so there is ` +
+		"nothing to build an archive link out of."
+	);
+}
+
+const SLACK_VALUE_REGEX = /^([\w-]+)\/([A-Z0-9]+)\/(p\d+)$/;
+
+function slackUrl(value: string): string | undefined {
+	const m = SLACK_VALUE_REGEX.exec(value);
+	if (!m) return undefined;
+	return `https://${m[1]}.slack.com/archives/${m[2]}/${m[3]}`;
+}
+
 const slackMessage: RefType = {
 	type: "slack-message",
 	matchAll(text) {
@@ -122,11 +159,8 @@ const slackMessage: RefType = {
 		}
 		return results;
 	},
-	url(value) {
-		const m = /^([\w-]+)\/([A-Z0-9]+)\/(p\d+)$/.exec(value);
-		if (!m) return undefined;
-		return `https://${m[1]}.slack.com/archives/${m[2]}/${m[3]}`;
-	},
+	url: slackUrl,
+	whyNoUrl: whyNoSlackUrl,
 };
 
 const slackThread: RefType = {
@@ -147,11 +181,8 @@ const slackThread: RefType = {
 		}
 		return results;
 	},
-	url(value) {
-		const m = /^([\w-]+)\/([A-Z0-9]+)\/(p\d+)$/.exec(value);
-		if (!m) return undefined;
-		return `https://${m[1]}.slack.com/archives/${m[2]}/${m[3]}`;
-	},
+	url: slackUrl,
+	whyNoUrl: whyNoSlackUrl,
 };
 
 /** All built-in ref types in stable iteration order. */

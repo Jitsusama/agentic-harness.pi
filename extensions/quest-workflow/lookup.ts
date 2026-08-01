@@ -42,7 +42,7 @@ import {
 	type QuestFrontMatter,
 	type QuestSession,
 } from "../../lib/quest/index.js";
-import { parseRef, urlForRef } from "../../lib/refs/index.js";
+import { parseRef, urlForRef, whyRefHasNoUrl } from "../../lib/refs/index.js";
 import { buildSessionSnapshot } from "./liveness.js";
 import type { RowCast, RowDocument, RowJourney } from "./render-rows.js";
 import {
@@ -815,7 +815,7 @@ export interface LinkSnippet {
 
 export interface LinkBundle {
 	quests: { id: string; title: string | null }[];
-	refs: { type: string; value: string; url?: string }[];
+	refs: { type: string; value: string; url?: string; why?: string }[];
 	urls: string[];
 }
 
@@ -874,7 +874,12 @@ function linksForQuest(
 		.filter((r) => !params.pattern || r.value.includes(params.pattern))
 		.map((r) => {
 			const u = urlForRef(r);
-			return u ? { ...r, url: u } : { ...r };
+			if (u) return { ...r, url: u };
+			// Carried so the listing can say a link is missing and why,
+			// rather than showing a bare ref that looks the same as one
+			// whose type simply has no URL form.
+			const why = whyRefHasNoUrl(r);
+			return why ? { ...r, why } : { ...r };
 		});
 	let urls = extractRawUrls(me.doc.body, knownRefUrls);
 	const pattern = params.pattern;

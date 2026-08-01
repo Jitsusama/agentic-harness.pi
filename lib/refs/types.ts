@@ -57,4 +57,27 @@ export interface RefType {
 	 * value cannot be encoded.
 	 */
 	url?(value: string): string | undefined;
+	/**
+	 * Why {@link url} could not encode this value, or nothing when it
+	 * could.
+	 *
+	 * A separate method rather than a richer return from `url`, for the
+	 * reason the same split exists over quest front matter: almost
+	 * every caller wants a URL or nothing, and making all of them
+	 * unwrap a result to get a string they already had would be a worse
+	 * trade than one extra optional method here.
+	 *
+	 * It exists because a silent `undefined` is how 621 stored Slack
+	 * refs came to produce no link with nothing anywhere saying so. The
+	 * value was fine, the type was fine, and the two simply disagreed
+	 * about the shape: written from API data as `CHANNEL/TIMESTAMP`,
+	 * read back by a pattern wanting `workspace/CHANNEL/pTIMESTAMP`. A
+	 * reason naming both shapes turns that from an invisible nothing
+	 * into a thing somebody can fix.
+	 *
+	 * Implement it wherever `url` can decline. A type without it is
+	 * saying its values never fail to encode, which is true of a type
+	 * that has no URL form at all.
+	 */
+	whyNoUrl?(value: string): string | undefined;
 }

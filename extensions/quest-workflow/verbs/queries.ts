@@ -170,6 +170,10 @@ export function linksAction(
 	}
 	for (const r of links.outgoing.refs) {
 		lines.push(`  -> ${r.type}:${r.value}${r.url ? ` (${r.url})` : ""}`);
+		// A ref that should have had a link and does not says so here.
+		// Silently rendering it beside the ones that resolved is how 621
+		// of these went unnoticed for months.
+		if (r.why) lines.push(`     no link: ${r.why}`);
 	}
 	for (const u of links.outgoing.urls) {
 		lines.push(`  -> ${u}`);

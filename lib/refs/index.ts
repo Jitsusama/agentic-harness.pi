@@ -15,6 +15,7 @@ export {
 	parseAllRefs,
 	parseRef,
 	urlForRef,
+	whyRefHasNoUrl,
 } from "./lookup.js";
 export {
 	clearRefTypes,
