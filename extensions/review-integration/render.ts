@@ -482,6 +482,8 @@ export function planNarration(plan: PublishPlan): string {
 			lines.push(`${GLYPH.lands} a reply into ${GLYPH.thread} ${op.thread.id}`);
 		} else if (op.kind === "resolve") {
 			lines.push(`${GLYPH.lands} resolving ${GLYPH.thread} ${op.thread.id}`);
+		} else if (op.kind === "unresolve") {
+			lines.push(`${GLYPH.lands} reopening ${GLYPH.thread} ${op.thread.id}`);
 		} else if (op.kind === "commentOn") {
 			// Said as its own line, and said to be separate, because that is
 			// what a person is approving: two posts rather than one, so a

@@ -154,9 +154,12 @@ describe("glyph ownership across the package", () => {
 		// The point of the allocation is that a glance tells you which tool is
 		// talking before you have read a word of it.
 		const family: Record<string, RegExp> = {
-			// Triangles, plus the marks that are nobody else's.
+			// Triangles, plus the marks that are nobody else's. The reply arrow
+			// is among them: a write gate has to hold what is about to be said
+			// apart from the exchange quoted above it, and no triangle says
+			// "this one is yours and it has not been sent yet".
 			"review-integration":
-				/[\u25b0-\u25bf\u2714\u2193\u2298\u25ce\u2261\u00b6\u276f\u2726\u2611\u2610\u2715]/,
+				/[\u25b0-\u25bf\u2714\u2193\u2298\u25ce\u2261\u00b6\u276f\u2726\u2611\u2610\u2715\u21b3]/,
 			// Squares, all of them, including the two describing what is inside
 			// a tree rather than the tree itself. Plus the stack mark, which is
 			// deliberately the review tools' own: a stack of branches and a stack

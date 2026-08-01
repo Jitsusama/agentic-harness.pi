@@ -94,6 +94,15 @@ async function perform(
 		await conversation.resolve(change, op.thread);
 		return undefined;
 	}
+	if (op.kind === "unresolve") {
+		if (!conversation.unresolve) {
+			throw new Error(
+				`the ${provider.id} provider cannot reopen a resolved thread`,
+			);
+		}
+		await conversation.unresolve(change, op.thread);
+		return undefined;
+	}
 	if (!conversation.react) {
 		throw new Error(`the ${provider.id} provider cannot post reactions`);
 	}

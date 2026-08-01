@@ -24,6 +24,7 @@ import {
 	addReaction,
 	addReply,
 	addResolution,
+	addUnresolution,
 	type DraftState,
 	emptyDraft,
 	removeItem,
@@ -46,6 +47,9 @@ export interface ReviewDraft {
 	/** Reply into an existing thread. Returns its item id. */
 	replyTo(thread: Thread, body: string): Promise<string>;
 	resolveThread(thread: Thread): Promise<string>;
+
+	/** Queue reopening a thread that is currently resolved. */
+	reopenThread(thread: Thread): Promise<string>;
 	react(subject: Message, reaction: Reaction): Promise<string>;
 	setVerdict(verdict: Verdict, summary?: string): Promise<void>;
 	remove(itemId: string): Promise<void>;
@@ -109,6 +113,8 @@ function handleFor(initial: DraftState, deps: DraftDeps): ReviewDraft {
 			append((current) => addReply(current, thread, body)),
 		resolveThread: (thread) =>
 			append((current) => addResolution(current, thread)),
+		reopenThread: (thread) =>
+			append((current) => addUnresolution(current, thread)),
 		react: (subject, reaction) =>
 			append((current) => addReaction(current, subject, reaction)),
 

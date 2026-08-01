@@ -153,7 +153,10 @@ export function registerSayTool(pi: ExtensionAPI): void {
 						"For react: which comment, as the [C#] a thread listing prints beside a remark or the [M#] a messages listing prints beside a top-level one.",
 				}),
 			),
-			settle: Type.Optional(
+			// Named the same as review_draft's, since it is the same decision on
+			// the same thing, and that tool's plain `settle` was already spoken
+			// for by what becomes of a finding.
+			settleThread: Type.Optional(
 				Type.Union(
 					[
 						Type.Literal("resolve"),
@@ -222,7 +225,7 @@ export function registerSayTool(pi: ExtensionAPI): void {
 
 				if (params.action === "reply") {
 					if (!params.body) return refuse("A reply needs a body.");
-					const settle = params.settle as Settle | undefined;
+					const settle = params.settleThread as Settle | undefined;
 					// Before the gate, so nobody approves a settling that cannot
 					// happen and gets a posted reply out of it.
 					const cannot = settleRefusal(conversation, settle, bound.provider.id);

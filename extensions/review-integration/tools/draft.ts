@@ -52,6 +52,7 @@ import {
 	proseComplaint,
 } from "../render.js";
 import { treeForFixing } from "../work.js";
+import type { Settle } from "./settle.js";
 import {
 	type Answer,
 	boundFor,
@@ -80,6 +81,9 @@ function draftLines(draft: ReviewDraft): string {
 		}
 		if (item.kind === "resolution") {
 			return `${GLYPH.resolved} #${item.id} resolve ${item.thread.id}`;
+		}
+		if (item.kind === "unresolution") {
+			return `${GLYPH.unresolved} #${item.id} reopen ${item.thread.id}`;
 		}
 		// Said by who wrote it and what they said, rather than by the
 		// provider's id for it. Every other listing in the surface addresses a
@@ -127,6 +131,7 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 					Type.Literal("decide"),
 					Type.Literal("reply"),
 					Type.Literal("resolve"),
+					Type.Literal("unresolve"),
 					Type.Literal("react"),
 					Type.Literal("verdict"),
 					Type.Literal("drop"),
@@ -182,8 +187,24 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 			thread: Type.Optional(
 				Type.Number({
 					description:
-						"For reply and resolve: the 1-based [T#] index of a thread.",
+						"For reply, resolve and unresolve: the 1-based [T#] index of a thread.",
 				}),
+			),
+			// Not `settle`, which this tool already uses for what becomes of a
+			// finding. One word, one meaning: a parameter bag where `settle`
+			// means two things depending on the action is a bag nobody can read.
+			settleThread: Type.Optional(
+				Type.Union(
+					[
+						Type.Literal("resolve"),
+						Type.Literal("unresolve"),
+						Type.Literal("leave"),
+					],
+					{
+						description:
+							"For reply: what to do with the thread once the reply lands, queued as its own item beside the reply. Defaults to leaving it as it is.",
+					},
+				),
 			),
 			reaction: Type.Optional(
 				Type.String({ description: "For react: the reaction name." }),
@@ -382,10 +403,14 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 					return say(`${GLYPH.document} ${document.markdown}`);
 				}
 
-				if (params.action === "reply" || params.action === "resolve") {
+				if (
+					params.action === "reply" ||
+					params.action === "resolve" ||
+					params.action === "unresolve"
+				) {
 					if (!bound) {
 						return refuse(
-							"Replying or resolving needs the change itself, so its threads can be read. Name the change rather than a draft id.",
+							"Replying, resolving or reopening needs the change itself, so its threads can be read. Name the change rather than a draft id.",
 						);
 					}
 					const threads = await threadsOf(bound);
@@ -399,9 +424,33 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 						const id = await draft.resolveThread(thread);
 						return say(`${GLYPH.resolved} #${id} queued in the draft.`);
 					}
+					if (params.action === "unresolve") {
+						const id = await draft.reopenThread(thread);
+						return say(`${GLYPH.unresolved} #${id} queued in the draft.`);
+					}
 					if (!params.body) return refuse("A reply needs a body.");
 					const id = await draft.replyTo(thread, params.body);
-					return say(`${GLYPH.thread} #${id} queued in the draft.`);
+					// Two items rather than one, appended in the order they will
+					// happen. A combined item would be a second kind of reply that
+					// only the draft knows about, and dropping the settling would
+					// mean editing the reply.
+					const settle = params.settleThread as Settle | undefined;
+					const also =
+						settle === "resolve"
+							? await draft.resolveThread(thread)
+							: settle === "unresolve"
+								? await draft.reopenThread(thread)
+								: undefined;
+					return say(
+						[
+							`${GLYPH.thread} #${id} queued in the draft.`,
+							...(also
+								? [
+										`${settle === "resolve" ? GLYPH.resolved : GLYPH.unresolved} #${also} queued too, ${settle === "resolve" ? "resolving" : "reopening"} the same thread.`,
+									]
+								: []),
+						].join("\n"),
+					);
 				}
 
 				// Planning and publishing both need the provider's

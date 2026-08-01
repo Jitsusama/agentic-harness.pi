@@ -43,6 +43,21 @@ export interface ResolutionItem {
 	thread: Thread;
 }
 
+/**
+ * A reopening of a thread that is currently resolved.
+ *
+ * Mirrors the resolution rather than adding a flag to it, so the plan
+ * compiler branches on a kind the way it does for every other item, and
+ * so a draft can express everything `review_say` can. It could close a
+ * thread and not open one, and that asymmetry is the shape of bug this
+ * work came out of.
+ */
+export interface UnresolutionItem {
+	kind: "unresolution";
+	id: string;
+	thread: Thread;
+}
+
 /** A reaction to a message. */
 export interface ReactionItem {
 	kind: "reaction";
@@ -52,7 +67,12 @@ export interface ReactionItem {
 }
 
 /** One thing the review will do. */
-export type DraftItem = FindingItem | ReplyItem | ResolutionItem | ReactionItem;
+export type DraftItem =
+	| FindingItem
+	| ReplyItem
+	| ResolutionItem
+	| UnresolutionItem
+	| ReactionItem;
 
 /** A review being composed. */
 export interface DraftState {
@@ -127,6 +147,11 @@ export function addReply(
 /** Mark an existing thread to be resolved. */
 export function addResolution(state: DraftState, thread: Thread): DraftState {
 	return append(state, (id) => ({ kind: "resolution", id, thread }));
+}
+
+/** Mark an existing thread to be reopened. */
+export function addUnresolution(state: DraftState, thread: Thread): DraftState {
+	return append(state, (id) => ({ kind: "unresolution", id, thread }));
 }
 
 /** React to a message. */

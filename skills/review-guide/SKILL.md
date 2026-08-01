@@ -66,6 +66,7 @@ Start here. Find the row, make the call.
 | Read top-level remarks | `review_see messages` |
 | Check whether your own remarks landed | `review_see followup` |
 | Answer one remark | `review_say reply thread:N` |
+| Answer it and close it, in one call | `review_say reply thread:N settleThread:resolve` |
 | Close a thread out | `review_say resolve thread:N` |
 | Reopen one you closed too early | `review_say unresolve thread:N` |
 | Say one thing on the change | `review_say comment` |
@@ -87,7 +88,9 @@ Start here. Find the row, make the call.
 | See the fix queue | `review_draft fixes` |
 | Add a remark of your own | `review_draft finding path:... line:N` |
 | Answer a thread as part of the review | `review_draft reply thread:N` |
+| Answer and close it in one item | `review_draft reply thread:N settleThread:resolve` |
 | Close a thread as part of the review | `review_draft resolve thread:N` |
+| Reopen a thread as part of the review | `review_draft unresolve thread:N` |
 | React as part of the review | `review_draft react comment:C3` |
 | Say approve, request changes or comment | `review_draft verdict verdict:approve` |
 | See what is in the draft so far | `review_draft show` |
