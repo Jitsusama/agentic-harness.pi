@@ -9,6 +9,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { count } from "../../lib/ui/count.js";
 import {
 	ACTION_VIEW_BUDGET_BYTES,
 	MAX_OUTLINE_BUDGET_BYTES,
@@ -1037,8 +1038,7 @@ function runQuery(
 		);
 		const frames = new Set(nodes.map((node) => node.documentUrl));
 		const shape = [
-			`${nodes.length} nodes across ${frames.size} document` +
-				`${frames.size === 1 ? "" : "s"}.`,
+			`${nodes.length} nodes across ${count(frames.size, "document")}.`,
 			`${nodes.filter((node) => !node.rendered).length} were not rendered, ` +
 				`${nodes.filter((node) => node.inShadow).length} are inside ` +
 				"shadow roots.",

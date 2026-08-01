@@ -2,6 +2,7 @@
  * Email rendering to markdown.
  */
 
+import { count } from "../../ui/count.js";
 import type { EmailMessage, EmailMessageFull } from "../types.js";
 
 /**
@@ -88,9 +89,7 @@ export function renderThread(messages: EmailMessageFull[]): string {
 	const subject = messages[0]?.subject || "Thread";
 
 	lines.push(`# ${subject}`);
-	lines.push(
-		`\n_Thread with ${messages.length} message${messages.length !== 1 ? "s" : ""}_\n`,
-	);
+	lines.push(`\n_Thread with ${count(messages.length, "message")}_\n`);
 
 	for (let i = 0; i < messages.length; i++) {
 		const msg = messages[i];

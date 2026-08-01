@@ -14,6 +14,7 @@
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
+import { count } from "../../lib/ui/count.js";
 import {
 	firstText,
 	type ListChoice,
@@ -262,10 +263,9 @@ export default function ask(pi: ExtensionAPI) {
 
 		renderCall(args, theme) {
 			const qs = (args.questions as Question[]) || [];
-			const count = qs.length;
 			const labels = qs.map((q) => q.label || q.id).join(", ");
 			let text = theme.fg("toolTitle", theme.bold("ask "));
-			text += theme.fg("muted", `${count} question${count !== 1 ? "s" : ""}`);
+			text += theme.fg("muted", count(qs.length, "question"));
 			if (labels) {
 				text += theme.fg("dim", ` (${truncateToWidth(labels, 40)})`);
 			}

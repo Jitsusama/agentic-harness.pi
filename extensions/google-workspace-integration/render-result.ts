@@ -4,7 +4,7 @@
 
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { firstText } from "../../lib/ui/index.js";
+import { count, firstText } from "../../lib/ui/index.js";
 
 interface RenderOptions {
 	terminalWidth?: number;
@@ -147,9 +147,9 @@ export function renderGoogleResult(
 
 	// Shared drives list
 	if (d?.drives) {
-		const count = Array.isArray(d.drives) ? d.drives.length : 0;
+		const drives = Array.isArray(d.drives) ? d.drives.length : 0;
 		return new Text(
-			theme.fg("success", `✓ ${count} shared drive${count !== 1 ? "s" : ""}`),
+			theme.fg("success", `✓ ${count(drives, "shared drive")}`),
 			0,
 			0,
 		);
@@ -173,16 +173,13 @@ function renderEmailList(
 	options: RenderOptions,
 	theme: Theme,
 ): Text {
-	const count = messages.length;
-	let summary = theme.fg(
-		"success",
-		`✓ ${count} message${count !== 1 ? "s" : ""}`,
-	);
+	const total = messages.length;
+	let summary = theme.fg("success", `✓ ${count(total, "message")}`);
 	if (nextPageToken) {
 		summary += theme.fg("muted", " (more available)");
 	}
 
-	if (!options.expanded && count > 0) {
+	if (!options.expanded && total > 0) {
 		// Compact view shows a few subject lines as a preview.
 		const previews = messages
 			.slice(0, 3)
@@ -192,9 +189,9 @@ function renderEmailList(
 				return `  ${theme.fg("dim", `${from}: ${subject}`)}`;
 			})
 			.join("\n");
-		if (count > 3) {
+		if (total > 3) {
 			return new Text(
-				`${summary}\n${previews}\n  ${theme.fg("muted", `... ${count - 3} more`)}`,
+				`${summary}\n${previews}\n  ${theme.fg("muted", `... ${total - 3} more`)}`,
 				0,
 				0,
 			);
@@ -238,13 +235,10 @@ function renderEventList(
 	options: RenderOptions,
 	theme: Theme,
 ): Text {
-	const count = events.length;
-	const summary = theme.fg(
-		"success",
-		`✓ ${count} event${count !== 1 ? "s" : ""}`,
-	);
+	const total = events.length;
+	const summary = theme.fg("success", `✓ ${count(total, "event")}`);
 
-	if (!options.expanded && count > 0) {
+	if (!options.expanded && total > 0) {
 		// Compact view shows a few event titles as a preview.
 		const previews = events
 			.slice(0, 3)
@@ -261,9 +255,9 @@ function renderEventList(
 				return `  ${theme.fg("dim", `${time ? `${time}: ` : ""}${title}`)}`;
 			})
 			.join("\n");
-		if (count > 3) {
+		if (total > 3) {
 			return new Text(
-				`${summary}\n${previews}\n  ${theme.fg("muted", `... ${count - 3} more`)}`,
+				`${summary}\n${previews}\n  ${theme.fg("muted", `... ${total - 3} more`)}`,
 				0,
 				0,
 			);
@@ -298,13 +292,13 @@ function renderFileList(
 	options: RenderOptions,
 	theme: Theme,
 ): Text {
-	const count = files.length;
-	let summary = theme.fg("success", `✓ ${count} file${count !== 1 ? "s" : ""}`);
+	const total = files.length;
+	let summary = theme.fg("success", `✓ ${count(total, "file")}`);
 	if (nextPageToken) {
 		summary += theme.fg("muted", " (more available)");
 	}
 
-	if (!options.expanded && count > 0) {
+	if (!options.expanded && total > 0) {
 		// Compact view shows a few file names as a preview.
 		const previews = files
 			.slice(0, 3)
@@ -314,9 +308,9 @@ function renderFileList(
 				return `  ${theme.fg("dim", type ? `[${type}] ${name}` : name)}`;
 			})
 			.join("\n");
-		if (count > 3) {
+		if (total > 3) {
 			return new Text(
-				`${summary}\n${previews}\n  ${theme.fg("muted", `... ${count - 3} more`)}`,
+				`${summary}\n${previews}\n  ${theme.fg("muted", `... ${total - 3} more`)}`,
 				0,
 				0,
 			);
@@ -343,26 +337,23 @@ function renderFreeBusyResult(
 	const busyCount = allBusy.length;
 	const summary = theme.fg(
 		"success",
-		`✓ ${calCount} calendar${calCount !== 1 ? "s" : ""} checked`,
+		`✓ ${count(calCount, "calendar")} checked`,
 	);
 
-	const busyInfo = theme.fg(
-		"dim",
-		` · ${busyCount} busy block${busyCount !== 1 ? "s" : ""}`,
-	);
+	const busyInfo = theme.fg("dim", ` · ${count(busyCount, "busy block")}`);
 
 	if (!options.expanded && calendars.length > 0) {
 		const previews = calendars
 			.slice(0, 3)
 			.map((cal) => {
 				const name = cal.email || "Unknown";
-				const count = cal.busy?.length ?? 0;
+				const busy = cal.busy?.length ?? 0;
 				const status =
 					cal.errors && cal.errors.length > 0
 						? "⚠️ error"
-						: count === 0
+						: busy === 0
 							? "free"
-							: `${count} busy`;
+							: `${busy} busy`;
 				return `  ${theme.fg("dim", `${name}: ${status}`)}`;
 			})
 			.join("\n");

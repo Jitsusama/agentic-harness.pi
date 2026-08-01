@@ -7,6 +7,7 @@
  * counted before the list rather than found in it.
  */
 
+import { count } from "../../ui/count.js";
 import type { NetworkRequest } from "./network.js";
 
 /** Where a status stops being a success. */
@@ -128,7 +129,7 @@ function summarize(requests: readonly NetworkRequest[]): string {
 	);
 
 	const notes = [
-		`${requests.length} request${requests.length === 1 ? "" : "s"}`,
+		count(requests.length, "request"),
 		`${(bytes / BYTES_PER_KB).toFixed(1)} KB transferred`,
 	];
 	if (failed > 0) notes.push(`${failed} failed`);

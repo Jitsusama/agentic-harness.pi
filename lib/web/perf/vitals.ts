@@ -15,6 +15,8 @@
  * it had shifted once, enormously.
  */
 
+import { count } from "../../ui/count.js";
+
 /** Where a metric falls against the published thresholds. */
 export type Rating = "good" | "needs-improvement" | "poor";
 
@@ -220,9 +222,7 @@ export function measure(vitals: Vitals): readonly Measure[] {
 			...(vitals.shifts.length === 0
 				? {}
 				: {
-						detail: `${vitals.shifts.length} shift${
-							vitals.shifts.length === 1 ? "" : "s"
-						}`,
+						detail: count(vitals.shifts.length, "shift"),
 					}),
 		});
 	}
@@ -246,9 +246,7 @@ export function measure(vitals: Vitals): readonly Measure[] {
 			...(vitals.longTasks.length === 0
 				? {}
 				: {
-						detail: `${vitals.longTasks.length} long task${
-							vitals.longTasks.length === 1 ? "" : "s"
-						}`,
+						detail: count(vitals.longTasks.length, "long task"),
 					}),
 		});
 	}

@@ -20,6 +20,7 @@
  */
 
 import type { QuestKind, QuestStatus } from "../../lib/quest/index.js";
+import { count } from "../../lib/ui/count.js";
 
 const KIND_GLYPHS: Record<QuestKind, string> = {
 	quest: "\u25c6", // ◆
@@ -310,5 +311,5 @@ export function collapseText(
 	const lines = content.split("\n");
 	if (lines.length <= 1) return content;
 	const hidden = lines.length - 1;
-	return `${lines[0]} (+${hidden} more line${hidden === 1 ? "" : "s"}, ${expandHint})`;
+	return `${lines[0]} (+${count(hidden, "more line")}, ${expandHint})`;
 }

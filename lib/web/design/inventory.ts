@@ -13,6 +13,7 @@
  * judgment is a person's.
  */
 
+import { count } from "../../ui/count.js";
 import { deltaE, type Rgba } from "../audit/colour.js";
 import { renderVerdict } from "../audit/verdict.js";
 
@@ -340,9 +341,8 @@ export function renderInventory(
 				standing: found.clusters.length > 0 ? "warn" : "pass",
 				headline:
 					found.clusters.length > 0
-						? `${found.property}: ${found.clusters.length} cluster` +
-							`${found.clusters.length === 1 ? "" : "s"} close enough to ` +
-							"look accidental."
+						? `${found.property}: ${count(found.clusters.length, "cluster")} ` +
+							"close enough to look accidental."
 						: `${found.property}: no two values were close enough to ` +
 							"look accidental.",
 			},

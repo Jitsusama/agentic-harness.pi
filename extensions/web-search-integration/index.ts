@@ -15,6 +15,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
+import { count } from "../../lib/ui/count.js";
 import { closeBrowser, killBrowserSync } from "../../lib/web/browser.js";
 import {
 	isSetUp,
@@ -196,7 +197,7 @@ export default function webSearch(pi: ExtensionAPI) {
 
 			const tileNote =
 				tiles && tiles > 0
-					? ` (${tiles} tile${tiles === 1 ? "" : "s"}${truncated ? ", truncated" : ""})`
+					? ` (${count(tiles, "tile")}${truncated ? ", truncated" : ""})`
 					: "";
 			let summary =
 				theme.fg("success", "✓ ") +

@@ -21,6 +21,8 @@
  * process, not a lookup.
  */
 
+import { count } from "../../ui/count.js";
+
 /** One event as the tracing protocol sends it. */
 export interface RawTraceEvent {
 	readonly name: string;
@@ -557,7 +559,7 @@ export function renderTrace(capture: TraceCapture): string {
 	if (pending.length > 0) {
 		lines.push(
 			"",
-			`${pending.length} timer${pending.length === 1 ? "" : "s"} ` +
+			`${count(pending.length, "timer")} ` +
 				"installed but still waiting when the recording stopped.",
 		);
 	}
@@ -565,7 +567,7 @@ export function renderTrace(capture: TraceCapture): string {
 	if (capture.requests.length > 0) {
 		lines.push(
 			"",
-			`${capture.requests.length} request${capture.requests.length === 1 ? "" : "s"}, ` +
+			`${count(capture.requests.length, "request")}, ` +
 				`at most ${capture.overlapping} in flight at once:`,
 		);
 		for (const request of capture.requests) {

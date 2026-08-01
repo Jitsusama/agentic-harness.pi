@@ -5,6 +5,7 @@
  * the retry is informed, not a guess.
  */
 
+import { count } from "../ui/count.js";
 import type { ProseViolation } from "./detect.js";
 
 /** Format prose violations into a block message, or "" if none. */
@@ -44,18 +45,16 @@ export function formatProseBlock(violations: ProseViolation[]): string {
 
 	const curly = violations.filter((v) => v.kind === "curly-quote");
 	if (curly.length > 0) {
-		const count = curly.length;
 		lines.push(
-			`- ${count} curly quote${count === 1 ? "" : "s"}: use straight quotes`,
+			`- ${count(curly.length, "curly quote")}: use straight quotes`,
 			"  ('' and \"\") instead, per prose-standard.",
 		);
 	}
 
 	const ellipses = violations.filter((v) => v.kind === "ellipsis");
 	if (ellipses.length > 0) {
-		const count = ellipses.length;
 		lines.push(
-			`- ${count} Unicode ellipsis character${count === 1 ? "" : "s"}: spell it`,
+			`- ${count(ellipses.length, "Unicode ellipsis character")}: spell it`,
 			"  out as three periods (...), per prose-standard.",
 		);
 	}
