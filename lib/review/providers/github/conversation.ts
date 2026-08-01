@@ -130,6 +130,43 @@ function record(value: unknown): Record<string, unknown> {
 		: {};
 }
 
+/**
+ * Walk into a response, refusing rather than defaulting.
+ *
+ * `record` above answers `{}` for anything it does not recognize,
+ * which is right for a field that may be absent and wrong for the
+ * envelope itself. Walked with it, a renamed field, a schema change
+ * or a partial error payload all arrive as a change with no threads
+ * on it, and that is the worst way a read can fail: the person
+ * concludes nobody commented and moves on, with nothing anywhere
+ * saying the question went unanswered.
+ *
+ * Absence is the test, not emptiness. A change with no comments is
+ * ordinary and answers with the field present and its list empty, so
+ * only a missing key is a refusal.
+ */
+function into(
+	value: unknown,
+	path: readonly string[],
+	what: string,
+): Record<string, unknown> {
+	let at: unknown = value;
+	const walked: string[] = [];
+	for (const key of path) {
+		if (typeof at !== "object" || at === null || !(key in at)) {
+			const missing = [...walked, key].join(".");
+			throw new Error(
+				`GitHub answered ${what} without ${missing}. Reading on would ` +
+					"report nothing found, which is indistinguishable from a change " +
+					"that genuinely has none.",
+			);
+		}
+		at = (at as Record<string, unknown>)[key];
+		walked.push(key);
+	}
+	return record(at);
+}
+
 function str(value: unknown): string | undefined {
 	return typeof value === "string" ? value : undefined;
 }
@@ -390,9 +427,10 @@ export function githubConversation(exec: Exec): ConversationFacet {
 					},
 					`reading threads on pull request ${ref.id}`,
 				);
-				const page = record(
-					record(record(record(record(raw).data).repository).pullRequest)
-						.reviewThreads,
+				const page = into(
+					raw,
+					["data", "repository", "pullRequest", "reviewThreads"],
+					`threads on pull request ${ref.id}`,
 				);
 				for (const node of list(page.nodes)) {
 					threads.push(threadFrom(record(node)));

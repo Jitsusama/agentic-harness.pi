@@ -234,6 +234,40 @@ describe("reading threads", () => {
 		]);
 		expect(calls).toHaveLength(2);
 	});
+
+	it("refuses a response with no reviewThreads rather than reading none", async () => {
+		// The envelope walk defaulted a missing object to an empty one, so a
+		// schema change, a partial error payload or a renamed field all came
+		// back as a pull request with no threads. That is the worst shape a
+		// read can fail in: the person concludes nobody commented and moves
+		// on, and nothing anywhere says otherwise.
+		const { gh } = provider([
+			{
+				when: ["reviewThreads"],
+				stdout: JSON.stringify({
+					data: { repository: { pullRequest: {} } },
+				}),
+			},
+		]);
+
+		await expect(gh.conversation?.threads(ref)).rejects.toThrow(
+			/reviewThreads/,
+		);
+	});
+
+	it("still answers none when reviewThreads is there and empty", async () => {
+		// The other half of the same distinction, and the reason the refusal
+		// checks for the field rather than for the count. A change with no
+		// comments on it is ordinary and must not look like a broken read.
+		const { gh } = provider([
+			{
+				when: ["reviewThreads"],
+				stdout: threadPage([], { hasNextPage: false, endCursor: null }),
+			},
+		]);
+
+		await expect(gh.conversation?.threads(ref)).resolves.toEqual([]);
+	});
 });
 
 describe("reading messages", () => {
