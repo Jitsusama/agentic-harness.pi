@@ -73,7 +73,7 @@ export async function treeAdd(
 		// retry, so tree-add from a deep working directory no longer
 		// hard-fails on the wrong cwd. Downstream providers that match
 		// the raw root are untouched; this only rescues the no-match case.
-		const root = gitTreeRootOf(join(repoRoot, ".quest-tree-probe"));
+		const root = gitTreeRootOf(repoRoot);
 		if (root) {
 			repoRoot = root;
 			provider = resolveTreeProvider(repoRoot);
@@ -127,7 +127,7 @@ export function treeAdopt(
 		return refuse("Load a quest first.");
 	}
 	const start = defaultRepoRoot(state, params);
-	const root = gitTreeRootOf(join(start, ".quest-tree-probe"));
+	const root = gitTreeRootOf(start);
 	if (!root) {
 		return refuse(
 			`${start} is not inside a git working tree. Pass cwd pointing at a path inside the tree you want to adopt; you do not need to change your session's directory.`,

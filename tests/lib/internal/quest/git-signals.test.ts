@@ -76,6 +76,34 @@ describe("gitTreeRootOf", () => {
 	it("returns null for a path outside any repository", () => {
 		expect(gitTreeRootOf(path.join(outside, "loose.ts"))).toBeNull();
 	});
+
+	it("answers for the repository root itself", () => {
+		// The path most callers have. Resolving an existing directory to
+		// its parent puts the question outside the repository exactly when
+		// the directory is its root, so this answered null for the one
+		// input a caller is most likely to hold.
+		const root = gitTreeRootOf(repo);
+
+		expect(root && path.basename(root)).toBe(path.basename(repo));
+	});
+
+	it("answers for a directory inside the tree", () => {
+		const root = gitTreeRootOf(path.join(repo, "src"));
+
+		expect(root && path.basename(root)).toBe(path.basename(repo));
+	});
+
+	it("still answers when given a path that does not exist yet", () => {
+		// Callers probe with a name they invent, which is how the two that
+		// knew about this worked around it. That has to keep working.
+		const root = gitTreeRootOf(path.join(repo, ".probe-that-is-not-there"));
+
+		expect(root && path.basename(root)).toBe(path.basename(repo));
+	});
+
+	it("returns null for a directory outside any repository", () => {
+		expect(gitTreeRootOf(outside)).toBeNull();
+	});
 });
 
 describe("isGitignored", () => {

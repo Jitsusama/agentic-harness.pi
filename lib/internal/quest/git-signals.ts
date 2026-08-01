@@ -11,7 +11,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import * as path from "node:path";
 
 /**
@@ -70,10 +70,34 @@ function located(absPath: string): { dir: string; target: string } {
  * The git working tree root containing the target, or null when the
  * target is not inside any repository. Resolves through `.git` files
  * (worktrees) natively via rev-parse.
+ *
+ * Accepts a directory as readily as a file. It did not always: it ran
+ * git from `located().dir`, which resolves an existing directory to
+ * its parent, and the parent of a repository root is outside the
+ * repository. So the one input a caller is most likely to hold, the
+ * root of the checkout they are standing in, answered null. Two
+ * callers knew and worked around it by appending a filename they
+ * invented; the third did not, and shipped a verb that refused in the
+ * only place it was meant to work.
  */
 export function gitTreeRootOf(absPath: string): string | null {
-	const root = git(located(absPath).dir, ["rev-parse", "--show-toplevel"]);
+	const root = git(fromInside(absPath), ["rev-parse", "--show-toplevel"]);
 	return root && root.length > 0 ? root : null;
+}
+
+/**
+ * The directory to run git from for a target: the target itself when
+ * it is a directory, and otherwise the nearest existing ancestor.
+ */
+function fromInside(absPath: string): string {
+	try {
+		if (statSync(absPath).isDirectory()) return realpathSync(absPath);
+	} catch {
+		// Does not exist, so it is a path a caller invented to probe with.
+		// located() walks up to the nearest real ancestor, which is what
+		// those callers were relying on and what still happens below.
+	}
+	return located(absPath).dir;
 }
 
 /**
