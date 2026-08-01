@@ -539,10 +539,15 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 						held: broker
 							.held()
 							.map((one) => ({ key: one.identity.key, path: one.path })),
-						// The session's directory, not the process's. pi's own cwd
-						// is wherever pi was started, which is not where the person
-						// asking the question is standing, and taking it meant this
-						// verb still refused in the one place it was fixed to work.
+						// The session's directory rather than the process's. The two
+						// hold the same value in an ordinary session, and measuring
+						// that is the only reason this comment is honest: taking the
+						// process's cwd was blamed for a refusal it had nothing to do
+						// with, which was gitTreeRootOf answering null for a
+						// repository root. Kept because they are the same value and
+						// not the same idea: pi's cwd is frozen wherever it was
+						// launched, and the question here is where the person asking
+						// is standing. The fallback makes keeping it cost nothing.
 						cwd: ctx?.cwd ?? process.cwd(),
 						gitRootOf: gitTreeRootOf,
 					});
