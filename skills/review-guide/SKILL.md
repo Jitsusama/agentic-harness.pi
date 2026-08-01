@@ -67,6 +67,8 @@ Start here. Find the row, make the call.
 | Check whether your own remarks landed | `review_see followup` |
 | Answer one remark | `review_say reply thread:N` |
 | Answer it and close it, in one call | `review_say reply thread:N settleThread:resolve` |
+| Answer several, behind one gate | `review_say items:[{action:reply,...},...]` |
+| Start a thread on a line | `review_say annotate path:... line:N body:"..."` |
 | Close a thread out | `review_say resolve thread:N` |
 | Reopen one you closed too early | `review_say unresolve thread:N` |
 | Say one thing on the change | `review_say comment` |

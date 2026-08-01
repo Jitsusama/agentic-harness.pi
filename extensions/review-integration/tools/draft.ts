@@ -161,11 +161,14 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 				Type.String({ description: "Draft id, to resume a specific one." }),
 			),
 			path: Type.Optional(
-				Type.String({ description: "File a finding is about." }),
+				Type.String({
+					description: "For finding: the file the remark is about.",
+				}),
 			),
 			line: Type.Optional(
 				Type.Number({
-					description: "Line for a finding; omit for a whole-file remark.",
+					description:
+						"For finding: the line it points at; omit for a whole-file remark.",
 				}),
 			),
 			startLine: Type.Optional(
@@ -235,7 +238,9 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 				}),
 			),
 			item: Type.Optional(
-				Type.String({ description: "Item id to drop from the draft." }),
+				Type.String({
+					description: "For drop: the item id to take out of the draft.",
+				}),
 			),
 			finding: Type.Optional(
 				Type.Number({
