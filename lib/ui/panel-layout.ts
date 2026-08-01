@@ -43,7 +43,9 @@ export interface FooterOptions {
 	 * When provided, overrides the default "Enter approve" logic.
 	 */
 	enterHint?: string;
+	/** The content runs past the bottom, so say it can be scrolled. */
 	needsVScroll?: boolean;
+	/** The content runs past the right edge, so say it can be panned. */
 	needsHScroll?: boolean;
 }
 
@@ -111,6 +113,11 @@ function renderControlRow(opts: FooterOptions): string {
 		leftParts.push(theme.fg("dim", "Tab"));
 		leftParts.push(theme.fg("dim", "Ctrl+#"));
 	}
+
+	// Only when there is somewhere to go. A hint that is always on is
+	// chrome, and chrome is what people stop reading.
+	if (opts.needsVScroll) leftParts.push(theme.fg("dim", "⇧+↑↓ scroll"));
+	if (opts.needsHScroll) leftParts.push(theme.fg("dim", "⇧+←→ pan"));
 
 	if (opts.isUserTab) {
 		leftParts.push(theme.fg("dim", "↑↓ select"));
