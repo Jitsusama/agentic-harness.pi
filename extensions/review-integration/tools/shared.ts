@@ -28,6 +28,7 @@ import {
 } from "../../../lib/review/index.js";
 import { firstText, renderToolCall } from "../../../lib/ui/index.js";
 import { attachmentDir, reviewEngine } from "../engine.js";
+import type { GateRefusal } from "../gate.js";
 import { GLYPH } from "../render.js";
 
 /** What a tool answers with. */
@@ -44,6 +45,19 @@ export function refuse(text: string): Answer {
 		content: [{ type: "text", text: `${GLYPH.refused} ${text}` }],
 		details: { error: text },
 	};
+}
+
+/**
+ * What to answer when a gate did not approve.
+ *
+ * One rule for all sixteen write gates. A bare rejection keeps the
+ * tool's own wording, because the person said no and nothing else.
+ * A rejection somebody annotated, or a redirect, comes back as a
+ * refusal carrying what they said, so the model reads it as the
+ * instruction it was meant to be rather than as a flat no.
+ */
+export function declined(decision: GateRefusal, wording: string): Answer {
+	return decision.redirect ? refuse(decision.redirect) : say(wording);
 }
 
 /** Whether an answer carried a refusal. */

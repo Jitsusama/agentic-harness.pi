@@ -41,6 +41,7 @@ import {
 	type Answer,
 	boundFor,
 	checkoutElsewhere,
+	declined,
 	hostedChange,
 	messageOf,
 	refuse,
@@ -433,12 +434,13 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 					case "ready":
 					case "unready": {
 						const wanted = params.action === "unready";
-						const approved = await confirmWrite(
+						const decision = await confirmWrite(
 							ctx,
 							`Move ${change.label} to ${wanted ? "draft" : "ready"}?`,
 							cautioned(`${GLYPH.target} ${change.label}`, caution),
 						);
-						if (!approved) return say("Left as it was.");
+						if (!decision.approved)
+							return declined(decision, "Left as it was.");
 						if (authoring.setDraft === undefined) {
 							return refuse(
 								missingMethod(
@@ -453,7 +455,7 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 						);
 					}
 					case "close": {
-						const approved = await confirmWrite(
+						const decision = await confirmWrite(
 							ctx,
 							`Close ${change.label}?`,
 							[
@@ -463,7 +465,7 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 									: "\nNo reason will be left on it, which reads as abandonment.",
 							].join("\n"),
 						);
-						if (!approved) return say("Left open.");
+						if (!decision.approved) return declined(decision, "Left open.");
 						await authoring.close(
 							change,
 							...(params.comment === undefined ? [] : [params.comment]),
@@ -471,12 +473,12 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 						return say(`${GLYPH.lands} ${change.label} closed.`);
 					}
 					case "reopen": {
-						const approved = await confirmWrite(
+						const decision = await confirmWrite(
 							ctx,
 							`Reopen ${change.label}?`,
 							`${GLYPH.target} ${change.label}`,
 						);
-						if (!approved) return say("Left closed.");
+						if (!decision.approved) return declined(decision, "Left closed.");
 						if (authoring.reopen === undefined) {
 							return refuse(
 								missingMethod(bound.provider.id, "reopen a closed change"),
@@ -486,7 +488,7 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 						return say(`${GLYPH.lands} ${change.label} reopened.`);
 					}
 					case "rerun": {
-						const approved = await confirmWrite(
+						const decision = await confirmWrite(
 							ctx,
 							`Run CI again on ${change.label}?`,
 							[
@@ -496,7 +498,7 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 									: "\nEverything on its head commit, which on a large repo is not free.",
 							].join("\n"),
 						);
-						if (!approved) return say("Left alone.");
+						if (!decision.approved) return declined(decision, "Left alone.");
 						if (authoring.rerun === undefined) {
 							return refuse(
 								missingMethod(bound.provider.id, "ask CI to run again"),
@@ -747,7 +749,7 @@ async function proposeStack(
 		draft: params.draft === true,
 	}));
 
-	const approved = await confirmWrite(
+	const decision = await confirmWrite(
 		ctx,
 		`Propose ${heads.length} changes as a stack?`,
 		[
@@ -762,7 +764,7 @@ async function proposeStack(
 			"Each is based on the one above it, so an earlier one failing leaves the rest without a base.",
 		].join("\n"),
 	);
-	if (!approved) return say("Not proposed.");
+	if (!decision.approved) return declined(decision, "Not proposed.");
 
 	const made = await authoring.proposeStack(drafts);
 	return say(
@@ -810,7 +812,7 @@ async function propose(
 	if ("refusal" in filled) return refuse(filled.refusal);
 	const { base, head, title, body, guessed, warnings } = filled.fill;
 
-	const approved = await confirmWrite(
+	const decision = await confirmWrite(
 		ctx,
 		`Propose ${head} onto ${base}?`,
 		[
@@ -831,7 +833,7 @@ async function propose(
 			...warnings.map((warning) => `\n${GLYPH.refused} ${warning}`),
 		].join("\n"),
 	);
-	if (!approved) return say("Not proposed.");
+	if (!decision.approved) return declined(decision, "Not proposed.");
 
 	// Where the reviewers go depends on when the backend can take them. One
 	// that takes them only at creation has to be told now, because after
@@ -964,7 +966,7 @@ async function edit(
 		);
 	}
 
-	const approved = await confirmWrite(
+	const decision = await confirmWrite(
 		ctx,
 		`Edit ${change.label}?`,
 		cautioned(
@@ -980,7 +982,7 @@ async function edit(
 			caution,
 		),
 	);
-	if (!approved) return say("Left as it was.");
+	if (!decision.approved) return declined(decision, "Left as it was.");
 
 	const after = await authoring.edit(change, edits);
 	// Named in the past tense, because the proposal line alone does not show
@@ -1004,7 +1006,7 @@ async function merge(
 	authoring: NonNullable<BoundTarget["provider"]["authoring"]>,
 	params: OfferParams,
 ): Promise<Answer> {
-	const approved = await confirmWrite(
+	const decision = await confirmWrite(
 		ctx,
 		`Merge ${change.label}?`,
 		[
@@ -1015,7 +1017,7 @@ async function merge(
 				: `   ${GLYPH.refused} unguarded: this merges whatever the head is now, including work pushed since you last looked`,
 		].join("\n"),
 	);
-	if (!approved) return say("Not merged.");
+	if (!decision.approved) return declined(decision, "Not merged.");
 
 	const outcome = await authoring.merge(change, {
 		...(params.method === undefined ? {} : { method: params.method }),
@@ -1056,12 +1058,12 @@ async function reviewers(
 		return refuse("Asking for reviewers needs somebody to ask.");
 	}
 
-	const approved = await confirmWrite(
+	const decision = await confirmWrite(
 		ctx,
 		`Ask ${asking.join(", ")} to review ${change.label}?`,
 		`${GLYPH.target} ${change.label}`,
 	);
-	if (!approved) return say("Nobody was asked.");
+	if (!decision.approved) return declined(decision, "Nobody was asked.");
 
 	// Said in the past tense, so it has to be true. An optional call here
 	// reported that people had been asked whenever the method was missing,
@@ -1116,7 +1118,7 @@ async function retargetStack(
 		);
 	}
 
-	const approved = await confirmWrite(
+	const decision = await confirmWrite(
 		ctx,
 		`Retarget ${count(plan.moves.length, "change", "changes")} in ${change.label}'s stack?`,
 		[
@@ -1131,7 +1133,8 @@ async function retargetStack(
 				: `Moved one at a time: ${route.why}, so a failure part way leaves some moved and some not.`,
 		].join("\n"),
 	);
-	if (!approved) return say("Left pointing where they were.");
+	if (!decision.approved)
+		return declined(decision, "Left pointing where they were.");
 
 	if (route.kind === "native") {
 		// Non-null because retargetRoute only says native when it is there.

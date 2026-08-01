@@ -28,6 +28,7 @@ import { anchorLabel, GLYPH } from "../render.js";
 import {
 	type Answer,
 	boundFor,
+	declined,
 	findReactableOn,
 	hostedChange,
 	refuse,
@@ -129,12 +130,12 @@ export function registerSayTool(pi: ExtensionAPI): void {
 
 				if (params.action === "comment") {
 					if (!params.body) return refuse("A comment needs a body.");
-					const approved = await confirmWrite(
+					const decision = await confirmWrite(
 						ctx,
 						"Post a comment?",
 						`${GLYPH.target} ${change.label}\n\n${params.body}`,
 					);
-					if (!approved) return say("Left unposted.");
+					if (!decision.approved) return declined(decision, "Left unposted.");
 					const posted = await conversation.comment(change, params.body);
 					return say(
 						`${GLYPH.lands} posted${posted.url ? `\n   ${posted.url}` : ""}`,
@@ -155,12 +156,12 @@ export function registerSayTool(pi: ExtensionAPI): void {
 
 				if (params.action === "reply") {
 					if (!params.body) return refuse("A reply needs a body.");
-					const approved = await confirmWrite(
+					const decision = await confirmWrite(
 						ctx,
 						"Post this reply?",
 						`${GLYPH.thread} ${threadWhere(thread)}\n\n${params.body}`,
 					);
-					if (!approved) return say("Left unposted.");
+					if (!decision.approved) return declined(decision, "Left unposted.");
 					const posted = await conversation.reply(change, thread, params.body);
 					return say(
 						`${GLYPH.lands} replied${posted.url ? `\n   ${posted.url}` : ""}`,
@@ -173,12 +174,12 @@ export function registerSayTool(pi: ExtensionAPI): void {
 						`The ${bound.provider.id} provider cannot reopen a resolved thread.`,
 					);
 				}
-				const approved = await confirmWrite(
+				const decision = await confirmWrite(
 					ctx,
 					reopening ? "Reopen this thread?" : "Resolve this thread?",
 					`${GLYPH.thread} ${threadWhere(thread)}`,
 				);
-				if (!approved) return say("Left as it was.");
+				if (!decision.approved) return declined(decision, "Left as it was.");
 				if (reopening) await conversation.unresolve?.(change, thread);
 				else await conversation.resolve(change, thread);
 				return say(
@@ -231,12 +232,12 @@ async function react(
 	// The gate quotes the remark being reacted to, since an address is not
 	// something a person can check. `[C4]` approved against the wrong comment
 	// is indistinguishable from `[C4]` approved against the right one.
-	const approved = await confirmWrite(
+	const decision = await confirmWrite(
 		ctx,
 		`React ${params.reaction}?`,
 		`${GLYPH.reaction} ${params.reaction} on ${found.label} ${found.message.author.id}: ${found.message.body}`,
 	);
-	if (!approved) return say("Left as it was.");
+	if (!decision.approved) return declined(decision, "Left as it was.");
 	await conversation.react(change, found.message, params.reaction as Reaction);
 	return say(`${GLYPH.reaction} reacted to ${found.label}.`);
 }

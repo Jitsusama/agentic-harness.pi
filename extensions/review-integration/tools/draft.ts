@@ -55,6 +55,7 @@ import { treeForFixing } from "../work.js";
 import {
 	type Answer,
 	boundFor,
+	declined,
 	findReactableOn,
 	hostedChange,
 	refuse,
@@ -435,13 +436,13 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 				// models emit emdashes and curly quotes by default.
 				const prose = proseComplaint(plan);
 				if (prose) return refuse(prose);
-				const approved = await confirmWrite(
+				const decision = await confirmWrite(
 					ctx,
 					"Publish this review?",
 					planNarration(plan),
 				);
-				if (!approved) {
-					return say("Left in the draft. Nothing was sent.");
+				if (!decision.approved) {
+					return declined(decision, "Left in the draft. Nothing was sent.");
 				}
 				const outcome = await draft.publish(plan, bound.provider);
 				// Record where the change stood, so coming back to it later can say
@@ -554,13 +555,13 @@ async function publishStack(
 		if (prose) return refuse(`${entry.ref}: ${prose}`);
 	}
 
-	const approved = await confirmWrite(
+	const decision = await confirmWrite(
 		ctx,
 		`Publish ${entries.length} ${entries.length === 1 ? "review" : "reviews"} across this stack?`,
 		entries.map((one) => `${one.ref}\n${planNarration(one.plan)}`).join("\n\n"),
 	);
-	if (!approved) {
-		return say("Left in the drafts. Nothing was sent.");
+	if (!decision.approved) {
+		return declined(decision, "Left in the drafts. Nothing was sent.");
 	}
 
 	const outcome = await publishAcross(entries, bound.provider);
