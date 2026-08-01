@@ -534,7 +534,11 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 						held: broker
 							.held()
 							.map((one) => ({ key: one.identity.key, path: one.path })),
-						cwd: process.cwd(),
+						// The session's directory, not the process's. pi's own cwd
+						// is wherever pi was started, which is not where the person
+						// asking the question is standing, and taking it meant this
+						// verb still refused in the one place it was fixed to work.
+						cwd: ctx?.cwd ?? process.cwd(),
 						gitRootOf: gitTreeRootOf,
 					});
 					if (!target.ok) {
