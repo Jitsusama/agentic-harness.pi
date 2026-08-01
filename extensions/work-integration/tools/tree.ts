@@ -136,6 +136,11 @@ async function surveyRepo(
 	trunk: string,
 ): Promise<Answer> {
 	const history = createGitHistory({ exec });
+	// A held tree's key is a name; an unheld checkout's is its path, and
+	// this is the line a person reads. The tree lines below already put
+	// a tilde on a path, so a raw one in the headline above them was
+	// only ever the seam showing.
+	const named = displayPath(target.key);
 	const orphans = await treesLeftBehind(
 		pi,
 		history,
@@ -160,7 +165,7 @@ async function surveyRepo(
 			);
 			return say(
 				[
-					`${GLYPH.clean} No tree beside ${target.key} is going spare, against ${trunk}.`,
+					`${GLYPH.clean} No tree beside ${named} is going spare, against ${trunk}.`,
 					...kept.map(
 						(tree) =>
 							`   ${tree.decide ? GLYPH.undecided : GLYPH.refused} ${displayPath(tree.path)}: ${tree.why}`,
@@ -178,7 +183,7 @@ async function surveyRepo(
 		return say(
 			[
 				// Past tense, because this one did something.
-				`${GLYPH.named} Took back ${count(took.length, "tree", "trees")} beside ${target.key}.`,
+				`${GLYPH.named} Took back ${count(took.length, "tree", "trees")} beside ${named}.`,
 				...outcome.trees.map((tree) =>
 					tree.kind === "reclaimed"
 						? `   ${GLYPH.named} ${displayPath(tree.path)}${tree.branch ? `, ${tree.branch} kept` : ""}`
@@ -248,8 +253,8 @@ async function surveyRepo(
 	return say(
 		[
 			spent === 0
-				? `${GLYPH.clean} Nothing in ${target.key} has been spent yet, against ${trunk}.`
-				: `${GLYPH.named} ${count(spent, "thing", "things")} in ${target.key} can go, against ${trunk}.`,
+				? `${GLYPH.clean} Nothing in ${named} has been spent yet, against ${trunk}.`
+				: `${GLYPH.named} ${count(spent, "thing", "things")} in ${named} can go, against ${trunk}.`,
 			...lines,
 			"",
 			"Nothing has been removed. Delete the branches you agree with,",
