@@ -726,6 +726,49 @@ Without a UI the gate approves, so a tool running inside a
 subagent has nobody to ask. Do not rely on the gate as the
 only thing standing between a draft and a stranger's change.
 
+The gate shows the whole of what is being sent, so there is
+no need to paste the body into the transcript first. Say
+what you are doing and why; the words themselves are on
+screen.
+
+A gate can be argued with. `Shift+Escape` redirects and
+`Shift+r` annotates a rejection, and either comes back to
+you as a refusal carrying what the person said. Read it as
+an instruction and come back with a new gate rather than
+treating it as a flat no.
+
+## One Call Per Intent, Not One Per Request
+
+Answering a thread and closing it is one intent, so it is
+one call:
+
+```
+review_say reply thread:3 body:"Fixed in 0671cb0." settleThread:resolve
+```
+
+Set `settleThread` whenever the reply answers what the
+thread asked for. The gate prints the decision either way,
+including when you leave the thread open, so silence is
+never left to be interpreted. It defaults to leaving the
+thread alone, because resolving closes somebody else's
+conversation.
+
+Answering several threads is also one intent:
+
+```
+review_say items:[
+  {action:"reply", thread:3, body:"...", settleThread:"resolve"},
+  {action:"reply", thread:4, body:"..."},
+  {action:"react", comment:"C7", reaction:"rocket"}
+]
+```
+
+One gate, a tab per item. Compose the whole answer to a
+review and send it in one call rather than one call per
+thread: five separate gates is how a gate stops being read.
+Do not pass the singular parameters alongside `items`; that
+is refused, since the two can disagree.
+
 ## Reads Degrade, Writes Refuse
 
 A read that loses part of its answer reports the part it
