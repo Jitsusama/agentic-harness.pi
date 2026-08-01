@@ -169,7 +169,11 @@ export function treeAdopt(
 	if (!result.added) {
 		return ok(`Tree at ${root} is already tracked on this quest.`, { tree });
 	}
-	appendJourneyEntry(state, `Adopted tree at ${root}.`);
+	// The Journey is prose held to the column rule, and an absolute
+	// path is the one thing in it that cannot be wrapped. A tilde is a
+	// courtesy for a reader, and the Journey has no other kind of
+	// audience: nothing reads a path back out of it.
+	appendJourneyEntry(state, `Adopted tree at ${displayPath(root)}.`);
 	return ok(`Adopted tree at ${root}; it will not be auto-pruned.`, { tree });
 }
 
