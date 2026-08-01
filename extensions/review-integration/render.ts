@@ -34,13 +34,19 @@ import { detectProseViolations } from "../../lib/prose/index.js";
 import type {
 	Anchor,
 	ChecksRollup,
+	DiffModel,
 	Proposal,
 	PublishOutcome,
 	PublishPlan,
 	Stack,
 	Thread,
 } from "../../lib/review/index.js";
-import { describeAnchor, standsAt } from "../../lib/review/index.js";
+import {
+	anchorable,
+	describeAnchor,
+	standsAt,
+} from "../../lib/review/index.js";
+import { languageFromPath, renderCode } from "../../lib/ui/content-renderer.js";
 import { count } from "../../lib/ui/count.js";
 import { wordWrap } from "../../lib/ui/text-layout.js";
 
@@ -224,6 +230,66 @@ function rowsOf(panel: GatePanel, width: number): GateRow[] {
 		}
 	}
 	return rows;
+}
+
+/**
+ * The code a remark points at, drawn from the diff already in hand.
+ *
+ * `renderCode` does the drawing, so this looks like the content viewer
+ * and the history guardian, because it is the same function. It never
+ * fetches: the publish flows hold a diff to judge degradation with, and
+ * a flow that does not hold one shows the path and no hunk rather than
+ * buying one to fill a panel.
+ *
+ * When the anchor cannot be placed, that is said out loud. An empty
+ * panel reads as "no code here", which is a different claim from "this
+ * anchor has come loose".
+ */
+export function anchorView(
+	anchor: Anchor,
+	diff: DiffModel | undefined,
+	theme: Theme,
+	width: number,
+): string[] {
+	if (anchor.subject === "change") {
+		return [theme.fg("muted", "   about the whole change, not a line in it")];
+	}
+	if (!diff) {
+		return [theme.fg("muted", `   ${describeAnchor(anchor)}`)];
+	}
+
+	const check = anchorable(diff, anchor);
+	if (!check.anchored || !check.hunk) {
+		return [
+			theme.fg("muted", `   ${describeAnchor(anchor)}`),
+			theme.fg(
+				"muted",
+				`   not in this diff (${check.anchored ? "whole file" : check.reason})`,
+			),
+		];
+	}
+
+	// A file anchor has no line to point at, so the hunk is shown whole.
+	const side = anchor.blob ?? "new";
+	const lines = check.hunk.lines.filter(
+		(one) => numberOn(one, side) !== undefined,
+	);
+	const first = numberOn(lines[0], side) ?? 1;
+	return renderCode(lines.map((one) => one.text).join("\n"), theme, width, {
+		startLine: first,
+		...(anchor.subject === "line"
+			? { highlightLines: new Set([anchor.line]) }
+			: {}),
+		language: languageFromPath(anchor.path),
+	});
+}
+
+/** A line's number on one side, when it exists there. */
+function numberOn(
+	line: { oldLine?: number; newLine?: number } | undefined,
+	side: "old" | "new",
+): number | undefined {
+	return side === "old" ? line?.oldLine : line?.newLine;
 }
 
 /** One remark, attributed and clipped, with the clip owned up to. */
