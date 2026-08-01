@@ -25,6 +25,7 @@ import {
 } from "../../../lib/review/index.js";
 import { confirmWrite } from "../gate.js";
 import { anchorLabel, count, type GateQuote, GLYPH } from "../render.js";
+import { type Settle, settleAfter, settleRefusal } from "./settle.js";
 import {
 	type Answer,
 	boundFor,
@@ -73,6 +74,29 @@ function destinationOf(bound: BoundTarget, label: string): string {
 	return `${label} \u00b7 ${bound.provider.id}`;
 }
 
+/** The gate's first line, which alone says what pressing Enter does. */
+function settleTitle(settle: Settle | undefined): string {
+	if (settle === "resolve") return "Post this reply and resolve the thread?";
+	if (settle === "unresolve") return "Post this reply and reopen the thread?";
+	return "Post this reply?";
+}
+
+/** What the gate says will become of the thread, said out loud either way. */
+function settleLine(settle: Settle | undefined): string {
+	if (settle === "resolve") {
+		return `${GLYPH.resolved} then resolves the thread`;
+	}
+	if (settle === "unresolve") {
+		return `${GLYPH.unresolved} then reopens the thread`;
+	}
+	return `${GLYPH.unresolved} leaves the thread as it is`;
+}
+
+/** Whether the settling happened, in the answer. */
+function settleMark(settled: boolean): string {
+	return settled ? GLYPH.resolved : GLYPH.refused;
+}
+
 /** Register the `review_say` tool. */
 export function registerSayTool(pi: ExtensionAPI): void {
 	pi.registerTool({
@@ -87,6 +111,7 @@ export function registerSayTool(pi: ExtensionAPI): void {
 			"React by the address a listing prints: [C#] for a remark inside a thread, [M#] for a top-level message. A bare number is refused, since it does not say which of the two.",
 			"Leave the change out to speak on whatever is attached.",
 			"Use this to answer one remark. To compose several remarks and a verdict together, use review_draft.",
+			"Set settle to resolve when the reply answers what the thread asked for, so answering and closing are one call and one gate. The gate prints the decision either way, so say it rather than leaving it to be guessed.",
 			"Every action here opens a confirmation gate, so describe what you are about to post before calling it.",
 		],
 		parameters: Type.Object({
@@ -127,6 +152,19 @@ export function registerSayTool(pi: ExtensionAPI): void {
 					description:
 						"For react: which comment, as the [C#] a thread listing prints beside a remark or the [M#] a messages listing prints beside a top-level one.",
 				}),
+			),
+			settle: Type.Optional(
+				Type.Union(
+					[
+						Type.Literal("resolve"),
+						Type.Literal("unresolve"),
+						Type.Literal("leave"),
+					],
+					{
+						description:
+							"For reply: what to do with the thread once the reply lands, so answering and closing cost one call rather than two. Defaults to leaving it as it is, since resolving closes somebody else's conversation.",
+					},
+				),
 			),
 		}),
 
@@ -184,16 +222,31 @@ export function registerSayTool(pi: ExtensionAPI): void {
 
 				if (params.action === "reply") {
 					if (!params.body) return refuse("A reply needs a body.");
-					const decision = await confirmWrite(ctx, "Post this reply?", {
+					const settle = params.settle as Settle | undefined;
+					// Before the gate, so nobody approves a settling that cannot
+					// happen and gets a posted reply out of it.
+					const cannot = settleRefusal(conversation, settle, bound.provider.id);
+					if (cannot) return refuse(cannot);
+
+					const decision = await confirmWrite(ctx, settleTitle(settle), {
 						destination: destinationOf(bound, change.label),
 						where: threadWhere(thread),
 						context: exchange(thread),
 						payload: { as: "replying", body: params.body },
+						// Printed either way, so silence never has to be read as
+						// a decision somebody made.
+						consequence: [settleLine(settle)],
 					});
 					if (!decision.approved) return declined(decision, "Left unposted.");
 					const posted = await conversation.reply(change, thread, params.body);
+					const after = await settleAfter(conversation, change, thread, settle);
 					return say(
-						`${GLYPH.lands} replied${posted.url ? `\n   ${posted.url}` : ""}`,
+						[
+							`${GLYPH.lands} replied${posted.url ? `\n   ${posted.url}` : ""}`,
+							...(after.note
+								? [`${settleMark(after.settled)} ${after.note}`]
+								: []),
+						].join("\n"),
 					);
 				}
 
