@@ -43,6 +43,13 @@ The package manager is **pnpm**. `pnpm-lock.yaml` is canonical;
     module because both `lib/review` and `lib/work` need it and
     neither owns it; `lib/review` re-exports it, since downstream
     packages import `Exec` from that barrel
+  - `lib/remote/`: naming a git remote to a person (public). Its
+    own module for the same reason `lib/exec` is: both
+    `lib/review` and `lib/work` show a remote in their refusals,
+    and neither owns what a remote may safely say. A remote can
+    carry a token as its user or as its password, so a message
+    naming one verbatim prints a live secret; the credential comes
+    out for display and stays in for the fetch
   - `lib/result/`: tool answers that are bounded without being
     lossy: the session result store, the bounded structural
     digest, the shared JSONPath query and the citation rule

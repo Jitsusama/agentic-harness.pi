@@ -51,6 +51,32 @@ describe("telling a checkout apart from the repo in play", () => {
 		);
 	});
 
+	it("names the remote without the credential it authenticates with", () => {
+		// The pair exists to be said out loud, and this one was said with a
+		// live token in it: a refusal about the wrong repo printed the
+		// checkout's remote verbatim, token and all, into the transcript.
+		const apart = repoElsewhere(
+			"https://x-access-token:gho_secret@github.com/owner/repo.git",
+			"meteorite:shop/world",
+		);
+
+		expect(apart).toEqual({
+			checkout: "https://github.com/owner/repo",
+			repo: "meteorite:shop/world",
+		});
+	});
+
+	it("still recognizes its own repo behind a credential", () => {
+		// The credential goes before the comparison, so a remote that
+		// authenticates inline is not mistaken for a different repo.
+		expect(
+			repoElsewhere(
+				"https://x-access-token:gho_secret@github.com/shop/world.git",
+				"github:shop/world",
+			),
+		).toBeUndefined();
+	});
+
 	it("keeps a slug containing a colon whole", () => {
 		// A key is provider:slug, and a slug may itself contain a colon, so
 		// splitting on the first one and rejoining the rest is the rule.

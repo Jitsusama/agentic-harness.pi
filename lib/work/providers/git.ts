@@ -16,6 +16,7 @@
  */
 
 import { join } from "node:path";
+import { withoutCredentials } from "../../remote/index.js";
 import { type Exec, run } from "../../review/index.js";
 import { displayPath } from "../../ui/path.js";
 import type { TreeProvider } from "../broker.js";
@@ -50,7 +51,7 @@ export function createGitTreeProvider(deps: {
 			}
 			if (source.kind === "clone") {
 				throw new Error(
-					`${request.repo.key} is known only as ${source.remoteUrl}, and cloning a repo you did not ask for can take a very long time. Clone it yourself, or register a provider that knows this repo.`,
+					`${request.repo.key} is known only as ${withoutCredentials(source.remoteUrl)}, and cloning a repo you did not ask for can take a very long time. Clone it yourself, or register a provider that knows this repo.`,
 				);
 			}
 
