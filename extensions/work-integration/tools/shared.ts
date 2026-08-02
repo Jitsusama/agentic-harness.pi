@@ -16,8 +16,8 @@
  */
 
 import type { AgentToolResult, Theme } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
-import { renderToolCall } from "../../../lib/ui/index.js";
+import type { Text } from "@earendil-works/pi-tui";
+import { asText, drawInto, renderToolCall } from "../../../lib/ui/index.js";
 
 /** What a tool answers with. */
 export type Answer = AgentToolResult<unknown>;
@@ -51,13 +51,16 @@ export function messageOf(error: unknown): string {
 }
 
 /** The renderer the work tools share. */
-export function renderAnswer(result: Answer, theme: Theme): Text {
+export function renderAnswer(
+	result: Answer,
+	theme: Theme,
+	reuse?: unknown,
+): Text {
 	const first = result.content?.[0];
 	const body = first?.type === "text" ? first.text : "";
-	return new Text(
+	return drawInto(
+		reuse,
 		isRefusal(result.details) ? theme.fg("error", body) : body,
-		0,
-		0,
 	);
 }
 
@@ -69,7 +72,11 @@ export function renderAnswer(result: Answer, theme: Theme): Text {
  * shared line, which puts the tool in bold and the rest in plain and dim, the way
  * the browser tools always did.
  */
-export function renderInvocation(args: unknown, theme: Theme): Text {
+export function renderInvocation(
+	args: unknown,
+	theme: Theme,
+	reuse?: unknown,
+): Text {
 	const a = args as {
 		action?: string;
 		purpose?: string;
@@ -89,5 +96,6 @@ export function renderInvocation(args: unknown, theme: Theme): Text {
 			...(a.onto ? { notes: [`onto ${a.onto}`] } : {}),
 		},
 		theme,
+		asText(reuse),
 	);
 }

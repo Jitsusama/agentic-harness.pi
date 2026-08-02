@@ -832,11 +832,11 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 				return refuse(`${GLYPH.refused} ${messageOf(error)}`);
 			}
 		},
-		renderCall(args, theme) {
-			return renderInvocation(args, theme);
+		renderCall(args, theme, context) {
+			return renderInvocation(args, theme, context?.lastComponent);
 		},
-		renderResult(result, _state, theme) {
-			return renderAnswer(result, theme);
+		renderResult(result, _state, theme, context) {
+			return renderAnswer(result, theme, context?.lastComponent);
 		},
 	});
 }

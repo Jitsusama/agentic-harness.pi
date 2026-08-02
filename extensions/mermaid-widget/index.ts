@@ -24,9 +24,8 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
-import { firstText } from "../../lib/ui/index.js";
+import { drawInto, firstText } from "../../lib/ui/index.js";
 import { MermaidRenderError, renderMermaid } from "../../lib/web/mermaid.js";
 
 /** The platform command that opens a file in its default app. */
@@ -116,23 +115,25 @@ export default function mermaidWidget(pi: ExtensionAPI) {
 			),
 		}),
 
-		renderCall(args, theme) {
+		renderCall(args, theme, context) {
 			const label = theme.fg("toolTitle", theme.bold("render_mermaid "));
 			const firstLine = args.source.split("\n")[0] ?? "";
-			return new Text(label + theme.fg("dim", firstLine), 0, 0);
+			return drawInto(
+				context?.lastComponent,
+				label + theme.fg("dim", firstLine),
+			);
 		},
 
-		renderResult(result, _options, theme) {
+		renderResult(result, _options, theme, context) {
 			const text = firstText(result);
 			if (!isSuccess(result.details)) {
-				return new Text(theme.fg("error", text), 0, 0);
+				return drawInto(context?.lastComponent, theme.fg("error", text));
 			}
-			return new Text(
+			return drawInto(
+				context?.lastComponent,
 				theme.fg("success", "\u2713 ") +
 					theme.fg("dim", `${result.details.svgPath} (svg)`) +
 					theme.fg("dim", `  ${result.details.pngPath} (png)`),
-				0,
-				0,
 			);
 		},
 

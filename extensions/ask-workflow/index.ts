@@ -12,10 +12,11 @@
  */
 
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
-import { Text, truncateToWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { count } from "../../lib/ui/count.js";
 import {
+	drawInto,
 	firstText,
 	type ListChoice,
 	type PromptItem,
@@ -261,7 +262,7 @@ export default function ask(pi: ExtensionAPI) {
 			};
 		},
 
-		renderCall(args, theme) {
+		renderCall(args, theme, context) {
 			const qs = (args.questions as Question[]) || [];
 			const labels = qs.map((q) => q.label || q.id).join(", ");
 			let text = theme.fg("toolTitle", theme.bold("ask "));
@@ -269,16 +270,19 @@ export default function ask(pi: ExtensionAPI) {
 			if (labels) {
 				text += theme.fg("dim", ` (${truncateToWidth(labels, 40)})`);
 			}
-			return new Text(text, 0, 0);
+			return drawInto(context?.lastComponent, text);
 		},
 
-		renderResult(result, _options, theme) {
+		renderResult(result, _options, theme, context) {
 			const details = result.details as AskResult | undefined;
 			if (!details) {
-				return new Text(firstText(result), 0, 0);
+				return drawInto(context?.lastComponent, firstText(result));
 			}
 			if (details.cancelled) {
-				return new Text(theme.fg("warning", "Cancelled"), 0, 0);
+				return drawInto(
+					context?.lastComponent,
+					theme.fg("warning", "Cancelled"),
+				);
 			}
 			const lines = details.answers.map((a) => {
 				if (a.wasCustom) {
@@ -287,7 +291,7 @@ export default function ask(pi: ExtensionAPI) {
 				const display = a.index ? `${a.index}. ${a.label}` : a.label;
 				return `${theme.fg("success", "✓ ")}${theme.fg("accent", a.id)}: ${display}`;
 			});
-			return new Text(lines.join("\n"), 0, 0);
+			return drawInto(context?.lastComponent, lines.join("\n"));
 		},
 	});
 }

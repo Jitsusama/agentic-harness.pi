@@ -23,7 +23,6 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { runInvestigation } from "../../lib/completion/index.js";
 import {
@@ -37,6 +36,7 @@ import {
 	recordRunEverywhere,
 	runRecordFrom,
 } from "../../lib/observability/index.js";
+import { drawInto } from "../../lib/ui/index.js";
 import { advisorCharter, reviewPrompt } from "./charter.js";
 import {
 	channelFor,
@@ -183,10 +183,10 @@ export default function advisor(pi: ExtensionAPI) {
 				{ description: "Turn the advisor on, off, or report its state." },
 			),
 		}),
-		renderCall(args, theme) {
+		renderCall(args, theme, context) {
 			const label = theme.fg("toolTitle", theme.bold("advisor "));
 			const action = typeof args.action === "string" ? args.action : "status";
-			return new Text(label + theme.fg("dim", action), 0, 0);
+			return drawInto(context?.lastComponent, label + theme.fg("dim", action));
 		},
 		async execute(_toolCallId, params) {
 			if (params.action === "status") {

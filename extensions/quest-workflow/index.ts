@@ -21,7 +21,7 @@ import type {
 	ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
 import { keyHint, SessionManager } from "@earendil-works/pi-coding-agent";
-import { Text, truncateToWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 import {
 	getSection,
@@ -40,7 +40,7 @@ import { registerBuiltinRefTypes } from "../../lib/refs/index.js";
 import { boundedByDetails, openSessionStore } from "../../lib/result/index.js";
 import { registerBuiltinTerminalDrivers } from "../../lib/terminal/index.js";
 import { registerBuiltinTreeProviders } from "../../lib/tree/index.js";
-import { count, firstText } from "../../lib/ui/index.js";
+import { count, drawInto, firstText } from "../../lib/ui/index.js";
 import { QUEST_ACTIONS } from "./actions.js";
 import { answerTreeClaims } from "./claims.js";
 import {
@@ -337,7 +337,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			};
 		},
 
-		renderCall(args, theme) {
+		renderCall(args, theme, context) {
 			const a = args as QuestToolParams;
 			const action = a.action ?? "";
 			let text = theme.fg("toolTitle", theme.bold("quest "));
@@ -352,10 +352,10 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 				);
 				text += theme.fg("dim", `: ${truncateToWidth(note, room)}`);
 			}
-			return new Text(text, 0, 0);
+			return drawInto(context?.lastComponent, text);
 		},
 
-		renderResult(result, options, theme) {
+		renderResult(result, options, theme, context) {
 			const d = result.details as
 				| {
 						ok?: boolean;
@@ -367,19 +367,22 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 				// The error colour, as review and work both use for a refusal. Warning
 				// read as a soft advisory next to a green success, which is backwards:
 				// the tool did not proceed.
-				return new Text(theme.fg("error", d.guidance ?? "Refused"), 0, 0);
+				return drawInto(
+					context?.lastComponent,
+					theme.fg("error", d.guidance ?? "Refused"),
+				);
 			}
 			const content = firstText(result);
 			const listing = isListingDetails(d?.listing) ? d.listing : undefined;
 			if (listing) {
 				if (options.expanded) {
-					return new Text(
+					return drawInto(
+						context?.lastComponent,
 						theme.fg("success", renderListingExpanded(listing)),
-						0,
-						0,
 					);
 				}
-				return new Text(
+				return drawInto(
+					context?.lastComponent,
 					theme.fg("success", collapseListingPreview(listing, content)) +
 						(listing.rows.length > 0
 							? theme.fg(
@@ -387,15 +390,14 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 									` (${keyHint("app.tools.expand", "to expand")})`,
 								)
 							: ""),
-					0,
-					0,
 				);
 			}
 			// Non-listing results (show, who, links, ancestors) carry rich
 			// multi-line output. Feed the human the same text as the agent,
 			// collapsed to a first-line preview with an expand hint rather
 			// than dropping everything past the first line.
-			return new Text(
+			return drawInto(
+				context?.lastComponent,
 				theme.fg(
 					"success",
 					collapseText(
@@ -404,8 +406,6 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 						keyHint("app.tools.expand", "to expand"),
 					),
 				),
-				0,
-				0,
 			);
 		},
 	});

@@ -3,8 +3,8 @@
  */
 
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
-import { count, firstText } from "../../lib/ui/index.js";
+import type { Text } from "@earendil-works/pi-tui";
+import { count, drawInto, firstText } from "../../lib/ui/index.js";
 
 interface RenderOptions {
 	terminalWidth?: number;
@@ -59,7 +59,25 @@ export function renderGoogleResult(
 	result: RenderableResult,
 	options: RenderOptions,
 	theme: Theme,
+	reuse?: unknown,
 ): Text {
+	return drawInto(reuse, resultText(result, options, theme));
+}
+
+/**
+ * The whole answer as one presentation string.
+ *
+ * Separate from the component so the shapes below can compose freely.
+ * They used to build a `Text` each, which meant every one of them had
+ * to be told about reuse for a single row to be redrawn correctly, and
+ * a helper that formats an email list has no business knowing what a
+ * component is.
+ */
+function resultText(
+	result: RenderableResult,
+	options: RenderOptions,
+	theme: Theme,
+): string {
 	const d = result.details as ResultDetails | undefined;
 	const textContent = leadingText(result);
 
@@ -72,7 +90,7 @@ export function renderGoogleResult(
 			textContent.length > 100
 				? `${textContent.slice(0, 100)}...`
 				: textContent;
-		return new Text(theme.fg("error", errorMsg), 0, 0);
+		return theme.fg("error", errorMsg);
 	}
 
 	// We check for cancellations.
@@ -81,7 +99,7 @@ export function renderGoogleResult(
 		textContent.includes("cancelled") ||
 		textContent.includes("canceled")
 	) {
-		return new Text(theme.fg("warning", textContent.split("\n")[0]), 0, 0);
+		return theme.fg("warning", textContent.split("\n")[0]);
 	}
 
 	// Gmail list results
@@ -99,7 +117,7 @@ export function renderGoogleResult(
 		textContent.startsWith("✓ Email sent") ||
 		textContent.startsWith("✓ Draft created")
 	) {
-		return new Text(theme.fg("success", textContent.split("\n")[0]), 0, 0);
+		return theme.fg("success", textContent.split("\n")[0]);
 	}
 
 	// Email operations
@@ -109,7 +127,7 @@ export function renderGoogleResult(
 		textContent.startsWith("✓ Email deleted") ||
 		textContent.startsWith("✓ Marked as")
 	) {
-		return new Text(theme.fg("success", textContent), 0, 0);
+		return theme.fg("success", textContent);
 	}
 
 	// Free/busy results
@@ -132,7 +150,7 @@ export function renderGoogleResult(
 		textContent.startsWith("✓ Event deleted") ||
 		textContent.startsWith("✓ Response sent")
 	) {
-		return new Text(theme.fg("success", textContent.split("\n")[0]), 0, 0);
+		return theme.fg("success", textContent.split("\n")[0]);
 	}
 
 	// Drive file list results
@@ -148,20 +166,16 @@ export function renderGoogleResult(
 	// Shared drives list
 	if (d?.drives) {
 		const drives = Array.isArray(d.drives) ? d.drives.length : 0;
-		return new Text(
-			theme.fg("success", `✓ ${count(drives, "shared drive")}`),
-			0,
-			0,
-		);
+		return theme.fg("success", `✓ ${count(drives, "shared drive")}`);
 	}
 
 	// Generic success
 	if (textContent.startsWith("✓")) {
-		return new Text(theme.fg("success", textContent.split("\n")[0]), 0, 0);
+		return theme.fg("success", textContent.split("\n")[0]);
 	}
 
 	// Fallback
-	return new Text(theme.fg("success", "✓"), 0, 0);
+	return theme.fg("success", "✓");
 }
 
 function renderEmailList(
@@ -172,7 +186,7 @@ function renderEmailList(
 	nextPageToken: string | undefined,
 	options: RenderOptions,
 	theme: Theme,
-): Text {
+): string {
 	const total = messages.length;
 	let summary = theme.fg("success", `✓ ${count(total, "message")}`);
 	if (nextPageToken) {
@@ -190,16 +204,12 @@ function renderEmailList(
 			})
 			.join("\n");
 		if (total > 3) {
-			return new Text(
-				`${summary}\n${previews}\n  ${theme.fg("muted", `... ${total - 3} more`)}`,
-				0,
-				0,
-			);
+			return `${summary}\n${previews}\n  ${theme.fg("muted", `... ${total - 3} more`)}`;
 		}
-		return new Text(`${summary}\n${previews}`, 0, 0);
+		return `${summary}\n${previews}`;
 	}
 
-	return new Text(summary, 0, 0);
+	return summary;
 }
 
 function renderSingleEmail(
@@ -208,14 +218,10 @@ function renderSingleEmail(
 		from?: string | { name?: string; email?: string };
 	},
 	theme: Theme,
-): Text {
+): string {
 	const subject = message.subject || "(no subject)";
 	const from = formatSender(message.from);
-	return new Text(
-		`${theme.fg("success", "✓ Email")} ${theme.fg("dim", from)}\n  ${theme.fg("muted", subject)}`,
-		0,
-		0,
-	);
+	return `${theme.fg("success", "✓ Email")} ${theme.fg("dim", from)}\n  ${theme.fg("muted", subject)}`;
 }
 
 /**
@@ -234,7 +240,7 @@ function renderEventList(
 	events: Array<{ summary?: string; start?: { dateTime?: string } }>,
 	options: RenderOptions,
 	theme: Theme,
-): Text {
+): string {
 	const total = events.length;
 	const summary = theme.fg("success", `✓ ${count(total, "event")}`);
 
@@ -256,34 +262,26 @@ function renderEventList(
 			})
 			.join("\n");
 		if (total > 3) {
-			return new Text(
-				`${summary}\n${previews}\n  ${theme.fg("muted", `... ${total - 3} more`)}`,
-				0,
-				0,
-			);
+			return `${summary}\n${previews}\n  ${theme.fg("muted", `... ${total - 3} more`)}`;
 		}
-		return new Text(`${summary}\n${previews}`, 0, 0);
+		return `${summary}\n${previews}`;
 	}
 
-	return new Text(summary, 0, 0);
+	return summary;
 }
 
 function renderSingleEvent(
 	event: { summary?: string },
 	textContent: string,
 	theme: Theme,
-): Text {
+): string {
 	const summary = event.summary || "(no title)";
 	const action = textContent.startsWith("✓ Event created")
 		? "created"
 		: textContent.startsWith("✓ Event updated")
 			? "updated"
 			: "loaded";
-	return new Text(
-		`${theme.fg("success", `✓ Event ${action}`)} ${theme.fg("dim", summary)}`,
-		0,
-		0,
-	);
+	return `${theme.fg("success", `✓ Event ${action}`)} ${theme.fg("dim", summary)}`;
 }
 
 function renderFileList(
@@ -291,7 +289,7 @@ function renderFileList(
 	nextPageToken: string | undefined,
 	options: RenderOptions,
 	theme: Theme,
-): Text {
+): string {
 	const total = files.length;
 	let summary = theme.fg("success", `✓ ${count(total, "file")}`);
 	if (nextPageToken) {
@@ -309,23 +307,19 @@ function renderFileList(
 			})
 			.join("\n");
 		if (total > 3) {
-			return new Text(
-				`${summary}\n${previews}\n  ${theme.fg("muted", `... ${total - 3} more`)}`,
-				0,
-				0,
-			);
+			return `${summary}\n${previews}\n  ${theme.fg("muted", `... ${total - 3} more`)}`;
 		}
-		return new Text(`${summary}\n${previews}`, 0, 0);
+		return `${summary}\n${previews}`;
 	}
 
-	return new Text(summary, 0, 0);
+	return summary;
 }
 
 function renderFreeBusyResult(
 	freeBusy: NonNullable<ResultDetails["freeBusy"]>,
 	options: RenderOptions,
 	theme: Theme,
-): Text {
+): string {
 	const calendars = freeBusy.calendars ?? [];
 	const calCount = calendars.length;
 
@@ -359,22 +353,18 @@ function renderFreeBusyResult(
 			.join("\n");
 
 		if (calendars.length > 3) {
-			return new Text(
-				`${summary}${busyInfo}\n${previews}\n  ${theme.fg("muted", `... ${calendars.length - 3} more`)}`,
-				0,
-				0,
-			);
+			return `${summary}${busyInfo}\n${previews}\n  ${theme.fg("muted", `... ${calendars.length - 3} more`)}`;
 		}
-		return new Text(`${summary}${busyInfo}\n${previews}`, 0, 0);
+		return `${summary}${busyInfo}\n${previews}`;
 	}
 
-	return new Text(`${summary}${busyInfo}`, 0, 0);
+	return `${summary}${busyInfo}`;
 }
 
 function renderSingleFile(
 	file: { name?: string; mimeType?: string },
 	theme: Theme,
-): Text {
+): string {
 	const name = file.name || "Untitled";
 	const type = file.mimeType?.includes("document")
 		? "Doc"
@@ -383,9 +373,5 @@ function renderSingleFile(
 			: file.mimeType?.includes("presentation")
 				? "Slides"
 				: "File";
-	return new Text(
-		`${theme.fg("success", `✓ ${type}`)} ${theme.fg("dim", name)}`,
-		0,
-		0,
-	);
+	return `${theme.fg("success", `✓ ${type}`)} ${theme.fg("dim", name)}`;
 }

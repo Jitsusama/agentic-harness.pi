@@ -254,9 +254,10 @@ export function registerCheck(
 			"Read the browser-accessibility-guide skill before " +
 			"reporting an accessibility result.",
 		parameters,
-		renderCall: (args, theme) => renderBrowserCall("check", args, theme),
-		renderResult: (result, options, theme) =>
-			renderBrowserResult(result, options, theme),
+		renderCall: (args, theme, context) =>
+			renderBrowserCall("check", args, theme, context?.lastComponent),
+		renderResult: (result, options, theme, context) =>
+			renderBrowserResult(result, options, theme, context?.lastComponent),
 		async execute(_id, params) {
 			const kind = params.kind ?? "keyboard";
 			const chosen = sessionInPlay(

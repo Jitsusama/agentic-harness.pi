@@ -18,7 +18,6 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { runSideCompletion } from "../../lib/completion/index.js";
 import {
@@ -35,6 +34,7 @@ import { dataDir } from "../../lib/internal/paths.js";
 import { entriesToTurns } from "../../lib/internal/transcript.js";
 import { registerPromptContributor } from "../../lib/prompt/index.js";
 import { count } from "../../lib/ui/count.js";
+import { drawInto } from "../../lib/ui/index.js";
 
 /** Captured lessons sit just below the enforced conventions. */
 const GOVERNANCE_ORDER = 1;
@@ -109,7 +109,7 @@ export default function correctionCapture(pi: ExtensionAPI) {
 			),
 		}),
 
-		renderCall(args, theme) {
+		renderCall(args, theme, context) {
 			const label = theme.fg("toolTitle", theme.bold("capture_lesson "));
 			const mode = args.rules
 				? "file"
@@ -118,14 +118,14 @@ export default function correctionCapture(pi: ExtensionAPI) {
 					: args.remove
 						? "remove"
 						: "draft";
-			return new Text(label + theme.fg("dim", mode), 0, 0);
+			return drawInto(context?.lastComponent, label + theme.fg("dim", mode));
 		},
 
-		renderResult(result, _options, theme) {
+		renderResult(result, _options, theme, context) {
 			const first = result.content?.[0];
 			const text = first && first.type === "text" ? first.text : "";
 			const colour = isDetails(result.details) ? "success" : "text";
-			return new Text(theme.fg(colour, text), 0, 0);
+			return drawInto(context?.lastComponent, theme.fg(colour, text));
 		},
 
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {

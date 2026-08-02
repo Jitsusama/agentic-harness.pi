@@ -9,7 +9,6 @@
 
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ThemeColor } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { sessionGateDeps } from "../../lib/internal/gate/session-deps.js";
 import { getLastEntry } from "../../lib/internal/state.js";
@@ -24,6 +23,7 @@ import { parseSlackUrl } from "../../lib/slack/resolvers/url.js";
 import { displayNameForId } from "../../lib/slack/resolvers/user.js";
 import type { OAuthApp, SlackUser } from "../../lib/slack/types.js";
 import { count } from "../../lib/ui/count.js";
+import { drawInto } from "../../lib/ui/index.js";
 import { handleSlackAuthCommand } from "./auth-command.js";
 import { identityContext } from "./context.js";
 import { routeAction } from "./router.js";
@@ -490,7 +490,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 			}
 		},
 
-		renderCall(args, theme) {
+		renderCall(args, theme, context) {
 			const a = args as {
 				action?: string;
 				query?: string;
@@ -557,10 +557,10 @@ export default function slackIntegration(pi: ExtensionAPI) {
 				}
 			}
 
-			return new Text(label, 0, 0);
+			return drawInto(context?.lastComponent, label);
 		},
 
-		renderResult(result, options, theme) {
+		renderResult(result, options, theme, context) {
 			// A result's first block is text for every Slack action, but the
 			// type allows an image, and an image has no text to read.
 			const first = result.content?.[0];
@@ -578,17 +578,23 @@ export default function slackIntegration(pi: ExtensionAPI) {
 					textContent.length > 100
 						? `${textContent.slice(0, 100)}…`
 						: textContent;
-				return new Text(theme.fg("error", preview), 0, 0);
+				return drawInto(context?.lastComponent, theme.fg("error", preview));
 			}
 
 			// Cancellations
 			if (textContent.startsWith("✗")) {
-				return new Text(theme.fg("warning", textContent), 0, 0);
+				return drawInto(
+					context?.lastComponent,
+					theme.fg("warning", textContent),
+				);
 			}
 
 			// Write successes
 			if (textContent.startsWith("✓")) {
-				return new Text(theme.fg("success", textContent.split("\n")[0]), 0, 0);
+				return drawInto(
+					context?.lastComponent,
+					theme.fg("success", textContent.split("\n")[0]),
+				);
 			}
 
 			// Search results (messages or files)
@@ -601,9 +607,9 @@ export default function slackIntegration(pi: ExtensionAPI) {
 					const summary = theme.fg("success", `✓ ${total} messages`);
 					const previews = renderMessagePreviews(msgs, theme);
 					if (!options.expanded) {
-						return new Text(`${summary}\n${previews}`, 0, 0);
+						return drawInto(context?.lastComponent, `${summary}\n${previews}`);
 					}
-					return new Text(`${summary}\n${textContent}`, 0, 0);
+					return drawInto(context?.lastComponent, `${summary}\n${textContent}`);
 				}
 
 				if (files?.length) {
@@ -613,12 +619,15 @@ export default function slackIntegration(pi: ExtensionAPI) {
 						.map((f) => `  ${theme.fg("dim", f.name || "untitled")}`)
 						.join("\n");
 					if (!options.expanded) {
-						return new Text(`${summary}\n${previews}`, 0, 0);
+						return drawInto(context?.lastComponent, `${summary}\n${previews}`);
 					}
-					return new Text(`${summary}\n${textContent}`, 0, 0);
+					return drawInto(context?.lastComponent, `${summary}\n${textContent}`);
 				}
 
-				return new Text(theme.fg("success", `✓ ${total} results`), 0, 0);
+				return drawInto(
+					context?.lastComponent,
+					theme.fg("success", `✓ ${total} results`),
+				);
 			}
 
 			// Thread or message list
@@ -630,9 +639,9 @@ export default function slackIntegration(pi: ExtensionAPI) {
 				);
 				const previews = renderMessagePreviews(msgs, theme);
 				if (!options.expanded) {
-					return new Text(`${summary}\n${previews}`, 0, 0);
+					return drawInto(context?.lastComponent, `${summary}\n${previews}`);
 				}
-				return new Text(`${summary}\n${textContent}`, 0, 0);
+				return drawInto(context?.lastComponent, `${summary}\n${textContent}`);
 			}
 
 			// Single user
@@ -640,10 +649,9 @@ export default function slackIntegration(pi: ExtensionAPI) {
 				const u = d.user as UserPreview;
 				const name = u.displayName || u.realName || u.name || "?";
 				const title = u.title ? theme.fg("dim", `: ${u.title}`) : "";
-				return new Text(
+				return drawInto(
+					context?.lastComponent,
 					`${theme.fg("success", "✓")} @${u.name}${title} (${name})`,
-					0,
-					0,
 				);
 			}
 
@@ -656,10 +664,9 @@ export default function slackIntegration(pi: ExtensionAPI) {
 				const topic = ch.topic
 					? `\n  ${theme.fg("dim", truncateText(ch.topic, 60))}`
 					: "";
-				return new Text(
+				return drawInto(
+					context?.lastComponent,
 					`${theme.fg("success", "✓")} #${ch.name}${members}${topic}`,
-					0,
-					0,
 				);
 			}
 
@@ -668,20 +675,22 @@ export default function slackIntegration(pi: ExtensionAPI) {
 				const m = d.message as MessagePreview;
 				const who = resolveUser(m.user);
 				const snippet = truncateText(formatSlackText(m.text || ""), 60);
-				return new Text(
+				return drawInto(
+					context?.lastComponent,
 					`${theme.fg("success", "✓")} ${theme.fg("dim", who)}: ${snippet}`,
-					0,
-					0,
 				);
 			}
 
 			// Reactions
 			if (d?.reactions) {
-				return new Text(theme.fg("success", "✓ reactions"), 0, 0);
+				return drawInto(
+					context?.lastComponent,
+					theme.fg("success", "✓ reactions"),
+				);
 			}
 
 			// Fallback
-			return new Text(theme.fg("success", "✓"), 0, 0);
+			return drawInto(context?.lastComponent, theme.fg("success", "✓"));
 		},
 	});
 
