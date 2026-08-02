@@ -25,6 +25,7 @@ import {
 	optionValue,
 	renderOptionList,
 } from "./option-list.js";
+import { OVERLAID } from "./overlay.js";
 import { computeChromeLines, renderFooter } from "./panel-layout.js";
 import {
 	contentBudget,
@@ -714,8 +715,10 @@ export async function showTabbedPrompt(
 	// out at once: submit, cancel, redirect, abort, and a throw from inside.
 	report(renderProgressBar(0, config.items.length));
 	try {
-		return await ctx.ui.custom<TabbedResult | null>((tui, theme, _kb, done) =>
-			createTabbedController(config, tui, theme, done, report),
+		return await ctx.ui.custom<TabbedResult | null>(
+			(tui, theme, _kb, done) =>
+				createTabbedController(config, tui, theme, done, report),
+			OVERLAID,
 		);
 	} finally {
 		report(undefined);
