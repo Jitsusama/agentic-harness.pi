@@ -1,13 +1,23 @@
-import { describe, expect, it } from "vitest";
-import { runGate } from "../../../extensions/slack-integration/confirmation";
+/**
+ * There is one screen, so there is one gate on it at a time.
+ *
+ * Pi's `ctx.ui.custom` supports one active component. When an agent fires
+ * several write calls in one turn their handlers run concurrently and each
+ * tries to mount its own gate: the first wins the UI and the rest either
+ * hang or silently bypass review, which is the bad one, because a gate
+ * nobody saw still counts as approval.
+ *
+ * These tests came from slack-integration, where the queue used to live
+ * privately. They moved with the code rather than being rewritten: the
+ * ordering contract is the same contract, and it is now the whole
+ * package's rather than one integration's.
+ *
+ * They drive the queue with deferred promises so the contract is locked in
+ * without booting a TUI.
+ */
 
-// The Slack confirmation gates rely on pi's `ctx.ui.custom`,
-// which only supports one active component at a time. The
-// `runGate` helper funnels every gate prompt through a
-// module-level Promise chain so concurrent tool calls take
-// turns at the UI in the order they arrived. These tests
-// exercise the queue directly with deferred promises so the
-// ordering contract is locked in without touching a TUI.
+import { describe, expect, it } from "vitest";
+import { runGate } from "../../../lib/ui/gate-queue.js";
 
 interface Deferred<T> {
 	promise: Promise<T>;
@@ -25,7 +35,7 @@ function defer<T>(): Deferred<T> {
 	return { promise, resolve, reject };
 }
 
-describe("runGate", () => {
+describe("taking the screen one gate at a time", () => {
 	it("runs concurrent gates serially in arrival order", async () => {
 		const order: string[] = [];
 
@@ -52,8 +62,7 @@ describe("runGate", () => {
 			return value;
 		});
 
-		// Only the first gate should have started; the others
-		// wait their turn.
+		// Only the first gate should have started; the others wait.
 		await Promise.resolve();
 		await Promise.resolve();
 		expect(order).toEqual(["a:start"]);
@@ -113,8 +122,8 @@ describe("runGate", () => {
 			order.push("first:end");
 		});
 
-		// Second caller arrives after first has started its
-		// work but before it settles. It should still wait.
+		// Second caller arrives after the first started its work but
+		// before it settles. It should still wait.
 		await Promise.resolve();
 		const second = runGate(async () => {
 			order.push("second:start");

@@ -32,6 +32,8 @@ export {
 } from "./content-renderer.js";
 // ── Counts ─────────────────────────────────────────
 export { count, noun, verb } from "./count.js";
+// ── Gate serialization ──────────────────────────────────────
+export { runGate } from "./gate-queue.js";
 // ── Narration ───────────────────────────────────────────────
 export {
 	NARRATION_GLYPH,

@@ -21,6 +21,7 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { runGate } from "../../lib/ui/gate-queue.js";
 import { promptSingle, promptTabbed } from "../../lib/ui/panel.js";
 import { formatRedirectReason } from "../../lib/ui/redirect.js";
 import { wordWrap } from "../../lib/ui/text-layout.js";
@@ -156,11 +157,9 @@ export async function confirmBatch(
 
 	if (items.length === 1) return await single(ctx, title, items[0], labels);
 
-	const answer = await promptTabbed(ctx, {
-		title,
-		items,
-		actions: REJECT,
-	});
+	const answer = await runGate(() =>
+		promptTabbed(ctx, { title, items, actions: REJECT }),
+	);
 	if (!answer) return abandoned();
 
 	const accepted: string[] = [];
@@ -193,11 +192,13 @@ async function single(
 	labels: string[],
 ): Promise<BatchDecision> {
 	const decision = decisionOf(
-		await promptSingle(ctx, {
-			title,
-			content: (theme, width) => item?.views[0]?.content(theme, width) ?? [],
-			actions: REJECT,
-		}),
+		await runGate(() =>
+			promptSingle(ctx, {
+				title,
+				content: (theme, width) => item?.views[0]?.content(theme, width) ?? [],
+				actions: REJECT,
+			}),
+		),
 	);
 	return decision.approved
 		? { proceed: true, accepted: labels, rejected: [] }
@@ -240,14 +241,16 @@ export async function confirmWrite(
 ): Promise<GateDecision> {
 	if (!ctx.hasUI) return { approved: true };
 	const decision = decisionOf(
-		await promptSingle(ctx, {
-			title,
-			content: (theme, width) =>
-				typeof body === "string"
-					? wordWrap(body, Math.max(MIN_WRAP, width))
-					: gateLines(body, theme, width),
-			actions: REJECT,
-		}),
+		await runGate(() =>
+			promptSingle(ctx, {
+				title,
+				content: (theme, width) =>
+					typeof body === "string"
+						? wordWrap(body, Math.max(MIN_WRAP, width))
+						: gateLines(body, theme, width),
+				actions: REJECT,
+			}),
+		),
 	);
 	if (decision.approved || !decision.redirect) return decision;
 	const shown =
