@@ -22,7 +22,7 @@ import type {
 	Thread,
 } from "../../../lib/review/index.js";
 import { isReactableRefusal } from "../../../lib/review/index.js";
-import { confirmBatch, type GateItem } from "../gate.js";
+import { confirmBatch, type GateItem, REDIRECT_QUOTE_WIDTH } from "../gate.js";
 import {
 	anchorLabel,
 	count,
@@ -30,6 +30,7 @@ import {
 	type GateQuote,
 	GLYPH,
 	gateLines,
+	gateText,
 } from "../render.js";
 import { type Settle, settleAfter, settleRefusal } from "./settle.js";
 import { type Answer, findReactableOn, refuse, say } from "./shared.js";
@@ -202,6 +203,9 @@ export async function runBatch(
 
 	const gateItems: GateItem[] = resolved.map((one) => ({
 		label: glyphOf(one.item),
+		// The same panel as text, so a steer comes back attached to what
+		// it was steering away from.
+		plain: gateText(one.panel, REDIRECT_QUOTE_WIDTH),
 		views: [
 			{
 				key: "1",
