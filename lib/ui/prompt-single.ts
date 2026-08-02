@@ -23,6 +23,7 @@ import {
 	optionValue,
 	renderOptionList,
 } from "./option-list.js";
+import { OVERLAID } from "./overlay.js";
 import { computeChromeLines, renderFooter } from "./panel-layout.js";
 import {
 	contentBudget,
@@ -326,7 +327,8 @@ export async function showSinglePrompt(
 	ctx: ExtensionContext,
 	config: SinglePromptConfig,
 ): Promise<PromptResult | null> {
-	return ctx.ui.custom<PromptResult | null>((tui, theme, _kb, done) =>
-		createSingleController(config, tui, theme, done),
+	return ctx.ui.custom<PromptResult | null>(
+		(tui, theme, _kb, done) => createSingleController(config, tui, theme, done),
+		OVERLAID,
 	);
 }
