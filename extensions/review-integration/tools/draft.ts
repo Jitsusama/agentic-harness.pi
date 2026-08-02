@@ -274,8 +274,8 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 			);
 		},
 
-		renderResult(result, _state, theme) {
-			return renderAnswer(result, theme);
+		renderResult(result, options, theme) {
+			return renderAnswer(result, theme, options);
 		},
 
 		async execute(_id, params, _signal, _onUpdate, ctx): Promise<Answer> {
