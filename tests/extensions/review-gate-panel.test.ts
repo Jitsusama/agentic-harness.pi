@@ -143,17 +143,27 @@ describe("drawing a write gate", () => {
 	});
 
 	it("says the same thing plain as it does styled", () => {
-		// The redirect quotes the panel back. Two renderings would let the
-		// quote drift from what was actually approved against.
+		// The redirect quotes the panel back, and the words it quotes have to
+		// be the words that were approved against.
+		//
+		// This used to demand the two be identical byte for byte. It cannot
+		// be, now that the body is drawn as markdown on screen: the point of
+		// the quote is to be read as text by a model, so it carries the
+		// source rather than the escape codes that rendered it. One layout
+		// and one set of words is the invariant that was actually wanted;
+		// identical presentation was how it happened to be enforced.
 		const panel: GatePanel = {
 			destination: "shop/world#2000980",
 			context: [{ who: "binks", body: "unknown fields" }],
 			payload: { body: "Fixed." },
 		};
-		const styled = gateLines(panel, fakeTheme(), WIDTH)
+		const plain = gateText(panel, WIDTH);
+		const styled = gateLines(panel, fakeTheme(), WIDTH, (body) =>
+			body.split("\n"),
+		)
 			.join("\n")
 			.replaceAll(/<\/?[\w:]+>/g, "");
-		expect(gateText(panel, WIDTH)).toBe(styled);
+		expect(plain).toBe(styled);
 	});
 
 	it("wraps to the width it is given rather than overflowing the panel", () => {

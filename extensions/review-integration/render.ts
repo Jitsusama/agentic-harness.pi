@@ -46,7 +46,11 @@ import {
 	describeAnchor,
 	standsAt,
 } from "../../lib/review/index.js";
-import { languageFromPath, renderCode } from "../../lib/ui/content-renderer.js";
+import {
+	languageFromPath,
+	renderCode,
+	renderMarkdown,
+} from "../../lib/ui/content-renderer.js";
 import { count } from "../../lib/ui/count.js";
 import { wordWrap } from "../../lib/ui/text-layout.js";
 
@@ -170,8 +174,16 @@ export function gateLines(
 	panel: GatePanel,
 	theme: Theme,
 	width: number,
+	renderBody?: BodyRenderer,
 ): string[] {
-	return rowsOf(panel, width).map((row) =>
+	// Markdown by default, because that is what a review body is written
+	// as and what every neighbouring gate shows. Injectable because
+	// rendering it reaches for pi's global theme, and a renderer that
+	// cannot be tested without booting a terminal stops being tested.
+	const body =
+		renderBody ??
+		((text: string, room: number) => renderMarkdown(text, theme, room));
+	return rowsOf(panel, width, body).map((row) =>
 		row.muted && row.text ? theme.fg("muted", row.text) : row.text,
 	);
 }
@@ -188,6 +200,16 @@ export function gateText(panel: GatePanel, width: number): string {
 		.join("\n");
 }
 
+/**
+ * How the body about to be sent is turned into lines.
+ *
+ * There are two, and the difference is the point. On screen the body is
+ * markdown, because a review body is written as markdown and every
+ * neighbouring gate renders it that way. Quoted into a redirect it is raw,
+ * because that text is read by a model and escape codes there are noise.
+ */
+export type BodyRenderer = (body: string, width: number) => string[];
+
 /** One line of a gate, and whether it is chrome or the thing itself. */
 interface GateRow {
 	text: string;
@@ -195,7 +217,11 @@ interface GateRow {
 }
 
 /** The layout, once, before anything decides how to colour it. */
-function rowsOf(panel: GatePanel, width: number): GateRow[] {
+function rowsOf(
+	panel: GatePanel,
+	width: number,
+	renderBody: BodyRenderer = wordWrap,
+): GateRow[] {
 	const room = Math.max(MIN_GATE_WIDTH, width - INSET.length);
 	const rows: GateRow[] = [
 		{ text: `${GLYPH.target} ${panel.destination}`, muted: true },
@@ -219,7 +245,7 @@ function rowsOf(panel: GatePanel, width: number): GateRow[] {
 		// Whole, however long. This is the one thing the gate exists to show,
 		// and a gate that elides it is the gate this surface used to have.
 		rows.push(
-			...inset(wordWrap(panel.payload.body, room)).map((text) => ({ text })),
+			...inset(renderBody(panel.payload.body, room)).map((text) => ({ text })),
 		);
 	}
 
