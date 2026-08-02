@@ -496,7 +496,7 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 				const tabs = publishTabs(plan, destination, diff);
 				const decision = await confirmBatch(
 					ctx,
-					"Publish this review?",
+					"Publish This Review",
 					tabs.map((tab) => tab.item),
 				);
 				if (!decision.proceed) {
@@ -660,7 +660,7 @@ async function publishStack(
 
 	const decision = await confirmBatch(
 		ctx,
-		`Publish ${entries.length} ${entries.length === 1 ? "review" : "reviews"} across this stack?`,
+		`Publish ${count(entries.length, "Review", "Reviews")} Across This Stack`,
 		grouped.map((one) => one.tab.item),
 	);
 	if (!decision.proceed) {

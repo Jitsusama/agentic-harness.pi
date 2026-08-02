@@ -426,9 +426,10 @@ export async function confirmSendThread(
 	const action = isReplyMode
 		? `Queue ${messages.length} replies in ${conversationName} thread ${parentTs}`
 		: `Send thread (${messages.length} messages) to ${conversationName}`;
+	// No leading space: the panel indents the title itself.
 	const title = isReplyMode
-		? ` Queue ${messages.length} Replies in ${conversationName}`
-		: ` Send Thread to ${conversationName}`;
+		? `Queue ${messages.length} Replies in ${conversationName}`
+		: `Send Thread to ${conversationName}`;
 	const context = action;
 
 	const result = await runGate(() =>
