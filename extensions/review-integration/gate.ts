@@ -38,7 +38,7 @@ const MIN_WRAP = 20;
  * redirect is being written up, and the quote is read by a model rather
  * than laid out on screen, so a settled width beats a remembered one.
  */
-const REDIRECT_QUOTE_WIDTH = 72;
+export const REDIRECT_QUOTE_WIDTH = 72;
 const REJECT_KEY = "r";
 
 /** What both prompts report for a plain Enter. Their sentinel, not ours. */
@@ -143,6 +143,16 @@ export interface GateView {
 export interface GateItem {
 	/** Tab label: a glyph for the kind, which several tabs may share. */
 	label: string;
+	/**
+	 * This tab as plain text, for a redirect to quote back.
+	 *
+	 * A steer is only actionable next to the thing being steered away
+	 * from: "say it plainer" with no record of what was said is not an
+	 * instruction. The views cannot supply it, since they render for a
+	 * terminal and a model reading escape codes learns nothing, so the
+	 * caller hands over the same panel rendered plainly.
+	 */
+	plain?: string;
 	/** First view is the default. */
 	views: GateView[];
 	allowHScroll?: boolean;
@@ -210,7 +220,10 @@ export async function confirmBatch(
 		// One steer abandons the batch: the items were composed together, so
 		// changing one of them means composing them again.
 		if (said?.type === "redirect") {
-			return { ...abandoned(), redirect: said.note };
+			return {
+				...abandoned(),
+				redirect: steer(said.note, items[at]?.plain, title),
+			};
 		}
 		if (decision.approved) {
 			accepted.push(at);
@@ -243,8 +256,22 @@ async function single(
 				proceed: false,
 				accepted: [],
 				rejected: [0],
-				redirect: decision.redirect,
+				redirect: decision.redirect
+					? steer(decision.redirect, item?.plain, title)
+					: undefined,
 			};
+}
+
+/**
+ * A steer, said back with what it was steering away from.
+ *
+ * Without the panel this is a note with no subject, which is how the
+ * batch path shipped: the model was told to say it plainer and had no
+ * record of what it had said. A caller that offers no panel text still
+ * gets the instruction, since losing that too would be worse.
+ */
+function steer(note: string, plain: string | undefined, title: string): string {
+	return plain ? formatRedirectReason(note, `${title}\n\n${plain}`) : note;
 }
 
 /** Nothing sends. */

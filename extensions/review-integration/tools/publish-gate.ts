@@ -28,12 +28,14 @@ import type {
 	PublishPlan,
 } from "../../../lib/review/index.js";
 import type { GateItem, GateView } from "../gate.js";
+import { REDIRECT_QUOTE_WIDTH } from "../gate.js";
 import {
 	anchorLabel,
 	anchorView,
 	type GatePanel,
 	GLYPH,
 	gateLines,
+	gateText,
 	planNarration,
 } from "../render.js";
 
@@ -73,6 +75,7 @@ export function publishTabs(
 			summary: true,
 			item: {
 				label: GLYPH.stack,
+				plain: planNarration(plan),
 				views: [
 					{
 						key: "1",
@@ -92,7 +95,11 @@ export function publishTabs(
 
 	for (const op of plan.ops) {
 		tabs.push({
-			item: { label: glyphForOp(op), views: viewsFor(op, destination, diff) },
+			item: {
+				label: glyphForOp(op),
+				plain: gateText(primaryPanelFor(op, destination), REDIRECT_QUOTE_WIDTH),
+				views: viewsFor(op, destination, diff),
+			},
 			itemIds: op.itemIds,
 		});
 	}
@@ -117,6 +124,36 @@ function glyphForOp(op: PlannedOp): string {
 	return GLYPH.reply;
 }
 
+/**
+ * The panel behind a tab's first view.
+ *
+ * Hoisted out of the views because two things need it and they must not
+ * drift: the view draws it, and a redirect quotes it back as text. A
+ * second construction for the quote would eventually describe something
+ * other than what was on screen, which is the one thing a quote must
+ * not do.
+ */
+export function primaryPanelFor(op: PlannedOp, destination: string): GatePanel {
+	if (op.kind === "review") {
+		return {
+			destination,
+			payload: { body: op.body },
+			consequence: [`${GLYPH.verdict} ${op.verdict}`],
+		};
+	}
+	if (op.kind === "commentOn") {
+		return {
+			destination,
+			where: anchorLabel(op.comment.anchor),
+			payload: { body: op.comment.body },
+			consequence: [
+				`${GLYPH.degrades} posted on its own, since a review will not carry it`,
+			],
+		};
+	}
+	return panelFor(op, destination);
+}
+
 /** What can be looked at on this tab. */
 function viewsFor(
 	op: PlannedOp,
@@ -128,15 +165,7 @@ function viewsFor(
 			key: "1",
 			label: "Review",
 			content: (theme, width) =>
-				gateLines(
-					{
-						destination,
-						payload: { body: op.body },
-						consequence: [`${GLYPH.verdict} ${op.verdict}`],
-					},
-					theme,
-					width,
-				),
+				gateLines(primaryPanelFor(op, destination), theme, width),
 		};
 		// One view per remark, so every word going out can be read before the
 		// one request carrying all of them is approved.
@@ -168,18 +197,7 @@ function viewsFor(
 				label: "Remark",
 				allowHScroll: true,
 				content: (theme, width) => [
-					...gateLines(
-						{
-							destination,
-							where: anchorLabel(op.comment.anchor),
-							payload: { body: op.comment.body },
-							consequence: [
-								`${GLYPH.degrades} posted on its own, since a review will not carry it`,
-							],
-						},
-						theme,
-						width,
-					),
+					...gateLines(primaryPanelFor(op, destination), theme, width),
 					"",
 					...anchorView(op.comment.anchor, diff, theme, width),
 				],
@@ -192,7 +210,7 @@ function viewsFor(
 			key: "1",
 			label: viewLabel(op),
 			content: (theme, width) =>
-				gateLines(panelFor(op, destination), theme, width),
+				gateLines(primaryPanelFor(op, destination), theme, width),
 		},
 	];
 }
