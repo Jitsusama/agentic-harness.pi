@@ -130,6 +130,7 @@ export function renderAnswer(
 	result: Answer,
 	theme: Theme,
 	options?: { expanded?: boolean },
+	reuse?: unknown,
 ): Text {
 	const text = firstText(result);
 	const digest = digestOf(result.details);
@@ -138,11 +139,15 @@ export function renderAnswer(
 		: digest
 			? digested(text, digest, theme)
 			: clipped(text, theme);
-	return new Text(
-		isRefusal(result.details) ? theme.fg("error", shown) : shown,
-		0,
-		0,
-	);
+	const painted = isRefusal(result.details) ? theme.fg("error", shown) : shown;
+	// Pi hands back what this returned last time so a redraw updates one
+	// component. Building a new one strands the old beside it, which is
+	// the ghost row above a finished call.
+	if (reuse instanceof Text) {
+		reuse.setText(painted);
+		return reuse;
+	}
+	return new Text(painted, 0, 0);
 }
 
 /** The head of an answer, with a count of what is not being shown. */
@@ -181,6 +186,7 @@ export function renderInvocation(
 	tool: string,
 	action: string | undefined,
 	subject: string | undefined,
+	reuse?: unknown,
 ): Text {
 	return renderToolCall(
 		{
@@ -189,6 +195,7 @@ export function renderInvocation(
 			...(subject ? { subject } : {}),
 		},
 		theme,
+		reuse instanceof Text ? reuse : undefined,
 	);
 }
 
