@@ -18,6 +18,12 @@ top of Pi's TUI primitives.
 - **`workspace`**: show a stateful workspace with per-tab
   views and input handlers.
 - **`view`**: show read-only scrollable content.
+- **`runGate`**: hold a confirmation prompt until whatever is
+  already on screen has finished. Pi mounts one component at
+  a time, so two gates raised in the same turn otherwise race:
+  the first takes the screen and the rest either hang or pass
+  unseen, and a gate nobody saw still counts as approval. Wrap
+  any prompt that guards a write.
 
 ### Content rendering
 

@@ -436,7 +436,7 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 						const wanted = params.action === "unready";
 						const decision = await confirmWrite(
 							ctx,
-							`Move ${change.label} to ${wanted ? "draft" : "ready"}?`,
+							`Move ${change.label} to ${wanted ? "Draft" : "Ready"}`,
 							cautioned(`${GLYPH.target} ${change.label}`, caution),
 						);
 						if (!decision.approved)
@@ -457,7 +457,7 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 					case "close": {
 						const decision = await confirmWrite(
 							ctx,
-							`Close ${change.label}?`,
+							`Close ${change.label}`,
 							[
 								`${GLYPH.target} ${change.label}`,
 								params.comment
@@ -475,7 +475,7 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 					case "reopen": {
 						const decision = await confirmWrite(
 							ctx,
-							`Reopen ${change.label}?`,
+							`Reopen ${change.label}`,
 							`${GLYPH.target} ${change.label}`,
 						);
 						if (!decision.approved) return declined(decision, "Left closed.");
@@ -490,7 +490,7 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 					case "rerun": {
 						const decision = await confirmWrite(
 							ctx,
-							`Run CI again on ${change.label}?`,
+							`Run CI Again on ${change.label}`,
 							[
 								`${GLYPH.target} ${change.label}`,
 								params.which
@@ -751,7 +751,7 @@ async function proposeStack(
 
 	const decision = await confirmWrite(
 		ctx,
-		`Propose ${heads.length} changes as a stack?`,
+		`Propose ${heads.length} Changes as a Stack`,
 		[
 			`${GLYPH.target} on ${bound.repo.key}`,
 			...drafts.map(
@@ -814,7 +814,7 @@ async function propose(
 
 	const decision = await confirmWrite(
 		ctx,
-		`Propose ${head} onto ${base}?`,
+		`Propose ${head} onto ${base}`,
 		[
 			`${GLYPH.target} ${title}${params.draft ? " (draft)" : ""}`,
 			// The repo is named because it is the one thing here not taken from
@@ -968,7 +968,7 @@ async function edit(
 
 	const decision = await confirmWrite(
 		ctx,
-		`Edit ${change.label}?`,
+		`Edit ${change.label}`,
 		cautioned(
 			Object.entries(edits)
 				.map(([field, edit]) =>
@@ -1008,7 +1008,7 @@ async function merge(
 ): Promise<Answer> {
 	const decision = await confirmWrite(
 		ctx,
-		`Merge ${change.label}?`,
+		`Merge ${change.label}`,
 		[
 			`${GLYPH.target} ${change.label}`,
 			params.method ? `   ${params.method}` : "   the repo's own merge policy",
@@ -1060,7 +1060,7 @@ async function reviewers(
 
 	const decision = await confirmWrite(
 		ctx,
-		`Ask ${asking.join(", ")} to review ${change.label}?`,
+		`Ask ${asking.join(", ")} to Review ${change.label}`,
 		`${GLYPH.target} ${change.label}`,
 	);
 	if (!decision.approved) return declined(decision, "Nobody was asked.");
@@ -1120,7 +1120,7 @@ async function retargetStack(
 
 	const decision = await confirmWrite(
 		ctx,
-		`Retarget ${count(plan.moves.length, "change", "changes")} in ${change.label}'s stack?`,
+		`Retarget ${count(plan.moves.length, "Change", "Changes")} in ${change.label}'s Stack`,
 		[
 			...plan.moves.map(
 				(move) => `${GLYPH.target} ${move.ref}: ${move.from} → ${move.to}`,

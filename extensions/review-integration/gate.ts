@@ -20,7 +20,8 @@
  * to the same question.
  */
 
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import { runGate } from "../../lib/ui/gate-queue.js";
 import { promptSingle, promptTabbed } from "../../lib/ui/panel.js";
 import { formatRedirectReason } from "../../lib/ui/redirect.js";
 import { wordWrap } from "../../lib/ui/text-layout.js";
@@ -146,6 +147,36 @@ export interface GateItem {
  * simple case gains no ceremony, and it answers in the same shape so no
  * caller has to branch on the count.
  */
+/**
+ * Open every tab by saying where it sits in the batch.
+ *
+ * The tab strip shows the labels, but not which one you are on once the
+ * strip is wider than the eye takes in at once, and a batch is exactly
+ * when that happens. Slack's gate has said this since it was written; the
+ * review gates went out without it and read as a stack of panels rather
+ * than one decision with parts.
+ *
+ * Said on every view rather than every tab, because one view is what is
+ * on screen at a time: the publish gate's verdict tab carries a view per
+ * remark, and a person three remarks deep has the same question.
+ *
+ * A single item is left alone. It is not a batch, and "1 of 1" is noise
+ * on a panel whose whole job is to be read.
+ */
+export function withPosition(items: GateItem[]): GateItem[] {
+	if (items.length < 2) return items;
+	return items.map((item, at) => ({
+		...item,
+		views: item.views.map((view) => ({
+			...view,
+			content: (theme: Theme, width: number) => [
+				theme.fg("muted", ` ${at + 1} of ${items.length}`),
+				...view.content(theme, width),
+			],
+		})),
+	}));
+}
+
 export async function confirmBatch(
 	ctx: ExtensionContext,
 	title: string,
@@ -156,11 +187,9 @@ export async function confirmBatch(
 
 	if (items.length === 1) return await single(ctx, title, items[0], labels);
 
-	const answer = await promptTabbed(ctx, {
-		title,
-		items,
-		actions: REJECT,
-	});
+	const answer = await runGate(() =>
+		promptTabbed(ctx, { title, items: withPosition(items), actions: REJECT }),
+	);
 	if (!answer) return abandoned();
 
 	const accepted: string[] = [];
@@ -193,11 +222,13 @@ async function single(
 	labels: string[],
 ): Promise<BatchDecision> {
 	const decision = decisionOf(
-		await promptSingle(ctx, {
-			title,
-			content: (theme, width) => item?.views[0]?.content(theme, width) ?? [],
-			actions: REJECT,
-		}),
+		await runGate(() =>
+			promptSingle(ctx, {
+				title,
+				content: (theme, width) => item?.views[0]?.content(theme, width) ?? [],
+				actions: REJECT,
+			}),
+		),
 	);
 	return decision.approved
 		? { proceed: true, accepted: labels, rejected: [] }
@@ -240,14 +271,16 @@ export async function confirmWrite(
 ): Promise<GateDecision> {
 	if (!ctx.hasUI) return { approved: true };
 	const decision = decisionOf(
-		await promptSingle(ctx, {
-			title,
-			content: (theme, width) =>
-				typeof body === "string"
-					? wordWrap(body, Math.max(MIN_WRAP, width))
-					: gateLines(body, theme, width),
-			actions: REJECT,
-		}),
+		await runGate(() =>
+			promptSingle(ctx, {
+				title,
+				content: (theme, width) =>
+					typeof body === "string"
+						? wordWrap(body, Math.max(MIN_WRAP, width))
+						: gateLines(body, theme, width),
+				actions: REJECT,
+			}),
+		),
 	);
 	if (decision.approved || !decision.redirect) return decision;
 	const shown =

@@ -108,23 +108,30 @@ export function labelOf(item: SayItem, index: number): string {
 	return String(index + 1);
 }
 
-/** The gate's first line, which alone says what pressing Enter does. */
+/**
+ * The gate's first line, which alone says what pressing Enter does.
+ *
+ * A Title Case phrase naming the act, the way every other gate in the
+ * package titles itself. Not a question: the panel is already asking one
+ * and its footer says so, and a title that asks it again reads as a
+ * different application's dialog.
+ */
 export function batchTitle(items: SayItem[], change: string): string {
 	const only = items.length === 1 ? items[0] : undefined;
-	if (!only)
-		return `Post ${count(items.length, "thing", "things")} on ${change}?`;
-	if (only.action === "comment") return "Post a comment?";
-	if (only.action === "react") return `React ${only.reaction}?`;
-	if (only.action === "resolve") return "Resolve this thread?";
-	if (only.action === "unresolve") return "Reopen this thread?";
-	if (only.action === "annotate") return "Start a thread here?";
+	// Always plural here: one item takes the branches below.
+	if (!only) return `Post ${items.length} Things on ${change}`;
+	if (only.action === "comment") return "Post a Comment";
+	if (only.action === "react") return `React With ${only.reaction}`;
+	if (only.action === "resolve") return "Resolve This Thread";
+	if (only.action === "unresolve") return "Reopen This Thread";
+	if (only.action === "annotate") return "Start a Thread Here";
 	if (only.settleThread === "resolve") {
-		return "Post this reply and resolve the thread?";
+		return "Post This Reply and Resolve the Thread";
 	}
 	if (only.settleThread === "unresolve") {
-		return "Post this reply and reopen the thread?";
+		return "Post This Reply and Reopen the Thread";
 	}
-	return "Post this reply?";
+	return "Post This Reply";
 }
 
 /** Everything one entry needs, once its references have been resolved. */

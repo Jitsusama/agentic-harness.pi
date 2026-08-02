@@ -473,6 +473,19 @@ is followed by judgment, not by a regex.
   received it. Its description half found ten parameters naming
   none of the actions that read them.
 
+  A confirmation panel's own title is gated too:
+  🟢 `tests/package/gate-titles-read-alike.test.ts` requires a
+  Title Case phrase naming the act, with no trailing question
+  mark and no leading space. The panel is already a question
+  and its footer says so, and it indents the title itself, so
+  a space in the string double-indents it. The rule was
+  written down only after a person said the review gates felt
+  like a different application: four extensions agreed on the
+  convention and the fifth, the largest, had never been held
+  to it. The scan found twenty titles, every one of them in
+  review. Reading the first argument of a confirm call means
+  there is no guessing about which strings are titles.
+
   The neighbouring rule, that an action-specific description
   opens by naming its actions, is
   🟢 `tests/package/parameters-name-their-kinds.test.ts`. Its

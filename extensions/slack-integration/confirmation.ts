@@ -15,6 +15,7 @@ import {
 	promptSingle,
 	promptTabbed,
 	renderMarkdown,
+	runGate,
 } from "../../lib/ui/index.js";
 import { formatRedirectReason } from "../../lib/ui/redirect.js";
 
@@ -33,38 +34,6 @@ export interface TableParam {
 
 /** Reject action shown in every confirmation gate. */
 const REJECT_ACTION: KeyAction[] = [{ key: "r", label: "Reject" }];
-
-/**
- * Serial queue tail for confirmation gates.
- *
- * Pi's `ctx.ui.custom` supports one active component at a
- * time. When the agent fires several Slack write calls in
- * one turn, their handlers run concurrently and each tries
- * to mount its own gate: the first wins the UI and the
- * rest either hang or silently bypass review. We funnel
- * every gate prompt through this Promise chain so gates
- * appear strictly one after another, in the order the
- * tool calls arrived.
- *
- * The queue resets to a resolved promise once the chain
- * settles so a long-running session doesn't accumulate a
- * deep then-chain in memory.
- */
-let gateQueue: Promise<unknown> = Promise.resolve();
-
-/**
- * Run a single gate prompt with exclusive access to the UI.
- *
- * Subsequent callers wait for the in-flight gate to settle
- * (resolve or reject) before their prompt mounts. Errors
- * from one gate never poison the queue for the next caller.
- */
-export async function runGate<T>(fn: () => Promise<T>): Promise<T> {
-	const previous = gateQueue;
-	const next = previous.then(fn, fn);
-	gateQueue = next.catch(() => undefined);
-	return next;
-}
 
 /** Result from a confirmation gate. */
 export type ConfirmResult<T> =
@@ -457,9 +426,10 @@ export async function confirmSendThread(
 	const action = isReplyMode
 		? `Queue ${messages.length} replies in ${conversationName} thread ${parentTs}`
 		: `Send thread (${messages.length} messages) to ${conversationName}`;
+	// No leading space: the panel indents the title itself.
 	const title = isReplyMode
-		? ` Queue ${messages.length} Replies in ${conversationName}`
-		: ` Send Thread to ${conversationName}`;
+		? `Queue ${messages.length} Replies in ${conversationName}`
+		: `Send Thread to ${conversationName}`;
 	const context = action;
 
 	const result = await runGate(() =>
