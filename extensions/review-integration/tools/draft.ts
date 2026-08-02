@@ -53,7 +53,7 @@ import {
 	proseComplaint,
 } from "../render.js";
 import { treeForFixing } from "../work.js";
-import { PLAN_TAB, publishTabs } from "./publish-gate.js";
+import { publishTabs } from "./publish-gate.js";
 import type { Settle } from "./settle.js";
 import {
 	type Answer,
@@ -511,7 +511,7 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 				// than something you run review_draft drop for beforehand and
 				// then cannot see what you dropped.
 				const dropped = tabs
-					.filter((tab) => decision.rejected.includes(tab.item.label))
+					.filter((_tab, at) => decision.rejected.includes(at))
 					.flatMap((tab) => tab.itemIds);
 				let sending = plan;
 				if (dropped.length > 0) {
@@ -653,7 +653,7 @@ async function publishStack(
 			ref: entry.ref,
 			tab: {
 				...tab,
-				item: { ...tab.item, label: `${entry.ref}:${tab.item.label}` },
+				item: { ...tab.item, label: `${entry.ref} ${tab.item.label}` },
 			},
 		})),
 	);
@@ -674,11 +674,7 @@ async function publishStack(
 	// were compiled against drafts this function does not hold open.
 	const dropped = new Set(
 		grouped
-			.filter(
-				(one) =>
-					one.tab.item.label === `${one.ref}:${PLAN_TAB}` &&
-					decision.rejected.includes(one.tab.item.label),
-			)
+			.filter((one, at) => one.tab.summary && decision.rejected.includes(at))
 			.map((one) => one.ref),
 	);
 	const sending = entries.filter((entry) => !dropped.has(entry.ref));
