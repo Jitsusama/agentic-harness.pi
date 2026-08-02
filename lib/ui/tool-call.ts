@@ -69,8 +69,17 @@ function clip(text: string, limit = SUBJECT_LIMIT): string {
  * Every field but the tool is optional, and an absent one takes no space rather
  * than leaving a gap where it would have been. A tool with nothing to say about
  * its arguments still reads as itself.
+ *
+ * Pass the component from the previous draw as `reuse`. Pi hands each renderer
+ * what it returned last time precisely so a redraw updates one component
+ * instead of stranding it beside its replacement, and a row is redrawn
+ * whenever it is on screen while it is still running.
  */
-export function renderToolCall(line: ToolCallLine, theme: RenderTheme): Text {
+export function renderToolCall(
+	line: ToolCallLine,
+	theme: RenderTheme,
+	reuse?: Text,
+): Text {
 	let text = theme.fg("toolTitle", theme.bold(line.tool));
 
 	if (line.action) text += ` ${line.action}`;
@@ -79,5 +88,7 @@ export function renderToolCall(line: ToolCallLine, theme: RenderTheme): Text {
 		text += theme.fg("dim", ` ${note}`);
 	}
 
-	return new Text(text, 0, 0);
+	if (!reuse) return new Text(text, 0, 0);
+	reuse.setText(text);
+	return reuse;
 }

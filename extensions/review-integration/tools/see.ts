@@ -146,18 +146,19 @@ export function registerSeeTool(pi: ExtensionAPI): void {
 			),
 		}),
 
-		renderCall(args, theme) {
+		renderCall(args, theme, context) {
 			const params = args as { action?: string; change?: string };
 			return renderInvocation(
 				theme,
 				"review_see",
 				params.action,
 				params.change,
+				context?.lastComponent,
 			);
 		},
 
-		renderResult(result, options, theme) {
-			return renderAnswer(result, theme, options);
+		renderResult(result, options, theme, context) {
+			return renderAnswer(result, theme, options, context?.lastComponent);
 		},
 
 		async execute(_id, params): Promise<Answer> {

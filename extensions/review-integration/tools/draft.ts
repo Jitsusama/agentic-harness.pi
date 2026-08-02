@@ -264,18 +264,19 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 			),
 		}),
 
-		renderCall(args, theme) {
+		renderCall(args, theme, context) {
 			const params = args as { action?: string; change?: string };
 			return renderInvocation(
 				theme,
 				"review_draft",
 				params.action,
 				params.change,
+				context?.lastComponent,
 			);
 		},
 
-		renderResult(result, options, theme) {
-			return renderAnswer(result, theme, options);
+		renderResult(result, options, theme, context) {
+			return renderAnswer(result, theme, options, context?.lastComponent);
 		},
 
 		async execute(_id, params, _signal, _onUpdate, ctx): Promise<Answer> {

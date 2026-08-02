@@ -185,13 +185,18 @@ export function registerAskTool(pi: ExtensionAPI): void {
 			),
 		}),
 
-		renderCall(args: unknown, theme: Theme): Text {
+		renderCall(
+			args: unknown,
+			theme: Theme,
+			context?: { lastComponent?: unknown },
+		): Text {
 			const params = args as AskParams;
 			return renderInvocation(
 				theme,
 				"review_ask",
 				params.action ?? "runs",
 				params.participant ?? params.change,
+				context?.lastComponent,
 			);
 		},
 
@@ -199,8 +204,9 @@ export function registerAskTool(pi: ExtensionAPI): void {
 			result: Answer,
 			options: { expanded?: boolean },
 			theme: Theme,
+			context?: { lastComponent?: unknown },
 		): Text {
-			return renderAnswer(result, theme, options);
+			return renderAnswer(result, theme, options, context?.lastComponent);
 		},
 
 		// Pi passes (toolCallId, params, signal, onUpdate, ctx). Reading the
