@@ -17,8 +17,9 @@
 
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Text, truncateToWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
+import { drawInto } from "../../lib/ui/index.js";
 import { persist, restore, updateScoreboard } from "./lifecycle.js";
 import { transition } from "./machine.js";
 import { formatTransitionReply } from "./reply.js";
@@ -138,7 +139,7 @@ export default function tddMode(pi: ExtensionAPI) {
 			};
 		},
 
-		renderCall(args, theme) {
+		renderCall(args, theme, context) {
 			const a = args as {
 				action?: string;
 				behaviour?: string;
@@ -168,10 +169,10 @@ export default function tddMode(pi: ExtensionAPI) {
 				);
 				text += theme.fg("dim", `: ${truncateToWidth(note, room)}`);
 			}
-			return new Text(text, 0, 0);
+			return drawInto(context?.lastComponent, text);
 		},
 
-		renderResult(result, _options, theme) {
+		renderResult(result, _options, theme, context) {
 			const d = result.details as
 				| { ok?: boolean; phase?: string; message?: string }
 				| undefined;
@@ -181,7 +182,7 @@ export default function tddMode(pi: ExtensionAPI) {
 					? result.content[0].text
 					: "");
 			if (!message) {
-				return new Text("", 0, 0);
+				return drawInto(context?.lastComponent, "");
 			}
 
 			const firstLine = message.split("\n")[0] ?? "";
@@ -189,9 +190,12 @@ export default function tddMode(pi: ExtensionAPI) {
 			const truncated = truncateToWidth(firstLine, Math.max(0, maxWidth - 4));
 
 			if (d?.ok === false) {
-				return new Text(theme.fg("warning", `↩ ${truncated}`), 0, 0);
+				return drawInto(
+					context?.lastComponent,
+					theme.fg("warning", `↩ ${truncated}`),
+				);
 			}
-			return new Text(theme.fg("muted", truncated), 0, 0);
+			return drawInto(context?.lastComponent, theme.fg("muted", truncated));
 		},
 	});
 

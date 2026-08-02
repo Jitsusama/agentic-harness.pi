@@ -13,9 +13,9 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { count } from "../../lib/ui/count.js";
+import { drawInto } from "../../lib/ui/index.js";
 import { closeBrowser, killBrowserSync } from "../../lib/web/browser.js";
 import {
 	isSetUp,
@@ -80,17 +80,17 @@ export default function webSearch(pi: ExtensionAPI) {
 			),
 		}),
 
-		renderCall(args, theme) {
+		renderCall(args, theme, context) {
 			const label = theme.fg("toolTitle", theme.bold("web_search "));
 			const query = theme.fg("dim", `"${args.query}"`);
-			return new Text(label + query, 0, 0);
+			return drawInto(context?.lastComponent, label + query);
 		},
 
-		renderResult(result, { expanded }, theme) {
+		renderResult(result, { expanded }, theme, context) {
 			const first = result.content?.[0];
 			const text = first?.type === "text" ? first.text : "";
 			if (hasErrorDetails(result.details) || text.startsWith("Search failed")) {
-				return new Text(theme.fg("error", text), 0, 0);
+				return drawInto(context?.lastComponent, theme.fg("error", text));
 			}
 			// We count how many numbered results came back.
 			const count = (text.match(/^\d+\./gm) || []).length;
@@ -106,9 +106,9 @@ export default function webSearch(pi: ExtensionAPI) {
 					.filter((t): t is string => !!t)
 					.map((t) => `  ${theme.fg("dim", t)}`)
 					.join("\n");
-				return new Text(`${summary}\n${titles}`, 0, 0);
+				return drawInto(context?.lastComponent, `${summary}\n${titles}`);
 			}
-			return new Text(`${summary}\n${text}`, 0, 0);
+			return drawInto(context?.lastComponent, `${summary}\n${text}`);
 		},
 
 		async execute(_toolCallId, params, signal) {
@@ -168,7 +168,7 @@ export default function webSearch(pi: ExtensionAPI) {
 			url: Type.String({ description: "URL to fetch and read" }),
 		}),
 
-		renderCall(args, theme) {
+		renderCall(args, theme, context) {
 			const label = theme.fg("toolTitle", theme.bold("web_read "));
 			// We show just the domain and path, truncated for readability.
 			let display = args.url;
@@ -179,17 +179,17 @@ export default function webSearch(pi: ExtensionAPI) {
 			} catch {
 				// We use the raw URL as-is.
 			}
-			return new Text(label + theme.fg("dim", display), 0, 0);
+			return drawInto(context?.lastComponent, label + theme.fg("dim", display));
 		},
 
-		renderResult(result, { expanded }, theme) {
+		renderResult(result, { expanded }, theme, context) {
 			const first = result.content?.[0];
 			const text = first?.type === "text" ? first.text : "";
 			if (
 				!isReaderDetails(result.details) ||
 				text.startsWith("Failed to read page")
 			) {
-				return new Text(theme.fg("error", text), 0, 0);
+				return drawInto(context?.lastComponent, theme.fg("error", text));
 			}
 
 			const { title, excerpt, dir, tiles, truncated } = result.details;
@@ -211,10 +211,10 @@ export default function webSearch(pi: ExtensionAPI) {
 			}
 
 			if (!expanded) {
-				return new Text(summary, 0, 0);
+				return drawInto(context?.lastComponent, summary);
 			}
 			const preview = text.slice(0, 2000) + (text.length > 2000 ? "\n..." : "");
-			return new Text(`${summary}\n${preview}`, 0, 0);
+			return drawInto(context?.lastComponent, `${summary}\n${preview}`);
 		},
 
 		async execute(_toolCallId, params, signal) {

@@ -79,6 +79,8 @@ export {
 export { contentWrapWidth, wordWrap } from "./text-layout.js";
 // ── Tool call lines ───────────────────────────────────
 export {
+	asText,
+	drawInto,
 	type RenderTheme,
 	renderToolCall,
 	type ToolCallLine,

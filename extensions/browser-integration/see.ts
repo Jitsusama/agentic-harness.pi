@@ -598,9 +598,10 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 			"telemetry, screenshots, vitals, status. Read the " +
 			"browser-guide skill.",
 		parameters,
-		renderCall: (args, theme) => renderBrowserCall("see", args, theme),
-		renderResult: (result, options, theme) =>
-			renderBrowserResult(result, options, theme),
+		renderCall: (args, theme, context) =>
+			renderBrowserCall("see", args, theme, context?.lastComponent),
+		renderResult: (result, options, theme, context) =>
+			renderBrowserResult(result, options, theme, context?.lastComponent),
 		async execute(_id, params) {
 			const kind = params.kind ?? "page";
 			const chosen = sessionInPlay(

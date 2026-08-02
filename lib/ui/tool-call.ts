@@ -18,6 +18,37 @@
 import { Text } from "@earendil-works/pi-tui";
 
 /**
+ * Pi's previous component, when that is what it is.
+ *
+ * A renderer receives it as `unknown`, since pi cannot know what any
+ * given extension returned, and every seam that threads it would
+ * otherwise repeat the same narrowing. Naming it once means the reuse
+ * rule has one place to change when pi's contract does.
+ */
+export function asText(value: unknown): Text | undefined {
+	return value instanceof Text ? value : undefined;
+}
+
+/**
+ * Draw this text into pi's previous component, or into a new one.
+ *
+ * The move every renderer makes, so it is worth one name. A renderer
+ * that builds a fresh component on every pass leaves the old one in the
+ * transcript beside its replacement, which reads as a ghost of the call
+ * line above the finished row.
+ *
+ * Takes the component as `unknown` because that is how pi hands it over,
+ * and because a renderer with several return paths should be able to
+ * finish each of them with one call rather than a narrowing apiece.
+ */
+export function drawInto(reuse: unknown, text: string): Text {
+	const held = asText(reuse);
+	if (!held) return new Text(text, 0, 0);
+	held.setText(text);
+	return held;
+}
+
+/**
  * The colouring surface a renderer is handed, declared by what it uses.
  *
  * Structural rather than pi's concrete `Theme` for two reasons. Pi exports that

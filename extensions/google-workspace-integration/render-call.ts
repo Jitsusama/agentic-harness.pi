@@ -3,7 +3,8 @@
  */
 
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import type { Text } from "@earendil-works/pi-tui";
+import { drawInto } from "../../lib/ui/index.js";
 
 /**
  * Width to lay a call line out for.
@@ -31,7 +32,11 @@ interface CallArgs {
 /**
  * Render a Google Workspace tool call with action-specific formatting.
  */
-export function renderGoogleCall(args: unknown, theme: Theme): Text {
+export function renderGoogleCall(
+	args: unknown,
+	theme: Theme,
+	reuse?: unknown,
+): Text {
 	const a = args as CallArgs;
 	const action = a.action || "?";
 	let text = theme.fg("toolTitle", theme.bold("google "));
@@ -188,5 +193,5 @@ export function renderGoogleCall(args: unknown, theme: Theme): Text {
 			}
 	}
 
-	return new Text(text, 0, 0);
+	return drawInto(reuse, text);
 }

@@ -345,9 +345,10 @@ export function registerDo(pi: ExtensionAPI, registry: SessionRegistry): void {
 			"wait for a condition, or evaluate an expression. Read the " +
 			"browser-guide skill.",
 		parameters,
-		renderCall: (args, theme) => renderBrowserCall("do", args, theme),
-		renderResult: (result, options, theme) =>
-			renderBrowserResult(result, options, theme),
+		renderCall: (args, theme, context) =>
+			renderBrowserCall("do", args, theme, context?.lastComponent),
+		renderResult: (result, options, theme, context) =>
+			renderBrowserResult(result, options, theme, context?.lastComponent),
 		async execute(_id, params) {
 			const kind = params.kind ?? "act";
 			const profiles = wantedProfiles(params.trace);

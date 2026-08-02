@@ -83,12 +83,12 @@ export default function resultStore(pi: ExtensionAPI) {
 			),
 		}),
 
-		renderCall(args, theme) {
-			return renderQueryCall(args, theme);
+		renderCall(args, theme, context) {
+			return renderQueryCall(args, theme, context?.lastComponent);
 		},
 
-		renderResult(result, state, theme) {
-			return renderQueryResult(result, state, theme);
+		renderResult(result, state, theme, context) {
+			return renderQueryResult(result, state, theme, context?.lastComponent);
 		},
 
 		async execute(_toolCallId, params) {

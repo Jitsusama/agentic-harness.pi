@@ -564,9 +564,10 @@ export function registerGo(pi: ExtensionAPI, registry: SessionRegistry): void {
 			"storage, reach a tab the page opened, answer dialogs. Read " +
 			"the browser-guide skill.",
 		parameters,
-		renderCall: (args, theme) => renderBrowserCall("go", args, theme),
-		renderResult: (result, options, theme) =>
-			renderBrowserResult(result, options, theme),
+		renderCall: (args, theme, context) =>
+			renderBrowserCall("go", args, theme, context?.lastComponent),
+		renderResult: (result, options, theme, context) =>
+			renderBrowserResult(result, options, theme, context?.lastComponent),
 		async execute(_id, params) {
 			const name = params.session ?? DEFAULT_SESSION;
 			// A url is an intent to go there; without one there is

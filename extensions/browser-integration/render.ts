@@ -26,8 +26,13 @@ import type {
 	AgentToolResult,
 	ToolRenderResultOptions,
 } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
-import { type RenderTheme, renderToolCall } from "../../lib/ui/index.js";
+import type { Text } from "@earendil-works/pi-tui";
+import {
+	asText,
+	drawInto,
+	type RenderTheme,
+	renderToolCall,
+} from "../../lib/ui/index.js";
 import type { BrowserDetails } from "./result.js";
 
 /**
@@ -95,6 +100,7 @@ export function renderBrowserCall(
 	verb: string,
 	args: unknown,
 	theme: Theme,
+	reuse?: unknown,
 ): Text {
 	const call = (args ?? {}) as CallArgs;
 	const subject = subjectOf(call);
@@ -120,6 +126,7 @@ export function renderBrowserCall(
 			],
 		},
 		theme,
+		asText(reuse),
 	);
 }
 
@@ -138,6 +145,7 @@ export function renderBrowserResult(
 	result: AgentToolResult<unknown>,
 	options: ToolRenderResultOptions,
 	theme: Theme,
+	reuse?: unknown,
 ): Text {
 	// Pi types details as unknown at the render seam. Reading back
 	// what these tools themselves wrote is the sanctioned cast.
@@ -146,7 +154,7 @@ export function renderBrowserResult(
 		.map((part) => (part.type === "text" ? part.text : ""))
 		.join("");
 
-	if (options.expanded) return new Text(content, 0, 0);
+	if (options.expanded) return drawInto(reuse, content);
 
 	// Which session answered, when it is not the obvious one. The
 	// call line can only show what was passed, so a call that named
@@ -159,24 +167,22 @@ export function renderBrowserResult(
 			: "";
 
 	if (meta.ok === false) {
-		return new Text(
+		return drawInto(
+			reuse,
 			`${where}${theme.fg("warning", `refused: ${firstLine(content)}`)}`,
-			0,
-			0,
 		);
 	}
 
 	const head = firstLine(content);
 	const verdict = VERDICTS.find((mark) => head.startsWith(mark));
-	if (!verdict) return new Text(`${where}${theme.fg("dim", head)}`, 0, 0);
+	if (!verdict) return drawInto(reuse, `${where}${theme.fg("dim", head)}`);
 
 	const colour =
 		verdict === "FAIL" ? "error" : verdict === "WARN" ? "warning" : "success";
 	const rest = head.slice(verdict.length).trim();
-	return new Text(
+	return drawInto(
+		reuse,
 		`${where}${theme.fg(colour, theme.bold(verdict))} ${rest}`,
-		0,
-		0,
 	);
 }
 

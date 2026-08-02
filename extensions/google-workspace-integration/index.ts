@@ -217,9 +217,11 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 				};
 			}
 		},
-		renderCall: renderGoogleCall,
+		renderCall: (args, theme, context) =>
+			renderGoogleCall(args, theme, context?.lastComponent),
 
-		renderResult: renderGoogleResult,
+		renderResult: (result, options, theme, context) =>
+			renderGoogleResult(result, options, theme, context?.lastComponent),
 	});
 
 	pi.registerCommand("google-setup", {
