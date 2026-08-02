@@ -19,8 +19,10 @@ import { describe, expect, it } from "vitest";
 import {
 	confirmBatch,
 	type GateItem,
+	withPosition,
 } from "../../extensions/review-integration/gate.js";
 import type { PromptResult } from "../../lib/ui/types.js";
+import { fakeTheme } from "../lib/ui/fake-theme.js";
 
 /** What both prompts report for a plain Enter. Their sentinel, not ours. */
 const SUBMIT = "__enter__";
@@ -134,6 +136,49 @@ describe("a batch of one", () => {
 		const decision = await confirmBatch(ctx, "Post this reply?", items(1));
 		expect(decision.proceed).toBe(false);
 		expect(decision.rejected).toEqual(["T1"]);
+	});
+});
+
+describe("knowing where you are in a batch", () => {
+	/** Every line the tab at `at` draws, across all of its views. */
+	function viewsOf(placed: GateItem[], at: number) {
+		return (placed[at]?.views ?? []).flatMap((view) =>
+			view.content(fakeTheme(), 72),
+		);
+	}
+
+	it("opens each tab by saying which of how many it is", () => {
+		const placed = withPosition(items(3));
+		expect(viewsOf(placed, 0)[0]).toContain("1 of 3");
+		expect(viewsOf(placed, 2)[0]).toContain("3 of 3");
+	});
+
+	it("says it on every view, since only one is on screen at a time", () => {
+		const placed = withPosition([
+			{
+				label: "V",
+				views: [
+					{ key: "1", label: "Review", content: () => ["verdict"] },
+					{ key: "2", label: "F1", content: () => ["a remark"] },
+				],
+			},
+			{
+				label: "T2",
+				views: [{ key: "1", label: "Reply", content: () => ["x"] }],
+			},
+		]);
+		const drawn = viewsOf(placed, 0);
+		expect(drawn.filter((line) => line.includes("1 of 2"))).toHaveLength(2);
+	});
+
+	it("keeps the content itself, below the line", () => {
+		expect(viewsOf(withPosition(items(2)), 0)).toContain("body");
+	});
+
+	it("says nothing about position when there is only one thing", () => {
+		// One item is not a batch, and "1 of 1" is noise on a panel whose
+		// whole job is to be read.
+		expect(viewsOf(withPosition(items(1)), 0)).toEqual(["body"]);
 	});
 });
 
