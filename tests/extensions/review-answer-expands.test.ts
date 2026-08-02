@@ -11,6 +11,13 @@
  * it is holding back, and Ctrl-O gives the rest. Short answers are left
  * exactly as they were, because a hint under a one-line result is noise
  * about nothing.
+ *
+ * The shape follows the rest of the package rather than inventing one.
+ * A collapsed result elsewhere is a digest and not an excerpt: Google
+ * opens with a mark and a count and then previews a few, and the browser
+ * opens with the verdict word. A shared renderer only has prose to work
+ * with, so the digest comes from the tool that knows what it did, and a
+ * tool that offers none falls back to the head of its own answer.
  */
 
 import { describe, expect, it } from "vitest";
@@ -18,12 +25,17 @@ import type { Answer } from "../../extensions/review-integration/tools/shared.js
 import { renderAnswer } from "../../extensions/review-integration/tools/shared.js";
 import { fakeTheme } from "../lib/ui/fake-theme.js";
 
-/** An answer carrying `count` numbered lines. */
+/** `count` numbered lines. */
+function answerText(count: number): string {
+	return Array.from({ length: count }, (_, at) => `line ${at + 1}`).join("\n");
+}
+
+/** An answer carrying `count` numbered lines and no digest. */
 function answerOf(count: number): Answer {
-	const text = Array.from({ length: count }, (_, at) => `line ${at + 1}`).join(
-		"\n",
-	);
-	return { content: [{ type: "text", text }], details: undefined } as Answer;
+	return {
+		content: [{ type: "text", text: answerText(count) }],
+		details: undefined,
+	} as Answer;
 }
 
 /** What the renderer puts on screen, read the way the terminal reads it. */
@@ -62,6 +74,36 @@ describe("an answer that does not fit", () => {
 		const shownLines = (shown.match(/line \d+/g) ?? []).length;
 		const withheld = Number(/\.\.\. (\d+) more/.exec(shown)?.[1]);
 		expect(shownLines + withheld).toBe(40);
+	});
+
+	it("leads with the tool's own digest when it offers one", () => {
+		const answer = {
+			content: [{ type: "text", text: "line 1\nline 2\nline 3" }],
+			details: { ok: true, summary: "34 files" },
+		} as unknown as Answer;
+		expect(drawn(answer).split("\n")[0]).toContain("34 files");
+	});
+
+	it("previews under the digest, the way the other tools do", () => {
+		const answer = {
+			content: [{ type: "text", text: answerText(40) }],
+			details: { ok: true, summary: "40 threads" },
+		} as unknown as Answer;
+		const shown = drawn(answer);
+		expect(shown).toContain("40 threads");
+		expect(shown).toContain("line 1");
+		expect(shown).toMatch(/\.\.\. \d+ more/);
+		expect(shown).not.toContain("line 40");
+	});
+
+	it("gives the whole answer when expanded, digest and all", () => {
+		const answer = {
+			content: [{ type: "text", text: answerText(40) }],
+			details: { ok: true, summary: "40 threads" },
+		} as unknown as Answer;
+		const shown = drawn(answer, true);
+		expect(shown).toContain("line 40");
+		expect(shown).not.toContain("more");
 	});
 
 	it("still marks a refusal as one when it is collapsed", () => {

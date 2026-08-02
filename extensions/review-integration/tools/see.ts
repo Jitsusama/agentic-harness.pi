@@ -33,6 +33,7 @@ import {
 	sinceLastVisit,
 	tallyReceptions,
 } from "../../../lib/review/index.js";
+import { count } from "../../../lib/ui/index.js";
 import { decisionDir, findingDir, fixDir, visitDir } from "../engine.js";
 import {
 	checksLines,
@@ -257,7 +258,11 @@ async function seeDiff(bound: BoundTarget): Promise<Answer> {
 			unit: "files",
 			narrowing: "Query the stored result for the files or hunks you need.",
 		}),
-		{ ok: true, files: model.files.length },
+		{
+			ok: true,
+			files: model.files.length,
+			summary: `${GLYPH.target} ${count(model.files.length, "file", "files")}`,
+		},
 	);
 }
 
@@ -369,7 +374,11 @@ async function seeConversation(
 				unit: "threads",
 				narrowing: "Query the stored result for a thread's full exchange.",
 			}),
-			{ ok: true, count: threads.length },
+			{
+				ok: true,
+				count: threads.length,
+				summary: `${GLYPH.thread} ${count(threads.length, "thread", "threads")}`,
+			},
 		);
 	}
 
@@ -401,7 +410,11 @@ async function seeConversation(
 				unit: "reviews",
 				narrowing: "Query the stored result for a review's full body.",
 			}),
-			{ ok: true, count: reviews.length },
+			{
+				ok: true,
+				count: reviews.length,
+				summary: `${GLYPH.verdict} ${count(reviews.length, "review", "reviews")}`,
+			},
 		);
 	}
 
@@ -420,7 +433,11 @@ async function seeConversation(
 			unit: "messages",
 			narrowing: "Query the stored result for the rest.",
 		}),
-		{ ok: true, count: messages.length },
+		{
+			ok: true,
+			count: messages.length,
+			summary: `${GLYPH.document} ${count(messages.length, "message", "messages")}`,
+		},
 	);
 }
 
@@ -600,6 +617,10 @@ async function seeChanges(
 			unit: "changes",
 			narrowing: "Narrow with 'state', or lower 'limit'.",
 		}),
-		{ ok: true, count: found.length },
+		{
+			ok: true,
+			count: found.length,
+			summary: `${GLYPH.target} ${count(found.length, "change", "changes")}`,
+		},
 	);
 }

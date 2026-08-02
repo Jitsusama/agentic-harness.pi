@@ -99,6 +99,24 @@ export function refuseFailure(
  */
 const PREVIEW_LINES = 12;
 
+/** How many lines preview a digest, which stands above them. */
+const DIGEST_PREVIEW_LINES = 6;
+
+/**
+ * The one line a tool offers about what it just did.
+ *
+ * A shared renderer has only prose to work with, and prose cannot be
+ * summarized without guessing. The tool knows: it counted the files, it
+ * ran the round, it published the plan. Where one is offered the
+ * collapsed view opens with it, the way every other collapsed result in
+ * this package opens with a mark and a count.
+ */
+function digestOf(details: unknown): string | undefined {
+	if (typeof details !== "object" || details === null) return undefined;
+	const said = (details as { summary?: unknown }).summary;
+	return typeof said === "string" && said !== "" ? said : undefined;
+}
+
 /**
  * The renderer every review tool shares.
  *
@@ -114,7 +132,12 @@ export function renderAnswer(
 	options?: { expanded?: boolean },
 ): Text {
 	const text = firstText(result);
-	const shown = options?.expanded ? text : clipped(text, theme);
+	const digest = digestOf(result.details);
+	const shown = options?.expanded
+		? text
+		: digest
+			? digested(text, digest, theme)
+			: clipped(text, theme);
 	return new Text(
 		isRefusal(result.details) ? theme.fg("error", shown) : shown,
 		0,
@@ -130,6 +153,18 @@ function clipped(text: string, theme: Theme): string {
 	return [
 		...lines.slice(0, PREVIEW_LINES),
 		theme.fg("muted", `... ${withheld} more`),
+	].join("\n");
+}
+
+/** A digest, a few lines under it, and what is left. */
+function digested(text: string, digest: string, theme: Theme): string {
+	const lines = text.split("\n");
+	const preview = lines.slice(0, DIGEST_PREVIEW_LINES);
+	const withheld = lines.length - preview.length;
+	return [
+		digest,
+		...preview,
+		...(withheld > 0 ? [theme.fg("muted", `... ${withheld} more`)] : []),
 	].join("\n");
 }
 
