@@ -41,6 +41,11 @@ from internal files.
   which is what lets six reviewers of one commit share a
   single tree. Tree providers register over the event bus, so
   one can live in another package.
+- **[`remote/`](remote/)**: naming a git remote to a person.
+  A remote can carry a token as its user or as its password,
+  so a refusal that names one verbatim prints a live secret.
+  The credential comes out for display and stays in for the
+  fetch, which needs it.
 - **[`subagent/`](subagent/)**: subagent engine for
   running pi as a child process: spec/job composition,
   fleet fan-out, durable supervisor runs, stream parsing,

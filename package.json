@@ -23,6 +23,7 @@
 		"./review": "./lib/review/index.ts",
 		"./work": "./lib/work/index.ts",
 		"./exec": "./lib/exec/index.ts",
+		"./remote": "./lib/remote/index.ts",
 		"./result": "./lib/result/index.ts",
 		"./command": "./lib/command/index.ts",
 		"./subagent": "./lib/subagent/index.ts",
