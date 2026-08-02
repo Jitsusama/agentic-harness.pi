@@ -48,9 +48,19 @@ One renderer draws all of them, in four parts and a fixed order,
 so the shape is learned once: where this is going, what it is
 answering, what is being sent, and what follows. The payload is
 never clipped, because it is the one thing the gate exists to
-show. Quoted context is, one remark at a time rather than across
-the exchange, so a long opening cannot push the reply that
-prompted all this off the bottom.
+show, and it is drawn as markdown, because a review body is
+written as markdown and every other gate in the package renders
+its own that way. Quoted context is clipped, one remark at a
+time rather than across the exchange, so a long opening cannot
+push the reply that prompted all this off the bottom.
+
+The panel wears the same nameplate as its neighbours: a Title
+Case phrase naming the act, no question mark, since the panel is
+already a question and its footer says so. A batch opens each
+tab by saying which of how many it is. Both are held by
+`tests/package/gate-titles-read-alike.test.ts`, which exists
+because the review gates went out looking like a different
+application and no test could tell.
 
 A gate can be argued with. `Shift+Escape` redirects and
 `Shift+r` annotates a rejection, and both come back as a refusal
