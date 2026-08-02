@@ -54,7 +54,23 @@ describe("what the publish gate puts on screen", () => {
 			HERE,
 			undefined,
 		);
-		expect(tabs[0]?.item.label).toBe(PLAN_TAB);
+		expect(tabs[0]?.summary).toBe(true);
+		expect(tabs[0]?.item.label).toBe("\u2261");
+	});
+
+	it("marks only the summary as the summary, since it stands for the lot", () => {
+		// Rejecting it across a stack drops the whole change, so it is a
+		// flag rather than a label somebody could collide with.
+		const tabs = publishTabs(
+			planOf(
+				{ kind: "comment", body: "a", itemIds: ["1"] },
+				{ kind: "comment", body: "b", itemIds: ["2"] },
+			),
+			HERE,
+			undefined,
+		);
+		expect(tabs.filter((tab) => tab.summary)).toHaveLength(1);
+		expect(PLAN_TAB).toBe("Plan");
 	});
 
 	it("gives every operation a tab of its own", () => {
@@ -119,7 +135,7 @@ describe("what the publish gate puts on screen", () => {
 			undefined,
 		);
 		const review = tabs[1];
-		expect(review?.item.label).toBe("V");
+		expect(review?.item.label).toBe("\u25bd");
 		expect(review?.item.views.map((one) => one.label)).toEqual([
 			"Review",
 			"F1",
@@ -140,9 +156,12 @@ describe("what the publish gate puts on screen", () => {
 		expect(tabs[0]?.itemIds).toEqual([]);
 	});
 
-	it("keeps labels apart when two operations would share one", () => {
-		// Two replies onto threads anchored at the same line. Sharing an
-		// address would mean rejecting one dropped both.
+	it("lets two replies wear the same mark, and keeps their items apart", () => {
+		// This used to be the opposite test, with a helper that appended a
+		// number so no two labels matched. The dedup existed because a
+		// decision was matched by label, so a shared name dropped both
+		// tabs. Decisions are positions now, so the mark is free to say
+		// what the thing is rather than which one it is.
 		const tabs = publishTabs(
 			planOf(
 				{ kind: "reply", thread: thread("t1", 10), body: "a", itemIds: ["1"] },
@@ -151,7 +170,8 @@ describe("what the publish gate puts on screen", () => {
 			HERE,
 			undefined,
 		);
-		const labels = tabs.map((tab) => tab.item.label);
-		expect(new Set(labels).size).toBe(labels.length);
+		expect(tabs[1]?.item.label).toBe(tabs[2]?.item.label);
+		expect(tabs[1]?.itemIds).toEqual(["1"]);
+		expect(tabs[2]?.itemIds).toEqual(["2"]);
 	});
 });

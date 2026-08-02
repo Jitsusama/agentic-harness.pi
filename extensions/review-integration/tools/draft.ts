@@ -53,7 +53,7 @@ import {
 	proseComplaint,
 } from "../render.js";
 import { treeForFixing } from "../work.js";
-import { PLAN_TAB, publishTabs } from "./publish-gate.js";
+import { publishTabs } from "./publish-gate.js";
 import type { Settle } from "./settle.js";
 import {
 	type Answer,
@@ -653,7 +653,7 @@ async function publishStack(
 			ref: entry.ref,
 			tab: {
 				...tab,
-				item: { ...tab.item, label: `${entry.ref}:${tab.item.label}` },
+				item: { ...tab.item, label: `${entry.ref} ${tab.item.label}` },
 			},
 		})),
 	);
@@ -674,11 +674,7 @@ async function publishStack(
 	// were compiled against drafts this function does not hold open.
 	const dropped = new Set(
 		grouped
-			.filter(
-				(one, at) =>
-					one.tab.item.label === `${one.ref}:${PLAN_TAB}` &&
-					decision.rejected.includes(at),
-			)
+			.filter((one, at) => one.tab.summary && decision.rejected.includes(at))
 			.map((one) => one.ref),
 	);
 	const sending = entries.filter((entry) => !dropped.has(entry.ref));

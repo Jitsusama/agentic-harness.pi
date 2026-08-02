@@ -40,20 +40,28 @@ import {
 /** A tab on the publish gate, and what rejecting it would drop. */
 export interface PublishTab {
 	item: GateItem;
-	/** Draft items behind this tab. Empty for the Plan tab. */
+	/** Draft items behind this tab. Empty for the summary tab. */
 	itemIds: string[];
+	/**
+	 * True for the summary tab, which stands for the whole publish.
+	 *
+	 * A flag rather than a label comparison, because a label is a glyph
+	 * several tabs may share and is for people to read. Rejecting this
+	 * one across a stack drops the whole change.
+	 */
+	summary?: boolean;
 }
 
-/** The label the summary tab always carries. */
+/** What the summary tab is called when a tab needs naming in prose. */
 export const PLAN_TAB = "Plan";
 
 /**
  * One tab per operation, with the plan leading.
  *
- * Labels address what a person can already see: `V` for the review
- * itself, the anchor for a remark, the thread's anchor for a reply or a
- * settling, the author for a reaction. Never a draft item id, which is a
- * sequence number nothing else prints.
+ * Labelled the way `review_say` labels a batch, since it is the same
+ * strip: a glyph for the kind of thing, and the strip's own running
+ * number for which one. Two tabs are allowed to read alike, because a
+ * decision comes back as a position rather than a name.
  */
 export function publishTabs(
 	plan: PublishPlan,
@@ -62,8 +70,9 @@ export function publishTabs(
 ): PublishTab[] {
 	const tabs: PublishTab[] = [
 		{
+			summary: true,
 			item: {
-				label: PLAN_TAB,
+				label: GLYPH.stack,
 				views: [
 					{
 						key: "1",
@@ -81,13 +90,9 @@ export function publishTabs(
 		},
 	];
 
-	const used = new Map<string, number>();
 	for (const op of plan.ops) {
 		tabs.push({
-			item: {
-				label: unique(labelForOp(op), used),
-				views: viewsFor(op, destination, diff),
-			},
+			item: { label: glyphForOp(op), views: viewsFor(op, destination, diff) },
 			itemIds: op.itemIds,
 		});
 	}
@@ -95,24 +100,21 @@ export function publishTabs(
 }
 
 /**
- * A label nothing else on this panel is using.
+ * What kind of thing this operation is, as a mark.
  *
- * Two replies onto threads anchored at the same line would otherwise
- * share an address, and rejecting one would drop both.
+ * The same vocabulary `review_say` uses, so a person who has read one
+ * gate can read the other. A verdict is the review's own triangle, a
+ * remark on a line is the smaller one inside it, and settling is the box
+ * the thread is left in.
  */
-function unique(label: string, used: Map<string, number>): string {
-	const seen = used.get(label) ?? 0;
-	used.set(label, seen + 1);
-	return seen === 0 ? label : `${label} (${seen + 1})`;
-}
-
-/** How this operation is addressed on the tab strip. */
-function labelForOp(op: PlannedOp): string {
-	if (op.kind === "review") return "V";
-	if (op.kind === "comment") return "Message";
-	if (op.kind === "commentOn") return anchorLabel(op.comment.anchor);
-	if (op.kind === "react") return op.subject.author.id;
-	return op.thread.anchor ? anchorLabel(op.thread.anchor) : "thread";
+function glyphForOp(op: PlannedOp): string {
+	if (op.kind === "review") return GLYPH.verdict;
+	if (op.kind === "comment") return GLYPH.document;
+	if (op.kind === "commentOn") return GLYPH.finding;
+	if (op.kind === "react") return GLYPH.reaction;
+	if (op.kind === "resolve") return GLYPH.resolved;
+	if (op.kind === "unresolve") return GLYPH.unresolved;
+	return GLYPH.reply;
 }
 
 /** What can be looked at on this tab. */
