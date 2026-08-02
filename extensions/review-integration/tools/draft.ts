@@ -511,7 +511,7 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 				// than something you run review_draft drop for beforehand and
 				// then cannot see what you dropped.
 				const dropped = tabs
-					.filter((tab) => decision.rejected.includes(tab.item.label))
+					.filter((_tab, at) => decision.rejected.includes(at))
 					.flatMap((tab) => tab.itemIds);
 				let sending = plan;
 				if (dropped.length > 0) {
@@ -675,9 +675,9 @@ async function publishStack(
 	const dropped = new Set(
 		grouped
 			.filter(
-				(one) =>
+				(one, at) =>
 					one.tab.item.label === `${one.ref}:${PLAN_TAB}` &&
-					decision.rejected.includes(one.tab.item.label),
+					decision.rejected.includes(at),
 			)
 			.map((one) => one.ref),
 	);

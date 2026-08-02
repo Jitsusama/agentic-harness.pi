@@ -105,10 +105,18 @@ export function decisionOf(result: PromptResult | null): GateDecision {
 export interface BatchDecision {
 	/** False when the panel was cancelled or redirected. Nothing sends. */
 	proceed: boolean;
-	/** Labels to send: approved plus untouched, in the order given. */
-	accepted: string[];
-	/** Labels explicitly rejected. Dropped, never sent. */
-	rejected: string[];
+	/**
+	 * Positions to send: approved plus untouched, in the order given.
+	 *
+	 * Positions rather than labels, because a label names a tab for a
+	 * person and two tabs are allowed to read alike. They do: a label is
+	 * a glyph for the kind, so every reply in a batch carries the same
+	 * one. Matching a decision by label quietly rejected every tab that
+	 * shared a name with the one rejected.
+	 */
+	accepted: number[];
+	/** Positions explicitly rejected. Dropped, never sent. */
+	rejected: number[];
 	/** A redirect note, or a note left on a rejection. */
 	redirect?: string;
 }
@@ -133,7 +141,7 @@ export interface GateView {
 
 /** One thing a gate is about. */
 export interface GateItem {
-	/** Tab label, and the address reported in the decision: "T26", "F2". */
+	/** Tab label: a glyph for the kind, which several tabs may share. */
 	label: string;
 	/** First view is the default. */
 	views: GateView[];
@@ -182,21 +190,21 @@ export async function confirmBatch(
 	title: string,
 	items: GateItem[],
 ): Promise<BatchDecision> {
-	const labels = items.map((item) => item.label);
-	if (!ctx.hasUI) return { proceed: true, accepted: labels, rejected: [] };
+	const every = items.map((_, at) => at);
+	if (!ctx.hasUI) return { proceed: true, accepted: every, rejected: [] };
 
-	if (items.length === 1) return await single(ctx, title, items[0], labels);
+	if (items.length === 1) return await single(ctx, title, items[0]);
 
 	const answer = await runGate(() =>
 		promptTabbed(ctx, { title, items: withPosition(items), actions: REJECT }),
 	);
 	if (!answer) return abandoned();
 
-	const accepted: string[] = [];
-	const rejected: string[] = [];
+	const accepted: number[] = [];
+	const rejected: number[] = [];
 	let note: string | undefined;
 
-	for (const [at, label] of labels.entries()) {
+	for (const at of every) {
 		const said = answer.items.get(at);
 		const decision = decisionOf(said ?? untouched());
 		// One steer abandons the batch: the items were composed together, so
@@ -205,9 +213,9 @@ export async function confirmBatch(
 			return { ...abandoned(), redirect: said.note };
 		}
 		if (decision.approved) {
-			accepted.push(label);
+			accepted.push(at);
 		} else {
-			rejected.push(label);
+			rejected.push(at);
 			if (decision.redirect) note = decision.redirect;
 		}
 	}
@@ -219,7 +227,6 @@ async function single(
 	ctx: ExtensionContext,
 	title: string,
 	item: GateItem | undefined,
-	labels: string[],
 ): Promise<BatchDecision> {
 	const decision = decisionOf(
 		await runGate(() =>
@@ -231,11 +238,11 @@ async function single(
 		),
 	);
 	return decision.approved
-		? { proceed: true, accepted: labels, rejected: [] }
+		? { proceed: true, accepted: [0], rejected: [] }
 		: {
 				proceed: false,
 				accepted: [],
-				rejected: labels,
+				rejected: [0],
 				redirect: decision.redirect,
 			};
 }

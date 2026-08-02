@@ -14,8 +14,9 @@
 
 import { describe, expect, it } from "vitest";
 import {
+	addressOf,
 	batchRefusal,
-	labelOf,
+	glyphOf,
 } from "../../extensions/review-integration/tools/batch.js";
 
 describe("refusing a batch that cannot be read", () => {
@@ -76,33 +77,73 @@ describe("refusing a batch that cannot be read", () => {
 
 describe("addressing each entry the way its listing did", () => {
 	it("addresses a reply by its thread", () => {
-		expect(labelOf({ action: "reply", thread: 26, body: "x" }, 0)).toBe("T26");
+		expect(addressOf({ action: "reply", thread: 26, body: "x" }, 0)).toBe(
+			"T26",
+		);
 	});
 
 	it("addresses a resolve and a reopen by their thread too", () => {
-		expect(labelOf({ action: "resolve", thread: 4 }, 0)).toBe("T4");
-		expect(labelOf({ action: "unresolve", thread: 4 }, 0)).toBe("T4");
+		expect(addressOf({ action: "resolve", thread: 4 }, 0)).toBe("T4");
+		expect(addressOf({ action: "unresolve", thread: 4 }, 0)).toBe("T4");
 	});
 
 	it("addresses a reaction by the comment it lands on", () => {
 		expect(
-			labelOf({ action: "react", comment: "C4", reaction: "rocket" }, 0),
+			addressOf({ action: "react", comment: "C4", reaction: "rocket" }, 0),
 		).toBe("C4");
 	});
 
 	it("addresses an annotation by where it points", () => {
 		expect(
-			labelOf({ action: "annotate", path: "pkg/policy.go", line: 166 }, 0),
+			addressOf({ action: "annotate", path: "pkg/policy.go", line: 166 }, 0),
 		).toBe("policy.go:166");
 	});
 
 	it("addresses a top-level comment by what it is", () => {
-		expect(labelOf({ action: "comment", body: "thanks all" }, 0)).toBe(
-			"comment",
+		expect(addressOf({ action: "comment", body: "thanks all" }, 0)).toBe(
+			"the comment",
 		);
 	});
 
 	it("falls back to the position when an entry names nothing", () => {
-		expect(labelOf({ action: "reply" }, 2)).toBe("3");
+		expect(addressOf({ action: "reply" }, 2)).toBe("3");
+	});
+});
+
+describe("labelling each tab by what kind of thing it is", () => {
+	// One vocabulary across the strip, and every mark one the review
+	// family already owns. The running number beside it belongs to the
+	// batch, so five replies read 1 to 5 rather than restarting per kind.
+	it("marks a reply as a reply", () => {
+		expect(glyphOf({ action: "reply", thread: 1, body: "x" })).toBe("\u21b3");
+	});
+
+	it("marks a new thread as a thread", () => {
+		expect(glyphOf({ action: "annotate", path: "a.go", line: 1 })).toBe(
+			"\u276f",
+		);
+	});
+
+	it("marks a top-level comment as a document", () => {
+		expect(glyphOf({ action: "comment", body: "x" })).toBe("\u00b6");
+	});
+
+	it("marks a reaction as a reaction", () => {
+		expect(glyphOf({ action: "react", comment: "C1", reaction: "eyes" })).toBe(
+			"\u2726",
+		);
+	});
+
+	it("marks settling by the box it leaves the thread in", () => {
+		expect(glyphOf({ action: "resolve", thread: 1 })).toBe("\u2611");
+		expect(glyphOf({ action: "unresolve", thread: 1 })).toBe("\u2610");
+	});
+
+	it("gives two replies the same mark, which is the point", () => {
+		// They are told apart by position, not by name. That is why a
+		// decision comes back as an index.
+		const one = glyphOf({ action: "reply", thread: 1, body: "a" });
+		const two = glyphOf({ action: "reply", thread: 9, body: "b" });
+		expect(one).toBe(two);
 	});
 });

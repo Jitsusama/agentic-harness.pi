@@ -90,13 +90,17 @@ export function batchRefusal(
 }
 
 /**
- * How this entry is addressed, in the gate and in the answer.
+ * How this entry is addressed in the answer, and in a refusal about it.
  *
  * By what a person can already see, never by an internal id. Reading
- * `[T26]` in a gate and `[T26]` in a threads listing has to mean the same
- * thread, or the address is decoration.
+ * `[T26]` in an answer and `[T26]` in a threads listing has to mean the
+ * same thread, or the address is decoration.
+ *
+ * This is not what the tab is labelled. An address is unique and often
+ * long, which is what a transcript wants and what a strip of tabs cannot
+ * afford; the strip carries a glyph for the kind instead.
  */
-export function labelOf(item: SayItem, index: number): string {
+export function addressOf(item: SayItem, index: number): string {
 	if (item.thread !== undefined) return `T${item.thread}`;
 	if (item.comment) return item.comment;
 	if (item.path) {
@@ -104,8 +108,30 @@ export function labelOf(item: SayItem, index: number): string {
 			? basename(item.path)
 			: `${basename(item.path)}:${item.line}`;
 	}
-	if (item.action === "comment") return "comment";
+	if (item.action === "comment") return "the comment";
 	return String(index + 1);
+}
+
+/**
+ * What the tab is labelled: a mark for the kind of thing it is.
+ *
+ * Every label in a strip should be the same kind of token, and the three
+ * vocabularies this used to mix, `T1` for a thread, `C1` for a comment
+ * and the bare word `comment` for a new one, read as three unrelated
+ * schemes sitting side by side. They also collided, since two new
+ * comments were both called the same thing.
+ *
+ * A glyph says what the item is, and the strip's own running number says
+ * which one, so the sequence belongs to the batch rather than restarting
+ * per kind. Every glyph here is one the review family already owns.
+ */
+export function glyphOf(item: SayItem): string {
+	if (item.action === "react") return GLYPH.reaction;
+	if (item.action === "resolve") return GLYPH.resolved;
+	if (item.action === "unresolve") return GLYPH.unresolved;
+	if (item.action === "annotate") return GLYPH.thread;
+	if (item.action === "comment") return GLYPH.document;
+	return GLYPH.reply;
 }
 
 /**
@@ -137,7 +163,8 @@ export function batchTitle(items: SayItem[], change: string): string {
 /** Everything one entry needs, once its references have been resolved. */
 interface Resolved {
 	item: SayItem;
-	label: string;
+	/** What the transcript calls it: "T26", "C4", "the comment". */
+	address: string;
 	panel: GatePanel;
 	/** Runs it, and says what happened. */
 	perform: () => Promise<string>;
@@ -174,7 +201,7 @@ export async function runBatch(
 	}
 
 	const gateItems: GateItem[] = resolved.map((one) => ({
-		label: one.label,
+		label: glyphOf(one.item),
 		views: [
 			{
 				key: "1",
@@ -196,9 +223,9 @@ export async function runBatch(
 	}
 
 	const lines: string[] = [];
-	for (const one of resolved) {
-		if (decision.rejected.includes(one.label)) {
-			lines.push(`${GLYPH.refused} ${one.label} dropped`);
+	for (const [at, one] of resolved.entries()) {
+		if (decision.rejected.includes(at)) {
+			lines.push(`${GLYPH.refused} ${one.address} dropped`);
 			continue;
 		}
 		try {
@@ -208,7 +235,7 @@ export async function runBatch(
 			// rather than throws: a batch that half landed has to say which
 			// half, and an exception here would lose the record.
 			const said = error instanceof Error ? error.message : String(error);
-			lines.push(`${GLYPH.failed} ${one.label} failed: ${said}`);
+			lines.push(`${GLYPH.failed} ${one.address} failed: ${said}`);
 		}
 	}
 	return say(lines.join("\n"));
@@ -245,15 +272,15 @@ async function resolveOne(
 	item: SayItem,
 	at: number,
 ): Promise<Resolved | string> {
-	const label = labelOf(item, at);
+	const address = addressOf(item, at);
 	const destination = `${change.label} \u00b7 ${bound.provider.id}`;
 
 	if (item.action === "comment") {
-		if (!item.body) return `${label}: a comment needs a body.`;
+		if (!item.body) return `${address}: a comment needs a body.`;
 		const body = item.body;
 		return {
 			item,
-			label,
+			address,
 			panel: { destination, payload: { body } },
 			perform: async () => {
 				const posted = await conversation.comment(change, body);
@@ -267,9 +294,9 @@ async function resolveOne(
 			return `The ${bound.provider.id} provider cannot start a thread on a line. Compose it with review_draft instead.`;
 		}
 		if (!item.path || item.line === undefined) {
-			return `${label}: starting a thread needs a path and a line.`;
+			return `${address}: starting a thread needs a path and a line.`;
 		}
-		if (!item.body) return `${label}: a remark needs a body.`;
+		if (!item.body) return `${address}: a remark needs a body.`;
 		const anchor: Anchor = {
 			subject: "line",
 			path: item.path,
@@ -281,7 +308,7 @@ async function resolveOne(
 		const commentOn = conversation.commentOn;
 		return {
 			item,
-			label,
+			address,
 			panel: {
 				destination,
 				where: anchorLabel(anchor),
@@ -289,14 +316,14 @@ async function resolveOne(
 			},
 			perform: async () => {
 				const posted = await commentOn(change, anchor, body);
-				return `${GLYPH.lands} remarked on ${label}${posted.url ? `\n   ${posted.url}` : ""}`;
+				return `${GLYPH.lands} remarked on ${address}${posted.url ? `\n   ${posted.url}` : ""}`;
 			},
 		};
 	}
 
 	if (item.action === "react") {
 		if (!item.reaction || !item.comment) {
-			return `${label}: reacting needs a reaction and the comment to put it on, addressed as the [C#] or [M#] a listing prints.`;
+			return `${address}: reacting needs a reaction and the comment to put it on, addressed as the [C#] or [M#] a listing prints.`;
 		}
 		if (!conversation.react) {
 			return `The ${bound.provider.id} provider does not support reactions.`;
@@ -313,7 +340,7 @@ async function resolveOne(
 		const react = conversation.react;
 		return {
 			item,
-			label,
+			address,
 			// The gate quotes the remark, since an address is not something a
 			// person can check: [C4] approved against the wrong comment is
 			// indistinguishable from [C4] approved against the right one.
@@ -346,7 +373,7 @@ async function resolveOne(
 		}
 		return {
 			item,
-			label,
+			address,
 			// The whole exchange and no payload: what is being approved is the
 			// judgement that it is finished, so the exchange is the question.
 			panel: {
@@ -357,15 +384,15 @@ async function resolveOne(
 			perform: async () => {
 				if (reopening) await conversation.unresolve?.(change, thread);
 				else await conversation.resolve(change, thread);
-				return `${reopening ? GLYPH.unresolved : GLYPH.resolved} ${reopening ? "reopened" : "resolved"} ${label}.`;
+				return `${reopening ? GLYPH.unresolved : GLYPH.resolved} ${reopening ? "reopened" : "resolved"} ${address}.`;
 			},
 		};
 	}
 
 	if (item.action !== "reply") {
-		return `${label}: ${item.action} is not something review_say can do.`;
+		return `${address}: ${item.action} is not something review_say can do.`;
 	}
-	if (!item.body) return `${label}: a reply needs a body.`;
+	if (!item.body) return `${address}: a reply needs a body.`;
 
 	const settle = item.settleThread;
 	const cannot = settleRefusal(conversation, settle, bound.provider.id);
@@ -374,7 +401,7 @@ async function resolveOne(
 
 	return {
 		item,
-		label,
+		address,
 		panel: {
 			destination,
 			where: threadWhere(thread),
@@ -388,7 +415,7 @@ async function resolveOne(
 			const posted = await conversation.reply(change, thread, body);
 			const after = await settleAfter(conversation, change, thread, settle);
 			return [
-				`${GLYPH.lands} replied to ${label}${posted.url ? `\n   ${posted.url}` : ""}`,
+				`${GLYPH.lands} replied to ${address}${posted.url ? `\n   ${posted.url}` : ""}`,
 				...(after.note
 					? [`${after.settled ? GLYPH.resolved : GLYPH.refused} ${after.note}`]
 					: []),
