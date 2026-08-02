@@ -195,8 +195,12 @@ export function registerAskTool(pi: ExtensionAPI): void {
 			);
 		},
 
-		renderResult(result: Answer, _state: unknown, theme: Theme): Text {
-			return renderAnswer(result, theme);
+		renderResult(
+			result: Answer,
+			options: { expanded?: boolean },
+			theme: Theme,
+		): Text {
+			return renderAnswer(result, theme, options);
 		},
 
 		// Pi passes (toolCallId, params, signal, onUpdate, ctx). Reading the

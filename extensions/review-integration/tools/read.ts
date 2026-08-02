@@ -98,8 +98,8 @@ export function registerReviewTool(pi: ExtensionAPI): void {
 			return renderInvocation(theme, "review", params.action, params.change);
 		},
 
-		renderResult(result, _state, theme) {
-			return renderAnswer(result, theme);
+		renderResult(result, options, theme) {
+			return renderAnswer(result, theme, options);
 		},
 
 		async execute(_id, params): Promise<Answer> {

@@ -90,14 +90,47 @@ export function refuseFailure(
 	return refuse(context ? explainFailure(message, context) : message);
 }
 
-/** The renderer every review tool shares. */
-export function renderAnswer(result: Answer, theme: Theme): Text {
+/**
+ * How much of a long answer is shown before Ctrl-O is needed.
+ *
+ * Chosen so every write answer arrives whole: the longest of them is a
+ * batch outcome, a line per item and a url under each. Reads are what
+ * this is for, and a diff has no length worth guessing at.
+ */
+const PREVIEW_LINES = 12;
+
+/**
+ * The renderer every review tool shares.
+ *
+ * A read can answer with hundreds of lines, and painting all of them
+ * pushes the conversation that asked for it off the screen. The
+ * collapsed form keeps the head and says how much it is holding; Ctrl-O
+ * gives the rest. Short answers are untouched, since a hint under a
+ * one-line result is noise about nothing.
+ */
+export function renderAnswer(
+	result: Answer,
+	theme: Theme,
+	options?: { expanded?: boolean },
+): Text {
 	const text = firstText(result);
+	const shown = options?.expanded ? text : clipped(text, theme);
 	return new Text(
-		isRefusal(result.details) ? theme.fg("error", text) : text,
+		isRefusal(result.details) ? theme.fg("error", shown) : shown,
 		0,
 		0,
 	);
+}
+
+/** The head of an answer, with a count of what is not being shown. */
+function clipped(text: string, theme: Theme): string {
+	const lines = text.split("\n");
+	if (lines.length <= PREVIEW_LINES) return text;
+	const withheld = lines.length - PREVIEW_LINES;
+	return [
+		...lines.slice(0, PREVIEW_LINES),
+		theme.fg("muted", `... ${withheld} more`),
+	].join("\n");
 }
 
 /**
