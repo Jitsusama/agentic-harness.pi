@@ -117,6 +117,31 @@ describe("resolveTarget", () => {
 		expect(second.resolved && second.provider.id).toBe("git");
 	});
 
+	it("reports the claimed repo on a remembered call, not the local locator", () => {
+		// Every other test here has the stub claim the key the target already
+		// carries, so a memo that replayed the target's own locator looked
+		// correct. A provider that maps a checkout onto a hosted repo is what
+		// tells the two apart, and it is the real case: a local range in a
+		// world checkout resolves to a hosted change.
+		registerReviewProvider(
+			stubProvider({
+				id: "meteorite",
+				priority: 50,
+				claimRepo: () => world,
+			}),
+		);
+
+		const first = resolveTarget(localRange);
+		expect(first.resolved && first.repo.key).toBe(world.key);
+		expect(first.resolved && first.via).toBe("claim");
+
+		// The second call is the one that broke: a retry after a refusal
+		// handed the provider `local:/src/app`, which it does not serve.
+		const second = resolveTarget(localRange);
+		expect(second.resolved && second.repo.key).toBe(world.key);
+		expect(second.resolved && second.via).toBe("claim");
+	});
+
 	it("re-resolves when the bound provider goes away", () => {
 		registerReviewProvider(
 			stubProvider({

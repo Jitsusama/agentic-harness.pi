@@ -32,16 +32,38 @@ export type TargetResolution =
 	| { resolved: false; tried: string[]; message: string };
 
 /**
- * Target key to provider id. Session-scoped: a binding is
- * about not flipping mid-flight, not about remembering a
- * choice made last week, and the target's own key is enough
- * to re-derive the same answer next time.
+ * What a resolution decided, keyed by target. Session-scoped: a
+ * binding is about not flipping mid-flight, not about remembering a
+ * choice made last week, and the target's own key is enough to
+ * re-derive the same answer next time.
+ *
+ * The repo is remembered alongside the provider because it is part of
+ * the answer and cannot be recovered from the target. A provider that
+ * maps a checkout onto a hosted repo is the whole point of claiming:
+ * replaying the target's own `local:` locator handed that provider a
+ * repo it does not serve, so the first call worked and every later one
+ * was refused.
  */
-const bindings = new Map<string, string>();
+const bindings = new Map<string, Binding>();
 
-/** Remember that a target belongs to a provider. */
-export function bindTarget(target: ReviewTarget, providerId: string): void {
-	bindings.set(targetKey(target), providerId);
+/** A resolution worth replaying: who serves the target, and as what. */
+type Binding = { providerId: string; repo: RepoLocator; via: ResolvedVia };
+
+/**
+ * Remember that a target belongs to a provider, and optionally the
+ * repo and route it resolved as. Without them the target's own locator
+ * stands in, which is right for a caller that knows only the provider.
+ */
+export function bindTarget(
+	target: ReviewTarget,
+	providerId: string,
+	resolved?: { repo: RepoLocator; via: ResolvedVia },
+): void {
+	bindings.set(targetKey(target), {
+		providerId,
+		repo: resolved?.repo ?? repoOf(target),
+		via: resolved?.via ?? "config-repo",
+	});
 }
 
 /** Forget every binding. Intended for tests and lifecycle. */
@@ -54,10 +76,33 @@ function repoOf(target: ReviewTarget): RepoLocator {
 	return target.kind === "proposal" ? target.change.repo : target.repo;
 }
 
-/** The provider a target was bound to, if it is still here. */
-function bound(target: ReviewTarget): ReviewProvider | undefined {
-	const id = bindings.get(targetKey(target));
-	return id ? getReviewProvider(id) : undefined;
+/**
+ * Bind what was resolved and hand back that same answer.
+ *
+ * One statement, because the defect this replaced was a memo and a
+ * reply that disagreed: every site stored the provider and returned a
+ * repo the memo never kept. Going through here, what is remembered is
+ * by construction what was said.
+ */
+function remember(
+	target: ReviewTarget,
+	resolved: { provider: ReviewProvider; repo: RepoLocator; via: ResolvedVia },
+): TargetResolution {
+	bindTarget(target, resolved.provider.id, {
+		repo: resolved.repo,
+		via: resolved.via,
+	});
+	return { resolved: true, ...resolved };
+}
+
+/** What a target was bound to, if its provider is still here. */
+function bound(
+	target: ReviewTarget,
+): { provider: ReviewProvider; binding: Binding } | undefined {
+	const binding = bindings.get(targetKey(target));
+	if (!binding) return undefined;
+	const provider = getReviewProvider(binding.providerId);
+	return provider ? { provider, binding } : undefined;
 }
 
 /** Provider ids config pins to this repo, in order. */
@@ -127,13 +172,14 @@ export function resolveTarget(
 ): TargetResolution {
 	const remembered = bound(target);
 	if (remembered) {
-		// A binding is a decision already taken, so it reports as one. What is
-		// remembered here is the answer, not the argument that produced it.
+		// A binding is a decision already taken, so it replays that decision
+		// whole: the same provider, the same repo, and the route that found
+		// them. Re-deriving any part of it here is how the answer drifted.
 		return {
 			resolved: true,
-			provider: remembered,
-			repo: repoOf(target),
-			via: "config-repo",
+			provider: remembered.provider,
+			repo: remembered.binding.repo,
+			via: remembered.binding.via,
 		};
 	}
 
@@ -150,14 +196,12 @@ export function resolveTarget(
 					"review.repos.",
 			};
 		}
-		bindTarget(target, provider.id);
 		// The change names its own provider, so nothing was guessed.
-		return {
-			resolved: true,
+		return remember(target, {
 			provider,
 			repo: target.change.repo,
 			via: "config-repo",
-		};
+		});
 	}
 
 	const tried: string[] = [];
@@ -166,19 +210,13 @@ export function resolveTarget(
 		.map((id) => getReviewProvider(id))
 		.filter((provider): provider is ReviewProvider => provider !== undefined);
 	const byConfig = claimRepo(mapped, target, tried, context);
-	if (byConfig) {
-		bindTarget(target, byConfig.provider.id);
-		return { resolved: true, ...byConfig, via: "config-repo" };
-	}
+	if (byConfig) return remember(target, { ...byConfig, via: "config-repo" });
 
 	const remaining = listReviewProviders().filter(
 		(provider) => !tried.includes(provider.id),
 	);
 	const byClaim = claimRepo(remaining, target, tried, context);
-	if (byClaim) {
-		bindTarget(target, byClaim.provider.id);
-		return { resolved: true, ...byClaim, via: "claim" };
-	}
+	if (byClaim) return remember(target, { ...byClaim, via: "claim" });
 
 	const absent = ids.filter((id) => !getReviewProvider(id));
 	const missing =
