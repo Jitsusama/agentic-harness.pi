@@ -13,6 +13,7 @@
  * so a long opening remark cannot swallow the reply that matters.
  */
 
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import {
 	type GatePanel,
@@ -40,6 +41,34 @@ describe("drawing a write gate", () => {
 		expect(drawn({ destination: "shop/world#2000980 · meteorite" })).toContain(
 			"shop/world#2000980 · meteorite",
 		);
+	});
+
+	it("wraps the header rows, which are the only ones that were not", () => {
+		// A propose gate names a branch, a base and a repo key on one line, which
+		// reaches 99 columns for an ordinary branch name. Every other row was
+		// wrapped and these two were not, so the panel truncated them and the
+		// repo, the one thing the checkout cannot tell you, fell off the end.
+		const lines = gateLines(
+			{
+				destination:
+					"jitsusama/judge-quoted-write-targets → main on github:Jitsusama/agentic-harness.pi",
+				where:
+					"a very long anchor that also has no business being truncated silently",
+			},
+			fakeTheme(),
+			40,
+		);
+
+		// The fake theme marks colour with literal tags, which `visibleWidth`
+		// counts because they are not escape codes. Strip them, or the test
+		// measures the stand-in rather than the panel.
+		for (const line of lines) {
+			expect(
+				visibleWidth(line.replace(/<\/?[a-z:]+>/g, "")),
+			).toBeLessThanOrEqual(40);
+		}
+		// Wrapped, not dropped: the repo key still reaches the reader.
+		expect(lines.join("\n")).toContain("agentic-harness.pi");
 	});
 
 	it("keeps the parts in order: destination, context, payload, consequence", () => {

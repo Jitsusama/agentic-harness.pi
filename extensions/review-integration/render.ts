@@ -223,11 +223,18 @@ function rowsOf(
 	renderBody: BodyRenderer = wordWrap,
 ): GateRow[] {
 	const room = Math.max(MIN_GATE_WIDTH, width - INSET.length);
-	const rows: GateRow[] = [
-		{ text: `${GLYPH.target} ${panel.destination}`, muted: true },
-	];
+	// Wrapped like every other row. These two were the exception, and a propose
+	// gate names a branch, a base and a repo key on one line, which reaches 99
+	// columns for an ordinary branch. The panel truncates what it is handed, so
+	// the repo key, the one thing the checkout cannot tell you, fell off the end.
+	const header = (glyph: string, text: string): GateRow[] =>
+		wordWrap(`${glyph} ${text}`, width).map((line) => ({
+			text: line,
+			muted: true,
+		}));
+	const rows: GateRow[] = [...header(GLYPH.target, panel.destination)];
 	if (panel.where) {
-		rows.push({ text: `${GLYPH.thread} ${panel.where}`, muted: true });
+		rows.push(...header(GLYPH.thread, panel.where));
 	}
 
 	for (const quote of panel.context ?? []) {
