@@ -38,14 +38,29 @@ const BASH_WRITE_PATTERNS = [
  * argument of an in-place editor (sed -i, gsed -i, perl -i), whose
  * quoted script has already been stripped, leaving the file as a
  * trailing non-flag token.
+ *
+ * A target the command builds out of its own variables is expanded
+ * from the assignments in that same command, since `Q=...; echo >
+ * "$Q/f"` is one of the commonest ways to write to a directory whose
+ * path is long. A target still carrying a sigil after that is dropped
+ * rather than reported: the caller resolves what it is given against a
+ * working directory, so a literal `$UNKNOWN/f.txt` becomes a real path
+ * nobody wrote to, and judging the wrong file is worse than declining
+ * to judge this one.
  */
 export function bashWriteTargets(command: string): string[] {
 	const skeleton = stripShellData(stripHeredocBodies(command));
+	const assigned = assignmentsIn(skeleton);
 	const targets: string[] = [];
 	const add = (token: string | undefined): void => {
 		if (!token) return;
-		const value = token.replace(/^['"]/, "").replace(/['"]$/, "");
-		if (value) targets.push(value);
+		const bare = token.replace(/^['"]/, "").replace(/['"]$/, "");
+		if (!bare) return;
+		const value = expand(bare, assigned);
+		// Anything still holding a `$` was built from something this command
+		// does not say, so there is nothing honest to report.
+		if (value === undefined) return;
+		targets.push(value);
 	};
 
 	// Redirect destinations: the token following > or >>. A leading
@@ -77,6 +92,44 @@ export function bashWriteTargets(command: string): string[] {
 	}
 
 	return targets;
+}
+
+/**
+ * The variables a command assigns to itself, last assignment winning.
+ *
+ * Only the literal `NAME=value` form, which is what a command writing to
+ * a long path actually uses. A value built from an earlier variable is
+ * expanded against what is known so far, so `A=/tmp; B=$A/x` resolves.
+ */
+function assignmentsIn(skeleton: string): Map<string, string> {
+	const known = new Map<string, string>();
+	for (const match of skeleton.matchAll(
+		/(?:^|[;&|]|\s)([A-Za-z_][A-Za-z0-9_]*)=([^\s;&|<>]*)/g,
+	)) {
+		const name = match[1];
+		if (!name) continue;
+		const raw = (match[2] ?? "").replace(/^['"]/, "").replace(/['"]$/, "");
+		const value = expand(raw, known);
+		if (value !== undefined) known.set(name, value);
+	}
+	return known;
+}
+
+/**
+ * A token with its variables filled in, or undefined when one of them is
+ * not something this command said.
+ *
+ * Both spellings, `$NAME` and `${NAME}`. A command substitution is never
+ * expanded: what it produces is not knowable from the text.
+ */
+function expand(token: string, known: Map<string, string>): string | undefined {
+	if (!token.includes("$")) return token;
+	if (token.includes("$(")) return undefined;
+	const filled = token.replace(
+		/\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g,
+		(whole, braced, bare) => known.get(braced ?? bare) ?? whole,
+	);
+	return filled.includes("$") ? undefined : filled;
 }
 
 /**
