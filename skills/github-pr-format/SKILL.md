@@ -33,7 +33,8 @@ See `github-cli-convention` for title formatting rules
 
 ## Issue and Stack Context
 
-Always start the body with a line linking to the issue:
+When an issue tracks the work, start the body with a line
+linking to it:
 
 ```markdown
 Part of #ISSUE_NUMBER
@@ -42,11 +43,20 @@ Part of #ISSUE_NUMBER
 Don't repeat the issue reference in the rest of the
 description; the link at the top is sufficient.
 
+When no issue tracks the work, omit the line. Not every
+change has an issue behind it, and a body whose first line
+points at the wrong number is worse than one that points
+nowhere: the reader follows it, lands somewhere unrelated,
+and now distrusts the rest. Never invent a number, and
+never reach for a nearby issue that happens to be open.
+The body then starts with the first heading.
+
 When a PR is part of a stack (based on another PR or has
-PRs based on it), add a note block after the issue line.
-Only include the stack note when there is actually a
-stack; omit for standalone PRs based on `main` with
-no dependents.
+PRs based on it), add a note block. It goes after the
+issue line where there is one, and first in the body where
+there is not. Only include the stack note when there is
+actually a stack; omit for standalone PRs based on `main`
+with no dependents.
 
 ```markdown
 Part of #ISSUE_NUMBER
