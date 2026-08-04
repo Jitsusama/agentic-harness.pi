@@ -404,7 +404,13 @@ export function proposalLine(proposal: Proposal): string {
 	const owned = proposal.assignees?.length
 		? `\n   assigned to ${proposal.assignees.map((who) => who.name ?? who.id).join(", ")}`
 		: "";
-	return `${GLYPH.target} ${proposal.ref.label} ${proposal.title}${draft}\n   ${proposal.state} · ${proposal.author.id} · ${proposal.head} → ${proposal.base}${sizeNote(proposal)}${queueNote(proposal)}${landing}${tagged}${owned}`;
+	// Last, and alone on its line so it survives being copied. The label
+	// identifies a change to this surface and not to a browser, and on a
+	// backend whose addresses nobody can guess from one, a change that was
+	// just created had to be gone and looked for. Absent means the backend
+	// publishes no address, which is not an empty link worth printing.
+	const where = proposal.url ? `\n   ${proposal.url}` : "";
+	return `${GLYPH.target} ${proposal.ref.label} ${proposal.title}${draft}\n   ${proposal.state} · ${proposal.author.id} · ${proposal.head} → ${proposal.base}${sizeNote(proposal)}${queueNote(proposal)}${landing}${tagged}${owned}${where}`;
 }
 
 /** CI, with unreported kept apart from failed. */
