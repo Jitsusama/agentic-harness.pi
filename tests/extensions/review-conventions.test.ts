@@ -39,8 +39,10 @@ describe("holding a proposal to the conventions", () => {
 			`${GOOD_BODY}\n\n### 📝 Notes\n\nExtra.`,
 		);
 
-		expect(complaint).toContain("does not match the PR format");
-		expect(complaint).toContain("not a way around it");
+		// The same explanation the guardian gives on `gh pr create`, naming
+		// the heading rather than tallying an issue word against it.
+		expect(complaint).toContain("github-pr-format");
+		expect(complaint).toContain("Notes");
 	});
 
 	it("refuses a missing section", () => {
@@ -49,7 +51,8 @@ describe("holding a proposal to the conventions", () => {
 			"### 🌐 Situation\n\nOnly one.",
 		);
 
-		expect(complaint).toContain("does not match the PR format");
+		expect(complaint).toContain("missing");
+		expect(complaint).toContain("Resolution");
 	});
 
 	it("refuses a conventional-commit title", () => {
@@ -59,7 +62,8 @@ describe("holding a proposal to the conventions", () => {
 			GOOD_BODY,
 		);
 
-		expect(complaint).toContain("title does not match");
+		expect(complaint).toContain("title convention");
+		expect(complaint).toContain("fix(review):");
 	});
 
 	it("refuses prose violations in the body", () => {
@@ -68,18 +72,26 @@ describe("holding a proposal to the conventions", () => {
 			GOOD_BODY.replace("Close it.", "Close it \u2014 properly."),
 		);
 
-		expect(complaint).toContain("prose standard");
+		expect(complaint).toContain("prose-standard");
+		expect(complaint).toContain("emdash");
 	});
 
-	it("reports structure before prose", () => {
-		// No point polishing words in a section that should not exist.
+	it("reports structure first, and everything else with it", () => {
+		// Structure leads, because there is no point polishing words in a
+		// section that should not exist. It used to be the only thing said,
+		// so fixing it revealed the next class and then the next, and each
+		// round trip was another chance for something else to go wrong.
 		const complaint = proposalComplaint(
-			"Close the Leaked Handle",
+			"fix(review): close the handle",
 			`${GOOD_BODY.replace("Close it.", "Close it \u2014 properly.")}\n\n### 📝 Notes\n\nExtra.`,
 		);
+		const at = (needle: string) => (complaint ?? "").indexOf(needle);
 
-		expect(complaint).toContain("PR format");
-		expect(complaint).not.toContain("prose standard");
+		expect(complaint).toContain("sections");
+		expect(complaint).toContain("title convention");
+		expect(complaint).toContain("prose-standard");
+		expect(at("sections")).toBeLessThan(at("title convention"));
+		expect(at("title convention")).toBeLessThan(at("prose-standard"));
 	});
 
 	it("says one habit once rather than once per instance", () => {
@@ -89,7 +101,33 @@ describe("holding a proposal to the conventions", () => {
 		);
 		const lines = (complaint ?? "").split("\n");
 
-		expect(lines.filter((line) => line.includes("times"))).toHaveLength(1);
+		// Three of them, named once with a count rather than three times.
+		expect(lines.filter((line) => /\d+ emdash/.test(line))).toHaveLength(1);
+		expect(complaint).toContain("3 emdashes");
+	});
+
+	it("names the offending word and its replacement", () => {
+		// "use Canadian English spelling" without the word is a rule stated
+		// at somebody rather than a thing they can act on.
+		const complaint = proposalComplaint(
+			"Close the Leaked Handle",
+			GOOD_BODY.replace("Close it.", "Close the behavior."),
+		);
+
+		expect(complaint).toContain("behavior");
+		expect(complaint).toContain("behaviour");
+	});
+
+	it("explains a title that is not Title Case instead of listing words", () => {
+		// This used to print the rule name against its own internal tally,
+		// which read as `sentence-case: fix(review, replay, whole, ...`.
+		const complaint = proposalComplaint(
+			"close the leaked handle in the parser",
+			GOOD_BODY,
+		);
+
+		expect(complaint).toMatch(/Title Case/);
+		expect(complaint).not.toMatch(/sentence-case:/);
 	});
 
 	it("has nothing to say about an edit that changes neither", () => {

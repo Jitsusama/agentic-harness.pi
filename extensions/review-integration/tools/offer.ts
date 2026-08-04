@@ -28,6 +28,7 @@ import type {
 } from "../../../lib/review/index.js";
 import {
 	fillProposal,
+	misnamedPeople,
 	offerable,
 	retargetPlan,
 	retargetRoute,
@@ -36,7 +37,7 @@ import { count } from "../../../lib/ui/index.js";
 import { createGitRebaser, createGitStacks } from "../../../lib/work/index.js";
 import { proposalComplaint } from "../conventions.js";
 import { confirmWrite } from "../gate.js";
-import { GLYPH, proposalLine } from "../render.js";
+import { type GatePanel, GLYPH, proposalLine } from "../render.js";
 import {
 	type Answer,
 	boundFor,
@@ -73,6 +74,7 @@ interface OfferParams {
 	heads?: string[];
 	title?: string;
 	body?: string;
+	bodies?: string[];
 	draft?: boolean;
 	comment?: string;
 	method?: string;
@@ -168,7 +170,7 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 		name: "review_offer",
 		label: "Review Offer",
 		description:
-			"Put work up for review and move it along: propose a change from a branch, edit its title, body or base, move it between draft and ready, ask people to look at it, close or reopen it, and merge it. Reading a change is review_see.",
+			"Put work up for review and move it along: propose a change from a branch, edit its title, body or base, move it between draft and ready, ask people to look at it, close or reopen it, and merge it. Reading a change is review_see. This is how a pull request is opened, whatever hosts it, including when the request says cut, raise, submit or put up rather than review: `gh pr create` reaches GitHub only, so on a repo hosted elsewhere it opens a change on a mirror nothing reads and every later `gh` call is blind to it.",
 		promptSnippet:
 			"Put work up for review: propose, edit, ready, draft, reviewers, close, reopen, merge.",
 		promptGuidelines: [
@@ -222,6 +224,12 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 				Type.Array(Type.String(), {
 					description:
 						"For propose-stack: the branches, in dependency order with the root first. Each is proposed onto the one before it, and the first onto base. The order is yours because nothing here can work it out.",
+				}),
+			),
+			bodies: Type.Optional(
+				Type.Array(Type.String(), {
+					description:
+						"For propose-stack: one body per branch, in the same order as heads. Held to the PR format, the same as a single propose. Omit to open the stack with empty bodies, and give as many as there are branches: a shorter list is refused rather than paired off against the branches it happens to reach.",
 				}),
 			),
 			title: Type.Optional(
@@ -325,23 +333,39 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 			// backend's own message is about its own request.
 			let bound: BoundTarget | undefined;
 			try {
+				// Before the bind, because none of it needs a provider and a
+				// refusal should leave nothing behind. Binding remembers what it
+				// resolved for the rest of the session, so a call that was never
+				// going to be sent has no business recording a decision, and a
+				// convention refusal now costs no backend round trip either.
+				if (params.action === "propose" || params.action === "edit") {
+					const complaint = proposalComplaint(params.title, params.body);
+					if (complaint) return refuse(complaint);
+				}
+
 				bound = await boundFor(pi, params, process.cwd());
 				const authoring = bound.provider.authoring;
 
-				// Proposing takes its repo from whatever change is attached,
-				// because there is no path that resolves the repo you are
-				// standing in to the system hosting it: `fromLocal` mints a
-				// `local:` key, which the plain git provider claims and which has
-				// no authoring facet at all.
+				// Proposing takes its repo from the checkout whenever the call
+				// names a base and a head, since `boundFor` prefers that over the
+				// attachment, and from the attachment only when it names neither.
+				// The checkout winning is right: the branch being proposed exists
+				// only in the repo it was committed in.
 				//
-				// For every other action that is right, and it is the point of
-				// having an attachment. For proposing it is wrong whenever it
-				// disagrees with the checkout, because the branch being proposed
-				// only exists in the repo it was committed in. Reading a change
-				// on one backend and then proposing from a checkout of another
-				// would offer the local branch to the attached repo, and nothing
-				// said so: the gate named a head and a base and never a repo, so
-				// the only clue was a base branch that looked ordinary.
+				// This is why the attachment path needs the refusal below.
+				// Reading a change on one backend and then proposing from a
+				// checkout of another would offer the local branch to the attached
+				// repo, and nothing said so: the gate named a head and a base and
+				// never a repo, so the only clue was a base branch that looked
+				// ordinary.
+				//
+				// Note what the checkout resolves to now. `fromLocal` mints a
+				// `local:` key for the target and hands the probe to every
+				// provider, so a provider that claims the checkout answers with
+				// its own hosted key and that is what gets bound. It used to be
+				// read back as the `local:` key on every call after the first,
+				// which is what sent a hosted repo to plain git and lost the
+				// authoring facet with it.
 				//
 				// Refused rather than quietly corrected, since the right answer
 				// is not available here to substitute.
@@ -401,14 +425,20 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 					);
 				}
 
-				// Whatever text is about to become a proposal is held to the
-				// same conventions the guardian enforces on `gh pr create`.
-				// Without this, authoring through a tool is a way around
-				// every rule the shell path cannot be talked past.
-				if (params.action === "propose" || params.action === "edit") {
-					const complaint = proposalComplaint(params.title, params.body);
-					if (complaint) return refuse(complaint);
-				}
+				// The title and body were checked before the bind: whatever text
+				// is about to become a proposal is held to the same conventions
+				// the guardian enforces on `gh pr create`, or authoring through a
+				// tool is a way around every rule the shell path cannot be talked
+				// past.
+				//
+				// Named people are held to the form this backend names people
+				// in, here rather than in each action, since assignees and
+				// reviewers reach three of them. Before anything is sent: a
+				// backend that refuses an assignee refuses it on the request
+				// that creates the change, so finding out later means finding
+				// out with the change already up.
+				const misnamed = peopleComplaint(bound, params);
+				if (misnamed) return refuse(misnamed);
 				// A stack's titles come from commit subjects rather than from
 				// the caller, and those are already held to the standard by the
 				// commit guardian, so there is nothing here to check ahead of
@@ -459,12 +489,10 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 						const decision = await confirmWrite(
 							ctx,
 							`Close ${change.label}`,
-							[
-								`${GLYPH.target} ${change.label}`,
-								params.comment
-									? `\n${params.comment}`
-									: "\nNo reason will be left on it, which reads as abandonment.",
-							].join("\n"),
+							closePanel({
+								label: change.label,
+								...(params.comment ? { comment: params.comment } : {}),
+							}),
 						);
 						if (!decision.approved) return declined(decision, "Left open.");
 						await authoring.close(
@@ -711,6 +739,26 @@ async function proposeStack(
 		return refuse(missingMethod(bound.provider.id, "propose a stack"));
 	}
 
+	// Positional, aligned to `heads`, because `heads` already carries the
+	// dependency order. A shorter list is refused rather than paired off
+	// against the branches it reaches: quietly leaving the last change empty
+	// puts a body somebody wrote on a change they did not mean.
+	const bodies = params.bodies;
+	if (bodies !== undefined && bodies.length !== heads.length) {
+		return refuse(
+			`This names ${count(heads.length, "branch", "branches")} and ${count(bodies.length, "body", "bodies")}. Give one body per branch, in the same order, or none at all.`,
+		);
+	}
+
+	// Every body, not just the first, and before anything is sent. The stack
+	// path is not a way around the conventions the single path enforces.
+	for (const [at, body] of (bodies ?? []).entries()) {
+		const complaint = proposalComplaint(undefined, body);
+		if (complaint) {
+			return refuse(`The body for ${heads[at]} is not usable.\n\n${complaint}`);
+		}
+	}
+
 	const repeated = heads.filter((one, at) => heads.indexOf(one) !== at);
 	if (repeated.length > 0) {
 		// A branch twice in a stack would be proposed onto itself, and the
@@ -746,7 +794,7 @@ async function proposeStack(
 		base: at === 0 ? base : heads[at - 1],
 		head,
 		title: subjects[at] ?? head,
-		body: "",
+		body: bodies?.[at] ?? "",
 		draft: params.draft === true,
 	}));
 
@@ -768,16 +816,234 @@ async function proposeStack(
 	if (!decision.approved) return declined(decision, "Not proposed.");
 
 	const made = await authoring.proposeStack(drafts);
+
+	// The notes go on afterwards because a note names the changes either
+	// side, and no number exists until every change does. This is the only
+	// place they are all known at once: left to the caller it is one edit
+	// per change, each its own gated call, each easy to forget half way.
+	const noted = await annotateStack(authoring, made, drafts);
+
 	return say(
 		[
 			`${GLYPH.lands} ${made.length} of ${drafts.length} proposed`,
 			...made.map((one) => `   ${proposalLine(one)}`),
+			...(noted ? [`   ${GLYPH.refused} ${noted}`] : []),
 		].join("\n"),
 		{ ok: true, proposed: made.length, asked: drafts.length },
 	);
 }
 
+/**
+ * Write each change's stack note, and say if that failed.
+ *
+ * Undefined when every note landed. A failure here must not lose the
+ * changes: the stack is up by then, and reporting a bare failure
+ * describes a world where it is not, which invites proposing it again.
+ * So this answers with what went wrong rather than throwing.
+ *
+ * Skipped for a body nobody wrote. Editing an empty body to hold nothing
+ * but a note would put the navigation where the description should be.
+ */
+async function annotateStack(
+	authoring: NonNullable<BoundTarget["provider"]["authoring"]>,
+	made: Proposal[],
+	drafts: { body: string }[],
+): Promise<string | undefined> {
+	if (made.length < 2) return undefined;
+
+	const failures: string[] = [];
+	for (const [at, one] of made.entries()) {
+		const body = drafts[at]?.body;
+		if (!body) continue;
+		try {
+			await authoring.edit(one.ref, {
+				body: {
+					action: "set",
+					value: withStackNote(body, made, at),
+				},
+			});
+		} catch (error) {
+			failures.push(`${one.ref.label}: ${messageOf(error)}`);
+		}
+	}
+	if (failures.length === 0) return undefined;
+	return `the stack is up, and its notes are not: ${failures.join("; ")}`;
+}
+
+/**
+ * A body with its stack note above it.
+ *
+ * The shape is the github-pr-format skill's: the change below, this one
+ * in bold, the change above. The bottom of a stack has nothing below it
+ * and the top nothing above, so each keeps only the segments pointing
+ * somewhere rather than printing a dangling arrow.
+ */
+function withStackNote(body: string, made: Proposal[], at: number): string {
+	const below = at > 0 ? made[at - 1]?.ref.label : undefined;
+	const above = at < made.length - 1 ? made[at + 1]?.ref.label : undefined;
+	const segments = [
+		...(below ? [`\u{1F448} ${below}`] : []),
+		`\u{1F447} **${made[at]?.ref.label}**`,
+		...(above ? [`\u{1F449} ${above}`] : []),
+	];
+	return ["> [!NOTE]", `> ${segments.join(" \u00b7 ")}`, "", body].join("\n");
+}
+
 /** Put a branch up as a change. */
+/**
+ * One field an edit changes, as the gate needs to describe it.
+ *
+ * The union of what a proposal edit can carry, rather than a shape of
+ * this file's own: a gate that models fewer actions than the contract
+ * allows draws some edits as `undefined`.
+ */
+export type GateEdit = FieldEdit<string> | SetEdit<string>;
+
+/**
+ * Draw the close gate.
+ *
+ * The comment is the payload because it is authored prose that lands on
+ * the change, and it is the only part a reader cannot reconstruct.
+ */
+export function closePanel(gate: {
+	label: string;
+	comment?: string;
+}): GatePanel {
+	return {
+		destination: gate.label,
+		...(gate.comment ? { payload: { body: gate.comment } } : {}),
+		// Said rather than left absent: nothing on a closed change reads as
+		// abandonment to whoever finds it later.
+		...(gate.comment
+			? {}
+			: {
+					consequence: [
+						"No reason will be left on it, which reads as abandonment.",
+					],
+				}),
+	};
+}
+
+/**
+ * Draw the edit gate.
+ *
+ * A new body is the payload, so it renders and is never clipped. It used
+ * to be sliced at 200 characters, which is mid-sentence for the shortest
+ * body this package will write, and the slice was invisible: what the
+ * gate showed and what would land stopped being the same text.
+ *
+ * Every other field stays a one-line summary, since a label or a base is
+ * fully described by naming it.
+ */
+export function editPanel(gate: {
+	label: string;
+	edits: Record<string, GateEdit | undefined>;
+	caution?: string;
+}): GatePanel {
+	const body = gate.edits.body;
+	const newBody =
+		body?.action === "set" && typeof body.value === "string"
+			? body.value
+			: undefined;
+	return {
+		destination: gate.label,
+		...(newBody === undefined ? {} : { payload: { body: newBody } }),
+		consequence: [
+			...(gate.caution ? [`${GLYPH.refused} ${gate.caution}`] : []),
+			...Object.entries(gate.edits)
+				// The body is above, drawn whole. Naming it here as well would
+				// say the same edit twice.
+				.filter(([field]) => !(field === "body" && newBody !== undefined))
+				.map(([field, edit]) => `${field}: ${describeEdit(edit)}`),
+		],
+	};
+}
+
+/**
+ * One edit in a phrase.
+ *
+ * A set edit says which way it is going, since "labels: risky" reads as a
+ * replacement and usually is not one.
+ */
+function describeEdit(edit: GateEdit | undefined): string {
+	if (edit === undefined) return "unchanged";
+	if (edit.action === "clear") return "cleared";
+	const value = Array.isArray(edit.value)
+		? edit.value.join(", ")
+		: String(edit.value);
+	return edit.action === "set" ? value : `${edit.action} ${value}`;
+}
+
+/** What the propose gate needs to draw itself. */
+export interface ProposalGate {
+	head: string;
+	base: string;
+	/** The repo key, named because the checkout cannot tell you it. */
+	repo: string;
+	title: string;
+	body: string;
+	draft: boolean;
+	reviewers?: string[];
+	/** Fields taken from the checkout rather than given. */
+	guessed?: string[];
+	warnings?: string[];
+	/** Something permitted that the approver still needs to know. */
+	caution?: string;
+}
+
+/**
+ * Draw the propose gate.
+ *
+ * A panel rather than a joined string, so the body reaches
+ * `renderMarkdown` and the inset the way every other gate's does. A PR
+ * body is the most markdown-heavy text this package produces, and raw
+ * wrapping showed its section headings as literal `###`.
+ *
+ * Pure, which is what makes it testable: the terminal stays in the thin
+ * call that shows the result.
+ */
+export function proposePanel(gate: ProposalGate): GatePanel {
+	return {
+		// The repo is named because it is the one thing here not taken from
+		// the checkout, so it is the one thing a reader cannot verify by
+		// knowing where they are standing.
+		destination: `${gate.head} → ${gate.base} on ${gate.repo}`,
+		where: `${gate.title}${gate.draft ? " · draft" : ""}`,
+		...(gate.body ? { payload: { body: gate.body } } : {}),
+		consequence: [
+			...(gate.reviewers?.length
+				? [`Asking: ${gate.reviewers.join(", ")}`]
+				: []),
+			// Named rather than merely used, so a wrong guess is caught here by
+			// the one person who can tell.
+			...(gate.guessed?.length
+				? [`Taken from the checkout: ${gate.guessed.join(", ")}.`]
+				: []),
+			...(gate.caution ? [`${GLYPH.refused} ${gate.caution}`] : []),
+			...(gate.warnings ?? []).map((warning) => `${GLYPH.refused} ${warning}`),
+		],
+	};
+}
+
+/**
+ * Whether the people named are named the way this backend names people.
+ *
+ * Asked before anything is sent. A backend that refuses an assignee does
+ * it on the request that creates the change, so finding out afterwards
+ * means finding out with the change already up.
+ */
+function peopleComplaint(
+	bound: BoundTarget,
+	params: OfferParams,
+): string | undefined {
+	const form = bound.capabilities.authoring?.identifies ?? "unknown";
+	const named = [...(params.assignees ?? []), ...(params.reviewers ?? [])];
+	const complaint = misnamedPeople(named, form);
+	return complaint === undefined
+		? undefined
+		: `${complaint} Name them the way ${bound.provider.id} does.`;
+}
+
 async function propose(
 	pi: ExtensionAPI,
 	ctx: Parameters<Parameters<ExtensionAPI["registerTool"]>[0]["execute"]>[4],
@@ -816,23 +1082,17 @@ async function propose(
 	const decision = await confirmWrite(
 		ctx,
 		`Propose ${head} onto ${base}`,
-		[
-			`${GLYPH.target} ${title}${params.draft ? " (draft)" : ""}`,
-			// The repo is named because it is the one thing here not taken from
-			// the checkout, so it is the one thing a reader cannot verify by
-			// knowing where they are standing.
-			`   ${head} → ${base} on ${bound.repo.key}`,
-			...(body ? ["", body] : []),
-			...(params.reviewers?.length
-				? ["", `Asking: ${params.reviewers.join(", ")}`]
-				: []),
-			// Named rather than merely used, so a wrong guess is caught
-			// here by the one person who can tell.
-			...(guessed.length === 0
-				? []
-				: ["", `Taken from the checkout: ${guessed.join(", ")}.`]),
-			...warnings.map((warning) => `\n${GLYPH.refused} ${warning}`),
-		].join("\n"),
+		proposePanel({
+			head,
+			base,
+			repo: bound.repo.key,
+			title,
+			body,
+			draft: params.draft,
+			...(params.reviewers?.length ? { reviewers: params.reviewers } : {}),
+			...(guessed.length > 0 ? { guessed } : {}),
+			...(warnings.length > 0 ? { warnings } : {}),
+		}),
 	);
 	if (!decision.approved) return declined(decision, "Not proposed.");
 
@@ -970,18 +1230,11 @@ async function edit(
 	const decision = await confirmWrite(
 		ctx,
 		`Edit ${change.label}`,
-		cautioned(
-			Object.entries(edits)
-				.map(([field, edit]) =>
-					edit?.action === "clear"
-						? `${field}: cleared`
-						: // A set edit says which way it is going, since "labels:
-							// risky" reads as a replacement and usually is not one.
-							`${field}: ${edit?.action === "set" ? "" : `${edit?.action} `}${String(edit?.value).slice(0, 200)}`,
-				)
-				.join("\n"),
-			caution,
-		),
+		editPanel({
+			label: change.label,
+			edits,
+			...(caution ? { caution } : {}),
+		}),
 	);
 	if (!decision.approved) return declined(decision, "Left as it was.");
 

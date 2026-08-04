@@ -201,6 +201,42 @@ describe("build home gate", () => {
 		expect(verdict?.reason).toMatch(/tree-add/);
 	});
 
+	it("reads a redirect target the command assigns to a variable", async () => {
+		// The write that exposed this was `Q=<quest dir>; ... >> $Q/plans/P.md`
+		// from inside an unrelated checkout. The raw token came back
+		// unexpanded, was resolved against the cwd, and the write to the quest
+		// directory was blocked with adoption guidance naming a repository
+		// nobody had touched.
+		const state = buildState();
+		await createQuestWithPlan(state);
+		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
+		const verdict = enforceQuest(
+			state,
+			"bash",
+			{ command: `Q=${state.questDir}; echo hi >> $Q/plans/P.md` },
+			repoRoot,
+			noScratch,
+		);
+		expect(verdict).toBeUndefined();
+	});
+
+	it("judges nothing when it cannot tell where a redirect lands", async () => {
+		// A target built from something the command does not say. Resolving
+		// the literal against the cwd invents a path nobody wrote to, and
+		// blocking the wrong tree is worse than declining to judge this one.
+		const state = buildState();
+		await createQuestWithPlan(state);
+		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
+		const verdict = enforceQuest(
+			state,
+			"bash",
+			{ command: "echo hi >> $ELSEWHERE/notes.md" },
+			tmpRoot,
+			noScratch,
+		);
+		expect(verdict).toBeUndefined();
+	});
+
 	it("allows a bash redirect inside a tracked git working tree", async () => {
 		const state = buildState();
 		await createQuestWithPlan(state);

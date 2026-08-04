@@ -31,6 +31,7 @@ const STACKED: AuthoringCapabilities = {
 	merge: true,
 	labels: true,
 	assignees: true,
+	identifies: "email",
 	refusesWhileEnqueued: true,
 	rerunChecks: false,
 };

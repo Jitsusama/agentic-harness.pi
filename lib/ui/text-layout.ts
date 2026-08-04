@@ -8,7 +8,7 @@ import { CONTENT_INDENT } from "./types.js";
 export { CONTENT_INDENT };
 
 /** Fallback content width when the panel width is unavailable. */
-export const FALLBACK_CONTENT_WIDTH = 72;
+const FALLBACK_CONTENT_WIDTH = 72;
 
 /**
  * Compute the word-wrap width for panel content. Caps to the

@@ -9,8 +9,7 @@
  * someone tries to use the thing.
  */
 
-import { afterEach, describe, expect, it, vi } from "vitest";
-import reviewIntegration from "../../extensions/review-integration/index.js";
+import { afterEach, describe, expect, it } from "vitest";
 import { watchRound } from "../../extensions/review-integration/progress.js";
 import {
 	clearReviewProviders,
@@ -20,45 +19,7 @@ import {
 	REVIEW_REQUEST_SUBSTRATE,
 	type ReviewSubstrateApi,
 } from "../../lib/review/index.js";
-
-/** Just enough of pi's surface for registration to run. */
-function stubPi() {
-	const tools: string[] = [];
-	const handlers = new Map<string, (data: unknown) => void>();
-	const lifecycle = new Map<string, (event: unknown, ctx: unknown) => void>();
-	const emitted: { event: string; data: unknown }[] = [];
-	const pi = {
-		registerTool(definition: { name: string }) {
-			tools.push(definition.name);
-		},
-		// pi's typed lifecycle hook, which hands over a context. Distinct
-		// from the untyped `events` bus below: the progress reporter needs
-		// the context, and only this one carries it.
-		on(event: string, handler: (event: unknown, ctx: unknown) => void) {
-			lifecycle.set(event, handler);
-		},
-		exec: vi.fn(async () => ({ code: 0, stdout: "", stderr: "" })),
-		events: {
-			on(event: string, handler: (data: unknown) => void) {
-				handlers.set(event, handler);
-			},
-			emit(event: string, data: unknown) {
-				emitted.push({ event, data });
-			},
-		},
-	};
-	return { pi, tools, handlers, lifecycle, emitted };
-}
-
-/** Run the extension against a stub. */
-function activate() {
-	const stub = stubPi();
-	// The stub is structural: the extension only uses the parts
-	// modelled here, and a real ExtensionAPI is unavailable
-	// outside a session.
-	reviewIntegration(stub.pi as never);
-	return stub;
-}
+import { activate } from "./support/review-extension.js";
 
 afterEach(() => clearReviewProviders());
 

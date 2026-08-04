@@ -27,9 +27,20 @@ describe("buildBindingRules", () => {
 			"github-issue-format",
 			"commit-format",
 			"slack-guide",
+			"review-guide",
 		]) {
 			expect(rules).toContain(skillName);
 		}
+	});
+
+	it("says which tool opens a change", () => {
+		// The one convention here that is about reaching for the right tool
+		// rather than about what to write. It rides every prompt because a
+		// skill description only helps somebody who goes looking, and the
+		// failure it prevents is reaching for `gh pr create` without ever
+		// wondering whether something else was meant.
+		expect(rules).toContain("review_offer");
+		expect(rules).toContain("gh pr create");
 	});
 
 	it("states the prose prohibitions the prose-standard skill defines", () => {

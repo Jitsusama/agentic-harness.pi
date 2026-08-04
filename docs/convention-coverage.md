@@ -37,6 +37,21 @@ of slipping into the wild for someone to spot in a bad artifact.
 
 ## Open Gaps
 
+One closed by measurement rather than by a new gate. The tool path's
+refusals named the rule and not the offending text, so "use Canadian
+English spelling" arrived without the word or its replacement, and the
+title rule printed its own working, `sentence-case: fix(review, replay,
+whole, resolution`, as though it were a diagnosis. The detectors always
+carried `found` and `suggestion`; only the tool's own formatting threw
+them away. It now uses the same three block formatters the guardian
+uses, so the two paths cannot drift and there is one place to improve
+them. The `tally` helper that did the throwing away is gone.
+
+Worth recording as a shape rather than an incident: a rule can be
+enforced and still unusable, because a gate that blocks correctly and
+explains badly reads as a broken gate. Coverage in this matrix means
+the violation is caught; it does not promise the message helps.
+
 The gate-level authoring gaps are closed. A fresh batch is open: the
 quest-workflow rework (PLAN-20260704-Y1KP37) is closing the gap
 between what `quest-convention` and `quest-format` promise and what
@@ -137,7 +152,10 @@ PR description structure and narrative.
 | No invented headings | Body Structure | 🟢 | Same detector, `invented` issue kind |
 | URI indexing (issues, files, commits) | URI Indexing | ⚪ | Judgment about what to reference. |
 | Self-review comment placement and ranges | Self-Review Comments | ⚪ | Judgment. |
-| Prose conventions inside the body | (inherits prose-standard) | 🟢 | `runProseGate` in `pr-guardian` |
+| Prose conventions inside the body | (inherits prose-standard) | 🟢 | `runProseGate` in `pr-guardian`, and `proposalComplaint` on the tool path |
+| Link the tracking issue when one exists, and omit the line when none does | Issue and Stack Context | 🚫 | Was written as "always start the body with `Part of #ISSUE_NUMBER`", which asks for a number that may not exist and produced bodies pointing at unrelated issues. Now conditional. Not gateable: whether an issue tracks the work is not in the text, and the section detector reads headings only and never looks before the first one. |
+| Stack note shape, and where it sits when there is no issue line | Issue and Stack Context | 🟢 | Written by `propose-stack` itself in `extensions/review-integration/tools/offer.ts`, which is the only place every change's number exists at once; pinned by `tests/extensions/review-offer-stack.test.ts` |
+| A change is opened through the review tools, not `gh pr create` | (cross-cutting) | 🟢 | `runRedirectGate` in `lib/internal/guardian/redirect-gate.ts`, blocking a create once where a provider serves the checkout and relenting on a repeat; also stated in `review_offer`'s tool description and the resident conventions block |
 | Future work belongs in an issue, not the PR | Body Structure (intro) | ⚪ | The closed section set already removes the temptation; no separate gate needed. |
 
 ### github-issue-format

@@ -148,19 +148,21 @@ export {
 	createAttachmentStore,
 } from "./attach.js";
 export type { AuthoringIntent, Offerable } from "./authoring.js";
-export { offerable } from "./authoring.js";
+export { misnamedPeople, offerable } from "./authoring.js";
 export type { Unbacked } from "./backed.js";
 export { BACKED_BY, unbackedDeclarations } from "./backed.js";
-export type { TargetResolution } from "./bind.js";
+export type { RepoResolution, TargetResolution } from "./bind.js";
 export {
 	bindTarget,
 	clearTargetBindings,
+	resolveRepo,
 	resolveTarget,
 } from "./bind.js";
 export type {
 	AuthoringCapabilities,
 	Capabilities,
 	ConversationCapabilities,
+	PersonForm,
 	ProposalCapabilities,
 	RetargetScope,
 	ReviewersAt,
@@ -262,6 +264,7 @@ export type {
 	LocalSpec,
 	ReviewEngine,
 	ReviewEngineDeps,
+	ServingRepo,
 } from "./engine.js";
 export { createReviewEngine } from "./engine.js";
 export type { ReviewSubstrateApi } from "./events.js";

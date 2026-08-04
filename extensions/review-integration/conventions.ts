@@ -15,30 +15,29 @@
  * it cannot rewrite the words. A tool can simply be called again with a
  * better body, so a refusal here is a plain refusal with no relent
  * path, which is also why it cannot loop.
+ *
+ * The same formatters too. This used to tally an issue word against the
+ * offending text, which said "use Canadian English spelling" without
+ * naming the word, and printed the title rule's internal word list as
+ * though it were a diagnosis: `sentence-case: fix(review, replay,
+ * whole, resolution`. The guardian's blocks already name the word and
+ * its replacement, and explain what Title Case wants, so both paths now
+ * say the same thing and there is one place to improve it.
  */
 
-import { detectProseViolations } from "../../lib/prose/index.js";
+import {
+	detectProseViolations,
+	formatProseBlock,
+} from "../../lib/prose/index.js";
 import {
 	detectSectionViolations,
+	formatSectionBlock,
 	PR_SECTIONS,
 } from "../../lib/sections/index.js";
-import { detectTitleViolations } from "../../lib/title/index.js";
-
-/**
- * What was wrong, said once per habit rather than once per instance.
- *
- * A prose violation names its own rule in a sentence; a section or
- * title violation carries an issue and the offending text, which read
- * better together. So callers pass descriptions rather than a field,
- * because there is no one field that suits all three.
- */
-function tally(descriptions: string[]): string[] {
-	const counts = new Map<string, number>();
-	for (const one of descriptions) counts.set(one, (counts.get(one) ?? 0) + 1);
-	return [...counts].map(
-		([one, count]) => `   ${one}${count > 1 ? ` (${count} times)` : ""}`,
-	);
-}
+import {
+	detectTitleViolations,
+	formatTitleBlock,
+} from "../../lib/title/index.js";
 
 /**
  * A refusal naming what to fix about a proposal, or nothing.
@@ -52,38 +51,32 @@ export function proposalComplaint(
 	title: string | undefined,
 	body: string | undefined,
 ): string | undefined {
-	if (body !== undefined && body.trim() !== "") {
-		const sections = detectSectionViolations(body, PR_SECTIONS);
-		if (sections.length > 0) {
-			return [
-				"This body does not match the PR format, and proposing is not a way around it.",
-				...tally(sections.map((one) => `${one.issue}: ${one.found}`)),
-				"Read the github-pr-format skill: the section set is closed.",
-			].join("\n");
-		}
-	}
+	const written = body !== undefined && body.trim() !== "";
+	const named = title !== undefined && title.trim() !== "";
 
-	if (title !== undefined && title.trim() !== "") {
-		const titles = detectTitleViolations(title);
-		if (titles.length > 0) {
-			return [
-				"This title does not match the convention.",
-				...tally(titles.map((one) => `${one.issue}: ${one.found}`)),
-				"Read the github-pr-format skill for the title rules.",
-			].join("\n");
-		}
-	}
+	// Every class at once, in the guardian's order. Returning at the first
+	// one made each fix reveal the next: a body was refused for its
+	// sections, then for its title, then for an emdash, and every round
+	// trip through the tool was another chance for something else to go
+	// wrong. One refusal that says everything costs one rewrite.
+	const blocks = [
+		written
+			? formatSectionBlock(
+					detectSectionViolations(body, PR_SECTIONS),
+					"pull request",
+					"github-pr-format",
+				)
+			: "",
+		named
+			? formatTitleBlock(
+					detectTitleViolations(title),
+					"pull request",
+					"github-pr-format",
+				)
+			: "",
+		written ? formatProseBlock(detectProseViolations(body)) : "",
+	].filter((block) => block !== "");
 
-	if (body !== undefined && body.trim() !== "") {
-		const prose = detectProseViolations(body);
-		if (prose.length > 0) {
-			return [
-				"This body breaks the prose standard.",
-				...tally(prose.map((one) => one.rule)),
-				"Rewrite it and propose again.",
-			].join("\n");
-		}
-	}
-
-	return undefined;
+	if (blocks.length === 0) return undefined;
+	return blocks.join("\n").trimEnd();
 }

@@ -80,6 +80,11 @@ function githubCapabilities(): Capabilities {
 			merge: true,
 			labels: true,
 			assignees: true,
+			// A login, not an email. The REST routes take `assignees` as an
+			// array of logins and answer 422 for anything else, and an email
+			// address is not derivable from a login here: the address on a
+			// commit belongs to the commit, not to the account.
+			identifies: "login",
 			// True because Actions runs can be reposted, not because every
 			// check on a GitHub change can be. A check contributed by some
 			// other app has no run behind it, and the implementation

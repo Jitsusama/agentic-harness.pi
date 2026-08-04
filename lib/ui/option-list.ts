@@ -23,9 +23,7 @@ import {
 import type { ListChoice } from "./types.js";
 
 /** Result of navigating and selecting from an option list. */
-export type OptionListResult =
-	| { type: "select"; index: number }
-	| { type: "cancel" };
+type OptionListResult = { type: "select"; index: number } | { type: "cancel" };
 
 /** Resolve the value for an option (defaults to lowercase label). */
 export function optionValue(option: ListChoice): string {

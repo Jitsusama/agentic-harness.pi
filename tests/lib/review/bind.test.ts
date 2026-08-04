@@ -6,6 +6,7 @@ import {
 	type ReviewConfig,
 	type ReviewTarget,
 	registerReviewProvider,
+	resolveRepo,
 	resolveTarget,
 	unregisterReviewProvider,
 } from "../../../lib/review";
@@ -117,6 +118,31 @@ describe("resolveTarget", () => {
 		expect(second.resolved && second.provider.id).toBe("git");
 	});
 
+	it("reports the claimed repo on a remembered call, not the local locator", () => {
+		// Every other test here has the stub claim the key the target already
+		// carries, so a memo that replayed the target's own locator looked
+		// correct. A provider that maps a checkout onto a hosted repo is what
+		// tells the two apart, and it is the real case: a local range in a
+		// world checkout resolves to a hosted change.
+		registerReviewProvider(
+			stubProvider({
+				id: "meteorite",
+				priority: 50,
+				claimRepo: () => world,
+			}),
+		);
+
+		const first = resolveTarget(localRange);
+		expect(first.resolved && first.repo.key).toBe(world.key);
+		expect(first.resolved && first.via).toBe("claim");
+
+		// The second call is the one that broke: a retry after a refusal
+		// handed the provider `local:/src/app`, which it does not serve.
+		const second = resolveTarget(localRange);
+		expect(second.resolved && second.repo.key).toBe(world.key);
+		expect(second.resolved && second.via).toBe("claim");
+	});
+
 	it("re-resolves when the bound provider goes away", () => {
 		registerReviewProvider(
 			stubProvider({
@@ -226,5 +252,71 @@ describe("resolving a local target from what the probe found", () => {
 		);
 
 		expect(resolveTarget(localRange).resolved).toBe(true);
+	});
+});
+
+describe("resolving a checkout with nothing to review yet", () => {
+	// "What can be done here" is a question about a repo, not about a
+	// change, and it is the question somebody asks before they have a
+	// change. Answering it used to require inventing a base and a head.
+	const probe = {
+		repoRoot: "/src/app",
+		remoteUrls: ["git@github.com:Shopify/world.git"],
+	};
+
+	it("answers with the provider that claims the checkout", () => {
+		registerReviewProvider(claimingProvider("github", 10, mirror));
+
+		const resolution = resolveRepo(probe);
+
+		expect(resolution.resolved && resolution.provider.id).toBe("github");
+		expect(resolution.resolved && resolution.repo.key).toBe(mirror.key);
+		expect(resolution.resolved && resolution.via).toBe("claim");
+	});
+
+	it("prefers a repo mapping over claim order, as a target does", () => {
+		registerReviewProvider(claimingProvider("github", 10, mirror));
+		registerReviewProvider(claimingProvider("meteorite", 900, world));
+		const config: ReviewConfig = {
+			repos: [{ match: "Shopify/world", providers: ["meteorite"] }],
+		};
+
+		const resolution = resolveRepo(probe, { config });
+
+		expect(resolution.resolved && resolution.provider.id).toBe("meteorite");
+		expect(resolution.resolved && resolution.via).toBe("config-repo");
+	});
+
+	it("refuses with what it tried when nobody claims it", () => {
+		// A provider that reads the probe, since `claimingProvider` claims
+		// whatever it is shown and could never refuse.
+		registerReviewProvider(
+			stubProvider({
+				id: "github",
+				priority: 10,
+				claimRepo: (seen) =>
+					(seen.remoteUrls ?? []).some((url) => url.includes("github.com"))
+						? mirror
+						: null,
+			}),
+		);
+
+		const resolution = resolveRepo({ repoRoot: "/src/app", remoteUrls: [] });
+
+		expect(resolution.resolved).toBe(false);
+		expect(!resolution.resolved && resolution.tried).toContain("github");
+	});
+
+	it("remembers nothing, because a checkout is not a target", () => {
+		// A binding exists so a target cannot flip provider mid-flight. There
+		// is no target here, and pinning the repo would decide for every
+		// later range and stack over it.
+		registerReviewProvider(claimingProvider("github", 10, mirror));
+		resolveRepo(probe);
+
+		registerReviewProvider(claimingProvider("meteorite", 1, world));
+
+		const again = resolveRepo(probe);
+		expect(again.resolved && again.provider.id).toBe("meteorite");
 	});
 });

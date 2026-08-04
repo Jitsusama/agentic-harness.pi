@@ -6,8 +6,15 @@
  * handles via search.messages.
  *
  * On enterprise grids, users.list and users.lookupByEmail are
- * blocked, so we resolve handles by searching for a message
+ * often blocked, so we resolve handles by searching for a message
  * from that user and extracting the user ID from the result.
+ *
+ * Often, not always: the email lookup is worth trying, because it
+ * is the only form that resolves somebody who has never posted a
+ * message the searcher can see. A blocked grid answers with an
+ * error, which degrades to the search rather than reaching the
+ * caller. A full name is refused outright, since `from:Chao Duan`
+ * cannot match and spending a call to learn that helps nobody.
  */
 
 import type { SlackClient } from "../api/client.js";
@@ -41,6 +48,25 @@ export async function resolveUser(
 	const cached = lookupId(CACHE_FILE, name);
 	if (cached) return cached;
 
+	// A display name cannot be searched for: `from:` takes a handle, so
+	// `from:Chao Duan *` matches nothing and the failure arrives after a
+	// round trip, phrased as though the name were misspelled.
+	if (/\s/.test(name)) {
+		throw new Error(
+			`Could not resolve user "${input}": a full name cannot be looked up. ` +
+				"Use their email address, their Slack handle (as in @joel.gerber) " +
+				"or a user ID (as in U0123ABC).",
+		);
+	}
+
+	// An email is the one form that resolves somebody who has posted
+	// nothing visible. Blocked on some grids, which is not the caller's
+	// problem: fall through to the search.
+	if (name.includes("@")) {
+		const byEmail = await lookUpByEmail(client, name, signal);
+		if (byEmail) return byEmail;
+	}
+
 	// Resolve via search. Enterprise grids block users.list,
 	// but search.messages with from:username works.
 	const response = await client.call<{
@@ -60,8 +86,37 @@ export async function resolveUser(
 
 	throw new Error(
 		`Could not resolve user "${input}". ` +
-			"Use a user ID (e.g. U0123ABC) or verify the username.",
+			"Use their email address, a user ID (e.g. U0123ABC), or verify the handle.",
 	);
+}
+
+/**
+ * The user behind an email address, or undefined when this grid will not
+ * say.
+ *
+ * A refusal here is expected rather than exceptional: the method is
+ * commonly restricted, and a caller who passed an email should get the
+ * search's answer instead of the grid's policy.
+ */
+async function lookUpByEmail(
+	client: SlackClient,
+	email: string,
+	signal?: AbortSignal,
+): Promise<string | undefined> {
+	try {
+		const response = await client.call<{
+			user?: { id?: string; name?: string };
+		}>("users.lookupByEmail", { email }, signal);
+		const id = response.user?.id;
+		if (!id) return undefined;
+		if (response.user?.name) cacheUser(response.user.name, id);
+		cacheUser(email, id);
+		return id;
+	} catch {
+		// Blocked, or no such address. Either way the search may still
+		// answer, and the refusal at the end of the caller says both forms.
+		return undefined;
+	}
 }
 
 /** Cache file for channel name ↔ ID mappings. */

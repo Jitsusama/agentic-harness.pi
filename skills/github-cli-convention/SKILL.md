@@ -20,6 +20,20 @@ succeeds and is read by nobody. `review capabilities` says which
 provider answers for a change, and `review-guide` covers reading
 and reviewing without assuming a forge.
 
+Worse than a mirror that answers: a change the mirror has never
+heard of. A pull request created on a non-GitHub backend exists
+only there, so `gh` cannot see it at all, whatever host and repo
+you spell out. Asking anyway gets you
+
+```
+Could not resolve to a PullRequest with the number of 2001696.
+```
+
+which reads as a wrong number and is nothing of the kind. Do not
+respond by hunting for the right number or the right `-R`: there
+is none. Reach for `review_offer edit`, which asks the system
+that actually holds the change.
+
 Prefer the tool to the CLI where it reaches. `review_offer
 propose` opens a change, `edit` changes its title, body or base,
 and `add` and `set` handle labels and assignees, on whichever

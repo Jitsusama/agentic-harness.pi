@@ -253,11 +253,3 @@ export function handleNavigableListInput(
 
 	return null;
 }
-
-/**
- * Count the total number of items across sections.
- * Useful for passing to handleNavigableListInput.
- */
-export function sectionItemCount(sections: NavigableSection[]): number {
-	return sections.reduce((n, s) => n + s.items.length, 0);
-}

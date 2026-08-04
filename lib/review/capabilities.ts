@@ -148,6 +148,20 @@ export type ReviewersAt = "creation" | "any-time" | "never";
 export type RetargetScope = "change" | "stack" | "never";
 
 /**
+ * How a backend names a person.
+ *
+ * The same string is a valid assignee on one backend and meaningless on
+ * another: GitHub wants a login, gitstream wants a Shopify email address.
+ * Declared rather than inferred, because the failure otherwise arrives
+ * from the create route after the change exists.
+ *
+ * `unknown` is for a backend that has not been measured. It is checked
+ * against nothing, since silence is not a licence to guess: picking a
+ * rule for a backend nobody asked would refuse values it accepts.
+ */
+export type PersonForm = "login" | "email" | "unknown";
+
+/**
  * What a provider's authoring facet can do.
  *
  * Every field here is a difference the CLI survey actually found. The
@@ -167,6 +181,15 @@ export interface AuthoringCapabilities {
 	merge: boolean;
 	labels: boolean;
 	assignees: boolean;
+	/**
+	 * The form this backend names people in, for assignees and reviewers.
+	 *
+	 * Required rather than optional so a new backend has to answer it. An
+	 * absent field would read as "no opinion" for a backend that simply
+	 * had not been asked, which is the ambiguity that lets a login reach a
+	 * server that only knows email addresses.
+	 */
+	identifies: PersonForm;
 	/**
 	 * Ask CI to run again.
 	 *
