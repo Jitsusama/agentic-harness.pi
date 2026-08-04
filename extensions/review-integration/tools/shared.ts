@@ -206,6 +206,8 @@ export interface TargetParams {
 	base?: string;
 	head?: string;
 	refs?: string[];
+	/** The branches of a stack being proposed, in dependency order. */
+	heads?: string[];
 }
 
 /**
@@ -224,6 +226,14 @@ export async function boundFor(
 	const { engine } = await reviewEngine(pi);
 	if (params.refs && params.refs.length > 0) {
 		return engine.fromLocal(params.repo ?? cwd, { refs: params.refs });
+	}
+	// A stack being proposed names its branches in `heads`, which is the
+	// same thing `refs` is for a stack being read. Without this, proposing a
+	// stack from a checkout fell through to the attachment and was refused
+	// with "Name a change, or a base and head", having been given every
+	// branch in the stack.
+	if (params.heads && params.heads.length > 0) {
+		return engine.fromLocal(params.repo ?? cwd, { refs: params.heads });
 	}
 	if (params.base && params.head) {
 		return engine.fromLocal(params.repo ?? cwd, {

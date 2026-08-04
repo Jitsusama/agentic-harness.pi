@@ -24,8 +24,20 @@ export type RegisteredTool = {
 	) => Promise<unknown>;
 };
 
+/**
+ * What the stub should answer for a git command.
+ *
+ * Keyed by a fragment of the argv, first match winning. Anything
+ * unmatched answers empty and succeeds, which is what a checkout with
+ * nothing to say looks like: no remotes, no upstream, no tags.
+ */
+export type ExecAnswers = Record<
+	string,
+	{ code?: number; stdout?: string; stderr?: string }
+>;
+
 /** Build the stub without activating anything. */
-export function stubPi() {
+export function stubPi(answers: ExecAnswers = {}) {
 	const tools: string[] = [];
 	const definitions = new Map<string, RegisteredTool>();
 	const handlers = new Map<string, (data: unknown) => void>();
@@ -33,13 +45,17 @@ export function stubPi() {
 	const emitted: { event: string; data: unknown }[] = [];
 	const commands: string[][] = [];
 
-	// Every git call answers empty and succeeds, which is what a checkout
-	// with nothing to say looks like: no remotes, no upstream, no tags. A
-	// test that needs a checkout to say something should assert on what it
-	// asked rather than teach this stub to lie in detail.
 	const exec = vi.fn(async (file: string, args: string[] = []) => {
 		commands.push([file, ...args]);
-		return { code: 0, stdout: "", stderr: "" };
+		const line = [file, ...args].join(" ");
+		const found = Object.entries(answers).find(([fragment]) =>
+			line.includes(fragment),
+		);
+		return {
+			code: found?.[1].code ?? 0,
+			stdout: found?.[1].stdout ?? "",
+			stderr: found?.[1].stderr ?? "",
+		};
 	});
 
 	const pi = {
@@ -84,8 +100,8 @@ export function stubPi() {
  * one, silently, and the test then exercises a provider it never wrote.
  * Give a stub an id of its own, `plain-vcs` rather than `git`.
  */
-export function activate() {
-	const stub = stubPi();
+export function activate(answers: ExecAnswers = {}) {
+	const stub = stubPi(answers);
 	// The stub is structural: the extension only uses the parts modelled
 	// here, and a real ExtensionAPI is unavailable outside a session.
 	reviewIntegration(stub.pi as never);

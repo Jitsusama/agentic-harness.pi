@@ -74,6 +74,7 @@ interface OfferParams {
 	heads?: string[];
 	title?: string;
 	body?: string;
+	bodies?: string[];
 	draft?: boolean;
 	comment?: string;
 	method?: string;
@@ -223,6 +224,12 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 				Type.Array(Type.String(), {
 					description:
 						"For propose-stack: the branches, in dependency order with the root first. Each is proposed onto the one before it, and the first onto base. The order is yours because nothing here can work it out.",
+				}),
+			),
+			bodies: Type.Optional(
+				Type.Array(Type.String(), {
+					description:
+						"For propose-stack: one body per branch, in the same order as heads. Held to the PR format, the same as a single propose. Omit to open the stack with empty bodies, and give as many as there are branches: a shorter list is refused rather than paired off against the branches it happens to reach.",
 				}),
 			),
 			title: Type.Optional(
@@ -725,6 +732,26 @@ async function proposeStack(
 		return refuse(missingMethod(bound.provider.id, "propose a stack"));
 	}
 
+	// Positional, aligned to `heads`, because `heads` already carries the
+	// dependency order. A shorter list is refused rather than paired off
+	// against the branches it reaches: quietly leaving the last change empty
+	// puts a body somebody wrote on a change they did not mean.
+	const bodies = params.bodies;
+	if (bodies !== undefined && bodies.length !== heads.length) {
+		return refuse(
+			`This names ${count(heads.length, "branch", "branches")} and ${count(bodies.length, "body", "bodies")}. Give one body per branch, in the same order, or none at all.`,
+		);
+	}
+
+	// Every body, not just the first, and before anything is sent. The stack
+	// path is not a way around the conventions the single path enforces.
+	for (const [at, body] of (bodies ?? []).entries()) {
+		const complaint = proposalComplaint(undefined, body);
+		if (complaint) {
+			return refuse(`The body for ${heads[at]} is not usable.\n\n${complaint}`);
+		}
+	}
+
 	const repeated = heads.filter((one, at) => heads.indexOf(one) !== at);
 	if (repeated.length > 0) {
 		// A branch twice in a stack would be proposed onto itself, and the
@@ -760,7 +787,7 @@ async function proposeStack(
 		base: at === 0 ? base : heads[at - 1],
 		head,
 		title: subjects[at] ?? head,
-		body: "",
+		body: bodies?.[at] ?? "",
 		draft: params.draft === true,
 	}));
 
@@ -782,13 +809,77 @@ async function proposeStack(
 	if (!decision.approved) return declined(decision, "Not proposed.");
 
 	const made = await authoring.proposeStack(drafts);
+
+	// The notes go on afterwards because a note names the changes either
+	// side, and no number exists until every change does. This is the only
+	// place they are all known at once: left to the caller it is one edit
+	// per change, each its own gated call, each easy to forget half way.
+	const noted = await annotateStack(authoring, made, drafts);
+
 	return say(
 		[
 			`${GLYPH.lands} ${made.length} of ${drafts.length} proposed`,
 			...made.map((one) => `   ${proposalLine(one)}`),
+			...(noted ? [`   ${GLYPH.refused} ${noted}`] : []),
 		].join("\n"),
 		{ ok: true, proposed: made.length, asked: drafts.length },
 	);
+}
+
+/**
+ * Write each change's stack note, and say if that failed.
+ *
+ * Undefined when every note landed. A failure here must not lose the
+ * changes: the stack is up by then, and reporting a bare failure
+ * describes a world where it is not, which invites proposing it again.
+ * So this answers with what went wrong rather than throwing.
+ *
+ * Skipped for a body nobody wrote. Editing an empty body to hold nothing
+ * but a note would put the navigation where the description should be.
+ */
+async function annotateStack(
+	authoring: NonNullable<BoundTarget["provider"]["authoring"]>,
+	made: Proposal[],
+	drafts: { body: string }[],
+): Promise<string | undefined> {
+	if (made.length < 2) return undefined;
+
+	const failures: string[] = [];
+	for (const [at, one] of made.entries()) {
+		const body = drafts[at]?.body;
+		if (!body) continue;
+		try {
+			await authoring.edit(one.ref, {
+				body: {
+					action: "set",
+					value: withStackNote(body, made, at),
+				},
+			});
+		} catch (error) {
+			failures.push(`${one.ref.label}: ${messageOf(error)}`);
+		}
+	}
+	if (failures.length === 0) return undefined;
+	return `the stack is up, and its notes are not: ${failures.join("; ")}`;
+}
+
+/**
+ * A body with its stack note above it.
+ *
+ * The shape is the github-pr-format skill's: the change below, this one
+ * in bold, the change above. The bottom of a stack has nothing below it
+ * and the top nothing above, so each keeps only the segments pointing
+ * somewhere rather than printing a dangling arrow.
+ */
+function withStackNote(body: string, made: Proposal[], at: number): string {
+	const below = at > 0 ? made[at - 1]?.ref.label : undefined;
+	const above = at < made.length - 1 ? made[at + 1]?.ref.label : undefined;
+	const segments = [
+		...(below ? [`\u{1F448} ${below}`] : []),
+		`\u{1F447} **${made[at]?.ref.label}**`,
+		...(above ? [`\u{1F449} ${above}`] : []),
+	];
+	return ["> [!NOTE]", `> ${segments.join(" \u00b7 ")}`, "", body].join("\n");
 }
 
 /** Put a branch up as a change. */
