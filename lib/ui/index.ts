@@ -5,8 +5,8 @@
  * Public entry point for external consumers. Internal
  * implementation files (prompt-single, prompt-tabbed,
  * panel-layout, scroll-region, action-bar, tab-strip,
- * note-editor, option-list, panel-height, redirect,
- * tab-completion) are not re-exported.
+ * note-editor, option-list, panel-height, redirect) are not
+ * re-exported.
  */
 
 // ── Badges and bars ─────────────────────────────────────────
@@ -45,6 +45,12 @@ export {
 export {
 	type DetailEntry,
 	type NavigableItem,
+	// The options and the output belong here because they are the
+	// parameter and return types of the two functions below. Exported from
+	// the file but missing from the barrel, they left a consumer able to
+	// call these and unable to name what they take or hand back.
+	type NavigableListOptions,
+	type NavigableListOutput,
 	type NavigableSection,
 	renderNavigableList,
 	renderNavigableSections,
@@ -103,6 +109,9 @@ export type {
 	TabbedResult,
 	TabStatus,
 	ViewConfig,
+	// A property of WorkspacePromptConfig's views, so a consumer writing
+	// one needs to be able to name it.
+	WorkspaceInputHandler,
 	WorkspaceItem,
 	WorkspacePromptConfig,
 	WorkspaceResult,

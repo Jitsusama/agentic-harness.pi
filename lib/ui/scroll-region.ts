@@ -26,17 +26,17 @@ import { GLYPH } from "./types.js";
 export const HSCROLL_CONTENT_WIDTH = 10_000;
 
 /** Horizontal scroll step in visible characters. */
-export const H_SCROLL_STEP = 20;
+const H_SCROLL_STEP = 20;
 
 /** Lines scrolled per Shift+↑↓ fine scroll step. */
-export const FINE_SCROLL_LINES = 3;
+const FINE_SCROLL_LINES = 3;
 
 /**
  * Fraction of the viewport kept visible when coarse-scrolling
  * (PageUp/Down). 0.5 means half the viewport stays from the
  * previous view, so the reader never loses context.
  */
-export const COARSE_SCROLL_OVERLAP_FRACTION = 0.5;
+const COARSE_SCROLL_OVERLAP_FRACTION = 0.5;
 
 /** Width reserved for the vertical scrollbar gutter. */
 export const SCROLLBAR_GUTTER = 2;

@@ -18,7 +18,7 @@ import {
 } from "@earendil-works/pi-tui";
 
 /** Configuration for the annotation editor overlay. */
-export interface NoteEditorConfig {
+interface NoteEditorConfig {
 	/** Label shown above the editor (e.g., "Approving with note:"). */
 	label?: string;
 	/** Pre-fill text for the editor. */

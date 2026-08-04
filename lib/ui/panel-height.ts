@@ -11,13 +11,13 @@
 import type { PanelHeightMode } from "./types.js";
 
 /** Panel height fraction when minimized. */
-export const HEIGHT_FRACTION_MINIMIZED = 0.25;
+const HEIGHT_FRACTION_MINIMIZED = 0.25;
 
 /** Panel height fraction at normal size. */
-export const HEIGHT_FRACTION_NORMAL = 0.6;
+const HEIGHT_FRACTION_NORMAL = 0.6;
 
 /** Panel height fraction when fullscreen. */
-export const HEIGHT_FRACTION_FULLSCREEN = 0.9;
+const HEIGHT_FRACTION_FULLSCREEN = 0.9;
 
 const STATE_KEY = Symbol.for("pi:panelHeightMode");
 

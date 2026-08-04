@@ -68,7 +68,7 @@ export function isShiftEscape(data: string): boolean {
  * 3. Fall back to raw character comparison: catches legacy
  *    terminals that send the literal `+` byte.
  */
-export function matchesActionKey(data: string, key: string): boolean {
+function matchesActionKey(data: string, key: string): boolean {
 	if (matchesKey(data, key as KeyId)) return true;
 	const baseKey = SHIFTED_SYMBOL_BASE[key];
 	if (baseKey) {

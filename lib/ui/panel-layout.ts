@@ -27,7 +27,7 @@ export function computeChromeLines(
 }
 
 /** Options for the unified footer. */
-export interface FooterOptions {
+interface FooterOptions {
 	theme: Theme;
 	width: number;
 	actions?: KeyAction[];
