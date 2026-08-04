@@ -18,6 +18,12 @@ description: >
   "get several models to review this", "open a PR", "put
   this up for review", "mark it ready", "merge it", or any
   request to look at, comment on or land a change.
+  Also when asked to "cut a PR", "cut one for each", "raise
+  a PR", "submit a PR", "put up a PR", "open a draft PR" or
+  "get this reviewed": creating a pull request is this
+  skill's job even when the request never says review, and
+  reaching for `gh pr create` instead is the mistake these
+  triggers exist to prevent.
 ---
 
 # Review Guide

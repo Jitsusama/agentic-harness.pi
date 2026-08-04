@@ -13,6 +13,14 @@
  * terse on purpose: this rides every prompt, so it must not
  * balloon the default context. The named skills carry the full
  * rules; this only points at them.
+ *
+ * One line here is not about what to write but about which tool
+ * to reach for. It earns its place because a skill description
+ * only helps somebody who goes looking for a skill, and the
+ * failure it prevents is reaching for `gh pr create` without
+ * ever wondering whether something else was meant. That happened
+ * repeatedly in one session, in a repo where `gh` cannot see the
+ * changes it was being asked to make.
  */
 
 import { ISSUE_SECTIONS, PR_SECTIONS } from "../../lib/sections/index.js";
@@ -31,5 +39,6 @@ export function buildBindingRules(): string {
 		`- Issue body (github-issue-format): exactly these, verbatim, nothing else: ${ISSUE_SECTIONS.join(", ")}.`,
 		"- Commit (commit-format): conventional `type(scope): subject`; the body says why, not what.",
 		"- Slack (slack-guide): no markdown pipe tables (use the table parameter), no image embeds (upload instead), well-formed lists.",
+		"- Opening a PR (review-guide): `review_offer propose`, never `gh pr create`. Same conventions either way, and `gh` cannot see a gitstream-native change.",
 	].join("\n");
 }
