@@ -4,6 +4,7 @@ import {
 	type NavigableSection,
 	renderNavigableSections,
 } from "./navigable-list.js";
+import { OVERLAID } from "./overlay.js";
 import { computeChromeLines } from "./panel-layout.js";
 import {
 	contentBudget,
@@ -191,7 +192,7 @@ export async function promptToggleList(
 				return lines;
 			},
 		};
-	});
+	}, OVERLAID);
 }
 
 function toSections(model: ToggleListModel, theme: Theme): NavigableSection[] {

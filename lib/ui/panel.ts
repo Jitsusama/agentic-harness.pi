@@ -12,6 +12,7 @@
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
+import { OVERLAID } from "./overlay.js";
 import { showSinglePrompt } from "./prompt-single.js";
 import { showTabbedPrompt } from "./prompt-tabbed.js";
 import { showWorkspacePrompt } from "./prompt-workspace.js";
@@ -109,6 +110,8 @@ export async function view(
 	if (!ctx.hasUI) return;
 
 	await ctx.ui.custom<void>((tui, theme, _kb, done) => {
+		// See the OVERLAID note at the end of this call: a panel that is not
+		// overlaid grows the transcript and strands the rows it displaces.
 		const scroll: ScrollState = { vOffset: 0, hOffset: 0 };
 		let cachedContent: string[] | null = null;
 		let cachedHScroll = false;
@@ -212,5 +215,5 @@ export async function view(
 				cachedContent = null;
 			},
 		};
-	});
+	}, OVERLAID);
 }
