@@ -26,6 +26,27 @@ export function computeChromeLines(
 	return lines;
 }
 
+/**
+ * One panel row, made opaque across the full width of the panel.
+ *
+ * A panel is composited over the lines already on screen rather than pushed
+ * below them, so a row narrower than the panel is not blank: it is a window
+ * onto the transcript underneath. A gate opening over a busy transcript drew
+ * other output between its own lines, and the rows that bled were exactly the
+ * ones nothing had padded: the headers, the blank separators and the
+ * consequence line. The body looked fine only because the markdown renderer
+ * pads to the width it is given.
+ *
+ * Padded by visible width rather than string length, since a styled row
+ * carries escape codes that occupy no columns and would otherwise leave the
+ * row short by the length of its own styling.
+ */
+export function opaqueRow(text: string, width: number): string {
+	const shown = truncateToWidth(text, width);
+	const missing = Math.max(0, width - visibleWidth(shown));
+	return missing > 0 ? shown + " ".repeat(missing) : shown;
+}
+
 /** Options for the unified footer. */
 interface FooterOptions {
 	theme: Theme;

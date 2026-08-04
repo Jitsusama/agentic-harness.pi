@@ -14,7 +14,6 @@ import {
 	Key,
 	matchesKey,
 	type TUI,
-	truncateToWidth,
 } from "@earendil-works/pi-tui";
 import { type ActionBarResult, handleActionInput } from "./action-bar.js";
 import { buildNoteEditorTheme, renderNoteEditor } from "./note-editor.js";
@@ -24,7 +23,7 @@ import {
 	renderOptionList,
 } from "./option-list.js";
 import { OVERLAID } from "./overlay.js";
-import { computeChromeLines, renderFooter } from "./panel-layout.js";
+import { computeChromeLines, opaqueRow, renderFooter } from "./panel-layout.js";
 import {
 	contentBudget,
 	HSCROLL_CONTENT_WIDTH,
@@ -232,7 +231,9 @@ function createSingleController(
 
 	function render(width: number): string[] {
 		const lines: string[] = [];
-		const add = (s: string) => lines.push(truncateToWidth(s, width));
+		// Opaque, not merely truncated: this panel is drawn over the transcript,
+		// so a short row would show whatever it covers.
+		const add = (s: string) => lines.push(opaqueRow(s, width));
 		const titleLines = config.title ? 2 : 0;
 
 		add(theme.fg("accent", GLYPH.hrule.repeat(width)));
