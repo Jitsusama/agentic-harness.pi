@@ -22,6 +22,7 @@
  */
 
 export {
+	documentFrontMatterProblem,
 	parseDocumentFrontMatter,
 	parseQuestFrontMatter,
 	serializeDocumentFrontMatter,

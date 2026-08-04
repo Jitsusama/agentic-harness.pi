@@ -55,7 +55,12 @@ import {
 	unfocusDocument,
 	unloadQuest,
 } from "../lifecycle.js";
-import { buildRowExpansion, showLoaded, showQuestById } from "../lookup.js";
+import {
+	buildRowExpansion,
+	locateOwner,
+	showLoaded,
+	showQuestById,
+} from "../lookup.js";
 import { recordSessionOnQuest } from "../session-registry.js";
 
 /**
@@ -620,7 +625,21 @@ export function focus(state: QuestState, params: QuestToolParams): QuestResult {
 	}
 	const path = join(state.questDir, subdir, `${params.id}.md`);
 	if (!existsSync(path)) {
-		return refuse(`Document ${path} does not exist.`);
+		// A path built from the loaded quest, so saying it does not exist names
+		// a location nobody meant when the document belongs to another quest.
+		// `create` switches the loaded quest, which is how this is reached
+		// while editing a document that was focused moments earlier.
+		const owner = locateOwner(state, params.id).find(
+			(hit) => hit.questId !== state.questId,
+		);
+		if (owner) {
+			return refuse(
+				`${params.id} belongs to ${owner.questId}${owner.questTitle ? ` (${owner.questTitle})` : ""}, not to the loaded quest. Load that quest first, then focus it.`,
+			);
+		}
+		return refuse(
+			`No document ${params.id} in this quest. Expected it at ${path}.`,
+		);
 	}
 	const result = focusDocument(state, path);
 	if (!result.ok) return refuse(result.guidance);

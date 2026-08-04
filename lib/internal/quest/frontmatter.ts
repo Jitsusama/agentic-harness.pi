@@ -440,6 +440,43 @@ export function explainDocumentFrontMatter(text: string): string[] {
 }
 
 /** Parse a quest document (plan/research/brief/report) front-matter. */
+/**
+ * Why a document's front-matter will not parse, or undefined when it
+ * will.
+ *
+ * Named fields rather than a verdict, because "no valid front-matter" sends
+ * a reader to diff the file against a sibling to work out which key is
+ * wrong. The required set is small and knowable, so it can simply be said.
+ */
+export function documentFrontMatterProblem(text: string): string | undefined {
+	const split = splitFrontMatter(text);
+	if (!split) return "it has no front-matter block";
+	const raw = parseFrontMatterBlock(text);
+	if (!raw) return "its front-matter block is not readable as key: value";
+
+	const missing = [
+		...(asString(raw.id) ? [] : ["id"]),
+		...(asEnum(raw.kind, DOCUMENT_KINDS) ? [] : ["kind"]),
+		...(asString(raw.quest) ? [] : ["quest"]),
+		...(asEnum(raw.stage, DOCUMENT_STAGES) ? [] : ["stage"]),
+		...(asString(raw.updated) ? [] : ["updated"]),
+	];
+	if (missing.length === 0) return undefined;
+
+	// A present-but-wrong value reads as missing here, so the two enums say
+	// what they accept rather than leaving somebody to guess at a typo.
+	const detail = missing.map((field) => {
+		if (field === "kind" && raw.kind !== undefined) {
+			return `kind (${DOCUMENT_KINDS.join(", ")})`;
+		}
+		if (field === "stage" && raw.stage !== undefined) {
+			return `stage (${DOCUMENT_STAGES.join(", ")})`;
+		}
+		return field;
+	});
+	return `its front-matter is missing or unreadable: ${detail.join(", ")}`;
+}
+
 export function parseDocumentFrontMatter(
 	text: string,
 ): { frontMatter: DocumentFrontMatter; body: string } | undefined {

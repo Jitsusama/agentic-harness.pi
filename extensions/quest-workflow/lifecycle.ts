@@ -64,6 +64,7 @@ import {
 	type DocumentFrontMatter,
 	type DocumentKind,
 	type DocumentStage,
+	documentFrontMatterProblem,
 	parseDocumentFrontMatter,
 	parseQuestDoc,
 	type QuestAlias,
@@ -234,9 +235,11 @@ export function focusDocument(
 	}
 	const parsed = parseDocumentFrontMatter(text);
 	if (!parsed) {
+		// Which field, not just that one is wrong. The answer used to be found
+		// by diffing the file against a sibling document.
 		return {
 			ok: false,
-			guidance: `Document ${docPath} has no valid front-matter.`,
+			guidance: `Cannot focus ${docPath}: ${documentFrontMatterProblem(text) ?? "its front-matter will not parse"}.`,
 		};
 	}
 	state.documentPath = docPath;
