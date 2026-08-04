@@ -640,10 +640,12 @@ function createTabbedController(
 		);
 		for (const line of scrolled) add(line);
 
+		// Through `add`, because these rows are as much a part of the panel as
+		// any other and a bare empty string covers nothing at all.
 		if (needsVScroll) {
 			const targetContentEnd = 1 + 2 + titleExtra + budget;
 			while (lines.length < targetContentEnd) {
-				lines.push("");
+				add("");
 			}
 		}
 
@@ -665,14 +667,14 @@ function createTabbedController(
 			}
 		} else {
 			if (options) {
-				lines.push("");
+				add("");
 				const oIdx = onUserTab ? userOptionIndex : optionIndex;
 				for (const line of renderOptionList(options, oIdx, theme)) {
 					add(line);
 				}
 			}
 
-			lines.push("");
+			add("");
 			for (const line of renderFooter({
 				theme,
 				width,

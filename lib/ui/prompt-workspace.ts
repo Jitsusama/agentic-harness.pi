@@ -26,6 +26,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { handleActionInput, isShiftEscape } from "./action-bar.js";
 import { buildNoteEditorTheme, renderNoteEditor } from "./note-editor.js";
+import { OVERLAID } from "./overlay.js";
 import { computeChromeLines, renderFooter } from "./panel-layout.js";
 import {
 	contentBudget,
@@ -448,7 +449,11 @@ export async function showWorkspacePrompt(
 	ctx: ExtensionContext,
 	config: WorkspacePromptConfig,
 ): Promise<WorkspaceResult> {
-	return ctx.ui.custom<WorkspaceResult>((tui, theme, _kb, done) =>
-		createWorkspaceController(config, tui, theme, done),
+	// Overlaid, like every other panel: one that is not grows the transcript
+	// and strands the rows it displaces, which reads as a duplicate later.
+	return ctx.ui.custom<WorkspaceResult>(
+		(tui, theme, _kb, done) =>
+			createWorkspaceController(config, tui, theme, done),
+		OVERLAID,
 	);
 }

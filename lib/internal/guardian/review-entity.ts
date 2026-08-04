@@ -8,13 +8,13 @@
  * the entity-specific labels.
  */
 
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import {
 	ALLOW,
 	formatRedirectBlock,
 	type GuardianResult,
 } from "../../guardian/index.js";
-import { promptSingle, renderMarkdown } from "../../ui/index.js";
+import { promptSingle, renderMarkdown, wordWrap } from "../../ui/index.js";
 
 /** Labels that distinguish one entity type from another. */
 export interface EntityReviewConfig {
@@ -34,6 +34,42 @@ export interface ReviewableEntity {
 }
 
 const REVIEW_ACTIONS = [{ key: "r", label: "Reject" }];
+
+/**
+ * The rows this gate draws, given a theme and the room it has.
+ *
+ * Pulled out of the prompt so it can be measured. This gate and the review
+ * tool's gates are separate paths that draw the same kind of thing, and the
+ * last time only one of them was fixed the other was reported as still
+ * broken, correctly. A pure function is what lets a test hold both to the
+ * same rule.
+ *
+ * The title is wrapped rather than emitted whole: the panel truncates what
+ * overruns, and a PR title may be 72 characters, which does not fit a narrow
+ * terminal beside its own leading space.
+ */
+export function entityGateLines(
+	entity: ReviewableEntity,
+	theme: Theme,
+	width: number,
+): string[] {
+	const out: string[] = [];
+
+	if (entity.title) {
+		for (const line of wordWrap(entity.title, Math.max(1, width - 1))) {
+			out.push(theme.fg("text", ` ${theme.bold(line)}`));
+		}
+		out.push("");
+	}
+
+	if (entity.body) {
+		for (const line of renderMarkdown(entity.body, theme, width)) {
+			out.push(line);
+		}
+	}
+
+	return out;
+}
 
 /**
  * Present a markdown entity for human review and return the
@@ -59,22 +95,7 @@ export async function reviewMarkdownEntity(
 
 	const result = await promptSingle(ctx, {
 		title: panelTitle,
-		content: (theme, width) => {
-			const out: string[] = [];
-
-			if (entity.title) {
-				out.push(theme.fg("text", ` ${theme.bold(entity.title)}`));
-				out.push("");
-			}
-
-			if (entity.body) {
-				for (const line of renderMarkdown(entity.body, theme, width)) {
-					out.push(line);
-				}
-			}
-
-			return out;
-		},
+		content: (theme, width) => entityGateLines(entity, theme, width),
 		actions: REVIEW_ACTIONS,
 	});
 
