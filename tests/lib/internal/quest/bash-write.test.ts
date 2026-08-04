@@ -84,15 +84,48 @@ describe("a target the command names through a variable", () => {
 		]);
 	});
 
-	it("sees no target at all when the redirect is quoted", () => {
-		// Not this function's doing and not new: quoted data is stripped
-		// before targets are read, so a literal `>` inside a string cannot
-		// look like a redirect. The cost is that a quoted destination is
-		// invisible whether it holds a variable or not, so such a write is
-		// never judged. Pinned as the current behaviour rather than as the
-		// desired one.
-		expect(bashWriteTargets('echo hi >> "/tmp/plain.md"')).toEqual([]);
-		expect(bashWriteTargets('Q=/tmp/q; echo hi >> "$Q/f.md"')).toEqual([]);
+	it("reads a quoted destination, which is the ordinary spelling", () => {
+		// This was pinned as "sees no target at all", on the reasoning that
+		// reading a quoted target meant giving up the strip that stops a `>`
+		// inside a string looking like a redirect. That reasoning was wrong:
+		// the two are separate questions, because what makes a redirect real
+		// is the operator being unquoted, not its target being bare.
+		// It also made the expansion above nearly inert, since a path built
+		// from a variable is conventionally quoted.
+		expect(bashWriteTargets('echo hi >> "/tmp/plain.md"')).toEqual([
+			"/tmp/plain.md",
+		]);
+		expect(bashWriteTargets('Q=/tmp/q; echo hi >> "$Q/f.md"')).toEqual([
+			"/tmp/q/f.md",
+		]);
+		expect(bashWriteTargets("echo hi >> '/tmp/single.md'")).toEqual([
+			"/tmp/single.md",
+		]);
+	});
+
+	it("reads a quoted destination for tee and for an in-place editor", () => {
+		expect(bashWriteTargets('Q=/tmp/q; tee "$Q/f.md"')).toEqual([
+			"/tmp/q/f.md",
+		]);
+		// The sed case was answering worse than nothing: it reported the
+		// script `s/x/y/` as though it were the file, and missed the file.
+		expect(bashWriteTargets('sed -i "" -e s/x/y/ "lib/thing.ts"')).toContain(
+			"lib/thing.ts",
+		);
+	});
+
+	it("still refuses a quoted target it cannot expand", () => {
+		expect(bashWriteTargets('echo hi > "$UNKNOWN/f.txt"')).toEqual([]);
+	});
+
+	it("reads a write the command grammar declines to model", () => {
+		// The command model does not describe a loop or a subshell, and such a
+		// command writes as readily as any other. This is why the patterns are
+		// kept alongside the model rather than replaced by it.
+		expect(
+			bashWriteTargets("for f in a b; do echo x >> tracked.ts; done"),
+		).toContain("tracked.ts");
+		expect(bashWriteTargets("(echo x > inner.ts)")).toContain("inner.ts");
 	});
 
 	it("reads the braced spelling too", () => {

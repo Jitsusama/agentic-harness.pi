@@ -19,6 +19,7 @@ export type {
 	Connector,
 	Heredoc,
 	Quoting,
+	Redirect,
 	SimpleCommand,
 	Span,
 	Word,

@@ -9,8 +9,8 @@ import type {
 	Connector,
 	Heredoc,
 	Quoting,
+	Redirect,
 	SimpleCommand,
-	Span,
 	Word,
 } from "./types.js";
 
@@ -263,10 +263,10 @@ const REDIRECT = /^(\d*)(>>|>|<)(&\d+)?$/;
  */
 function extractRedirects(words: Word[]): {
 	argv: Word[];
-	redirects: Span[];
+	redirects: Redirect[];
 } {
 	const argv: Word[] = [];
-	const redirects: Span[] = [];
+	const redirects: Redirect[] = [];
 
 	for (let j = 0; j < words.length; j++) {
 		const word = words[j];
@@ -279,10 +279,17 @@ function extractRedirects(words: Word[]): {
 		const hasDuplication = Boolean(match[3]);
 		const target = !hasDuplication ? words[j + 1] : undefined;
 		if (target) {
-			redirects.push({ start: word.span.start, end: target.span.end });
+			redirects.push({
+				span: { start: word.span.start, end: target.span.end },
+				operator: word.text,
+				target,
+			});
 			j++;
 		} else {
-			redirects.push({ start: word.span.start, end: word.span.end });
+			redirects.push({
+				span: { start: word.span.start, end: word.span.end },
+				operator: word.text,
+			});
 		}
 	}
 
