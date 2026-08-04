@@ -108,6 +108,7 @@
 		"@types/pngjs": "^6.0.5",
 		"@types/ws": "^8.18.1",
 		"@vitest/coverage-v8": "^4.1.10",
+		"@xterm/headless": "5.5.0",
 		"typebox": "^1.3.6",
 		"typescript": "^7.0.2",
 		"vite": "^8.1.5",
