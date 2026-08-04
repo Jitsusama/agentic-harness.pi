@@ -3,27 +3,22 @@ name: review-guide
 description: >
   How to put up, read and review a change through the
   `review`, `review_see`, `review_say`, `review_ask`,
-  `review_draft` and `review_offer` tools, whatever system
-  hosts it: GitHub, Meteorite, a GitLab merge request, or a
-  range of commits nobody has proposed at all. Covers
-  attaching a change so later calls need not name it,
-  reading a diff, a conversation and a stack, asking other
-  models through a council and a judge, composing a review
-  as a draft, and proposing a branch and moving it to merge.
-  The council is these tools: never build one by hand out of
+  `review_draft` and `review_offer` tools, whatever hosts
+  it: GitHub, Meteorite, GitLab, or commits nobody has
+  proposed. Covers attaching a change, reading a diff and a
+  stack, asking other models through a council and a judge,
+  drafting a review, and proposing a branch through to
+  merge. The council is these tools: never build one out of
   subagents.
   Use when asked to "review this change", "read this PR",
-  "what did people say about it", "reply to that thread",
-  "resolve those comments", "approve it", "run a council",
-  "get several models to review this", "open a PR", "put
-  this up for review", "mark it ready", "merge it", or any
-  request to look at, comment on or land a change.
-  Also when asked to "cut a PR", "cut one for each", "raise
-  a PR", "submit a PR", "put up a PR", "open a draft PR" or
-  "get this reviewed": creating a pull request is this
-  skill's job even when the request never says review, and
-  reaching for `gh pr create` instead is the mistake these
-  triggers exist to prevent.
+  "what did people say", "reply to that thread", "resolve
+  those comments", "approve it", "run a council", "open a
+  PR", "cut a PR", "cut one for each", "raise a PR",
+  "submit a PR", "put it up for review", "mark it ready",
+  "merge it", or any request to look at, comment on, create
+  or land a change. Creating a PR is this skill's job even
+  when review is never mentioned; `gh pr create` is the
+  mistake it exists to prevent.
 ---
 
 # Review Guide
