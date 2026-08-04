@@ -170,7 +170,7 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 		name: "review_offer",
 		label: "Review Offer",
 		description:
-			"Put work up for review and move it along: propose a change from a branch, edit its title, body or base, move it between draft and ready, ask people to look at it, close or reopen it, and merge it. Reading a change is review_see.",
+			"Put work up for review and move it along: propose a change from a branch, edit its title, body or base, move it between draft and ready, ask people to look at it, close or reopen it, and merge it. Reading a change is review_see. This is how a pull request is opened, whatever hosts it, including when the request says cut, raise, submit or put up rather than review: `gh pr create` reaches GitHub only, so on a repo hosted elsewhere it opens a change on a mirror nothing reads and every later `gh` call is blind to it.",
 		promptSnippet:
 			"Put work up for review: propose, edit, ready, draft, reviewers, close, reopen, merge.",
 		promptGuidelines: [
