@@ -18,9 +18,6 @@ import {
 import { getPanelHeightFraction } from "./panel-height.js";
 import { GLYPH } from "./types.js";
 
-/** Maximum content width in columns (readability cap). */
-export const MAX_CONTENT_WIDTH = 100;
-
 /**
  * Width passed to content functions when horizontal scrolling
  * is enabled. Large enough that content renderers won't truncate,
