@@ -31,12 +31,26 @@ export interface Heredoc {
 	readonly span: Span;
 }
 
+/**
+ * A redirect, and the word it names when it names one.
+ *
+ * The operator is kept as written, so a consumer can tell a content
+ * target (`>`, `>>`) from a stream being routed (`2>`, `&>`). The target
+ * is absent for a file-descriptor duplication such as `2>&1`, which names
+ * no file at all.
+ */
+export interface Redirect {
+	readonly span: Span;
+	readonly operator: string;
+	readonly target?: Word;
+}
+
 /** A simple command: optional env assignments, argv and redirects. */
 export interface SimpleCommand {
 	readonly span: Span;
 	readonly assignments: Word[];
 	readonly argv: Word[];
-	readonly redirects: Span[];
+	readonly redirects: Redirect[];
 	readonly heredoc?: Heredoc;
 }
 

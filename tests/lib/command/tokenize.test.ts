@@ -87,8 +87,23 @@ describe("tokenize", () => {
 		expect(command.argv.map((w) => w.text)).toEqual(["echo", "hi"]);
 		expect(command.redirects).toHaveLength(1);
 		expect(
-			source.slice(command.redirects[0].start, command.redirects[0].end),
+			source.slice(
+				command.redirects[0].span.start,
+				command.redirects[0].span.end,
+			),
 		).toBe("> out.txt");
+		expect(command.redirects[0].operator).toBe(">");
+		expect(command.redirects[0].target?.text).toBe("out.txt");
+	});
+
+	it("names a quoted target as the word it is, quotes and all", () => {
+		// The target is reported as written, so a caller can see it was
+		// quoted and unquote it deliberately. Losing this is what left the
+		// quest write guard unable to see the ordinary spelling of a path.
+		const command = tokenize('echo hi >> "/tmp/a b.txt"').commands[0];
+
+		expect(command.redirects[0].target?.text).toBe('"/tmp/a b.txt"');
+		expect(command.redirects[0].target?.quoting).toBe("double");
 	});
 
 	it("keeps a trailing redirect operator out of argv", () => {
@@ -106,8 +121,13 @@ describe("tokenize", () => {
 		expect(command.argv.map((w) => w.text)).toEqual(["make"]);
 		expect(command.redirects).toHaveLength(1);
 		expect(
-			source.slice(command.redirects[0].start, command.redirects[0].end),
+			source.slice(
+				command.redirects[0].span.start,
+				command.redirects[0].span.end,
+			),
 		).toBe("2>&1");
+		// A duplication names no file, so there is no target to report.
+		expect(command.redirects[0].target).toBeUndefined();
 	});
 
 	it("attaches a heredoc and keeps its body out of argv", () => {
