@@ -16,6 +16,7 @@ import {
 	type KeyId,
 	matchesKey,
 	type TUI,
+	truncateToWidth,
 } from "@earendil-works/pi-tui";
 import { type ActionBarResult, handleActionInput } from "./action-bar.js";
 import { buildNoteEditorTheme, renderNoteEditor } from "./note-editor.js";
@@ -25,7 +26,7 @@ import {
 	renderOptionList,
 } from "./option-list.js";
 import { OVERLAID } from "./overlay.js";
-import { computeChromeLines, opaqueRow, renderFooter } from "./panel-layout.js";
+import { computeChromeLines, renderFooter } from "./panel-layout.js";
 import {
 	contentBudget,
 	HSCROLL_CONTENT_WIDTH,
@@ -561,9 +562,7 @@ function createTabbedController(
 	function render(width: number): string[] {
 		lastWidth = width;
 		const lines: string[] = [];
-		// Opaque, not merely truncated: this panel is drawn over the transcript,
-		// so a short row would show whatever it covers.
-		const add = (s: string) => lines.push(opaqueRow(s, width));
+		const add = (s: string) => lines.push(truncateToWidth(s, width));
 
 		const actions = currentActions();
 		const options = currentOptions();
@@ -640,12 +639,10 @@ function createTabbedController(
 		);
 		for (const line of scrolled) add(line);
 
-		// Through `add`, because these rows are as much a part of the panel as
-		// any other and a bare empty string covers nothing at all.
 		if (needsVScroll) {
 			const targetContentEnd = 1 + 2 + titleExtra + budget;
 			while (lines.length < targetContentEnd) {
-				add("");
+				lines.push("");
 			}
 		}
 
@@ -667,14 +664,14 @@ function createTabbedController(
 			}
 		} else {
 			if (options) {
-				add("");
+				lines.push("");
 				const oIdx = onUserTab ? userOptionIndex : optionIndex;
 				for (const line of renderOptionList(options, oIdx, theme)) {
 					add(line);
 				}
 			}
 
-			add("");
+			lines.push("");
 			for (const line of renderFooter({
 				theme,
 				width,

@@ -14,6 +14,7 @@ import {
 	Key,
 	matchesKey,
 	type TUI,
+	truncateToWidth,
 } from "@earendil-works/pi-tui";
 import { type ActionBarResult, handleActionInput } from "./action-bar.js";
 import { buildNoteEditorTheme, renderNoteEditor } from "./note-editor.js";
@@ -23,7 +24,7 @@ import {
 	renderOptionList,
 } from "./option-list.js";
 import { OVERLAID } from "./overlay.js";
-import { computeChromeLines, opaqueRow, renderFooter } from "./panel-layout.js";
+import { computeChromeLines, renderFooter } from "./panel-layout.js";
 import {
 	contentBudget,
 	HSCROLL_CONTENT_WIDTH,
@@ -231,9 +232,7 @@ function createSingleController(
 
 	function render(width: number): string[] {
 		const lines: string[] = [];
-		// Opaque, not merely truncated: this panel is drawn over the transcript,
-		// so a short row would show whatever it covers.
-		const add = (s: string) => lines.push(opaqueRow(s, width));
+		const add = (s: string) => lines.push(truncateToWidth(s, width));
 		const titleLines = config.title ? 2 : 0;
 
 		add(theme.fg("accent", GLYPH.hrule.repeat(width)));
@@ -271,12 +270,10 @@ function createSingleController(
 		);
 		for (const line of scrolled) add(line);
 
-		// We pad to budget only when scrolling to keep height stable. Through
-		// `add`, because these rows are as much a part of the panel as any
-		// other and a bare empty string covers nothing at all.
+		// We pad to budget only when scrolling to keep height stable.
 		if (needsVScroll) {
 			while (lines.length < budget + 1 + titleLines) {
-				add("");
+				lines.push("");
 			}
 		}
 
@@ -293,13 +290,13 @@ function createSingleController(
 			}
 		} else {
 			if (options) {
-				add("");
+				lines.push("");
 				for (const line of renderOptionList(options, optionIndex, theme)) {
 					add(line);
 				}
 			}
 
-			add("");
+			lines.push("");
 			for (const line of renderFooter({
 				theme,
 				width,

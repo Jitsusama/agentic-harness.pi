@@ -27,12 +27,11 @@
  * pi extend the working area to fit it, which reintroduces exactly the
  * growth this exists to prevent.
  *
- * Compositing has a second obligation, and it is the one that was missed:
- * every row a panel emits has to be as wide as the panel. A row narrower
- * than that is not blank, it is a window onto the transcript underneath, so
- * a gate drawn over busy output showed other text between its own lines.
- * `opaqueRow` in `panel-layout.ts` is what holds to this, and both prompt
- * renderers pass every row through it.
+ * A row narrower than the panel is left narrow. Padding every row out to the
+ * full width was tried and made things worse rather than better: filling the
+ * last column makes a terminal wrap, so every row gained a blank one under it
+ * and the transcript showed through the gaps. Whatever the bleed is, it is
+ * not rows being too short.
  */
 export const OVERLAID = {
 	overlay: true,
