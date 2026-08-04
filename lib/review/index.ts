@@ -151,10 +151,11 @@ export type { AuthoringIntent, Offerable } from "./authoring.js";
 export { offerable } from "./authoring.js";
 export type { Unbacked } from "./backed.js";
 export { BACKED_BY, unbackedDeclarations } from "./backed.js";
-export type { TargetResolution } from "./bind.js";
+export type { RepoResolution, TargetResolution } from "./bind.js";
 export {
 	bindTarget,
 	clearTargetBindings,
+	resolveRepo,
 	resolveTarget,
 } from "./bind.js";
 export type {
@@ -262,6 +263,7 @@ export type {
 	LocalSpec,
 	ReviewEngine,
 	ReviewEngineDeps,
+	ServingRepo,
 } from "./engine.js";
 export { createReviewEngine } from "./engine.js";
 export type { ReviewSubstrateApi } from "./events.js";

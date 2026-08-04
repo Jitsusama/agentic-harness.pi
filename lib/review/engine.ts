@@ -12,7 +12,7 @@
 
 import type { Exec } from "../exec/index.js";
 import { run } from "../exec/index.js";
-import { resolveTarget } from "./bind.js";
+import { resolveRepo, resolveTarget } from "./bind.js";
 import type { Capabilities } from "./capabilities.js";
 import type {
 	ChangeRef,
@@ -80,6 +80,14 @@ export interface BoundTarget {
 	conversation: ConversationFacet | null;
 }
 
+/** A checkout's provider, and what it can do here. */
+export interface ServingRepo {
+	provider: ReviewProvider;
+	repo: RepoLocator;
+	via: ResolvedVia;
+	capabilities: Capabilities;
+}
+
 /** The substrate, assembled. */
 export interface ReviewEngine {
 	/** What a directory says about the repo it sits in. */
@@ -99,6 +107,14 @@ export interface ReviewEngine {
 	bound(change: ChangeRef): Promise<BoundTarget>;
 	/** Review refs in a checkout, hosted or not. */
 	fromLocal(repoRoot: string, spec: LocalSpec): Promise<BoundTarget>;
+	/**
+	 * Who serves this checkout, with nothing to review yet.
+	 *
+	 * For "what can be done here", which is asked before there is a change
+	 * to ask it about. {@link fromLocal} needs refs, so answering through it
+	 * meant inventing a base and a head nobody named.
+	 */
+	serving(cwd: string): Promise<ServingRepo>;
 	openDraft(target: ReviewTarget): Promise<ReviewDraft>;
 }
 
@@ -347,6 +363,20 @@ export function createReviewEngine(deps: ReviewEngineDeps): ReviewEngine {
 				change.repo,
 				"config-repo",
 			);
+		},
+
+		async serving(cwd) {
+			const probed = await probe(cwd);
+			const resolved = resolveRepo(probed, {
+				...(deps.config ? { config: deps.config } : {}),
+			});
+			if (!resolved.resolved) throw new Error(resolved.message);
+			return {
+				provider: resolved.provider,
+				repo: resolved.repo,
+				via: resolved.via,
+				capabilities: resolved.provider.capabilities(resolved.repo),
+			};
 		},
 
 		async fromLocal(repoRoot, spec) {

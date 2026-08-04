@@ -11,7 +11,7 @@
 
 import type { RepoLocator, ReviewTarget } from "./change.js";
 import { targetKey } from "./keys.js";
-import type { ReviewProvider } from "./provider.js";
+import type { RepoProbe, ReviewProvider } from "./provider.js";
 import { getReviewProvider, listReviewProviders } from "./register.js";
 import type { ResolveContext, ResolvedVia } from "./resolve.js";
 
@@ -107,19 +107,24 @@ function bound(
 
 /** Provider ids config pins to this repo, in order. */
 function mappedIds(
-	target: ReviewTarget,
+	repo: RepoLocator | undefined,
+	probe: RepoProbe | undefined,
 	context: ResolveContext | undefined,
 ): string[] {
-	const repo = repoOf(target);
 	// The probe's remotes count here too. A pin written against a remote URL,
 	// which is the spelling somebody reaches for first, could not match a local
 	// target at all: the locator minted for one carries no remote, so the only
 	// strings on offer were a `local:` key and a path.
+	//
+	// The repo's own strings are absent when there is no target, which is the
+	// bare-checkout case: the probe is then everything known, so its root
+	// stands in for the path a locator would have carried.
 	const haystacks = [
-		repo.key,
-		repo.localPath ?? "",
-		repo.remoteUrl ?? "",
-		...(context?.probe?.remoteUrls ?? []),
+		repo?.key ?? "",
+		repo?.localPath ?? "",
+		repo?.remoteUrl ?? "",
+		probe?.repoRoot ?? "",
+		...(probe?.remoteUrls ?? context?.probe?.remoteUrls ?? []),
 	];
 	const mapping = context?.config?.repos?.find((entry) =>
 		haystacks.some((value) => value.includes(entry.match)),
@@ -128,34 +133,119 @@ function mappedIds(
 }
 
 /**
- * Ask providers to claim the target's repo, in the order
- * given, and take the first that does.
+ * Ask providers to claim a repo, in the order given, and take
+ * the first that does.
  */
 function claimRepo(
 	providers: ReviewProvider[],
-	target: ReviewTarget,
+	probe: RepoProbe,
 	tried: string[],
-	context?: ResolveContext,
 ): { provider: ReviewProvider; repo: RepoLocator } | undefined {
-	const repo = repoOf(target);
-	// The caller's probe wins where there is one, because it is what somebody
-	// actually went and looked at: the engine reads every remote out of the
-	// checkout and passes them down. Reconstructing a probe from the target
-	// instead throws that away, and for a local target it throws away all of
-	// it, since the locator the engine mints there carries a path and no
-	// remote. Every provider was then asked to claim a checkout with no
-	// remotes, which only a provider claiming anything local can answer, so a
-	// hosted repo resolved to plain git and lost its authoring facet with it.
-	const probe = context?.probe ?? {
-		repoRoot: repo.localPath,
-		remoteUrls: repo.remoteUrl ? [repo.remoteUrl] : [],
-	};
 	for (const provider of providers) {
 		tried.push(provider.id);
 		const claimed = provider.claimRepo(probe);
 		if (claimed) return { provider, repo: claimed };
 	}
 	return undefined;
+}
+
+/**
+ * What a target says about the checkout it covers, for a caller
+ * that has no probe.
+ *
+ * The caller's probe wins where there is one, because it is what somebody
+ * actually went and looked at: the engine reads every remote out of the
+ * checkout and passes them down. Reconstructing a probe from the target
+ * instead throws that away, and for a local target it throws away all of
+ * it, since the locator the engine mints there carries a path and no
+ * remote. Every provider was then asked to claim a checkout with no
+ * remotes, which only a provider claiming anything local can answer, so a
+ * hosted repo resolved to plain git and lost its authoring facet with it.
+ */
+function probeOf(repo: RepoLocator, context?: ResolveContext): RepoProbe {
+	return (
+		context?.probe ?? {
+			repoRoot: repo.localPath,
+			remoteUrls: repo.remoteUrl ? [repo.remoteUrl] : [],
+		}
+	);
+}
+
+/** Who serves a repo, or why nobody does. */
+export type RepoResolution =
+	| {
+			resolved: true;
+			provider: ReviewProvider;
+			repo: RepoLocator;
+			via: ResolvedVia;
+	  }
+	| { resolved: false; tried: string[]; message: string };
+
+/**
+ * Resolve a checkout to the provider that serves it, with nothing to
+ * review yet.
+ *
+ * "What can be done here" is a question about a repo, and it is asked
+ * before there is a change to ask it about. Answering it through a target
+ * meant inventing a base and a head that nobody named.
+ *
+ * Nothing is remembered. A binding exists so one target cannot change
+ * provider mid-flight; pinning the repo instead would decide for every
+ * range and stack over it, on the strength of a question that only asked
+ * what was possible.
+ */
+export function resolveRepo(
+	probe: RepoProbe,
+	context?: ResolveContext,
+): RepoResolution {
+	return resolveIn(probe, context);
+}
+
+/**
+ * The claim walk itself: config's pins first, then claim order.
+ *
+ * One copy, two entry points. A target's repo is resolved exactly the way
+ * a bare checkout's is, and only what happens afterwards differs, so the
+ * locator comes in as an argument rather than the walk being written twice.
+ */
+function resolveIn(
+	probe: RepoProbe,
+	context: ResolveContext | undefined,
+	repo?: RepoLocator,
+): RepoResolution {
+	const tried: string[] = [];
+	const ids = mappedIds(repo, probe, context);
+	const mapped = ids
+		.map((id) => getReviewProvider(id))
+		.filter((provider): provider is ReviewProvider => provider !== undefined);
+	const byConfig = claimRepo(mapped, probe, tried);
+	if (byConfig) return { resolved: true, ...byConfig, via: "config-repo" };
+
+	const remaining = listReviewProviders().filter(
+		(provider) => !tried.includes(provider.id),
+	);
+	const byClaim = claimRepo(remaining, probe, tried);
+	if (byClaim) return { resolved: true, ...byClaim, via: "claim" };
+
+	return {
+		resolved: false,
+		tried,
+		message: unclaimed(ids),
+	};
+}
+
+/** Why nobody claimed a repo, naming a pin that names nobody. */
+function unclaimed(ids: string[]): string {
+	const absent = ids.filter((id) => !getReviewProvider(id));
+	const missing =
+		absent.length > 0
+			? ` Config names ${absent.join(", ")} for this repo, but no ` +
+				"provider registered under that id."
+			: "";
+	return (
+		"No review provider claimed this repo. Pin it under " +
+		`review.repos, or register a provider that recognizes it.${missing}`
+	);
 }
 
 /**
@@ -204,31 +294,12 @@ export function resolveTarget(
 		});
 	}
 
-	const tried: string[] = [];
-	const ids = mappedIds(target, context);
-	const mapped = ids
-		.map((id) => getReviewProvider(id))
-		.filter((provider): provider is ReviewProvider => provider !== undefined);
-	const byConfig = claimRepo(mapped, target, tried, context);
-	if (byConfig) return remember(target, { ...byConfig, via: "config-repo" });
-
-	const remaining = listReviewProviders().filter(
-		(provider) => !tried.includes(provider.id),
-	);
-	const byClaim = claimRepo(remaining, target, tried, context);
-	if (byClaim) return remember(target, { ...byClaim, via: "claim" });
-
-	const absent = ids.filter((id) => !getReviewProvider(id));
-	const missing =
-		absent.length > 0
-			? ` Config names ${absent.join(", ")} for this repo, but no ` +
-				"provider registered under that id."
-			: "";
-	return {
-		resolved: false,
-		tried,
-		message:
-			"No review provider claimed this repo. Pin it under " +
-			`review.repos, or register a provider that recognizes it.${missing}`,
-	};
+	const repo = repoOf(target);
+	const byRepo = resolveIn(probeOf(repo, context), context, repo);
+	if (!byRepo.resolved) return byRepo;
+	return remember(target, {
+		provider: byRepo.provider,
+		repo: byRepo.repo,
+		via: byRepo.via,
+	});
 }

@@ -17,11 +17,12 @@ import {
 	changeInPlay,
 	chooseChange,
 	createAttachmentStore,
+	type ServingRepo,
 	unbackedDeclarations,
 } from "../../../lib/review/index.js";
 import { stackStep } from "../../../lib/review/stack.js";
 import { displayPath } from "../../../lib/ui/index.js";
-import { attachmentDir } from "../engine.js";
+import { attachmentDir, reviewEngine } from "../engine.js";
 import { GLYPH } from "../render.js";
 import { treeStandingFor } from "../work.js";
 import {
@@ -35,6 +36,25 @@ import {
 	say,
 	type TargetParams,
 } from "./shared.js";
+
+/**
+ * Whether this is a question about a checkout rather than a change.
+ *
+ * Nothing named that identifies a change, and nothing attached either, so
+ * there is nothing to bind and the repo is the whole subject. An
+ * attachment wins: somebody working on a change means that change, and
+ * that is the behaviour this path must not disturb.
+ */
+async function asksAboutCheckout(params: TargetParams): Promise<boolean> {
+	const named =
+		params.change !== undefined ||
+		params.base !== undefined ||
+		params.head !== undefined ||
+		(params.refs?.length ?? 0) > 0;
+	if (named) return false;
+	const attached = await createAttachmentStore(attachmentDir()).list();
+	return attached.length === 0;
+}
 
 /** Register the `review` tool. */
 export function registerReviewTool(pi: ExtensionAPI): void {
@@ -117,6 +137,19 @@ export function registerReviewTool(pi: ExtensionAPI): void {
 				if (params.action === "detach") return detachChange(pi, params);
 				if (params.action === "next" || params.action === "prev") {
 					return stepAttachment(pi, params, params.action);
+				}
+
+				// A checkout on its own is a fair thing to ask about, and it is
+				// what somebody asks before they have a change: naming neither a
+				// change nor a range used to be refused with "Name a change...",
+				// which answers a question nobody asked.
+				if (await asksAboutCheckout(params)) {
+					const { engine } = await reviewEngine(pi);
+					return say(
+						describeCapabilities(
+							await engine.serving(params.repo ?? process.cwd()),
+						),
+					);
 				}
 
 				bound = await boundFor(pi, params, process.cwd());
@@ -331,15 +364,21 @@ async function reportAttached(): Promise<Answer> {
  * separate resolve action go.
  */
 function describeCapabilities(
-	bound: Awaited<ReturnType<typeof boundFor>>,
+	bound: Awaited<ReturnType<typeof boundFor>> | ServingRepo,
 ): string {
 	const caps = bound.capabilities;
-	const subject =
-		bound.target.kind === "proposal"
+	// A checkout with nothing to review yet has no target, and saying so is
+	// the honest answer: the provider serves this repo, and what follows is
+	// what it could do to a change here rather than to one that exists.
+	const subject = !("target" in bound)
+		? `this checkout, ${bound.repo.key}`
+		: bound.target.kind === "proposal"
 			? bound.target.change.label
 			: `a ${bound.target.kind} in ${bound.repo.key}`;
 	const lines = [
-		`${GLYPH.target} ${bound.provider.id} handles ${subject}`,
+		`${GLYPH.target} ${bound.provider.id} ${
+			"target" in bound ? "handles" : "serves"
+		} ${subject}`,
 		`   conversation: ${caps.conversation ? "yes" : "no"}`,
 		// fanOut alongside provenance, because a provider that cannot report a
 		// branching stack draws a chain either way, and a chain that might be

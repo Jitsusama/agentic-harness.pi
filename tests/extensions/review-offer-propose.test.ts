@@ -140,6 +140,13 @@ async function offer(params: Record<string, unknown>) {
 	return answer;
 }
 
+/** The same, for the reading tool. */
+async function review(params: Record<string, unknown>) {
+	const stub = activate();
+	const tool = toolNamed(stub, "review");
+	return await tool.execute("1", params, undefined, undefined, HEADLESS);
+}
+
 const proposal = {
 	action: "propose",
 	draft: true,
@@ -154,6 +161,24 @@ const proposal = {
 afterEach(() => {
 	clearReviewProviders();
 	clearTargetBindings();
+});
+
+describe("asking what can be done here", () => {
+	it("answers for a checkout with no change, base or head named", async () => {
+		// This used to be refused with "Name a change, or a base and head, or
+		// a list of refs", which answers a question nobody asked: what can be
+		// done here is about the repo, and it is asked before there is a
+		// change to ask it about.
+		const { provider } = recordingProvider();
+		registerReviewProvider(provider);
+
+		const answer = await review({ action: "capabilities" });
+		const text = JSON.stringify(answer);
+
+		expect(text).toContain("meteorite");
+		expect(text).toContain("serves");
+		expect(text).not.toContain("Name a change");
+	});
 });
 
 describe("proposing through the tool", () => {
