@@ -271,10 +271,12 @@ function createSingleController(
 		);
 		for (const line of scrolled) add(line);
 
-		// We pad to budget only when scrolling to keep height stable.
+		// We pad to budget only when scrolling to keep height stable. Through
+		// `add`, because these rows are as much a part of the panel as any
+		// other and a bare empty string covers nothing at all.
 		if (needsVScroll) {
 			while (lines.length < budget + 1 + titleLines) {
-				lines.push("");
+				add("");
 			}
 		}
 
@@ -291,13 +293,13 @@ function createSingleController(
 			}
 		} else {
 			if (options) {
-				lines.push("");
+				add("");
 				for (const line of renderOptionList(options, optionIndex, theme)) {
 					add(line);
 				}
 			}
 
-			lines.push("");
+			add("");
 			for (const line of renderFooter({
 				theme,
 				width,
