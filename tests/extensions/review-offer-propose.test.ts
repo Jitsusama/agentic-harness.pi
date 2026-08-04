@@ -182,6 +182,25 @@ describe("proposing through the tool", () => {
 		expect(asked[1]?.repo.key).toBe(world.key);
 	});
 
+	it("refuses on the provider's own terms when it cannot author", async () => {
+		// Pins the decision not to compare the checkout against a `local:`
+		// key. `repoElsewhere` stays silent on one, so this propose reaches
+		// the capability check and is refused for the reason that is actually
+		// true. A checkout-versus-repo complaint here would name one place
+		// twice and say a branch cannot be proposed where it already is.
+		registerReviewProvider(
+			stubProvider({
+				id: "plain-vcs",
+				priority: 900,
+				claimRepo: () => ({ key: "local:/src/app", localPath: "/src/app" }),
+			}),
+		);
+
+		const answer = await offer(proposal);
+
+		expect(JSON.stringify(answer)).toContain("does not author changes");
+	});
+
 	it("survives a refusal in between, which is when a retry happens", async () => {
 		// Nobody proposes the same change twice for fun. The retry that
 		// exposed this followed a convention gate refusing the title, so the

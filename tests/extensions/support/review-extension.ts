@@ -75,7 +75,15 @@ export function stubPi() {
 	};
 }
 
-/** Run the extension against a stub. */
+/**
+ * Run the extension against a stub.
+ *
+ * Note what activating costs: the extension registers its own providers,
+ * `github` and `git` among them, into the same process-wide registry a
+ * test writes to. A stub sharing one of those ids is replaced by the real
+ * one, silently, and the test then exercises a provider it never wrote.
+ * Give a stub an id of its own, `plain-vcs` rather than `git`.
+ */
 export function activate() {
 	const stub = stubPi();
 	// The stub is structural: the extension only uses the parts modelled

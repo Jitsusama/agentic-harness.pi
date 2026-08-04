@@ -328,20 +328,26 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 				bound = await boundFor(pi, params, process.cwd());
 				const authoring = bound.provider.authoring;
 
-				// Proposing takes its repo from whatever change is attached,
-				// because there is no path that resolves the repo you are
-				// standing in to the system hosting it: `fromLocal` mints a
-				// `local:` key, which the plain git provider claims and which has
-				// no authoring facet at all.
+				// Proposing takes its repo from the checkout whenever the call
+				// names a base and a head, since `boundFor` prefers that over the
+				// attachment, and from the attachment only when it names neither.
+				// The checkout winning is right: the branch being proposed exists
+				// only in the repo it was committed in.
 				//
-				// For every other action that is right, and it is the point of
-				// having an attachment. For proposing it is wrong whenever it
-				// disagrees with the checkout, because the branch being proposed
-				// only exists in the repo it was committed in. Reading a change
-				// on one backend and then proposing from a checkout of another
-				// would offer the local branch to the attached repo, and nothing
-				// said so: the gate named a head and a base and never a repo, so
-				// the only clue was a base branch that looked ordinary.
+				// This is why the attachment path needs the refusal below.
+				// Reading a change on one backend and then proposing from a
+				// checkout of another would offer the local branch to the attached
+				// repo, and nothing said so: the gate named a head and a base and
+				// never a repo, so the only clue was a base branch that looked
+				// ordinary.
+				//
+				// Note what the checkout resolves to now. `fromLocal` mints a
+				// `local:` key for the target and hands the probe to every
+				// provider, so a provider that claims the checkout answers with
+				// its own hosted key and that is what gets bound. It used to be
+				// read back as the `local:` key on every call after the first,
+				// which is what sent a hosted repo to plain git and lost the
+				// authoring facet with it.
 				//
 				// Refused rather than quietly corrected, since the right answer
 				// is not available here to substitute.
