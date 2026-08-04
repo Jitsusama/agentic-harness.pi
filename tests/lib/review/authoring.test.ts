@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AuthoringCapabilities } from "../../../lib/review/index.js";
-import { offerable } from "../../../lib/review/index.js";
+import { misnamedPeople, offerable } from "../../../lib/review/index.js";
 
 /** What GitHub answered when the survey asked it. */
 const github: AuthoringCapabilities = {
@@ -14,6 +14,7 @@ const github: AuthoringCapabilities = {
 	merge: true,
 	labels: true,
 	assignees: true,
+	identifies: "login",
 	refusesWhileEnqueued: false,
 	rerunChecks: true,
 };
@@ -30,6 +31,9 @@ const meteorite: AuthoringCapabilities = {
 	merge: true,
 	labels: true,
 	assignees: true,
+	// Measured: the assignees route answers 422 for a login and takes a
+	// Shopify email address.
+	identifies: "email",
 	refusesWhileEnqueued: true,
 	rerunChecks: false,
 };
@@ -200,5 +204,59 @@ describe("the draft flag, which defaults opposite ways", () => {
 
 	it("allows flipping draft where it can", () => {
 		expect(offerable({ kind: "set-draft" }, github, "github").ok).toBe(true);
+	});
+});
+
+describe("naming a person the way the backend names them", () => {
+	// One backend wants a login and another an email, and the same string is
+	// valid on one and meaningless on the other. Nothing translates between
+	// them, because a login cannot be turned into an email without asking
+	// somebody, so the shape is checked and the caller is told which form to
+	// use. Checked here rather than at the backend, since a 422 from a
+	// create route arrives after the change exists.
+
+	it("passes an email where an email is wanted", () => {
+		expect(
+			misnamedPeople(["joel.gerber@shopify.com"], "email"),
+		).toBeUndefined();
+	});
+
+	it("passes a login where a login is wanted", () => {
+		expect(misnamedPeople(["Jitsusama"], "login")).toBeUndefined();
+	});
+
+	it("names the value and the form when a login is given for an email", () => {
+		const complaint = misnamedPeople(["Jitsusama"], "email");
+
+		expect(complaint).toContain("Jitsusama");
+		expect(complaint).toMatch(/email/i);
+	});
+
+	it("names the value and the form when an email is given for a login", () => {
+		const complaint = misnamedPeople(["joel.gerber@shopify.com"], "login");
+
+		expect(complaint).toContain("joel.gerber@shopify.com");
+		expect(complaint).toMatch(/login/i);
+	});
+
+	it("reports every wrong one, not just the first", () => {
+		const complaint = misnamedPeople(
+			["alice", "bob@shopify.com", "carol"],
+			"email",
+		);
+
+		expect(complaint).toContain("alice");
+		expect(complaint).toContain("carol");
+		expect(complaint).not.toContain("bob@shopify.com");
+	});
+
+	it("checks nothing where the backend does not say", () => {
+		// Silence is not a licence to guess: a backend that never said what it
+		// wants would have every value refused by whichever rule we picked.
+		expect(misnamedPeople(["anything at all"], "unknown")).toBeUndefined();
+	});
+
+	it("has nothing to say about an empty list", () => {
+		expect(misnamedPeople([], "email")).toBeUndefined();
 	});
 });

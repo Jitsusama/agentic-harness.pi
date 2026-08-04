@@ -28,6 +28,7 @@ import type {
 } from "../../../lib/review/index.js";
 import {
 	fillProposal,
+	misnamedPeople,
 	offerable,
 	retargetPlan,
 	retargetRoute,
@@ -415,6 +416,15 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 					const complaint = proposalComplaint(params.title, params.body);
 					if (complaint) return refuse(complaint);
 				}
+
+				// Named people are held to the form this backend names people
+				// in, here rather than in each action, since assignees and
+				// reviewers reach three of them. Before anything is sent: a
+				// backend that refuses an assignee refuses it on the request
+				// that creates the change, so finding out later means finding
+				// out with the change already up.
+				const misnamed = peopleComplaint(bound, params);
+				if (misnamed) return refuse(misnamed);
 				// A stack's titles come from commit subjects rather than from
 				// the caller, and those are already held to the standard by the
 				// commit guardian, so there is nothing here to check ahead of
@@ -915,6 +925,25 @@ export function proposePanel(gate: ProposalGate): GatePanel {
 			...(gate.warnings ?? []).map((warning) => `${GLYPH.refused} ${warning}`),
 		],
 	};
+}
+
+/**
+ * Whether the people named are named the way this backend names people.
+ *
+ * Asked before anything is sent. A backend that refuses an assignee does
+ * it on the request that creates the change, so finding out afterwards
+ * means finding out with the change already up.
+ */
+function peopleComplaint(
+	bound: BoundTarget,
+	params: OfferParams,
+): string | undefined {
+	const form = bound.capabilities.authoring?.identifies ?? "unknown";
+	const named = [...(params.assignees ?? []), ...(params.reviewers ?? [])];
+	const complaint = misnamedPeople(named, form);
+	return complaint === undefined
+		? undefined
+		: `${complaint} Name them the way ${bound.provider.id} does.`;
 }
 
 async function propose(

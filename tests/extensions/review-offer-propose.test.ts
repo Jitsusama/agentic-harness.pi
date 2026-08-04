@@ -62,6 +62,7 @@ const CAN_ONLY_PROPOSE: AuthoringCapabilities = {
 	merge: false,
 	labels: false,
 	assignees: false,
+	identifies: "email",
 	rerunChecks: false,
 	refusesWhileEnqueued: false,
 };
@@ -205,6 +206,30 @@ describe("proposing through the tool", () => {
 
 		expect(asked).toHaveLength(2);
 		expect(asked[1]?.repo.key).toBe(world.key);
+	});
+
+	it("refuses a login where the backend names people by email", async () => {
+		// Before anything is sent, because this backend refuses an assignee on
+		// the request that creates the change: finding out afterwards means
+		// finding out with the change already up. Nothing is translated, since
+		// a login cannot become an email without asking somebody.
+		const { provider, asked } = recordingProvider();
+		registerReviewProvider(provider);
+
+		const answer = await offer({ ...proposal, assignees: ["Jitsusama"] });
+
+		expect(asked).toHaveLength(0);
+		expect(JSON.stringify(answer)).toContain("Jitsusama");
+		expect(JSON.stringify(answer)).toMatch(/email/i);
+	});
+
+	it("lets an email through to a backend that wants one", async () => {
+		const { provider, asked } = recordingProvider();
+		registerReviewProvider(provider);
+
+		await offer({ ...proposal, assignees: ["joel.gerber@shopify.com"] });
+
+		expect(asked).toHaveLength(1);
 	});
 
 	it("refuses on the provider's own terms when it cannot author", async () => {

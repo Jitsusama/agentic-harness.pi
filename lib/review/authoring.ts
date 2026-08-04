@@ -15,7 +15,7 @@
  * difference encoded here was found by doing exactly that.
  */
 
-import type { AuthoringCapabilities } from "./capabilities.js";
+import type { AuthoringCapabilities, PersonForm } from "./capabilities.js";
 import { type QueueState, queueRefusal } from "./queue.js";
 
 /** Something a caller wants to do to a proposal. */
@@ -89,6 +89,38 @@ const MUTATES: ReadonlySet<AuthoringIntent["kind"]> = new Set([
 ]);
 
 /** Whether this provider will accept this intent, and what to say. */
+/**
+ * Whether any of these are not the form the backend names people in.
+ *
+ * A phrase naming the offenders and the form wanted, or undefined when
+ * every one of them will do. Checked before the request, because a
+ * backend that refuses an assignee on the create route refuses it after
+ * the change exists.
+ *
+ * Nothing is translated. A login cannot be turned into an email without
+ * asking somebody who knows, and guessing one from the other is how a
+ * change gets assigned to a person who does not exist.
+ */
+export function misnamedPeople(
+	who: string[],
+	form: PersonForm,
+): string | undefined {
+	if (form === "unknown" || who.length === 0) return undefined;
+
+	// An address has an @ and a login does not. Crude on purpose: the job is
+	// to catch a whole set given in the other form, which is what happens
+	// when somebody carries habits from one backend to another, not to
+	// validate an address.
+	const wrong = who.filter((one) => one.includes("@") !== (form === "email"));
+	if (wrong.length === 0) return undefined;
+
+	const wanted =
+		form === "email"
+			? "an email address, as this backend names people"
+			: "a login, as this backend names people";
+	return `${wrong.join(", ")} ${wrong.length === 1 ? "is not" : "are not"} ${wanted}.`;
+}
+
 export function offerable(
 	intent: AuthoringIntent,
 	capabilities: AuthoringCapabilities | undefined,
