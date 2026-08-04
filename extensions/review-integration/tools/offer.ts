@@ -36,7 +36,7 @@ import { count } from "../../../lib/ui/index.js";
 import { createGitRebaser, createGitStacks } from "../../../lib/work/index.js";
 import { proposalComplaint } from "../conventions.js";
 import { confirmWrite } from "../gate.js";
-import { GLYPH, proposalLine } from "../render.js";
+import { type GatePanel, GLYPH, proposalLine } from "../render.js";
 import {
 	type Answer,
 	boundFor,
@@ -459,12 +459,10 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 						const decision = await confirmWrite(
 							ctx,
 							`Close ${change.label}`,
-							[
-								`${GLYPH.target} ${change.label}`,
-								params.comment
-									? `\n${params.comment}`
-									: "\nNo reason will be left on it, which reads as abandonment.",
-							].join("\n"),
+							closePanel({
+								label: change.label,
+								...(params.comment ? { comment: params.comment } : {}),
+							}),
 						);
 						if (!decision.approved) return declined(decision, "Left open.");
 						await authoring.close(
@@ -778,6 +776,141 @@ async function proposeStack(
 }
 
 /** Put a branch up as a change. */
+/**
+ * One field an edit changes, as the gate needs to describe it.
+ *
+ * The union of what a proposal edit can carry, rather than a shape of
+ * this file's own: a gate that models fewer actions than the contract
+ * allows draws some edits as `undefined`.
+ */
+export type GateEdit = FieldEdit<string> | SetEdit<string>;
+
+/**
+ * Draw the close gate.
+ *
+ * The comment is the payload because it is authored prose that lands on
+ * the change, and it is the only part a reader cannot reconstruct.
+ */
+export function closePanel(gate: {
+	label: string;
+	comment?: string;
+}): GatePanel {
+	return {
+		destination: gate.label,
+		...(gate.comment ? { payload: { body: gate.comment } } : {}),
+		// Said rather than left absent: nothing on a closed change reads as
+		// abandonment to whoever finds it later.
+		...(gate.comment
+			? {}
+			: {
+					consequence: [
+						"No reason will be left on it, which reads as abandonment.",
+					],
+				}),
+	};
+}
+
+/**
+ * Draw the edit gate.
+ *
+ * A new body is the payload, so it renders and is never clipped. It used
+ * to be sliced at 200 characters, which is mid-sentence for the shortest
+ * body this package will write, and the slice was invisible: what the
+ * gate showed and what would land stopped being the same text.
+ *
+ * Every other field stays a one-line summary, since a label or a base is
+ * fully described by naming it.
+ */
+export function editPanel(gate: {
+	label: string;
+	edits: Record<string, GateEdit | undefined>;
+	caution?: string;
+}): GatePanel {
+	const body = gate.edits.body;
+	const newBody =
+		body?.action === "set" && typeof body.value === "string"
+			? body.value
+			: undefined;
+	return {
+		destination: gate.label,
+		...(newBody === undefined ? {} : { payload: { body: newBody } }),
+		consequence: [
+			...(gate.caution ? [`${GLYPH.refused} ${gate.caution}`] : []),
+			...Object.entries(gate.edits)
+				// The body is above, drawn whole. Naming it here as well would
+				// say the same edit twice.
+				.filter(([field]) => !(field === "body" && newBody !== undefined))
+				.map(([field, edit]) => `${field}: ${describeEdit(edit)}`),
+		],
+	};
+}
+
+/**
+ * One edit in a phrase.
+ *
+ * A set edit says which way it is going, since "labels: risky" reads as a
+ * replacement and usually is not one.
+ */
+function describeEdit(edit: GateEdit | undefined): string {
+	if (edit === undefined) return "unchanged";
+	if (edit.action === "clear") return "cleared";
+	const value = Array.isArray(edit.value)
+		? edit.value.join(", ")
+		: String(edit.value);
+	return edit.action === "set" ? value : `${edit.action} ${value}`;
+}
+
+/** What the propose gate needs to draw itself. */
+export interface ProposalGate {
+	head: string;
+	base: string;
+	/** The repo key, named because the checkout cannot tell you it. */
+	repo: string;
+	title: string;
+	body: string;
+	draft: boolean;
+	reviewers?: string[];
+	/** Fields taken from the checkout rather than given. */
+	guessed?: string[];
+	warnings?: string[];
+	/** Something permitted that the approver still needs to know. */
+	caution?: string;
+}
+
+/**
+ * Draw the propose gate.
+ *
+ * A panel rather than a joined string, so the body reaches
+ * `renderMarkdown` and the inset the way every other gate's does. A PR
+ * body is the most markdown-heavy text this package produces, and raw
+ * wrapping showed its section headings as literal `###`.
+ *
+ * Pure, which is what makes it testable: the terminal stays in the thin
+ * call that shows the result.
+ */
+export function proposePanel(gate: ProposalGate): GatePanel {
+	return {
+		// The repo is named because it is the one thing here not taken from
+		// the checkout, so it is the one thing a reader cannot verify by
+		// knowing where they are standing.
+		destination: `${gate.head} → ${gate.base} on ${gate.repo}`,
+		where: `${gate.title}${gate.draft ? " · draft" : ""}`,
+		...(gate.body ? { payload: { body: gate.body } } : {}),
+		consequence: [
+			...(gate.reviewers?.length
+				? [`Asking: ${gate.reviewers.join(", ")}`]
+				: []),
+			// Named rather than merely used, so a wrong guess is caught here by
+			// the one person who can tell.
+			...(gate.guessed?.length
+				? [`Taken from the checkout: ${gate.guessed.join(", ")}.`]
+				: []),
+			...(gate.caution ? [`${GLYPH.refused} ${gate.caution}`] : []),
+			...(gate.warnings ?? []).map((warning) => `${GLYPH.refused} ${warning}`),
+		],
+	};
+}
+
 async function propose(
 	pi: ExtensionAPI,
 	ctx: Parameters<Parameters<ExtensionAPI["registerTool"]>[0]["execute"]>[4],
@@ -816,23 +949,17 @@ async function propose(
 	const decision = await confirmWrite(
 		ctx,
 		`Propose ${head} onto ${base}`,
-		[
-			`${GLYPH.target} ${title}${params.draft ? " (draft)" : ""}`,
-			// The repo is named because it is the one thing here not taken from
-			// the checkout, so it is the one thing a reader cannot verify by
-			// knowing where they are standing.
-			`   ${head} → ${base} on ${bound.repo.key}`,
-			...(body ? ["", body] : []),
-			...(params.reviewers?.length
-				? ["", `Asking: ${params.reviewers.join(", ")}`]
-				: []),
-			// Named rather than merely used, so a wrong guess is caught
-			// here by the one person who can tell.
-			...(guessed.length === 0
-				? []
-				: ["", `Taken from the checkout: ${guessed.join(", ")}.`]),
-			...warnings.map((warning) => `\n${GLYPH.refused} ${warning}`),
-		].join("\n"),
+		proposePanel({
+			head,
+			base,
+			repo: bound.repo.key,
+			title,
+			body,
+			draft: params.draft,
+			...(params.reviewers?.length ? { reviewers: params.reviewers } : {}),
+			...(guessed.length > 0 ? { guessed } : {}),
+			...(warnings.length > 0 ? { warnings } : {}),
+		}),
 	);
 	if (!decision.approved) return declined(decision, "Not proposed.");
 
@@ -970,18 +1097,11 @@ async function edit(
 	const decision = await confirmWrite(
 		ctx,
 		`Edit ${change.label}`,
-		cautioned(
-			Object.entries(edits)
-				.map(([field, edit]) =>
-					edit?.action === "clear"
-						? `${field}: cleared`
-						: // A set edit says which way it is going, since "labels:
-							// risky" reads as a replacement and usually is not one.
-							`${field}: ${edit?.action === "set" ? "" : `${edit?.action} `}${String(edit?.value).slice(0, 200)}`,
-				)
-				.join("\n"),
-			caution,
-		),
+		editPanel({
+			label: change.label,
+			edits,
+			...(caution ? { caution } : {}),
+		}),
 	);
 	if (!decision.approved) return declined(decision, "Left as it was.");
 
