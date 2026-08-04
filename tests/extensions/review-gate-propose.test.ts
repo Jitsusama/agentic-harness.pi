@@ -5,8 +5,8 @@
  * the last one still joining strings and handing them to the word
  * wrapper. A PR body is the most markdown-heavy text this package
  * produces, so wrapping it raw showed the section headings as literal
- * `### 🌐 Situation` and left every line flush against the margin,
- * beside neighbouring gates that render and inset the same text.
+ * `### 🌐 Situation`. The body goes through the renderer now, flush at
+ * the margin the way the guardian gates draw the same text.
  *
  * How a panel is drawn in general belongs to review-gate-panel; this is
  * only about the panel propose builds. The seam is that panel: build it
@@ -68,14 +68,18 @@ describe("the propose gate", () => {
 		expect(shown).toContain("The gate word-wrapped a raw string.");
 	});
 
-	it("insets the body instead of leaving it flush at the margin", () => {
+	it("leaves the body flush at the margin, like the guardian gates", () => {
+		// The inset was tried here and read as a difference where none was
+		// meant: the guardian gate draws the same body flush, and side by
+		// side the reader preferred flush. The markdown renderer's own
+		// padding is its business; the gate adds nothing.
 		const shown = drawn(proposePanel(proposal));
 		const line = shown
 			.split("\n")
 			.find((one) => one.includes("It builds a panel now."));
 
 		expect(line).toBeDefined();
-		expect(line?.startsWith(" ")).toBe(true);
+		expect(line?.startsWith("<md:")).toBe(true);
 	});
 
 	it("names where the change is going, since the checkout cannot say", () => {

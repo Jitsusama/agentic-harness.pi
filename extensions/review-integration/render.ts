@@ -160,7 +160,7 @@ export interface GatePanel {
  */
 const QUOTE_LINES = 6;
 
-/** Indent for anything quoted or being sent, holding it off the margin. */
+/** Indent for quoted context, holding somebody else's words off the margin. */
 const INSET = "   ";
 
 /**
@@ -245,14 +245,19 @@ function rowsOf(
 		rows.push({ text: "" });
 		if (panel.payload.as) {
 			rows.push({
-				text: `${INSET}${GLYPH.reply} ${panel.payload.as}`,
+				text: `${GLYPH.reply} ${panel.payload.as}`,
 				muted: true,
 			});
 		}
 		// Whole, however long. This is the one thing the gate exists to show,
 		// and a gate that elides it is the gate this surface used to have.
+		// Flush at the margin and at full width, the way the guardian gates
+		// draw the same body: the inset was tried here and read as a
+		// difference where none was meant.
 		rows.push(
-			...inset(renderBody(panel.payload.body, room)).map((text) => ({ text })),
+			...renderBody(panel.payload.body, Math.max(MIN_GATE_WIDTH, width)).map(
+				(text) => ({ text }),
+			),
 		);
 	}
 
