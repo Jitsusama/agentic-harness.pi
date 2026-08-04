@@ -1,0 +1,98 @@
+/**
+ * Just enough of pi's surface to run the review extension in a test.
+ *
+ * Extension wiring is mostly left to a live session, because it leans on
+ * pi's runtime. Two things do not need one: the registration handshake,
+ * and a tool's own execute. Every gate in this extension opens with
+ * `if (!ctx.hasUI) return { approved: true }`, so a headless caller walks
+ * straight through the confirmation and the rest of the path runs
+ * normally. That is what makes a tool answerable here at all.
+ */
+
+import { vi } from "vitest";
+import reviewIntegration from "../../../extensions/review-integration/index.js";
+
+/** A tool as the extension registered it, execute included. */
+export type RegisteredTool = {
+	name: string;
+	execute: (
+		id: string,
+		params: unknown,
+		signal: unknown,
+		onUpdate: unknown,
+		ctx: unknown,
+	) => Promise<unknown>;
+};
+
+/** Build the stub without activating anything. */
+export function stubPi() {
+	const tools: string[] = [];
+	const definitions = new Map<string, RegisteredTool>();
+	const handlers = new Map<string, (data: unknown) => void>();
+	const lifecycle = new Map<string, (event: unknown, ctx: unknown) => void>();
+	const emitted: { event: string; data: unknown }[] = [];
+	const commands: string[][] = [];
+
+	// Every git call answers empty and succeeds, which is what a checkout
+	// with nothing to say looks like: no remotes, no upstream, no tags. A
+	// test that needs a checkout to say something should assert on what it
+	// asked rather than teach this stub to lie in detail.
+	const exec = vi.fn(async (file: string, args: string[] = []) => {
+		commands.push([file, ...args]);
+		return { code: 0, stdout: "", stderr: "" };
+	});
+
+	const pi = {
+		registerTool(definition: RegisteredTool) {
+			tools.push(definition.name);
+			definitions.set(definition.name, definition);
+		},
+		// pi's typed lifecycle hook, which hands over a context. Distinct
+		// from the untyped `events` bus below: the progress reporter needs
+		// the context, and only this one carries it.
+		on(event: string, handler: (event: unknown, ctx: unknown) => void) {
+			lifecycle.set(event, handler);
+		},
+		exec,
+		events: {
+			on(event: string, handler: (data: unknown) => void) {
+				handlers.set(event, handler);
+			},
+			emit(event: string, data: unknown) {
+				emitted.push({ event, data });
+			},
+		},
+	};
+	return {
+		pi,
+		tools,
+		definitions,
+		handlers,
+		lifecycle,
+		emitted,
+		exec,
+		commands,
+	};
+}
+
+/** Run the extension against a stub. */
+export function activate() {
+	const stub = stubPi();
+	// The stub is structural: the extension only uses the parts modelled
+	// here, and a real ExtensionAPI is unavailable outside a session.
+	reviewIntegration(stub.pi as never);
+	return stub;
+}
+
+/** The tool the extension registered under this name. */
+export function toolNamed(
+	stub: ReturnType<typeof activate>,
+	name: string,
+): RegisteredTool {
+	const found = stub.definitions.get(name);
+	if (!found) throw new Error(`the extension registered no ${name}`);
+	return found;
+}
+
+/** A headless tool context: no UI, so every gate approves itself. */
+export const HEADLESS = { hasUI: false };
