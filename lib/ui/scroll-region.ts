@@ -79,9 +79,16 @@ export function renderScrollRegion(
 				contentWidth,
 			);
 			const truncated = truncateToWidth(sliced, contentWidth);
-			// We use CSI absolute column positioning for the scrollbar.
-			const scrollCol = width;
-			lines.push(`${truncated}\x1b[${scrollCol}G${scrollbar[i] ?? ""}`);
+			// The scrollbar is right-aligned with plain spaces, never with a
+			// cursor jump. A CSI column jump was tried here and it lied to
+			// every width invariant the TUI has: visibleWidth strips escapes,
+			// so the row measured short, the overlay compositor padded after
+			// the jump, and the terminal wrapped at the last column, shearing
+			// the whole frame one row per scrolled line.
+			const pad = width - 1 - visibleWidth(truncated);
+			lines.push(
+				`${truncated}${" ".repeat(Math.max(0, pad))}${scrollbar[i] ?? ""}`,
+			);
 		}
 	} else {
 		for (const line of contentLines) {

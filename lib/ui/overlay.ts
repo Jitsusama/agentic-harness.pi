@@ -27,11 +27,14 @@
  * pi extend the working area to fit it, which reintroduces exactly the
  * growth this exists to prevent.
  *
- * A row narrower than the panel is left narrow. Padding every row out to the
- * full width was tried and made things worse rather than better: filling the
- * last column makes a terminal wrap, so every row gained a blank one under it
- * and the transcript showed through the gaps. Whatever the bleed is, it is
- * not rows being too short.
+ * A row narrower than the panel is left narrow: pi's compositor pads every
+ * overlaid row to the terminal width itself, so a component padding its own
+ * rows buys nothing. The bleed this used to note was never short rows at
+ * all. It was the scrollbar repositioning the cursor with a CSI column jump,
+ * which measured as zero width, so the compositor's padding landed after the
+ * jump and wrapped the terminal at the last column. Rows are passive text;
+ * anything that moves the cursor inside one lies to every width invariant
+ * the TUI has.
  */
 export const OVERLAID = {
 	overlay: true,
