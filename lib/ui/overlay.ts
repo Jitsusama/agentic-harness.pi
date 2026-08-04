@@ -26,6 +26,13 @@
  * `maxHeight` is the safeguard. An overlay taller than the screen makes
  * pi extend the working area to fit it, which reintroduces exactly the
  * growth this exists to prevent.
+ *
+ * Compositing has a second obligation, and it is the one that was missed:
+ * every row a panel emits has to be as wide as the panel. A row narrower
+ * than that is not blank, it is a window onto the transcript underneath, so
+ * a gate drawn over busy output showed other text between its own lines.
+ * `opaqueRow` in `panel-layout.ts` is what holds to this, and both prompt
+ * renderers pass every row through it.
  */
 export const OVERLAID = {
 	overlay: true,
