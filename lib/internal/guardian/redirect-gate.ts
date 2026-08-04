@@ -23,6 +23,14 @@ import { decideGate, type GateDeps } from "../../gate/index.js";
 import type { GuardianResult } from "../../guardian/types.js";
 import { resolveRepo } from "../../review/index.js";
 
+/**
+ * The provider `gh` itself speaks to.
+ *
+ * Named rather than inferred: what makes a redirect necessary is that the
+ * command cannot reach the host, and this is the one host it can.
+ */
+const GITHUB_PROVIDER = "github";
+
 /** What the gate needs to know about the command and where it runs. */
 export interface RedirectSubject {
 	/** "create" or "edit"; only a create is redirected. */
@@ -124,6 +132,11 @@ async function serving(subject: RedirectSubject): Promise<string | undefined> {
 
 	const resolved = resolveRepo({ repoRoot: cwd, remoteUrls: [remote] });
 	if (!resolved.resolved) return undefined;
+	// `gh` is the GitHub CLI, so a repo GitHub serves is the case where it is
+	// the right instrument. Redirecting here said "served by the github
+	// provider, not by GitHub", which contradicts itself, and it would have
+	// blocked every ordinary PR on an ordinary repo.
+	if (resolved.provider.id === GITHUB_PROVIDER) return undefined;
 	// A provider that cannot open a change is no redirect at all, and the
 	// plain git provider claims every checkout.
 	if (!resolved.provider.capabilities(resolved.repo).authoring?.propose) {
