@@ -552,7 +552,7 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 					case "retarget-stack":
 						return retargetStack(ctx, bound, change, authoring);
 					case "merge":
-						return merge(ctx, change, authoring, params);
+						return merge(ctx, bound, change, authoring, params);
 					case "reviewers":
 						return reviewers(ctx, change, authoring, params);
 				}
@@ -1253,13 +1253,53 @@ async function edit(
 	);
 }
 
+/**
+ * Why this merge should not happen, when the head is not what was expected.
+ *
+ * Says both heads, because the useful fact is which one the change is at and
+ * that is what the backend's own refusal leaves out. A prefix is accepted, so
+ * the short form a commit prints is a valid expectation rather than a
+ * guaranteed mismatch, but it has to be a prefix of the real head and not
+ * merely look like one.
+ *
+ * Undefined when there is nothing to check: no expectation given, or a
+ * provider that does not report where the head is, in which case the guard
+ * still travels to the backend and this adds nothing.
+ */
+async function headMismatch(
+	bound: BoundTarget,
+	label: string,
+	expected: string | undefined,
+): Promise<string | undefined> {
+	if (!expected) return undefined;
+	const at = (await bound.proposal())?.headCommit;
+	if (!at || at === expected || at.startsWith(expected)) return undefined;
+	return [
+		`${label} is at ${at}, not ${expected}, so it was not merged.`,
+		"That is the head guard doing its job, and it does not mean somebody pushed:",
+		"an expectation typed from memory or completed from a short prefix fails the",
+		"same way. Read the head, then merge with what it says.",
+	].join("\n");
+}
+
 /** Land the change. */
 async function merge(
 	ctx: Parameters<Parameters<ExtensionAPI["registerTool"]>[0]["execute"]>[4],
+	bound: BoundTarget,
 	change: NonNullable<ReturnType<typeof hostedChange>>,
 	authoring: NonNullable<BoundTarget["provider"]["authoring"]>,
 	params: OfferParams,
 ): Promise<Answer> {
+	// Checked here, before the gate, rather than left to the backend. Two
+	// reasons. The backend that has this guard answers "Head branch was
+	// modified", which names a cause that is false whenever the expectation
+	// was stale or mistyped rather than the branch having moved, and it sends
+	// the reader hunting a push nobody made. And not every backend enforces
+	// it at all, so a guard the caller asked for would otherwise be silently
+	// optional. The head this change is at is already in hand.
+	const mismatch = await headMismatch(bound, change.label, params.expectedHead);
+	if (mismatch) return refuse(mismatch);
+
 	const decision = await confirmWrite(
 		ctx,
 		`Merge ${change.label}`,
