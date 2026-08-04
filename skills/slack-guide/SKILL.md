@@ -114,6 +114,12 @@ instead. This is a Slack API limitation, not a tool limitation.
   To get the user ID, call `get_user` first if you only
   have a handle.
 
+  `get_user` takes a handle, an email address or an ID. It
+  cannot take a full name: `from:Chao Duan` matches nothing,
+  and the display-name lookup is blocked on this grid. Given
+  a name, ask for the handle or the email rather than
+  guessing at a handle from the name.
+
 ### "Last thread I started in [channel]"
 → `search_messages` with `from: "me"` and `channel: "channel-name"`
   Slack has no "thread parent only" operator. `is:thread`
