@@ -251,6 +251,28 @@ describe("proposing through the tool", () => {
 		expect(JSON.stringify(answer)).toContain("does not author changes");
 	});
 
+	it("refuses on the words before it asks any provider anything", async () => {
+		// A convention refusal should leave nothing behind. Binding remembers
+		// what it resolved for the rest of the session, and a call that was
+		// never going to be sent has no business recording a decision. It also
+		// costs no backend round trip this way.
+		let claims = 0;
+		registerReviewProvider(
+			stubProvider({
+				id: "meteorite",
+				priority: 50,
+				claimRepo: () => {
+					claims += 1;
+					return world;
+				},
+			}),
+		);
+
+		await offer({ ...proposal, title: "fix(review): a commit subject" });
+
+		expect(claims).toBe(0);
+	});
+
 	it("survives a refusal in between, which is when a retry happens", async () => {
 		// Nobody proposes the same change twice for fun. The retry that
 		// exposed this followed a convention gate refusing the title, so the

@@ -333,6 +333,16 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 			// backend's own message is about its own request.
 			let bound: BoundTarget | undefined;
 			try {
+				// Before the bind, because none of it needs a provider and a
+				// refusal should leave nothing behind. Binding remembers what it
+				// resolved for the rest of the session, so a call that was never
+				// going to be sent has no business recording a decision, and a
+				// convention refusal now costs no backend round trip either.
+				if (params.action === "propose" || params.action === "edit") {
+					const complaint = proposalComplaint(params.title, params.body);
+					if (complaint) return refuse(complaint);
+				}
+
 				bound = await boundFor(pi, params, process.cwd());
 				const authoring = bound.provider.authoring;
 
@@ -415,15 +425,12 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 					);
 				}
 
-				// Whatever text is about to become a proposal is held to the
-				// same conventions the guardian enforces on `gh pr create`.
-				// Without this, authoring through a tool is a way around
-				// every rule the shell path cannot be talked past.
-				if (params.action === "propose" || params.action === "edit") {
-					const complaint = proposalComplaint(params.title, params.body);
-					if (complaint) return refuse(complaint);
-				}
-
+				// The title and body were checked before the bind: whatever text
+				// is about to become a proposal is held to the same conventions
+				// the guardian enforces on `gh pr create`, or authoring through a
+				// tool is a way around every rule the shell path cannot be talked
+				// past.
+				//
 				// Named people are held to the form this backend names people
 				// in, here rather than in each action, since assignees and
 				// reviewers reach three of them. Before anything is sent: a
