@@ -135,6 +135,43 @@ describe("redirecting gh pr create to the review tools", () => {
 		expect(result).toBeUndefined();
 	});
 
+	it("leaves gh alone where GitHub is the host, since gh reaches it", async () => {
+		// The redirect exists for a change gh cannot see. Where GitHub hosts
+		// the repo, gh is the right instrument, and blocking it here said
+		// "this checkout is served by the github provider, not by GitHub",
+		// which contradicts itself. Found by running into it: opening a PR on
+		// a plain GitHub repo is exactly this case.
+		registerReviewProvider(
+			stubProvider({
+				id: "github",
+				priority: 10,
+				claimRepo: () => ({ key: "github:Jitsusama/agentic-harness.pi" }),
+				capabilities: {
+					authoring: {
+						propose: true,
+						proposeStack: false,
+						reviewersAt: "any-time",
+						retarget: "change",
+						setDraft: true,
+						close: true,
+						reopen: true,
+						merge: true,
+						labels: true,
+						assignees: true,
+						identifies: "login",
+						rerunChecks: true,
+						refusesWhileEnqueued: true,
+					},
+				},
+			}),
+		);
+		const { pi, ctx } = context();
+
+		const result = await createPrGuardian(pi).review(prCommand(), ctx);
+
+		expect(result).toBeUndefined();
+	});
+
 	it("says nothing when no provider claims the checkout", async () => {
 		// A plain GitHub repo, where `gh` is the right tool.
 		const { pi, ctx } = context();
