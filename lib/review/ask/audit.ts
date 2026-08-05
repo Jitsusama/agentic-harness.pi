@@ -81,7 +81,7 @@ export function harvestAudits(
 	participantId: string,
 	threadIndices: readonly number[],
 ): AuditHarvest {
-	const { parsed, truncated } = readAnswer(text);
+	const { parsed, truncated } = readAnswer(text, "audits");
 	const held = parsed?.audits;
 	if (!Array.isArray(held)) {
 		return {

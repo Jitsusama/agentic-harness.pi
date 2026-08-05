@@ -54,7 +54,7 @@ export function harvestStackFindings(
 	stackRefs: readonly string[],
 	witnessFor?: (ref: string) => string | undefined,
 ): StackHarvest {
-	const { parsed, truncated } = readAnswer(text);
+	const { parsed, truncated } = readAnswer(text, "findings");
 	const held = parsed?.findings;
 	if (!Array.isArray(held)) {
 		return {

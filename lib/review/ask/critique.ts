@@ -70,7 +70,7 @@ export function harvestCritiques(
 	participantId: string,
 	findingIds: readonly number[],
 ): CritiqueHarvest {
-	const { parsed, truncated } = readAnswer(text);
+	const { parsed, truncated } = readAnswer(text, "critiques");
 	const held = parsed?.critiques;
 	if (!Array.isArray(held)) {
 		return {

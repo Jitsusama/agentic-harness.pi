@@ -2,96 +2,132 @@
  * Reading an answer that was cut off mid-sentence.
  *
  * A reviewer stopped at its budget stops wherever it happened to be,
- * which for a long answer is usually partway through the findings
- * array. The whole answer will not parse, and the round used to drop
- * every finding in it, including the dozens that arrived intact.
+ * which for a long answer is partway through the findings array. The
+ * whole answer will not parse, and the round used to drop every finding
+ * in it, including the dozens that arrived intact.
+ *
+ * The fixtures here nest, on purpose. An earlier version of this file
+ * used flat entries throughout and passed against an implementation
+ * that admitted half-written findings, because every real finding
+ * carries a nested location and no fixture did. A council caught it,
+ * four reviewers independently. Keep the nesting.
  */
 
 import { describe, expect, it } from "vitest";
 import { harvestAudits } from "../../../lib/review/ask/audit.js";
 import { harvestCritiques } from "../../../lib/review/ask/critique.js";
 import { harvestStackFindings } from "../../../lib/review/ask/span.js";
-import { findJson, salvageJson } from "../../../lib/review/ask/wire.js";
+import { readAnswer } from "../../../lib/review/ask/wire.js";
 import type { FindingOrigin } from "../../../lib/review/index.js";
 import { harvestFindings } from "../../../lib/review/index.js";
 
-/** An answer that got as far as `count` findings and then stopped. */
-function cutOffAfter(count: number, trailing: string): string {
-	const done = Array.from(
-		{ length: count },
-		(_, index) =>
-			`{"title": "finding ${index}", "severity": "minor", "body": "a body"}`,
-	).join(", ");
-	return `\`\`\`json\n{"findings": [${done}${trailing}`;
+/** A finding shaped the way the output contract asks for one. */
+function finding(subject: string) {
+	return {
+		location: { kind: "file", file: "lib/a.ts" },
+		label: "issue",
+		subject,
+		discussion: "The handle is never closed.",
+	};
 }
 
-/** The titles of whatever was recovered, in order. */
-function titles(salvaged: Record<string, unknown> | undefined): string[] {
-	const held = salvaged?.findings;
+/** An answer holding `count` whole findings and then `tail`, unfinished. */
+function cutOff(count: number, tail: string): string {
+	const done = Array.from({ length: count }, (_, index) =>
+		JSON.stringify(finding(`finding ${index}`)),
+	).join(", ");
+	return `\`\`\`json\n{"findings": [${done}${tail}`;
+}
+
+/** The subjects salvage recovered, in order. */
+function subjects(text: string): string[] {
+	const held = readAnswer(text, "findings").parsed?.findings;
 	if (!Array.isArray(held)) return [];
 	return held.map((entry) =>
-		typeof entry === "object" && entry !== null && "title" in entry
-			? String((entry as { title: unknown }).title)
-			: "",
+		typeof entry === "object" && entry !== null && "subject" in entry
+			? String((entry as { subject: unknown }).subject)
+			: "?",
 	);
 }
 
 describe("salvaging a truncated answer", () => {
 	it("keeps the findings that arrived whole", () => {
-		const salvaged = salvageJson(
-			cutOffAfter(3, ', {"title": "finding 3", "sev'),
-		);
-
-		expect(titles(salvaged)).toEqual(["finding 0", "finding 1", "finding 2"]);
+		expect(subjects(cutOff(3, ', {"location": {"kind": "fil'))).toEqual([
+			"finding 0",
+			"finding 1",
+			"finding 2",
+		]);
 	});
 
-	it("drops only the entry that was interrupted", () => {
-		// The half-written one cannot be recovered and must not be
-		// guessed at: a finding invented from a fragment is worse than
-		// a finding lost, because it reads exactly like a real one.
-		const salvaged = salvageJson(cutOffAfter(2, ', {"title": "finding 2"'));
+	it("drops an entry cut off after a nested value closed", () => {
+		// The bug this file exists to prevent. The interrupted entry has
+		// a complete location, so a reader looking for a point where
+		// everything open could be closed finds one inside the entry,
+		// and hands on a finding whose argument was never written. It
+		// reads exactly like a finding the reviewer made.
+		const half =
+			', {"location": {"kind": "file", "file": "lib/b.ts"}, "label": "issue", "subject": "half", "discussion": "the argument is nev';
 
-		expect(salvaged?.findings).toHaveLength(2);
+		expect(subjects(cutOff(2, half))).toEqual(["finding 0", "finding 1"]);
 	});
 
-	it("survives a cut inside a string, brace and all", () => {
-		// A body holding a brace is ordinary in code review, and a cut
-		// inside one leaves an unbalanced brace that a naive scan
-		// would count as structure.
-		const salvaged = salvageJson(
-			'{"findings": [{"title": "a", "severity": "minor", "body": "use if (x) { y }"}, {"title": "b", "body": "an unclosed { and then',
-		);
-
-		expect(salvaged?.findings).toHaveLength(1);
+	it("drops an entry cut off inside a nested value", () => {
+		expect(
+			subjects(cutOff(1, ', {"location": {"kind": "file", "file": "lib/b')),
+		).toEqual(["finding 0"]);
 	});
 
-	it("keeps an escaped quote from ending the string early", () => {
-		const salvaged = salvageJson(
-			'{"findings": [{"title": "the \\" quote", "severity": "minor"}, {"title": "cut',
-		);
+	it("is not defeated by a brace in the reviewer's prose", () => {
+		// findJson tries a fenced block before the widest brace span for
+		// exactly this reason, and its docstring says so. Salvage used
+		// to start at the first brace in the whole answer and so lost
+		// everything to a preamble like this one.
+		const answer = `I looked at the if (x) { y } branch first.\n\n${cutOff(
+			2,
+			', {"location": {"kind": "fil',
+		)}`;
 
-		expect(titles(salvaged)).toEqual(['the " quote']);
+		expect(subjects(answer)).toEqual(["finding 0", "finding 1"]);
+	});
+
+	it("survives a brace and a quote inside a discussion", () => {
+		const answer =
+			'{"findings": [{"location": {"kind": "file", "file": "a.ts"}, "label": "issue", "subject": "braces", "discussion": "use if (x) { y } and a \\" quote"}, {"location": {"kind": "fil';
+
+		expect(subjects(answer)).toEqual(["braces"]);
 	});
 
 	it("recovers nothing when not one entry finished", () => {
-		// Better to say nothing was readable than to hand back an empty
-		// findings array, which reads as a reviewer that found nothing.
-		expect(salvageJson('{"findings": [{"title": "only a fragm')).toBe(
-			undefined,
-		);
-	});
-
-	it("leaves an answer that parses to the strict reader", () => {
-		// Salvage is the fallback, so it never sees a whole answer. It
-		// still must not claim one is broken.
-		const whole = '{"findings": [{"title": "a", "severity": "minor"}]}';
-
-		expect(findJson(whole)).toBeDefined();
-		expect(titles(salvageJson(whole))).toEqual(["a"]);
+		expect(subjects('{"findings": [{"location": {"kind": "fi')).toEqual([]);
+		expect(
+			readAnswer('{"findings": [{"location": {"kind": "fi', "findings").parsed,
+		).toBe(undefined);
 	});
 
 	it("says nothing about text holding no JSON at all", () => {
-		expect(salvageJson("I could not review this, sorry.")).toBe(undefined);
+		expect(
+			readAnswer("I could not review this, sorry.", "findings").parsed,
+		).toBe(undefined);
+	});
+
+	it("leaves a whole answer to the strict reader", () => {
+		const whole = `{"findings": [${JSON.stringify(finding("a"))}]}`;
+		const read = readAnswer(whole, "findings");
+
+		expect(read.truncated).toBe(false);
+		expect(subjects(whole)).toEqual(["a"]);
+	});
+
+	it("takes the anchor that recovered the most, not the first", () => {
+		// A reviewer that shows its working writes a smaller array
+		// earlier in the prose, the same trap findJson's widest-span
+		// rule exists for.
+		const answer = `First sketch: {"findings": []}\n\nAnd now properly:\n${cutOff(
+			3,
+			', {"location": {"kind": "fil',
+		)}`;
+
+		expect(subjects(answer)).toHaveLength(3);
 	});
 });
 
@@ -101,36 +137,22 @@ const origin: FindingOrigin = {
 	reviewerId: "hawk",
 };
 
-/** A reviewer's answer that stopped partway through finding `count`. */
-function interrupted(count: number): string {
-	const done = Array.from({ length: count }, (_, index) =>
-		JSON.stringify({
-			location: { kind: "file", file: `lib/a${index}.ts` },
-			label: "issue",
-			subject: `This leaks (${index})`,
-			discussion: "The handle is never closed.",
-		}),
-	).join(", ");
-	return `Here is what I found.\n\n\`\`\`json\n{"findings": [${done}, {"location": {"kind": "fil`;
-}
-
 describe("harvesting an answer that was cut off", () => {
 	it("keeps the findings the reviewer managed to send", () => {
-		// The round this is drawn from paid for seven reviewers and
-		// took nothing from any of them, because one unfinished entry
-		// condemned every finished one in the same answer.
-		const harvest = harvestFindings(interrupted(12), origin);
+		const harvest = harvestFindings(
+			cutOff(12, ', {"location": {"kind'),
+			origin,
+		);
 
 		expect(harvest.findings).toHaveLength(12);
-		expect(harvest.findings[0]?.subject).toBe("This leaks (0)");
+		expect(harvest.findings[0]?.subject).toBe("finding 0");
 	});
 
 	it("says the answer was cut off rather than unreadable", () => {
-		const harvest = harvestFindings(interrupted(3), origin);
+		const harvest = harvestFindings(cutOff(3, ', {"location": {"kind'), origin);
 
-		expect(harvest.warnings.join(" ")).toMatch(/cut off|truncat|stopped/i);
-		// The old wording blamed the answer's shape, which sent whoever
-		// read it looking for a contract the reviewer had followed.
+		expect(harvest.truncated).toBe(true);
+		expect(harvest.warnings.join(" ")).toMatch(/cut off/i);
 		expect(harvest.warnings.join(" ")).not.toMatch(/Nothing in this answer/);
 	});
 
@@ -138,32 +160,18 @@ describe("harvesting an answer that was cut off", () => {
 		const harvest = harvestFindings("I could not review this, sorry.", origin);
 
 		expect(harvest.findings).toEqual([]);
+		expect(harvest.truncated).toBe(false);
 		expect(harvest.warnings.join(" ")).toMatch(/Nothing in this answer/);
 	});
 });
 
-/** An answer under `key` that stopped partway through entry `count`. */
-function cutShort(key: string, entries: unknown[]): string {
-	const done = entries.map((entry) => JSON.stringify(entry)).join(", ");
-	return `\`\`\`json\n{"${key}": [${done}, {"rationale": "and this one was inte`;
-}
-
 describe("the other rounds, cut off the same way", () => {
-	// Each of these reads its answer through the same door, and each
-	// could be interrupted in the same place. The stack round matters
-	// most: it is the one asked to hold every change at once, so it
-	// writes the longest answers and is the likeliest to be stopped.
 	it("keeps the spans a stack reviewer finished", () => {
 		const harvest = harvestStackFindings(
-			cutShort("findings", [
-				{
-					refs: ["refs/heads/tip"],
-					location: { kind: "file", file: "lib/a.ts" },
-					label: "issue",
-					subject: "This leaks",
-					discussion: "The handle is never closed.",
-				},
-			]),
+			`{"findings": [${JSON.stringify({
+				...finding("a stack thing"),
+				refs: ["refs/heads/tip"],
+			})}, {"refs": ["refs/heads/ti`,
 			origin,
 			["refs/heads/tip"],
 		);
@@ -174,11 +182,9 @@ describe("the other rounds, cut off the same way", () => {
 
 	it("keeps the positions a critic finished", () => {
 		const harvest = harvestCritiques(
-			cutShort("critiques", [
-				{ findingId: 1, position: "agree", rationale: "it really is open" },
-			]),
+			'{"critiques": [{"findingId": 1, "position": "agree", "rationale": "it is open"}, {"findingId": 2, "posi',
 			"hawk",
-			[1],
+			[1, 2],
 		);
 
 		expect(harvest.critiques).toHaveLength(1);
@@ -187,11 +193,9 @@ describe("the other rounds, cut off the same way", () => {
 
 	it("keeps the standings an auditor finished", () => {
 		const harvest = harvestAudits(
-			cutShort("audits", [
-				{ threadIndex: 1, standing: "addressed", rationale: "closed now" },
-			]),
+			'{"audits": [{"threadIndex": 1, "standing": "addressed", "rationale": "closed"}, {"threadIndex": 2, "stan',
 			"wren",
-			[1],
+			[1, 2],
 		);
 
 		expect(harvest.audits).toHaveLength(1);

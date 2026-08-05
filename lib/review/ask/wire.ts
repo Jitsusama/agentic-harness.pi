@@ -52,11 +52,13 @@ export interface AnswerRead {
  * does not say so is a reviewer that appears to have found less than
  * it did.
  */
-export function readAnswer(text: string): AnswerRead {
+export function readAnswer(text: string, key: string): AnswerRead {
 	const whole = findJson(text);
 	if (whole !== undefined) return { parsed: whole, truncated: false };
-	const salvaged = salvageJson(text);
-	return { parsed: salvaged, truncated: salvaged !== undefined };
+	const salvaged = salvageEntries(text, key);
+	return salvaged.length === 0
+		? { parsed: undefined, truncated: false }
+		: { parsed: { [key]: salvaged }, truncated: true };
 }
 
 /**
@@ -78,27 +80,61 @@ export const ANSWER_WAS_CUT_OFF =
  * text will not parse, and dropping it loses every finding that did
  * arrive whole along with the one that did not.
  *
- * So: walk the answer, remember the last point at which everything
- * open could be closed honestly, cut there and close it. What comes
- * back is the entries that finished. The interrupted one is left
- * behind rather than repaired, because a finding completed by
- * guesswork is indistinguishable from one the reviewer actually made.
+ * Nothing is repaired. Each entry of the named array is taken on its
+ * own and handed to the parser by itself: one that finished parses,
+ * one that did not, does not. An earlier version cut the text at a
+ * point where everything open could be closed and let the closers do
+ * the rest, which is a property of the syntax rather than of the
+ * entries. Every real finding holds a nested location, so an entry
+ * interrupted after that location closed satisfied the rule, and a
+ * half-written finding came back looking exactly like a whole one
+ * with its argument missing. A finding completed by guesswork cannot
+ * be told from one the reviewer made, which is the one outcome worth
+ * refusing outright.
  *
- * This is deliberately not folded into `findJson`. A caller reaching
- * for salvage is accepting a partial answer, and that is a decision
- * to make on purpose rather than to inherit from a parser that
- * quietly did its best.
+ * Anchored on the key rather than the first brace, which is also why
+ * a brace in the reviewer's prose no longer costs the answer: `findJson`
+ * learned that lesson already and its docstring says so. Where an
+ * answer holds several anchors, because a reviewer sketched a smaller
+ * array before writing the real one, the richest wins on the same
+ * reasoning as the widest span.
  */
-export function salvageJson(text: string): Record<string, unknown> | undefined {
-	const start = text.indexOf("{");
-	if (start === -1) return undefined;
+export function salvageEntries(text: string, key: string): unknown[] {
+	let best: unknown[] = [];
+	const anchor = new RegExp(`"${key}"\\s*:\\s*\\[`, "g");
+	for (const found of text.matchAll(anchor)) {
+		const at = (found.index ?? 0) + found[0].length;
+		const entries = entriesFrom(text, at);
+		if (entries.length > best.length) best = entries;
+	}
+	return best;
+}
 
-	const open: string[] = [];
-	let cut: { at: number; open: string[] } | undefined;
+/**
+ * The whole entries of an array, reading from just inside its bracket.
+ *
+ * Depth is counted relative to the array, so a boundary means the end
+ * of one of its entries and never the end of something nested inside
+ * one. An entry still open when the text runs out is not an entry.
+ */
+function entriesFrom(text: string, from: number): unknown[] {
+	const entries: unknown[] = [];
+	let depth = 0;
+	let start = -1;
 	let inString = false;
 	let escaped = false;
 
-	for (let at = start; at < text.length; at++) {
+	const take = (end: number): void => {
+		if (start === -1) return;
+		try {
+			entries.push(JSON.parse(text.slice(start, end)));
+		} catch {
+			// Whatever this was, the reviewer did not finish saying it.
+		}
+		start = -1;
+	};
+
+	for (let at = from; at < text.length; at++) {
 		const char = text[at];
 
 		if (inString) {
@@ -108,23 +144,27 @@ export function salvageJson(text: string): Record<string, unknown> | undefined {
 			continue;
 		}
 
-		if (char === '"') inString = true;
-		else if (char === "{" || char === "[") open.push(char);
-		else if (char === "}" || char === "]") {
-			open.pop();
-			// A value just finished. If it sits inside something, the
-			// answer can be truthfully ended here by closing what is
-			// still open, so this is the furthest safe cut so far.
-			if (open.length > 0) cut = { at: at + 1, open: [...open] };
+		if (char === '"') {
+			if (start === -1) start = at;
+			inString = true;
+		} else if (char === "{" || char === "[") {
+			if (start === -1) start = at;
+			depth++;
+		} else if (char === "}" || char === "]") {
+			// At depth zero this closes the array itself, or the object
+			// holding it, so the last entry ends here and so does the walk.
+			if (depth === 0) {
+				take(at);
+				break;
+			}
+			depth--;
+		} else if (char === "," && depth === 0) {
+			take(at);
+		} else if (start === -1 && !/\s/.test(char)) {
+			start = at;
 		}
 	}
-
-	if (cut === undefined) return undefined;
-	const closers = cut.open
-		.reverse()
-		.map((char) => (char === "{" ? "}" : "]"))
-		.join("");
-	return parseObject(text.slice(start, cut.at) + closers);
+	return entries;
 }
 
 /** One JSON object, or nothing. */

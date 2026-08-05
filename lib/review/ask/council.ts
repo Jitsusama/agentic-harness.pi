@@ -283,12 +283,20 @@ async function asked(
  * two different decisions for the reader: whether to trust the pass,
  * and whether to give it more room next time.
  */
-function stopWarning(stop: AskStop, kept: number): string {
+function stopWarning(stop: AskStop, kept: number, cutOff: boolean): string {
 	const held =
 		kept === 0
 			? "Nothing had been read from it yet"
 			: `${count(kept, "finding")} had been read from it first`;
-	return `stopped before it finished (${stop.limit}): ${stop.detail} ${held}, so treat this pass as partial.`;
+	// Said here rather than left in the harvest's own warnings, which
+	// this branch replaces. Those describe the shape of the text and
+	// would blame the reviewer for our deadline; this one is about our
+	// deadline, and dropping it was hiding the fact in the exact case
+	// it was written for.
+	const cut = cutOff
+		? " Its answer was cut off mid-entry, so what it was writing when it stopped is gone and there is no telling how much more there would have been."
+		: "";
+	return `stopped before it finished (${stop.limit}): ${stop.detail} ${held}, so treat this pass as partial.${cut}`;
 }
 
 /** Harvest one reply, record what it held, and say how it went. */
@@ -319,7 +327,13 @@ async function recordReply(
 	const said =
 		answer.stopped === undefined
 			? harvest.warnings
-			: [stopWarning(answer.stopped, harvest.findings.length)];
+			: [
+					stopWarning(
+						answer.stopped,
+						harvest.findings.length,
+						harvest.truncated === true,
+					),
+				];
 	for (const warning of said) {
 		warnings.push(`${participant.id}: ${warning}`);
 	}
