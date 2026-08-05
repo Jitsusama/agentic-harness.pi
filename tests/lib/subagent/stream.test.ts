@@ -54,6 +54,53 @@ describe("a stream that stops before the message does", () => {
 		);
 	});
 
+	it("does not let a fragment replace an answer already finished", () => {
+		// A reviewer can answer, call a tool to check itself, and be cut
+		// off partway through a revision. Reporting only the fragment
+		// throws away a complete answer that was already sent, which is
+		// the same loss this change exists to stop, arriving by a
+		// different door.
+		const parser = new ReviewerStreamParser();
+
+		parser.ingestChunk(
+			`${assistantEvent('{"findings": [{"subject": "the whole answer"}]}')}\n${streamingEvent(
+				'{"findings": [{"subject": "a revi',
+			)}\n`,
+		);
+
+		const said = parser.finish().finalAssistantText;
+		expect(said).toContain("the whole answer");
+		expect(said).toContain("a revi");
+	});
+
+	it("counts the turn it was cut off in, when the turn said what it cost", () => {
+		// The cost of a stopped reviewer is the number that made the
+		// incident visible in the first place. A run billed at nothing
+		// for its longest turn hides the next one.
+		const parser = new ReviewerStreamParser();
+
+		parser.ingestChunk(
+			`${JSON.stringify({
+				type: "message_update",
+				assistantMessageEvent: {
+					type: "text_delta",
+					partial: {
+						role: "assistant",
+						content: [{ type: "text", text: "partway" }],
+						usage: {
+							input: 10,
+							output: 5,
+							totalTokens: 15,
+							cost: { total: 2 },
+						},
+					},
+				},
+			})}\n`,
+		);
+
+		expect(parser.finish().usage?.cost.total).toBe(2);
+	});
+
 	it("prefers the finished message over the partials before it", () => {
 		const parser = new ReviewerStreamParser();
 
@@ -96,7 +143,10 @@ describe("a stream that stops before the message does", () => {
 			)}\n`,
 		);
 
-		expect(parser.finish().usage?.cost.total ?? 0).toBeLessThanOrEqual(1);
+		// Exactly once. An earlier version of this asserted "at most
+		// once", which a reader that counted the turn at nothing would
+		// also satisfy, and that is the opposite mistake.
+		expect(parser.finish().usage?.cost.total).toBe(1);
 	});
 
 	it("does not let a later message's thinking erase a finished answer", () => {

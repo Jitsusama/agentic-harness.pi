@@ -926,6 +926,58 @@ describe("createSupervisorRunPi", () => {
 		expect(result.exitCode).not.toBe(0);
 	});
 
+	it("bills a stopped turn once, in the copy that actually runs", async () => {
+		// The child script keeps its own copy of the billing rule, and it
+		// is the one production uses. It had no test, so it was possible
+		// to fix the parser, watch the suite go green, and ship the bug.
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "child.mjs");
+		const running = (text: string) =>
+			JSON.stringify({
+				type: "message_update",
+				assistantMessageEvent: {
+					type: "text_delta",
+					partial: {
+						role: "assistant",
+						content: [{ type: "text", text }],
+						usage: {
+							input: 100,
+							output: 50,
+							totalTokens: 150,
+							cost: { total: 7 },
+						},
+					},
+				},
+			});
+		await writeFile(
+			childPath,
+			`process.stdout.write(${JSON.stringify(`${running("one")}\n`)});\n` +
+				`process.stdout.write(${JSON.stringify(`${running("one two")}\n`)});\n` +
+				`process.stdout.write(${JSON.stringify(`${running("one two three")}\n`)});\n` +
+				`setInterval(() => {}, 1000);`,
+		);
+
+		const runPi = createSupervisorRunPi({
+			piInstall: { node: process.execPath, entry: childPath },
+			stateDir,
+			idleTimeoutMs: 1_000,
+			timeoutMs: 1_000,
+			killGraceMs: 500,
+			supervisorGraceMs: 30_000,
+		});
+
+		const result = await runPi({
+			args: [],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "billed",
+		});
+
+		// Once for the turn, not once per update and not nothing at all.
+		expect(result.usage?.cost.total).toBe(7);
+		expect(result.finalAssistantText).toBe("one two three");
+	});
+
 	it("prefers per-call timeout overrides over config defaults", async () => {
 		// Long-running personas (gsperf bench runs, gcloud
 		// deploys) need to push the idle and wall-clock

@@ -34,7 +34,9 @@ export class ReviewerStreamParser {
 	private readonly limits: ReviewerStreamLimits;
 	private buffer = "";
 	private discardingOversizedLine = false;
-	private finalAssistantText = "";
+	private finishedText = "";
+	private pendingText = "";
+	private pendingUsage: ReviewerUsage | undefined;
 	private usage: ReviewerUsage | undefined;
 	private readonly warnings: string[] = [];
 	private truncated = false;
@@ -80,9 +82,15 @@ export class ReviewerStreamParser {
 		}
 		this.buffer = "";
 		this.discardingOversizedLine = false;
+		// The turn in flight when the run ended never reported its own
+		// total, so its running one is the only account of it there is.
+		const spent =
+			this.pendingUsage === undefined
+				? this.usage
+				: addUsage(this.usage, this.pendingUsage);
 		return {
-			finalAssistantText: this.finalAssistantText,
-			...(this.usage ? { usage: this.usage } : {}),
+			finalAssistantText: this.saidSoFar(),
+			...(spent ? { usage: spent } : {}),
 			warnings: [...this.warnings],
 			truncated: this.truncated,
 			...(this.verification ? { verification: this.verification } : {}),
@@ -134,17 +142,46 @@ export class ReviewerStreamParser {
 		const message = readAssistantMessage(event);
 		if (message === null) return;
 		const text = readTextContent(message);
-		if (text !== null) {
-			this.finalAssistantText = this.truncateAssistantText(text);
-		}
-		// Only off a finished message. Usage accumulates across turns,
-		// and a partial carries the running total for the turn it is
-		// part of, so adding every update bills one turn as many times
-		// as it sent an update. The total stays plausible, which is
-		// exactly why nothing downstream would catch it.
-		if (!isFinished(event)) return;
 		const usage = readUsage(message);
+
+		// A turn's usage is a running total, not an increment, so a
+		// partial's is held rather than added: held it can be replaced by
+		// the next update and counted once at the end, where adding it
+		// would bill the turn once per update. Skipping partials outright
+		// is the opposite mistake and bills a stopped reviewer's longest
+		// turn at nothing, which deletes the number that made this whole
+		// class of failure visible.
+		if (!isFinished(event)) {
+			if (text !== null) this.pendingText = this.truncateAssistantText(text);
+			if (usage !== undefined) this.pendingUsage = usage;
+			return;
+		}
+
+		if (text !== null) {
+			this.finishedText = this.truncateAssistantText(text);
+		}
+		// The turn ended, so whatever it was running up is now final and
+		// arrives on the message itself.
+		this.pendingText = "";
+		this.pendingUsage = undefined;
 		if (usage !== undefined) this.usage = addUsage(this.usage, usage);
+	}
+
+	/**
+	 * Everything the assistant had said, in the order it said it.
+	 *
+	 * A run cut off mid-message has both a last finished message and an
+	 * unfinished one, and which of them holds the answer cannot be
+	 * decided here. A reviewer that answered and was then cut off
+	 * revising has its answer in the finished one; a reviewer cut off
+	 * writing its first answer has it in the fragment. Handing over
+	 * both lets the reader find it either way, where picking one throws
+	 * away a whole answer in the case it picked wrong.
+	 */
+	private saidSoFar(): string {
+		if (this.pendingText === "") return this.finishedText;
+		if (this.finishedText === "") return this.pendingText;
+		return `${this.finishedText}\n\n${this.pendingText}`;
 	}
 
 	private captureVerification(event: unknown): void {
