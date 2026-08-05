@@ -137,6 +137,12 @@ export class ReviewerStreamParser {
 		if (text !== null) {
 			this.finalAssistantText = this.truncateAssistantText(text);
 		}
+		// Only off a finished message. Usage accumulates across turns,
+		// and a partial carries the running total for the turn it is
+		// part of, so adding every update bills one turn as many times
+		// as it sent an update. The total stays plausible, which is
+		// exactly why nothing downstream would catch it.
+		if (!isFinished(event)) return;
 		const usage = readUsage(message);
 		if (usage !== undefined) this.usage = addUsage(this.usage, usage);
 	}
@@ -266,15 +272,45 @@ function isString(value: unknown): value is string {
 	return typeof value === "string";
 }
 
+/**
+ * The assistant message an event carries, finished or not.
+ *
+ * A finished message arrives as `message_end`. A message still being
+ * written arrives as `message_update`, carrying the whole of itself so
+ * far under `partial`, and a run cut off at its budget never sends
+ * anything else: watching only for the end reports nothing for a
+ * reviewer that was most of the way through its answer.
+ *
+ * Reading both means the text is whatever was last seen, complete or
+ * not. A partial cannot overwrite a finished answer with less, because
+ * a message that has not reached its text yet carries no text to
+ * overwrite it with.
+ */
 function readAssistantMessage(event: unknown): Record<string, unknown> | null {
 	if (typeof event !== "object" || event === null) return null;
 	const e = event as Record<string, unknown>;
-	if (e.type !== "message_end") return null;
-	const message = e.message;
+	const message = e.type === "message_end" ? e.message : streamedPart(e);
 	if (typeof message !== "object" || message === null) return null;
 	const m = message as Record<string, unknown>;
 	if (m.role !== "assistant") return null;
 	return m;
+}
+
+/** Whether this event carries a message that is done. */
+function isFinished(event: unknown): boolean {
+	return (
+		typeof event === "object" &&
+		event !== null &&
+		(event as Record<string, unknown>).type === "message_end"
+	);
+}
+
+/** The message so far, off an update event. */
+function streamedPart(event: Record<string, unknown>): unknown {
+	if (event.type !== "message_update") return null;
+	const streamed = event.assistantMessageEvent;
+	if (typeof streamed !== "object" || streamed === null) return null;
+	return (streamed as Record<string, unknown>).partial;
 }
 
 function readTextContent(message: Record<string, unknown>): string | null {

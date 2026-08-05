@@ -15,6 +15,113 @@ function assistantEvent(text: string, usage?: unknown): string {
 	});
 }
 
+/**
+ * What pi sends while a message is still being written: the whole
+ * message so far, on every delta. Shape taken from a real transcript
+ * rather than guessed at.
+ */
+function streamingEvent(text: string, thinking = "working on it"): string {
+	return JSON.stringify({
+		type: "message_update",
+		assistantMessageEvent: {
+			type: "text_delta",
+			contentIndex: 1,
+			delta: text.slice(-4),
+			partial: {
+				role: "assistant",
+				content: [
+					{ type: "thinking", thinking },
+					{ type: "text", text },
+				],
+			},
+		},
+	});
+}
+
+describe("a stream that stops before the message does", () => {
+	it("reports the text that had been streamed", () => {
+		// A reviewer taken away at its budget never sends message_end,
+		// so a parser watching only for that reports nothing at all and
+		// the whole answer is lost. The words were on the wire.
+		const parser = new ReviewerStreamParser();
+
+		parser.ingestChunk(
+			`${streamingEvent('{"findings": [')}\n${streamingEvent('{"findings": [{"title": "a leak')}\n`,
+		);
+
+		expect(parser.finish().finalAssistantText).toBe(
+			'{"findings": [{"title": "a leak',
+		);
+	});
+
+	it("prefers the finished message over the partials before it", () => {
+		const parser = new ReviewerStreamParser();
+
+		parser.ingestChunk(
+			`${streamingEvent("half of i")}\n${assistantEvent("half of it, then all of it")}\n`,
+		);
+
+		expect(parser.finish().finalAssistantText).toBe(
+			"half of it, then all of it",
+		);
+	});
+
+	it("counts what a turn cost once, however many updates carried it", () => {
+		// A partial carries the turn's running usage, and a reader that
+		// adds up every update bills the turn a hundred times over. The
+		// numbers would look plausible, which is what makes it worth a
+		// test: nothing downstream could tell.
+		const parser = new ReviewerStreamParser();
+		const running = {
+			type: "message_update",
+			assistantMessageEvent: {
+				type: "text_delta",
+				partial: {
+					role: "assistant",
+					content: [{ type: "text", text: "partway" }],
+					usage: {
+						input: 10,
+						output: 5,
+						cacheRead: 0,
+						cacheWrite: 0,
+						cost: { total: 1 },
+					},
+				},
+			},
+		};
+
+		parser.ingestChunk(
+			`${JSON.stringify(running)}\n${JSON.stringify(running)}\n${JSON.stringify(
+				running,
+			)}\n`,
+		);
+
+		expect(parser.finish().usage?.cost.total ?? 0).toBeLessThanOrEqual(1);
+	});
+
+	it("does not let a later message's thinking erase a finished answer", () => {
+		// After one message completes, the next begins as thinking with
+		// no text yet. That must not count as the assistant having said
+		// nothing.
+		const parser = new ReviewerStreamParser();
+
+		parser.ingestChunk(
+			`${assistantEvent("the answer")}\n${JSON.stringify({
+				type: "message_update",
+				assistantMessageEvent: {
+					type: "thinking_delta",
+					partial: {
+						role: "assistant",
+						content: [{ type: "thinking", thinking: "now what" }],
+					},
+				},
+			})}\n`,
+		);
+
+		expect(parser.finish().finalAssistantText).toBe("the answer");
+	});
+});
+
 describe("ReviewerStreamParser", () => {
 	it("extracts the final assistant text without retaining full stdout", () => {
 		const parser = new ReviewerStreamParser();
