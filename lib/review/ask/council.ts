@@ -16,6 +16,7 @@
  * trade, given what a round costs to run.
  */
 
+import { count } from "../../ui/count.js";
 import type { Finding } from "../finding.js";
 import { harvestFindings } from "./harvest.js";
 import {
@@ -33,26 +34,74 @@ import {
 	type ParticipantOutcome,
 } from "./run.js";
 
+/**
+ * Which limit ended a reviewer before it had finished.
+ *
+ * A limit is not a failure. The reviewer was working, and something
+ * on our side decided it had worked long enough, so the two are
+ * reported apart: a failure is the run never happening, and a stop
+ * is the run being taken away mid-sentence.
+ */
+export type AskLimit =
+	| "wall-clock"
+	| "idle"
+	| "output"
+	| "cancelled"
+	| "parent-exit";
+
+/** A reviewer stopped before it finished, and what stopped it. */
+export interface AskStop {
+	limit: AskLimit;
+	/** What happened, in the runner's own words. */
+	detail: string;
+}
+
 /** What came back from asking one participant. */
 export type AskAnswer =
-	| { text: string; usage?: AskUsage }
+	| {
+			text: string;
+			usage?: AskUsage;
+			stopped?: AskStop;
+			/** Where the answer was kept, when the runner kept it. */
+			answerPath?: string;
+	  }
 	| { failure: string };
+
+/**
+ * What a round can tell a runner about itself.
+ *
+ * The runner is the thing that leaves artifacts behind, and it cannot
+ * work out which round it belongs to on its own. A transcript that
+ * cannot be traced back to the round that paid for it answers none of
+ * the questions a transcript is kept for.
+ */
+export interface AskContext {
+	/** The round this ask belongs to, as the ledger names it. */
+	runId: string;
+	/**
+	 * How a long-running ask says what it is doing. Optional to call
+	 * and optional to receive: the library cannot see a subprocess, so
+	 * activity only exists if the implementation volunteers it.
+	 */
+	report?(activity: string): void;
+}
+
+/**
+ * Run one participant against the prompt, for a named round.
+ *
+ * Named once and shared by every round's deps. Each used to restate
+ * the signature, which is how two of them still had a bare report
+ * callback after the context arrived.
+ */
+export type Ask = (
+	participant: Participant,
+	prompt: string,
+	context: AskContext,
+) => Promise<AskAnswer>;
 
 /** The impure things asking needs. */
 export interface CouncilDeps {
-	/**
-	 * Run one participant against the prompt.
-	 *
-	 * `report` is how a long-running ask says what it is doing. It is
-	 * optional to call and optional to receive: the library cannot see
-	 * a subprocess, so activity only exists if the implementation
-	 * volunteers it.
-	 */
-	ask(
-		participant: Participant,
-		prompt: string,
-		report?: (activity: string) => void,
-	): Promise<AskAnswer>;
+	ask: Ask;
 	/** Put findings on the change, numbering them as they land. */
 	record(findings: Omit<Finding, "id">[]): Promise<Finding[]>;
 	now(): Date;
@@ -98,6 +147,7 @@ export interface Reply {
 export async function askRoster(
 	roster: Roster,
 	prompt: string,
+	runId: string,
 	deps: Pick<CouncilDeps, "ask" | "progress">,
 ): Promise<Reply[]> {
 	const progress = deps.progress ?? noAskProgress;
@@ -105,9 +155,10 @@ export async function askRoster(
 	return await Promise.all(
 		roster.reviewers.map(async (participant): Promise<Reply> => {
 			progress.started(participant.id);
-			const answer = await asked(participant, prompt, deps, (activity) =>
-				progress.activity(participant.id, activity),
-			);
+			const answer = await asked(participant, prompt, deps, {
+				runId,
+				report: (activity) => progress.activity(participant.id, activity),
+			});
 			// A failure the runner hands back and one it throws are the
 			// same event to somebody watching a board.
 			if ("failure" in answer) progress.failed(participant.id, answer.failure);
@@ -134,14 +185,16 @@ export async function askRoster(
 export async function askOne(
 	participant: Participant,
 	prompt: string,
+	runId: string,
 	deps: Pick<CouncilDeps, "ask" | "progress">,
 ): Promise<AskAnswer> {
 	const progress = deps.progress ?? noAskProgress;
 	progress.start([participant]);
 	progress.started(participant.id);
-	const answer = await asked(participant, prompt, deps, (activity) =>
-		progress.activity(participant.id, activity),
-	);
+	const answer = await asked(participant, prompt, deps, {
+		runId,
+		report: (activity) => progress.activity(participant.id, activity),
+	});
 	// A failure the runner hands back and one it throws are the same event
 	// to somebody watching a board.
 	if ("failure" in answer) progress.failed(participant.id, answer.failure);
@@ -158,7 +211,7 @@ export async function runCouncil(
 	const startedAt = deps.now();
 	const id = newRunId(round, startedAt, request.seq);
 
-	const replies = await askRoster(request.roster, request.prompt, deps);
+	const replies = await askRoster(request.roster, request.prompt, id, deps);
 
 	const warnings: string[] = [];
 	const outcomes = await settleReplies(
@@ -204,15 +257,30 @@ async function asked(
 	participant: Participant,
 	prompt: string,
 	deps: Pick<CouncilDeps, "ask">,
-	report?: (activity: string) => void,
+	context: AskContext,
 ): Promise<AskAnswer> {
 	try {
-		return await deps.ask(participant, prompt, report);
+		return await deps.ask(participant, prompt, context);
 	} catch (error) {
 		return {
 			failure: error instanceof Error ? error.message : String(error),
 		};
 	}
+}
+
+/**
+ * What to say about a reviewer we stopped.
+ *
+ * It names what was kept as well as what ended it, because those are
+ * two different decisions for the reader: whether to trust the pass,
+ * and whether to give it more room next time.
+ */
+function stopWarning(stop: AskStop, kept: number): string {
+	const held =
+		kept === 0
+			? "Nothing had been read from it yet"
+			: `${count(kept, "finding")} had been read from it first`;
+	return `stopped before it finished (${stop.limit}): ${stop.detail} ${held}, so treat this pass as partial.`;
 }
 
 /** Harvest one reply, record what it held, and say how it went. */
@@ -236,7 +304,15 @@ async function recordReply(
 		{ kind: "reviewer", runId: run.runId, reviewerId: participant.id },
 		run.witness,
 	);
-	for (const warning of harvest.warnings) {
+	// A stopped reviewer answers for its own harvest warnings. Those
+	// warnings describe the shape of the text, and the text is a
+	// sentence we interrupted, so passing them on blames the reviewer
+	// for our deadline and tells the reader to fix the wrong thing.
+	const said =
+		answer.stopped === undefined
+			? harvest.warnings
+			: [stopWarning(answer.stopped, harvest.findings.length)];
+	for (const warning of said) {
 		warnings.push(`${participant.id}: ${warning}`);
 	}
 
@@ -246,6 +322,10 @@ async function recordReply(
 	return {
 		participantId: participant.id,
 		findingIds: recorded.map((finding) => finding.id),
+		...(answer.stopped === undefined ? {} : { stopped: answer.stopped }),
+		...(answer.answerPath === undefined
+			? {}
+			: { answerPath: answer.answerPath }),
 		...(answer.usage === undefined ? {} : { usage: answer.usage }),
 	};
 }

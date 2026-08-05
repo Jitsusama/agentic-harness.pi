@@ -12,6 +12,7 @@
  * can disagree, and only one of them is the evidence.
  */
 
+import type { AskStop } from "./council.js";
 import type { ParticipantIdentity } from "./identity.js";
 
 /** Which pass of a review this was. */
@@ -40,6 +41,24 @@ export interface ParticipantOutcome {
 	findingIds: number[];
 	/** Why nothing came back, when nothing did. */
 	failure?: string;
+	/**
+	 * Which limit took this reviewer away, when one did.
+	 *
+	 * Recorded even when findings came back, because a stopped
+	 * reviewer that raised nine findings had a tenth in hand, and a
+	 * reader deciding whether the pass was complete needs to know the
+	 * difference between nine and nine-so-far.
+	 */
+	stopped?: AskStop;
+	/**
+	 * Where this participant's answer was kept, verbatim.
+	 *
+	 * Recorded rather than derived from the ids, because a path that
+	 * no longer resolves is honest history: it says an answer was kept
+	 * here and has since been reclaimed, where a derived path would
+	 * claim one that may never have existed.
+	 */
+	answerPath?: string;
 	usage?: AskUsage;
 }
 

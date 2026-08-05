@@ -23,10 +23,12 @@ import {
 	type ReviewSubstrateApi,
 	registerReviewProvider,
 } from "../../lib/review/index.js";
+import { ReviewerArtifactsStore } from "../../lib/subagent/index.js";
 import {
 	forgetReviewEngine,
 	registerBuiltinReviewProviders,
 	reviewEngine,
+	runArtifactDir,
 } from "./engine.js";
 import { guardPublishes } from "./guard-publish.js";
 import {
@@ -54,6 +56,40 @@ function isProvider(data: unknown): data is ReviewProvider {
 		typeof candidate.claimRepo === "function" &&
 		typeof candidate.capabilities === "function"
 	);
+}
+
+/**
+ * How many rounds' transcripts to keep, and for how long.
+ *
+ * A round is seven reviewers and each one's event stream is capped at
+ * ten megabytes across rotations, so a busy day writes hundreds of
+ * megabytes. Keeping a transcript is what makes a lost round
+ * diagnosable; keeping every transcript ever written is just a disk
+ * that fills. An unfinished run is held far longer, because that is
+ * the one somebody may still be trying to recover.
+ */
+const ROUNDS_RETAIN = 100;
+const ROUNDS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const ROUNDS_ABANDONED_AFTER_MS = 4 * ROUNDS_MAX_AGE_MS;
+
+/**
+ * Give back the disk that finished rounds are still holding.
+ *
+ * At session start rather than after a round, so a sweep never delays
+ * an answer somebody is waiting for, and advisory throughout: failing
+ * to reclaim space is not a reason to fail a session.
+ */
+async function reclaimRoundTranscripts(): Promise<void> {
+	try {
+		await new ReviewerArtifactsStore(runArtifactDir()).cleanupTerminalRuns({
+			maxRuns: ROUNDS_RETAIN,
+			maxAgeMs: ROUNDS_MAX_AGE_MS,
+			abandonedAfterMs: ROUNDS_ABANDONED_AFTER_MS,
+		});
+	} catch {
+		// Advisory. A sweep that cannot run costs disk, and failing the
+		// session over it would cost the session.
+	}
 }
 
 export default function reviewIntegration(pi: ExtensionAPI) {
@@ -111,5 +147,6 @@ export default function reviewIntegration(pi: ExtensionAPI) {
 		// registry the new session has not rebuilt yet.
 		forgetWorkLayer();
 		watchForWorkLayer(pi);
+		void reclaimRoundTranscripts();
 	});
 }

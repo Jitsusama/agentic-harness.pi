@@ -147,11 +147,11 @@ describe("a stack-wide round", () => {
 		);
 		const slow: StackCouncilDeps = {
 			...d,
-			async ask(participant, prompt) {
+			async ask(participant, prompt, context) {
 				if (participant.id === "wren") {
 					await new Promise((r) => setTimeout(r, 5));
 				}
-				return d.ask(participant, prompt);
+				return d.ask(participant, prompt, context);
 			},
 		};
 

@@ -188,8 +188,8 @@ describe("a round reporting as it goes", () => {
 
 		await round(
 			[alice],
-			async (_participant, _prompt, report): Promise<AskAnswer> => {
-				report?.("grep TODO");
+			async (_participant, _prompt, context): Promise<AskAnswer> => {
+				context.report?.("grep TODO");
 				expect(entries()[0]?.activity).toBe("grep TODO");
 				return { text: "fine" };
 			},

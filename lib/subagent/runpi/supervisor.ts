@@ -5,7 +5,11 @@ import {
 } from "node:child_process";
 import { readFile, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { ReviewerArtifactsStore, type ReviewerRunPaths } from "../artifacts.js";
+import {
+	ReviewerArtifactsStore,
+	type ReviewerRunPaths,
+	type ReviewerTerminalState,
+} from "../artifacts.js";
 import type { PiInstall } from "../install.js";
 import type { ReviewerError } from "../reviewer-error.js";
 import type { RunPi, RunPiResult } from "../subagent.js";
@@ -50,6 +54,7 @@ export interface SupervisorRunPiConfig {
 }
 
 interface SupervisorResultFile {
+	readonly state?: ReviewerTerminalState;
 	readonly exitCode: number;
 	readonly finalAssistantText: string;
 	readonly usage?: RunPiResult["usage"];
@@ -540,6 +545,7 @@ function fromResult(
 	return {
 		exitCode: result.exitCode,
 		finalAssistantText: result.finalAssistantText,
+		...(result.state ? { state: result.state } : {}),
 		...(result.usage ? { usage: result.usage } : {}),
 		warnings: [...warnings, ...(result.warnings ?? [])],
 		stderrTail: result.stderrTail ?? stderrTail,

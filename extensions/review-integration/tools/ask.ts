@@ -35,6 +35,7 @@ import {
 import { packageConfigPath } from "../../../lib/internal/paths.js";
 import {
 	type AskAnswer,
+	type AskContext,
 	type AskRound,
 	type AskRun,
 	auditPrompt,
@@ -67,20 +68,24 @@ import {
 } from "../../../lib/review/index.js";
 import type { ReviewerThinkingLevel } from "../../../lib/subagent/index.js";
 import {
-	createSpawnRunPi,
 	getParentPiInstall,
 	runReviewer,
 	summarizeStreamActivity,
 } from "../../../lib/subagent/index.js";
 import { count } from "../../../lib/ui/count.js";
+import { type ReviewerBudget, reviewerBudget } from "../budget.js";
 import { REVIEW_SLUG } from "../config.js";
-import { findingDir, personaDir, reviewEngine, runDir } from "../engine.js";
 import {
-	PARTICIPANT_TIMEOUT_MS,
-	type RoundWatch,
-	watchRound,
-} from "../progress.js";
+	answerDir,
+	findingDir,
+	personaDir,
+	reviewEngine,
+	runArtifactDir,
+	runDir,
+} from "../engine.js";
+import { type RoundWatch, watchRound } from "../progress.js";
 import { GLYPH } from "../render.js";
+import { answerFromReviewer, keepAnswer, reviewerRunner } from "../reviewer.js";
 import { treeForRound } from "../work.js";
 import {
 	type Answer,
@@ -851,6 +856,40 @@ async function rosterOrThrow(): Promise<Roster> {
 }
 
 /**
+ * What bounds this round's reviewers, as configured.
+ *
+ * Read from the same section the roster comes from, because who is
+ * asked and how long they get are one decision about one fan-out.
+ * Falls back to the defaults for any config that cannot be read: a
+ * round is better bounded generously than refused over a budget.
+ */
+/**
+ * Keep one answer, and never let keeping it cost the round.
+ *
+ * A full disk or a read-only state directory is a reason to lose the
+ * archive, not a reason to lose the findings the reviewer just spent
+ * ten minutes producing.
+ */
+async function keptAt(
+	runId: string,
+	participantId: string,
+	text: string,
+): Promise<string | undefined> {
+	try {
+		return await keepAnswer(answerDir(), runId, participantId, text);
+	} catch {
+		return undefined;
+	}
+}
+
+async function budgetForRound(): Promise<ReviewerBudget> {
+	const loaded = await loadPackageConfig(packageConfigPath());
+	if (!loaded.ok) return reviewerBudget(undefined);
+	const review = loaded.config.sections[REVIEW_SLUG];
+	return reviewerBudget(isRecord(review) ? review.ask : undefined);
+}
+
+/**
  * The roster held in a loaded config, or a throw saying why not.
  *
  * Separated from the loading so the lookup can be tested against a
@@ -992,12 +1031,17 @@ function deps(
 	const findings = createFindingStore(findingDir());
 	// The watch knows which round this is, so it is not passed twice.
 	const contract = contractSkill(watch.round);
+	// Read once for the round rather than once per participant, and
+	// started here rather than awaited, so seven reviewers share one
+	// config read without any of them waiting on it to be asked.
+	const bounds = budgetForRound();
 	return {
 		async ask(
 			participant: Participant,
 			prompt: string,
-			report?: (activity: string) => void,
+			context: AskContext,
 		): Promise<AskAnswer> {
+			const budget = await bounds;
 			const result = await runReviewer({
 				reviewer: {
 					id: participant.id,
@@ -1029,7 +1073,24 @@ function deps(
 				...(charters.get(participant.id) === undefined
 					? {}
 					: { systemPrompt: charters.get(participant.id) }),
-				runPi: createSpawnRunPi({ piInstall: getParentPiInstall() }),
+				// Supervised rather than fire-and-forget, so the reviewer
+				// leaves a transcript, a stderr log and a resumable session
+				// under the round's own directory. The spawn runner kept all
+				// of that in memory and dropped it, which is why a round that
+				// cost fifty dollars could be investigated only by paying for
+				// it again.
+				runPi: reviewerRunner(getParentPiInstall(), runArtifactDir()),
+				// Names what this reviewer leaves behind after the round that
+				// paid for it, so a transcript can be found from the ledger.
+				runId: context.runId,
+				// Says out loud what the default already does, because it is
+				// what makes the supervisor persist a session at all. It buys
+				// a resume after a transient provider drop, and nothing for a
+				// reviewer we stopped: that path needs no error, and a stop
+				// carries none. Asking a stopped reviewer to finish is a
+				// separate piece of work, and the session it will need is the
+				// thing being kept here.
+				autoResume: true,
 				// Cancellable, so Escape on the panel really stops the work
 				// rather than only hiding it. The runner kills the child on
 				// abort; all that was ever missing was passing the signal down.
@@ -1037,39 +1098,32 @@ function deps(
 				// running. It is derived from the round's, so Escape still
 				// reaches every one of them.
 				signal: watch.signalFor(participant.id),
-				// Still bounded, for a participant that stops responding while
-				// nobody is watching the panel.
-				timeoutMs: PARTICIPANT_TIMEOUT_MS,
+				// Bounded twice, and the idle clock is the one doing the work:
+				// it catches a participant that has gone silent, while the wall
+				// clock only backstops one that nothing else will stop. Bounding
+				// on the wall clock alone is what killed six rounds of reviewers
+				// that were still working.
+				...budget,
 				// The one place a subprocess becomes something a person can
 				// watch. The library cannot see a stream, so it is told.
-				...(report === undefined
+				...(context.report === undefined
 					? {}
 					: {
 							onEvent(event) {
 								const activity = summarizeStreamActivity(event);
-								if (activity !== null) report(activity);
+								if (activity !== null) context.report?.(activity);
 							},
 						}),
 			});
-			if (result.exitCode !== 0 && result.finalAssistantText.trim() === "") {
-				const said = result.error?.message ?? result.stderr.trim();
-				return {
-					failure:
-						said === "" || said === undefined
-							? `${participant.id} exited ${result.exitCode} without answering.`
-							: said,
-				};
-			}
+			const answer = answerFromReviewer(result);
+			if ("failure" in answer) return answer;
+			// Kept before it is read, and kept whatever it turns out to
+			// hold. An answer that parses is already represented by its
+			// findings; the one worth keeping is the one that does not,
+			// and that is exactly the one the old path threw away.
 			return {
-				text: result.finalAssistantText,
-				...(result.usage === undefined
-					? {}
-					: {
-							usage: {
-								tokens: result.usage.tokens.total,
-								cost: result.usage.cost.total,
-							},
-						}),
+				...answer,
+				answerPath: await keptAt(context.runId, participant.id, answer.text),
 			};
 		},
 		record(raised: Omit<Finding, "id">[]) {

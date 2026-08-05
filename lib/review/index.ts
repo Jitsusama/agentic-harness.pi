@@ -45,7 +45,11 @@ export type {
 } from "./ask/audit.js";
 export { harvestAudits, runAudit } from "./ask/audit.js";
 export type {
+	Ask,
 	AskAnswer,
+	AskContext,
+	AskLimit,
+	AskStop,
 	CouncilDeps,
 	CouncilRequest,
 	CouncilResult,

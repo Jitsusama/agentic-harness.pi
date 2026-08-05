@@ -10,9 +10,19 @@ import {
 import { dirname, join } from "node:path";
 import type { ReviewerRunArtifacts } from "./subagent.js";
 
-/** Terminal lifecycle states persisted by supervised reviewer runs. */
+/**
+ * Terminal lifecycle states persisted by supervised reviewer runs.
+ *
+ * `errored` is the one that is not a lifecycle event: the child exited
+ * cleanly but its final turn died on a provider or transport failure,
+ * so the supervisor downgrades `complete` to this. It was missing from
+ * this union while `supervisor.mjs` was already writing it, which made
+ * every read of the field a quiet lie and any exhaustive switch over
+ * it wrong.
+ */
 export type ReviewerTerminalState =
 	| "complete"
+	| "errored"
 	| "failed"
 	| "cancelled"
 	| "timeout"

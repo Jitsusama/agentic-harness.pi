@@ -18,16 +18,12 @@
 
 import type { Finding } from "../finding.js";
 import {
-	type AskAnswer,
+	type Ask,
 	askRoster,
 	type CouncilResult,
 	type Reply,
 } from "./council.js";
-import {
-	type Participant,
-	type ParticipantIdentity,
-	participantIdentity,
-} from "./identity.js";
+import { type ParticipantIdentity, participantIdentity } from "./identity.js";
 import { type AskProgress, settleReplies } from "./progress.js";
 import type { Roster } from "./roster.js";
 import { newRunId, type ParticipantOutcome } from "./run.js";
@@ -38,14 +34,10 @@ export interface StackCouncilDeps {
 	/**
 	 * Run one participant against the prompt.
 	 *
-	 * `report` is how a long-running ask says what it is doing, and a
-	 * stack round is the longest there is: it reads every change.
+	 * Reporting matters most here: a stack round is the longest there
+	 * is, because it reads every change.
 	 */
-	ask(
-		participant: Participant,
-		prompt: string,
-		report?: (activity: string) => void,
-	): Promise<AskAnswer>;
+	ask: Ask;
 	/** File findings against one change in the stack. */
 	record(ref: string, findings: Omit<Finding, "id">[]): Promise<Finding[]>;
 	now(): Date;
@@ -79,7 +71,7 @@ export async function runStackCouncil(
 	const startedAt = deps.now();
 	const id = newRunId("stack", startedAt, request.seq);
 
-	const replies = await askRoster(request.roster, request.prompt, deps);
+	const replies = await askRoster(request.roster, request.prompt, id, deps);
 
 	const warnings: string[] = [];
 	const outcomes = await settleReplies(

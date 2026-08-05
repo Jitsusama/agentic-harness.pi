@@ -26,6 +26,11 @@ import { randomUUID } from "node:crypto";
 import { rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+// Type-only, and erased, so the pairing with artifacts.ts importing
+// ReviewerRunArtifacts back out of here is not a runtime cycle. The
+// state belongs beside the store that writes it and the result that
+// reports it, and those are two files.
+import type { ReviewerTerminalState } from "./artifacts.js";
 import { getSubagentDefaults } from "./defaults.js";
 import { checkSubagentRuntime, detectStaleInstallInStderr } from "./health.js";
 import {
@@ -261,6 +266,16 @@ export interface RunPiResult {
 	readonly error?: ReviewerError;
 	/** Durable files backing this run, when available. */
 	readonly artifacts?: ReviewerRunArtifacts;
+	/**
+	 * How the run ended, as the supervisor classified it.
+	 *
+	 * An exit code cannot say this. A reviewer stopped at a wall clock
+	 * and one that answered badly can both arrive with text and a
+	 * non-zero code, and a caller that cannot tell them apart blames
+	 * the reviewer for a deadline we set. Absent from unsupervised
+	 * runners, which never knew.
+	 */
+	readonly state?: ReviewerTerminalState;
 }
 
 /** One pi `--mode json` stream event. */
@@ -472,6 +487,14 @@ export interface RunReviewerResult {
 	 * whether the failure is worth resuming.
 	 */
 	readonly error?: ReviewerError;
+	/**
+	 * How the run ended, when a supervised runner classified it.
+	 *
+	 * The one thing that separates a reviewer we stopped from one
+	 * that answered badly, and neither the exit code nor the text
+	 * can carry it.
+	 */
+	readonly state?: ReviewerTerminalState;
 }
 
 /**
@@ -794,6 +817,7 @@ function assembleReviewerResult(
 				: (verifiedText ?? parsed.finalAssistantText),
 		stderr: parsed.stderr,
 		warnings,
+		...(result.state ? { state: result.state } : {}),
 		...(parsed.usage ? { usage: parsed.usage } : {}),
 		...(verificationForResult
 			? { verification: verificationWithoutOutput(verificationForResult) }

@@ -43,6 +43,29 @@ export function runDir(): string {
 	return join(stateDir("review"), "runs");
 }
 
+/**
+ * Where a round's reviewers leave their transcripts.
+ *
+ * Beside the ledger rather than inside it: the ledger is a small file
+ * read on every listing, and these are megabytes of event stream per
+ * reviewer. The round id is the key on both sides, so one points at
+ * the other without either having to hold the other's contents.
+ */
+export function runArtifactDir(): string {
+	return join(stateDir("review"), "transcripts");
+}
+
+/**
+ * Where what each reviewer said is kept, verbatim.
+ *
+ * Separate from the transcripts because it outlives them: a
+ * transcript belongs to the runner and its retention, and a finding's
+ * provenance has to survive that housekeeping.
+ */
+export function answerDir(): string {
+	return join(stateDir("review"), "answers");
+}
+
 /** Where findings queued to fix rather than say live. */
 export function fixDir(): string {
 	return join(stateDir("review"), "fixes");

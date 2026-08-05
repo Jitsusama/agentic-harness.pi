@@ -238,6 +238,66 @@ describe("createSupervisorRunPi", () => {
 		expect(result.finalAssistantText).toBe("supervised");
 		expect(result.usage?.tokens.total).toBe(3);
 		expect(result.artifacts?.resultPath).toContain("result.json");
+		expect(result.state).toBe("complete");
+	});
+
+	it("says which state ended a run that was stopped, not just that it failed", async () => {
+		// A caller has to tell a reviewer we stopped from one that
+		// answered badly, and an exit code cannot carry that: a review
+		// council reported seven reviewers as having answered with
+		// unparseable output when all seven had been killed at a wall
+		// clock. The supervisor has always written the state to its
+		// result file; it simply never handed it back.
+		//
+		// Driven through a fake supervisor rather than a real stuck
+		// child, because the claim is that the parent reads the field
+		// back off the result file. Proving that with a subprocess that
+		// has to be killed would add a spawning test to a suite that
+		// already starves them under load, and would not prove any more.
+		const stateDir = await tempStateDir();
+		const fake = makeFakeChild();
+		const runPi = createSupervisorRunPi({
+			piInstall: { node: "/pi/bin/node", entry: "/pi/dist/cli.js" },
+			nodeBinary: "node",
+			supervisorPath: "/pkg/reviewer-supervisor.mjs",
+			stateDir,
+			spawn: (_command, args) => {
+				queueMicrotask(async () => {
+					const request = JSON.parse(await readFile(String(args[1]), "utf-8"));
+					await new ReviewerArtifactsStore(stateDir).writeJsonAtomic(
+						request.paths.resultPath,
+						{
+							state: "timeout",
+							exitCode: 124,
+							// The conversational line a reviewer says between
+							// tool calls, which is what used to be mistaken
+							// for its answer.
+							finalAssistantText: "Let me check the tests.",
+							warnings: [
+								"Pi subprocess timed out after 900000ms; sent SIGTERM.",
+							],
+						},
+					);
+					fake.stdout.end(
+						`${JSON.stringify({ type: "terminal", resultPath: request.paths.resultPath })}\n`,
+					);
+					fake.emitClose(0);
+				});
+				return fake.child as unknown as ChildProcess;
+			},
+		});
+
+		const result = await runPi({
+			args: [],
+			cwd: "/tmp/wt",
+			runId: "run",
+			reviewerId: "slow",
+		});
+
+		expect(result.state).toBe("timeout");
+		// The thing it said on the way past the wall is still there, so
+		// the state is what tells the two apart rather than the text.
+		expect(result.finalAssistantText).toBe("Let me check the tests.");
 	});
 	it("sets the child's PI_PACKAGE_DIR to the pinned package dir", async () => {
 		// End-to-end proof of the mid-session-upgrade fix: the

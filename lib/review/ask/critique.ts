@@ -13,8 +13,8 @@
  * here: it makes a weakly supported finding look corroborated.
  */
 
-import { type AskAnswer, askRoster } from "./council.js";
-import { type Participant, participantIdentity } from "./identity.js";
+import { type Ask, askRoster } from "./council.js";
+import { participantIdentity } from "./identity.js";
 import type { AskProgress } from "./progress.js";
 import type { Roster } from "./roster.js";
 import { type AskRun, newRunId, type ParticipantOutcome } from "./run.js";
@@ -39,11 +39,7 @@ export interface CritiqueHarvest {
 
 /** The impure things a critique needs. */
 export interface CritiqueDeps {
-	ask(
-		participant: Participant,
-		prompt: string,
-		report?: (activity: string) => void,
-	): Promise<AskAnswer>;
+	ask: Ask;
 	now(): Date;
 	/** Told what is happening while it happens. Optional. */
 	progress?: AskProgress;
@@ -124,7 +120,7 @@ export async function runCritique(
 	// that makes asking correct lives there, and it would all have to
 	// change together: concurrent asking, a thrown failure and a
 	// reported one being one event, roster ordering, reporting.
-	const replies = await askRoster(request.roster, request.prompt, deps);
+	const replies = await askRoster(request.roster, request.prompt, id, deps);
 
 	const critiques: Critique[] = [];
 	const warnings: string[] = [];

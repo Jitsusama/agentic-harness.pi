@@ -49,7 +49,7 @@ export async function runJudge(
 	// findings ran to completion showing no sign of life. `askOne` also
 	// folds a thrown runner into a reported failure, which is why the
 	// try/catch that used to say so is gone rather than kept beside it.
-	const answer = await askOne(request.judge, request.prompt, deps);
+	const answer = await askOne(request.judge, request.prompt, id, deps);
 
 	const outcome: ParticipantOutcome = await (async () => {
 		if ("failure" in answer) {
