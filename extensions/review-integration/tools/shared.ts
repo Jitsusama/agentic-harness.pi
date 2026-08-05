@@ -16,7 +16,6 @@ import {
 	type ChangeRef,
 	changeInPlay,
 	chooseChange,
-	createAttachmentStore,
 	explainFailure,
 	type FailureContext,
 	findReactable,
@@ -27,7 +26,7 @@ import {
 	type Thread,
 } from "../../../lib/review/index.js";
 import { firstText, renderToolCall } from "../../../lib/ui/index.js";
-import { attachmentDir, reviewEngine } from "../engine.js";
+import { attachments, reviewEngine } from "../engine.js";
 import type { GateRefusal } from "../gate.js";
 import { GLYPH } from "../render.js";
 
@@ -241,7 +240,7 @@ export async function boundFor(
 			head: params.head,
 		});
 	}
-	const attached = await createAttachmentStore(attachmentDir()).list();
+	const attached = await attachments().list();
 	const chosen = changeInPlay(
 		params.change,
 		undefined,

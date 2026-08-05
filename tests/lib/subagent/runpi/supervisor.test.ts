@@ -871,6 +871,113 @@ describe("createSupervisorRunPi", () => {
 		).toBe(true);
 	});
 
+	it("keeps what a stopped reviewer had written", async () => {
+		// The whole loss, reproduced without a model. A reviewer taken
+		// away at its budget never sends message_end, so a supervisor
+		// watching only for that reports an empty answer and everything
+		// the reviewer had written is gone. Verified against a live
+		// child too: 2224 characters kept where there had been none.
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "child.mjs");
+		const streaming = (text: string) =>
+			JSON.stringify({
+				type: "message_update",
+				assistantMessageEvent: {
+					type: "text_delta",
+					partial: {
+						role: "assistant",
+						content: [
+							{ type: "thinking", thinking: "still going" },
+							{ type: "text", text },
+						],
+					},
+				},
+			});
+		// Streams an answer it never finishes, then holds the loop open
+		// so only the budget can end it.
+		await writeFile(
+			childPath,
+			`process.stdout.write(${JSON.stringify(`${streaming('{"findings": [')}\n`)});\n` +
+				`process.stdout.write(${JSON.stringify(
+					`${streaming('{"findings": [{"subject": "a real finding"}')}\n`,
+				)});\n` +
+				`setInterval(() => {}, 1000);`,
+		);
+
+		const runPi = createSupervisorRunPi({
+			piInstall: { node: process.execPath, entry: childPath },
+			stateDir,
+			idleTimeoutMs: 1_000,
+			timeoutMs: 1_000,
+			killGraceMs: 500,
+			supervisorGraceMs: 30_000,
+		});
+
+		const result = await runPi({
+			args: [],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "stopped",
+		});
+
+		expect(result.finalAssistantText).toBe(
+			'{"findings": [{"subject": "a real finding"}',
+		);
+		expect(result.exitCode).not.toBe(0);
+	});
+
+	it("bills a stopped turn once, in the copy that actually runs", async () => {
+		// The child script keeps its own copy of the billing rule, and it
+		// is the one production uses. It had no test, so it was possible
+		// to fix the parser, watch the suite go green, and ship the bug.
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "child.mjs");
+		const running = (text: string) =>
+			JSON.stringify({
+				type: "message_update",
+				assistantMessageEvent: {
+					type: "text_delta",
+					partial: {
+						role: "assistant",
+						content: [{ type: "text", text }],
+						usage: {
+							input: 100,
+							output: 50,
+							totalTokens: 150,
+							cost: { total: 7 },
+						},
+					},
+				},
+			});
+		await writeFile(
+			childPath,
+			`process.stdout.write(${JSON.stringify(`${running("one")}\n`)});\n` +
+				`process.stdout.write(${JSON.stringify(`${running("one two")}\n`)});\n` +
+				`process.stdout.write(${JSON.stringify(`${running("one two three")}\n`)});\n` +
+				`setInterval(() => {}, 1000);`,
+		);
+
+		const runPi = createSupervisorRunPi({
+			piInstall: { node: process.execPath, entry: childPath },
+			stateDir,
+			idleTimeoutMs: 1_000,
+			timeoutMs: 1_000,
+			killGraceMs: 500,
+			supervisorGraceMs: 30_000,
+		});
+
+		const result = await runPi({
+			args: [],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "billed",
+		});
+
+		// Once for the turn, not once per update and not nothing at all.
+		expect(result.usage?.cost.total).toBe(7);
+		expect(result.finalAssistantText).toBe("one two three");
+	});
+
 	it("prefers per-call timeout overrides over config defaults", async () => {
 		// Long-running personas (gsperf bench runs, gcloud
 		// deploys) need to push the idle and wall-clock

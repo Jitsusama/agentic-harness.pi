@@ -12,6 +12,7 @@
  * with a new terminal state there.
  */
 
+import type { AskLimit, AskStop } from "../../lib/review/index.js";
 import { DEFAULT_RUN_PI_TIMEOUT_MS } from "../../lib/subagent/runpi/spawn.js";
 
 /**
@@ -55,6 +56,84 @@ export interface ReviewerBudget {
  * used is ignored rather than honoured, because a typo that produced a
  * zero budget would stop every reviewer the instant it started.
  */
+/**
+ * Which budget a limit is measured against, when it is one at all.
+ *
+ * Cancelled and parent-exit end a reviewer without any clock running
+ * out, so there is no number to compare and asking again is the right
+ * thing to do.
+ */
+const MEASURED_BY: Partial<
+	Record<AskLimit, { of: keyof ReviewerBudget; named: string }>
+> = {
+	"wall-clock": { of: "timeoutMs", named: "backstopMs" },
+	idle: { of: "idleTimeoutMs", named: "idleMs" },
+};
+
+/**
+ * The clock a limit ran out of, where it is a clock at all.
+ *
+ * Shared with whatever records a stop, so the two cannot disagree
+ * about which number belongs to which limit. They were written twice
+ * and nothing joined them up.
+ */
+export function budgetForLimit(
+	limit: AskLimit,
+	budget: ReviewerBudget,
+): number | undefined {
+	const measure = MEASURED_BY[limit];
+	return measure === undefined ? undefined : budget[measure.of];
+}
+
+/**
+ * Limits that will land in the same place if nothing changes.
+ *
+ * A wall clock is arithmetic: a reviewer that ran to the wall runs to
+ * it again, and the incident's failed retries all took 15.03 minutes
+ * to prove it. An idle clock is not. It fires when a reviewer went
+ * quiet, which is a hang, a slow tool, a provider stalling: things
+ * that may simply not happen twice. Refusing that retry blocks the
+ * one most likely to work, so it is allowed even though the number
+ * has not moved.
+ */
+const REPEATS: ReadonlySet<AskLimit> = new Set<AskLimit>(["wall-clock"]);
+
+/**
+ * Why asking this participant again would end the same way.
+ *
+ * A reviewer stopped by a clock will be stopped by that clock again if
+ * nothing about it has moved, and the evidence is not ambiguous: every
+ * failed retry in the round that prompted this work ran for 15.03
+ * minutes and died identically. Three of them, at full price, to learn
+ * what the first one had already said.
+ *
+ * So the refusal carries the number and the key that holds it. A
+ * refusal that only says no leaves somebody hunting for the knob, and
+ * the likeliest outcome of that is running the same retry again.
+ *
+ * Silent where it cannot know: an old round recorded no budget, and
+ * refusing on a number nobody has would block every retry of every
+ * round recorded before this existed.
+ */
+export function retryWouldRepeat(
+	stopped: AskStop | undefined,
+	budget: ReviewerBudget,
+): string | undefined {
+	if (stopped?.budgetMs === undefined) return undefined;
+	if (!REPEATS.has(stopped.limit)) return undefined;
+	const measure = MEASURED_BY[stopped.limit];
+	if (measure === undefined) return undefined;
+	const now = budget[measure.of];
+	if (now > stopped.budgetMs) return undefined;
+	return (
+		`This reviewer was not failing, it was stopped: it hit the ${stopped.limit} ` +
+		`limit of ${stopped.budgetMs}ms and the limit is still ${now}ms, so asking ` +
+		`again buys the same wall at the same price. Raise review.ask.${measure.named} ` +
+		"past what it needed and ask again, or take what it did send: a stopped " +
+		"reviewer's answer is kept, and the findings it finished are already read."
+	);
+}
+
 export function reviewerBudget(section: unknown): ReviewerBudget {
 	const held = isRecord(section) ? section : {};
 	return {

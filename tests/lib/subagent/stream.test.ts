@@ -15,6 +15,163 @@ function assistantEvent(text: string, usage?: unknown): string {
 	});
 }
 
+/**
+ * What pi sends while a message is still being written: the whole
+ * message so far, on every delta. Shape taken from a real transcript
+ * rather than guessed at.
+ */
+function streamingEvent(text: string, thinking = "working on it"): string {
+	return JSON.stringify({
+		type: "message_update",
+		assistantMessageEvent: {
+			type: "text_delta",
+			contentIndex: 1,
+			delta: text.slice(-4),
+			partial: {
+				role: "assistant",
+				content: [
+					{ type: "thinking", thinking },
+					{ type: "text", text },
+				],
+			},
+		},
+	});
+}
+
+describe("a stream that stops before the message does", () => {
+	it("reports the text that had been streamed", () => {
+		// A reviewer taken away at its budget never sends message_end,
+		// so a parser watching only for that reports nothing at all and
+		// the whole answer is lost. The words were on the wire.
+		const parser = new ReviewerStreamParser();
+
+		parser.ingestChunk(
+			`${streamingEvent('{"findings": [')}\n${streamingEvent('{"findings": [{"title": "a leak')}\n`,
+		);
+
+		expect(parser.finish().finalAssistantText).toBe(
+			'{"findings": [{"title": "a leak',
+		);
+	});
+
+	it("does not let a fragment replace an answer already finished", () => {
+		// A reviewer can answer, call a tool to check itself, and be cut
+		// off partway through a revision. Reporting only the fragment
+		// throws away a complete answer that was already sent, which is
+		// the same loss this change exists to stop, arriving by a
+		// different door.
+		const parser = new ReviewerStreamParser();
+
+		parser.ingestChunk(
+			`${assistantEvent('{"findings": [{"subject": "the whole answer"}]}')}\n${streamingEvent(
+				'{"findings": [{"subject": "a revi',
+			)}\n`,
+		);
+
+		const said = parser.finish().finalAssistantText;
+		expect(said).toContain("the whole answer");
+		expect(said).toContain("a revi");
+	});
+
+	it("counts the turn it was cut off in, when the turn said what it cost", () => {
+		// The cost of a stopped reviewer is the number that made the
+		// incident visible in the first place. A run billed at nothing
+		// for its longest turn hides the next one.
+		const parser = new ReviewerStreamParser();
+
+		parser.ingestChunk(
+			`${JSON.stringify({
+				type: "message_update",
+				assistantMessageEvent: {
+					type: "text_delta",
+					partial: {
+						role: "assistant",
+						content: [{ type: "text", text: "partway" }],
+						usage: {
+							input: 10,
+							output: 5,
+							totalTokens: 15,
+							cost: { total: 2 },
+						},
+					},
+				},
+			})}\n`,
+		);
+
+		expect(parser.finish().usage?.cost.total).toBe(2);
+	});
+
+	it("prefers the finished message over the partials before it", () => {
+		const parser = new ReviewerStreamParser();
+
+		parser.ingestChunk(
+			`${streamingEvent("half of i")}\n${assistantEvent("half of it, then all of it")}\n`,
+		);
+
+		expect(parser.finish().finalAssistantText).toBe(
+			"half of it, then all of it",
+		);
+	});
+
+	it("counts what a turn cost once, however many updates carried it", () => {
+		// A partial carries the turn's running usage, and a reader that
+		// adds up every update bills the turn a hundred times over. The
+		// numbers would look plausible, which is what makes it worth a
+		// test: nothing downstream could tell.
+		const parser = new ReviewerStreamParser();
+		const running = {
+			type: "message_update",
+			assistantMessageEvent: {
+				type: "text_delta",
+				partial: {
+					role: "assistant",
+					content: [{ type: "text", text: "partway" }],
+					usage: {
+						input: 10,
+						output: 5,
+						cacheRead: 0,
+						cacheWrite: 0,
+						cost: { total: 1 },
+					},
+				},
+			},
+		};
+
+		parser.ingestChunk(
+			`${JSON.stringify(running)}\n${JSON.stringify(running)}\n${JSON.stringify(
+				running,
+			)}\n`,
+		);
+
+		// Exactly once. An earlier version of this asserted "at most
+		// once", which a reader that counted the turn at nothing would
+		// also satisfy, and that is the opposite mistake.
+		expect(parser.finish().usage?.cost.total).toBe(1);
+	});
+
+	it("does not let a later message's thinking erase a finished answer", () => {
+		// After one message completes, the next begins as thinking with
+		// no text yet. That must not count as the assistant having said
+		// nothing.
+		const parser = new ReviewerStreamParser();
+
+		parser.ingestChunk(
+			`${assistantEvent("the answer")}\n${JSON.stringify({
+				type: "message_update",
+				assistantMessageEvent: {
+					type: "thinking_delta",
+					partial: {
+						role: "assistant",
+						content: [{ type: "thinking", thinking: "now what" }],
+					},
+				},
+			})}\n`,
+		);
+
+		expect(parser.finish().finalAssistantText).toBe("the answer");
+	});
+});
+
 describe("ReviewerStreamParser", () => {
 	it("extracts the final assistant text without retaining full stdout", () => {
 		const parser = new ReviewerStreamParser();

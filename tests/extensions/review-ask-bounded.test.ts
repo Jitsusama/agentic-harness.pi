@@ -31,6 +31,7 @@ import { describe, expect, it } from "vitest";
 import {
 	REVIEWER_BACKSTOP_MS,
 	REVIEWER_IDLE_MS,
+	retryWouldRepeat,
 	reviewerBudget,
 } from "../../extensions/review-integration/budget.js";
 import { DEFAULT_RUN_PI_TIMEOUT_MS } from "../../lib/subagent/runpi/spawn.js";
@@ -106,5 +107,68 @@ describe("what a round is bounded by", () => {
 			timeoutMs: REVIEWER_BACKSTOP_MS,
 			idleTimeoutMs: REVIEWER_IDLE_MS,
 		});
+	});
+});
+
+describe("asking a stopped reviewer again", () => {
+	// Every failed retry in the incident ran for 15.03 minutes and died
+	// the same way, because nothing about the wall it hit had moved.
+	// Three of those cost real money to learn nothing.
+	const budget = { timeoutMs: 900_000, idleTimeoutMs: 600_000 };
+
+	it("refuses while the budget that stopped it is unchanged", () => {
+		const refusal = retryWouldRepeat(
+			{ limit: "wall-clock", detail: "timed out", budgetMs: 900_000 },
+			budget,
+		);
+
+		expect(refusal).toBeDefined();
+		// The number to change has to be in the sentence, or the reader
+		// is told no and left to go looking for the knob.
+		expect(refusal).toContain("900000");
+		expect(refusal).toMatch(/backstopMs/);
+	});
+
+	it("allows it once the budget has been raised", () => {
+		expect(
+			retryWouldRepeat(
+				{ limit: "wall-clock", detail: "timed out", budgetMs: 900_000 },
+				{ timeoutMs: 2_700_000, idleTimeoutMs: 600_000 },
+			),
+		).toBe(undefined);
+	});
+
+	it("allows a retry after an idle stop, unchanged budget and all", () => {
+		// An idle clock fires because a reviewer went quiet: a hang, a
+		// slow tool, a provider stalling. None of those are arithmetic
+		// the way a wall clock is, so this is the retry most likely to
+		// work and refusing it was blocking the good case.
+		expect(
+			retryWouldRepeat(
+				{ limit: "idle", detail: "idle", budgetMs: 600_000 },
+				{ timeoutMs: 2_700_000, idleTimeoutMs: 600_000 },
+			),
+		).toBe(undefined);
+	});
+
+	it("says nothing about a reviewer that was never stopped", () => {
+		expect(retryWouldRepeat(undefined, budget)).toBe(undefined);
+	});
+
+	it("allows a retry when the round did not record what stopped it", () => {
+		// Rounds recorded before the budget was written down. Refusing on
+		// a number nobody has would block every retry of an old round,
+		// which is worse than allowing one that may repeat.
+		expect(
+			retryWouldRepeat({ limit: "wall-clock", detail: "timed out" }, budget),
+		).toBe(undefined);
+	});
+
+	it("does not judge a cancelled reviewer against a clock", () => {
+		// Cancelled and parent-exit are not budgets. Asking again is
+		// exactly the right thing to do, and there is no number to raise.
+		expect(
+			retryWouldRepeat({ limit: "cancelled", detail: "cancelled" }, budget),
+		).toBe(undefined);
 	});
 });

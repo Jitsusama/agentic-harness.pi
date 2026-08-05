@@ -34,7 +34,9 @@ export class ReviewerStreamParser {
 	private readonly limits: ReviewerStreamLimits;
 	private buffer = "";
 	private discardingOversizedLine = false;
-	private finalAssistantText = "";
+	private finishedText = "";
+	private pendingText = "";
+	private pendingUsage: ReviewerUsage | undefined;
 	private usage: ReviewerUsage | undefined;
 	private readonly warnings: string[] = [];
 	private truncated = false;
@@ -80,9 +82,15 @@ export class ReviewerStreamParser {
 		}
 		this.buffer = "";
 		this.discardingOversizedLine = false;
+		// The turn in flight when the run ended never reported its own
+		// total, so its running one is the only account of it there is.
+		const spent =
+			this.pendingUsage === undefined
+				? this.usage
+				: addUsage(this.usage, this.pendingUsage);
 		return {
-			finalAssistantText: this.finalAssistantText,
-			...(this.usage ? { usage: this.usage } : {}),
+			finalAssistantText: this.saidSoFar(),
+			...(spent ? { usage: spent } : {}),
 			warnings: [...this.warnings],
 			truncated: this.truncated,
 			...(this.verification ? { verification: this.verification } : {}),
@@ -134,11 +142,46 @@ export class ReviewerStreamParser {
 		const message = readAssistantMessage(event);
 		if (message === null) return;
 		const text = readTextContent(message);
-		if (text !== null) {
-			this.finalAssistantText = this.truncateAssistantText(text);
-		}
 		const usage = readUsage(message);
+
+		// A turn's usage is a running total, not an increment, so a
+		// partial's is held rather than added: held it can be replaced by
+		// the next update and counted once at the end, where adding it
+		// would bill the turn once per update. Skipping partials outright
+		// is the opposite mistake and bills a stopped reviewer's longest
+		// turn at nothing, which deletes the number that made this whole
+		// class of failure visible.
+		if (!isFinished(event)) {
+			if (text !== null) this.pendingText = this.truncateAssistantText(text);
+			if (usage !== undefined) this.pendingUsage = usage;
+			return;
+		}
+
+		if (text !== null) {
+			this.finishedText = this.truncateAssistantText(text);
+		}
+		// The turn ended, so whatever it was running up is now final and
+		// arrives on the message itself.
+		this.pendingText = "";
+		this.pendingUsage = undefined;
 		if (usage !== undefined) this.usage = addUsage(this.usage, usage);
+	}
+
+	/**
+	 * Everything the assistant had said, in the order it said it.
+	 *
+	 * A run cut off mid-message has both a last finished message and an
+	 * unfinished one, and which of them holds the answer cannot be
+	 * decided here. A reviewer that answered and was then cut off
+	 * revising has its answer in the finished one; a reviewer cut off
+	 * writing its first answer has it in the fragment. Handing over
+	 * both lets the reader find it either way, where picking one throws
+	 * away a whole answer in the case it picked wrong.
+	 */
+	private saidSoFar(): string {
+		if (this.pendingText === "") return this.finishedText;
+		if (this.finishedText === "") return this.pendingText;
+		return `${this.finishedText}\n\n${this.pendingText}`;
 	}
 
 	private captureVerification(event: unknown): void {
@@ -203,21 +246,16 @@ export class ReviewerStreamParser {
 	}
 
 	private truncateAssistantText(text: string): string {
-		if (Buffer.byteLength(text) <= this.limits.maxAssistantTextBytes)
-			return text;
+		const cap = this.limits.maxAssistantTextBytes;
+		// This runs on every delta now that a message is read while it is
+		// still being written, so the common case has to cost nothing. A
+		// character is at most four bytes, so anything this short is
+		// certainly within the cap and needs no measuring.
+		if (text.length * 4 <= cap) return text;
+		if (Buffer.byteLength(text) <= cap) return text;
 		this.truncated = true;
-		this.warn(
-			`Reviewer assistant text exceeded ${this.limits.maxAssistantTextBytes} bytes; truncated`,
-		);
-		let end = text.length;
-		while (end > 0) {
-			const candidate = text.slice(0, end);
-			if (Buffer.byteLength(candidate) <= this.limits.maxAssistantTextBytes) {
-				return candidate;
-			}
-			end--;
-		}
-		return "";
+		this.warn(`Reviewer assistant text exceeded ${cap} bytes; truncated`);
+		return cutToBytes(text, cap);
 	}
 
 	private warn(message: string): void {
@@ -234,6 +272,22 @@ export function extractUsageFromPiStream(
 	const parser = new ReviewerStreamParser({ maxWarnings: 0 });
 	parser.ingestChunk(stdout);
 	return parser.finish().usage;
+}
+
+/**
+ * The longest prefix of a string that fits in a byte budget.
+ *
+ * Cut in the bytes and stepped back off a continuation byte, so a
+ * multi-byte character is never split in half. The obvious version
+ * shortens by one character and re-measures the whole string, which is
+ * quadratic in the length and was reached once per delta.
+ */
+function cutToBytes(text: string, maxBytes: number): string {
+	const held = Buffer.from(text, "utf8");
+	if (held.length <= maxBytes) return text;
+	let end = maxBytes;
+	while (end > 0 && ((held[end] ?? 0) & 0xc0) === 0x80) end--;
+	return held.subarray(0, end).toString("utf8");
 }
 
 function objectValue(value: unknown): Record<string, unknown> | undefined {
@@ -266,15 +320,45 @@ function isString(value: unknown): value is string {
 	return typeof value === "string";
 }
 
+/**
+ * The assistant message an event carries, finished or not.
+ *
+ * A finished message arrives as `message_end`. A message still being
+ * written arrives as `message_update`, carrying the whole of itself so
+ * far under `partial`, and a run cut off at its budget never sends
+ * anything else: watching only for the end reports nothing for a
+ * reviewer that was most of the way through its answer.
+ *
+ * Reading both means the text is whatever was last seen, complete or
+ * not. A partial cannot overwrite a finished answer with less, because
+ * a message that has not reached its text yet carries no text to
+ * overwrite it with.
+ */
 function readAssistantMessage(event: unknown): Record<string, unknown> | null {
 	if (typeof event !== "object" || event === null) return null;
 	const e = event as Record<string, unknown>;
-	if (e.type !== "message_end") return null;
-	const message = e.message;
+	const message = e.type === "message_end" ? e.message : streamedPart(e);
 	if (typeof message !== "object" || message === null) return null;
 	const m = message as Record<string, unknown>;
 	if (m.role !== "assistant") return null;
 	return m;
+}
+
+/** Whether this event carries a message that is done. */
+function isFinished(event: unknown): boolean {
+	return (
+		typeof event === "object" &&
+		event !== null &&
+		(event as Record<string, unknown>).type === "message_end"
+	);
+}
+
+/** The message so far, off an update event. */
+function streamedPart(event: Record<string, unknown>): unknown {
+	if (event.type !== "message_update") return null;
+	const streamed = event.assistantMessageEvent;
+	if (typeof streamed !== "object" || streamed === null) return null;
+	return (streamed as Record<string, unknown>).partial;
 }
 
 function readTextContent(message: Record<string, unknown>): string | null {

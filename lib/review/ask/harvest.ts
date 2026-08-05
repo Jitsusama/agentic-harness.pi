@@ -23,12 +23,27 @@ import type {
 	FindingOrigin,
 	FindingSeverity,
 } from "../finding.js";
-import { findJson, isRecord, wireText, wireWhole } from "./wire.js";
+import {
+	ANSWER_WAS_CUT_OFF,
+	isRecord,
+	readAnswer,
+	wireText,
+	wireWhole,
+} from "./wire.js";
 
 /** What came out of one answer. */
 export interface Harvest {
 	findings: Omit<Finding, "id">[];
 	warnings: string[];
+	/**
+	 * Whether these findings are what survived a cut-off answer.
+	 *
+	 * Reported as a fact rather than left in the warnings, because a
+	 * caller that replaces the warnings with its own sentence would
+	 * otherwise drop the one thing the reader needs to know: that the
+	 * absence of a finding here means nothing either way.
+	 */
+	truncated?: boolean;
 }
 
 /**
@@ -84,20 +99,26 @@ export function harvestFindings(
 	witness?: string,
 ): Harvest {
 	const warnings: string[] = [];
-	const parsed = findJson(text);
+	// An answer that will not parse is usually not a malformed answer.
+	// It is a good one that was interrupted, and everything the
+	// reviewer completed before that is still in it.
+	const { parsed, truncated } = readAnswer(text, "findings");
 	if (parsed === undefined) {
 		return {
 			findings: [],
+			truncated: false,
 			warnings: [
 				"Nothing in this answer parsed as JSON, so no findings could be read from it. The answer should hold an object with a findings array.",
 			],
 		};
 	}
+	if (truncated) warnings.push(ANSWER_WAS_CUT_OFF);
 
 	const held = parsed.findings;
 	if (!Array.isArray(held)) {
 		return {
 			findings: [],
+			truncated: false,
 			warnings: [
 				"The JSON in this answer carries no findings array, so there was nothing to read. An answer with nothing to say should still say findings: [].",
 			],
@@ -110,7 +131,7 @@ export function harvestFindings(
 		warnings.push(...read.warnings);
 		if (read.finding !== undefined) findings.push(read.finding);
 	}
-	return { findings, warnings };
+	return { findings, warnings, truncated };
 }
 
 /**

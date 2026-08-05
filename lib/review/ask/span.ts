@@ -20,7 +20,7 @@
 
 import type { Finding, FindingOrigin } from "../finding.js";
 import { readWireFinding } from "./harvest.js";
-import { findJson, isRecord, wireText } from "./wire.js";
+import { ANSWER_WAS_CUT_OFF, isRecord, readAnswer, wireText } from "./wire.js";
 
 /** The changes a finding is about, in stack order. */
 export interface FindingSpan {
@@ -54,7 +54,7 @@ export function harvestStackFindings(
 	stackRefs: readonly string[],
 	witnessFor?: (ref: string) => string | undefined,
 ): StackHarvest {
-	const parsed = findJson(text);
+	const { parsed, truncated } = readAnswer(text, "findings");
 	const held = parsed?.findings;
 	if (!Array.isArray(held)) {
 		return {
@@ -67,6 +67,7 @@ export function harvestStackFindings(
 
 	const findings: SpannedFinding[] = [];
 	const warnings: string[] = [];
+	if (truncated) warnings.push(ANSWER_WAS_CUT_OFF);
 	for (const [index, entry] of held.entries()) {
 		const at = `findings[${index}]`;
 		const span = readSpan(entry, at, stackRefs, warnings);

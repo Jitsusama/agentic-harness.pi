@@ -73,7 +73,11 @@ import {
 	summarizeStreamActivity,
 } from "../../../lib/subagent/index.js";
 import { count } from "../../../lib/ui/count.js";
-import { type ReviewerBudget, reviewerBudget } from "../budget.js";
+import {
+	type ReviewerBudget,
+	retryWouldRepeat,
+	reviewerBudget,
+} from "../budget.js";
 import { REVIEW_SLUG } from "../config.js";
 import {
 	answerDir,
@@ -724,6 +728,14 @@ async function retryOne(
 		);
 	}
 
+	// A stopped reviewer is not a failed one, and asking it again while
+	// the clock that stopped it has not moved spends the same money to
+	// meet the same wall. Refused rather than warned about: the whole
+	// point is that the outcome is known in advance.
+	const before = held.outcomes.find((o) => o.participantId === asked.id);
+	const repeats = retryWouldRepeat(before?.stopped, await budgetForRound());
+	if (repeats !== undefined) return refuse(repeats);
+
 	const roster = await rosterOrThrow();
 	const charters = await chartersFor(roster);
 	const participant =
@@ -1115,7 +1127,10 @@ function deps(
 							},
 						}),
 			});
-			const answer = answerFromReviewer(result);
+			// Told what it was allowed, so a stop records the clock it ran
+			// out of rather than only that one did. A retry cannot
+			// otherwise tell whether anything has changed since.
+			const answer = answerFromReviewer(result, budget);
 			if ("failure" in answer) return answer;
 			// Kept before it is read, and kept whatever it turns out to
 			// hold. An answer that parses is already represented by its

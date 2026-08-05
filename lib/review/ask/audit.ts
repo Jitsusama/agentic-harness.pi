@@ -18,7 +18,13 @@ import { askOne } from "./council.js";
 import type { CritiqueDeps } from "./critique.js";
 import { type Participant, participantIdentity } from "./identity.js";
 import { type AskRun, newRunId, type ParticipantOutcome } from "./run.js";
-import { findJson, isRecord, wireText, wireWhole } from "./wire.js";
+import {
+	ANSWER_WAS_CUT_OFF,
+	isRecord,
+	readAnswer,
+	wireText,
+	wireWhole,
+} from "./wire.js";
 
 /**
  * Where an inbound thread stands against the change.
@@ -75,7 +81,7 @@ export function harvestAudits(
 	participantId: string,
 	threadIndices: readonly number[],
 ): AuditHarvest {
-	const parsed = findJson(text);
+	const { parsed, truncated } = readAnswer(text, "audits");
 	const held = parsed?.audits;
 	if (!Array.isArray(held)) {
 		return {
@@ -89,6 +95,7 @@ export function harvestAudits(
 	const put = new Set(threadIndices);
 	const audits: ThreadAudit[] = [];
 	const warnings: string[] = [];
+	if (truncated) warnings.push(ANSWER_WAS_CUT_OFF);
 	for (const [index, entry] of held.entries()) {
 		const one = readAudit(entry, index, participantId, put, warnings);
 		if (one !== undefined) audits.push(one);
@@ -152,6 +159,10 @@ export async function runAudit(
 			participantId: request.auditor.id,
 			// An audit raises no findings, on purpose.
 			findingIds: [],
+			...(answer.stopped === undefined ? {} : { stopped: answer.stopped }),
+			...(answer.answerPath === undefined
+				? {}
+				: { answerPath: answer.answerPath }),
 			...(answer.usage === undefined ? {} : { usage: answer.usage }),
 		};
 	})();

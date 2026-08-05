@@ -27,6 +27,7 @@ import {
 	createSupervisorRunPi,
 	type SupervisorSpawnFn,
 } from "../../lib/subagent/runpi/supervisor.js";
+import { budgetForLimit } from "./budget.js";
 
 /**
  * Which of our limits took the reviewer away.
@@ -123,9 +124,18 @@ function safeSegment(name: string): string {
 	return safe === "" ? "_" : safe;
 }
 
-/** Read one reviewer's run as an answer, a stop, or a failure. */
-export function answerFromReviewer(result: RunReviewerResult): AskAnswer {
-	const stopped = stopFrom(result);
+/**
+ * Read one reviewer's run as an answer, a stop, or a failure.
+ *
+ * The budget is passed in because the run cannot say what it was: it
+ * knows it was killed, not what it was allowed. Recording it is what
+ * lets a later retry tell whether anything has moved.
+ */
+export function answerFromReviewer(
+	result: RunReviewerResult,
+	budget?: { timeoutMs: number; idleTimeoutMs: number },
+): AskAnswer {
+	const stopped = stopFrom(result, budget);
 	if (stopped !== undefined) {
 		return {
 			text: result.finalAssistantText,
@@ -146,10 +156,29 @@ export function answerFromReviewer(result: RunReviewerResult): AskAnswer {
 }
 
 /** The stop this run represents, when a limit ended it. */
-function stopFrom(result: RunReviewerResult): AskStop | undefined {
+function stopFrom(
+	result: RunReviewerResult,
+	budget?: { timeoutMs: number; idleTimeoutMs: number },
+): AskStop | undefined {
 	const limit = result.state === undefined ? undefined : LIMITS[result.state];
 	if (limit === undefined) return undefined;
-	return { limit, detail: detailFrom(result, limit) };
+	const ran = budgetFor(limit, budget);
+	return {
+		limit,
+		detail: detailFrom(result, limit),
+		...(ran === undefined ? {} : { budgetMs: ran }),
+	};
+}
+
+/** The clock this limit ran out of, where it is a clock at all. */
+function budgetFor(
+	limit: AskLimit,
+	budget?: { timeoutMs: number; idleTimeoutMs: number },
+): number | undefined {
+	// The mapping belongs to whatever judges a retry against it, and
+	// keeping a second copy here is how the two come to disagree about
+	// which number a limit means.
+	return budget === undefined ? undefined : budgetForLimit(limit, budget);
 }
 
 /**

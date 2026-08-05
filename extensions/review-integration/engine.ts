@@ -13,6 +13,8 @@ import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { stateDir } from "../../lib/internal/paths.js";
 import {
+	type AttachmentStore,
+	createAttachmentStore,
 	createDraftStore,
 	createGitHubProvider,
 	createGitProvider,
@@ -31,6 +33,32 @@ export function draftDir(): string {
 /** Where the changes a session is attached to live. */
 export function attachmentDir(): string {
 	return join(stateDir("review"), "attached");
+}
+
+/**
+ * Which session is asking, so its attachments stay its own.
+ *
+ * Read from the environment rather than threaded through every call,
+ * because every tool in this extension needs it and none of them
+ * otherwise needs to know a session exists. Absent when pi did not say,
+ * and the store then keeps its old undivided behaviour, which is right:
+ * a caller with no session cannot be racing one.
+ */
+export function sessionKey(): string | undefined {
+	const held = process.env.PI_SESSION_ID;
+	return held === undefined || held.trim() === "" ? undefined : held;
+}
+
+/**
+ * This session's attachments.
+ *
+ * One way in, so a new call site cannot reach the store without
+ * saying which session is asking. The six that existed each built it
+ * themselves, and a seventh built the same way would have quietly
+ * shared its attachments with every other session on the machine.
+ */
+export function attachments(): AttachmentStore {
+	return createAttachmentStore(attachmentDir(), sessionKey());
 }
 
 /** Where findings raised against a change live. */
