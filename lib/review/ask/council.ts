@@ -54,6 +54,14 @@ export interface AskStop {
 	limit: AskLimit;
 	/** What happened, in the runner's own words. */
 	detail: string;
+	/**
+	 * The budget it ran out of, where the limit is a clock.
+	 *
+	 * Recorded so a later retry can tell whether anything has moved.
+	 * Without the number, the only way to find out whether asking
+	 * again would hit the same wall is to ask again and watch.
+	 */
+	budgetMs?: number;
 }
 
 /** What came back from asking one participant. */
