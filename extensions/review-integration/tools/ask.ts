@@ -62,6 +62,7 @@ import {
 	runStackCouncil,
 	runSummary,
 	stackPrompt,
+	stoppedNotes,
 	substituteOutcome,
 	type Thread,
 	type ThreadAudit,
@@ -1199,7 +1200,11 @@ function renderFindings(findings: Finding[]): string {
 function describeRun(run: AskRun): string {
 	const summary = runSummary(run);
 	const failed = summary.failed > 0 ? `, ${summary.failed} failed` : "";
-	return `${run.id}: ${summary.answered}/${summary.asked} answered${failed}, ${count(summary.findings, "finding")}`;
+	const head = `${run.id}: ${summary.answered}/${summary.asked} answered${failed}, ${count(summary.findings, "finding")}`;
+	// A stopped reviewer's answer was being recorded and never shown,
+	// which is most of the way to losing it: the path is only useful to
+	// somebody who knows to look for it.
+	return [head, ...stoppedNotes(run).map((note) => `  ${note}`)].join("\n");
 }
 
 /** What a round's answer says. */

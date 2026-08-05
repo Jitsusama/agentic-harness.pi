@@ -125,6 +125,7 @@ export {
 	askedOf,
 	newRunId,
 	runSummary,
+	stoppedNotes,
 	substituteOutcome,
 } from "./ask/run.js";
 export type {
