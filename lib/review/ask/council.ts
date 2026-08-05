@@ -33,9 +33,31 @@ import {
 	type ParticipantOutcome,
 } from "./run.js";
 
+/**
+ * Which limit ended a reviewer before it had finished.
+ *
+ * A limit is not a failure. The reviewer was working, and something
+ * on our side decided it had worked long enough, so the two are
+ * reported apart: a failure is the run never happening, and a stop
+ * is the run being taken away mid-sentence.
+ */
+export type AskLimit =
+	| "wall-clock"
+	| "idle"
+	| "output"
+	| "cancelled"
+	| "parent-exit";
+
+/** A reviewer stopped before it finished, and what stopped it. */
+export interface AskStop {
+	limit: AskLimit;
+	/** What happened, in the runner's own words. */
+	detail: string;
+}
+
 /** What came back from asking one participant. */
 export type AskAnswer =
-	| { text: string; usage?: AskUsage }
+	| { text: string; usage?: AskUsage; stopped?: AskStop }
 	| { failure: string };
 
 /** The impure things asking needs. */
@@ -215,6 +237,21 @@ async function asked(
 	}
 }
 
+/**
+ * What to say about a reviewer we stopped.
+ *
+ * It names what was kept as well as what ended it, because those are
+ * two different decisions for the reader: whether to trust the pass,
+ * and whether to give it more room next time.
+ */
+function stopWarning(stop: AskStop, kept: number): string {
+	const held =
+		kept === 0
+			? "Nothing had been read from it yet"
+			: `${kept} finding${kept === 1 ? "" : "s"} had been read from it first`;
+	return `stopped before it finished (${stop.limit}): ${stop.detail} ${held}, so treat this pass as partial.`;
+}
+
 /** Harvest one reply, record what it held, and say how it went. */
 async function recordReply(
 	reply: Reply,
@@ -236,7 +273,15 @@ async function recordReply(
 		{ kind: "reviewer", runId: run.runId, reviewerId: participant.id },
 		run.witness,
 	);
-	for (const warning of harvest.warnings) {
+	// A stopped reviewer answers for its own harvest warnings. Those
+	// warnings describe the shape of the text, and the text is a
+	// sentence we interrupted, so passing them on blames the reviewer
+	// for our deadline and tells the reader to fix the wrong thing.
+	const said =
+		answer.stopped === undefined
+			? harvest.warnings
+			: [stopWarning(answer.stopped, harvest.findings.length)];
+	for (const warning of said) {
 		warnings.push(`${participant.id}: ${warning}`);
 	}
 
@@ -246,6 +291,7 @@ async function recordReply(
 	return {
 		participantId: participant.id,
 		findingIds: recorded.map((finding) => finding.id),
+		...(answer.stopped === undefined ? {} : { stopped: answer.stopped }),
 		...(answer.usage === undefined ? {} : { usage: answer.usage }),
 	};
 }

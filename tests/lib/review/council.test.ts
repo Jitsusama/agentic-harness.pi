@@ -240,6 +240,70 @@ describe("when a participant fails", () => {
 	});
 });
 
+describe("when a participant is stopped at a limit", () => {
+	it("records the stop rather than treating the corpse as an answer", async () => {
+		// A reviewer killed between tool calls has just said something
+		// conversational. Harvesting that and reporting unparseable JSON
+		// blames the reviewer for our own deadline, and sent a real user
+		// into three identical retries that could never have worked.
+		const { run } = await runCouncil(
+			{ roster: { reviewers: [{ id: "hawk" }] }, prompt: "p", seq: 1 },
+			deps({
+				hawk: {
+					text: "Let me check what the tests around this assume.",
+					stopped: {
+						limit: "wall-clock",
+						detail: "Ran past its 900000ms budget; sent SIGTERM.",
+					},
+				},
+			}),
+		);
+
+		expect(run.outcomes[0]?.stopped).toEqual({
+			limit: "wall-clock",
+			detail: "Ran past its 900000ms budget; sent SIGTERM.",
+		});
+	});
+
+	it("warns about the limit it hit, not about its JSON", async () => {
+		const { warnings } = await runCouncil(
+			{ roster: { reviewers: [{ id: "hawk" }] }, prompt: "p", seq: 1 },
+			deps({
+				hawk: {
+					text: "Let me check what the tests around this assume.",
+					stopped: {
+						limit: "wall-clock",
+						detail: "Ran past its 900000ms budget; sent SIGTERM.",
+					},
+				},
+			}),
+		);
+
+		expect(warnings).toHaveLength(1);
+		expect(warnings[0]).toContain("hawk");
+		expect(warnings[0]).toContain("900000ms");
+		expect(warnings[0]).not.toContain("JSON");
+	});
+
+	it("keeps what a stopped reviewer did manage to say", async () => {
+		// Being stopped after saying something useful is the common case
+		// once findings arrive incrementally, and what it found must not
+		// be discarded just because the run did not end cleanly.
+		const { run } = await runCouncil(
+			{ roster: { reviewers: [{ id: "hawk" }] }, prompt: "p", seq: 1 },
+			deps({
+				hawk: {
+					text: said("found before the wall"),
+					stopped: { limit: "output", detail: "exceeded output limits" },
+				},
+			}),
+		);
+
+		expect(run.outcomes[0]?.findingIds).toHaveLength(1);
+		expect(run.outcomes[0]?.stopped?.limit).toBe("output");
+	});
+});
+
 describe("what it warns about", () => {
 	it("passes a harvest warning through, saying who it was about", async () => {
 		const { warnings } = await runCouncil(
