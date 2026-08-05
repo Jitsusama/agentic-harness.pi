@@ -23,7 +23,13 @@ import type {
 	FindingOrigin,
 	FindingSeverity,
 } from "../finding.js";
-import { findJson, isRecord, wireText, wireWhole } from "./wire.js";
+import {
+	ANSWER_WAS_CUT_OFF,
+	isRecord,
+	readAnswer,
+	wireText,
+	wireWhole,
+} from "./wire.js";
 
 /** What came out of one answer. */
 export interface Harvest {
@@ -84,7 +90,10 @@ export function harvestFindings(
 	witness?: string,
 ): Harvest {
 	const warnings: string[] = [];
-	const parsed = findJson(text);
+	// An answer that will not parse is usually not a malformed answer.
+	// It is a good one that was interrupted, and everything the
+	// reviewer completed before that is still in it.
+	const { parsed, truncated } = readAnswer(text);
 	if (parsed === undefined) {
 		return {
 			findings: [],
@@ -93,6 +102,7 @@ export function harvestFindings(
 			],
 		};
 	}
+	if (truncated) warnings.push(ANSWER_WAS_CUT_OFF);
 
 	const held = parsed.findings;
 	if (!Array.isArray(held)) {

@@ -18,7 +18,7 @@ import { participantIdentity } from "./identity.js";
 import type { AskProgress } from "./progress.js";
 import type { Roster } from "./roster.js";
 import { type AskRun, newRunId, type ParticipantOutcome } from "./run.js";
-import { findJson, isRecord, wireText } from "./wire.js";
+import { ANSWER_WAS_CUT_OFF, isRecord, readAnswer, wireText } from "./wire.js";
 
 /** Where a critic stands on a finding. */
 export type Position = "agree" | "disagree" | "qualify" | "unsure";
@@ -70,7 +70,7 @@ export function harvestCritiques(
 	participantId: string,
 	findingIds: readonly number[],
 ): CritiqueHarvest {
-	const parsed = findJson(text);
+	const { parsed, truncated } = readAnswer(text);
 	const held = parsed?.critiques;
 	if (!Array.isArray(held)) {
 		return {
@@ -84,6 +84,7 @@ export function harvestCritiques(
 	const put = new Set(findingIds);
 	const critiques: Critique[] = [];
 	const warnings: string[] = [];
+	if (truncated) warnings.push(ANSWER_WAS_CUT_OFF);
 	for (const [index, entry] of held.entries()) {
 		const one = readCritique(entry, index, participantId, put, warnings);
 		if (one !== undefined) critiques.push(one);
