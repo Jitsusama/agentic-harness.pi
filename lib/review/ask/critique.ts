@@ -150,6 +150,10 @@ export async function runCritique(
 			participantId: participant.id,
 			// A critique raises no findings, on purpose.
 			findingIds: [],
+			...(answer.stopped === undefined ? {} : { stopped: answer.stopped }),
+			...(answer.answerPath === undefined
+				? {}
+				: { answerPath: answer.answerPath }),
 			...(answer.usage === undefined ? {} : { usage: answer.usage }),
 		});
 	}

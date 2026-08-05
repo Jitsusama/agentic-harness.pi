@@ -71,6 +71,34 @@ const MEASURED_BY: Partial<
 };
 
 /**
+ * The clock a limit ran out of, where it is a clock at all.
+ *
+ * Shared with whatever records a stop, so the two cannot disagree
+ * about which number belongs to which limit. They were written twice
+ * and nothing joined them up.
+ */
+export function budgetForLimit(
+	limit: AskLimit,
+	budget: ReviewerBudget,
+): number | undefined {
+	const measure = MEASURED_BY[limit];
+	return measure === undefined ? undefined : budget[measure.of];
+}
+
+/**
+ * Limits that will land in the same place if nothing changes.
+ *
+ * A wall clock is arithmetic: a reviewer that ran to the wall runs to
+ * it again, and the incident's failed retries all took 15.03 minutes
+ * to prove it. An idle clock is not. It fires when a reviewer went
+ * quiet, which is a hang, a slow tool, a provider stalling: things
+ * that may simply not happen twice. Refusing that retry blocks the
+ * one most likely to work, so it is allowed even though the number
+ * has not moved.
+ */
+const REPEATS: ReadonlySet<AskLimit> = new Set<AskLimit>(["wall-clock"]);
+
+/**
  * Why asking this participant again would end the same way.
  *
  * A reviewer stopped by a clock will be stopped by that clock again if
@@ -92,6 +120,7 @@ export function retryWouldRepeat(
 	budget: ReviewerBudget,
 ): string | undefined {
 	if (stopped?.budgetMs === undefined) return undefined;
+	if (!REPEATS.has(stopped.limit)) return undefined;
 	const measure = MEASURED_BY[stopped.limit];
 	if (measure === undefined) return undefined;
 	const now = budget[measure.of];

@@ -138,13 +138,17 @@ describe("asking a stopped reviewer again", () => {
 		).toBe(undefined);
 	});
 
-	it("measures an idle stop against the idle budget", () => {
+	it("allows a retry after an idle stop, unchanged budget and all", () => {
+		// An idle clock fires because a reviewer went quiet: a hang, a
+		// slow tool, a provider stalling. None of those are arithmetic
+		// the way a wall clock is, so this is the retry most likely to
+		// work and refusing it was blocking the good case.
 		expect(
 			retryWouldRepeat(
 				{ limit: "idle", detail: "idle", budgetMs: 600_000 },
 				{ timeoutMs: 2_700_000, idleTimeoutMs: 600_000 },
 			),
-		).toBeDefined();
+		).toBe(undefined);
 	});
 
 	it("says nothing about a reviewer that was never stopped", () => {

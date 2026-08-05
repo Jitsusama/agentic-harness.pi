@@ -159,6 +159,10 @@ export async function runAudit(
 			participantId: request.auditor.id,
 			// An audit raises no findings, on purpose.
 			findingIds: [],
+			...(answer.stopped === undefined ? {} : { stopped: answer.stopped }),
+			...(answer.answerPath === undefined
+				? {}
+				: { answerPath: answer.answerPath }),
 			...(answer.usage === undefined ? {} : { usage: answer.usage }),
 		};
 	})();

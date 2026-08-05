@@ -27,6 +27,7 @@ import {
 	createSupervisorRunPi,
 	type SupervisorSpawnFn,
 } from "../../lib/subagent/runpi/supervisor.js";
+import { budgetForLimit } from "./budget.js";
 
 /**
  * Which of our limits took the reviewer away.
@@ -174,10 +175,10 @@ function budgetFor(
 	limit: AskLimit,
 	budget?: { timeoutMs: number; idleTimeoutMs: number },
 ): number | undefined {
-	if (budget === undefined) return undefined;
-	if (limit === "wall-clock") return budget.timeoutMs;
-	if (limit === "idle") return budget.idleTimeoutMs;
-	return undefined;
+	// The mapping belongs to whatever judges a retry against it, and
+	// keeping a second copy here is how the two come to disagree about
+	// which number a limit means.
+	return budget === undefined ? undefined : budgetForLimit(limit, budget);
 }
 
 /**

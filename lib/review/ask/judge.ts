@@ -80,6 +80,14 @@ export async function runJudge(
 		return {
 			participantId: request.judge.id,
 			findingIds: recorded.map((finding) => finding.id),
+			// A judge can be stopped exactly as a reviewer can, and a
+			// round that does not record it reports the same lie the
+			// council round was fixed for: a participant taken away
+			// mid-sentence, filed as one that answered.
+			...(answer.stopped === undefined ? {} : { stopped: answer.stopped }),
+			...(answer.answerPath === undefined
+				? {}
+				: { answerPath: answer.answerPath }),
 			...(answer.usage === undefined ? {} : { usage: answer.usage }),
 		};
 	})();

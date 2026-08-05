@@ -148,6 +148,13 @@ async function fileReply(
 	return {
 		participantId: participant.id,
 		findingIds,
+		// The round most likely to be stopped, since it is the one asked
+		// to hold every change at once, was the one throwing the stop
+		// away.
+		...(answer.stopped === undefined ? {} : { stopped: answer.stopped }),
+		...(answer.answerPath === undefined
+			? {}
+			: { answerPath: answer.answerPath }),
 		...(answer.usage === undefined ? {} : { usage: answer.usage }),
 	};
 }
