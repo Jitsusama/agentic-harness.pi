@@ -37,25 +37,6 @@ import {
 import { GLYPH as REVIEW_GLYPH } from "./render.js";
 
 /**
- * How long one participant gets before it is treated as wedged.
- *
- * The runner's own default is forty-five minutes, which is a sensible
- * ceiling for a long autonomous job and absurd for this: a reviewer
- * reads a diff and writes findings, and a council round is minutes.
- *
- * This used to be justified by there being no other way to stop a round.
- * That was never true, and the panel now cancels on Escape, so the bound
- * is doing a narrower job: it catches a participant that stops responding
- * while nobody is watching the panel, and turns "wedged until someone
- * notices" into a failure with a reason the round already knows how to
- * report.
- *
- * Fifteen minutes is roughly six times the longest round observed, so it
- * does not truncate honest work.
- */
-export const PARTICIPANT_TIMEOUT_MS = 15 * 60 * 1000;
-
-/**
  * Geometry, not emoji, per the review tools' convention: triangles, since
  * that is the review surface's family, and a participant in a round is part
  * of a review. An open one is waiting, a small one is working, a filled one
