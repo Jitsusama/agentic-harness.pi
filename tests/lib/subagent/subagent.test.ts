@@ -53,6 +53,7 @@ function fakeRun(result: {
 	finalAssistantText?: string;
 	verification?: ReviewerVerification;
 	error?: ReviewerError;
+	state?: RunPiResult["state"];
 }): { runPi: RunPi; calls: Array<{ args: string[]; cwd: string }> } {
 	const calls: Array<{ args: string[]; cwd: string }> = [];
 	const runPi: RunPi = async (opts) => {
@@ -66,10 +67,46 @@ function fakeRun(result: {
 				: {}),
 			...(result.verification ? { verification: result.verification } : {}),
 			...(result.error ? { error: result.error } : {}),
+			...(result.state ? { state: result.state } : {}),
 		};
 	};
 	return { runPi, calls };
 }
+
+describe("runReviewer: how a run ended", () => {
+	it("carries the runner's terminal state through to the caller", async () => {
+		// The caller decides whether a reviewer was stopped or answered
+		// badly, and it decides on this field. Dropping it here would
+		// leave the supervisor classifying a stop that nobody reads.
+		const { runPi } = fakeRun({
+			exitCode: 124,
+			finalAssistantText: "Let me check the tests.",
+			state: "timeout",
+		});
+
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "review this diff",
+			cwd: "/tmp/wt",
+			runPi,
+		});
+
+		expect(result.state).toBe("timeout");
+	});
+
+	it("leaves the state absent for a runner that never classified one", async () => {
+		const { runPi } = fakeRun({ exitCode: 0, finalAssistantText: "{}" });
+
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "review this diff",
+			cwd: "/tmp/wt",
+			runPi,
+		});
+
+		expect(result.state).toBeUndefined();
+	});
+});
 
 describe("runReviewer: reviewer error surfacing", () => {
 	it("carries a terminal model-stream error and names it in a warning", async () => {

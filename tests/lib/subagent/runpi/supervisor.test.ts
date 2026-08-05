@@ -238,6 +238,46 @@ describe("createSupervisorRunPi", () => {
 		expect(result.finalAssistantText).toBe("supervised");
 		expect(result.usage?.tokens.total).toBe(3);
 		expect(result.artifacts?.resultPath).toContain("result.json");
+		expect(result.state).toBe("complete");
+	});
+
+	it("says which state ended a run that was stopped, not just that it failed", async () => {
+		// A caller has to tell a reviewer we stopped from one that
+		// answered badly, and an exit code cannot carry that: a review
+		// council reported seven reviewers as having answered with
+		// unparseable output when all seven had been killed at a wall
+		// clock. The supervisor has always written the state to its
+		// result file; it simply never handed it back.
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "child.mjs");
+		// Says one conversational thing, the way a reviewer does between
+		// tool calls, and then never finishes. That text is exactly what
+		// used to be mistaken for an answer.
+		await writeFile(
+			childPath,
+			`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"Let me check the tests."}]}})+"\\n");\nsetInterval(() => {}, 1000);`,
+		);
+
+		const runPi = createSupervisorRunPi({
+			piInstall: { node: process.execPath, entry: childPath },
+			stateDir,
+			idleTimeoutMs: GENEROUS_MS,
+			timeoutMs: 1_000,
+			killGraceMs: 500,
+			supervisorGraceMs: 30_000,
+		});
+
+		const result = await runPi({
+			args: [],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "slow",
+		});
+
+		expect(result.state).toBe("timeout");
+		// And the thing it said on the way past the wall is still there,
+		// so the state is what tells the two apart rather than the text.
+		expect(result.finalAssistantText).toBe("Let me check the tests.");
 	});
 	it("sets the child's PI_PACKAGE_DIR to the pinned package dir", async () => {
 		// End-to-end proof of the mid-session-upgrade fix: the
