@@ -56,10 +56,19 @@ export interface AttachmentStore {
  * hashed to a flat name for the same reason.
  */
 function fileFor(change: ChangeRef): string {
-	const safe = changeKey(change)
-		.replace(/[^A-Za-z0-9._-]/g, "_")
-		.replace(/^\.+/, "_");
-	return `${safe}.json`;
+	return `${safeName(changeKey(change))}.json`;
+}
+
+/**
+ * One path segment, from a name that came from somewhere else.
+ *
+ * A change key or a session id is whatever the provider or the host
+ * chose, so one carrying a slash or a pair of dots would name a path
+ * outside the store.
+ */
+function safeName(name: string): string {
+	const safe = name.replace(/[^A-Za-z0-9._-]/g, "_").replace(/^\.+/, "_");
+	return safe === "" ? "_" : safe;
 }
 
 /** Read one attachment, or nothing when it is unreadable. */
@@ -93,10 +102,25 @@ async function readAttachment(path: string): Promise<Attachment | undefined> {
  * no index that can fall out of step with the files it claims to
  * describe.
  */
-export function createAttachmentStore(root: string): AttachmentStore {
+export function createAttachmentStore(
+	root: string,
+	sessionId?: string,
+): AttachmentStore {
+	// One directory per session. What a session is working on is a fact
+	// about that session, and keeping every session's answer in one
+	// place made the newest of them everybody's: a round in one session
+	// was silently retargeted by another session attaching its own work,
+	// and the judge that followed consolidated a different repository's
+	// council while reporting success. Two sessions attached to the same
+	// change also need their own file, or detaching in one detaches in
+	// the other.
+	//
+	// Without a session there is nothing to separate, so the flat
+	// directory stands: a caller with no session cannot be racing one.
+	const mine = sessionId === undefined ? root : join(root, safeName(sessionId));
 	return {
 		async attach(change) {
-			await mkdir(root, { recursive: true });
+			await mkdir(mine, { recursive: true });
 			const highest = (await this.list()).reduce(
 				(max, a) => Math.max(max, a.seq),
 				0,
@@ -107,7 +131,7 @@ export function createAttachmentStore(root: string): AttachmentStore {
 				seq: highest + 1,
 			};
 			await writeFile(
-				join(root, fileFor(change)),
+				join(mine, fileFor(change)),
 				JSON.stringify(record, null, 2),
 				"utf8",
 			);
@@ -116,14 +140,14 @@ export function createAttachmentStore(root: string): AttachmentStore {
 		async detach(label) {
 			const found = (await this.list()).find((a) => a.change.label === label);
 			if (!found) return false;
-			await rm(join(root, fileFor(found.change)), { force: true });
+			await rm(join(mine, fileFor(found.change)), { force: true });
 			return true;
 		},
 
 		async list() {
 			let names: string[];
 			try {
-				names = await readdir(root);
+				names = await readdir(mine);
 			} catch {
 				// Nothing has been attached yet, so there is no
 				// directory. That is not a failure to report.
@@ -132,7 +156,7 @@ export function createAttachmentStore(root: string): AttachmentStore {
 			const read = await Promise.all(
 				names
 					.filter((name) => name.endsWith(".json"))
-					.map((name) => readAttachment(join(root, name))),
+					.map((name) => readAttachment(join(mine, name))),
 			);
 			return read
 				.filter((a): a is Attachment => a !== undefined)

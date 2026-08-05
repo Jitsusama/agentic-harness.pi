@@ -17,6 +17,77 @@ function change(label: string, id = label): ChangeRef {
 	};
 }
 
+describe("attachments belong to the session that made them", () => {
+	// Measured, not imagined. A council round in one session was
+	// retargeted mid-flight by another session attaching its own work:
+	// the judge that followed consolidated a different repository's
+	// council, and the findings read back belonged to a third change.
+	// Every call reported success. The store is shared by every session
+	// on the machine, while the thing it models, what I am working on
+	// now, belongs to one.
+	let root: string;
+
+	beforeEach(async () => {
+		root = await mkdtemp(join(tmpdir(), "attach-sessions-"));
+	});
+	afterEach(async () => {
+		await rm(root, { recursive: true, force: true });
+	});
+
+	it("does not show one session what another attached", async () => {
+		const mine = createAttachmentStore(root, "session-a");
+		const theirs = createAttachmentStore(root, "session-b");
+
+		await mine.attach(change("Jitsusama/agentic-harness.pi#447"));
+		await theirs.attach(change("shop/world#976478"));
+
+		expect((await mine.list()).map((a) => a.change.label)).toEqual([
+			"Jitsusama/agentic-harness.pi#447",
+		]);
+		expect((await theirs.list()).map((a) => a.change.label)).toEqual([
+			"shop/world#976478",
+		]);
+	});
+
+	it("keeps two sessions attached to the same change apart", async () => {
+		// Two sessions reviewing one change is ordinary, and detaching in
+		// one must not detach in the other.
+		const mine = createAttachmentStore(root, "session-a");
+		const theirs = createAttachmentStore(root, "session-b");
+		await mine.attach(change("shop/world#1"));
+		await theirs.attach(change("shop/world#1"));
+
+		expect(await theirs.detach("shop/world#1")).toBe(true);
+
+		expect((await mine.list()).map((a) => a.change.label)).toEqual([
+			"shop/world#1",
+		]);
+		expect(await theirs.list()).toEqual([]);
+	});
+
+	it("will not detach a change another session attached", async () => {
+		const mine = createAttachmentStore(root, "session-a");
+		const theirs = createAttachmentStore(root, "session-b");
+		await theirs.attach(change("shop/world#2"));
+
+		expect(await mine.detach("shop/world#2")).toBe(false);
+		expect((await theirs.list()).map((a) => a.change.label)).toEqual([
+			"shop/world#2",
+		]);
+	});
+
+	it("ignores what a session before it left behind", async () => {
+		// Attachments from earlier sessions are on disk already, and
+		// inheriting them is the same bug wearing a hat: a fresh session
+		// would act on whatever the last one happened to leave.
+		await createAttachmentStore(root, "session-old").attach(
+			change("shop/world#3"),
+		);
+
+		expect(await createAttachmentStore(root, "session-new").list()).toEqual([]);
+	});
+});
+
 describe("createAttachmentStore", () => {
 	let root: string;
 	let store: AttachmentStore;

@@ -246,21 +246,16 @@ export class ReviewerStreamParser {
 	}
 
 	private truncateAssistantText(text: string): string {
-		if (Buffer.byteLength(text) <= this.limits.maxAssistantTextBytes)
-			return text;
+		const cap = this.limits.maxAssistantTextBytes;
+		// This runs on every delta now that a message is read while it is
+		// still being written, so the common case has to cost nothing. A
+		// character is at most four bytes, so anything this short is
+		// certainly within the cap and needs no measuring.
+		if (text.length * 4 <= cap) return text;
+		if (Buffer.byteLength(text) <= cap) return text;
 		this.truncated = true;
-		this.warn(
-			`Reviewer assistant text exceeded ${this.limits.maxAssistantTextBytes} bytes; truncated`,
-		);
-		let end = text.length;
-		while (end > 0) {
-			const candidate = text.slice(0, end);
-			if (Buffer.byteLength(candidate) <= this.limits.maxAssistantTextBytes) {
-				return candidate;
-			}
-			end--;
-		}
-		return "";
+		this.warn(`Reviewer assistant text exceeded ${cap} bytes; truncated`);
+		return cutToBytes(text, cap);
 	}
 
 	private warn(message: string): void {
@@ -277,6 +272,22 @@ export function extractUsageFromPiStream(
 	const parser = new ReviewerStreamParser({ maxWarnings: 0 });
 	parser.ingestChunk(stdout);
 	return parser.finish().usage;
+}
+
+/**
+ * The longest prefix of a string that fits in a byte budget.
+ *
+ * Cut in the bytes and stepped back off a continuation byte, so a
+ * multi-byte character is never split in half. The obvious version
+ * shortens by one character and re-measures the whole string, which is
+ * quadratic in the length and was reached once per delta.
+ */
+function cutToBytes(text: string, maxBytes: number): string {
+	const held = Buffer.from(text, "utf8");
+	if (held.length <= maxBytes) return text;
+	let end = maxBytes;
+	while (end > 0 && ((held[end] ?? 0) & 0xc0) === 0x80) end--;
+	return held.subarray(0, end).toString("utf8");
 }
 
 function objectValue(value: unknown): Record<string, unknown> | undefined {

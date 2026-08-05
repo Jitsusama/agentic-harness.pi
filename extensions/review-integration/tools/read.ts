@@ -16,13 +16,12 @@ import {
 	type BoundTarget,
 	changeInPlay,
 	chooseChange,
-	createAttachmentStore,
 	type ServingRepo,
 	unbackedDeclarations,
 } from "../../../lib/review/index.js";
 import { stackStep } from "../../../lib/review/stack.js";
 import { displayPath } from "../../../lib/ui/index.js";
-import { attachmentDir, reviewEngine } from "../engine.js";
+import { attachments, reviewEngine } from "../engine.js";
 import { GLYPH } from "../render.js";
 import { treeStandingFor } from "../work.js";
 import {
@@ -52,7 +51,7 @@ async function asksAboutCheckout(params: TargetParams): Promise<boolean> {
 		params.head !== undefined ||
 		(params.refs?.length ?? 0) > 0;
 	if (named) return false;
-	const attached = await createAttachmentStore(attachmentDir()).list();
+	const attached = await attachments().list();
 	return attached.length === 0;
 }
 
@@ -218,7 +217,7 @@ async function attachChange(
 			`A ${bound.target.kind} in ${bound.repo.key} is not something to attach, since nothing hosts it. Pass its base and head on each call instead.`,
 		);
 	}
-	await createAttachmentStore(attachmentDir()).attach(change);
+	await attachments().attach(change);
 
 	// Said, never done. Attaching is the cheap act that makes later
 	// calls terser, and cutting a tree here would make it the expensive
@@ -245,7 +244,7 @@ async function detachChange(
 	pi: ExtensionAPI,
 	params: TargetParams,
 ): Promise<Answer> {
-	const store = createAttachmentStore(attachmentDir());
+	const store = attachments();
 	const attached = await store.list();
 	const labels = attached.map((a) => a.change.label);
 	const chosen = changeInPlay(
@@ -328,7 +327,7 @@ async function stepAttachment(
 			`${step.node.ref} is ${direction === "next" ? "above" : "below"} ${change.label} but nothing hosts it yet, so there is no change to attach. Offer it for review first.`,
 		);
 	}
-	const store = createAttachmentStore(attachmentDir());
+	const store = attachments();
 	await store.attach(landing);
 	await store.detach(change.label);
 	return say(
@@ -339,7 +338,7 @@ async function stepAttachment(
 
 /** What this session is working on. */
 async function reportAttached(): Promise<Answer> {
-	const attached = await createAttachmentStore(attachmentDir()).list();
+	const attached = await attachments().list();
 	if (attached.length === 0) {
 		return say(
 			`${GLYPH.target} nothing attached. Attach a change and every call after it can leave the change out.`,
