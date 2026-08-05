@@ -68,7 +68,6 @@ import {
 } from "../../../lib/review/index.js";
 import type { ReviewerThinkingLevel } from "../../../lib/subagent/index.js";
 import {
-	createSupervisorRunPi,
 	getParentPiInstall,
 	runReviewer,
 	summarizeStreamActivity,
@@ -86,7 +85,7 @@ import {
 } from "../engine.js";
 import { type RoundWatch, watchRound } from "../progress.js";
 import { GLYPH } from "../render.js";
-import { answerFromReviewer, keepAnswer } from "../reviewer.js";
+import { answerFromReviewer, keepAnswer, reviewerRunner } from "../reviewer.js";
 import { treeForRound } from "../work.js";
 import {
 	type Answer,
@@ -1080,16 +1079,17 @@ function deps(
 				// of that in memory and dropped it, which is why a round that
 				// cost fifty dollars could be investigated only by paying for
 				// it again.
-				runPi: createSupervisorRunPi({
-					piInstall: getParentPiInstall(),
-					stateDir: runArtifactDir(),
-				}),
+				runPi: reviewerRunner(getParentPiInstall(), runArtifactDir()),
 				// Names what this reviewer leaves behind after the round that
 				// paid for it, so a transcript can be found from the ledger.
 				runId: context.runId,
-				// The session the supervisor persists is what a resume
-				// reopens, and it is the difference between asking a stopped
-				// reviewer to finish and paying for the whole pass again.
+				// Says out loud what the default already does, because it is
+				// what makes the supervisor persist a session at all. It buys
+				// a resume after a transient provider drop, and nothing for a
+				// reviewer we stopped: that path needs no error, and a stop
+				// carries none. Asking a stopped reviewer to finish is a
+				// separate piece of work, and the session it will need is the
+				// thing being kept here.
 				autoResume: true,
 				// Cancellable, so Escape on the panel really stops the work
 				// rather than only hiding it. The runner kills the child on

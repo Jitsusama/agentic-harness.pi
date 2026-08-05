@@ -18,9 +18,15 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AskAnswer, AskLimit, AskStop } from "../../lib/review/index.js";
 import type {
+	PiInstall,
 	ReviewerTerminalState,
+	RunPi,
 	RunReviewerResult,
 } from "../../lib/subagent/index.js";
+import {
+	createSupervisorRunPi,
+	type SupervisorSpawnFn,
+} from "../../lib/subagent/runpi/supervisor.js";
 
 /**
  * Which of our limits took the reviewer away.
@@ -53,6 +59,31 @@ const SAYS: Record<AskLimit, RegExp> = {
 	cancelled: /cancelled/i,
 	"parent-exit": /parent process/i,
 };
+
+/**
+ * The runner a round's reviewers run on.
+ *
+ * Supervised, not fire-and-forget, and that is the whole point: the
+ * supervised runner writes a transcript, a stderr log and a resumable
+ * session per reviewer under the round that paid for them, while the
+ * fire-and-forget one keeps its output in memory and drops it.
+ *
+ * A named function rather than a call inlined into the ask closure so
+ * the choice is something a test can hold. The wiring used to be
+ * checked by grepping this file's source, which proves the words are
+ * present and nothing about what runs.
+ */
+export function reviewerRunner(
+	piInstall: PiInstall,
+	stateDir: string,
+	spawn?: SupervisorSpawnFn,
+): RunPi {
+	return createSupervisorRunPi({
+		piInstall,
+		stateDir,
+		...(spawn === undefined ? {} : { spawn }),
+	});
+}
 
 /**
  * Keep what a reviewer said, verbatim, and say where it went.

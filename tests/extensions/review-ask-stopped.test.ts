@@ -12,13 +12,15 @@
  * distinction is pinned.
  */
 
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	answerFromReviewer,
 	keepAnswer,
+	reviewerRunner,
 } from "../../extensions/review-integration/reviewer.js";
 import type { RunReviewerResult } from "../../lib/subagent/index.js";
 
@@ -175,6 +177,68 @@ describe("a reviewer that never ran", () => {
 		expect(answer).toMatchObject({
 			failure: expect.stringContaining("hawk"),
 		});
+	});
+});
+
+describe("the runner a round's reviewers run on", () => {
+	let stateDir: string;
+
+	beforeEach(() => {
+		stateDir = mkdtempSync(join(tmpdir(), "review-transcripts-"));
+	});
+	afterEach(() => {
+		rmSync(stateDir, { recursive: true, force: true });
+	});
+
+	it("leaves a reviewer's artifacts under the round that paid for them", async () => {
+		// The claim this pins is the one the whole change rests on, and
+		// it was previously checked by grepping this module's source for
+		// the name of a constant. That proves the words are present and
+		// nothing about what runs: swapping back to the fire-and-forget
+		// runner, which writes nothing anywhere, would leave every other
+		// test in this repository green.
+		// A supervisor that starts and immediately exits. The run
+		// settles on its own, so nothing is left holding a timer after
+		// the test returns; what is asserted is what it laid down on
+		// disk before it went.
+		const closers: ((code: number | null) => void)[] = [];
+		const runner = reviewerRunner(
+			{ node: "/pi/bin/node", entry: "/pi/dist/cli.js" },
+			stateDir,
+			() => {
+				queueMicrotask(() => {
+					for (const close of closers) close(1);
+				});
+				return {
+					stdout: new PassThrough(),
+					stderr: new PassThrough(),
+					on: () => undefined,
+					once: (event: string, listener: (code: number | null) => void) => {
+						if (event === "close") closers.push(listener);
+					},
+					kill: () => true,
+				} as never;
+			},
+		);
+
+		await runner({
+			args: [],
+			cwd: stateDir,
+			runId: "council-20260805T181723289-000001",
+			reviewerId: "gitstream-test",
+		});
+
+		expect(
+			existsSync(
+				join(
+					stateDir,
+					"runs",
+					"council-20260805T181723289-000001",
+					"reviewers",
+					"gitstream-test",
+				),
+			),
+		).toBe(true);
 	});
 });
 
