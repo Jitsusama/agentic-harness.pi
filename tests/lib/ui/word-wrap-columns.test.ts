@@ -26,6 +26,29 @@ function widest(lines: string[]): number {
 	return Math.max(...lines.map((line) => visibleWidth(line)));
 }
 
+describe("wrapping honours newlines", () => {
+	// A returned line is one terminal row. A newline inside one is a
+	// cursor instruction the width arithmetic cannot see: the terminal
+	// obeys it, drops a row without returning to the margin, and the
+	// frame shears. The merge gate drew exactly that, because its short
+	// three-line body fit the width and the fast path returned it whole.
+	it("splits on a newline even when everything fits the width", () => {
+		expect(wordWrap("one\ntwo\nthree", 80)).toEqual(["one", "two", "three"]);
+	});
+
+	it("splits on a newline when paragraphs also need wrapping", () => {
+		const wrapped = wordWrap(`short\n${"word ".repeat(10).trim()}`, WIDTH);
+		for (const line of wrapped) {
+			expect(line).not.toContain("\n");
+		}
+		expect(wrapped[0]).toBe("short");
+	});
+
+	it("splits on a newline even when it cannot wrap at all", () => {
+		expect(wordWrap("one\ntwo", 0)).toEqual(["one", "two"]);
+	});
+});
+
 describe("wrapping counts columns", () => {
 	it("keeps plain text inside the width, as it always did", () => {
 		const wrapped = wordWrap(

@@ -39,7 +39,13 @@ export function contentWrapWidth(renderWidth: number): number {
  * the panel truncates what overruns, so the end of the line simply goes.
  */
 export function wordWrap(text: string, maxWidth: number): string[] {
-	if (maxWidth <= 0 || visibleWidth(text) <= maxWidth) return [text];
+	// A returned line is one terminal row, so an embedded newline is a
+	// hard break on every path. The fast path once measured the whole
+	// string and returned a short multi-line body untouched, and the
+	// newlines inside it moved the terminal's cursor mid-frame: rows
+	// spliced with stale content, exactly one frame-shear per newline.
+	if (maxWidth <= 0) return text.split("\n");
+	if (!text.includes("\n") && visibleWidth(text) <= maxWidth) return [text];
 	const lines: string[] = [];
 	for (const paragraph of text.split("\n")) {
 		if (visibleWidth(paragraph) <= maxWidth) {
