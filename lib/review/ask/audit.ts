@@ -126,7 +126,7 @@ export async function runAudit(
 	// just as hung as six reviewers do. That is `askOne`'s job now, said
 	// once for every round with a single participant rather than spelled
 	// out here in beats the judge then forgot to copy.
-	const answer = await askOne(request.auditor, request.prompt, deps);
+	const answer = await askOne(request.auditor, request.prompt, id, deps);
 	deps.progress?.finish();
 
 	const warnings: string[] = [];

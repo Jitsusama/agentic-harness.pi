@@ -56,14 +56,19 @@ const STANDING = JSON.stringify({
 });
 
 /** Deps that answer with the given text and number what they file. */
-function deps(text: string, progress: AskProgress): CouncilDeps {
+function deps(
+	text: string,
+	progress: AskProgress,
+	seen: string[] = [],
+): CouncilDeps {
 	let issued = 0;
 	return {
-		async ask(_participant, _prompt, report) {
+		async ask(_participant, _prompt, context) {
+			seen.push(context.runId);
 			// A real runner narrates while it works, and the panel's whole
 			// purpose is to show that, so a fake that never narrates would
 			// let a round pass this while looking frozen in practice.
-			report?.("reading lib/a.ts");
+			context.report?.("reading lib/a.ts");
 			return { text };
 		},
 		async record(findings) {
@@ -78,7 +83,10 @@ function deps(text: string, progress: AskProgress): CouncilDeps {
 }
 
 /** Every round, and how to start it. */
-const ROUNDS: readonly [string, (deps: CouncilDeps) => Promise<unknown>][] = [
+const ROUNDS: readonly [
+	string,
+	(deps: CouncilDeps) => Promise<{ run: { id: string } }>,
+][] = [
 	[
 		"a council",
 		(d) =>
@@ -189,6 +197,20 @@ describe("a round reports that it is working", () => {
 			await start(deps(ANSWERS[what], progress));
 
 			expect(said).toContain(`answered:${ONE.id}`);
+		});
+
+		it(`${what} tells the runner which round it is asking for`, async () => {
+			// A reviewer leaves a transcript behind, and a transcript that
+			// cannot be traced to the round that paid for it is no better
+			// than none: the whole point is answering "what did that cost
+			// and what did it find" months later. The runner cannot know
+			// the round on its own, so the round has to say.
+			const { progress } = recorder();
+			const seen: string[] = [];
+
+			const { run } = await start(deps(ANSWERS[what], progress, seen));
+
+			expect(seen).toEqual([run.id]);
 		});
 
 		it(`${what} finishes, so nothing is left on screen`, async () => {

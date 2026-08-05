@@ -35,6 +35,7 @@ import {
 import { packageConfigPath } from "../../../lib/internal/paths.js";
 import {
 	type AskAnswer,
+	type AskContext,
 	type AskRound,
 	type AskRun,
 	auditPrompt,
@@ -996,7 +997,7 @@ function deps(
 		async ask(
 			participant: Participant,
 			prompt: string,
-			report?: (activity: string) => void,
+			context: AskContext,
 		): Promise<AskAnswer> {
 			const result = await runReviewer({
 				reviewer: {
@@ -1030,6 +1031,9 @@ function deps(
 					? {}
 					: { systemPrompt: charters.get(participant.id) }),
 				runPi: createSpawnRunPi({ piInstall: getParentPiInstall() }),
+				// Names what this reviewer leaves behind after the round that
+				// paid for it, so a transcript can be found from the ledger.
+				runId: context.runId,
 				// Cancellable, so Escape on the panel really stops the work
 				// rather than only hiding it. The runner kills the child on
 				// abort; all that was ever missing was passing the signal down.
@@ -1042,12 +1046,12 @@ function deps(
 				timeoutMs: PARTICIPANT_TIMEOUT_MS,
 				// The one place a subprocess becomes something a person can
 				// watch. The library cannot see a stream, so it is told.
-				...(report === undefined
+				...(context.report === undefined
 					? {}
 					: {
 							onEvent(event) {
 								const activity = summarizeStreamActivity(event);
-								if (activity !== null) report(activity);
+								if (activity !== null) context.report?.(activity);
 							},
 						}),
 			});
