@@ -16,6 +16,7 @@
  * trade, given what a round costs to run.
  */
 
+import { count } from "../../ui/count.js";
 import type { Finding } from "../finding.js";
 import { harvestFindings } from "./harvest.js";
 import {
@@ -278,7 +279,7 @@ function stopWarning(stop: AskStop, kept: number): string {
 	const held =
 		kept === 0
 			? "Nothing had been read from it yet"
-			: `${kept} finding${kept === 1 ? "" : "s"} had been read from it first`;
+			: `${count(kept, "finding")} had been read from it first`;
 	return `stopped before it finished (${stop.limit}): ${stop.detail} ${held}, so treat this pass as partial.`;
 }
 
