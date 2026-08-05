@@ -248,35 +248,55 @@ describe("createSupervisorRunPi", () => {
 		// unparseable output when all seven had been killed at a wall
 		// clock. The supervisor has always written the state to its
 		// result file; it simply never handed it back.
+		//
+		// Driven through a fake supervisor rather than a real stuck
+		// child, because the claim is that the parent reads the field
+		// back off the result file. Proving that with a subprocess that
+		// has to be killed would add a spawning test to a suite that
+		// already starves them under load, and would not prove any more.
 		const stateDir = await tempStateDir();
-		const childPath = join(stateDir, "child.mjs");
-		// Says one conversational thing, the way a reviewer does between
-		// tool calls, and then never finishes. That text is exactly what
-		// used to be mistaken for an answer.
-		await writeFile(
-			childPath,
-			`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"Let me check the tests."}]}})+"\\n");\nsetInterval(() => {}, 1000);`,
-		);
-
+		const fake = makeFakeChild();
 		const runPi = createSupervisorRunPi({
-			piInstall: { node: process.execPath, entry: childPath },
+			piInstall: { node: "/pi/bin/node", entry: "/pi/dist/cli.js" },
+			nodeBinary: "node",
+			supervisorPath: "/pkg/reviewer-supervisor.mjs",
 			stateDir,
-			idleTimeoutMs: GENEROUS_MS,
-			timeoutMs: 1_000,
-			killGraceMs: 500,
-			supervisorGraceMs: 30_000,
+			spawn: (_command, args) => {
+				queueMicrotask(async () => {
+					const request = JSON.parse(await readFile(String(args[1]), "utf-8"));
+					await new ReviewerArtifactsStore(stateDir).writeJsonAtomic(
+						request.paths.resultPath,
+						{
+							state: "timeout",
+							exitCode: 124,
+							// The conversational line a reviewer says between
+							// tool calls, which is what used to be mistaken
+							// for its answer.
+							finalAssistantText: "Let me check the tests.",
+							warnings: [
+								"Pi subprocess timed out after 900000ms; sent SIGTERM.",
+							],
+						},
+					);
+					fake.stdout.end(
+						`${JSON.stringify({ type: "terminal", resultPath: request.paths.resultPath })}\n`,
+					);
+					fake.emitClose(0);
+				});
+				return fake.child as unknown as ChildProcess;
+			},
 		});
 
 		const result = await runPi({
 			args: [],
-			cwd: stateDir,
+			cwd: "/tmp/wt",
 			runId: "run",
 			reviewerId: "slow",
 		});
 
 		expect(result.state).toBe("timeout");
-		// And the thing it said on the way past the wall is still there,
-		// so the state is what tells the two apart rather than the text.
+		// The thing it said on the way past the wall is still there, so
+		// the state is what tells the two apart rather than the text.
 		expect(result.finalAssistantText).toBe("Let me check the tests.");
 	});
 	it("sets the child's PI_PACKAGE_DIR to the pinned package dir", async () => {

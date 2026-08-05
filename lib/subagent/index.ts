@@ -29,6 +29,9 @@
 
 // What a subagent is doing right now, for a caller that is waiting.
 export { summarizeStreamActivity } from "./activity.js";
+// How a run ended is part of what a run result says, so a consumer
+// reading the result needs the vocabulary to read the field.
+export type { ReviewerTerminalState } from "./artifacts.js";
 // Durable artifacts and recovery (supervisor path).
 export { ReviewerArtifactsStore } from "./artifacts.js";
 // Engine-wide always-load defaults.
