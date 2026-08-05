@@ -621,7 +621,132 @@ export async function runReviewer(
 			assembleReviewerResult(options, resumeResult),
 		);
 	}
+
+	// A reviewer we stopped is not a reviewer that failed. It was
+	// working, it has its investigation in a session on disk, and the
+	// only thing missing is the answer. Asking for that answer costs one
+	// short turn against work already paid for, where the alternative is
+	// a round that reports an interruption and nothing else.
+	if (
+		options.autoResume !== false &&
+		options.signal?.aborted !== true &&
+		WORTH_ASKING.has(outcome.state as ReviewerTerminalState) &&
+		outcome.verification?.ok !== true &&
+		result.artifacts?.sessionPath !== undefined
+	) {
+		const wrapUp = await dispatchWrapUp(
+			options,
+			result.artifacts.sessionPath,
+			extraExtensions,
+			extraSkills,
+		);
+		outcome = mergeWrapUpOutcome(
+			outcome,
+			assembleReviewerResult(options, wrapUp),
+		);
+	}
 	return outcome;
+}
+
+/**
+ * Stops worth asking about.
+ *
+ * A clock or an output cap took a working reviewer away, so what it
+ * had is still worth having. Cancelled is not here because somebody
+ * asked for the work to stop, and parent-exit is not because there is
+ * nothing left to ask with.
+ */
+const WORTH_ASKING: ReadonlySet<ReviewerTerminalState> =
+	new Set<ReviewerTerminalState>(["timeout", "idle-timeout", "output-limit"]);
+
+/**
+ * What to say to a reviewer that ran out of time.
+ *
+ * Every line of this is aimed at one failure: a reviewer that treats
+ * being resumed as permission to carry on working, meets the same wall
+ * and costs the round a second time for nothing. It is asked for what
+ * it has already formed, in the shape the contract asks for, and told
+ * that a short answer is the right answer.
+ */
+const WRAP_UP_PROMPT =
+	"You ran out of time and were stopped. Do not investigate further, do " +
+	"not read any more files and do not continue the work: there is no " +
+	"budget left for it, and anything you start now will be cut off again. " +
+	"Reply now, in the JSON shape your instructions asked for, with only the " +
+	"findings you had already formed. Leave out anything you were still " +
+	"checking. A short answer of what you are sure of is exactly what is " +
+	"wanted here, and is worth far more than nothing, which is what the " +
+	"round gets otherwise.";
+
+/**
+ * How long a wrap-up gets.
+ *
+ * Small on purpose. This is a reviewer writing down what it already
+ * knows, so it needs a fraction of a review, and a generous budget here
+ * would hand a reviewer that ignored the prompt enough room to start
+ * the whole investigation again.
+ */
+const WRAP_UP_TIMEOUT_MS = 5 * 60 * 1000;
+const WRAP_UP_IDLE_MS = 3 * 60 * 1000;
+
+/** Ask a stopped reviewer to hand over what it already has. */
+async function dispatchWrapUp(
+	options: RunReviewerOptions,
+	sessionPath: string,
+	extraExtensions: readonly string[],
+	extraSkills: readonly string[],
+): Promise<RunPiResult> {
+	const args = composeArgs({
+		spec: options.reviewer,
+		prompt: WRAP_UP_PROMPT,
+		systemPrompt: options.systemPrompt,
+		isolated: options.isolated,
+		resumeSessionPath: sessionPath,
+		...(extraExtensions.length > 0 ? { extraExtensions } : {}),
+		...(extraSkills.length > 0 ? { extraSkills } : {}),
+	});
+	return options.runPi({
+		args,
+		cwd: options.cwd,
+		...(options.runId ? { runId: options.runId } : {}),
+		reviewerId: options.reviewer.id,
+		timeoutMs: WRAP_UP_TIMEOUT_MS,
+		idleTimeoutMs: WRAP_UP_IDLE_MS,
+		signal: options.signal,
+		onEvent: options.onEvent,
+	});
+}
+
+/**
+ * Fold a wrap-up into the run it belongs to.
+ *
+ * The stop stands. The reviewer handed over what it had; it did not
+ * finish the review, and reporting the pass as complete would put a
+ * fresh lie exactly where the old one was. What changes is that the
+ * round now has the answer as well as the interruption.
+ *
+ * Both texts are kept, in the order they were said, because a wrap-up
+ * can come back empty or cut off in its turn, and the fragment from
+ * the original run is then the only answer there is.
+ */
+function mergeWrapUpOutcome(
+	stopped: RunReviewerResult,
+	wrapUp: RunReviewerResult,
+): RunReviewerResult {
+	const said = [stopped.finalAssistantText, wrapUp.finalAssistantText]
+		.filter((text) => text.trim() !== "")
+		.join("\n\n");
+	const usage = sumReviewerUsage(stopped.usage, wrapUp.usage);
+	const note =
+		wrapUp.finalAssistantText.trim() === ""
+			? "Asked this reviewer for the findings it had when it was stopped; it answered with nothing, so this is what it had written at the time."
+			: "This reviewer was stopped before it finished and was asked for the findings it had already formed. What follows is that answer, not a completed review.";
+	return {
+		...stopped,
+		finalAssistantText: said,
+		warnings: [...stopped.warnings, note, ...wrapUp.warnings],
+		...(usage ? { usage } : {}),
+	};
 }
 
 /**

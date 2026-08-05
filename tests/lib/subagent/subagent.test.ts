@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import type { ReviewerTerminalState } from "../../../lib/subagent/artifacts.js";
 import {
 	clearSubagentDefaults,
 	registerSubagentDefaultExtension,
@@ -170,6 +171,143 @@ const TRANSIENT: ReviewerError = {
 	stopReason: "error",
 	message: "OpenAI Responses stream ended before a terminal response event",
 };
+
+describe("runReviewer: asking a stopped reviewer for what it has", () => {
+	const ARTIFACTS = {
+		runDir: "/r",
+		reviewerDir: "/r/rev",
+		eventsPath: "/r/rev/events.ndjson",
+		stderrPath: "/r/rev/stderr.log",
+		progressPath: "/r/rev/progress.json",
+		resultPath: "/r/rev/result.json",
+		verifiedOutputPath: "/r/rev/verified-output.json",
+		sessionDir: "/r/rev/session",
+		sessionPath: "/r/rev/session/s.jsonl",
+	};
+
+	/** A reviewer taken away by a clock, partway through its answer. */
+	const stopped = (state: ReviewerTerminalState = "timeout"): RunPiResult => ({
+		exitCode: 1,
+		state,
+		finalAssistantText: '{"findings": [{"subject": "the first one"}, {"sub',
+		artifacts: ARTIFACTS,
+	});
+
+	it("asks it to hand over its findings, in the session it already has", async () => {
+		const { runPi, calls } = scriptedRun([
+			stopped(),
+			{
+				exitCode: 0,
+				state: "complete",
+				finalAssistantText:
+					'{"findings": [{"subject": "the first one"}, {"subject": "the second"}]}',
+			},
+		]);
+
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "review this diff",
+			cwd: "/tmp/wt",
+			runPi,
+			autoResume: true,
+		});
+
+		expect(calls).toHaveLength(2);
+		const args = calls[1].args;
+		expect(args).toContain("--session");
+		expect(args[args.indexOf("--session") + 1]).toBe("/r/rev/session/s.jsonl");
+		// It must ask for what is already formed, not for more work. A
+		// reviewer that starts investigating again meets the same wall
+		// and costs the round twice.
+		expect(args.join(" ")).toMatch(
+			/not.*(investigat|research|continue working)/i,
+		);
+		expect(result.finalAssistantText).toContain("the second");
+	});
+
+	it("still reports the pass as stopped, because it was", async () => {
+		// The reviewer handed over what it had; it did not finish the
+		// review. Reporting the pass as complete would be a fresh lie in
+		// the same place as the old one.
+		const { runPi } = scriptedRun([
+			stopped(),
+			{
+				exitCode: 0,
+				state: "complete",
+				finalAssistantText: '{"findings": []}',
+			},
+		]);
+
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "review this diff",
+			cwd: "/tmp/wt",
+			runPi,
+			autoResume: true,
+		});
+
+		expect(result.state).toBe("timeout");
+	});
+
+	it("keeps what it had already written when the wrap-up adds nothing", async () => {
+		const { runPi } = scriptedRun([
+			stopped(),
+			{ exitCode: 1, state: "timeout", finalAssistantText: "" },
+		]);
+
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "review this diff",
+			cwd: "/tmp/wt",
+			runPi,
+			autoResume: true,
+		});
+
+		expect(result.finalAssistantText).toContain("the first one");
+	});
+
+	it("does not ask a reviewer the user cancelled", async () => {
+		const { runPi, calls } = scriptedRun([stopped("cancelled")]);
+
+		await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "review this diff",
+			cwd: "/tmp/wt",
+			runPi,
+			autoResume: true,
+		});
+
+		expect(calls).toHaveLength(1);
+	});
+
+	it("does not ask twice", async () => {
+		const { runPi, calls } = scriptedRun([stopped(), stopped(), stopped()]);
+
+		await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "review this diff",
+			cwd: "/tmp/wt",
+			runPi,
+			autoResume: true,
+		});
+
+		expect(calls).toHaveLength(2);
+	});
+
+	it("leaves it alone when recovery is switched off", async () => {
+		const { runPi, calls } = scriptedRun([stopped()]);
+
+		await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "review this diff",
+			cwd: "/tmp/wt",
+			runPi,
+			autoResume: false,
+		});
+
+		expect(calls).toHaveLength(1);
+	});
+});
 
 describe("runReviewer: auto-resume", () => {
 	it("resumes once from the session after a transient error and returns the verified outcome", async () => {
