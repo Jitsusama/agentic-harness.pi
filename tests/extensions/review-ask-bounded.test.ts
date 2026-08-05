@@ -32,7 +32,7 @@ import {
 	REVIEWER_BACKSTOP_MS,
 	REVIEWER_IDLE_MS,
 	reviewerBudget,
-} from "../../extensions/review-integration/reviewer.js";
+} from "../../extensions/review-integration/budget.js";
 import { DEFAULT_RUN_PI_TIMEOUT_MS } from "../../lib/subagent/runpi/spawn.js";
 
 describe("the wall clock as a backstop", () => {

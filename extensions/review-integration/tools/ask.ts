@@ -74,8 +74,10 @@ import {
 	summarizeStreamActivity,
 } from "../../../lib/subagent/index.js";
 import { count } from "../../../lib/ui/count.js";
+import { type ReviewerBudget, reviewerBudget } from "../budget.js";
 import { REVIEW_SLUG } from "../config.js";
 import {
+	answerDir,
 	findingDir,
 	personaDir,
 	reviewEngine,
@@ -84,11 +86,7 @@ import {
 } from "../engine.js";
 import { type RoundWatch, watchRound } from "../progress.js";
 import { GLYPH } from "../render.js";
-import {
-	answerFromReviewer,
-	type ReviewerBudget,
-	reviewerBudget,
-} from "../reviewer.js";
+import { answerFromReviewer, keepAnswer } from "../reviewer.js";
 import { treeForRound } from "../work.js";
 import {
 	type Answer,
@@ -866,6 +864,25 @@ async function rosterOrThrow(): Promise<Roster> {
  * Falls back to the defaults for any config that cannot be read: a
  * round is better bounded generously than refused over a budget.
  */
+/**
+ * Keep one answer, and never let keeping it cost the round.
+ *
+ * A full disk or a read-only state directory is a reason to lose the
+ * archive, not a reason to lose the findings the reviewer just spent
+ * ten minutes producing.
+ */
+async function keptAt(
+	runId: string,
+	participantId: string,
+	text: string,
+): Promise<string | undefined> {
+	try {
+		return await keepAnswer(answerDir(), runId, participantId, text);
+	} catch {
+		return undefined;
+	}
+}
+
 async function budgetForRound(): Promise<ReviewerBudget> {
 	const loaded = await loadPackageConfig(packageConfigPath());
 	if (!loaded.ok) return reviewerBudget(undefined);
@@ -1098,7 +1115,16 @@ function deps(
 							},
 						}),
 			});
-			return answerFromReviewer(result);
+			const answer = answerFromReviewer(result);
+			if ("failure" in answer) return answer;
+			// Kept before it is read, and kept whatever it turns out to
+			// hold. An answer that parses is already represented by its
+			// findings; the one worth keeping is the one that does not,
+			// and that is exactly the one the old path threw away.
+			return {
+				...answer,
+				answerPath: await keptAt(context.runId, participant.id, answer.text),
+			};
 		},
 		record(raised: Omit<Finding, "id">[]) {
 			return findings.record(change, raised);

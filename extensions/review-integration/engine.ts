@@ -55,6 +55,17 @@ export function runArtifactDir(): string {
 	return join(stateDir("review"), "transcripts");
 }
 
+/**
+ * Where what each reviewer said is kept, verbatim.
+ *
+ * Separate from the transcripts because it outlives them: a
+ * transcript belongs to the runner and its retention, and a finding's
+ * provenance has to survive that housekeeping.
+ */
+export function answerDir(): string {
+	return join(stateDir("review"), "answers");
+}
+
 /** Where findings queued to fix rather than say live. */
 export function fixDir(): string {
 	return join(stateDir("review"), "fixes");

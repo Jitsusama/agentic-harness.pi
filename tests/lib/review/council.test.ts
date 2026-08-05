@@ -285,6 +285,26 @@ describe("when a participant is stopped at a limit", () => {
 		expect(warnings[0]).not.toContain("JSON");
 	});
 
+	it("records where the answer was kept, so it can be read back", async () => {
+		// The whole reason a round is expensive to lose is that nothing
+		// kept what was said. A path on the outcome is what turns "what
+		// did that reviewer find" from a re-run into a file read.
+		const { run } = await runCouncil(
+			{ roster: { reviewers: [{ id: "hawk" }] }, prompt: "p", seq: 1 },
+			deps({
+				hawk: {
+					text: "Let me check what the tests around this assume.",
+					answerPath: "/state/answers/council-1/hawk.txt",
+					stopped: { limit: "wall-clock", detail: "past its budget" },
+				},
+			}),
+		);
+
+		expect(run.outcomes[0]?.answerPath).toBe(
+			"/state/answers/council-1/hawk.txt",
+		);
+	});
+
 	it("keeps what a stopped reviewer did manage to say", async () => {
 		// Being stopped after saying something useful is the common case
 		// once findings arrive incrementally, and what it found must not

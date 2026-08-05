@@ -14,12 +14,13 @@
  * look reasonable when the retry is guaranteed to hit the same wall.
  */
 
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { AskAnswer, AskLimit, AskStop } from "../../lib/review/index.js";
 import type {
 	ReviewerTerminalState,
 	RunReviewerResult,
 } from "../../lib/subagent/index.js";
-import { DEFAULT_RUN_PI_TIMEOUT_MS } from "../../lib/subagent/runpi/spawn.js";
 
 /**
  * Which of our limits took the reviewer away.
@@ -54,64 +55,41 @@ const SAYS: Record<AskLimit, RegExp> = {
 };
 
 /**
- * How long a reviewer may run before something stops it regardless.
+ * Keep what a reviewer said, verbatim, and say where it went.
  *
- * A backstop, not a budget. It exists for a reviewer that nothing else
- * will stop, and it is deliberately no tighter than the runner's own
- * default, because the review path knows nothing the runner does not
- * about how long honest work takes. The previous value was fifteen
- * minutes, chosen against a two-and-a-half-minute observation and
- * living in the panel module, and it killed working reviewers in six
- * consecutive rounds.
+ * The answer that parsed is already represented by its findings. The
+ * one worth keeping is the one that did not, because it is the only
+ * record of what the round paid for, and without it the sole way to
+ * find out what a reviewer found is to buy the answer again.
+ *
+ * Separate from the runner's own transcript on purpose. That holds the
+ * whole event stream, megabytes of it, and belongs to the runner's
+ * retention; this is the few kilobytes somebody actually wants to read,
+ * and a finding's provenance has to outlive the runner's housekeeping.
  */
-export const REVIEWER_BACKSTOP_MS = DEFAULT_RUN_PI_TIMEOUT_MS;
-
-/**
- * How long a reviewer may say nothing at all before it is wedged.
- *
- * This is the guard that actually earns its keep, and the reason a
- * generous backstop is safe. It fires on silence rather than on
- * effort, so it cannot punish a reviewer for having a lot to read.
- *
- * Held at the supervisor's own default rather than tightened: a
- * reviewer thinking hard against a large diff goes quiet for minutes,
- * and shortening this would recreate the bug in a different clock.
- */
-export const REVIEWER_IDLE_MS = 15 * 60 * 1000;
-
-/** What bounds one reviewer's run. */
-export interface ReviewerBudget {
-	timeoutMs: number;
-	idleTimeoutMs: number;
+export async function keepAnswer(
+	root: string,
+	runId: string,
+	participantId: string,
+	text: string,
+): Promise<string> {
+	const dir = join(root, safeSegment(runId));
+	await mkdir(dir, { recursive: true });
+	const at = join(dir, `${safeSegment(participantId)}.txt`);
+	await writeFile(at, text, "utf8");
+	return at;
 }
 
 /**
- * What bounds a round, taking any override from config.
+ * One path segment, from a name that came out of config.
  *
- * The fix for a bad constant is not a better constant. Both numbers
- * are guesses about somebody else's hardware, model and diff, so they
- * are overridable without patching source; a value that could not be
- * used is ignored rather than honoured, because a typo that produced a
- * zero budget would stop every reviewer the instant it started.
+ * Ids are whatever somebody wrote, so one carrying a slash would
+ * otherwise write outside its round, or fail a whole round over a
+ * naming choice.
  */
-export function reviewerBudget(section: unknown): ReviewerBudget {
-	const held = isRecord(section) ? section : {};
-	return {
-		timeoutMs: positiveNumber(held.backstopMs) ?? REVIEWER_BACKSTOP_MS,
-		idleTimeoutMs: positiveNumber(held.idleMs) ?? REVIEWER_IDLE_MS,
-	};
-}
-
-/** A duration that could actually be used, or nothing. */
-function positiveNumber(value: unknown): number | undefined {
-	return typeof value === "number" && Number.isFinite(value) && value > 0
-		? value
-		: undefined;
-}
-
-/** Whether config handed us something with fields to read. */
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
+function safeSegment(name: string): string {
+	const safe = name.replace(/[^A-Za-z0-9._-]/g, "_").replace(/^\.+/, "_");
+	return safe === "" ? "_" : safe;
 }
 
 /** Read one reviewer's run as an answer, a stop, or a failure. */

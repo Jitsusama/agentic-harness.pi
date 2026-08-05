@@ -12,8 +12,14 @@
  * distinction is pinned.
  */
 
-import { describe, expect, it } from "vitest";
-import { answerFromReviewer } from "../../extensions/review-integration/reviewer.js";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+	answerFromReviewer,
+	keepAnswer,
+} from "../../extensions/review-integration/reviewer.js";
 import type { RunReviewerResult } from "../../lib/subagent/index.js";
 
 /** A runner outcome, with the fields a caller always gets. */
@@ -169,6 +175,51 @@ describe("a reviewer that never ran", () => {
 		expect(answer).toMatchObject({
 			failure: expect.stringContaining("hawk"),
 		});
+	});
+});
+
+describe("keeping what a reviewer said", () => {
+	let root: string;
+
+	beforeEach(() => {
+		root = mkdtempSync(join(tmpdir(), "review-answers-"));
+	});
+	afterEach(() => {
+		rmSync(root, { recursive: true, force: true });
+	});
+
+	it("writes the answer verbatim and says where it put it", async () => {
+		const at = await keepAnswer(root, "council-1", "hawk", FOUND);
+
+		expect(readFileSync(at, "utf8")).toBe(FOUND);
+	});
+
+	it("keeps an answer nothing could be read from, which is the point", async () => {
+		// An answer that parsed is already represented by its findings.
+		// The one worth keeping is the one that did not, because that is
+		// the only record of what was paid for.
+		const at = await keepAnswer(root, "council-1", "hawk", "Let me check.");
+
+		expect(readFileSync(at, "utf8")).toBe("Let me check.");
+	});
+
+	it("files each participant separately under its round", async () => {
+		const hawk = await keepAnswer(root, "council-1", "hawk", "from hawk");
+		const owl = await keepAnswer(root, "council-1", "owl", "from owl");
+
+		expect(hawk).not.toBe(owl);
+		expect(readFileSync(hawk, "utf8")).toBe("from hawk");
+		expect(readFileSync(owl, "utf8")).toBe("from owl");
+	});
+
+	it("survives a participant id that is not a safe file name", async () => {
+		// Ids come from config, so they are whatever somebody wrote. One
+		// carrying a slash would otherwise write outside its round, or
+		// fail the whole round for a naming choice.
+		const at = await keepAnswer(root, "council-1", "../../escape", "contained");
+
+		expect(at.startsWith(root)).toBe(true);
+		expect(readFileSync(at, "utf8")).toBe("contained");
 	});
 });
 

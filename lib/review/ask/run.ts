@@ -50,6 +50,15 @@ export interface ParticipantOutcome {
 	 * difference between nine and nine-so-far.
 	 */
 	stopped?: AskStop;
+	/**
+	 * Where this participant's answer was kept, verbatim.
+	 *
+	 * Recorded rather than derived from the ids, because a path that
+	 * no longer resolves is honest history: it says an answer was kept
+	 * here and has since been reclaimed, where a derived path would
+	 * claim one that may never have existed.
+	 */
+	answerPath?: string;
 	usage?: AskUsage;
 }
 

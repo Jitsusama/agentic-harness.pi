@@ -57,7 +57,13 @@ export interface AskStop {
 
 /** What came back from asking one participant. */
 export type AskAnswer =
-	| { text: string; usage?: AskUsage; stopped?: AskStop }
+	| {
+			text: string;
+			usage?: AskUsage;
+			stopped?: AskStop;
+			/** Where the answer was kept, when the runner kept it. */
+			answerPath?: string;
+	  }
 	| { failure: string };
 
 /**
@@ -316,6 +322,9 @@ async function recordReply(
 		participantId: participant.id,
 		findingIds: recorded.map((finding) => finding.id),
 		...(answer.stopped === undefined ? {} : { stopped: answer.stopped }),
+		...(answer.answerPath === undefined
+			? {}
+			: { answerPath: answer.answerPath }),
 		...(answer.usage === undefined ? {} : { usage: answer.usage }),
 	};
 }
