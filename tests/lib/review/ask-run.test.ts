@@ -117,6 +117,7 @@ describe("what a run came to", () => {
 			asked: 2,
 			answered: 2,
 			failed: 0,
+			pending: 0,
 			findings: 3,
 		});
 	});
@@ -130,7 +131,13 @@ describe("what a run came to", () => {
 				],
 			}),
 		);
-		expect(summary).toEqual({ asked: 2, answered: 1, failed: 1, findings: 2 });
+		expect(summary).toEqual({
+			asked: 2,
+			answered: 1,
+			failed: 1,
+			pending: 0,
+			findings: 2,
+		});
 	});
 
 	it("counts an answer of nothing as an answer", () => {
@@ -145,7 +152,13 @@ describe("what a run came to", () => {
 				],
 			}),
 		);
-		expect(summary).toEqual({ asked: 2, answered: 2, failed: 0, findings: 0 });
+		expect(summary).toEqual({
+			asked: 2,
+			answered: 2,
+			failed: 0,
+			pending: 0,
+			findings: 0,
+		});
 	});
 
 	it("counts someone asked who never reported at all as failed", () => {
@@ -155,7 +168,43 @@ describe("what a run came to", () => {
 		const summary = runSummary(
 			run({ outcomes: [{ participantId: "hawk", findingIds: [1] }] }),
 		);
-		expect(summary).toEqual({ asked: 2, answered: 1, failed: 1, findings: 1 });
+		expect(summary).toEqual({
+			asked: 2,
+			answered: 1,
+			failed: 1,
+			pending: 0,
+			findings: 1,
+		});
+	});
+
+	it("counts silence on an open round as pending, not as failure", () => {
+		// The same silence means opposite things either side of settling.
+		// A started round that has recorded nothing counted as everybody
+		// failing, and every sentence built on that read as an accusation
+		// against reviewers who were at that moment working.
+		const summary = runSummary({ ...run(), open: true, outcomes: [] });
+
+		expect(summary).toEqual({
+			asked: 2,
+			answered: 0,
+			failed: 0,
+			pending: 2,
+			findings: 0,
+		});
+	});
+
+	it("still counts a recorded failure on an open round", () => {
+		// Only silence changes meaning. A failure somebody wrote down is
+		// a failure whatever state the round is in, and a collect that
+		// died halfway leaves exactly that: some outcomes recorded, the
+		// round still open.
+		const summary = runSummary({
+			...run(),
+			open: true,
+			outcomes: [{ participantId: "hawk", findingIds: [], failure: "died" }],
+		});
+
+		expect(summary).toMatchObject({ failed: 1, pending: 1, answered: 0 });
 	});
 });
 
@@ -240,6 +289,7 @@ describe("substituting one outcome", () => {
 			asked: 2,
 			answered: 2,
 			failed: 0,
+			pending: 0,
 			findings: 2,
 		});
 	});

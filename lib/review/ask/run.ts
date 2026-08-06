@@ -91,6 +91,23 @@ export interface AskRun {
 	 */
 	open?: true;
 	/**
+	 * Given up on by a person, rather than finished.
+	 *
+	 * There are three states here, not two, and the third cannot be
+	 * spelled as the absence of the second. A round closed because
+	 * nothing was running and nothing was left behind is not a
+	 * council that reported: it has no outcomes and no findings, so
+	 * merely clearing `open` would make it the most recent finished
+	 * council on the change, and `latest` would hand it to the next
+	 * judge, critique and retry. Each would consolidate nothing and
+	 * report that the council found nothing, while the real council
+	 * sat one entry behind, unreachable.
+	 *
+	 * Marked by something present rather than inferred from something
+	 * missing, for the same reason `open` is.
+	 */
+	closed?: true;
+	/**
 	 * What the reviewers were reading, when the round pinned one.
 	 *
 	 * Written down because an interrupted round is collected from
@@ -107,6 +124,14 @@ export interface RunSummary {
 	asked: number;
 	answered: number;
 	failed: number;
+	/**
+	 * Asked, and not yet reported either way.
+	 *
+	 * Only ever non-zero for a round still open. A round that has
+	 * settled has heard from everybody it is going to hear from, so a
+	 * participant with no outcome there has dropped.
+	 */
+	pending: number;
 	findings: number;
 }
 
@@ -172,22 +197,39 @@ export function stoppedNotes(run: AskRun): string[] {
  * nothing is an answer: a reviewer that read the change and had no
  * complaint is not a failure, and counting it as one would make a
  * clean review look broken.
+ *
+ * Unless the round is still open, where the same silence means the
+ * opposite. Nobody has asked those reviewers for anything yet: a
+ * started round that has recorded nothing summarised as seven failed
+ * out of seven, and every sentence built on that read as an
+ * accusation against reviewers who were at that moment working.
  */
 export function runSummary(run: AskRun): RunSummary {
 	let answered = 0;
+	let reported = 0;
 	let findings = 0;
 	for (const participant of run.participants) {
 		const outcome = run.outcomes.find(
 			(o) => o.participantId === participant.id,
 		);
-		if (outcome === undefined || outcome.failure !== undefined) continue;
+		if (outcome === undefined) continue;
+		if (outcome.failure !== undefined) {
+			reported += 1;
+			continue;
+		}
 		answered += 1;
 		findings += outcome.findingIds.length;
 	}
+	// A failure somebody recorded is a failure whatever state the round
+	// is in. Only silence changes meaning: on a settled round it is a
+	// participant that dropped, and on an open one it is a participant
+	// nobody has asked about yet.
+	const silent = run.participants.length - answered - reported;
 	return {
 		asked: run.participants.length,
 		answered,
-		failed: run.participants.length - answered,
+		failed: reported + (run.open === true ? 0 : silent),
+		pending: run.open === true ? silent : 0,
 		findings,
 	};
 }

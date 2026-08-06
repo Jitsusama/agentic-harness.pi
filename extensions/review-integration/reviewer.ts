@@ -19,6 +19,7 @@ import { join } from "node:path";
 import type { AskAnswer, AskLimit, AskStop } from "../../lib/review/index.js";
 import type {
 	PiInstall,
+	ProcessFacts,
 	ReviewerArtifactsStore,
 	ReviewerTerminalState,
 	RunPi,
@@ -27,6 +28,10 @@ import type {
 import {
 	mergeResumeOutcome,
 	mergeWrapUpOutcome,
+	RESUME_SUFFIX,
+	supervisorStanding,
+	systemFacts,
+	WRAP_UP_SUFFIX,
 } from "../../lib/subagent/index.js";
 import {
 	createSupervisorRunPi,
@@ -147,6 +152,51 @@ function safeSegment(name: string): string {
 }
 
 /**
+ * Which reviewer, if any, a live supervisor is still holding.
+ *
+ * An open mark says a round started and did not finish, which is the
+ * same on the ledger for a dead session and for a council running
+ * right now in another window. Collecting a live round reads the
+ * reviewers that have finished, files their findings, records the
+ * rest as having left nothing, and settles it. The session still
+ * running then finishes and records the whole round again: every
+ * early finding filed twice, and a settled round that says its
+ * reviewers found nothing.
+ *
+ * Every reviewer's directories are asked, not just the one named on
+ * the roster. A wrap-up and a resume are supervised runs of their
+ * own, with their own leases, and a round can be down to nothing but
+ * a wrap-up still writing: asking only the base id reads no live
+ * lease and calls the round free.
+ */
+export async function heldByLiveSupervisor(
+	store: ReviewerArtifactsStore,
+	runId: string,
+	reviewerIds: readonly string[],
+	facts: ProcessFacts = systemFacts,
+	now: number = Date.now(),
+): Promise<{ reviewerId: string; pid: number; sinceMs: number } | undefined> {
+	for (const reviewerId of reviewerIds) {
+		for (const id of everyRunOf(reviewerId)) {
+			const standing = await supervisorStanding(store, runId, id, facts, now);
+			if (standing.kind === "running") {
+				return { reviewerId: id, pid: standing.pid, sinceMs: standing.sinceMs };
+			}
+		}
+	}
+	return undefined;
+}
+
+/** Every directory one reviewer's work can be spread across. */
+function everyRunOf(reviewerId: string): readonly string[] {
+	return [
+		reviewerId,
+		`${reviewerId}${WRAP_UP_SUFFIX}`,
+		`${reviewerId}${RESUME_SUFFIX}`,
+	];
+}
+
+/**
  * What one reviewer left behind, read back as an answer.
  *
  * The whole point of a round writing itself down before it asks
@@ -176,10 +226,18 @@ export async function answerLeftBehind(
 		// Reading only the base is therefore keeping the fragment and
 		// discarding the answer, in the shape an interrupted round most
 		// often has.
-		const wrapUp = await resultIn(store, runId, `${participantId}+wrapup`);
+		const wrapUp = await resultIn(
+			store,
+			runId,
+			`${participantId}${WRAP_UP_SUFFIX}`,
+		);
 		const merged =
 			wrapUp === undefined ? base : mergeWrapUpOutcome(base, wrapUp);
-		const resume = await resultIn(store, runId, `${participantId}+resume`);
+		const resume = await resultIn(
+			store,
+			runId,
+			`${participantId}${RESUME_SUFFIX}`,
+		);
 		const entire =
 			resume === undefined ? merged : mergeResumeOutcome(merged, resume);
 		return { kind: "answer", answer: answerFromReviewer(entire, budget) };

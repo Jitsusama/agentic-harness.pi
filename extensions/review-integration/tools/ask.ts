@@ -18,7 +18,7 @@
  * than both.
  */
 
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
@@ -73,10 +73,12 @@ import {
 import type { ReviewerThinkingLevel } from "../../../lib/subagent/index.js";
 import {
 	getParentPiInstall,
+	RESUME_SUFFIX,
 	ReviewerArtifactsStore,
 	runReviewer,
 	startReviewer,
 	summarizeStreamActivity,
+	WRAP_UP_SUFFIX,
 } from "../../../lib/subagent/index.js";
 import { count } from "../../../lib/ui/count.js";
 import {
@@ -98,6 +100,7 @@ import { GLYPH } from "../render.js";
 import {
 	answerFromReviewer,
 	answerLeftBehind,
+	heldByLiveSupervisor,
 	keepAnswer,
 	reviewerRunner,
 	reviewerStarter,
@@ -180,7 +183,7 @@ export function registerAskTool(pi: ExtensionAPI): void {
 					],
 					{
 						description:
-							"What to do. council: ask every reviewer on the roster, independently and at once, waiting for all of them. start: the same round, dispatched and left running, so the session is free straight away; nothing is watching it, so there is no progress, no wrap-up and no retry, and you finish it later with collect. stop: ask every reviewer in a started round to stop, which is the only way to end one early since nothing is holding it; what they wrote down is kept and collect still works. judge: ask the roster's judge to consolidate the latest council. critique: ask the roster to push back on what the judge concluded, recording positions rather than findings. audit: judge each unresolved inbound thread against the change, so a reply is informed rather than guessed. stack: put every change in the stack to the roster together, so a finding that only exists between changes can be seen. runs: what rounds have been asked about this change. collect: finish a round whose session ended before it could, reading what its reviewers left on disk, which is what an unsettled round in the listing is telling you to do. retry: ask one participant again and substitute their outcome in place. release: free a participant id so it can mean a different model, which is the way out the identity refusal names. Defaults to runs, which changes nothing.",
+							"What to do. council: ask every reviewer on the roster, independently and at once, waiting for all of them. start: the same round, dispatched and left running, so the session is free straight away; nothing is watching it, so there is no progress, no wrap-up and no retry, and you finish it later with collect. stop: ask every reviewer in a started round to stop, which is the only way to end one early since nothing is holding it; what they wrote down is kept and collect still works. Stopping a round nothing is running closes it instead, which is how a round whose transcripts are gone stops sitting in the listing, and is refused when anybody left something worth collecting. judge: ask the roster's judge to consolidate the latest council. critique: ask the roster to push back on what the judge concluded, recording positions rather than findings. audit: judge each unresolved inbound thread against the change, so a reply is informed rather than guessed. stack: put every change in the stack to the roster together, so a finding that only exists between changes can be seen. runs: what rounds have been asked about this change. collect: finish a round whose session ended before it could, reading what its reviewers left on disk, which is what an unsettled round in the listing is telling you to do. retry: ask one participant again and substitute their outcome in place. release: free a participant id so it can mean a different model, which is the way out the identity refusal names. Defaults to runs, which changes nothing.",
 					},
 				),
 			),
@@ -363,18 +366,98 @@ async function stopRound(
 		);
 	}
 
-	await new ReviewerArtifactsStore(runArtifactDir()).requestRunCancellation(
+	const artifacts = new ReviewerArtifactsStore(runArtifactDir());
+	// Unconditionally, and before anything is decided. The sentinel is
+	// what makes stopping race-free: the supervisor polls for it every
+	// half second, so one written before a supervisor has finished
+	// booting is still honoured. Writing it only when a reviewer looks
+	// live makes one predicate decide both halves, and the window
+	// between `start` returning and the first lease appearing is
+	// exactly when a start-then-stop lands.
+	await artifacts.requestRunCancellation(
 		held.id,
 		`Stopped from a session on ${new Date().toISOString()}.`,
 	);
 
+	if ((await stillRunning(artifacts, held)) !== undefined) {
+		return say(
+			[
+				`Asked every reviewer in ${held.id} to stop.`,
+				`They notice within a second or so and are killed if they do not. Collect it once they are gone: what they wrote down before stopping is kept.`,
+			].join("\n"),
+			{ run: held },
+		);
+	}
+
+	// Nothing looks like it is running, so the other reading of "stop
+	// this round" applies: stop carrying it. That matters because a
+	// collect which recovers nothing deliberately leaves the round
+	// open, on the grounds that its work may be under another state
+	// directory or on another machine. Correct, and it leaves an alarm
+	// with no answer: the round sits in every listing forever. This is
+	// the answer, and it is a person saying so rather than a sweep
+	// deciding on their behalf.
+	const behind = await somethingLeftBehind(artifacts, held);
+	if (behind !== undefined) {
+		return refuse(
+			`Nothing is running in ${held.id}, but ${behind} left something behind, and it has been asked to stop. Collect the round rather than closing it, or its findings go in the bin with it.`,
+		);
+	}
+
+	// Marked closed rather than merely un-opened. A round with no
+	// outcomes that reads as finished becomes the latest council on the
+	// change, and the next judge would consolidate its nothing.
+	const closed: AskRun = { ...held, closed: true };
+	delete (closed as { open?: true }).open;
+	const kept = await keptOnLedger(change, closed);
 	return say(
 		[
-			`Asked every reviewer in ${held.id} to stop.`,
-			`They notice within a second or so and are killed if they do not. Collect it once they are gone: what they wrote down before stopping is kept.`,
+			`Nothing was running in ${held.id} and nobody left anything behind, so it is closed unfinished rather than left open forever.`,
+			`If its transcripts turn up under another state directory, the round is gone from this ledger and would have to be read there.`,
+			...kept,
 		].join("\n"),
-		{ run: held },
+		{ run: closed },
 	);
+}
+
+/**
+ * Who, if anybody, left work in this round worth collecting.
+ *
+ * The result file is not the only evidence. A reviewer killed hard
+ * never writes one, and its journal is the thing the journal exists
+ * for: the findings it had already formed. Closing a round on the
+ * strength of a missing result would throw away exactly the work the
+ * whole recovery story was built to keep.
+ */
+async function somethingLeftBehind(
+	artifacts: ReviewerArtifactsStore,
+	held: AskRun,
+): Promise<string | undefined> {
+	for (const participant of held.participants) {
+		for (const id of [
+			participant.id,
+			`${participant.id}${WRAP_UP_SUFFIX}`,
+			`${participant.id}${RESUME_SUFFIX}`,
+		]) {
+			const left = await answerLeftBehind(artifacts, held.id, id);
+			if (left.kind !== "missing") return id;
+			const journalPath = artifacts.paths(held.id, id).journalPath;
+			if (journalPath !== undefined && (await readable(journalPath))) {
+				return id;
+			}
+		}
+	}
+	return undefined;
+}
+
+/** Whether a file is there with something in it. */
+async function readable(path: string): Promise<boolean> {
+	try {
+		return (await stat(path)).size > 0;
+	} catch {
+		// Not there, which is the answer rather than a failure.
+		return false;
+	}
 }
 
 /**
@@ -466,45 +549,20 @@ async function collectOne(
  * Why this round must not be collected yet, when a supervisor still
  * holds it.
  *
- * An open mark says a round started and did not finish, which is the
- * same on the ledger for a dead session and for a council running
- * right now in another window. Collecting a live round reads the
- * reviewers that have finished, files their findings, records the rest
- * as having left nothing, and settles it. The session still running
- * then finishes and records the whole round again: every early finding
- * filed twice, and a settled round that says its reviewers found
- * nothing.
- *
- * The lease is the answer, and it is the same one startup recovery
- * uses: a reviewer directory holds the pid of the supervisor that owns
- * it.
+ * The reading of the lease lives in the adapter, beside the other
+ * thing that reads a reviewer's files. This is only the sentence.
  */
 async function stillRunning(
 	artifacts: ReviewerArtifactsStore,
 	held: AskRun,
 ): Promise<string | undefined> {
-	for (const participant of held.participants) {
-		const { leasePath } = artifacts.paths(held.id, participant.id);
-		const lease = await artifacts
-			.readJson<{ supervisorPid?: number | null }>(leasePath)
-			.catch(() => null);
-		const pid = lease?.supervisorPid;
-		if (typeof pid !== "number" || !alive(pid)) continue;
-		return `${held.id} is still being run: ${participant.id} is held by a supervisor (pid ${pid}) that is alive. Collecting now would file the findings of whoever has finished and then let that session file them again. Wait for it, or collect once it is gone.`;
-	}
-	return undefined;
-}
-
-/** Whether a process is still there to own something. */
-function alive(pid: number): boolean {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch {
-		// No such process, or one we may not signal. Either way it is
-		// not this session's supervisor holding the round.
-		return false;
-	}
+	const holder = await heldByLiveSupervisor(
+		artifacts,
+		held.id,
+		held.participants.map((participant) => participant.id),
+	);
+	if (holder === undefined) return undefined;
+	return `${held.id} is still being run: ${holder.reviewerId} is held by a supervisor (pid ${holder.pid}) whose lease was renewed ${Math.round(holder.sinceMs / 1000)}s ago. Collecting now would file the findings of whoever has finished and then let that session file them again. Wait for it, or stop the round.`;
 }
 
 /** Ask every reviewer on the roster. */
@@ -1073,6 +1131,16 @@ async function retryOne(
 			params.run === undefined
 				? `No council has been asked about ${change.label}, so there is no round to retry into.`
 				: `No round "${params.run}" is held against ${change.label}.`,
+		);
+	}
+
+	// A round nobody has collected has no outcome to substitute for.
+	// The description says a started round cannot be retried; without
+	// this it is a sentence rather than a rule, and the failure lands
+	// further in, where it reads as a bug rather than as an answer.
+	if (held.open === true) {
+		return refuse(
+			`${held.id} was started and has not been collected, so there is no outcome to retry into. Collect it first, then retry whoever it says failed.`,
 		);
 	}
 
@@ -1645,8 +1713,21 @@ function describeRun(run: AskRun): string {
 	// running in another window is not ours to assert, and the useful
 	// half is the same either way, since the reviewers' answers are on
 	// disk under this id.
-	const abandoned = run.open === true ? ", opened and never settled" : "";
-	const head = `${run.id}: ${summary.answered}/${summary.asked} answered${failed}, ${count(summary.findings, "finding")}${abandoned}`;
+	//
+	// Its arithmetic used to be a finished round's, and read as an
+	// accusation: a round that opened and has recorded nothing rendered
+	// as "0/7 answered, 7 failed", which says seven reviewers were
+	// asked and dropped. Nobody has asked them anything yet. The
+	// summary now separates the two, so this only has to say it.
+	const pending =
+		summary.pending > 0 ? `, ${summary.pending} still to hear from` : "";
+	const abandoned =
+		run.closed === true
+			? ", closed unfinished"
+			: run.open === true
+				? ", opened and never settled"
+				: "";
+	const head = `${run.id}: ${summary.answered}/${summary.asked} answered${failed}${pending}, ${count(summary.findings, "finding")}${abandoned}`;
 	// A stopped reviewer's answer was being recorded and never shown,
 	// which is most of the way to losing it: the path is only useful to
 	// somebody who knows to look for it.

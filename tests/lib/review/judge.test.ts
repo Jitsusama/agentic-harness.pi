@@ -110,6 +110,7 @@ describe("asking a judge", () => {
 			asked: 1,
 			answered: 0,
 			failed: 1,
+			pending: 0,
 			findings: 0,
 		});
 	});

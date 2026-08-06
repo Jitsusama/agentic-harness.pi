@@ -72,4 +72,37 @@ describe("recoverReviewerRuns", () => {
 			reason: "startup-stale",
 		});
 	});
+
+	it("files a supervisor whose pid the machine reissued as gone", async () => {
+		// Recovery used to ask only whether the pid was alive, which the
+		// collect path had already learned not to trust. The asymmetry
+		// bit hardest here: a recycled pid read as a healthy supervisor,
+		// so no cancellation was written and the orphan holding a model
+		// was never reached.
+		const store = await tempStore();
+		const paths = await store.ensureReviewerDir("run", "fast");
+		await store.writeJsonAtomic(paths.progressPath, {
+			state: "running",
+			activity: "reading x",
+			updatedAt: "2026-01-01T00:00:00Z",
+		});
+		await store.writeJsonAtomic(paths.leasePath, {
+			state: "running",
+			supervisorPid: process.pid,
+			supervisorStartedAt: 1_000_000,
+			updatedAt: new Date().toISOString(),
+		});
+
+		const recovery = await recoverReviewerRuns(store, {
+			alive: () => true,
+			// Whatever is wearing that pid today, it is not the
+			// supervisor this lease was written about.
+			startedAt: async () => 9_000_000,
+			kill: () => {},
+			wait: async () => {},
+		});
+
+		expect(recovery.active).toEqual([]);
+		expect(recovery.stale).toHaveLength(1);
+	});
 });

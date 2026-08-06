@@ -283,6 +283,32 @@ describe("where a finding points", () => {
 		expect(warnings).toEqual([]);
 	});
 
+	it("reads a finding written in the words a reviewer reaches for", () => {
+		// Measured on a real journal: one reviewer recorded twelve
+		// findings under `title`, `body` and `path`, and every one was
+		// dropped for having no subject. They were the sharpest findings
+		// in that round, and the reviewer whose lens was the riskiest
+		// part of the change. The contract is still the contract; a
+		// finding is dropped when it says nothing, not when it said
+		// something under a name we did not expect.
+		const { findings, warnings } = harvestFindings(
+			answer({
+				title: "the reaper never runs",
+				body: "nothing calls it",
+				label: "issue",
+				location: { kind: "line", path: "lib/a.ts", line: 7 },
+			}),
+			origin,
+		);
+
+		expect(findings[0]).toMatchObject({
+			subject: "the reaper never runs",
+			discussion: "nothing calls it",
+			anchor: { subject: "line", path: "lib/a.ts", line: 7 },
+		});
+		expect(warnings).toEqual([]);
+	});
+
 	it("keeps a line finding with no line against the file", () => {
 		// The commonest way a reviewer gets a location wrong, and the
 		// one that costs least to forgive: it named the file, so the

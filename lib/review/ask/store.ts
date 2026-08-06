@@ -178,7 +178,12 @@ export function createRunStore(root: string): RunStore {
 			// consolidated its empty outcomes and reported that the
 			// council found nothing.
 			const held = (await read(change)).runs.filter(
-				(r) => r.round === round && r.open !== true,
+				// Nor one a person gave up on, which is neither open nor
+				// finished. It has no outcomes, so handing it back here
+				// would have a judge consolidate nothing and report that
+				// the council found nothing, with the real council one
+				// entry behind and unreachable.
+				(r) => r.round === round && r.open !== true && r.closed !== true,
 			);
 			return held.at(-1);
 		},
