@@ -731,7 +731,7 @@ describe("runReviewer: argument composition", () => {
 		);
 		expect(args).toContain("--tools");
 		expect(args[args.indexOf("--tools") + 1]).toBe(
-			"read,grep,glob,ls,bash,verify_output",
+			"read,grep,glob,ls,bash,verify_output,record_finding",
 		);
 	});
 
@@ -751,7 +751,13 @@ describe("runReviewer: argument composition", () => {
 			runPi,
 		});
 		const args = calls[0].args;
-		expect(args[args.indexOf("--tools") + 1]).toBe("read,verify_output");
+		// record_finding rides along for the same reason: a palette
+		// that omits it silently denies the reviewer the one tool that
+		// makes an interrupted review worth anything, while its
+		// contract goes on telling it to call that tool.
+		expect(args[args.indexOf("--tools") + 1]).toBe(
+			"read,verify_output,record_finding",
+		);
 	});
 
 	it("does not duplicate verify_output when the palette already includes it", async () => {
@@ -771,7 +777,9 @@ describe("runReviewer: argument composition", () => {
 			runPi,
 		});
 		const args = calls[0].args;
-		expect(args[args.indexOf("--tools") + 1]).toBe("read,verify_output,grep");
+		expect(args[args.indexOf("--tools") + 1]).toBe(
+			"read,verify_output,grep,record_finding",
+		);
 	});
 
 	it("omits --tools entirely when the palette is empty so pi falls back to its default", async () => {

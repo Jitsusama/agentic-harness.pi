@@ -219,4 +219,29 @@ describe("tools that can answer big must bound their answers", () => {
 
 		expect(registrars.filter((name) => !accounted.has(name))).toEqual([]);
 	});
+
+	it("names every pack that registers a tool", () => {
+		// Packs register tools too, into a subagent rather than into
+		// this session, and the same question applies: a tool that can
+		// answer with more than a context window has to say where the
+		// rest is. Scanning only `extensions` would have let a whole
+		// second home for tools grow up unasked.
+		const small = new Set([
+			// One line of acknowledgement, and the payload travels on a
+			// file the supervisor reads back rather than through the
+			// answer at all.
+			"review-journal",
+		]);
+
+		const registrars = readdirSync("packs", { withFileTypes: true })
+			.filter((entry) => entry.isDirectory())
+			.map((entry) => entry.name)
+			.filter((name) =>
+				sourceFiles(join("packs", name)).some((file) =>
+					readFileSync(file, "utf-8").includes("registerTool("),
+				),
+			);
+
+		expect(registrars.filter((name) => !small.has(name))).toEqual([]);
+	});
 });

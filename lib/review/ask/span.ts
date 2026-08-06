@@ -19,7 +19,7 @@
  */
 
 import type { Finding, FindingOrigin } from "../finding.js";
-import { readWireFinding } from "./harvest.js";
+import { readWireFinding, sameFinding } from "./harvest.js";
 import { ANSWER_WAS_CUT_OFF, isRecord, readAnswer, wireText } from "./wire.js";
 
 /** The changes a finding is about, in stack order. */
@@ -83,6 +83,46 @@ export function harvestStackFindings(
 		if (read.finding !== undefined) {
 			findings.push({ span, finding: read.finding });
 		}
+	}
+	return { findings, warnings };
+}
+
+/**
+ * The stack answer, plus what the reviewer wrote down reaching it.
+ *
+ * The same bargain as a single change's round, with one extra
+ * requirement: a recorded finding still has to say which changes it is
+ * about, because a stack round's whole job is placing one. An entry
+ * that names none is dropped with a warning, exactly as it would be
+ * inside an answer.
+ */
+export function alsoRecordedInStack(
+	said: StackHarvest,
+	recorded: readonly unknown[] | undefined,
+	origin: FindingOrigin,
+	stackRefs: readonly string[],
+	witnessFor?: (ref: string) => string | undefined,
+): StackHarvest {
+	if (recorded === undefined || recorded.length === 0) return said;
+	const findings = [...said.findings];
+	const warnings = [...said.warnings];
+	const already = new Set(findings.map((held) => sameFinding(held.finding)));
+	for (const [index, entry] of recorded.entries()) {
+		const at = `recorded[${index}]`;
+		const span = readSpan(entry, at, stackRefs, warnings);
+		if (span === undefined) continue;
+		const read = readWireFinding(
+			entry,
+			at,
+			origin,
+			witnessFor?.(saidAt(span, stackRefs)),
+		);
+		warnings.push(...read.warnings);
+		if (read.finding === undefined) continue;
+		const key = sameFinding(read.finding);
+		if (already.has(key)) continue;
+		already.add(key);
+		findings.push({ span, finding: read.finding });
 	}
 	return { findings, warnings };
 }

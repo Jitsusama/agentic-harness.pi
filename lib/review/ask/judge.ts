@@ -14,7 +14,7 @@
  */
 
 import { askOne, type CouncilDeps } from "./council.js";
-import { harvestFindings } from "./harvest.js";
+import { alsoRecorded, harvestFindings } from "./harvest.js";
 import { type Participant, participantIdentity } from "./identity.js";
 import { type AskRun, newRunId, type ParticipantOutcome } from "./run.js";
 
@@ -60,9 +60,18 @@ export async function runJudge(
 			};
 		}
 
-		const harvest = harvestFindings(
-			answer.text,
-			{ kind: "judge", runId: id, reviewerId: request.judge.id },
+		const origin = {
+			kind: "judge" as const,
+			runId: id,
+			reviewerId: request.judge.id,
+		};
+		// A judge writes findings down as it goes for the same reason a
+		// reviewer does, and it runs against every reviewer's answer at
+		// once, so it is the participant most likely to run long.
+		const harvest = alsoRecorded(
+			harvestFindings(answer.text, origin, request.witness),
+			answer.recorded,
+			origin,
 			request.witness,
 		);
 		for (const warning of harvest.warnings) {

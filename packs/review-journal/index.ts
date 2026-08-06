@@ -65,6 +65,36 @@ export default function reviewJournal(pi: ExtensionAPI) {
 				);
 			}
 			const finding = params?.finding;
+			// An array is an object, and a reviewer economising on turns
+			// under a deadline reaches for one. Told "Recorded", it would
+			// have believed the whole batch was safe while the round threw
+			// every one of them away on a single warning. Unpack it instead
+			// of refusing: the reviewer's instinct was right, it just used
+			// one call for it.
+			if (Array.isArray(finding)) {
+				const kept = finding.filter(
+					(one) =>
+						one !== null && typeof one === "object" && !Array.isArray(one),
+				);
+				if (kept.length === 0) {
+					return said(
+						"None of those were findings, so nothing was recorded. Send " +
+							"one finding, shaped like one entry of your contract's " +
+							"findings array.",
+					);
+				}
+				await appendFile(
+					path,
+					`${kept.map((one) => JSON.stringify(one)).join("\n")}\n`,
+					"utf8",
+				);
+				return said(
+					`Recorded ${kept.length} of them, one per line. Record each one ` +
+						"as you find it rather than in batches: a batch you are still " +
+						"holding when you are stopped is a batch nobody gets. Include " +
+						"them in your final answer too.",
+				);
+			}
 			if (finding === null || typeof finding !== "object") {
 				return said(
 					"A finding has to be an object shaped like one entry of your " +

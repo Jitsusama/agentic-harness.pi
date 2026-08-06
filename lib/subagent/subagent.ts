@@ -763,6 +763,9 @@ const WRAP_UP_TIMEOUT_MS = 5 * 60 * 1000;
  */
 const WRAP_UP_SUFFIX = "+wrapup";
 
+/** The same, for a resume, and for the same reason. */
+const RESUME_SUFFIX = "+resume";
+
 /** Ask a stopped reviewer to hand over what it already has. */
 async function dispatchWrapUp(
 	options: RunReviewerOptions,
@@ -882,7 +885,14 @@ async function dispatchResume(
 		args,
 		cwd: options.cwd,
 		...(options.runId ? { runId: options.runId } : {}),
-		reviewerId: options.reviewer.id,
+		// Its own directory, like the wrap-up's. It used to share the
+		// first attempt's, which was harmless while the only shared file
+		// was a result nobody had written yet. It stopped being harmless
+		// when a journal moved in: the supervisor clears that file before
+		// every spawn, so a resume deleted what the attempt it is
+		// recovering had recorded, and the continuation prompt tells the
+		// reviewer not to make a tool call twice, so it never came back.
+		reviewerId: `${options.reviewer.id}${RESUME_SUFFIX}`,
 		signal: options.signal,
 		onEvent: options.onEvent,
 		...(options.timeoutMs !== undefined
@@ -926,6 +936,15 @@ function mergeResumeOutcome(
 			: initial.warnings;
 	return {
 		...resume,
+		// Both attempts' journals. A resume replaces the attempt, but
+		// not what the attempt wrote down: the continuation prompt tells
+		// the reviewer not to repeat tool calls it has already made, so
+		// a finding recorded before the drop is never recorded again.
+		// Losing it here would take findings from the one path that
+		// exists because something went wrong mid-investigation.
+		...(initial.journal || resume.journal
+			? { journal: [...(initial.journal ?? []), ...(resume.journal ?? [])] }
+			: {}),
 		warnings: [...initialWarnings, note, ...resume.warnings],
 		...(usage ? { usage } : {}),
 	};
@@ -1211,6 +1230,16 @@ function isMeaningfulStderrLine(line: string): boolean {
  */
 export const VERIFY_TOOL_NAME = "verify_output";
 
+/**
+ * The tool a reviewer records a finding with, for the same reason.
+ *
+ * A roster that names a tool palette would otherwise be denied the one
+ * tool that makes an interrupted review worth anything, silently, and
+ * the reviewer would be told by its contract to call something the
+ * allowlist forbids.
+ */
+export const JOURNAL_TOOL_NAME = "record_finding";
+
 interface ComposeArgsInput {
 	readonly spec: SubagentSpec;
 	readonly prompt: string;
@@ -1299,8 +1328,8 @@ function buildToolsAllowlist(palette: readonly string[]): string {
 			tools.push(tool);
 		}
 	}
-	if (!tools.includes(VERIFY_TOOL_NAME)) {
-		tools.push(VERIFY_TOOL_NAME);
+	for (const always of [VERIFY_TOOL_NAME, JOURNAL_TOOL_NAME]) {
+		if (!tools.includes(always)) tools.push(always);
 	}
 	return tools.join(",");
 }

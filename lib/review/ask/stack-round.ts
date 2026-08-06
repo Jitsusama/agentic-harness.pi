@@ -27,7 +27,7 @@ import { type ParticipantIdentity, participantIdentity } from "./identity.js";
 import { type AskProgress, settleReplies } from "./progress.js";
 import type { Roster } from "./roster.js";
 import { newRunId, type ParticipantOutcome } from "./run.js";
-import { harvestStackFindings, saidAt } from "./span.js";
+import { alsoRecordedInStack, harvestStackFindings, saidAt } from "./span.js";
 
 /** The impure things a stack round needs. */
 export interface StackCouncilDeps {
@@ -117,9 +117,20 @@ async function fileReply(
 		};
 	}
 
-	const harvest = harvestStackFindings(
-		answer.text,
-		{ kind: "reviewer", runId, reviewerId: participant.id },
+	const origin = {
+		kind: "reviewer" as const,
+		runId,
+		reviewerId: participant.id,
+	};
+	const harvest = alsoRecordedInStack(
+		harvestStackFindings(
+			answer.text,
+			origin,
+			request.stackRefs,
+			request.witnessFor,
+		),
+		answer.recorded,
+		origin,
 		request.stackRefs,
 		request.witnessFor,
 	);

@@ -304,3 +304,55 @@ describe("a runner that classifies nothing", () => {
 		expect(answer).toMatchObject({ failure: expect.stringContaining("boom") });
 	});
 });
+
+describe("a reviewer that wrote findings down as it went", () => {
+	// The seam between a run and an answer. The round unions what was
+	// recorded with what was answered, and it can only do that for
+	// findings that make it across this boundary.
+	it("carries them on the answer", () => {
+		const answer = answerFromReviewer(
+			ran({
+				finalAssistantText: FOUND,
+				state: "complete",
+				journal: [{ subject: "recorded first" }],
+			}),
+		);
+
+		expect(answer).toMatchObject({ recorded: [{ subject: "recorded first" }] });
+	});
+
+	it("carries them off a reviewer we stopped", () => {
+		// The case the journal exists for.
+		const answer = answerFromReviewer(
+			ran({
+				finalAssistantText: "I was partway through when",
+				state: "timeout",
+				journal: [{ subject: "recorded before the stop" }],
+			}),
+		);
+
+		expect(answer).toMatchObject({
+			stopped: { limit: "wall-clock" },
+			recorded: [{ subject: "recorded before the stop" }],
+		});
+	});
+
+	it("is not a failure just because the process died", () => {
+		// It produced something. Calling it a failure to keep the
+		// classification tidy would throw away findings that are on
+		// disk, which is the whole bug in miniature.
+		const answer = answerFromReviewer(
+			ran({
+				exitCode: 1,
+				finalAssistantText: "",
+				stderr: "boom",
+				journal: [{ subject: "found before the crash" }],
+			}),
+		);
+
+		expect(answer).not.toHaveProperty("failure");
+		expect(answer).toMatchObject({
+			recorded: [{ subject: "found before the crash" }],
+		});
+	});
+});

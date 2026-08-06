@@ -17,8 +17,8 @@
  */
 
 import { count } from "../../ui/count.js";
-import type { Finding, FindingOrigin } from "../finding.js";
-import { type Harvest, harvestFindings, readWireFinding } from "./harvest.js";
+import type { Finding } from "../finding.js";
+import { alsoRecorded, type Harvest, harvestFindings } from "./harvest.js";
 import {
 	type Participant,
 	type ParticipantIdentity,
@@ -307,57 +307,6 @@ function richer(said: Harvest, earlier: Harvest | undefined): Harvest {
 	return earlier.findings.length > said.findings.length ? earlier : said;
 }
 
-/**
- * The answer, plus anything the reviewer wrote down on its way to it.
- *
- * A reviewer records a finding when it finds one and then repeats it in
- * its answer, which is what it is asked to do, so most of these arrive
- * twice. Reporting both would inflate every round and leave the judge
- * consolidating a finding against itself.
- *
- * Where a finding was said twice the answer's telling wins, since it
- * was written after the investigation rather than during it, and the
- * recorded copy is kept only when the answer never got that far. That
- * is the whole point: what was written down does not depend on the
- * reviewer living long enough to say it again.
- */
-function alsoRecorded(
-	said: Harvest,
-	recorded: unknown[] | undefined,
-	origin: FindingOrigin,
-	witness?: string,
-): Harvest {
-	if (recorded === undefined || recorded.length === 0) return said;
-	const findings = [...said.findings];
-	const warnings = [...said.warnings];
-	const already = new Set(findings.map(sameFinding));
-	for (const [index, entry] of recorded.entries()) {
-		const read = readWireFinding(entry, `recorded[${index}]`, origin, witness);
-		warnings.push(...read.warnings);
-		if (read.finding === undefined) continue;
-		const key = sameFinding(read.finding);
-		if (already.has(key)) continue;
-		already.add(key);
-		findings.push(read.finding);
-	}
-	return { ...said, findings, warnings };
-}
-
-/**
- * When two findings are the same finding.
- *
- * Subject and place, because a reviewer rewords nothing between
- * recording a finding and repeating it but does often say more about
- * it, and the same words about two files are two findings.
- */
-function sameFinding(finding: Omit<Finding, "id">): string {
-	const at = finding.anchor;
-	return [
-		finding.subject.trim().toLowerCase(),
-		at === undefined ? "" : JSON.stringify(at),
-	].join("\u0000");
-}
-
 function stopWarning(stop: AskStop, kept: number, cutOff: boolean): string {
 	const held =
 		kept === 0
@@ -401,21 +350,25 @@ async function recordReply(
 	// wrap-up is asked for only what the reviewer was sure of and may
 	// honestly be the shorter of the two. Ties go to the later answer,
 	// which is the considered one.
-	const harvest = alsoRecorded(
-		richer(
-			harvestFindings(answer.text, origin, run.witness),
-			answer.earlierText === undefined
-				? undefined
-				: harvestFindings(answer.earlierText, origin, run.witness),
-		),
-		answer.recorded,
-		origin,
-		run.witness,
+	const fromText = richer(
+		harvestFindings(answer.text, origin, run.witness),
+		answer.earlierText === undefined
+			? undefined
+			: harvestFindings(answer.earlierText, origin, run.witness),
 	);
+	const harvest = alsoRecorded(fromText, answer.recorded, origin, run.witness);
 	// A stopped reviewer answers for its own harvest warnings. Those
 	// warnings describe the shape of the text, and the text is a
 	// sentence we interrupted, so passing them on blames the reviewer
 	// for our deadline and tells the reader to fix the wrong thing.
+	//
+	// A warning about something it recorded is not that. That is a whole
+	// line the reviewer wrote deliberately, minutes before the stop, and
+	// it failed the contract on its own merits. Dropping it would be the
+	// silent drop this module opens by refusing to make: the reader
+	// would take the missing finding for the reviewer having nothing
+	// more to say.
+	const aboutRecorded = harvest.warnings.slice(fromText.warnings.length);
 	const said =
 		answer.stopped === undefined
 			? harvest.warnings
@@ -425,6 +378,7 @@ async function recordReply(
 						harvest.findings.length,
 						harvest.truncated === true,
 					),
+					...aboutRecorded,
 				];
 	for (const warning of said) {
 		warnings.push(`${participant.id}: ${warning}`);
