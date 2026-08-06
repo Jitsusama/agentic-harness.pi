@@ -77,27 +77,50 @@ function participantLine(
 	theme: Theme,
 	selected: boolean,
 	shared: string | undefined,
+	now: number,
 ): string {
 	const cursor = selected ? "▸" : " ";
 	const model =
 		entry.model === undefined || entry.model === shared
 			? ""
 			: ` · ${entry.model}`;
-	const said = subtext(entry);
+	const said = subtext(entry, now);
 	const tail = said === undefined ? "" : ` · ${said}`;
 	const line = `${cursor} ${status(entry, theme)} ${entry.participantId}${model}${tail}`;
 	return selected ? theme.fg("accent", line) : line;
 }
 
+/** How often the elapsed clock on a running row is redrawn. */
+const TICK_MS = 1000;
+
+/**
+ * How long this row has been at it, said the way a person reads a
+ * clock rather than as a duration in milliseconds.
+ *
+ * Absent until it has started, and frozen once it settles: a finished
+ * reviewer's time is a fact about the round, not a counter that should
+ * keep climbing.
+ */
+function elapsed(entry: AskProgressEntry, now: number): string | undefined {
+	if (entry.startedAtMs === undefined) return undefined;
+	const ms = (entry.settledAtMs ?? now) - entry.startedAtMs;
+	if (ms < 0) return undefined;
+	const seconds = Math.floor(ms / 1000);
+	const minutes = Math.floor(seconds / 60);
+	return minutes === 0 ? `${seconds}s` : `${minutes}m${seconds % 60}s`;
+}
+
 /** What to say under a participant's name. */
-function subtext(entry: AskProgressEntry): string | undefined {
+function subtext(entry: AskProgressEntry, now: number): string | undefined {
+	const since = elapsed(entry, now);
+	const took = since === undefined ? "" : ` · ${since}`;
 	if (entry.state === "answered") {
 		const count = entry.findings;
-		if (count === undefined) return "answered";
-		return `${count} ${count === 1 ? "finding" : "findings"}`;
+		if (count === undefined) return `answered${took}`;
+		return `${count} ${count === 1 ? "finding" : "findings"}${took}`;
 	}
 	if (entry.state === "running") {
-		return entry.activity === "" ? "in flight" : entry.activity;
+		return `${entry.activity === "" ? "in flight" : entry.activity}${took}`;
 	}
 	if (entry.state === "pending") return "queued";
 	// Nothing for a failure: the reason gets its own line under the rows,
@@ -138,6 +161,9 @@ export function panelLines(
 	theme: Theme,
 	selected = -1,
 	width = 80,
+	// Read once per draw rather than per row, so seven rows of one
+	// round are all measured against the same instant.
+	now = Date.now(),
 ): string[] {
 	if (entries.length === 0) return [];
 	const rule = theme.fg("accent", "─".repeat(Math.max(1, width)));
@@ -153,7 +179,7 @@ export function panelLines(
 		"",
 	];
 	for (const [index, entry] of entries.entries()) {
-		lines.push(participantLine(entry, theme, index === selected, shared));
+		lines.push(participantLine(entry, theme, index === selected, shared, now));
 	}
 	// A reason gets its own line under the rows: it is the one thing here
 	// long enough that squeezing it onto a row would truncate it away.
@@ -322,6 +348,11 @@ export function watchRound(
 	let previousEditor: ReturnType<ExtensionContext["ui"]["getEditorComponent"]>;
 	let unsubscribe: (() => void) | undefined;
 	let installed = false;
+	// Redrawing on events alone would freeze the clock on exactly the
+	// participant worth watching: one that has gone quiet emits nothing,
+	// so its row would sit at the elapsed time of its last word while
+	// the minutes it is actually costing go unreported.
+	let tick: ReturnType<typeof setInterval> | undefined;
 
 	// The panel and nothing else. The status bar is for what stays true across
 	// a session, and a round in flight already owns the editor area, titled
@@ -337,6 +368,12 @@ export function watchRound(
 	};
 
 	const teardown = (): void => {
+		// Ahead of the UI check, and unconditional. A timer outlives the
+		// thing it was drawing for, so leaving it running because there
+		// is no UI to draw on is how a round that ended keeps a handle
+		// alive for the rest of the session.
+		if (tick !== undefined) clearInterval(tick);
+		tick = undefined;
 		if (!ctx?.hasUI) return;
 		unsubscribe?.();
 		unsubscribe = undefined;
@@ -377,6 +414,10 @@ export function watchRound(
 			controls.all();
 			return { consume: true };
 		});
+		tick = setInterval(draw, TICK_MS);
+		// Never hold the process open for a redraw. A round is worth
+		// waiting for; the clock next to it is not.
+		tick.unref?.();
 		installed = true;
 	};
 

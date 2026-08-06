@@ -46,6 +46,15 @@ export type AskLimit =
 	| "wall-clock"
 	| "idle"
 	| "output"
+	/**
+	 * Stopped inside its own budget, deliberately, so what it had
+	 * could be asked for while there was still time to answer.
+	 *
+	 * The only limit here that is not something running out. The
+	 * others describe a reviewer that was taken away; this one
+	 * describes one that was asked.
+	 */
+	| "soft-deadline"
 	| "cancelled"
 	| "parent-exit";
 
@@ -324,6 +333,15 @@ function stopWarning(stop: AskStop, kept: number, cutOff: boolean): string {
 		kept === 0
 			? "Nothing had been read from it yet"
 			: `${count(kept, "finding")} had been read from it first`;
+	// A soft deadline is the round working as intended, so it does not
+	// get the sentence written for a reviewer that was cut off. Saying
+	// "stopped before it finished" about a reviewer we deliberately
+	// asked early would report our own design as an incident, and a
+	// reader who saw that on seven participants would go looking for
+	// the fault.
+	if (stop.limit === "soft-deadline") {
+		return `asked to wrap up early so it had time to answer: ${stop.detail} ${held}, so treat this pass as partial.`;
+	}
 	// Said here rather than left in the harvest's own warnings, which
 	// this branch replaces. Those describe the shape of the text and
 	// would blame the reviewer for our deadline; this one is about our

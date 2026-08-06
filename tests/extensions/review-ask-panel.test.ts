@@ -47,6 +47,66 @@ const PARTICIPANTS = [
 /** Their ids, for the assertions that only care about names. */
 const IDS = PARTICIPANTS.map((one) => one.id);
 
+describe("the panel says how long each one has been at it", () => {
+	// The complaint this answers: a round goes quiet for a quarter of
+	// an hour and the panel gives no way to tell a reviewer that is
+	// thinking from one that is wedged, or to see one approaching the
+	// point where it will be asked to wrap up.
+	it("counts a running participant up while it runs", () => {
+		const { progress, entries } = trackAskProgress(() => 60_000);
+		progress.start(PARTICIPANTS);
+		progress.started("correctness-and-tests");
+
+		const drawn = panelLines(
+			"council",
+			entries(),
+			theme,
+			-1,
+			80,
+			// Eight and a half minutes after it was sent away.
+			570_000,
+		).join("\n");
+
+		expect(drawn).toContain("8m30s");
+	});
+
+	it("freezes the time a settled participant took", () => {
+		let clock = 60_000;
+		const { progress, entries } = trackAskProgress(() => clock);
+		progress.start(PARTICIPANTS);
+		progress.started("test-skeptic");
+		clock = 180_000;
+		progress.answered("test-skeptic");
+		progress.recorded("test-skeptic", 4);
+
+		// Drawn an hour later. A finished reviewer's time is a fact
+		// about the round, not a counter that keeps climbing.
+		const drawn = panelLines(
+			"council",
+			entries(),
+			theme,
+			-1,
+			80,
+			3_660_000,
+		).join("\n");
+
+		expect(drawn).toContain("2m0s");
+		expect(drawn).toContain("4 findings");
+	});
+
+	it("says nothing about time for one that has not started", () => {
+		const { progress, entries } = trackAskProgress(() => 60_000);
+		progress.start(PARTICIPANTS);
+
+		const drawn = panelLines("council", entries(), theme, -1, 80, 600_000).join(
+			"\n",
+		);
+
+		expect(drawn).toContain("queued");
+		expect(drawn).not.toMatch(/\d+m\d+s/);
+	});
+});
+
 describe("the panel names every participant", () => {
 	it("lists all of them, which a status line cannot", () => {
 		const { progress, entries } = trackAskProgress();

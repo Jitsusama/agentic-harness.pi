@@ -33,6 +33,18 @@ export interface AskProgressEntry {
 	readonly state: AskProgressState;
 	/** What it is doing right now, or empty once it has settled. */
 	readonly activity: string;
+	/**
+	 * When it was sent away, in epoch milliseconds.
+	 *
+	 * A round is silent for a long time and the honest question a
+	 * watcher has is how long this one has been going. Recorded on
+	 * the row rather than computed by whoever draws, so every
+	 * surface answers it the same way and a row that has settled
+	 * still says how long it took.
+	 */
+	readonly startedAtMs?: number;
+	/** When it settled, however it settled. */
+	readonly settledAtMs?: number;
 	/** Findings recorded from it, once they have been numbered. */
 	readonly findings?: number;
 	/** Why it failed, when it did. */
@@ -112,7 +124,12 @@ export const noAskProgress: AskProgress = {
  * being written again per surface. `entries` is a snapshot: read it
  * whenever you want to draw.
  */
-export function trackAskProgress(): {
+export function trackAskProgress(
+	// Injected so a test can hold time still. Defaults to the wall
+	// clock, since every real caller wants exactly that and making
+	// them all say so would be ceremony.
+	now: () => number = Date.now,
+): {
 	progress: AskProgress;
 	entries(): AskProgressEntry[];
 } {
@@ -144,7 +161,7 @@ export function trackAskProgress(): {
 				}
 			},
 			started(id) {
-				amend(id, { state: "running" });
+				amend(id, { state: "running", startedAtMs: now() });
 			},
 			activity(id, what) {
 				amend(id, { activity: what });
@@ -152,10 +169,15 @@ export function trackAskProgress(): {
 			answered(id) {
 				// Clearing the activity is the point: a settled row still
 				// reading "reading app.ts" reads as though it still is.
-				amend(id, { state: "answered", activity: "" });
+				amend(id, { state: "answered", activity: "", settledAtMs: now() });
 			},
 			failed(id, reason) {
-				amend(id, { state: "failed", activity: "", reason });
+				amend(id, {
+					state: "failed",
+					activity: "",
+					reason,
+					settledAtMs: now(),
+				});
 			},
 			recorded(id, findings) {
 				amend(id, { findings });

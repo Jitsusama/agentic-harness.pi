@@ -41,6 +41,7 @@ const LIMITS: Partial<Record<ReviewerTerminalState, AskLimit>> = {
 	timeout: "wall-clock",
 	"idle-timeout": "idle",
 	"output-limit": "output",
+	"soft-deadline": "soft-deadline",
 	cancelled: "cancelled",
 	"parent-exit": "parent-exit",
 };
@@ -57,6 +58,7 @@ const SAYS: Record<AskLimit, RegExp> = {
 	"wall-clock": /timed out/i,
 	idle: /idle/i,
 	output: /output limits/i,
+	"soft-deadline": /soft deadline/i,
 	cancelled: /cancelled/i,
 	"parent-exit": /parent process/i,
 };

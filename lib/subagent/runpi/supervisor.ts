@@ -168,6 +168,7 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 		persistSession,
 		timeoutMs,
 		idleTimeoutMs,
+		wrapUpReserveMs,
 	}) {
 		const effectiveRunId = runId ?? `reviewer-${Date.now()}`;
 		const effectiveReviewerId = reviewerId ?? "reviewer";
@@ -207,6 +208,7 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 			{
 				...(timeoutMs !== undefined ? { timeoutMs } : {}),
 				...(idleTimeoutMs !== undefined ? { idleTimeoutMs } : {}),
+				...(wrapUpReserveMs !== undefined ? { wrapUpReserveMs } : {}),
 			},
 		);
 		await store.writeJsonAtomic(paths.requestPath, request);
@@ -561,6 +563,29 @@ function fromResult(
 	};
 }
 
+/**
+ * The wall clock, and where inside it to ask for an answer.
+ *
+ * Computed together because they are one decision. The caller says
+ * how much time to keep back and this is the only place that knows
+ * what it is keeping it back from, since an unset timeout means the
+ * configured default rather than no deadline at all.
+ *
+ * A reserve is refused rather than honoured when it would leave the
+ * reviewer less time to work than to wrap up. Something has been
+ * misconfigured at that point, and the safe reading is that the run
+ * wants its full budget: wrapping up before it has done anything
+ * would spend the whole clock asking for findings nobody had time to
+ * form.
+ */
+function softDeadline(
+	wall: number,
+	reserve: number | undefined,
+): { timeoutMs: number; softDeadlineMs?: number } {
+	if (reserve === undefined || wall <= reserve * 2) return { timeoutMs: wall };
+	return { timeoutMs: wall, softDeadlineMs: wall - reserve };
+}
+
 function buildRequest(
 	config: SupervisorRunPiConfig,
 	paths: ReviewerRunPaths,
@@ -576,6 +601,7 @@ function buildRequest(
 	overrides: {
 		readonly timeoutMs?: number;
 		readonly idleTimeoutMs?: number;
+		readonly wrapUpReserveMs?: number;
 	} = {},
 ): unknown {
 	return {
@@ -584,7 +610,10 @@ function buildRequest(
 		parentPid: process.pid,
 		paths,
 		runCancelPath,
-		timeoutMs: overrides.timeoutMs ?? config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+		...softDeadline(
+			overrides.timeoutMs ?? config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+			overrides.wrapUpReserveMs,
+		),
 		idleTimeoutMs:
 			overrides.idleTimeoutMs ??
 			config.idleTimeoutMs ??

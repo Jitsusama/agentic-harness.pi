@@ -241,6 +241,46 @@ describe("createSupervisorRunPi", () => {
 		expect(result.state).toBe("complete");
 	});
 
+	it("stops a healthy child early when an answer has been reserved for", async () => {
+		// Driven through the real script and a real child, unlike the
+		// state test below, because the claim here is about a timer
+		// firing on a deadline nobody has ever run. A soft deadline that
+		// silently never fires looks exactly like a reviewer that
+		// finished in time, and the only thing that can tell them apart
+		// is a child that would otherwise run forever.
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "child.mjs");
+		await writeFile(
+			childPath,
+			// Says something, so it is plainly alive rather than idle, then
+			// never finishes.
+			`process.stdout.write(JSON.stringify({type:"message_start"})+"\\n");` +
+				`setInterval(() => process.stdout.write(JSON.stringify({type:"message_start"})+"\\n"), 200);`,
+		);
+		const runPi = createSupervisorRunPi({
+			piInstall: { node: process.execPath, entry: childPath },
+			stateDir,
+			idleTimeoutMs: GENEROUS_MS,
+			timeoutMs: GENEROUS_MS,
+		});
+
+		const result = await runPi({
+			args: [],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "reserved",
+			// Eight seconds of wall clock, six of which are the reviewer's
+			// and two of which are kept back for its answer.
+			timeoutMs: 8_000,
+			wrapUpReserveMs: 2_000,
+		});
+
+		expect(result.state).toBe("soft-deadline");
+		// The number a reader has to change is in the sentence, and the
+		// sentence says this was a choice rather than a casualty.
+		expect(result.warnings?.join(" ")).toMatch(/soft deadline of 6000ms/);
+	}, 60_000);
+
 	it("says which state ended a run that was stopped, not just that it failed", async () => {
 		// A caller has to tell a reviewer we stopped from one that
 		// answered badly, and an exit code cannot carry that: a review

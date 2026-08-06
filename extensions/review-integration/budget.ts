@@ -41,11 +41,40 @@ export const REVIEWER_BACKSTOP_MS = DEFAULT_RUN_PI_TIMEOUT_MS;
  */
 export const REVIEWER_IDLE_MS = 15 * 60 * 1000;
 
+/**
+ * How much of the backstop is kept back for the answer.
+ *
+ * The third clock, and the only one that is not a limit. The other
+ * two decide when a reviewer has to stop; this one decides when it is
+ * asked to finish, which is a different question and a kinder one.
+ *
+ * Five minutes out of forty-five, because a wrap-up is a reviewer
+ * writing down what it already knows rather than doing any more work.
+ * Larger would buy nothing and would take real investigation time to
+ * pay for it.
+ */
+export const REVIEWER_ANSWER_MS = 5 * 60 * 1000;
+
 /** What bounds one reviewer's run. */
 export interface ReviewerBudget {
 	timeoutMs: number;
 	idleTimeoutMs: number;
+	/** Kept back out of `timeoutMs` so the answer can be asked for. */
+	wrapUpReserveMs: number;
 }
+
+/**
+ * The clocks a limit can be measured against.
+ *
+ * Narrower than the whole budget on purpose. Judging a retry needs
+ * the two numbers a limit can run out of and nothing else, and asking
+ * for the full budget would make every caller invent a reserve it has
+ * no opinion about just to ask the question.
+ */
+export type ReviewerClocks = Pick<
+	ReviewerBudget,
+	"timeoutMs" | "idleTimeoutMs"
+>;
 
 /**
  * What bounds a round, taking any override from config.
@@ -64,10 +93,13 @@ export interface ReviewerBudget {
  * thing to do.
  */
 const MEASURED_BY: Partial<
-	Record<AskLimit, { of: keyof ReviewerBudget; named: string }>
+	Record<AskLimit, { of: keyof ReviewerClocks; named: string }>
 > = {
 	"wall-clock": { of: "timeoutMs", named: "backstopMs" },
 	idle: { of: "idleTimeoutMs", named: "idleMs" },
+	// Measured against the wall clock it is carved out of, since that
+	// is the number somebody has to change to move it.
+	"soft-deadline": { of: "timeoutMs", named: "backstopMs" },
 };
 
 /**
@@ -79,7 +111,7 @@ const MEASURED_BY: Partial<
  */
 export function budgetForLimit(
 	limit: AskLimit,
-	budget: ReviewerBudget,
+	budget: ReviewerClocks,
 ): number | undefined {
 	const measure = MEASURED_BY[limit];
 	return measure === undefined ? undefined : budget[measure.of];
@@ -96,7 +128,15 @@ export function budgetForLimit(
  * one most likely to work, so it is allowed even though the number
  * has not moved.
  */
-const REPEATS: ReadonlySet<AskLimit> = new Set<AskLimit>(["wall-clock"]);
+const REPEATS: ReadonlySet<AskLimit> = new Set<AskLimit>([
+	"wall-clock",
+	// Arithmetic for the same reason a wall clock is, and derived
+	// from it: a reviewer asked to wrap up at forty minutes will be
+	// asked again at forty minutes. Left out, a round of seven soft
+	// deadlines would offer seven retries that all end identically,
+	// which is the bill this work exists to stop paying.
+	"soft-deadline",
+]);
 
 /**
  * Why asking this participant again would end the same way.
@@ -117,7 +157,7 @@ const REPEATS: ReadonlySet<AskLimit> = new Set<AskLimit>(["wall-clock"]);
  */
 export function retryWouldRepeat(
 	stopped: AskStop | undefined,
-	budget: ReviewerBudget,
+	budget: ReviewerClocks,
 ): string | undefined {
 	if (stopped?.budgetMs === undefined) return undefined;
 	if (!REPEATS.has(stopped.limit)) return undefined;
@@ -139,6 +179,7 @@ export function reviewerBudget(section: unknown): ReviewerBudget {
 	return {
 		timeoutMs: positiveNumber(held.backstopMs) ?? REVIEWER_BACKSTOP_MS,
 		idleTimeoutMs: positiveNumber(held.idleMs) ?? REVIEWER_IDLE_MS,
+		wrapUpReserveMs: positiveNumber(held.answerMs) ?? REVIEWER_ANSWER_MS,
 	};
 }
 
