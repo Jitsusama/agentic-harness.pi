@@ -112,26 +112,32 @@ describe("keeping runs per change", () => {
 			// does not catch it either: it is the same change's history
 			// that would go, which is the only place a round's findings
 			// can be reached from.
+			// The round being replaced is deliberately not the last one.
+			// Replacing the newest cannot tell an in-place write from a
+			// delete-and-append, since both leave the same three ids in
+			// the same order, and in place is the claim: a round that
+			// jumped to the end of its own change's history would be
+			// handed to the next judge as the latest council.
 			const store = createRunStore(root);
 			await store.keep(change, run({ id: "council-1" }));
-			await store.keep(change, run({ id: "judge-1", round: "judge" }));
 			await store.keep(
 				change,
 				run({ id: "council-2", outcomes: [], open: true }),
 			);
+			await store.keep(change, run({ id: "judge-1", round: "judge" }));
 
 			await store.keep(change, run({ id: "council-2" }));
 
 			const held = await store.list(change);
 			expect(held.map((one) => one.id)).toEqual([
 				"council-1",
-				"judge-1",
 				"council-2",
+				"judge-1",
 			]);
-			// And the one it replaced is the settled version, in place
-			// rather than appended after the rounds that came later.
-			expect(held[2]?.open).toBeUndefined();
-			expect(held[0]?.outcomes).toHaveLength(1);
+			// And it is the settled version sitting where the stub sat,
+			// not a fresh entry after the judge that came later.
+			expect(held[1]?.open).toBeUndefined();
+			expect(held[1]?.outcomes).toHaveLength(1);
 		});
 
 		it("leaves other changes alone", async () => {

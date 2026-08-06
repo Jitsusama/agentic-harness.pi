@@ -101,6 +101,7 @@ import { GLYPH } from "../render.js";
 import {
 	answerFromReviewer,
 	answerLeftBehind,
+	archivedAnswer,
 	heldByLiveSupervisor,
 	keepAnswer,
 	reviewerRunner,
@@ -513,25 +514,9 @@ async function collectOne(
 		// never hit and then refuse the retry that raising it was for.
 		const left = await answerLeftBehind(artifacts, held.id, participant.id);
 		if (left.kind === "answer") {
-			// Kept here as the live path keeps it, and for the stronger
-			// version of the same reason. An answer that parsed is
-			// represented by its findings; one that did not is only in
-			// this file, and a collected round's reviewer directories are
-			// the first thing the transcript sweep reclaims. Without it a
-			// recovered reviewer's own words outlive the round by days
-			// and a live one's by a month.
-			//
-			// A failure has no text to keep, and nothing to link to from
-			// an outcome that records no findings.
-			const answer = left.answer;
 			answers.set(
 				participant.id,
-				"failure" in answer
-					? answer
-					: {
-							...answer,
-							answerPath: await keptAt(held.id, participant.id, answer.text),
-						},
+				await archivedAnswer(answerDir(), held, participant.id, left.answer),
 			);
 		}
 		if (left.kind === "unreadable") {

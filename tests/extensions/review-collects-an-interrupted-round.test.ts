@@ -12,12 +12,19 @@
  * library's own rules are pinned in tests/lib/review/collect.test.ts.
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	answerLeftBehind,
+	archivedAnswer,
 	heldByLiveSupervisor,
 } from "../../extensions/review-integration/reviewer.js";
 import type { AskAnswer, AskRun, Finding } from "../../lib/review/index.js";
@@ -318,6 +325,74 @@ describe("collecting a round the session did not live to finish", () => {
 		const { kept } = await collect(unsettled({ witness: "abc1234" }), store);
 
 		expect(kept[0]?.anchor.witness).toBe("abc1234");
+	});
+});
+
+describe("keeping a recovered reviewer's own words", () => {
+	const RUN_HELD: AskRun = {
+		id: RUN,
+		round: "council",
+		startedAt: "2026-08-06T12:00:00.000Z",
+		participants: [{ id: "hawk", role: "reviewer" }],
+		outcomes: [],
+		open: true,
+	};
+
+	it("writes what the findings were read out of, and links it", async () => {
+		const kept = await archivedAnswer(root, RUN_HELD, "hawk", {
+			text: "what it said",
+		});
+
+		const at = "answerPath" in kept ? kept.answerPath : undefined;
+		expect(at).toBeTypeOf("string");
+		expect(readFileSync(at ?? "", "utf8")).toBe("what it said");
+	});
+
+	it("keeps both halves of a reviewer that was stopped and asked again", async () => {
+		// Findings are harvested out of each, so an archive holding only
+		// the wrap-up does not contain what the round filed.
+		const kept = await archivedAnswer(root, RUN_HELD, "hawk", {
+			text: "here is what I had",
+			earlierText: "I was partway through",
+		});
+
+		const at = "answerPath" in kept ? kept.answerPath : undefined;
+		const written = readFileSync(at ?? "", "utf8");
+		expect(written).toContain("I was partway through");
+		expect(written).toContain("here is what I had");
+	});
+
+	it("writes nothing for an answer with nothing in it", async () => {
+		// An outcome pointing at an empty file sends a reader to look at
+		// nothing.
+		const kept = await archivedAnswer(root, RUN_HELD, "hawk", { text: "  " });
+
+		expect("answerPath" in kept ? kept.answerPath : undefined).toBeUndefined();
+	});
+
+	it("writes nothing for a participant already filed", async () => {
+		// A collect that died halfway leaves outcomes carrying archives
+		// of their own, and the round hands those back untouched, so
+		// anything written here for them is written and then dropped.
+		const kept = await archivedAnswer(
+			root,
+			{
+				...RUN_HELD,
+				outcomes: [{ participantId: "hawk", findingIds: [1] }],
+			},
+			"hawk",
+			{ text: "read again on the second pass" },
+		);
+
+		expect("answerPath" in kept ? kept.answerPath : undefined).toBeUndefined();
+	});
+
+	it("hands back the failure it was given, with nowhere to point", async () => {
+		const kept = await archivedAnswer(root, RUN_HELD, "hawk", {
+			failure: "died",
+		});
+
+		expect(kept).toEqual({ failure: "died" });
 	});
 });
 

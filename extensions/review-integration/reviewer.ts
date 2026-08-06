@@ -16,7 +16,12 @@
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { AskAnswer, AskLimit, AskStop } from "../../lib/review/index.js";
+import type {
+	AskAnswer,
+	AskLimit,
+	AskRun,
+	AskStop,
+} from "../../lib/review/index.js";
 import type {
 	PiInstall,
 	ProcessFacts,
@@ -148,6 +153,59 @@ export async function keepAnswer(
 	await writeFile(at, text, "utf8");
 	return at;
 }
+
+/**
+ * A recovered answer, with its own words kept somewhere they last.
+ *
+ * The live path keeps every answer it reads and the collect path kept
+ * none, so a recovered reviewer's answer was linked from nothing. That
+ * is the stronger case of the two: a collected round's reviewer
+ * directories are what the transcript sweep reclaims once the round
+ * stops being open, seven days on, while nothing sweeps the archive at
+ * all.
+ *
+ * Never throws, and never costs the answer. A full disk is a reason to
+ * lose the archive, not a reason to lose findings a reviewer already
+ * paid for.
+ */
+export async function archivedAnswer(
+	root: string,
+	run: AskRun,
+	participantId: string,
+	answer: AskAnswer,
+): Promise<AskAnswer> {
+	// A failure has no text to keep, and nothing to point at from an
+	// outcome that records no findings.
+	if ("failure" in answer) return answer;
+	// Nor for a participant already filed. A collect that died halfway
+	// leaves outcomes on the ledger carrying archives of their own, and
+	// the round hands those back untouched, so anything written here
+	// for them is written and then dropped.
+	if (run.outcomes.some((one) => one.participantId === participantId)) {
+		return answer;
+	}
+	// Both halves, for a reviewer that was stopped and asked again:
+	// findings are harvested from each, so keeping only the second
+	// leaves an archive that does not contain what the round filed.
+	const text =
+		answer.earlierText === undefined
+			? answer.text
+			: `${answer.earlierText}\n\n${STOPPED_HERE}\n\n${answer.text}`;
+	// An empty answer would write an empty file, and an outcome
+	// pointing at one sends a reader to look at nothing.
+	if (text.trim() === "") return answer;
+	try {
+		return {
+			...answer,
+			answerPath: await keepAnswer(root, run.id, participantId, text),
+		};
+	} catch {
+		return answer;
+	}
+}
+
+/** What separates the two halves of a stopped reviewer's archive. */
+export const STOPPED_HERE = "--- stopped here; asked again for what it had ---";
 
 /**
  * One path segment, from a name that came out of config.
