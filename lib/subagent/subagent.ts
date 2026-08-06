@@ -30,7 +30,10 @@ import { join } from "node:path";
 // ReviewerRunArtifacts back out of here is not a runtime cycle. The
 // state belongs beside the store that writes it and the result that
 // reports it, and those are two files.
-import type { ReviewerTerminalState } from "./artifacts.js";
+import {
+	ReviewerArtifactsStore,
+	type ReviewerTerminalState,
+} from "./artifacts.js";
 import { getSubagentDefaults } from "./defaults.js";
 import { checkSubagentRuntime, detectStaleInstallInStderr } from "./health.js";
 import {
@@ -38,6 +41,7 @@ import {
 	describeReviewerError,
 	type ReviewerError,
 } from "./reviewer-error.js";
+import type { StartedPi, StartPi } from "./runpi/supervisor.js";
 
 export type { ReviewerError } from "./reviewer-error.js";
 
@@ -579,6 +583,96 @@ export interface RunReviewerResult {
 	readonly state?: ReviewerTerminalState;
 }
 
+/** What starting a reviewer needs, which is less than running one. */
+export type StartReviewerOptions = Omit<
+	RunReviewerOptions,
+	"runPi" | "signal" | "onEvent" | "autoResume"
+> & {
+	/** Dispatch it and return; nothing will wait for it. */
+	readonly startPi: StartPi;
+	/** Root of the reviewer artifact tree, where the prompt is kept. */
+	readonly stateDir: string;
+};
+
+/**
+ * Start one reviewer and walk away from it.
+ *
+ * The same composition `runReviewer` does, minus everything that only
+ * means something to a caller who is waiting: no resume after a
+ * transient drop, no wrap-up for a reviewer we stopped, no progress
+ * events, no cancellation. Those are not omissions to be filled in
+ * later. A detached reviewer has no parent to notice it dropped, so
+ * what protects it is the supervisor's own watchdogs and the journal
+ * it writes as it goes.
+ */
+export async function startReviewer(
+	options: StartReviewerOptions,
+): Promise<StartedPi> {
+	// The same validation the waiting path does, and a detached round
+	// is the worst place to find out a budget is nonsense: nobody is
+	// watching it spend.
+	validateTimeoutPair(
+		options.timeoutMs,
+		options.idleTimeoutMs,
+		options.wrapUpReserveMs,
+	);
+
+	const runtimeError = (options.checkRuntime ?? checkSubagentRuntime)();
+	if (runtimeError !== null) throw runtimeError;
+
+	const defaults = getSubagentDefaults();
+	const extraExtensions = dedupePaths([
+		...defaults.extensions,
+		...(options.extraExtensions ?? []),
+	]);
+	const extraSkills = dedupePaths([
+		...defaults.skills,
+		...(options.extraSkills ?? []),
+	]);
+
+	// Written into the reviewer's own directory, not a temp file. The
+	// waiting path removes its prompt in a finally, which is right
+	// there and fatal here: the parent returns before the child has
+	// read it. It also makes the question part of the durable record,
+	// which for a round that outlives its session is the only place
+	// the question survives at all.
+	const store = new ReviewerArtifactsStore(options.stateDir);
+	const runId = options.runId ?? `reviewer-${Date.now()}`;
+	const paths = await store.ensureReviewerDir(runId, options.reviewer.id);
+	await writeFile(paths.promptPath, options.prompt, "utf8");
+
+	return options.startPi({
+		args: composeArgs({
+			spec: options.reviewer,
+			prompt: `@${paths.promptPath}`,
+			systemPrompt: options.systemPrompt,
+			isolated: options.isolated,
+			...(extraExtensions.length > 0 ? { extraExtensions } : {}),
+			...(extraSkills.length > 0 ? { extraSkills } : {}),
+		}),
+		cwd: options.cwd,
+		runId,
+		reviewerId: options.reviewer.id,
+		// Always. A detached reviewer cannot be resumed by the parent
+		// that started it, so the session on disk is the only thing that
+		// makes a later resume or wrap-up possible at all.
+		persistSession: true,
+		...(options.timeoutMs !== undefined
+			? { timeoutMs: options.timeoutMs }
+			: {}),
+		...(options.idleTimeoutMs !== undefined
+			? { idleTimeoutMs: options.idleTimeoutMs }
+			: {}),
+		// No reserve, deliberately, and by omission rather than by zero.
+		// The soft deadline buys time for a wrap-up, and a wrap-up is
+		// dispatched by the parent that was waiting. Nobody is, so
+		// reserving would stop the reviewer early and ask it nothing:
+		// strictly less review for the same money. What protects a
+		// detached reviewer instead is the journal it writes as it goes,
+		// which is why that had to exist first.
+	});
+}
+
 /**
  * Spawn one reviewer subagent, capture its output, and
  * extract the final assistant turn's text for downstream
@@ -644,7 +738,10 @@ export async function runReviewer(
 	// the pi child at spawn. Write it to a temp file and
 	// hand pi an `@<path>` reference instead, which pi merges
 	// into the prompt, so argv stays tiny whatever the diff
-	// size. The file is removed once the run resolves.
+	// size. The file is removed once the run resolves, which is safe
+	// only because this path waits for it: `startReviewer` writes into
+	// the reviewer's own directory and removes nothing, since its
+	// child may not have read the prompt by the time it returns.
 	const reserve = wrapUpReserve(options);
 	const promptFile = await writeReviewerPrompt(options.prompt);
 	const args = composeArgs({
@@ -820,7 +917,9 @@ export const WRAP_UP_TIMEOUT_MS = 5 * 60 * 1000;
  * The round costs the same either way. What changes is that the
  * reviewer is asked while there is still something to ask with.
  */
-function wrapUpReserve(options: RunReviewerOptions): number | undefined {
+function wrapUpReserve(
+	options: Pick<RunReviewerOptions, "autoResume" | "wrapUpReserveMs">,
+): number | undefined {
 	// A run nobody can resume cannot be wrapped up, so stopping it
 	// early would take time away and give nothing back. That is the
 	// fleet path, which opts out of autoResume and stays ephemeral.

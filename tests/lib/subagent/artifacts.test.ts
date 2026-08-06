@@ -71,6 +71,31 @@ describe("ReviewerArtifactsStore", () => {
 		expect((await stat(active.runDir)).isDirectory()).toBe(true);
 	});
 
+	it("keeps a protected run however finished and however old", async () => {
+		// A round detached from its session writes every result file and
+		// then waits to be collected, so to this sweep it is a finished
+		// round nobody needs. Deleting it throws away reviews that have
+		// been paid for and leaves a ledger entry pointing at nothing.
+		const store = await tempStore();
+		const waiting = store.paths("uncollected", "fast");
+		const finished = store.paths("collected", "fast");
+		await store.writeJsonAtomic(waiting.resultPath, { ok: true });
+		await store.writeJsonAtomic(finished.resultPath, { ok: true });
+
+		const result = await store.cleanupTerminalRuns({
+			maxAgeMs: -1,
+			maxRuns: 0,
+			protect: new Set(["uncollected"]),
+			now: new Date(),
+		});
+
+		expect(result.removed).toBe(1);
+		expect((await stat(waiting.runDir)).isDirectory()).toBe(true);
+		await expect(stat(finished.runDir)).rejects.toMatchObject({
+			code: "ENOENT",
+		});
+	});
+
 	it("reclaims a run abandoned long enough that recovery is moot", async () => {
 		// A run killed before its reviewer wrote a result is never
 		// terminal, so the terminal-only rule can never reclaim it and it

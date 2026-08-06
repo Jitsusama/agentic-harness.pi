@@ -43,6 +43,8 @@ export interface ReviewerRunPaths extends ReviewerRunArtifacts {
 	readonly requestPath: string;
 	readonly leasePath: string;
 	readonly cancelPath: string;
+	/** Where the reviewer's prompt is kept, when one was written. */
+	readonly promptPath: string;
 	/** Always set for a supervised run; the session lives here. */
 	readonly sessionDir: string;
 }
@@ -79,6 +81,17 @@ export interface RetentionPolicy {
 	 * what the policy did before this existed.
 	 */
 	readonly abandonedAfterMs?: number;
+	/**
+	 * Runs to keep whatever their age, named by run id.
+	 *
+	 * For work that is finished on disk and unfinished to whoever is
+	 * going to read it. A round detached from its session writes every
+	 * result file and then waits, possibly for days, to be collected;
+	 * to this sweep it looks exactly like a finished round nobody
+	 * needs. Deleting it throws away reviews that have been paid for
+	 * and leaves a ledger entry pointing at nothing.
+	 */
+	readonly protect?: ReadonlySet<string>;
 	readonly now?: Date;
 }
 
@@ -128,6 +141,11 @@ export class ReviewerArtifactsStore {
 			resultPath: join(reviewerDir, "result.json"),
 			verifiedOutputPath: join(reviewerDir, "verified-output.json"),
 			journalPath: join(reviewerDir, "journal.ndjson"),
+			// What this reviewer was asked. Kept here rather than in a
+			// temp file because a detached round has nobody to clean one
+			// up, and because it is the only record of the question a
+			// round that outlived its session was answering.
+			promptPath: join(reviewerDir, "prompt.txt"),
 			sessionDir: join(reviewerDir, "session"),
 		};
 	}
@@ -225,6 +243,10 @@ export class ReviewerArtifactsStore {
 				!terminal &&
 				policy.abandonedAfterMs !== undefined &&
 				age > policy.abandonedAfterMs;
+			if (policy.protect?.has(run.name)) {
+				kept++;
+				continue;
+			}
 			if ((terminal && (tooOld || tooMany)) || abandoned) {
 				try {
 					await rm(run.runDir, { recursive: true, force: true });
