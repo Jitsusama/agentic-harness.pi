@@ -32,6 +32,9 @@ import {
 /** The working layer, once something has announced one. */
 let work: WorkApi | undefined;
 
+/** How to stop listening for it, so listening twice does not stack. */
+let stopListening: (() => void) | undefined;
+
 /**
  * Listen for the working layer and ask it to announce itself.
  *
@@ -41,7 +44,13 @@ let work: WorkApi | undefined;
  * nothing, which is the point.
  */
 export function watchForWorkLayer(pi: ExtensionAPI): void {
-	pi.events.on(WORK_READY, (api: unknown) => {
+	// Once. This runs at registration and again on every session start,
+	// and the bus outlives a reload, so keeping the old subscription
+	// would stack a listener per start until node warns about a leak in
+	// the middle of a frame. The stale ones also still answer, which is
+	// how a forgotten broker comes back.
+	stopListening?.();
+	stopListening = pi.events.on(WORK_READY, (api: unknown) => {
 		work = api as WorkApi;
 	});
 	pi.events.emit(WORK_REQUEST, {});
@@ -50,6 +59,8 @@ export function watchForWorkLayer(pi: ExtensionAPI): void {
 /** Forget it, so a reload does not answer with a dead broker. */
 export function forgetWorkLayer(): void {
 	work = undefined;
+	stopListening?.();
+	stopListening = undefined;
 }
 
 /** Whether a change already has somewhere to read it. */

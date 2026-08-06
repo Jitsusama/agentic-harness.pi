@@ -8,6 +8,7 @@
  * only when the configuration it was built from changes.
  */
 
+import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -38,15 +39,61 @@ export function attachmentDir(): string {
 /**
  * Which session is asking, so its attachments stay its own.
  *
- * Read from the environment rather than threaded through every call,
- * because every tool in this extension needs it and none of them
- * otherwise needs to know a session exists. Absent when pi did not say,
- * and the store then keeps its old undivided behaviour, which is right:
- * a caller with no session cannot be racing one.
+ * Held here rather than threaded through every call, because every tool
+ * in this extension needs it and none of them otherwise needs to know a
+ * session exists. Always answers something, so no two callers can share
+ * a directory by both having nothing to say.
  */
-export function sessionKey(): string | undefined {
-	const held = process.env.PI_SESSION_ID;
-	return held === undefined || held.trim() === "" ? undefined : held;
+export function sessionKey(): string {
+	return inSession;
+}
+
+/**
+ * Until pi says otherwise, this process.
+ *
+ * The store's flat fallback was justified by "a caller with no session
+ * cannot be racing one", which held while the value was fixed for the
+ * life of the process. It arrives on an event now, so absent means not
+ * told yet rather than no session, and that resolves to exactly the
+ * shared directory that retargeted a live council. Pi itself always has
+ * a session id, an in-memory one included, so this is the window before
+ * the event and a host that never sends it, not an ephemeral session.
+ *
+ * Anonymous is therefore not communal. The name carries a pid to say
+ * what it is and a random tail because a pid is only exclusive among
+ * living processes: the directory outlives the process by a month, and
+ * a later process landing on the same number would open onto the
+ * earlier one's attachments, which is this bug one directory wide.
+ */
+let inSession = anonymous();
+
+function anonymous(): string {
+	return `process-${process.pid}-${randomUUID().slice(0, 8)}`;
+}
+
+/**
+ * Remember which session this is, as pi reports it.
+ *
+ * It used to be read from `PI_SESSION_ID`, which reads like the answer
+ * and is not one: pi injects that variable when the bash tool spawns a
+ * command, and never sets it in its own process, so an extension asking
+ * for it always gets undefined. The scoping was therefore off from the
+ * day it shipped, silently, because undefined means "no session to
+ * separate" and that is a legitimate state.
+ *
+ * Called from `session_start`, which pi fires on startup and again on
+ * every reload, resume and fork, so a session that becomes another one
+ * stops answering for the first.
+ */
+export function rememberSession(sessionId: string | undefined): void {
+	// A session that reports no id is pi saying there is none, which is
+	// not the same as pi not having said yet. Carrying the last name
+	// forward would write this session's work into the last one's
+	// directory, so it goes back to being anonymous instead.
+	inSession =
+		sessionId === undefined || sessionId.trim() === ""
+			? anonymous()
+			: sessionId;
 }
 
 /**

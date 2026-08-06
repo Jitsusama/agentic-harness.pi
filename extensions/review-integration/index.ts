@@ -16,6 +16,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	clearTargetBindings,
 	listReviewProviders,
+	pruneAttachments,
 	REVIEW_READY,
 	REVIEW_REGISTER_PROVIDER,
 	REVIEW_REQUEST_SUBSTRATE,
@@ -25,10 +26,13 @@ import {
 } from "../../lib/review/index.js";
 import { ReviewerArtifactsStore } from "../../lib/subagent/index.js";
 import {
+	attachmentDir,
 	forgetReviewEngine,
 	registerBuiltinReviewProviders,
+	rememberSession,
 	reviewEngine,
 	runArtifactDir,
+	sessionKey,
 } from "./engine.js";
 import { guardPublishes } from "./guard-publish.js";
 import {
@@ -73,6 +77,15 @@ const ROUNDS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const ROUNDS_ABANDONED_AFTER_MS = 4 * ROUNDS_MAX_AGE_MS;
 
 /**
+ * How long a session's attachments outlive the session.
+ *
+ * Generous, because the cost of keeping one is a few hundred bytes and
+ * the cost of taking it early is somebody's resumed session forgetting
+ * what it was working on. The sweep never touches the caller's own.
+ */
+const ATTACHMENTS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
  * Give back the disk that finished rounds are still holding.
  *
  * At session start rather than after a round, so a sweep never delays
@@ -80,8 +93,19 @@ const ROUNDS_ABANDONED_AFTER_MS = 4 * ROUNDS_MAX_AGE_MS;
  * to reclaim space is not a reason to fail a session.
  */
 async function reclaimRoundTranscripts(): Promise<void> {
+	// Both paths up front, before anything is awaited. These resolve
+	// against the environment each time they are called, and this runs
+	// unawaited, so a second lookup after the first await is a lookup
+	// against whatever the environment says by then. In a test that
+	// points the state directory at a sandbox and takes it away again,
+	// that is a sweep of the real one.
+	const transcripts = runArtifactDir();
+	const attached = attachmentDir();
+	const mine = sessionKey();
+	// Separately, because one failing is not a reason to skip the
+	// other, and the transcript sweep races other sessions by nature.
 	try {
-		await new ReviewerArtifactsStore(runArtifactDir()).cleanupTerminalRuns({
+		await new ReviewerArtifactsStore(transcripts).cleanupTerminalRuns({
 			maxRuns: ROUNDS_RETAIN,
 			maxAgeMs: ROUNDS_MAX_AGE_MS,
 			abandonedAfterMs: ROUNDS_ABANDONED_AFTER_MS,
@@ -89,6 +113,14 @@ async function reclaimRoundTranscripts(): Promise<void> {
 	} catch {
 		// Advisory. A sweep that cannot run costs disk, and failing the
 		// session over it would cost the session.
+	}
+	try {
+		await pruneAttachments(attached, {
+			olderThanMs: ATTACHMENTS_MAX_AGE_MS,
+			keep: mine,
+		});
+	} catch {
+		// Advisory, for the same reason.
 	}
 }
 
@@ -137,7 +169,14 @@ export default function reviewIntegration(pi: ExtensionAPI) {
 	// answers, or nothing asks and it costs nothing.
 	guardPublishes(pi);
 
-	pi.events.on("session_start", () => {
+	// On pi's own lifecycle API rather than the event bus, because the
+	// bus hands a handler the event and nothing else, and which session
+	// this is only comes with the context.
+	pi.on("session_start", (_event, ctx) => {
+		// Which session this is, from the only thing that knows. What a
+		// session has attached is scoped by it, and a session that cannot
+		// say who it is shares a directory with every other one.
+		rememberSession(ctx.sessionManager.getSessionId());
 		// A new session must not inherit the last one's bindings, or
 		// a target could stay pinned to a provider the user has since
 		// reconfigured away from.

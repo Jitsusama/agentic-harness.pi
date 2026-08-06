@@ -13,7 +13,15 @@
  * are opened and changes are attached.
  */
 
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import type { Dirent } from "node:fs";
+import {
+	mkdir,
+	readdir,
+	readFile,
+	rm,
+	stat,
+	writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import type { ChangeRef } from "./change.js";
 import { changeKey } from "./keys.js";
@@ -44,6 +52,85 @@ export interface AttachmentStore {
 	detach(label: string): Promise<boolean>;
 	/** Newest first. */
 	list(): Promise<Attachment[]>;
+}
+
+/**
+ * Give back the directories of sessions that have stopped using them.
+ *
+ * Scoping attachments per session means one directory per session for
+ * as long as the state directory lives, so something has to take them
+ * back. Age is judged on the newest attachment inside, not on the
+ * directory itself: a directory's timestamp moves when an entry is
+ * added or removed and stands still when one is rewritten in place, so
+ * a session that keeps freshening the same change would age as though
+ * nobody had touched it. The one asking is never swept regardless,
+ * because a long-lived session attaches its work once and then only
+ * reads it, which is exactly the shape an age rule mistakes for
+ * abandonment.
+ *
+ * Files are left alone. Attachments made before scoping existed sit
+ * flat in the root and belong to no session, so no session's rule
+ * should decide their fate; deleting somebody's attachment to tidy up
+ * is a poor trade for the disk it returns. They cost bytes and are
+ * invisible to every scoped caller. An empty directory is swept, since
+ * it holds nothing anybody can lose.
+ *
+ * Returns how many were taken back.
+ */
+export async function pruneAttachments(
+	root: string,
+	options: { olderThanMs: number; keep?: string },
+): Promise<number> {
+	let entries: Dirent[];
+	try {
+		entries = await readdir(root, { withFileTypes: true });
+	} catch {
+		// Nothing has ever been attached, so there is nothing to reclaim.
+		return 0;
+	}
+	const cutoff = Date.now() - options.olderThanMs;
+	// Through the same rewriting the store used to build the directory
+	// name, or a session whose id holds a character a path cannot carry
+	// would fail to match its own and be swept by the sweep that
+	// promises never to touch it.
+	const mine = options.keep === undefined ? undefined : safeName(options.keep);
+	let taken = 0;
+	for (const entry of entries) {
+		if (!entry.isDirectory()) continue;
+		if (entry.name === mine) continue;
+		const path = join(root, entry.name);
+		try {
+			if ((await newestWithin(path)) > cutoff) continue;
+			await rm(path, { recursive: true, force: true });
+			taken += 1;
+		} catch {
+			// Another session may be writing here, or may have removed it
+			// already. Reclaiming disk is advisory: what it cannot take
+			// back this time it will find again next time.
+		}
+	}
+	return taken;
+}
+
+/**
+ * When anything in this directory was last written.
+ *
+ * Zero for one holding nothing, which reads as long ago and is right:
+ * an empty directory has nothing to lose.
+ */
+async function newestWithin(path: string): Promise<number> {
+	const names = await readdir(path);
+	let newest = 0;
+	for (const name of names) {
+		try {
+			newest = Math.max(newest, (await stat(join(path, name))).mtimeMs);
+		} catch {
+			// Removed while being read, by another session's sweep or its
+			// own detach. It cannot be the newest thing here if it is
+			// already gone.
+		}
+	}
+	return newest;
 }
 
 /**
@@ -104,7 +191,7 @@ async function readAttachment(path: string): Promise<Attachment | undefined> {
  */
 export function createAttachmentStore(
 	root: string,
-	sessionId?: string,
+	sessionId: string,
 ): AttachmentStore {
 	// One directory per session. What a session is working on is a fact
 	// about that session, and keeping every session's answer in one
@@ -115,9 +202,14 @@ export function createAttachmentStore(
 	// change also need their own file, or detaching in one detaches in
 	// the other.
 	//
-	// Without a session there is nothing to separate, so the flat
-	// directory stands: a caller with no session cannot be racing one.
-	const mine = sessionId === undefined ? root : join(root, safeName(sessionId));
+	// Required, with no unscoped branch to fall into. It used to be
+	// optional, on the reasoning that a caller with no session cannot be
+	// racing one, and the caller that had no session id to give was the
+	// one that raced: it passed undefined every time and every session
+	// shared this root. A caller with nothing better to say can pass
+	// anything stable and unique to itself, which is a decision it can
+	// make and this cannot.
+	const mine = join(root, safeName(sessionId));
 	return {
 		async attach(change) {
 			await mkdir(mine, { recursive: true });
