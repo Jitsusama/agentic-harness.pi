@@ -22,6 +22,7 @@ import {
 	askRoster,
 	type CouncilResult,
 	type Reply,
+	stopWarning,
 } from "./council.js";
 import { type ParticipantIdentity, participantIdentity } from "./identity.js";
 import { type AskProgress, settleReplies } from "./progress.js";
@@ -134,7 +135,25 @@ async function fileReply(
 		request.stackRefs,
 		request.witnessFor,
 	);
-	for (const warning of harvest.warnings) {
+	// The same rule the single-change round follows, and this round
+	// needs it most: it holds every change at once, so it is the one
+	// most likely to be interrupted, and it was passing the harvest's
+	// own complaints straight through. A reviewer we stopped was being
+	// reported as one that wrote a malformed answer.
+	const said = [
+		...(answer.stopped === undefined
+			? harvest.warnings
+			: [
+					stopWarning(
+						answer.stopped,
+						harvest.findings.length,
+						answer.text.trim() !== "" && harvest.findings.length === 0,
+					),
+					...(harvest.recordedWarnings ?? []),
+				]),
+		...(answer.notes ?? []),
+	];
+	for (const warning of said) {
 		warnings.push(`${participant.id}: ${warning}`);
 	}
 

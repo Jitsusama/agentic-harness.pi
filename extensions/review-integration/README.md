@@ -132,6 +132,40 @@ URL or short form no provider recognizes. Neither is required,
 and nothing defaults: an unrecognized reference comes back as a
 refusal naming the knob that would fix it.
 
+### What Bounds a Reviewer
+
+The `ask` subsection holds three durations, in milliseconds, and
+they answer three different questions:
+
+| Key | Default | What it decides |
+|---|---|---|
+| `backstopMs` | 45 min | When a reviewer is stopped regardless |
+| `idleMs` | 15 min | How long it may say nothing before it is wedged |
+| `answerMs` | 5 min | How much of the backstop is kept back for its answer |
+
+Only `idleMs` is a liveness guard. `backstopMs` is a last resort
+for a reviewer nothing else will stop, and using a wall clock to
+answer the liveness question is what killed working reviewers in
+six consecutive rounds.
+
+`answerMs` is the one that is not a limit. It is carved out of
+`backstopMs` rather than added to it, so a reviewer with the
+defaults investigates for forty minutes and is then asked, with
+five minutes in hand, for what it has. Whatever is reserved is
+what the wrap-up is allowed, so raising it buys a longer answer
+and costs the same amount of investigation.
+
+Zero switches it off: a reviewer then runs to the wall and is
+asked afterwards, on time nobody budgeted, which is what this
+did before the reserve existed. It is the only clock here where
+zero is honoured rather than read as a typo, because for the
+other two a zero would stop every reviewer the instant it
+started.
+
+A reserve at least half the backstop is ignored rather than
+honoured, since a reviewer asked to wrap up before it has read
+anything has nothing to wrap up.
+
 ## Registering a Provider
 
 A provider registers over the event bus, so it can live in

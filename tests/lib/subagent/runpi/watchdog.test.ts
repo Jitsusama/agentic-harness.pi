@@ -36,6 +36,50 @@ describe("what the clock alone can decide", () => {
 		).toBe("timeout");
 	});
 
+	describe("asking before taking", () => {
+		// The whole point of a soft deadline: it lands inside the wall
+		// clock, so the time between the two is what the reviewer gets to
+		// answer in. Asked at the hard deadline instead, the wrap-up runs
+		// on borrowed time nobody budgeted.
+		// A roomier idle budget than HEALTHY's, so these cases turn on
+		// the deadline they are about rather than on going quiet.
+		const SOFT = { ...HEALTHY, softDeadlineMs: 90_000, idleTimeoutMs: 60_000 };
+
+		it("carries on before the soft deadline", () => {
+			expect(clockVerdict({ ...SOFT, now: 89_999 })).toBeNull();
+		});
+
+		it("asks for a wrap-up once the soft deadline passes", () => {
+			expect(clockVerdict({ ...SOFT, now: 90_001 })).toBe("soft-deadline");
+		});
+
+		// A run that went quiet is not working, so there is nothing to ask
+		// it to wrap up and the honest reason is that it stopped talking.
+		it("names idleness over the soft deadline", () => {
+			expect(
+				clockVerdict({ ...SOFT, now: 90_001, lastActivityAtMs: 30_000 }),
+			).toBe("idle-timeout");
+		});
+
+		it("names the wall clock over the soft deadline", () => {
+			expect(clockVerdict({ ...SOFT, now: 120_001 })).toBe("timeout");
+		});
+
+		// Every caller that predates the soft deadline passes no such
+		// budget, and must keep running to its wall clock rather than
+		// being wrapped up at zero.
+		it("has no soft deadline unless one is set", () => {
+			expect(
+				clockVerdict({
+					...SOFT,
+					softDeadlineMs: undefined,
+					now: 119_999,
+					lastActivityAtMs: 119_000,
+				}),
+			).toBeNull();
+		});
+	});
+
 	// The invariant this module exists for, and the actual fix. The
 	// supervisor's deadline used to be evaluated after two `stat` calls
 	// that answer an unrelated question, so under I/O pressure the check

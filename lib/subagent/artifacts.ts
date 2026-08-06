@@ -28,6 +28,14 @@ export type ReviewerTerminalState =
 	| "timeout"
 	| "idle-timeout"
 	| "output-limit"
+	/**
+	 * Stopped inside its wall clock, on purpose, so the rest of the
+	 * budget could be spent asking it for what it had.
+	 *
+	 * The only state here that does not describe something going
+	 * wrong. The run was healthy and was interrupted anyway.
+	 */
+	| "soft-deadline"
 	| "parent-exit";
 
 /** Paths owned by one reviewer job. */

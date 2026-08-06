@@ -188,7 +188,7 @@ describe("a stack-wide round", () => {
 		// It shipped without this. A stack round reads every change in
 		// the stack, so it is the round most likely to look hung, and it
 		// was the one round reporting nothing at all.
-		const { progress, entries } = trackAskProgress();
+		const { progress, entries } = trackAskProgress(() => 5_000);
 		const { deps: d } = deps({
 			wren: {
 				text: answer(one({ refs: ["refs/heads/base"], subject: "a" })),
@@ -210,6 +210,8 @@ describe("a stack-wide round", () => {
 				state: "answered",
 				activity: "",
 				findings: 1,
+				startedAtMs: 5_000,
+				settledAtMs: 5_000,
 			},
 			{
 				participantId: "finch",
@@ -217,6 +219,8 @@ describe("a stack-wide round", () => {
 				state: "answered",
 				activity: "",
 				findings: 0,
+				startedAtMs: 5_000,
+				settledAtMs: 5_000,
 			},
 		]);
 	});

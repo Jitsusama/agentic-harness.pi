@@ -46,6 +46,15 @@ export type AskLimit =
 	| "wall-clock"
 	| "idle"
 	| "output"
+	/**
+	 * Stopped inside its own budget, deliberately, so what it had
+	 * could be asked for while there was still time to answer.
+	 *
+	 * The only limit here that is not something running out. The
+	 * others describe a reviewer that was taken away; this one
+	 * describes one that was asked.
+	 */
+	| "soft-deadline"
 	| "cancelled"
 	| "parent-exit";
 
@@ -319,21 +328,50 @@ function richer(said: Harvest, earlier: Harvest | undefined): Harvest {
 	return earlier.findings.length > said.findings.length ? earlier : said;
 }
 
-function stopWarning(stop: AskStop, kept: number, cutOff: boolean): string {
+/**
+ * What to say about a participant that did not get to finish.
+ *
+ * Shared with the stack round, which is the round most likely to be
+ * stopped and was saying nothing about it at all: it pushed the
+ * harvest's own warnings through, so a reviewer we interrupted was
+ * reported as having written a malformed answer.
+ */
+export function stopWarning(
+	stop: AskStop,
+	kept: number,
+	cutOff: boolean,
+): string {
 	const held =
 		kept === 0
 			? "Nothing had been read from it yet"
 			: `${count(kept, "finding")} had been read from it first`;
+	// A soft deadline is the round working as intended, so it does not
+	// get the sentence written for a reviewer that was cut off. Saying
+	// "stopped before it finished" about a reviewer we deliberately
+	// asked early would report our own design as an incident, and a
+	// reader who saw that on seven participants would go looking for
+	// the fault.
+	//
+	// It still gets the cut-off clause. Being asked early does not
+	// stop an answer being truncated on the way out, and that clause
+	// is the only thing that says how much is missing. Returning
+	// before it threw the sentence away in the case it was written
+	// for.
+	if (stop.limit === "soft-deadline") {
+		return `asked to wrap up early so it had time to answer: ${stop.detail} ${held}, so treat this pass as partial.${cutOff ? CUT_OFF : ""}`;
+	}
 	// Said here rather than left in the harvest's own warnings, which
 	// this branch replaces. Those describe the shape of the text and
 	// would blame the reviewer for our deadline; this one is about our
 	// deadline, and dropping it was hiding the fact in the exact case
 	// it was written for.
-	const cut = cutOff
-		? " Its answer was cut off mid-entry, so what it was writing when it stopped is gone and there is no telling how much more there would have been."
-		: "";
+	const cut = cutOff ? CUT_OFF : "";
 	return `stopped before it finished (${stop.limit}): ${stop.detail} ${held}, so treat this pass as partial.${cut}`;
 }
+
+/** Said whenever an answer stopped mid-entry, however it stopped. */
+const CUT_OFF =
+	" Its answer was cut off mid-entry, so what it was writing when it stopped is gone and there is no telling how much more there would have been.";
 
 /** Harvest one reply, record what it held, and say how it went. */
 async function recordReply(

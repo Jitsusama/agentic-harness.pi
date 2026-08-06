@@ -29,6 +29,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+	REVIEWER_ANSWER_MS,
 	REVIEWER_BACKSTOP_MS,
 	REVIEWER_IDLE_MS,
 	retryWouldRepeat,
@@ -77,6 +78,25 @@ describe("what a round is bounded by", () => {
 		expect(reviewerBudget(undefined)).toEqual({
 			timeoutMs: REVIEWER_BACKSTOP_MS,
 			idleTimeoutMs: REVIEWER_IDLE_MS,
+			wrapUpReserveMs: REVIEWER_ANSWER_MS,
+		});
+	});
+
+	it("keeps the answer's time inside the backstop, not beside it", () => {
+		// The reserve is carved out of the wall clock rather than added
+		// to it. A reserve as large as the budget would leave a reviewer
+		// no time to find anything before being asked what it found.
+		const budget = reviewerBudget(undefined);
+
+		expect(budget.wrapUpReserveMs).toBeLessThan(budget.timeoutMs / 2);
+	});
+
+	it("takes the answer's budget from config too", () => {
+		expect(reviewerBudget({ answerMs: 90_000 })).toMatchObject({
+			wrapUpReserveMs: 90_000,
+		});
+		expect(reviewerBudget({ answerMs: -1 })).toMatchObject({
+			wrapUpReserveMs: REVIEWER_ANSWER_MS,
 		});
 	});
 
@@ -106,6 +126,7 @@ describe("what a round is bounded by", () => {
 		expect(reviewerBudget("nonsense")).toEqual({
 			timeoutMs: REVIEWER_BACKSTOP_MS,
 			idleTimeoutMs: REVIEWER_IDLE_MS,
+			wrapUpReserveMs: REVIEWER_ANSWER_MS,
 		});
 	});
 });

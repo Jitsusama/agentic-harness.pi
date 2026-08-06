@@ -241,6 +241,97 @@ describe("createSupervisorRunPi", () => {
 		expect(result.state).toBe("complete");
 	});
 
+	it("stops a healthy child early when an answer has been reserved for", async () => {
+		// Driven through the real script and a real child, unlike the
+		// state test below, because the claim here is about a timer
+		// firing on a deadline nobody has ever run. A soft deadline that
+		// silently never fires looks exactly like a reviewer that
+		// finished in time, and the only thing that can tell them apart
+		// is a child that would otherwise run forever.
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "child.mjs");
+		await writeFile(
+			childPath,
+			// Says something, so it is plainly alive rather than idle, then
+			// never finishes.
+			`process.stdout.write(JSON.stringify({type:"message_start"})+"\\n");` +
+				`setInterval(() => process.stdout.write(JSON.stringify({type:"message_start"})+"\\n"), 200);`,
+		);
+		const runPi = createSupervisorRunPi({
+			piInstall: { node: process.execPath, entry: childPath },
+			stateDir,
+			idleTimeoutMs: GENEROUS_MS,
+			timeoutMs: GENEROUS_MS,
+		});
+
+		const result = await runPi({
+			args: [],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "reserved",
+			// Sixteen seconds of wall clock, twelve of which are the
+			// reviewer's and four kept back for its answer. Wider than the
+			// arithmetic needs on purpose: this file's own header records
+			// CI taking tens of seconds just to get a doubly-nested node
+			// spawn moving, and a four-second window between the deadline
+			// that should fire and the one that should not would decide
+			// this test on scheduler luck.
+			timeoutMs: 16_000,
+			wrapUpReserveMs: 4_000,
+		});
+
+		expect(result.state).toBe("soft-deadline");
+		// The derived number, not just the state: a supervisor that
+		// stopped at the reserve itself rather than at the wall minus
+		// the reserve would report the same state and the wrong moment.
+		expect(result.warnings?.join(" ")).toMatch(/soft deadline of 12000ms/);
+	}, 90_000);
+
+	it("refuses a reserve that would leave no time to review in", async () => {
+		// The refusal nothing reached: a reserve at least half the wall
+		// clock means somebody has misconfigured this, and the safe
+		// reading is that the run wants its whole budget rather than
+		// being asked to wrap up before it has read anything. Checked on
+		// the request the supervisor is handed, since the absence of a
+		// deadline is not visible in any outcome.
+		const stateDir = await tempStateDir();
+		const fake = makeFakeChild();
+		let asked: { softDeadlineMs?: number; timeoutMs?: number } = {};
+		const runPi = createSupervisorRunPi({
+			piInstall: { node: "/pi/bin/node", entry: "/pi/dist/cli.js" },
+			nodeBinary: "node",
+			supervisorPath: "/pkg/reviewer-supervisor.mjs",
+			stateDir,
+			spawn: (_command, args) => {
+				queueMicrotask(async () => {
+					const request = JSON.parse(await readFile(String(args[1]), "utf-8"));
+					asked = request;
+					await new ReviewerArtifactsStore(stateDir).writeJsonAtomic(
+						request.paths.resultPath,
+						{ state: "complete", exitCode: 0, finalAssistantText: "done" },
+					);
+					fake.stdout.end(
+						`${JSON.stringify({ type: "terminal", resultPath: request.paths.resultPath })}\n`,
+					);
+					fake.emitClose(0);
+				});
+				return fake.child as unknown as ChildProcess;
+			},
+		});
+
+		await runPi({
+			args: [],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "greedy",
+			timeoutMs: 60_000,
+			wrapUpReserveMs: 40_000,
+		});
+
+		expect(asked.timeoutMs).toBe(60_000);
+		expect(asked.softDeadlineMs).toBeUndefined();
+	});
+
 	it("says which state ended a run that was stopped, not just that it failed", async () => {
 		// A caller has to tell a reviewer we stopped from one that
 		// answered badly, and an exit code cannot carry that: a review

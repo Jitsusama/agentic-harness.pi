@@ -118,8 +118,15 @@ export function stoppedNotes(run: AskRun): string[] {
 			outcome.answerPath === undefined
 				? "nothing of its answer was kept"
 				: `its answer is at ${outcome.answerPath}`;
+		// A soft deadline is the round asking, not the round failing,
+		// and the ledger has to say so too. Reframing it in one surface
+		// and calling it a stop in the next just moves the alarm.
+		const how =
+			stopped.limit === "soft-deadline"
+				? "asked to wrap up early"
+				: `stopped (${stopped.limit})`;
 		notes.push(
-			`${outcome.participantId} stopped (${stopped.limit}), ${count(
+			`${outcome.participantId} ${how}, ${count(
 				outcome.findingIds.length,
 				"finding",
 			)} read, ${kept}`,

@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { retryWouldRepeat } from "../../extensions/review-integration/budget.js";
 import {
 	answerFromReviewer,
 	keepAnswer,
@@ -91,6 +92,7 @@ describe("a reviewer we stopped", () => {
 		["output-limit", "output"],
 		["cancelled", "cancelled"],
 		["parent-exit", "parent-exit"],
+		["soft-deadline", "soft-deadline"],
 	] as const;
 
 	for (const [state, limit] of LIMITS) {
@@ -107,6 +109,67 @@ describe("a reviewer we stopped", () => {
 			expect(answer).toMatchObject({ stopped: { limit } });
 		});
 	}
+
+	describe("one we asked early rather than took away", () => {
+		const budget = {
+			timeoutMs: 2_700_000,
+			idleTimeoutMs: 900_000,
+			wrapUpReserveMs: 300_000,
+		};
+
+		it("records the moment it was asked, not the wall it never reached", () => {
+			// Read off the backstop, this said 2700000 for a reviewer
+			// stopped at 2400000: a number the run never saw, on the one
+			// limit that is a difference between two clocks rather than a
+			// clock somebody set.
+			const answer = answerFromReviewer(
+				ran({
+					exitCode: 124,
+					finalAssistantText: "",
+					state: "soft-deadline",
+					warnings: [
+						"Pi subprocess reached its soft deadline of 2400000ms with 2700000ms allowed in total; sent SIGTERM.",
+					],
+				}),
+				budget,
+			);
+
+			expect(answer).toMatchObject({
+				stopped: { limit: "soft-deadline", budgetMs: 2_400_000 },
+			});
+		});
+
+		it("quotes that moment when it refuses the retry, and both knobs", () => {
+			const refusal = retryWouldRepeat(
+				{
+					limit: "soft-deadline",
+					detail: "reached its soft deadline",
+					budgetMs: 2_400_000,
+				},
+				budget,
+			);
+
+			expect(refusal).toContain("2400000");
+			// Either one moves the deadline, so a refusal naming only the
+			// backstop points at the knob that moves it least.
+			expect(refusal).toMatch(/answerMs or backstopMs/);
+		});
+
+		it("allows the retry once the soft deadline has been switched off", () => {
+			// Not the same question any more: the reviewer will now run to
+			// the wall instead of being asked at forty minutes.
+			expect(
+				retryWouldRepeat(
+					{
+						limit: "soft-deadline",
+						detail: "reached its soft deadline",
+						budgetMs: 2_400_000,
+					},
+					{ ...budget, wrapUpReserveMs: 0 },
+				),
+			).toBeUndefined();
+		});
+	});
 
 	it("is a stop even when it was cut off before saying anything", () => {
 		// The old guard called an empty non-zero run a failure, which

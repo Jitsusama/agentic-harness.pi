@@ -110,9 +110,21 @@ function validateTimeout(field: string, value: number | undefined): void {
 function validateTimeoutPair(
 	timeoutMs: number | undefined,
 	idleTimeoutMs: number | undefined,
+	// The third clock, validated with the other two rather than
+	// beside them. It is the one that reaches the watchdog as JSON,
+	// where a NaN serializes to null and every comparison against it
+	// is false except the one that stops the child, so an unchecked
+	// reserve does not misbehave subtly: it kills the whole roster on
+	// the first tick.
+	wrapUpReserveMs?: number,
 ): void {
 	validateTimeout("timeoutMs", timeoutMs);
 	validateTimeout("idleTimeoutMs", idleTimeoutMs);
+	if (wrapUpReserveMs !== 0) {
+		// Zero is the documented way to switch the soft deadline off,
+		// so it is the one value below the floor that means something.
+		validateTimeout("wrapUpReserveMs", wrapUpReserveMs);
+	}
 	if (
 		timeoutMs !== undefined &&
 		idleTimeoutMs !== undefined &&
@@ -323,6 +335,16 @@ export type RunPi = (opts: {
 	 */
 	readonly onEvent?: (event: RunPiStreamEvent) => void;
 	/**
+	 * How much of the wall clock to keep back for an answer.
+	 *
+	 * A reserve rather than a deadline, because only the runner
+	 * knows what the wall clock actually is: the caller may not
+	 * have set one, and the configured default lives here. Given
+	 * one, the supervisor stops the run that much before its
+	 * deadline so the rest can be spent asking for what it has.
+	 */
+	readonly wrapUpReserveMs?: number;
+	/**
 	 * Whether this run should persist its pi session so a
 	 * later resume can reopen it. Defaults to false: a run is
 	 * ephemeral unless the caller asks to keep the transcript.
@@ -445,6 +467,16 @@ export interface RunReviewerOptions {
 	 */
 	readonly timeoutMs?: number;
 	/**
+	 * How much of that wall clock to keep back so this reviewer
+	 * can be asked for its answer before the deadline takes it.
+	 *
+	 * Defaults to the wrap-up's own budget, which is the number
+	 * that makes the two agree: the time reserved is the time the
+	 * wrap-up is allowed. Ignored when `autoResume` is false,
+	 * since a run that cannot be resumed cannot be asked.
+	 */
+	readonly wrapUpReserveMs?: number;
+	/**
 	 * Per-call idle timeout in milliseconds. Forwarded to
 	 * `runPi`. Overrides the runner's configured default
 	 * for this one call. Use when the subagent will issue
@@ -564,7 +596,11 @@ export async function runReviewer(
 	// nonsense values (NaN, negatives, idle > wall) never
 	// reach the runner where they'd kill the child or
 	// silently bypass the ceiling.
-	validateTimeoutPair(options.timeoutMs, options.idleTimeoutMs);
+	validateTimeoutPair(
+		options.timeoutMs,
+		options.idleTimeoutMs,
+		options.wrapUpReserveMs,
+	);
 
 	// Refuse to spawn when pi was updated or removed
 	// mid-session, since the parent's argv-derived extension
@@ -609,6 +645,7 @@ export async function runReviewer(
 	// hand pi an `@<path>` reference instead, which pi merges
 	// into the prompt, so argv stays tiny whatever the diff
 	// size. The file is removed once the run resolves.
+	const reserve = wrapUpReserve(options);
 	const promptFile = await writeReviewerPrompt(options.prompt);
 	const args = composeArgs({
 		spec: options.reviewer,
@@ -637,6 +674,7 @@ export async function runReviewer(
 			...(options.idleTimeoutMs !== undefined
 				? { idleTimeoutMs: options.idleTimeoutMs }
 				: {}),
+			...(reserve === undefined ? {} : { wrapUpReserveMs: reserve }),
 		});
 	} finally {
 		// Best-effort: the OS temp dir is reaped anyway, and a
@@ -730,7 +768,15 @@ export async function runReviewer(
  * nothing left to ask with.
  */
 const WORTH_ASKING: ReadonlySet<ReviewerTerminalState> =
-	new Set<ReviewerTerminalState>(["timeout", "idle-timeout", "output-limit"]);
+	new Set<ReviewerTerminalState>([
+		"timeout",
+		"idle-timeout",
+		"output-limit",
+		// The state that exists to be asked. A soft deadline stops a
+		// healthy run for no other purpose, so leaving it out here would
+		// take the reviewer's remaining time and give nothing back.
+		"soft-deadline",
+	]);
 
 /**
  * What to say to a reviewer that ran out of time.
@@ -759,7 +805,53 @@ const WRAP_UP_PROMPT =
  * would hand a reviewer that ignored the prompt enough room to start
  * the whole investigation again.
  */
-const WRAP_UP_TIMEOUT_MS = 5 * 60 * 1000;
+export const WRAP_UP_TIMEOUT_MS = 5 * 60 * 1000;
+
+/**
+ * How much of a reviewer's wall clock is kept back for its answer.
+ *
+ * The difference between asking and taking. Without a reserve a
+ * reviewer investigates until the wall clock kills it, and the wrap-up
+ * then runs on time nobody budgeted, after a stop that has already
+ * been recorded as one. With it, the reviewer is stopped early and
+ * deliberately, and the time it did not spend investigating is the
+ * time it has to answer in.
+ *
+ * The round costs the same either way. What changes is that the
+ * reviewer is asked while there is still something to ask with.
+ */
+function wrapUpReserve(options: RunReviewerOptions): number | undefined {
+	// A run nobody can resume cannot be wrapped up, so stopping it
+	// early would take time away and give nothing back. That is the
+	// fleet path, which opts out of autoResume and stays ephemeral.
+	if (options.autoResume === false) return undefined;
+	// Zero switches it off, which is what the documentation promises
+	// and what somebody who wants the old behaviour will reach for.
+	// Left to `??` it would have read as absent and handed back the
+	// default, so the off switch would have turned it on.
+	if (options.wrapUpReserveMs === 0) return undefined;
+	return options.wrapUpReserveMs ?? WRAP_UP_TIMEOUT_MS;
+}
+
+/**
+ * How long the wrap-up itself may run.
+ *
+ * The same function that decides what to keep back, called again
+ * where it is spent, because these are one number and were briefly
+ * two. Taking the reserve uncapped and spending it clamped at five
+ * minutes meant a configured `answerMs` of ten minutes took ten
+ * minutes of investigation away and handed five of them back. The
+ * defaults hid it exactly: both constants were five minutes, written
+ * in two modules with nothing joining them.
+ *
+ * Still never longer than the caller's whole budget, which only binds
+ * when no soft deadline fired, since one that did already proved the
+ * reserve was the smaller number.
+ */
+function wrapUpBudget(options: RunReviewerOptions): number {
+	const reserve = wrapUpReserve(options) ?? WRAP_UP_TIMEOUT_MS;
+	return Math.min(reserve, options.timeoutMs ?? reserve);
+}
 
 /**
  * A suffix, so a wrap-up does not overwrite the record of the stop.
@@ -796,10 +888,7 @@ async function dispatchWrapUp(
 	// on its own is how six rounds of working reviewers were killed:
 	// silence is not idleness, and a reviewer composing a long answer
 	// goes quiet while it does.
-	const wall = Math.min(
-		options.timeoutMs ?? WRAP_UP_TIMEOUT_MS,
-		WRAP_UP_TIMEOUT_MS,
-	);
+	const wall = wrapUpBudget(options);
 	const idle = Math.min(options.idleTimeoutMs ?? wall, wall);
 	return options.runPi({
 		args,

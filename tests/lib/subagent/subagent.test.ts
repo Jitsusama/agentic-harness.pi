@@ -164,6 +164,7 @@ function scriptedRun(results: RunPiResult[]): {
 		runId?: string;
 		timeoutMs?: number;
 		idleTimeoutMs?: number;
+		wrapUpReserveMs?: number;
 	}>;
 } {
 	const calls: Array<{
@@ -174,6 +175,7 @@ function scriptedRun(results: RunPiResult[]): {
 		runId?: string;
 		timeoutMs?: number;
 		idleTimeoutMs?: number;
+		wrapUpReserveMs?: number;
 	}> = [];
 	const runPi: RunPi = async (opts) => {
 		calls.push({
@@ -184,6 +186,7 @@ function scriptedRun(results: RunPiResult[]): {
 			runId: opts.runId,
 			timeoutMs: opts.timeoutMs,
 			idleTimeoutMs: opts.idleTimeoutMs,
+			wrapUpReserveMs: opts.wrapUpReserveMs,
 		});
 		const index = Math.min(calls.length - 1, results.length - 1);
 		return results[index];
@@ -215,6 +218,143 @@ describe("runReviewer: asking a stopped reviewer for what it has", () => {
 		state,
 		finalAssistantText: '{"findings": [{"subject": "the first one"}, {"sub',
 		artifacts: ARTIFACTS,
+	});
+
+	describe("asking before the deadline rather than after it", () => {
+		it("keeps part of the wall clock back for the answer", async () => {
+			const { runPi, calls } = scriptedRun([
+				{ exitCode: 0, state: "complete", finalAssistantText: "{}" },
+			]);
+
+			await runReviewer({
+				reviewer: REVIEWER,
+				prompt: "review this diff",
+				cwd: "/tmp/wt",
+				runPi,
+				autoResume: true,
+				wrapUpReserveMs: 90_000,
+			});
+
+			// A reserve rather than a deadline: only the runner knows what
+			// wall clock it is being carved out of, since an unset timeout
+			// here means the configured default, not the absence of one.
+			expect(calls[0].wrapUpReserveMs).toBe(90_000);
+		});
+
+		it("reserves nothing for a run that could never be asked", async () => {
+			const { runPi, calls } = scriptedRun([
+				{ exitCode: 0, state: "complete", finalAssistantText: "{}" },
+			]);
+
+			// The fleet path. Stopping one of these early would take its
+			// time away and give nothing back, because there is no session
+			// on disk to ask.
+			await runReviewer({
+				reviewer: REVIEWER,
+				prompt: "do the thing",
+				cwd: "/tmp/wt",
+				runPi,
+				autoResume: false,
+			});
+
+			expect(calls[0].wrapUpReserveMs).toBeUndefined();
+		});
+
+		it("spends exactly what it reserved, above the old five-minute cap", async () => {
+			// The one invariant the whole design rests on: the time taken
+			// from investigating is the time handed to the answer. It held
+			// only up to five minutes, because the reserve was uncapped
+			// where it was taken and clamped where it was spent, and the
+			// defaults hid it by being the same number. Ten minutes
+			// reserved bought five, and the other five went nowhere.
+			const { runPi, calls } = scriptedRun([
+				stopped("soft-deadline"),
+				{ exitCode: 0, state: "complete", finalAssistantText: "{}" },
+			]);
+
+			await runReviewer({
+				reviewer: REVIEWER,
+				prompt: "review this diff",
+				cwd: "/tmp/wt",
+				runPi,
+				autoResume: true,
+				timeoutMs: 2_700_000,
+				wrapUpReserveMs: 600_000,
+			});
+
+			expect(calls[0].wrapUpReserveMs).toBe(600_000);
+			expect(calls[1].timeoutMs).toBe(600_000);
+		});
+
+		it("reserves nothing when the reserve is switched off", async () => {
+			// Zero is the documented off switch. Read through the usual
+			// `??` it would have looked absent and handed back the
+			// default, so the way to turn it off would have turned it on.
+			const { runPi, calls } = scriptedRun([
+				{ exitCode: 0, state: "complete", finalAssistantText: "{}" },
+			]);
+
+			await runReviewer({
+				reviewer: REVIEWER,
+				prompt: "review this diff",
+				cwd: "/tmp/wt",
+				runPi,
+				autoResume: true,
+				wrapUpReserveMs: 0,
+			});
+
+			expect(calls[0].wrapUpReserveMs).toBeUndefined();
+		});
+
+		it("refuses a reserve that could never be a duration", async () => {
+			// It reaches the watchdog as JSON, where NaN serializes to
+			// null and every comparison against it is false except the one
+			// that stops the child. An unvalidated reserve does not
+			// misbehave subtly; it kills the whole roster on tick one.
+			const { runPi } = scriptedRun([
+				{ exitCode: 0, state: "complete", finalAssistantText: "{}" },
+			]);
+
+			await expect(
+				runReviewer({
+					reviewer: REVIEWER,
+					prompt: "review this diff",
+					cwd: "/tmp/wt",
+					runPi,
+					autoResume: true,
+					wrapUpReserveMs: Number.NaN,
+				}),
+			).rejects.toThrow(/wrapUpReserveMs/);
+		});
+
+		it("asks a reviewer stopped at its soft deadline for what it has", async () => {
+			const { runPi, calls } = scriptedRun([
+				stopped("soft-deadline"),
+				{
+					exitCode: 0,
+					state: "complete",
+					finalAssistantText: '{"findings": [{"subject": "what I had"}]}',
+				},
+			]);
+
+			const result = await runReviewer({
+				reviewer: REVIEWER,
+				prompt: "review this diff",
+				cwd: "/tmp/wt",
+				runPi,
+				autoResume: true,
+				wrapUpReserveMs: 90_000,
+			});
+
+			expect(calls).toHaveLength(2);
+			// The whole point of the reserve: the wrap-up is allowed what
+			// was kept back for it, so the two numbers cannot drift apart.
+			expect(calls[1].timeoutMs).toBe(90_000);
+			expect(JSON.parse(result.finalAssistantText)).toEqual({
+				findings: [{ subject: "what I had" }],
+			});
+			expect(result.wrappedUp).toBe(true);
+		});
 	});
 
 	it("asks it to hand over its findings, in the session it already has", async () => {

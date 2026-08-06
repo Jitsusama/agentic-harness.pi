@@ -81,7 +81,7 @@ describe("tracking an ask round", () => {
 	});
 
 	it("attaches activity to the participant that reported it", () => {
-		const { progress, entries } = trackAskProgress();
+		const { progress, entries } = trackAskProgress(() => 1_000);
 		progress.start([alice, bob]);
 
 		progress.started("alice");
@@ -93,6 +93,9 @@ describe("tracking an ask round", () => {
 				model: "a/one",
 				state: "running",
 				activity: "reading app.ts",
+				// A round says nothing for minutes at a time, so how long
+				// this one has been away is the question a watcher has.
+				startedAtMs: 1_000,
 			},
 			{ participantId: "bob", model: "b/two", state: "pending", activity: "" },
 		]);
@@ -101,11 +104,13 @@ describe("tracking an ask round", () => {
 	it("clears the activity when a participant settles", () => {
 		// A finished participant still showing "reading app.ts" reads as
 		// though it is still reading.
-		const { progress, entries } = trackAskProgress();
+		let clock = 1_000;
+		const { progress, entries } = trackAskProgress(() => clock);
 		progress.start([alice]);
 		progress.started("alice");
 		progress.activity("alice", "bash pnpm test");
 
+		clock = 61_000;
 		progress.answered("alice");
 
 		expect(entries()[0]).toEqual({
@@ -113,6 +118,10 @@ describe("tracking an ask round", () => {
 			model: "a/one",
 			state: "answered",
 			activity: "",
+			startedAtMs: 1_000,
+			// Frozen where it settled. A finished reviewer's time is a
+			// fact about the round, not a counter that keeps climbing.
+			settledAtMs: 61_000,
 		});
 	});
 
