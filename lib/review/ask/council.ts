@@ -277,13 +277,28 @@ export async function runCouncil(
 	// through left seven reviewer directories on disk and nothing
 	// saying which change they belonged to or that they were ever a
 	// round.
-	await deps.opened?.({
-		id,
-		round,
-		startedAt: startedAt.toISOString(),
-		participants,
-		outcomes: [],
-	});
+	//
+	// Guarded here rather than trusted to each caller. The docstring
+	// on the callback promises a round is worth more than the
+	// bookkeeping around it, and awaiting it bare put that promise in
+	// the hands of whoever implements it: one that throws would take
+	// the council down before a single reviewer was dispatched. The
+	// seam is public, so the first caller in another package would
+	// have found that out the expensive way.
+	try {
+		await deps.opened?.({
+			id,
+			round,
+			startedAt: startedAt.toISOString(),
+			participants,
+			outcomes: [],
+			open: true,
+		});
+	} catch {
+		// Nothing to say to: the round has not started, so there is no
+		// warnings list yet. The cost is that an interrupted round may
+		// not be findable, which is what it was before this existed.
+	}
 
 	const replies = await askRoster(request.roster, request.prompt, id, deps);
 
@@ -311,9 +326,8 @@ export async function runCouncil(
 			startedAt: startedAt.toISOString(),
 			participants,
 			outcomes,
-			// Read once, not twice. Asking the clock again here would
-			// make the settled time drift from the outcomes it settles.
-			settledAt: deps.now().toISOString(),
+			// No `open`, which is what settles it: the field is present
+			// only while a round is unfinished.
 		},
 		warnings,
 	};

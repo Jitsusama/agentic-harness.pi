@@ -12,7 +12,7 @@
  * what it consolidated.
  */
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ChangeRef } from "../change.js";
 import { changeKey } from "../keys.js";
@@ -24,7 +24,7 @@ export interface RunStore {
 	record(change: ChangeRef, run: AskRun): Promise<void>;
 	/** Every round on a change, in the order they ran. */
 	list(change: ChangeRef): Promise<AskRun[]>;
-	/** The most recent round of one kind, if there was one. */
+	/** The most recent finished round of one kind, if there was one. */
 	latest(change: ChangeRef, round: AskRound): Promise<AskRun | undefined>;
 	/** One round by its id. */
 	byId(change: ChangeRef, runId: string): Promise<AskRun | undefined>;
@@ -57,32 +57,56 @@ interface Ledger {
 /** Runs on disk, one file per change. */
 export function createRunStore(root: string): RunStore {
 	async function read(change: ChangeRef): Promise<Ledger> {
+		let raw: string;
 		try {
-			const raw = await readFile(join(root, fileFor(change)), "utf8");
-			const parsed: unknown = JSON.parse(raw);
-			if (
-				typeof parsed === "object" &&
-				parsed !== null &&
-				"runs" in parsed &&
-				Array.isArray(parsed.runs)
-			) {
-				return { runs: parsed.runs as AskRun[] };
-			}
+			raw = await readFile(join(root, fileFor(change)), "utf8");
 		} catch {
-			// No file, or one nothing can read. Either way this change
-			// has no rounds behind it, which is an answer rather than a
-			// failure: most changes have never been reviewed.
+			// No file. This change has no rounds behind it, which is an
+			// answer rather than a failure: most changes have never been
+			// reviewed.
+			return { runs: [] };
 		}
-		return { runs: [] };
+		// A file that will not parse is a different thing entirely, and
+		// answering "no rounds" for it is how a history disappears
+		// quietly: the caller is told the change is fresh, and the next
+		// write lays a one-round ledger over whatever was there. Said
+		// out loud instead, so a torn file is a problem somebody can
+		// see rather than a change that looks new.
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(raw);
+		} catch {
+			// Falls through to the sentence below, which says where the
+			// file is and what to do. A parser's own message names a
+			// character offset in a file the reader has not been told
+			// about.
+		}
+		if (
+			typeof parsed === "object" &&
+			parsed !== null &&
+			"runs" in parsed &&
+			Array.isArray(parsed.runs)
+		) {
+			return { runs: parsed.runs as AskRun[] };
+		}
+		throw new Error(
+			`The rounds held against ${change.label} are at ${join(root, fileFor(change))} and could not be read as a ledger. Nothing was changed. Move that file aside to start a fresh one, keeping it if the rounds in it still matter.`,
+		);
 	}
 
 	async function write(change: ChangeRef, ledger: Ledger): Promise<void> {
 		await mkdir(root, { recursive: true });
-		await writeFile(
-			join(root, fileFor(change)),
-			JSON.stringify(ledger, null, 2),
-			"utf8",
-		);
+		const path = join(root, fileFor(change));
+		// Written beside and renamed over, because a plain write
+		// truncates in place and a process killed midway leaves half a
+		// document. This change writes at the start of an operation
+		// whose whole premise is that the session may not survive it,
+		// so the window stopped being theoretical. A rename within one
+		// directory is atomic: a reader sees the old ledger or the new
+		// one.
+		const pending = `${path}.${process.pid}.tmp`;
+		await writeFile(pending, JSON.stringify(ledger, null, 2), "utf8");
+		await rename(pending, path);
 	}
 
 	return {
@@ -96,7 +120,15 @@ export function createRunStore(root: string): RunStore {
 		},
 
 		async latest(change, round) {
-			const held = (await read(change)).runs.filter((r) => r.round === round);
+			// Finished rounds only. A round is now on the ledger from the
+			// moment it opens, so the newest entry is routinely one that
+			// has answered nothing: a judge asked while a council was
+			// still running, or after one was interrupted, would have
+			// consolidated its empty outcomes and reported that the
+			// council found nothing.
+			const held = (await read(change)).runs.filter(
+				(r) => r.round === round && r.open !== true,
+			);
 			return held.at(-1);
 		},
 

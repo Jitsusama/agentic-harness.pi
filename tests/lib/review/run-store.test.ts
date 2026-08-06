@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -44,21 +44,53 @@ describe("keeping runs per change", () => {
 		it("adds a round it has not seen", async () => {
 			const store = createRunStore(root);
 
-			await store.keep(change, run({ outcomes: [] }));
+			await store.keep(change, run({ outcomes: [], open: true }));
 
 			expect(await store.list(change)).toHaveLength(1);
 		});
 
 		it("replaces the one it has, rather than holding both", async () => {
 			const store = createRunStore(root);
-			await store.keep(change, run({ outcomes: [] }));
+			await store.keep(change, run({ outcomes: [], open: true }));
 
-			await store.keep(change, run({ settledAt: "2026-07-30T00:10:00.000Z" }));
+			await store.keep(change, run());
 
 			const held = await store.list(change);
 			expect(held).toHaveLength(1);
-			expect(held[0].settledAt).toBe("2026-07-30T00:10:00.000Z");
+			expect(held[0].open).toBeUndefined();
 			expect(held[0].outcomes).toHaveLength(1);
+		});
+
+		it("does not offer an unsettled round as the latest of its kind", async () => {
+			// A judge asked while a council is still running, or after one
+			// was interrupted, would otherwise consolidate the stub's empty
+			// outcomes and report that the council found nothing.
+			const store = createRunStore(root);
+			await store.keep(change, run());
+			await store.keep(
+				change,
+				run({
+					id: "council-20260730000000000-000002",
+					outcomes: [],
+					open: true,
+				}),
+			);
+
+			expect((await store.latest(change, "council"))?.id).toBe(
+				"council-20260730000000000-000001",
+			);
+		});
+
+		it("says so rather than reporting a torn ledger as a fresh change", async () => {
+			// Answering "no rounds" for a file that will not parse is how a
+			// history disappears: the caller is told the change is new, and
+			// the next write lays one round over the wreckage.
+			const store = createRunStore(root);
+			await store.keep(change, run());
+			const [file] = readdirSync(root);
+			writeFileSync(join(root, file), '{"runs": [{"id": "cou');
+
+			await expect(store.list(change)).rejects.toThrow(/could not be read/);
 		});
 
 		it("keeps a finished round even when the opening write never landed", async () => {
@@ -68,7 +100,7 @@ describe("keeping runs per change", () => {
 			// a fifteen-minute council into an exception and lose the lot.
 			const store = createRunStore(root);
 
-			await store.keep(change, run({ settledAt: "2026-07-30T00:10:00.000Z" }));
+			await store.keep(change, run());
 
 			expect(await store.list(change)).toHaveLength(1);
 		});

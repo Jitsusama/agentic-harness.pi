@@ -41,6 +41,7 @@ import {
 	auditPrompt,
 	bindPersonas,
 	type ChangeRef,
+	type CouncilDeps,
 	type Critique,
 	councilPrompt,
 	createFindingStore,
@@ -337,11 +338,18 @@ async function askCouncil(
 		deps(change, tree.path, watch, charters),
 	);
 
-	// The same call `opened` made. Replacing would throw if the opening
-	// write had failed, which would end a finished council in an
-	// exception and lose everything it found to a bookkeeping error.
-	await createRunStore(runDir()).keep(change, run);
-	return say(answerFor(run, warnings, tree.caveat), { run, warnings });
+	// The same call `opened` made, and guarded the same way. `keep`
+	// removed the refusal that a missing opening write would have
+	// caused; it does nothing about the failure that stopped that write
+	// landing, and those are the realistic ones: no space, no
+	// permission, a read-only volume. All of them fail this write too,
+	// and bare it would answer a finished council with a refusal about
+	// a ledger, throwing away every finding the round just paid for.
+	const kept = await keptOnLedger(change, run);
+	return say(answerFor(run, [...warnings, ...kept], tree.caveat), {
+		run,
+		warnings,
+	});
 }
 
 /** Ask the judge to consolidate the latest council. */
@@ -1225,11 +1233,34 @@ function deps(
  * meaning a session died holding one. The retry would manufacture the
  * alarm it is meant to help answer.
  */
-function substituting<T extends { opened?: unknown }>(
-	deps: T,
-): Omit<T, "opened"> {
+function substituting(deps: CouncilDeps): Omit<CouncilDeps, "opened"> {
+	// Typed against CouncilDeps rather than a structural constraint.
+	// `T extends { opened?: unknown }` was satisfied by every object
+	// type, so renaming the callback would have left this returning
+	// its argument untouched and quietly restored the stray round,
+	// with nothing to report it. Named concretely, the same rename is
+	// a compile error here.
 	const { opened: _discarded, ...rest } = deps;
 	return rest;
+}
+
+/**
+ * Put a finished round on the ledger, saying so if it could not be.
+ *
+ * Never throws. The round has already happened and its findings are
+ * already recorded against the change; failing to write the ledger
+ * entry loses the index, not the work, and answering with a refusal
+ * would hide fifteen minutes of review behind a filesystem error.
+ */
+async function keptOnLedger(change: ChangeRef, run: AskRun): Promise<string[]> {
+	try {
+		await createRunStore(runDir()).keep(change, run);
+		return [];
+	} catch (error) {
+		return [
+			`${GLYPH.refused} This round is not on the ledger (${messageOf(error)}), so a judge or a retry will not find it by id. Its findings are recorded against the change regardless.`,
+		];
+	}
 }
 
 /**
@@ -1279,14 +1310,13 @@ function renderFindings(findings: Finding[]): string {
 function describeRun(run: AskRun): string {
 	const summary = runSummary(run);
 	const failed = summary.failed > 0 ? `, ${summary.failed} failed` : "";
-	// A round is written down before it asks anybody, so one with no
-	// settled time is one whose session died holding it. Said plainly,
-	// because the reviewers' own answers are still on disk under this
-	// id and this line is the only thing that says to go looking.
-	const abandoned =
-		run.settledAt === undefined
-			? ", never finished: the session holding it ended first"
-			: "";
+	// Only a council carries this, and only while it is unsettled, so
+	// the sentence says what is actually known: it opened and nothing
+	// closed it. Whether that is a dead session or a round still
+	// running in another window is not ours to assert, and the useful
+	// half is the same either way, since the reviewers' answers are on
+	// disk under this id.
+	const abandoned = run.open === true ? ", opened and never settled" : "";
 	const head = `${run.id}: ${summary.answered}/${summary.asked} answered${failed}, ${count(summary.findings, "finding")}${abandoned}`;
 	// A stopped reviewer's answer was being recorded and never shown,
 	// which is most of the way to losing it: the path is only useful to

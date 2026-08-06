@@ -114,18 +114,39 @@ describe("a round on the ledger before it costs anything", () => {
 		// Nothing has answered yet, and the record must not pretend
 		// otherwise.
 		expect(opened[0].outcomes).toEqual([]);
-		expect(opened[0].settledAt).toBeUndefined();
+		expect(opened[0].open).toBe(true);
 	});
 
-	it("marks it settled once it is over", async () => {
+	it("settles it by dropping the mark once it is over", async () => {
 		const { run } = await runCouncil(
 			{ roster, prompt: "p", seq: 1 },
 			deps({ hawk: { text: said("a") }, owl: { text: said("b") } }),
 		);
 
-		// The one thing that tells a finished round from an abandoned
-		// one, now that both are written down.
-		expect(run.settledAt).toBe("2026-07-30T00:00:00.000Z");
+		// Marked while unfinished rather than inferred from a missing
+		// finish time. Absence is what every round recorded before this
+		// existed already has, and what every judge, critique, audit
+		// and stack round will always have, so an alarm keyed on it
+		// would call the whole history abandoned.
+		expect(run.open).toBeUndefined();
+		expect("open" in run).toBe(false);
+	});
+
+	it("runs the round when opening it throws", async () => {
+		// The callback's own docstring promises a round is worth more
+		// than the bookkeeping around it. Awaited bare, that promise
+		// lived in whoever implemented it, and this seam is public.
+		const { run } = await runCouncil(
+			{ roster, prompt: "p", seq: 1 },
+			{
+				...deps({ hawk: { text: said("a") }, owl: { text: said("b") } }),
+				async opened() {
+					throw new Error("the ledger is on a read-only volume");
+				},
+			},
+		);
+
+		expect(run.outcomes).toHaveLength(2);
 	});
 
 	it("runs the round even when nothing is listening for it", async () => {
