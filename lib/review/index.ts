@@ -151,6 +151,7 @@ export {
 	changeInPlay,
 	chooseChange,
 	createAttachmentStore,
+	pruneAttachments,
 } from "./attach.js";
 export type { AuthoringIntent, Offerable } from "./authoring.js";
 export { misnamedPeople, offerable } from "./authoring.js";

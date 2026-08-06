@@ -13,7 +13,15 @@
  * are opened and changes are attached.
  */
 
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import type { Dirent } from "node:fs";
+import {
+	mkdir,
+	readdir,
+	readFile,
+	rm,
+	stat,
+	writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import type { ChangeRef } from "./change.js";
 import { changeKey } from "./keys.js";
@@ -44,6 +52,56 @@ export interface AttachmentStore {
 	detach(label: string): Promise<boolean>;
 	/** Newest first. */
 	list(): Promise<Attachment[]>;
+}
+
+/**
+ * Give back the directories of sessions that have stopped using them.
+ *
+ * Scoping attachments per session means one directory per session for
+ * as long as the state directory lives, so something has to take them
+ * back. Age is judged on the directory's own timestamp, which moves
+ * whenever a session attaches or detaches, so a session that is still
+ * working is not swept out from under itself. The one asking is never
+ * swept regardless, because a long-lived session attaches its work once
+ * and then only reads it, which is exactly the shape an age rule
+ * mistakes for abandonment.
+ *
+ * Anything that is not a session directory is left alone. Attachments
+ * made before scoping existed sit flat in the root and belong to no
+ * session, so no session's rule should decide their fate; deleting
+ * somebody's attachment to tidy up is a poor trade for the disk it
+ * returns. They cost bytes and are invisible to every scoped caller.
+ *
+ * Returns how many were taken back.
+ */
+export async function pruneAttachments(
+	root: string,
+	options: { olderThanMs: number; keep?: string },
+): Promise<number> {
+	let entries: Dirent[];
+	try {
+		entries = await readdir(root, { withFileTypes: true });
+	} catch {
+		// Nothing has ever been attached, so there is nothing to reclaim.
+		return 0;
+	}
+	const cutoff = Date.now() - options.olderThanMs;
+	let taken = 0;
+	for (const entry of entries) {
+		if (!entry.isDirectory()) continue;
+		if (entry.name === options.keep) continue;
+		const path = join(root, entry.name);
+		try {
+			if ((await stat(path)).mtimeMs > cutoff) continue;
+			await rm(path, { recursive: true, force: true });
+			taken += 1;
+		} catch {
+			// Another session may be writing here, or may have removed it
+			// already. Reclaiming disk is advisory: what it cannot take
+			// back this time it will find again next time.
+		}
+	}
+	return taken;
 }
 
 /**

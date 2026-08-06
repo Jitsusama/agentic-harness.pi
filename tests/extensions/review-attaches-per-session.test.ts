@@ -3,15 +3,15 @@
  *
  * The library has been able to do this for a while and had tests
  * proving it, all of which passed an explicit session id. The extension
- * passed `process.env.PI_SESSION_ID`, which pi injects when the bash
- * tool spawns a command and does not set in its own process, so the
- * argument was undefined every time and every session on the machine
- * went on sharing one directory. The fix was live for two merges before
- * anyone noticed, because nothing exercised the wiring.
+ * passed `process.env.PI_SESSION_ID`, which pi's bash tool sets on a
+ * command it spawns after deleting any inherited value, so the variable
+ * exists for a child and never in pi itself. The argument was undefined
+ * every time, undefined means "no session to separate", and every
+ * session on the machine went on sharing one directory for two merges.
  *
- * So this asserts the wiring: run the extension against a pi that
- * reports a session the way pi reports one, and see where an attachment
- * lands.
+ * So this asserts the wiring rather than the seam, on pi's lifecycle
+ * API specifically, because the bus the handler used to sit on carries
+ * no context and never delivered the event at all.
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
@@ -19,58 +19,29 @@ import { readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { attachments } from "../../extensions/review-integration/engine.js";
 import type { ChangeRef } from "../../lib/review/index.js";
+import { activate } from "./support/review-extension.js";
 
 let root: string;
+let wasState: string | undefined;
 
 beforeEach(() => {
 	root = mkdtempSync(join(tmpdir(), "review-session-"));
+	wasState = process.env.XDG_STATE_HOME;
 	process.env.XDG_STATE_HOME = root;
-	// The variable the extension used to read. Set to something wrong on
-	// purpose: if it is ever consulted again, the attachment lands under
-	// this name and the assertion below says so.
+	// The variable the extension used to read. Wrong on purpose: if it
+	// is ever consulted again, the attachment lands under this name and
+	// the assertions below say so by name.
 	process.env.PI_SESSION_ID = "the-wrong-answer";
 });
 
 afterEach(() => {
 	delete process.env.PI_SESSION_ID;
-	delete process.env.XDG_STATE_HOME;
+	if (wasState === undefined) delete process.env.XDG_STATE_HOME;
+	else process.env.XDG_STATE_HOME = wasState;
 	rmSync(root, { recursive: true, force: true });
 });
-
-/**
- * A pi that records what was registered and answers anything else.
- *
- * Recursive, because an extension reaches through pi to plenty of
- * places on its way to the one thing under test, and none of those
- * journeys are what is being asserted.
- */
-function fakePi(handlers: Map<string, (event: unknown, ctx: unknown) => void>) {
-	const anything: unknown = new Proxy(() => {}, {
-		get: () => anything,
-		apply: () => anything,
-	});
-	const record = (name: string, h: (event: unknown, ctx: unknown) => void) => {
-		handlers.set(name, h);
-	};
-	return new Proxy(() => {}, {
-		get: (_target, prop) => {
-			// Both, because pi has two: a lifecycle API that hands a handler
-			// the context, and a bus that does not.
-			if (prop === "on") return record;
-			if (prop === "events")
-				return { on: record, emit: () => {}, off: () => {} };
-			return anything;
-		},
-		apply: () => anything,
-		// biome-ignore lint/suspicious/noExplicitAny: a stand-in for pi's whole surface
-	}) as any;
-}
-
-/** A context shaped the way pi shapes one, reporting this session. */
-function contextFor(sessionId: string): unknown {
-	return { sessionManager: { getSessionId: () => sessionId } };
-}
 
 function change(label: string): ChangeRef {
 	return {
@@ -81,51 +52,70 @@ function change(label: string): ChangeRef {
 	};
 }
 
+/** Where attachments land under the sandboxed state directory. */
+function attachedRoot(): string {
+	return join(root, "pi", "agentic-harness.pi", "review", "attached");
+}
+
+/** Tell the extension it is in this session, the way pi tells it. */
+function startSession(
+	stub: ReturnType<typeof activate>,
+	sessionId: string,
+): void {
+	const started = stub.lifecycle.get("session_start");
+	if (started === undefined) {
+		throw new Error("the extension registered no session_start on pi.on");
+	}
+	started(
+		{ reason: "startup" },
+		{ sessionManager: { getSessionId: () => sessionId } },
+	);
+}
+
 describe("the review extension", () => {
 	it("attaches under the session pi says it is in", async () => {
-		const handlers = new Map<string, (event: unknown, ctx: unknown) => void>();
-		const { default: reviewIntegration } = await import(
-			"../../extensions/review-integration/index.js"
-		);
-		const { attachments } = await import(
-			"../../extensions/review-integration/engine.js"
-		);
-
-		reviewIntegration(fakePi(handlers));
-		handlers.get("session_start")?.({ reason: "startup" }, contextFor("s-1"));
+		const stub = activate();
+		startSession(stub, "s-1");
 
 		await attachments().attach(change("owner/repo#1"));
 
-		const attachedRoot = join(
-			root,
-			"pi",
-			"agentic-harness.pi",
-			"review",
-			"attached",
-		);
-		expect(await readdir(attachedRoot)).toEqual(["s-1"]);
+		expect(await readdir(attachedRoot())).toEqual(["s-1"]);
 	});
 
 	it("keeps two sessions out of each other's way", async () => {
-		const handlers = new Map<string, (event: unknown, ctx: unknown) => void>();
-		const { default: reviewIntegration } = await import(
-			"../../extensions/review-integration/index.js"
-		);
-		const { attachments } = await import(
-			"../../extensions/review-integration/engine.js"
-		);
+		const stub = activate();
 
-		reviewIntegration(fakePi(handlers));
-
-		handlers.get("session_start")?.({ reason: "startup" }, contextFor("s-1"));
+		startSession(stub, "s-1");
 		await attachments().attach(change("owner/repo#1"));
 
-		// The same extension instance, told it is now a different session,
-		// which is what pi does on a resume or a fork.
-		handlers.get("session_start")?.({ reason: "resume" }, contextFor("s-2"));
+		// The same extension instance, told it is now a different
+		// session, which is what pi does on a resume or a fork.
+		startSession(stub, "s-2");
 		await attachments().attach(change("owner/repo#2"));
 
-		const mine = await attachments().list();
-		expect(mine.map((a) => a.change.label)).toEqual(["owner/repo#2"]);
+		// What the second session sees, and, just as much the point,
+		// that the first one still has what it attached. A reset that
+		// wiped, or an attach that cleared the root before writing,
+		// passes the first assertion and destroys the other session's
+		// work. The incident this fixes had both halves.
+		expect((await attachments().list()).map((a) => a.change.label)).toEqual([
+			"owner/repo#2",
+		]);
+		expect((await readdir(attachedRoot())).sort()).toEqual(["s-1", "s-2"]);
+	});
+
+	it("does not put a session with no name in with everyone else", async () => {
+		// A host that never starts a session, and an ephemeral one that
+		// has no id to give, both used to fall back to the shared
+		// directory, which is the arrangement that retargeted a live
+		// council. Anonymous is not the same as communal.
+		const stub = activate();
+		startSession(stub, "");
+
+		await attachments().attach(change("owner/repo#3"));
+
+		const [only] = await readdir(attachedRoot());
+		expect(only).not.toBe("the-wrong-answer");
+		expect(only).toMatch(/^process-/);
 	});
 });

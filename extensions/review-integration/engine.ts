@@ -38,17 +38,34 @@ export function attachmentDir(): string {
 /**
  * Which session is asking, so its attachments stay its own.
  *
- * Read from the environment rather than threaded through every call,
- * because every tool in this extension needs it and none of them
- * otherwise needs to know a session exists. Absent when pi did not say,
- * and the store then keeps its old undivided behaviour, which is right:
- * a caller with no session cannot be racing one.
+ * Held here rather than threaded through every call, because every tool
+ * in this extension needs it and none of them otherwise needs to know a
+ * session exists. Always answers something, so no two callers can share
+ * a directory by both having nothing to say.
  */
-export function sessionKey(): string | undefined {
+export function sessionKey(): string {
 	return inSession;
 }
 
-let inSession: string | undefined;
+/**
+ * Until pi says otherwise, this process.
+ *
+ * The store's flat fallback was justified by "a caller with no session
+ * cannot be racing one", which held while the value came from the
+ * environment and was fixed for the life of the process. It does not
+ * hold now that it arrives on an event: absent means either no session
+ * or not told yet, and the second resolves to exactly the shared
+ * directory that retargeted a live council. An ephemeral session, which
+ * has no id to give, lands there too.
+ *
+ * So anonymous is not communal. A name nobody else can hold costs one
+ * directory that the sweep will take back.
+ */
+let inSession = anonymous();
+
+function anonymous(): string {
+	return `process-${process.pid}`;
+}
 
 /**
  * Remember which session this is, as pi reports it.
@@ -65,8 +82,14 @@ let inSession: string | undefined;
  * stops answering for the first.
  */
 export function rememberSession(sessionId: string | undefined): void {
+	// A session that reports no id is pi saying there is none, which is
+	// not the same as pi not having said yet. Carrying the last name
+	// forward would write this session's work into the last one's
+	// directory, so it goes back to being anonymous instead.
 	inSession =
-		sessionId === undefined || sessionId.trim() === "" ? undefined : sessionId;
+		sessionId === undefined || sessionId.trim() === ""
+			? anonymous()
+			: sessionId;
 }
 
 /**

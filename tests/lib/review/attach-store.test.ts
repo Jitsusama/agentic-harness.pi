@@ -1,10 +1,11 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	type AttachmentStore,
 	createAttachmentStore,
+	pruneAttachments,
 } from "../../../lib/review/attach.js";
 import type { ChangeRef } from "../../../lib/review/change.js";
 
@@ -155,5 +156,66 @@ describe("createAttachmentStore", () => {
 		await store.attach(change("shop/world#2000970", "b"));
 
 		expect(await store.list()).toHaveLength(2);
+	});
+});
+
+describe("a session's directory does not outlive its usefulness", () => {
+	// Scoping per session means one directory per session, forever,
+	// unless something takes them back. This extension already decided
+	// that state accumulating per run needs a retention policy; the
+	// same reasoning applies to state accumulating per session.
+	let root: string;
+	const DAY = 24 * 60 * 60 * 1000;
+
+	beforeEach(async () => {
+		root = await mkdtemp(join(tmpdir(), "attach-prune-"));
+	});
+	afterEach(async () => {
+		await rm(root, { recursive: true, force: true });
+	});
+
+	/** A session that last attached something this long ago. */
+	async function sessionAged(id: string, ageMs: number): Promise<void> {
+		await createAttachmentStore(root, id).attach(change(`x#${id}`));
+		const when = new Date(Date.now() - ageMs);
+		await utimes(join(root, id), when, when);
+	}
+
+	it("gives back a directory nothing has touched in a long time", async () => {
+		await sessionAged("long-gone", 40 * DAY);
+		await sessionAged("yesterday", 1 * DAY);
+
+		const taken = await pruneAttachments(root, { olderThanMs: 30 * DAY });
+
+		expect(taken).toBe(1);
+		expect(await readdir(root)).toEqual(["yesterday"]);
+	});
+
+	it("never takes the caller's own, however it looks", async () => {
+		// A long-lived session is the one most worth keeping and the one
+		// an mtime rule is most likely to condemn, since it attached its
+		// work once and has been reading it ever since.
+		await sessionAged("mine", 90 * DAY);
+
+		const taken = await pruneAttachments(root, {
+			olderThanMs: 30 * DAY,
+			keep: "mine",
+		});
+
+		expect(taken).toBe(0);
+		expect(await readdir(root)).toEqual(["mine"]);
+	});
+
+	it("leaves what it does not understand alone", async () => {
+		// Everything attached before scoping existed sits flat in the
+		// root. It belongs to no session, so no session's rule should
+		// decide its fate, and deleting somebody's attachment to tidy up
+		// is a poor trade for the disk it returns.
+		await createAttachmentStore(root).attach(change("from/before#1"));
+
+		const taken = await pruneAttachments(root, { olderThanMs: 0 });
+
+		expect(taken).toBe(0);
+		expect((await readdir(root)).length).toBe(1);
 	});
 });

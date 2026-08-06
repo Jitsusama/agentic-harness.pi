@@ -16,6 +16,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	clearTargetBindings,
 	listReviewProviders,
+	pruneAttachments,
 	REVIEW_READY,
 	REVIEW_REGISTER_PROVIDER,
 	REVIEW_REQUEST_SUBSTRATE,
@@ -25,11 +26,13 @@ import {
 } from "../../lib/review/index.js";
 import { ReviewerArtifactsStore } from "../../lib/subagent/index.js";
 import {
+	attachmentDir,
 	forgetReviewEngine,
 	registerBuiltinReviewProviders,
 	rememberSession,
 	reviewEngine,
 	runArtifactDir,
+	sessionKey,
 } from "./engine.js";
 import { guardPublishes } from "./guard-publish.js";
 import {
@@ -74,6 +77,15 @@ const ROUNDS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const ROUNDS_ABANDONED_AFTER_MS = 4 * ROUNDS_MAX_AGE_MS;
 
 /**
+ * How long a session's attachments outlive the session.
+ *
+ * Generous, because the cost of keeping one is a few hundred bytes and
+ * the cost of taking it early is somebody's resumed session forgetting
+ * what it was working on. The sweep never touches the caller's own.
+ */
+const ATTACHMENTS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
  * Give back the disk that finished rounds are still holding.
  *
  * At session start rather than after a round, so a sweep never delays
@@ -86,6 +98,10 @@ async function reclaimRoundTranscripts(): Promise<void> {
 			maxRuns: ROUNDS_RETAIN,
 			maxAgeMs: ROUNDS_MAX_AGE_MS,
 			abandonedAfterMs: ROUNDS_ABANDONED_AFTER_MS,
+		});
+		await pruneAttachments(attachmentDir(), {
+			olderThanMs: ATTACHMENTS_MAX_AGE_MS,
+			keep: sessionKey(),
 		});
 	} catch {
 		// Advisory. A sweep that cannot run costs disk, and failing the

@@ -77,7 +77,11 @@ export default function workIntegration(pi: ExtensionAPI) {
 	});
 	pi.events.emit(WORK_READY, api);
 
-	pi.events.on("session_start", () => {
+	// On pi's lifecycle API, not the bus. The bus is for extensions to
+	// talk to each other and pi publishes no lifecycle event onto it, so
+	// this handler sat there and never ran once, and the guarantee the
+	// comment below states was not being provided at all.
+	pi.on("session_start", () => {
 		// A new session must not inherit the last one's providers or
 		// its broker: the trees on disk outlive the session, but which
 		// provider would be chosen for one is a question of the
