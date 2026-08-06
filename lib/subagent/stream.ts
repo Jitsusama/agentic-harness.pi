@@ -1,3 +1,9 @@
+import {
+	assistantMessage,
+	isFinishedMessage,
+	textOf,
+	usageOf,
+} from "./runpi/assistant.mjs";
 import type {
 	ReviewerUsage,
 	ReviewerVerification,
@@ -139,10 +145,10 @@ export class ReviewerStreamParser {
 	}
 
 	private captureAssistantMessage(event: unknown): void {
-		const message = readAssistantMessage(event);
+		const message = assistantMessage(event);
 		if (message === null) return;
-		const text = readTextContent(message);
-		const usage = readUsage(message);
+		const text = textOf(message);
+		const usage = usageOf(message);
 
 		// A turn's usage is a running total, not an increment, so a
 		// partial's is held rather than added: held it can be replaced by
@@ -151,7 +157,7 @@ export class ReviewerStreamParser {
 		// is the opposite mistake and bills a stopped reviewer's longest
 		// turn at nothing, which deletes the number that made this whole
 		// class of failure visible.
-		if (!isFinished(event)) {
+		if (!isFinishedMessage(event)) {
 			if (text !== null) this.pendingText = this.truncateAssistantText(text);
 			if (usage !== undefined) this.pendingUsage = usage;
 			return;
@@ -320,106 +326,13 @@ function isString(value: unknown): value is string {
 	return typeof value === "string";
 }
 
-/**
- * The assistant message an event carries, finished or not.
- *
- * A finished message arrives as `message_end`. A message still being
- * written arrives as `message_update`, carrying the whole of itself so
- * far under `partial`, and a run cut off at its budget never sends
- * anything else: watching only for the end reports nothing for a
- * reviewer that was most of the way through its answer.
- *
- * Reading both means the text is whatever was last seen, complete or
- * not. A partial cannot overwrite a finished answer with less, because
- * a message that has not reached its text yet carries no text to
- * overwrite it with.
- */
-function readAssistantMessage(event: unknown): Record<string, unknown> | null {
-	if (typeof event !== "object" || event === null) return null;
-	const e = event as Record<string, unknown>;
-	const message = e.type === "message_end" ? e.message : streamedPart(e);
-	if (typeof message !== "object" || message === null) return null;
-	const m = message as Record<string, unknown>;
-	if (m.role !== "assistant") return null;
-	return m;
-}
-
-/** Whether this event carries a message that is done. */
-function isFinished(event: unknown): boolean {
-	return (
-		typeof event === "object" &&
-		event !== null &&
-		(event as Record<string, unknown>).type === "message_end"
-	);
-}
-
-/** The message so far, off an update event. */
-function streamedPart(event: Record<string, unknown>): unknown {
-	if (event.type !== "message_update") return null;
-	const streamed = event.assistantMessageEvent;
-	if (typeof streamed !== "object" || streamed === null) return null;
-	return (streamed as Record<string, unknown>).partial;
-}
-
-function readTextContent(message: Record<string, unknown>): string | null {
-	if (!Array.isArray(message.content)) return null;
-	const textParts: string[] = [];
-	for (const part of message.content) {
-		if (typeof part !== "object" || part === null) continue;
-		const p = part as Record<string, unknown>;
-		if (p.type === "text" && typeof p.text === "string") {
-			textParts.push(p.text);
-		}
-	}
-	return textParts.length === 0 ? null : textParts.join("\n");
-}
-
-function readUsage(
-	message: Record<string, unknown>,
-): ReviewerUsage | undefined {
-	const usage = message.usage;
-	if (typeof usage !== "object" || usage === null) return undefined;
-	const u = usage as Record<string, unknown>;
-	const costRaw = u.cost;
-	const cost =
-		typeof costRaw === "object" && costRaw !== null
-			? (costRaw as Record<string, unknown>)
-			: {};
-	const input = readNumber(u.input ?? u.input_tokens);
-	const output = readNumber(u.output ?? u.output_tokens);
-	const cacheRead = readNumber(u.cacheRead ?? u.cache_read_input_tokens);
-	const cacheWrite = readNumber(u.cacheWrite ?? u.cache_creation_input_tokens);
-	const costInput = readNumber(cost.input);
-	const costOutput = readNumber(cost.output);
-	const costCacheRead = readNumber(cost.cacheRead);
-	const costCacheWrite = readNumber(cost.cacheWrite);
-	return {
-		tokens: {
-			input,
-			output,
-			cacheRead,
-			cacheWrite,
-			total:
-				readNumber(u.totalTokens) || input + output + cacheRead + cacheWrite,
-		},
-		cost: {
-			input: costInput,
-			output: costOutput,
-			cacheRead: costCacheRead,
-			cacheWrite: costCacheWrite,
-			// Mirror the token total: fall back to the sum of the
-			// per-channel costs when no explicit total is reported,
-			// rather than dropping a turn's cost to zero.
-			total:
-				readNumber(cost.total ?? u.cost_usd) ||
-				costInput + costOutput + costCacheRead + costCacheWrite,
-		},
-	};
-}
-
-function readNumber(value: unknown): number {
-	return typeof value === "number" && Number.isFinite(value) ? value : 0;
-}
+// What an assistant message is, what it said and what it cost are
+// read by the shared module in runpi, because the supervisor script
+// reads the same stream and cannot import TypeScript. These were two
+// implementations, line for line the same, and the two callers are the
+// live path and the recovery path: a disagreement means a round read
+// one way while it ran and another way when it was collected, with
+// nothing to notice, since each side agrees with itself.
 
 /**
  * Add one turn's usage onto the running total. A subagent

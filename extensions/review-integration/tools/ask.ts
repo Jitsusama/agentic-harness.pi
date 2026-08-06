@@ -101,6 +101,7 @@ import { GLYPH } from "../render.js";
 import {
 	answerFromReviewer,
 	answerLeftBehind,
+	archivedAnswer,
 	heldByLiveSupervisor,
 	keepAnswer,
 	reviewerRunner,
@@ -512,7 +513,12 @@ async function collectOne(
 		// writing today's into the stop would record a limit the run
 		// never hit and then refuse the retry that raising it was for.
 		const left = await answerLeftBehind(artifacts, held.id, participant.id);
-		if (left.kind === "answer") answers.set(participant.id, left.answer);
+		if (left.kind === "answer") {
+			answers.set(
+				participant.id,
+				await archivedAnswer(answerDir(), held, participant.id, left.answer),
+			);
+		}
 		if (left.kind === "unreadable") {
 			unreadable.push(`${participant.id}: ${left.why}`);
 		}
