@@ -19,6 +19,7 @@ import { join } from "node:path";
 import type { AskAnswer, AskLimit, AskStop } from "../../lib/review/index.js";
 import type {
 	PiInstall,
+	ReviewerArtifactsStore,
 	ReviewerTerminalState,
 	RunPi,
 	RunReviewerResult,
@@ -124,6 +125,58 @@ export async function keepAnswer(
 function safeSegment(name: string): string {
 	const safe = name.replace(/[^A-Za-z0-9._-]/g, "_").replace(/^\.+/, "_");
 	return safe === "" ? "_" : safe;
+}
+
+/**
+ * What one reviewer left behind, read back as an answer.
+ *
+ * The whole point of a round writing itself down before it asks
+ * anybody: a session that died holding a council left every reviewer's
+ * work here, and until now nothing could turn it back into findings.
+ *
+ * Reads `result.json` and nothing else, which is what makes this
+ * cheap and what keeps it honest. The supervisor already folded the
+ * reviewer's journal and its journal warnings into that file, so
+ * collecting needs no second reader of the journal: a second one
+ * would drift from the first, and this package has paid for that
+ * mistake once already.
+ */
+export async function answerLeftBehind(
+	store: ReviewerArtifactsStore,
+	runId: string,
+	participantId: string,
+	budget?: { timeoutMs: number; idleTimeoutMs: number },
+): Promise<AskAnswer | undefined> {
+	const { resultPath } = store.paths(runId, participantId);
+	const result = await store.readJson<Partial<RunReviewerResult>>(resultPath);
+	if (result === null) return undefined;
+	return answerFromReviewer(whole(result, participantId), budget);
+}
+
+/**
+ * A result file, made to keep the promises the type makes.
+ *
+ * Read as `Partial` and filled, rather than asserted whole. The file
+ * was written by a different process, possibly a different version of
+ * it, possibly while being killed, and a cast is a claim about
+ * something none of that can be asked to honour. Asserted whole, a
+ * missing warnings list is not a wrong answer but a thrown one, in the
+ * middle of recovering the work a round already paid for.
+ */
+function whole(
+	read: Partial<RunReviewerResult>,
+	participantId: string,
+): RunReviewerResult {
+	return {
+		...read,
+		reviewerId: read.reviewerId ?? participantId,
+		exitCode: read.exitCode ?? 0,
+		finalAssistantText: read.finalAssistantText ?? "",
+		// The supervised runner writes a stderr tail rather than this,
+		// so a result file legitimately has no stderr at all.
+		stderr: read.stderr ?? "",
+		warnings: [...(read.warnings ?? [])],
+	};
 }
 
 /**

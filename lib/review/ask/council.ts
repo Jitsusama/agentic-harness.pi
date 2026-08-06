@@ -270,6 +270,8 @@ export async function runCouncil(
 	const participants: ParticipantIdentity[] = request.roster.reviewers.map(
 		(participant) => participantIdentity("reviewer", participant),
 	);
+	const witnessed =
+		request.witness === undefined ? {} : { witness: request.witness };
 
 	// Written down before anything is asked, because everything after
 	// this line costs money and takes minutes, and until now the round
@@ -293,6 +295,7 @@ export async function runCouncil(
 			participants,
 			outcomes: [],
 			open: true,
+			...witnessed,
 		});
 	} catch {
 		// Nothing to say to: the round has not started, so there is no
@@ -326,6 +329,7 @@ export async function runCouncil(
 			startedAt: startedAt.toISOString(),
 			participants,
 			outcomes,
+			...witnessed,
 			// No `open`, which is what settles it: the field is present
 			// only while a round is unfinished.
 		},
@@ -413,11 +417,20 @@ export function stopWarning(
 const CUT_OFF =
 	" Its answer was cut off mid-entry, so what it was writing when it stopped is gone and there is no telling how much more there would have been.";
 
-/** Harvest one reply, record what it held, and say how it went. */
-async function recordReply(
+/**
+ * Harvest one reply, record what it held, and say how it went.
+ *
+ * Shared with collecting a round afterwards rather than written
+ * twice, because this is the part with the rules in it: reading a
+ * fragment against a wrap-up, folding in what was recorded, and
+ * deciding which warnings belong to the reviewer rather than to our
+ * deadline. A collected answer is the same answer arriving late, and
+ * a second copy of these rules would drift from this one.
+ */
+export async function recordReply(
 	reply: Reply,
 	run: { runId: string; witness?: string },
-	deps: CouncilDeps,
+	deps: Pick<CouncilDeps, "record">,
 	warnings: string[],
 ): Promise<ParticipantOutcome> {
 	const { participant, answer } = reply;

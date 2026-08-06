@@ -44,6 +44,7 @@ export type {
 	ThreadAudit,
 } from "./ask/audit.js";
 export { harvestAudits, runAudit } from "./ask/audit.js";
+export { type CollectDeps, collectRound } from "./ask/collect.js";
 export type {
 	Ask,
 	AskAnswer,

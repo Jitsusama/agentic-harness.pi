@@ -90,6 +90,16 @@ export interface AskRun {
 	 * that says to go looking.
 	 */
 	open?: true;
+	/**
+	 * What the reviewers were reading, when the round pinned one.
+	 *
+	 * Written down because an interrupted round is collected from
+	 * disk afterwards, and a finding harvested then has to anchor
+	 * exactly as it would have live. Everything else a collect needs
+	 * is in the reviewer's own answer; this is not, so a round that
+	 * did not record it cannot be collected faithfully.
+	 */
+	witness?: string;
 }
 
 /** How a run went, in counts. */
