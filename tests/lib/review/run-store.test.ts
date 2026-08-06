@@ -35,6 +35,55 @@ describe("keeping runs per change", () => {
 		rmSync(root, { recursive: true, force: true });
 	});
 
+	describe("keeping a round however it got here", () => {
+		// A round is now written twice: once when it opens, before it
+		// has asked anybody, and once when it settles. Two calls with
+		// two meanings would mean deciding at each site which one this
+		// is, and getting that wrong either duplicates the round or
+		// throws away a finished one.
+		it("adds a round it has not seen", async () => {
+			const store = createRunStore(root);
+
+			await store.keep(change, run({ outcomes: [] }));
+
+			expect(await store.list(change)).toHaveLength(1);
+		});
+
+		it("replaces the one it has, rather than holding both", async () => {
+			const store = createRunStore(root);
+			await store.keep(change, run({ outcomes: [] }));
+
+			await store.keep(change, run({ settledAt: "2026-07-30T00:10:00.000Z" }));
+
+			const held = await store.list(change);
+			expect(held).toHaveLength(1);
+			expect(held[0].settledAt).toBe("2026-07-30T00:10:00.000Z");
+			expect(held[0].outcomes).toHaveLength(1);
+		});
+
+		it("keeps a finished round even when the opening write never landed", async () => {
+			// The failure this exists to prevent. The opening write is
+			// best-effort, because bookkeeping must not cost a round; if
+			// settling were a replace, a failed open would turn the end of
+			// a fifteen-minute council into an exception and lose the lot.
+			const store = createRunStore(root);
+
+			await store.keep(change, run({ settledAt: "2026-07-30T00:10:00.000Z" }));
+
+			expect(await store.list(change)).toHaveLength(1);
+		});
+
+		it("leaves other changes alone", async () => {
+			const store = createRunStore(root);
+			await store.keep(other, run());
+
+			await store.keep(change, run());
+
+			expect(await store.list(other)).toHaveLength(1);
+			expect(await store.list(change)).toHaveLength(1);
+		});
+	});
+
 	it("has nothing to report about a change nobody has reviewed", async () => {
 		// Absence is an answer, not a failure: a fresh change simply has
 		// no rounds behind it.

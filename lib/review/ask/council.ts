@@ -152,6 +152,16 @@ export interface CouncilDeps {
 	/** Put findings on the change, numbering them as they land. */
 	record(findings: Omit<Finding, "id">[]): Promise<Finding[]>;
 	now(): Date;
+	/**
+	 * The round exists and nobody has been asked yet.
+	 *
+	 * Called once, before the first reviewer is dispatched, so a
+	 * caller that keeps a ledger can write the round down before it
+	 * becomes expensive rather than after it has already paid.
+	 * Optional, because a round is worth more than the bookkeeping
+	 * around it and most callers keep no ledger at all.
+	 */
+	opened?(run: AskRun): Promise<void>;
 	/** Told what is happening while it happens. Optional. */
 	progress?: AskProgress;
 }
@@ -257,6 +267,23 @@ export async function runCouncil(
 	const round = request.round ?? "council";
 	const startedAt = deps.now();
 	const id = newRunId(round, startedAt, request.seq);
+	const participants: ParticipantIdentity[] = request.roster.reviewers.map(
+		(participant) => participantIdentity("reviewer", participant),
+	);
+
+	// Written down before anything is asked, because everything after
+	// this line costs money and takes minutes, and until now the round
+	// was recorded only once it was over. A session that died halfway
+	// through left seven reviewer directories on disk and nothing
+	// saying which change they belonged to or that they were ever a
+	// round.
+	await deps.opened?.({
+		id,
+		round,
+		startedAt: startedAt.toISOString(),
+		participants,
+		outcomes: [],
+	});
 
 	const replies = await askRoster(request.roster, request.prompt, id, deps);
 
@@ -277,10 +304,6 @@ export async function runCouncil(
 		deps.progress,
 	);
 
-	const participants: ParticipantIdentity[] = request.roster.reviewers.map(
-		(participant) => participantIdentity("reviewer", participant),
-	);
-
 	return {
 		run: {
 			id,
@@ -288,6 +311,9 @@ export async function runCouncil(
 			startedAt: startedAt.toISOString(),
 			participants,
 			outcomes,
+			// Read once, not twice. Asking the clock again here would
+			// make the settled time drift from the outcomes it settles.
+			settledAt: deps.now().toISOString(),
 		},
 		warnings,
 	};

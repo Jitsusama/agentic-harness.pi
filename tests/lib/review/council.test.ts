@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type {
 	AskAnswer,
+	AskRun,
 	CouncilDeps,
 	Finding,
 	Participant,
@@ -69,6 +70,75 @@ function deps(
 		now: () => new Date("2026-07-30T00:00:00.000Z"),
 	};
 }
+
+describe("a round on the ledger before it costs anything", () => {
+	// A council was written down only once it finished, so a session
+	// that died mid-round left no record that it had ever run: not the
+	// participants, not the round, not the change. The most expensive
+	// thing here was the only thing nothing wrote down until it was
+	// over.
+	it("opens the round before it asks anybody", async () => {
+		const order: string[] = [];
+		const opened: AskRun[] = [];
+		const asked: string[] = [];
+		const base = deps(
+			{ hawk: { text: said("a") }, owl: { text: said("b") } },
+			{ asked },
+		);
+
+		await runCouncil(
+			{ roster, prompt: "p", seq: 1 },
+			{
+				...base,
+				async ask(participant, prompt, context) {
+					order.push(`ask:${participant.id}`);
+					return await base.ask(participant, prompt, context);
+				},
+				async opened(run) {
+					order.push("opened");
+					opened.push(run);
+				},
+			},
+		);
+
+		expect(order[0]).toBe("opened");
+		expect(opened).toHaveLength(1);
+		// Enough to find the work again: which round, which id the
+		// artifacts on disk are filed under, and who was asked.
+		expect(opened[0].round).toBe("council");
+		expect(opened[0].id).toMatch(/^council-/);
+		expect(opened[0].participants.map((one) => one.id).sort()).toEqual([
+			"hawk",
+			"owl",
+		]);
+		// Nothing has answered yet, and the record must not pretend
+		// otherwise.
+		expect(opened[0].outcomes).toEqual([]);
+		expect(opened[0].settledAt).toBeUndefined();
+	});
+
+	it("marks it settled once it is over", async () => {
+		const { run } = await runCouncil(
+			{ roster, prompt: "p", seq: 1 },
+			deps({ hawk: { text: said("a") }, owl: { text: said("b") } }),
+		);
+
+		// The one thing that tells a finished round from an abandoned
+		// one, now that both are written down.
+		expect(run.settledAt).toBe("2026-07-30T00:00:00.000Z");
+	});
+
+	it("runs the round even when nothing is listening for it", async () => {
+		// Every existing caller passes no `opened`, and a round is worth
+		// more than the bookkeeping around it.
+		const { run } = await runCouncil(
+			{ roster, prompt: "p", seq: 1 },
+			deps({ hawk: { text: said("a") }, owl: { text: said("b") } }),
+		);
+
+		expect(run.outcomes).toHaveLength(2);
+	});
+});
 
 describe("fanning a roster out", () => {
 	it("asks everybody on it", async () => {

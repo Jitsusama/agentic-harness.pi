@@ -30,6 +30,23 @@ export interface RunStore {
 	byId(change: ChangeRef, runId: string): Promise<AskRun | undefined>;
 	/** Swap a round for a new version of itself, in place. */
 	replace(change: ChangeRef, run: AskRun): Promise<void>;
+	/**
+	 * Hold this version of a round, whether or not one is held.
+	 *
+	 * A round is written down twice: once when it opens, before it has
+	 * asked anybody, and once when it settles. Both are this call,
+	 * rather than a record and then a replace, so neither site has to
+	 * know whether the other one happened. It matters because the
+	 * opening write is best-effort: bookkeeping must not cost a round,
+	 * and if settling were a replace, an opening write that failed
+	 * would turn the end of a long council into an exception and throw
+	 * away everything it found.
+	 *
+	 * Distinct from `replace`, which refuses a round it has never seen
+	 * on purpose: a retry patching a round that does not exist has
+	 * invented one, and should say so rather than quietly adding it.
+	 */
+	keep(change: ChangeRef, run: AskRun): Promise<void>;
 }
 
 /** What one change's file holds. */
@@ -87,6 +104,16 @@ export function createRunStore(root: string): RunStore {
 			return (await read(change)).runs.find((r) => r.id === runId);
 		},
 
+		async keep(change, run) {
+			const ledger = await read(change);
+			const at = ledger.runs.findIndex((held) => held.id === run.id);
+			await write(change, {
+				runs:
+					at === -1
+						? [...ledger.runs, run]
+						: ledger.runs.map((held, index) => (index === at ? run : held)),
+			});
+		},
 		async replace(change, run) {
 			const ledger = await read(change);
 			const at = ledger.runs.findIndex((held) => held.id === run.id);

@@ -337,7 +337,10 @@ async function askCouncil(
 		deps(change, tree.path, watch, charters),
 	);
 
-	await createRunStore(runDir()).record(change, run);
+	// The same call `opened` made. Replacing would throw if the opening
+	// write had failed, which would end a finished council in an
+	// exception and lose everything it found to a bookkeeping error.
+	await createRunStore(runDir()).keep(change, run);
 	return say(answerFor(run, warnings, tree.caveat), { run, warnings });
 }
 
@@ -803,7 +806,7 @@ async function retryOne(
 						seq: 1,
 						...witness,
 					},
-					deps(change, tree.path, watch, charters),
+					substituting(deps(change, tree.path, watch, charters)),
 				);
 
 	const outcome = fresh.outcomes[0];
@@ -1191,11 +1194,42 @@ function deps(
 			return findings.record(change, raised);
 		},
 		now: () => new Date(),
+		// Written down before the first reviewer is dispatched, so the
+		// most expensive thing this tool does stops being the one thing
+		// nothing records until it is over. Recorded rather than
+		// replaced, since at this point the round is new.
+		async opened(run: AskRun) {
+			try {
+				await createRunStore(runDir()).keep(change, run);
+			} catch {
+				// Bookkeeping must not cost the round. A ledger that could
+				// not be written is worth less than seven reviews, and the
+				// settled write at the end will say so again anyway.
+			}
+		},
 		// Every round reports. A round that fans out and says nothing for
 		// minutes is indistinguishable from one that has hung, which is
 		// the whole reason this exists.
 		progress: watch.progress,
 	};
+}
+
+/**
+ * The same dependencies, for a round that is not a new round.
+ *
+ * A retry runs one participant through the council path to substitute
+ * its outcome into a round that already exists. That path now opens a
+ * ledger entry before it asks, which is right for a council and wrong
+ * here: it would leave a one-participant round on the ledger that
+ * nothing ever settles, and an unsettled round is precisely the signal
+ * meaning a session died holding one. The retry would manufacture the
+ * alarm it is meant to help answer.
+ */
+function substituting<T extends { opened?: unknown }>(
+	deps: T,
+): Omit<T, "opened"> {
+	const { opened: _discarded, ...rest } = deps;
+	return rest;
 }
 
 /**
@@ -1245,7 +1279,15 @@ function renderFindings(findings: Finding[]): string {
 function describeRun(run: AskRun): string {
 	const summary = runSummary(run);
 	const failed = summary.failed > 0 ? `, ${summary.failed} failed` : "";
-	const head = `${run.id}: ${summary.answered}/${summary.asked} answered${failed}, ${count(summary.findings, "finding")}`;
+	// A round is written down before it asks anybody, so one with no
+	// settled time is one whose session died holding it. Said plainly,
+	// because the reviewers' own answers are still on disk under this
+	// id and this line is the only thing that says to go looking.
+	const abandoned =
+		run.settledAt === undefined
+			? ", never finished: the session holding it ended first"
+			: "";
+	const head = `${run.id}: ${summary.answered}/${summary.asked} answered${failed}, ${count(summary.findings, "finding")}${abandoned}`;
 	// A stopped reviewer's answer was being recorded and never shown,
 	// which is most of the way to losing it: the path is only useful to
 	// somebody who knows to look for it.

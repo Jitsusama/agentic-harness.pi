@@ -72,6 +72,15 @@ export interface AskRun {
 	participants: ParticipantIdentity[];
 	/** What came back. May be shorter than the roster mid-run. */
 	outcomes: ParticipantOutcome[];
+	/**
+	 * When the round finished, however it finished.
+	 *
+	 * Absent means it never did. A round is written down before it
+	 * asks anybody, so an entry with no settled time is one whose
+	 * session died holding it: the reviewers' answers may still be on
+	 * disk, and this is the only thing that says to go looking.
+	 */
+	settledAt?: string;
 }
 
 /** How a run went, in counts. */
