@@ -55,7 +55,21 @@ export {
 	type ResolvePiInstallDeps,
 	resolveParentPiInstall,
 } from "./install.js";
+export type {
+	LeaseRecord,
+	ProcessFacts,
+	SupervisorStanding,
+} from "./lease.js";
 export {
+	HEARTBEAT_STALE_MS,
+	SAME_PROCESS_MS,
+	sameProcess,
+	supervisorStanding,
+	systemFacts,
+} from "./lease.js";
+export {
+	type ReapedReviewerChild,
+	type ReaperDeps,
 	type RecoveredReviewerProgress,
 	type RecoveredReviewerResult,
 	type RecoverySummary,
@@ -111,10 +125,15 @@ export {
 	// would decide differently about which answer is the real one.
 	mergeResumeOutcome,
 	mergeWrapUpOutcome,
+	// The same reason: a caller reading a stopped reviewer's work off
+	// disk has to look in all three of its directories, and a second
+	// spelling of the suffixes is a second answer to where they are.
+	RESUME_SUFFIX,
 	runFleet,
 	runReviewer,
 	runSubagent,
 	startReviewer,
 	VERIFY_TOOL_NAME,
 	verifyProtocolInstruction,
+	WRAP_UP_SUFFIX,
 } from "./subagent.js";

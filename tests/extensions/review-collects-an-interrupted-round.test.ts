@@ -22,7 +22,11 @@ import {
 } from "../../extensions/review-integration/reviewer.js";
 import type { AskAnswer, AskRun, Finding } from "../../lib/review/index.js";
 import { collectRound } from "../../lib/review/index.js";
-import { ReviewerArtifactsStore } from "../../lib/subagent/index.js";
+import type { ProcessFacts } from "../../lib/subagent/index.js";
+import {
+	ReviewerArtifactsStore,
+	WRAP_UP_SUFFIX,
+} from "../../lib/subagent/index.js";
 
 let root: string;
 
@@ -247,48 +251,176 @@ describe("heldByLiveSupervisor", () => {
 	}
 
 	const NOW = Date.parse("2026-08-06T12:00:00.000Z");
+	const PID = 4242;
+	const BORN = NOW - 5 * 60_000;
 
-	it("holds a round whose supervisor is beating", async () => {
+	/** A machine wearing exactly one pid, which answers about that one. */
+	function machine(options: {
+		alive?: boolean;
+		startedAt?: number | undefined;
+	}): ProcessFacts {
+		return {
+			alive: (pid) => pid === PID && options.alive !== false,
+			startedAt: async (pid) => (pid === PID ? options.startedAt : undefined),
+		};
+	}
+
+	it("holds a round whose supervisor is the one the lease named", async () => {
 		// Collecting under a live session files the findings of whoever
 		// finished, then that session files them all again.
 		const store = new ReviewerArtifactsStore(root);
 		lease(store, "hawk", {
-			supervisorPid: process.pid,
+			supervisorPid: PID,
+			supervisorStartedAt: BORN,
 			updatedAt: new Date(NOW - 2_000).toISOString(),
 		});
 
-		expect(await heldByLiveSupervisor(store, RUN, ["hawk"], NOW)).toMatchObject(
-			{ reviewerId: "hawk", pid: process.pid },
-		);
+		expect(
+			await heldByLiveSupervisor(
+				store,
+				RUN,
+				["hawk"],
+				machine({ startedAt: BORN }),
+				NOW,
+			),
+		).toMatchObject({ reviewerId: "hawk", pid: PID });
 	});
 
-	it("releases a round whose lease stopped being renewed", async () => {
-		// The case that made this a heartbeat rather than a pid check.
-		// Nothing deletes a lease, so a finished supervisor leaves one
-		// naming its pid; when the machine hands that number to anything
-		// else, a pid check refuses the collect forever and waiting does
-		// not help, because nothing will ever write the lease again.
+	it("holds a round whose supervisor is wedged rather than gone", async () => {
+		// The direction a heartbeat alone gets wrong. This supervisor has
+		// not written for ten minutes and is still, provably, the process
+		// the lease was written about: collecting out from under it is
+		// the expensive mistake, so identity outranks silence.
 		const store = new ReviewerArtifactsStore(root);
 		lease(store, "hawk", {
-			supervisorPid: process.pid,
+			supervisorPid: PID,
+			supervisorStartedAt: BORN,
 			updatedAt: new Date(NOW - 10 * 60_000).toISOString(),
 		});
 
 		expect(
-			await heldByLiveSupervisor(store, RUN, ["hawk"], NOW),
+			await heldByLiveSupervisor(
+				store,
+				RUN,
+				["hawk"],
+				machine({ startedAt: BORN }),
+				NOW,
+			),
+		).toMatchObject({ reviewerId: "hawk" });
+	});
+
+	it("releases a round whose pid the machine reissued", async () => {
+		// The case that stopped this being a pid check. Nothing deletes a
+		// lease, so a finished supervisor leaves one naming its number;
+		// when the machine hands that number out again, a pid check
+		// refuses the collect forever, and waiting does not help because
+		// nothing will write that lease again.
+		const store = new ReviewerArtifactsStore(root);
+		lease(store, "hawk", {
+			supervisorPid: PID,
+			supervisorStartedAt: BORN,
+			updatedAt: new Date(NOW - 2_000).toISOString(),
+		});
+
+		expect(
+			await heldByLiveSupervisor(
+				store,
+				RUN,
+				["hawk"],
+				machine({ startedAt: NOW - 1_000 }),
+				NOW,
+			),
 		).toBeUndefined();
+	});
+
+	it("releases a round whose supervisor pid nothing is wearing", async () => {
+		// The pid check on its own, with everything else pointing the
+		// other way: fresh heartbeat, matching birth.
+		const store = new ReviewerArtifactsStore(root);
+		lease(store, "hawk", {
+			supervisorPid: PID,
+			supervisorStartedAt: BORN,
+			updatedAt: new Date(NOW).toISOString(),
+		});
+
+		expect(
+			await heldByLiveSupervisor(
+				store,
+				RUN,
+				["hawk"],
+				machine({ alive: false, startedAt: BORN }),
+				NOW,
+			),
+		).toBeUndefined();
+	});
+
+	it("falls back to the heartbeat when nothing can identify a process", async () => {
+		// A machine with no ps. The fallback fails open, so this pins the
+		// one direction that matters: a lease nobody has renewed in ten
+		// minutes stops holding the round.
+		const store = new ReviewerArtifactsStore(root);
+		lease(store, "hawk", {
+			supervisorPid: PID,
+			supervisorStartedAt: BORN,
+			updatedAt: new Date(NOW - 10 * 60_000).toISOString(),
+		});
+
+		expect(
+			await heldByLiveSupervisor(
+				store,
+				RUN,
+				["hawk"],
+				machine({ startedAt: undefined }),
+				NOW,
+			),
+		).toBeUndefined();
+	});
+
+	it("holds a round whose only live lease is a wrap-up", async () => {
+		// A wrap-up is a supervised run of its own, under its own id, and
+		// it is the last thing still writing in a round that is nearly
+		// over. Asking only the roster's ids reads no live lease and
+		// calls the round free at the exact moment it is not.
+		const store = new ReviewerArtifactsStore(root);
+		lease(store, "hawk", {
+			supervisorPid: PID,
+			supervisorStartedAt: BORN,
+			completedAt: new Date(NOW).toISOString(),
+		});
+		lease(store, `hawk${WRAP_UP_SUFFIX}`, {
+			supervisorPid: PID,
+			supervisorStartedAt: BORN,
+			updatedAt: new Date(NOW).toISOString(),
+		});
+
+		expect(
+			await heldByLiveSupervisor(
+				store,
+				RUN,
+				["hawk"],
+				machine({ startedAt: BORN }),
+				NOW,
+			),
+		).toMatchObject({ reviewerId: `hawk${WRAP_UP_SUFFIX}` });
 	});
 
 	it("releases a round whose supervisor said it had finished", async () => {
 		const store = new ReviewerArtifactsStore(root);
 		lease(store, "hawk", {
-			supervisorPid: process.pid,
+			supervisorPid: PID,
+			supervisorStartedAt: BORN,
 			updatedAt: new Date(NOW).toISOString(),
 			completedAt: new Date(NOW).toISOString(),
 		});
 
 		expect(
-			await heldByLiveSupervisor(store, RUN, ["hawk"], NOW),
+			await heldByLiveSupervisor(
+				store,
+				RUN,
+				["hawk"],
+				machine({ startedAt: BORN }),
+				NOW,
+			),
 		).toBeUndefined();
 	});
 
@@ -296,7 +428,13 @@ describe("heldByLiveSupervisor", () => {
 		const store = new ReviewerArtifactsStore(root);
 
 		expect(
-			await heldByLiveSupervisor(store, RUN, ["hawk"], NOW),
+			await heldByLiveSupervisor(
+				store,
+				RUN,
+				["hawk"],
+				machine({ startedAt: BORN }),
+				NOW,
+			),
 		).toBeUndefined();
 	});
 });

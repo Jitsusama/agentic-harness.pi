@@ -300,7 +300,16 @@ function readFinding(
 		return undefined;
 	}
 
-	const subject = wireText(entry.subject);
+	// `title` and `body` are read as well, because a reviewer writing a
+	// finding down under pressure reaches for the words it already
+	// knows. Measured: one council lost twelve findings from a single
+	// reviewer, every one of them well formed, because it said `title`
+	// where the contract says `subject`. They were the sharpest
+	// findings in the round. The contract is still the contract, and
+	// this is the same bargain the label and the location already
+	// strike: a finding is dropped when it says nothing, never when it
+	// said something under a name we did not expect.
+	const subject = wireText(entry.subject) ?? wireText(entry.title);
 	if (subject === undefined) {
 		warnings.push(`${at} has no subject, so it was dropped.`);
 		return undefined;
@@ -313,7 +322,10 @@ function readFinding(
 		anchor,
 		label,
 		subject,
-		discussion: discussionWith(wireText(entry.discussion) ?? "", given),
+		discussion: discussionWith(
+			wireText(entry.discussion) ?? wireText(entry.body) ?? "",
+			given,
+		),
 		origin,
 		...readSeverity(entry.severity, at, warnings),
 		...readConfidence(entry.confidence, at, warnings),
@@ -348,7 +360,10 @@ function readAnchor(
 	const kind = wireText(value.kind);
 	if (kind === "global") return { subject: "change", ...stamp };
 
-	const path = wireText(value.file);
+	// `path` alongside `file`, for the same reason `line` is read
+	// alongside `start` two branches down: it is the word a reviewer
+	// reaches for, and the anchor this produces calls it `path`.
+	const path = wireText(value.file) ?? wireText(value.path);
 	if (kind === "file") {
 		if (path === undefined) {
 			warnings.push(

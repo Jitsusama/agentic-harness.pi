@@ -19,6 +19,7 @@ import { join } from "node:path";
 import type { AskAnswer, AskLimit, AskStop } from "../../lib/review/index.js";
 import type {
 	PiInstall,
+	ProcessFacts,
 	ReviewerArtifactsStore,
 	ReviewerTerminalState,
 	RunPi,
@@ -27,6 +28,10 @@ import type {
 import {
 	mergeResumeOutcome,
 	mergeWrapUpOutcome,
+	RESUME_SUFFIX,
+	supervisorStanding,
+	systemFacts,
+	WRAP_UP_SUFFIX,
 } from "../../lib/subagent/index.js";
 import {
 	createSupervisorRunPi,
@@ -147,17 +152,6 @@ function safeSegment(name: string): string {
 }
 
 /**
- * How stale a lease may be before its supervisor is presumed gone.
- *
- * The heartbeat is a second, so this is sixty missed beats. Generous
- * because the cost of being early is refusing to collect a round
- * nobody is running, and the machine that renewed a lease every
- * second for 145 seconds under load 168 is the one this has to
- * survive.
- */
-const HEARTBEAT_STALE_MS = 60_000;
-
-/**
  * Which reviewer, if any, a live supervisor is still holding.
  *
  * An open mark says a round started and did not finish, which is the
@@ -169,52 +163,37 @@ const HEARTBEAT_STALE_MS = 60_000;
  * early finding filed twice, and a settled round that says its
  * reviewers found nothing.
  *
- * The lease answers it, but not as a pid. Nothing ever removes a
- * lease, so a supervisor that finished hours ago leaves one naming
- * its pid, and pids are recycled: the moment the operating system
- * hands that number to anything else, every collect of that round is
- * refused, and waiting does not help because the lease is never
- * written again. So it is read as what it is, a heartbeat, renewed
- * every second while the supervisor runs and stamped with a
- * completion the moment it stops.
+ * Every reviewer's directories are asked, not just the one named on
+ * the roster. A wrap-up and a resume are supervised runs of their
+ * own, with their own leases, and a round can be down to nothing but
+ * a wrap-up still writing: asking only the base id reads no live
+ * lease and calls the round free.
  */
 export async function heldByLiveSupervisor(
 	store: ReviewerArtifactsStore,
 	runId: string,
 	reviewerIds: readonly string[],
+	facts: ProcessFacts = systemFacts,
 	now: number = Date.now(),
 ): Promise<{ reviewerId: string; pid: number; sinceMs: number } | undefined> {
 	for (const reviewerId of reviewerIds) {
-		const { leasePath } = store.paths(runId, reviewerId);
-		const lease = await store
-			.readJson<{
-				supervisorPid?: number | null;
-				completedAt?: string | null;
-				updatedAt?: string | null;
-			}>(leasePath)
-			.catch(() => null);
-		if (lease === null) continue;
-		// Said so itself, which beats anything inferred about it.
-		if (typeof lease.completedAt === "string") continue;
-		const beat = Date.parse(lease.updatedAt ?? "");
-		if (Number.isNaN(beat) || now - beat > HEARTBEAT_STALE_MS) continue;
-		const pid = lease.supervisorPid;
-		if (typeof pid !== "number" || !alive(pid)) continue;
-		return { reviewerId, pid, sinceMs: now - beat };
+		for (const id of everyRunOf(reviewerId)) {
+			const standing = await supervisorStanding(store, runId, id, facts, now);
+			if (standing.kind === "running") {
+				return { reviewerId: id, pid: standing.pid, sinceMs: standing.sinceMs };
+			}
+		}
 	}
 	return undefined;
 }
 
-/** Whether a process is still there to own something. */
-function alive(pid: number): boolean {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch {
-		// No such process, or one we may not signal. Either way it is
-		// not a supervisor of ours holding the round.
-		return false;
-	}
+/** Every directory one reviewer's work can be spread across. */
+function everyRunOf(reviewerId: string): readonly string[] {
+	return [
+		reviewerId,
+		`${reviewerId}${WRAP_UP_SUFFIX}`,
+		`${reviewerId}${RESUME_SUFFIX}`,
+	];
 }
 
 /**
@@ -247,10 +226,18 @@ export async function answerLeftBehind(
 		// Reading only the base is therefore keeping the fragment and
 		// discarding the answer, in the shape an interrupted round most
 		// often has.
-		const wrapUp = await resultIn(store, runId, `${participantId}+wrapup`);
+		const wrapUp = await resultIn(
+			store,
+			runId,
+			`${participantId}${WRAP_UP_SUFFIX}`,
+		);
 		const merged =
 			wrapUp === undefined ? base : mergeWrapUpOutcome(base, wrapUp);
-		const resume = await resultIn(store, runId, `${participantId}+resume`);
+		const resume = await resultIn(
+			store,
+			runId,
+			`${participantId}${RESUME_SUFFIX}`,
+		);
 		const entire =
 			resume === undefined ? merged : mergeResumeOutcome(merged, resume);
 		return { kind: "answer", answer: answerFromReviewer(entire, budget) };

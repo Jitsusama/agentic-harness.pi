@@ -961,10 +961,10 @@ function wrapUpBudget(options: RunReviewerOptions): number {
  * completed. That record is the evidence this whole line of work
  * exists to keep, and recovery reads it.
  */
-const WRAP_UP_SUFFIX = "+wrapup";
+export const WRAP_UP_SUFFIX = "+wrapup";
 
 /** The same, for a resume, and for the same reason. */
-const RESUME_SUFFIX = "+resume";
+export const RESUME_SUFFIX = "+resume";
 
 /** Ask a stopped reviewer to hand over what it already has. */
 async function dispatchWrapUp(

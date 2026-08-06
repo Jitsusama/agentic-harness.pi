@@ -320,6 +320,7 @@ describe("when a participant fails", () => {
 			asked: 2,
 			answered: 1,
 			failed: 1,
+			pending: 0,
 			findings: 1,
 		});
 		expect(run.outcomes[1]).toMatchObject({ failure: "overloaded" });

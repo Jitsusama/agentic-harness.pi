@@ -25,7 +25,11 @@ import {
 	type ReviewSubstrateApi,
 	registerReviewProvider,
 } from "../../lib/review/index.js";
-import { ReviewerArtifactsStore } from "../../lib/subagent/index.js";
+import {
+	ReviewerArtifactsStore,
+	recoverReviewerRuns,
+} from "../../lib/subagent/index.js";
+import { count } from "../../lib/ui/index.js";
 import {
 	attachmentDir,
 	forgetReviewEngine,
@@ -139,6 +143,39 @@ async function reclaimRoundTranscripts(): Promise<void> {
 	} catch {
 		// Advisory, for the same reason.
 	}
+	try {
+		await reapOrphanedReviewers(transcripts);
+	} catch {
+		// Advisory, for the same reason.
+	}
+}
+
+/**
+ * Find reviewers whose supervisor died and stop them.
+ *
+ * A supervisor that dies hard leaves its reviewer holding a model
+ * open until the reviewer's own backstop, three quarters of an hour
+ * later, with nobody left to give the answer to. Nothing else can
+ * reach it: the pid was known only to the process that died, and the
+ * cancellation file that would stop it is read by that same
+ * supervisor.
+ *
+ * At session start, beside the other reclamations, and for the same
+ * reason: it is about the machine rather than about this session's
+ * work, so it must not delay anything a person is waiting on.
+ */
+async function reapOrphanedReviewers(transcripts: string): Promise<void> {
+	const store = new ReviewerArtifactsStore(transcripts);
+	const { reaped } = await recoverReviewerRuns(store);
+	if (reaped.length === 0) return;
+	// Said out loud. A session that quietly kills processes it found
+	// running is worse than one that leaves them, and somebody paying
+	// for those tokens should be told they stopped.
+	console.warn(
+		`Stopped ${count(reaped.length, "reviewer")} whose supervisor had died: ${reaped
+			.map((one) => `${one.runId}/${one.reviewerId}`)
+			.join(", ")}.`,
+	);
 }
 
 export default function reviewIntegration(pi: ExtensionAPI) {

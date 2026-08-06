@@ -73,99 +73,36 @@ describe("recoverReviewerRuns", () => {
 		});
 	});
 
-	it("kills the reviewer a dead supervisor left behind", async () => {
-		// The cancel sentinel above is read by the supervisor, and the
-		// supervisor is the thing that died. Without this its reviewer
-		// runs on to its own backstop, three quarters of an hour of a
-		// large model with nobody left to give the answer to.
+	it("files a supervisor whose pid the machine reissued as gone", async () => {
+		// Recovery used to ask only whether the pid was alive, which the
+		// collect path had already learned not to trust. The asymmetry
+		// bit hardest here: a recycled pid read as a healthy supervisor,
+		// so no cancellation was written and the orphan holding a model
+		// was never reached.
 		const store = await tempStore();
 		const paths = await store.ensureReviewerDir("run", "fast");
+		await store.writeJsonAtomic(paths.progressPath, {
+			state: "running",
+			activity: "reading x",
+			updatedAt: "2026-01-01T00:00:00Z",
+		});
 		await store.writeJsonAtomic(paths.leasePath, {
 			state: "running",
-			supervisorPid: 99999999,
-			childPid: process.pid,
-			childStartedAt: 1_000_000,
+			supervisorPid: process.pid,
+			supervisorStartedAt: 1_000_000,
+			updatedAt: new Date().toISOString(),
 		});
-		const killed: number[] = [];
 
 		const recovery = await recoverReviewerRuns(store, {
-			startedAt: async () => 1_000_000,
-			kill: (pid) => killed.push(pid),
+			alive: () => true,
+			// Whatever is wearing that pid today, it is not the
+			// supervisor this lease was written about.
+			startedAt: async () => 9_000_000,
+			kill: () => {},
+			wait: async () => {},
 		});
 
-		expect(killed).toEqual([process.pid]);
-		expect(recovery.reaped).toEqual([
-			{ runId: "run", reviewerId: "fast", pid: process.pid },
-		]);
-	});
-
-	it("spares a pid the machine has since given to somebody else", async () => {
-		// A pid identifies nothing on its own. This lease was written
-		// about a process that has been gone for a while, and the number
-		// now belongs to something with no connection to us at all: the
-		// only evidence of that is that it started after we spawned ours.
-		const store = await tempStore();
-		const paths = await store.ensureReviewerDir("run", "fast");
-		await store.writeJsonAtomic(paths.leasePath, {
-			state: "running",
-			supervisorPid: 99999999,
-			childPid: process.pid,
-			childStartedAt: 1_000_000,
-		});
-		const killed: number[] = [];
-
-		const recovery = await recoverReviewerRuns(store, {
-			startedAt: async () => 1_000_000 + 60_000,
-			kill: (pid) => killed.push(pid),
-		});
-
-		expect(killed).toEqual([]);
-		expect(recovery.reaped).toEqual([]);
-	});
-
-	it("spares a reviewer whose start time nothing can report", async () => {
-		// A platform with no ps, or a process that vanished between the
-		// liveness check and the question. Refusing is the only safe
-		// reading: the cost is a reviewer that runs to its backstop, and
-		// the cost of guessing is killing a stranger.
-		const store = await tempStore();
-		const paths = await store.ensureReviewerDir("run", "fast");
-		await store.writeJsonAtomic(paths.leasePath, {
-			state: "running",
-			supervisorPid: 99999999,
-			childPid: process.pid,
-			childStartedAt: 1_000_000,
-		});
-		const killed: number[] = [];
-
-		await recoverReviewerRuns(store, {
-			startedAt: async () => undefined,
-			kill: (pid) => killed.push(pid),
-		});
-
-		expect(killed).toEqual([]);
-	});
-
-	it("leaves a finished reviewer's pid alone", async () => {
-		// A lease that says it completed is describing a supervisor that
-		// exited on purpose. Its child is long gone and the pid belongs
-		// to whatever came after.
-		const store = await tempStore();
-		const paths = await store.ensureReviewerDir("run", "fast");
-		await store.writeJsonAtomic(paths.leasePath, {
-			state: "complete",
-			supervisorPid: 99999999,
-			childPid: process.pid,
-			childStartedAt: 1_000_000,
-			completedAt: "2026-01-01T00:00:00Z",
-		});
-		const killed: number[] = [];
-
-		await recoverReviewerRuns(store, {
-			startedAt: async () => 1_000_000,
-			kill: (pid) => killed.push(pid),
-		});
-
-		expect(killed).toEqual([]);
+		expect(recovery.active).toEqual([]);
+		expect(recovery.stale).toHaveLength(1);
 	});
 });

@@ -1,11 +1,11 @@
-import { execFile } from "node:child_process";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { promisify } from "node:util";
 import type {
 	ReviewerArtifactsStore,
 	ReviewerTerminalState,
 } from "./artifacts.js";
+import type { LeaseRecord, ProcessFacts } from "./lease.js";
+import { sameProcess, supervisorStanding, systemFacts } from "./lease.js";
 import type { ReviewerUsage } from "./subagent.js";
 
 /** Compact recovered result for a supervised reviewer job. */
@@ -43,19 +43,11 @@ export interface ReapedReviewerChild {
  * about recovery, and because a test that reaps for real is a test
  * that kills a process by a number it read from a file.
  */
-export interface ReaperDeps {
-	/**
-	 * When this process started, in epoch milliseconds, or undefined
-	 * when nothing can be said about it.
-	 *
-	 * The whole safety of reaping rests here. A pid identifies nothing
-	 * on its own, so the reaper needs to know whether the process
-	 * wearing that number today is the one the lease was written
-	 * about.
-	 */
-	startedAt(pid: number): Promise<number | undefined>;
-	/** Kill the process group this pid leads. */
-	kill(pid: number): void;
+export interface ReaperDeps extends ProcessFacts {
+	/** Signal the process group this pid leads. */
+	kill(pid: number, signal: "SIGTERM" | "SIGKILL"): void;
+	/** Pause, so a terminated process has a moment to go. */
+	wait(ms: number): Promise<void>;
 }
 
 /** Summary of startup recovery across supervised reviewer runs. */
@@ -83,27 +75,6 @@ interface ProgressFile {
 	readonly activity?: string;
 	readonly updatedAt?: string;
 }
-
-interface LeaseFile {
-	readonly supervisorPid?: number | null;
-	readonly childPid?: number | null;
-	readonly childStartedAt?: number | null;
-	readonly completedAt?: string | null;
-	readonly state?: string;
-}
-
-/**
- * How much later than the lease says a process may have started and
- * still be believed to be the same one.
- *
- * The supervisor stamps the clock immediately after `spawn` returns,
- * and the operating system stamps its own a moment earlier, so the two
- * disagree by scheduling noise. Seconds rather than milliseconds
- * because `ps` reports whole seconds on the platforms that have it,
- * and a second of slack costs nothing: a recycled pid is minutes or
- * hours later, never two seconds.
- */
-const SAME_PROCESS_MS = 2_000;
 
 /** Recover durable supervised reviewer state after extension activation or reload. */
 export async function recoverReviewerRuns(
@@ -135,8 +106,20 @@ export async function recoverReviewerRuns(
 					continue;
 				}
 				const progress = await readProgress(store, runId, reviewerId);
-				const lease = await store.readJson<LeaseFile>(paths.leasePath);
-				if (lease?.supervisorPid && processAlive(lease.supervisorPid)) {
+				const lease = await store.readJson<LeaseRecord>(paths.leasePath);
+				// The same reader the collect path uses. Two readings of one
+				// file that disagree is how a supervisor gets filed as
+				// healthy here and dead there, and the asymmetry bites worst
+				// on this side: a recycled pid reads as alive, the run is
+				// filed active, and the orphan holding a model is never
+				// cancelled or reaped.
+				const standing = await supervisorStanding(
+					store,
+					runId,
+					reviewerId,
+					reaper,
+				);
+				if (standing.kind === "running") {
 					active.push(progress);
 				} else {
 					stale.push(progress);
@@ -173,14 +156,19 @@ export async function recoverReviewerRuns(
  *
  * Refusing is the default, and every uncertainty resolves that way: an
  * unknown start time, a platform that cannot report one, a process
- * that started later than the lease says ours did. The cost of
- * refusing is a reviewer that runs to its own backstop and stops; the
- * cost of being wrong is killing something that has nothing to do with
- * us, and the pid space is small enough that this is not a remote
+ * whose birth does not match the lease's. The cost of refusing is a
+ * reviewer that runs to its own backstop and stops; the cost of being
+ * wrong is signalling a process group that has nothing to do with us,
+ * and the pid space is small enough that this is not a remote
  * possibility on a machine that has been up for a while.
+ *
+ * SIGTERM first, because pi flushes its session on the way out and a
+ * reviewer's journal is worth the pause. Then it is checked, and
+ * escalated if it is still there, because a kill nobody confirms is a
+ * report rather than an outcome.
  */
 async function reap(
-	lease: LeaseFile | null,
+	lease: LeaseRecord | null,
 	reaper: ReaperDeps,
 ): Promise<number | undefined> {
 	if (lease === null) return undefined;
@@ -189,50 +177,48 @@ async function reap(
 	const spawned = lease.childStartedAt;
 	if (typeof pid !== "number" || pid <= 0) return undefined;
 	if (typeof spawned !== "number") return undefined;
-	if (!processAlive(pid)) return undefined;
+	if (!reaper.alive(pid)) return undefined;
 	const startedAt = await reaper.startedAt(pid);
 	if (startedAt === undefined) return undefined;
-	if (startedAt > spawned + SAME_PROCESS_MS) return undefined;
-	reaper.kill(pid);
+	if (!sameProcess(startedAt, spawned)) return undefined;
+
+	reaper.kill(pid, "SIGTERM");
+	await reaper.wait(TERM_GRACE_MS);
+	if (reaper.alive(pid)) reaper.kill(pid, "SIGKILL");
 	return pid;
 }
 
+/**
+ * How long a reviewer is given to go quietly.
+ *
+ * Short, because this runs during a session's startup and an orphan
+ * that ignores SIGTERM is not going to reconsider. Long enough for pi
+ * to write out the session it was told to persist.
+ */
+const TERM_GRACE_MS = 500;
+
 /** Asking the operating system, which is what the default has to do. */
 const systemReaper: ReaperDeps = {
-	async startedAt(pid) {
-		try {
-			// `lstart` rather than `etime`, because elapsed time is
-			// relative to now and the comparison wants an absolute
-			// moment. Available on macOS and Linux; anywhere it is not,
-			// this throws and the reaper declines, which is the right
-			// way to fail.
-			const { stdout } = await promisify(execFile)("ps", [
-				"-o",
-				"lstart=",
-				"-p",
-				String(pid),
-			]);
-			const parsed = Date.parse(stdout.trim());
-			return Number.isNaN(parsed) ? undefined : parsed;
-		} catch {
-			// No such process, or no ps to ask. Either way nothing here
-			// knows what it would be killing.
-			return undefined;
-		}
+	startedAt: systemFacts.startedAt,
+	alive: systemFacts.alive,
+	async wait(ms) {
+		await new Promise((resolve) => setTimeout(resolve, ms));
 	},
-	kill(pid) {
+	kill(pid, signal) {
 		try {
 			// The group, because the reviewer is spawned detached and
 			// leads its own: killing the pid alone orphans whatever it
 			// started, which is the problem being solved one level down.
-			process.kill(-pid, "SIGTERM");
+			//
+			// No fallback to the bare pid. A group kill fails when no
+			// group leads by that number, which is precisely the evidence
+			// that the process wearing the pid is not the detached child
+			// the lease described. Signalling it anyway would spend the
+			// identity check and then ignore it.
+			process.kill(-pid, signal);
 		} catch {
-			try {
-				process.kill(pid, "SIGTERM");
-			} catch {
-				// Gone between the check and the signal, which is the
-				// outcome we wanted anyway.
-			}
+			// Gone between the check and the signal, or never ours. Both
+			// end here, and neither wants a second attempt.
 		}
 	},
 };
@@ -261,15 +247,6 @@ async function listDirs(path: string): Promise<string[]> {
 			.map((entry) => entry.name);
 	} catch {
 		return [];
-	}
-}
-
-function processAlive(pid: number): boolean {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch {
-		return false;
 	}
 }
 

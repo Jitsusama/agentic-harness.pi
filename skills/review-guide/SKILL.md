@@ -518,8 +518,13 @@ for a reviewer that runs long, and no retry of one that failed to
 start. It also cannot be cancelled by pressing Escape, since there is
 no panel holding it: `review_ask stop` is the off switch, and it is
 worth knowing before you start an expensive roster on the wrong
-question. Stopping keeps whatever the reviewers wrote down, so collect
-still works afterwards. What protects it instead is that each reviewer writes its
+question. Stopping a round that is running keeps whatever its
+reviewers wrote down, so collect it afterwards to file that. Stopping
+one that has nothing running and nothing left behind closes it
+instead, which is how a round whose transcripts are long gone stops
+sitting in the listing; it is refused outright when anybody did leave
+something, so it cannot be used to throw findings away.
+What protects a started round instead is that each reviewer writes its
 findings down as it forms them. Prefer `council` when you are going to
 sit and read the answer anyway; prefer `start` when you would
 otherwise be waiting on it to get on with something else.
