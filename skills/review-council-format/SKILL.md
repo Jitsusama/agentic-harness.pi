@@ -47,9 +47,10 @@ repeating costs nothing and leaving it out risks everything.
 | `raisedBy` | no | Reviewer ids, when you are consolidating |
 
 `label` is one of `praise`, `nitpick`, `suggestion`, `issue`, `todo`,
-`question`, `thought`, `chore`, `note`. Nothing else is accepted, and a
-finding labelled anything else is dropped: guessing a label would put
-words in your mouth.
+`question`, `thought`, `chore`, `note`. Use one of those. A finding
+labelled anything else is kept as a `note` with your own word named in a
+warning, since guessing what you meant would put words in your mouth and
+throwing the remark away would lose it entirely.
 
 `severity` also accepts the words models reach for instead. `blocking`,
 `required` and `high` read as `critical`; `low`, `non-blocking`,
@@ -63,7 +64,8 @@ words in your mouth.
 { "kind": "global" }
 ```
 
-`end` defaults to `start`, and `side` defaults to `new`. Anchor a line
+`end` defaults to `start`, `line` is read as `start` for a single line,
+and `side` defaults to `new`. Anchor a line
 finding only inside the ranges the prompt lists as anchorable: a line
 outside them is not in the diff, so the change carries nowhere to hang
 the remark and it degrades to prose.

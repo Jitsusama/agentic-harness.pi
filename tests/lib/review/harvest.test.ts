@@ -126,16 +126,38 @@ describe("one finding at a time", () => {
 		).toEqual([]);
 	});
 
-	it("drops one with an unknown label rather than guessing", () => {
-		// A label decides how the remark reads. Inventing one would put
-		// words in the reviewer's mouth.
+	it("keeps one with an unknown label, calling it a note", () => {
+		// Measured, not supposed. The journal's first real council
+		// recorded 86 findings across seven reviewers; one of them
+		// labelled its entries defect, testing and design, and lost all
+		// eleven. It answered anyway, so nothing was lost that time,
+		// which is the whole problem: had it been stopped, its journal
+		// would have rescued nothing in the one case the journal exists
+		// for.
 		const { findings, warnings } = harvestFindings(
-			answer(wire({ label: "grumble" })),
+			answer(wire({ label: "grumble", subject: "the lock is held too long" })),
 			origin,
 		);
 
-		expect(findings).toEqual([]);
+		expect(findings.map((f) => f.subject)).toEqual([
+			"the lock is held too long",
+		]);
+		// The most neutral label there is, so the finding asserts no
+		// more than the reviewer did.
+		expect(findings[0]?.label).toBe("note");
+		// Their own word survives, so nobody has to guess what they
+		// meant by it.
 		expect(warnings[0]).toContain("grumble");
+	});
+
+	it("reads a capitalized label as the label it plainly is", () => {
+		const { findings, warnings } = harvestFindings(
+			answer(wire({ label: "Issue" })),
+			origin,
+		);
+
+		expect(findings[0]?.label).toBe("issue");
+		expect(warnings).toEqual([]);
 	});
 
 	it("stamps every finding with the origin it was told", () => {
@@ -233,21 +255,80 @@ describe("where a finding points", () => {
 		expect(findings[0]?.anchor).toMatchObject({ witness: "abc123" });
 	});
 
-	it("drops a line finding with no file", () => {
+	it("keeps a line finding with no file against the change", () => {
 		const { findings, warnings } = harvestFindings(
 			answer(wire({ location: { kind: "line", start: 1, end: 1 } })),
 			origin,
 		);
 
-		expect(findings).toEqual([]);
+		expect(findings[0]?.anchor.subject).toBe("change");
 		expect(warnings[0]).toMatch(/file/i);
 	});
 
-	it("drops one whose location kind is unknown", () => {
-		expect(
-			harvestFindings(answer(wire({ location: { kind: "vibes" } })), origin)
-				.findings,
-		).toEqual([]);
+	it("anchors a line named as a line rather than a start", () => {
+		// Measured on a real journal: nine of eleven recorded findings
+		// named the line as `line`, which is what the anchor they
+		// produce calls it. Reading only `start` cost every one of them
+		// its line number.
+		const { findings, warnings } = harvestFindings(
+			answer(wire({ location: { kind: "line", file: "lib/a.ts", line: 42 } })),
+			origin,
+		);
+
+		expect(findings[0]?.anchor).toMatchObject({
+			subject: "line",
+			path: "lib/a.ts",
+			line: 42,
+		});
+		expect(warnings).toEqual([]);
+	});
+
+	it("keeps a line finding with no line against the file", () => {
+		// The commonest way a reviewer gets a location wrong, and the
+		// one that costs least to forgive: it named the file, so the
+		// remark still lands somewhere a reader can act on.
+		const { findings } = harvestFindings(
+			answer(wire({ location: { kind: "line", file: "lib/a.ts" } })),
+			origin,
+		);
+
+		expect(findings[0]?.anchor).toMatchObject({
+			subject: "file",
+			path: "lib/a.ts",
+		});
+	});
+
+	it("keeps one whose location kind is unknown against what it named", () => {
+		const { findings } = harvestFindings(
+			answer(wire({ location: { kind: "vibes", file: "lib/a.ts" } })),
+			origin,
+		);
+
+		expect(findings[0]?.anchor).toMatchObject({
+			subject: "file",
+			path: "lib/a.ts",
+		});
+	});
+
+	it("keeps one that names no location at all against the change", () => {
+		const { findings } = harvestFindings(
+			answer(wire({ location: undefined })),
+			origin,
+		);
+
+		expect(findings[0]?.anchor.subject).toBe("change");
+	});
+
+	it("still drops an entry that says nothing at all", () => {
+		// The line the leniency stops at. A finding is forgiven for how
+		// it is decorated and for where it points, never for having no
+		// observation in it, because there is nothing left to keep.
+		const { findings } = harvestFindings(
+			answer(wire({ subject: "  " }), "not an object at all"),
+			origin,
+		);
+
+		expect(findings).toEqual([]);
 	});
 });
 

@@ -277,20 +277,12 @@ function readFinding(
 		return undefined;
 	}
 
-	const label = wireText(entry.label);
-	if (label === undefined || !LABELS.includes(label)) {
-		warnings.push(
-			`${at} is labelled "${label ?? "nothing"}", which is not one of ${LABELS.join(", ")}, so it was dropped. Guessing a label would put words in the reviewer's mouth.`,
-		);
-		return undefined;
-	}
-
+	const label = readLabel(entry.label, at, warnings);
 	const anchor = readAnchor(entry.location, at, witness, warnings);
-	if (anchor === undefined) return undefined;
 
 	return {
 		anchor,
-		label: label as ConventionalLabel,
+		label,
 		subject,
 		discussion: wireText(entry.discussion) ?? "",
 		origin,
@@ -300,17 +292,28 @@ function readFinding(
 	};
 }
 
-/** Where the finding points, or nothing plus a warning. */
+/**
+ * Where the finding points, as precisely as what it said allows.
+ *
+ * Never nothing. Precision is the part a reviewer is most likely to
+ * get wrong under pressure, and it is the part that matters least: a
+ * remark about the wrong level of the change is still the remark,
+ * while a remark thrown away for pointing loosely is gone. So a line
+ * with no line falls back to the file, a file with no file falls back
+ * to the change, and each says so.
+ */
 function readAnchor(
 	value: unknown,
 	at: string,
 	witness: string | undefined,
 	warnings: string[],
-): Anchor | undefined {
+): Anchor {
 	const stamp = witness === undefined ? {} : { witness };
 	if (!isRecord(value)) {
-		warnings.push(`${at} names no location, so it was dropped.`);
-		return undefined;
+		warnings.push(
+			`${at} names no location, so it was kept against the change.`,
+		);
+		return { subject: "change", ...stamp };
 	}
 
 	const kind = wireText(value.kind);
@@ -319,22 +322,33 @@ function readAnchor(
 	const path = wireText(value.file);
 	if (kind === "file") {
 		if (path === undefined) {
-			warnings.push(`${at} is a file finding with no file, so it was dropped.`);
-			return undefined;
+			warnings.push(
+				`${at} is a file finding with no file, so it was kept against the change.`,
+			);
+			return { subject: "change", ...stamp };
 		}
 		return { subject: "file", path, ...stamp };
 	}
 
 	if (kind === "line") {
 		if (path === undefined) {
-			warnings.push(`${at} is a line finding with no file, so it was dropped.`);
-			return undefined;
+			warnings.push(
+				`${at} is a line finding with no file, so it was kept against the change.`,
+			);
+			return { subject: "change", ...stamp };
 		}
-		const start = wireWhole(value.start);
+		// `line` is read as well as `start`, because it is the word the
+		// anchor this produces uses, and a reviewer naming a single
+		// line reaches for it. Measured on a real journal: nine of
+		// eleven recorded findings said `line`, and reading only
+		// `start` cost every one of them the line it had named.
+		const start = wireWhole(value.start) ?? wireWhole(value.line);
 		const end = wireWhole(value.end) ?? start;
 		if (start === undefined || end === undefined) {
-			warnings.push(`${at} is a line finding with no line, so it was dropped.`);
-			return undefined;
+			warnings.push(
+				`${at} is a line finding with no line, so it was kept against the whole file.`,
+			);
+			return { subject: "file", path, ...stamp };
 		}
 		return {
 			subject: "line",
@@ -349,10 +363,18 @@ function readAnchor(
 		};
 	}
 
+	// A path with an unreadable kind still says where to look, so the
+	// kind costs the precision and not the location.
+	if (path !== undefined) {
+		warnings.push(
+			`${at} has location kind "${kind ?? "none"}", which is not line, file or global, so it was kept against the whole file.`,
+		);
+		return { subject: "file", path, ...stamp };
+	}
 	warnings.push(
-		`${at} has location kind "${kind ?? "none"}", which is not line, file or global, so it was dropped.`,
+		`${at} has location kind "${kind ?? "none"}", which is not line, file or global, so it was kept against the change.`,
 	);
-	return undefined;
+	return { subject: "change", ...stamp };
 }
 
 /**
@@ -381,6 +403,41 @@ function readRaisedBy(
 		return name === undefined ? [] : [name];
 	});
 	return raisedBy.length === 0 ? {} : { raisedBy };
+}
+
+/**
+ * A label, or the most neutral one plus a warning saying which word
+ * was used instead.
+ *
+ * Guessing what a reviewer meant would put words in their mouth, so
+ * nothing is guessed: an unreadable label becomes a note, which
+ * asserts less than any other, and their own word is named in the
+ * warning so a reader can see it.
+ *
+ * Dropping the finding was the older reading of the same principle
+ * and it cost far more than it protected. Measured on the journal's
+ * first real council: one reviewer of seven labelled its entries
+ * defect, testing and design, and every one of its eleven recorded
+ * findings was thrown away. It answered anyway, so nothing was lost
+ * that time. Had it been stopped, the journal would have rescued
+ * nothing in exactly the case it exists for.
+ */
+function readLabel(
+	value: unknown,
+	at: string,
+	warnings: string[],
+): ConventionalLabel {
+	const given = wireText(value);
+	// Folded, because a capital is not a different label and reading
+	// "Issue" as unrecognized would cost a decoration over a shift key.
+	const folded = given?.toLowerCase();
+	if (folded !== undefined && LABELS.includes(folded)) {
+		return folded as ConventionalLabel;
+	}
+	warnings.push(
+		`${at} is labelled "${given ?? "nothing"}", which is not one of ${LABELS.join(", ")}, so it was kept as a note.`,
+	);
+	return "note";
 }
 
 /** A severity, dropped with a warning when it is not one. */

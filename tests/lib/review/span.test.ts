@@ -169,8 +169,11 @@ describe("the witness a location is checked against", () => {
 
 describe("what survives a bad answer", () => {
 	it("keeps the good findings when one is malformed", () => {
+		// Malformed means there is no observation to keep. A label
+		// nobody recognizes is not that, and used to be: it now costs
+		// the label and keeps the remark.
 		const { findings, warnings } = harvestStackFindings(
-			answer(one(), one({ label: "vibes" }), one({ refs: ["refs/heads/tip"] })),
+			answer(one(), one({ subject: "  " }), one({ refs: ["refs/heads/tip"] })),
 			origin,
 			stack,
 		);
