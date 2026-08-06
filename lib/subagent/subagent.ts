@@ -642,6 +642,11 @@ export async function runReviewer(
 	// only thing missing is the answer. Asking for that answer costs one
 	// short turn against work already paid for, where the alternative is
 	// a round that reports an interruption and nothing else.
+	//
+	// At most once, and at most once more after a resume, so one
+	// participant costs three runs at the very worst: the attempt, a
+	// resume after a transient drop, and this. The third is the cheap
+	// one, capped at five minutes and at whatever the caller allowed.
 	if (
 		options.autoResume !== false &&
 		options.signal?.aborted !== true &&

@@ -259,6 +259,29 @@ describe("runReviewer: asking a stopped reviewer for what it has", () => {
 		);
 	});
 
+	it("tells a verifying reviewer how its answer has to arrive", async () => {
+		// Where verification is required an unverified answer is blanked,
+		// so a wrap-up that never calls the tool spends the money, hears
+		// the answer and throws it away for want of the one instruction
+		// nobody gave it.
+		const { runPi, calls } = scriptedRun([
+			stopped(),
+			{ exitCode: 0, state: "complete", finalAssistantText: "" },
+		]);
+
+		await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "review this diff",
+			cwd: "/tmp/wt",
+			runPi,
+			autoResume: true,
+			requiresVerification: true,
+			expectedVerificationStage: "council",
+		});
+
+		expect(calls[1].args.join(" ")).toContain("verify_output");
+	});
+
 	it("does not overwrite the record of the stop", async () => {
 		// The artifacts directory comes from the run and reviewer ids and
 		// the result file is written by rename, so reusing both would
