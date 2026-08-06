@@ -21,7 +21,7 @@ import {
 	heldByLiveSupervisor,
 } from "../../extensions/review-integration/reviewer.js";
 import type { AskAnswer, AskRun, Finding } from "../../lib/review/index.js";
-import { collectRound } from "../../lib/review/index.js";
+import { collectRound, stoppedNotes } from "../../lib/review/index.js";
 import type { ProcessFacts } from "../../lib/subagent/index.js";
 import {
 	ReviewerArtifactsStore,
@@ -78,6 +78,27 @@ function leaveBehind(
 			exitCode: 0,
 			...result,
 		}),
+		"utf8",
+	);
+}
+
+/**
+ * Write only what the reviewer itself writes, and no result.
+ *
+ * The shape a reviewer leaves when its supervisor died before writing
+ * anything: the journal is the reviewer's own file, appended to as it
+ * goes, so it is there whatever happened to the process watching it.
+ */
+function journalled(
+	store: ReviewerArtifactsStore,
+	reviewerId: string,
+	entries: readonly unknown[],
+): void {
+	const paths = store.paths(RUN, reviewerId);
+	mkdirSync(paths.reviewerDir, { recursive: true });
+	writeFileSync(
+		paths.journalPath,
+		`${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`,
 		"utf8",
 	);
 }
@@ -159,6 +180,68 @@ describe("collecting a round the session did not live to finish", () => {
 			"the lease is never released",
 			"b",
 		]);
+	});
+
+	it("reads a journal whose supervisor never wrote a result", async () => {
+		// The case the journal exists for, arriving by the road it was
+		// actually built for and the one road it could not travel. The
+		// supervisor folds the journal into its result, so a reviewer
+		// whose supervisor died first had every finding it recorded
+		// sitting on disk with nothing that would read it: the collect
+		// said the reviewer left nothing, and settled the round on that.
+		// The reviewer writes this file itself, so it outlives its
+		// supervisor by construction.
+		const store = new ReviewerArtifactsStore(root);
+		journalled(store, "hawk", [
+			{
+				location: { kind: "file", file: "lib/a.ts" },
+				label: "issue",
+				subject: "stranded but written down",
+				discussion: "because",
+			},
+		]);
+		leaveBehind(store, "owl", { finalAssistantText: said("b") });
+
+		const { kept, run } = await collect(unsettled(), store);
+
+		expect(kept.map((f) => f.subject)).toEqual([
+			"stranded but written down",
+			"b",
+		]);
+		// And it still says the reviewer never finished, rather than
+		// passing off a rescued fragment as a completed review. The
+		// stop is the whole of that claim: without it the outcome is
+		// byte-identical to a reviewer that read the change and
+		// answered, and every later reader counts it as one.
+		const hawk = run.outcomes.find((o) => o.participantId === "hawk");
+		expect(hawk?.stopped).toMatchObject({ limit: "supervisor-lost" });
+		// Which is what makes it visible: a stop is what stoppedNotes
+		// prints, and an outcome carrying none says nothing at all.
+		expect(stoppedNotes(run).join(" ")).toMatch(/hawk/);
+	});
+
+	it("keeps the lines above the one a kill landed on", async () => {
+		// A reviewer killed mid-write leaves a half-written last line.
+		// Everything above it is intact and paid for, and dropping the
+		// lot over the line the kill landed on gives up exactly what
+		// this file exists to keep.
+		const store = new ReviewerArtifactsStore(root);
+		const paths = store.paths(RUN, "hawk");
+		mkdirSync(paths.reviewerDir, { recursive: true });
+		writeFileSync(
+			paths.journalPath,
+			`${JSON.stringify({
+				location: { kind: "file", file: "lib/a.ts" },
+				label: "issue",
+				subject: "written before the kill",
+				discussion: "because",
+			})}\n{"subject": "cut off mid`,
+			"utf8",
+		);
+
+		const { kept } = await collect(unsettled(), store);
+
+		expect(kept.map((f) => f.subject)).toEqual(["written before the kill"]);
 	});
 
 	it("says which reviewers left nothing behind at all", async () => {

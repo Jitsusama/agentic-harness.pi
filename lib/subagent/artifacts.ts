@@ -36,10 +36,32 @@ export type ReviewerTerminalState =
 	 * wrong. The run was healthy and was interrupted anyway.
 	 */
 	| "soft-deadline"
-	| "parent-exit";
+	| "parent-exit"
+	/**
+	 * Its supervisor went away, and nothing wrote it a result.
+	 *
+	 * The only state here no supervisor ever writes, because the
+	 * supervisor is the thing that is missing. It is reconstructed by
+	 * whoever finds the reviewer's journal on disk with no result
+	 * beside it, and it exists so that reviewer cannot be recorded as
+	 * one that read the change and answered: without a state, nothing
+	 * downstream has any way to tell the two apart.
+	 */
+	| "supervisor-lost";
 
 /** Paths owned by one reviewer job. */
 export interface ReviewerRunPaths extends ReviewerRunArtifacts {
+	/**
+	 * Where this reviewer records findings as it forms them.
+	 *
+	 * Optional on {@link ReviewerRunArtifacts}, because a runner that
+	 * keeps no artifacts has nowhere to put one, and required here,
+	 * because these paths are derived from a directory that exists.
+	 * Left optional, every caller writes a guard against a case that
+	 * cannot arise, and one of them will eventually treat it as the
+	 * reviewer having no journal rather than as impossible.
+	 */
+	readonly journalPath: string;
 	readonly requestPath: string;
 	readonly leasePath: string;
 	readonly cancelPath: string;
