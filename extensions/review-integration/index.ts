@@ -27,6 +27,7 @@ import { ReviewerArtifactsStore } from "../../lib/subagent/index.js";
 import {
 	forgetReviewEngine,
 	registerBuiltinReviewProviders,
+	rememberSession,
 	reviewEngine,
 	runArtifactDir,
 } from "./engine.js";
@@ -137,7 +138,14 @@ export default function reviewIntegration(pi: ExtensionAPI) {
 	// answers, or nothing asks and it costs nothing.
 	guardPublishes(pi);
 
-	pi.events.on("session_start", () => {
+	// On pi's own lifecycle API rather than the event bus, because the
+	// bus hands a handler the event and nothing else, and which session
+	// this is only comes with the context.
+	pi.on("session_start", (_event, ctx) => {
+		// Which session this is, from the only thing that knows. What a
+		// session has attached is scoped by it, and a session that cannot
+		// say who it is shares a directory with every other one.
+		rememberSession(ctx.sessionManager.getSessionId());
 		// A new session must not inherit the last one's bindings, or
 		// a target could stay pinned to a provider the user has since
 		// reconfigured away from.

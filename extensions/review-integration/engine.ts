@@ -45,8 +45,28 @@ export function attachmentDir(): string {
  * a caller with no session cannot be racing one.
  */
 export function sessionKey(): string | undefined {
-	const held = process.env.PI_SESSION_ID;
-	return held === undefined || held.trim() === "" ? undefined : held;
+	return inSession;
+}
+
+let inSession: string | undefined;
+
+/**
+ * Remember which session this is, as pi reports it.
+ *
+ * It used to be read from `PI_SESSION_ID`, which reads like the answer
+ * and is not one: pi injects that variable when the bash tool spawns a
+ * command, and never sets it in its own process, so an extension asking
+ * for it always gets undefined. The scoping was therefore off from the
+ * day it shipped, silently, because undefined means "no session to
+ * separate" and that is a legitimate state.
+ *
+ * Called from `session_start`, which pi fires on startup and again on
+ * every reload, resume and fork, so a session that becomes another one
+ * stops answering for the first.
+ */
+export function rememberSession(sessionId: string | undefined): void {
+	inSession =
+		sessionId === undefined || sessionId.trim() === "" ? undefined : sessionId;
 }
 
 /**
