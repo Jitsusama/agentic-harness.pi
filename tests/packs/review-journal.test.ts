@@ -47,9 +47,12 @@ function recordFinding(): Tool {
 	return found;
 }
 
-/** Every line written so far, parsed. */
+/** Every line written so far, parsed. Nothing written is nothing. */
 async function written(): Promise<unknown[]> {
-	const raw = await readFile(journal, "utf8");
+	const raw = await readFile(journal, "utf8").catch(
+		(error: NodeJS.ErrnoException) =>
+			error.code === "ENOENT" ? "" : Promise.reject(error),
+	);
 	return raw
 		.split("\n")
 		.filter((line) => line.trim() !== "")
@@ -96,6 +99,51 @@ describe("recording a finding", () => {
 		})) as { content: { text: string }[] };
 
 		expect(answer.content[0].text).toMatch(/final answer/i);
+	});
+
+	it("reads a finding the reviewer serialized as a string", async () => {
+		// What a real reviewer sent, six times, before giving up and
+		// recording nothing at all: the finding as JSON text rather than
+		// as an object. The intent is not in doubt and only the encoding
+		// is wrong, which is the same bargain as unpacking a batch.
+		const tool = recordFinding();
+
+		const answer = (await tool.execute("1", {
+			finding: JSON.stringify({
+				label: "note",
+				subject: "sent as text",
+				discussion: "...",
+			}),
+		})) as { content: { text: string }[] };
+
+		expect(await written()).toEqual([
+			{ label: "note", subject: "sent as text", discussion: "..." },
+		]);
+		expect(answer.content[0].text).toMatch(/recorded/i);
+	});
+
+	it("reads a batch the reviewer serialized as a string", async () => {
+		const tool = recordFinding();
+
+		await tool.execute("1", {
+			finding: JSON.stringify([{ subject: "the first" }, { subject: "and" }]),
+		});
+
+		expect(await written()).toEqual([
+			{ subject: "the first" },
+			{ subject: "and" },
+		]);
+	});
+
+	it("still refuses a sentence, which is not a finding in any encoding", async () => {
+		const tool = recordFinding();
+
+		const answer = (await tool.execute("1", {
+			finding: "the error path here looks wrong",
+		})) as { content: { text: string }[] };
+
+		expect(await written()).toEqual([]);
+		expect(answer.content[0].text).toMatch(/nothing was recorded/i);
 	});
 
 	it("unpacks a batch rather than swallowing it whole", async () => {

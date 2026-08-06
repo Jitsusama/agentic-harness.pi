@@ -17,10 +17,12 @@
  *
  * One JSON object per line, appended, so a reviewer killed mid-write
  * loses the line it was on and nothing above it. The tool does not
- * validate the shape beyond it being an object: the round reads these
- * the same way it reads an answer, warns about what it cannot use, and
- * a reviewer told off by a tool for a missing field would spend its
- * remaining budget arguing with the tool.
+ * validate the shape beyond it being a finding at all: the round reads
+ * these the same way it reads an answer, warns about what it cannot
+ * use, and a reviewer told off by a tool for a missing field would
+ * spend its remaining budget arguing with the tool. It reads a batch
+ * and a serialized string for the same reason. See `findingsIn`, which
+ * is where that bargain either holds or quietly stops holding.
  */
 
 import { appendFile } from "node:fs/promises";
@@ -57,6 +59,43 @@ async function write(path: string, line: string): Promise<string | undefined> {
 	}
 }
 
+/**
+ * The findings in whatever the reviewer sent, and how many of
+ * the things it sent were not findings.
+ *
+ * Three encodings are accepted for one reason: the reviewer's
+ * intent is not in doubt in any of them, and this tool refusing a
+ * finding it can plainly read is how a reviewer ends up recording
+ * nothing at all. That is not hypothetical. A real one sent its
+ * findings as JSON text, was told six times that a finding has to
+ * be an object, and gave up, so the run that was meant to prove
+ * the journal works recorded not one line.
+ *
+ * An array because a reviewer economising on turns under a
+ * deadline batches, and text because a model asked for an object
+ * will sometimes serialize it first. What stays refused is a
+ * sentence, which is not a finding in any encoding.
+ */
+function findingsIn(sent: unknown): {
+	kept: object[];
+	dropped: number;
+} {
+	if (typeof sent === "string") {
+		try {
+			return findingsIn(JSON.parse(sent));
+		} catch {
+			// Prose, not a finding. Refused below by having kept nothing.
+			return { kept: [], dropped: 1 };
+		}
+	}
+	const each = Array.isArray(sent) ? sent : [sent];
+	const kept = each.filter(
+		(one): one is object =>
+			one !== null && typeof one === "object" && !Array.isArray(one),
+	);
+	return { kept, dropped: each.length - kept.length };
+}
+
 /** Where the supervisor told us to write. Absent outside a round. */
 function journalPath(): string | undefined {
 	const path = process.env.SUBAGENT_JOURNAL_PATH;
@@ -78,7 +117,8 @@ export default function reviewJournal(pi: ExtensionAPI) {
 			finding: Type.Unknown({
 				description:
 					"One finding, shaped exactly as one entry of the findings " +
-					"array in your output contract.",
+					"array in your output contract. An object, ideally, though " +
+					"JSON text holding one is read rather than refused.",
 			}),
 		}),
 		async execute(_id: string, params: { finding?: unknown }) {
@@ -89,53 +129,34 @@ export default function reviewJournal(pi: ExtensionAPI) {
 						"nowhere to record one. Put it in your final answer instead.",
 				);
 			}
-			const finding = params?.finding;
-			// An array is an object, and a reviewer economising on turns
-			// under a deadline reaches for one. Told "Recorded", it would
-			// have believed the whole batch was safe while the round threw
-			// every one of them away on a single warning. Unpack it instead
-			// of refusing: the reviewer's instinct was right, it just used
-			// one call for it.
-			if (Array.isArray(finding)) {
-				const kept = finding.filter(
-					(one) =>
-						one !== null && typeof one === "object" && !Array.isArray(one),
-				);
-				if (kept.length === 0) {
-					return said(
-						"None of those were findings, so nothing was recorded. Send " +
-							"one finding, shaped like one entry of your contract's " +
-							"findings array.",
-					);
-				}
-				const wrote = await write(
-					path,
-					`${kept.map((one) => JSON.stringify(one)).join("\n")}\n`,
-				);
-				if (wrote !== undefined) return said(wrote);
-				const lost = finding.length - kept.length;
-				if (lost > 0) {
-					return said(
-						`Recorded ${kept.length} of them. The other ${lost} were not ` +
-							"findings and were not recorded, so send those again one at " +
-							"a time if they matter.",
-					);
-				}
-				return said(
-					`Recorded ${kept.length} of them, one per line. Record each one ` +
-						"as you find it rather than in batches: a batch you are still " +
-						"holding when you are stopped is a batch nobody gets. Include " +
-						"them in your final answer too.",
-				);
-			}
-			if (finding === null || typeof finding !== "object") {
+			const sent = findingsIn(params?.finding);
+			if (sent.kept.length === 0) {
 				return said(
 					"A finding has to be an object shaped like one entry of your " +
 						"contract's findings array. Nothing was recorded.",
 				);
 			}
-			const wrote = await write(path, `${JSON.stringify(finding)}\n`);
-			return said(wrote ?? "Recorded. Include it in your final answer too.");
+			const wrote = await write(
+				path,
+				`${sent.kept.map((one) => JSON.stringify(one)).join("\n")}\n`,
+			);
+			if (wrote !== undefined) return said(wrote);
+			if (sent.dropped > 0) {
+				return said(
+					`Recorded ${sent.kept.length} of them. The other ${sent.dropped} ` +
+						"were not findings and were not recorded, so send those again " +
+						"one at a time if they matter.",
+				);
+			}
+			if (sent.kept.length > 1) {
+				return said(
+					`Recorded ${sent.kept.length} of them, one per line. Record each ` +
+						"one as you find it rather than in batches: a batch you are " +
+						"still holding when you are stopped is a batch nobody gets. " +
+						"Include them in your final answer too.",
+				);
+			}
+			return said("Recorded. Include it in your final answer too.");
 		},
 	});
 }
