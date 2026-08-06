@@ -149,6 +149,139 @@ export function withSessionPersistence(
 	];
 }
 
+/** A reviewer that was started and is nobody's to wait for. */
+export interface StartedPi {
+	readonly runId: string;
+	readonly reviewerId: string;
+	/** The supervisor's pid, or undefined if the OS never gave one. */
+	readonly pid: number | undefined;
+	/** Where the supervisor was told what to do. */
+	readonly requestPath: string;
+}
+
+/** Start a reviewer without waiting for it. */
+export type StartPi = (options: Parameters<RunPi>[0]) => Promise<StartedPi>;
+
+/** Build a `StartPi` that leaves the reviewer running on its own. */
+export function createSupervisorStartPi(
+	config: SupervisorRunPiConfig,
+): StartPi {
+	const spawnFn = config.spawn ?? (nodeSpawn as SupervisorSpawnFn);
+	const where = supervisorPlaces(config);
+
+	return async function startPi(options) {
+		const { paths, runId, reviewerId } = await told(config, options);
+
+		const supervisor = spawnFn(
+			where.nodeBinary,
+			[where.script, paths.requestPath],
+			{
+				cwd: options.cwd,
+				// Its own process group. A child in the session's group
+				// takes the session's signals, so the interrupt that ends a
+				// pi session would end the round with it, which is the
+				// thing being fixed rather than a detail of how.
+				detached: true,
+				// Nothing is listening, so nothing may be held open. A pipe
+				// nobody drains fills and blocks the writer, and one whose
+				// reader has exited kills the writer outright. The
+				// supervisor's real output is the files it writes; its
+				// stdout was only ever a convenience for a waiting parent.
+				stdio: ["ignore", "ignore", "ignore"],
+			},
+		);
+		// Off this process's books, so node can exit without waiting.
+		supervisor.unref();
+
+		return {
+			runId,
+			reviewerId,
+			pid: supervisor.pid,
+			requestPath: paths.requestPath,
+		};
+	};
+}
+
+/** Where the supervisor script is and what runs it. */
+function supervisorPlaces(config: SupervisorRunPiConfig): {
+	script: string;
+	nodeBinary: string;
+} {
+	return {
+		script:
+			config.supervisorPath ??
+			fileURLToPath(new URL("./supervisor.mjs", import.meta.url)),
+		nodeBinary: config.nodeBinary ?? process.execPath,
+	};
+}
+
+/**
+ * Make a reviewer's directory and write down what it is being asked.
+ *
+ * Shared by the runner that waits and the one that walks away,
+ * because everything a supervisor needs is in this file and neither
+ * caller adds anything to it. Two copies would be two answers to
+ * questions like whether a detached reviewer persists its session,
+ * and the detached one is exactly where that has to be true: a
+ * session is what a resume reads.
+ */
+async function told(
+	config: SupervisorRunPiConfig,
+	options: Parameters<RunPi>[0],
+): Promise<{
+	paths: Awaited<ReturnType<ReviewerArtifactsStore["ensureReviewerDir"]>>;
+	runId: string;
+	reviewerId: string;
+}> {
+	const store = new ReviewerArtifactsStore(config.stateDir);
+	const runId = options.runId ?? `reviewer-${Date.now()}`;
+	const reviewerId = options.reviewerId ?? "reviewer";
+	const paths = await store.ensureReviewerDir(runId, reviewerId);
+	const root = store.rootPaths(runId);
+	const request = buildRequest(
+		config,
+		paths,
+		root.cancelPath,
+		{
+			runId,
+			reviewerId,
+			binary: config.piInstall.node,
+			// Pin the child's asset resolution (theme, package.json)
+			// to the parent's dereferenced install. The supervisor
+			// sets PI_PACKAGE_DIR from this so a mid-session upgrade
+			// that deletes the versioned symlink cannot strand the
+			// child on a path that no longer exists.
+			...(config.piInstall.packageDir
+				? { piPackageDir: config.piInstall.packageDir }
+				: {}),
+			// Only persist the session when the caller asked for
+			// it (the reviewer path, to enable resume). Fleet jobs
+			// leave persistSession false and stay ephemeral on the
+			// composed `--no-session`.
+			args: [
+				config.piInstall.entry,
+				...(options.persistSession
+					? withSessionPersistence(options.args, paths.sessionDir)
+					: options.args),
+			],
+			cwd: options.cwd,
+		},
+		{
+			...(options.timeoutMs !== undefined
+				? { timeoutMs: options.timeoutMs }
+				: {}),
+			...(options.idleTimeoutMs !== undefined
+				? { idleTimeoutMs: options.idleTimeoutMs }
+				: {}),
+			...(options.wrapUpReserveMs !== undefined
+				? { wrapUpReserveMs: options.wrapUpReserveMs }
+				: {}),
+		},
+	);
+	await store.writeJsonAtomic(paths.requestPath, request);
+	return { paths, runId, reviewerId };
+}
+
 /** Build a `RunPi` backed by durable reviewer supervisor jobs. */
 export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 	const spawnFn = config.spawn ?? (nodeSpawn as SupervisorSpawnFn);
@@ -158,60 +291,13 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 		fileURLToPath(new URL("./supervisor.mjs", import.meta.url));
 	const nodeBinary = config.nodeBinary ?? process.execPath;
 
-	return async function runPi({
-		args,
-		cwd,
-		signal,
-		onEvent,
-		runId,
-		reviewerId,
-		persistSession,
-		timeoutMs,
-		idleTimeoutMs,
-		wrapUpReserveMs,
-	}) {
-		const effectiveRunId = runId ?? `reviewer-${Date.now()}`;
-		const effectiveReviewerId = reviewerId ?? "reviewer";
-		const paths = await store.ensureReviewerDir(
-			effectiveRunId,
-			effectiveReviewerId,
-		);
-		const root = store.rootPaths(effectiveRunId);
-		const request = buildRequest(
-			config,
+	return async function runPi(options) {
+		const { cwd, signal, onEvent } = options;
+		const {
 			paths,
-			root.cancelPath,
-			{
-				runId: effectiveRunId,
-				reviewerId: effectiveReviewerId,
-				binary: config.piInstall.node,
-				// Pin the child's asset resolution (theme, package.json)
-				// to the parent's dereferenced install. The supervisor
-				// sets PI_PACKAGE_DIR from this so a mid-session upgrade
-				// that deletes the versioned symlink cannot strand the
-				// child on a path that no longer exists.
-				...(config.piInstall.packageDir
-					? { piPackageDir: config.piInstall.packageDir }
-					: {}),
-				// Only persist the session when the caller asked for
-				// it (the reviewer path, to enable resume). Fleet jobs
-				// leave persistSession false and stay ephemeral on the
-				// composed `--no-session`.
-				args: [
-					config.piInstall.entry,
-					...(persistSession
-						? withSessionPersistence(args, paths.sessionDir)
-						: args),
-				],
-				cwd,
-			},
-			{
-				...(timeoutMs !== undefined ? { timeoutMs } : {}),
-				...(idleTimeoutMs !== undefined ? { idleTimeoutMs } : {}),
-				...(wrapUpReserveMs !== undefined ? { wrapUpReserveMs } : {}),
-			},
-		);
-		await store.writeJsonAtomic(paths.requestPath, request);
+			runId: effectiveRunId,
+			reviewerId: effectiveReviewerId,
+		} = await told(config, options);
 
 		return new Promise<RunPiResult>((resolve, reject) => {
 			const supervisor = spawnFn(
@@ -255,7 +341,7 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 			// little past that is enough: if it were alive and healthy it
 			// would have stopped its own child and reported by then.
 			const effectiveTimeoutMs =
-				timeoutMs ?? config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+				options.timeoutMs ?? config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 			const graceMs = parentGraceMs(
 				config.killGraceMs ?? DEFAULT_KILL_GRACE_MS,
 				config.supervisorGraceMs,

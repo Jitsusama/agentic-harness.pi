@@ -19,11 +19,7 @@
 import { count } from "../../ui/count.js";
 import type { Finding } from "../finding.js";
 import { alsoRecorded, type Harvest, harvestFindings } from "./harvest.js";
-import {
-	type Participant,
-	type ParticipantIdentity,
-	participantIdentity,
-} from "./identity.js";
+import { type Participant, participantIdentity } from "./identity.js";
 import { type AskProgress, noAskProgress, settleReplies } from "./progress.js";
 import type { Roster } from "./roster.js";
 import {
@@ -264,12 +260,9 @@ export async function runCouncil(
 	request: CouncilRequest,
 	deps: CouncilDeps,
 ): Promise<CouncilResult> {
-	const round = request.round ?? "council";
-	const startedAt = deps.now();
-	const id = newRunId(round, startedAt, request.seq);
-	const participants: ParticipantIdentity[] = request.roster.reviewers.map(
-		(participant) => participantIdentity("reviewer", participant),
-	);
+	const opening = openingRun(request, deps.now());
+	const { id, round, participants } = opening;
+	const startedAt = opening.startedAt;
 	const witnessed =
 		request.witness === undefined ? {} : { witness: request.witness };
 
@@ -288,15 +281,7 @@ export async function runCouncil(
 	// seam is public, so the first caller in another package would
 	// have found that out the expensive way.
 	try {
-		await deps.opened?.({
-			id,
-			round,
-			startedAt: startedAt.toISOString(),
-			participants,
-			outcomes: [],
-			open: true,
-			...witnessed,
-		});
+		await deps.opened?.(opening);
 	} catch {
 		// Nothing to say to: the round has not started, so there is no
 		// warnings list yet. The cost is that an interrupted round may
@@ -326,7 +311,7 @@ export async function runCouncil(
 		run: {
 			id,
 			round,
-			startedAt: startedAt.toISOString(),
+			startedAt,
 			participants,
 			outcomes,
 			...witnessed,
@@ -334,6 +319,31 @@ export async function runCouncil(
 			// only while a round is unfinished.
 		},
 		warnings,
+	};
+}
+
+/**
+ * A round at the moment it exists and nobody has been asked.
+ *
+ * Shared by the runner that waits for a round and the one that walks
+ * away from it, because a round's identity is one concept and two
+ * copies of it would drift. A detached round is collected back into
+ * the same listing as a live one, so an id minted differently, or a
+ * participant identified differently, would show up as two kinds of
+ * round rather than one round run two ways.
+ */
+export function openingRun(request: CouncilRequest, startedAt: Date): AskRun {
+	const round = request.round ?? "council";
+	return {
+		id: newRunId(round, startedAt, request.seq),
+		round,
+		startedAt: startedAt.toISOString(),
+		participants: request.roster.reviewers.map((participant) =>
+			participantIdentity("reviewer", participant),
+		),
+		outcomes: [],
+		open: true,
+		...(request.witness === undefined ? {} : { witness: request.witness }),
 	};
 }
 

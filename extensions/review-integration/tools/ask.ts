@@ -64,6 +64,7 @@ import {
 	runStackCouncil,
 	runSummary,
 	stackPrompt,
+	startCouncil,
 	stoppedNotes,
 	substituteOutcome,
 	type Thread,
@@ -74,6 +75,7 @@ import {
 	getParentPiInstall,
 	ReviewerArtifactsStore,
 	runReviewer,
+	startReviewer,
 	summarizeStreamActivity,
 } from "../../../lib/subagent/index.js";
 import { count } from "../../../lib/ui/count.js";
@@ -98,6 +100,7 @@ import {
 	answerLeftBehind,
 	keepAnswer,
 	reviewerRunner,
+	reviewerStarter,
 } from "../reviewer.js";
 import { treeForRound } from "../work.js";
 import {
@@ -115,6 +118,7 @@ import {
 /** What the tool can be asked to do. */
 type AskAction =
 	| "council"
+	| "start"
 	| "judge"
 	| "critique"
 	| "audit"
@@ -166,6 +170,7 @@ export function registerAskTool(pi: ExtensionAPI): void {
 						Type.Literal("critique"),
 						Type.Literal("audit"),
 						Type.Literal("stack"),
+						Type.Literal("start"),
 						Type.Literal("runs"),
 						Type.Literal("collect"),
 						Type.Literal("retry"),
@@ -173,7 +178,7 @@ export function registerAskTool(pi: ExtensionAPI): void {
 					],
 					{
 						description:
-							"What to do. council: ask every reviewer on the roster, independently and at once. judge: ask the roster's judge to consolidate the latest council. critique: ask the roster to push back on what the judge concluded, recording positions rather than findings. audit: judge each unresolved inbound thread against the change, so a reply is informed rather than guessed. stack: put every change in the stack to the roster together, so a finding that only exists between changes can be seen. runs: what rounds have been asked about this change. collect: finish a round whose session ended before it could, reading what its reviewers left on disk, which is what an unsettled round in the listing is telling you to do. retry: ask one participant again and substitute their outcome in place. release: free a participant id so it can mean a different model, which is the way out the identity refusal names. Defaults to runs, which changes nothing.",
+							"What to do. council: ask every reviewer on the roster, independently and at once, waiting for all of them. start: the same round, dispatched and left running, so the session is free straight away; nothing is watching it, so there is no progress, no wrap-up and no retry, and you finish it later with collect. judge: ask the roster's judge to consolidate the latest council. critique: ask the roster to push back on what the judge concluded, recording positions rather than findings. audit: judge each unresolved inbound thread against the change, so a reply is informed rather than guessed. stack: put every change in the stack to the roster together, so a finding that only exists between changes can be seen. runs: what rounds have been asked about this change. collect: finish a round whose session ended before it could, reading what its reviewers left on disk, which is what an unsettled round in the listing is telling you to do. retry: ask one participant again and substitute their outcome in place. release: free a participant id so it can mean a different model, which is the way out the identity refusal names. Defaults to runs, which changes nothing.",
 					},
 				),
 			),
@@ -277,6 +282,8 @@ export function registerAskTool(pi: ExtensionAPI): void {
 						return await collectOne(change, params);
 					case "council":
 						return await askCouncil(bound, change, params, watch("council"));
+					case "start":
+						return await startRound(bound, change, params);
 					case "judge":
 						return await askJudge(bound, change, params, watch("judge"));
 					case "critique":
@@ -491,6 +498,109 @@ async function askCouncil(
 		run,
 		warnings,
 	});
+}
+
+/**
+ * Start a council and hand the session straight back.
+ *
+ * The same roster, prompt, tree and ledger entry a council makes,
+ * dispatched and abandoned on purpose. What is given up is worth
+ * saying out loud rather than discovering: no progress panel, since
+ * nothing is listening; no wrap-up for a reviewer that runs long,
+ * since a wrap-up is dispatched by whoever was waiting; and no
+ * retry, since a retry substitutes into a round that has finished.
+ *
+ * What is kept is everything durable. Each reviewer records findings
+ * as it goes, its supervisor holds its own watchdogs, and `collect`
+ * turns the directories back into findings whenever somebody asks.
+ */
+async function startRound(
+	bound: Awaited<ReturnType<typeof boundFor>>,
+	change: ChangeRef,
+	params: AskParams,
+): Promise<Answer> {
+	const roster = await rosterOrThrow();
+	const charters = await chartersFor(roster);
+	await claimIdentities(change, "reviewer", roster.reviewers);
+	const { proposal, diff } = await material(bound);
+	const prompt = councilPrompt({
+		proposal,
+		diff,
+		...(params.intent === undefined ? {} : { intent: params.intent }),
+	});
+	const tree = await treeForRound(
+		bound.repo,
+		proposal.headCommit,
+		process.cwd(),
+	);
+	const budget = await budgetForRound();
+	const starter = reviewerStarter(getParentPiInstall(), runArtifactDir());
+	const store = createRunStore(runDir());
+	const contract = contractSkill("council");
+
+	const { run, warnings } = await startCouncil(
+		{
+			roster,
+			prompt,
+			seq: 1,
+			...(proposal.headCommit === undefined
+				? {}
+				: { witness: proposal.headCommit }),
+		},
+		{
+			now: () => new Date(),
+			// Unguarded, unlike the council's. There the entry is
+			// bookkeeping and the findings survive without it; here it is
+			// the only thing that will ever say these seven directories
+			// were a round, so failing to write it has to stop the round
+			// rather than cost it later.
+			opened: (opening) => store.keep(change, opening),
+			async start(participant, asked, runId) {
+				await startReviewer({
+					reviewer: {
+						id: participant.id,
+						...(participant.model === undefined
+							? {}
+							: { model: participant.model }),
+						...(participant.thinkingLevel === undefined
+							? {}
+							: {
+									thinkingLevel:
+										participant.thinkingLevel as ReviewerThinkingLevel,
+								}),
+						...(participant.tools === undefined
+							? {}
+							: { tools: participant.tools }),
+					},
+					prompt: asked,
+					cwd: tree.path,
+					extraSkills: [contract],
+					// Not optional here the way it is on the waiting path.
+					// A detached reviewer's answer is only ever read off
+					// disk, so a finding it did not write down before it
+					// died is a finding nothing can recover.
+					extraExtensions: [journalPack()],
+					...(charters.get(participant.id) === undefined
+						? {}
+						: { systemPrompt: charters.get(participant.id) }),
+					runId,
+					stateDir: runArtifactDir(),
+					startPi: starter,
+					...budget,
+				});
+			},
+		},
+	);
+
+	return say(
+		[
+			`Started ${run.id}: ${count(run.participants.length, "reviewer")} running, nothing waiting for them.`,
+			`Finish it with review_ask collect once they are done. Until then it reads as opened and never settled, which is what it is.`,
+			...warnings.map((warning) => `${GLYPH.refused} ${warning}`),
+			...(tree.caveat === undefined ? [] : [tree.caveat]),
+		].join("\n"),
+		{ run, warnings },
+	);
 }
 
 /** Ask the judge to consolidate the latest council. */

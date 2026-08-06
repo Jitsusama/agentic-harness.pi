@@ -30,6 +30,8 @@ import {
 } from "../../lib/subagent/index.js";
 import {
 	createSupervisorRunPi,
+	createSupervisorStartPi,
+	type StartPi,
 	type SupervisorSpawnFn,
 } from "../../lib/subagent/runpi/supervisor.js";
 import { budgetForLimit } from "./budget.js";
@@ -87,6 +89,19 @@ export function reviewerRunner(
 	spawn?: SupervisorSpawnFn,
 ): RunPi {
 	return createSupervisorRunPi({
+		piInstall,
+		stateDir,
+		...(spawn === undefined ? {} : { spawn }),
+	});
+}
+
+/** The same supervised runner, for a reviewer nobody will wait for. */
+export function reviewerStarter(
+	piInstall: PiInstall,
+	stateDir: string,
+	spawn?: SupervisorSpawnFn,
+): StartPi {
+	return createSupervisorStartPi({
 		piInstall,
 		stateDir,
 		...(spawn === undefined ? {} : { spawn }),

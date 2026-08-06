@@ -70,7 +70,12 @@ export {
 } from "./reviewer-error.js";
 // Runner implementations.
 export { createSpawnRunPi } from "./runpi/spawn.js";
-export { createSupervisorRunPi } from "./runpi/supervisor.js";
+export {
+	createSupervisorRunPi,
+	createSupervisorStartPi,
+	type StartedPi,
+	type StartPi,
+} from "./runpi/supervisor.js";
 // Stream parsing (advanced consumers).
 export {
 	type ReviewerStreamLimits,
@@ -90,6 +95,7 @@ export type {
 	RunPiStreamEvent,
 	RunReviewerOptions,
 	RunReviewerResult,
+	StartReviewerOptions,
 	SubagentJob,
 	SubagentRunResult,
 	SubagentSpec,
@@ -108,6 +114,7 @@ export {
 	runFleet,
 	runReviewer,
 	runSubagent,
+	startReviewer,
 	VERIFY_TOOL_NAME,
 	verifyProtocolInstruction,
 } from "./subagent.js";

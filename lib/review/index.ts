@@ -140,6 +140,7 @@ export type {
 	StackCouncilRequest,
 } from "./ask/stack-round.js";
 export { runStackCouncil } from "./ask/stack-round.js";
+export { type StartDeps, startCouncil } from "./ask/start.js";
 export type { RunStore } from "./ask/store.js";
 export { createRunStore } from "./ask/store.js";
 export type {
