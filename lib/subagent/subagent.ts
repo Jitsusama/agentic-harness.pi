@@ -41,6 +41,7 @@ import {
 	describeReviewerError,
 	type ReviewerError,
 } from "./reviewer-error.js";
+import { JOURNAL_TOOL_NAME } from "./runpi/journal.mjs";
 import type { StartedPi, StartPi } from "./runpi/supervisor.js";
 
 export type { ReviewerError } from "./reviewer-error.js";
@@ -1436,12 +1437,16 @@ export const VERIFY_TOOL_NAME = "verify_output";
 /**
  * The tool a reviewer records a finding with, for the same reason.
  *
- * A roster that names a tool palette would otherwise be denied the one
- * tool that makes an interrupted review worth anything, silently, and
- * the reviewer would be told by its contract to call something the
- * allowlist forbids.
+ * Re-exported from the journal module rather than spelled again,
+ * because the side that has to match it is the pack, and the pack
+ * should learn its own name without importing the dispatcher that
+ * permits it.
  */
-export const JOURNAL_TOOL_NAME = "record_finding";
+export {
+	JOURNAL_PACK_PATH,
+	JOURNAL_PATH_VAR,
+	JOURNAL_TOOL_NAME,
+} from "./runpi/journal.mjs";
 
 interface ComposeArgsInput {
 	readonly spec: SubagentSpec;

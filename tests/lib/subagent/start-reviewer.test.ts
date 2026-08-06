@@ -137,6 +137,32 @@ describe("starting one reviewer nobody will wait for", () => {
 		expect(noted.calls[0]?.wrapUpReserveMs).toBeUndefined();
 	});
 
+	it("hands the reviewer the packs it was given", async () => {
+		// The whole detached story rests on this argument arriving. A
+		// started reviewer's answer is only ever read off disk, so a
+		// finding it did not write down before it died is one nothing
+		// can recover: the pack is not a nicety here the way it is on
+		// the waiting path, it is the only thing keeping the round.
+		const stateDir = await tempStateDir();
+		const noted = noteStart();
+
+		await startReviewer({
+			reviewer: { id: "hawk" },
+			prompt: "read it",
+			cwd: stateDir,
+			runId: "run",
+			stateDir,
+			startPi: noted.startPi,
+			extraExtensions: ["/packs/review-journal/index.ts"],
+		});
+
+		const args = noted.calls[0]?.args ?? [];
+		expect(args).toContain("--extension");
+		expect(args[args.indexOf("--extension") + 1]).toBe(
+			"/packs/review-journal/index.ts",
+		);
+	});
+
 	it("refuses a budget the runner would refuse", async () => {
 		// The same validation the waiting path does. A detached round
 		// is the worst place to discover a nonsense budget, since

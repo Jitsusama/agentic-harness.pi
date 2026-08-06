@@ -28,6 +28,14 @@
 import { appendFile } from "node:fs/promises";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+// From the journal module directly, not the library barrel. This pack
+// is loaded into every reviewer, and the barrel would drag the
+// dispatcher, the supervisor and the artifact store into a process
+// whose whole job is appending a line to a file.
+import {
+	JOURNAL_PATH_VAR,
+	JOURNAL_TOOL_NAME,
+} from "../../lib/subagent/runpi/journal.mjs";
 
 /** A tool answer, in the shape pi expects. */
 function said(text: string) {
@@ -96,15 +104,27 @@ function findingsIn(sent: unknown): {
 	return { kept, dropped: each.length - kept.length };
 }
 
-/** Where the supervisor told us to write. Absent outside a round. */
+/**
+ * Where the supervisor told us to write. Absent outside a round.
+ *
+ * The variable's name comes from the library rather than being spelled
+ * again here. This process and the supervisor never speak, so a
+ * disagreement about that one word costs every finding a stopped
+ * reviewer would have kept, and costs it in silence: the tool would
+ * write nothing, say nothing, and every recovery path resting on the
+ * journal would return an empty review.
+ */
 function journalPath(): string | undefined {
-	const path = process.env.SUBAGENT_JOURNAL_PATH;
+	const path = process.env[JOURNAL_PATH_VAR];
 	return path === undefined || path.trim() === "" ? undefined : path;
 }
 
 export default function reviewJournal(pi: ExtensionAPI) {
 	pi.registerTool({
-		name: "record_finding",
+		// Likewise from the library, which is what puts this on the
+		// reviewer's allowlist. Named apart, a roster with a tool palette
+		// permits one name and the reviewer is told to call another.
+		name: JOURNAL_TOOL_NAME,
 		label: "Record finding",
 		description:
 			"Write down one finding, now, in the shape your output contract " +
