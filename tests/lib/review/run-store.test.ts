@@ -242,6 +242,24 @@ describe("replacing a run", () => {
 		expect(held[1]?.id).toBe("judge-1");
 	});
 
+	it("names every open round, across every change", async () => {
+		// The retention sweep's question, and the only one here that is
+		// not about one change. A detached round is finished on disk and
+		// open on the ledger, and this is what stops the sweep deleting
+		// the answers it is still waiting to be asked for.
+		const store = createRunStore(root);
+		await store.keep(change, run({ id: "council-open", open: true }));
+		await store.keep(change, run({ id: "council-done" }));
+		await store.keep(
+			{ ...change, id: "999", label: "other#999" },
+			run({ id: "council-elsewhere", open: true }),
+		);
+
+		expect(await store.openRunIds()).toEqual(
+			new Set(["council-open", "council-elsewhere"]),
+		);
+	});
+
 	it("refuses to replace a run it does not hold", async () => {
 		// Silently adding it would make a retry look like it patched
 		// something when it invented a run instead.

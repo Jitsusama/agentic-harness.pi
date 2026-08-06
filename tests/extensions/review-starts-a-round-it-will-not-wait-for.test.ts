@@ -25,6 +25,15 @@ import {
 	startReviewer,
 } from "../../lib/subagent/index.js";
 
+/** The parts of a run everyoneFinished reads, for a single reviewer. */
+const RUN: AskRun = {
+	id: "run",
+	round: "council",
+	startedAt: "2026-08-06T00:00:00.000Z",
+	participants: [{ id: "hawk", role: "reviewer" }],
+	outcomes: [],
+};
+
 let root: string;
 
 beforeEach(() => {
@@ -134,7 +143,7 @@ describe("a round nobody waited for", () => {
 		const childPath = join(root, "child.mjs");
 		writeFileSync(childPath, CHILD);
 
-		await startReviewer({
+		const started = await startReviewer({
 			reviewer: { id: "hawk" },
 			prompt: "the question nobody else recorded",
 			cwd: root,
@@ -155,5 +164,12 @@ describe("a round nobody waited for", () => {
 		expect(readFileSync(promptPath, "utf8")).toBe(
 			"the question nobody else recorded",
 		);
+
+		// Waited for on the way out, or afterEach deletes the state
+		// directory under a supervisor still writing into it. The process
+		// outliving the test is the point of the feature and the one
+		// thing a suite testing it has to clean up after.
+		expect(started.pid).toBeGreaterThan(0);
+		await everyoneFinished(RUN);
 	}, 60_000);
 });

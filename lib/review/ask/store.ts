@@ -12,7 +12,7 @@
  * what it consolidated.
  */
 
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ChangeRef } from "../change.js";
 import { changeKey } from "../keys.js";
@@ -47,6 +47,17 @@ export interface RunStore {
 	 * invented one, and should say so rather than quietly adding it.
 	 */
 	keep(change: ChangeRef, run: AskRun): Promise<void>;
+	/**
+	 * Every round still open, across every change.
+	 *
+	 * The one question here that is not about a change, and it exists
+	 * for the retention sweep. A detached round finishes on disk and
+	 * stays open on the ledger until somebody collects it, so a sweep
+	 * that judges a run by whether it is terminal will happily delete
+	 * the answers a round is still waiting to be asked for. Before
+	 * rounds outlived their sessions the two could not disagree.
+	 */
+	openRunIds(): Promise<Set<string>>;
 }
 
 /** What one change's file holds. */
@@ -117,6 +128,46 @@ export function createRunStore(root: string): RunStore {
 
 		async list(change) {
 			return (await read(change)).runs;
+		},
+
+		async openRunIds() {
+			const open = new Set<string>();
+			let files: string[];
+			try {
+				files = await readdir(root);
+			} catch {
+				// No ledger directory at all, so no rounds are open. The
+				// caller is a sweep, and answering "none" is the honest
+				// reading of an empty history.
+				return open;
+			}
+			for (const file of files) {
+				if (!file.endsWith(".json")) continue;
+				let parsed: unknown;
+				try {
+					parsed = JSON.parse(await readFile(join(root, file), "utf8"));
+				} catch {
+					// A torn or unreadable ledger is somebody else's problem
+					// to report. Skipping it here only means a sweep does not
+					// know about its rounds, and the sweep errs towards
+					// deleting nothing it was unsure about.
+					continue;
+				}
+				if (
+					typeof parsed !== "object" ||
+					parsed === null ||
+					!("runs" in parsed) ||
+					!Array.isArray(parsed.runs)
+				) {
+					continue;
+				}
+				for (const run of parsed.runs as AskRun[]) {
+					if (run?.open === true && typeof run.id === "string") {
+						open.add(run.id);
+					}
+				}
+			}
+			return open;
 		},
 
 		async latest(change, round) {

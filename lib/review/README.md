@@ -54,6 +54,8 @@ in the loop:
 | [`wire.ts`](ask/wire.ts) | Where the JSON is in what a model said |
 | [`harvest.ts`](ask/harvest.ts) | What its answer amounts to |
 | [`council.ts`](ask/council.ts) | Asking everybody at once |
+| [`start.ts`](ask/start.ts) | Asking everybody and not waiting |
+| [`collect.ts`](ask/collect.ts) | Finishing a round from what it left on disk |
 | [`judge.ts`](ask/judge.ts) | Consolidating what they said |
 | [`critique.ts`](ask/critique.ts) | Pushing back on what was consolidated |
 | [`audit.ts`](ask/audit.ts) | Whether the change answers what people asked for |

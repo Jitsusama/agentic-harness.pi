@@ -81,6 +81,17 @@ export interface RetentionPolicy {
 	 * what the policy did before this existed.
 	 */
 	readonly abandonedAfterMs?: number;
+	/**
+	 * Runs to keep whatever their age, named by run id.
+	 *
+	 * For work that is finished on disk and unfinished to whoever is
+	 * going to read it. A round detached from its session writes every
+	 * result file and then waits, possibly for days, to be collected;
+	 * to this sweep it looks exactly like a finished round nobody
+	 * needs. Deleting it throws away reviews that have been paid for
+	 * and leaves a ledger entry pointing at nothing.
+	 */
+	readonly protect?: ReadonlySet<string>;
 	readonly now?: Date;
 }
 
@@ -232,6 +243,10 @@ export class ReviewerArtifactsStore {
 				!terminal &&
 				policy.abandonedAfterMs !== undefined &&
 				age > policy.abandonedAfterMs;
+			if (policy.protect?.has(run.name)) {
+				kept++;
+				continue;
+			}
 			if ((terminal && (tooOld || tooMany)) || abandoned) {
 				try {
 					await rm(run.runDir, { recursive: true, force: true });

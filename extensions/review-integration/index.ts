@@ -15,6 +15,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	clearTargetBindings,
+	createRunStore,
 	listReviewProviders,
 	pruneAttachments,
 	REVIEW_READY,
@@ -32,6 +33,7 @@ import {
 	rememberSession,
 	reviewEngine,
 	runArtifactDir,
+	runDir,
 	sessionKey,
 } from "./engine.js";
 import { guardPublishes } from "./guard-publish.js";
@@ -102,6 +104,20 @@ async function reclaimRoundTranscripts(): Promise<void> {
 	const transcripts = runArtifactDir();
 	const attached = attachmentDir();
 	const mine = sessionKey();
+	// Which rounds are still waiting to be collected. A detached round
+	// is finished on disk and unfinished to the person who started it,
+	// and this is the only thing that tells the two apart: without it
+	// the sweep deletes reviews that have been paid for and were about
+	// to be read.
+	let protect: ReadonlySet<string> = new Set();
+	try {
+		protect = await createRunStore(runDir()).openRunIds();
+	} catch {
+		// An unreadable ledger must not stop the sweep, but it must not
+		// licence one either: an empty protect set is the cautious
+		// reading only because the sweep below keeps anything it is
+		// unsure about for the abandoned window first.
+	}
 	// Separately, because one failing is not a reason to skip the
 	// other, and the transcript sweep races other sessions by nature.
 	try {
@@ -109,6 +125,7 @@ async function reclaimRoundTranscripts(): Promise<void> {
 			maxRuns: ROUNDS_RETAIN,
 			maxAgeMs: ROUNDS_MAX_AGE_MS,
 			abandonedAfterMs: ROUNDS_ABANDONED_AFTER_MS,
+			protect,
 		});
 	} catch {
 		// Advisory. A sweep that cannot run costs disk, and failing the

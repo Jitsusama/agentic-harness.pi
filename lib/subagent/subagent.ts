@@ -583,11 +583,6 @@ export interface RunReviewerResult {
 	readonly state?: ReviewerTerminalState;
 }
 
-/**
- * Spawn one reviewer subagent, capture its output, and
- * extract the final assistant turn's text for downstream
- * finding parsing.
- */
 /** What starting a reviewer needs, which is less than running one. */
 export type StartReviewerOptions = Omit<
 	RunReviewerOptions,
@@ -668,16 +663,21 @@ export async function startReviewer(
 		...(options.idleTimeoutMs !== undefined
 			? { idleTimeoutMs: options.idleTimeoutMs }
 			: {}),
-		// No reserve, deliberately. The soft deadline buys time for a
-		// wrap-up, and a wrap-up is dispatched by the parent that was
-		// waiting. Nobody is, so reserving would stop the reviewer early
-		// and ask it nothing: strictly less review for the same money.
-		// What protects a detached reviewer instead is the journal it
-		// writes as it goes, which is why that had to exist first.
-		wrapUpReserveMs: 0,
+		// No reserve, deliberately, and by omission rather than by zero.
+		// The soft deadline buys time for a wrap-up, and a wrap-up is
+		// dispatched by the parent that was waiting. Nobody is, so
+		// reserving would stop the reviewer early and ask it nothing:
+		// strictly less review for the same money. What protects a
+		// detached reviewer instead is the journal it writes as it goes,
+		// which is why that had to exist first.
 	});
 }
 
+/**
+ * Spawn one reviewer subagent, capture its output, and
+ * extract the final assistant turn's text for downstream
+ * finding parsing.
+ */
 export async function runReviewer(
 	options: RunReviewerOptions,
 ): Promise<RunReviewerResult> {
@@ -738,7 +738,10 @@ export async function runReviewer(
 	// the pi child at spawn. Write it to a temp file and
 	// hand pi an `@<path>` reference instead, which pi merges
 	// into the prompt, so argv stays tiny whatever the diff
-	// size. The file is removed once the run resolves.
+	// size. The file is removed once the run resolves, which is safe
+	// only because this path waits for it: `startReviewer` writes into
+	// the reviewer's own directory and removes nothing, since its
+	// child may not have read the prompt by the time it returns.
 	const reserve = wrapUpReserve(options);
 	const promptFile = await writeReviewerPrompt(options.prompt);
 	const args = composeArgs({

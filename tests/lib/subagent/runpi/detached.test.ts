@@ -95,6 +95,34 @@ describe("starting a reviewer that outlives the session", () => {
 		});
 	});
 
+	it("stamps no parent pid, so the session's exit is not its death", async () => {
+		// The supervisor stops its child as soon as the parent pid is
+		// gone. Inherited from the waiting path, that kills a detached
+		// round within half a second of the session exiting, which is
+		// precisely what starting one is for.
+		const noted = noteSpawn();
+		const stateDir = await tempStateDir();
+		const startPi = createSupervisorStartPi({
+			piInstall: { node: process.execPath, entry: "child.mjs" },
+			stateDir,
+			spawn: noted.spawn,
+		});
+
+		const started = await startPi({
+			args: [],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "one",
+		});
+
+		const request = JSON.parse(await readFile(started.requestPath, "utf8"));
+		expect(request.parentPid).toBeUndefined();
+		// And no soft deadline, since a wrap-up needs somebody to ask
+		// for it. Written as the wall clock it would read as configured
+		// while doing nothing.
+		expect(request.softDeadlineMs).toBeUndefined();
+	});
+
 	it("returns before the reviewer has finished, and it finishes anyway", async () => {
 		// The one that matters. Everything else is arrangement: this
 		// asserts that a real supervised reviewer runs to completion
@@ -120,11 +148,34 @@ describe("starting a reviewer that outlives the session", () => {
 			reviewerId: "slow",
 		});
 
+		// Asserted before the result exists, which is the claim: the
+		// call returned while the child was still sleeping. Without
+		// this a startPi that quietly awaited the child would pass
+		// everything below it.
 		const store = new ReviewerArtifactsStore(stateDir);
 		const { resultPath } = store.paths("run", "slow");
+		await expect(readFile(resultPath, "utf8")).rejects.toThrow();
+
 		const result = await appears<{ finalAssistantText: string }>(resultPath);
 
 		expect(started.pid).toBeGreaterThan(0);
 		expect(result.finalAssistantText).toBe("nobody waited");
+	});
+
+	it("reports a spawn that failed rather than throwing at the top level", async () => {
+		// An 'error' event with no listener is rethrown as an uncaught
+		// exception. On the waiting path a promise catches it; here
+		// there is no promise, so an unspawnable supervisor would take
+		// down the session that was walking away from it.
+		const stateDir = await tempStateDir();
+		const startPi = createSupervisorStartPi({
+			piInstall: { node: process.execPath, entry: "child.mjs" },
+			stateDir,
+			nodeBinary: join(stateDir, "no-such-node"),
+		});
+
+		await expect(
+			startPi({ args: [], cwd: stateDir, runId: "run", reviewerId: "one" }),
+		).rejects.toThrow(/ENOENT|no-such-node/);
 	});
 });

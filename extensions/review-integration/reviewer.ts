@@ -288,7 +288,16 @@ export function answerFromReviewer(
 	// calling that a failure would throw the findings away to keep the
 	// classification tidy.
 	const recorded = recordedBy(result);
-	const died = result.exitCode !== 0 && result.finalAssistantText.trim() === "";
+	// An error counts as dying even on a clean exit code. A provider
+	// drop is reported as the turn's error and the process can still
+	// exit zero, and on the waiting path that hardly showed: a resume
+	// was dispatched and usually recovered it. A detached reviewer has
+	// nobody to resume it, so without this the round reads a real
+	// transport failure as a reviewer that had nothing to say, and the
+	// message naming what went wrong is discarded.
+	const died =
+		(result.exitCode !== 0 || result.error !== undefined) &&
+		result.finalAssistantText.trim() === "";
 	if (died && recorded.recorded === undefined) {
 		return { failure: failureFrom(result) };
 	}

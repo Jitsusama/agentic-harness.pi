@@ -12,14 +12,27 @@ async function tempStateDir(): Promise<string> {
 
 /** A start that records what it was told and starts nothing. */
 function noteStart() {
-	const calls: { args: readonly string[]; reviewerId?: string }[] = [];
+	const calls: {
+		args: readonly string[];
+		reviewerId?: string;
+		persistSession?: boolean;
+		wrapUpReserveMs?: number;
+	}[] = [];
 	const startPi = async (options: {
 		args: readonly string[];
 		reviewerId?: string;
+		persistSession?: boolean;
+		wrapUpReserveMs?: number;
 	}): Promise<StartedPi> => {
 		calls.push({
 			args: options.args,
 			...(options.reviewerId ? { reviewerId: options.reviewerId } : {}),
+			...(options.persistSession === undefined
+				? {}
+				: { persistSession: options.persistSession }),
+			...(options.wrapUpReserveMs === undefined
+				? {}
+				: { wrapUpReserveMs: options.wrapUpReserveMs }),
 		});
 		return {
 			runId: "run",
@@ -97,6 +110,31 @@ describe("starting one reviewer nobody will wait for", () => {
 		const said = noted.calls[0]?.args.join(" ") ?? "";
 		expect(said).toContain("opus-5");
 		expect(said).toContain("xhigh");
+	});
+
+	it("persists the session and reserves nothing for a wrap-up", async () => {
+		// The two decisions this path documents most heavily and pinned
+		// nowhere. A detached reviewer cannot be resumed by the parent
+		// that started it, so the session on disk is the only thing that
+		// makes a later resume possible at all. And a reserve buys time
+		// for a wrap-up nobody will dispatch, so taking one spends review
+		// time on nothing: note the configured value being dropped here
+		// rather than passed on.
+		const stateDir = await tempStateDir();
+		const noted = noteStart();
+
+		await startReviewer({
+			reviewer: { id: "hawk" },
+			prompt: "read it",
+			cwd: stateDir,
+			runId: "run",
+			stateDir,
+			startPi: noted.startPi,
+			wrapUpReserveMs: 60_000,
+		});
+
+		expect(noted.calls[0]?.persistSession).toBe(true);
+		expect(noted.calls[0]?.wrapUpReserveMs).toBeUndefined();
 	});
 
 	it("refuses a budget the runner would refuse", async () => {

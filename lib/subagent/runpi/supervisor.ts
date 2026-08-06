@@ -168,9 +168,10 @@ export function createSupervisorStartPi(
 ): StartPi {
 	const spawnFn = config.spawn ?? (nodeSpawn as SupervisorSpawnFn);
 	const where = supervisorPlaces(config);
+	const failures: string[] = [];
 
 	return async function startPi(options) {
-		const { paths, runId, reviewerId } = await told(config, options);
+		const { paths, runId, reviewerId } = await told(config, options, true);
 
 		const supervisor = spawnFn(
 			where.nodeBinary,
@@ -190,8 +191,24 @@ export function createSupervisorStartPi(
 				stdio: ["ignore", "ignore", "ignore"],
 			},
 		);
+		// A spawn that fails reports it as an event, and an 'error'
+		// event nothing is listening for is thrown as an exception at
+		// the top level. On the waiting path the promise catches it; here
+		// there is no promise, so an unspawnable supervisor would take
+		// down the session that was trying to walk away from it.
+		supervisor.on("error", (error) => {
+			failures.push(`${options.reviewerId ?? "reviewer"}: ${error.message}`);
+		});
 		// Off this process's books, so node can exit without waiting.
 		supervisor.unref();
+
+		// Spawn failures arrive on the next tick at the earliest, so a
+		// synchronous return would report a pid for a process that never
+		// existed. One turn of the loop is enough to hear ENOENT and
+		// EACCES, which are the ones a caller can act on.
+		await new Promise((resolve) => setImmediate(resolve));
+		const failure = failures.shift();
+		if (failure !== undefined) throw new Error(failure);
 
 		return {
 			runId,
@@ -228,6 +245,15 @@ function supervisorPlaces(config: SupervisorRunPiConfig): {
 async function told(
 	config: SupervisorRunPiConfig,
 	options: Parameters<RunPi>[0],
+	/**
+	 * Whether the caller is going to walk away.
+	 *
+	 * Required rather than defaulted, because the two runners want
+	 * opposite answers and the wrong one is silent: a detached round
+	 * that inherits the waiting path's parent pid dies with the
+	 * session and looks exactly like a round nobody started.
+	 */
+	orphaned: boolean,
 ): Promise<{
 	paths: Awaited<ReturnType<ReviewerArtifactsStore["ensureReviewerDir"]>>;
 	runId: string;
@@ -265,6 +291,7 @@ async function told(
 					: options.args),
 			],
 			cwd: options.cwd,
+			...(orphaned ? { orphaned } : {}),
 		},
 		{
 			...(options.timeoutMs !== undefined
@@ -297,7 +324,7 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 			paths,
 			runId: effectiveRunId,
 			reviewerId: effectiveReviewerId,
-		} = await told(config, options);
+		} = await told(config, options, false);
 
 		return new Promise<RunPiResult>((resolve, reject) => {
 			const supervisor = spawnFn(
@@ -668,7 +695,13 @@ function softDeadline(
 	wall: number,
 	reserve: number | undefined,
 ): { timeoutMs: number; softDeadlineMs?: number } {
-	if (reserve === undefined || wall <= reserve * 2) return { timeoutMs: wall };
+	// Zero is the documented off switch, and it has to mean that here
+	// too. Left to the arithmetic it yields a soft deadline exactly
+	// equal to the wall clock: not off, just inert, and inert in a way
+	// that reads as configured to anybody looking at the request file.
+	if (reserve === undefined || reserve === 0 || wall <= reserve * 2) {
+		return { timeoutMs: wall };
+	}
 	return { timeoutMs: wall, softDeadlineMs: wall - reserve };
 }
 
@@ -683,6 +716,8 @@ function buildRequest(
 		readonly piPackageDir?: string;
 		readonly args: readonly string[];
 		readonly cwd: string;
+		/** Nobody is waiting, so the parent's death means nothing. */
+		readonly orphaned?: boolean;
 	},
 	overrides: {
 		readonly timeoutMs?: number;
@@ -693,7 +728,12 @@ function buildRequest(
 	return {
 		schemaVersion: 1,
 		...input,
-		parentPid: process.pid,
+		// Only when somebody is waiting. The supervisor stops its child
+		// as soon as this pid is gone, which is right for a round the
+		// session is holding and fatal for one it deliberately let go:
+		// a detached round would be killed within half a second of the
+		// session exiting, which is the whole thing it exists not to do.
+		...(input.orphaned ? {} : { parentPid: process.pid }),
 		paths,
 		runCancelPath,
 		...softDeadline(

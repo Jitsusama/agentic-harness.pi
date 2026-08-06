@@ -119,6 +119,7 @@ import {
 type AskAction =
 	| "council"
 	| "start"
+	| "stop"
 	| "judge"
 	| "critique"
 	| "audit"
@@ -171,6 +172,7 @@ export function registerAskTool(pi: ExtensionAPI): void {
 						Type.Literal("audit"),
 						Type.Literal("stack"),
 						Type.Literal("start"),
+						Type.Literal("stop"),
 						Type.Literal("runs"),
 						Type.Literal("collect"),
 						Type.Literal("retry"),
@@ -178,7 +180,7 @@ export function registerAskTool(pi: ExtensionAPI): void {
 					],
 					{
 						description:
-							"What to do. council: ask every reviewer on the roster, independently and at once, waiting for all of them. start: the same round, dispatched and left running, so the session is free straight away; nothing is watching it, so there is no progress, no wrap-up and no retry, and you finish it later with collect. judge: ask the roster's judge to consolidate the latest council. critique: ask the roster to push back on what the judge concluded, recording positions rather than findings. audit: judge each unresolved inbound thread against the change, so a reply is informed rather than guessed. stack: put every change in the stack to the roster together, so a finding that only exists between changes can be seen. runs: what rounds have been asked about this change. collect: finish a round whose session ended before it could, reading what its reviewers left on disk, which is what an unsettled round in the listing is telling you to do. retry: ask one participant again and substitute their outcome in place. release: free a participant id so it can mean a different model, which is the way out the identity refusal names. Defaults to runs, which changes nothing.",
+							"What to do. council: ask every reviewer on the roster, independently and at once, waiting for all of them. start: the same round, dispatched and left running, so the session is free straight away; nothing is watching it, so there is no progress, no wrap-up and no retry, and you finish it later with collect. stop: ask every reviewer in a started round to stop, which is the only way to end one early since nothing is holding it; what they wrote down is kept and collect still works. judge: ask the roster's judge to consolidate the latest council. critique: ask the roster to push back on what the judge concluded, recording positions rather than findings. audit: judge each unresolved inbound thread against the change, so a reply is informed rather than guessed. stack: put every change in the stack to the roster together, so a finding that only exists between changes can be seen. runs: what rounds have been asked about this change. collect: finish a round whose session ended before it could, reading what its reviewers left on disk, which is what an unsettled round in the listing is telling you to do. retry: ask one participant again and substitute their outcome in place. release: free a participant id so it can mean a different model, which is the way out the identity refusal names. Defaults to runs, which changes nothing.",
 					},
 				),
 			),
@@ -284,6 +286,8 @@ export function registerAskTool(pi: ExtensionAPI): void {
 						return await askCouncil(bound, change, params, watch("council"));
 					case "start":
 						return await startRound(bound, change, params);
+					case "stop":
+						return await stopRound(change, params);
 					case "judge":
 						return await askJudge(bound, change, params, watch("judge"));
 					case "critique":
@@ -319,6 +323,57 @@ async function reportRuns(change: ChangeRef): Promise<Answer> {
 	return say(
 		[`${count(runs.length, "round")} on ${change.label}:`, ...lines].join("\n"),
 		{ runs },
+	);
+}
+
+/**
+ * Ask a started round to stop.
+ *
+ * The only off switch a detached round has. A council is cancelled by
+ * the panel, through a signal held by the session that is waiting; a
+ * started round has no session waiting and so nothing to press
+ * Escape on. Without this the only way to end one is to find seven
+ * pids by hand, and an expensive roster asked the wrong question runs
+ * to its backstop while somebody watches the bill.
+ *
+ * Nothing is lost by stopping. Each reviewer's journal is already on
+ * disk, the supervisor records the stop the way it records any other,
+ * and collect reads what they had.
+ */
+async function stopRound(
+	change: ChangeRef,
+	params: AskParams,
+): Promise<Answer> {
+	const store = createRunStore(runDir());
+	const open = (await store.list(change)).filter((run) => run.open === true);
+	if (open.length === 0) {
+		return say(`No round on ${change.label} is still running.`, { runs: [] });
+	}
+	const held =
+		params.run === undefined
+			? open.length === 1
+				? open[0]
+				: undefined
+			: open.find((run) => run.id === params.run);
+	if (held === undefined) {
+		return refuse(
+			params.run === undefined
+				? `${count(open.length, "round")} on ${change.label} is still running, so say which one to stop: ${open.map((run) => run.id).join(", ")}.`
+				: `No open round "${params.run}" is held against ${change.label}. Open: ${open.map((run) => run.id).join(", ")}.`,
+		);
+	}
+
+	await new ReviewerArtifactsStore(runArtifactDir()).requestRunCancellation(
+		held.id,
+		`Stopped from a session on ${new Date().toISOString()}.`,
+	);
+
+	return say(
+		[
+			`Asked every reviewer in ${held.id} to stop.`,
+			`They notice within a second or so and are killed if they do not. Collect it once they are gone: what they wrote down before stopping is kept.`,
+		].join("\n"),
+		{ run: held },
 	);
 }
 
@@ -592,11 +647,27 @@ async function startRound(
 		},
 	);
 
+	// Written back whatever happened, and this is the write that
+	// matters. `startCouncil` settles the round it hands back when
+	// nobody could be started, but settling a value settles nothing:
+	// the ledger still holds the open entry written before dispatch.
+	// Left there it is an alarm about a round that never ran, pointing
+	// at directories that will always be empty.
+	const kept = await keptOnLedger(change, run);
+
+	const running = run.participants.length - warnings.length;
 	return say(
 		[
-			`Started ${run.id}: ${count(run.participants.length, "reviewer")} running, nothing waiting for them.`,
-			`Finish it with review_ask collect once they are done. Until then it reads as opened and never settled, which is what it is.`,
+			running === 0
+				? `Started nothing for ${run.id}, so there is nothing to collect.`
+				: `Started ${run.id}: ${count(running, "reviewer")} running, nothing waiting for them.`,
+			...(running === 0
+				? []
+				: [
+						`Finish it with review_ask collect once they are done. Until then it reads as opened and never settled, which is what it is.`,
+					]),
 			...warnings.map((warning) => `${GLYPH.refused} ${warning}`),
+			...kept,
 			...(tree.caveat === undefined ? [] : [tree.caveat]),
 		].join("\n"),
 		{ run, warnings },
@@ -621,8 +692,15 @@ async function askJudge(
 	const store = createRunStore(runDir());
 	const council = await store.latest(change, "council");
 	if (council === undefined) {
+		// A started round is on the ledger and unfinished, and `latest`
+		// only returns finished ones, so without this the answer to "a
+		// council is running, judge it" is "run a council": the one
+		// instruction that costs another roster and still will not work.
+		const open = (await store.list(change)).filter((run) => run.open === true);
 		return refuse(
-			`No council has been asked about ${change.label}, so there is nothing to consolidate. Run a council first.`,
+			open.length === 0
+				? `No council has been asked about ${change.label}, so there is nothing to consolidate. Run a council first.`
+				: `${count(open.length, "round")} on ${change.label} has been started and not collected, so there is nothing consolidated to judge yet: ${open.map((run) => run.id).join(", ")}. Collect it first.`,
 		);
 	}
 

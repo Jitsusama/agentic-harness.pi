@@ -44,7 +44,7 @@ owned which question.
 | `review` | What you are working on: attach, detach, next, prev, capabilities |
 | `review_see` | Everything reading tells you: change, diff, checks, stack, changes, threads, reviews, messages, findings |
 | `review_say` | Saying something now: reply, comment, resolve, unresolve, react |
-| `review_ask` | Putting the change to other models: council, judge, critique, audit, stack, runs, retry, release |
+| `review_ask` | Putting the change to other models: council, start, stop, judge, critique, audit, stack, runs, collect, retry, release |
 | `review_offer` | Putting work up and moving it along: propose, edit, ready, draft, reviewers, close, reopen, merge |
 | `review_draft` | Composing a whole review, then planning and publishing it |
 
@@ -515,7 +515,11 @@ whenever you ask for it.
 Say plainly what that costs, because it is not free. Nothing is
 watching a started round, so there is no progress to read, no wrap-up
 for a reviewer that runs long, and no retry of one that failed to
-start. What protects it instead is that each reviewer writes its
+start. It also cannot be cancelled by pressing Escape, since there is
+no panel holding it: `review_ask stop` is the off switch, and it is
+worth knowing before you start an expensive roster on the wrong
+question. Stopping keeps whatever the reviewers wrote down, so collect
+still works afterwards. What protects it instead is that each reviewer writes its
 findings down as it forms them. Prefer `council` when you are going to
 sit and read the answer anyway; prefer `start` when you would
 otherwise be waiting on it to get on with something else.
