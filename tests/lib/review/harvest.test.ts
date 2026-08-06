@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FindingOrigin } from "../../../lib/review/index.js";
-import { harvestFindings } from "../../../lib/review/index.js";
+import { alsoRecorded, harvestFindings } from "../../../lib/review/index.js";
 
 const origin: FindingOrigin = {
 	kind: "reviewer",
@@ -390,5 +390,91 @@ describe("the optional parts", () => {
 		expect(findings).toHaveLength(1);
 		expect(findings[0]?.confidence).toBeUndefined();
 		expect(warnings).toHaveLength(1);
+	});
+});
+
+describe("what the reviewer called it", () => {
+	it("keeps their own word in the finding, not only in a warning", () => {
+		// A warning lives for one message: it is not persisted on the
+		// run, and the judge is shown the label alone. Without this,
+		// defaulting to a note loses the reviewer's word everywhere the
+		// finding actually travels.
+		const { findings } = harvestFindings(
+			answer(wire({ label: "defect", discussion: "The handle leaks." })),
+			origin,
+		);
+
+		expect(findings[0]?.discussion).toContain("The handle leaks.");
+		expect(findings[0]?.discussion).toContain("defect");
+	});
+
+	it("says it even when there was no discussion to say it in", () => {
+		const { findings } = harvestFindings(
+			answer(wire({ label: "defect", discussion: "" })),
+			origin,
+		);
+
+		expect(findings[0]?.discussion).toContain("defect");
+	});
+
+	it("says nothing extra when the label was one of ours", () => {
+		const { findings } = harvestFindings(answer(wire()), origin);
+
+		expect(findings[0]?.discussion).toBe("The handle is never closed.");
+	});
+});
+
+describe("folding what was recorded into what was said", () => {
+	it("treats a vague recording as the finding the answer placed", () => {
+		// The commonest repeat now that a location degrades instead of
+		// dropping: recorded mid-investigation with no location, then
+		// named properly in the answer. Keyed on the path alone these
+		// are two buckets, and the round files one observation twice in
+		// the case the journal exists to serve.
+		const said = harvestFindings(
+			answer(wire({ subject: "This leaks" })),
+			origin,
+		);
+
+		const { findings } = alsoRecorded(
+			said,
+			[wire({ subject: "This leaks", location: undefined })],
+			origin,
+		);
+
+		expect(findings).toHaveLength(1);
+		// The answer's telling wins: it was written after the
+		// investigation rather than during it.
+		expect(findings[0]?.anchor).toMatchObject({ path: "lib/a.ts" });
+	});
+
+	it("still keeps a recording the answer never made", () => {
+		const said = harvestFindings(
+			answer(wire({ subject: "This leaks" })),
+			origin,
+		);
+
+		const { findings } = alsoRecorded(
+			said,
+			[wire({ subject: "Something else entirely" })],
+			origin,
+		);
+
+		expect(findings.map((f) => f.subject)).toEqual([
+			"This leaks",
+			"Something else entirely",
+		]);
+	});
+
+	it("keeps two findings that name different files", () => {
+		const said = harvestFindings(answer(wire()), origin);
+
+		const { findings } = alsoRecorded(
+			said,
+			[wire({ location: { kind: "file", file: "lib/b.ts" } })],
+			origin,
+		);
+
+		expect(findings).toHaveLength(2);
 	});
 });
