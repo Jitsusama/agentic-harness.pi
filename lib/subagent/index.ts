@@ -99,6 +99,12 @@ export type {
 } from "./subagent.js";
 export {
 	extractUsageFromPiStream,
+	// Exported for the one caller that has to redo what a live run
+	// already did: reading a reviewer's directories back off disk after
+	// the session that ran them is gone. A second copy of these rules
+	// would decide differently about which answer is the real one.
+	mergeResumeOutcome,
+	mergeWrapUpOutcome,
 	runFleet,
 	runReviewer,
 	runSubagent,

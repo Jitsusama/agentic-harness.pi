@@ -12,7 +12,24 @@ import type { AskRun, ParticipantOutcome } from "./run.js";
  * the time it started rather than the time somebody noticed it.
  */
 export type CollectDeps = Pick<CouncilDeps, "record"> &
-	Partial<Pick<CouncilDeps, "progress">>;
+	Partial<Pick<CouncilDeps, "progress">> & {
+		/**
+		 * Persist the round as each participant is filed.
+		 *
+		 * Collecting writes findings against the change and nothing
+		 * undoes that. Filing every one of them and recording the round
+		 * once at the end leaves a window where the findings exist and
+		 * the round still says nobody collected it, and the only thing
+		 * anybody can do with such a round is collect it again, which
+		 * files all of them a second time.
+		 *
+		 * Written after each participant instead, so an interrupted
+		 * collect leaves durable progress and the next one skips what is
+		 * already there. Optional, and a caller that omits it has the
+		 * window back.
+		 */
+		progressed?(run: AskRun): Promise<void>;
+	};
 
 /** Said for a participant whose answer is not on disk. */
 const NOTHING_LEFT =
@@ -56,7 +73,7 @@ export async function collectRound(
 					failure: NOTHING_LEFT,
 				};
 			}
-			return recordReply(
+			const outcome = await recordReply(
 				{ participant: { id: participant.id }, answer },
 				{
 					runId: run.id,
@@ -65,6 +82,17 @@ export async function collectRound(
 				deps,
 				warnings,
 			);
+			// Held straight away, so the next turn of this loop cannot
+			// lose what this one paid for.
+			held.set(outcome.participantId, outcome);
+			try {
+				await deps.progressed?.({ ...run, outcomes: [...held.values()] });
+			} catch {
+				// The findings are recorded either way. A ledger that will
+				// not take an interim write is reported once at the end
+				// rather than seven times from in here.
+			}
+			return outcome;
 		},
 		(outcome) => ({
 			participantId: outcome.participantId,
@@ -76,6 +104,22 @@ export async function collectRound(
 	// Collecting a round is what finishing it means, so the mark comes
 	// off. Leaving it would keep the alarm up for work that has now
 	// been recovered, and an alarm nobody can answer stops being read.
+	//
+	// Unless nothing was recovered. Settling then closes the file on a
+	// round whose work may be sitting somewhere else entirely, and the
+	// mark is one-way: nothing sets it again. The likeliest cause of
+	// finding nothing is looking in the wrong place, a different state
+	// directory or another machine, which is exactly when the record
+	// has to survive.
+	if (answers.size === 0) {
+		return {
+			run: { ...run, outcomes },
+			warnings: [
+				...warnings,
+				`Nothing was found on disk for any of the ${run.participants.length} participants, so ${run.id} is left open rather than settled. Its transcripts may have been swept, or may be under a different state directory or on another machine.`,
+			],
+		};
+	}
 	const { open: _settled, ...rest } = run;
 	return { run: { ...rest, outcomes }, warnings };
 }

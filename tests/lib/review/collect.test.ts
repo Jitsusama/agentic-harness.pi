@@ -125,6 +125,58 @@ describe("collecting a round nobody was there to finish", () => {
 		expect(keeper.kept.map((f) => f.subject)).toEqual(["b"]);
 	});
 
+	it("holds each outcome as it is filed, not once at the end", async () => {
+		// Collecting writes findings against the change and nothing
+		// undoes that. Recorded once at the end, a collect that dies
+		// halfway leaves findings filed against a round that still says
+		// nobody collected it, and the only thing anybody can do with
+		// such a round is collect it again.
+		const seen: number[] = [];
+
+		await collectRound(
+			unsettled(),
+			answers({ hawk: { text: said("a") }, owl: { text: said("b") } }),
+			{
+				...recorder(),
+				async progressed(run) {
+					seen.push(run.outcomes.length);
+				},
+			},
+		);
+
+		expect(seen).toEqual([1, 2]);
+	});
+
+	it("finishes the collect when holding the progress throws", async () => {
+		const { run } = await collectRound(
+			unsettled(),
+			answers({ hawk: { text: said("a") }, owl: { text: said("b") } }),
+			{
+				...recorder(),
+				async progressed() {
+					throw new Error("the ledger is on a read-only volume");
+				},
+			},
+		);
+
+		expect(run.outcomes).toHaveLength(2);
+	});
+
+	it("leaves the round open when nothing was found for anybody", async () => {
+		// The mark is one-way, and the likeliest reason to find nothing
+		// is looking in the wrong place: another state directory, or
+		// another machine. Settling would close the file on work that is
+		// still sitting somewhere.
+		const { run, warnings } = await collectRound(
+			unsettled(),
+			answers({}),
+			recorder(),
+		);
+
+		expect(run.open).toBe(true);
+		expect(warnings.join(" ")).toMatch(/left open/i);
+	});
+
 	it("keeps the participants in the order the round asked them", async () => {
 		const { run } = await collectRound(
 			unsettled(),

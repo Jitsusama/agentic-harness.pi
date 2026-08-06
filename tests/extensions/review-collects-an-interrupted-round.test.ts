@@ -95,8 +95,8 @@ function unsettled(over: Partial<AskRun> = {}): AskRun {
 async function collect(run: AskRun, store: ReviewerArtifactsStore) {
 	const answers = new Map<string, AskAnswer>();
 	for (const participant of run.participants) {
-		const answer = await answerLeftBehind(store, run.id, participant.id);
-		if (answer !== undefined) answers.set(participant.id, answer);
+		const left = await answerLeftBehind(store, run.id, participant.id);
+		if (left.kind === "answer") answers.set(participant.id, left.answer);
 	}
 	const kept: Finding[] = [];
 	let issued = 0;
@@ -162,6 +162,60 @@ describe("collecting a round the session did not live to finish", () => {
 
 		const owl = run.outcomes.find((o) => o.participantId === "owl");
 		expect(owl?.failure).toMatch(/nothing/i);
+	});
+
+	it("reads the wrap-up beside the stop, not the fragment alone", async () => {
+		// A stopped reviewer's work spans up to three directories,
+		// because the wrap-up is spawned under a suffixed id so it does
+		// not overwrite the record of the stop. The live path folds them
+		// in memory and never writes the merge back, so a reader of the
+		// base directory alone keeps the fragment and discards the
+		// answer.
+		const store = new ReviewerArtifactsStore(root);
+		leaveBehind(store, "hawk", {
+			state: "timeout",
+			exitCode: 143,
+			finalAssistantText: "Now let me check the store.",
+		});
+		leaveBehind(store, "hawk+wrapup", {
+			finalAssistantText: said("what it had when we stopped it"),
+		});
+		leaveBehind(store, "owl", { finalAssistantText: said("b") });
+
+		const { kept } = await collect(unsettled(), store);
+
+		expect(kept.map((f) => f.subject)).toEqual([
+			"what it had when we stopped it",
+			"b",
+		]);
+	});
+
+	it("costs one participant when a result file cannot be read", async () => {
+		// Not the whole collect. Six good reviewers must not be lost to
+		// one bad file, and the round must not be left open with every
+		// later attempt walking into the same directory.
+		const store = new ReviewerArtifactsStore(root);
+		const paths = store.paths(RUN, "hawk");
+		mkdirSync(paths.reviewerDir, { recursive: true });
+		writeFileSync(paths.resultPath, '{"finalAssistantText": "cut off he');
+		leaveBehind(store, "owl", { finalAssistantText: said("b") });
+
+		const { run, kept } = await collect(unsettled(), store);
+
+		expect(kept.map((f) => f.subject)).toEqual(["b"]);
+		expect(run.outcomes).toHaveLength(2);
+	});
+
+	it("refuses to read a file carrying neither an answer nor findings", async () => {
+		// The dangerous shape: it parses, so filling in the blanks
+		// yields a reviewer that read the change and had no complaint,
+		// which then settles the round and hides the loss for good.
+		const store = new ReviewerArtifactsStore(root);
+		leaveBehind(store, "hawk", { note: "a shape this cannot read" });
+
+		const left = await answerLeftBehind(store, RUN, "hawk");
+
+		expect(left.kind).toBe("unreadable");
 	});
 
 	it("anchors against the witness the round was asked with", async () => {

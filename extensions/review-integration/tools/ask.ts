@@ -356,30 +356,93 @@ async function collectOne(
 	}
 
 	const artifacts = new ReviewerArtifactsStore(runArtifactDir());
-	const budget = await budgetForRound();
+	const alive = await stillRunning(artifacts, held);
+	if (alive !== undefined) return refuse(alive);
+
 	const answers = new Map<string, AskAnswer>();
+	const unreadable: string[] = [];
 	for (const participant of held.participants) {
-		const answer = await answerLeftBehind(
-			artifacts,
-			held.id,
-			participant.id,
-			budget,
-		);
-		if (answer !== undefined) answers.set(participant.id, answer);
+		// No budget. On the live path the same config call configured
+		// the run, so stamping it on a stop is history. Here the round
+		// ran hours or days ago, possibly under different numbers, and
+		// writing today's into the stop would record a limit the run
+		// never hit and then refuse the retry that raising it was for.
+		const left = await answerLeftBehind(artifacts, held.id, participant.id);
+		if (left.kind === "answer") answers.set(participant.id, left.answer);
+		if (left.kind === "unreadable") {
+			unreadable.push(`${participant.id}: ${left.why}`);
+		}
 	}
 
 	const findings = createFindingStore(findingDir());
+	const store2 = createRunStore(runDir());
 	const { run, warnings } = await collectRound(held, answers, {
 		record: (raised) => findings.record(change, raised),
+		// Each participant's outcome is held as it is filed, so a
+		// collect that dies halfway leaves durable progress and the next
+		// one does not file the same findings again.
+		progressed: (partial) => store2.keep(change, partial),
 	});
 	const kept = await keptOnLedger(change, run);
 	return say(
 		[
 			`Collected ${run.id}, which opened at ${held.startedAt} and was never settled.`,
-			answerFor(run, [...warnings, ...kept]),
+			answerFor(run, [
+				...warnings,
+				...unreadable.map(
+					(said) =>
+						`${GLYPH.refused} Nothing could be read back for ${said}. Whatever it found is still in its directory under ${runArtifactDir()}.`,
+				),
+				...kept,
+			]),
 		].join("\n"),
 		{ run, warnings },
 	);
+}
+
+/**
+ * Why this round must not be collected yet, when a supervisor still
+ * holds it.
+ *
+ * An open mark says a round started and did not finish, which is the
+ * same on the ledger for a dead session and for a council running
+ * right now in another window. Collecting a live round reads the
+ * reviewers that have finished, files their findings, records the rest
+ * as having left nothing, and settles it. The session still running
+ * then finishes and records the whole round again: every early finding
+ * filed twice, and a settled round that says its reviewers found
+ * nothing.
+ *
+ * The lease is the answer, and it is the same one startup recovery
+ * uses: a reviewer directory holds the pid of the supervisor that owns
+ * it.
+ */
+async function stillRunning(
+	artifacts: ReviewerArtifactsStore,
+	held: AskRun,
+): Promise<string | undefined> {
+	for (const participant of held.participants) {
+		const { leasePath } = artifacts.paths(held.id, participant.id);
+		const lease = await artifacts
+			.readJson<{ supervisorPid?: number | null }>(leasePath)
+			.catch(() => null);
+		const pid = lease?.supervisorPid;
+		if (typeof pid !== "number" || !alive(pid)) continue;
+		return `${held.id} is still being run: ${participant.id} is held by a supervisor (pid ${pid}) that is alive. Collecting now would file the findings of whoever has finished and then let that session file them again. Wait for it, or collect once it is gone.`;
+	}
+	return undefined;
+}
+
+/** Whether a process is still there to own something. */
+function alive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch {
+		// No such process, or one we may not signal. Either way it is
+		// not this session's supervisor holding the round.
+		return false;
+	}
 }
 
 /** Ask every reviewer on the roster. */

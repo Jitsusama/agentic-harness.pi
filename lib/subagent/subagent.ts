@@ -915,7 +915,7 @@ async function dispatchWrapUp(
  * answer there is; joining them defeats every branch of the reader
  * that has to parse the result.
  */
-function mergeWrapUpOutcome(
+export function mergeWrapUpOutcome(
 	stopped: RunReviewerResult,
 	wrapUp: RunReviewerResult,
 ): RunReviewerResult {
@@ -1012,7 +1012,7 @@ async function dispatchResume(
  * true total. A note records whether the resume recovered
  * the reviewer or also failed.
  */
-function mergeResumeOutcome(
+export function mergeResumeOutcome(
 	initial: RunReviewerResult,
 	resume: RunReviewerResult,
 ): RunReviewerResult {
