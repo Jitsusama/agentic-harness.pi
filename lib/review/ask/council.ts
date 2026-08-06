@@ -88,6 +88,18 @@ export type AskAnswer =
 			 * without knowing whose round it is.
 			 */
 			recorded?: unknown[];
+			/**
+			 * What went wrong that this answer cannot show for itself.
+			 *
+			 * A run can produce findings and still have gone badly: the
+			 * process died after recording them, or its journal came
+			 * back capped or unreadable. Neither is a failure, since
+			 * there is an answer to read, and neither is visible in the
+			 * answer. Without somewhere to put them the diagnosis is
+			 * lost at this seam and a dead reviewer reads as a clean
+			 * pass.
+			 */
+			notes?: string[];
 			/** Where the answer was kept, when the runner kept it. */
 			answerPath?: string;
 	  }
@@ -350,13 +362,17 @@ async function recordReply(
 	// wrap-up is asked for only what the reviewer was sure of and may
 	// honestly be the shorter of the two. Ties go to the later answer,
 	// which is the considered one.
-	const fromText = richer(
-		harvestFindings(answer.text, origin, run.witness),
-		answer.earlierText === undefined
-			? undefined
-			: harvestFindings(answer.earlierText, origin, run.witness),
+	const harvest = alsoRecorded(
+		richer(
+			harvestFindings(answer.text, origin, run.witness),
+			answer.earlierText === undefined
+				? undefined
+				: harvestFindings(answer.earlierText, origin, run.witness),
+		),
+		answer.recorded,
+		origin,
+		run.witness,
 	);
-	const harvest = alsoRecorded(fromText, answer.recorded, origin, run.witness);
 	// A stopped reviewer answers for its own harvest warnings. Those
 	// warnings describe the shape of the text, and the text is a
 	// sentence we interrupted, so passing them on blames the reviewer
@@ -368,9 +384,8 @@ async function recordReply(
 	// silent drop this module opens by refusing to make: the reader
 	// would take the missing finding for the reviewer having nothing
 	// more to say.
-	const aboutRecorded = harvest.warnings.slice(fromText.warnings.length);
-	const said =
-		answer.stopped === undefined
+	const said = [
+		...(answer.stopped === undefined
 			? harvest.warnings
 			: [
 					stopWarning(
@@ -378,8 +393,14 @@ async function recordReply(
 						harvest.findings.length,
 						harvest.truncated === true,
 					),
-					...aboutRecorded,
-				];
+					...(harvest.recordedWarnings ?? []),
+				]),
+		// Whatever went wrong that the answer cannot show for itself: a
+		// process that died after recording something, a journal that
+		// came back short. Outside the branch above, because a stop
+		// explains neither of them.
+		...(answer.notes ?? []),
+	];
 	for (const warning of said) {
 		warnings.push(`${participant.id}: ${warning}`);
 	}

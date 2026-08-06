@@ -55,6 +55,17 @@ export interface Harvest {
 	 * absence of a finding here means nothing either way.
 	 */
 	truncated?: boolean;
+	/**
+	 * Of the warnings above, the ones about entries the reviewer
+	 * recorded rather than about the shape of its answer.
+	 *
+	 * Named rather than left to be worked out by position, because
+	 * the caller that needs them is the one that replaces the whole
+	 * list, and reconstructing them by slicing assumes this function
+	 * only ever appends. It does not: it withdraws a warning when the
+	 * recorded entries turn out to answer it.
+	 */
+	recordedWarnings?: string[];
 }
 
 /**
@@ -175,12 +186,12 @@ export function alsoRecorded(
 ): Harvest {
 	if (recorded === undefined || recorded.length === 0) return said;
 	const findings = [...said.findings];
-	const warnings = [...said.warnings];
+	const recordedWarnings: string[] = [];
 	const before = findings.length;
 	const already = new Set(findings.map(sameFinding));
 	for (const [index, entry] of recorded.entries()) {
 		const read = readWireFinding(entry, `recorded[${index}]`, origin, witness);
-		warnings.push(...read.warnings);
+		recordedWarnings.push(...read.warnings);
 		if (read.finding === undefined) continue;
 		const key = sameFinding(read.finding);
 		if (already.has(key)) continue;
@@ -189,11 +200,16 @@ export function alsoRecorded(
 	}
 	// It said nothing at the end, but it had been saying things all
 	// along, and that is the arrangement working rather than a fault.
-	const kept =
+	const aboutTheAnswer =
 		findings.length > before
-			? warnings.filter((warning) => warning !== SAID_NOTHING)
-			: warnings;
-	return { ...said, findings, warnings: kept };
+			? said.warnings.filter((warning) => warning !== SAID_NOTHING)
+			: said.warnings;
+	return {
+		...said,
+		findings,
+		warnings: [...aboutTheAnswer, ...recordedWarnings],
+		recordedWarnings,
+	};
 }
 
 /**
@@ -213,10 +229,14 @@ export function alsoRecorded(
 export function sameFinding(finding: Omit<Finding, "id">): string {
 	const at = finding.anchor;
 	return [
+		// Folded before the ends are trimmed, or a subject recorded
+		// with a full stop and repeated without one reads as two
+		// findings, which is the likeliest way of all to say one thing
+		// twice.
 		finding.subject
-			.trim()
 			.toLowerCase()
-			.replace(/[\s.,;:]+/g, " "),
+			.replace(/[\s.,;:]+/g, " ")
+			.trim(),
 		at === undefined ? "" : (anchorPath(at) ?? ""),
 	].join("\u0000");
 }

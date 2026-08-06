@@ -146,6 +146,7 @@ export function answerFromReviewer(
 				? {}
 				: { earlierText: result.priorAssistantText }),
 			...recordedBy(result),
+			...notesOn(undefined, result),
 			...usageOf(result),
 		};
 	}
@@ -158,15 +159,35 @@ export function answerFromReviewer(
 	// calling that a failure would throw the findings away to keep the
 	// classification tidy.
 	const recorded = recordedBy(result);
-	if (
-		result.exitCode !== 0 &&
-		result.finalAssistantText.trim() === "" &&
-		recorded.recorded === undefined
-	) {
+	const died = result.exitCode !== 0 && result.finalAssistantText.trim() === "";
+	if (died && recorded.recorded === undefined) {
 		return { failure: failureFrom(result) };
 	}
 
-	return { text: result.finalAssistantText, ...recorded, ...usageOf(result) };
+	return {
+		text: result.finalAssistantText,
+		...recorded,
+		// Keeping the findings is not the same as pretending it went
+		// well. failureFrom is the only reader of the exit code, the
+		// stderr tail and the stale-install advisory, and reclassifying
+		// away from a failure made it unreachable for exactly the run
+		// that needs it: exit 1, no answer, findings on disk, filed as a
+		// participant that simply found one thing.
+		...notesOn(died ? failureFrom(result) : undefined, result),
+		...usageOf(result),
+	};
+}
+
+/** What the round has to say that the answer cannot show. */
+function notesOn(
+	died: string | undefined,
+	result: RunReviewerResult,
+): { notes?: string[] } {
+	const notes = [
+		...(died === undefined ? [] : [died]),
+		...(result.journalWarnings ?? []),
+	];
+	return notes.length === 0 ? {} : { notes };
 }
 
 /** What the reviewer wrote down as it worked, if anything. */

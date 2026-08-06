@@ -65,7 +65,7 @@ export type {
 } from "./ask/critique.js";
 export { harvestCritiques, runCritique } from "./ask/critique.js";
 export type { Harvest } from "./ask/harvest.js";
-export { harvestFindings } from "./ask/harvest.js";
+export { alsoRecorded, harvestFindings } from "./ask/harvest.js";
 // Asking other models about a change: who is asked, and keeping
 // what their names mean stable while findings accumulate.
 export type {

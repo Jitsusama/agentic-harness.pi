@@ -32,6 +32,31 @@ function said(text: string) {
 	return { content: [{ type: "text" as const, text }], details: { ok: true } };
 }
 
+/**
+ * Append, answering with what to say when it could not be done.
+ *
+ * A full disk or a directory swept out from under the run would
+ * otherwise throw out of the tool and end the reviewer's turn over
+ * housekeeping, which costs the review to protect the record of it.
+ * The reviewer is told to keep the finding instead.
+ */
+async function write(path: string, line: string): Promise<string | undefined> {
+	try {
+		// One line, one write, appended, so a reviewer killed partway
+		// through loses the line it was on and nothing above it. Two
+		// cannot interleave: append mode is atomic for writes this size,
+		// and a reviewer makes one tool call at a time anyway.
+		await appendFile(path, line, "utf8");
+		return undefined;
+	} catch (error) {
+		return (
+			"That could not be written down " +
+			`(${error instanceof Error ? error.message : String(error)}), ` +
+			"so keep it for your final answer and carry on reviewing."
+		);
+	}
+}
+
 /** Where the supervisor told us to write. Absent outside a round. */
 function journalPath(): string | undefined {
 	const path = process.env.SUBAGENT_JOURNAL_PATH;
@@ -83,11 +108,19 @@ export default function reviewJournal(pi: ExtensionAPI) {
 							"findings array.",
 					);
 				}
-				await appendFile(
+				const wrote = await write(
 					path,
 					`${kept.map((one) => JSON.stringify(one)).join("\n")}\n`,
-					"utf8",
 				);
+				if (wrote !== undefined) return said(wrote);
+				const lost = finding.length - kept.length;
+				if (lost > 0) {
+					return said(
+						`Recorded ${kept.length} of them. The other ${lost} were not ` +
+							"findings and were not recorded, so send those again one at " +
+							"a time if they matter.",
+					);
+				}
 				return said(
 					`Recorded ${kept.length} of them, one per line. Record each one ` +
 						"as you find it rather than in batches: a batch you are still " +
@@ -101,11 +134,8 @@ export default function reviewJournal(pi: ExtensionAPI) {
 						"contract's findings array. Nothing was recorded.",
 				);
 			}
-			// One line, one write. Appending is atomic enough for lines this
-			// size, and two of them cannot interleave because a reviewer
-			// makes one tool call at a time.
-			await appendFile(path, `${JSON.stringify(finding)}\n`, "utf8");
-			return said("Recorded. Include it in your final answer too.");
+			const wrote = await write(path, `${JSON.stringify(finding)}\n`);
+			return said(wrote ?? "Recorded. Include it in your final answer too.");
 		},
 	});
 }

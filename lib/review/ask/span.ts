@@ -19,7 +19,7 @@
  */
 
 import type { Finding, FindingOrigin } from "../finding.js";
-import { readWireFinding, sameFinding } from "./harvest.js";
+import { readWireFinding, SAID_NOTHING, sameFinding } from "./harvest.js";
 import { ANSWER_WAS_CUT_OFF, isRecord, readAnswer, wireText } from "./wire.js";
 
 /** The changes a finding is about, in stack order. */
@@ -59,8 +59,14 @@ export function harvestStackFindings(
 	if (!Array.isArray(held)) {
 		return {
 			findings: [],
+			// A reviewer that produced nothing has not broken a contract
+			// about the shape of an answer it never reached. Same rule as
+			// a single change's round, and for the same reason: it is the
+			// case a journal exists to rescue.
 			warnings: [
-				"Nothing in this answer parsed as a findings array, so no findings could be read from it. An answer with nothing to say should still say findings: [].",
+				text.trim() === ""
+					? SAID_NOTHING
+					: "Nothing in this answer parsed as a findings array, so no findings could be read from it. An answer with nothing to say should still say findings: [].",
 			],
 		};
 	}
@@ -106,7 +112,12 @@ export function alsoRecordedInStack(
 	if (recorded === undefined || recorded.length === 0) return said;
 	const findings = [...said.findings];
 	const warnings = [...said.warnings];
-	const already = new Set(findings.map((held) => sameFinding(held.finding)));
+	const before = findings.length;
+	// Keyed with the span, not just the finding. Two changes in a
+	// stack can carry the same line at the same path, which is what a
+	// stack is, so the same sentence about two of them is two findings
+	// and collapsing them would report the wrong change.
+	const already = new Set(findings.map(spanned));
 	for (const [index, entry] of recorded.entries()) {
 		const at = `recorded[${index}]`;
 		const span = readSpan(entry, at, stackRefs, warnings);
@@ -119,12 +130,23 @@ export function alsoRecordedInStack(
 		);
 		warnings.push(...read.warnings);
 		if (read.finding === undefined) continue;
-		const key = sameFinding(read.finding);
+		const key = spanned({ span, finding: read.finding });
 		if (already.has(key)) continue;
 		already.add(key);
 		findings.push({ span, finding: read.finding });
 	}
-	return { findings, warnings };
+	return {
+		findings,
+		warnings:
+			findings.length > before
+				? warnings.filter((warning) => warning !== SAID_NOTHING)
+				: warnings,
+	};
+}
+
+/** The same finding said about the same changes. */
+function spanned(held: SpannedFinding): string {
+	return `${JSON.stringify(held.span)}\u0000${sameFinding(held.finding)}`;
 }
 
 /**

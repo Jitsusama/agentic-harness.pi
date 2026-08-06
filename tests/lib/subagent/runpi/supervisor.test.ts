@@ -566,7 +566,10 @@ describe("createSupervisorRunPi", () => {
 			{ subject: "the first" },
 			{ subject: "the second" },
 		]);
-		expect(result.warnings?.join(" ")).toMatch(/1 recorded finding/);
+		// Said in a channel of its own as well, because a round
+		// replaces a participant's warnings with a sentence about the
+		// stop, and this one says a finding was left behind.
+		expect(result.journalWarnings?.join(" ")).toMatch(/1 could not be read/);
 	});
 
 	it("does not credit a run with what an earlier attempt recorded", async () => {

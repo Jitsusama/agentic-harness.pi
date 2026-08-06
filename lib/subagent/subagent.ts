@@ -280,6 +280,13 @@ export interface RunPiResult {
 	 */
 	readonly journal?: readonly unknown[];
 	/**
+	 * What went wrong reading the journal back, when something
+	 * did. Its own field because these say findings were left
+	 * behind, and a caller that replaces the general warnings
+	 * with a sentence of its own drops exactly those.
+	 */
+	readonly journalWarnings?: readonly string[];
+	/**
 	 * The terminal turn's error, when the run ended on a
 	 * provider or transport failure rather than a clean stop.
 	 */
@@ -510,6 +517,8 @@ export interface RunReviewerResult {
 	 * finding belongs to a round and this does not know one.
 	 */
 	readonly journal?: readonly unknown[];
+	/** What went wrong reading that journal back, if anything. */
+	readonly journalWarnings?: readonly string[];
 	readonly stderr: string;
 	readonly warnings: string[];
 	/**
@@ -863,8 +872,11 @@ const RESUME_CONTINUATION_PROMPT =
 /**
  * Resume a dropped reviewer from its persisted session. Same
  * model, tools, extensions and system prompt as the initial
- * run, reusing the run and reviewer ids so it lands in the
- * same artifacts directory and continues the same session.
+ * run, continuing the same session, which the session path
+ * carries rather than the ids.
+ *
+ * Under its own reviewer id, so it keeps its own artifacts
+ * rather than writing over the attempt it is recovering.
  */
 async function dispatchResume(
 	options: RunReviewerOptions,
@@ -1067,6 +1079,9 @@ function assembleReviewerResult(
 		// what a reviewer wrote down is not conditional on it finishing.
 		...(result.journal && result.journal.length > 0
 			? { journal: result.journal }
+			: {}),
+		...(result.journalWarnings && result.journalWarnings.length > 0
+			? { journalWarnings: result.journalWarnings }
 			: {}),
 		...(result.error ? { error: result.error } : {}),
 	};

@@ -71,6 +71,8 @@ The package manager is **pnpm**. `pnpm-lock.yaml` is canonical;
     - `state.ts`: session state helpers
 - `extensions/`: Pi extension wiring, organized by
   behavioural contract (see Extension Categories below)
+- `packs/`: extensions loaded into a subagent by path, never
+  auto-discovered, so deliberately not under `extensions/`
 - `skills/`: package-bound markdown instructions the agent
   loads on demand when a task matches their description
 - `.pi/skills/`: project-local skills for developing this

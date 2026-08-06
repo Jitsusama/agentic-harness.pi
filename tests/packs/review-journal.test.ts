@@ -98,6 +98,49 @@ describe("recording a finding", () => {
 		expect(answer.content[0].text).toMatch(/final answer/i);
 	});
 
+	it("unpacks a batch rather than swallowing it whole", async () => {
+		// An array is an object, so a batch used to sail past the guard,
+		// be written as one line, and be answered with "Recorded", while
+		// the round dropped every finding in it: the entry reader takes
+		// an array for something that is not a finding. The reviewer's
+		// instinct is right and only its turn economy is wrong.
+		const tool = recordFinding();
+
+		const answer = (await tool.execute("1", {
+			finding: [{ subject: "the first" }, { subject: "the second" }],
+		})) as { content: { text: string }[] };
+
+		expect(await written()).toEqual([
+			{ subject: "the first" },
+			{ subject: "the second" },
+		]);
+		expect(answer.content[0].text).toMatch(/as you find it/i);
+	});
+
+	it("says what it dropped out of a batch, not just what it kept", async () => {
+		const tool = recordFinding();
+
+		const answer = (await tool.execute("1", {
+			finding: [{ subject: "a real one" }, "just a sentence"],
+		})) as { content: { text: string }[] };
+
+		expect(await written()).toEqual([{ subject: "a real one" }]);
+		expect(answer.content[0].text).toMatch(/other 1 were not findings/i);
+	});
+
+	it("tells the reviewer to carry on when the write fails", async () => {
+		// Throwing here would end a reviewer's turn over housekeeping,
+		// which costs the review to protect the record of it.
+		process.env.SUBAGENT_JOURNAL_PATH = join(dir, "no-such-dir", "j.ndjson");
+		const tool = recordFinding();
+
+		const answer = (await tool.execute("1", {
+			finding: { subject: "nowhere to put this" },
+		})) as { content: { text: string }[] };
+
+		expect(answer.content[0].text).toMatch(/final answer|carry on/i);
+	});
+
 	it("refuses something that is not a finding without writing it", async () => {
 		const tool = recordFinding();
 

@@ -18,6 +18,19 @@ array; with nothing surviving consolidation, answer
 { "findings": [ { "...": "one consolidated finding" } ] }
 ```
 
+## Write Each One Down When You Reach It
+
+When a `record_finding` tool is available, call it as you settle each
+consolidated finding, and include everything in your final answer as
+normal. A judge reads every reviewer's answer at once, so it runs longer
+than any of them, and a consolidation that never arrives takes the whole
+round's work with it.
+
+What you record is a floor rather than a decision. Your answer is what
+survives consolidation: a finding you record and then leave out of your
+answer stays out, because choosing is your job. Recording only rescues
+the round when you never got to answer at all.
+
 Every field is as [`review-council-format`](../review-council-format)
 describes it, including the three location kinds and what happens to a
 field that will not read. One extra field matters here.
