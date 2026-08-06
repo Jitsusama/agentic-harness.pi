@@ -34,6 +34,7 @@ import {
 	WRAP_UP_SUFFIX,
 } from "../../lib/subagent/index.js";
 import {
+	JOURNAL_SAYS,
 	journalWarnings,
 	parseJournal,
 } from "../../lib/subagent/runpi/journal.mjs";
@@ -60,6 +61,7 @@ const LIMITS: Partial<Record<ReviewerTerminalState, AskLimit>> = {
 	"soft-deadline": "soft-deadline",
 	cancelled: "cancelled",
 	"parent-exit": "parent-exit",
+	"supervisor-lost": "supervisor-lost",
 };
 
 /**
@@ -77,6 +79,10 @@ const SAYS: Record<AskLimit, RegExp> = {
 	"soft-deadline": /soft deadline/i,
 	cancelled: /cancelled/i,
 	"parent-exit": /parent process/i,
+	// No supervisor wrote a sentence about this one, because the
+	// supervisor is what is missing. The reconstructed wording is all
+	// there is, and matching nothing is how it gets used.
+	"supervisor-lost": /supervisor/i,
 };
 
 /**
@@ -207,12 +213,17 @@ function everyRunOf(reviewerId: string): readonly string[] {
  * anybody: a session that died holding a council left every reviewer's
  * work here, and until now nothing could turn it back into findings.
  *
- * Reads `result.json` and nothing else, which is what makes this
- * cheap and what keeps it honest. The supervisor already folded the
- * reviewer's journal and its journal warnings into that file, so
- * collecting needs no second reader of the journal: a second one
- * would drift from the first, and this package has paid for that
- * mistake once already.
+ * Reads `result.json` wherever there is one, because the supervisor
+ * has already folded the reviewer's journal and its journal warnings
+ * into that file, and a second reading of the journal beside a first
+ * would drift from it.
+ *
+ * Where there is no result at all, it reads the journal directly,
+ * through the parser the supervisor itself uses. That is not a second
+ * reader; it is the same one, reached by the only road left when the
+ * supervisor is the thing that went missing. What comes back says so:
+ * a reviewer whose supervisor was lost, carrying what it had written
+ * down, never a reviewer that answered.
  */
 export async function answerLeftBehind(
 	store: ReviewerArtifactsStore,
@@ -221,7 +232,7 @@ export async function answerLeftBehind(
 	budget?: { timeoutMs: number; idleTimeoutMs: number },
 ): Promise<LeftBehind> {
 	try {
-		const base = await resultIn(store, runId, participantId);
+		const base = await resultIn(store, runId, participantId, true);
 		if (base === undefined) return { kind: "missing" };
 		// A stopped reviewer's work spans up to three directories. The
 		// wrap-up and the resume are spawned under suffixed ids so
@@ -268,6 +279,7 @@ async function resultIn(
 	store: ReviewerArtifactsStore,
 	runId: string,
 	reviewerId: string,
+	rescue = false,
 ): Promise<RunReviewerResult | undefined> {
 	const { resultPath } = store.paths(runId, reviewerId);
 	const read = await store.readJson<Partial<RunReviewerResult>>(resultPath);
@@ -278,7 +290,15 @@ async function resultIn(
 	// that reads it: collect said "missing", the round settled, and the
 	// work was paid for and stranded. The reviewer writes that file
 	// itself, so it survives its supervisor by construction.
-	if (read === null) return await strandedJournal(store, runId, reviewerId);
+	if (read === null) {
+		// Only the base attempt. A wrap-up or a resume directory holding
+		// nothing but a journal used to be skipped, and merging one in
+		// is not additive: `mergeResumeOutcome` spreads the resume last,
+		// so a journal-only stub would blank the first attempt's answer,
+		// erase its error and have the round report a clean recovery
+		// over the top of the text its findings were in.
+		return rescue ? await whatItWroteDown(store, runId, reviewerId) : undefined;
+	}
 	// A file that parses but carries neither an answer nor a journal is
 	// not an empty review, it is a file whose shape this cannot read.
 	// Filling it in would hand back a reviewer that read the change and
@@ -301,28 +321,49 @@ async function resultIn(
  * what happened: this reviewer never finished, and the round should
  * say so beside the findings it did manage to write down.
  */
-async function strandedJournal(
+async function whatItWroteDown(
 	store: ReviewerArtifactsStore,
 	runId: string,
 	reviewerId: string,
 ): Promise<RunReviewerResult | undefined> {
-	const journalPath = store.paths(runId, reviewerId).journalPath;
-	if (journalPath === undefined) return undefined;
+	const { journalPath } = store.paths(runId, reviewerId);
 	let raw: string;
 	try {
 		raw = await readFile(journalPath, "utf8");
-	} catch {
-		// No journal either, so this reviewer really did leave nothing.
-		return undefined;
+	} catch (error) {
+		// Absent is the ordinary case: this reviewer recorded nothing.
+		// Anything else is a file that is there and cannot be read,
+		// which is a different thing and must not be reported as an
+		// empty one. The supervisor's own reader draws exactly this
+		// line, and losing it here would turn a permissions problem
+		// into a reviewer that had nothing to say.
+		if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return undefined;
+		throw error;
 	}
 	const counts = parseJournal(raw);
-	if (counts.entries.length === 0) return undefined;
+	const said = journalWarnings(counts, journalPath);
+	// Not `entries.length === 0`. A reviewer killed while writing its
+	// first entry leaves one truncated line, and a reviewer that pasted
+	// an excerpt into a finding leaves a perfectly good line over the
+	// cap: both parse to nothing, and both have a warning saying so and
+	// naming where the file still is. Returning nothing here discards
+	// the one sentence that says the round is short a finding, and
+	// collect then reports the directory as empty with the file sitting
+	// in it.
+	if (counts.entries.length === 0 && said.length === 0) return undefined;
 	return whole(
 		{
-			journal: counts.entries,
+			// The state no supervisor writes, because the supervisor is
+			// what is missing. Without it `stopFrom` returns nothing, the
+			// outcome carries neither a stop nor a failure, and the round
+			// records a reviewer whose supervisor died as one that read
+			// the change and answered: byte-identical on the ledger, and
+			// counted as answered by every later reader.
+			state: "supervisor-lost",
+			...(counts.entries.length > 0 ? { journal: counts.entries } : {}),
 			journalWarnings: [
-				...journalWarnings(counts, journalPath),
-				`${reviewerId} left no result of its own, so this is what it had written down when it stopped.`,
+				...said,
+				`${JOURNAL_SAYS} ${reviewerId} left no result of its own, so this is what it had written down when its supervisor went away; the rest is at ${journalPath}`,
 			],
 		},
 		reviewerId,

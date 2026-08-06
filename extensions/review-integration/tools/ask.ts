@@ -441,10 +441,8 @@ async function somethingLeftBehind(
 		]) {
 			const left = await answerLeftBehind(artifacts, held.id, id);
 			if (left.kind !== "missing") return id;
-			const journalPath = artifacts.paths(held.id, id).journalPath;
-			if (journalPath !== undefined && (await readable(journalPath))) {
-				return id;
-			}
+			const { journalPath } = artifacts.paths(held.id, id);
+			if (await readable(journalPath)) return id;
 		}
 	}
 	return undefined;

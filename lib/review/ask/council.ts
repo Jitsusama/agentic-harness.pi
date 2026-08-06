@@ -52,7 +52,19 @@ export type AskLimit =
 	 */
 	| "soft-deadline"
 	| "cancelled"
-	| "parent-exit";
+	| "parent-exit"
+	/**
+	 * The process watching this reviewer went away mid-review.
+	 *
+	 * Distinct from parent-exit, which is the session above the
+	 * supervisor going away while the supervisor lived to say so.
+	 * Here the supervisor itself is what vanished, so nothing was
+	 * written down about the ending and this is reconstructed from
+	 * the reviewer's own journal being there with no result beside
+	 * it. Nothing about a budget ran out, so no clock is quoted and
+	 * the retry it permits is worth taking.
+	 */
+	| "supervisor-lost";
 
 /** A reviewer stopped before it finished, and what stopped it. */
 export interface AskStop {

@@ -21,7 +21,7 @@ import {
 	heldByLiveSupervisor,
 } from "../../extensions/review-integration/reviewer.js";
 import type { AskAnswer, AskRun, Finding } from "../../lib/review/index.js";
-import { collectRound } from "../../lib/review/index.js";
+import { collectRound, stoppedNotes } from "../../lib/review/index.js";
 import type { ProcessFacts } from "../../lib/subagent/index.js";
 import {
 	ReviewerArtifactsStore,
@@ -97,7 +97,7 @@ function journalled(
 	const paths = store.paths(RUN, reviewerId);
 	mkdirSync(paths.reviewerDir, { recursive: true });
 	writeFileSync(
-		paths.journalPath ?? "",
+		paths.journalPath,
 		`${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`,
 		"utf8",
 	);
@@ -209,9 +209,15 @@ describe("collecting a round the session did not live to finish", () => {
 			"b",
 		]);
 		// And it still says the reviewer never finished, rather than
-		// passing off a rescued fragment as a completed review.
+		// passing off a rescued fragment as a completed review. The
+		// stop is the whole of that claim: without it the outcome is
+		// byte-identical to a reviewer that read the change and
+		// answered, and every later reader counts it as one.
 		const hawk = run.outcomes.find((o) => o.participantId === "hawk");
-		expect(hawk?.findingIds).toHaveLength(1);
+		expect(hawk?.stopped).toMatchObject({ limit: "supervisor-lost" });
+		// Which is what makes it visible: a stop is what stoppedNotes
+		// prints, and an outcome carrying none says nothing at all.
+		expect(stoppedNotes(run).join(" ")).toMatch(/hawk/);
 	});
 
 	it("keeps the lines above the one a kill landed on", async () => {
@@ -223,7 +229,7 @@ describe("collecting a round the session did not live to finish", () => {
 		const paths = store.paths(RUN, "hawk");
 		mkdirSync(paths.reviewerDir, { recursive: true });
 		writeFileSync(
-			paths.journalPath ?? "",
+			paths.journalPath,
 			`${JSON.stringify({
 				location: { kind: "file", file: "lib/a.ts" },
 				label: "issue",
