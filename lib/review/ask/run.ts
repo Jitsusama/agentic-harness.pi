@@ -12,6 +12,7 @@
  * can disagree, and only one of them is the evidence.
  */
 
+import { count } from "../../ui/count.js";
 import type { AskStop } from "./council.js";
 import type { ParticipantIdentity } from "./identity.js";
 
@@ -97,6 +98,34 @@ const SEQ_WIDTH = 6;
 export function newRunId(round: AskRound, at: Date, seq: number): string {
 	const stamp = at.toISOString().replace(/[-:.]/g, "").replace("Z", "");
 	return `${round}-${stamp}-${String(seq).padStart(SEQ_WIDTH, "0")}`;
+}
+
+/**
+ * What became of each participant a limit took away.
+ *
+ * The round already records that a reviewer was stopped and where its
+ * answer was kept, and recorded both without ever printing them, which
+ * is most of the way to losing the answer regardless: nobody opens a
+ * ledger they have no reason to open. One line each, naming who, what
+ * stopped them and where to read what they said.
+ */
+export function stoppedNotes(run: AskRun): string[] {
+	const notes: string[] = [];
+	for (const outcome of run.outcomes) {
+		const stopped = outcome.stopped;
+		if (stopped === undefined) continue;
+		const kept =
+			outcome.answerPath === undefined
+				? "nothing of its answer was kept"
+				: `its answer is at ${outcome.answerPath}`;
+		notes.push(
+			`${outcome.participantId} stopped (${stopped.limit}), ${count(
+				outcome.findingIds.length,
+				"finding",
+			)} read, ${kept}`,
+		);
+	}
+	return notes;
 }
 
 /**

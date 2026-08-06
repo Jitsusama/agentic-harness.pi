@@ -4,6 +4,7 @@ import {
 	askedOf,
 	newRunId,
 	runSummary,
+	stoppedNotes,
 	substituteOutcome,
 } from "../../../lib/review/index.js";
 
@@ -31,6 +32,54 @@ function run(over: Partial<AskRun> = {}): AskRun {
 		...over,
 	};
 }
+
+describe("saying what became of a stopped participant", () => {
+	it("names who was stopped, by what, and where the answer went", () => {
+		// Recording the path and never printing it is most of the way to
+		// losing the answer anyway: nobody reads a ledger they have no
+		// reason to open.
+		const said = stoppedNotes(
+			run({
+				outcomes: [
+					{
+						participantId: "hawk",
+						findingIds: [1, 2],
+						stopped: { limit: "wall-clock", detail: "timed out" },
+						answerPath: "/state/answers/council-1/hawk.txt",
+					},
+					{ participantId: "owl", findingIds: [3] },
+				],
+			}),
+		);
+
+		expect(said).toHaveLength(1);
+		expect(said[0]).toContain("hawk");
+		expect(said[0]).toContain("wall-clock");
+		expect(said[0]).toContain("/state/answers/council-1/hawk.txt");
+	});
+
+	it("still says a reviewer was stopped when no answer was kept", () => {
+		const said = stoppedNotes(
+			run({
+				outcomes: [
+					{
+						participantId: "hawk",
+						findingIds: [],
+						stopped: { limit: "idle", detail: "went quiet" },
+					},
+				],
+			}),
+		);
+
+		expect(said).toHaveLength(1);
+		expect(said[0]).toContain("hawk");
+		expect(said[0]).not.toContain("undefined");
+	});
+
+	it("says nothing about a round where nobody was stopped", () => {
+		expect(stoppedNotes(run())).toEqual([]);
+	});
+});
 
 describe("naming a run", () => {
 	it("carries the round, so a bare id says what it was", () => {

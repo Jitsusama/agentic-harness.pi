@@ -62,6 +62,7 @@ import {
 	runStackCouncil,
 	runSummary,
 	stackPrompt,
+	stoppedNotes,
 	substituteOutcome,
 	type Thread,
 	type ThreadAudit,
@@ -1095,13 +1096,12 @@ function deps(
 				// Names what this reviewer leaves behind after the round that
 				// paid for it, so a transcript can be found from the ledger.
 				runId: context.runId,
-				// Says out loud what the default already does, because it is
-				// what makes the supervisor persist a session at all. It buys
-				// a resume after a transient provider drop, and nothing for a
-				// reviewer we stopped: that path needs no error, and a stop
-				// carries none. Asking a stopped reviewer to finish is a
-				// separate piece of work, and the session it will need is the
-				// thing being kept here.
+				// Two things, both of which need the session the supervisor
+				// persists: a resume after a transient provider drop, and,
+				// for a reviewer we stopped, an ask for the findings it had
+				// already formed. The second is the one that matters here,
+				// since a stop carries no error and so can never reach the
+				// first.
 				autoResume: true,
 				// Cancellable, so Escape on the panel really stops the work
 				// rather than only hiding it. The runner kills the child on
@@ -1199,7 +1199,11 @@ function renderFindings(findings: Finding[]): string {
 function describeRun(run: AskRun): string {
 	const summary = runSummary(run);
 	const failed = summary.failed > 0 ? `, ${summary.failed} failed` : "";
-	return `${run.id}: ${summary.answered}/${summary.asked} answered${failed}, ${count(summary.findings, "finding")}`;
+	const head = `${run.id}: ${summary.answered}/${summary.asked} answered${failed}, ${count(summary.findings, "finding")}`;
+	// A stopped reviewer's answer was being recorded and never shown,
+	// which is most of the way to losing it: the path is only useful to
+	// somebody who knows to look for it.
+	return [head, ...stoppedNotes(run).map((note) => `  ${note}`)].join("\n");
 }
 
 /** What a round's answer says. */

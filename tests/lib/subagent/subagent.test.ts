@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import type { ReviewerTerminalState } from "../../../lib/subagent/artifacts.js";
 import {
 	clearSubagentDefaults,
 	registerSubagentDefaultExtension,
@@ -145,20 +146,44 @@ describe("runReviewer: reviewer error surfacing", () => {
 // Returns each queued RunPiResult on successive calls (the
 // last repeats), recording the args of every call so a test
 // can assert the resume dispatch shape.
+/**
+ * A scripted runner that records what it was asked for.
+ *
+ * It used to keep three fields, which left the ids a call ran under and
+ * the budget it was given invisible to every assertion. Both decide
+ * whether a run overwrites another's record or outlives the budget it
+ * was meant to fit inside, so both are recorded.
+ */
 function scriptedRun(results: RunPiResult[]): {
 	runPi: RunPi;
-	calls: Array<{ args: string[]; cwd: string; persistSession?: boolean }>;
+	calls: Array<{
+		args: string[];
+		cwd: string;
+		persistSession?: boolean;
+		reviewerId?: string;
+		runId?: string;
+		timeoutMs?: number;
+		idleTimeoutMs?: number;
+	}>;
 } {
 	const calls: Array<{
 		args: string[];
 		cwd: string;
 		persistSession?: boolean;
+		reviewerId?: string;
+		runId?: string;
+		timeoutMs?: number;
+		idleTimeoutMs?: number;
 	}> = [];
 	const runPi: RunPi = async (opts) => {
 		calls.push({
 			args: opts.args,
 			cwd: opts.cwd,
 			persistSession: opts.persistSession,
+			reviewerId: opts.reviewerId,
+			runId: opts.runId,
+			timeoutMs: opts.timeoutMs,
+			idleTimeoutMs: opts.idleTimeoutMs,
 		});
 		const index = Math.min(calls.length - 1, results.length - 1);
 		return results[index];
@@ -170,6 +195,254 @@ const TRANSIENT: ReviewerError = {
 	stopReason: "error",
 	message: "OpenAI Responses stream ended before a terminal response event",
 };
+
+describe("runReviewer: asking a stopped reviewer for what it has", () => {
+	const ARTIFACTS = {
+		runDir: "/r",
+		reviewerDir: "/r/rev",
+		eventsPath: "/r/rev/events.ndjson",
+		stderrPath: "/r/rev/stderr.log",
+		progressPath: "/r/rev/progress.json",
+		resultPath: "/r/rev/result.json",
+		verifiedOutputPath: "/r/rev/verified-output.json",
+		sessionDir: "/r/rev/session",
+		sessionPath: "/r/rev/session/s.jsonl",
+	};
+
+	/** A reviewer taken away by a clock, partway through its answer. */
+	const stopped = (state: ReviewerTerminalState = "timeout"): RunPiResult => ({
+		exitCode: 1,
+		state,
+		finalAssistantText: '{"findings": [{"subject": "the first one"}, {"sub',
+		artifacts: ARTIFACTS,
+	});
+
+	it("asks it to hand over its findings, in the session it already has", async () => {
+		const { runPi, calls } = scriptedRun([
+			stopped(),
+			{
+				exitCode: 0,
+				state: "complete",
+				finalAssistantText:
+					'{"findings": [{"subject": "the first one"}, {"subject": "the second"}]}',
+			},
+		]);
+
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "review this diff",
+			cwd: "/tmp/wt",
+			runPi,
+			autoResume: true,
+		});
+
+		expect(calls).toHaveLength(2);
+		const args = calls[1].args;
+		expect(args).toContain("--session");
+		expect(args[args.indexOf("--session") + 1]).toBe("/r/rev/session/s.jsonl");
+		// It must ask for what is already formed, not for more work. A
+		// reviewer that starts investigating again meets the same wall
+		// and costs the round twice.
+		expect(args.join(" ")).toMatch(
+			/not.*(investigat|research|continue working)/i,
+		);
+		// The answer has one consumer and it parses this, so parsing is
+		// the only assertion worth making. Joining the fragment onto it
+		// leaves two objects where one is expected, which reads as a
+		// truncated answer and can be discarded in favour of the fragment.
+		expect(JSON.parse(result.finalAssistantText)).toEqual({
+			findings: [{ subject: "the first one" }, { subject: "the second" }],
+		});
+		// The fragment is kept, apart, for a reader that can weigh them.
+		expect(result.priorAssistantText).toBe(
+			'{"findings": [{"subject": "the first one"}, {"sub',
+		);
+	});
+
+	it("tells a verifying reviewer how its answer has to arrive", async () => {
+		// Where verification is required an unverified answer is blanked,
+		// so a wrap-up that never calls the tool spends the money, hears
+		// the answer and throws it away for want of the one instruction
+		// nobody gave it.
+		const { runPi, calls } = scriptedRun([
+			stopped(),
+			{ exitCode: 0, state: "complete", finalAssistantText: "" },
+		]);
+
+		await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "review this diff",
+			cwd: "/tmp/wt",
+			runPi,
+			autoResume: true,
+			requiresVerification: true,
+			expectedVerificationStage: "council",
+		});
+
+		expect(calls[1].args.join(" ")).toContain("verify_output");
+	});
+
+	it("does not overwrite the record of the stop", async () => {
+		// The artifacts directory comes from the run and reviewer ids and
+		// the result file is written by rename, so reusing both would
+		// replace the stopped run's own record with one saying it
+		// completed. That record is the evidence all of this exists to
+		// keep, and recovery reads it.
+		const { runPi, calls } = scriptedRun([
+			stopped(),
+			{
+				exitCode: 0,
+				state: "complete",
+				finalAssistantText: '{"findings": []}',
+			},
+		]);
+
+		await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "review this diff",
+			cwd: "/tmp/wt",
+			runPi,
+			autoResume: true,
+		});
+
+		expect(calls[1].reviewerId).not.toBe(calls[0].reviewerId);
+		expect(calls[1].reviewerId).toContain(REVIEWER.id);
+	});
+
+	it("asks for no longer than the caller allowed", async () => {
+		const { runPi, calls } = scriptedRun([
+			stopped(),
+			{
+				exitCode: 0,
+				state: "complete",
+				finalAssistantText: '{"findings": []}',
+			},
+		]);
+
+		await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "review this diff",
+			cwd: "/tmp/wt",
+			runPi,
+			autoResume: true,
+			timeoutMs: 60_000,
+			idleTimeoutMs: 45_000,
+		});
+
+		expect(calls[1].timeoutMs).toBeLessThanOrEqual(60_000);
+		// And never an idle clock tighter than the wall it runs under.
+		// Shortening an idle clock on its own is what killed six rounds
+		// of working reviewers: silence is not idleness.
+		expect(calls[1].idleTimeoutMs).toBeLessThanOrEqual(calls[1].timeoutMs ?? 0);
+	});
+
+	it("keeps the fragment when the ask cannot even be made", async () => {
+		// The runner rejects rather than returning on a spawn failure, and
+		// letting that out would turn a stopped run whose words we had
+		// into a bare failure with nothing kept.
+		let call = 0;
+		const runPi: RunPi = async () => {
+			call += 1;
+			if (call === 1) return stopped();
+			throw new Error("spawn EAGAIN");
+		};
+
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "review this diff",
+			cwd: "/tmp/wt",
+			runPi,
+			autoResume: true,
+		});
+
+		expect(result.finalAssistantText).toContain("the first one");
+		expect(result.state).toBe("timeout");
+		expect(result.warnings.join(" ")).toMatch(/EAGAIN/);
+	});
+
+	it("still reports the pass as stopped, because it was", async () => {
+		// The reviewer handed over what it had; it did not finish the
+		// review. Reporting the pass as complete would be a fresh lie in
+		// the same place as the old one.
+		const { runPi } = scriptedRun([
+			stopped(),
+			{
+				exitCode: 0,
+				state: "complete",
+				finalAssistantText: '{"findings": []}',
+			},
+		]);
+
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "review this diff",
+			cwd: "/tmp/wt",
+			runPi,
+			autoResume: true,
+		});
+
+		expect(result.state).toBe("timeout");
+	});
+
+	it("keeps what it had already written when the wrap-up adds nothing", async () => {
+		const { runPi } = scriptedRun([
+			stopped(),
+			{ exitCode: 1, state: "timeout", finalAssistantText: "" },
+		]);
+
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "review this diff",
+			cwd: "/tmp/wt",
+			runPi,
+			autoResume: true,
+		});
+
+		expect(result.finalAssistantText).toContain("the first one");
+	});
+
+	it("does not ask a reviewer the user cancelled", async () => {
+		const { runPi, calls } = scriptedRun([stopped("cancelled")]);
+
+		await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "review this diff",
+			cwd: "/tmp/wt",
+			runPi,
+			autoResume: true,
+		});
+
+		expect(calls).toHaveLength(1);
+	});
+
+	it("does not ask twice", async () => {
+		const { runPi, calls } = scriptedRun([stopped(), stopped(), stopped()]);
+
+		await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "review this diff",
+			cwd: "/tmp/wt",
+			runPi,
+			autoResume: true,
+		});
+
+		expect(calls).toHaveLength(2);
+	});
+
+	it("leaves it alone when recovery is switched off", async () => {
+		const { runPi, calls } = scriptedRun([stopped()]);
+
+		await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "review this diff",
+			cwd: "/tmp/wt",
+			runPi,
+			autoResume: false,
+		});
+
+		expect(calls).toHaveLength(1);
+	});
+});
 
 describe("runReviewer: auto-resume", () => {
 	it("resumes once from the session after a transient error and returns the verified outcome", async () => {
