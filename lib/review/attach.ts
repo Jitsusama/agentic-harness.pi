@@ -55,6 +55,82 @@ export interface AttachmentStore {
 }
 
 /**
+ * Carry one session's attachments into another.
+ *
+ * For a fork, which is the same work continued under a new session
+ * id. Scoping attachments by session is what stopped one session
+ * retargeting another's round, and it made a fork start with nothing
+ * attached, so the first call after one either refused for want of a
+ * change or acted on whatever was named by hand. Neither is what
+ * forking means.
+ *
+ * A copy rather than a move: the session forked from is still there
+ * and still working on what it was working on.
+ *
+ * Never overwrites. Inheriting happens at session start, and a fork
+ * that has already said what it is working on has said something the
+ * parent cannot know better. The order is preserved among what is
+ * carried, and every carried attachment sits below what the fork
+ * already held, since an inherited number outranking this session's
+ * own would let the parent's oldest work decide what a call acts on.
+ *
+ * Advisory, like every other reclamation here: what it cannot read it
+ * does not carry, and nothing about a fork fails over it.
+ *
+ * Returns how many were carried.
+ */
+export async function inheritAttachments(
+	root: string,
+	from: string,
+	to: string,
+): Promise<number> {
+	// Reading and writing one directory, where every name collides with
+	// itself, is a way to lose an attachment rather than keep one.
+	if (safeName(from) === safeName(to)) return 0;
+	const parent = createAttachmentStore(root, from);
+	const fork = createAttachmentStore(root, to);
+	let held: Attachment[];
+	let mine: Attachment[];
+	try {
+		held = await parent.list();
+		mine = await fork.list();
+	} catch {
+		// An unreadable directory carries nothing. An attachment is a
+		// convenience and never the record of anything.
+		return 0;
+	}
+	if (held.length === 0) return 0;
+	const already = new Set(mine.map((one) => changeKey(one.change)));
+	// Oldest first, so the parent's own order survives the renumbering:
+	// each carried attachment is written above the one before it and
+	// below everything this session attached itself.
+	const carrying = held
+		.filter((one) => !already.has(changeKey(one.change)))
+		.reverse();
+	if (carrying.length === 0) return 0;
+	const floor = mine.reduce((max, one) => Math.max(max, one.seq), 0);
+	const mineDir = join(root, safeName(to));
+	let carried = 0;
+	for (const [index, one] of carrying.entries()) {
+		try {
+			await mkdir(mineDir, { recursive: true });
+			const record: Attachment = { ...one, seq: floor + index + 1 };
+			await writeFile(
+				join(mineDir, fileFor(one.change)),
+				JSON.stringify(record, null, 2),
+				"utf8",
+			);
+			carried += 1;
+		} catch {
+			// One that cannot be written is one the fork attaches again
+			// by hand, which is a smaller loss than a fork that fails to
+			// start over a convenience.
+		}
+	}
+	return carried;
+}
+
+/**
  * Give back the directories of sessions that have stopped using them.
  *
  * Scoping attachments per session means one directory per session for
@@ -68,12 +144,22 @@ export interface AttachmentStore {
  * reads it, which is exactly the shape an age rule mistakes for
  * abandonment.
  *
- * Files are left alone. Attachments made before scoping existed sit
- * flat in the root and belong to no session, so no session's rule
- * should decide their fate; deleting somebody's attachment to tidy up
- * is a poor trade for the disk it returns. They cost bytes and are
- * invisible to every scoped caller. An empty directory is swept, since
- * it holds nothing anybody can lose.
+ * Attachments made before scoping existed sit flat in the root, and go
+ * on the same clock. They belong to no session and no scoped caller
+ * can see them, which used to be the argument for leaving them: no
+ * session's rule should decide another's fate. That argument is about
+ * somebody's attachment, and an attachment nothing can read is not
+ * somebody's. A month is long enough that an upgrade last week is
+ * still reversible by hand, and short enough that they stop being
+ * kept for as long as the state directory lives. Judged on the file's
+ * own age, since nothing rewrites one.
+ *
+ * Only ones shaped like an attachment. A person who goes looking may
+ * leave a note behind, and a sweep that takes whatever it finds is one
+ * nobody can safely point at a directory.
+ *
+ * An empty directory is swept, since it holds nothing anybody can
+ * lose.
  *
  * Returns how many were taken back.
  */
@@ -96,11 +182,15 @@ export async function pruneAttachments(
 	const mine = options.keep === undefined ? undefined : safeName(options.keep);
 	let taken = 0;
 	for (const entry of entries) {
-		if (!entry.isDirectory()) continue;
 		if (entry.name === mine) continue;
+		const loose = entry.isFile() && entry.name.endsWith(".json");
+		if (!entry.isDirectory() && !loose) continue;
 		const path = join(root, entry.name);
 		try {
-			if ((await newestWithin(path)) > cutoff) continue;
+			const newest = loose
+				? (await stat(path)).mtimeMs
+				: await newestWithin(path);
+			if (newest > cutoff) continue;
 			await rm(path, { recursive: true, force: true });
 			taken += 1;
 		} catch {

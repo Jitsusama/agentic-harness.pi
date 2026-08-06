@@ -9,6 +9,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -106,6 +107,39 @@ export function rememberSession(sessionId: string | undefined): void {
  */
 export function attachments(): AttachmentStore {
 	return createAttachmentStore(attachmentDir(), sessionKey());
+}
+
+/**
+ * Whose session a session file is, as pi wrote it.
+ *
+ * The header, rather than the name, though both carry it and both
+ * agree in every file pi writes. The name is built as a timestamp and
+ * an id joined by an underscore, which is a shape that can change and
+ * that a person can break by renaming a file; the header is what pi
+ * itself reads a session's id out of. The name is the fallback, for a
+ * file too truncated to parse, since half an answer here is better
+ * than a fork that silently forgets its work.
+ *
+ * Nothing about a session start fails over this: a file that cannot be
+ * read is a fork that starts empty, which is where it started before.
+ */
+export async function sessionIdIn(file: string): Promise<string | undefined> {
+	try {
+		const header: unknown = JSON.parse(
+			(await readFile(file, "utf8")).split("\n", 1)[0] ?? "",
+		);
+		if (
+			typeof header === "object" &&
+			header !== null &&
+			typeof (header as { id?: unknown }).id === "string"
+		) {
+			return (header as { id: string }).id;
+		}
+	} catch {
+		// Unreadable or half-written. The name may still say.
+	}
+	const named = /_([^_/\\]+)\.jsonl$/.exec(file);
+	return named?.[1];
 }
 
 /** Where findings raised against a change live. */

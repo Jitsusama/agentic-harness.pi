@@ -14,7 +14,13 @@
  * no context and never delivered the event at all.
  */
 
-import { mkdirSync, mkdtempSync, rmSync, utimesSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	utimesSync,
+	writeFileSync,
+} from "node:fs";
 import { readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -64,15 +70,31 @@ function attachedRoot(): string {
 function startSession(
 	stub: ReturnType<typeof activate>,
 	sessionId: string,
+	event: Record<string, unknown> = { reason: "startup" },
 ): void {
 	const started = stub.lifecycle.get("session_start");
 	if (started === undefined) {
 		throw new Error("the extension registered no session_start on pi.on");
 	}
-	started(
-		{ reason: "startup" },
-		{ sessionManager: { getSessionId: () => sessionId } },
+	started(event, { sessionManager: { getSessionId: () => sessionId } });
+}
+
+/**
+ * A session file, as pi writes one.
+ *
+ * The name carries the id and so does the header, which is what makes
+ * reading it worth doing rather than parsing the path.
+ */
+function sessionFile(id: string, headerId = id): string {
+	const dir = join(root, "sessions");
+	mkdirSync(dir, { recursive: true });
+	const path = join(dir, `2026-08-06T21-15-02-270Z_${id}.jsonl`);
+	writeFileSync(
+		path,
+		`${JSON.stringify({ type: "session", version: 3, id: headerId })}\n`,
+		"utf8",
 	);
+	return path;
 }
 
 describe("the review extension", () => {
@@ -123,6 +145,73 @@ describe("the review extension", () => {
 		// starting one is never delayed by housekeeping.
 		await vi.waitFor(async () =>
 			expect(await readdir(attachedRoot())).not.toContain("s-ancient"),
+		);
+	});
+
+	it("carries what it was working on into a fork", async () => {
+		// A fork is the same work continued, and pi mints it a new
+		// session id, so scoping by session made every fork start with
+		// nothing attached. Pi names the file it forked from, which is
+		// the only thing that can say whose attachments these are.
+		const stub = activate();
+		startSession(stub, "s-parent");
+		await attachments().attach(change("owner/repo#7"));
+
+		startSession(stub, "s-fork", {
+			reason: "fork",
+			previousSessionFile: sessionFile("s-parent"),
+		});
+
+		await vi.waitFor(async () =>
+			expect((await attachments().list()).map((a) => a.change.label)).toEqual([
+				"owner/repo#7",
+			]),
+		);
+		// And the session it forked from still has it: a fork is a copy.
+		expect((await readdir(attachedRoot())).sort()).toEqual([
+			"s-fork",
+			"s-parent",
+		]);
+	});
+
+	it("does not carry anything into a session that is merely new", async () => {
+		// Pi names a previous file for a new session too, and a new
+		// session is a fresh start rather than a continuation. Reading
+		// the file without reading the reason would attach the last
+		// session's work to somebody starting clean.
+		const stub = activate();
+		startSession(stub, "s-before");
+		await attachments().attach(change("owner/repo#8"));
+
+		startSession(stub, "s-after", {
+			reason: "new",
+			previousSessionFile: sessionFile("s-before"),
+		});
+
+		await vi.waitFor(async () =>
+			expect(await readdir(attachedRoot())).toContain("s-before"),
+		);
+		expect(await attachments().list()).toEqual([]);
+	});
+
+	it("reads the parent's id from the file rather than from its name", async () => {
+		// The name and the header agree in every file pi writes, and the
+		// header is what pi itself reads. A file renamed by a person, or
+		// a naming scheme that changes, must not silently inherit the
+		// wrong session's work.
+		const stub = activate();
+		startSession(stub, "s-real-parent");
+		await attachments().attach(change("owner/repo#9"));
+
+		startSession(stub, "s-fork-2", {
+			reason: "fork",
+			previousSessionFile: sessionFile("renamed-by-hand", "s-real-parent"),
+		});
+
+		await vi.waitFor(async () =>
+			expect((await attachments().list()).map((a) => a.change.label)).toEqual([
+				"owner/repo#9",
+			]),
 		);
 	});
 
