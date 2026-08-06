@@ -14,7 +14,7 @@
  * look reasonable when the retry is guaranteed to hit the same wall.
  */
 
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AskAnswer, AskLimit, AskStop } from "../../lib/review/index.js";
 import type {
@@ -33,6 +33,10 @@ import {
 	systemFacts,
 	WRAP_UP_SUFFIX,
 } from "../../lib/subagent/index.js";
+import {
+	journalWarnings,
+	parseJournal,
+} from "../../lib/subagent/runpi/journal.mjs";
 import {
 	createSupervisorRunPi,
 	createSupervisorStartPi,
@@ -267,7 +271,14 @@ async function resultIn(
 ): Promise<RunReviewerResult | undefined> {
 	const { resultPath } = store.paths(runId, reviewerId);
 	const read = await store.readJson<Partial<RunReviewerResult>>(resultPath);
-	if (read === null) return undefined;
+	// No result file at all is the case the journal was built for, and
+	// until now the only one it could not answer. The supervisor folds
+	// the journal into its result, so a reviewer whose supervisor died
+	// first has every finding it recorded sitting on disk with nothing
+	// that reads it: collect said "missing", the round settled, and the
+	// work was paid for and stranded. The reviewer writes that file
+	// itself, so it survives its supervisor by construction.
+	if (read === null) return await strandedJournal(store, runId, reviewerId);
 	// A file that parses but carries neither an answer nor a journal is
 	// not an empty review, it is a file whose shape this cannot read.
 	// Filling it in would hand back a reviewer that read the change and
@@ -279,6 +290,43 @@ async function resultIn(
 		);
 	}
 	return whole(read, reviewerId);
+}
+
+/**
+ * What a reviewer recorded, when nothing else about it survives.
+ *
+ * Built to look like the result its supervisor would have written,
+ * because everything downstream already knows how to read one of
+ * those. It reports an unclean exit and no answer, which is exactly
+ * what happened: this reviewer never finished, and the round should
+ * say so beside the findings it did manage to write down.
+ */
+async function strandedJournal(
+	store: ReviewerArtifactsStore,
+	runId: string,
+	reviewerId: string,
+): Promise<RunReviewerResult | undefined> {
+	const journalPath = store.paths(runId, reviewerId).journalPath;
+	if (journalPath === undefined) return undefined;
+	let raw: string;
+	try {
+		raw = await readFile(journalPath, "utf8");
+	} catch {
+		// No journal either, so this reviewer really did leave nothing.
+		return undefined;
+	}
+	const counts = parseJournal(raw);
+	if (counts.entries.length === 0) return undefined;
+	return whole(
+		{
+			journal: counts.entries,
+			journalWarnings: [
+				...journalWarnings(counts, journalPath),
+				`${reviewerId} left no result of its own, so this is what it had written down when it stopped.`,
+			],
+		},
+		reviewerId,
+	);
 }
 
 /**
