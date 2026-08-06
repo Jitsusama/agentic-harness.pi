@@ -72,6 +72,24 @@ export interface AskRun {
 	participants: ParticipantIdentity[];
 	/** What came back. May be shorter than the roster mid-run. */
 	outcomes: ParticipantOutcome[];
+	/**
+	 * This round was written down before it asked anybody, and has
+	 * not been settled since.
+	 *
+	 * Present only while that is true, rather than inferred from a
+	 * missing settled time, because absence is the state everything
+	 * else already has. Every round recorded before this existed,
+	 * and every judge, critique, audit and stack round, carries no
+	 * such field and never will, so an alarm keyed on absence would
+	 * have declared the entire review history of every change
+	 * abandoned the first time anybody asked.
+	 *
+	 * One producer, one meaning: a council that opened and whose
+	 * session did not live to close it. Its reviewers' answers may
+	 * still be on disk under this id, and this is the only thing
+	 * that says to go looking.
+	 */
+	open?: true;
 }
 
 /** How a run went, in counts. */
@@ -203,5 +221,16 @@ export function substituteOutcome(
 			? [...run.outcomes, outcome]
 			: run.outcomes.map((held, index) => (index === at ? outcome : held));
 
-	return { ...run, outcomes };
+	// Filling the last gap in an interrupted round settles it.
+	//
+	// Without this the flag is one-way and the recovery it points at
+	// dead-ends: a session dies holding a council, every participant is
+	// asked again, and the completed round still reports itself as
+	// never settled forever. An alarm nobody can answer stops being
+	// read, which costs the one case it was raised for.
+	const waiting = run.participants.some(
+		(asked) => !outcomes.some((held) => held.participantId === asked.id),
+	);
+	const { open: _wasOpen, ...rest } = run;
+	return waiting ? { ...run, outcomes } : { ...rest, outcomes };
 }

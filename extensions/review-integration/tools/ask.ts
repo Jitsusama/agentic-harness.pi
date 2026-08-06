@@ -41,6 +41,7 @@ import {
 	auditPrompt,
 	bindPersonas,
 	type ChangeRef,
+	type CouncilDeps,
 	type Critique,
 	councilPrompt,
 	createFindingStore,
@@ -337,8 +338,18 @@ async function askCouncil(
 		deps(change, tree.path, watch, charters),
 	);
 
-	await createRunStore(runDir()).record(change, run);
-	return say(answerFor(run, warnings, tree.caveat), { run, warnings });
+	// The same call `opened` made, and guarded the same way. `keep`
+	// removed the refusal that a missing opening write would have
+	// caused; it does nothing about the failure that stopped that write
+	// landing, and those are the realistic ones: no space, no
+	// permission, a read-only volume. All of them fail this write too,
+	// and bare it would answer a finished council with a refusal about
+	// a ledger, throwing away every finding the round just paid for.
+	const kept = await keptOnLedger(change, run);
+	return say(answerFor(run, [...warnings, ...kept], tree.caveat), {
+		run,
+		warnings,
+	});
 }
 
 /** Ask the judge to consolidate the latest council. */
@@ -803,7 +814,7 @@ async function retryOne(
 						seq: 1,
 						...witness,
 					},
-					deps(change, tree.path, watch, charters),
+					substituting(deps(change, tree.path, watch, charters)),
 				);
 
 	const outcome = fresh.outcomes[0];
@@ -1191,11 +1202,65 @@ function deps(
 			return findings.record(change, raised);
 		},
 		now: () => new Date(),
+		// Written down before the first reviewer is dispatched, so the
+		// most expensive thing this tool does stops being the one thing
+		// nothing records until it is over. Recorded rather than
+		// replaced, since at this point the round is new.
+		async opened(run: AskRun) {
+			try {
+				await createRunStore(runDir()).keep(change, run);
+			} catch {
+				// Bookkeeping must not cost the round. A ledger that could
+				// not be written is worth less than seven reviews, and the
+				// settled write at the end will say so again anyway.
+			}
+		},
 		// Every round reports. A round that fans out and says nothing for
 		// minutes is indistinguishable from one that has hung, which is
 		// the whole reason this exists.
 		progress: watch.progress,
 	};
+}
+
+/**
+ * The same dependencies, for a round that is not a new round.
+ *
+ * A retry runs one participant through the council path to substitute
+ * its outcome into a round that already exists. That path now opens a
+ * ledger entry before it asks, which is right for a council and wrong
+ * here: it would leave a one-participant round on the ledger that
+ * nothing ever settles, and an unsettled round is precisely the signal
+ * meaning a session died holding one. The retry would manufacture the
+ * alarm it is meant to help answer.
+ */
+function substituting(deps: CouncilDeps): Omit<CouncilDeps, "opened"> {
+	// Typed against CouncilDeps rather than a structural constraint.
+	// `T extends { opened?: unknown }` was satisfied by every object
+	// type, so renaming the callback would have left this returning
+	// its argument untouched and quietly restored the stray round,
+	// with nothing to report it. Named concretely, the same rename is
+	// a compile error here.
+	const { opened: _discarded, ...rest } = deps;
+	return rest;
+}
+
+/**
+ * Put a finished round on the ledger, saying so if it could not be.
+ *
+ * Never throws. The round has already happened and its findings are
+ * already recorded against the change; failing to write the ledger
+ * entry loses the index, not the work, and answering with a refusal
+ * would hide fifteen minutes of review behind a filesystem error.
+ */
+async function keptOnLedger(change: ChangeRef, run: AskRun): Promise<string[]> {
+	try {
+		await createRunStore(runDir()).keep(change, run);
+		return [];
+	} catch (error) {
+		return [
+			`${GLYPH.refused} This round is not on the ledger (${messageOf(error)}), so a judge or a retry will not find it by id. Its findings are recorded against the change regardless.`,
+		];
+	}
 }
 
 /**
@@ -1245,7 +1310,14 @@ function renderFindings(findings: Finding[]): string {
 function describeRun(run: AskRun): string {
 	const summary = runSummary(run);
 	const failed = summary.failed > 0 ? `, ${summary.failed} failed` : "";
-	const head = `${run.id}: ${summary.answered}/${summary.asked} answered${failed}, ${count(summary.findings, "finding")}`;
+	// Only a council carries this, and only while it is unsettled, so
+	// the sentence says what is actually known: it opened and nothing
+	// closed it. Whether that is a dead session or a round still
+	// running in another window is not ours to assert, and the useful
+	// half is the same either way, since the reviewers' answers are on
+	// disk under this id.
+	const abandoned = run.open === true ? ", opened and never settled" : "";
+	const head = `${run.id}: ${summary.answered}/${summary.asked} answered${failed}, ${count(summary.findings, "finding")}${abandoned}`;
 	// A stopped reviewer's answer was being recorded and never shown,
 	// which is most of the way to losing it: the path is only useful to
 	// somebody who knows to look for it.
