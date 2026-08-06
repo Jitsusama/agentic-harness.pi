@@ -132,6 +132,29 @@ describe("a round on the ledger before it costs anything", () => {
 		expect("open" in run).toBe(false);
 	});
 
+	it("remembers the witness it was asked against", async () => {
+		// An interrupted round is collected from disk later, and a
+		// finding harvested then must anchor exactly as it would have
+		// live. The witness is the only part of that which is not
+		// recoverable from the reviewer's own answer, so a round that
+		// does not write it down cannot be collected faithfully.
+		const opened: AskRun[] = [];
+		const { run } = await runCouncil(
+			{ roster, prompt: "p", seq: 1, witness: "abc1234" },
+			{
+				...deps({ hawk: { text: said("a") }, owl: { text: said("b") } }),
+				async opened(run) {
+					opened.push(run);
+				},
+			},
+		);
+
+		expect(opened[0]?.witness).toBe("abc1234");
+		// And it survives settling, or collecting a round that did
+		// finish would anchor differently from the round itself.
+		expect(run.witness).toBe("abc1234");
+	});
+
 	it("runs the round when opening it throws", async () => {
 		// The callback's own docstring promises a round is worth more
 		// than the bookkeeping around it. Awaited bare, that promise

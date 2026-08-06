@@ -502,6 +502,15 @@ six reviewers means six opinions. `review_ask retry participant:"id"`
 asks one of them again and substitutes the outcome in place, keeping
 the rest of the round.
 
+A round survives its own session, too. It is written to the ledger
+before the first reviewer is dispatched, so a session that ends
+mid-round leaves an entry `review_ask runs` reports as opened and never
+settled. `review_ask collect` finishes it from what the reviewers left
+on disk: it asks nobody, spends nothing, and files their findings the
+way the round would have. Name the round with `run:"id"` when more than
+one is unsettled, since collecting files findings against the change
+and doing that to the wrong round cannot be undone.
+
 ## Attach the Change, Then Stop Naming It
 
 `review attach` binds the change you are working on, and

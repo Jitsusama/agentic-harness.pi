@@ -43,6 +43,7 @@ import {
 	type ChangeRef,
 	type CouncilDeps,
 	type Critique,
+	collectRound,
 	councilPrompt,
 	createFindingStore,
 	createIdentityLedger,
@@ -71,6 +72,7 @@ import {
 import type { ReviewerThinkingLevel } from "../../../lib/subagent/index.js";
 import {
 	getParentPiInstall,
+	ReviewerArtifactsStore,
 	runReviewer,
 	summarizeStreamActivity,
 } from "../../../lib/subagent/index.js";
@@ -91,7 +93,12 @@ import {
 } from "../engine.js";
 import { type RoundWatch, watchRound } from "../progress.js";
 import { GLYPH } from "../render.js";
-import { answerFromReviewer, keepAnswer, reviewerRunner } from "../reviewer.js";
+import {
+	answerFromReviewer,
+	answerLeftBehind,
+	keepAnswer,
+	reviewerRunner,
+} from "../reviewer.js";
 import { treeForRound } from "../work.js";
 import {
 	type Answer,
@@ -113,6 +120,7 @@ type AskAction =
 	| "audit"
 	| "stack"
 	| "runs"
+	| "collect"
 	| "retry"
 	| "release";
 
@@ -159,12 +167,13 @@ export function registerAskTool(pi: ExtensionAPI): void {
 						Type.Literal("audit"),
 						Type.Literal("stack"),
 						Type.Literal("runs"),
+						Type.Literal("collect"),
 						Type.Literal("retry"),
 						Type.Literal("release"),
 					],
 					{
 						description:
-							"What to do. council: ask every reviewer on the roster, independently and at once. judge: ask the roster's judge to consolidate the latest council. critique: ask the roster to push back on what the judge concluded, recording positions rather than findings. audit: judge each unresolved inbound thread against the change, so a reply is informed rather than guessed. stack: put every change in the stack to the roster together, so a finding that only exists between changes can be seen. runs: what rounds have been asked about this change. retry: ask one participant again and substitute their outcome in place. release: free a participant id so it can mean a different model, which is the way out the identity refusal names. Defaults to runs, which changes nothing.",
+							"What to do. council: ask every reviewer on the roster, independently and at once. judge: ask the roster's judge to consolidate the latest council. critique: ask the roster to push back on what the judge concluded, recording positions rather than findings. audit: judge each unresolved inbound thread against the change, so a reply is informed rather than guessed. stack: put every change in the stack to the roster together, so a finding that only exists between changes can be seen. runs: what rounds have been asked about this change. collect: finish a round whose session ended before it could, reading what its reviewers left on disk, which is what an unsettled round in the listing is telling you to do. retry: ask one participant again and substitute their outcome in place. release: free a participant id so it can mean a different model, which is the way out the identity refusal names. Defaults to runs, which changes nothing.",
 					},
 				),
 			),
@@ -264,6 +273,8 @@ export function registerAskTool(pi: ExtensionAPI): void {
 				switch (action) {
 					case "runs":
 						return await reportRuns(change);
+					case "collect":
+						return await collectOne(change, params);
 					case "council":
 						return await askCouncil(bound, change, params, watch("council"));
 					case "judge":
@@ -302,6 +313,136 @@ async function reportRuns(change: ChangeRef): Promise<Answer> {
 		[`${count(runs.length, "round")} on ${change.label}:`, ...lines].join("\n"),
 		{ runs },
 	);
+}
+
+/**
+ * Finish a round whose session ended before it could.
+ *
+ * Everything the reviewers produced is already on disk, and until now
+ * the only thing that could turn it into findings was the session that
+ * died. This asks nobody and spends nothing: it reads what is there,
+ * files it the way the round would have, and settles the round.
+ */
+async function collectOne(
+	change: ChangeRef,
+	params: AskParams,
+): Promise<Answer> {
+	const store = createRunStore(runDir());
+	const unsettled = (await store.list(change)).filter(
+		(run) => run.open === true,
+	);
+	if (unsettled.length === 0) {
+		return say(
+			`Every round on ${change.label} settled on its own, so there is nothing to collect.`,
+			{ runs: [] },
+		);
+	}
+	// Named when there is a choice, rather than guessing at the newest.
+	// Collecting files findings against the change, and doing that to
+	// the wrong round is not undoable.
+	const held =
+		params.run === undefined
+			? unsettled[0]
+			: unsettled.find((run) => run.id === params.run);
+	if (held === undefined) {
+		return refuse(
+			`No unsettled round "${params.run}" is held against ${change.label}. Unsettled: ${unsettled.map((run) => run.id).join(", ")}.`,
+		);
+	}
+	if (params.run === undefined && unsettled.length > 1) {
+		return refuse(
+			`${count(unsettled.length, "round")} on ${change.label} never settled, so say which one to collect: ${unsettled.map((run) => run.id).join(", ")}.`,
+		);
+	}
+
+	const artifacts = new ReviewerArtifactsStore(runArtifactDir());
+	const alive = await stillRunning(artifacts, held);
+	if (alive !== undefined) return refuse(alive);
+
+	const answers = new Map<string, AskAnswer>();
+	const unreadable: string[] = [];
+	for (const participant of held.participants) {
+		// No budget. On the live path the same config call configured
+		// the run, so stamping it on a stop is history. Here the round
+		// ran hours or days ago, possibly under different numbers, and
+		// writing today's into the stop would record a limit the run
+		// never hit and then refuse the retry that raising it was for.
+		const left = await answerLeftBehind(artifacts, held.id, participant.id);
+		if (left.kind === "answer") answers.set(participant.id, left.answer);
+		if (left.kind === "unreadable") {
+			unreadable.push(`${participant.id}: ${left.why}`);
+		}
+	}
+
+	const findings = createFindingStore(findingDir());
+	const store2 = createRunStore(runDir());
+	const { run, warnings } = await collectRound(held, answers, {
+		record: (raised) => findings.record(change, raised),
+		// Each participant's outcome is held as it is filed, so a
+		// collect that dies halfway leaves durable progress and the next
+		// one does not file the same findings again.
+		progressed: (partial) => store2.keep(change, partial),
+	});
+	const kept = await keptOnLedger(change, run);
+	return say(
+		[
+			`Collected ${run.id}, which opened at ${held.startedAt} and was never settled.`,
+			answerFor(run, [
+				...warnings,
+				...unreadable.map(
+					(said) =>
+						`${GLYPH.refused} Nothing could be read back for ${said}. Whatever it found is still in its directory under ${runArtifactDir()}.`,
+				),
+				...kept,
+			]),
+		].join("\n"),
+		{ run, warnings },
+	);
+}
+
+/**
+ * Why this round must not be collected yet, when a supervisor still
+ * holds it.
+ *
+ * An open mark says a round started and did not finish, which is the
+ * same on the ledger for a dead session and for a council running
+ * right now in another window. Collecting a live round reads the
+ * reviewers that have finished, files their findings, records the rest
+ * as having left nothing, and settles it. The session still running
+ * then finishes and records the whole round again: every early finding
+ * filed twice, and a settled round that says its reviewers found
+ * nothing.
+ *
+ * The lease is the answer, and it is the same one startup recovery
+ * uses: a reviewer directory holds the pid of the supervisor that owns
+ * it.
+ */
+async function stillRunning(
+	artifacts: ReviewerArtifactsStore,
+	held: AskRun,
+): Promise<string | undefined> {
+	for (const participant of held.participants) {
+		const { leasePath } = artifacts.paths(held.id, participant.id);
+		const lease = await artifacts
+			.readJson<{ supervisorPid?: number | null }>(leasePath)
+			.catch(() => null);
+		const pid = lease?.supervisorPid;
+		if (typeof pid !== "number" || !alive(pid)) continue;
+		return `${held.id} is still being run: ${participant.id} is held by a supervisor (pid ${pid}) that is alive. Collecting now would file the findings of whoever has finished and then let that session file them again. Wait for it, or collect once it is gone.`;
+	}
+	return undefined;
+}
+
+/** Whether a process is still there to own something. */
+function alive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch {
+		// No such process, or one we may not signal. Either way it is
+		// not this session's supervisor holding the round.
+		return false;
+	}
 }
 
 /** Ask every reviewer on the roster. */

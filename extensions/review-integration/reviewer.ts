@@ -19,9 +19,14 @@ import { join } from "node:path";
 import type { AskAnswer, AskLimit, AskStop } from "../../lib/review/index.js";
 import type {
 	PiInstall,
+	ReviewerArtifactsStore,
 	ReviewerTerminalState,
 	RunPi,
 	RunReviewerResult,
+} from "../../lib/subagent/index.js";
+import {
+	mergeResumeOutcome,
+	mergeWrapUpOutcome,
 } from "../../lib/subagent/index.js";
 import {
 	createSupervisorRunPi,
@@ -124,6 +129,113 @@ export async function keepAnswer(
 function safeSegment(name: string): string {
 	const safe = name.replace(/[^A-Za-z0-9._-]/g, "_").replace(/^\.+/, "_");
 	return safe === "" ? "_" : safe;
+}
+
+/**
+ * What one reviewer left behind, read back as an answer.
+ *
+ * The whole point of a round writing itself down before it asks
+ * anybody: a session that died holding a council left every reviewer's
+ * work here, and until now nothing could turn it back into findings.
+ *
+ * Reads `result.json` and nothing else, which is what makes this
+ * cheap and what keeps it honest. The supervisor already folded the
+ * reviewer's journal and its journal warnings into that file, so
+ * collecting needs no second reader of the journal: a second one
+ * would drift from the first, and this package has paid for that
+ * mistake once already.
+ */
+export async function answerLeftBehind(
+	store: ReviewerArtifactsStore,
+	runId: string,
+	participantId: string,
+	budget?: { timeoutMs: number; idleTimeoutMs: number },
+): Promise<LeftBehind> {
+	try {
+		const base = await resultIn(store, runId, participantId);
+		if (base === undefined) return { kind: "missing" };
+		// A stopped reviewer's work spans up to three directories. The
+		// wrap-up and the resume are spawned under suffixed ids so
+		// neither overwrites the record of the stop, and the live path
+		// folds them together in memory and never writes the merge back.
+		// Reading only the base is therefore keeping the fragment and
+		// discarding the answer, in the shape an interrupted round most
+		// often has.
+		const wrapUp = await resultIn(store, runId, `${participantId}+wrapup`);
+		const merged =
+			wrapUp === undefined ? base : mergeWrapUpOutcome(base, wrapUp);
+		const resume = await resultIn(store, runId, `${participantId}+resume`);
+		const entire =
+			resume === undefined ? merged : mergeResumeOutcome(merged, resume);
+		return { kind: "answer", answer: answerFromReviewer(entire, budget) };
+	} catch (error) {
+		// One unreadable file costs one participant. Letting it out
+		// would abandon the whole collect over a single directory,
+		// leave the round open, and send every later attempt into the
+		// same file with nothing naming which of seven it was.
+		return {
+			kind: "unreadable",
+			why: error instanceof Error ? error.message : String(error),
+		};
+	}
+}
+
+/** What one reviewer's directories turned out to hold. */
+export type LeftBehind =
+	| { kind: "answer"; answer: AskAnswer }
+	| { kind: "missing" }
+	| { kind: "unreadable"; why: string };
+
+/** One result file, read back as the runner would have returned it. */
+async function resultIn(
+	store: ReviewerArtifactsStore,
+	runId: string,
+	reviewerId: string,
+): Promise<RunReviewerResult | undefined> {
+	const { resultPath } = store.paths(runId, reviewerId);
+	const read = await store.readJson<Partial<RunReviewerResult>>(resultPath);
+	if (read === null) return undefined;
+	// A file that parses but carries neither an answer nor a journal is
+	// not an empty review, it is a file whose shape this cannot read.
+	// Filling it in would hand back a reviewer that read the change and
+	// had no complaint, settle the round on it, and hide the loss for
+	// good.
+	if (read.finalAssistantText === undefined && read.journal === undefined) {
+		throw new Error(
+			`${resultPath} holds no answer and no recorded findings, so there is nothing in it to read.`,
+		);
+	}
+	return whole(read, reviewerId);
+}
+
+/**
+ * A result file, made to keep the promises the type makes.
+ *
+ * Read as `Partial` and filled, rather than asserted whole. The file
+ * was written by a different process, possibly a different version of
+ * it, possibly while being killed, and a cast is a claim about
+ * something none of that can be asked to honour. Asserted whole, a
+ * missing warnings list is not a wrong answer but a thrown one, in the
+ * middle of recovering the work a round already paid for.
+ */
+function whole(
+	read: Partial<RunReviewerResult>,
+	participantId: string,
+): RunReviewerResult {
+	return {
+		...read,
+		reviewerId: read.reviewerId ?? participantId,
+		// Not zero. Zero is the most optimistic value there is and it
+		// combines with an empty answer to read as a healthy reviewer
+		// that had no complaint, which is the one thing that must never
+		// be invented. A file with no exit code did not exit well.
+		exitCode: read.exitCode ?? 1,
+		finalAssistantText: read.finalAssistantText ?? "",
+		// The supervised runner writes a stderr tail rather than this,
+		// so a result file legitimately has no stderr at all.
+		stderr: read.stderr ?? "",
+		warnings: [...(read.warnings ?? [])],
+	};
 }
 
 /**
