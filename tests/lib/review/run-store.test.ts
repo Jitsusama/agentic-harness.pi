@@ -105,6 +105,35 @@ describe("keeping runs per change", () => {
 			expect(await store.list(change)).toHaveLength(1);
 		});
 
+		it("leaves this change's other rounds alone, in the order they ran", async () => {
+			// Every other case here holds one round, so a keep that threw
+			// away the change's whole history and wrote back the round it
+			// was handed passed all of them. The cross-change case below
+			// does not catch it either: it is the same change's history
+			// that would go, which is the only place a round's findings
+			// can be reached from.
+			const store = createRunStore(root);
+			await store.keep(change, run({ id: "council-1" }));
+			await store.keep(change, run({ id: "judge-1", round: "judge" }));
+			await store.keep(
+				change,
+				run({ id: "council-2", outcomes: [], open: true }),
+			);
+
+			await store.keep(change, run({ id: "council-2" }));
+
+			const held = await store.list(change);
+			expect(held.map((one) => one.id)).toEqual([
+				"council-1",
+				"judge-1",
+				"council-2",
+			]);
+			// And the one it replaced is the settled version, in place
+			// rather than appended after the rounds that came later.
+			expect(held[2]?.open).toBeUndefined();
+			expect(held[0]?.outcomes).toHaveLength(1);
+		});
+
 		it("leaves other changes alone", async () => {
 			const store = createRunStore(root);
 			await store.keep(other, run());
