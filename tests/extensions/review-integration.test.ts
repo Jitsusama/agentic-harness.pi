@@ -91,12 +91,12 @@ describe("the review integration", () => {
 		// after the host missed the first announcement entirely.
 		// Without a way to ask, load order decides whether the
 		// substrate is reachable at all.
-		const { handlers, emitted } = activate();
+		const { fire, emitted } = activate();
 		const before = emitted.filter(
 			(entry) => entry.event === REVIEW_READY,
 		).length;
 
-		handlers.get(REVIEW_REQUEST_SUBSTRATE)?.(undefined);
+		fire(REVIEW_REQUEST_SUBSTRATE, undefined);
 
 		const after = emitted.filter((entry) => entry.event === REVIEW_READY);
 		expect(after).toHaveLength(before + 1);
@@ -119,8 +119,8 @@ describe("the review integration", () => {
 	});
 
 	it("accepts a provider that arrives over the bus", () => {
-		const { handlers } = activate();
-		handlers.get(REVIEW_REGISTER_PROVIDER)?.({
+		const { fire } = activate();
+		fire(REVIEW_REGISTER_PROVIDER, {
 			id: "meteorite",
 			priority: 50,
 			claimReference: () => null,
@@ -135,11 +135,10 @@ describe("the review integration", () => {
 	});
 
 	it("ignores a malformed registration rather than storing it", () => {
-		const { handlers } = activate();
-		const register = handlers.get(REVIEW_REGISTER_PROVIDER);
-		register?.({ id: "broken" });
-		register?.(undefined);
-		register?.("not a provider");
+		const { fire } = activate();
+		fire(REVIEW_REGISTER_PROVIDER, { id: "broken" });
+		fire(REVIEW_REGISTER_PROVIDER, undefined);
+		fire(REVIEW_REGISTER_PROVIDER, "not a provider");
 		expect(listReviewProviders().map((provider) => provider.id)).toEqual([
 			"github",
 			"git",
@@ -147,8 +146,8 @@ describe("the review integration", () => {
 	});
 
 	it("lets a downstream provider out-claim the built-ins", () => {
-		const { handlers } = activate();
-		handlers.get(REVIEW_REGISTER_PROVIDER)?.({
+		const { fire } = activate();
+		fire(REVIEW_REGISTER_PROVIDER, {
 			id: "meteorite",
 			priority: 50,
 			claimReference: () => null,

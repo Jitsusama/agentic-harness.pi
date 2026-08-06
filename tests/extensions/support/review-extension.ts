@@ -40,7 +40,10 @@ export type ExecAnswers = Record<
 export function stubPi(answers: ExecAnswers = {}) {
 	const tools: string[] = [];
 	const definitions = new Map<string, RegisteredTool>();
-	const handlers = new Map<string, (data: unknown) => void>();
+	// Many per channel, and it dispatches, because the bus does both
+	// and the things worth testing on it are what a second subscription
+	// costs and who hears an announcement.
+	const handlers = new Map<string, Array<(data: unknown) => void>>();
 	const lifecycle = new Map<string, (event: unknown, ctx: unknown) => void>();
 	const emitted: { event: string; data: unknown }[] = [];
 	const commands: string[][] = [];
@@ -71,11 +74,24 @@ export function stubPi(answers: ExecAnswers = {}) {
 		},
 		exec,
 		events: {
-			on(event: string, handler: (data: unknown) => void) {
-				handlers.set(event, handler);
+			// Returns the unsubscribe pi's bus returns. Without it, a
+			// subscription that stacks on every session start looks
+			// exactly like one that does not.
+			on(event: string, handler: (data: unknown) => void): () => void {
+				const listening = handlers.get(event) ?? [];
+				listening.push(handler);
+				handlers.set(event, listening);
+				return () => {
+					const now = handlers.get(event) ?? [];
+					const at = now.indexOf(handler);
+					if (at >= 0) now.splice(at, 1);
+				};
 			},
 			emit(event: string, data: unknown) {
 				emitted.push({ event, data });
+				for (const handler of [...(handlers.get(event) ?? [])]) {
+					handler(data);
+				}
 			},
 		},
 	};
@@ -88,6 +104,10 @@ export function stubPi(answers: ExecAnswers = {}) {
 		emitted,
 		exec,
 		commands,
+		/** Deliver an event to everything listening, as the bus would. */
+		fire(event: string, data: unknown) {
+			for (const handler of [...(handlers.get(event) ?? [])]) handler(data);
+		},
 	};
 }
 
@@ -101,10 +121,24 @@ export function stubPi(answers: ExecAnswers = {}) {
  * Give a stub an id of its own, `plain-vcs` rather than `git`.
  */
 export function activate(answers: ExecAnswers = {}) {
+	return activateWith(reviewIntegration, answers);
+}
+
+/**
+ * The same, for any extension in this package.
+ *
+ * The two integrations answer each other over the bus, so a question
+ * about what one does to the other's registry cannot be asked of either
+ * alone.
+ */
+export function activateWith(
+	extension: (pi: never) => void,
+	answers: ExecAnswers = {},
+) {
 	const stub = stubPi(answers);
 	// The stub is structural: the extension only uses the parts modelled
 	// here, and a real ExtensionAPI is unavailable outside a session.
-	reviewIntegration(stub.pi as never);
+	extension(stub.pi as never);
 	return stub;
 }
 

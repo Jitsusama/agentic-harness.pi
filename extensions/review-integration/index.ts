@@ -93,19 +93,34 @@ const ATTACHMENTS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
  * to reclaim space is not a reason to fail a session.
  */
 async function reclaimRoundTranscripts(): Promise<void> {
+	// Both paths up front, before anything is awaited. These resolve
+	// against the environment each time they are called, and this runs
+	// unawaited, so a second lookup after the first await is a lookup
+	// against whatever the environment says by then. In a test that
+	// points the state directory at a sandbox and takes it away again,
+	// that is a sweep of the real one.
+	const transcripts = runArtifactDir();
+	const attached = attachmentDir();
+	const mine = sessionKey();
+	// Separately, because one failing is not a reason to skip the
+	// other, and the transcript sweep races other sessions by nature.
 	try {
-		await new ReviewerArtifactsStore(runArtifactDir()).cleanupTerminalRuns({
+		await new ReviewerArtifactsStore(transcripts).cleanupTerminalRuns({
 			maxRuns: ROUNDS_RETAIN,
 			maxAgeMs: ROUNDS_MAX_AGE_MS,
 			abandonedAfterMs: ROUNDS_ABANDONED_AFTER_MS,
 		});
-		await pruneAttachments(attachmentDir(), {
-			olderThanMs: ATTACHMENTS_MAX_AGE_MS,
-			keep: sessionKey(),
-		});
 	} catch {
 		// Advisory. A sweep that cannot run costs disk, and failing the
 		// session over it would cost the session.
+	}
+	try {
+		await pruneAttachments(attached, {
+			olderThanMs: ATTACHMENTS_MAX_AGE_MS,
+			keep: mine,
+		});
+	} catch {
+		// Advisory, for the same reason.
 	}
 }
 

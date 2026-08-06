@@ -14,21 +14,23 @@
  * no context and never delivered the event at all.
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, utimesSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { attachments } from "../../extensions/review-integration/engine.js";
 import type { ChangeRef } from "../../lib/review/index.js";
 import { activate } from "./support/review-extension.js";
 
 let root: string;
 let wasState: string | undefined;
+let wasSession: string | undefined;
 
 beforeEach(() => {
 	root = mkdtempSync(join(tmpdir(), "review-session-"));
 	wasState = process.env.XDG_STATE_HOME;
+	wasSession = process.env.PI_SESSION_ID;
 	process.env.XDG_STATE_HOME = root;
 	// The variable the extension used to read. Wrong on purpose: if it
 	// is ever consulted again, the attachment lands under this name and
@@ -37,7 +39,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-	delete process.env.PI_SESSION_ID;
+	if (wasSession === undefined) delete process.env.PI_SESSION_ID;
+	else process.env.PI_SESSION_ID = wasSession;
 	if (wasState === undefined) delete process.env.XDG_STATE_HOME;
 	else process.env.XDG_STATE_HOME = wasState;
 	rmSync(root, { recursive: true, force: true });
@@ -102,6 +105,25 @@ describe("the review extension", () => {
 			"owner/repo#2",
 		]);
 		expect((await readdir(attachedRoot())).sort()).toEqual(["s-1", "s-2"]);
+	});
+
+	it("gives back the directory of a session long gone", async () => {
+		// Starting a session runs a sweep, which until this change had
+		// never run at all. The test fires it either way, so it is
+		// better asserted than left as an unobserved side effect.
+		const stale = join(attachedRoot(), "s-ancient");
+		mkdirSync(stale, { recursive: true });
+		const when = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
+		utimesSync(stale, when, when);
+
+		const stub = activate();
+		startSession(stub, "s-now");
+
+		// The sweep is deliberately not awaited by the session, so that
+		// starting one is never delayed by housekeeping.
+		await vi.waitFor(async () =>
+			expect(await readdir(attachedRoot())).not.toContain("s-ancient"),
+		);
 	});
 
 	it("does not put a session with no name in with everyone else", async () => {

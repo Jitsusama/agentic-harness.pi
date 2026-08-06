@@ -8,6 +8,7 @@
  * only when the configuration it was built from changes.
  */
 
+import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -51,20 +52,23 @@ export function sessionKey(): string {
  * Until pi says otherwise, this process.
  *
  * The store's flat fallback was justified by "a caller with no session
- * cannot be racing one", which held while the value came from the
- * environment and was fixed for the life of the process. It does not
- * hold now that it arrives on an event: absent means either no session
- * or not told yet, and the second resolves to exactly the shared
- * directory that retargeted a live council. An ephemeral session, which
- * has no id to give, lands there too.
+ * cannot be racing one", which held while the value was fixed for the
+ * life of the process. It arrives on an event now, so absent means not
+ * told yet rather than no session, and that resolves to exactly the
+ * shared directory that retargeted a live council. Pi itself always has
+ * a session id, an in-memory one included, so this is the window before
+ * the event and a host that never sends it, not an ephemeral session.
  *
- * So anonymous is not communal. A name nobody else can hold costs one
- * directory that the sweep will take back.
+ * Anonymous is therefore not communal. The name carries a pid to say
+ * what it is and a random tail because a pid is only exclusive among
+ * living processes: the directory outlives the process by a month, and
+ * a later process landing on the same number would open onto the
+ * earlier one's attachments, which is this bug one directory wide.
  */
 let inSession = anonymous();
 
 function anonymous(): string {
-	return `process-${process.pid}`;
+	return `process-${process.pid}-${randomUUID().slice(0, 8)}`;
 }
 
 /**

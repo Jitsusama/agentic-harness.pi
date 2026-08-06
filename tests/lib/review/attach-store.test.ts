@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, rm, utimes } from "node:fs/promises";
+import { mkdtemp, readdir, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -95,7 +95,7 @@ describe("createAttachmentStore", () => {
 
 	beforeEach(async () => {
 		root = await mkdtemp(join(tmpdir(), "attach-store-"));
-		store = createAttachmentStore(root);
+		store = createAttachmentStore(root, "one-session");
 	});
 
 	afterEach(async () => {
@@ -119,7 +119,7 @@ describe("createAttachmentStore", () => {
 	it("survives a restart, because a fresh store reads the same disk", async () => {
 		await store.attach(change("Shopify/world#1"));
 
-		const reopened = createAttachmentStore(root);
+		const reopened = createAttachmentStore(root, "one-session");
 
 		expect(await reopened.list()).toHaveLength(1);
 	});
@@ -178,7 +178,11 @@ describe("a session's directory does not outlive its usefulness", () => {
 	async function sessionAged(id: string, ageMs: number): Promise<void> {
 		await createAttachmentStore(root, id).attach(change(`x#${id}`));
 		const when = new Date(Date.now() - ageMs);
-		await utimes(join(root, id), when, when);
+		const dir = join(root, id);
+		for (const name of await readdir(dir)) {
+			await utimes(join(dir, name), when, when);
+		}
+		await utimes(dir, when, when);
 	}
 
 	it("gives back a directory nothing has touched in a long time", async () => {
@@ -189,6 +193,44 @@ describe("a session's directory does not outlive its usefulness", () => {
 
 		expect(taken).toBe(1);
 		expect(await readdir(root)).toEqual(["yesterday"]);
+	});
+
+	it("knows its own by the name the store would have written", async () => {
+		// A session id is rewritten to something a path can hold before
+		// it becomes a directory name. Comparing the raw id against the
+		// written name means a session whose id carries a slash or a
+		// colon never matches its own, and the sweep that promises never
+		// to touch the caller's directory takes exactly that one.
+		const id = "2026-08-06T00:11:22_a/b";
+		await createAttachmentStore(root, id).attach(change("x#awkward"));
+		const when = new Date(Date.now() - 90 * DAY);
+		const [written] = await readdir(root);
+		for (const name of await readdir(join(root, written))) {
+			await utimes(join(root, written, name), when, when);
+		}
+
+		const taken = await pruneAttachments(root, {
+			olderThanMs: 30 * DAY,
+			keep: id,
+		});
+
+		expect(taken).toBe(0);
+		expect(await readdir(root)).toEqual([written]);
+	});
+
+	it("does not age a session that keeps freshening what it holds", async () => {
+		// Rewriting an attachment in place does not move the directory's
+		// own timestamp, only the file's, so judging the directory ages
+		// an actively used session as though it had been abandoned.
+		const store = createAttachmentStore(root, "busy");
+		await store.attach(change("x#busy"));
+		const old = new Date(Date.now() - 90 * DAY);
+		await utimes(join(root, "busy"), old, old);
+		await store.attach(change("x#busy"));
+
+		const taken = await pruneAttachments(root, { olderThanMs: 30 * DAY });
+
+		expect(taken).toBe(0);
 	});
 
 	it("never takes the caller's own, however it looks", async () => {
@@ -206,12 +248,12 @@ describe("a session's directory does not outlive its usefulness", () => {
 		expect(await readdir(root)).toEqual(["mine"]);
 	});
 
-	it("leaves what it does not understand alone", async () => {
+	it("leaves a loose file where it lies", async () => {
 		// Everything attached before scoping existed sits flat in the
 		// root. It belongs to no session, so no session's rule should
 		// decide its fate, and deleting somebody's attachment to tidy up
 		// is a poor trade for the disk it returns.
-		await createAttachmentStore(root).attach(change("from/before#1"));
+		await writeFile(join(root, "from_before_1.json"), "{}", "utf8");
 
 		const taken = await pruneAttachments(root, { olderThanMs: 0 });
 

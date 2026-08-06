@@ -89,5 +89,14 @@ export default function workIntegration(pi: ExtensionAPI) {
 		clearTreeProviders();
 		forgetTreeBroker();
 		registerBuiltinTreeProviders(pi);
+		// Then say so, because the registry just emptied held providers
+		// from other packages and only the built-in ones came back. The
+		// contract in lib/work/events.ts is that the host announces a
+		// live registry and a provider re-registers on hearing it; a
+		// clear without an announcement deletes a third-party provider
+		// for the life of the process, and leaves whether it survives
+		// to the order two extensions happen to load in, which is the
+		// one thing the bus exists to stop mattering.
+		pi.events.emit(WORK_READY, api);
 	});
 }
