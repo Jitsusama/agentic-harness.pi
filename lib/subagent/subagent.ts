@@ -469,6 +469,21 @@ export interface RunReviewerResult {
 	readonly reviewerId: string;
 	readonly exitCode: number;
 	readonly finalAssistantText: string;
+	/**
+	 * What the run had said before it was stopped, when it was later
+	 * asked for its findings and answered.
+	 *
+	 * Kept apart rather than joined onto the answer. Joined, it reads as
+	 * one answer to anything that parses this, and two objects are not
+	 * one: the reader falls through to salvaging a truncated answer,
+	 * reports a complete wrap-up as cut off, and can prefer the fragment
+	 * over it. Which of the two holds the better answer is a question
+	 * only something able to read findings can settle, and nothing here
+	 * can.
+	 */
+	readonly priorAssistantText?: string;
+	/** Whether a stopped run was asked for its findings and gave them. */
+	readonly wrappedUp?: boolean;
 	readonly stderr: string;
 	readonly warnings: string[];
 	/**
@@ -630,20 +645,38 @@ export async function runReviewer(
 	if (
 		options.autoResume !== false &&
 		options.signal?.aborted !== true &&
-		WORTH_ASKING.has(outcome.state as ReviewerTerminalState) &&
+		outcome.state !== undefined &&
+		WORTH_ASKING.has(outcome.state) &&
 		outcome.verification?.ok !== true &&
 		result.artifacts?.sessionPath !== undefined
 	) {
-		const wrapUp = await dispatchWrapUp(
-			options,
-			result.artifacts.sessionPath,
-			extraExtensions,
-			extraSkills,
-		);
-		outcome = mergeWrapUpOutcome(
-			outcome,
-			assembleReviewerResult(options, wrapUp),
-		);
+		try {
+			const wrapUp = await dispatchWrapUp(
+				options,
+				result.artifacts.sessionPath,
+				extraExtensions,
+				extraSkills,
+			);
+			outcome = mergeWrapUpOutcome(
+				outcome,
+				assembleReviewerResult(options, wrapUp),
+			);
+		} catch (error) {
+			// The runner rejects rather than returning on a spawn failure,
+			// and letting that out would turn a stopped run whose fragment
+			// we had into a bare failure with nothing kept: the opposite of
+			// the point. Asking is an extra, so failing to ask costs a
+			// warning and nothing else.
+			outcome = {
+				...outcome,
+				warnings: [
+					...outcome.warnings,
+					`Could not ask this stopped reviewer for its findings: ${
+						error instanceof Error ? error.message : String(error)
+					}. What it had already written is kept.`,
+				],
+			};
+		}
 	}
 	return outcome;
 }
@@ -687,7 +720,17 @@ const WRAP_UP_PROMPT =
  * the whole investigation again.
  */
 const WRAP_UP_TIMEOUT_MS = 5 * 60 * 1000;
-const WRAP_UP_IDLE_MS = 3 * 60 * 1000;
+
+/**
+ * A suffix, so a wrap-up does not overwrite the record of the stop.
+ *
+ * The artifacts directory is derived from the run and reviewer ids
+ * alone, and the result file is written by rename, so reusing both ids
+ * replaces the stopped run's own record with one saying the reviewer
+ * completed. That record is the evidence this whole line of work
+ * exists to keep, and recovery reads it.
+ */
+const WRAP_UP_SUFFIX = "+wrapup";
 
 /** Ask a stopped reviewer to hand over what it already has. */
 async function dispatchWrapUp(
@@ -705,13 +748,23 @@ async function dispatchWrapUp(
 		...(extraExtensions.length > 0 ? { extraExtensions } : {}),
 		...(extraSkills.length > 0 ? { extraSkills } : {}),
 	});
+	// Never longer than the caller allowed, and never shorter on the
+	// idle clock than the wall it runs under. Shortening an idle clock
+	// on its own is how six rounds of working reviewers were killed:
+	// silence is not idleness, and a reviewer composing a long answer
+	// goes quiet while it does.
+	const wall = Math.min(
+		options.timeoutMs ?? WRAP_UP_TIMEOUT_MS,
+		WRAP_UP_TIMEOUT_MS,
+	);
+	const idle = Math.min(options.idleTimeoutMs ?? wall, wall);
 	return options.runPi({
 		args,
 		cwd: options.cwd,
 		...(options.runId ? { runId: options.runId } : {}),
-		reviewerId: options.reviewer.id,
-		timeoutMs: WRAP_UP_TIMEOUT_MS,
-		idleTimeoutMs: WRAP_UP_IDLE_MS,
+		reviewerId: `${options.reviewer.id}${WRAP_UP_SUFFIX}`,
+		timeoutMs: wall,
+		idleTimeoutMs: idle,
 		signal: options.signal,
 		onEvent: options.onEvent,
 	});
@@ -725,17 +778,17 @@ async function dispatchWrapUp(
  * fresh lie exactly where the old one was. What changes is that the
  * round now has the answer as well as the interruption.
  *
- * Both texts are kept, in the order they were said, because a wrap-up
- * can come back empty or cut off in its turn, and the fragment from
- * the original run is then the only answer there is.
+ * Both texts survive, apart rather than joined. A wrap-up can come
+ * back empty or cut off in its turn, and the fragment is then the only
+ * answer there is; joining them defeats every branch of the reader
+ * that has to parse the result.
  */
 function mergeWrapUpOutcome(
 	stopped: RunReviewerResult,
 	wrapUp: RunReviewerResult,
 ): RunReviewerResult {
-	const said = [stopped.finalAssistantText, wrapUp.finalAssistantText]
-		.filter((text) => text.trim() !== "")
-		.join("\n\n");
+	const answered = wrapUp.finalAssistantText.trim() !== "";
+	const had = stopped.finalAssistantText.trim() !== "";
 	const usage = sumReviewerUsage(stopped.usage, wrapUp.usage);
 	const note =
 		wrapUp.finalAssistantText.trim() === ""
@@ -743,7 +796,13 @@ function mergeWrapUpOutcome(
 			: "This reviewer was stopped before it finished and was asked for the findings it had already formed. What follows is that answer, not a completed review.";
 	return {
 		...stopped,
-		finalAssistantText: said,
+		finalAssistantText: answered
+			? wrapUp.finalAssistantText
+			: stopped.finalAssistantText,
+		...(answered && had
+			? { priorAssistantText: stopped.finalAssistantText }
+			: {}),
+		...(answered ? { wrappedUp: true } : {}),
 		warnings: [...stopped.warnings, note, ...wrapUp.warnings],
 		...(usage ? { usage } : {}),
 	};

@@ -140,6 +140,11 @@ export function answerFromReviewer(
 		return {
 			text: result.finalAssistantText,
 			stopped,
+			// Carried through rather than joined to the answer, so the
+			// round can read both and keep whichever found more.
+			...(result.priorAssistantText === undefined
+				? {}
+				: { earlierText: result.priorAssistantText }),
 			...usageOf(result),
 		};
 	}
@@ -190,7 +195,13 @@ function budgetFor(
  */
 function detailFrom(result: RunReviewerResult, limit: AskLimit): string {
 	const said = result.warnings.find((warning) => SAYS[limit].test(warning));
-	return said ?? `Stopped at the ${limit} limit.`;
+	const why = said ?? `Stopped at the ${limit} limit.`;
+	// The round replaces a stopped participant's warnings with a
+	// sentence of its own, so a note left in the run's warnings never
+	// reaches a reader. This is the one line that does.
+	return result.wrappedUp === true
+		? `${why} It was then asked for the findings it had already formed, and this is that answer rather than a finished review.`
+		: why;
 }
 
 /** What to say about a run that produced nothing at all. */

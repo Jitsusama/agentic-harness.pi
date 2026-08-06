@@ -101,16 +101,6 @@ export function newRunId(round: AskRound, at: Date, seq: number): string {
 }
 
 /**
- * How a run went.
- *
- * Someone asked with no outcome at all counts as failed rather than
- * as pending, since a run being reported on has finished and a
- * participant that never reported is one that dropped. Answering
- * nothing is an answer: a reviewer that read the change and had no
- * complaint is not a failure, and counting it as one would make a
- * clean review look broken.
- */
-/**
  * What became of each participant a limit took away.
  *
  * The round already records that a reviewer was stopped and where its
@@ -138,6 +128,16 @@ export function stoppedNotes(run: AskRun): string[] {
 	return notes;
 }
 
+/**
+ * How a run went.
+ *
+ * Someone asked with no outcome at all counts as failed rather than
+ * as pending, since a run being reported on has finished and a
+ * participant that never reported is one that dropped. Answering
+ * nothing is an answer: a reviewer that read the change and had no
+ * complaint is not a failure, and counting it as one would make a
+ * clean review look broken.
+ */
 export function runSummary(run: AskRun): RunSummary {
 	let answered = 0;
 	let findings = 0;

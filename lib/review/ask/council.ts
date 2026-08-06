@@ -18,7 +18,7 @@
 
 import { count } from "../../ui/count.js";
 import type { Finding } from "../finding.js";
-import { harvestFindings } from "./harvest.js";
+import { type Harvest, harvestFindings } from "./harvest.js";
 import {
 	type Participant,
 	type ParticipantIdentity,
@@ -70,6 +70,15 @@ export type AskAnswer =
 			text: string;
 			usage?: AskUsage;
 			stopped?: AskStop;
+			/**
+			 * What this participant had said before it was stopped, when
+			 * the answer above is one it gave afterwards.
+			 *
+			 * Two answers rather than one joined, because only a reader
+			 * that can count findings knows which is worth keeping, and
+			 * joining them makes both unreadable.
+			 */
+			earlierText?: string;
 			/** Where the answer was kept, when the runner kept it. */
 			answerPath?: string;
 	  }
@@ -283,6 +292,12 @@ async function asked(
  * two different decisions for the reader: whether to trust the pass,
  * and whether to give it more room next time.
  */
+/** Whichever reading of a participant's words found more. */
+function richer(said: Harvest, earlier: Harvest | undefined): Harvest {
+	if (earlier === undefined) return said;
+	return earlier.findings.length > said.findings.length ? earlier : said;
+}
+
 function stopWarning(stop: AskStop, kept: number, cutOff: boolean): string {
 	const held =
 		kept === 0
@@ -315,10 +330,22 @@ async function recordReply(
 		};
 	}
 
-	const harvest = harvestFindings(
-		answer.text,
-		{ kind: "reviewer", runId: run.runId, reviewerId: participant.id },
-		run.witness,
+	const origin = {
+		kind: "reviewer" as const,
+		runId: run.runId,
+		reviewerId: participant.id,
+	};
+	// A stopped reviewer can have said something twice: once as the
+	// fragment it was cut off in, and once when asked afterwards for
+	// what it had. Read both and keep whichever carried more, since the
+	// wrap-up is asked for only what the reviewer was sure of and may
+	// honestly be the shorter of the two. Ties go to the later answer,
+	// which is the considered one.
+	const harvest = richer(
+		harvestFindings(answer.text, origin, run.witness),
+		answer.earlierText === undefined
+			? undefined
+			: harvestFindings(answer.earlierText, origin, run.witness),
 	);
 	// A stopped reviewer answers for its own harvest warnings. Those
 	// warnings describe the shape of the text, and the text is a

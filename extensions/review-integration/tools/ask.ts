@@ -1096,13 +1096,12 @@ function deps(
 				// Names what this reviewer leaves behind after the round that
 				// paid for it, so a transcript can be found from the ledger.
 				runId: context.runId,
-				// Says out loud what the default already does, because it is
-				// what makes the supervisor persist a session at all. It buys
-				// a resume after a transient provider drop, and nothing for a
-				// reviewer we stopped: that path needs no error, and a stop
-				// carries none. Asking a stopped reviewer to finish is a
-				// separate piece of work, and the session it will need is the
-				// thing being kept here.
+				// Two things, both of which need the session the supervisor
+				// persists: a resume after a transient provider drop, and,
+				// for a reviewer we stopped, an ask for the findings it had
+				// already formed. The second is the one that matters here,
+				// since a stop carries no error and so can never reach the
+				// first.
 				autoResume: true,
 				// Cancellable, so Escape on the panel really stops the work
 				// rather than only hiding it. The runner kills the child on
