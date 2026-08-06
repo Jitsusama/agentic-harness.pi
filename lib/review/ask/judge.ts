@@ -14,7 +14,7 @@
  */
 
 import { askOne, type CouncilDeps } from "./council.js";
-import { harvestFindings } from "./harvest.js";
+import { alsoRecorded, harvestFindings } from "./harvest.js";
 import { type Participant, participantIdentity } from "./identity.js";
 import { type AskRun, newRunId, type ParticipantOutcome } from "./run.js";
 
@@ -60,12 +60,27 @@ export async function runJudge(
 			};
 		}
 
-		const harvest = harvestFindings(
-			answer.text,
-			{ kind: "judge", runId: id, reviewerId: request.judge.id },
-			request.witness,
-		);
-		for (const warning of harvest.warnings) {
+		const origin = {
+			kind: "judge" as const,
+			runId: id,
+			reviewerId: request.judge.id,
+		};
+		// A judge writes findings down as it goes for the same reason a
+		// reviewer does, and it runs against every reviewer's answer at
+		// once, so it is the participant most likely to run long.
+		//
+		// Only as a fallback, though, unlike a reviewer's. A judge's
+		// job is deciding what survives, so a finding it recorded early
+		// and left out of its consolidation was dropped on purpose, and
+		// unioning would overrule the one participant paid to choose.
+		// When it produced no consolidation at all, what it wrote down
+		// on the way is all there is.
+		const said = harvestFindings(answer.text, origin, request.witness);
+		const harvest =
+			said.findings.length > 0
+				? said
+				: alsoRecorded(said, answer.recorded, origin, request.witness);
+		for (const warning of [...harvest.warnings, ...(answer.notes ?? [])]) {
 			warnings.push(`${request.judge.id}: ${warning}`);
 		}
 

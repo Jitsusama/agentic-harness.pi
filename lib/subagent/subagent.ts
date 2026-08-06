@@ -153,6 +153,20 @@ export interface ReviewerRunArtifacts {
 	 */
 	readonly verifiedOutputPath: string;
 	/**
+	 * File the reviewer appends a finding to the moment it
+	 * forms one, rather than saving them all for its answer.
+	 *
+	 * One JSON object per line, so a reviewer stopped partway
+	 * through writing costs the line it was on and nothing
+	 * before it. Everything else about a stop is recovery,
+	 * which only works if the answer arrives; this does not
+	 * need the reviewer to live long enough to say it twice.
+	 *
+	 * Absent from a runner that keeps no artifacts, which has
+	 * nowhere to put one.
+	 */
+	readonly journalPath?: string;
+	/**
 	 * Private per-reviewer directory pi persists the session
 	 * into (via --session-dir). Kept out of the user's session
 	 * list so a supervised run leaves no trace there.
@@ -259,6 +273,19 @@ export interface RunPiResult {
 	readonly stderrTail?: string;
 	/** Result of the reviewer's verify_output calls, when observed. */
 	readonly verification?: ReviewerVerification;
+	/**
+	 * Findings the reviewer wrote down as it worked, read back
+	 * off its journal. Unparsed: whoever asked knows what a
+	 * finding is, and this does not.
+	 */
+	readonly journal?: readonly unknown[];
+	/**
+	 * What went wrong reading the journal back, when something
+	 * did. Its own field because these say findings were left
+	 * behind, and a caller that replaces the general warnings
+	 * with a sentence of its own drops exactly those.
+	 */
+	readonly journalWarnings?: readonly string[];
 	/**
 	 * The terminal turn's error, when the run ended on a
 	 * provider or transport failure rather than a clean stop.
@@ -484,6 +511,14 @@ export interface RunReviewerResult {
 	readonly priorAssistantText?: string;
 	/** Whether a stopped run was asked for its findings and gave them. */
 	readonly wrappedUp?: boolean;
+	/**
+	 * Findings the reviewer wrote down while it worked, rather
+	 * than saving them for its answer. On the wire, because a
+	 * finding belongs to a round and this does not know one.
+	 */
+	readonly journal?: readonly unknown[];
+	/** What went wrong reading that journal back, if anything. */
+	readonly journalWarnings?: readonly string[];
 	readonly stderr: string;
 	readonly warnings: string[];
 	/**
@@ -737,6 +772,9 @@ const WRAP_UP_TIMEOUT_MS = 5 * 60 * 1000;
  */
 const WRAP_UP_SUFFIX = "+wrapup";
 
+/** The same, for a resume, and for the same reason. */
+const RESUME_SUFFIX = "+resume";
+
 /** Ask a stopped reviewer to hand over what it already has. */
 async function dispatchWrapUp(
 	options: RunReviewerOptions,
@@ -808,6 +846,13 @@ function mergeWrapUpOutcome(
 			? { priorAssistantText: stopped.finalAssistantText }
 			: {}),
 		...(answered ? { wrappedUp: true } : {}),
+		// Both runs' journals. The wrap-up runs in the same reviewer
+		// directory's sibling, so these are two files, and a finding
+		// recorded before the stop is not superseded by one recorded
+		// after it. The round dedupes.
+		...(stopped.journal || wrapUp.journal
+			? { journal: [...(stopped.journal ?? []), ...(wrapUp.journal ?? [])] }
+			: {}),
 		warnings: [...stopped.warnings, note, ...wrapUp.warnings],
 		...(usage ? { usage } : {}),
 	};
@@ -827,8 +872,11 @@ const RESUME_CONTINUATION_PROMPT =
 /**
  * Resume a dropped reviewer from its persisted session. Same
  * model, tools, extensions and system prompt as the initial
- * run, reusing the run and reviewer ids so it lands in the
- * same artifacts directory and continues the same session.
+ * run, continuing the same session, which the session path
+ * carries rather than the ids.
+ *
+ * Under its own reviewer id, so it keeps its own artifacts
+ * rather than writing over the attempt it is recovering.
  */
 async function dispatchResume(
 	options: RunReviewerOptions,
@@ -849,7 +897,14 @@ async function dispatchResume(
 		args,
 		cwd: options.cwd,
 		...(options.runId ? { runId: options.runId } : {}),
-		reviewerId: options.reviewer.id,
+		// Its own directory, like the wrap-up's. It used to share the
+		// first attempt's, which was harmless while the only shared file
+		// was a result nobody had written yet. It stopped being harmless
+		// when a journal moved in: the supervisor clears that file before
+		// every spawn, so a resume deleted what the attempt it is
+		// recovering had recorded, and the continuation prompt tells the
+		// reviewer not to make a tool call twice, so it never came back.
+		reviewerId: `${options.reviewer.id}${RESUME_SUFFIX}`,
 		signal: options.signal,
 		onEvent: options.onEvent,
 		...(options.timeoutMs !== undefined
@@ -893,6 +948,15 @@ function mergeResumeOutcome(
 			: initial.warnings;
 	return {
 		...resume,
+		// Both attempts' journals. A resume replaces the attempt, but
+		// not what the attempt wrote down: the continuation prompt tells
+		// the reviewer not to repeat tool calls it has already made, so
+		// a finding recorded before the drop is never recorded again.
+		// Losing it here would take findings from the one path that
+		// exists because something went wrong mid-investigation.
+		...(initial.journal || resume.journal
+			? { journal: [...(initial.journal ?? []), ...(resume.journal ?? [])] }
+			: {}),
 		warnings: [...initialWarnings, note, ...resume.warnings],
 		...(usage ? { usage } : {}),
 	};
@@ -1010,6 +1074,14 @@ function assembleReviewerResult(
 		...(parsed.usage ? { usage: parsed.usage } : {}),
 		...(verificationForResult
 			? { verification: verificationWithoutOutput(verificationForResult) }
+			: {}),
+		// Carried whatever else happened, including a blanked answer:
+		// what a reviewer wrote down is not conditional on it finishing.
+		...(result.journal && result.journal.length > 0
+			? { journal: result.journal }
+			: {}),
+		...(result.journalWarnings && result.journalWarnings.length > 0
+			? { journalWarnings: result.journalWarnings }
 			: {}),
 		...(result.error ? { error: result.error } : {}),
 	};
@@ -1173,6 +1245,16 @@ function isMeaningfulStderrLine(line: string): boolean {
  */
 export const VERIFY_TOOL_NAME = "verify_output";
 
+/**
+ * The tool a reviewer records a finding with, for the same reason.
+ *
+ * A roster that names a tool palette would otherwise be denied the one
+ * tool that makes an interrupted review worth anything, silently, and
+ * the reviewer would be told by its contract to call something the
+ * allowlist forbids.
+ */
+export const JOURNAL_TOOL_NAME = "record_finding";
+
 interface ComposeArgsInput {
 	readonly spec: SubagentSpec;
 	readonly prompt: string;
@@ -1261,8 +1343,8 @@ function buildToolsAllowlist(palette: readonly string[]): string {
 			tools.push(tool);
 		}
 	}
-	if (!tools.includes(VERIFY_TOOL_NAME)) {
-		tools.push(VERIFY_TOOL_NAME);
+	for (const always of [VERIFY_TOOL_NAME, JOURNAL_TOOL_NAME]) {
+		if (!tools.includes(always)) tools.push(always);
 	}
 	return tools.join(",");
 }

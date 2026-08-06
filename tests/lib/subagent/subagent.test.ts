@@ -282,6 +282,54 @@ describe("runReviewer: asking a stopped reviewer for what it has", () => {
 		expect(calls[1].args.join(" ")).toContain("verify_output");
 	});
 
+	it("keeps what both attempts recorded when it resumes one", async () => {
+		// The resume is the path that only runs when something already
+		// went wrong mid-investigation, which is exactly when a reviewer
+		// has findings written down and no answer.
+		const { runPi, calls } = scriptedRun([
+			{
+				exitCode: 1,
+				finalAssistantText: "",
+				journal: [{ subject: "before the drop" }],
+				error: { stopReason: "error", message: "ECONNRESET" },
+				artifacts: {
+					runDir: "/r",
+					reviewerDir: "/r/rev",
+					eventsPath: "/r/rev/events.ndjson",
+					stderrPath: "/r/rev/stderr.log",
+					progressPath: "/r/rev/progress.json",
+					resultPath: "/r/rev/result.json",
+					verifiedOutputPath: "/r/rev/verified-output.json",
+					sessionDir: "/r/rev/session",
+					sessionPath: "/r/rev/session/s.jsonl",
+				},
+			},
+			{
+				exitCode: 0,
+				state: "complete",
+				finalAssistantText: '{"findings": []}',
+				journal: [{ subject: "after the resume" }],
+			},
+		]);
+
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "review this diff",
+			cwd: "/tmp/wt",
+			runPi,
+			autoResume: true,
+		});
+
+		// Its own directory, or the supervisor's pre-spawn clear would
+		// delete the first attempt's journal, and the continuation
+		// prompt tells the reviewer not to repeat a tool call.
+		expect(calls[1].reviewerId).not.toBe(calls[0].reviewerId);
+		expect(result.journal).toEqual([
+			{ subject: "before the drop" },
+			{ subject: "after the resume" },
+		]);
+	});
+
 	it("does not overwrite the record of the stop", async () => {
 		// The artifacts directory comes from the run and reviewer ids and
 		// the result file is written by rename, so reusing both would
@@ -731,7 +779,7 @@ describe("runReviewer: argument composition", () => {
 		);
 		expect(args).toContain("--tools");
 		expect(args[args.indexOf("--tools") + 1]).toBe(
-			"read,grep,glob,ls,bash,verify_output",
+			"read,grep,glob,ls,bash,verify_output,record_finding",
 		);
 	});
 
@@ -751,7 +799,13 @@ describe("runReviewer: argument composition", () => {
 			runPi,
 		});
 		const args = calls[0].args;
-		expect(args[args.indexOf("--tools") + 1]).toBe("read,verify_output");
+		// record_finding rides along for the same reason: a palette
+		// that omits it silently denies the reviewer the one tool that
+		// makes an interrupted review worth anything, while its
+		// contract goes on telling it to call that tool.
+		expect(args[args.indexOf("--tools") + 1]).toBe(
+			"read,verify_output,record_finding",
+		);
 	});
 
 	it("does not duplicate verify_output when the palette already includes it", async () => {
@@ -771,7 +825,9 @@ describe("runReviewer: argument composition", () => {
 			runPi,
 		});
 		const args = calls[0].args;
-		expect(args[args.indexOf("--tools") + 1]).toBe("read,verify_output,grep");
+		expect(args[args.indexOf("--tools") + 1]).toBe(
+			"read,verify_output,grep,record_finding",
+		);
 	});
 
 	it("omits --tools entirely when the palette is empty so pi falls back to its default", async () => {

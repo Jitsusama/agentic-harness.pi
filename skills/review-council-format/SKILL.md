@@ -17,6 +17,23 @@ instead of it loses your whole pass. With nothing to say, answer
 { "findings": [ { "...": "one finding" } ] }
 ```
 
+## Write Each One Down When You Find It
+
+When a `record_finding` tool is available, call it the moment you are
+sure of a finding, with that one finding, and carry on. Then include
+everything in your final answer as normal.
+
+This is not bookkeeping. A review can be interrupted, by a deadline or
+by the provider, and an answer that never arrives takes every finding
+in it. Rounds have been lost that way after ten minutes of real work.
+What you have recorded survives that; what you were saving for the end
+does not.
+
+So record early and record often. Do not batch them up to record at the
+end, which is the failure this avoids, wearing a different hat. A
+finding recorded and then repeated in your answer is counted once, so
+repeating costs nothing and leaving it out risks everything.
+
 ## What a Finding Carries
 
 | Field | Required | What it is |

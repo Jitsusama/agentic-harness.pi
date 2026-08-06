@@ -61,6 +61,8 @@ interface SupervisorResultFile {
 	readonly warnings?: readonly string[];
 	readonly stderrTail?: string;
 	readonly verification?: RunPiResult["verification"];
+	readonly journal?: RunPiResult["journal"];
+	readonly journalWarnings?: RunPiResult["journalWarnings"];
 	readonly error?: ReviewerError;
 	readonly artifacts?: RunPiResult["artifacts"];
 }
@@ -550,6 +552,10 @@ function fromResult(
 		warnings: [...warnings, ...(result.warnings ?? [])],
 		stderrTail: result.stderrTail ?? stderrTail,
 		...(result.verification ? { verification: result.verification } : {}),
+		...(result.journal ? { journal: result.journal } : {}),
+		...(result.journalWarnings
+			? { journalWarnings: result.journalWarnings }
+			: {}),
 		...(result.error ? { error: result.error } : {}),
 		...(result.artifacts ? { artifacts: result.artifacts } : {}),
 	};

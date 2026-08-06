@@ -354,3 +354,183 @@ describe("what it warns about", () => {
 		expect(runSummary(run)).toMatchObject({ answered: 1, findings: 0 });
 	});
 });
+
+/** One finding in the shape a reviewer records as it goes. */
+function entry(subject: string, file = "lib/a.ts") {
+	return {
+		location: { kind: "file", file },
+		label: "issue",
+		subject,
+		discussion: "because",
+	};
+}
+
+describe("what a reviewer wrote down as it went", () => {
+	// Everything before this made an interruption survivable: the answer
+	// is kept, whole entries are salvaged from a cut-off one, and a
+	// stopped reviewer is asked for what it had. All of it recovers an
+	// answer that arrives at the end. A finding recorded when it was
+	// found does not need recovering, which is the difference between
+	// surviving the class and removing it.
+	const one = { reviewers: [{ id: "hawk" }] };
+
+	it("is kept when the answer it was cut off in held nothing", async () => {
+		const recorded: Finding[] = [];
+		await runCouncil(
+			{ roster: one, prompt: "p", seq: 1 },
+			deps(
+				{
+					hawk: {
+						text: 'I was partway through checking the error paths when {"fin',
+						recorded: [entry("the retry loop never backs off")],
+						stopped: { limit: "wall-clock", detail: "ran out of time" },
+					},
+				},
+				{ recorded },
+			),
+		);
+
+		expect(recorded.map((f) => f.subject)).toEqual([
+			"the retry loop never backs off",
+		]);
+	});
+
+	it("is not counted twice when the answer says it again", async () => {
+		// A reviewer that records as it goes and then writes its full
+		// answer has said the same thing twice, which is what the
+		// contract asks of it. Reporting both would inflate every round
+		// and make the judge consolidate a finding against itself.
+		const recorded: Finding[] = [];
+		await runCouncil(
+			{ roster: one, prompt: "p", seq: 1 },
+			deps(
+				{
+					hawk: {
+						text: JSON.stringify({ findings: [entry("the same one")] }),
+						recorded: [entry("the same one")],
+					},
+				},
+				{ recorded },
+			),
+		);
+
+		expect(recorded.map((f) => f.subject)).toEqual(["the same one"]);
+	});
+
+	it("keeps the answer's telling of a finding said twice", async () => {
+		// Not the longer of the two: the answer's, because it is written
+		// after the investigation rather than during it. Usually that is
+		// also the fuller one, and where it is not, the reviewer
+		// shortened it on purpose.
+		const recorded: Finding[] = [];
+		await runCouncil(
+			{ roster: one, prompt: "p", seq: 1 },
+			deps(
+				{
+					hawk: {
+						text: JSON.stringify({
+							findings: [
+								{
+									...entry("the same one"),
+									discussion: "because, and here is the whole argument",
+								},
+							],
+						}),
+						recorded: [entry("the same one")],
+					},
+				},
+				{ recorded },
+			),
+		);
+
+		expect(recorded).toHaveLength(1);
+		expect(recorded[0].discussion).toBe(
+			"because, and here is the whole argument",
+		);
+	});
+
+	it("treats a refined location as the same finding, not a second one", async () => {
+		// A reviewer records against a file and then pins the line in
+		// its answer. That is one finding getting sharper, and an
+		// anchor-identical comparison would report it twice.
+		const recorded: Finding[] = [];
+		await runCouncil(
+			{ roster: one, prompt: "p", seq: 1 },
+			deps(
+				{
+					hawk: {
+						text: JSON.stringify({
+							findings: [
+								{
+									location: { kind: "line", file: "lib/a.ts", line: 42 },
+									label: "issue",
+									subject: "the retry loop never backs off",
+									discussion: "because",
+								},
+							],
+						}),
+						recorded: [entry("the retry loop never backs off")],
+					},
+				},
+				{ recorded },
+			),
+		);
+
+		expect(recorded).toHaveLength(1);
+	});
+
+	it("still says what it could not read, even about a reviewer we stopped", async () => {
+		// A stopped reviewer's harvest warnings are replaced, so as not
+		// to blame it for a sentence our deadline cut in half. A
+		// recorded entry is not that: it is a whole line written
+		// deliberately, minutes earlier, and it failed on its own
+		// merits. Dropping that warning is the silent drop the harvest
+		// rules exist to prevent.
+		const { warnings } = await runCouncil(
+			{ roster: one, prompt: "p", seq: 1 },
+			deps({
+				hawk: {
+					text: "",
+					recorded: [{ subject: "no label anywhere" }],
+					stopped: { limit: "wall-clock", detail: "ran out of time" },
+				},
+			}),
+		);
+
+		expect(warnings.join(" ")).toMatch(/recorded\[0\]/);
+	});
+
+	it("does not call a run that recorded findings a reviewer that said nothing", async () => {
+		const { warnings } = await runCouncil(
+			{ roster: one, prompt: "p", seq: 1 },
+			deps({
+				hawk: {
+					text: "",
+					recorded: [entry("found before the lights went out")],
+				},
+			}),
+		);
+
+		expect(warnings).toEqual([]);
+	});
+
+	it("tells them apart when the same words are about different places", async () => {
+		const recorded: Finding[] = [];
+		await runCouncil(
+			{ roster: one, prompt: "p", seq: 1 },
+			deps(
+				{
+					hawk: {
+						text: JSON.stringify({
+							findings: [entry("unchecked error", "lib/b.ts")],
+						}),
+						recorded: [entry("unchecked error", "lib/a.ts")],
+					},
+				},
+				{ recorded },
+			),
+		);
+
+		expect(recorded).toHaveLength(2);
+	});
+});

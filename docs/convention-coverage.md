@@ -414,8 +414,9 @@ is followed by judgment, not by a regex.
   window stores it and cites a handle, or answers with a path on
   disk, rather than inlining or truncating it.
   `tests/package/stored-results.test.ts` requires every
-  tool-registering extension to be accounted for as one of those
-  two, or listed as small. The rule came from a browser action
+  tool-registering extension, and every tool-registering pack
+  under `packs/`, to be accounted for as one of those two, or
+  listed as small. The rule came from a browser action
   that returned 2.54 MB of accessibility outline: every list in
   that family had been budgeted for months, and the one path that
   had not was the one every action ended with. It fails when a

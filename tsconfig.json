@@ -25,6 +25,7 @@
 	"include": [
 		"extensions/**/*.ts",
 		"lib/**/*.ts",
+		"packs/**/*.ts",
 		"tests/**/*.ts",
 		"scripts/**/*.ts",
 		"*.ts"

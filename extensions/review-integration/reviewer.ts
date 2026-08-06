@@ -145,19 +145,56 @@ export function answerFromReviewer(
 			...(result.priorAssistantText === undefined
 				? {}
 				: { earlierText: result.priorAssistantText }),
+			...recordedBy(result),
+			...notesOn(undefined, result),
 			...usageOf(result),
 		};
 	}
 
-	// No limit fired, so an empty non-zero run is a run that never
-	// produced anything: the model was unavailable, the install was
-	// stale, the process died. That is a failure, and it is the only
-	// thing left that still is one.
-	if (result.exitCode !== 0 && result.finalAssistantText.trim() === "") {
+	// No limit fired, so an empty non-zero run that recorded nothing is
+	// a run that never produced anything: the model was unavailable, the
+	// install was stale, the process died. That is a failure, and it is
+	// the only thing left that still is one. A run that wrote findings
+	// down before dying produced something, whatever its exit code, and
+	// calling that a failure would throw the findings away to keep the
+	// classification tidy.
+	const recorded = recordedBy(result);
+	const died = result.exitCode !== 0 && result.finalAssistantText.trim() === "";
+	if (died && recorded.recorded === undefined) {
 		return { failure: failureFrom(result) };
 	}
 
-	return { text: result.finalAssistantText, ...usageOf(result) };
+	return {
+		text: result.finalAssistantText,
+		...recorded,
+		// Keeping the findings is not the same as pretending it went
+		// well. failureFrom is the only reader of the exit code, the
+		// stderr tail and the stale-install advisory, and reclassifying
+		// away from a failure made it unreachable for exactly the run
+		// that needs it: exit 1, no answer, findings on disk, filed as a
+		// participant that simply found one thing.
+		...notesOn(died ? failureFrom(result) : undefined, result),
+		...usageOf(result),
+	};
+}
+
+/** What the round has to say that the answer cannot show. */
+function notesOn(
+	died: string | undefined,
+	result: RunReviewerResult,
+): { notes?: string[] } {
+	const notes = [
+		...(died === undefined ? [] : [died]),
+		...(result.journalWarnings ?? []),
+	];
+	return notes.length === 0 ? {} : { notes };
+}
+
+/** What the reviewer wrote down as it worked, if anything. */
+function recordedBy(result: RunReviewerResult): { recorded?: unknown[] } {
+	return result.journal === undefined || result.journal.length === 0
+		? {}
+		: { recorded: [...result.journal] };
 }
 
 /** The stop this run represents, when a limit ended it. */

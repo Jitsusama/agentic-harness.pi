@@ -18,7 +18,7 @@
 
 import { count } from "../../ui/count.js";
 import type { Finding } from "../finding.js";
-import { type Harvest, harvestFindings } from "./harvest.js";
+import { alsoRecorded, type Harvest, harvestFindings } from "./harvest.js";
 import {
 	type Participant,
 	type ParticipantIdentity,
@@ -79,6 +79,27 @@ export type AskAnswer =
 			 * joining them makes both unreadable.
 			 */
 			earlierText?: string;
+			/**
+			 * Findings this participant wrote down as it found them,
+			 * rather than saving them for its answer.
+			 *
+			 * On the wire, unread, because reading one is this module's
+			 * job and the thing that collected them cannot make a finding
+			 * without knowing whose round it is.
+			 */
+			recorded?: unknown[];
+			/**
+			 * What went wrong that this answer cannot show for itself.
+			 *
+			 * A run can produce findings and still have gone badly: the
+			 * process died after recording them, or its journal came
+			 * back capped or unreadable. Neither is a failure, since
+			 * there is an answer to read, and neither is visible in the
+			 * answer. Without somewhere to put them the diagnosis is
+			 * lost at this seam and a dead reviewer reads as a clean
+			 * pass.
+			 */
+			notes?: string[];
 			/** Where the answer was kept, when the runner kept it. */
 			answerPath?: string;
 	  }
@@ -341,18 +362,30 @@ async function recordReply(
 	// wrap-up is asked for only what the reviewer was sure of and may
 	// honestly be the shorter of the two. Ties go to the later answer,
 	// which is the considered one.
-	const harvest = richer(
-		harvestFindings(answer.text, origin, run.witness),
-		answer.earlierText === undefined
-			? undefined
-			: harvestFindings(answer.earlierText, origin, run.witness),
+	const harvest = alsoRecorded(
+		richer(
+			harvestFindings(answer.text, origin, run.witness),
+			answer.earlierText === undefined
+				? undefined
+				: harvestFindings(answer.earlierText, origin, run.witness),
+		),
+		answer.recorded,
+		origin,
+		run.witness,
 	);
 	// A stopped reviewer answers for its own harvest warnings. Those
 	// warnings describe the shape of the text, and the text is a
 	// sentence we interrupted, so passing them on blames the reviewer
 	// for our deadline and tells the reader to fix the wrong thing.
-	const said =
-		answer.stopped === undefined
+	//
+	// A warning about something it recorded is not that. That is a whole
+	// line the reviewer wrote deliberately, minutes before the stop, and
+	// it failed the contract on its own merits. Dropping it would be the
+	// silent drop this module opens by refusing to make: the reader
+	// would take the missing finding for the reviewer having nothing
+	// more to say.
+	const said = [
+		...(answer.stopped === undefined
 			? harvest.warnings
 			: [
 					stopWarning(
@@ -360,7 +393,14 @@ async function recordReply(
 						harvest.findings.length,
 						harvest.truncated === true,
 					),
-				];
+					...(harvest.recordedWarnings ?? []),
+				]),
+		// Whatever went wrong that the answer cannot show for itself: a
+		// process that died after recording something, a journal that
+		// came back short. Outside the branch above, because a stop
+		// explains neither of them.
+		...(answer.notes ?? []),
+	];
 	for (const warning of said) {
 		warnings.push(`${participant.id}: ${warning}`);
 	}

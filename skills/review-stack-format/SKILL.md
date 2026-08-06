@@ -30,6 +30,18 @@ Every other field is as [`review-council-format`](../review-council-format)
 describes it, including the three location kinds, the label set and what
 happens to a field that will not read.
 
+## Write Each One Down When You Find It
+
+When a `record_finding` tool is available, call it the moment you are
+sure of a finding, with that one finding and its `refs`, and carry on.
+Then include everything in your final answer as normal. A stack round
+reads several changes at once, so it is the longest round there is, and
+an answer that never arrives takes every finding in it.
+
+A recorded finding without `refs` cannot be placed and is dropped, the
+same as one in your answer would be, so record the refs with it rather
+than meaning to add them later.
+
 ## Naming the Changes
 
 `refs` holds the refs the prompt listed, exactly as written. One ref for

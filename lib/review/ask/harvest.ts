@@ -15,7 +15,7 @@
  * caller would believe the reviewer had nothing more to say.
  */
 
-import type { Anchor } from "../anchor.js";
+import { type Anchor, anchorPath } from "../anchor.js";
 import type { DiffSide } from "../diff.js";
 import type {
 	ConventionalLabel,
@@ -31,6 +31,17 @@ import {
 	wireWhole,
 } from "./wire.js";
 
+/**
+ * Said of a reviewer that produced no answer at all.
+ *
+ * Its own sentence, because "this did not parse" is a complaint about
+ * an answer and there was none. Withdrawn when the reviewer turns out
+ * to have recorded findings as it went, which is the case this whole
+ * mechanism exists for.
+ */
+export const SAID_NOTHING =
+	"This reviewer produced no answer at all, so there was nothing to read.";
+
 /** What came out of one answer. */
 export interface Harvest {
 	findings: Omit<Finding, "id">[];
@@ -44,6 +55,17 @@ export interface Harvest {
 	 * absence of a finding here means nothing either way.
 	 */
 	truncated?: boolean;
+	/**
+	 * Of the warnings above, the ones about entries the reviewer
+	 * recorded rather than about the shape of its answer.
+	 *
+	 * Named rather than left to be worked out by position, because
+	 * the caller that needs them is the one that replaces the whole
+	 * list, and reconstructing them by slicing assumes this function
+	 * only ever appends. It does not: it withdraws a warning when the
+	 * recorded entries turn out to answer it.
+	 */
+	recordedWarnings?: string[];
 }
 
 /**
@@ -107,8 +129,16 @@ export function harvestFindings(
 		return {
 			findings: [],
 			truncated: false,
+			// A reviewer that never got as far as answering has not
+			// broken a contract about the shape of an answer, and saying
+			// it did sends the reader to fix the wrong thing. It is still
+			// worth reporting, so it gets its own sentence, which
+			// alsoRecorded takes back if it turns out the reviewer had
+			// been writing findings down all along.
 			warnings: [
-				"Nothing in this answer parsed as JSON, so no findings could be read from it. The answer should hold an object with a findings array.",
+				text.trim() === ""
+					? SAID_NOTHING
+					: "Nothing in this answer parsed as JSON, so no findings could be read from it. The answer should hold an object with a findings array.",
 			],
 		};
 	}
@@ -132,6 +162,83 @@ export function harvestFindings(
 		if (read.finding !== undefined) findings.push(read.finding);
 	}
 	return { findings, warnings, truncated };
+}
+
+/**
+ * The answer, plus anything the reviewer wrote down on its way to it.
+ *
+ * A reviewer records a finding when it finds one and then repeats it in
+ * its answer, which is what it is asked to do, so most of these arrive
+ * twice. Reporting both would inflate every round and leave the judge
+ * consolidating a finding against itself.
+ *
+ * Where a finding was said twice the answer's telling wins, since it
+ * was written after the investigation rather than during it, and the
+ * recorded copy is kept only when the answer never got that far. That
+ * is the whole point: what was written down does not depend on the
+ * reviewer living long enough to say it again.
+ */
+export function alsoRecorded(
+	said: Harvest,
+	recorded: readonly unknown[] | undefined,
+	origin: FindingOrigin,
+	witness?: string,
+): Harvest {
+	if (recorded === undefined || recorded.length === 0) return said;
+	const findings = [...said.findings];
+	const recordedWarnings: string[] = [];
+	const before = findings.length;
+	const already = new Set(findings.map(sameFinding));
+	for (const [index, entry] of recorded.entries()) {
+		const read = readWireFinding(entry, `recorded[${index}]`, origin, witness);
+		recordedWarnings.push(...read.warnings);
+		if (read.finding === undefined) continue;
+		const key = sameFinding(read.finding);
+		if (already.has(key)) continue;
+		already.add(key);
+		findings.push(read.finding);
+	}
+	// It said nothing at the end, but it had been saying things all
+	// along, and that is the arrangement working rather than a fault.
+	const aboutTheAnswer =
+		findings.length > before
+			? said.warnings.filter((warning) => warning !== SAID_NOTHING)
+			: said.warnings;
+	return {
+		...said,
+		findings,
+		warnings: [...aboutTheAnswer, ...recordedWarnings],
+		recordedWarnings,
+	};
+}
+
+/**
+ * When two findings are the same finding.
+ *
+ * Subject and place. A reviewer recording a finding and then repeating
+ * it says the same sentence twice, so the subject is the identity; it
+ * is compared loosely enough to survive the reviewer tidying its
+ * punctuation, and no more loosely than that, because two findings
+ * genuinely can share a subject.
+ *
+ * The place is the file alone rather than the whole anchor. A reviewer
+ * that records against a file and then pins a line in its answer has
+ * refined one finding, not found a second, and a byte-identical anchor
+ * comparison would report both.
+ */
+export function sameFinding(finding: Omit<Finding, "id">): string {
+	const at = finding.anchor;
+	return [
+		// Folded before the ends are trimmed, or a subject recorded
+		// with a full stop and repeated without one reads as two
+		// findings, which is the likeliest way of all to say one thing
+		// twice.
+		finding.subject
+			.toLowerCase()
+			.replace(/[\s.,;:]+/g, " ")
+			.trim(),
+		at === undefined ? "" : (anchorPath(at) ?? ""),
+	].join("\u0000");
 }
 
 /**
