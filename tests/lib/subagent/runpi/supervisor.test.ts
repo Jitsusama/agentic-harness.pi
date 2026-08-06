@@ -527,6 +527,76 @@ describe("createSupervisorRunPi", () => {
 		expect(result.finalAssistantText).not.toBe("not json");
 	});
 
+	it("reads back what a reviewer wrote down before it was stopped", async () => {
+		// The point of the journal: a child that records two findings
+		// and is then killed mid-sentence has still produced two
+		// findings. Everything else in this file recovers an answer,
+		// and an answer only exists if the reviewer reached the end.
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "journal-child.mjs");
+		await writeFile(
+			childPath,
+			[
+				`import { appendFileSync } from "node:fs";`,
+				`const path = process.env.SUBAGENT_JOURNAL_PATH;`,
+				`appendFileSync(path, JSON.stringify({ subject: "the first" }) + "\\n");`,
+				`appendFileSync(path, JSON.stringify({ subject: "the second" }) + "\\n");`,
+				// Killed partway through the third, which is what a wall
+				// clock does to a reviewer mid-write.
+				`appendFileSync(path, '{"subject": "the th');`,
+				`process.stdout.write(JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "" }] } }) + "\\n");`,
+			].join("\n"),
+		);
+		const runPi = createSupervisorRunPi({
+			piInstall: { node: process.execPath, entry: childPath },
+			stateDir,
+			idleTimeoutMs: GENEROUS_MS,
+			timeoutMs: GENEROUS_MS,
+		});
+
+		const result = await runPi({
+			args: [],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "journalled",
+		});
+
+		// The half-written line costs itself and nothing above it.
+		expect(result.journal).toEqual([
+			{ subject: "the first" },
+			{ subject: "the second" },
+		]);
+		expect(result.warnings?.join(" ")).toMatch(/1 recorded finding/);
+	});
+
+	it("does not credit a run with what an earlier attempt recorded", async () => {
+		// The journal is appended to, so a leftover file would be read
+		// as this run's work and attributed to a reviewer that never
+		// found it.
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "second-attempt-child.mjs");
+		await writeFile(
+			childPath,
+			[
+				`import { appendFileSync } from "node:fs";`,
+				`appendFileSync(process.env.SUBAGENT_JOURNAL_PATH, JSON.stringify({ subject: "this attempt" }) + "\\n");`,
+				`process.stdout.write(JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "" }] } }) + "\\n");`,
+			].join("\n"),
+		);
+		const runPi = createSupervisorRunPi({
+			piInstall: { node: process.execPath, entry: childPath },
+			stateDir,
+			idleTimeoutMs: GENEROUS_MS,
+			timeoutMs: GENEROUS_MS,
+		});
+		const once = { args: [], cwd: stateDir, runId: "run", reviewerId: "twice" };
+
+		await runPi(once);
+		const again = await runPi(once);
+
+		expect(again.journal).toEqual([{ subject: "this attempt" }]);
+	});
+
 	it("reads verified output out-of-band from the envelope file, past the stream and text caps", async () => {
 		// The reviewer writes its validated payload to the file
 		// named by SUBAGENT_VERIFY_OUTPUT_PATH and never emits

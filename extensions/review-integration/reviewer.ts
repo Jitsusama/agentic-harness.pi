@@ -145,19 +145,35 @@ export function answerFromReviewer(
 			...(result.priorAssistantText === undefined
 				? {}
 				: { earlierText: result.priorAssistantText }),
+			...recordedBy(result),
 			...usageOf(result),
 		};
 	}
 
-	// No limit fired, so an empty non-zero run is a run that never
-	// produced anything: the model was unavailable, the install was
-	// stale, the process died. That is a failure, and it is the only
-	// thing left that still is one.
-	if (result.exitCode !== 0 && result.finalAssistantText.trim() === "") {
+	// No limit fired, so an empty non-zero run that recorded nothing is
+	// a run that never produced anything: the model was unavailable, the
+	// install was stale, the process died. That is a failure, and it is
+	// the only thing left that still is one. A run that wrote findings
+	// down before dying produced something, whatever its exit code, and
+	// calling that a failure would throw the findings away to keep the
+	// classification tidy.
+	const recorded = recordedBy(result);
+	if (
+		result.exitCode !== 0 &&
+		result.finalAssistantText.trim() === "" &&
+		recorded.recorded === undefined
+	) {
 		return { failure: failureFrom(result) };
 	}
 
-	return { text: result.finalAssistantText, ...usageOf(result) };
+	return { text: result.finalAssistantText, ...recorded, ...usageOf(result) };
+}
+
+/** What the reviewer wrote down as it worked, if anything. */
+function recordedBy(result: RunReviewerResult): { recorded?: unknown[] } {
+	return result.journal === undefined || result.journal.length === 0
+		? {}
+		: { recorded: [...result.journal] };
 }
 
 /** The stop this run represents, when a limit ended it. */

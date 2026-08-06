@@ -958,6 +958,32 @@ function contractSkill(round: AskRound): string {
 }
 
 /**
+ * The rounds where writing a finding down as you find it makes sense.
+ *
+ * The finding-shaped ones. A critique states positions on findings
+ * somebody else raised and an audit states standings on threads, so
+ * neither has anything to record, and offering the tool would invite
+ * an answer in the wrong shape.
+ */
+const RECORDS_FINDINGS: ReadonlySet<AskRound> = new Set([
+	"council",
+	"judge",
+	"stack",
+]);
+
+/**
+ * The pack that lets a reviewer write a finding down mid-investigation.
+ *
+ * Outside `extensions/` deliberately: pi scans that directory, and this
+ * tool belongs to a reviewer subagent rather than to the session that
+ * dispatched one.
+ */
+function journalPack(): string {
+	const here = dirname(fileURLToPath(import.meta.url));
+	return join(here, "..", "..", "..", "packs", "review-journal", "index.ts");
+}
+
+/**
  * Every charter on disk, by persona id.
  *
  * Read once per round rather than per participant, since six reviewers
@@ -1079,6 +1105,12 @@ function deps(
 				// stated twice drifts, and the copy in the prompt is the one
 				// nobody updates.
 				extraSkills: [contract],
+				// So a finding survives the reviewer that found it. Every
+				// other protection here recovers an answer, and an answer
+				// only exists if the reviewer reached the end.
+				...(RECORDS_FINDINGS.has(watch.round)
+					? { extraExtensions: [journalPack()] }
+					: {}),
 				// The charter is a standing instruction, so it goes as the
 				// system prompt rather than being glued onto the front of the
 				// round's prompt: a lens is what the reviewer is, not part of

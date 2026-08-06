@@ -354,3 +354,117 @@ describe("what it warns about", () => {
 		expect(runSummary(run)).toMatchObject({ answered: 1, findings: 0 });
 	});
 });
+
+/** One finding in the shape a reviewer records as it goes. */
+function entry(subject: string, file = "lib/a.ts") {
+	return {
+		location: { kind: "file", file },
+		label: "issue",
+		subject,
+		discussion: "because",
+	};
+}
+
+describe("what a reviewer wrote down as it went", () => {
+	// Everything before this made an interruption survivable: the answer
+	// is kept, whole entries are salvaged from a cut-off one, and a
+	// stopped reviewer is asked for what it had. All of it recovers an
+	// answer that arrives at the end. A finding recorded when it was
+	// found does not need recovering, which is the difference between
+	// surviving the class and removing it.
+	const one = { reviewers: [{ id: "hawk" }] };
+
+	it("is kept when the answer it was cut off in held nothing", async () => {
+		const recorded: Finding[] = [];
+		await runCouncil(
+			{ roster: one, prompt: "p", seq: 1 },
+			deps(
+				{
+					hawk: {
+						text: 'I was partway through checking the error paths when {"fin',
+						recorded: [entry("the retry loop never backs off")],
+						stopped: { limit: "wall-clock", detail: "ran out of time" },
+					},
+				},
+				{ recorded },
+			),
+		);
+
+		expect(recorded.map((f) => f.subject)).toEqual([
+			"the retry loop never backs off",
+		]);
+	});
+
+	it("is not counted twice when the answer says it again", async () => {
+		// A reviewer that records as it goes and then writes its full
+		// answer has said the same thing twice, which is what the
+		// contract asks of it. Reporting both would inflate every round
+		// and make the judge consolidate a finding against itself.
+		const recorded: Finding[] = [];
+		await runCouncil(
+			{ roster: one, prompt: "p", seq: 1 },
+			deps(
+				{
+					hawk: {
+						text: JSON.stringify({ findings: [entry("the same one")] }),
+						recorded: [entry("the same one")],
+					},
+				},
+				{ recorded },
+			),
+		);
+
+		expect(recorded.map((f) => f.subject)).toEqual(["the same one"]);
+	});
+
+	it("keeps the fuller telling of a finding said twice", async () => {
+		// The recorded copy is written mid-investigation and the answer's
+		// is written after it, so the second is usually the considered
+		// one. Keeping the shorter would quietly cost the reasoning.
+		const recorded: Finding[] = [];
+		await runCouncil(
+			{ roster: one, prompt: "p", seq: 1 },
+			deps(
+				{
+					hawk: {
+						text: JSON.stringify({
+							findings: [
+								{
+									...entry("the same one"),
+									discussion: "because, and here is the whole argument",
+								},
+							],
+						}),
+						recorded: [entry("the same one")],
+					},
+				},
+				{ recorded },
+			),
+		);
+
+		expect(recorded).toHaveLength(1);
+		expect(recorded[0].discussion).toBe(
+			"because, and here is the whole argument",
+		);
+	});
+
+	it("tells them apart when the same words are about different places", async () => {
+		const recorded: Finding[] = [];
+		await runCouncil(
+			{ roster: one, prompt: "p", seq: 1 },
+			deps(
+				{
+					hawk: {
+						text: JSON.stringify({
+							findings: [entry("unchecked error", "lib/b.ts")],
+						}),
+						recorded: [entry("unchecked error", "lib/a.ts")],
+					},
+				},
+				{ recorded },
+			),
+		);
+
+		expect(recorded).toHaveLength(2);
+	});
+});

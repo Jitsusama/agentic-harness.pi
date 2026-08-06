@@ -131,23 +131,32 @@ it does:
   service. The seam is the bus, so a provider can live in a
   different package from its host.
 
-- **Verifiers** (`*-verify`): expose a tool that subagents
-  call to self-validate their structured output against a
-  schema before completion. A pack is loaded into the
-  subagent via `pi --extension <path>` and is never
-  auto-discovered, so one must not live under `extensions/`:
-  a directory pi scans is the wrong place for a thing pi
-  must not load. None currently ship; the `subagent` tool's
-  `verify` option is how a caller attaches one.
+- **Packs** (`packs/`): an extension loaded into a subagent
+  with `pi --extension <path>` and never auto-discovered, so
+  one must not live under `extensions/`: a directory pi scans
+  is the wrong place for a thing pi must not load. A pack's
+  tool belongs to the subagent, not to the session that
+  dispatched one.
 
-  The review substrate's rounds take the other approach and
-  attach a contract skill without a verify tool. A malformed
-  entry there is dropped and warned about rather than
-  refused, so a reviewer that half-follows the contract still
-  contributes what it got right, and nothing tells a subagent
-  to call a tool that is not attached. That choice is why the
-  one pack this package used to ship is gone: it validated a
-  contract nothing states any more.
+  `packs/review-journal` ships one, so a reviewer can write a
+  finding down the moment it has one rather than saving every
+  finding for an answer an interruption then takes. It is
+  offered only for the finding-shaped rounds.
+
+  A verifier is the other kind, a tool a subagent calls to
+  validate its structured output against a schema before
+  finishing. None ship; the `subagent` tool's `verify` option
+  is how a caller attaches one.
+
+  Note what the review rounds deliberately do not do. They
+  attach a contract skill without a verify tool, so a
+  malformed entry is dropped and warned about rather than
+  refused, and a reviewer that half-follows the contract
+  still contributes what it got right. The journal keeps that
+  bargain: it writes down whatever shape it is handed and
+  lets the round judge it, because a tool arguing with a
+  reviewer about a missing field spends the budget the
+  reviewer needed for the review.
 
 ## Skill Categories
 

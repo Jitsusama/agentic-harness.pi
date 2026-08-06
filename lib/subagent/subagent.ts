@@ -153,6 +153,20 @@ export interface ReviewerRunArtifacts {
 	 */
 	readonly verifiedOutputPath: string;
 	/**
+	 * File the reviewer appends a finding to the moment it
+	 * forms one, rather than saving them all for its answer.
+	 *
+	 * One JSON object per line, so a reviewer stopped partway
+	 * through writing costs the line it was on and nothing
+	 * before it. Everything else about a stop is recovery,
+	 * which only works if the answer arrives; this does not
+	 * need the reviewer to live long enough to say it twice.
+	 *
+	 * Absent from a runner that keeps no artifacts, which has
+	 * nowhere to put one.
+	 */
+	readonly journalPath?: string;
+	/**
 	 * Private per-reviewer directory pi persists the session
 	 * into (via --session-dir). Kept out of the user's session
 	 * list so a supervised run leaves no trace there.
@@ -259,6 +273,12 @@ export interface RunPiResult {
 	readonly stderrTail?: string;
 	/** Result of the reviewer's verify_output calls, when observed. */
 	readonly verification?: ReviewerVerification;
+	/**
+	 * Findings the reviewer wrote down as it worked, read back
+	 * off its journal. Unparsed: whoever asked knows what a
+	 * finding is, and this does not.
+	 */
+	readonly journal?: readonly unknown[];
 	/**
 	 * The terminal turn's error, when the run ended on a
 	 * provider or transport failure rather than a clean stop.
@@ -484,6 +504,12 @@ export interface RunReviewerResult {
 	readonly priorAssistantText?: string;
 	/** Whether a stopped run was asked for its findings and gave them. */
 	readonly wrappedUp?: boolean;
+	/**
+	 * Findings the reviewer wrote down while it worked, rather
+	 * than saving them for its answer. On the wire, because a
+	 * finding belongs to a round and this does not know one.
+	 */
+	readonly journal?: readonly unknown[];
 	readonly stderr: string;
 	readonly warnings: string[];
 	/**
@@ -808,6 +834,13 @@ function mergeWrapUpOutcome(
 			? { priorAssistantText: stopped.finalAssistantText }
 			: {}),
 		...(answered ? { wrappedUp: true } : {}),
+		// Both runs' journals. The wrap-up runs in the same reviewer
+		// directory's sibling, so these are two files, and a finding
+		// recorded before the stop is not superseded by one recorded
+		// after it. The round dedupes.
+		...(stopped.journal || wrapUp.journal
+			? { journal: [...(stopped.journal ?? []), ...(wrapUp.journal ?? [])] }
+			: {}),
 		warnings: [...stopped.warnings, note, ...wrapUp.warnings],
 		...(usage ? { usage } : {}),
 	};
@@ -1010,6 +1043,11 @@ function assembleReviewerResult(
 		...(parsed.usage ? { usage: parsed.usage } : {}),
 		...(verificationForResult
 			? { verification: verificationWithoutOutput(verificationForResult) }
+			: {}),
+		// Carried whatever else happened, including a blanked answer:
+		// what a reviewer wrote down is not conditional on it finishing.
+		...(result.journal && result.journal.length > 0
+			? { journal: result.journal }
 			: {}),
 		...(result.error ? { error: result.error } : {}),
 	};

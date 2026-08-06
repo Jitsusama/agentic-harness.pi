@@ -119,6 +119,7 @@ export class ReviewerArtifactsStore {
 			progressPath: join(reviewerDir, "progress.json"),
 			resultPath: join(reviewerDir, "result.json"),
 			verifiedOutputPath: join(reviewerDir, "verified-output.json"),
+			journalPath: join(reviewerDir, "journal.ndjson"),
 			sessionDir: join(reviewerDir, "session"),
 		};
 	}
