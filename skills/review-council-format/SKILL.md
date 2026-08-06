@@ -47,9 +47,10 @@ repeating costs nothing and leaving it out risks everything.
 | `raisedBy` | no | Reviewer ids, when you are consolidating |
 
 `label` is one of `praise`, `nitpick`, `suggestion`, `issue`, `todo`,
-`question`, `thought`, `chore`, `note`. Nothing else is accepted, and a
-finding labelled anything else is dropped: guessing a label would put
-words in your mouth.
+`question`, `thought`, `chore`, `note`. Use one of those. A finding
+labelled anything else is kept as a `note` with your own word named in a
+warning, since guessing what you meant would put words in your mouth and
+throwing the remark away would lose it entirely.
 
 `severity` also accepts the words models reach for instead. `blocking`,
 `required` and `high` read as `critical`; `low`, `non-blocking`,
@@ -63,7 +64,8 @@ words in your mouth.
 { "kind": "global" }
 ```
 
-`end` defaults to `start`, and `side` defaults to `new`. Anchor a line
+`end` defaults to `start`, `line` is read as `start` for a single line,
+and `side` defaults to `new`. Anchor a line
 finding only inside the ranges the prompt lists as anchorable: a line
 outside them is not in the diff, so the change carries nowhere to hang
 the remark and it degrades to prose.
@@ -79,14 +81,22 @@ read as a remark about that line.
 One bad entry costs one finding, never the batch, and the grading is
 deliberate:
 
-- A missing `subject`, a bad `label` or an unusable `location` **drops
-  the finding**. Each of those is load-bearing, and inventing one puts
-  words in your mouth.
+- A missing `subject` **drops the finding**, because there is no
+  observation left to keep.
+- A bad `label` **costs the label**. The finding is kept as a `note`
+  with your own word named in its discussion, since inventing what you
+  meant would put words in your mouth and discarding the remark would
+  lose it entirely.
+- An unusable `location` **costs precision, not the remark**. A line
+  with no line falls back to the file, a file with no file to the
+  change.
 - A bad `severity`, `confidence` or `raisedBy` **drops only itself**.
   The observation is the value; those are decoration.
 
-Every drop comes back as a warning naming the entry, so a malformed
-answer is visible rather than silently smaller.
+Every one of those comes back as a warning naming the entry, so an
+answer that needed forgiving is visible rather than silently different.
+A warning does not mean something was dropped: read the warning to see
+what it cost.
 
 ## What Makes a Finding Worth Reading
 

@@ -188,15 +188,16 @@ export function alsoRecorded(
 	const findings = [...said.findings];
 	const recordedWarnings: string[] = [];
 	const before = findings.length;
-	const already = new Set(findings.map(sameFinding));
 	for (const [index, entry] of recorded.entries()) {
 		const read = readWireFinding(entry, `recorded[${index}]`, origin, witness);
 		recordedWarnings.push(...read.warnings);
-		if (read.finding === undefined) continue;
-		const key = sameFinding(read.finding);
-		if (already.has(key)) continue;
-		already.add(key);
-		findings.push(read.finding);
+		const found = read.finding;
+		if (found === undefined) continue;
+		// Scanned rather than keyed, because a finding that named no
+		// file has to match one that did, and a hash cannot express
+		// that. The lists are tens of entries long.
+		if (findings.some((held) => saysTheSame(held, found))) continue;
+		findings.push(found);
 	}
 	// It said nothing at the end, but it had been saying things all
 	// along, and that is the arrangement working rather than a fault.
@@ -212,8 +213,26 @@ export function alsoRecorded(
 	};
 }
 
+/** The subject, folded to survive a reviewer tidying its punctuation. */
+function foldedSubject(finding: Omit<Finding, "id">): string {
+	// Folded before the ends are trimmed, or a subject recorded with a
+	// full stop and repeated without one reads as two findings, which
+	// is the likeliest way of all to say one thing twice.
+	return finding.subject
+		.toLowerCase()
+		.replace(/[\s.,;:]+/g, " ")
+		.trim();
+}
+
+/** The file it points at, or nothing when it points at the change. */
+function pathOf(finding: Omit<Finding, "id">): string {
+	const at = finding.anchor;
+	return at === undefined ? "" : (anchorPath(at) ?? "");
+}
+
 /**
- * When two findings are the same finding.
+ * Whether two findings say the same finding, allowing for one of them
+ * not having said where.
  *
  * Subject and place. A reviewer recording a finding and then repeating
  * it says the same sentence twice, so the subject is the identity; it
@@ -225,20 +244,30 @@ export function alsoRecorded(
  * that records against a file and then pins a line in its answer has
  * refined one finding, not found a second, and a byte-identical anchor
  * comparison would report both.
+ *
+ * A finding that names no file matches one that does, on the same
+ * subject. That is not looseness for its own sake: a location now
+ * degrades to the change rather than dropping the finding, so the
+ * commonest shape of a repeat is a reviewer recording a remark
+ * mid-investigation without a location and then naming the file
+ * properly in its answer. Keyed on the path alone those are two
+ * buckets, and the round would file one observation twice, in exactly
+ * the case the journal exists to serve.
+ *
+ * Two genuinely different findings that share a folded subject and
+ * differ only in that one named no file are folded together by this.
+ * That is the trade, and it is the right way round: saying one thing
+ * twice is noise a reader dismisses, while the alternative is deciding
+ * two remarks are distinct because one of them was vague.
  */
-export function sameFinding(finding: Omit<Finding, "id">): string {
-	const at = finding.anchor;
-	return [
-		// Folded before the ends are trimmed, or a subject recorded
-		// with a full stop and repeated without one reads as two
-		// findings, which is the likeliest way of all to say one thing
-		// twice.
-		finding.subject
-			.toLowerCase()
-			.replace(/[\s.,;:]+/g, " ")
-			.trim(),
-		at === undefined ? "" : (anchorPath(at) ?? ""),
-	].join("\u0000");
+export function saysTheSame(
+	one: Omit<Finding, "id">,
+	two: Omit<Finding, "id">,
+): boolean {
+	if (foldedSubject(one) !== foldedSubject(two)) return false;
+	const here = pathOf(one);
+	const there = pathOf(two);
+	return here === "" || there === "" || here === there;
 }
 
 /**
@@ -277,22 +306,14 @@ function readFinding(
 		return undefined;
 	}
 
-	const label = wireText(entry.label);
-	if (label === undefined || !LABELS.includes(label)) {
-		warnings.push(
-			`${at} is labelled "${label ?? "nothing"}", which is not one of ${LABELS.join(", ")}, so it was dropped. Guessing a label would put words in the reviewer's mouth.`,
-		);
-		return undefined;
-	}
-
+	const { label, given } = readLabel(entry.label, at, warnings);
 	const anchor = readAnchor(entry.location, at, witness, warnings);
-	if (anchor === undefined) return undefined;
 
 	return {
 		anchor,
-		label: label as ConventionalLabel,
+		label,
 		subject,
-		discussion: wireText(entry.discussion) ?? "",
+		discussion: discussionWith(wireText(entry.discussion) ?? "", given),
 		origin,
 		...readSeverity(entry.severity, at, warnings),
 		...readConfidence(entry.confidence, at, warnings),
@@ -300,17 +321,28 @@ function readFinding(
 	};
 }
 
-/** Where the finding points, or nothing plus a warning. */
+/**
+ * Where the finding points, as precisely as what it said allows.
+ *
+ * Never nothing. Precision is the part a reviewer is most likely to
+ * get wrong under pressure, and it is the part that matters least: a
+ * remark about the wrong level of the change is still the remark,
+ * while a remark thrown away for pointing loosely is gone. So a line
+ * with no line falls back to the file, a file with no file falls back
+ * to the change, and each says so.
+ */
 function readAnchor(
 	value: unknown,
 	at: string,
 	witness: string | undefined,
 	warnings: string[],
-): Anchor | undefined {
+): Anchor {
 	const stamp = witness === undefined ? {} : { witness };
 	if (!isRecord(value)) {
-		warnings.push(`${at} names no location, so it was dropped.`);
-		return undefined;
+		warnings.push(
+			`${at} names no location, so it was kept against the change.`,
+		);
+		return { subject: "change", ...stamp };
 	}
 
 	const kind = wireText(value.kind);
@@ -319,22 +351,33 @@ function readAnchor(
 	const path = wireText(value.file);
 	if (kind === "file") {
 		if (path === undefined) {
-			warnings.push(`${at} is a file finding with no file, so it was dropped.`);
-			return undefined;
+			warnings.push(
+				`${at} is a file finding with no file, so it was kept against the change.`,
+			);
+			return { subject: "change", ...stamp };
 		}
 		return { subject: "file", path, ...stamp };
 	}
 
 	if (kind === "line") {
 		if (path === undefined) {
-			warnings.push(`${at} is a line finding with no file, so it was dropped.`);
-			return undefined;
+			warnings.push(
+				`${at} is a line finding with no file, so it was kept against the change.`,
+			);
+			return { subject: "change", ...stamp };
 		}
-		const start = wireWhole(value.start);
+		// `line` is read as well as `start`, because it is the word the
+		// anchor this produces uses, and a reviewer naming a single
+		// line reaches for it. Measured on a real journal: nine of
+		// eleven recorded findings said `line`, and reading only
+		// `start` cost every one of them the line it had named.
+		const start = wireWhole(value.start) ?? wireWhole(value.line);
 		const end = wireWhole(value.end) ?? start;
 		if (start === undefined || end === undefined) {
-			warnings.push(`${at} is a line finding with no line, so it was dropped.`);
-			return undefined;
+			warnings.push(
+				`${at} is a line finding with no line, so it was kept against the whole file.`,
+			);
+			return { subject: "file", path, ...stamp };
 		}
 		return {
 			subject: "line",
@@ -349,10 +392,18 @@ function readAnchor(
 		};
 	}
 
+	// A path with an unreadable kind still says where to look, so the
+	// kind costs the precision and not the location.
+	if (path !== undefined) {
+		warnings.push(
+			`${at} has location kind "${kind ?? "none"}", which is not line, file or global, so it was kept against the whole file.`,
+		);
+		return { subject: "file", path, ...stamp };
+	}
 	warnings.push(
-		`${at} has location kind "${kind ?? "none"}", which is not line, file or global, so it was dropped.`,
+		`${at} has location kind "${kind ?? "none"}", which is not line, file or global, so it was kept against the change.`,
 	);
-	return undefined;
+	return { subject: "change", ...stamp };
 }
 
 /**
@@ -381,6 +432,58 @@ function readRaisedBy(
 		return name === undefined ? [] : [name];
 	});
 	return raisedBy.length === 0 ? {} : { raisedBy };
+}
+
+/**
+ * A label, or the most neutral one plus a warning saying which word
+ * was used instead.
+ *
+ * Guessing what a reviewer meant would put words in their mouth, so
+ * nothing is guessed: an unreadable label becomes a note, which
+ * asserts less than any other, and their own word is named in the
+ * warning so a reader can see it.
+ *
+ * Dropping the finding was the older reading of the same principle
+ * and it cost far more than it protected. Measured on the journal's
+ * first real council: one reviewer of seven labelled its entries
+ * defect, testing and design, and every one of its eleven recorded
+ * findings was thrown away. It answered anyway, so nothing was lost
+ * that time. Had it been stopped, the journal would have rescued
+ * nothing in exactly the case it exists for.
+ */
+function readLabel(
+	value: unknown,
+	at: string,
+	warnings: string[],
+): { label: ConventionalLabel; given?: string } {
+	const given = wireText(value);
+	// Folded, because a capital is not a different label and reading
+	// "Issue" as unrecognized would cost a decoration over a shift key.
+	const folded = given?.toLowerCase();
+	if (folded !== undefined && LABELS.includes(folded)) {
+		return { label: folded as ConventionalLabel };
+	}
+	warnings.push(
+		`${at} is labelled "${given ?? "nothing"}", which is not one of ${LABELS.join(", ")}, so it was kept as a note saying so.`,
+	);
+	return { label: "note", ...(given === undefined ? {} : { given }) };
+}
+
+/**
+ * The discussion, carrying the reviewer's own label when it was not
+ * one we know.
+ *
+ * Said in the finding rather than only in a warning, because a warning
+ * lives for one message. It is not persisted on the run, the finding
+ * that reaches the store holds only "note", and the judge is shown the
+ * label and nothing else. Without this the defence of defaulting to a
+ * note, that their own word survives for a reader, is true of the tool
+ * answer alone and false everywhere the finding actually travels.
+ */
+function discussionWith(discussion: string, given?: string): string {
+	if (given === undefined) return discussion;
+	const said = `The reviewer labelled this "${given}", which is not one of the conventional labels, so it is kept as a note.`;
+	return discussion === "" ? said : `${discussion}\n\n${said}`;
 }
 
 /** A severity, dropped with a warning when it is not one. */
