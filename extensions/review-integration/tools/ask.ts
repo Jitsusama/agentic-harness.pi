@@ -98,6 +98,7 @@ import { GLYPH } from "../render.js";
 import {
 	answerFromReviewer,
 	answerLeftBehind,
+	heldByLiveSupervisor,
 	keepAnswer,
 	reviewerRunner,
 	reviewerStarter,
@@ -180,7 +181,7 @@ export function registerAskTool(pi: ExtensionAPI): void {
 					],
 					{
 						description:
-							"What to do. council: ask every reviewer on the roster, independently and at once, waiting for all of them. start: the same round, dispatched and left running, so the session is free straight away; nothing is watching it, so there is no progress, no wrap-up and no retry, and you finish it later with collect. stop: ask every reviewer in a started round to stop, which is the only way to end one early since nothing is holding it; what they wrote down is kept and collect still works. judge: ask the roster's judge to consolidate the latest council. critique: ask the roster to push back on what the judge concluded, recording positions rather than findings. audit: judge each unresolved inbound thread against the change, so a reply is informed rather than guessed. stack: put every change in the stack to the roster together, so a finding that only exists between changes can be seen. runs: what rounds have been asked about this change. collect: finish a round whose session ended before it could, reading what its reviewers left on disk, which is what an unsettled round in the listing is telling you to do. retry: ask one participant again and substitute their outcome in place. release: free a participant id so it can mean a different model, which is the way out the identity refusal names. Defaults to runs, which changes nothing.",
+							"What to do. council: ask every reviewer on the roster, independently and at once, waiting for all of them. start: the same round, dispatched and left running, so the session is free straight away; nothing is watching it, so there is no progress, no wrap-up and no retry, and you finish it later with collect. stop: ask every reviewer in a started round to stop, which is the only way to end one early since nothing is holding it; what they wrote down is kept and collect still works. Stopping a round nothing is running closes it instead, which is how a round whose transcripts are gone stops sitting in the listing, and is refused when anybody left something worth collecting. judge: ask the roster's judge to consolidate the latest council. critique: ask the roster to push back on what the judge concluded, recording positions rather than findings. audit: judge each unresolved inbound thread against the change, so a reply is informed rather than guessed. stack: put every change in the stack to the roster together, so a finding that only exists between changes can be seen. runs: what rounds have been asked about this change. collect: finish a round whose session ended before it could, reading what its reviewers left on disk, which is what an unsettled round in the listing is telling you to do. retry: ask one participant again and substitute their outcome in place. release: free a participant id so it can mean a different model, which is the way out the identity refusal names. Defaults to runs, which changes nothing.",
 					},
 				),
 			),
@@ -363,17 +364,46 @@ async function stopRound(
 		);
 	}
 
-	await new ReviewerArtifactsStore(runArtifactDir()).requestRunCancellation(
-		held.id,
-		`Stopped from a session on ${new Date().toISOString()}.`,
-	);
+	const artifacts = new ReviewerArtifactsStore(runArtifactDir());
+	if ((await stillRunning(artifacts, held)) !== undefined) {
+		await artifacts.requestRunCancellation(
+			held.id,
+			`Stopped from a session on ${new Date().toISOString()}.`,
+		);
+		return say(
+			[
+				`Asked every reviewer in ${held.id} to stop.`,
+				`They notice within a second or so and are killed if they do not. Collect it once they are gone: what they wrote down before stopping is kept.`,
+			].join("\n"),
+			{ run: held },
+		);
+	}
 
+	// Nothing is running, so there is nothing to stop and the only
+	// reading left of "stop this round" is to stop carrying it. That
+	// matters because a collect which recovers nothing deliberately
+	// leaves the round open, on the grounds that its work may be under
+	// another state directory or on another machine. Correct, and it
+	// leaves an alarm with no answer: the round sits in every listing
+	// forever. This is the answer, and it is a person saying so rather
+	// than a sweep deciding on their behalf.
+	for (const participant of held.participants) {
+		const left = await answerLeftBehind(artifacts, held.id, participant.id);
+		if (left.kind !== "missing") {
+			return refuse(
+				`Nothing is running in ${held.id}, but ${participant.id} left something behind. Collect it rather than closing it, or the findings go in the bin with the round.`,
+			);
+		}
+	}
+
+	const { open: _closed, ...closed } = held;
+	await keptOnLedger(change, closed);
 	return say(
 		[
-			`Asked every reviewer in ${held.id} to stop.`,
-			`They notice within a second or so and are killed if they do not. Collect it once they are gone: what they wrote down before stopping is kept.`,
+			`Nothing was running in ${held.id} and nobody left anything behind, so it is closed unfinished rather than left open forever.`,
+			`If its transcripts turn up under another state directory, the round is gone from this ledger and would have to be read there.`,
 		].join("\n"),
-		{ run: held },
+		{ run: closed },
 	);
 }
 
@@ -466,45 +496,20 @@ async function collectOne(
  * Why this round must not be collected yet, when a supervisor still
  * holds it.
  *
- * An open mark says a round started and did not finish, which is the
- * same on the ledger for a dead session and for a council running
- * right now in another window. Collecting a live round reads the
- * reviewers that have finished, files their findings, records the rest
- * as having left nothing, and settles it. The session still running
- * then finishes and records the whole round again: every early finding
- * filed twice, and a settled round that says its reviewers found
- * nothing.
- *
- * The lease is the answer, and it is the same one startup recovery
- * uses: a reviewer directory holds the pid of the supervisor that owns
- * it.
+ * The reading of the lease lives in the adapter, beside the other
+ * thing that reads a reviewer's files. This is only the sentence.
  */
 async function stillRunning(
 	artifacts: ReviewerArtifactsStore,
 	held: AskRun,
 ): Promise<string | undefined> {
-	for (const participant of held.participants) {
-		const { leasePath } = artifacts.paths(held.id, participant.id);
-		const lease = await artifacts
-			.readJson<{ supervisorPid?: number | null }>(leasePath)
-			.catch(() => null);
-		const pid = lease?.supervisorPid;
-		if (typeof pid !== "number" || !alive(pid)) continue;
-		return `${held.id} is still being run: ${participant.id} is held by a supervisor (pid ${pid}) that is alive. Collecting now would file the findings of whoever has finished and then let that session file them again. Wait for it, or collect once it is gone.`;
-	}
-	return undefined;
-}
-
-/** Whether a process is still there to own something. */
-function alive(pid: number): boolean {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch {
-		// No such process, or one we may not signal. Either way it is
-		// not this session's supervisor holding the round.
-		return false;
-	}
+	const holder = await heldByLiveSupervisor(
+		artifacts,
+		held.id,
+		held.participants.map((participant) => participant.id),
+	);
+	if (holder === undefined) return undefined;
+	return `${held.id} is still being run: ${holder.reviewerId} is held by a supervisor (pid ${holder.pid}) whose lease was renewed ${Math.round(holder.sinceMs / 1000)}s ago. Collecting now would file the findings of whoever has finished and then let that session file them again. Wait for it, or stop the round.`;
 }
 
 /** Ask every reviewer on the roster. */
@@ -1645,6 +1650,17 @@ function describeRun(run: AskRun): string {
 	// running in another window is not ours to assert, and the useful
 	// half is the same either way, since the reviewers' answers are on
 	// disk under this id.
+	//
+	// Its arithmetic is a finished round's, though, and reads as an
+	// accusation: a round that opened and has recorded nothing yet
+	// renders as "0/7 answered, 0 findings", which says seven reviewers
+	// were asked and came back empty. Nobody has been asked for their
+	// answer yet. So an open round with nothing recorded says what is
+	// true, that it is waiting, and one that recorded some of its
+	// outcomes before dying counts only what it actually holds.
+	if (run.open === true && summary.answered === 0 && summary.failed === 0) {
+		return `${run.id}: ${count(summary.asked, "reviewer")} asked, opened and never settled. Nothing has been collected from it yet.`;
+	}
 	const abandoned = run.open === true ? ", opened and never settled" : "";
 	const head = `${run.id}: ${summary.answered}/${summary.asked} answered${failed}, ${count(summary.findings, "finding")}${abandoned}`;
 	// A stopped reviewer's answer was being recorded and never shown,

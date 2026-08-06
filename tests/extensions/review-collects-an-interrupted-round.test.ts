@@ -16,7 +16,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { answerLeftBehind } from "../../extensions/review-integration/reviewer.js";
+import {
+	answerLeftBehind,
+	heldByLiveSupervisor,
+} from "../../extensions/review-integration/reviewer.js";
 import type { AskAnswer, AskRun, Finding } from "../../lib/review/index.js";
 import { collectRound } from "../../lib/review/index.js";
 import { ReviewerArtifactsStore } from "../../lib/subagent/index.js";
@@ -228,5 +231,72 @@ describe("collecting a round the session did not live to finish", () => {
 		const { kept } = await collect(unsettled({ witness: "abc1234" }), store);
 
 		expect(kept[0]?.anchor.witness).toBe("abc1234");
+	});
+});
+
+describe("heldByLiveSupervisor", () => {
+	/** Write the lease the supervisor keeps renewing while it runs. */
+	function lease(
+		store: ReviewerArtifactsStore,
+		reviewerId: string,
+		fields: Record<string, unknown>,
+	): void {
+		const paths = store.paths(RUN, reviewerId);
+		mkdirSync(paths.reviewerDir, { recursive: true });
+		writeFileSync(paths.leasePath, JSON.stringify(fields), "utf8");
+	}
+
+	const NOW = Date.parse("2026-08-06T12:00:00.000Z");
+
+	it("holds a round whose supervisor is beating", async () => {
+		// Collecting under a live session files the findings of whoever
+		// finished, then that session files them all again.
+		const store = new ReviewerArtifactsStore(root);
+		lease(store, "hawk", {
+			supervisorPid: process.pid,
+			updatedAt: new Date(NOW - 2_000).toISOString(),
+		});
+
+		expect(await heldByLiveSupervisor(store, RUN, ["hawk"], NOW)).toMatchObject(
+			{ reviewerId: "hawk", pid: process.pid },
+		);
+	});
+
+	it("releases a round whose lease stopped being renewed", async () => {
+		// The case that made this a heartbeat rather than a pid check.
+		// Nothing deletes a lease, so a finished supervisor leaves one
+		// naming its pid; when the machine hands that number to anything
+		// else, a pid check refuses the collect forever and waiting does
+		// not help, because nothing will ever write the lease again.
+		const store = new ReviewerArtifactsStore(root);
+		lease(store, "hawk", {
+			supervisorPid: process.pid,
+			updatedAt: new Date(NOW - 10 * 60_000).toISOString(),
+		});
+
+		expect(
+			await heldByLiveSupervisor(store, RUN, ["hawk"], NOW),
+		).toBeUndefined();
+	});
+
+	it("releases a round whose supervisor said it had finished", async () => {
+		const store = new ReviewerArtifactsStore(root);
+		lease(store, "hawk", {
+			supervisorPid: process.pid,
+			updatedAt: new Date(NOW).toISOString(),
+			completedAt: new Date(NOW).toISOString(),
+		});
+
+		expect(
+			await heldByLiveSupervisor(store, RUN, ["hawk"], NOW),
+		).toBeUndefined();
+	});
+
+	it("releases a round with no lease at all", async () => {
+		const store = new ReviewerArtifactsStore(root);
+
+		expect(
+			await heldByLiveSupervisor(store, RUN, ["hawk"], NOW),
+		).toBeUndefined();
 	});
 });

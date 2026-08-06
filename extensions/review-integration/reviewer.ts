@@ -147,6 +147,77 @@ function safeSegment(name: string): string {
 }
 
 /**
+ * How stale a lease may be before its supervisor is presumed gone.
+ *
+ * The heartbeat is a second, so this is sixty missed beats. Generous
+ * because the cost of being early is refusing to collect a round
+ * nobody is running, and the machine that renewed a lease every
+ * second for 145 seconds under load 168 is the one this has to
+ * survive.
+ */
+const HEARTBEAT_STALE_MS = 60_000;
+
+/**
+ * Which reviewer, if any, a live supervisor is still holding.
+ *
+ * An open mark says a round started and did not finish, which is the
+ * same on the ledger for a dead session and for a council running
+ * right now in another window. Collecting a live round reads the
+ * reviewers that have finished, files their findings, records the
+ * rest as having left nothing, and settles it. The session still
+ * running then finishes and records the whole round again: every
+ * early finding filed twice, and a settled round that says its
+ * reviewers found nothing.
+ *
+ * The lease answers it, but not as a pid. Nothing ever removes a
+ * lease, so a supervisor that finished hours ago leaves one naming
+ * its pid, and pids are recycled: the moment the operating system
+ * hands that number to anything else, every collect of that round is
+ * refused, and waiting does not help because the lease is never
+ * written again. So it is read as what it is, a heartbeat, renewed
+ * every second while the supervisor runs and stamped with a
+ * completion the moment it stops.
+ */
+export async function heldByLiveSupervisor(
+	store: ReviewerArtifactsStore,
+	runId: string,
+	reviewerIds: readonly string[],
+	now: number = Date.now(),
+): Promise<{ reviewerId: string; pid: number; sinceMs: number } | undefined> {
+	for (const reviewerId of reviewerIds) {
+		const { leasePath } = store.paths(runId, reviewerId);
+		const lease = await store
+			.readJson<{
+				supervisorPid?: number | null;
+				completedAt?: string | null;
+				updatedAt?: string | null;
+			}>(leasePath)
+			.catch(() => null);
+		if (lease === null) continue;
+		// Said so itself, which beats anything inferred about it.
+		if (typeof lease.completedAt === "string") continue;
+		const beat = Date.parse(lease.updatedAt ?? "");
+		if (Number.isNaN(beat) || now - beat > HEARTBEAT_STALE_MS) continue;
+		const pid = lease.supervisorPid;
+		if (typeof pid !== "number" || !alive(pid)) continue;
+		return { reviewerId, pid, sinceMs: now - beat };
+	}
+	return undefined;
+}
+
+/** Whether a process is still there to own something. */
+function alive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch {
+		// No such process, or one we may not signal. Either way it is
+		// not a supervisor of ours holding the round.
+		return false;
+	}
+}
+
+/**
  * What one reviewer left behind, read back as an answer.
  *
  * The whole point of a round writing itself down before it asks
