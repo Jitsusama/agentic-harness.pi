@@ -119,6 +119,14 @@ export type {
 } from "./subagent.js";
 export {
 	extractUsageFromPiStream,
+	// The three halves of one fact about the journal: where the pack
+	// is, what its tool is called, and the variable naming the file it
+	// writes. Exported because the pack, the supervisor and the
+	// dispatcher are three processes that have to agree, and a second
+	// spelling in any of them fails silently.
+	JOURNAL_PACK_PATH,
+	JOURNAL_PATH_VAR,
+	JOURNAL_TOOL_NAME,
 	// Exported for the one caller that has to redo what a live run
 	// already did: reading a reviewer's directories back off disk after
 	// the session that ran them is gone. A second copy of these rules

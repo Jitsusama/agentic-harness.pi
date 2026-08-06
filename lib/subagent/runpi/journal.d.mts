@@ -17,6 +17,15 @@ export const MAX_JOURNAL_ENTRIES: number;
 /** The opening words of anything said about the journal. */
 export const JOURNAL_SAYS: string;
 
+/** The variable the supervisor names the journal file in. */
+export const JOURNAL_PATH_VAR: string;
+
+/** The tool a reviewer records a finding with. */
+export const JOURNAL_TOOL_NAME: string;
+
+/** Where the pack providing that tool lives, relative to the repo. */
+export const JOURNAL_PACK_PATH: string;
+
 /** What one journal file turned out to hold. */
 export interface JournalCounts {
 	/** The entries that parsed, in the order they were written. */

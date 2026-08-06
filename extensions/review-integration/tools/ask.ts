@@ -73,6 +73,7 @@ import {
 import type { ReviewerThinkingLevel } from "../../../lib/subagent/index.js";
 import {
 	getParentPiInstall,
+	JOURNAL_PACK_PATH,
 	RESUME_SUFFIX,
 	ReviewerArtifactsStore,
 	runReviewer,
@@ -1400,7 +1401,12 @@ const RECORDS_FINDINGS: ReadonlySet<AskRound> = new Set([
  */
 function journalPack(): string {
 	const here = dirname(fileURLToPath(import.meta.url));
-	return join(here, "..", "..", "..", "packs", "review-journal", "index.ts");
+	// The location comes from the library, beside the name of the tool
+	// this file registers. They are one fact: this loads the pack and
+	// then permits that tool by name, and a rename that moves one
+	// without the other leaves a reviewer told to call something
+	// nothing has registered.
+	return join(here, "..", "..", "..", ...JOURNAL_PACK_PATH.split("/"));
 }
 
 /**
