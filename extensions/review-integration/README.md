@@ -151,11 +151,20 @@ six consecutive rounds.
 `answerMs` is the one that is not a limit. It is carved out of
 `backstopMs` rather than added to it, so a reviewer with the
 defaults investigates for forty minutes and is then asked, with
-five minutes in hand, for what it has. Set it to zero and a
-reviewer runs to the wall and is asked afterwards, on time
-nobody budgeted. A reserve at least half the backstop is ignored
-rather than honoured, since a reviewer asked to wrap up before it
-has read anything has nothing to wrap up.
+five minutes in hand, for what it has. Whatever is reserved is
+what the wrap-up is allowed, so raising it buys a longer answer
+and costs the same amount of investigation.
+
+Zero switches it off: a reviewer then runs to the wall and is
+asked afterwards, on time nobody budgeted, which is what this
+did before the reserve existed. It is the only clock here where
+zero is honoured rather than read as a typo, because for the
+other two a zero would stop every reviewer the instant it
+started.
+
+A reserve at least half the backstop is ignored rather than
+honoured, since a reviewer asked to wrap up before it has read
+anything has nothing to wrap up.
 
 ## Registering a Provider
 

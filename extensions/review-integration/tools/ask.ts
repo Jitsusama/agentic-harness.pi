@@ -234,6 +234,7 @@ export function registerAskTool(pi: ExtensionAPI): void {
 		): Promise<Answer> {
 			const params = args as AskParams;
 			const action = params.action ?? "runs";
+			const opened: RoundWatch[] = [];
 			try {
 				const bound = await boundFor(pi, params, process.cwd());
 				const change = hostedChange(bound);
@@ -245,8 +246,19 @@ export function registerAskTool(pi: ExtensionAPI): void {
 
 				// One watch per call rather than one per round helper, so the
 				// panel and the signal are the same objects everything sees.
-				const watch = (round: AskRound): RoundWatch =>
-					watchRound(round, ctx, signal);
+				//
+				// Kept, so the finally below can settle whatever was opened.
+				// Every round ends by telling its progress it has finished,
+				// which is what takes the panel down, and none of them do it
+				// from a finally: a round that threw left the editor
+				// replaced and, once the panel grew a clock, a timer
+				// repainting it once a second for the rest of the session.
+				// Settling twice is harmless; not settling at all is not.
+				const watch = (round: AskRound): RoundWatch => {
+					const made = watchRound(round, ctx, signal);
+					opened.push(made);
+					return made;
+				};
 
 				switch (action) {
 					case "runs":
@@ -268,6 +280,8 @@ export function registerAskTool(pi: ExtensionAPI): void {
 				}
 			} catch (error) {
 				return refuse(messageOf(error));
+			} finally {
+				for (const made of opened) made.progress.finish();
 			}
 		},
 	});

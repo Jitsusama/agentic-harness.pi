@@ -36,6 +36,13 @@ export interface SpannedFinding {
 
 /** What came out of one stack-wide answer. */
 export interface StackHarvest {
+	/**
+	 * Of the warnings, the ones about recorded entries rather than
+	 * about the answer's shape. Named for the same reason the single
+	 * change's harvest names them: the caller that needs them is the
+	 * one replacing the whole list.
+	 */
+	recordedWarnings?: string[];
 	findings: SpannedFinding[];
 	warnings: string[];
 }
@@ -111,7 +118,7 @@ export function alsoRecordedInStack(
 ): StackHarvest {
 	if (recorded === undefined || recorded.length === 0) return said;
 	const findings = [...said.findings];
-	const warnings = [...said.warnings];
+	const recordedWarnings: string[] = [];
 	const before = findings.length;
 	// Keyed with the span, not just the finding. Two changes in a
 	// stack can carry the same line at the same path, which is what a
@@ -120,7 +127,7 @@ export function alsoRecordedInStack(
 	const already = new Set(findings.map(spanned));
 	for (const [index, entry] of recorded.entries()) {
 		const at = `recorded[${index}]`;
-		const span = readSpan(entry, at, stackRefs, warnings);
+		const span = readSpan(entry, at, stackRefs, recordedWarnings);
 		if (span === undefined) continue;
 		const read = readWireFinding(
 			entry,
@@ -128,19 +135,21 @@ export function alsoRecordedInStack(
 			origin,
 			witnessFor?.(saidAt(span, stackRefs)),
 		);
-		warnings.push(...read.warnings);
+		recordedWarnings.push(...read.warnings);
 		if (read.finding === undefined) continue;
 		const key = spanned({ span, finding: read.finding });
 		if (already.has(key)) continue;
 		already.add(key);
 		findings.push({ span, finding: read.finding });
 	}
+	const aboutTheAnswer =
+		findings.length > before
+			? said.warnings.filter((warning) => warning !== SAID_NOTHING)
+			: said.warnings;
 	return {
 		findings,
-		warnings:
-			findings.length > before
-				? warnings.filter((warning) => warning !== SAID_NOTHING)
-				: warnings,
+		warnings: [...aboutTheAnswer, ...recordedWarnings],
+		recordedWarnings,
 	};
 }
 

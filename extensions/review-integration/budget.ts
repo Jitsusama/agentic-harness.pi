@@ -14,6 +14,7 @@
 
 import type { AskLimit, AskStop } from "../../lib/review/index.js";
 import { DEFAULT_RUN_PI_TIMEOUT_MS } from "../../lib/subagent/runpi/spawn.js";
+import { WRAP_UP_TIMEOUT_MS } from "../../lib/subagent/subagent.js";
 
 /**
  * How long a reviewer may run before something stops it regardless.
@@ -53,7 +54,7 @@ export const REVIEWER_IDLE_MS = 15 * 60 * 1000;
  * Larger would buy nothing and would take real investigation time to
  * pay for it.
  */
-export const REVIEWER_ANSWER_MS = 5 * 60 * 1000;
+export const REVIEWER_ANSWER_MS = WRAP_UP_TIMEOUT_MS;
 
 /** What bounds one reviewer's run. */
 export interface ReviewerBudget {
@@ -74,7 +75,8 @@ export interface ReviewerBudget {
 export type ReviewerClocks = Pick<
 	ReviewerBudget,
 	"timeoutMs" | "idleTimeoutMs"
->;
+> &
+	Partial<Pick<ReviewerBudget, "wrapUpReserveMs">>;
 
 /**
  * What bounds a round, taking any override from config.
@@ -97,10 +99,29 @@ const MEASURED_BY: Partial<
 > = {
 	"wall-clock": { of: "timeoutMs", named: "backstopMs" },
 	idle: { of: "idleTimeoutMs", named: "idleMs" },
-	// Measured against the wall clock it is carved out of, since that
-	// is the number somebody has to change to move it.
-	"soft-deadline": { of: "timeoutMs", named: "backstopMs" },
 };
+
+/**
+ * Where the soft deadline actually landed.
+ *
+ * Not in the table above, because it is the one limit that is not a
+ * clock somebody set: it is the difference between two of them. Read
+ * off `timeoutMs` alone it reported the backstop, so a reviewer
+ * stopped at forty minutes was recorded as having hit forty-five, and
+ * the refusal that quotes the number told the reader to raise a
+ * budget the reviewer never reached.
+ *
+ * Two knobs move it, so the refusal names both.
+ */
+const SOFT: { named: string } = { named: "answerMs or backstopMs" };
+
+/** The moment a soft deadline falls, given the clocks around it. */
+function softDeadlineAt(budget: ReviewerClocks): number | undefined {
+	const reserve = budget.wrapUpReserveMs;
+	if (reserve === undefined || reserve <= 0) return undefined;
+	const at = budget.timeoutMs - reserve;
+	return at > 0 ? at : undefined;
+}
 
 /**
  * The clock a limit ran out of, where it is a clock at all.
@@ -113,6 +134,7 @@ export function budgetForLimit(
 	limit: AskLimit,
 	budget: ReviewerClocks,
 ): number | undefined {
+	if (limit === "soft-deadline") return softDeadlineAt(budget);
 	const measure = MEASURED_BY[limit];
 	return measure === undefined ? undefined : budget[measure.of];
 }
@@ -161,10 +183,14 @@ export function retryWouldRepeat(
 ): string | undefined {
 	if (stopped?.budgetMs === undefined) return undefined;
 	if (!REPEATS.has(stopped.limit)) return undefined;
-	const measure = MEASURED_BY[stopped.limit];
+	const measure =
+		stopped.limit === "soft-deadline" ? SOFT : MEASURED_BY[stopped.limit];
 	if (measure === undefined) return undefined;
-	const now = budget[measure.of];
-	if (now > stopped.budgetMs) return undefined;
+	const now = budgetForLimit(stopped.limit, budget);
+	// A soft deadline that has since been switched off has no moment
+	// to compare against, and that is a change: the reviewer will now
+	// run to the wall instead, so the retry is a different question.
+	if (now === undefined || now > stopped.budgetMs) return undefined;
 	return (
 		`This reviewer was not failing, it was stopped: it hit the ${stopped.limit} ` +
 		`limit of ${stopped.budgetMs}ms and the limit is still ${now}ms, so asking ` +
@@ -179,7 +205,15 @@ export function reviewerBudget(section: unknown): ReviewerBudget {
 	return {
 		timeoutMs: positiveNumber(held.backstopMs) ?? REVIEWER_BACKSTOP_MS,
 		idleTimeoutMs: positiveNumber(held.idleMs) ?? REVIEWER_IDLE_MS,
-		wrapUpReserveMs: positiveNumber(held.answerMs) ?? REVIEWER_ANSWER_MS,
+		// Zero is honoured rather than rejected, because it is the
+		// documented way to turn the soft deadline off. Every other
+		// clock here treats zero as a typo, and for them it is: a zero
+		// backstop stops every reviewer the instant it starts. A zero
+		// reserve just means do not ask early.
+		wrapUpReserveMs:
+			held.answerMs === 0
+				? 0
+				: (positiveNumber(held.answerMs) ?? REVIEWER_ANSWER_MS),
 	};
 }
 

@@ -260,6 +260,73 @@ describe("runReviewer: asking a stopped reviewer for what it has", () => {
 			expect(calls[0].wrapUpReserveMs).toBeUndefined();
 		});
 
+		it("spends exactly what it reserved, above the old five-minute cap", async () => {
+			// The one invariant the whole design rests on: the time taken
+			// from investigating is the time handed to the answer. It held
+			// only up to five minutes, because the reserve was uncapped
+			// where it was taken and clamped where it was spent, and the
+			// defaults hid it by being the same number. Ten minutes
+			// reserved bought five, and the other five went nowhere.
+			const { runPi, calls } = scriptedRun([
+				stopped("soft-deadline"),
+				{ exitCode: 0, state: "complete", finalAssistantText: "{}" },
+			]);
+
+			await runReviewer({
+				reviewer: REVIEWER,
+				prompt: "review this diff",
+				cwd: "/tmp/wt",
+				runPi,
+				autoResume: true,
+				timeoutMs: 2_700_000,
+				wrapUpReserveMs: 600_000,
+			});
+
+			expect(calls[0].wrapUpReserveMs).toBe(600_000);
+			expect(calls[1].timeoutMs).toBe(600_000);
+		});
+
+		it("reserves nothing when the reserve is switched off", async () => {
+			// Zero is the documented off switch. Read through the usual
+			// `??` it would have looked absent and handed back the
+			// default, so the way to turn it off would have turned it on.
+			const { runPi, calls } = scriptedRun([
+				{ exitCode: 0, state: "complete", finalAssistantText: "{}" },
+			]);
+
+			await runReviewer({
+				reviewer: REVIEWER,
+				prompt: "review this diff",
+				cwd: "/tmp/wt",
+				runPi,
+				autoResume: true,
+				wrapUpReserveMs: 0,
+			});
+
+			expect(calls[0].wrapUpReserveMs).toBeUndefined();
+		});
+
+		it("refuses a reserve that could never be a duration", async () => {
+			// It reaches the watchdog as JSON, where NaN serializes to
+			// null and every comparison against it is false except the one
+			// that stops the child. An unvalidated reserve does not
+			// misbehave subtly; it kills the whole roster on tick one.
+			const { runPi } = scriptedRun([
+				{ exitCode: 0, state: "complete", finalAssistantText: "{}" },
+			]);
+
+			await expect(
+				runReviewer({
+					reviewer: REVIEWER,
+					prompt: "review this diff",
+					cwd: "/tmp/wt",
+					runPi,
+					autoResume: true,
+					wrapUpReserveMs: Number.NaN,
+				}),
+			).rejects.toThrow(/wrapUpReserveMs/);
+		});
+
 		it("asks a reviewer stopped at its soft deadline for what it has", async () => {
 			const { runPi, calls } = scriptedRun([
 				stopped("soft-deadline"),
