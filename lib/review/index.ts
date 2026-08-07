@@ -36,6 +36,8 @@ export type {
 export { anchorable, anchorPath, describeAnchor } from "./anchor.js";
 export type { FileRanges, LineRange } from "./ask/anchorable.js";
 export { anchorableRanges, describeRanges } from "./ask/anchorable.js";
+export type { AnswerContext, AnswerLine } from "./ask/answer.js";
+export { describeRun, roundAnswer } from "./ask/answer.js";
 export type {
 	AuditHarvest,
 	AuditRequest,

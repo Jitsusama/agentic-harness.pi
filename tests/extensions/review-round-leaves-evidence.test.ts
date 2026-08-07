@@ -33,6 +33,7 @@ import type {
 	Roster,
 } from "../../lib/review/index.js";
 import {
+	roundAnswer,
 	runCouncil,
 	runSummary,
 	staleRuntimeAdvisory,
@@ -136,6 +137,23 @@ describe("a round asked after pi was upgraded out from under it", () => {
 		const said = staleRuntimeAdvisory(run);
 		expect(said).toContain("restart pi");
 		expect(said?.match(/pi-0\.83\.0/g)).toHaveLength(1);
+	});
+
+	it("says it once in the answer a reader is handed", async () => {
+		// The measurement that matters, over the whole answer rather than
+		// over the advisory: a sentence hoisted above a roll call that
+		// still repeats it makes a seven-reviewer round eight copies
+		// long, which is worse than the seven it set out to fix.
+		const { run } = await runCouncil({ roster, prompt: "p", seq: 1 }, deps());
+
+		const whole = roundAnswer(run)
+			.map((line) => line.text)
+			.join("\n");
+
+		expect(whole.match(/pi-0\.83\.0/g)).toHaveLength(1);
+		for (const participant of SEVEN) {
+			expect(whole).toContain(`${participant}: as above.`);
+		}
 	});
 
 	it("still says what became of each reviewer", async () => {
