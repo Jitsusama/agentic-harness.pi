@@ -341,6 +341,42 @@ describe("when a participant fails", () => {
 		expect(runSummary(run).answered).toBe(1);
 	});
 
+	it("records where a thrown failure was thrown from", async () => {
+		// Measured. A council lost all seven reviewers to one TypeError,
+		// and the ledger held the message alone: "Cannot read properties
+		// of undefined (reading 'split')". A message with no kind and no
+		// frame turned a one-line diagnosis into an afternoon of reading
+		// every call to split in the dispatch path. The round is the
+		// expensive thing, and the ledger is all that survives it.
+		const { run } = await runCouncil(
+			{ roster, prompt: "p", seq: 1 },
+			deps({
+				hawk: { text: said("a") },
+				owl: () => {
+					const nothing = undefined as unknown as { at: () => void };
+					nothing.at();
+					return Promise.resolve({ text: said("unreachable") });
+				},
+			}),
+		);
+
+		const failure = run.outcomes[1]?.failure ?? "";
+		expect(failure).toContain("TypeError");
+		expect(failure).toContain("council.test.ts");
+	});
+
+	it("says nothing extra about a failure that came back as one", async () => {
+		// A runner reporting a failure has already said what it means,
+		// in a sentence written for a person. Decorating that with a
+		// kind and a frame it does not have would be noise.
+		const { run } = await runCouncil(
+			{ roster, prompt: "p", seq: 1 },
+			deps({ hawk: { text: said("a") }, owl: { failure: "overloaded" } }),
+		);
+
+		expect(run.outcomes[1]?.failure).toBe("overloaded");
+	});
+
 	it("still numbers the survivors in roster order", async () => {
 		const recorded: Finding[] = [];
 		await runCouncil(

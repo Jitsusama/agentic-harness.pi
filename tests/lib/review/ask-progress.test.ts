@@ -219,10 +219,11 @@ describe("a round reporting as it goes", () => {
 			progress,
 		);
 
-		expect(entries()[0]).toMatchObject({
-			state: "failed",
-			reason: "spawn refused",
-		});
+		// The message, whatever else it is decorated with. A thrown
+		// failure also carries the frame it came from, since the message
+		// alone has more than once been true of a dozen places at once.
+		expect(entries()[0]).toMatchObject({ state: "failed" });
+		expect(entries()[0]?.reason).toContain("spawn refused");
 	});
 
 	it("reports a reported failure the same way a thrown one is", async () => {

@@ -375,10 +375,50 @@ async function asked(
 	try {
 		return await deps.ask(participant, prompt, context);
 	} catch (error) {
-		return {
-			failure: error instanceof Error ? error.message : String(error),
-		};
+		return { failure: thrownAt(error) };
 	}
+}
+
+/**
+ * What was thrown, said well enough to act on.
+ *
+ * A failure a runner reports is a sentence somebody wrote for a
+ * person, and it is left exactly as it is. A failure that was thrown
+ * is usually nobody's sentence: it is a message the runtime wrote,
+ * and on its own it does not say what kind of fault it was or where
+ * it happened.
+ *
+ * Measured, on a council that lost all seven reviewers to one
+ * TypeError. The ledger held "Cannot read properties of undefined
+ * (reading 'split')" and nothing else, which is true of every call to
+ * split in the dispatch path, so the diagnosis was an afternoon of
+ * reading them. The round is the expensive thing here and the ledger
+ * is what survives it, so the ledger has to carry enough to name the
+ * line.
+ *
+ * One frame, not the whole stack. The rest is this file's own
+ * machinery on every occasion, and a ledger entry is read in a table.
+ */
+function thrownAt(error: unknown): string {
+	if (!(error instanceof Error)) return String(error);
+	const kind = error.name === "Error" ? "" : `${error.name}: `;
+	const frame = firstFrame(error.stack);
+	return `${kind}${error.message}${frame === undefined ? "" : ` (${frame})`}`;
+}
+
+/** The innermost frame of a stack, trimmed of its noise. */
+function firstFrame(stack: string | undefined): string | undefined {
+	if (stack === undefined) return undefined;
+	for (const line of stack.split("\n")) {
+		const trimmed = line.trim();
+		if (!trimmed.startsWith("at ")) continue;
+		// Node writes a frame as "at name (file:line:col)" or, with no
+		// name to give, "at file:line:col". Either is worth keeping
+		// whole: the name says what was running and the location says
+		// where to look, and neither is much use alone.
+		return trimmed.slice("at ".length);
+	}
+	return undefined;
 }
 
 /**
