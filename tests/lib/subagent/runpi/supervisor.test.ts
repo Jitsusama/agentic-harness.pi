@@ -13,6 +13,7 @@ import type { Readable, Writable } from "node:stream";
 import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import { ReviewerArtifactsStore } from "../../../../lib/subagent/artifacts.js";
+import { STDIO_GRACE_MS } from "../../../../lib/subagent/runpi/grace.mjs";
 import {
 	createSupervisorRunPi as createRealSupervisorRunPi,
 	parentGraceMs,
@@ -983,8 +984,14 @@ describe("createSupervisorRunPi", () => {
 
 		expect(result.finalAssistantText).toBe("finished, then wedged");
 		expect(result.exitCode).toBe(0);
-		// Promptly, rather than after the wall-clock backstop.
-		expect(Date.now() - started).toBeLessThan(5_000);
+		// By the grace rather than by the backstop, and the bound is
+		// stated against the two numbers it is between rather than as a
+		// round one. This asked for under five seconds while the grace
+		// it is waiting out is itself five, so the case was one
+		// scheduling delay away from failing and duly did, twice, under
+		// full-suite load. What it has to rule out is a run that waited
+		// for the wall clock, which is an order of magnitude away.
+		expect(Date.now() - started).toBeLessThan(STDIO_GRACE_MS * 4);
 	});
 
 	it("forwards supervisor activity events to the live progress hook", async () => {
@@ -1349,10 +1356,11 @@ describe("the parent's grace over the supervisor's own budget", () => {
 	// it still signals the child, waits out the kill grace, escalates,
 	// drains pipes and then writes its result, and all of that has to
 	// fit inside the parent's grace.
-	// Mirrors the supervisor's own constant. Kept in step deliberately:
-	// the assertions below are one-sided, so a stale copy here would go
-	// on passing while quietly documenting the wrong number.
-	const STDIO_GRACE_MS = 5_000;
+	// The supervisor's own constant, imported rather than mirrored. It
+	// was a copy kept in step by hand, with a comment admitting the
+	// assertions below are one-sided and a stale copy would go on
+	// passing while documenting the wrong number. The same reasoning
+	// held for the two in the source, and they were two seconds apart.
 
 	it("leaves room for the shutdown the supervisor actually does", () => {
 		// A five second kill grace plus the pipe draining left three

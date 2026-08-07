@@ -13,6 +13,10 @@ import {
 import type { PiInstall } from "../install.js";
 import type { ReviewerError } from "../reviewer-error.js";
 import type { RunPi, RunPiResult } from "../subagent.js";
+// The same grace the supervisor gives its reviewer, read from the
+// same place. This is one hazard a level apart, and holding the
+// measurement twice is how the two came to disagree.
+import { STDIO_GRACE_MS } from "./grace.mjs";
 
 /** Subset of `child_process.spawn`'s signature we depend on. */
 export type SupervisorSpawnFn = (
@@ -66,22 +70,6 @@ interface SupervisorResultFile {
 	readonly error?: ReviewerError;
 	readonly artifacts?: RunPiResult["artifacts"];
 }
-
-/**
- * How long a departed supervisor's pipes may stay open before the
- * run is settled from disk anyway. Long enough for an ordinary
- * flush, short enough that nobody calls it a hang.
- *
- * Two seconds was measured to be too short. On a loaded runner the
- * sequence still to happen after exit is a grandchild spawn, a
- * stdout flush through inherited pipes and an atomic result write,
- * and when that overran the grace the run settled from a file that
- * was not there yet and reported an empty answer. An empty answer
- * is the worst available failure, because it looks like a reviewer
- * that said nothing rather than a deadline that was too tight.
- * Five seconds is still nobody's idea of a hang.
- */
-const STDIO_GRACE_MS = 5_000;
 
 /**
  * How long past its own deadline a supervisor gets before the
