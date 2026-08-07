@@ -239,6 +239,35 @@ function safeSegment(name: string): string {
  * a wrap-up still writing: asking only the base id reads no live
  * lease and calls the round free.
  */
+/**
+ * Why this round must not be collected yet, when a supervisor still
+ * holds it.
+ *
+ * Beside the read it is built on rather than private to the tool,
+ * because the sentence is the behaviour: a collect that lands while
+ * somebody is still writing files the findings of whoever has
+ * finished and then lets the other session file them again. Kept
+ * private, the only thing reachable from a test was the read, and a
+ * case could say it proved a refusal while asserting the input to
+ * one.
+ */
+export async function whyNotYet(
+	artifacts: ReviewerArtifactsStore,
+	held: { id: string; participants: readonly { id: string }[] },
+	facts: ProcessFacts = systemFacts,
+	now: number = Date.now(),
+): Promise<string | undefined> {
+	const holder = await heldByLiveSupervisor(
+		artifacts,
+		held.id,
+		held.participants.map((participant) => participant.id),
+		facts,
+		now,
+	);
+	if (holder === undefined) return undefined;
+	return `${held.id} is still being run: ${holder.reviewerId} is held by a supervisor (pid ${holder.pid}) whose lease was renewed ${Math.round(holder.sinceMs / 1000)}s ago. Collecting now would file the findings of whoever has finished and then let that session file them again. Wait for it, or stop the round.`;
+}
+
 export async function heldByLiveSupervisor(
 	store: ReviewerArtifactsStore,
 	runId: string,

@@ -104,10 +104,10 @@ import {
 	answerFromReviewer,
 	answerLeftBehind,
 	archivedAnswer,
-	heldByLiveSupervisor,
 	keepAnswer,
 	reviewerRunner,
 	reviewerStarter,
+	whyNotYet,
 } from "../reviewer.js";
 import { treeForRound } from "../work.js";
 import {
@@ -383,7 +383,7 @@ async function stopRound(
 		`Stopped from a session on ${new Date().toISOString()}.`,
 	);
 
-	if ((await stillRunning(artifacts, held)) !== undefined) {
+	if ((await whyNotYet(artifacts, held)) !== undefined) {
 		return say(
 			[
 				`Asked every reviewer in ${held.id} to stop.`,
@@ -503,7 +503,7 @@ async function collectOne(
 	}
 
 	const artifacts = new ReviewerArtifactsStore(runArtifactDir());
-	const alive = await stillRunning(artifacts, held);
+	const alive = await whyNotYet(artifacts, held);
 	if (alive !== undefined) return refuse(alive);
 
 	const answers = new Map<string, AskAnswer>();
@@ -550,26 +550,6 @@ async function collectOne(
 		].join("\n"),
 		{ run, warnings },
 	);
-}
-
-/**
- * Why this round must not be collected yet, when a supervisor still
- * holds it.
- *
- * The reading of the lease lives in the adapter, beside the other
- * thing that reads a reviewer's files. This is only the sentence.
- */
-async function stillRunning(
-	artifacts: ReviewerArtifactsStore,
-	held: AskRun,
-): Promise<string | undefined> {
-	const holder = await heldByLiveSupervisor(
-		artifacts,
-		held.id,
-		held.participants.map((participant) => participant.id),
-	);
-	if (holder === undefined) return undefined;
-	return `${held.id} is still being run: ${holder.reviewerId} is held by a supervisor (pid ${holder.pid}) whose lease was renewed ${Math.round(holder.sinceMs / 1000)}s ago. Collecting now would file the findings of whoever has finished and then let that session file them again. Wait for it, or stop the round.`;
 }
 
 /** Ask every reviewer on the roster. */
