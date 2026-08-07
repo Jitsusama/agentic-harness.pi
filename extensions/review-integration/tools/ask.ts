@@ -64,6 +64,7 @@ import {
 	runStackCouncil,
 	runSummary,
 	stackPrompt,
+	staleRuntimeAdvisory,
 	startCouncil,
 	stoppedNotes,
 	substituteOutcome,
@@ -1756,6 +1757,12 @@ function answerFor(run: AskRun, warnings: string[], caveat?: string): string {
 			"Nobody answered, so nothing was recorded. The failures above are the whole story.",
 		);
 	}
+	// Above the failures rather than among them. Every participant
+	// carries the same sentence when this happens, and read one per
+	// participant it looks like seven flaky reviewers next to a retry
+	// hint, when retrying is the one thing that cannot work.
+	const stale = staleRuntimeAdvisory(run);
+	if (stale !== undefined) lines.push(`${GLYPH.refused} ${stale}`);
 	for (const outcome of run.outcomes) {
 		if (outcome.failure !== undefined) {
 			// GLYPH.failed, not GLYPH.refused, and the same mark the live panel draws

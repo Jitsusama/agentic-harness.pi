@@ -4,6 +4,7 @@ import {
 	askedOf,
 	newRunId,
 	runSummary,
+	staleRuntimeAdvisory,
 	stoppedNotes,
 	substituteOutcome,
 } from "../../../lib/review/index.js";
@@ -300,5 +301,78 @@ describe("substituting one outcome", () => {
 		expect(() =>
 			substituteOutcome(run(), { participantId: "wren", findingIds: [1] }),
 		).toThrow(/wren/);
+	});
+});
+
+describe("a round that died because pi is no longer where it was", () => {
+	// Measured. Pi upgraded mid-session and deleted the versioned
+	// install directory the running session pins its children to, so
+	// every reviewer crashed at startup reading a theme from a path that
+	// had gone. The health check catches exactly this and writes an
+	// actionable sentence, the runner puts that sentence on every
+	// participant, and the round then printed it once per participant as
+	// though seven different things had gone wrong. Retrying is the one
+	// thing that cannot work, and retrying is what a reader reaches for.
+	const stale =
+		"Pi runtime stale: the running pi install at `/x/.pi/pkg/pi-0.83.0` no " +
+		"longer exists on disk. Pi was likely updated (nix gc, brew upgrade, " +
+		"etc.) mid-session; restart pi to load the new binary. Subagent " +
+		"dispatch will fail until you do.";
+
+	it("says it once, naming the install and the way out", () => {
+		const said = staleRuntimeAdvisory(
+			run({
+				outcomes: [
+					{ participantId: "hawk", findingIds: [], failure: stale },
+					{ participantId: "owl", findingIds: [], failure: stale },
+				],
+			}),
+		);
+
+		expect(said).toContain("pi-0.83.0");
+		expect(said).toContain("restart");
+		// One sentence for the round, not one per participant.
+		expect(said?.match(/pi-0\.83\.0/g)).toHaveLength(1);
+	});
+
+	it("says nothing when no participant died of it", () => {
+		expect(staleRuntimeAdvisory(run())).toBeUndefined();
+	});
+
+	it("says nothing for a failure that merely mentions a path", () => {
+		// The mark is the health check's own prefix. A reviewer whose own
+		// message quotes a package path is a different event, and telling
+		// somebody to restart pi over it costs them the session this
+		// exists to save.
+		expect(
+			staleRuntimeAdvisory(
+				run({
+					outcomes: [
+						{
+							participantId: "hawk",
+							findingIds: [],
+							failure: "read /x/.pi/pkg/pi-0.83.0/skills/foo failed",
+						},
+					],
+				}),
+			),
+		).toBeUndefined();
+	});
+
+	it("speaks up when only one participant hit it", () => {
+		// A stale install kills every reviewer it reaches, so one is
+		// enough to know, and a round where a single dispatch raced the
+		// deletion is exactly as unrecoverable by retry as one where all
+		// seven did.
+		const said = staleRuntimeAdvisory(
+			run({
+				outcomes: [
+					{ participantId: "hawk", findingIds: [1] },
+					{ participantId: "owl", findingIds: [], failure: stale },
+				],
+			}),
+		);
+
+		expect(said).toBeDefined();
 	});
 });

@@ -126,6 +126,7 @@ export {
 	askedOf,
 	newRunId,
 	runSummary,
+	staleRuntimeAdvisory,
 	stoppedNotes,
 	substituteOutcome,
 } from "./ask/run.js";

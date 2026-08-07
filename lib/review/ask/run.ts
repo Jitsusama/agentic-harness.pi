@@ -154,6 +154,46 @@ export function newRunId(round: AskRound, at: Date, seq: number): string {
 }
 
 /**
+ * The mark the runtime health check puts on a failure it diagnosed.
+ *
+ * Matched rather than re-derived, so this reports what the check
+ * concluded instead of forming its own opinion from a path in a
+ * message. A reviewer whose own error quotes an install path is a
+ * different event, and telling somebody to restart pi over it costs
+ * them the session this exists to save.
+ */
+const STALE_RUNTIME_MARK = "Pi runtime stale:";
+
+/**
+ * A round wrecked by a pi install that is no longer there, said once.
+ *
+ * Measured. Pi upgraded mid-session and deleted the versioned install
+ * directory the running session pins its children to, so every
+ * reviewer crashed at startup reading a theme from a path that had
+ * gone. The health check catches exactly this and writes a sentence
+ * naming the path and the way out, the runner puts that sentence on
+ * every participant, and the round printed it once per participant as
+ * though seven separate things had gone wrong.
+ *
+ * The repetition is not the cost. Seven failures beside a retry hint
+ * read as seven flaky reviewers, and retrying is the one thing that
+ * cannot work: it will keep failing until the session restarts. So
+ * this is said once, above the failures, and the per-participant
+ * lines stay as they are, because a reader still has to see who was
+ * asked and what became of each.
+ *
+ * One participant is enough. A stale install kills every reviewer it
+ * reaches, and a round where a single dispatch raced the deletion is
+ * exactly as unrecoverable by retry as one where all seven did.
+ */
+export function staleRuntimeAdvisory(run: AskRun): string | undefined {
+	const hit = run.outcomes.find((one) =>
+		one.failure?.startsWith(STALE_RUNTIME_MARK),
+	);
+	return hit?.failure;
+}
+
+/**
  * What became of each participant a limit took away.
  *
  * The round already records that a reviewer was stopped and where its
