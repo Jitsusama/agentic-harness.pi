@@ -52,6 +52,14 @@ export interface CritiqueRequest {
 	seq: number;
 	/** The findings being put up for challenge. */
 	findingIds: number[];
+	/**
+	 * The commit this round was formed against.
+	 *
+	 * Recorded for the same reason a council records one. A position
+	 * on a finding is about code at a moment, and a round that cannot
+	 * say which moment cannot be weighed later.
+	 */
+	witness?: string;
 }
 
 /** The round, the positions taken, and anything worth saying. */
@@ -111,6 +119,7 @@ export async function runCritique(
 				startedAt: startedAt.toISOString(),
 				participants: [],
 				outcomes: [],
+				...(request.witness === undefined ? {} : { witness: request.witness }),
 			},
 			critiques: [],
 			warnings: [],
@@ -173,6 +182,7 @@ export async function runCritique(
 				participantIdentity("reviewer", participant),
 			),
 			outcomes,
+			...(request.witness === undefined ? {} : { witness: request.witness }),
 		},
 		critiques,
 		warnings,

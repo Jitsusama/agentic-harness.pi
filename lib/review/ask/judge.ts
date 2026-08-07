@@ -118,6 +118,19 @@ export async function runJudge(
 			startedAt: startedAt.toISOString(),
 			participants: [participantIdentity("judge", request.judge)],
 			outcomes: [outcome],
+			// The same commit the findings above are anchored against,
+			// said on the round as well. It was used and not recorded,
+			// so every judge round in the ledger could anchor a finding
+			// honestly and still not say what it had judged: sixteen of
+			// sixteen, beside councils that all could.
+			//
+			// The ledger is the reason, and the only one. A judge round
+			// is never left open, so no collect will read this, and
+			// claiming otherwise would be justifying a fact with a path
+			// that cannot be taken. What it answers is a reader asking
+			// what a round was formed against, which until now the
+			// record could not say for three kinds out of four.
+			...(request.witness === undefined ? {} : { witness: request.witness }),
 		},
 		warnings,
 	};

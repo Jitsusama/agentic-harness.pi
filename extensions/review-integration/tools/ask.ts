@@ -827,6 +827,9 @@ async function askCritique(
 			}),
 			seq: 1,
 			findingIds: raised.map((finding) => finding.id),
+			...(proposal.headCommit === undefined
+				? {}
+				: { witness: proposal.headCommit }),
 		},
 		{
 			ask: deps(change, tree.path, watch, charters).ask,
@@ -1032,6 +1035,9 @@ async function askAudit(
 			}),
 			seq: 1,
 			threadIndices,
+			...(proposal.headCommit === undefined
+				? {}
+				: { witness: proposal.headCommit }),
 		},
 		{
 			ask: deps(change, tree.path, watch, charters).ask,

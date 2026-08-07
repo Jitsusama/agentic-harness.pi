@@ -51,6 +51,11 @@ function deps(
 
 const judge: Participant = { id: "wren", model: "opus" };
 
+// What a judge round records about the commit it read lives with the
+// other round kinds, in every-round-says-what-it-read.test.ts, since
+// the fact worth holding is that they all do it and not that this one
+// does.
+
 describe("asking a judge", () => {
 	it("asks the judge and nobody else", async () => {
 		const asked: Participant[] = [];
