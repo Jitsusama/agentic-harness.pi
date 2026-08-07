@@ -153,6 +153,7 @@ export {
 	changeInPlay,
 	chooseChange,
 	createAttachmentStore,
+	inheritAttachments,
 	pruneAttachments,
 } from "./attach.js";
 export type { AuthoringIntent, Offerable } from "./authoring.js";

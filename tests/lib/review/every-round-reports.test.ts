@@ -250,7 +250,12 @@ describe("a round reports that it is working", () => {
 
 		await runJudge({ judge: ONE, prompt: "consolidate", seq: 1 }, broken);
 
-		expect(said).toContain(`failed:${ONE.id}:subagent exited 1`);
+		// The reason reaches the panel, whatever the frame appended to
+		// it: a thrown failure says where it was thrown from as well as
+		// what it said.
+		expect(
+			said.some((one) => one.startsWith(`failed:${ONE.id}:subagent exited 1`)),
+		).toBe(true);
 		expect(said.at(-1)).toBe("finish");
 	});
 

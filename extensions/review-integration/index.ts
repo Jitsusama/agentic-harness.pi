@@ -12,10 +12,14 @@
  * time, so neither load order matters.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	SessionStartEvent,
+} from "@earendil-works/pi-coding-agent";
 import {
 	clearTargetBindings,
 	createRunStore,
+	inheritAttachments,
 	listReviewProviders,
 	pruneAttachments,
 	REVIEW_READY,
@@ -38,6 +42,7 @@ import {
 	reviewEngine,
 	runArtifactDir,
 	runDir,
+	sessionIdIn,
 	sessionKey,
 } from "./engine.js";
 import { guardPublishes } from "./guard-publish.js";
@@ -151,6 +156,52 @@ async function reclaimRoundTranscripts(): Promise<void> {
 }
 
 /**
+ * Give a fork what the session it came from was working on.
+ *
+ * A fork is the same conversation continued, and pi mints it a new
+ * session id. Attachments are scoped by session id, which is what
+ * stopped one session retargeting another's round, and the cost was
+ * paid here: every fork began with nothing attached, so the first
+ * review call after one refused for want of a change, or acted on
+ * whatever got named by hand instead.
+ *
+ * Only for a fork. Pi names a previous session file on a resume and on
+ * a new session too, and neither should inherit: a resume already
+ * carries the id its attachments are under, and a new session is
+ * somebody starting clean.
+ *
+ * Unawaited by the caller, like the other housekeeping, so starting a
+ * session is never delayed by it, and advisory throughout: a fork that
+ * cannot read its parent starts where it would have started anyway.
+ */
+async function carryAttachmentsIntoAFork(
+	event: SessionStartEvent,
+): Promise<void> {
+	// Typed as pi types it, so a rename upstream is a compile error
+	// here rather than a condition that silently stops matching.
+	if (event.reason !== "fork") return;
+	const { previousSessionFile } = event;
+	if (previousSessionFile === undefined) return;
+	// Read before anything is awaited, for the reason the sweep gives:
+	// this resolves against the environment each time, and a lookup
+	// after an await is a lookup against whatever the environment says
+	// by then.
+	const root = attachmentDir();
+	const mine = sessionKey();
+	try {
+		const parent = await sessionIdIn(previousSessionFile);
+		if (parent === undefined) return;
+		await inheritAttachments(root, parent, mine);
+	} catch (error) {
+		// Advisory, so a fork never fails to start over a convenience,
+		// but never silent. This catch swallowed a missing export the
+		// first time it ran, and a fork that quietly forgets what it
+		// was working on is the bug this function exists to fix.
+		console.warn(`Could not carry attachments into this fork: ${error}`);
+	}
+}
+
+/**
  * Find reviewers whose supervisor died and stop them.
  *
  * A supervisor that dies hard leaves its reviewer holding a model
@@ -226,11 +277,18 @@ export default function reviewIntegration(pi: ExtensionAPI) {
 	// On pi's own lifecycle API rather than the event bus, because the
 	// bus hands a handler the event and nothing else, and which session
 	// this is only comes with the context.
-	pi.on("session_start", (_event, ctx) => {
+	pi.on("session_start", async (event, ctx) => {
 		// Which session this is, from the only thing that knows. What a
 		// session has attached is scoped by it, and a session that cannot
 		// say who it is shares a directory with every other one.
 		rememberSession(ctx.sessionManager.getSessionId());
+		// Awaited, and before the sweep. Awaited because a fork whose
+		// first review call lands before the copy finishes sees the
+		// refusal this exists to prevent, and before the sweep because
+		// the sweep spares only the session asking: at a fork that is
+		// not the session being read from, so an idle parent is a
+		// candidate for deletion in the same tick as the copy.
+		await carryAttachmentsIntoAFork(event);
 		// A new session must not inherit the last one's bindings, or
 		// a target could stay pinned to a provider the user has since
 		// reconfigured away from.

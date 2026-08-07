@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	type AttachmentStore,
 	createAttachmentStore,
+	inheritAttachments,
 	pruneAttachments,
 } from "../../../lib/review/attach.js";
 import type { ChangeRef } from "../../../lib/review/change.js";
@@ -159,6 +160,121 @@ describe("createAttachmentStore", () => {
 	});
 });
 
+describe("a fork keeps what the session it came from was working on", () => {
+	// A fork is the same work continued, and pi mints it a new session
+	// id. Scoping attachments by session therefore made a fork start
+	// with nothing attached, so the first review call after one either
+	// refused for want of a change or acted on whatever the person
+	// happened to name. Neither is what forking means.
+	let root: string;
+
+	beforeEach(async () => {
+		root = await mkdtemp(join(tmpdir(), "attach-fork-"));
+	});
+	afterEach(async () => {
+		await rm(root, { recursive: true, force: true });
+	});
+
+	it("carries the parent's attachments into the fork", async () => {
+		const parent = createAttachmentStore(root, "session-a");
+		await parent.attach(change("world#1"));
+		await parent.attach(change("world#2"));
+
+		const carried = await inheritAttachments(root, "session-a", "session-b");
+
+		const fork = createAttachmentStore(root, "session-b");
+		expect(carried).toBe(2);
+		expect((await fork.list()).map((one) => one.change.label)).toEqual([
+			"world#2",
+			"world#1",
+		]);
+	});
+
+	it("leaves the parent holding its own", async () => {
+		// A fork is a copy, not a move. The session forked from is still
+		// there and still working on what it was working on.
+		const parent = createAttachmentStore(root, "session-a");
+		await parent.attach(change("world#1"));
+
+		await inheritAttachments(root, "session-a", "session-b");
+
+		expect((await parent.list()).map((one) => one.change.label)).toEqual([
+			"world#1",
+		]);
+	});
+
+	it("never re-attaches a change the fork already holds", async () => {
+		// Inheriting runs at session start, and a session that has
+		// already said what it is working on has said something the
+		// parent cannot know better. Re-attaching is visible in the
+		// order, since attaching numbers a change above everything
+		// else: it would lift the change this session attached first
+		// above the one it attached second. The parent holds a change
+		// the fork does not, so the loop reaches a write either way and
+		// the case cannot pass by returning early.
+		const parent = createAttachmentStore(root, "session-a");
+		await parent.attach(change("world#1"));
+		await parent.attach(change("world#3"));
+		const fork = createAttachmentStore(root, "session-b");
+		await fork.attach(change("world#1"));
+		await fork.attach(change("world#2"));
+
+		const carried = await inheritAttachments(root, "session-a", "session-b");
+
+		// The fork's own two on top, in the order it made them, and the
+		// one change it did not already hold underneath both.
+		expect(carried).toBe(1);
+		expect((await fork.list()).map((one) => one.change.label)).toEqual([
+			"world#2",
+			"world#1",
+			"world#3",
+		]);
+	});
+
+	it("carries nothing when the parent had nothing", async () => {
+		// The common case, and it must not be an error: most sessions
+		// attach nothing at all.
+		const carried = await inheritAttachments(root, "never-existed", "fork");
+
+		expect(carried).toBe(0);
+	});
+
+	it("will not copy a session onto itself", async () => {
+		// Reading and writing the same directory, where every name
+		// collides with itself, is a way to lose an attachment rather
+		// than a way to keep one.
+		const mine = createAttachmentStore(root, "session-a");
+		await mine.attach(change("world#1"));
+
+		const carried = await inheritAttachments(root, "session-a", "session-a");
+
+		expect(carried).toBe(0);
+		expect(await mine.list()).toHaveLength(1);
+	});
+
+	it("keeps everything it inherited below what the fork said itself", async () => {
+		// The order attachments were made in is what picks the change a
+		// call acts on when it names none, and it is announced as the
+		// one attached most recently. So an inherited change ranking
+		// above what this session just said it was working on would act
+		// on the parent's work and call it the newest, which is false
+		// twice over. The parent's own order survives underneath.
+		const parent = createAttachmentStore(root, "session-a");
+		await parent.attach(change("older"));
+		await parent.attach(change("newer"));
+		const fork = createAttachmentStore(root, "session-b");
+		await fork.attach(change("said just now"));
+
+		await inheritAttachments(root, "session-a", "session-b");
+
+		expect((await fork.list()).map((one) => one.change.label)).toEqual([
+			"said just now",
+			"newer",
+			"older",
+		]);
+	});
+});
+
 describe("a session's directory does not outlive its usefulness", () => {
 	// Scoping per session means one directory per session, forever,
 	// unless something takes them back. This extension already decided
@@ -248,16 +364,25 @@ describe("a session's directory does not outlive its usefulness", () => {
 		expect(await readdir(root)).toEqual(["mine"]);
 	});
 
-	it("leaves a loose file where it lies", async () => {
+	it("leaves a loose file where it lies, however old", async () => {
 		// Everything attached before scoping existed sits flat in the
 		// root. It belongs to no session, so no session's rule should
 		// decide its fate, and deleting somebody's attachment to tidy up
 		// is a poor trade for the disk it returns.
-		await writeFile(join(root, "from_before_1.json"), "{}", "utf8");
+		//
+		// Putting these on the clock was tried and taken back out. An
+		// orphan is a file nothing has written since scoping landed, so
+		// its own age gives no grace to the population the grace was
+		// written for: every one of them would go on the first session
+		// start after such a sweep shipped.
+		const loose = join(root, "from_before_1.json");
+		await writeFile(loose, "{}", "utf8");
+		const when = new Date(Date.now() - 400 * 24 * 60 * 60 * 1000);
+		await utimes(loose, when, when);
 
 		const taken = await pruneAttachments(root, { olderThanMs: 0 });
 
 		expect(taken).toBe(0);
-		expect((await readdir(root)).length).toBe(1);
+		expect(await readdir(root)).toEqual(["from_before_1.json"]);
 	});
 });

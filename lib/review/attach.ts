@@ -48,10 +48,93 @@ export interface Attachment {
 export interface AttachmentStore {
 	/** Attach a change, or freshen one already attached. */
 	attach(change: ChangeRef): Promise<void>;
+	/**
+	 * Attach a change beneath everything already here.
+	 *
+	 * For a fork taking on what the session it came from was working
+	 * on. Those attachments happened before this session existed, and
+	 * the sequence is what decides which change a call acts on when it
+	 * names none, so one inherited from a parent must never outrank
+	 * something this session said itself.
+	 */
+	inherit(change: ChangeRef): Promise<void>;
 	/** Detach by label, reporting whether there was one to detach. */
 	detach(label: string): Promise<boolean>;
 	/** Newest first. */
 	list(): Promise<Attachment[]>;
+}
+
+/**
+ * Carry one session's attachments into another.
+ *
+ * For a fork, which is the same work continued under a new session
+ * id. Scoping attachments by session is what stopped one session
+ * retargeting another's round, and it made a fork start with nothing
+ * attached, so the first call after one either refused for want of a
+ * change or acted on whatever was named by hand. Neither is what
+ * forking means.
+ *
+ * A copy rather than a move: the session forked from is still there
+ * and still working on what it was working on.
+ *
+ * Never overwrites a change the fork already holds, and carried ones
+ * are attached oldest first, so the parent's order survives and
+ * anything the fork attaches afterwards outranks all of it. That
+ * ordering is the point rather than a detail: `changeInPlay` takes the
+ * most recent when a call names nothing, so an inherited change
+ * outranking what this session just said it was working on would act
+ * on the wrong one and announce it as the most recent.
+ *
+ * Written through the store's own `attach`, so the record's shape and
+ * the sequence rule stay in one place. Reading through a store and
+ * writing around it is how two spellings of one format come about.
+ *
+ * Awaited at session start, unlike the reclamations it sits beside.
+ * Those are about the machine; this is about the answer to the next
+ * call, and a fork whose first review call lands before the copy
+ * finishes sees the refusal this exists to prevent.
+ *
+ * Advisory in what it reads: what it cannot read it does not carry,
+ * and nothing about a fork fails over it.
+ *
+ * Returns how many were carried.
+ */
+export async function inheritAttachments(
+	root: string,
+	from: string,
+	to: string,
+): Promise<number> {
+	// Reading and writing one directory, where every name collides with
+	// itself, is a way to lose an attachment rather than keep one.
+	if (safeName(from) === safeName(to)) return 0;
+	const parent = createAttachmentStore(root, from);
+	const fork = createAttachmentStore(root, to);
+	let held: Attachment[];
+	let mine: Attachment[];
+	try {
+		held = await parent.list();
+		mine = await fork.list();
+	} catch {
+		// An unreadable directory carries nothing. An attachment is a
+		// convenience and never the record of anything.
+		return 0;
+	}
+	const already = new Set(mine.map((one) => changeKey(one.change)));
+	// Newest first, as `list` answers, since each one goes below the
+	// last: the parent's order comes out the same way up.
+	const carrying = held.filter((one) => !already.has(changeKey(one.change)));
+	let carried = 0;
+	for (const one of carrying) {
+		try {
+			await fork.inherit(one.change);
+			carried += 1;
+		} catch {
+			// One that cannot be written is one the fork attaches again
+			// by hand, which is a smaller loss than a fork that fails to
+			// start over a convenience.
+		}
+	}
+	return carried;
 }
 
 /**
@@ -72,8 +155,19 @@ export interface AttachmentStore {
  * flat in the root and belong to no session, so no session's rule
  * should decide their fate; deleting somebody's attachment to tidy up
  * is a poor trade for the disk it returns. They cost bytes and are
- * invisible to every scoped caller. An empty directory is swept, since
- * it holds nothing anybody can lose.
+ * invisible to every scoped caller.
+ *
+ * Putting them on this clock was tried and taken back out. An orphan
+ * is by definition a file nothing has written since scoping landed, so
+ * judging one by its own age gives no grace to the population it
+ * targets: on any machine where scoping shipped a month ago, every one
+ * of them goes on the first session start after the sweep ships. A
+ * month of grace that protects nobody it was written for is not an
+ * argument, and eighty kilobytes is not a reason to go looking for a
+ * better one.
+ *
+ * An empty directory is swept, since it holds nothing anybody can
+ * lose.
  *
  * Returns how many were taken back.
  */
@@ -210,23 +304,37 @@ export function createAttachmentStore(
 	// anything stable and unique to itself, which is a decision it can
 	// make and this cannot.
 	const mine = join(root, safeName(sessionId));
+
+	/** One attachment on disk, at the position it was given. */
+	async function write(change: ChangeRef, seq: number): Promise<void> {
+		await mkdir(mine, { recursive: true });
+		const record: Attachment = {
+			change,
+			attachedAt: new Date().toISOString(),
+			seq,
+		};
+		await writeFile(
+			join(mine, fileFor(change)),
+			JSON.stringify(record, null, 2),
+			"utf8",
+		);
+	}
+
 	return {
 		async attach(change) {
-			await mkdir(mine, { recursive: true });
-			const highest = (await this.list()).reduce(
-				(max, a) => Math.max(max, a.seq),
-				0,
-			);
-			const record: Attachment = {
-				change,
-				attachedAt: new Date().toISOString(),
-				seq: highest + 1,
-			};
-			await writeFile(
-				join(mine, fileFor(change)),
-				JSON.stringify(record, null, 2),
-				"utf8",
-			);
+			const held = await this.list();
+			const highest = held.reduce((max, a) => Math.max(max, a.seq), 0);
+			await write(change, highest + 1);
+		},
+
+		async inherit(change) {
+			// Below the lowest rather than above the highest, and below
+			// zero once nothing is lower. The counter only has to climb
+			// within a session for the order to mean what it says, and
+			// what a fork inherits happened before the session began.
+			const held = await this.list();
+			const lowest = held.reduce((min, a) => Math.min(min, a.seq), 1);
+			await write(change, lowest - 1);
 		},
 
 		async detach(label) {

@@ -25,6 +25,7 @@ import {
 	type CouncilRequest,
 	type CouncilResult,
 	openingRun,
+	thrownAt,
 } from "./council.js";
 import type { Participant } from "./identity.js";
 import type { AskRun } from "./run.js";
@@ -106,5 +107,9 @@ function settled(run: AskRun): AskRun {
 
 /** What went wrong, in whatever words the thrower used. */
 function why(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
+	// The same reading a waiting round gives. A detached round is the
+	// one whose diagnosis is hardest to come by, since nobody watched
+	// it fail and the warning is all there is, so it is the last place
+	// that should say less.
+	return thrownAt(error);
 }

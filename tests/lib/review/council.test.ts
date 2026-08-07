@@ -341,6 +341,89 @@ describe("when a participant fails", () => {
 		expect(runSummary(run).answered).toBe(1);
 	});
 
+	it("records where a thrown failure was thrown from", async () => {
+		// Measured. A council lost all seven reviewers to one TypeError,
+		// and the ledger held the message alone: "Cannot read properties
+		// of undefined (reading 'split')". A message with no kind and no
+		// frame turned a one-line diagnosis into an afternoon of reading
+		// every call to split in the dispatch path. The round is the
+		// expensive thing, and the ledger is all that survives it.
+		const { run } = await runCouncil(
+			{ roster, prompt: "p", seq: 1 },
+			deps({
+				hawk: { text: said("a") },
+				owl: () => {
+					const nothing = undefined as unknown as { at: () => void };
+					nothing.at();
+					return Promise.resolve({ text: said("unreachable") });
+				},
+			}),
+		);
+
+		const failure = run.outcomes[1]?.failure ?? "";
+		expect(failure).toContain("TypeError");
+		expect(failure).toContain("council.test.ts");
+		// And what it said, which is the part that was there before and
+		// must not be traded away for the part that is new.
+		expect(failure).toContain("Cannot read properties of undefined");
+	});
+
+	it("reports the frame it came from, not one quoted in the message", async () => {
+		// A subprocess failure arrives with the child's own stack inside
+		// the message. A frame is only a frame if it carries a place, or
+		// the first line of somebody else's stack gets reported as where
+		// this error happened, which is worse than saying nothing.
+		const { run } = await runCouncil(
+			{ roster, prompt: "p", seq: 1 },
+			deps({
+				hawk: { text: said("a") },
+				owl: () =>
+					Promise.reject(
+						new Error("the child said:\n    at somewhere/else.ts:1:1"),
+					),
+			}),
+		);
+
+		// The quoted line is still in the message, where the child put
+		// it. What matters is that the frame appended afterwards is this
+		// file, the place the error actually came from.
+		expect(run.outcomes[1]?.failure).toMatch(/\(.*council\.test\.ts:\d+/);
+	});
+
+	it("says what an error was wrapped around", async () => {
+		// A wrapped error on its own is exactly as uninformative as the
+		// bare message this change exists to improve on: the outer
+		// sentence names the layer that gave up, the inner one names
+		// what happened.
+		const { run } = await runCouncil(
+			{ roster, prompt: "p", seq: 1 },
+			deps({
+				hawk: { text: said("a") },
+				owl: () =>
+					Promise.reject(
+						new Error("could not dispatch", {
+							cause: new Error("spawn ENOENT"),
+						}),
+					),
+			}),
+		);
+
+		expect(run.outcomes[1]?.failure).toContain("could not dispatch");
+		expect(run.outcomes[1]?.failure).toContain("spawn ENOENT");
+	});
+
+	it("says nothing extra about a failure that came back as one", async () => {
+		// A runner reporting a failure has already said what it means,
+		// in a sentence written for a person. Decorating that with a
+		// kind and a frame it does not have would be noise.
+		const { run } = await runCouncil(
+			{ roster, prompt: "p", seq: 1 },
+			deps({ hawk: { text: said("a") }, owl: { failure: "overloaded" } }),
+		);
+
+		expect(run.outcomes[1]?.failure).toBe("overloaded");
+	});
+
 	it("still numbers the survivors in roster order", async () => {
 		const recorded: Finding[] = [];
 		await runCouncil(

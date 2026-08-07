@@ -375,10 +375,86 @@ async function asked(
 	try {
 		return await deps.ask(participant, prompt, context);
 	} catch (error) {
-		return {
-			failure: error instanceof Error ? error.message : String(error),
-		};
+		return { failure: thrownAt(error) };
 	}
+}
+
+/**
+ * What was thrown, said well enough to act on.
+ *
+ * A failure a runner reports is a sentence somebody wrote for a
+ * person, and it is left exactly as it is. A failure that was thrown
+ * is usually nobody's sentence: it is a message the runtime wrote,
+ * and on its own it does not say what kind of fault it was or where
+ * it happened.
+ *
+ * Measured, on a council that lost all seven reviewers to one
+ * TypeError. The ledger held "Cannot read properties of undefined
+ * (reading 'split')" and nothing else, which is true of every call to
+ * split in the dispatch path, so the diagnosis was an afternoon of
+ * reading them. The round is the expensive thing here and the ledger
+ * is what survives it, so the ledger has to carry enough to name the
+ * line.
+ *
+ * One frame, not the whole stack. The rest is this file's own
+ * machinery on every occasion, and a ledger entry is read in a table.
+ *
+ * A cause is carried when there is one. An error wrapped in another
+ * says the same little as the message this exists to improve on: the
+ * outer sentence names the layer that gave up and the inner one names
+ * what actually happened.
+ */
+export function thrownAt(error: unknown): string {
+	if (!(error instanceof Error)) return String(error);
+	const kind = error.name === "Error" ? "" : `${error.name}: `;
+	const frame = firstFrame(error.stack, `${error.name}: ${error.message}`);
+	const where = frame === undefined ? "" : ` (${frame})`;
+	const cause =
+		error.cause instanceof Error ? `, caused by ${thrownAt(error.cause)}` : "";
+	return `${kind}${error.message}${where}${cause}`;
+}
+
+/**
+ * The innermost frame of a stack, trimmed of its noise.
+ *
+ * The message is skipped rather than parsed past. A stack begins with
+ * the message, a message is free text, and one quoting a stack of its
+ * own is exactly what a failed subprocess hands back: its lines are
+ * shape-identical to real frames, so no pattern can tell them apart
+ * and the first quoted line would be reported as the place this error
+ * came from. What can be told apart is where the message ends, since
+ * the runtime wrote both.
+ *
+ * A frame still has to carry a location, for a runtime that leaves the
+ * message off the stack entirely and leaves nothing to skip.
+ *
+ * The path is said relative to where the process is running, when it
+ * is under it. An absolute path is somebody's home directory, and this
+ * string is read back by a model, shown on a panel and kept in a
+ * ledger that outlives the round.
+ */
+function firstFrame(
+	stack: string | undefined,
+	header: string,
+): string | undefined {
+	if (stack === undefined) return undefined;
+	const frames = stack.startsWith(header) ? stack.slice(header.length) : stack;
+	for (const line of frames.split("\n")) {
+		const trimmed = line.trim();
+		// Node writes a frame as "at name (file:line:col)" or, with no
+		// name to give, "at file:line:col". Either is worth keeping
+		// whole: the name says what was running and the location says
+		// where to look, and neither is much use alone.
+		if (!/^at .*:\d+:\d+\)?$/.test(trimmed)) continue;
+		return shortenPaths(trimmed.slice("at ".length));
+	}
+	return undefined;
+}
+
+/** The same frame, without the part of the path that is somebody's home. */
+function shortenPaths(frame: string): string {
+	const root = process.cwd();
+	return root === "/" ? frame : frame.split(`${root}/`).join("");
 }
 
 /**

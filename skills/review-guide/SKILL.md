@@ -558,6 +558,12 @@ listed rather than guessed between, and a change you name
 explicitly is never second-guessed. Acting on the wrong
 change is worse than being asked which one.
 
+An attachment belongs to the session that made it, so two
+sessions working on two changes never retarget each other.
+A fork inherits what it was forked from, since a fork is the
+same work continued, and anything the fork attaches itself
+outranks what it inherited. A resume keeps its own.
+
 Attaching does not cut a tree, and says so. A tree in a
 large repository costs minutes to materialize, and most of
 the time you only want the diff, which the provider serves
