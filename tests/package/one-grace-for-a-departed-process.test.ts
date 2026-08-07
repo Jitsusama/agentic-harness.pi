@@ -64,9 +64,14 @@ describe("the grace a departed process gets to flush", () => {
 			expect(text).not.toMatch(/(?:const|let)\s+STDIO_GRACE_MS\s*=/);
 			expect(text).toContain("STDIO_GRACE_MS");
 		}
-		// The two timers this governs, named where they are armed.
+		// The two timers this governs, armed on a name rather than a
+		// number. The parent arms its own on a checked copy, because a
+		// value that failed to survive a reload reaches setTimeout as
+		// undefined and means fire immediately, which is the one way
+		// this constant can go wrong in silence.
 		expect(readers["supervisor.mjs"]).toContain("}, STDIO_GRACE_MS);");
-		expect(readers["supervisor.ts"]).toContain("}, STDIO_GRACE_MS);");
+		expect(readers["supervisor.ts"]).toMatch(/fromScript\(\s*STDIO_GRACE_MS,/);
+		expect(readers["supervisor.ts"]).toContain("}, drainMs);");
 	});
 
 	it("is not overtaken by the report a stop arms behind it", () => {

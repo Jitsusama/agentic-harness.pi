@@ -83,6 +83,7 @@ import {
 	summarizeStreamActivity,
 	WRAP_UP_SUFFIX,
 } from "../../../lib/subagent/index.js";
+import { fromScript } from "../../../lib/subagent/runpi/fresh.js";
 import { count } from "../../../lib/ui/count.js";
 import {
 	type ReviewerBudget,
@@ -1401,7 +1402,17 @@ function journalPack(): string {
 	// then permits that tool by name, and a rename that moves one
 	// without the other leaves a reviewer told to call something
 	// nothing has registered.
-	return join(here, "..", "..", "..", ...JOURNAL_PACK_PATH.split("/"));
+	// Checked at the read, because this is the exact line that took a
+	// council down: the constant had just been added to a script
+	// module, the session had reloaded rather than restarted, and
+	// splitting undefined threw once per reviewer with nothing in the
+	// message naming a module or a remedy.
+	const path = fromScript(
+		JOURNAL_PACK_PATH,
+		"JOURNAL_PACK_PATH",
+		"lib/subagent/runpi/journal.mjs",
+	);
+	return join(here, "..", "..", "..", ...path.split("/"));
 }
 
 /**

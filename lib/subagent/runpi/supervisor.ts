@@ -16,7 +16,24 @@ import type { RunPi, RunPiResult } from "../subagent.js";
 // The same grace the supervisor gives its reviewer, read from the
 // same place. This is one hazard a level apart, and holding the
 // measurement twice is how the two came to disagree.
+import { fromScript } from "./fresh.js";
 import { STDIO_GRACE_MS } from "./grace.mjs";
+
+/**
+ * The grace, checked once where it enters TypeScript.
+ *
+ * A reload cannot refresh a script module, so this can arrive as
+ * `undefined` in a session that reloaded after it was added, and this
+ * is the value where that would be silent: `setTimeout` reads
+ * `undefined` as fire immediately, so the drain would become no drain
+ * and the answer it exists to save would go missing with no warning
+ * anywhere.
+ */
+const drainMs = fromScript(
+	STDIO_GRACE_MS,
+	"STDIO_GRACE_MS",
+	"lib/subagent/runpi/grace.mjs",
+);
 
 /** Subset of `child_process.spawn`'s signature we depend on. */
 export type SupervisorSpawnFn = (
@@ -511,7 +528,7 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 							stderrTail,
 						};
 					});
-				}, STDIO_GRACE_MS);
+				}, drainMs);
 				grace.unref?.();
 			});
 			supervisor.once("close", (code) => {
@@ -591,7 +608,7 @@ export function parentGraceMs(
 	if (configured !== undefined) return configured;
 	return Math.max(
 		SUPERVISOR_GRACE_MS,
-		killGraceMs + STDIO_GRACE_MS + FINISH_WRITE_MARGIN_MS,
+		killGraceMs + drainMs + FINISH_WRITE_MARGIN_MS,
 	);
 }
 
