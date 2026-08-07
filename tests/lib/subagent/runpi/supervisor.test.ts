@@ -1401,13 +1401,20 @@ describe("a reviewer that leaves something running behind it", () => {
 
 		// The answer still arrives; only the waiting is bounded.
 		expect(result.finalAssistantText).toBe("answered");
-		// The one case here that really does wait the drain out, so it
-		// is the one whose slack the drain eats: at two seconds this had
-		// thirteen spare, and at five it has ten. Still well inside the
-		// 30s the supervisor was told it could take, which is what makes
-		// this the grace path rather than a timeout, and stated against
-		// the drain so the next raise moves it.
-		expect(Date.now() - started).toBeLessThan(STDIO_GRACE_MS + 10_000);
+		// Which road it came home by, said outright rather than inferred
+		// from a stopwatch. This asked for a duration, and the duration
+		// is the one thing here that moves with the machine: the drain
+		// went from two seconds to five, the slack went from thirteen to
+		// ten, and a saturated suite spent 15.2s of it and failed a case
+		// that passes alone. The distinction it is drawing is not close:
+		// the grace path warns about pipes somebody left open, and the
+		// timeout it rules out never warns that at all.
+		expect(result.warnings?.join(" ") ?? "").toContain("left its output open");
+		expect(result.state).not.toBe("timeout");
+		// A backstop rather than a measurement, so a genuinely wedged
+		// run still fails here instead of hanging: the supervisor was
+		// told it could take thirty seconds and this must not be that.
+		expect(Date.now() - started).toBeLessThan(28_000);
 	});
 });
 

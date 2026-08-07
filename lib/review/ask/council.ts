@@ -135,6 +135,16 @@ export type AskAnswer =
 			 * free to reword.
 			 */
 			advisory?: string;
+			/**
+			 * What it burned before it failed.
+			 *
+			 * A failure is not a free participant, and is usually the
+			 * dearest one in the round: a reviewer that died at its
+			 * deadline spent the whole budget to produce nothing. Dropped
+			 * here, a round's cost is a total with its largest terms
+			 * missing, which is worse than no total at all.
+			 */
+			usage?: AskUsage;
 	  };
 
 /**
@@ -565,6 +575,7 @@ export async function recordReply(
 			findingIds: [],
 			failure: answer.failure,
 			...(answer.advisory === undefined ? {} : { advisory: answer.advisory }),
+			...(answer.usage === undefined ? {} : { usage: answer.usage }),
 		};
 	}
 

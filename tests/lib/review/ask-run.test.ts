@@ -247,6 +247,7 @@ describe("what a round cost", () => {
 		// look like the cheap ones.
 		const summary = runSummary(
 			run({
+				participants: [hawk],
 				outcomes: [
 					{
 						participantId: "hawk",
@@ -260,6 +261,95 @@ describe("what a round cost", () => {
 
 		expect(summary.tokens).toBe(900_000);
 		expect(summary.cost).toBeCloseTo(3.5);
+	});
+
+	it("says at least, when somebody who was asked never priced", () => {
+		// Six of seven reporting is not what six of seven cost, and the
+		// missing one is likelier to be a reviewer that died, which is
+		// the dear kind. Printing a subtotal in the words of a total
+		// understates in the direction that matters.
+		const said = describeRun(
+			run({
+				participants: [hawk, owl],
+				outcomes: [
+					{
+						participantId: "hawk",
+						findingIds: [1],
+						usage: { tokens: 1_000, cost: 2 },
+					},
+					{ participantId: "owl", findingIds: [2] },
+				],
+			}),
+		);
+
+		expect(said).toContain("at least 1,000 tokens, $2.00");
+	});
+
+	it("does not say at least when everybody priced", () => {
+		const said = describeRun(
+			run({
+				participants: [hawk],
+				outcomes: [
+					{
+						participantId: "hawk",
+						findingIds: [1],
+						usage: { tokens: 1_000, cost: 2 },
+					},
+				],
+			}),
+		);
+
+		expect(said).not.toContain("at least");
+	});
+
+	it("never rounds a real cost down to nothing", () => {
+		// Two decimals turn a fifth of a cent into $0.00, which claims
+		// the round was free. It was billed.
+		const said = describeRun(
+			run({
+				participants: [hawk],
+				outcomes: [
+					{
+						participantId: "hawk",
+						findingIds: [1],
+						usage: { tokens: 12, cost: 0.002 },
+					},
+				],
+			}),
+		);
+
+		expect(said).toContain("under $0.01");
+		expect(said).not.toContain("$0.00");
+	});
+
+	it("keeps what a retried attempt cost", () => {
+		// The findings are replaced, because the new attempt supersedes
+		// the old one. The money is not: it was spent, and a reviewer
+		// asked twice is why the round cost what it did. This used to
+		// fall after a retry, so the rounds with retries in them, which
+		// are the expensive ones, under-reported.
+		const before = run({
+			participants: [hawk],
+			outcomes: [
+				{
+					participantId: "hawk",
+					findingIds: [],
+					failure: "it died",
+					usage: { tokens: 900, cost: 3 },
+				},
+			],
+		});
+
+		const after = substituteOutcome(before, {
+			participantId: "hawk",
+			findingIds: [1],
+			usage: { tokens: 100, cost: 1 },
+		});
+
+		expect(runSummary(after).cost).toBeCloseTo(4);
+		expect(runSummary(after).tokens).toBe(1_000);
+		// And the retry's own findings are the ones that stand.
+		expect(after.outcomes[0]?.findingIds).toEqual([1]);
 	});
 
 	it("says nothing rather than zero when nobody reported", () => {
@@ -276,6 +366,7 @@ describe("what a round cost", () => {
 	it("is in the line a reader is handed", () => {
 		const said = describeRun(
 			run({
+				participants: [hawk],
 				outcomes: [
 					{
 						participantId: "hawk",

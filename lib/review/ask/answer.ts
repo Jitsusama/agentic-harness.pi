@@ -116,8 +116,25 @@ function spent(summary: RunSummary): string {
 	// cannot compare.
 	if (summary.tokens !== undefined)
 		said.push(`${grouped(summary.tokens)} tokens`);
-	if (summary.cost !== undefined) said.push(`$${summary.cost.toFixed(2)}`);
-	return said.length === 0 ? "" : `, ${said.join(", ")}`;
+	if (summary.cost !== undefined) said.push(money(summary.cost));
+	if (said.length === 0) return "";
+	// "At least", when somebody who was asked reported nothing. A
+	// subtotal in the words of a total is the same lie as a zero for a
+	// round nobody priced, and it runs the wrong way: the participants
+	// most likely to be missing are the ones that died.
+	const so = summary.partlyPriced === true ? "at least " : "";
+	return `, ${so}${said.join(", ")}`;
+}
+
+/**
+ * A cost, without rounding a real one away.
+ *
+ * Two decimals turn anything under half a cent into "$0.00", which is
+ * the one claim this refuses to make: that a round was free when it
+ * was billed.
+ */
+function money(cost: number): string {
+	return cost > 0 && cost < 0.005 ? "under $0.01" : `$${cost.toFixed(2)}`;
 }
 
 /** A whole number with thousands separated, the same way everywhere. */

@@ -156,6 +156,16 @@ export interface RunSummary {
 	tokens?: number;
 	/** What it came to in money, on the same terms as `tokens`. */
 	cost?: number;
+	/**
+	 * Whether anybody who was asked is missing from those totals.
+	 *
+	 * A round where six of seven reported is not a round that cost the
+	 * sum of six, and printing one as the other is the same lie as
+	 * printing zero for a round nobody priced. The participants most
+	 * likely to be missing are the ones that died, which are the dear
+	 * ones, so the error runs the wrong way.
+	 */
+	partlyPriced?: boolean;
 }
 
 /** How many digits a sequence is padded to, so ids sort as text. */
@@ -312,6 +322,9 @@ export function runSummary(run: AskRun): RunSummary {
 	// participant that dropped, and on an open one it is a participant
 	// nobody has asked about yet.
 	const silent = run.participants.length - answered - reported;
+	const priced = run.outcomes.filter(
+		(outcome) => outcome.usage !== undefined,
+	).length;
 	return {
 		asked: run.participants.length,
 		answered,
@@ -320,7 +333,47 @@ export function runSummary(run: AskRun): RunSummary {
 		findings,
 		...(tokens === undefined ? {} : { tokens }),
 		...(cost === undefined ? {} : { cost }),
+		...(priced > 0 && priced < run.participants.length
+			? { partlyPriced: true }
+			: {}),
 	};
+}
+
+/**
+ * A retried outcome, carrying what the attempt it replaces cost.
+ *
+ * The findings are replaced, because the new attempt supersedes the
+ * old one and the round should not show both. The money is not: it
+ * was spent, and the reviewer being asked twice is precisely why the
+ * round cost what it did. Replacing the usage as well made the total
+ * fall after money had gone out, so the rounds with retries in them,
+ * which are the expensive ones, were the ones that under-reported.
+ */
+function billedWith(
+	outcome: ParticipantOutcome,
+	replaced: ParticipantOutcome,
+): ParticipantOutcome {
+	const before = replaced.usage;
+	if (before === undefined) return outcome;
+	const tokens = sum(outcome.usage?.tokens, before.tokens);
+	const cost = sum(outcome.usage?.cost, before.cost);
+	if (tokens === undefined && cost === undefined) return outcome;
+	return {
+		...outcome,
+		usage: {
+			...(tokens === undefined ? {} : { tokens }),
+			...(cost === undefined ? {} : { cost }),
+		},
+	};
+}
+
+/** Two numbers added, where absent still means not told. */
+function sum(
+	one: number | undefined,
+	two: number | undefined,
+): number | undefined {
+	if (one === undefined) return two;
+	return two === undefined ? one : one + two;
 }
 
 /** The identity a run asked under this id, if it asked one. */
@@ -360,7 +413,9 @@ export function substituteOutcome(
 	const outcomes =
 		at === -1
 			? [...run.outcomes, outcome]
-			: run.outcomes.map((held, index) => (index === at ? outcome : held));
+			: run.outcomes.map((held, index) =>
+					index === at ? billedWith(outcome, held) : held,
+				);
 
 	// Filling the last gap in an interrupted round settles it.
 	//

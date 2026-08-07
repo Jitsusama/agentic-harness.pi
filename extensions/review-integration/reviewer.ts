@@ -537,6 +537,12 @@ export function answerFromReviewer(
 		return {
 			failure: failureFrom(result),
 			...(advisory === undefined ? {} : { advisory }),
+			// What it burned before it died, which the runner knows and
+			// this was throwing away. A reviewer that ran fifteen minutes
+			// and produced nothing is the most expensive outcome there
+			// is, and a round that drops its usage reports the cheapest
+			// number for the worst case.
+			...usageOf(result),
 		};
 	}
 
