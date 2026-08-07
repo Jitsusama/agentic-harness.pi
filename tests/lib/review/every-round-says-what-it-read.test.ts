@@ -50,6 +50,26 @@ function answering(text: string) {
 	};
 }
 
+/**
+ * The wire shape a critique reads.
+ *
+ * Taken from the reader rather than from another test: the key is
+ * `critiques` and each entry names `findingId`, `position` and
+ * `rationale`. A fixture in any other shape parses into nothing, and
+ * the round then proves the witness on its parse-failure path, which
+ * is not the path anybody cares about.
+ */
+const POSITION = JSON.stringify({
+	critiques: [{ findingId: 1, position: "agree", rationale: "it does leak" }],
+});
+
+/** The wire shape an audit reads: `audits`, with a `threadIndex`. */
+const STANDING = JSON.stringify({
+	audits: [
+		{ threadIndex: 1, standing: "addressed", rationale: "fixed in place" },
+	],
+});
+
 /** The wire shape a reviewer or judge answers with. */
 const FOUND = JSON.stringify({
 	findings: [
@@ -82,7 +102,7 @@ describe("a round records the commit it was formed against", () => {
 	});
 
 	it("on a critique", async () => {
-		const { run } = await runCritique(
+		const { run, critiques } = await runCritique(
 			{
 				roster: { reviewers: [hawk] },
 				prompt: "p",
@@ -90,18 +110,17 @@ describe("a round records the commit it was formed against", () => {
 				findingIds: [1],
 				witness: WITNESS,
 			},
-			answering(
-				JSON.stringify({
-					positions: [{ finding: 1, position: "agree", reasoning: "yes" }],
-				}),
-			) as never,
+			answering(POSITION) as never,
 		);
 
 		expect(run.witness).toBe(WITNESS);
+		// And on a round that read its answer, not one that fell through
+		// the parse-failure path with nothing in it.
+		expect(critiques).toHaveLength(1);
 	});
 
 	it("on an audit", async () => {
-		const { run } = await runAudit(
+		const { run, audits } = await runAudit(
 			{
 				auditor: hawk,
 				prompt: "p",
@@ -109,16 +128,11 @@ describe("a round records the commit it was formed against", () => {
 				threadIndices: [1],
 				witness: WITNESS,
 			},
-			answering(
-				JSON.stringify({
-					standings: [
-						{ thread: 1, standing: "addressed", reasoning: "it was" },
-					],
-				}),
-			) as never,
+			answering(STANDING) as never,
 		);
 
 		expect(run.witness).toBe(WITNESS);
+		expect(audits).toHaveLength(1);
 	});
 
 	it("including a kind these cases have not heard of", async () => {
@@ -140,7 +154,13 @@ describe("a round records the commit it was formed against", () => {
 		for (const name of readdirSync(dir)) {
 			if (!name.endsWith(".ts")) continue;
 			const source = readFileSync(join(dir, name), "utf8");
-			if (!/^\t+round: "[a-z]+",$/m.test(source)) continue;
+			// Every builder stamps a run with the moment it started, and
+			// that is what identifies one. Looking for the round's kind as
+			// a literal missed the council, which takes it from the
+			// opening and writes it shorthand: the scan could not see the
+			// one builder that was already right, and the count it was
+			// checked against happened to match without it.
+			if (!source.includes("startedAt: startedAt.toISOString()")) continue;
 			builders.push(name);
 			// The stack round is the one honest exception, and it is
 			// checked rather than skipped: it holds every change in a
@@ -149,13 +169,27 @@ describe("a round records the commit it was formed against", () => {
 			// witness per change instead, which is the same promise in
 			// the only shape that can be true there.
 			const carries = source.includes(
-				name === "stack-round.ts" ? "witnessFor" : "witness: request.witness",
+				name === "stack-round.ts"
+					? "request.witnessFor,"
+					: name === "council.ts"
+						? "...witnessed"
+						: "witness: request.witness",
 			);
 			expect({ name, carries }).toEqual({ name, carries: true });
 		}
 
-		// The canary: a scan that matched nothing would pass forever.
-		expect(builders.length).toBeGreaterThanOrEqual(4);
+		// The canary, naming them rather than counting them, because a
+		// count is what let a missing builder look like a full sweep.
+		// `collect.ts` is not among them and should not be: it settles a
+		// round somebody else formed, spreading what that round already
+		// held, so it inherits the witness rather than choosing one.
+		expect(builders.sort()).toEqual([
+			"audit.ts",
+			"council.ts",
+			"critique.ts",
+			"judge.ts",
+			"stack-round.ts",
+		]);
 	});
 
 	it("and says nothing when it was given nothing", async () => {

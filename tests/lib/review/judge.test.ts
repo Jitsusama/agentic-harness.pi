@@ -51,35 +51,10 @@ function deps(
 
 const judge: Participant = { id: "wren", model: "opus" };
 
-describe("a judge round", () => {
-	it("records the commit it was formed against", async () => {
-		// The judge already anchors its findings against this, so it is
-		// not a new fact, only one the run was throwing away. Measured:
-		// every judge round in the ledger, sixteen of sixteen, cannot
-		// say which commit it judged, while every council beside them
-		// can. A collect reads the witness off the run to anchor what it
-		// recovers, so a judge round settled later loses across a
-		// force-push what a council round keeps.
-		const { run } = await runJudge(
-			{ judge, prompt: "p", seq: 1, witness: "abc1234" },
-			deps({ text: consolidated() }),
-		);
-
-		expect(run.witness).toBe("abc1234");
-	});
-
-	it("says nothing about a commit when it was given none", async () => {
-		// A provider that does not report a head commit is ordinary, and
-		// the field being absent is how a reader tells that from a round
-		// that knew and did not say.
-		const { run } = await runJudge(
-			{ judge, prompt: "p", seq: 1 },
-			deps({ text: consolidated() }),
-		);
-
-		expect(run.witness).toBeUndefined();
-	});
-});
+// What a judge round records about the commit it read lives with the
+// other round kinds, in every-round-says-what-it-read.test.ts, since
+// the fact worth holding is that they all do it and not that this one
+// does.
 
 describe("asking a judge", () => {
 	it("asks the judge and nobody else", async () => {
