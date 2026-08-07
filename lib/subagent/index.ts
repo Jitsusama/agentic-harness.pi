@@ -48,6 +48,14 @@ export {
 	SUBAGENT_REGISTER_DEFAULT_EXTENSION,
 	SUBAGENT_REGISTER_DEFAULT_SKILL,
 } from "./events.js";
+// Whether the install a session pins its children to is still there,
+// and how to tell a child that died of its absence. Exported because
+// the round above has to say that once rather than per reviewer, and
+// only this side can tell a broken session from a broken reviewer.
+export {
+	detectStaleInstallInStderr,
+	STALE_RUNTIME_WARNING_PREFIX,
+} from "./health.js";
 // Parent-install resolution (pins subagents to the running install).
 export {
 	getParentPiInstall,

@@ -52,6 +52,18 @@ describe("the round's answer", () => {
 		// cannot work. The library half is tested where it lives; this
 		// is the half that was missing, and being called is all of it.
 		expect(source).toContain("staleRuntimeAdvisory(run)");
+		// And the roll call goes through the renderer that collapses a
+		// repeat of it, since printing the paragraph again under every
+		// name is how hoisting made the output longer rather than
+		// shorter the first time.
+		expect(source).toContain("failureLines(run)");
+	});
+
+	it("shows it on a retry too", () => {
+		// Retrying is what a reader does after being told a reviewer
+		// failed, so it is the last place that should withhold the one
+		// diagnosis saying a retry cannot work.
+		expect(source).toContain("advisoryFor(updated)");
 	});
 });
 

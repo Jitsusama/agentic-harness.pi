@@ -120,7 +120,23 @@ export type AskAnswer =
 			/** Where the answer was kept, when the runner kept it. */
 			answerPath?: string;
 	  }
-	| { failure: string };
+	| {
+			failure: string;
+			/**
+			 * Something true of the session rather than of this
+			 * participant, which the runner knew and this cannot.
+			 *
+			 * A stale pi install is the case it exists for: every
+			 * reviewer fails with the same sentence, retrying is the one
+			 * thing that cannot work, and only the side that spawned the
+			 * process can tell that from an ordinary crash. Carried as a
+			 * fact the runner states rather than left for a reader to
+			 * infer from the shape of a message: matching on words means
+			 * one library string-matching another's prose, and both are
+			 * free to reword.
+			 */
+			advisory?: string;
+	  };
 
 /**
  * What a round can tell a runner about itself.
@@ -405,13 +421,25 @@ async function asked(
  * what actually happened.
  */
 export function thrownAt(error: unknown): string {
-	if (!(error instanceof Error)) return String(error);
+	// A thrown object that is not an Error still usually says
+	// something, and `String` of one is "[object Object]", the worst
+	// answer available: it names neither what was thrown nor where.
+	// Measured on the detached path, where a health check threw a
+	// plain record and seven reviewers were reported that way.
+	if (!(error instanceof Error)) return said(error) ?? String(error);
 	const kind = error.name === "Error" ? "" : `${error.name}: `;
 	const frame = firstFrame(error.stack, `${error.name}: ${error.message}`);
 	const where = frame === undefined ? "" : ` (${frame})`;
 	const cause =
 		error.cause instanceof Error ? `, caused by ${thrownAt(error.cause)}` : "";
 	return `${kind}${error.message}${where}${cause}`;
+}
+
+/** Whatever a thrown non-Error has to say for itself. */
+function said(thrown: unknown): string | undefined {
+	if (typeof thrown !== "object" || thrown === null) return undefined;
+	const { message } = thrown as { message?: unknown };
+	return typeof message === "string" && message !== "" ? message : undefined;
 }
 
 /**
@@ -537,6 +565,7 @@ export async function recordReply(
 			participantId: participant.id,
 			findingIds: [],
 			failure: answer.failure,
+			...(answer.advisory === undefined ? {} : { advisory: answer.advisory }),
 		};
 	}
 

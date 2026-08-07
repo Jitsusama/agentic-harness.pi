@@ -619,7 +619,17 @@ export async function startReviewer(
 	);
 
 	const runtimeError = (options.checkRuntime ?? checkSubagentRuntime)();
-	if (runtimeError !== null) throw runtimeError;
+	// Thrown as an Error, carrying the diagnosis as its message. This
+	// threw the plain record instead, and every caller that reports a
+	// thrown failure reads the message off an Error, so a detached
+	// round whose install had gone recorded seven reviewers as
+	// "[object Object]": no path, no reason, no restart, on the one
+	// path where nobody watched it happen.
+	if (runtimeError !== null) {
+		throw Object.assign(new Error(runtimeError.message), {
+			path: runtimeError.path,
+		});
+	}
 
 	const defaults = getSubagentDefaults();
 	const extraExtensions = dedupePaths([

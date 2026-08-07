@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { AskRun, ParticipantIdentity } from "../../../lib/review/index.js";
 import {
 	askedOf,
+	failureLines,
 	newRunId,
 	runSummary,
 	staleRuntimeAdvisory,
@@ -319,20 +320,81 @@ describe("a round that died because pi is no longer where it was", () => {
 		"etc.) mid-session; restart pi to load the new binary. Subagent " +
 		"dispatch will fail until you do.";
 
+	/** A round where every reviewer died of the same broken session. */
+	function wrecked(): AskRun {
+		return run({
+			outcomes: [
+				{
+					participantId: "hawk",
+					findingIds: [],
+					failure: stale,
+					advisory: stale,
+				},
+				{
+					participantId: "owl",
+					findingIds: [],
+					failure: stale,
+					advisory: stale,
+				},
+			],
+		});
+	}
+
 	it("says it once, naming the install and the way out", () => {
-		const said = staleRuntimeAdvisory(
+		const said = staleRuntimeAdvisory(wrecked());
+
+		expect(said).toContain("pi-0.83.0");
+		expect(said).toContain("restart");
+	});
+
+	it("is said once in the whole round, not once per participant", () => {
+		// The measurement that matters, and the one the first version of
+		// this got wrong by counting inside the advisory itself, which
+		// is one sentence by construction. What a reader sees is the
+		// advisory plus the roll call, and hoisting a sentence already
+		// on every outcome made a seven-reviewer round eight copies
+		// long rather than one.
+		const round = wrecked();
+		const whole = [staleRuntimeAdvisory(round), ...failureLines(round)].join(
+			"\n",
+		);
+
+		expect(whole.match(/pi-0\.83\.0/g)).toHaveLength(1);
+	});
+
+	it("still names every reviewer that failed", () => {
+		// Collapsing the repetition must not collapse the roll call. A
+		// round that hid who was asked would read as one that never ran.
+		const lines = failureLines(wrecked());
+
+		expect(lines).toHaveLength(2);
+		expect(lines[0]).toContain("hawk");
+		expect(lines[1]).toContain("owl");
+	});
+
+	it("prints a failure of its own in full", () => {
+		// Only the repeated sentence is collapsed. A reviewer that died
+		// of something else in the same round still says what.
+		const lines = failureLines(
 			run({
 				outcomes: [
-					{ participantId: "hawk", findingIds: [], failure: stale },
-					{ participantId: "owl", findingIds: [], failure: stale },
+					{
+						participantId: "hawk",
+						findingIds: [],
+						failure: stale,
+						advisory: stale,
+					},
+					{
+						participantId: "owl",
+						findingIds: [],
+						failure: "the model was overloaded",
+					},
 				],
 			}),
 		);
 
-		expect(said).toContain("pi-0.83.0");
-		expect(said).toContain("restart");
-		// One sentence for the round, not one per participant.
-		expect(said?.match(/pi-0\.83\.0/g)).toHaveLength(1);
+		expect(lines[0]).toBe("hawk: as above.");
+		expect(lines[1]).toBe("owl: the model was overloaded");
 	});
 
 	it("says nothing when no participant died of it", () => {
@@ -340,10 +402,10 @@ describe("a round that died because pi is no longer where it was", () => {
 	});
 
 	it("says nothing for a failure that merely mentions a path", () => {
-		// The mark is the health check's own prefix. A reviewer whose own
-		// message quotes a package path is a different event, and telling
-		// somebody to restart pi over it costs them the session this
-		// exists to save.
+		// It is a fact the dispatching side states, not a shape read out
+		// of prose. A reviewer whose own message quotes a package path
+		// is a different event, and telling somebody to restart pi over
+		// it costs them the session this exists to save.
 		expect(
 			staleRuntimeAdvisory(
 				run({
@@ -351,7 +413,7 @@ describe("a round that died because pi is no longer where it was", () => {
 						{
 							participantId: "hawk",
 							findingIds: [],
-							failure: "read /x/.pi/pkg/pi-0.83.0/skills/foo failed",
+							failure: `${stale} (quoted by a reviewer, not diagnosed)`,
 						},
 					],
 				}),
@@ -368,7 +430,12 @@ describe("a round that died because pi is no longer where it was", () => {
 			run({
 				outcomes: [
 					{ participantId: "hawk", findingIds: [1] },
-					{ participantId: "owl", findingIds: [], failure: stale },
+					{
+						participantId: "owl",
+						findingIds: [],
+						failure: stale,
+						advisory: stale,
+					},
 				],
 			}),
 		);

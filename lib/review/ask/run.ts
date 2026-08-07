@@ -43,6 +43,13 @@ export interface ParticipantOutcome {
 	/** Why nothing came back, when nothing did. */
 	failure?: string;
 	/**
+	 * Something true of the session rather than of this participant.
+	 *
+	 * Stated by whatever dispatched the round, since only that side
+	 * can tell a broken session from a broken reviewer.
+	 */
+	advisory?: string;
+	/**
 	 * Which limit took this reviewer away, when one did.
 	 *
 	 * Recorded even when findings came back, because a stopped
@@ -154,43 +161,53 @@ export function newRunId(round: AskRound, at: Date, seq: number): string {
 }
 
 /**
- * The mark the runtime health check puts on a failure it diagnosed.
- *
- * Matched rather than re-derived, so this reports what the check
- * concluded instead of forming its own opinion from a path in a
- * message. A reviewer whose own error quotes an install path is a
- * different event, and telling somebody to restart pi over it costs
- * them the session this exists to save.
- */
-const STALE_RUNTIME_MARK = "Pi runtime stale:";
-
-/**
- * A round wrecked by a pi install that is no longer there, said once.
+ * What is wrong with the session rather than with the reviewers.
  *
  * Measured. Pi upgraded mid-session and deleted the versioned install
  * directory the running session pins its children to, so every
- * reviewer crashed at startup reading a theme from a path that had
- * gone. The health check catches exactly this and writes a sentence
- * naming the path and the way out, the runner puts that sentence on
- * every participant, and the round printed it once per participant as
- * though seven separate things had gone wrong.
+ * reviewer died on dispatch. The runner diagnosed it correctly and
+ * put the same sentence on all seven, and the round printed it seven
+ * times as though seven separate things had gone wrong.
  *
  * The repetition is not the cost. Seven failures beside a retry hint
  * read as seven flaky reviewers, and retrying is the one thing that
- * cannot work: it will keep failing until the session restarts. So
- * this is said once, above the failures, and the per-participant
- * lines stay as they are, because a reader still has to see who was
- * asked and what became of each.
+ * cannot work: it fails identically until the session restarts.
+ *
+ * Read off the outcome rather than sniffed out of the message. This
+ * matched a prefix first, which made one library string-match another
+ * library's prose, and both are free to reword: the diagnosis is a
+ * fact the dispatching side knows, so it is carried as one.
  *
  * One participant is enough. A stale install kills every reviewer it
- * reaches, and a round where a single dispatch raced the deletion is
+ * reaches, and a round where one dispatch raced the deletion is
  * exactly as unrecoverable by retry as one where all seven did.
  */
 export function staleRuntimeAdvisory(run: AskRun): string | undefined {
-	const hit = run.outcomes.find((one) =>
-		one.failure?.startsWith(STALE_RUNTIME_MARK),
-	);
-	return hit?.failure;
+	return run.outcomes.find((one) => one.advisory !== undefined)?.advisory;
+}
+
+/**
+ * One line for each participant that failed, without saying the same
+ * paragraph twice.
+ *
+ * The roll call has to survive an advisory: a reader needs to see who
+ * was asked and that none of them answered, or the round looks like it
+ * never ran. What it does not need is the advisory repeated under
+ * every name, which is what hoisting a sentence already on every
+ * outcome would otherwise produce, one copy longer than before.
+ */
+export function failureLines(run: AskRun): string[] {
+	const hoisted = staleRuntimeAdvisory(run);
+	const lines: string[] = [];
+	for (const outcome of run.outcomes) {
+		if (outcome.failure === undefined) continue;
+		lines.push(
+			outcome.failure === hoisted
+				? `${outcome.participantId}: as above.`
+				: `${outcome.participantId}: ${outcome.failure}`,
+		);
+	}
+	return lines;
 }
 
 /**

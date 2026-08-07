@@ -31,9 +31,11 @@ import type {
 	RunReviewerResult,
 } from "../../lib/subagent/index.js";
 import {
+	detectStaleInstallInStderr,
 	mergeResumeOutcome,
 	mergeWrapUpOutcome,
 	RESUME_SUFFIX,
+	STALE_RUNTIME_WARNING_PREFIX,
 	supervisorStanding,
 	systemFacts,
 	WRAP_UP_SUFFIX,
@@ -504,7 +506,11 @@ export function answerFromReviewer(
 		(result.exitCode !== 0 || result.error !== undefined) &&
 		result.finalAssistantText.trim() === "";
 	if (died && recorded.recorded === undefined) {
-		return { failure: failureFrom(result) };
+		const advisory = sessionWide(result);
+		return {
+			failure: failureFrom(result),
+			...(advisory === undefined ? {} : { advisory }),
+		};
 	}
 
 	return {
@@ -590,6 +596,29 @@ function failureFrom(result: RunReviewerResult): string {
 	return said === "" || said === undefined
 		? `${result.reviewerId} exited ${result.exitCode} without answering.`
 		: said;
+}
+
+/**
+ * What is wrong with the session rather than with this reviewer.
+ *
+ * Two ways to learn the same thing, and the round needs both. The
+ * health check refuses to spawn when an install path has gone, and
+ * puts its sentence in the warnings; a child that got as far as
+ * starting and then died on the same missing directory says so only
+ * in its stderr, which the second detector reads. Watching for the
+ * first alone means a round that crashed a hair later than the probe
+ * expected is diagnosed as seven broken reviewers.
+ *
+ * Said as a fact rather than left in the prose. Only this side knows
+ * the difference between a session that cannot spawn anything and a
+ * reviewer that fell over, and a round should not have to guess it
+ * back out of a message.
+ */
+function sessionWide(result: RunReviewerResult): string | undefined {
+	const warned = result.warnings?.find((one) =>
+		one.startsWith(STALE_RUNTIME_WARNING_PREFIX),
+	);
+	return warned ?? detectStaleInstallInStderr(result.stderr) ?? undefined;
 }
 
 /** What it cost, flattened to the two numbers a round records. */
