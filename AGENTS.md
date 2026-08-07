@@ -513,6 +513,35 @@ been fixed hours earlier. Before treating a live tool run as
 evidence, `/reload`, or check the claim against the test
 suite, which always runs the tree.
 
+**A reload re-evaluates TypeScript, but never a `.mjs`.** Pi
+loads extensions through jiti with its module cache disabled,
+so a `/reload` does re-evaluate the extension and every `.ts`
+module under it. A `.mjs` is different: jiti hands it to
+node's own ESM loader, whose registry is permanent for the
+life of the process and cannot be invalidated. So after a
+reload the `.ts` half of the tree is new and the `.mjs` half
+is whatever the process first loaded, and a barrel
+re-exporting from a `.mjs` re-exports the old one.
+
+The way this shows up is an export that is `undefined`
+rather than an error. Measured with jiti directly: edit a
+`.mjs` leaf and re-import its barrel, and the old value
+comes back and a newly added export reads `undefined`; do
+the same with a `.ts` leaf and the new value arrives. That
+is what killed a whole council. A constant had been added
+to `runpi/journal.mjs` and merged mid-session, the reloaded
+`tools/ask.ts` read it through the barrel, node handed back
+the copy from before the merge, and seven reviewers died on
+`Cannot read properties of undefined (reading 'split')`
+before any of them spawned.
+
+So: after merging anything that touches a `.mjs` under
+`lib/subagent/runpi/`, restart rather than reload. Those
+files are `journal.mjs`, `assistant.mjs`, `watchdog.mjs`,
+`grace.mjs` and `supervisor.mjs`, and they are `.mjs`
+because the supervisor is a script node runs directly,
+which is the same reason they cannot be reloaded.
+
 **After pi upgrades, restart rather than reload.** A session
 pins its subagents to the install it started from, on
 purpose: `lib/subagent/install.ts` stashes that snapshot
