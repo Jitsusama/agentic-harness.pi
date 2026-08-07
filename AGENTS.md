@@ -547,10 +547,26 @@ not, disagreeing about a constant they share.
 Reads of those three are guarded, so the next occurrence
 names itself instead of throwing arithmetic on `undefined`
 somewhere downstream: see `runpi/fresh.ts`. The guard cannot
-stop the staleness, only the mystery. The fix that removes
-the hazard is to stop having `.mjs` at all, which node now
-allows, since it has stripped types since 22.18 and this
-package already demands 22.19.
+stop the staleness, only the mystery.
+
+The obvious fix is to stop having `.mjs` at all, since node
+has stripped types since 22.18 and this package demands
+22.19. It was tried, and it cannot be done. Node refuses to
+strip types anywhere under a `node_modules` directory, which
+is where a consumer install puts this package, and refuses
+with `ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING` at the
+first import. The spawned supervisor would not start at all,
+and no test here would say so, because a package installed
+by path is outside `node_modules` and strips fine. A council
+ran green through the converted script on this machine while
+being broken for everybody who installs the package
+normally.
+
+So the seam is structural. A module shared between a parent
+pi loads through jiti and a child node spawns directly has
+to be a `.mjs`, and a `.mjs` is the thing a reload cannot
+refresh. Removing the hazard needs a build step, and this
+package does not have one on purpose.
 
 **After pi upgrades, restart rather than reload.** A session
 pins its subagents to the install it started from, on

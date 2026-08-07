@@ -100,6 +100,12 @@ companion skill.
 - `runpi/supervisor.ts`: durable runner. Each call writes
   a request file, spawns `supervisor.mjs` detached and
   streams events back via the artifacts store.
-- `runpi/supervisor.mjs`: the supervisor process itself.
-  Stays as `.mjs` because pi spawns it directly without
-  TypeScript on the path.
+- `runpi/supervisor.mjs`: the supervisor process itself,
+  and the four `.mjs` it shares with the parent. They stay
+  `.mjs` because node spawns this directly, and node
+  refuses to strip types under `node_modules`, which is
+  where a consumer install puts them. Measured: converting
+  them raises
+  `ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING` on the
+  first import, and nothing here would catch it, because a
+  package installed by path is outside `node_modules`.
