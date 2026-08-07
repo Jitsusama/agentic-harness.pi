@@ -9,4 +9,4 @@
  */
 
 /** How long a departed process gets to flush its pipes. */
-export declare const STDIO_GRACE_MS: number;
+export const STDIO_GRACE_MS: number;

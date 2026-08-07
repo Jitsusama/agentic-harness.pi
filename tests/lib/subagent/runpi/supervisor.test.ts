@@ -984,14 +984,17 @@ describe("createSupervisorRunPi", () => {
 
 		expect(result.finalAssistantText).toBe("finished, then wedged");
 		expect(result.exitCode).toBe(0);
-		// By the grace rather than by the backstop, and the bound is
-		// stated against the two numbers it is between rather than as a
-		// round one. This asked for under five seconds while the grace
-		// it is waiting out is itself five, so the case was one
-		// scheduling delay away from failing and duly did, twice, under
+		// Settled by the terminal file rather than by the backstop, and
+		// that is all this can say: the fake child never emits "exit",
+		// so no pipe drain is ever armed here and a bound in terms of
+		// the drain would name a timer this path does not create.
+		//
+		// The bound is scheduler slack, so it is written as slack. It
+		// asked for five seconds, which is a spawn and two atomic writes
+		// away from a loaded machine, and duly failed twice under
 		// full-suite load. What it has to rule out is a run that waited
-		// for the wall clock, which is an order of magnitude away.
-		expect(Date.now() - started).toBeLessThan(STDIO_GRACE_MS * 4);
+		// out the 120s backstop above.
+		expect(Date.now() - started).toBeLessThan(30_000);
 	});
 
 	it("forwards supervisor activity events to the live progress hook", async () => {
@@ -1096,6 +1099,60 @@ describe("createSupervisorRunPi", () => {
 		);
 		expect(result.exitCode).not.toBe(0);
 	});
+
+	it("does not accuse an exited reviewer of never starting", async () => {
+		// Two rungs after a stop that were written as though independent:
+		// the kill escalates at the kill grace, and the answer of last
+		// resort fires at twice it, saying the child may never have
+		// started. The drain, armed when the child does exit, owned the
+		// rest of the shutdown only while it happened to be shorter than
+		// the kill grace. Nothing said so and nothing checked it, so
+		// raising the drain to the value already measured as necessary
+		// silently handed every stopped run to the last resort, which
+		// then reported a false diagnosis about a reviewer that had
+		// provably exited seconds earlier.
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "child.mjs");
+		// Two halves, and both are needed. It ignores the polite signal
+		// and holds the loop, so it is still there to be killed and its
+		// exit lands after the kill grace; and it leaves a grandchild
+		// holding the pipes outside its process group, so "close" never
+		// arrives and the drain is what has to end the run. That second
+		// half is what the file elsewhere calls ordinary reviewer
+		// behaviour, and without it "close" settles everything long
+		// before either rung matters.
+		await writeFile(
+			childPath,
+			[
+				'import { spawn } from "node:child_process";',
+				'spawn(process.execPath, ["-e", "setTimeout(()=>{}, 20000)"],',
+				'  { stdio: "inherit", detached: true }).unref();',
+				'process.on("SIGTERM", () => {});',
+				"setInterval(() => {}, 1000);",
+			].join("\n"),
+		);
+
+		const runPi = createSupervisorRunPi({
+			piInstall: { node: process.execPath, entry: childPath },
+			stateDir,
+			idleTimeoutMs: 1_000,
+			timeoutMs: 1_000,
+			// The default, which is where the two rungs came level.
+			killGraceMs: 5_000,
+			supervisorGraceMs: 60_000,
+		});
+
+		const result = await runPi({
+			args: [],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "stopped-but-exited",
+		});
+
+		expect(result.warnings?.join(" ") ?? "").not.toContain(
+			"may not have started at all",
+		);
+	}, 90_000);
 
 	it("bills a stopped turn once, in the copy that actually runs", async () => {
 		// The child script keeps its own copy of the billing rule, and it
@@ -1344,9 +1401,13 @@ describe("a reviewer that leaves something running behind it", () => {
 
 		// The answer still arrives; only the waiting is bounded.
 		expect(result.finalAssistantText).toBe("answered");
-		// Well inside the 30s the supervisor was told it could take,
-		// so this proves the grace path rather than a timeout.
-		expect(Date.now() - started).toBeLessThan(15_000);
+		// The one case here that really does wait the drain out, so it
+		// is the one whose slack the drain eats: at two seconds this had
+		// thirteen spare, and at five it has ten. Still well inside the
+		// 30s the supervisor was told it could take, which is what makes
+		// this the grace path rather than a timeout, and stated against
+		// the drain so the next raise moves it.
+		expect(Date.now() - started).toBeLessThan(STDIO_GRACE_MS + 10_000);
 	});
 });
 
@@ -1356,13 +1417,13 @@ describe("the parent's grace over the supervisor's own budget", () => {
 	// it still signals the child, waits out the kill grace, escalates,
 	// drains pipes and then writes its result, and all of that has to
 	// fit inside the parent's grace.
-	// The supervisor's own constant, imported rather than mirrored. It
-	// was a copy kept in step by hand, with a comment admitting the
-	// assertions below are one-sided and a stale copy would go on
-	// passing while documenting the wrong number. The same reasoning
-	// held for the two in the source, and they were two seconds apart.
-
 	it("leaves room for the shutdown the supervisor actually does", () => {
+		// The drain in this sum is the supervisor's own constant,
+		// imported rather than mirrored. It was a copy kept in step by
+		// hand, under a comment admitting these assertions are one-sided
+		// and a stale copy would go on passing while documenting the
+		// wrong number. The same reasoning held for the two in the
+		// source, and they were two seconds apart.
 		// A five second kill grace plus the pipe draining left three
 		// seconds for every atomic write in finish under the old flat
 		// ten. That held on an idle machine and lost about one CI run in

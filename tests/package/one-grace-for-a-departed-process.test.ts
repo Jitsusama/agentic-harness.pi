@@ -40,30 +40,48 @@ describe("the grace a departed process gets to flush", () => {
 		expect(STDIO_GRACE_MS).toBeGreaterThanOrEqual(5_000);
 	});
 
-	it("is declared once, not once per half", () => {
-		// The two halves cannot come to share a value by accident: one
-		// is a script node runs directly and the other is TypeScript,
-		// and that seam is exactly where the numbers drifted. The drift
-		// is invisible from either side, since each is self-consistent
-		// and only a reviewer's missing output says otherwise.
-		for (const file of ["supervisor.mjs", "supervisor.ts"]) {
-			expect(source(file)).not.toMatch(/const STDIO_GRACE_MS\s*=/);
-			expect(source(file)).toContain("STDIO_GRACE_MS");
-		}
-	});
-
-	it("is what the parent's own budget is built from", () => {
-		// The parent's grace has to cover the supervisor's whole
-		// shutdown, and the pipe drain is one term in that sum. A test
-		// mirroring the number by hand was the fourth copy, with a
-		// comment conceding that a stale one would go on passing while
-		// documenting the wrong value.
-		expect(source("supervisor.ts")).toContain("STDIO_GRACE_MS");
-		expect(
-			readFileSync(
+	it("is read at the timer, not merely imported nearby", () => {
+		// Banning the declaration bans one spelling of the drift, and
+		// the cheapest way back is a bare number at the use site while
+		// the import sits above it unread. So this pins where the value
+		// is spent rather than where it is named.
+		//
+		// Three readers, because the parent's budget is a sum this is a
+		// term in and the test that checks that sum held the fourth copy
+		// of the number, under a comment conceding a stale one would go
+		// on passing while documenting the wrong value.
+		const readers = {
+			"supervisor.mjs": source("supervisor.mjs"),
+			"supervisor.ts": source("supervisor.ts"),
+			"supervisor.test.ts": readFileSync(
 				join(ROOT, "tests", "lib", "subagent", "runpi", "supervisor.test.ts"),
 				"utf8",
 			),
-		).not.toMatch(/const STDIO_GRACE_MS\s*=/);
+		};
+
+		for (const [name, text] of Object.entries(readers)) {
+			expect(name && text).toBeTruthy();
+			expect(text).not.toMatch(/(?:const|let)\s+STDIO_GRACE_MS\s*=/);
+			expect(text).toContain("STDIO_GRACE_MS");
+		}
+		// The two timers this governs, named where they are armed.
+		expect(readers["supervisor.mjs"]).toContain("}, STDIO_GRACE_MS);");
+		expect(readers["supervisor.ts"]).toContain("}, STDIO_GRACE_MS);");
+	});
+
+	it("is not overtaken by the report a stop arms behind it", () => {
+		// The rung that made this dangerous. A stop arms the answer of
+		// last resort at twice the kill grace, so the drain owned the
+		// rest of the shutdown only while it was shorter than the kill
+		// grace, which nothing stated and nothing checked. Raising the
+		// drain to the measured value made them level at the default and
+		// handed every stopped run to the last resort, which says the
+		// reviewer may never have started.
+		//
+		// The repair is not another number: a child that has exited has
+		// answered that question, so its exit disarms the report.
+		expect(source("supervisor.mjs")).toMatch(
+			/child\.once\("exit"[\s\S]{0,900}?clearTimeout\(reportTimer\)/,
+		);
 	});
 });
