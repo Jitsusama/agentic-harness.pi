@@ -36,6 +36,8 @@ export type {
 export { anchorable, anchorPath, describeAnchor } from "./anchor.js";
 export type { FileRanges, LineRange } from "./ask/anchorable.js";
 export { anchorableRanges, describeRanges } from "./ask/anchorable.js";
+export type { AnswerContext, AnswerLine } from "./ask/answer.js";
+export { describeRun, roundAnswer } from "./ask/answer.js";
 export type {
 	AuditHarvest,
 	AuditRequest,
@@ -142,7 +144,11 @@ export type {
 	StackCouncilRequest,
 } from "./ask/stack-round.js";
 export { runStackCouncil } from "./ask/stack-round.js";
-export { type StartDeps, startCouncil } from "./ask/start.js";
+export {
+	type StartDeps,
+	type StartResult,
+	startCouncil,
+} from "./ask/start.js";
 export type { RunStore } from "./ask/store.js";
 export { createRunStore } from "./ask/store.js";
 export type {

@@ -67,6 +67,7 @@ in the loop:
 | [`span.ts`](ask/span.ts) | Which changes a finding is about |
 | [`stack-round.ts`](ask/stack-round.ts) | Asking about a whole stack at once |
 | [`run.ts`](ask/run.ts) | What a round was, as a record |
+| [`answer.ts`](ask/answer.ts) | What a round says, in marked lines somebody else paints |
 | [`store.ts`](ask/store.ts) | Finding a round somebody else ran |
 
 The seam that makes it testable is [`CouncilDeps`](ask/council.ts):

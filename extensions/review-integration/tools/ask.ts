@@ -34,6 +34,8 @@ import {
 } from "../../../lib/internal/config/loader.js";
 import { packageConfigPath } from "../../../lib/internal/paths.js";
 import {
+	type AnswerContext,
+	type AnswerLine,
 	type AskAnswer,
 	type AskContext,
 	type AskRound,
@@ -50,24 +52,22 @@ import {
 	createRunStore,
 	critiquePrompt,
 	describeAnchor,
+	describeRun,
 	type Finding,
-	failureLines,
 	judgePrompt,
 	type Participant,
 	parsePersona,
 	parseRoster,
 	type Roster,
 	type RunStore,
+	roundAnswer,
 	runAudit,
 	runCouncil,
 	runCritique,
 	runJudge,
 	runStackCouncil,
-	runSummary,
 	stackPrompt,
-	staleRuntimeAdvisory,
 	startCouncil,
-	stoppedNotes,
 	substituteOutcome,
 	type Thread,
 	type ThreadAudit,
@@ -658,7 +658,7 @@ async function startRound(
 	const store = createRunStore(runDir());
 	const contract = contractSkill("council");
 
-	const { run, warnings } = await startCouncil(
+	const { run, warnings, started } = await startCouncil(
 		{
 			roster,
 			prompt,
@@ -720,20 +720,22 @@ async function startRound(
 	// at directories that will always be empty.
 	const kept = await keptOnLedger(change, run);
 
-	const running = run.participants.length - warnings.length;
+	// Through the same composition as every other answer. This built
+	// its own for as long as it existed, which is how it came to print
+	// the tree caveat last and bare while the other seven answers put
+	// the identical sentence second and marked, and how it came to
+	// report six reviewers running on a round that started none.
 	return say(
 		[
-			running === 0
+			started === 0
 				? `Started nothing for ${run.id}, so there is nothing to collect.`
-				: `Started ${run.id}: ${count(running, "reviewer")} running, nothing waiting for them.`,
-			...(running === 0
+				: `Started ${run.id}: ${count(started, "reviewer")} running, nothing waiting for them.`,
+			...(started === 0
 				? []
 				: [
 						`Finish it with review_ask collect once they are done. Until then it reads as opened and never settled, which is what it is.`,
 					]),
-			...warnings.map((warning) => `${GLYPH.refused} ${warning}`),
-			...kept,
-			...(tree.caveat === undefined ? [] : [tree.caveat]),
+			answerFor(run, [...warnings, ...kept], tree.caveat),
 		].join("\n"),
 		{ run, warnings },
 	);
@@ -1231,13 +1233,14 @@ async function retryOne(
 	return say(
 		[
 			`${GLYPH.finding} Asked ${asked.id} again in ${held.id}.`,
-			describeRun(updated),
-			// Retrying is what a reader does after being told a reviewer
-			// failed, so it is the last place that should withhold the
-			// one diagnosis saying a retry cannot work.
-			...advisoryFor(updated),
-			...warnings,
-			...(tree.caveat === undefined ? [] : [tree.caveat]),
+			// The whole answer, not just the head. Retrying is what a
+			// reader does after being told a reviewer failed, so it is
+			// the last place that should withhold the one diagnosis
+			// saying a retry cannot work, and the first place to stop
+			// saying it once the retry has disproved it.
+			answerFor(updated, warnings, tree.caveat, {
+				sessionAnswered: outcome.failure === undefined,
+			}),
 		].join("\n"),
 		{ run: updated, warnings },
 	);
@@ -1719,66 +1722,32 @@ function renderFindings(findings: Finding[]): string {
 		.join("\n\n");
 }
 
-/** One round, in a line. */
-function describeRun(run: AskRun): string {
-	const summary = runSummary(run);
-	const failed = summary.failed > 0 ? `, ${summary.failed} failed` : "";
-	// Only a council carries this, and only while it is unsettled, so
-	// the sentence says what is actually known: it opened and nothing
-	// closed it. Whether that is a dead session or a round still
-	// running in another window is not ours to assert, and the useful
-	// half is the same either way, since the reviewers' answers are on
-	// disk under this id.
-	//
-	// Its arithmetic used to be a finished round's, and read as an
-	// accusation: a round that opened and has recorded nothing rendered
-	// as "0/7 answered, 7 failed", which says seven reviewers were
-	// asked and dropped. Nobody has asked them anything yet. The
-	// summary now separates the two, so this only has to say it.
-	const pending =
-		summary.pending > 0 ? `, ${summary.pending} still to hear from` : "";
-	const abandoned =
-		run.closed === true
-			? ", closed unfinished"
-			: run.open === true
-				? ", opened and never settled"
-				: "";
-	const head = `${run.id}: ${summary.answered}/${summary.asked} answered${failed}${pending}, ${count(summary.findings, "finding")}${abandoned}`;
-	// A stopped reviewer's answer was being recorded and never shown,
-	// which is most of the way to losing it: the path is only useful to
-	// somebody who knows to look for it.
-	return [head, ...stoppedNotes(run).map((note) => `  ${note}`)].join("\n");
-}
-
-/** The one sentence about the session, when there is one. */
-function advisoryFor(run: AskRun): string[] {
-	const said = staleRuntimeAdvisory(run);
-	return said === undefined ? [] : [`${GLYPH.refused} ${said}`];
-}
-
-/** What a round's answer says. */
-function answerFor(run: AskRun, warnings: string[], caveat?: string): string {
-	const summary = runSummary(run);
-	const lines = [describeRun(run)];
-	// Before the findings, not after: a caveat about which tree was
-	// read changes how everything below it should be weighed.
-	if (caveat !== undefined) lines.push(`${GLYPH.refused} ${caveat}`);
-	if (summary.answered === 0) {
-		lines.push(
-			"Nobody answered, so nothing was recorded. The failures above are the whole story.",
-		);
-	}
-	// Above the failures rather than among them, and the roll call
-	// below says "as above" instead of repeating the paragraph, or
-	// hoisting it would make a seven-reviewer round eight copies long
-	// rather than one.
-	lines.push(...advisoryFor(run));
-	// GLYPH.failed, not GLYPH.refused, and the same mark the live panel draws
-	// against the same line. A participant whose run broke did not refuse
-	// anything, and watching one fail with one mark and then reading the
-	// identical fact under another invites the question of whether two things
-	// happened to it.
-	lines.push(...failureLines(run).map((line) => `${GLYPH.failed} ${line}`));
-	lines.push(...warnings);
-	return lines.join("\n");
+/**
+ * What a round's answer says, painted.
+ *
+ * The wording and the order are the library's, and this is only the
+ * brush. They were both here once, where nothing could test them, and
+ * that is where the two bugs the wiring alone showed were living.
+ *
+ * GLYPH.failed for a participant, not GLYPH.refused, and the same mark
+ * the live panel draws against the same line. A participant whose run
+ * broke did not refuse anything, and watching one fail with one mark
+ * and then reading the identical fact under another invites the
+ * question of whether two things happened to it.
+ */
+function answerFor(
+	run: AskRun,
+	warnings: string[],
+	caveat?: string,
+	also?: Omit<AnswerContext, "warnings" | "caveat">,
+): string {
+	const brush: Record<NonNullable<AnswerLine["mark"]>, string> = {
+		refused: GLYPH.refused,
+		failed: GLYPH.failed,
+	};
+	return roundAnswer(run, { ...also, warnings, caveat })
+		.map((line) =>
+			line.mark === undefined ? line.text : `${brush[line.mark]} ${line.text}`,
+		)
+		.join("\n");
 }

@@ -355,9 +355,8 @@ describe("a round that died because pi is no longer where it was", () => {
 		// on every outcome made a seven-reviewer round eight copies
 		// long rather than one.
 		const round = wrecked();
-		const whole = [staleRuntimeAdvisory(round), ...failureLines(round)].join(
-			"\n",
-		);
+		const hoisted = staleRuntimeAdvisory(round);
+		const whole = [hoisted, ...failureLines(round, hoisted)].join("\n");
 
 		expect(whole.match(/pi-0\.83\.0/g)).toHaveLength(1);
 	});
@@ -365,7 +364,7 @@ describe("a round that died because pi is no longer where it was", () => {
 	it("still names every reviewer that failed", () => {
 		// Collapsing the repetition must not collapse the roll call. A
 		// round that hid who was asked would read as one that never ran.
-		const lines = failureLines(wrecked());
+		const lines = failureLines(wrecked(), stale);
 
 		expect(lines).toHaveLength(2);
 		expect(lines[0]).toContain("hawk");
@@ -391,6 +390,7 @@ describe("a round that died because pi is no longer where it was", () => {
 					},
 				],
 			}),
+			stale,
 		);
 
 		expect(lines[0]).toBe("hawk: as above.");

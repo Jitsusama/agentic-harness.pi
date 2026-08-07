@@ -43,27 +43,34 @@ function handled(): Set<string> {
 }
 
 describe("the round's answer", () => {
-	it("consults the stale-runtime advisory", () => {
-		// The advisory existed for months with a docstring saying
-		// downstream renderers would hoist it, and nothing but its own
-		// test ever read it. So a session whose pi install had been
-		// deleted by an upgrade got the same sentence once per reviewer
-		// beside a retry hint, when retrying is the one thing that
-		// cannot work. The library half is tested where it lives; this
-		// is the half that was missing, and being called is all of it.
-		expect(source).toContain("staleRuntimeAdvisory(run)");
-		// And the roll call goes through the renderer that collapses a
-		// repeat of it, since printing the paragraph again under every
-		// name is how hoisting made the output longer rather than
-		// shorter the first time.
-		expect(source).toContain("failureLines(run)");
+	it("is composed in the library and only painted here", () => {
+		// What a round says used to be assembled in this file, where no
+		// test could reach the order or the wording, and both of the
+		// bugs that only the wiring showed were living in it: a sentence
+		// pointing above itself at failures printed below, and an
+		// advisory hoisted over a roll call that repeated it. The
+		// composition is tested where it now lives. What is left here
+		// is a brush, and a brush is worth one assertion: that nothing
+		// has quietly started composing again.
+		expect(source).toContain("roundAnswer(run, { ...also, warnings, caveat })");
+		expect(source).not.toContain("whole story");
 	});
 
-	it("shows it on a retry too", () => {
+	it("paints every answer with the same brush, the start included", () => {
+		// The started round was the eighth answer and the only one that
+		// still composed itself, so it printed the tree caveat last and
+		// bare while the other seven put the identical sentence second
+		// and marked. One caller counting is the whole check: there is
+		// no other way to produce an answer here.
+		expect(source).not.toContain("warnings.map((warning) =>");
+	});
+
+	it("gives a retry the whole answer, not just the head", () => {
 		// Retrying is what a reader does after being told a reviewer
 		// failed, so it is the last place that should withhold the one
-		// diagnosis saying a retry cannot work.
-		expect(source).toContain("advisoryFor(updated)");
+		// diagnosis saying a retry cannot work. It used to print the
+		// summary line alone.
+		expect(source).toContain("answerFor(updated, warnings, tree.caveat, {");
 	});
 });
 
