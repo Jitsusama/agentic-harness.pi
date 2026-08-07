@@ -513,6 +513,45 @@ been fixed hours earlier. Before treating a live tool run as
 evidence, `/reload`, or check the claim against the test
 suite, which always runs the tree.
 
+**A reload re-evaluates a `.ts`, but not a `.mjs`.**
+Measured, not inferred: build a jiti the way pi builds one,
+with `moduleCache: false`, and import a barrel over a leaf.
+Edit a `.ts` leaf and the new value arrives on the next
+import. Edit a `.mjs` leaf and the old value comes back, and
+an export added to it reads `undefined`. Taken against pi
+0.84.1 and the jiti it ships; the routing that produces this
+is jiti's business and was not read, so treat the behaviour
+as the fact and not the explanation.
+
+That is what killed a council. A constant had been added to
+`runpi/journal.mjs` and merged mid-session, the reloaded
+`tools/ask.ts` read it, the value was the one from before
+the merge, and seven reviewers died on `Cannot read
+properties of undefined (reading 'split')` before any of
+them spawned. The round left no reviewer directories at all,
+which is how a crash in the parent is told from one in a
+child.
+
+Three files can do this, and they are the `.mjs` a running
+pi imports a value out of: `runpi/journal.mjs`,
+`runpi/assistant.mjs` and `runpi/grace.mjs`. Any change to
+one under a live session sets it up, whether it arrived by
+merge, by rebase or by your own editor. `runpi/watchdog.mjs`
+and `runpi/supervisor.mjs` are not on the list, and the
+reason is the opposite one: nothing in this process imports
+them, because they run in a child that is spawned fresh and
+reads them off disk every time. The hazard there is the
+mirror image, a parent that reloaded and a child that did
+not, disagreeing about a constant they share.
+
+Reads of those three are guarded, so the next occurrence
+names itself instead of throwing arithmetic on `undefined`
+somewhere downstream: see `runpi/fresh.ts`. The guard cannot
+stop the staleness, only the mystery. The fix that removes
+the hazard is to stop having `.mjs` at all, which node now
+allows, since it has stripped types since 22.18 and this
+package already demands 22.19.
+
 **After pi upgrades, restart rather than reload.** A session
 pins its subagents to the install it started from, on
 purpose: `lib/subagent/install.ts` stashes that snapshot
@@ -522,10 +561,10 @@ when the versioned `~/.pi/pkg/pi-<version>` directory does
 go, every child dies at startup on a path the parent is
 still pointing at, and a reload cannot help, because the
 running process is the old one either way. A whole council
-was lost to this. Note that a reload does re-evaluate
-modules, library modules included: pi loads extensions with
-jiti's module cache disabled, which is the reason the
-snapshot needs a global key at all.
+was lost to this, a different one from the council above.
+The snapshot needs a global key precisely because a reload
+does re-evaluate this module, the same re-evaluation the
+previous note is about.
 
 `pnpm test` runs everything, browser tests included, in about 94
 seconds. Set `CHROME_PATH` or the browser tests skip themselves.
