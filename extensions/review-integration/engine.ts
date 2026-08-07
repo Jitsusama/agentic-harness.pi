@@ -9,7 +9,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { open } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -112,34 +112,68 @@ export function attachments(): AttachmentStore {
 /**
  * Whose session a session file is, as pi wrote it.
  *
- * The header, rather than the name, though both carry it and both
- * agree in every file pi writes. The name is built as a timestamp and
- * an id joined by an underscore, which is a shape that can change and
- * that a person can break by renaming a file; the header is what pi
- * itself reads a session's id out of. The name is the fallback, for a
- * file too truncated to parse, since half an answer here is better
- * than a fork that silently forgets its work.
+ * The header, and only the header. The name carries the id too, as a
+ * timestamp and an id joined by an underscore, and reading that was
+ * tried: it is the one branch that can hand this session a stranger's
+ * attachments, and it fires exactly when the file is unreadable, which
+ * is when least is known. The argument for preferring the header is
+ * that a name is a shape that can change and that a person can break
+ * by renaming; falling back to it when the header will not read trusts
+ * the thing the argument just rejected. A fork that cannot identify
+ * its parent starts empty, which is where every fork started before.
  *
- * Nothing about a session start fails over this: a file that cannot be
- * read is a fork that starts empty, which is where it started before.
+ * Bounded. A session file is an append-only transcript and can run to
+ * megabytes, so reading the whole of it to take the first line would
+ * make a fork pay for the length of the conversation it came from.
+ *
+ * The record has to say it is a session. Any object with a string id
+ * would otherwise do, and the first line of something that is not a
+ * session file is exactly where a plausible wrong answer lives.
  */
 export async function sessionIdIn(file: string): Promise<string | undefined> {
+	let head: string;
 	try {
-		const header: unknown = JSON.parse(
-			(await readFile(file, "utf8")).split("\n", 1)[0] ?? "",
-		);
-		if (
-			typeof header === "object" &&
-			header !== null &&
-			typeof (header as { id?: unknown }).id === "string"
-		) {
-			return (header as { id: string }).id;
-		}
+		head = await firstBytes(file, SESSION_HEADER_MAX_BYTES);
 	} catch {
-		// Unreadable or half-written. The name may still say.
+		// Gone, unreadable, or not a file. Nothing to inherit from.
+		return undefined;
 	}
-	const named = /_([^_/\\]+)\.jsonl$/.exec(file);
-	return named?.[1];
+	const [line] = head.split("\n", 1);
+	if (line === undefined || line.trim() === "") return undefined;
+	let header: unknown;
+	try {
+		header = JSON.parse(line);
+	} catch {
+		// Not a header: half-written, or a file that is not pi's.
+		return undefined;
+	}
+	if (typeof header !== "object" || header === null) return undefined;
+	const record = header as { type?: unknown; id?: unknown };
+	if (record.type !== "session") return undefined;
+	return typeof record.id === "string" && record.id !== ""
+		? record.id
+		: undefined;
+}
+
+/**
+ * How much of a session file to read looking for its header.
+ *
+ * Pi's own header is a couple of hundred bytes. This is generous
+ * enough for one that grows a field and small enough that a huge
+ * transcript costs one read.
+ */
+const SESSION_HEADER_MAX_BYTES = 64 * 1024;
+
+/** The first bytes of a file, without reading the rest of it. */
+async function firstBytes(file: string, limit: number): Promise<string> {
+	const handle = await open(file, "r");
+	try {
+		const buffer = Buffer.alloc(limit);
+		const { bytesRead } = await handle.read(buffer, 0, limit, 0);
+		return buffer.subarray(0, bytesRead).toString("utf8");
+	} finally {
+		await handle.close();
+	}
 }
 
 /** Where findings raised against a change live. */

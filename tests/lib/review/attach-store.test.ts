@@ -160,7 +160,7 @@ describe("createAttachmentStore", () => {
 	});
 });
 
-describe("a fork keeps what it was forked from was working on", () => {
+describe("a fork keeps what the session it came from was working on", () => {
 	// A fork is the same work continued, and pi mints it a new session
 	// id. Scoping attachments by session therefore made a fork start
 	// with nothing attached, so the first review call after one either
@@ -203,25 +203,31 @@ describe("a fork keeps what it was forked from was working on", () => {
 		]);
 	});
 
-	it("never overwrites a change the fork already holds", async () => {
+	it("never re-attaches a change the fork already holds", async () => {
 		// Inheriting runs at session start, and a session that has
 		// already said what it is working on has said something the
-		// parent cannot know better. Overwriting is visible in the
-		// order: the parent's copy carries the parent's sequence, so a
-		// write here would lift a change this session attached first
-		// above the one it attached second.
+		// parent cannot know better. Re-attaching is visible in the
+		// order, since attaching numbers a change above everything
+		// else: it would lift the change this session attached first
+		// above the one it attached second. The parent holds a change
+		// the fork does not, so the loop reaches a write either way and
+		// the case cannot pass by returning early.
 		const parent = createAttachmentStore(root, "session-a");
 		await parent.attach(change("world#1"));
+		await parent.attach(change("world#3"));
 		const fork = createAttachmentStore(root, "session-b");
 		await fork.attach(change("world#1"));
 		await fork.attach(change("world#2"));
 
 		const carried = await inheritAttachments(root, "session-a", "session-b");
 
-		expect(carried).toBe(0);
+		// The fork's own two on top, in the order it made them, and the
+		// one change it did not already hold underneath both.
+		expect(carried).toBe(1);
 		expect((await fork.list()).map((one) => one.change.label)).toEqual([
 			"world#2",
 			"world#1",
+			"world#3",
 		]);
 	});
 
@@ -246,11 +252,13 @@ describe("a fork keeps what it was forked from was working on", () => {
 		expect(await mine.list()).toHaveLength(1);
 	});
 
-	it("gives the fork its own sequence, climbing from what it holds", async () => {
+	it("keeps everything it inherited below what the fork said itself", async () => {
 		// The order attachments were made in is what picks the change a
-		// call acts on, and the parent's numbers mean nothing here: an
-		// inherited seq above the fork's own would make the parent's
-		// oldest work outrank what this session just said it was doing.
+		// call acts on when it names none, and it is announced as the
+		// one attached most recently. So an inherited change ranking
+		// above what this session just said it was working on would act
+		// on the parent's work and call it the newest, which is false
+		// twice over. The parent's own order survives underneath.
 		const parent = createAttachmentStore(root, "session-a");
 		await parent.attach(change("older"));
 		await parent.attach(change("newer"));
@@ -260,9 +268,9 @@ describe("a fork keeps what it was forked from was working on", () => {
 		await inheritAttachments(root, "session-a", "session-b");
 
 		expect((await fork.list()).map((one) => one.change.label)).toEqual([
+			"said just now",
 			"newer",
 			"older",
-			"said just now",
 		]);
 	});
 });
@@ -356,56 +364,25 @@ describe("a session's directory does not outlive its usefulness", () => {
 		expect(await readdir(root)).toEqual(["mine"]);
 	});
 
-	it("gives back a loose file nothing has been able to read for a month", async () => {
+	it("leaves a loose file where it lies, however old", async () => {
 		// Everything attached before scoping existed sits flat in the
-		// root, belonging to no session and invisible to every caller.
-		// These were left alone on the reasoning that no session's rule
-		// should decide another's fate, which is an argument about
-		// somebody's attachment: an attachment nothing can read is not
-		// somebody's. They are held to the same clock as a session's
-		// own directory, which is generous enough that an upgrade in
-		// the last month is still reversible by hand.
+		// root. It belongs to no session, so no session's rule should
+		// decide its fate, and deleting somebody's attachment to tidy up
+		// is a poor trade for the disk it returns.
+		//
+		// Putting these on the clock was tried and taken back out. An
+		// orphan is a file nothing has written since scoping landed, so
+		// its own age gives no grace to the population the grace was
+		// written for: every one of them would go on the first session
+		// start after such a sweep shipped.
 		const loose = join(root, "from_before_1.json");
 		await writeFile(loose, "{}", "utf8");
-		const when = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
+		const when = new Date(Date.now() - 400 * 24 * 60 * 60 * 1000);
 		await utimes(loose, when, when);
 
-		const taken = await pruneAttachments(root, {
-			olderThanMs: 30 * 24 * 60 * 60 * 1000,
-		});
-
-		expect(taken).toBe(1);
-		expect(await readdir(root)).toEqual([]);
-	});
-
-	it("keeps a loose file somebody may still be about to lose", async () => {
-		// The upgrade that orphaned these is the moment they matter
-		// most: somebody whose attachments vanished on Tuesday can still
-		// find them on Wednesday and attach them again.
-		await writeFile(join(root, "from_before_1.json"), "{}", "utf8");
-
-		const taken = await pruneAttachments(root, {
-			olderThanMs: 30 * 24 * 60 * 60 * 1000,
-		});
+		const taken = await pruneAttachments(root, { olderThanMs: 0 });
 
 		expect(taken).toBe(0);
 		expect(await readdir(root)).toEqual(["from_before_1.json"]);
-	});
-
-	it("leaves alone a loose file that is not an attachment", async () => {
-		// This directory is ours, but a person who went looking may have
-		// left a note in it, and a sweep that takes anything it finds is
-		// a sweep nobody can safely point at a directory.
-		const note = join(root, "why-i-was-here.txt");
-		await writeFile(note, "reading the attachments", "utf8");
-		const when = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
-		await utimes(note, when, when);
-
-		const taken = await pruneAttachments(root, {
-			olderThanMs: 30 * 24 * 60 * 60 * 1000,
-		});
-
-		expect(taken).toBe(0);
-		expect(await readdir(root)).toEqual(["why-i-was-here.txt"]);
 	});
 });

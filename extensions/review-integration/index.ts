@@ -12,7 +12,10 @@
  * time, so neither load order matters.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	SessionStartEvent,
+} from "@earendil-works/pi-coding-agent";
 import {
 	clearTargetBindings,
 	createRunStore,
@@ -171,11 +174,14 @@ async function reclaimRoundTranscripts(): Promise<void> {
  * session is never delayed by it, and advisory throughout: a fork that
  * cannot read its parent starts where it would have started anyway.
  */
-async function carryAttachmentsIntoAFork(event: unknown): Promise<void> {
-	if (typeof event !== "object" || event === null) return;
-	const started = event as { reason?: unknown; previousSessionFile?: unknown };
-	if (started.reason !== "fork") return;
-	if (typeof started.previousSessionFile !== "string") return;
+async function carryAttachmentsIntoAFork(
+	event: SessionStartEvent,
+): Promise<void> {
+	// Typed as pi types it, so a rename upstream is a compile error
+	// here rather than a condition that silently stops matching.
+	if (event.reason !== "fork") return;
+	const { previousSessionFile } = event;
+	if (previousSessionFile === undefined) return;
 	// Read before anything is awaited, for the reason the sweep gives:
 	// this resolves against the environment each time, and a lookup
 	// after an await is a lookup against whatever the environment says
@@ -183,7 +189,7 @@ async function carryAttachmentsIntoAFork(event: unknown): Promise<void> {
 	const root = attachmentDir();
 	const mine = sessionKey();
 	try {
-		const parent = await sessionIdIn(started.previousSessionFile);
+		const parent = await sessionIdIn(previousSessionFile);
 		if (parent === undefined) return;
 		await inheritAttachments(root, parent, mine);
 	} catch (error) {
@@ -271,12 +277,18 @@ export default function reviewIntegration(pi: ExtensionAPI) {
 	// On pi's own lifecycle API rather than the event bus, because the
 	// bus hands a handler the event and nothing else, and which session
 	// this is only comes with the context.
-	pi.on("session_start", (event, ctx) => {
+	pi.on("session_start", async (event, ctx) => {
 		// Which session this is, from the only thing that knows. What a
 		// session has attached is scoped by it, and a session that cannot
 		// say who it is shares a directory with every other one.
 		rememberSession(ctx.sessionManager.getSessionId());
-		void carryAttachmentsIntoAFork(event);
+		// Awaited, and before the sweep. Awaited because a fork whose
+		// first review call lands before the copy finishes sees the
+		// refusal this exists to prevent, and before the sweep because
+		// the sweep spares only the session asking: at a fork that is
+		// not the session being read from, so an idle parent is a
+		// candidate for deletion in the same tick as the copy.
+		await carryAttachmentsIntoAFork(event);
 		// A new session must not inherit the last one's bindings, or
 		// a target could stay pinned to a provider the user has since
 		// reconfigured away from.
