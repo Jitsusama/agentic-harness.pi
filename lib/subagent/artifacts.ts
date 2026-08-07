@@ -27,7 +27,6 @@ export type ReviewerTerminalState =
 	| "cancelled"
 	| "timeout"
 	| "idle-timeout"
-	| "output-limit"
 	/**
 	 * Stopped inside its wall clock, on purpose, so the rest of the
 	 * budget could be spent asking it for what it had.

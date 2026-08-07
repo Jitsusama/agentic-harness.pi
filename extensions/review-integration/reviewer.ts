@@ -64,7 +64,6 @@ import { budgetForLimit } from "./budget.js";
 const LIMITS: Partial<Record<ReviewerTerminalState, AskLimit>> = {
 	timeout: "wall-clock",
 	"idle-timeout": "idle",
-	"output-limit": "output",
 	"soft-deadline": "soft-deadline",
 	cancelled: "cancelled",
 	"parent-exit": "parent-exit",
@@ -82,7 +81,6 @@ const LIMITS: Partial<Record<ReviewerTerminalState, AskLimit>> = {
 const SAYS: Record<AskLimit, RegExp> = {
 	"wall-clock": /timed out/i,
 	idle: /idle/i,
-	output: /output limits/i,
 	"soft-deadline": /soft deadline/i,
 	cancelled: /cancelled/i,
 	"parent-exit": /parent process/i,
@@ -556,6 +554,16 @@ export function answerFromReviewer(
 	};
 }
 
+/**
+ * Sentences the supervisor writes when it cuts a reviewer's output.
+ *
+ * Hunted the way a stop's wording is, because they cross the same
+ * process boundary and no constant can. There are three: the
+ * assistant text past its cap, a stream line past its own, and a
+ * verified output too large to read back.
+ */
+const CUT = /exceeded \d+ bytes/i;
+
 /** What the round has to say that the answer cannot show. */
 function notesOn(
 	died: string | undefined,
@@ -563,6 +571,12 @@ function notesOn(
 ): { notes?: string[] } {
 	const notes = [
 		...(died === undefined ? [] : [died]),
+		// The caps are the reason an answer can be unreadable through no
+		// fault of the reviewer, and this seam was dropping the only
+		// sentence that says so. What reached the round instead was a
+		// complaint that the JSON would not parse, which points the next
+		// reader at the model rather than at the knob that cut it.
+		...result.warnings.filter((warning) => CUT.test(warning)),
 		...(result.journalWarnings ?? []),
 	];
 	return notes.length === 0 ? {} : { notes };

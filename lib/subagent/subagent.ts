@@ -870,16 +870,15 @@ export async function runReviewer(
 /**
  * Stops worth asking about.
  *
- * A clock or an output cap took a working reviewer away, so what it
- * had is still worth having. Cancelled is not here because somebody
- * asked for the work to stop, and parent-exit is not because there is
- * nothing left to ask with.
+ * A clock took a working reviewer away, so what it had is still worth
+ * having. Cancelled is not here because somebody asked for the work
+ * to stop, and parent-exit is not because there is nothing left to
+ * ask with.
  */
 const WORTH_ASKING: ReadonlySet<ReviewerTerminalState> =
 	new Set<ReviewerTerminalState>([
 		"timeout",
 		"idle-timeout",
-		"output-limit",
 		// The state that exists to be asked. A soft deadline stops a
 		// healthy run for no other purpose, so leaving it out here would
 		// take the reviewer's remaining time and give nothing back.

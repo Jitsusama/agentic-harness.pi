@@ -41,7 +41,6 @@ import {
 export type AskLimit =
 	| "wall-clock"
 	| "idle"
-	| "output"
 	/**
 	 * Stopped inside its own budget, deliberately, so what it had
 	 * could be asked for while there was still time to answer.
