@@ -140,6 +140,22 @@ export interface RunSummary {
 	 */
 	pending: number;
 	findings: number;
+	/**
+	 * What the round burned, across everybody who reported it.
+	 *
+	 * Absent rather than zero when nobody reported, because a round of
+	 * participants that said nothing about usage is not a free round,
+	 * and a zero here would say it was.
+	 *
+	 * A failed participant counts. It was billed for whatever it
+	 * burned before it died, and leaving those out would make the
+	 * expensive failures look like the cheap ones, which is backwards:
+	 * a reviewer that ran fifteen minutes and produced nothing is the
+	 * most expensive kind there is.
+	 */
+	tokens?: number;
+	/** What it came to in money, on the same terms as `tokens`. */
+	cost?: number;
 }
 
 /** How many digits a sequence is padded to, so ids sort as text. */
@@ -269,11 +285,21 @@ export function runSummary(run: AskRun): RunSummary {
 	let answered = 0;
 	let reported = 0;
 	let findings = 0;
+	let tokens: number | undefined;
+	let cost: number | undefined;
 	for (const participant of run.participants) {
 		const outcome = run.outcomes.find(
 			(o) => o.participantId === participant.id,
 		);
 		if (outcome === undefined) continue;
+		// Before the failure check, because a reviewer that died still
+		// spent what it spent.
+		if (outcome.usage?.tokens !== undefined) {
+			tokens = (tokens ?? 0) + outcome.usage.tokens;
+		}
+		if (outcome.usage?.cost !== undefined) {
+			cost = (cost ?? 0) + outcome.usage.cost;
+		}
 		if (outcome.failure !== undefined) {
 			reported += 1;
 			continue;
@@ -292,6 +318,8 @@ export function runSummary(run: AskRun): RunSummary {
 		failed: reported + (run.open === true ? 0 : silent),
 		pending: run.open === true ? silent : 0,
 		findings,
+		...(tokens === undefined ? {} : { tokens }),
+		...(cost === undefined ? {} : { cost }),
 	};
 }
 
