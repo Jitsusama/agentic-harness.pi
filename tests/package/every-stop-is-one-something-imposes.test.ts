@@ -12,9 +12,16 @@
  * happen, and the fix would have been a budget for a limit nothing
  * enforces.
  *
- * The reachable set is small and named in one place: the watchdog's
- * verdicts, plus the stops a signal or a departed parent causes. This
- * pins the mapping against it.
+ * The reachable set is small and comes from three places: the
+ * watchdog's verdicts, the stops a signal or a departed parent
+ * causes, and the one the adapter declares for a reviewer whose
+ * supervisor is gone, which is the stop nothing inside a run can
+ * report. This pins the mapping against it, both ways.
+ *
+ * Note what this is not about. The output caps are alive: they
+ * truncate a reviewer's answer rather than stopping the reviewer,
+ * which is a different event with a different remedy, and the stop
+ * that was named after them was the leftover.
  */
 
 import { readFileSync } from "node:fs";
@@ -32,42 +39,63 @@ function mappedStates(): string[] {
 	const text = source("extensions", "review-integration", "reviewer.ts");
 	const table = /const LIMITS[^{]*{([\s\S]*?)\n};/.exec(text);
 	if (table === null) throw new Error("the limit table has moved");
-	return [...table[1].matchAll(/^\t"?([a-z-]+)"?:/gm)].map((one) => one[1]);
+	const states = [...table[1].matchAll(/^\t"?([a-z-]+)"?:/gm)].map(
+		(one) => one[1],
+	);
+	// Refused rather than returned. A scrape that reads nothing leaves
+	// every loop below with nothing to check and every case green,
+	// which is the one failure a gate must not have: it would report
+	// the vocabulary sound at the moment it stopped looking at it.
+	if (states.length < 4) {
+		throw new Error(
+			`the limit table reads as ${states.length} states, fewer than it has ever had`,
+		);
+	}
+	return states;
+}
+
+/** Every stop something in the tree can actually cause. */
+function imposedStates(): string[] {
+	const watchdog = source("lib", "subagent", "runpi", "watchdog.mjs");
+	const supervisor = source("lib", "subagent", "runpi", "supervisor.mjs");
+	const adapter = source("extensions", "review-integration", "reviewer.ts");
+	return [
+		...[...watchdog.matchAll(/return "([a-z-]+)"/g)].map((one) => one[1]),
+		...[...supervisor.matchAll(/stopChild\("([a-z-]+)"\)/g)].map(
+			(one) => one[1],
+		),
+		...[...adapter.matchAll(/state: "([a-z-]+)"/g)].map((one) => one[1]),
+	];
 }
 
 describe("the stops a reviewer can be recorded with", () => {
 	it("are all stops something in the tree can impose", () => {
-		// Three sources, and each is matched on how it imposes rather
-		// than on naming the state, or the table would satisfy itself:
-		// the watchdog returns a verdict, the supervisor stops its child
-		// on a signal or a departed parent, and the adapter declares a
-		// state for the reviewer whose supervisor is no longer there,
-		// which is the one stop nothing inside the run can report.
-		const watchdog = source("lib", "subagent", "runpi", "watchdog.mjs");
-		const supervisor = source("lib", "subagent", "runpi", "supervisor.mjs");
-		const adapter = source("extensions", "review-integration", "reviewer.ts");
+		// Each source matched on how it imposes rather than on naming
+		// the state, or the table would satisfy itself: one of the three
+		// files is the one the table lives in.
+		const imposed = new Set(imposedStates());
 
 		for (const state of mappedStates()) {
-			const imposed =
-				watchdog.includes(`return "${state}"`) ||
-				supervisor.includes(`stopChild("${state}")`) ||
-				adapter.includes(`state: "${state}"`);
-			expect({ state, imposed }).toEqual({ state, imposed: true });
+			expect({ state, imposed: imposed.has(state) }).toEqual({
+				state,
+				imposed: true,
+			});
 		}
 	});
 
-	it("does not carry the output cap that was taken out", () => {
-		// Measured rather than reasoned: the caps this named were
-		// removed when a large review was moved onto a file, and the
-		// state outlived them. Nothing has ever written it, so nothing
-		// on disk can be read back as it either.
-		for (const file of [
-			join("lib", "subagent", "artifacts.ts"),
-			join("lib", "subagent", "subagent.ts"),
-			join("lib", "subagent", "runpi", "supervisor.mjs"),
-			join("extensions", "review-integration", "reviewer.ts"),
-		]) {
-			expect(source(file)).not.toContain("output-limit");
+	it("cover every stop something imposes, which is the costly direction", () => {
+		// The other way round, and the one that loses work rather than
+		// merely carrying a dead branch. A state nothing maps reads as a
+		// reviewer that was not stopped at all, so what it had is never
+		// asked for, a retry is never refused, and the round files a
+		// working reviewer as a failure.
+		const mapped = new Set(mappedStates());
+
+		for (const state of new Set(imposedStates())) {
+			expect({ state, mapped: mapped.has(state) }).toEqual({
+				state,
+				mapped: true,
+			});
 		}
 	});
 });

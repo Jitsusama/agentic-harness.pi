@@ -417,4 +417,37 @@ describe("a reviewer that wrote findings down as it went", () => {
 			recorded: [{ subject: "found before the crash" }],
 		});
 	});
+
+	it("says when we were the ones who cut the answer", () => {
+		// The caps are alive and the reviewer never learns of them: its
+		// answer is truncated on the way through, so what arrives is
+		// JSON that stops mid-object. This seam dropped the only
+		// sentence saying why, and what reached the round instead was a
+		// complaint that the answer would not parse, which sends the
+		// next reader after the model rather than after the knob.
+		const answer = answerFromReviewer(
+			ran({
+				finalAssistantText: '{"findings": [{"subject": "cut off mid',
+				warnings: ["Reviewer assistant text exceeded 65536 bytes; truncated"],
+			}),
+		);
+
+		expect("notes" in answer && answer.notes?.join(" ")).toContain(
+			"exceeded 65536 bytes",
+		);
+	});
+
+	it("does not repeat a warning that is about something else", () => {
+		// Only the sentences saying we cut something. A round already
+		// hoists what it needs from the rest, and copying them here
+		// would print each twice.
+		const answer = answerFromReviewer(
+			ran({
+				finalAssistantText: FOUND,
+				warnings: ["Pi subprocess idle for 900000ms; sent SIGTERM."],
+			}),
+		);
+
+		expect(answer).not.toHaveProperty("notes");
+	});
 });
