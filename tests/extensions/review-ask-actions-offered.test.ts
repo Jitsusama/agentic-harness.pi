@@ -42,6 +42,31 @@ function handled(): Set<string> {
 	return new Set([...source.matchAll(/case "([a-z-]+)":/g)].map(([, a]) => a));
 }
 
+describe("the round's answer", () => {
+	it("consults the stale-runtime advisory", () => {
+		// The advisory existed for months with a docstring saying
+		// downstream renderers would hoist it, and nothing but its own
+		// test ever read it. So a session whose pi install had been
+		// deleted by an upgrade got the same sentence once per reviewer
+		// beside a retry hint, when retrying is the one thing that
+		// cannot work. The library half is tested where it lives; this
+		// is the half that was missing, and being called is all of it.
+		expect(source).toContain("staleRuntimeAdvisory(run)");
+		// And the roll call goes through the renderer that collapses a
+		// repeat of it, since printing the paragraph again under every
+		// name is how hoisting made the output longer rather than
+		// shorter the first time.
+		expect(source).toContain("failureLines(run)");
+	});
+
+	it("shows it on a retry too", () => {
+		// Retrying is what a reader does after being told a reviewer
+		// failed, so it is the last place that should withhold the one
+		// diagnosis saying a retry cannot work.
+		expect(source).toContain("advisoryFor(updated)");
+	});
+});
+
 describe("review_ask", () => {
 	it("offers every action it handles", () => {
 		const missing = [...handled()].filter((a) => !offered().has(a));

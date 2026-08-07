@@ -32,7 +32,11 @@ import type {
 	Finding,
 	Roster,
 } from "../../lib/review/index.js";
-import { runCouncil, runSummary } from "../../lib/review/index.js";
+import {
+	runCouncil,
+	runSummary,
+	staleRuntimeAdvisory,
+} from "../../lib/review/index.js";
 import type { RunReviewerResult } from "../../lib/subagent/index.js";
 
 /** The seven that were asked, named as that round named them. */
@@ -75,6 +79,98 @@ function stoppedAtTheWall(id: string): RunReviewerResult {
 		},
 	};
 }
+
+/**
+ * What the runner hands back when pi is no longer where it was.
+ *
+ * Not invented. The health check refuses to spawn and answers with
+ * this shape, which was confirmed against a live pi whose versioned
+ * install had been deleted by an upgrade: exit 127, no text, and the
+ * advisory as both stderr and warning.
+ */
+function pinnedToAnInstallThatIsGone(id: string): RunReviewerResult {
+	const said =
+		"Pi runtime stale: the running pi install at " +
+		"`/Users/x/.pi/pkg/pi-0.83.0` no longer exists on disk. Pi was likely " +
+		"updated (nix gc, brew upgrade, etc.) mid-session; restart pi to load " +
+		"the new binary. Subagent dispatch will fail until you do.";
+	return {
+		reviewerId: id,
+		exitCode: 127,
+		finalAssistantText: "",
+		stderr: said,
+		warnings: [said],
+	};
+}
+
+describe("a round asked after pi was upgraded out from under it", () => {
+	// Measured, on this repository, on the night this was written. Pi
+	// upgraded mid-session and deleted the versioned install directory
+	// the running session pins its children to. All seven reviewers
+	// died on dispatch, and the round said the same sentence seven
+	// times with a retry hint beside it. Retrying is the one thing that
+	// cannot work: it fails identically until the session restarts.
+	//
+	// The advisory existed the whole time. Its own docstring said
+	// downstream renderers would hoist it, and nothing but its own test
+	// ever read it, which is the same shape as the two fatal findings in
+	// #457: a feature nothing calls is not a feature.
+	function deps(): CouncilDeps {
+		return {
+			async ask(participant): Promise<AskAnswer> {
+				return answerFromReviewer(pinnedToAnInstallThatIsGone(participant.id));
+			},
+			async record(findings): Promise<Finding[]> {
+				return findings.map((finding, index) => ({
+					...finding,
+					id: index + 1,
+				}));
+			},
+			now: () => new Date("2026-08-07T03:06:17.728Z"),
+		};
+	}
+
+	it("diagnoses the round once, rather than once per reviewer", async () => {
+		const { run } = await runCouncil({ roster, prompt: "p", seq: 1 }, deps());
+
+		const said = staleRuntimeAdvisory(run);
+		expect(said).toContain("restart pi");
+		expect(said?.match(/pi-0\.83\.0/g)).toHaveLength(1);
+	});
+
+	it("still says what became of each reviewer", async () => {
+		// Hoisting the diagnosis must not swallow the roll call. Somebody
+		// reading this has to see that all seven were asked and that none
+		// of them answered, or the round looks like it never ran.
+		const { run } = await runCouncil({ roster, prompt: "p", seq: 1 }, deps());
+
+		expect(run.outcomes).toHaveLength(SEVEN.length);
+		for (const outcome of run.outcomes) {
+			expect(outcome.failure).toContain("Pi runtime stale");
+			expect(outcome.findingIds).toEqual([]);
+		}
+	});
+
+	it("does not read a failure that merely quotes an install path", async () => {
+		// The mark is the health check's own prefix, not a path in a
+		// message. A reviewer that failed reading a skill from the
+		// install is a different event, and telling somebody to restart
+		// over it costs them the session this exists to save.
+		const { run } = await runCouncil(
+			{ roster, prompt: "p", seq: 1 },
+			{
+				...deps(),
+				async ask(participant): Promise<AskAnswer> {
+					return {
+						failure: `${participant.id}: ENOENT /Users/x/.pi/pkg/pi-0.83.0/skills/foo`,
+					};
+				},
+			},
+		);
+
+		expect(staleRuntimeAdvisory(run)).toBeUndefined();
+	});
+});
 
 describe("a round in which every reviewer is stopped", () => {
 	let answers: string;

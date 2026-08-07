@@ -513,6 +513,20 @@ been fixed hours earlier. Before treating a live tool run as
 evidence, `/reload`, or check the claim against the test
 suite, which always runs the tree.
 
+**After pi upgrades, restart rather than reload.** A session
+pins its subagents to the install it started from, on
+purpose: `lib/subagent/install.ts` stashes that snapshot
+under a `Symbol.for` key so a reload cannot recapture a
+path an upgrade has since deleted. The consequence is that
+when the versioned `~/.pi/pkg/pi-<version>` directory does
+go, every child dies at startup on a path the parent is
+still pointing at, and a reload cannot help, because the
+running process is the old one either way. A whole council
+was lost to this. Note that a reload does re-evaluate
+modules, library modules included: pi loads extensions with
+jiti's module cache disabled, which is the reason the
+snapshot needs a global key at all.
+
 `pnpm test` runs everything, browser tests included, in about 94
 seconds. Set `CHROME_PATH` or the browser tests skip themselves.
 

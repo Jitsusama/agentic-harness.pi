@@ -43,6 +43,13 @@ export interface ParticipantOutcome {
 	/** Why nothing came back, when nothing did. */
 	failure?: string;
 	/**
+	 * Something true of the session rather than of this participant.
+	 *
+	 * Stated by whatever dispatched the round, since only that side
+	 * can tell a broken session from a broken reviewer.
+	 */
+	advisory?: string;
+	/**
 	 * Which limit took this reviewer away, when one did.
 	 *
 	 * Recorded even when findings came back, because a stopped
@@ -151,6 +158,56 @@ const SEQ_WIDTH = 6;
 export function newRunId(round: AskRound, at: Date, seq: number): string {
 	const stamp = at.toISOString().replace(/[-:.]/g, "").replace("Z", "");
 	return `${round}-${stamp}-${String(seq).padStart(SEQ_WIDTH, "0")}`;
+}
+
+/**
+ * What is wrong with the session rather than with the reviewers.
+ *
+ * Measured. Pi upgraded mid-session and deleted the versioned install
+ * directory the running session pins its children to, so every
+ * reviewer died on dispatch. The runner diagnosed it correctly and
+ * put the same sentence on all seven, and the round printed it seven
+ * times as though seven separate things had gone wrong.
+ *
+ * The repetition is not the cost. Seven failures beside a retry hint
+ * read as seven flaky reviewers, and retrying is the one thing that
+ * cannot work: it fails identically until the session restarts.
+ *
+ * Read off the outcome rather than sniffed out of the message. This
+ * matched a prefix first, which made one library string-match another
+ * library's prose, and both are free to reword: the diagnosis is a
+ * fact the dispatching side knows, so it is carried as one.
+ *
+ * One participant is enough. A stale install kills every reviewer it
+ * reaches, and a round where one dispatch raced the deletion is
+ * exactly as unrecoverable by retry as one where all seven did.
+ */
+export function staleRuntimeAdvisory(run: AskRun): string | undefined {
+	return run.outcomes.find((one) => one.advisory !== undefined)?.advisory;
+}
+
+/**
+ * One line for each participant that failed, without saying the same
+ * paragraph twice.
+ *
+ * The roll call has to survive an advisory: a reader needs to see who
+ * was asked and that none of them answered, or the round looks like it
+ * never ran. What it does not need is the advisory repeated under
+ * every name, which is what hoisting a sentence already on every
+ * outcome would otherwise produce, one copy longer than before.
+ */
+export function failureLines(run: AskRun): string[] {
+	const hoisted = staleRuntimeAdvisory(run);
+	const lines: string[] = [];
+	for (const outcome of run.outcomes) {
+		if (outcome.failure === undefined) continue;
+		lines.push(
+			outcome.failure === hoisted
+				? `${outcome.participantId}: as above.`
+				: `${outcome.participantId}: ${outcome.failure}`,
+		);
+	}
+	return lines;
 }
 
 /**

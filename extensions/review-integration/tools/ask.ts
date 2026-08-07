@@ -51,6 +51,7 @@ import {
 	critiquePrompt,
 	describeAnchor,
 	type Finding,
+	failureLines,
 	judgePrompt,
 	type Participant,
 	parsePersona,
@@ -64,6 +65,7 @@ import {
 	runStackCouncil,
 	runSummary,
 	stackPrompt,
+	staleRuntimeAdvisory,
 	startCouncil,
 	stoppedNotes,
 	substituteOutcome,
@@ -1230,6 +1232,10 @@ async function retryOne(
 		[
 			`${GLYPH.finding} Asked ${asked.id} again in ${held.id}.`,
 			describeRun(updated),
+			// Retrying is what a reader does after being told a reviewer
+			// failed, so it is the last place that should withhold the
+			// one diagnosis saying a retry cannot work.
+			...advisoryFor(updated),
 			...warnings,
 			...(tree.caveat === undefined ? [] : [tree.caveat]),
 		].join("\n"),
@@ -1744,6 +1750,12 @@ function describeRun(run: AskRun): string {
 	return [head, ...stoppedNotes(run).map((note) => `  ${note}`)].join("\n");
 }
 
+/** The one sentence about the session, when there is one. */
+function advisoryFor(run: AskRun): string[] {
+	const said = staleRuntimeAdvisory(run);
+	return said === undefined ? [] : [`${GLYPH.refused} ${said}`];
+}
+
 /** What a round's answer says. */
 function answerFor(run: AskRun, warnings: string[], caveat?: string): string {
 	const summary = runSummary(run);
@@ -1756,18 +1768,17 @@ function answerFor(run: AskRun, warnings: string[], caveat?: string): string {
 			"Nobody answered, so nothing was recorded. The failures above are the whole story.",
 		);
 	}
-	for (const outcome of run.outcomes) {
-		if (outcome.failure !== undefined) {
-			// GLYPH.failed, not GLYPH.refused, and the same mark the live panel draws
-			// against the same line. A participant whose run broke did not refuse
-			// anything, and watching one fail with one mark and then reading the
-			// identical fact under another invites the question of whether two things
-			// happened to it.
-			lines.push(
-				`${GLYPH.failed} ${outcome.participantId}: ${outcome.failure}`,
-			);
-		}
-	}
+	// Above the failures rather than among them, and the roll call
+	// below says "as above" instead of repeating the paragraph, or
+	// hoisting it would make a seven-reviewer round eight copies long
+	// rather than one.
+	lines.push(...advisoryFor(run));
+	// GLYPH.failed, not GLYPH.refused, and the same mark the live panel draws
+	// against the same line. A participant whose run broke did not refuse
+	// anything, and watching one fail with one mark and then reading the
+	// identical fact under another invites the question of whether two things
+	// happened to it.
+	lines.push(...failureLines(run).map((line) => `${GLYPH.failed} ${line}`));
 	lines.push(...warnings);
 	return lines.join("\n");
 }

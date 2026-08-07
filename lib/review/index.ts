@@ -124,8 +124,10 @@ export type {
 } from "./ask/run.js";
 export {
 	askedOf,
+	failureLines,
 	newRunId,
 	runSummary,
+	staleRuntimeAdvisory,
 	stoppedNotes,
 	substituteOutcome,
 } from "./ask/run.js";

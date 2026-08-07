@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { AskRun, ParticipantIdentity } from "../../../lib/review/index.js";
 import {
 	askedOf,
+	failureLines,
 	newRunId,
 	runSummary,
+	staleRuntimeAdvisory,
 	stoppedNotes,
 	substituteOutcome,
 } from "../../../lib/review/index.js";
@@ -300,5 +302,144 @@ describe("substituting one outcome", () => {
 		expect(() =>
 			substituteOutcome(run(), { participantId: "wren", findingIds: [1] }),
 		).toThrow(/wren/);
+	});
+});
+
+describe("a round that died because pi is no longer where it was", () => {
+	// Measured. Pi upgraded mid-session and deleted the versioned
+	// install directory the running session pins its children to, so
+	// every reviewer crashed at startup reading a theme from a path that
+	// had gone. The health check catches exactly this and writes an
+	// actionable sentence, the runner puts that sentence on every
+	// participant, and the round then printed it once per participant as
+	// though seven different things had gone wrong. Retrying is the one
+	// thing that cannot work, and retrying is what a reader reaches for.
+	const stale =
+		"Pi runtime stale: the running pi install at `/x/.pi/pkg/pi-0.83.0` no " +
+		"longer exists on disk. Pi was likely updated (nix gc, brew upgrade, " +
+		"etc.) mid-session; restart pi to load the new binary. Subagent " +
+		"dispatch will fail until you do.";
+
+	/** A round where every reviewer died of the same broken session. */
+	function wrecked(): AskRun {
+		return run({
+			outcomes: [
+				{
+					participantId: "hawk",
+					findingIds: [],
+					failure: stale,
+					advisory: stale,
+				},
+				{
+					participantId: "owl",
+					findingIds: [],
+					failure: stale,
+					advisory: stale,
+				},
+			],
+		});
+	}
+
+	it("says it once, naming the install and the way out", () => {
+		const said = staleRuntimeAdvisory(wrecked());
+
+		expect(said).toContain("pi-0.83.0");
+		expect(said).toContain("restart");
+	});
+
+	it("is said once in the whole round, not once per participant", () => {
+		// The measurement that matters, and the one the first version of
+		// this got wrong by counting inside the advisory itself, which
+		// is one sentence by construction. What a reader sees is the
+		// advisory plus the roll call, and hoisting a sentence already
+		// on every outcome made a seven-reviewer round eight copies
+		// long rather than one.
+		const round = wrecked();
+		const whole = [staleRuntimeAdvisory(round), ...failureLines(round)].join(
+			"\n",
+		);
+
+		expect(whole.match(/pi-0\.83\.0/g)).toHaveLength(1);
+	});
+
+	it("still names every reviewer that failed", () => {
+		// Collapsing the repetition must not collapse the roll call. A
+		// round that hid who was asked would read as one that never ran.
+		const lines = failureLines(wrecked());
+
+		expect(lines).toHaveLength(2);
+		expect(lines[0]).toContain("hawk");
+		expect(lines[1]).toContain("owl");
+	});
+
+	it("prints a failure of its own in full", () => {
+		// Only the repeated sentence is collapsed. A reviewer that died
+		// of something else in the same round still says what.
+		const lines = failureLines(
+			run({
+				outcomes: [
+					{
+						participantId: "hawk",
+						findingIds: [],
+						failure: stale,
+						advisory: stale,
+					},
+					{
+						participantId: "owl",
+						findingIds: [],
+						failure: "the model was overloaded",
+					},
+				],
+			}),
+		);
+
+		expect(lines[0]).toBe("hawk: as above.");
+		expect(lines[1]).toBe("owl: the model was overloaded");
+	});
+
+	it("says nothing when no participant died of it", () => {
+		expect(staleRuntimeAdvisory(run())).toBeUndefined();
+	});
+
+	it("says nothing for a failure that merely mentions a path", () => {
+		// It is a fact the dispatching side states, not a shape read out
+		// of prose. A reviewer whose own message quotes a package path
+		// is a different event, and telling somebody to restart pi over
+		// it costs them the session this exists to save.
+		expect(
+			staleRuntimeAdvisory(
+				run({
+					outcomes: [
+						{
+							participantId: "hawk",
+							findingIds: [],
+							failure: `${stale} (quoted by a reviewer, not diagnosed)`,
+						},
+					],
+				}),
+			),
+		).toBeUndefined();
+	});
+
+	it("speaks up when only one participant hit it", () => {
+		// A stale install kills every reviewer it reaches, so one is
+		// enough to know, and a round where a single dispatch raced the
+		// deletion is exactly as unrecoverable by retry as one where all
+		// seven did.
+		const said = staleRuntimeAdvisory(
+			run({
+				outcomes: [
+					{ participantId: "hawk", findingIds: [1] },
+					{
+						participantId: "owl",
+						findingIds: [],
+						failure: stale,
+						advisory: stale,
+					},
+				],
+			}),
+		);
+
+		expect(said).toBeDefined();
 	});
 });
