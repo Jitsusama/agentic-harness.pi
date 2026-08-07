@@ -16,10 +16,20 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	answerLeftBehind,
+	heldByLiveSupervisor,
 	reviewerStarter,
 } from "../../extensions/review-integration/reviewer.js";
-import type { AskAnswer, AskRun, Finding } from "../../lib/review/index.js";
-import { collectRound, startCouncil } from "../../lib/review/index.js";
+import type {
+	AskAnswer,
+	AskRun,
+	ChangeRef,
+	Finding,
+} from "../../lib/review/index.js";
+import {
+	collectRound,
+	createRunStore,
+	startCouncil,
+} from "../../lib/review/index.js";
 import {
 	ReviewerArtifactsStore,
 	startReviewer,
@@ -53,6 +63,32 @@ const answer = JSON.stringify({ findings: [{
   discussion: "nobody was waiting"
 }]});
 process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:answer}]}})+"\\n");`;
+
+/**
+ * A child slow enough that its supervisor is still holding the lease
+ * when the round comes back, which is the state the guard exists for.
+ */
+const SLOW_CHILD = `await new Promise((r) => setTimeout(r, 2500));
+const answer = JSON.stringify({ findings: [{
+  location: { kind: "file", file: "lib/a.ts" },
+  label: "issue",
+  subject: "started and left alone",
+  discussion: "nobody was waiting"
+}]});
+process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:answer}]}})+"\\n");`;
+
+/** Poll until something is true, saying what never happened if it is not. */
+async function waitFor(
+	ready: () => Promise<boolean>,
+	complaint: string,
+): Promise<void> {
+	const until = Date.now() + 30_000;
+	while (Date.now() < until) {
+		if (await ready()) return;
+		await new Promise((resolve) => setTimeout(resolve, 50));
+	}
+	throw new Error(complaint);
+}
 
 /** Wait for every reviewer in a round to have written its result. */
 async function everyoneFinished(run: AskRun): Promise<void> {
@@ -137,6 +173,106 @@ describe("a round nobody waited for", () => {
 		// Anchored against the witness the starting session recorded,
 		// which is the one thing a collect cannot work out for itself.
 		expect(kept[0]?.origin).toMatchObject({ runId: run.id });
+	}, 90_000);
+
+	it("is refused while its supervisors are alive, then read back off the ledger", async () => {
+		// The half the other case fakes. It hands the run object across
+		// the session boundary, which is the one thing a second session
+		// cannot do: all it has is the ledger and the state directory.
+		// And nothing exercised the guard that stops a collect landing
+		// while somebody is still writing, which is what keeps one
+		// round's findings from being filed twice.
+		const childPath = join(root, "child.mjs");
+		writeFileSync(childPath, SLOW_CHILD);
+		const starter = reviewerStarter(
+			{ node: process.execPath, entry: childPath },
+			root,
+		);
+		const ledger = createRunStore(join(root, "ledger"));
+		const change: ChangeRef = {
+			provider: "github",
+			repo: { key: "github:Jitsusama/agentic-harness.pi" },
+			id: "1",
+			label: "Jitsusama/agentic-harness.pi#1",
+		};
+
+		const { run } = await startCouncil(
+			{
+				roster: { reviewers: [{ id: "hawk" }] },
+				prompt: "read it",
+				seq: 1,
+				witness: "abc1234",
+			},
+			{
+				now: () => new Date(),
+				// The real one. A fake here is what let the round be
+				// written in a shape nothing reads back.
+				opened: (entry) => ledger.keep(change, entry),
+				async start(participant, prompt, runId) {
+					await startReviewer({
+						reviewer: { id: participant.id },
+						prompt,
+						cwd: root,
+						runId,
+						stateDir: root,
+						startPi: starter,
+						timeoutMs: 30_000,
+						idleTimeoutMs: 30_000,
+					});
+				},
+			},
+		);
+
+		const store = new ReviewerArtifactsStore(root);
+		const ids = run.participants.map((one) => one.id);
+		// Real facts, real pid, real lease file. Collecting now would
+		// file the findings of whoever has finished and then let the
+		// session still running file them again.
+		await waitFor(
+			async () =>
+				(await heldByLiveSupervisor(store, run.id, ids)) !== undefined,
+			"no supervisor ever took the lease",
+		);
+
+		await everyoneFinished(run);
+		await waitFor(
+			async () =>
+				(await heldByLiveSupervisor(store, run.id, ids)) === undefined,
+			"the lease was never given back",
+		);
+
+		// A second session: a new store over the same directory, and
+		// the round fetched by its id rather than carried in memory.
+		const later = createRunStore(join(root, "ledger"));
+		const held = await later.byId(change, run.id);
+		expect(held?.open).toBe(true);
+		expect(held?.witness).toBe("abc1234");
+
+		const answers = new Map<string, AskAnswer>();
+		for (const participant of held?.participants ?? []) {
+			const left = await answerLeftBehind(store, run.id, participant.id);
+			if (left.kind === "answer") answers.set(participant.id, left.answer);
+		}
+		const kept: Finding[] = [];
+		const { run: settled } = await collectRound(held as AskRun, answers, {
+			async record(findings) {
+				const numbered = findings.map((finding, index) => ({
+					...finding,
+					id: kept.length + index + 1,
+				}));
+				kept.push(...numbered);
+				return numbered;
+			},
+		});
+		await ledger.keep(change, settled);
+
+		expect(kept).toHaveLength(1);
+		expect(kept[0]?.subject).toBe("started and left alone");
+		// And the ledger holds the settled round rather than a second
+		// copy beside the open one.
+		const after = await later.list(change);
+		expect(after).toHaveLength(1);
+		expect(after[0]?.open).toBeUndefined();
 	}, 90_000);
 
 	it("keeps the question, so an abandoned round can still be read", async () => {
