@@ -28,7 +28,7 @@ import {
 	thrownAt,
 } from "./council.js";
 import type { Participant } from "./identity.js";
-import type { AskRun } from "./run.js";
+import type { AskRun, ParticipantOutcome } from "./run.js";
 
 /** What starting a round needs, which is much less than running one. */
 export interface StartDeps {
@@ -39,11 +39,25 @@ export interface StartDeps {
 	opened?(run: AskRun): Promise<void>;
 }
 
+/** What starting a round came to. */
+export interface StartResult extends CouncilResult {
+	/**
+	 * How many reviewers are actually running.
+	 *
+	 * Said rather than left to be worked out. The caller used to
+	 * subtract the warnings from the roster, which assumes one warning
+	 * per reviewer, and two of the warnings here are about the round
+	 * rather than about anybody on it: a round that started nobody
+	 * because its ledger write failed reported six running.
+	 */
+	started: number;
+}
+
 /** Start every reviewer on the roster and hand back the open round. */
 export async function startCouncil(
 	request: CouncilRequest,
 	deps: StartDeps,
-): Promise<CouncilResult> {
+): Promise<StartResult> {
 	const run = openingRun(request, deps.now());
 	const id = run.id;
 
@@ -55,11 +69,20 @@ export async function startCouncil(
 	try {
 		await deps.opened?.(run);
 	} catch (error) {
+		// Every reviewer gets the outcome it actually had, which is that
+		// it was never asked. Handing back a settled round with an empty
+		// outcome list instead makes the summary read the silence as
+		// seven reviewers who dropped, and a round that asked nobody
+		// anything then accuses the whole roster of failing.
+		//
+		// The reason is the same for all of them and belongs to the
+		// round rather than to any one of them, which is exactly what an
+		// advisory is, so it is hoisted once and the roll call says so.
+		const notWritten = `${id} was not started: the round could not be written down first (${why(error)}), and a detached round nothing has recorded cannot be collected.`;
 		return {
-			run: settled(run),
-			warnings: [
-				`${id} was not started: the round could not be written down first (${why(error)}), and a detached round nothing has recorded cannot be collected.`,
-			],
+			run: settled({ ...run, outcomes: everyoneMissed(request, notWritten) }),
+			warnings: [notWritten],
+			started: 0,
 		};
 	}
 
@@ -68,6 +91,7 @@ export async function startCouncil(
 	// order means a spawn storm of seven models hits the machine as a
 	// queue rather than all at once.
 	const warnings: string[] = [];
+	const missed: ParticipantOutcome[] = [];
 	let running = 0;
 	for (const participant of request.roster.reviewers) {
 		try {
@@ -75,10 +99,18 @@ export async function startCouncil(
 			running += 1;
 		} catch (error) {
 			// One model that will not start must not cost the others
-			// their round. Recorded as a warning rather than an outcome:
-			// the collect that finishes this round will find nothing in
-			// its directory and say so itself.
-			warnings.push(`${participant.id} could not be started: ${why(error)}.`);
+			// their round. Recorded as an outcome as well as a warning:
+			// a reviewer that never started is a reviewer that failed,
+			// and leaving it silent means the collect that finishes this
+			// round has to rediscover from an empty directory something
+			// that was known here, with the reason no longer to hand.
+			const failure = `${participant.id} could not be started: ${why(error)}.`;
+			warnings.push(failure);
+			missed.push({
+				participantId: participant.id,
+				findingIds: [],
+				failure,
+			});
 		}
 	}
 
@@ -88,15 +120,29 @@ export async function startCouncil(
 		// leaving it open is how a listing fills with rounds nobody can
 		// do anything about.
 		return {
-			run: settled(run),
+			run: settled({ ...run, outcomes: missed }),
 			warnings: [
 				...warnings,
 				`${id} was closed straight away: nobody could be started, so there will never be anything to collect.`,
 			],
+			started: 0,
 		};
 	}
 
-	return { run, warnings };
+	return { run: { ...run, outcomes: missed }, warnings, started: running };
+}
+
+/** The outcome every reviewer had when none of them was asked. */
+function everyoneMissed(
+	request: CouncilRequest,
+	reason: string,
+): ParticipantOutcome[] {
+	return request.roster.reviewers.map((participant) => ({
+		participantId: participant.id,
+		findingIds: [],
+		failure: reason,
+		advisory: reason,
+	}));
 }
 
 /** The same round, marked as having nothing left to wait for. */

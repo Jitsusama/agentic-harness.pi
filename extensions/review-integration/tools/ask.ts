@@ -34,6 +34,7 @@ import {
 } from "../../../lib/internal/config/loader.js";
 import { packageConfigPath } from "../../../lib/internal/paths.js";
 import {
+	type AnswerContext,
 	type AnswerLine,
 	type AskAnswer,
 	type AskContext,
@@ -657,7 +658,7 @@ async function startRound(
 	const store = createRunStore(runDir());
 	const contract = contractSkill("council");
 
-	const { run, warnings } = await startCouncil(
+	const { run, warnings, started } = await startCouncil(
 		{
 			roster,
 			prompt,
@@ -719,20 +720,22 @@ async function startRound(
 	// at directories that will always be empty.
 	const kept = await keptOnLedger(change, run);
 
-	const running = run.participants.length - warnings.length;
+	// Through the same composition as every other answer. This built
+	// its own for as long as it existed, which is how it came to print
+	// the tree caveat last and bare while the other seven answers put
+	// the identical sentence second and marked, and how it came to
+	// report six reviewers running on a round that started none.
 	return say(
 		[
-			running === 0
+			started === 0
 				? `Started nothing for ${run.id}, so there is nothing to collect.`
-				: `Started ${run.id}: ${count(running, "reviewer")} running, nothing waiting for them.`,
-			...(running === 0
+				: `Started ${run.id}: ${count(started, "reviewer")} running, nothing waiting for them.`,
+			...(started === 0
 				? []
 				: [
 						`Finish it with review_ask collect once they are done. Until then it reads as opened and never settled, which is what it is.`,
 					]),
-			...warnings.map((warning) => `${GLYPH.refused} ${warning}`),
-			...kept,
-			...(tree.caveat === undefined ? [] : [tree.caveat]),
+			answerFor(run, [...warnings, ...kept], tree.caveat),
 		].join("\n"),
 		{ run, warnings },
 	);
@@ -1233,8 +1236,11 @@ async function retryOne(
 			// The whole answer, not just the head. Retrying is what a
 			// reader does after being told a reviewer failed, so it is
 			// the last place that should withhold the one diagnosis
-			// saying a retry cannot work.
-			answerFor(updated, warnings, tree.caveat),
+			// saying a retry cannot work, and the first place to stop
+			// saying it once the retry has disproved it.
+			answerFor(updated, warnings, tree.caveat, {
+				sessionAnswered: outcome.failure === undefined,
+			}),
 		].join("\n"),
 		{ run: updated, warnings },
 	);
@@ -1729,12 +1735,17 @@ function renderFindings(findings: Finding[]): string {
  * and then reading the identical fact under another invites the
  * question of whether two things happened to it.
  */
-function answerFor(run: AskRun, warnings: string[], caveat?: string): string {
+function answerFor(
+	run: AskRun,
+	warnings: string[],
+	caveat?: string,
+	also?: Omit<AnswerContext, "warnings" | "caveat">,
+): string {
 	const brush: Record<NonNullable<AnswerLine["mark"]>, string> = {
 		refused: GLYPH.refused,
 		failed: GLYPH.failed,
 	};
-	return roundAnswer(run, { warnings, caveat })
+	return roundAnswer(run, { ...also, warnings, caveat })
 		.map((line) =>
 			line.mark === undefined ? line.text : `${brush[line.mark]} ${line.text}`,
 		)

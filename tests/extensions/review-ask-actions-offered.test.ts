@@ -52,8 +52,17 @@ describe("the round's answer", () => {
 		// composition is tested where it now lives. What is left here
 		// is a brush, and a brush is worth one assertion: that nothing
 		// has quietly started composing again.
-		expect(source).toContain("roundAnswer(run, { warnings, caveat })");
+		expect(source).toContain("roundAnswer(run, { ...also, warnings, caveat })");
 		expect(source).not.toContain("whole story");
+	});
+
+	it("paints every answer with the same brush, the start included", () => {
+		// The started round was the eighth answer and the only one that
+		// still composed itself, so it printed the tree caveat last and
+		// bare while the other seven put the identical sentence second
+		// and marked. One caller counting is the whole check: there is
+		// no other way to produce an answer here.
+		expect(source).not.toContain("warnings.map((warning) =>");
 	});
 
 	it("gives a retry the whole answer, not just the head", () => {
@@ -61,7 +70,7 @@ describe("the round's answer", () => {
 		// failed, so it is the last place that should withhold the one
 		// diagnosis saying a retry cannot work. It used to print the
 		// summary line alone.
-		expect(source).toContain("answerFor(updated, warnings, tree.caveat)");
+		expect(source).toContain("answerFor(updated, warnings, tree.caveat, {");
 	});
 });
 

@@ -195,9 +195,13 @@ export function staleRuntimeAdvisory(run: AskRun): string | undefined {
  * never ran. What it does not need is the advisory repeated under
  * every name, which is what hoisting a sentence already on every
  * outcome would otherwise produce, one copy longer than before.
+ *
+ * What was hoisted is told rather than worked out again. Deciding it
+ * twice means the two can disagree, and the way they disagree is the
+ * worst of both: a caller that suppressed the advisory gets a roll
+ * call of reviewers pointing at a line that is not there.
  */
-export function failureLines(run: AskRun): string[] {
-	const hoisted = staleRuntimeAdvisory(run);
+export function failureLines(run: AskRun, hoisted?: string): string[] {
 	const lines: string[] = [];
 	for (const outcome of run.outcomes) {
 		if (outcome.failure === undefined) continue;

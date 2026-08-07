@@ -139,7 +139,7 @@ describe("a round asked after pi was upgraded out from under it", () => {
 		expect(said?.match(/pi-0\.83\.0/g)).toHaveLength(1);
 	});
 
-	it("says it once in the answer a reader is handed", async () => {
+	it("says it once when every reviewer failed the same way", async () => {
 		// The measurement that matters, over the whole answer rather than
 		// over the advisory: a sentence hoisted above a roll call that
 		// still repeats it makes a seven-reviewer round eight copies
@@ -153,6 +153,37 @@ describe("a round asked after pi was upgraded out from under it", () => {
 		expect(whole.match(/pi-0\.83\.0/g)).toHaveLength(1);
 		for (const participant of SEVEN) {
 			expect(whole).toContain(`${participant}: as above.`);
+		}
+	});
+
+	it("keeps each reviewer's own words when they died differently", async () => {
+		// The collapse is exact equality, and equality is a property of
+		// the probe that refuses to spawn: it puts one sentence on every
+		// reviewer. The other detector reads the same diagnosis out of a
+		// child that got as far as starting, and there each reviewer's
+		// stderr is its own. Those lines are not repetition and must not
+		// be collapsed away, so the diagnosis is still said once and the
+		// seven distinct crashes are all still there.
+		const { run } = await runCouncil({ roster, prompt: "p", seq: 1 }, {
+			...deps(),
+			async ask(participant): Promise<AskAnswer> {
+				const crashed = pinnedToAnInstallThatIsGone(participant.id);
+				return answerFromReviewer({
+					...crashed,
+					stderr: `${participant.id}: ENOENT reading dark.json\n${crashed.stderr}`,
+				});
+			},
+		} as ReturnType<typeof deps>);
+
+		const whole = roundAnswer(run)
+			.map((line) => line.text)
+			.join("\n");
+
+		expect(whole.match(/Subagent dispatch will fail/g)).toHaveLength(
+			SEVEN.length + 1,
+		);
+		for (const participant of SEVEN) {
+			expect(whole).toContain(`${participant}: ENOENT reading dark.json`);
 		}
 	});
 

@@ -75,6 +75,104 @@ describe("what a round says when it is over", () => {
 		expect(story).toBeGreaterThan(failure);
 	});
 
+	it("does not call an open round's failures the end of it", () => {
+		// The collect path reaches this: every participant carries a
+		// failure saying nothing was on disk, and the warnings under it
+		// say the transcripts may be somewhere else and the round is
+		// left open deliberately. Calling that the whole story
+		// contradicts the next line down.
+		const lines = said(
+			roundAnswer(
+				run({
+					open: true,
+					outcomes: [
+						{
+							participantId: "hawk",
+							findingIds: [],
+							failure: "nothing was left behind",
+						},
+					],
+				}),
+				{ warnings: ["its transcripts may be under another state dir"] },
+			),
+		);
+
+		expect(lines.join("\n")).not.toContain("whole story");
+		expect(lines.join("\n")).toContain("may not be the end of it");
+	});
+
+	it("drops the diagnosis once a retry has disproved it", () => {
+		// The sequence the advisory exists for ends here: pi dies
+		// mid-round, the reader restarts, the reader retries, the retry
+		// works. Every outcome that failed still carries the diagnosis,
+		// because they did fail, and printing it over a reviewer that
+		// has just answered tells somebody to restart a session they
+		// have already restarted.
+		const retried = run({
+			outcomes: [
+				{ participantId: "hawk", findingIds: [1, 2] },
+				{
+					participantId: "owl",
+					findingIds: [],
+					failure: stale,
+					advisory: stale,
+				},
+			],
+		});
+
+		// The hoisted line specifically, not the words. A reviewer that
+		// died of a stale install still says so on its own line, and
+		// that line is the only record of why it failed.
+		expect(said(roundAnswer(retried))).toContain(`[refused] ${stale}`);
+		expect(said(roundAnswer(retried, { sessionAnswered: true }))).not.toContain(
+			`[refused] ${stale}`,
+		);
+	});
+
+	it("keeps a failure it can no longer hoist", () => {
+		// Suppressing the advisory must not suppress the roll call. The
+		// six reviewers that failed still failed, and their line is the
+		// only record of it in the answer.
+		const lines = said(
+			roundAnswer(
+				run({
+					outcomes: [
+						{ participantId: "hawk", findingIds: [1] },
+						{
+							participantId: "owl",
+							findingIds: [],
+							failure: stale,
+							advisory: stale,
+						},
+					],
+				}),
+				{ sessionAnswered: true },
+			),
+		);
+
+		expect(lines).toContain(`[failed] owl: ${stale}`);
+	});
+
+	it("gives every line its own element, notes included", () => {
+		// A mark paints a line, so an element holding two would put the
+		// glyph on the first and leave the second looking like prose.
+		const lines = roundAnswer(
+			run({
+				outcomes: [
+					{
+						participantId: "hawk",
+						findingIds: [1],
+						stopped: { limit: "wall-clock", detail: "ran out of time" },
+						answerPath: "/x/answers/hawk.md",
+					},
+				],
+			}),
+		);
+
+		for (const line of lines) expect(line.text).not.toContain("\n");
+		expect(lines.length).toBeGreaterThan(1);
+	});
+
 	it("does not blame failures when there were none", () => {
 		// An open round nobody has answered yet has failed at nothing.
 		// Telling its reader the failures are the whole story invents
