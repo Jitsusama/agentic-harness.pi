@@ -58,6 +58,15 @@ export interface AuditRequest {
 	seq: number;
 	/** The threads put up, by the index a reader cites them as. */
 	threadIndices: number[];
+	/**
+	 * The commit this round was formed against.
+	 *
+	 * Recorded for the same reason a council records one: a round that
+	 * cannot say what it read cannot be judged against the change
+	 * afterwards, and a standing on a thread is exactly the kind of
+	 * answer that ages when the branch moves.
+	 */
+	witness?: string;
 }
 
 /** The round, the judgements, and anything worth saying. */
@@ -122,6 +131,7 @@ export async function runAudit(
 				startedAt: startedAt.toISOString(),
 				participants: [],
 				outcomes: [],
+				...(request.witness === undefined ? {} : { witness: request.witness }),
 			},
 			audits: [],
 			warnings: [],
@@ -176,6 +186,7 @@ export async function runAudit(
 			// finding anything, which is the judging role.
 			participants: [participantIdentity("judge", request.auditor)],
 			outcomes: [outcome],
+			...(request.witness === undefined ? {} : { witness: request.witness }),
 		},
 		audits,
 		warnings,

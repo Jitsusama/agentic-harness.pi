@@ -118,6 +118,13 @@ export async function runJudge(
 			startedAt: startedAt.toISOString(),
 			participants: [participantIdentity("judge", request.judge)],
 			outcomes: [outcome],
+			// The same commit the findings above are anchored against,
+			// said on the round as well. It was used and not recorded,
+			// so every judge round in the ledger could anchor a finding
+			// honestly and still not say what it had judged, and a
+			// collect that settles one later reads the witness off the
+			// run rather than off the findings.
+			...(request.witness === undefined ? {} : { witness: request.witness }),
 		},
 		warnings,
 	};
