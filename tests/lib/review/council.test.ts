@@ -512,13 +512,13 @@ describe("when a participant is stopped at a limit", () => {
 			deps({
 				hawk: {
 					text: said("found before the wall"),
-					stopped: { limit: "output", detail: "exceeded output limits" },
+					stopped: { limit: "idle", detail: "went quiet mid-answer" },
 				},
 			}),
 		);
 
 		expect(run.outcomes[0]?.findingIds).toHaveLength(1);
-		expect(run.outcomes[0]?.stopped?.limit).toBe("output");
+		expect(run.outcomes[0]?.stopped?.limit).toBe("idle");
 	});
 });
 

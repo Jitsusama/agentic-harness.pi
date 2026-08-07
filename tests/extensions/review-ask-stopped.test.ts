@@ -89,7 +89,6 @@ describe("a reviewer we stopped", () => {
 	const LIMITS = [
 		["timeout", "wall-clock"],
 		["idle-timeout", "idle"],
-		["output-limit", "output"],
 		["cancelled", "cancelled"],
 		["parent-exit", "parent-exit"],
 		["soft-deadline", "soft-deadline"],
@@ -185,10 +184,10 @@ describe("a reviewer we stopped", () => {
 
 	it("keeps the findings it had already produced", () => {
 		const answer = answerFromReviewer(
-			ran({ exitCode: 124, finalAssistantText: FOUND, state: "output-limit" }),
+			ran({ exitCode: 124, finalAssistantText: FOUND, state: "idle-timeout" }),
 		);
 
-		expect(answer).toMatchObject({ text: FOUND, stopped: { limit: "output" } });
+		expect(answer).toMatchObject({ text: FOUND, stopped: { limit: "idle" } });
 	});
 
 	it("explains itself in the runner's own words", () => {
