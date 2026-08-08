@@ -135,17 +135,18 @@ async function fileReply(
 		runId,
 		reviewerId: participant.id,
 	};
+	// The same rule as everywhere else, in this round's shape: an
+	// anchor may claim a commit only if the reviewer read it. The
+	// witnesses here are per change, and a fallback tree misses all of
+	// them at once, so the whole lookup goes rather than each answer.
+	const formedAt =
+		request.unpinned === undefined ? request.witnessFor : undefined;
 	const harvest = alsoRecordedInStack(
-		harvestStackFindings(
-			answer.text,
-			origin,
-			request.stackRefs,
-			request.witnessFor,
-		),
+		harvestStackFindings(answer.text, origin, request.stackRefs, formedAt),
 		answer.recorded,
 		origin,
 		request.stackRefs,
-		request.witnessFor,
+		formedAt,
 	);
 	// The same rule the single-change round follows, and this round
 	// needs it most: it holds every change at once, so it is the one

@@ -416,6 +416,26 @@ export function whatItRead(read: TreeRead): TreeRead {
 	};
 }
 
+/**
+ * The commit an anchor from this round may claim.
+ *
+ * An anchor's witness means the commit it was formed against, and the
+ * substrate reads it to tell a thread the backend kept from one a
+ * force-push stranded. A round that fell back to the caller's
+ * checkout was never formed against the commit under review, so
+ * stamping it there makes the substrate confidently wrong in exactly
+ * the case the field exists to disambiguate.
+ *
+ * Nothing, then, rather than the commit: not knowing which tree a
+ * finding came from is the truth, and an anchor that says so degrades
+ * to what anchors did before witnesses existed. The run keeps both
+ * facts, because what the change is at and what the reviewers read
+ * are two different things and the ledger wants each.
+ */
+export function anchorWitness(read: TreeRead): string | undefined {
+	return read.unpinned === undefined ? read.witness : undefined;
+}
+
 /** The identity a run asked under this id, if it asked one. */
 export function askedOf(
 	run: AskRun,

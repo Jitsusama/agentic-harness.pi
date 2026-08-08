@@ -26,6 +26,7 @@ import {
 	type AskRound,
 	type AskRun,
 	type AskUsage,
+	anchorWitness,
 	newRunId,
 	type ParticipantOutcome,
 	whatItRead,
@@ -333,12 +334,7 @@ export async function runCouncil(
 	const outcomes = await settleReplies(
 		replies,
 		(reply) =>
-			recordReply(
-				reply,
-				{ runId: id, witness: request.witness },
-				deps,
-				warnings,
-			),
+			recordReply(reply, { runId: id, ...whatItRead(request) }, deps, warnings),
 		(outcome) => ({
 			participantId: outcome.participantId,
 			findings: outcome.findingIds.length,
@@ -566,7 +562,7 @@ const CUT_OFF =
  */
 export async function recordReply(
 	reply: Reply,
-	run: { runId: string; witness?: string },
+	run: { runId: string; witness?: string; unpinned?: string },
 	deps: Pick<CouncilDeps, "record">,
 	warnings: string[],
 ): Promise<ParticipantOutcome> {
@@ -592,16 +588,20 @@ export async function recordReply(
 	// wrap-up is asked for only what the reviewer was sure of and may
 	// honestly be the shorter of the two. Ties go to the later answer,
 	// which is the considered one.
+	// Only a commit these findings were actually formed against. A
+	// round that read the caller's checkout has no business stamping
+	// the change's head on an anchor.
+	const formed = anchorWitness(run);
 	const harvest = alsoRecorded(
 		richer(
-			harvestFindings(answer.text, origin, run.witness),
+			harvestFindings(answer.text, origin, formed),
 			answer.earlierText === undefined
 				? undefined
-				: harvestFindings(answer.earlierText, origin, run.witness),
+				: harvestFindings(answer.earlierText, origin, formed),
 		),
 		answer.recorded,
 		origin,
-		run.witness,
+		formed,
 	);
 	// A stopped reviewer answers for its own harvest warnings. Those
 	// warnings describe the shape of the text, and the text is a

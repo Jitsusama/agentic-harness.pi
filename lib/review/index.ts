@@ -126,6 +126,7 @@ export type {
 	TreeRead,
 } from "./ask/run.js";
 export {
+	anchorWitness,
 	askedOf,
 	failureLines,
 	newRunId,
