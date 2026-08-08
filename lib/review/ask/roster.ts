@@ -87,11 +87,11 @@ export function overrideRoster(
 			applied.set(participant.id, participant);
 			continue;
 		}
-		// Three named fields rather than a spread of whatever arrived. The
-		// type says three, and a type says nothing at runtime: spreading
-		// let a caller set `id` or `persona` through a door meant for
-		// settings, and a changed id would slip past the collision check
-		// that only runs when a whole roster is parsed.
+		// Named fields rather than a spread of whatever arrived. The type
+		// says four, and a type says nothing at runtime: spreading let a
+		// caller set `id` through a door meant for settings, and a changed
+		// id would slip past the collision check that only runs when a
+		// whole roster is parsed.
 		const parsed = parseParticipant(
 			{
 				...participant,

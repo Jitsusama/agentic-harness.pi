@@ -81,8 +81,12 @@ export async function chartersOnDisk(
  * session's directory, since those are two repos often enough to have
  * cost $75.63 finding out.
  */
-export async function agentsInRepo(treePath: string): Promise<AgentDiscovery> {
+export async function agentsInRepo(
+	treePath: string,
+	touched: readonly string[] = [],
+): Promise<AgentDiscovery> {
 	const files: AgentFile[] = [];
+	const unreadable: { path: string; why: string }[] = [];
 
 	for (const dir of AGENT_DIRS) {
 		let names: string[];
@@ -95,14 +99,42 @@ export async function agentsInRepo(treePath: string): Promise<AgentDiscovery> {
 		}
 		for (const name of names) {
 			if (!name.endsWith(".md")) continue;
-			files.push({
-				path: join(dir, name),
-				text: await readFile(join(treePath, dir, name), "utf8"),
-			});
+			try {
+				files.push({
+					path: join(dir, name),
+					text: await readFile(join(treePath, dir, name), "utf8"),
+				});
+			} catch (error) {
+				// The leniency was written for the parse and skipped for the
+				// read, and the read is the half that lives in the repo's
+				// control. A dangling symlink, a directory named `.md`, a file
+				// nobody may open: any one of them threw out of here, out of
+				// the round, and out of every other round against that repo,
+				// including rounds naming no repo lens at all.
+				unreadable.push({
+					path: join(dir, name),
+					why: `It could not be read: ${error instanceof Error ? error.message : String(error)}`,
+				});
+			}
 		}
 	}
 
-	return discoverAgents(files);
+	const found = discoverAgents(files, touched);
+	return { agents: found.agents, skipped: [...unreadable, ...found.skipped] };
+}
+
+/** What the tree offered, for a refusal that would otherwise guess. */
+function whatTheTreeSaid(inRepo: AgentDiscovery): string[] {
+	const said: string[] = [];
+	if (inRepo.agents.length > 0) {
+		said.push(
+			`The repo under review offers ${inRepo.agents.map((one) => `"${one.id}"`).join(", ")}.`,
+		);
+	}
+	for (const missed of inRepo.skipped) {
+		said.push(`${missed.path} was not read: ${missed.why}`);
+	}
+	return said;
 }
 
 /**
@@ -120,8 +152,16 @@ export async function agentsInRepo(treePath: string): Promise<AgentDiscovery> {
  * can never quietly answer the other.
  */
 export async function chartersFor(
+	// Narrowed to who this round asks before it arrives. Binding the
+	// whole roster was harmless while a lens was a file in a directory
+	// the operator owns. It stops being harmless once one can come from
+	// the repo: a judge-only round would refuse over a reviewer's
+	// missing lens, and that reviewer is somebody it will never ask.
 	roster: Roster,
 	personaDir: string,
+	// Paths the change under review touches, so a lens the change itself
+	// wrote can be refused rather than obeyed.
+	touched: readonly string[],
 	// The tree itself rather than a path, so a round cannot hand this
 	// somewhere other than where it reads. A path parameter took
 	// `process.cwd()` without complaint, and a lens borrowed from the
@@ -131,11 +171,28 @@ export async function chartersFor(
 	tree: ReadableTree,
 ): Promise<Map<string, string>> {
 	const charters = await chartersOnDisk(personaDir);
-	const inRepo = await agentsInRepo(tree.path);
-	for (const agent of inRepo.agents) charters.set(agent.id, agent.charter);
+	const inRepo = await agentsInRepo(tree.path, touched);
+	for (const agent of inRepo.agents) {
+		// A persona file may not claim the namespace, so the merge order
+		// cannot decide anything. Without this the guarantee above held by
+		// convention only: a file literally named `repo:architect.md` was
+		// shadowed here by whatever the repo shipped.
+		if (charters.has(agent.id)) {
+			throw new Error(
+				`A persona of your own is called "${agent.id}", which is the namespace repo lenses use. Rename it: while it exists, asking for your lens and asking for the repo's are the same request.`,
+			);
+		}
+		charters.set(agent.id, agent.charter);
+	}
 
 	const bound = bindPersonas(roster, (id) => charters.get(id));
-	if ("refusal" in bound) throw new Error(bound.refusal);
+	if ("refusal" in bound) {
+		// The refusal knows the lens is missing and not why. What the tree
+		// offered and declined to offer is here, and saying it is the
+		// difference between "no such persona" and "the change you are
+		// reviewing edits that file" while the file sits right there.
+		throw new Error([bound.refusal, ...whatTheTreeSaid(inRepo)].join(" "));
+	}
 
 	const byParticipant = new Map<string, string>();
 	for (const binding of bound.bindings) {

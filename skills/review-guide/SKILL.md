@@ -490,18 +490,32 @@ through one:
 { "action": "council", "who": { "hawk": { "persona": "repo:code-reviewer" } } }
 ```
 
-They are read from `.claude/agents` and `agents`, in the tree the
-round actually reads rather than the directory you are sitting in,
-since those are two different repos often enough to matter.
+They are read from `.claude/agents` and `agents`. The listing reads
+the directory you are sitting in, because it is answered before any
+change is bound and nothing yet knows what repo a round would read; a
+round reads the tree it actually reviews. Those are the same place
+often enough to be useful and different often enough that the listing
+names the directory it looked in. Reviewing somebody else's change
+from your own checkout, what you read and what runs can differ.
 
-Two things keep this safe. The `repo:` prefix means asking for a
-repo's lens and asking for your own are different requests, so a repo
-can never quietly stand in for a persona you trust and file findings
-under its name. And only the prose comes across: these files often
-name a model and a tool palette in the vocabulary of the harness that
-wrote them, and `sonnet` is not a model pi resolves any more than
-`Bash, Read, Edit` are tools it has. The listing says which fields it
-left behind.
+Three things keep this safe.
+
+The `repo:` prefix means asking for a repo's lens and asking for your
+own are different requests, so a repo can never quietly stand in for a
+persona you trust and file findings under its name. A persona of your
+own that claims the prefix is refused rather than shadowed.
+
+Only the prose comes across. These files often name a model and a tool
+palette in the vocabulary of the harness that wrote them, and `sonnet`
+is not a model pi resolves any more than `Bash, Read, Edit` are tools
+it has. The listing says which fields it left behind.
+
+And a lens the change under review edits is refused. A charter becomes
+the reviewer's standing instruction, on a child that holds bash and
+write, reading a tree pinned to the commit under review. Without that
+rule the author of a change writes the system prompt of the agent
+reviewing it. What is left is the repo's committed state, which is the
+same trust already extended to every other line in it.
 
 A malformed agent file is skipped and named rather than refusing the
 round, which is the opposite of how a malformed persona is treated.

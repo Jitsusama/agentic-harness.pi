@@ -131,7 +131,9 @@ describe("review_ask", () => {
 			const at = source.indexOf(`async function ${round}(`);
 			if (at === -1) return [`${round} is gone`];
 			const body = source.slice(at);
-			const call = body.slice(0, body.indexOf("const charters"));
+			const opens = body.indexOf("const charters");
+			if (opens === -1) return [`${round} reads no lenses at all`];
+			const call = body.slice(0, opens);
 			return call.includes(`rosterOrThrow(params, "${asks}")`)
 				? []
 				: [`${round} does not ask for "${asks}"`];
@@ -155,38 +157,46 @@ describe("review_ask", () => {
 		// A lens from the wrong tree is the cheap version of the mistake
 		// that cost $75.63: real code read through a lens written for a
 		// codebase nobody is reviewing.
-		const rounds = [
-			"askCouncil",
-			"startRound",
-			"askCritique",
-			"askStack",
-			"askJudge",
-			"askAudit",
-			"retryOne",
-		];
+		// Every function that resolves a tree, discovered rather than
+		// listed. A whitelist covers the rounds that existed the day it was
+		// written and waves an eighth one through, which is the failure the
+		// gate two tests up already had once.
+		const rounds = [...source.matchAll(/async function (\w+)\(/g)].flatMap(
+			([, name]) => {
+				const at = source.indexOf(`async function ${name}(`);
+				const next = source.indexOf("\nasync function ", at + 1);
+				const body = source.slice(at, next === -1 ? undefined : next);
+				return body.includes("await treeForRound(") ? [{ name, body }] : [];
+			},
+		);
 
-		const wrong = rounds.flatMap((round) => {
-			const at = source.indexOf(`async function ${round}(`);
-			if (at === -1) return [`${round} is gone`];
-			const next = source.indexOf("\nasync function ", at + 1);
-			const body = source.slice(at, next === -1 ? undefined : next);
-			if (!body.includes("chartersFor(roster, tree)")) {
-				return [`${round} does not read its lenses from the tree it reads`];
+		// The discovery itself has to find something, or the sweep below
+		// passes over nothing at all and reports a clean bill.
+		expect(rounds.length).toBeGreaterThanOrEqual(7);
+
+		const wrong = rounds.flatMap(({ name, body }) => {
+			const reads = body.indexOf("chartersFor(roster, tree,");
+			if (reads === -1) {
+				return [`${name} does not read its lenses from the tree it reads`];
 			}
 			// After the refusal, since a refused tree has no path to read
-			// from and the round is over anyway.
-			return body.indexOf('"refusal" in tree') <
-				body.indexOf("chartersFor(roster, tree)")
+			// from. Absence is its own failure rather than a passing
+			// comparison: indexOf hands back -1, which is less than every
+			// position, so a deleted check used to read as a check that came
+			// first.
+			const guarded = body.indexOf('"refusal" in tree');
+			if (guarded === -1) return [`${name} never checks the tree is readable`];
+			return guarded < reads
 				? []
-				: [`${round} reads lenses before it knows the tree is readable`];
+				: [`${name} reads lenses before it knows the tree is readable`];
 		});
 
 		expect(wrong).toEqual([]);
 		// And nothing reaches past the tree for a directory of its own.
-		expect(source).not.toMatch(/chartersFor\(roster, (?!tree\))/);
+		expect(source).not.toMatch(/chartersFor\(roster, (?!tree,)/);
 		// Including the one hop between the sites and the library, which
 		// the loop above cannot see and which took `process.cwd()` without
 		// a murmur while every one of those sites was correct.
-		expect(source).toContain("lensesFor(roster, personaDir(), tree)");
+		expect(source).toMatch(/lensesFor\([\s\S]{0,200}?\btree,?\s*\)/);
 	});
 });

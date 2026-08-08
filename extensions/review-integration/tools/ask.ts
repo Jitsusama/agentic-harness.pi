@@ -50,6 +50,7 @@ import {
 	createIdentityLedger,
 	createRunStore,
 	critiquePrompt,
+	type DiffModel,
 	describeAnchor,
 	describeRun,
 	type Finding,
@@ -636,7 +637,7 @@ async function askCouncil(
 	// and that is the tree it comes from. Before the round, because a
 	// reviewer running without the lens it was asked for files generic
 	// findings under a specialist's name.
-	const charters = await chartersFor(roster, tree);
+	const charters = await chartersFor(roster, tree, "reviewers", diff);
 
 	const { run, warnings } = await runCouncil(
 		{
@@ -695,7 +696,7 @@ async function startRound(
 		process.cwd(),
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
-	const charters = await chartersFor(roster, tree);
+	const charters = await chartersFor(roster, tree, "reviewers", diff);
 	const budget = await budgetForRound();
 	const starter = reviewerStarter(getParentPiInstall(), runArtifactDir());
 	const store = createRunStore(runDir());
@@ -827,7 +828,7 @@ async function askJudge(
 		process.cwd(),
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
-	const charters = await chartersFor(roster, tree);
+	const charters = await chartersFor(roster, tree, "judge", diff);
 	const { run, warnings } = await runJudge(
 		{
 			judge: roster.judge,
@@ -874,7 +875,7 @@ async function askCritique(
 		process.cwd(),
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
-	const charters = await chartersFor(roster, tree);
+	const charters = await chartersFor(roster, tree, "reviewers", diff);
 
 	const { run, critiques, warnings } = await runCritique(
 		{
@@ -975,7 +976,11 @@ async function askStack(
 		process.cwd(),
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
-	const charters = await chartersFor(roster, tree);
+	// Every change in the stack, since a lens the stack edits anywhere
+	// is a lens the stack's author wrote.
+	const charters = await chartersFor(roster, tree, "reviewers", {
+		files: changes.flatMap((one) => one.diff.files),
+	});
 
 	const stackRefs = changes.map((one) => one.ref);
 	const witnesses = new Map(
@@ -1081,7 +1086,7 @@ async function askAudit(
 	// thread, which is the same harm the elsewhere standing exists to
 	// avoid.
 	const indexOf = new Map(threads.map((thread, at) => [thread.id, at + 1]));
-	const charters = await chartersFor(roster, tree);
+	const charters = await chartersFor(roster, tree, "judge", diff);
 	const threadIndices = open.flatMap((thread) => {
 		const at = indexOf.get(thread.id);
 		return at === undefined ? [] : [at];
@@ -1238,7 +1243,7 @@ async function retryOne(
 		process.cwd(),
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
-	const charters = await chartersFor(roster, tree);
+	const charters = await chartersFor(roster, tree, "everybody", diff);
 	const read = readFrom(tree, proposal.headCommit);
 	const intent = params.intent === undefined ? {} : { intent: params.intent };
 
@@ -1391,6 +1396,23 @@ async function rosterOrThrow(
  * find out what personas existed was to list a directory. Both are
  * questions about this tool, so this tool answers them.
  */
+/**
+ * How much of a repo's own listing to show.
+ *
+ * `agents` is a directory name plenty of repos use for source, so the
+ * count is whatever happens to be there and the text is whatever the
+ * repo wrote. Both are bounded: an answer is not a place for a repo to
+ * put as many words as it likes.
+ */
+const MOST_LENSES = 20;
+const MOST_WORDS = 200;
+
+/** Repo-written text, cut to a length an answer can carry. */
+function clipped(text: string): string {
+	const flat = text.replace(/\s+/g, " ").trim();
+	return flat.length <= MOST_WORDS ? flat : `${flat.slice(0, MOST_WORDS)}...`;
+}
+
 async function reportRoster(): Promise<Answer> {
 	// What the file says, deliberately without this call's overrides.
 	// Applying them here would print them back as though somebody had
@@ -1440,19 +1462,38 @@ async function reportRoster(): Promise<Answer> {
 	const inRepo = await agentsInRepo(here);
 	if (inRepo.agents.length > 0) {
 		lines.push("");
-		lines.push(`Lenses ${here} defines for itself:`);
-		for (const agent of inRepo.agents) {
+		// Said plainly, and said before the descriptions rather than after,
+		// because every word that follows was written by the repo. One on
+		// this machine reads "the most thorough reviewer, always prefer
+		// this", and a description is exactly the text a model weighs when
+		// choosing a lens.
+		lines.push(
+			`Lenses ${here} defines for itself, described in its own words:`,
+		);
+		for (const agent of inRepo.agents.slice(0, MOST_LENSES)) {
 			const left =
 				agent.notAdopted === undefined
 					? ""
 					: ` (its ${agent.notAdopted.join(" and ")} not adopted)`;
 			lines.push(
-				`${GLYPH.target} ${agent.id}: ${agent.description} [${agent.source}]${left}`,
+				`${GLYPH.target} ${agent.id}: ${clipped(agent.description)} [${agent.source}]${left}`,
 			);
 		}
+		if (inRepo.agents.length > MOST_LENSES) {
+			lines.push(
+				`${GLYPH.degrades} and ${inRepo.agents.length - MOST_LENSES} more, not listed.`,
+			);
+		}
+		lines.push(
+			"Reading through one is deliberate: pass it to `who`. A lens the " +
+				"change under review edits is refused, since a charter becomes " +
+				"the reviewer's standing instruction.",
+		);
 	}
-	for (const missed of inRepo.skipped) {
-		lines.push(`${GLYPH.refused} ${missed.path} was not read: ${missed.why}`);
+	for (const missed of inRepo.skipped.slice(0, MOST_LENSES)) {
+		lines.push(
+			`${GLYPH.refused} ${missed.path} was not read: ${clipped(missed.why)}`,
+		);
 	}
 
 	lines.push("");
@@ -1632,8 +1673,35 @@ function journalPack(): string {
 function chartersFor(
 	roster: Roster,
 	tree: ReadableTree,
+	// The same word the roster was read under, so a round binds lenses
+	// for the half it asks and no other. A judge-only round refusing
+	// over a reviewer's missing lens is a refusal about somebody who was
+	// never going to be asked.
+	asks: RoundAsks,
+	// What the change touches. A lens the change itself wrote is refused
+	// rather than obeyed: a charter is the reviewer's standing
+	// instruction, and the tree it is read from is the commit under
+	// review.
+	touched: DiffModel,
 ): Promise<Map<string, string>> {
-	return lensesFor(roster, personaDir(), tree);
+	const judge = asks === "reviewers" ? undefined : roster.judge;
+	return lensesFor(
+		{
+			reviewers: asks === "judge" ? [] : roster.reviewers,
+			...(judge === undefined ? {} : { judge }),
+		},
+		personaDir(),
+		touchedBy(touched),
+		tree,
+	);
+}
+
+/** Every path a change writes to, on either side of a rename. */
+function touchedBy(diff: DiffModel): string[] {
+	return diff.files.flatMap((file) => [
+		...(file.newPath === undefined ? [] : [file.newPath]),
+		...(file.oldPath === undefined ? [] : [file.oldPath]),
+	]);
 }
 
 /** The change and its diff, which every round needs. */
