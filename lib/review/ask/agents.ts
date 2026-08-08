@@ -66,6 +66,70 @@ export interface AgentDiscovery {
 export const NAMESPACE = "repo:";
 
 /**
+ * How much charter a lens may carry.
+ *
+ * A charter becomes an argument on a child process, so unbounded is
+ * not a size, it is a limit somebody else picks. The longest agent
+ * file measured on this machine is 926 lines, which fits; a file that
+ * does not is refused rather than truncated, since half a charter is a
+ * lens nobody wrote.
+ */
+const MOST_CHARTER = 64_000;
+
+/**
+ * Whether a path from a diff and a path from a directory walk name the
+ * same file.
+ *
+ * Exact equality was the first shape, and a diff does not promise the
+ * spelling a directory walk produces: git quotes a path with an
+ * unusual byte in it, and separators differ by platform. A comparison
+ * that is too strict fails open here, which is the wrong direction for
+ * the one rule that keeps the change under review out of the
+ * reviewer's prompt.
+ */
+function sameFile(fromDiff: string, found: string): boolean {
+	return plain(fromDiff) === plain(found);
+}
+
+/** A path reduced to what two spellings of it agree on. */
+function plain(path: string): string {
+	const unquoted =
+		path.startsWith('"') && path.endsWith('"')
+			? unquote(path.slice(1, -1))
+			: path;
+	return unquoted.replace(/\\/g, "/").replace(/^\.\//, "").normalize("NFC");
+}
+
+/**
+ * A path the way git quotes one, read back.
+ *
+ * Byte by byte rather than character by character, because git escapes
+ * the bytes: an accented letter arrives as two octal escapes that are
+ * one character, and decoding them separately produces a string that
+ * matches nothing on disk.
+ */
+function unquote(quoted: string): string {
+	const bytes: number[] = [];
+	for (let at = 0; at < quoted.length; at += 1) {
+		if (quoted[at] !== "\\") {
+			bytes.push(...new TextEncoder().encode(quoted[at]));
+			continue;
+		}
+		const octal = quoted.slice(at + 1, at + 4);
+		if (/^[0-7]{3}$/.test(octal)) {
+			bytes.push(Number.parseInt(octal, 8));
+			at += 3;
+			continue;
+		}
+		const escaped = quoted[at + 1] ?? "";
+		const literal = { n: "\n", t: "\t", r: "\r" }[escaped] ?? escaped;
+		bytes.push(...new TextEncoder().encode(literal));
+		at += 1;
+	}
+	return new TextDecoder().decode(Uint8Array.from(bytes));
+}
+
+/**
  * The frontmatter of an agent file, read as the YAML it is.
  *
  * The persona reader splits on the first colon of each line, which is
@@ -82,19 +146,18 @@ export const NAMESPACE = "repo:";
 function frontmatterOf(
 	text: string,
 ):
-	| { fields: Record<string, string>; body: string }
+	| { fields: Record<string, string>; unreadable: string[]; body: string }
 	| { why: string }
 	| undefined {
 	const split = splitFrontmatter(text);
 	if (split === undefined) return undefined;
 
-	const opened = text.indexOf("\n");
-	const closed = text.indexOf("\n---", opened);
-	const block = closed === -1 ? "" : text.slice(opened + 1, closed);
-
 	let parsed: unknown;
 	try {
-		parsed = parseYaml(block);
+		// The block the split itself found. Finding the fences a second
+		// way put whatever fell between the two rules into neither the
+		// fields nor the listing, and at the head of the charter.
+		parsed = parseYaml(split.block);
 	} catch (error) {
 		return {
 			why: `Its frontmatter is not readable as YAML: ${error instanceof Error ? error.message.split("\n")[0] : String(error)}`,
@@ -105,23 +168,30 @@ function frontmatterOf(
 	}
 
 	const fields: Record<string, string> = {};
+	const unreadable: string[] = [];
 	for (const [key, value] of Object.entries(parsed)) {
-		if (value === null || typeof value === "object") continue;
+		// Named before it is dropped. Dropping first left the report of
+		// what was not adopted silent about exactly the fields it promises
+		// to name, because it never saw them.
+		if (value === null || typeof value === "object") {
+			unreadable.push(key);
+			continue;
+		}
 		fields[key] = String(value).trim();
 	}
-	return { fields, body: split.body };
+	return { fields, unreadable, body: split.body };
 }
 
 /**
- * Fields carrying another harness's mechanism, which do not come over.
+ * The two fields identity is made of.
  *
- * Not a refusal, because the file is not wrong: it is right for the
- * harness it was written for. It is reported so that somebody choosing
- * this lens is not surprised by which model it runs on.
+ * Everything else in the frontmatter belongs to the harness the file
+ * was written for, and is reported rather than adopted: the file is
+ * not wrong, it is right for something else. An allowlist of the
+ * mechanism seen so far was the first shape of this, and it named the
+ * fields already known about while staying silent on whatever a
+ * harness adds next, which is the reverse of what a report is for.
  */
-const MECHANISM = ["model", "tools"];
-
-/** The frontmatter this reads as identity, and everything else. */
 const IDENTITY = ["name", "description"];
 
 /**
@@ -139,7 +209,13 @@ export function discoverAgents(
 	// refused rather than dropped quietly, because somebody asking for
 	// it by name has to learn that it was the diff that disqualified it
 	// and not a typo.
-	touched: readonly string[] = [],
+	//
+	// Required, and deliberately so. It defaulted to the empty set at
+	// first, which meant the rule the whole design rests on was off
+	// unless a caller remembered to switch it on, and a caller that
+	// forgot got the unsafe behaviour silently. Pass an empty array to
+	// say the change touches nothing.
+	touched: readonly string[],
 ): AgentDiscovery {
 	const read: RepoAgent[] = [];
 	const skipped: { path: string; why: string }[] = [];
@@ -177,7 +253,7 @@ export function discoverAgents(
 			continue;
 		}
 
-		if (touched.includes(file.path)) {
+		if (touched.some((path) => sameFile(path, file.path))) {
 			skipped.push({
 				path: file.path,
 				why: `The change under review edits this file, so reading through "${name}" would let the author of the change write the reviewer's standing instruction.`,
@@ -186,6 +262,13 @@ export function discoverAgents(
 		}
 
 		const charter = split.body.trim();
+		if (charter.length > MOST_CHARTER) {
+			skipped.push({
+				path: file.path,
+				why: `The charter for "${name}" is ${charter.length} characters, past the ${MOST_CHARTER} a lens may carry. A charter becomes an argument on the reviewer's process.`,
+			});
+			continue;
+		}
 		if (charter === "") {
 			skipped.push({
 				path: file.path,
@@ -198,9 +281,10 @@ export function discoverAgents(
 		// fields seen so far. An allowlist reports the fields already known
 		// about and stays silent on the ones a harness adds next, which is
 		// the reverse of what a report is for.
-		const notAdopted = Object.keys(split.fields)
-			.filter((field) => !IDENTITY.includes(field))
-			.sort();
+		const notAdopted = [
+			...Object.keys(split.fields).filter((field) => !IDENTITY.includes(field)),
+			...split.unreadable,
+		].sort();
 		read.push({
 			id: `${NAMESPACE}${name}`,
 			name,

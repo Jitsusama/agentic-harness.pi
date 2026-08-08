@@ -139,7 +139,7 @@ export function bindPersonas(
  */
 export function splitFrontmatter(
 	text: string,
-): { fields: Record<string, string>; body: string } | undefined {
+): { fields: Record<string, string>; block: string; body: string } | undefined {
 	const lines = text.split("\n");
 	if (lines[0]?.trim() !== FENCE) return undefined;
 
@@ -155,5 +155,14 @@ export function splitFrontmatter(
 		fields[key] = line.slice(at + 1).trim();
 	}
 
-	return { fields, body: lines.slice(close + 1).join("\n") };
+	// The block verbatim as well as the fields, so a reader that wants
+	// to parse it properly finds the fences with the same rule the body
+	// was found with. Two rules for one boundary is a gap between them,
+	// and a gap between the fields and the body is text that shows up in
+	// neither the listing nor the frontmatter and heads the charter.
+	return {
+		fields,
+		block: lines.slice(1, close).join("\n"),
+		body: lines.slice(close + 1).join("\n"),
+	};
 }

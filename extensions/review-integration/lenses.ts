@@ -16,18 +16,32 @@
  * checked by reading it. Here it can be driven.
  */
 
-import { readdir, readFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { readdir, readFile, realpath } from "node:fs/promises";
+import { basename, join, resolve } from "node:path";
 import type {
 	AgentDiscovery,
 	AgentFile,
+	PersonaBinding,
 	Roster,
 } from "../../lib/review/index.js";
 import {
 	bindPersonas,
 	discoverAgents,
+	NAMESPACE,
 	parsePersona,
 } from "../../lib/review/index.js";
+
+/** How much repo-written text a refusal may repeat. */
+const MOST_CHARACTERS = 200;
+
+/** Repo-written text, cut to a length a message can carry. */
+function clipped(text: string): string {
+	const flat = text.replace(/\s+/g, " ").trim();
+	return flat.length <= MOST_CHARACTERS
+		? flat
+		: `${flat.slice(0, MOST_CHARACTERS)}...`;
+}
+
 import type { ReadableTree } from "./work.js";
 
 /**
@@ -83,10 +97,11 @@ export async function chartersOnDisk(
  */
 export async function agentsInRepo(
 	treePath: string,
-	touched: readonly string[] = [],
+	touched: readonly string[],
 ): Promise<AgentDiscovery> {
 	const files: AgentFile[] = [];
 	const unreadable: { path: string; why: string }[] = [];
+	const root = await realpath(treePath).catch(() => resolve(treePath));
 
 	for (const dir of AGENT_DIRS) {
 		let names: string[];
@@ -100,9 +115,23 @@ export async function agentsInRepo(
 		for (const name of names) {
 			if (!name.endsWith(".md")) continue;
 			try {
+				const at = join(treePath, dir, name);
+				// Where the read actually lands. A symlink means the path the
+				// diff check ran against and the file the charter came from
+				// need not be the same file, and the target need not be in the
+				// tree at all: the whole rule about the change not writing the
+				// reviewer's prompt reads a path nothing followed.
+				const real = await realpath(at);
+				if (real !== resolve(at) && !real.startsWith(`${root}/`)) {
+					unreadable.push({
+						path: join(dir, name),
+						why: "It is a link to a file outside the tree, so what the diff says about this path says nothing about what would be read.",
+					});
+					continue;
+				}
 				files.push({
 					path: join(dir, name),
-					text: await readFile(join(treePath, dir, name), "utf8"),
+					text: await readFile(at, "utf8"),
 				});
 			} catch (error) {
 				// The leniency was written for the parse and skipped for the
@@ -132,7 +161,11 @@ function whatTheTreeSaid(inRepo: AgentDiscovery): string[] {
 		);
 	}
 	for (const missed of inRepo.skipped) {
-		said.push(`${missed.path} was not read: ${missed.why}`);
+		// Bounded, because this is the path a round actually reaches and
+		// the words after the colon can be the repo's. The listing was
+		// careful about that and the refusal was not, which is the wrong
+		// way round.
+		said.push(`${missed.path} was not read: ${clipped(missed.why)}`);
 	}
 	return said;
 }
@@ -151,7 +184,19 @@ function whatTheTreeSaid(inRepo: AgentDiscovery): string[] {
  * repo's lens and asking for your own are different requests, and one
  * can never quietly answer the other.
  */
-export async function chartersFor(
+/**
+ * What the change under review writes to, or why that is not known.
+ *
+ * Not knowing is a real answer and has to be spellable. A stack whose
+ * nodes are not all proposed is read at the tip, which holds every
+ * node's work, while only the proposed ones carry diffs: the set of
+ * touched paths is then a subset pretending to be the whole, and a
+ * subset is the wrong shape for a rule that says "unless the change
+ * wrote it".
+ */
+export type Touched = readonly string[] | { unknown: string };
+
+export async function lensesFor(
 	// Narrowed to who this round asks before it arrives. Binding the
 	// whole roster was harmless while a lens was a file in a directory
 	// the operator owns. It stops being harmless once one can come from
@@ -161,7 +206,7 @@ export async function chartersFor(
 	personaDir: string,
 	// Paths the change under review touches, so a lens the change itself
 	// wrote can be refused rather than obeyed.
-	touched: readonly string[],
+	touched: Touched,
 	// The tree itself rather than a path, so a round cannot hand this
 	// somewhere other than where it reads. A path parameter took
 	// `process.cwd()` without complaint, and a lens borrowed from the
@@ -171,6 +216,37 @@ export async function chartersFor(
 	tree: ReadableTree,
 ): Promise<Map<string, string>> {
 	const charters = await chartersOnDisk(personaDir);
+
+	// Only when somebody asked for one. Every round was walking and
+	// parsing every markdown file in a repo's agent directories,
+	// including rounds naming no repo lens, which is work nobody wanted
+	// and a surface nobody opened.
+	const wants = [
+		...roster.reviewers,
+		...(roster.judge === undefined ? [] : [roster.judge]),
+	].some((one) => one.persona?.startsWith(NAMESPACE) === true);
+	if (!wants) {
+		const plain = bindPersonas(roster, (id) => charters.get(id));
+		if ("refusal" in plain) throw new Error(plain.refusal);
+		return byParticipant(plain.bindings);
+	}
+
+	// A lens is only as trustworthy as the claim about which commit the
+	// tree stands at, and a caveat is that claim failing. The refusal
+	// for a lens the diff touches is computed against the change's
+	// files, so on a tree that is not the change's it is checking the
+	// wrong thing against the wrong bytes.
+	if (tree.caveat !== undefined) {
+		throw new Error(
+			`A participant asks for a lens from the repo under review, and this round is not reading a tree pinned to the commit under review: ${tree.caveat} Drop the repo lens, or run the round where a tree can be pinned.`,
+		);
+	}
+	if (!Array.isArray(touched)) {
+		throw new Error(
+			`A participant asks for a lens from the repo under review, and what this change writes to is not known in full: ${(touched as { unknown: string }).unknown} A lens is safe to read only where the change under review is known not to have written it.`,
+		);
+	}
+
 	const inRepo = await agentsInRepo(tree.path, touched);
 	for (const agent of inRepo.agents) {
 		// A persona file may not claim the namespace, so the merge order
@@ -194,11 +270,18 @@ export async function chartersFor(
 		throw new Error([bound.refusal, ...whatTheTreeSaid(inRepo)].join(" "));
 	}
 
-	const byParticipant = new Map<string, string>();
-	for (const binding of bound.bindings) {
+	return byParticipant(bound.bindings);
+}
+
+/** The charters, keyed the way a round asks for them. */
+function byParticipant(
+	bindings: readonly PersonaBinding[],
+): Map<string, string> {
+	const charters = new Map<string, string>();
+	for (const binding of bindings) {
 		if (binding.charter !== undefined) {
-			byParticipant.set(binding.participant.id, binding.charter);
+			charters.set(binding.participant.id, binding.charter);
 		}
 	}
-	return byParticipant;
+	return charters;
 }

@@ -39,7 +39,7 @@ export type {
 	AgentFile,
 	RepoAgent,
 } from "./ask/agents.js";
-export { discoverAgents } from "./ask/agents.js";
+export { discoverAgents, NAMESPACE } from "./ask/agents.js";
 export type { FileRanges, LineRange } from "./ask/anchorable.js";
 export { anchorableRanges, describeRanges } from "./ask/anchorable.js";
 export type { AnswerContext, AnswerLine } from "./ask/answer.js";

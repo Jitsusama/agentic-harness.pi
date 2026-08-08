@@ -102,11 +102,7 @@ import {
 	runArtifactDir,
 	runDir,
 } from "../engine.js";
-import {
-	agentsInRepo,
-	chartersOnDisk,
-	chartersFor as lensesFor,
-} from "../lenses.js";
+import { agentsInRepo, chartersOnDisk, lensesFor } from "../lenses.js";
 import { type RoundWatch, watchRound } from "../progress.js";
 import { GLYPH } from "../render.js";
 import {
@@ -977,10 +973,20 @@ async function askStack(
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
 	// Every change in the stack, since a lens the stack edits anywhere
-	// is a lens the stack's author wrote.
-	const charters = await chartersFor(roster, tree, "reviewers", {
-		files: changes.flatMap((one) => one.diff.files),
-	});
+	// is a lens the stack's author wrote. A node carrying no proposal
+	// carries no diff, and the tree read is the tip, which holds its
+	// work anyway: what the stack touches is then unknowable rather than
+	// merely smaller, so it is said rather than understated.
+	const charters = await chartersFor(
+		roster,
+		tree,
+		"reviewers",
+		stack.nodes.length === proposed.length
+			? { files: changes.flatMap((one) => one.diff.files) }
+			: {
+					unknown: `${stack.nodes.length - proposed.length} of this stack's ${stack.nodes.length} branches carry no proposal, so they carry no diff, and the tree read is the tip that holds their work.`,
+				},
+	);
 
 	const stackRefs = changes.map((one) => one.ref);
 	const witnesses = new Map(
@@ -1243,7 +1249,16 @@ async function retryOne(
 		process.cwd(),
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
-	const charters = await chartersFor(roster, tree, "everybody", diff);
+	// The one participant this retry re-asks, not the whole roster. It
+	// has already been resolved above, so binding everybody would refuse
+	// over somebody else's missing lens, which is the refusal the
+	// narrowing exists to stop.
+	const charters = await chartersFor(
+		{ reviewers: [participant] },
+		tree,
+		"reviewers",
+		diff,
+	);
 	const read = readFrom(tree, proposal.headCommit);
 	const intent = params.intent === undefined ? {} : { intent: params.intent };
 
@@ -1459,7 +1474,10 @@ async function reportRoster(): Promise<Answer> {
 	// is bound: nothing here knows yet what repo a round would read, so
 	// the listing says where it looked rather than implying otherwise.
 	const here = process.cwd();
-	const inRepo = await agentsInRepo(here);
+	// Nothing is under review here, so nothing is disqualified by a diff
+	// that does not exist. Said out loud in the listing, because the
+	// round applies a filter this does not.
+	const inRepo = await agentsInRepo(here, []);
 	if (inRepo.agents.length > 0) {
 		lines.push("");
 		// Said plainly, and said before the descriptions rather than after,
@@ -1678,11 +1696,11 @@ function chartersFor(
 	// over a reviewer's missing lens is a refusal about somebody who was
 	// never going to be asked.
 	asks: RoundAsks,
-	// What the change touches. A lens the change itself wrote is refused
-	// rather than obeyed: a charter is the reviewer's standing
-	// instruction, and the tree it is read from is the commit under
-	// review.
-	touched: DiffModel,
+	// What the change touches, or why that is not known. A lens the
+	// change itself wrote is refused rather than obeyed: a charter is
+	// the reviewer's standing instruction, and the tree it is read from
+	// is the commit under review.
+	touched: DiffModel | { unknown: string },
 ): Promise<Map<string, string>> {
 	const judge = asks === "reviewers" ? undefined : roster.judge;
 	return lensesFor(
@@ -1691,13 +1709,13 @@ function chartersFor(
 			...(judge === undefined ? {} : { judge }),
 		},
 		personaDir(),
-		touchedBy(touched),
+		"unknown" in touched ? touched : touchedBy(touched),
 		tree,
 	);
 }
 
 /** Every path a change writes to, on either side of a rename. */
-function touchedBy(diff: DiffModel): string[] {
+export function touchedBy(diff: DiffModel): string[] {
 	return diff.files.flatMap((file) => [
 		...(file.newPath === undefined ? [] : [file.newPath]),
 		...(file.oldPath === undefined ? [] : [file.oldPath]),

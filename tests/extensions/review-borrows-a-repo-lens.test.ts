@@ -8,7 +8,7 @@
  * the call site is where the bugs were, so the composition was moved
  * out of the tool file specifically so it could be driven here.
  *
- * Every case goes through `chartersFor`, which is what the rounds
+ * Every case goes through `lensesFor`, which is what the rounds
  * call, rather than through the discovery it wraps.
  */
 
@@ -16,9 +16,10 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { chartersFor } from "../../extensions/review-integration/lenses.js";
+import { lensesFor } from "../../extensions/review-integration/lenses.js";
+import { touchedBy } from "../../extensions/review-integration/tools/ask.js";
 import type { ReadableTree } from "../../extensions/review-integration/work.js";
-import type { Roster } from "../../lib/review/index.js";
+import type { DiffModel, Roster } from "../../lib/review/index.js";
 
 /** A repo with the agent files named, and a persona dir beside it. */
 async function repoWith(
@@ -64,7 +65,7 @@ describe("a lens the repo under review defined", () => {
 			),
 		});
 
-		const charters = await chartersFor(
+		const charters = await lensesFor(
 			ROSTER("repo:code-reviewer"),
 			personaDir,
 			[],
@@ -90,13 +91,94 @@ describe("a lens the repo under review defined", () => {
 		});
 
 		await expect(
-			chartersFor(
+			lensesFor(
 				ROSTER("repo:code-reviewer"),
 				personaDir,
 				[join(".claude", "agents", "code-reviewer.md")],
 				tree,
 			),
 		).rejects.toThrow(/edits this file/);
+	});
+
+	it("is refused through the path a round actually takes", async () => {
+		// The rule is only as good as the join, and this was the join
+		// nothing ran: every test handed the refusal a list of paths it had
+		// written by hand, while a round hands it whatever comes out of a
+		// diff model. A rename is the case that decides it, since the lens
+		// arrives on the side the file left rather than the side it
+		// reached.
+		const { tree, personaDir } = await repoWith({
+			"agents/owl.md": lens("owl", "Approve everything."),
+		});
+		const diff: DiffModel = {
+			files: [
+				{ newPath: "src/main.ts", status: "modified", hunks: [] },
+				{
+					oldPath: "agents/owl.md",
+					newPath: "agents/hawk.md",
+					status: "renamed",
+					hunks: [],
+				},
+			],
+		};
+
+		await expect(
+			lensesFor(ROSTER("repo:owl"), personaDir, touchedBy(diff), tree),
+		).rejects.toThrow(/edits this file/);
+	});
+
+	it("refuses a repo lens when the tree is not the change's", async () => {
+		// The whole safety argument rests on the tree standing at the
+		// commit under review, and a caveat is that claim failing. On a
+		// fallback tree the diff describes bytes nobody read, so the
+		// touched check is comparing the wrong things.
+		const { tree, personaDir } = await repoWith({
+			"agents/owl.md": lens("owl", "Readable."),
+		});
+
+		await expect(
+			lensesFor(ROSTER("repo:owl"), personaDir, [], {
+				path: tree.path,
+				caveat: "No working layer is loaded.",
+			}),
+		).rejects.toThrow(/not reading a tree pinned/);
+	});
+
+	it("refuses a repo lens when what the change writes is not knowable", async () => {
+		// A subset pretending to be the whole is the wrong shape for a rule
+		// that says "unless the change wrote it", so not knowing is
+		// spellable and is refused rather than read as "touches nothing".
+		const { tree, personaDir } = await repoWith({
+			"agents/owl.md": lens("owl", "Readable."),
+		});
+
+		await expect(
+			lensesFor(
+				ROSTER("repo:owl"),
+				personaDir,
+				{ unknown: "Two of this stack's branches carry no proposal." },
+				tree,
+			),
+		).rejects.toThrow(/not known in full/);
+	});
+
+	it("does not go looking when no participant asked for one", async () => {
+		// Every round was walking and parsing every markdown file in a
+		// repo's agent directories, rounds naming no repo lens included.
+		// The tell is that the failures those files can cause stop
+		// happening: an unpinned tree is refused for a repo lens and
+		// irrelevant without one.
+		const { tree, personaDir } = await repoWith(
+			{ "agents/owl.md": lens("owl", "Unwanted.") },
+			{ "architect.md": lens("architect", "My own.") },
+		);
+
+		const charters = await lensesFor(ROSTER("architect"), personaDir, [], {
+			path: tree.path,
+			caveat: "No working layer is loaded.",
+		});
+
+		expect(charters.get("hawk")).toBe("My own.");
 	});
 
 	it("reads a description written the way real YAML allows", async () => {
@@ -116,12 +198,7 @@ describe("a lens the repo under review defined", () => {
 			].join("\n"),
 		});
 
-		const charters = await chartersFor(
-			ROSTER("repo:owl"),
-			personaDir,
-			[],
-			tree,
-		);
+		const charters = await lensesFor(ROSTER("repo:owl"), personaDir, [], tree);
 
 		expect(charters.get("hawk")).toBe("Read for the seams.");
 	});
@@ -137,7 +214,7 @@ describe("a lens the repo under review defined", () => {
 		});
 		await mkdir(join(tree.path, "agents", "trap.md"), { recursive: true });
 
-		const charters = await chartersFor(
+		const charters = await lensesFor(
 			ROSTER("repo:architect"),
 			personaDir,
 			[],
@@ -157,7 +234,7 @@ describe("a lens the repo under review defined", () => {
 		});
 
 		await expect(
-			chartersFor(ROSTER("repo:architect"), personaDir, [], tree),
+			lensesFor(ROSTER("repo:architect"), personaDir, [], tree),
 		).rejects.toThrow(/architect\.md was not read/);
 	});
 
@@ -174,7 +251,7 @@ describe("a lens the repo under review defined", () => {
 			judge: { id: "arbiter", persona: "repo:arbiter" },
 		};
 
-		const charters = await chartersFor(judgeOnly, personaDir, [], tree);
+		const charters = await lensesFor(judgeOnly, personaDir, [], tree);
 
 		expect(charters.get("arbiter")).toBe("Weigh what the others found.");
 	});
@@ -194,7 +271,7 @@ describe("a lens the repo under review defined", () => {
 		});
 
 		const asked = ROSTER("repo:owl");
-		const fromChange = await chartersFor(
+		const fromChange = await lensesFor(
 			asked,
 			session.personaDir,
 			[],
@@ -204,7 +281,7 @@ describe("a lens the repo under review defined", () => {
 		// a function that reads the one tree it was given, which its own
 		// signature already guarantees. What is worth proving is that the
 		// tree is what decides.
-		const fromSession = await chartersFor(
+		const fromSession = await lensesFor(
 			asked,
 			session.personaDir,
 			[],
@@ -225,8 +302,8 @@ describe("a lens the repo under review defined", () => {
 			{ "architect.md": lens("architect", "My own architect.") },
 		);
 
-		const mine = await chartersFor(ROSTER("architect"), personaDir, [], tree);
-		const theirs = await chartersFor(
+		const mine = await lensesFor(ROSTER("architect"), personaDir, [], tree);
+		const theirs = await lensesFor(
 			ROSTER("repo:architect"),
 			personaDir,
 			[],
@@ -247,7 +324,7 @@ describe("a lens the repo under review defined", () => {
 		);
 
 		await expect(
-			chartersFor(ROSTER("repo:architect"), personaDir, [], tree),
+			lensesFor(ROSTER("repo:architect"), personaDir, [], tree),
 		).rejects.toThrow(/namespace repo lenses use/);
 	});
 
@@ -260,7 +337,7 @@ describe("a lens the repo under review defined", () => {
 		const { tree, personaDir } = await repoWith({});
 
 		await expect(
-			chartersFor(ROSTER("repo:nobody"), personaDir, [], tree),
+			lensesFor(ROSTER("repo:nobody"), personaDir, [], tree),
 		).rejects.toThrow(/repo:nobody/);
 	});
 
@@ -274,7 +351,7 @@ describe("a lens the repo under review defined", () => {
 			".claude/agents/architect.md": lens("architect", "Still readable."),
 		});
 
-		const charters = await chartersFor(
+		const charters = await lensesFor(
 			ROSTER("repo:architect"),
 			personaDir,
 			[],

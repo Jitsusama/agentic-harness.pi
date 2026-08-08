@@ -175,9 +175,11 @@ describe("review_ask", () => {
 		expect(rounds.length).toBeGreaterThanOrEqual(7);
 
 		const wrong = rounds.flatMap(({ name, body }) => {
-			const reads = body.indexOf("chartersFor(roster, tree,");
+			const reads = body.search(/chartersFor\(\s*[\s\S]{0,400}?tree,\s*"\w+",/);
 			if (reads === -1) {
-				return [`${name} does not read its lenses from the tree it reads`];
+				return [
+					`${name} does not read its lenses from the tree it reads, for a named half of the roster`,
+				];
 			}
 			// After the refusal, since a refused tree has no path to read
 			// from. Absence is its own failure rather than a passing
@@ -193,7 +195,24 @@ describe("review_ask", () => {
 
 		expect(wrong).toEqual([]);
 		// And nothing reaches past the tree for a directory of its own.
-		expect(source).not.toMatch(/chartersFor\(roster, (?!tree,)/);
+		// And the half named is the half the roster was read under, so a
+		// round cannot bind lenses for people it will never ask.
+		for (const [round, asks] of Object.entries({
+			askCouncil: "reviewers",
+			startRound: "reviewers",
+			askCritique: "reviewers",
+			askStack: "reviewers",
+			askJudge: "judge",
+			askAudit: "judge",
+		})) {
+			const at = source.indexOf(`async function ${round}(`);
+			const next = source.indexOf("\nasync function ", at + 1);
+			const body = source.slice(at, next === -1 ? undefined : next);
+			expect({ round, asks: body.match(/tree,\s*"(\w+)"/)?.[1] }).toEqual({
+				round,
+				asks,
+			});
+		}
 		// Including the one hop between the sites and the library, which
 		// the loop above cannot see and which took `process.cwd()` without
 		// a murmur while every one of those sites was correct.
