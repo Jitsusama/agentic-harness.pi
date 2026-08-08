@@ -446,12 +446,15 @@ prints are the only ids an override may name.
 { "action": "council", "who": { "hawk": { "thinkingLevel": "xhigh" } } }
 ```
 
-It takes `model`, `thinkingLevel` and `tools`, by participant id, and
-every round kind honours it. Three things it will not do:
+It takes `model`, `thinkingLevel`, `tools` and `persona`, by
+participant id, and every round kind honours it. Three things it will
+not do:
 
-- **A name the roster does not answer to is refused**, not ignored. A
-  round that quietly skipped the setting still costs what a round
-  costs, and the setting was the reason for asking.
+- **A name this round will not ask is refused**, not ignored. A round
+  that quietly skipped the setting still costs what a round costs, and
+  the setting was the reason for asking. Membership of the roster is
+  not the test: a council does not ask the judge, so tuning the judge
+  for a council is refused too, and says so differently.
 - **A thinking level pi does not accept is refused**, wherever it was
   written. It used to be any non-blank string, so a typo reached the
   CLI and the reviewer ran at whatever pi makes of a level it has
@@ -474,6 +477,50 @@ substitutes the answer into the round that already recorded what it
 asked and under what settings, so a retry on a different model would
 file one participant's answer into a run whose ledger names another.
 Run a fresh council instead.
+
+### Lenses the Repo Already Had
+
+A repo that has been worked in for a while has usually accumulated
+some agents: a reviewer, an architect, a debugger, each written by
+somebody who knew that codebase. Those are lenses, which is what a
+persona is, so the roster listing reports them and a round can read
+through one:
+
+```jsonc
+{ "action": "council", "who": { "hawk": { "persona": "repo:code-reviewer" } } }
+```
+
+They are read from `.claude/agents` and `agents`. The listing reads
+the directory you are sitting in, because it is answered before any
+change is bound and nothing yet knows what repo a round would read; a
+round reads the tree it actually reviews. Those are the same place
+often enough to be useful and different often enough that the listing
+names the directory it looked in. Reviewing somebody else's change
+from your own checkout, what you read and what runs can differ.
+
+Three things keep this safe.
+
+The `repo:` prefix means asking for a repo's lens and asking for your
+own are different requests, so a repo can never quietly stand in for a
+persona you trust and file findings under its name. A persona of your
+own that claims the prefix is refused rather than shadowed.
+
+Only the prose comes across. These files often name a model and a tool
+palette in the vocabulary of the harness that wrote them, and `sonnet`
+is not a model pi resolves any more than `Bash, Read, Edit` are tools
+it has. The listing says which fields it left behind.
+
+And a lens the change under review edits is refused. A charter becomes
+the reviewer's standing instruction, on a child that holds bash and
+write, reading a tree pinned to the commit under review. Without that
+rule the author of a change writes the system prompt of the agent
+reviewing it. What is left is the repo's committed state, which is the
+same trust already extended to every other line in it.
+
+A malformed agent file is skipped and named rather than refusing the
+round, which is the opposite of how a malformed persona is treated.
+The difference is who asked: you named your personas, and nobody here
+named these.
 
 ## Reviewing a Stack as a Stack
 

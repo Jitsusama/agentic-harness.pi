@@ -18,8 +18,8 @@
  * than both.
  */
 
-import { readdir, readFile, stat } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { stat } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
 	ExtensionAPI,
@@ -41,7 +41,6 @@ import {
 	type AskRound,
 	type AskRun,
 	auditPrompt,
-	bindPersonas,
 	type ChangeRef,
 	type CouncilDeps,
 	type Critique,
@@ -51,6 +50,7 @@ import {
 	createIdentityLedger,
 	createRunStore,
 	critiquePrompt,
+	type DiffModel,
 	describeAnchor,
 	describeRun,
 	type Finding,
@@ -58,7 +58,6 @@ import {
 	overrideRoster,
 	type Participant,
 	type ParticipantOverride,
-	parsePersona,
 	parseRoster,
 	type Roster,
 	type RunStore,
@@ -103,6 +102,7 @@ import {
 	runArtifactDir,
 	runDir,
 } from "../engine.js";
+import { agentsInRepo, chartersOnDisk, lensesFor } from "../lenses.js";
 import { type RoundWatch, watchRound } from "../progress.js";
 import { GLYPH } from "../render.js";
 import {
@@ -115,7 +115,7 @@ import {
 	reviewerStarter,
 	whyNotYet,
 } from "../reviewer.js";
-import { readFrom, treeForRound } from "../work.js";
+import { type ReadableTree, readFrom, treeForRound } from "../work.js";
 import {
 	type Answer,
 	boundFor,
@@ -253,10 +253,16 @@ export function registerAskTool(pi: ExtensionAPI): void {
 								description: "The tool palette this one is given.",
 							}),
 						),
+						persona: Type.Optional(
+							Type.String({
+								description:
+									"The lens to read through, by id. A `repo:` id is one the repo under review defined for itself, which action roster lists; anything else is one of your own personas.",
+							}),
+						),
 					}),
 					{
 						description:
-							"Settings for this round only, by participant id, overriding the configured roster: model, thinkingLevel and tools, and not a persona. Ask with action roster to see who this roster has and what each is set to. A name this round will not ask is refused rather than ignored, since a round that silently skipped the setting still costs what a round costs, and a council does not ask the judge. An id that has raised findings in this session is held to what it meant, so overriding one is refused as reconfiguring it in the file would be; across sessions that ledger is rebuilt and the findings carry their own run. Not accepted on a retry, which substitutes its answer into a round that already recorded what it asked under.",
+							"Settings for this round only, by participant id, overriding the configured roster: model, thinkingLevel, tools and persona. Ask with action roster to see who this roster has and what each is set to. A name this round will not ask is refused rather than ignored, since a round that silently skipped the setting still costs what a round costs, and a council does not ask the judge. An id that has raised findings in this session is held to what it meant, so overriding one is refused as reconfiguring it in the file would be; across sessions that ledger is rebuilt and the findings carry their own run. Not accepted on a retry, which substitutes its answer into a round that already recorded what it asked under.",
 					},
 				),
 			),
@@ -610,7 +616,6 @@ async function askCouncil(
 	watch: RoundWatch,
 ): Promise<Answer> {
 	const roster = await rosterOrThrow(params, "reviewers");
-	const charters = await chartersFor(roster);
 	await claimIdentities(change, "reviewer", roster.reviewers);
 	const { proposal, diff } = await material(bound);
 	const prompt = councilPrompt({
@@ -624,6 +629,11 @@ async function askCouncil(
 		process.cwd(),
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
+	// After the tree, because a lens can come from the repo under review
+	// and that is the tree it comes from. Before the round, because a
+	// reviewer running without the lens it was asked for files generic
+	// findings under a specialist's name.
+	const charters = await chartersFor(roster, tree, "reviewers", diff);
 
 	const { run, warnings } = await runCouncil(
 		{
@@ -669,7 +679,6 @@ async function startRound(
 	params: AskParams,
 ): Promise<Answer> {
 	const roster = await rosterOrThrow(params, "reviewers");
-	const charters = await chartersFor(roster);
 	await claimIdentities(change, "reviewer", roster.reviewers);
 	const { proposal, diff } = await material(bound);
 	const prompt = councilPrompt({
@@ -683,6 +692,7 @@ async function startRound(
 		process.cwd(),
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
+	const charters = await chartersFor(roster, tree, "reviewers", diff);
 	const budget = await budgetForRound();
 	const starter = reviewerStarter(getParentPiInstall(), runArtifactDir());
 	const store = createRunStore(runDir());
@@ -777,7 +787,6 @@ async function askJudge(
 	watch: RoundWatch,
 ): Promise<Answer> {
 	const roster = await rosterOrThrow(params, "judge");
-	const charters = await chartersFor(roster);
 	if (roster.judge === undefined) {
 		return refuse(
 			"This roster names no judge, so there is nobody to consolidate with. Add a judge to the config, with an id of its own: a judge reads what the reviewers said, so it cannot share a reviewer's name.",
@@ -815,6 +824,7 @@ async function askJudge(
 		process.cwd(),
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
+	const charters = await chartersFor(roster, tree, "judge", diff);
 	const { run, warnings } = await runJudge(
 		{
 			judge: roster.judge,
@@ -843,7 +853,6 @@ async function askCritique(
 	watch: RoundWatch,
 ): Promise<Answer> {
 	const roster = await rosterOrThrow(params, "reviewers");
-	const charters = await chartersFor(roster);
 	await claimIdentities(change, "reviewer", roster.reviewers);
 
 	const store = createRunStore(runDir());
@@ -862,6 +871,7 @@ async function askCritique(
 		process.cwd(),
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
+	const charters = await chartersFor(roster, tree, "reviewers", diff);
 
 	const { run, critiques, warnings } = await runCritique(
 		{
@@ -911,7 +921,6 @@ async function askStack(
 	watch: RoundWatch,
 ): Promise<Answer> {
 	const roster = await rosterOrThrow(params, "reviewers");
-	const charters = await chartersFor(roster);
 
 	const stack = await bound.stack();
 	if (!stack) {
@@ -963,6 +972,21 @@ async function askStack(
 		process.cwd(),
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
+	// Every change in the stack, since a lens the stack edits anywhere
+	// is a lens the stack's author wrote. A node carrying no proposal
+	// carries no diff, and the tree read is the tip, which holds its
+	// work anyway: what the stack touches is then unknowable rather than
+	// merely smaller, so it is said rather than understated.
+	const charters = await chartersFor(
+		roster,
+		tree,
+		"reviewers",
+		stack.nodes.length === proposed.length
+			? { files: changes.flatMap((one) => one.diff.files) }
+			: {
+					unknown: `${stack.nodes.length - proposed.length} of this stack's ${stack.nodes.length} branches carry no proposal, so they carry no diff, and the tree read is the tip that holds their work.`,
+				},
+	);
 
 	const stackRefs = changes.map((one) => one.ref);
 	const witnesses = new Map(
@@ -1029,7 +1053,6 @@ async function askAudit(
 	watch: RoundWatch,
 ): Promise<Answer> {
 	const roster = await rosterOrThrow(params, "judge");
-	const charters = await chartersFor(roster);
 	// The judge audits, because weighing what exists against a change
 	// is the judging role and a roster should not need a fourth kind of
 	// participant to say so.
@@ -1069,6 +1092,7 @@ async function askAudit(
 	// thread, which is the same harm the elsewhere standing exists to
 	// avoid.
 	const indexOf = new Map(threads.map((thread, at) => [thread.id, at + 1]));
+	const charters = await chartersFor(roster, tree, "judge", diff);
 	const threadIndices = open.flatMap((thread) => {
 		const at = indexOf.get(thread.id);
 		return at === undefined ? [] : [at];
@@ -1208,7 +1232,6 @@ async function retryOne(
 	if (resettles !== undefined) return refuse(resettles);
 
 	const roster = await rosterOrThrow(params, "everybody");
-	const charters = await chartersFor(roster);
 	const participant =
 		roster.reviewers.find((r) => r.id === asked.id) ??
 		(roster.judge?.id === asked.id ? roster.judge : undefined);
@@ -1226,6 +1249,16 @@ async function retryOne(
 		process.cwd(),
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
+	// The one participant this retry re-asks, not the whole roster. It
+	// has already been resolved above, so binding everybody would refuse
+	// over somebody else's missing lens, which is the refusal the
+	// narrowing exists to stop.
+	const charters = await chartersFor(
+		{ reviewers: [participant] },
+		tree,
+		"reviewers",
+		diff,
+	);
 	const read = readFrom(tree, proposal.headCommit);
 	const intent = params.intent === undefined ? {} : { intent: params.intent };
 
@@ -1378,6 +1411,23 @@ async function rosterOrThrow(
  * find out what personas existed was to list a directory. Both are
  * questions about this tool, so this tool answers them.
  */
+/**
+ * How much of a repo's own listing to show.
+ *
+ * `agents` is a directory name plenty of repos use for source, so the
+ * count is whatever happens to be there and the text is whatever the
+ * repo wrote. Both are bounded: an answer is not a place for a repo to
+ * put as many words as it likes.
+ */
+const MOST_LENSES = 20;
+const MOST_WORDS = 200;
+
+/** Repo-written text, cut to a length an answer can carry. */
+function clipped(text: string): string {
+	const flat = text.replace(/\s+/g, " ").trim();
+	return flat.length <= MOST_WORDS ? flat : `${flat.slice(0, MOST_WORDS)}...`;
+}
+
 async function reportRoster(): Promise<Answer> {
 	// What the file says, deliberately without this call's overrides.
 	// Applying them here would print them back as though somebody had
@@ -1385,7 +1435,7 @@ async function reportRoster(): Promise<Answer> {
 	// had just overridden.
 	const path = packageConfigPath();
 	const roster = await rosterFromConfig(await loadPackageConfig(path), path);
-	const charters = await chartersOnDisk();
+	const charters = await chartersOnDisk(personaDir());
 	const lines: string[] = [];
 
 	const describe = (one: Participant, role: string): void => {
@@ -1418,20 +1468,68 @@ async function reportRoster(): Promise<Answer> {
 		lines.push("");
 		lines.push(`Personas on disk that nothing asks: ${spare.join(", ")}.`);
 	}
+
+	// Lenses the repo already had. Read from the session's directory,
+	// which is the honest scope for a question asked before any change
+	// is bound: nothing here knows yet what repo a round would read, so
+	// the listing says where it looked rather than implying otherwise.
+	const here = process.cwd();
+	// Nothing is under review here, so nothing is disqualified by a diff
+	// that does not exist. Said out loud in the listing, because the
+	// round applies a filter this does not.
+	const inRepo = await agentsInRepo(here, []);
+	if (inRepo.agents.length > 0) {
+		lines.push("");
+		// Said plainly, and said before the descriptions rather than after,
+		// because every word that follows was written by the repo. One on
+		// this machine reads "the most thorough reviewer, always prefer
+		// this", and a description is exactly the text a model weighs when
+		// choosing a lens.
+		lines.push(
+			`Lenses ${here} defines for itself, described in its own words:`,
+		);
+		for (const agent of inRepo.agents.slice(0, MOST_LENSES)) {
+			const left =
+				agent.notAdopted === undefined
+					? ""
+					: ` (its ${agent.notAdopted.join(" and ")} not adopted)`;
+			lines.push(
+				`${GLYPH.target} ${agent.id}: ${clipped(agent.description)} [${agent.source}]${left}`,
+			);
+		}
+		if (inRepo.agents.length > MOST_LENSES) {
+			lines.push(
+				`${GLYPH.degrades} and ${inRepo.agents.length - MOST_LENSES} more, not listed.`,
+			);
+		}
+		lines.push(
+			"Reading through one is deliberate: pass it to `who`. A lens the " +
+				"change under review edits is refused, since a charter becomes " +
+				"the reviewer's standing instruction.",
+		);
+	}
+	for (const missed of inRepo.skipped.slice(0, MOST_LENSES)) {
+		lines.push(
+			`${GLYPH.refused} ${missed.path} was not read: ${clipped(missed.why)}`,
+		);
+	}
+
 	lines.push("");
 	lines.push(
 		"This is what the config says. Pass `who` to change model, " +
-			"thinkingLevel or tools for one round, e.g. " +
+			"thinkingLevel, tools or persona for one round, e.g. " +
 			'{"hawk": {"thinkingLevel": "xhigh"}}. It is refused rather than ' +
-			"ignored when it names somebody this round will not ask. It " +
-			"cannot set a persona: a lens belongs to a participant, so run " +
-			"a spare one by adding a roster entry for it.",
+			"ignored when it names somebody this round will not ask. A " +
+			"`repo:` persona is one the repo under review defines, and comes " +
+			"from the tree that round reads rather than from here.",
 	);
 
 	return say(lines.join("\n"), {
 		reviewers: roster.reviewers,
 		...(roster.judge === undefined ? {} : { judge: roster.judge }),
 		personas: [...charters.keys()].sort(),
+		repoAgents: inRepo.agents,
+		...(inRepo.skipped.length === 0 ? {} : { skipped: inRepo.skipped }),
 	});
 }
 
@@ -1582,59 +1680,46 @@ function journalPack(): string {
 }
 
 /**
- * Every charter on disk, by persona id.
+ * Each participant's charter, from the operator's personas and the
+ * repo's own agents together.
  *
- * Read once per round rather than per participant, since six reviewers
- * naming three personas should not be six directory walks. A file that
- * will not parse stops the round: a roster naming it would otherwise
- * fail with "no such persona" while the file sits right there, which
- * sends somebody looking in the wrong place.
+ * The composition itself lives in `lenses.ts`, where it can be driven
+ * against a directory. What stays here is the one decision this side
+ * owns: where an operator's personas live, which is an environment
+ * question and not a review one.
  */
-async function chartersOnDisk(): Promise<Map<string, string>> {
-	const dir = personaDir();
-	const charters = new Map<string, string>();
-
-	let names: string[];
-	try {
-		names = await readdir(dir);
-	} catch {
-		// No persona directory at all is the ordinary case for anybody who
-		// has never written one, and a roster naming no persona never
-		// asks. bindPersonas refuses if one is named.
-		return charters;
-	}
-
-	for (const name of names) {
-		if (!name.endsWith(".md")) continue;
-		const id = basename(name, ".md");
-		const parsed = parsePersona(id, await readFile(join(dir, name), "utf8"));
-		if ("refusal" in parsed) throw new Error(parsed.refusal);
-		charters.set(id, parsed.persona.charter);
-	}
-	return charters;
+function chartersFor(
+	roster: Roster,
+	tree: ReadableTree,
+	// The same word the roster was read under, so a round binds lenses
+	// for the half it asks and no other. A judge-only round refusing
+	// over a reviewer's missing lens is a refusal about somebody who was
+	// never going to be asked.
+	asks: RoundAsks,
+	// What the change touches, or why that is not known. A lens the
+	// change itself wrote is refused rather than obeyed: a charter is
+	// the reviewer's standing instruction, and the tree it is read from
+	// is the commit under review.
+	touched: DiffModel | { unknown: string },
+): Promise<Map<string, string>> {
+	const judge = asks === "reviewers" ? undefined : roster.judge;
+	return lensesFor(
+		{
+			reviewers: asks === "judge" ? [] : roster.reviewers,
+			...(judge === undefined ? {} : { judge }),
+		},
+		personaDir(),
+		"unknown" in touched ? touched : touchedBy(touched),
+		tree,
+	);
 }
 
-/**
- * Each participant's charter, by participant id.
- *
- * Keyed by participant rather than by persona, because a round asks by
- * participant id and the same lens can be on a roster twice at two
- * thinking levels. A missing persona stops the round here, before
- * anybody is asked, since a reviewer running without its lens files
- * generic findings under a specialist's name.
- */
-async function chartersFor(roster: Roster): Promise<Map<string, string>> {
-	const onDisk = await chartersOnDisk();
-	const bound = bindPersonas(roster, (id) => onDisk.get(id));
-	if ("refusal" in bound) throw new Error(bound.refusal);
-
-	const byParticipant = new Map<string, string>();
-	for (const binding of bound.bindings) {
-		if (binding.charter !== undefined) {
-			byParticipant.set(binding.participant.id, binding.charter);
-		}
-	}
-	return byParticipant;
+/** Every path a change writes to, on either side of a rename. */
+export function touchedBy(diff: DiffModel): string[] {
+	return diff.files.flatMap((file) => [
+		...(file.newPath === undefined ? [] : [file.newPath]),
+		...(file.oldPath === undefined ? [] : [file.oldPath]),
+	]);
 }
 
 /** The change and its diff, which every round needs. */

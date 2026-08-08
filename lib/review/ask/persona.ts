@@ -127,10 +127,19 @@ export function bindPersonas(
 	return { bindings };
 }
 
-/** The frontmatter fields and the body after them, or nothing. */
-function splitFrontmatter(
+/**
+ * The frontmatter fields and the body after them, or nothing.
+ *
+ * Exported within the module rather than kept private, because the
+ * repo-agent reader needs the same split and needs the raw fields
+ * besides: it reports which of them it declined to adopt, and a parse
+ * that hands back only a `Persona` has already thrown those away.
+ * Deliberately not in the barrel, since the frontmatter contract is
+ * this module's business and not a consumer's.
+ */
+export function splitFrontmatter(
 	text: string,
-): { fields: Record<string, string>; body: string } | undefined {
+): { fields: Record<string, string>; block: string; body: string } | undefined {
 	const lines = text.split("\n");
 	if (lines[0]?.trim() !== FENCE) return undefined;
 
@@ -146,5 +155,14 @@ function splitFrontmatter(
 		fields[key] = line.slice(at + 1).trim();
 	}
 
-	return { fields, body: lines.slice(close + 1).join("\n") };
+	// The block verbatim as well as the fields, so a reader that wants
+	// to parse it properly finds the fences with the same rule the body
+	// was found with. Two rules for one boundary is a gap between them,
+	// and a gap between the fields and the body is text that shows up in
+	// neither the listing nor the frontmatter and heads the charter.
+	return {
+		fields,
+		block: lines.slice(1, close).join("\n"),
+		body: lines.slice(close + 1).join("\n"),
+	};
 }
