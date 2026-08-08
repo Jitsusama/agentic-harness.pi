@@ -127,8 +127,17 @@ export function bindPersonas(
 	return { bindings };
 }
 
-/** The frontmatter fields and the body after them, or nothing. */
-function splitFrontmatter(
+/**
+ * The frontmatter fields and the body after them, or nothing.
+ *
+ * Exported within the module rather than kept private, because the
+ * repo-agent reader needs the same split and needs the raw fields
+ * besides: it reports which of them it declined to adopt, and a parse
+ * that hands back only a `Persona` has already thrown those away.
+ * Deliberately not in the barrel, since the frontmatter contract is
+ * this module's business and not a consumer's.
+ */
+export function splitFrontmatter(
 	text: string,
 ): { fields: Record<string, string>; body: string } | undefined {
 	const lines = text.split("\n");

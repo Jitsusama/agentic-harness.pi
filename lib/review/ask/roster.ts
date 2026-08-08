@@ -20,6 +20,17 @@ export interface ParticipantOverride {
 	model?: string;
 	thinkingLevel?: string;
 	tools?: readonly string[];
+	/**
+	 * The lens to read through for this round.
+	 *
+	 * This was deliberately left out at first, on the reasoning that a
+	 * lens belongs to a participant and a spare one is a roster entry.
+	 * Repo agents made that wrong. The roster is one file for every repo
+	 * an operator reviews in, and a repo's own lenses exist only in that
+	 * repo, so a global entry naming one is a line that refuses
+	 * everywhere else. Per-round is the only scope that fits.
+	 */
+	persona?: string;
 }
 
 /**
@@ -89,6 +100,7 @@ export function overrideRoster(
 					? {}
 					: { thinkingLevel: over.thinkingLevel }),
 				...(over.tools === undefined ? {} : { tools: over.tools }),
+				...(over.persona === undefined ? {} : { persona: over.persona }),
 			},
 			`the override for "${participant.id}"`,
 		);

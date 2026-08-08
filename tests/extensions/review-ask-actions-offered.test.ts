@@ -128,8 +128,9 @@ describe("review_ask", () => {
 		};
 
 		const wrong = Object.entries(asksOf).flatMap(([round, asks]) => {
-			const body = source.slice(source.indexOf(`async function ${round}(`));
-			if (body === source.slice(source.length)) return [`${round} is gone`];
+			const at = source.indexOf(`async function ${round}(`);
+			if (at === -1) return [`${round} is gone`];
+			const body = source.slice(at);
 			const call = body.slice(0, body.indexOf("const charters"));
 			return call.includes(`rosterOrThrow(params, "${asks}")`)
 				? []
@@ -141,5 +142,51 @@ describe("review_ask", () => {
 		// which the compiler enforces but only while the parameter stays
 		// required.
 		expect(source).not.toMatch(/rosterOrThrow\(params\)/);
+	});
+
+	it("reads every round's lenses out of the tree that round reads", () => {
+		// The composition is driven for real elsewhere. What cannot be
+		// driven is whether these seven call sites hand it the right tree,
+		// and that is exactly where the last four PRs put their bugs: a
+		// tested helper beside an unproven call site. Substituting the
+		// session's directory for the change's tree broke nothing in the
+		// suite until this existed.
+		//
+		// A lens from the wrong tree is the cheap version of the mistake
+		// that cost $75.63: real code read through a lens written for a
+		// codebase nobody is reviewing.
+		const rounds = [
+			"askCouncil",
+			"startRound",
+			"askCritique",
+			"askStack",
+			"askJudge",
+			"askAudit",
+			"retryOne",
+		];
+
+		const wrong = rounds.flatMap((round) => {
+			const at = source.indexOf(`async function ${round}(`);
+			if (at === -1) return [`${round} is gone`];
+			const next = source.indexOf("\nasync function ", at + 1);
+			const body = source.slice(at, next === -1 ? undefined : next);
+			if (!body.includes("chartersFor(roster, tree)")) {
+				return [`${round} does not read its lenses from the tree it reads`];
+			}
+			// After the refusal, since a refused tree has no path to read
+			// from and the round is over anyway.
+			return body.indexOf('"refusal" in tree') <
+				body.indexOf("chartersFor(roster, tree)")
+				? []
+				: [`${round} reads lenses before it knows the tree is readable`];
+		});
+
+		expect(wrong).toEqual([]);
+		// And nothing reaches past the tree for a directory of its own.
+		expect(source).not.toMatch(/chartersFor\(roster, (?!tree\))/);
+		// Including the one hop between the sites and the library, which
+		// the loop above cannot see and which took `process.cwd()` without
+		// a murmur while every one of those sites was correct.
+		expect(source).toContain("lensesFor(roster, personaDir(), tree)");
 	});
 });
