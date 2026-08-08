@@ -1298,10 +1298,12 @@ async function retryOne(
 	// included, since a retry that reads a different prompt is not a
 	// retry of the round it substitutes into.
 	const conventions = await guidanceFor(tree, diff);
-	// Recorded on the attempt as well as on the round it substitutes
-	// into, even though the fresh run is thrown away once its outcome is
-	// lifted out. A rule with an exception in it is a rule somebody has
-	// to remember, and this one costs a line.
+	// The attempt's conditions, which are not the round's. The fresh run
+	// this builds is discarded once its outcome is lifted out, so these
+	// ride on the outcome itself: a retry substitutes into a round that
+	// may have been recorded before any of this existed, and writing
+	// today's conditions onto that round would claim them for reviewers
+	// who never ran under them.
 	const given = givenBy(ISOLATED, conventions);
 
 	// Retried in the role the round asked under, not always as a
@@ -1355,7 +1357,7 @@ async function retryOne(
 	// and until this was passed the fresh run carrying it was thrown
 	// away, so the caveat here was inert and the comment above it
 	// described something that did not happen.
-	const updated = substituteOutcome(held, outcome, read);
+	const updated = substituteOutcome(held, { ...outcome, ...given }, read);
 	await store.replace(change, updated);
 	return say(
 		[

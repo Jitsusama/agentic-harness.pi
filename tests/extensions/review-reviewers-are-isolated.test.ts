@@ -190,6 +190,21 @@ describe("what a reviewer inherits", () => {
 			(match) => `${match[1]}(`,
 		);
 
+		// Discovered twice and checked against itself, because one regex
+		// over a slice can lose a round without anybody noticing: a
+		// threshold passes on five of six, and the slice stays honest only
+		// while the formatter keeps the imports in one alphabetical block.
+		// The body is where the rounds are actually run, so what it awaits
+		// and what the file imports have to name the same set.
+		const awaited = new Set(
+			[...source.matchAll(/await ((?:run|start)[A-Z]\w*)\(/g)].map(
+				(match) => `${match[1]}(`,
+			),
+		);
+		// The reviewer spawns are awaited by the same spelling and are not
+		// rounds, so the comparison runs one way: everything the body runs
+		// is something this file imported from the review library.
+		for (const round of rounds) expect([...awaited]).toContain(round);
 		expect(rounds.length).toBeGreaterThan(4);
 		const missing = rounds.flatMap((round) => {
 			const calls: number[] = [];

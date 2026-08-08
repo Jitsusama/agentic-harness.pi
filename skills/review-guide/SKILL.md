@@ -511,11 +511,21 @@ the system prompt outright wherever the operator has trusted the
 project: the same question came back KUMQUAT.
 
 Every round records the conditions it ran its reviewers under, so a
-round from before this and a round from after can be told apart. Read
-it off the run: `given.isolated`, and `given.quoted` naming the
-conventions file that was folded into the prompt and whether the
-change under review had written it. A run with no `given` at all is
-one recorded before any of this existed.
+round from before this and a round from after can be told apart. The
+rounds listing says the exceptional part of it, beside the tree
+caveat: reviewers not isolated, conventions cut, conventions not
+quotable. The rest is on the run itself, as `given`: whether isolation
+was asked for, and which conventions file was folded into the prompt
+with whether the change under review had written it. A run with no
+`given` at all is one recorded before any of this existed.
+
+A retried outcome carries its own, because a retry substitutes into a
+round that may predate all of this, and today's conditions are not the
+round's to claim on behalf of reviewers who never ran under them.
+
+One caveat on `isolated`, which is what was asked for rather than
+everything thereby excluded: a subagent default still reaches the
+child, and nothing here can name what the operator registered.
 
 ### Lenses the Repo Already Had
 

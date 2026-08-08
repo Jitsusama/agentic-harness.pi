@@ -32,6 +32,7 @@ import {
 	discoverAgents,
 	NAMESPACE,
 	parsePersona,
+	quotable,
 } from "../../lib/review/index.js";
 
 /** How much repo-written text a refusal may repeat, and how often. */
@@ -145,10 +146,14 @@ export async function guidanceInRepo(
 		if (text.trim() === "") continue;
 		return {
 			path: name,
+			// Said as a field as well as in the text, so whoever records
+			// what this reviewer was given can tell a round that got the
+			// whole file from one that got the beginning of it.
+			...(text.length <= MOST_GUIDANCE ? {} : { cut: true as const }),
 			// Cut rather than refused, unlike a charter. A charter that
 			// arrives half-written is a lens nobody wrote; conventions are
-			// reference, and the first thirty thousand characters of them
-			// are worth more to a reviewer than none.
+			// reference, and the first ninety-six thousand characters of
+			// them are worth more to a reviewer than none.
 			text:
 				text.length <= MOST_GUIDANCE
 					? text
@@ -208,17 +213,26 @@ export async function guidanceFor(
  */
 export function givenBy(
 	isolated: boolean,
-	said: { guidance?: RepoGuidance },
+	conventions: { guidance?: RepoGuidance },
 ): { given: RoundGiven } {
+	const guidance = conventions.guidance;
 	return {
 		given: {
 			isolated,
-			...(said.guidance === undefined
+			...(guidance === undefined
 				? {}
 				: {
 						quoted: {
-							path: said.guidance.path,
-							edited: said.guidance.edited,
+							path: guidance.path,
+							edited: guidance.edited,
+							...(guidance.cut === undefined ? {} : { cut: true as const }),
+							// What the prompt did with it, asked of the prompt.
+							// Derived from what was read, this would claim a
+							// quotation the reviewer never saw: text that cannot
+							// be fenced is named and not reproduced, since
+							// unquoted it would be indistinguishable from the
+							// round's own words.
+							...(quotable(guidance.text) ? {} : { withheld: true as const }),
 						},
 					}),
 		},

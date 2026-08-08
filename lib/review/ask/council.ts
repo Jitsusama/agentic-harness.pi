@@ -307,11 +307,15 @@ export async function runCouncil(
 	const opening = openingRun(request, deps.now());
 	const { id, round, participants } = opening;
 	const startedAt = opening.startedAt;
-	// What this round will say about itself beyond its own outcomes:
-	// the tree its reviewers read, and the conditions they read it
-	// under. Computed once because the opening record and the settled
-	// one have to agree, and they are written three hundred lines apart.
-	const provenance = { ...whatItRead(request), ...whatItGave(request) };
+	// What this round says about itself beyond its own outcomes: the
+	// tree its reviewers read, and the conditions they read it under.
+	//
+	// Taken off the opening record rather than computed again from the
+	// request. The two are written three hundred lines apart and have to
+	// agree, and a second call agrees only for as long as nobody edits
+	// one of the two sites: reading it back from what was already
+	// written down makes disagreement impossible rather than unlikely.
+	const provenance = { ...whatItRead(opening), ...whatItGave(opening) };
 
 	// Written down before anything is asked, because everything after
 	// this line costs money and takes minutes, and until now the round

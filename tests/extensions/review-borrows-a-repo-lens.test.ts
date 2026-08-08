@@ -228,6 +228,36 @@ describe("what the repo asks of its contributors", () => {
 				quoted: { path: "CLAUDE.md", edited: "yes" },
 			},
 		});
+		// Both values, since one is a constant: asserting `edited` at a
+		// single value leaves it hard-codable, which is the mutant this
+		// case already guards `path` against.
+		const untouched = await guidanceFor(tree, {
+			files: [{ newPath: "src/main.ts", status: "modified", hunks: [] }],
+		});
+
+		expect(givenBy(true, untouched).given.quoted?.edited).toBe("no");
+	});
+
+	it("says when the reviewer got the beginning of the file", async () => {
+		// A round that got the whole file and one that got the first
+		// ninety-six thousand characters of it are different rounds, and
+		// the record could not tell them apart: the marker was in the
+		// quoted text, where only the reviewer could see it.
+		const { tree } = await repoWith({ "AGENTS.md": "x".repeat(200_000) });
+		const conventions = await guidanceFor(tree, { files: [] });
+
+		expect(givenBy(true, conventions).given.quoted?.cut).toBe(true);
+	});
+
+	it("says when the conventions reached the reviewer unquoted", async () => {
+		// Text that cannot be fenced is named to the reviewer and not
+		// reproduced. Recording it as quoted would claim a quotation
+		// nobody made, which is the indistinguishability the whole field
+		// exists to remove, reintroduced one layer down.
+		const { tree } = await repoWith({ "AGENTS.md": "`".repeat(4_000) });
+		const conventions = await guidanceFor(tree, { files: [] });
+
+		expect(givenBy(true, conventions).given.quoted?.withheld).toBe(true);
 	});
 
 	it("still records the conditions when the repo said nothing", async () => {

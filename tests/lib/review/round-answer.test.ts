@@ -95,6 +95,73 @@ describe("what a round says when it is over", () => {
 		expect(lines[0]).toContain("tree not pinned");
 	});
 
+	it("marks a round whose reviewers were not isolated", () => {
+		// A field nothing prints is a field nobody reads, and the guide
+		// tells people to read this one. It gets the same treatment the
+		// tree caveat beside it gets: the exceptional state gets words in
+		// the line a reader browses.
+		const lines = said(
+			roundAnswer(
+				run({
+					given: { isolated: false },
+					outcomes: [{ participantId: "hawk", findingIds: [1] }],
+				}),
+			),
+		);
+
+		expect(lines[0]).toContain("reviewers not isolated");
+	});
+
+	it("says nothing about a round run the ordinary way", () => {
+		// The other side, since a phrase on every round is a phrase
+		// nobody sees after the first screen. Silence is the ordinary
+		// case, and a round that recorded nothing is silent too.
+		const ordinary = said(
+			roundAnswer(
+				run({
+					given: {
+						isolated: true,
+						quoted: { path: "AGENTS.md", edited: "no" },
+					},
+					outcomes: [{ participantId: "hawk", findingIds: [1] }],
+				}),
+			),
+		);
+
+		expect(ordinary[0]).not.toContain("isolated");
+		expect(ordinary[0]).not.toContain("conventions");
+	});
+
+	it("marks conventions the reviewer was told about and not shown", () => {
+		// The two ways a quotation can fall short of the file, which the
+		// record would otherwise report as a quotation made in full.
+		const withheld = said(
+			roundAnswer(
+				run({
+					given: {
+						isolated: true,
+						quoted: { path: "AGENTS.md", edited: "no", withheld: true },
+					},
+					outcomes: [{ participantId: "hawk", findingIds: [1] }],
+				}),
+			),
+		);
+		const cut = said(
+			roundAnswer(
+				run({
+					given: {
+						isolated: true,
+						quoted: { path: "AGENTS.md", edited: "no", cut: true },
+					},
+					outcomes: [{ participantId: "hawk", findingIds: [1] }],
+				}),
+			),
+		);
+
+		expect(withheld[0]).toContain("conventions not quotable");
+		expect(cut[0]).toContain("conventions cut");
+	});
+
 	it("lets the caller's caveat stand rather than saying it twice", () => {
 		// The starting session passes what it just learned; the run
 		// holds the same fact for everybody after it. One line either

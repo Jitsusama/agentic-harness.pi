@@ -109,6 +109,7 @@ export {
 export type {
 	AuditPromptInput,
 	CritiquePromptInput,
+	GuidanceState,
 	JudgePromptInput,
 	PromptInput,
 	RepoGuidance,
@@ -120,6 +121,7 @@ export {
 	councilPrompt,
 	critiquePrompt,
 	judgePrompt,
+	quotable,
 	stackPrompt,
 } from "./ask/prompt.js";
 export type { ParticipantParse, Roster, RosterParse } from "./ask/roster.js";
@@ -147,7 +149,6 @@ export {
 	staleRuntimeAdvisory,
 	stoppedNotes,
 	substituteOutcome,
-	whatItGave,
 	whatItRead,
 } from "./ask/run.js";
 export type {

@@ -15,6 +15,7 @@
 import { count } from "../../ui/count.js";
 import type { AskStop } from "./council.js";
 import type { ParticipantIdentity } from "./identity.js";
+import type { GuidanceState } from "./prompt.js";
 
 /** Which pass of a review this was. */
 export type AskRound =
@@ -42,6 +43,20 @@ export interface ParticipantOutcome {
 	findingIds: number[];
 	/** Why nothing came back, when nothing did. */
 	failure?: string;
+	/**
+	 * The conditions this attempt ran under, where the round's may
+	 * not describe it.
+	 *
+	 * Absent means the round's, which is every outcome a round asked
+	 * for itself. A retry is the case that needs it: it re-asks one
+	 * participant now and substitutes the answer into a round that may
+	 * have been recorded before any of this existed, so the round's
+	 * claim covers the outcomes it originally collected and not this
+	 * one. Writing this attempt's conditions onto the round instead
+	 * would claim them for reviewers that never ran under them, and
+	 * saying nothing would lose the one fact the retry does know.
+	 */
+	given?: RoundGiven;
 	/**
 	 * Something true of the session rather than of this participant.
 	 *
@@ -167,14 +182,22 @@ export interface AskRun {
  */
 export interface RoundGiven {
 	/**
-	 * They ran without the operator's ambient setup.
+	 * They were spawned asking for none of the ambient setup.
+	 *
+	 * What was asked for, not everything that was thereby excluded.
+	 * An extension registered as a subagent default still reaches
+	 * every child, isolation or not, because that is how a credentials
+	 * helper gets to a reviewer that needs one, and nothing here can
+	 * name what the operator registered. So this says the round asked
+	 * for isolation and stops short of saying the reviewer had nothing
+	 * but the round's own material.
 	 *
 	 * Required, not optional. There are three states and the whole
 	 * field carries the first: a run with no `given` at all is one
 	 * nobody recorded, which is most of the ledger. Within a record
-	 * that exists, saying nothing about isolation would be a fourth
-	 * state meaning the same as the first, in a place a reader has
-	 * already been promised an answer.
+	 * that exists, saying nothing here would be a fourth state meaning
+	 * the same as the first, in a place a reader has already been
+	 * promised an answer.
 	 */
 	isolated: boolean;
 	/**
@@ -188,12 +211,25 @@ export interface RoundGiven {
 	 */
 	quoted?: {
 		path: string;
-		edited: "yes" | "no" | "unknown";
+		edited: GuidanceState;
+		/** Only the first part of the file reached the prompt. */
+		cut?: true;
+		/**
+		 * Named to the reviewer, and not reproduced.
+		 *
+		 * Text that cannot be fenced is not quoted at all, since unquoted
+		 * it reads as the round's own words. Without this the record
+		 * claims a quotation the reviewer never saw, which is the
+		 * indistinguishability the whole field exists to remove.
+		 */
+		withheld?: true;
 	};
 }
 
 /**
  * What a round was given, in the shape a run records it.
+ *
+ * @see whatItRead
  *
  * The counterpart of `whatItRead`, and one helper for the same reason:
  * it is one fact, six builders write it, and the last fact that had to
