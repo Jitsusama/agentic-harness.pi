@@ -1198,7 +1198,7 @@ async function retryOne(
 						seq: 1,
 						...read,
 					},
-					deps(change, tree.path, watch, charters),
+					deps(change, tree.path, watch, charters, held.id),
 				)
 			: await runCouncil(
 					{
@@ -1207,7 +1207,7 @@ async function retryOne(
 						seq: 1,
 						...read,
 					},
-					substituting(deps(change, tree.path, watch, charters)),
+					substituting(deps(change, tree.path, watch, charters, held.id)),
 				);
 
 	const outcome = fresh.outcomes[0];
@@ -1509,6 +1509,14 @@ function deps(
 	cwd: string,
 	watch: RoundWatch,
 	charters: ReadonlyMap<string, string> = new Map(),
+	// Which round the spend belongs to, when that is not the round
+	// doing the asking. A retry runs a throwaway round and substitutes
+	// its outcome into the held one, so billing it to the id it ran
+	// under files the money against a round the ledger never names and
+	// leaves the round that actually paid under-reporting forever. The
+	// artifacts still go under the fresh id, because the transcript
+	// belongs to the attempt that produced it.
+	billTo?: string,
 ) {
 	const findings = createFindingStore(findingDir());
 	// The watch knows which round this is, so it is not passed twice.
@@ -1611,7 +1619,7 @@ function deps(
 			// each of its subagents, and it is what puts a round in the
 			// footer meter and in the run table beside one.
 			recordReviewerRun({
-				runId: context.runId,
+				runId: billTo ?? context.runId,
 				participantId: participant.id,
 				...(participant.model === undefined
 					? {}

@@ -698,32 +698,47 @@ export interface ReviewerRun {
  * that leaves it out understates exactly the round worth knowing
  * about.
  *
- * A run the runner never priced is not published at all, on the rule
- * this round's accounting follows everywhere else: absent is not
- * zero, and a row recording zero cannot be told from a free one.
+ * So is a run nothing priced. Absent is not zero when a round says
+ * what it cost, because there the number is the claim; here the row
+ * is the claim, and withholding it loses the run itself. The worst
+ * failure this repo has recorded, a whole round killed before any
+ * reviewer could bill anything, would have been the one event the
+ * run table had nothing to say about. The recorder carries zeroes
+ * for exactly this and the fleet publishes on the same terms.
  */
 export function recordReviewerRun(run: ReviewerRun): void {
-	const usage = run.result.usage;
-	if (usage === undefined) return;
 	recordRunEverywhere(
 		runRecordFrom({
 			runId: run.runId,
 			subagentId: run.participantId,
-			// What tells a round from a fan-out in the run table.
-			kind: "council",
+			// What tells one kind of round from another, and all of them
+			// from a fan-out. Taken from the id the round already mints,
+			// so a judge does not file itself as a council.
+			kind: roundKind(run.runId),
 			model: run.model ?? "",
 			// A reviewer's id is its persona here, the way a subagent's
 			// id is. The roster's persona field names a charter file,
 			// which is a different thing from who was asked.
 			persona: run.participantId,
 			startedAt: run.startedAt,
-			result: {
-				exitCode: run.result.exitCode,
-				warnings: run.result.warnings ?? [],
-				usage,
-			},
+			// Passed through rather than projected by hand, which dropped
+			// the verification the run table's health columns read.
+			result: { ...run.result, warnings: run.result.warnings ?? [] },
 		}),
 	);
+}
+
+/**
+ * Which kind of round an id belongs to.
+ *
+ * Every round mints `<kind>-<timestamp>-<seq>`, so the kind is
+ * already written down and does not need plumbing to the one place
+ * that reports it. An id in any other shape files under itself rather
+ * than under a guess.
+ */
+function roundKind(runId: string): string {
+	const head = runId.split("-")[0];
+	return head === undefined || head === "" ? runId : head;
 }
 
 /** What it cost, flattened to the two numbers a round records. */

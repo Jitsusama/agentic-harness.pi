@@ -12,6 +12,9 @@
  * dispatcher and the council runner". Only one half was ever wired.
  */
 
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { recordReviewerRun } from "../../extensions/review-integration/reviewer.js";
 import type { RunRecord } from "../../lib/observability/index.js";
@@ -87,10 +90,13 @@ describe("what a round spends", () => {
 		expect(kept[0]?.cost.total).toBeCloseTo(3.5);
 	});
 
-	it("says nothing when the runner priced nothing", () => {
-		// Absent is not zero anywhere else in this round's accounting,
-		// and a meter is the last place to invent a number: a run
-		// recorded at zero is indistinguishable from a free one.
+	it("publishes a run nothing priced, rather than losing it", () => {
+		// Absent is not zero where a round says what it cost, because
+		// there the number is the claim. Here the row is the claim, and
+		// withholding it loses the run. The worst failure this repo has
+		// recorded is a whole round killed before anybody could bill
+		// anything, and that is the one event the run table would then
+		// have had nothing at all to say about.
 		const kept = recorded(() => {
 			recordReviewerRun({
 				runId: "council-1",
@@ -100,6 +106,81 @@ describe("what a round spends", () => {
 			});
 		});
 
-		expect(kept).toHaveLength(0);
+		expect(kept).toHaveLength(1);
+		expect(kept[0]?.cost.total).toBe(0);
+	});
+
+	it("files each round kind under itself, not all under council", () => {
+		// The field exists to tell them apart, and a constant made it
+		// lie for four of the five. The kind is already written into
+		// every round's id, so nothing needs plumbing to reach it.
+		const kept = recorded(() => {
+			for (const id of [
+				"council-1",
+				"judge-2",
+				"critique-3",
+				"audit-4",
+				"stack-5",
+			]) {
+				recordReviewerRun({
+					runId: id,
+					participantId: "hawk",
+					startedAt: 1,
+					result: ran(),
+				});
+			}
+		});
+
+		expect(kept.map((record) => record.kind)).toEqual([
+			"council",
+			"judge",
+			"critique",
+			"audit",
+			"stack",
+		]);
+	});
+
+	it("keeps what the runner said about verification", () => {
+		// Hand-projecting the result dropped this, which pins every
+		// council row in the run table at "none" however it went.
+		const kept = recorded(() => {
+			recordReviewerRun({
+				runId: "council-1",
+				participantId: "hawk",
+				startedAt: 1,
+				result: ran({
+					verification: { ok: true },
+				} as Partial<RunReviewerResult>),
+			});
+		});
+
+		expect(kept[0]?.verifyOutcome).toBe("passed");
+	});
+
+	it("is actually called by the round, not merely available to it", () => {
+		// The cases above prove the helper and would all pass with the
+		// one production call deleted, which is the shape of fault this
+		// plan keeps rediscovering: the piece is tested and the join is
+		// not. A scan is a poor test and the right one here, since the
+		// closure it lives in is reachable only by running a round.
+		const source = readFileSync(
+			join(
+				dirname(fileURLToPath(import.meta.url)),
+				"..",
+				"..",
+				"extensions",
+				"review-integration",
+				"tools",
+				"ask.ts",
+			),
+			"utf8",
+		);
+
+		expect(source).toContain("recordReviewerRun({");
+		// And that a retry bills the round it substitutes into rather
+		// than the throwaway one it ran under, which is a run id the
+		// ledger never names.
+		expect(source).toContain("runId: billTo ?? context.runId");
+		expect(source.split("charters, held.id)").length - 1).toBe(2);
 	});
 });
