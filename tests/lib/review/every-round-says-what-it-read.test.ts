@@ -50,6 +50,23 @@ function answering(text: string) {
 	};
 }
 
+/** The same, keeping what was handed to the finding store. */
+function keeping(text: string, into: unknown[]) {
+	return {
+		async ask(): Promise<AskAnswer> {
+			return { text };
+		},
+		async record(findings: unknown[]): Promise<unknown[]> {
+			into.push(...findings);
+			return findings.map((finding, index) => ({
+				...(finding as object),
+				id: index + 1,
+			}));
+		},
+		now: () => new Date("2026-08-07T00:00:00.000Z"),
+	};
+}
+
 /**
  * The wire shape a critique reads.
  *
@@ -80,6 +97,88 @@ const FOUND = JSON.stringify({
 			discussion: "about it",
 		},
 	],
+});
+
+describe("a finding claims only a commit it was formed against", () => {
+	it("carries the witness when the round read that commit", async () => {
+		const recorded: { anchor?: { witness?: string } }[] = [];
+		await runCouncil(
+			{ roster: { reviewers: [hawk] }, prompt: "p", seq: 1, witness: WITNESS },
+			keeping(FOUND, recorded) as never,
+		);
+
+		expect(recorded).toHaveLength(1);
+		expect(recorded[0]?.anchor?.witness).toBe(WITNESS);
+	});
+
+	it("drops it when the reviewers read some other tree", async () => {
+		// An anchor's witness means the commit it was formed against,
+		// and the substrate uses it to tell a thread the backend kept
+		// from one a force-push stranded. A round that fell back to the
+		// caller's checkout was never formed against that commit, so
+		// stamping it makes the substrate confidently wrong in exactly
+		// the case the field exists to disambiguate.
+		//
+		// Fifty-nine findings on disk say this: eleven from
+		// council-20260804T205254160 and forty-eight from
+		// council-20260805T161139435, every one of them naming a commit
+		// its reviewer never read.
+		const recorded: { anchor?: { witness?: string } }[] = [];
+		await runCouncil(
+			{
+				roster: { reviewers: [hawk] },
+				prompt: "p",
+				seq: 1,
+				witness: WITNESS,
+				unpinned: "read the checkout instead",
+			},
+			keeping(FOUND, recorded) as never,
+		);
+
+		// A finding was recorded, and its anchor names no commit. The
+		// length matters: without it the case passes just as happily on
+		// a round that recorded nothing, which is how a rule can look
+		// enforced by a test that never reached it.
+		expect(recorded).toHaveLength(1);
+		expect(recorded[0]?.anchor?.witness).toBeUndefined();
+	});
+
+	it("drops it on a judge round too", async () => {
+		const recorded: { anchor?: { witness?: string } }[] = [];
+		await runJudge(
+			{
+				judge: hawk,
+				prompt: "p",
+				seq: 1,
+				witness: WITNESS,
+				unpinned: "read the checkout instead",
+			},
+			keeping(FOUND, recorded) as never,
+		);
+
+		expect(recorded).toHaveLength(1);
+		expect(recorded[0]?.anchor?.witness).toBeUndefined();
+	});
+
+	// The run still says both, since what the change is at and what
+	// the reviewers read are two facts and the ledger wants each.
+	it("still records the commit on the run itself", async () => {
+		const { run } = await runCouncil(
+			{
+				roster: { reviewers: [hawk] },
+				prompt: "p",
+				seq: 1,
+				witness: WITNESS,
+				unpinned: "read the checkout instead",
+			},
+			answering(FOUND) as never,
+		);
+
+		expect(run).toMatchObject({
+			witness: WITNESS,
+			unpinned: "read the checkout instead",
+		});
+	});
 });
 
 describe("a round records the commit it was formed against", () => {
@@ -194,10 +293,17 @@ describe("a round records the commit it was formed against", () => {
 			// there. A stack is read in one tree like everything else, so
 			// a fallback is a fact about the whole round, and the
 			// exemption was quietly excusing it from saying so.
+			//
+			// Its anchors are held to the same rule as everybody's, in
+			// the shape this round can keep: the per-change lookup is
+			// withheld whole when the tree was not pinned, since a
+			// fallback misses every change at once.
 			if (name === "stack-round.ts") {
 				expect({
 					name,
-					witnesses: source.includes("request.witnessFor,"),
+					witnesses: source.includes(
+						"request.unpinned === undefined ? request.witnessFor : undefined",
+					),
 					caveat: source.includes("whatItRead({"),
 				}).toEqual({ name, witnesses: true, caveat: true });
 				continue;

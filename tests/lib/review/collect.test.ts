@@ -91,6 +91,25 @@ describe("collecting a round nobody was there to finish", () => {
 		expect(keeper.kept[0]?.anchor.witness).toBe("abc1234");
 	});
 
+	it("anchors against nothing when the round read another tree", async () => {
+		// The same rule as a live round, on the path most likely to
+		// need it: a round nobody finished is a round whose tree may
+		// well have been the caller's checkout. This spread the commit
+		// without the caveat beside it and went on stamping anchors
+		// with a commit its reviewers never read, which is the whole
+		// fault in the one place it survived.
+		const keeper = recorder();
+
+		await collectRound(
+			unsettled({ witness: "abc1234", unpinned: "read the checkout" }),
+			answers({ hawk: { text: said("a") } }),
+			keeper,
+		);
+
+		expect(keeper.kept).toHaveLength(1);
+		expect(keeper.kept[0]?.anchor.witness).toBeUndefined();
+	});
+
 	it("says which reviewers left nothing to collect", async () => {
 		const { run } = await collectRound(
 			unsettled(),
