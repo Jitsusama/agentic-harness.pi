@@ -469,6 +469,33 @@ export function askedOf(
  * that matters: a retry that fell back leaves the round less faithful
  * than it was. Pass an empty record to say there is nothing to add.
  */
+/**
+ * Why a retry may not be given new settings, if it may not.
+ *
+ * A retry re-asks one participant and substitutes the answer into a
+ * round that already recorded who it asked and what each was set to.
+ * Asking on a different model puts one participant's answer into a run
+ * whose ledger names another, and the identity ledger cannot catch it,
+ * because the substitution keeps the held run's participants: nothing
+ * ever claims the new configuration.
+ *
+ * A predicate rather than a branch inside the tool, so the rule can be
+ * read and tested without a round on disk to retry.
+ */
+export function retryCannotResettle(
+	who: Record<string, unknown> | undefined,
+	run: { id: string },
+	participantId: string,
+): string | undefined {
+	if (who === undefined) return undefined;
+	return (
+		`A retry re-asks "${participantId}" as round ${run.id} asked it, so ` +
+		`it cannot take new settings: its answer is substituted into that ` +
+		`round, whose ledger records what it originally asked under. Run a ` +
+		`fresh council with who, or release the id and ask again.`
+	);
+}
+
 export function substituteOutcome(
 	run: AskRun,
 	outcome: ParticipantOutcome,

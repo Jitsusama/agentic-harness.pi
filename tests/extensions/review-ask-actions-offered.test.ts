@@ -37,9 +37,20 @@ function offered(): Set<string> {
 	);
 }
 
-/** What the dispatcher will act on. */
+/**
+ * What the dispatcher will act on.
+ *
+ * Two shapes, because not every action waits for the switch. One that
+ * needs no change bound is answered before the binding, since binding
+ * first would refuse it from the position it exists to be reachable
+ * from, and a gate that only knew about `case` would call that action
+ * unhandled.
+ */
 function handled(): Set<string> {
-	return new Set([...source.matchAll(/case "([a-z-]+)":/g)].map(([, a]) => a));
+	return new Set([
+		...[...source.matchAll(/case "([a-z-]+)":/g)].map(([, a]) => a),
+		...[...source.matchAll(/action === "([a-z-]+)"/g)].map(([, a]) => a),
+	]);
 }
 
 describe("the round's answer", () => {
@@ -95,5 +106,40 @@ describe("review_ask", () => {
 		// Both assertions above pass trivially against a mis-sliced file.
 		expect(offered()).toContain("council");
 		expect(handled()).toContain("judge");
+	});
+
+	it("lets every round kind be told who to ask, and who it asks", () => {
+		// A per-call override reaching the council and not the judge would
+		// be worse than none: the round runs, bills what a round bills,
+		// and half of it ignored the instruction.
+		//
+		// The first version of this counted call sites, which tolerated
+		// two round kinds dropping out of the file entirely and said
+		// nothing about the second argument at all. Each round is named,
+		// with the half of the roster it actually asks, because that is
+		// what the override is checked against.
+		const asksOf: Record<string, string> = {
+			askCouncil: "reviewers",
+			startRound: "reviewers",
+			askCritique: "reviewers",
+			askStack: "reviewers",
+			askJudge: "judge",
+			askAudit: "judge",
+		};
+
+		const wrong = Object.entries(asksOf).flatMap(([round, asks]) => {
+			const body = source.slice(source.indexOf(`async function ${round}(`));
+			if (body === source.slice(source.length)) return [`${round} is gone`];
+			const call = body.slice(0, body.indexOf("const charters"));
+			return call.includes(`rosterOrThrow(params, "${asks}")`)
+				? []
+				: [`${round} does not ask for "${asks}"`];
+		});
+
+		expect(wrong).toEqual([]);
+		// And nowhere reads a roster without saying which round it is for,
+		// which the compiler enforces but only while the parameter stays
+		// required.
+		expect(source).not.toMatch(/rosterOrThrow\(params\)/);
 	});
 });

@@ -55,11 +55,14 @@ import {
 	describeRun,
 	type Finding,
 	judgePrompt,
+	overrideRoster,
 	type Participant,
+	type ParticipantOverride,
 	parsePersona,
 	parseRoster,
 	type Roster,
 	type RunStore,
+	retryCannotResettle,
 	roundAnswer,
 	runAudit,
 	runCouncil,
@@ -84,6 +87,7 @@ import {
 	WRAP_UP_SUFFIX,
 } from "../../../lib/subagent/index.js";
 import { fromScript } from "../../../lib/subagent/runpi/fresh.js";
+import { THINKING_LEVELS } from "../../../lib/thinking/index.js";
 import { count } from "../../../lib/ui/count.js";
 import {
 	type ReviewerBudget,
@@ -134,6 +138,7 @@ type AskAction =
 	| "audit"
 	| "stack"
 	| "runs"
+	| "roster"
 	| "collect"
 	| "retry"
 	| "release";
@@ -153,6 +158,7 @@ interface AskParams extends TargetParams {
 	intent?: string;
 	participant?: string;
 	run?: string;
+	who?: Record<string, ParticipantOverride>;
 }
 
 /** Register the `review_ask` tool. */
@@ -183,6 +189,7 @@ export function registerAskTool(pi: ExtensionAPI): void {
 						Type.Literal("start"),
 						Type.Literal("stop"),
 						Type.Literal("runs"),
+						Type.Literal("roster"),
 						Type.Literal("collect"),
 						Type.Literal("retry"),
 						Type.Literal("release"),
@@ -218,6 +225,40 @@ export function registerAskTool(pi: ExtensionAPI): void {
 					description:
 						"Which round to retry into. Defaults to the latest council.",
 				}),
+			),
+			// Last, and deliberately after every other parameter: the gate
+			// that checks the actions offered against the actions handled
+			// reads the file from the action union to the next parameter, so
+			// a union of literals in between reads as six more actions.
+			who: Type.Optional(
+				Type.Record(
+					Type.String(),
+					Type.Object({
+						model: Type.Optional(
+							Type.String({
+								description:
+									"The model this one answers on, e.g. anthropic/claude-opus-5. Write it with a slash: a colon reads as pi's thinking-level separator and is refused.",
+							}),
+						),
+						thinkingLevel: Type.Optional(
+							Type.Union(
+								// The shared list, so this schema and the fan-out
+								// tool's cannot drift apart about what pi takes.
+								THINKING_LEVELS.map((level) => Type.Literal(level)),
+								{ description: "How hard this one thinks." },
+							),
+						),
+						tools: Type.Optional(
+							Type.Array(Type.String(), {
+								description: "The tool palette this one is given.",
+							}),
+						),
+					}),
+					{
+						description:
+							"Settings for this round only, by participant id, overriding the configured roster: model, thinkingLevel and tools, and not a persona. Ask with action roster to see who this roster has and what each is set to. A name this round will not ask is refused rather than ignored, since a round that silently skipped the setting still costs what a round costs, and a council does not ask the judge. An id that has raised findings in this session is held to what it meant, so overriding one is refused as reconfiguring it in the file would be; across sessions that ledger is rebuilt and the findings carry their own run. Not accepted on a retry, which substitutes its answer into a round that already recorded what it asked under.",
+					},
+				),
 			),
 		}),
 
@@ -262,6 +303,13 @@ export function registerAskTool(pi: ExtensionAPI): void {
 			const action = params.action ?? "runs";
 			const opened: RoundWatch[] = [];
 			try {
+				// Before the change is bound, because this one is about the
+				// roster and not about any change. Binding first made the
+				// listing refuse from exactly the position it exists to be
+				// reachable from: deciding who to ask, before attaching
+				// anything to ask them about.
+				if (action === "roster") return await reportRoster();
+
 				const bound = await boundFor(pi, params, process.cwd());
 				const change = hostedChange(bound);
 				if (change === undefined) {
@@ -561,7 +609,7 @@ async function askCouncil(
 	params: AskParams,
 	watch: RoundWatch,
 ): Promise<Answer> {
-	const roster = await rosterOrThrow();
+	const roster = await rosterOrThrow(params, "reviewers");
 	const charters = await chartersFor(roster);
 	await claimIdentities(change, "reviewer", roster.reviewers);
 	const { proposal, diff } = await material(bound);
@@ -620,7 +668,7 @@ async function startRound(
 	change: ChangeRef,
 	params: AskParams,
 ): Promise<Answer> {
-	const roster = await rosterOrThrow();
+	const roster = await rosterOrThrow(params, "reviewers");
 	const charters = await chartersFor(roster);
 	await claimIdentities(change, "reviewer", roster.reviewers);
 	const { proposal, diff } = await material(bound);
@@ -728,7 +776,7 @@ async function askJudge(
 	params: AskParams,
 	watch: RoundWatch,
 ): Promise<Answer> {
-	const roster = await rosterOrThrow();
+	const roster = await rosterOrThrow(params, "judge");
 	const charters = await chartersFor(roster);
 	if (roster.judge === undefined) {
 		return refuse(
@@ -794,7 +842,7 @@ async function askCritique(
 	params: AskParams,
 	watch: RoundWatch,
 ): Promise<Answer> {
-	const roster = await rosterOrThrow();
+	const roster = await rosterOrThrow(params, "reviewers");
 	const charters = await chartersFor(roster);
 	await claimIdentities(change, "reviewer", roster.reviewers);
 
@@ -862,7 +910,7 @@ async function askStack(
 	params: AskParams,
 	watch: RoundWatch,
 ): Promise<Answer> {
-	const roster = await rosterOrThrow();
+	const roster = await rosterOrThrow(params, "reviewers");
 	const charters = await chartersFor(roster);
 
 	const stack = await bound.stack();
@@ -980,7 +1028,7 @@ async function askAudit(
 	params: AskParams,
 	watch: RoundWatch,
 ): Promise<Answer> {
-	const roster = await rosterOrThrow();
+	const roster = await rosterOrThrow(params, "judge");
 	const charters = await chartersFor(roster);
 	// The judge audits, because weighing what exists against a change
 	// is the judging role and a roster should not need a fourth kind of
@@ -1155,7 +1203,11 @@ async function retryOne(
 	const repeats = retryWouldRepeat(before?.stopped, await budgetForRound());
 	if (repeats !== undefined) return refuse(repeats);
 
-	const roster = await rosterOrThrow();
+	// The round to change settings for is the next one, not this one.
+	const resettles = retryCannotResettle(params.who, held, asked.id);
+	if (resettles !== undefined) return refuse(resettles);
+
+	const roster = await rosterOrThrow(params, "everybody");
 	const charters = await chartersFor(roster);
 	const participant =
 		roster.reviewers.find((r) => r.id === asked.id) ??
@@ -1291,9 +1343,96 @@ async function claimIdentities(
  * the whole point: a roster is a standing choice about who reviews,
  * not something to retype per call.
  */
-async function rosterOrThrow(): Promise<Roster> {
+/** Which of a roster a round puts to work. */
+type RoundAsks = "reviewers" | "judge" | "everybody";
+
+/** The participants a round of this shape will actually ask. */
+function asking(roster: Roster, asks: RoundAsks): Participant[] {
+	const judge = roster.judge === undefined ? [] : [roster.judge];
+	if (asks === "reviewers") return roster.reviewers;
+	if (asks === "judge") return judge;
+	return [...roster.reviewers, ...judge];
+}
+
+async function rosterOrThrow(
+	params: AskParams,
+	asks: RoundAsks,
+): Promise<Roster> {
 	const path = packageConfigPath();
-	return rosterFromConfig(await loadPackageConfig(path), path);
+	// Params rather than nothing, and required rather than optional, so
+	// every round kind picks the override up and none is left honouring
+	// a config nobody asked for. The compiler named all seven sites.
+	return rosterFromConfig(
+		await loadPackageConfig(path),
+		path,
+		params.who,
+		asks,
+	);
+}
+
+/**
+ * Who this round can ask, and what each of them is set to.
+ *
+ * The roster lived in a file nothing would show you, so the way to
+ * find out who a council asks was to read the config, and the way to
+ * find out what personas existed was to list a directory. Both are
+ * questions about this tool, so this tool answers them.
+ */
+async function reportRoster(): Promise<Answer> {
+	// What the file says, deliberately without this call's overrides.
+	// Applying them here would print them back as though somebody had
+	// committed them, and then invite the reader to override what they
+	// had just overridden.
+	const path = packageConfigPath();
+	const roster = await rosterFromConfig(await loadPackageConfig(path), path);
+	const charters = await chartersOnDisk();
+	const lines: string[] = [];
+
+	const describe = (one: Participant, role: string): void => {
+		const at = [
+			one.model ?? "the session's own model",
+			...(one.thinkingLevel === undefined
+				? []
+				: [`${one.thinkingLevel} thinking`]),
+			...(one.persona === undefined ? [] : [`the ${one.persona} persona`]),
+			// One of the three things an override can change, so leaving it
+			// out made the listing silent about a third of its own subject.
+			...(one.tools === undefined ? [] : [`tools ${one.tools.join(", ")}`]),
+		].join(", ");
+		lines.push(`${GLYPH.target} ${one.id} (${role}): ${at}`);
+	};
+
+	for (const reviewer of roster.reviewers) describe(reviewer, "reviewer");
+	if (roster.judge !== undefined) describe(roster.judge, "judge");
+
+	// Personas nobody is currently asking. These are the ones worth
+	// printing: a lens that exists and is not on the roster is exactly
+	// what somebody reaching for an override is looking for.
+	const asked = new Set(
+		[...roster.reviewers, roster.judge].flatMap((one) =>
+			one?.persona === undefined ? [] : [one.persona],
+		),
+	);
+	const spare = [...charters.keys()].filter((id) => !asked.has(id)).sort();
+	if (spare.length > 0) {
+		lines.push("");
+		lines.push(`Personas on disk that nothing asks: ${spare.join(", ")}.`);
+	}
+	lines.push("");
+	lines.push(
+		"This is what the config says. Pass `who` to change model, " +
+			"thinkingLevel or tools for one round, e.g. " +
+			'{"hawk": {"thinkingLevel": "xhigh"}}. It is refused rather than ' +
+			"ignored when it names somebody this round will not ask. It " +
+			"cannot set a persona: a lens belongs to a participant, so run " +
+			"a spare one by adding a roster entry for it.",
+	);
+
+	return say(lines.join("\n"), {
+		reviewers: roster.reviewers,
+		...(roster.judge === undefined ? {} : { judge: roster.judge }),
+		personas: [...charters.keys()].sort(),
+	});
 }
 
 /**
@@ -1342,6 +1481,15 @@ async function budgetForRound(): Promise<ReviewerBudget> {
 export async function rosterFromConfig(
 	loaded: ConfigLoadResult,
 	path: string,
+	// What this one call wants changed. Applied here rather than at the
+	// caller so that "the roster this round asks" is one function with
+	// one answer, and can be driven by a test without a config on disk.
+	who?: Record<string, ParticipantOverride>,
+	// Which half of the roster this round actually asks. Without it an
+	// override for somebody the round never asks is accepted and
+	// silently dropped, which is the failure the unknown-name refusal
+	// exists to prevent, one level down.
+	asks: RoundAsks = "everybody",
 ): Promise<Roster> {
 	if (!loaded.ok) {
 		throw new Error(
@@ -1357,7 +1505,14 @@ export async function rosterFromConfig(
 	}
 	const parsed = parseRoster(section);
 	if ("refusal" in parsed) throw new Error(parsed.refusal);
-	return parsed.roster;
+	if (who === undefined) return parsed.roster;
+	const applied = overrideRoster(
+		parsed.roster,
+		who,
+		asking(parsed.roster, asks),
+	);
+	if ("refusal" in applied) throw new Error(applied.refusal);
+	return applied.roster;
 }
 
 /** Whether a value is an object we can read keys off. */
