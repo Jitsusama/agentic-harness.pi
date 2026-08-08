@@ -110,7 +110,7 @@ import {
 	reviewerStarter,
 	whyNotYet,
 } from "../reviewer.js";
-import { treeForRound } from "../work.js";
+import { readFrom, treeForRound } from "../work.js";
 import {
 	type Answer,
 	boundFor,
@@ -580,9 +580,7 @@ async function askCouncil(
 			roster,
 			prompt,
 			seq: 1,
-			...(proposal.headCommit === undefined
-				? {}
-				: { witness: proposal.headCommit }),
+			...readFrom(tree, proposal.headCommit),
 		},
 		deps(change, tree.path, watch, charters),
 	);
@@ -644,9 +642,7 @@ async function startRound(
 			roster,
 			prompt,
 			seq: 1,
-			...(proposal.headCommit === undefined
-				? {}
-				: { witness: proposal.headCommit }),
+			...readFrom(tree, proposal.headCommit),
 		},
 		{
 			now: () => new Date(),
@@ -772,9 +768,7 @@ async function askJudge(
 			judge: roster.judge,
 			prompt,
 			seq: 1,
-			...(proposal.headCommit === undefined
-				? {}
-				: { witness: proposal.headCommit }),
+			...readFrom(tree, proposal.headCommit),
 		},
 		deps(change, tree.path, watch, charters),
 	);
@@ -827,9 +821,7 @@ async function askCritique(
 			}),
 			seq: 1,
 			findingIds: raised.map((finding) => finding.id),
-			...(proposal.headCommit === undefined
-				? {}
-				: { witness: proposal.headCommit }),
+			...readFrom(tree, proposal.headCommit),
 		},
 		{
 			ask: deps(change, tree.path, watch, charters).ask,
@@ -939,6 +931,9 @@ async function askStack(
 			seq: 1,
 			stackRefs,
 			witnessFor: (ref) => witnesses.get(ref),
+			// Per-change witnesses, but one tree, so the caveat is about
+			// the round exactly as it is for every other kind.
+			...(tree.caveat === undefined ? {} : { unpinned: tree.caveat }),
 		},
 		{
 			ask: deps(tip.change, tree.path, watch, charters).ask,
@@ -1035,9 +1030,7 @@ async function askAudit(
 			}),
 			seq: 1,
 			threadIndices,
-			...(proposal.headCommit === undefined
-				? {}
-				: { witness: proposal.headCommit }),
+			...readFrom(tree, proposal.headCommit),
 		},
 		{
 			ask: deps(change, tree.path, watch, charters).ask,
@@ -1173,8 +1166,7 @@ async function retryOne(
 		proposal.headCommit,
 		process.cwd(),
 	);
-	const witness =
-		proposal.headCommit === undefined ? {} : { witness: proposal.headCommit };
+	const read = readFrom(tree, proposal.headCommit);
 	const intent = params.intent === undefined ? {} : { intent: params.intent };
 
 	// Retried in the role the round asked under, not always as a
@@ -1196,7 +1188,7 @@ async function retryOne(
 							...intent,
 						}),
 						seq: 1,
-						...witness,
+						...read,
 					},
 					deps(change, tree.path, watch, charters),
 				)
@@ -1205,7 +1197,7 @@ async function retryOne(
 						roster: { reviewers: [participant] } satisfies Roster,
 						prompt: councilPrompt({ proposal, diff, ...intent }),
 						seq: 1,
-						...witness,
+						...read,
 					},
 					substituting(deps(change, tree.path, watch, charters)),
 				);
@@ -1215,7 +1207,12 @@ async function retryOne(
 		return refuse(`Asking "${asked.id}" again produced no outcome at all.`);
 	}
 
-	const updated = substituteOutcome(held, outcome);
+	// Which tree this attempt read, not just which the round did. A
+	// retry that fell back leaves the round less faithful than it was,
+	// and until this was passed the fresh run carrying it was thrown
+	// away, so the caveat here was inert and the comment above it
+	// described something that did not happen.
+	const updated = substituteOutcome(held, outcome, read);
 	await store.replace(change, updated);
 	return say(
 		[

@@ -27,7 +27,7 @@ import {
 import { type ParticipantIdentity, participantIdentity } from "./identity.js";
 import { type AskProgress, settleReplies } from "./progress.js";
 import type { Roster } from "./roster.js";
-import { newRunId, type ParticipantOutcome } from "./run.js";
+import { newRunId, type ParticipantOutcome, whatItRead } from "./run.js";
 import { alsoRecordedInStack, harvestStackFindings, saidAt } from "./span.js";
 
 /** The impure things a stack round needs. */
@@ -62,6 +62,8 @@ export interface StackCouncilRequest {
 	 * nothing.
 	 */
 	witnessFor?: (ref: string) => string | undefined;
+	/** Said when the tree the reviewers read was not the stack's tip. */
+	unpinned?: string;
 }
 
 /** Ask a roster about a stack and file what it says. */
@@ -96,6 +98,16 @@ export async function runStackCouncil(
 			startedAt: startedAt.toISOString(),
 			participants,
 			outcomes,
+			// The witness cannot be one commit here, which is why this
+			// round carries one per change. The caveat can: a stack is
+			// read in a single tree like everything else, so a fallback
+			// is a fact about the whole round. The exemption was written
+			// about the witness and does not reach this.
+			...whatItRead({
+				...(request.unpinned === undefined
+					? {}
+					: { unpinned: request.unpinned }),
+			}),
 		},
 		warnings,
 	};

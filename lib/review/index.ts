@@ -123,6 +123,7 @@ export type {
 	AskUsage,
 	ParticipantOutcome,
 	RunSummary,
+	TreeRead,
 } from "./ask/run.js";
 export {
 	askedOf,
@@ -132,6 +133,7 @@ export {
 	staleRuntimeAdvisory,
 	stoppedNotes,
 	substituteOutcome,
+	whatItRead,
 } from "./ask/run.js";
 export type {
 	FindingSpan,

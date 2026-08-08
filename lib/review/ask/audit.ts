@@ -17,7 +17,12 @@
 import { askOne } from "./council.js";
 import type { CritiqueDeps } from "./critique.js";
 import { type Participant, participantIdentity } from "./identity.js";
-import { type AskRun, newRunId, type ParticipantOutcome } from "./run.js";
+import {
+	type AskRun,
+	newRunId,
+	type ParticipantOutcome,
+	whatItRead,
+} from "./run.js";
 import {
 	ANSWER_WAS_CUT_OFF,
 	isRecord,
@@ -67,6 +72,8 @@ export interface AuditRequest {
 	 * answer that ages when the branch moves.
 	 */
 	witness?: string;
+	/** Said when the tree the reviewers read was not that commit. */
+	unpinned?: string;
 }
 
 /** The round, the judgements, and anything worth saying. */
@@ -131,7 +138,7 @@ export async function runAudit(
 				startedAt: startedAt.toISOString(),
 				participants: [],
 				outcomes: [],
-				...(request.witness === undefined ? {} : { witness: request.witness }),
+				...whatItRead(request),
 			},
 			audits: [],
 			warnings: [],
@@ -186,7 +193,7 @@ export async function runAudit(
 			// finding anything, which is the judging role.
 			participants: [participantIdentity("judge", request.auditor)],
 			outcomes: [outcome],
-			...(request.witness === undefined ? {} : { witness: request.witness }),
+			...whatItRead(request),
 		},
 		audits,
 		warnings,

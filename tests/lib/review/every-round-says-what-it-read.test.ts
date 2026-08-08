@@ -160,22 +160,54 @@ describe("a round records the commit it was formed against", () => {
 			// opening and writes it shorthand: the scan could not see the
 			// one builder that was already right, and the count it was
 			// checked against happened to match without it.
-			if (!source.includes("startedAt: startedAt.toISOString()")) continue;
+			const built =
+				source.split("startedAt: startedAt.toISOString()").length - 1;
+			if (built === 0) continue;
 			builders.push(name);
+			// One spelling now, because what a round read is one fact
+			// and was being written by hand in four different ways.
+			// Recording the commit without the caveat is the failure
+			// that matters: the run then says the reviewers read the
+			// change when they read whatever was checked out.
+			//
 			// The stack round is the one honest exception, and it is
 			// checked rather than skipped: it holds every change in a
 			// stack at once, so a single commit on the run would name
 			// the wrong change for all but one of them. It carries a
 			// witness per change instead, which is the same promise in
 			// the only shape that can be true there.
-			const carries = source.includes(
-				name === "stack-round.ts"
-					? "request.witnessFor,"
-					: name === "council.ts"
-						? "...witnessed"
-						: "witness: request.witness",
-			);
-			expect({ name, carries }).toEqual({ name, carries: true });
+			//
+			// Counted, not merely found. Asking whether the file mentions
+			// the helper anywhere let council.ts pass on one builder while
+			// the other, the one a detached round and an interrupted one
+			// both go through, still wrote the commit by hand. That is
+			// precisely the fault this gate exists to prevent, and this
+			// gate had it.
+			//
+			// At least one per builder rather than exactly one, because a
+			// file may honestly call it once and spread the result twice,
+			// which council.ts does. So this does not prove each builder
+			// is the one carrying it; it proves no file grew a builder
+			// without growing a reader, which is how the last one hid.
+			//
+			// The stack round's exemption covers the witness and stops
+			// there. A stack is read in one tree like everything else, so
+			// a fallback is a fact about the whole round, and the
+			// exemption was quietly excusing it from saying so.
+			if (name === "stack-round.ts") {
+				expect({
+					name,
+					witnesses: source.includes("request.witnessFor,"),
+					caveat: source.includes("whatItRead({"),
+				}).toEqual({ name, witnesses: true, caveat: true });
+				continue;
+			}
+			const spelling = "whatItRead(request)";
+			const carries = source.split(spelling).length - 1;
+			expect({ name, enough: carries >= built }).toEqual({
+				name,
+				enough: true,
+			});
 		}
 
 		// The canary, naming them rather than counting them, because a

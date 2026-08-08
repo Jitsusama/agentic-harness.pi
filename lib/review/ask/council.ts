@@ -28,6 +28,7 @@ import {
 	type AskUsage,
 	newRunId,
 	type ParticipantOutcome,
+	whatItRead,
 } from "./run.js";
 
 /**
@@ -207,6 +208,8 @@ export interface CouncilRequest {
 	seq: number;
 	/** Commit the findings' anchors are formed against. */
 	witness?: string;
+	/** Said when the tree the reviewers read was not that commit. */
+	unpinned?: string;
 	/** Defaults to a council round. */
 	round?: AskRound;
 }
@@ -300,8 +303,7 @@ export async function runCouncil(
 	const opening = openingRun(request, deps.now());
 	const { id, round, participants } = opening;
 	const startedAt = opening.startedAt;
-	const witnessed =
-		request.witness === undefined ? {} : { witness: request.witness };
+	const witnessed = whatItRead(request);
 
 	// Written down before anything is asked, because everything after
 	// this line costs money and takes minutes, and until now the round
@@ -380,7 +382,7 @@ export function openingRun(request: CouncilRequest, startedAt: Date): AskRun {
 		),
 		outcomes: [],
 		open: true,
-		...(request.witness === undefined ? {} : { witness: request.witness }),
+		...whatItRead(request),
 	};
 }
 

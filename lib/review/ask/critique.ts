@@ -17,7 +17,12 @@ import { type Ask, askRoster } from "./council.js";
 import { participantIdentity } from "./identity.js";
 import type { AskProgress } from "./progress.js";
 import type { Roster } from "./roster.js";
-import { type AskRun, newRunId, type ParticipantOutcome } from "./run.js";
+import {
+	type AskRun,
+	newRunId,
+	type ParticipantOutcome,
+	whatItRead,
+} from "./run.js";
 import { ANSWER_WAS_CUT_OFF, isRecord, readAnswer, wireText } from "./wire.js";
 
 /** Where a critic stands on a finding. */
@@ -60,6 +65,8 @@ export interface CritiqueRequest {
 	 * say which moment cannot be weighed later.
 	 */
 	witness?: string;
+	/** Said when the tree the reviewers read was not that commit. */
+	unpinned?: string;
 }
 
 /** The round, the positions taken, and anything worth saying. */
@@ -119,7 +126,7 @@ export async function runCritique(
 				startedAt: startedAt.toISOString(),
 				participants: [],
 				outcomes: [],
-				...(request.witness === undefined ? {} : { witness: request.witness }),
+				...whatItRead(request),
 			},
 			critiques: [],
 			warnings: [],
@@ -182,7 +189,7 @@ export async function runCritique(
 				participantIdentity("reviewer", participant),
 			),
 			outcomes,
-			...(request.witness === undefined ? {} : { witness: request.witness }),
+			...whatItRead(request),
 		},
 		critiques,
 		warnings,

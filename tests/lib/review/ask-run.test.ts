@@ -322,6 +322,46 @@ describe("what a round cost", () => {
 		expect(said).not.toContain("$0.00");
 	});
 
+	it("records that a retry read a tree the round was not pinned to", () => {
+		// A retry can be less faithful than the round it joins, and the
+		// run is the only place that can say so. This half was inert
+		// once: the caller built the fact and handed it to a fresh run
+		// that was then thrown away, so a comment claimed a behaviour
+		// nothing had.
+		const before = run({
+			participants: [hawk],
+			witness: "d7205e3c",
+			outcomes: [{ participantId: "hawk", findingIds: [], failure: "it died" }],
+		});
+
+		const after = substituteOutcome(
+			before,
+			{ participantId: "hawk", findingIds: [1] },
+			{ witness: "d7205e3c", unpinned: "read the checkout" },
+		);
+
+		expect(after.unpinned).toBe("read the checkout");
+	});
+
+	it("does not let a pinned retry clear a caveat already earned", () => {
+		// One-way, because the reviewers already in the round read what
+		// they read. A later attempt getting the right tree does not
+		// make their findings any more faithful than they were.
+		const before = run({
+			participants: [hawk],
+			unpinned: "read the checkout",
+			outcomes: [{ participantId: "hawk", findingIds: [], failure: "it died" }],
+		});
+
+		const after = substituteOutcome(
+			before,
+			{ participantId: "hawk", findingIds: [1] },
+			{ witness: "d7205e3c" },
+		);
+
+		expect(after.unpinned).toBe("read the checkout");
+	});
+
 	it("keeps what a retried attempt cost", () => {
 		// The findings are replaced, because the new attempt supersedes
 		// the old one. The money is not: it was spent, and a reviewer
@@ -340,11 +380,15 @@ describe("what a round cost", () => {
 			],
 		});
 
-		const after = substituteOutcome(before, {
-			participantId: "hawk",
-			findingIds: [1],
-			usage: { tokens: 100, cost: 1 },
-		});
+		const after = substituteOutcome(
+			before,
+			{
+				participantId: "hawk",
+				findingIds: [1],
+				usage: { tokens: 100, cost: 1 },
+			},
+			{},
+		);
 
 		expect(runSummary(after).cost).toBeCloseTo(4);
 		expect(runSummary(after).tokens).toBe(1_000);
@@ -403,10 +447,11 @@ describe("who was asked", () => {
 
 describe("substituting one outcome", () => {
 	it("replaces that participant's outcome and leaves the rest", () => {
-		const next = substituteOutcome(run(), {
-			participantId: "owl",
-			findingIds: [7, 8],
-		});
+		const next = substituteOutcome(
+			run(),
+			{ participantId: "owl", findingIds: [7, 8] },
+			{},
+		);
 
 		expect(next.outcomes).toEqual([
 			{ participantId: "hawk", findingIds: [1, 2] },
@@ -417,10 +462,11 @@ describe("substituting one outcome", () => {
 	it("keeps the outcome where it was, so the roster order holds", () => {
 		// A retry that moved a reviewer to the end would reorder every
 		// report of the run for no reason a reader could see.
-		const next = substituteOutcome(run(), {
-			participantId: "hawk",
-			findingIds: [9],
-		});
+		const next = substituteOutcome(
+			run(),
+			{ participantId: "hawk", findingIds: [9] },
+			{},
+		);
 
 		expect(next.outcomes.map((o) => o.participantId)).toEqual(["hawk", "owl"]);
 	});
@@ -433,10 +479,11 @@ describe("substituting one outcome", () => {
 			],
 		});
 
-		const next = substituteOutcome(failed, {
-			participantId: "owl",
-			findingIds: [5],
-		});
+		const next = substituteOutcome(
+			failed,
+			{ participantId: "owl", findingIds: [5] },
+			{},
+		);
 
 		expect(next.outcomes[1]).toEqual({
 			participantId: "owl",
@@ -449,7 +496,7 @@ describe("substituting one outcome", () => {
 		// A run is a record of what happened. Editing one in place
 		// would rewrite history that something else may already hold.
 		const before = run();
-		substituteOutcome(before, { participantId: "owl", findingIds: [7] });
+		substituteOutcome(before, { participantId: "owl", findingIds: [7] }, {});
 
 		expect(before.outcomes[1]).toEqual({
 			participantId: "owl",
@@ -462,10 +509,11 @@ describe("substituting one outcome", () => {
 			outcomes: [{ participantId: "hawk", findingIds: [1] }],
 		});
 
-		const next = substituteOutcome(partial, {
-			participantId: "owl",
-			findingIds: [4],
-		});
+		const next = substituteOutcome(
+			partial,
+			{ participantId: "owl", findingIds: [4] },
+			{},
+		);
 
 		expect(next.outcomes).toHaveLength(2);
 		expect(runSummary(next)).toEqual({
@@ -481,7 +529,7 @@ describe("substituting one outcome", () => {
 		// Substituting an outcome for someone outside the roster would
 		// make the run claim it asked somebody it never did.
 		expect(() =>
-			substituteOutcome(run(), { participantId: "wren", findingIds: [1] }),
+			substituteOutcome(run(), { participantId: "wren", findingIds: [1] }, {}),
 		).toThrow(/wren/);
 	});
 });

@@ -20,7 +20,8 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { RepoLocator } from "../../lib/review/index.js";
+import type { RepoLocator, TreeRead } from "../../lib/review/index.js";
+import { whatItRead } from "../../lib/review/index.js";
 import {
 	satisfies,
 	treeRequestFrom,
@@ -182,6 +183,31 @@ export interface RoundTree {
 	path: string;
 	/** Said out loud when the tree is not the commit under review. */
 	caveat?: string;
+}
+
+/**
+ * What a round formed here read, in the shape a run records it.
+ *
+ * The pairing is the point. Every round records the commit under
+ * review, and a round that fell back to the caller's checkout records
+ * one too, so a witness written without the caveat beside it says the
+ * reviewers read a change they were never given. The caveat used to
+ * go only to the session that started the round, which left the
+ * durable record confidently wrong and told a later collector
+ * nothing.
+ *
+ * It is not hypothetical. Two councils fell back because a worktree of
+ * that name already existed, and between them returned fifty-nine
+ * findings formed against whatever the checkout happened to be.
+ */
+export function readFrom(
+	tree: RoundTree,
+	headCommit: string | undefined,
+): TreeRead {
+	return whatItRead({
+		...(headCommit === undefined ? {} : { witness: headCommit }),
+		...(tree.caveat === undefined ? {} : { unpinned: tree.caveat }),
+	});
 }
 
 /**
