@@ -89,7 +89,16 @@ describe("runSubagent", () => {
 	it("emits isolation flags when job.isolated is true", async () => {
 		// Isolated runs need pi to forget everything the
 		// user's local setup loads ambiently: skills,
-		// AGENTS.md context, auto-discovered extensions.
+		// AGENTS.md context, auto-discovered extensions,
+		// and the project-local files project trust gates.
+		//
+		// The fourth was missing and was measured, not
+		// argued: a `.pi/SYSTEM.md` in the working
+		// directory replaces the system prompt outright,
+		// and non-interactive runs ignore it only until an
+		// operator trusts the project. With the first three
+		// flags and a trusting operator, a child asked what
+		// two plus two is answered KUMQUAT.
 		const fake = fakeRunPi();
 		await runSubagent({
 			spec: { id: "iso" },
@@ -100,6 +109,7 @@ describe("runSubagent", () => {
 		expect(args).toContain("--no-skills");
 		expect(args).toContain("--no-context-files");
 		expect(args).toContain("--no-extensions");
+		expect(args).toContain("--no-approve");
 	});
 
 	it("omits isolation flags by default", async () => {
@@ -115,6 +125,7 @@ describe("runSubagent", () => {
 		expect(args).not.toContain("--no-skills");
 		expect(args).not.toContain("--no-context-files");
 		expect(args).not.toContain("--no-extensions");
+		expect(args).not.toContain("--no-approve");
 	});
 
 	it("injects verify-pack paths and demands ok=true", async () => {

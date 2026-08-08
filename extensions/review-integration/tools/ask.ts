@@ -105,6 +105,7 @@ import {
 import {
 	agentsInRepo,
 	chartersOnDisk,
+	guidanceFor,
 	lensesFor,
 	touchedBy,
 } from "../lenses.js";
@@ -623,11 +624,6 @@ async function askCouncil(
 	const roster = await rosterOrThrow(params, "reviewers");
 	await claimIdentities(change, "reviewer", roster.reviewers);
 	const { proposal, diff } = await material(bound);
-	const prompt = councilPrompt({
-		proposal,
-		diff,
-		...(params.intent === undefined ? {} : { intent: params.intent }),
-	});
 	const tree = await treeForRound(
 		bound.repo,
 		proposal.headCommit,
@@ -639,6 +635,12 @@ async function askCouncil(
 	// reviewer running without the lens it was asked for files generic
 	// findings under a specialist's name.
 	const charters = await chartersFor(roster, tree, "reviewers", diff);
+	const prompt = councilPrompt({
+		proposal,
+		diff,
+		...(params.intent === undefined ? {} : { intent: params.intent }),
+		...(await guidanceFor(tree, diff)),
+	});
 
 	const { run, warnings } = await runCouncil(
 		{
@@ -686,11 +688,6 @@ async function startRound(
 	const roster = await rosterOrThrow(params, "reviewers");
 	await claimIdentities(change, "reviewer", roster.reviewers);
 	const { proposal, diff } = await material(bound);
-	const prompt = councilPrompt({
-		proposal,
-		diff,
-		...(params.intent === undefined ? {} : { intent: params.intent }),
-	});
 	const tree = await treeForRound(
 		bound.repo,
 		proposal.headCommit,
@@ -698,6 +695,12 @@ async function startRound(
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
 	const charters = await chartersFor(roster, tree, "reviewers", diff);
+	const prompt = councilPrompt({
+		proposal,
+		diff,
+		...(params.intent === undefined ? {} : { intent: params.intent }),
+		...(await guidanceFor(tree, diff)),
+	});
 	const budget = await budgetForRound();
 	const starter = reviewerStarter(getParentPiInstall(), runArtifactDir());
 	const store = createRunStore(runDir());
@@ -737,6 +740,7 @@ async function startRound(
 					},
 					prompt: asked,
 					cwd: tree.path,
+					isolated: ISOLATED,
 					extraSkills: [contract],
 					// Not optional here the way it is on the waiting path.
 					// A detached reviewer's answer is only ever read off
@@ -816,13 +820,6 @@ async function askJudge(
 	await claimIdentities(change, "judge", [roster.judge]);
 	const raised = await findingsOf(change, council);
 	const { proposal, diff } = await material(bound);
-	const prompt = judgePrompt({
-		proposal,
-		diff,
-		findings: renderFindings(raised),
-		...(params.intent === undefined ? {} : { intent: params.intent }),
-	});
-
 	const tree = await treeForRound(
 		bound.repo,
 		proposal.headCommit,
@@ -830,6 +827,13 @@ async function askJudge(
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
 	const charters = await chartersFor(roster, tree, "judge", diff);
+	const prompt = judgePrompt({
+		proposal,
+		diff,
+		findings: renderFindings(raised),
+		...(params.intent === undefined ? {} : { intent: params.intent }),
+		...(await guidanceFor(tree, diff)),
+	});
 	const { run, warnings } = await runJudge(
 		{
 			judge: roster.judge,
@@ -886,6 +890,7 @@ async function askCritique(
 				diff,
 				findings: renderFindings(raised),
 				...(params.intent === undefined ? {} : { intent: params.intent }),
+				...(await guidanceFor(tree, diff)),
 			}),
 			seq: 1,
 			findingIds: raised.map((finding) => finding.id),
@@ -1010,6 +1015,17 @@ async function askStack(
 					diff: one.diff,
 				})),
 				...(params.intent === undefined ? {} : { intent: params.intent }),
+				// The same honest answer the charters get twenty lines up: a
+				// stack whose nodes are not all proposed knows less about what
+				// it touches than the tree it reads contains.
+				...(await guidanceFor(
+					tree,
+					stack.nodes.length === proposed.length
+						? { files: changes.flatMap((one) => one.diff.files) }
+						: {
+								unknown: "not every branch in this stack is proposed",
+							},
+				)),
 			}),
 			seq: 1,
 			stackRefs,
@@ -1111,6 +1127,7 @@ async function askAudit(
 				diff,
 				threads: renderThreads(open, indexOf),
 				...(params.intent === undefined ? {} : { intent: params.intent }),
+				...(await guidanceFor(tree, diff)),
 			}),
 			seq: 1,
 			threadIndices,
@@ -1266,6 +1283,10 @@ async function retryOne(
 	);
 	const read = readFrom(tree, proposal.headCommit);
 	const intent = params.intent === undefined ? {} : { intent: params.intent };
+	// Asked again the way it was asked the first time, conventions
+	// included, since a retry that reads a different prompt is not a
+	// retry of the round it substitutes into.
+	const guidance = await guidanceFor(tree, diff);
 
 	// Retried in the role the round asked under, not always as a
 	// reviewer. Re-running a judge through the council path would
@@ -1284,6 +1305,7 @@ async function retryOne(
 								await councilFindingsBehind(change, store),
 							),
 							...intent,
+							...guidance,
 						}),
 						seq: 1,
 						...read,
@@ -1293,7 +1315,7 @@ async function retryOne(
 			: await runCouncil(
 					{
 						roster: { reviewers: [participant] } satisfies Roster,
-						prompt: councilPrompt({ proposal, diff, ...intent }),
+						prompt: councilPrompt({ proposal, diff, ...intent, ...guidance }),
 						seq: 1,
 						...read,
 					},
@@ -1719,6 +1741,30 @@ function chartersFor(
 	);
 }
 
+/**
+ * Whether a reviewer inherits the machine it runs on.
+ *
+ * It did, and three things came in that way. The operator's own
+ * skills, so the same change reviewed on two machines got two
+ * different councils and neither said why. Every extension pi could
+ * discover, loaded into a child nobody meant to give them to. And the
+ * context files in the working directory, which for a reviewer is a
+ * tree pinned to the commit under review: the change's own AGENTS.md,
+ * read as standing instruction, written by the author of the change.
+ *
+ * The last one is the same hole the repo-lens rule closed, sitting
+ * open beside it and needing no opt-in at all. Measured with a file
+ * that told a child to answer every question with one word, which it
+ * then did.
+ *
+ * A round now says what its reviewers get: the output contract, the
+ * journal, the charter, and the repo's conventions as quoted material
+ * in the prompt. A constant rather than a literal at two call sites,
+ * because a reviewer that waits and a reviewer that is left running
+ * must not differ in what they inherit.
+ */
+const ISOLATED = true;
+
 /** The change and its diff, which every round needs. */
 async function material(bound: Awaited<ReturnType<typeof boundFor>>) {
 	const [proposal, diff] = await Promise.all([
@@ -1791,6 +1837,7 @@ function deps(
 				},
 				prompt,
 				cwd,
+				isolated: ISOLATED,
 				// The round's output contract, which is what the prompt means
 				// by "your output contract skill". Attaching it here rather
 				// than restating it in the prompt keeps one copy: a contract

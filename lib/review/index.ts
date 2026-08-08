@@ -111,6 +111,7 @@ export type {
 	CritiquePromptInput,
 	JudgePromptInput,
 	PromptInput,
+	RepoGuidance,
 	StackChangePrompt,
 	StackPromptInput,
 } from "./ask/prompt.js";

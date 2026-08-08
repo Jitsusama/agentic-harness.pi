@@ -1510,14 +1510,37 @@ function composeArgs(input: ComposeArgsInput): string[] {
 		args.push("--system-prompt", input.systemPrompt);
 	}
 	if (input.isolated) {
-		// Pi's three flags together strip every form of
-		// ambient inheritance: package- and user-scoped
-		// skills, AGENTS.md context files and auto-
-		// discovered extensions. Callers that pass
+		// Pi's flags together strip every form of ambient
+		// inheritance: package- and user-scoped skills,
+		// AGENTS.md context files, auto-discovered
+		// extensions, and the project-local resources that
+		// project trust gates. Callers that pass
 		// extraExtensions or extraSkills get those layered
 		// back on top by the flags below; nothing else
 		// loads.
-		args.push("--no-skills", "--no-context-files", "--no-extensions");
+		//
+		// The fourth flag is the one that was missing, and
+		// it was measured rather than reasoned about. A
+		// `.pi/SYSTEM.md` in the working directory replaces
+		// the system prompt outright, and project trust is
+		// what decides whether it is read. Non-interactive
+		// runs ignore it by default, so the first three
+		// flags looked sufficient; on a machine whose
+		// operator has trusted the project, or set
+		// defaultProjectTrust to always, the same three
+		// flags let a file in the tree turn a reviewer into
+		// a fruit naming service. Asked what two plus two
+		// is, it answered KUMQUAT.
+		//
+		// Isolation that depends on the reader's settings
+		// is not isolation, and this is a subagent reading
+		// a tree somebody else wrote.
+		args.push(
+			"--no-skills",
+			"--no-context-files",
+			"--no-extensions",
+			"--no-approve",
+		);
 	}
 	if (input.extraExtensions) {
 		for (const path of input.extraExtensions) {

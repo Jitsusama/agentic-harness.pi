@@ -23,6 +23,7 @@ import type {
 	AgentFile,
 	DiffModel,
 	PersonaBinding,
+	RepoGuidance,
 	Roster,
 } from "../../lib/review/index.js";
 import {
@@ -55,6 +56,141 @@ import type { ReadableTree } from "./work.js";
  * else on disk holds any, so nothing else is looked in.
  */
 const AGENT_DIRS = [join(".claude", "agents"), "agents"];
+
+/**
+ * Where a repo writes down what it asks of its contributors.
+ *
+ * The three names pi's own documentation gives, in the order it gives
+ * them, since the point is to hand over deliberately what pi was
+ * picking up ambiently. An override wins outright, which is what the
+ * name means. A fourth was invented here for symmetry and put ahead of
+ * AGENTS.md, where it would have shadowed the real thing if any repo
+ * had happened to have one.
+ */
+const GUIDANCE_FILES = ["AGENTS.override.md", "AGENTS.md", "CLAUDE.md"];
+
+/**
+ * How much of a repo's conventions to carry into a prompt.
+ *
+ * Measured against the file this repo ships, which is the one case to
+ * hand: 32,000 cut it, and cut the tail, which is where a file like
+ * this says what not to do. Raised past it with room, and the cut says
+ * where the rest is rather than pretending there is no rest.
+ *
+ * Characters, and the number is what it says it is: an earlier comment
+ * here said thirty thousand while the constant kept three times that,
+ * which is the kind of disagreement nobody notices until it matters.
+ */
+const MOST_GUIDANCE = 96_000;
+
+/** Whether a path from a diff names this file at the repo root. */
+function sameRootFile(path: string, name: string): boolean {
+	const plain = path
+		.replace(/\\/g, "/")
+		.replace(/^\.\//, "")
+		.replace(/^[ab]\//, "");
+	return plain.toLowerCase() === name.toLowerCase();
+}
+
+/**
+ * What the repo under review asks of its contributors.
+ *
+ * Read from the tree the round reads, and handed to the prompt as
+ * quoted material. Before this it arrived by itself, because a pi
+ * child reads the context files in its working directory and a
+ * reviewer's working directory is a tree pinned to the commit under
+ * review. That put the change author's prose above the round's own
+ * instructions, unasked and unrecorded.
+ */
+export async function guidanceInRepo(
+	tree: ReadableTree,
+	touched: Touched,
+): Promise<RepoGuidance | undefined> {
+	if (tree.caveat !== undefined) {
+		// The tree is not the change's, so whatever sits at its root is
+		// somebody else's conventions, and the edited flag would be
+		// computed against a commit nobody read. Handing that over as "the
+		// repo's own text" is worse than handing over nothing: the caveat
+		// goes to the operator, and the reviewer never hears it.
+		return undefined;
+	}
+	const root = await realpath(tree.path).catch(() => resolve(tree.path));
+
+	for (const name of GUIDANCE_FILES) {
+		const at = join(tree.path, name);
+		let text: string;
+		let reads = name;
+		try {
+			// The same rule the agent files get, and for the same reason: a
+			// link is followed for its bytes, so without this a change could
+			// point AGENTS.md at any readable file on the machine and have it
+			// quoted into every reviewer's prompt. It was guarded one
+			// function along and not here.
+			const real = await realpath(at);
+			if (real !== resolve(at)) {
+				if (!real.startsWith(`${root}/`)) continue;
+				// And where it actually lands, so the question of whether the
+				// change wrote it is asked about the file the bytes came from.
+				// Asking it about the link's own name was the same mistake in
+				// its other half: guarded against a link out of the tree, and
+				// wide open to one inside it.
+				reads = real.slice(root.length + 1);
+			}
+			text = await readFile(at, "utf8");
+		} catch {
+			// Most repos have one of these and none has all three.
+			continue;
+		}
+		if (text.trim() === "") continue;
+		return {
+			path: name,
+			// Cut rather than refused, unlike a charter. A charter that
+			// arrives half-written is a lens nobody wrote; conventions are
+			// reference, and the first thirty thousand characters of them
+			// are worth more to a reviewer than none.
+			text:
+				text.length <= MOST_GUIDANCE
+					? text
+					: `${text.slice(0, MOST_GUIDANCE)}\n\n[cut here at ${MOST_GUIDANCE} of ${text.length} characters. The rest is in ${reads} at the root of your working directory, and the end of one of these files is usually where it says what not to do.]`,
+			// Not knowing counts as edited, since the whole reason to say so
+			// is that the change may have written what the reviewer is about
+			// to read, and "we could not tell" is not "it did not".
+			//
+			// The comparison is against this file and not against any file
+			// whose name ends the same way. A repo with an AGENTS.md in a
+			// subdirectory, which is most of them, marked the root one as
+			// edited whenever the change touched the other.
+			edited: !Array.isArray(touched)
+				? "unknown"
+				: touched.some(
+							(path) => sameRootFile(path, name) || sameRootFile(path, reads),
+						)
+					? "yes"
+					: "no",
+		};
+	}
+	return undefined;
+}
+
+/**
+ * What the repo says about itself, shaped for a prompt input.
+ *
+ * The join between the reader and the prompts, which lived in the tool
+ * file where nothing could execute it: both halves had tests and the
+ * thing that puts them together had none. Spread into a prompt input
+ * so a round with no conventions to show says nothing at all rather
+ * than carrying an empty section.
+ */
+export async function guidanceFor(
+	tree: ReadableTree,
+	diff: DiffModel | { unknown: string },
+): Promise<{ guidance?: RepoGuidance }> {
+	const guidance = await guidanceInRepo(
+		tree,
+		"unknown" in diff ? diff : touchedBy(diff),
+	);
+	return guidance === undefined ? {} : { guidance };
+}
 
 /**
  * Every charter the operator wrote, by persona id.
