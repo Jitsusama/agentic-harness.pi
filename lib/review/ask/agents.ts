@@ -40,6 +40,14 @@ import { splitFrontmatter } from "./persona.js";
 export interface AgentFile {
 	/** Where it was found, relative to the repo, for reporting. */
 	path: string;
+	/**
+	 * Where the bytes actually came from, when that is somewhere else.
+	 *
+	 * A symlink inside the tree is followed for its content and was
+	 * checked against the diff by the link's own path, so a change could
+	 * edit the file the link points at and leave the link untouched.
+	 */
+	reads?: string;
 	text: string;
 }
 
@@ -76,6 +84,11 @@ export const NAMESPACE = "repo:";
  */
 const MOST_CHARTER = 64_000;
 
+/** What text costs where the limit actually is, in bytes. */
+function weight(text: string): number {
+	return new TextEncoder().encode(text).length;
+}
+
 /**
  * Whether a path from a diff and a path from a directory walk name the
  * same file.
@@ -97,7 +110,21 @@ function plain(path: string): string {
 		path.startsWith('"') && path.endsWith('"')
 			? unquote(path.slice(1, -1))
 			: path;
-	return unquoted.replace(/\\/g, "/").replace(/^\.\//, "").normalize("NFC");
+	return (
+		unquoted
+			.replace(/\\/g, "/")
+			.replace(/^\.\//, "")
+			// The prefixes git writes on the two sides of a diff. A quoted
+			// path keeps them, and quoting is the default spelling for any
+			// path with a non-ascii byte in it, so leaving them on failed
+			// open exactly where the quoting was meant to be handled.
+			.replace(/^[ab]\//, "")
+			.normalize("NFC")
+			// Folded, because the filesystems this runs on mostly are, and a
+			// check treating two names one directory cannot tell apart as
+			// different names fails open.
+			.toLowerCase()
+	);
 }
 
 /**
@@ -243,6 +270,17 @@ export function discoverAgents(
 			});
 			continue;
 		}
+		if (!/^[\w.-]+$/.test(name)) {
+			// A name is an id somebody types and a listing prints, so it is
+			// held to what an id may be. Unbounded, it is a line of the
+			// operator's listing that the repo gets to write, newline
+			// included.
+			skipped.push({
+				path: file.path,
+				why: "Its name is not a plain identifier, and a name is printed where somebody chooses a lens.",
+			});
+			continue;
+		}
 
 		const description = split.fields.description;
 		if (description === undefined || description === "") {
@@ -253,7 +291,19 @@ export function discoverAgents(
 			continue;
 		}
 
-		if (touched.some((path) => sameFile(path, file.path))) {
+		// Counted before anything can disqualify it. Skipping first let a
+		// change that edits one of two files claiming a name promote the
+		// other from contested to authoritative, handing the name to
+		// whichever file the change did not touch.
+		sourceOf.set(name, [...(sourceOf.get(name) ?? []), file.path]);
+
+		if (
+			touched.some(
+				(path) =>
+					sameFile(path, file.path) ||
+					(file.reads !== undefined && sameFile(path, file.reads)),
+			)
+		) {
 			skipped.push({
 				path: file.path,
 				why: `The change under review edits this file, so reading through "${name}" would let the author of the change write the reviewer's standing instruction.`,
@@ -262,10 +312,14 @@ export function discoverAgents(
 		}
 
 		const charter = split.body.trim();
-		if (charter.length > MOST_CHARTER) {
+		if (weight(charter) > MOST_CHARTER) {
+			// Bytes, because the limit being guarded is a limit on one argv
+			// entry and that is counted in bytes. UTF-16 units let a charter
+			// written in a language that does not fit a byte a character run
+			// well past the line this claims to hold.
 			skipped.push({
 				path: file.path,
-				why: `The charter for "${name}" is ${charter.length} characters, past the ${MOST_CHARTER} a lens may carry. A charter becomes an argument on the reviewer's process.`,
+				why: `The charter for "${name}" is ${weight(charter)} bytes, past the ${MOST_CHARTER} a lens may carry. A charter becomes an argument on the reviewer's process.`,
 			});
 			continue;
 		}
@@ -293,7 +347,6 @@ export function discoverAgents(
 			source: file.path,
 			...(notAdopted.length === 0 ? {} : { notAdopted }),
 		});
-		sourceOf.set(name, [...(sourceOf.get(name) ?? []), file.path]);
 	}
 
 	// A name two files answer to identifies neither. Dropping both is

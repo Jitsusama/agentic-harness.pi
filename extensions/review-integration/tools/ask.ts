@@ -102,7 +102,12 @@ import {
 	runArtifactDir,
 	runDir,
 } from "../engine.js";
-import { agentsInRepo, chartersOnDisk, lensesFor } from "../lenses.js";
+import {
+	agentsInRepo,
+	chartersOnDisk,
+	lensesFor,
+	touchedBy,
+} from "../lenses.js";
 import { type RoundWatch, watchRound } from "../progress.js";
 import { GLYPH } from "../render.js";
 import {
@@ -1712,14 +1717,6 @@ function chartersFor(
 		"unknown" in touched ? touched : touchedBy(touched),
 		tree,
 	);
-}
-
-/** Every path a change writes to, on either side of a rename. */
-export function touchedBy(diff: DiffModel): string[] {
-	return diff.files.flatMap((file) => [
-		...(file.newPath === undefined ? [] : [file.newPath]),
-		...(file.oldPath === undefined ? [] : [file.oldPath]),
-	]);
 }
 
 /** The change and its diff, which every round needs. */

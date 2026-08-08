@@ -21,6 +21,7 @@ import { basename, join, resolve } from "node:path";
 import type {
 	AgentDiscovery,
 	AgentFile,
+	DiffModel,
 	PersonaBinding,
 	Roster,
 } from "../../lib/review/index.js";
@@ -31,8 +32,9 @@ import {
 	parsePersona,
 } from "../../lib/review/index.js";
 
-/** How much repo-written text a refusal may repeat. */
+/** How much repo-written text a refusal may repeat, and how often. */
 const MOST_CHARACTERS = 200;
+const MOST_LINES = 20;
 
 /** Repo-written text, cut to a length a message can carry. */
 function clipped(text: string): string {
@@ -131,6 +133,13 @@ export async function agentsInRepo(
 				}
 				files.push({
 					path: join(dir, name),
+					// Where the bytes come from, when a link inside the tree
+					// means that is not where they appear to. Checking the diff
+					// against the link alone let a change edit the file behind
+					// it and leave the link untouched.
+					...(real === resolve(at)
+						? {}
+						: { reads: real.slice(root.length + 1) }),
 					text: await readFile(at, "utf8"),
 				});
 			} catch (error) {
@@ -160,12 +169,16 @@ function whatTheTreeSaid(inRepo: AgentDiscovery): string[] {
 			`The repo under review offers ${inRepo.agents.map((one) => `"${one.id}"`).join(", ")}.`,
 		);
 	}
-	for (const missed of inRepo.skipped) {
-		// Bounded, because this is the path a round actually reaches and
-		// the words after the colon can be the repo's. The listing was
-		// careful about that and the refusal was not, which is the wrong
-		// way round.
-		said.push(`${missed.path} was not read: ${clipped(missed.why)}`);
+	// Bounded in both directions. Each line is clipped because the words
+	// after the colon can be the repo's, and the count is capped because
+	// `agents` is a directory name plenty of repos use for source: one
+	// missing lens in a repo with a large one was a refusal measured in
+	// hundreds of kilobytes.
+	for (const missed of inRepo.skipped.slice(0, MOST_LINES)) {
+		said.push(`${clipped(missed.path)} was not read: ${clipped(missed.why)}`);
+	}
+	if (inRepo.skipped.length > MOST_LINES) {
+		said.push(`${inRepo.skipped.length - MOST_LINES} more were not read.`);
 	}
 	return said;
 }
@@ -196,6 +209,29 @@ function whatTheTreeSaid(inRepo: AgentDiscovery): string[] {
  */
 export type Touched = readonly string[] | { unknown: string };
 
+/**
+ * What a change writes to, on either side of a rename, or why that is
+ * not known.
+ *
+ * A diff carrying no paths at all is the second answer and not the
+ * first. Every real change writes to something, so an empty list means
+ * the provider did not say, and reading that as "touches nothing" is
+ * the most permissive answer available for the one rule that keeps the
+ * change under review out of the reviewer's prompt.
+ */
+export function touchedBy(diff: DiffModel): Touched {
+	const paths = diff.files.flatMap((file) => [
+		...(file.newPath === undefined ? [] : [file.newPath]),
+		...(file.oldPath === undefined ? [] : [file.oldPath]),
+	]);
+	return paths.length > 0
+		? paths
+		: {
+				unknown:
+					"The diff for this change names no paths, which is not the same as a change that writes to nothing.",
+			};
+}
+
 export async function lensesFor(
 	// Narrowed to who this round asks before it arrives. Binding the
 	// whole roster was harmless while a lens was a file in a directory
@@ -216,6 +252,18 @@ export async function lensesFor(
 	tree: ReadableTree,
 ): Promise<Map<string, string>> {
 	const charters = await chartersOnDisk(personaDir);
+	for (const id of charters.keys()) {
+		// The namespace is reserved rather than deconflicted. Checking only
+		// where the two collide left a persona of your own answering a
+		// repo request whenever the repo had no agent of that name, which
+		// is the substitution the prefix exists to prevent, running the
+		// other way.
+		if (id.startsWith(NAMESPACE)) {
+			throw new Error(
+				`A persona of your own is called "${id}", and "${NAMESPACE}" is reserved for lenses the repo under review defines. Rename it: while it exists, asking for a repo's lens can reach yours instead.`,
+			);
+		}
+	}
 
 	// Only when somebody asked for one. Every round was walking and
 	// parsing every markdown file in a repo's agent directories,
@@ -248,18 +296,7 @@ export async function lensesFor(
 	}
 
 	const inRepo = await agentsInRepo(tree.path, touched);
-	for (const agent of inRepo.agents) {
-		// A persona file may not claim the namespace, so the merge order
-		// cannot decide anything. Without this the guarantee above held by
-		// convention only: a file literally named `repo:architect.md` was
-		// shadowed here by whatever the repo shipped.
-		if (charters.has(agent.id)) {
-			throw new Error(
-				`A persona of your own is called "${agent.id}", which is the namespace repo lenses use. Rename it: while it exists, asking for your lens and asking for the repo's are the same request.`,
-			);
-		}
-		charters.set(agent.id, agent.charter);
-	}
+	for (const agent of inRepo.agents) charters.set(agent.id, agent.charter);
 
 	const bound = bindPersonas(roster, (id) => charters.get(id));
 	if ("refusal" in bound) {
