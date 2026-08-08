@@ -96,4 +96,18 @@ describe("review_ask", () => {
 		expect(offered()).toContain("council");
 		expect(handled()).toContain("judge");
 	});
+
+	it("lets every round kind be told who to ask", () => {
+		// A per-call override that reached the council and not the judge
+		// would be worse than none: the round runs, bills what it bills,
+		// and half of it ignored the instruction. The parameter is
+		// required rather than optional for the same reason, so the
+		// compiler names any call site that forgets.
+		const asks = source.match(/rosterOrThrow\(/g) ?? [];
+		const told = source.match(/rosterOrThrow\(params\)/g) ?? [];
+
+		expect(asks.length).toBeGreaterThan(6);
+		// One more ask than tellings: the declaration itself.
+		expect(told).toHaveLength(asks.length - 1);
+	});
 });

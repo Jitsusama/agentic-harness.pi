@@ -14,6 +14,90 @@
 
 import type { Participant } from "./identity.js";
 
+/** Settings a call may change for one round. */
+export interface ParticipantOverride {
+	model?: string;
+	thinkingLevel?: string;
+	tools?: readonly string[];
+}
+
+/**
+ * The levels pi's `--thinking` flag accepts.
+ *
+ * Spelled here because this is where a level arrives from outside. The
+ * runner's own type says the same thing to the compiler, which is no
+ * help at all against a string read out of a config file.
+ */
+const THINKING_LEVELS = [
+	"off",
+	"minimal",
+	"low",
+	"medium",
+	"high",
+	"xhigh",
+] as const;
+
+/**
+ * Apply per-call settings to a roster, or say why they cannot be.
+ *
+ * The roster is what somebody committed to a file; an override is what
+ * they want for this one round. Trying a reviewer on a different model
+ * used to mean editing the file, running, and editing it back, while
+ * the fan-out tool next door has taken these per call since it was
+ * written.
+ *
+ * Every override goes through the same parse the config does, so a
+ * level pi would reject and a model carrying a colon are refused
+ * identically wherever they were written down. A name nobody answers
+ * to is refused rather than ignored: silently doing nothing means the
+ * round runs, costs what it costs, and never applies the setting that
+ * was the reason for asking.
+ */
+export function overrideRoster(
+	roster: Roster,
+	overrides: Record<string, ParticipantOverride>,
+): RosterParse {
+	const everybody = [
+		...roster.reviewers,
+		...(roster.judge === undefined ? [] : [roster.judge]),
+	];
+	const named = new Set(everybody.map((one) => one.id));
+	const strangers = Object.keys(overrides).filter((id) => !named.has(id));
+	if (strangers.length > 0) {
+		return {
+			refusal:
+				`This roster has nobody called ${strangers.map((id) => `"${id}"`).join(", ")}. ` +
+				`It asks ${[...named].map((id) => `"${id}"`).join(", ")}.`,
+		};
+	}
+
+	const applied = new Map<string, Participant>();
+	for (const participant of everybody) {
+		const over = overrides[participant.id];
+		if (over === undefined) {
+			applied.set(participant.id, participant);
+			continue;
+		}
+		// Back through the config parse rather than merged by hand, so
+		// there is one place that decides what a participant may say and
+		// an override cannot become the lenient road in.
+		const parsed = parseParticipant(
+			{ ...participant, ...over },
+			`the override for "${participant.id}"`,
+		);
+		if ("refusal" in parsed) return parsed;
+		applied.set(participant.id, parsed.participant);
+	}
+
+	const judge = roster.judge;
+	return {
+		roster: {
+			reviewers: roster.reviewers.map((one) => applied.get(one.id) ?? one),
+			...(judge === undefined ? {} : { judge: applied.get(judge.id) ?? judge }),
+		},
+	};
+}
+
 /** Who to ask, and who consolidates what they say. */
 export interface Roster {
 	reviewers: Participant[];
@@ -69,6 +153,19 @@ export function parseParticipant(
 		// asked for.
 		return {
 			refusal: `${path}.model is "${model.text}", and a colon there reads as a thinking-level separator rather than part of the model name. Write the model with a slash, and set thinkingLevel separately.`,
+		};
+	}
+
+	if (
+		thinkingLevel.text !== undefined &&
+		!THINKING_LEVELS.some((level) => level === thinkingLevel.text)
+	) {
+		// Read as any non-blank string until now, so a typo went to pi's
+		// --thinking flag and the reviewer ran at whatever pi makes of a
+		// level it does not know. The one place this can be caught is
+		// here, before anybody is asked and before anybody is billed.
+		return {
+			refusal: `${path}.thinkingLevel is "${thinkingLevel.text}", which pi does not accept. Use one of ${THINKING_LEVELS.join(", ")}.`,
 		};
 	}
 

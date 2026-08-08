@@ -433,6 +433,34 @@ round.** It does not quietly run a generic reviewer: that reviewer
 would still file its findings under the specialist's name, and whoever
 read them afterwards would weigh them as a specialist's.
 
+## Who a Round Asks, and Changing It for One Round
+
+`review_ask roster` says who this repo's roster asks, what each of
+them is set to, and which personas exist on disk that nothing
+currently asks. Reach for it before overriding anything: the ids it
+prints are the only ids an override may name.
+
+`who` changes any of that for one round, without touching the file:
+
+```jsonc
+{ "action": "council", "who": { "hawk": { "thinkingLevel": "xhigh" } } }
+```
+
+It takes `model`, `thinkingLevel` and `tools`, by participant id, and
+every round kind honours it. Three things it will not do:
+
+- **A name the roster does not answer to is refused**, not ignored. A
+  round that quietly skipped the setting still costs what a round
+  costs, and the setting was the reason for asking.
+- **A thinking level pi does not accept is refused**, wherever it was
+  written. It used to be any non-blank string, so a typo reached the
+  CLI and the reviewer ran at whatever pi makes of a level it has
+  never heard of.
+- **An id that has already raised findings is held to what it meant.**
+  Overriding one is refused exactly as editing the file would be,
+  because findings already say who raised them. Use another id, or
+  release that one.
+
 ## Reviewing a Stack as a Stack
 
 `review_ask stack` puts every change in the stack to every reviewer
