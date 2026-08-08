@@ -232,6 +232,78 @@ describe("the panel names every participant", () => {
 	});
 });
 
+describe("a reviewer somebody stopped", () => {
+	// The panel had four states, so there was no way to draw this one.
+	// A cancelled reviewer kept the mark and the colour of one that had
+	// answered, which is the panel saying the round went well at the
+	// moment somebody was telling it otherwise.
+	it("is drawn as cancelled rather than as an answer", () => {
+		const { progress, entries } = trackAskProgress(() => 60_000);
+		progress.start(PARTICIPANTS);
+		progress.started("test-skeptic");
+		progress.cancelled("test-skeptic");
+
+		const drawn = panelLines("council", entries(), theme, -1, 80, 90_000);
+		const row = drawn.find((line) => line.includes("test-skeptic"));
+
+		expect(row).toContain("cancelled");
+		expect(row).not.toContain("answered");
+	});
+
+	it("stays cancelled when the runner reports it home afterwards", () => {
+		// The race that makes this worth a rule. Killing a subprocess is
+		// not instant, so the runner can hand back an answer after the
+		// kill has reached the panel. Whoever stopped it is the authority
+		// on why it stopped.
+		const { progress, entries } = trackAskProgress(() => 60_000);
+		progress.start(PARTICIPANTS);
+		progress.started("test-skeptic");
+		progress.cancelled("test-skeptic");
+		progress.answered("test-skeptic");
+
+		expect(
+			entries().find((row) => row.participantId === "test-skeptic"),
+		).toMatchObject({ state: "cancelled" });
+	});
+
+	it("stays cancelled when the runner reports it failed afterwards", () => {
+		// The likelier half of the same race, and the half the first cut
+		// of this rule missed: a killed process exits non-zero, so what
+		// comes back after a kill is usually a failure. Guarding only the
+		// answer left the panel blaming the round for something a person
+		// did on purpose.
+		const { progress, entries } = trackAskProgress(() => 60_000);
+		progress.start(PARTICIPANTS);
+		progress.started("test-skeptic");
+		progress.cancelled("test-skeptic");
+		progress.failed("test-skeptic", "exited 143");
+
+		expect(
+			entries().find((row) => row.participantId === "test-skeptic"),
+		).toMatchObject({ state: "cancelled" });
+	});
+
+	it("is marked cancelled by the same call the panel's key makes", () => {
+		// The wiring, not the piece. Everything above would pass with the
+		// watch never telling the row anything, which is the state this
+		// panel was already in.
+		const watch = watchRound("council", null);
+		watch.progress.start(PARTICIPANTS);
+		watch.progress.started("test-skeptic");
+
+		const notice = watch.cancelOne("test-skeptic");
+
+		expect(notice).toBe("cancelled test-skeptic");
+		expect(watch.signalFor("test-skeptic").aborted).toBe(true);
+		expect(watch.entries()).toContainEqual(
+			expect.objectContaining({
+				participantId: "test-skeptic",
+				state: "cancelled",
+			}),
+		);
+	});
+});
+
 describe("cancelling a round", () => {
 	it("gives each participant a signal derived from the round's", () => {
 		const watch = watchRound("council", null);
@@ -260,15 +332,51 @@ describe("cancelling a round", () => {
 
 	it("keeps the others running when one is cancelled", () => {
 		const watch = watchRound("council", null);
+		watch.progress.start(PARTICIPANTS);
 		const doomed = watch.signalFor("test-skeptic");
 		const spared = watch.signalFor("architecture-hawk");
 
-		// What the panel's `r` does, without a terminal to press it in.
-		const same = watch.signalFor("test-skeptic");
-		expect(same).toBe(doomed);
+		// This used to stop nobody, so it could not have caught a cancel
+		// that took the round down with it.
+		watch.cancelOne("test-skeptic");
 
+		expect(doomed.aborted).toBe(true);
 		expect(spared.aborted).toBe(false);
 		expect(watch.signal.aborted).toBe(false);
+	});
+
+	it("marks every unsettled row when the whole round is stopped", () => {
+		// Escape is the commoner of the two ways out and it marked nothing,
+		// so the state added for exactly this was reachable one participant
+		// at a time and an abandoned round still painted itself answered.
+		const watch = watchRound("council", null);
+		watch.progress.start(PARTICIPANTS);
+		watch.progress.started("test-skeptic");
+		watch.progress.answered("architecture-hawk");
+
+		watch.cancelAll();
+
+		const byId = new Map(
+			watch.entries().map((row) => [row.participantId, row.state]),
+		);
+		expect(byId.get("test-skeptic")).toBe("cancelled");
+		expect(byId.get("correctness-and-tests")).toBe("cancelled");
+		// One that already answered keeps its answer: stopping a round does
+		// not unmake the work that came back before it.
+		expect(byId.get("architecture-hawk")).toBe("answered");
+	});
+
+	it("refuses to cancel a participant that already settled", () => {
+		const watch = watchRound("council", null);
+		watch.progress.start(PARTICIPANTS);
+		watch.progress.answered("test-skeptic");
+
+		const notice = watch.cancelOne("test-skeptic");
+
+		expect(notice).toBe("test-skeptic already answered");
+		expect(
+			watch.entries().find((row) => row.participantId === "test-skeptic"),
+		).toMatchObject({ state: "answered" });
 	});
 
 	it("hands the same signal back for the same participant", () => {

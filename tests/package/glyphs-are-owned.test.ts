@@ -32,15 +32,30 @@ interface Use {
  */
 const SURFACES = [
 	"extensions/review-integration/render.ts",
-	"extensions/review-integration/progress.ts",
+	// Where the marks for anything spawned live, in neither of the two
+	// surfaces that draw them. Review's round panel and the fleet's panel
+	// both used to spell their own, which is how one of them ended up
+	// drawing subagents in quest's diamonds without anything noticing:
+	// this list is what notices, and that file was never in it.
+	"lib/ui/agent-glyphs.ts",
 	"extensions/work-integration/render.ts",
 	"extensions/quest-workflow/render.ts",
 	"extensions/tdd-workflow/glyphs.ts",
 ];
 
-/** Which surface a file belongs to, for saying who is arguing with whom. */
+/**
+ * Which surface a file belongs to, for saying who is arguing with whom.
+ *
+ * An extension is its directory, since a surface's marks are spread
+ * across its files. A library file is itself: `lib/ui` holds several
+ * unrelated glyph tables, so reading the directory would put the
+ * spawned-work family in charge of every mark the shared UI ever
+ * declares.
+ */
 function domainOf(path: string): string {
-	return path.split("/")[1] ?? path;
+	const parts = path.split("/");
+	if (parts[0] === "lib") return parts.at(-1)?.replace(/\.ts$/, "") ?? path;
+	return parts[1] ?? path;
 }
 
 /**
@@ -170,6 +185,12 @@ describe("glyph ownership across the package", () => {
 			// The circle-fill progression, a phase getting fuller, ending on a
 			// centred circle for the refactor that follows green.
 			"tdd-workflow": /[\u25c9\u25cb-\u25d5\u25cc]/,
+			// Anything spawned, wherever it was spawned from. Marks rather
+			// than a shape family, because every geometric family is taken
+			// and the marks a terminal can be relied on to draw are few: the
+			// three monospace fonts macOS ships were read directly, and the
+			// hexagons this first used are in none of them.
+			"agent-glyphs": /[\u25e6\u2192\u2713\u2212\u2715]/,
 		};
 
 		const strays: string[] = [];

@@ -6,8 +6,11 @@
  * prompt-area panel on each lifecycle event.
  *
  * - The status line shows a one-glance summary
- *   (`✓2/3 pending=1`) so the user always knows whether
+ *   (`2/3 done pending=1`) so the user always knows whether
  *   anyone is still working.
+ * - Every state mark comes from the shared spawned-work set,
+ *   which is also what a review round draws itself with. They
+ *   are the same event seen from two tools.
  * - The focused panel replaces the prompt editor while
  *   the tool runs, lists each subagent and lets the user
  *   cancel the selected subagent or the whole fleet
@@ -23,6 +26,7 @@ import {
 	type TUI,
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
+import { AGENT_GLYPH } from "../../lib/ui/agent-glyphs.js";
 import {
 	type PipelineStage,
 	renderPipelineProgressLines,
@@ -160,7 +164,12 @@ export function renderFleetWidgetLines(
 	const lines = renderPipelineProgressLines(stages, theme, { vertical: true });
 	for (const entry of entries) {
 		if (entry.state === "failed" && entry.error.length > 0) {
-			lines.push(theme.fg("error", `  ✕ ${entry.spec.id}: ${entry.error}`));
+			lines.push(
+				theme.fg(
+					"error",
+					`  ${AGENT_GLYPH.failed} ${entry.spec.id}: ${entry.error}`,
+				),
+			);
 		}
 	}
 	return lines;
@@ -374,18 +383,27 @@ export class FleetProgressPanel {
 	}
 }
 
+/**
+ * One row's mark and word, coloured by what it means.
+ *
+ * The marks are the shared set's, not this file's. They used to be
+ * spelled here, and two of them were quest's: a pending subagent drawn
+ * as a sidequest and a running one as a subquest, which is the exact
+ * collision the ownership gate exists to catch and which it never saw,
+ * because this file was not in its list.
+ */
 function entryStatus(entry: FleetProgressEntry, theme: Theme): string {
 	switch (entry.state) {
 		case "pending":
-			return theme.fg("muted", "◇ pending");
+			return theme.fg("muted", `${AGENT_GLYPH.pending} pending`);
 		case "running":
-			return theme.fg("accent", "◈ running");
+			return theme.fg("accent", `${AGENT_GLYPH.running} running`);
 		case "complete":
-			return theme.fg("success", "✓ complete");
+			return theme.fg("success", `${AGENT_GLYPH.done} complete`);
 		case "cancelled":
-			return theme.fg("dim", "· cancelled");
+			return theme.fg("dim", `${AGENT_GLYPH.cancelled} cancelled`);
 		case "failed":
-			return theme.fg("error", "✕ failed");
+			return theme.fg("error", `${AGENT_GLYPH.failed} failed`);
 	}
 }
 

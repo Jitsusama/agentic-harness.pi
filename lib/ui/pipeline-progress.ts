@@ -20,6 +20,7 @@
  */
 
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
+import { AGENT_GLYPH } from "./agent-glyphs.js";
 
 /** Possible state of a single stage. */
 export type StageState =
@@ -49,13 +50,24 @@ export interface PipelineProgressOptions {
 	showSubtext?: boolean;
 }
 
-/** Glyph and colour for each state. */
+/**
+ * Glyph and colour for each state, taken from the spawned-work set.
+ *
+ * This is where the marks a fleet actually draws come from, and it
+ * spelled its own until now: a pending stage as a hollow diamond and a
+ * running one as a filled one, which are quest's sidequest and
+ * subquest. The panel that called this was fixed first and the
+ * diamonds stayed on screen, because they were never in the panel.
+ *
+ * A skipped stage takes the cancelled mark. Both are the same fact,
+ * that this one did not happen and nobody is waiting for it.
+ */
 const STATE_STYLE: Record<StageState, { glyph: string; color: ThemeColor }> = {
-	pending: { glyph: "◇", color: "muted" },
-	running: { glyph: "◈", color: "accent" },
-	complete: { glyph: "✓", color: "success" },
-	skipped: { glyph: "·", color: "dim" },
-	failed: { glyph: "✕", color: "error" },
+	pending: { glyph: AGENT_GLYPH.pending, color: "muted" },
+	running: { glyph: AGENT_GLYPH.running, color: "accent" },
+	complete: { glyph: AGENT_GLYPH.done, color: "success" },
+	skipped: { glyph: AGENT_GLYPH.cancelled, color: "dim" },
+	failed: { glyph: AGENT_GLYPH.failed, color: "error" },
 };
 
 /**

@@ -151,6 +151,10 @@ function recorder(): { progress: AskProgress; said: string[] } {
 				said.push(`failed:${id}:${reason}`);
 				progress.failed(id, reason);
 			},
+			cancelled(id) {
+				said.push(`cancelled:${id}`);
+				progress.cancelled(id);
+			},
 			recorded(id, findings) {
 				said.push(`recorded:${id}:${findings}`);
 				progress.recorded(id, findings);

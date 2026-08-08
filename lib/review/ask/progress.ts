@@ -15,8 +15,20 @@
 
 import type { Participant } from "./identity.js";
 
-/** Where one participant has got to. */
-export type AskProgressState = "pending" | "running" | "answered" | "failed";
+/**
+ * Where one participant has got to.
+ *
+ * Five, because a reviewer somebody stopped is not a reviewer that
+ * answered. With four states a cancelled one kept the mark and the
+ * colour of success, so the panel said the round had gone well at the
+ * exact moment somebody was telling it otherwise.
+ */
+export type AskProgressState =
+	| "pending"
+	| "running"
+	| "answered"
+	| "cancelled"
+	| "failed";
 
 /** One participant's row, as a reporter would draw it. */
 export interface AskProgressEntry {
@@ -68,6 +80,15 @@ export interface AskProgress {
 	answered(participantId: string): void;
 	/** It failed, and why. */
 	failed(participantId: string, reason: string): void;
+	/**
+	 * Somebody stopped it.
+	 *
+	 * Separate from failing, because it is the one settled state that is
+	 * not news about the change. It outranks a later answer: the runner
+	 * can report a reviewer home after the kill reached the panel, and
+	 * repainting that row green loses the only thing the watcher knew.
+	 */
+	cancelled(participantId: string): void;
 	/** Its findings have landed and been numbered. */
 	recorded(participantId: string, findings: number): void;
 	/** The round is over. */
@@ -113,6 +134,7 @@ export const noAskProgress: AskProgress = {
 	activity() {},
 	answered() {},
 	failed() {},
+	cancelled() {},
 	recorded() {},
 	finish() {},
 };
@@ -137,6 +159,19 @@ export function trackAskProgress(
 	// event, and insertion order is the roster order a reporter draws
 	// in, which Map preserves and an object does not promise.
 	const rows = new Map<string, AskProgressEntry>();
+
+	/**
+	 * Whether somebody already stopped this one.
+	 *
+	 * Cancelling outranks whatever the runner says next, in both
+	 * directions. Killing a subprocess is not instant, so a reviewer can
+	 * report home after the kill has reached the panel, and it is likelier
+	 * to report a failure than an answer: a killed process exits non-zero.
+	 * Guarding only the answer left the likelier of the two paths
+	 * repainting the row red, so the panel blamed the round for something
+	 * a person did on purpose.
+	 */
+	const stopped = (id: string): boolean => rows.get(id)?.state === "cancelled";
 
 	/** Change one row, if we have heard of it. */
 	const amend = (id: string, change: Partial<AskProgressEntry>): void => {
@@ -169,9 +204,16 @@ export function trackAskProgress(
 			answered(id) {
 				// Clearing the activity is the point: a settled row still
 				// reading "reading app.ts" reads as though it still is.
+				if (stopped(id)) return;
 				amend(id, { state: "answered", activity: "", settledAtMs: now() });
 			},
+			cancelled(id) {
+				amend(id, { state: "cancelled", activity: "", settledAtMs: now() });
+			},
 			failed(id, reason) {
+				// The likelier of the two late reports after a kill, since a
+				// killed process exits non-zero.
+				if (stopped(id)) return;
 				amend(id, {
 					state: "failed",
 					activity: "",

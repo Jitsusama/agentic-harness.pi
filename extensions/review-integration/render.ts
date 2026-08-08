@@ -87,9 +87,12 @@ export const GLYPH = {
 	// phase's, and borrowing it made landing and degrading look like two
 	// steps of one process rather than two different outcomes.
 	lands: "\u2714",
-	// Accepted but not landed. The round panel already draws an open triangle
-	// for a participant not finished, and a queued change is the same fact
-	// about a different subject, so it is the same mark rather than a new one.
+	// Accepted but not landed, and review's own, which it was not always: this
+	// used to be justified by the round panel drawing the same triangle for a
+	// participant not finished. The panel now draws from the shared set for
+	// anything spawned, so a queued change and a pending reviewer are no longer
+	// the same mark, and should not be. One is a change waiting on a queue, the
+	// other a model that has not been sent away yet.
 	queued: "\u25b7",
 	degrades: "\u2193",
 	refused: "\u2298",
