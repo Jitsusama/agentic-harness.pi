@@ -167,7 +167,7 @@ export function registerAskTool(pi: ExtensionAPI): void {
 			"The roster comes from config, not from the call. A refusal names the path in the config file that is wrong.",
 			"A council is the discovery pass and a judge consolidates it, so run a council first; a judge with no council to read is refused rather than asked to invent one.",
 			"An id that has raised findings is held to the model, thinking level, tools and persona it meant. Reconfiguring one is refused, and the refusal names both ways out: another id, or release this one and accept that its findings no longer identify who raised them.",
-			"A round reads a snapshot pinned to the commit under review. When it cannot, the answer carries a caveat saying which tree was read instead: pass that on, because a round against the wrong tree still returns plausible findings.",
+			"A round reads a snapshot pinned to the commit under review. When it cannot but the tree is still a checkout of the right repo, the answer carries a caveat naming what was read instead: pass that on, because a round against the wrong commit still returns plausible findings. When it would have to read a different repository it is refused outright, since those findings are plausible too and about nothing.",
 			"Reading findings is review_see findings and deciding them is review_draft decide. This tool only produces them.",
 		],
 		parameters: Type.Object({

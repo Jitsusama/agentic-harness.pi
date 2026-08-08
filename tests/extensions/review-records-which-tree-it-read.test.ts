@@ -71,11 +71,46 @@ describe("what a round records about the tree it read", () => {
 			"/the/callers/checkout",
 		);
 
-		expect(tree).not.toHaveProperty("refusal");
-		expect("path" in tree && tree.path).toBe("/the/callers/checkout");
+		// Narrowed rather than asserted around, so a refusal here fails
+		// as a refusal rather than as `false` not being a path.
+		if ("refusal" in tree) throw new Error(`refused: ${tree.refusal}`);
+		expect(tree.path).toBe("/the/callers/checkout");
 		expect(readFrom(tree, "d7205e3c")).toEqual({
 			witness: "d7205e3c",
 			unpinned: expect.stringContaining("/the/callers/checkout"),
+		});
+	});
+
+	it("reads the checkout it knows about, not the one it is sitting in", async () => {
+		// When a checkout of the right repo is known, that is where a
+		// degraded round belongs. It is the right repo by construction,
+		// and the caller's own directory is only ever right by luck.
+		const tree = await treeForRound(
+			{ key: "github:Jitsusama/agentic-harness.pi", localPath: "/the/repo" },
+			"d7205e3c",
+			"/somewhere/else/entirely",
+		);
+
+		if ("refusal" in tree) throw new Error(`refused: ${tree.refusal}`);
+		expect(tree.path).toBe("/the/repo");
+	});
+
+	it("refuses a repo known only by a remote it cannot cut", async () => {
+		// The shape the first attempt let straight through. Knowing a
+		// remote says where the repo is on the internet, which is no
+		// evidence at all about the directory the caller is sitting in,
+		// and that directory was the thing about to be reviewed.
+		const tree = await treeForRound(
+			{
+				key: "github:elsewhere/other",
+				remoteUrl: "https://github.com/elsewhere/other.git",
+			},
+			"d7205e3c",
+			"/the/callers/checkout",
+		);
+
+		expect(tree).toEqual({
+			refusal: expect.stringContaining("not a checkout of"),
 		});
 	});
 
@@ -176,7 +211,11 @@ describe("what a round records about the tree it read", () => {
 		const refused =
 			source.split('if ("refusal" in tree) return refuse(tree.refusal);')
 				.length - 1;
-		expect({ cut, refused }).toEqual({ cut, refused: cut });
+		// Both sides counted, because equal counts are satisfied by zero
+		// and zero: a rename would take the guard and the calls out
+		// together and this would go green on a file that no longer
+		// contains the thing it polices.
+		expect({ cut, refused }).toEqual({ cut: rounds.length + 2, refused: cut });
 	});
 
 	it("says nothing about a tree that was the commit", () => {
