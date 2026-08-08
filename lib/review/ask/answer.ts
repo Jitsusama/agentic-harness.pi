@@ -20,7 +20,7 @@
 // needed it. Every other `count` consumer in `lib/` takes the leaf
 // for the same reason.
 import { count } from "../../ui/count.js";
-import type { AskRun } from "./run.js";
+import type { AskRun, RunSummary } from "./run.js";
 import {
 	failureLines,
 	runSummary,
@@ -89,11 +89,57 @@ export function describeRun(run: AskRun): string {
 			: run.open === true
 				? ", opened and never settled"
 				: "";
-	const head = `${run.id}: ${summary.answered}/${summary.asked} answered${failed}${pending}, ${count(summary.findings, "finding")}${abandoned}`;
+	const head = `${run.id}: ${summary.answered}/${summary.asked} answered${failed}${pending}, ${count(summary.findings, "finding")}${spent(summary)}${abandoned}`;
 	// A stopped reviewer's answer was being recorded and never shown,
 	// which is most of the way to losing it: the path is only useful to
 	// somebody who knows to look for it.
 	return [head, ...stoppedNotes(run).map((note) => `  ${note}`)].join("\n");
+}
+
+/**
+ * What the round burned, when anybody said.
+ *
+ * Held in the ledger since the first round and shown by nothing until
+ * now: a billion tokens and several hundred dollars across sixty-odd
+ * rounds, reachable only by reading the JSON. A council costs about
+ * as much as a good dinner, and the reader deciding whether to run
+ * another is the person who should be told.
+ *
+ * Silent when nobody reported, because a zero would claim the round
+ * was free rather than admit it was not measured.
+ */
+function spent(summary: RunSummary): string {
+	const said: string[] = [];
+	// Grouped by hand rather than by locale. `toLocaleString` reads
+	// whatever ICU the host was built with, and a line that groups with
+	// spaces on one machine and commas on another is a line two readers
+	// cannot compare.
+	if (summary.tokens !== undefined)
+		said.push(`${grouped(summary.tokens)} tokens`);
+	if (summary.cost !== undefined) said.push(money(summary.cost));
+	if (said.length === 0) return "";
+	// "At least", when somebody who was asked reported nothing. A
+	// subtotal in the words of a total is the same lie as a zero for a
+	// round nobody priced, and it runs the wrong way: the participants
+	// most likely to be missing are the ones that died.
+	const so = summary.partlyPriced === true ? "at least " : "";
+	return `, ${so}${said.join(", ")}`;
+}
+
+/**
+ * A cost, without rounding a real one away.
+ *
+ * Two decimals turn anything under half a cent into "$0.00", which is
+ * the one claim this refuses to make: that a round was free when it
+ * was billed.
+ */
+function money(cost: number): string {
+	return cost > 0 && cost < 0.005 ? "under $0.01" : `$${cost.toFixed(2)}`;
+}
+
+/** A whole number with thousands separated, the same way everywhere. */
+function grouped(value: number): string {
+	return String(Math.round(value)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
 /** What a round's answer says, in order. */

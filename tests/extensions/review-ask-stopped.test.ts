@@ -418,6 +418,43 @@ describe("a reviewer that wrote findings down as it went", () => {
 		});
 	});
 
+	it("reports what a failed reviewer burned before it died", () => {
+		// The round bills failures, and for a long time that ordering
+		// could never fire, because this seam dropped the usage on the
+		// way past: a failure answer carried a message and nothing
+		// else. So the round's total was missing its largest terms,
+		// since a reviewer that spent its whole budget to produce
+		// nothing is the dearest outcome there is.
+		const answer = answerFromReviewer(
+			ran({
+				exitCode: 1,
+				finalAssistantText: "",
+				stderr: "boom",
+				usage: {
+					tokens: {
+						input: 0,
+						output: 0,
+						cacheRead: 0,
+						cacheWrite: 0,
+						total: 900_000,
+					},
+					cost: {
+						input: 0,
+						output: 0,
+						cacheRead: 0,
+						cacheWrite: 0,
+						total: 3.5,
+					},
+				},
+			}),
+		);
+
+		expect(answer).toMatchObject({
+			failure: expect.stringContaining("boom"),
+			usage: { tokens: 900_000, cost: 3.5 },
+		});
+	});
+
 	it("says when we were the ones who cut the answer", () => {
 		// The caps are alive and the reviewer never learns of them: its
 		// answer is truncated on the way through, so what arrives is
