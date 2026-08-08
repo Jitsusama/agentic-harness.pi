@@ -178,13 +178,37 @@ describe("overriding a roster for one round", () => {
 		});
 	});
 
-	it("takes only settings, not a new name or lens", () => {
-		// The type says three fields and a type says nothing at runtime.
+	it("changes the lens for one round, including to one the repo owns", () => {
+		// Deliberately not allowed at first, on the reasoning that a lens
+		// belongs to a participant and a spare one is a roster entry. Repo
+		// agents made that wrong: the roster is one file covering every
+		// repo an operator reviews in, and a repo's own lenses exist only
+		// in that repo, so a global entry naming one refuses everywhere
+		// else. Per-round is the only scope that fits.
+		const over = overrideRoster(ROSTER, {
+			hawk: { persona: "repo:code-reviewer" },
+		});
+
+		expect(over).toEqual({
+			roster: expect.objectContaining({
+				reviewers: [
+					expect.objectContaining({
+						id: "hawk",
+						persona: "repo:code-reviewer",
+					}),
+					expect.objectContaining({ id: "owl" }),
+				],
+			}),
+		});
+	});
+
+	it("takes the settings it names and nothing else a caller sends", () => {
+		// The type says four fields and a type says nothing at runtime.
 		// Spreading whatever arrived let a caller rename a participant
 		// through a door meant for settings, and a changed id would slip
 		// past the collision check that runs only over a whole roster.
 		const over = overrideRoster(ROSTER, {
-			hawk: { id: "owl", persona: "test-skeptic" } as ParticipantOverride,
+			hawk: { id: "owl", colour: "red" } as ParticipantOverride,
 		});
 
 		expect(over).toEqual({

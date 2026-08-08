@@ -128,9 +128,12 @@ describe("review_ask", () => {
 		};
 
 		const wrong = Object.entries(asksOf).flatMap(([round, asks]) => {
-			const body = source.slice(source.indexOf(`async function ${round}(`));
-			if (body === source.slice(source.length)) return [`${round} is gone`];
-			const call = body.slice(0, body.indexOf("const charters"));
+			const at = source.indexOf(`async function ${round}(`);
+			if (at === -1) return [`${round} is gone`];
+			const body = source.slice(at);
+			const opens = body.indexOf("const charters");
+			if (opens === -1) return [`${round} reads no lenses at all`];
+			const call = body.slice(0, opens);
 			return call.includes(`rosterOrThrow(params, "${asks}")`)
 				? []
 				: [`${round} does not ask for "${asks}"`];
@@ -141,5 +144,78 @@ describe("review_ask", () => {
 		// which the compiler enforces but only while the parameter stays
 		// required.
 		expect(source).not.toMatch(/rosterOrThrow\(params\)/);
+	});
+
+	it("reads every round's lenses out of the tree that round reads", () => {
+		// The composition is driven for real elsewhere. What cannot be
+		// driven is whether these seven call sites hand it the right tree,
+		// and that is exactly where the last four PRs put their bugs: a
+		// tested helper beside an unproven call site. Substituting the
+		// session's directory for the change's tree broke nothing in the
+		// suite until this existed.
+		//
+		// A lens from the wrong tree is the cheap version of the mistake
+		// that cost $75.63: real code read through a lens written for a
+		// codebase nobody is reviewing.
+		// Every function that resolves a tree, discovered rather than
+		// listed. A whitelist covers the rounds that existed the day it was
+		// written and waves an eighth one through, which is the failure the
+		// gate two tests up already had once.
+		const rounds = [...source.matchAll(/async function (\w+)\(/g)].flatMap(
+			([, name]) => {
+				const at = source.indexOf(`async function ${name}(`);
+				const next = source.indexOf("\nasync function ", at + 1);
+				const body = source.slice(at, next === -1 ? undefined : next);
+				return body.includes("await treeForRound(") ? [{ name, body }] : [];
+			},
+		);
+
+		// The discovery itself has to find something, or the sweep below
+		// passes over nothing at all and reports a clean bill.
+		expect(rounds.length).toBeGreaterThanOrEqual(7);
+
+		const wrong = rounds.flatMap(({ name, body }) => {
+			const reads = body.search(/chartersFor\(\s*[\s\S]{0,400}?tree,\s*"\w+",/);
+			if (reads === -1) {
+				return [
+					`${name} does not read its lenses from the tree it reads, for a named half of the roster`,
+				];
+			}
+			// After the refusal, since a refused tree has no path to read
+			// from. Absence is its own failure rather than a passing
+			// comparison: indexOf hands back -1, which is less than every
+			// position, so a deleted check used to read as a check that came
+			// first.
+			const guarded = body.indexOf('"refusal" in tree');
+			if (guarded === -1) return [`${name} never checks the tree is readable`];
+			return guarded < reads
+				? []
+				: [`${name} reads lenses before it knows the tree is readable`];
+		});
+
+		expect(wrong).toEqual([]);
+		// And nothing reaches past the tree for a directory of its own.
+		// And the half named is the half the roster was read under, so a
+		// round cannot bind lenses for people it will never ask.
+		for (const [round, asks] of Object.entries({
+			askCouncil: "reviewers",
+			startRound: "reviewers",
+			askCritique: "reviewers",
+			askStack: "reviewers",
+			askJudge: "judge",
+			askAudit: "judge",
+		})) {
+			const at = source.indexOf(`async function ${round}(`);
+			const next = source.indexOf("\nasync function ", at + 1);
+			const body = source.slice(at, next === -1 ? undefined : next);
+			expect({ round, asks: body.match(/tree,\s*"(\w+)"/)?.[1] }).toEqual({
+				round,
+				asks,
+			});
+		}
+		// Including the one hop between the sites and the library, which
+		// the loop above cannot see and which took `process.cwd()` without
+		// a murmur while every one of those sites was correct.
+		expect(source).toMatch(/lensesFor\([\s\S]{0,200}?\btree,?\s*\)/);
 	});
 });
