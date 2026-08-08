@@ -110,7 +110,7 @@ import {
 	reviewerStarter,
 	whyNotYet,
 } from "../reviewer.js";
-import { treeForRound } from "../work.js";
+import { readFrom, treeForRound } from "../work.js";
 import {
 	type Answer,
 	boundFor,
@@ -580,9 +580,7 @@ async function askCouncil(
 			roster,
 			prompt,
 			seq: 1,
-			...(proposal.headCommit === undefined
-				? {}
-				: { witness: proposal.headCommit }),
+			...readFrom(tree, proposal.headCommit),
 		},
 		deps(change, tree.path, watch, charters),
 	);
@@ -644,9 +642,7 @@ async function startRound(
 			roster,
 			prompt,
 			seq: 1,
-			...(proposal.headCommit === undefined
-				? {}
-				: { witness: proposal.headCommit }),
+			...readFrom(tree, proposal.headCommit),
 		},
 		{
 			now: () => new Date(),
@@ -772,9 +768,7 @@ async function askJudge(
 			judge: roster.judge,
 			prompt,
 			seq: 1,
-			...(proposal.headCommit === undefined
-				? {}
-				: { witness: proposal.headCommit }),
+			...readFrom(tree, proposal.headCommit),
 		},
 		deps(change, tree.path, watch, charters),
 	);
@@ -827,9 +821,7 @@ async function askCritique(
 			}),
 			seq: 1,
 			findingIds: raised.map((finding) => finding.id),
-			...(proposal.headCommit === undefined
-				? {}
-				: { witness: proposal.headCommit }),
+			...readFrom(tree, proposal.headCommit),
 		},
 		{
 			ask: deps(change, tree.path, watch, charters).ask,
@@ -1035,9 +1027,7 @@ async function askAudit(
 			}),
 			seq: 1,
 			threadIndices,
-			...(proposal.headCommit === undefined
-				? {}
-				: { witness: proposal.headCommit }),
+			...readFrom(tree, proposal.headCommit),
 		},
 		{
 			ask: deps(change, tree.path, watch, charters).ask,
@@ -1173,8 +1163,9 @@ async function retryOne(
 		proposal.headCommit,
 		process.cwd(),
 	);
-	const witness =
-		proposal.headCommit === undefined ? {} : { witness: proposal.headCommit };
+	// Both halves, so a retry into an unpinned round records what the
+	// original read rather than quietly claiming better fidelity.
+	const read = readFrom(tree, proposal.headCommit);
 	const intent = params.intent === undefined ? {} : { intent: params.intent };
 
 	// Retried in the role the round asked under, not always as a
@@ -1196,7 +1187,7 @@ async function retryOne(
 							...intent,
 						}),
 						seq: 1,
-						...witness,
+						...read,
 					},
 					deps(change, tree.path, watch, charters),
 				)
@@ -1205,7 +1196,7 @@ async function retryOne(
 						roster: { reviewers: [participant] } satisfies Roster,
 						prompt: councilPrompt({ proposal, diff, ...intent }),
 						seq: 1,
-						...witness,
+						...read,
 					},
 					substituting(deps(change, tree.path, watch, charters)),
 				);

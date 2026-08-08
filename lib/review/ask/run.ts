@@ -124,6 +124,21 @@ export interface AskRun {
 	 * did not record it cannot be collected faithfully.
 	 */
 	witness?: string;
+	/**
+	 * Said when the tree the reviewers read was not that commit.
+	 *
+	 * Every round records a witness, and a round that fell back to
+	 * the caller's checkout records one too, so without this the
+	 * ledger claims a fidelity the round did not have. The caveat
+	 * itself was only ever handed to the session that started the
+	 * round, which leaves a round collected later, whose reader has
+	 * nothing but this file, told nothing at all.
+	 *
+	 * It happens. Two councils fell back because a worktree of that
+	 * name already existed, and between them they returned fifty-nine
+	 * findings formed against whatever the checkout happened to be.
+	 */
+	unpinned?: string;
 }
 
 /** How a run went, in counts. */
@@ -374,6 +389,31 @@ function sum(
 ): number | undefined {
 	if (one === undefined) return two;
 	return two === undefined ? one : one + two;
+}
+
+/** What a round was told about the tree it would read. */
+export interface TreeRead {
+	/** Commit the findings' anchors are formed against. */
+	witness?: string;
+	/** Said when the tree the reviewers read was not that commit. */
+	unpinned?: string;
+}
+
+/**
+ * What a round read, in the shape a run records it.
+ *
+ * One helper rather than a conditional spread per builder, because
+ * these two are one fact. Recording the commit without the caveat is
+ * the failure this exists to stop: the run then claims the reviewers
+ * read the change when they read whatever the caller had checked out.
+ * Six sites spread the commit by hand, and it took until the ledger
+ * was counted to notice that half of them recorded nothing at all.
+ */
+export function whatItRead(read: TreeRead): TreeRead {
+	return {
+		...(read.witness === undefined ? {} : { witness: read.witness }),
+		...(read.unpinned === undefined ? {} : { unpinned: read.unpinned }),
+	};
 }
 
 /** The identity a run asked under this id, if it asked one. */

@@ -162,6 +162,12 @@ describe("a round records the commit it was formed against", () => {
 			// checked against happened to match without it.
 			if (!source.includes("startedAt: startedAt.toISOString()")) continue;
 			builders.push(name);
+			// One spelling now, because what a round read is one fact
+			// and was being written by hand in four different ways.
+			// Recording the commit without the caveat is the failure
+			// that matters: the run then says the reviewers read the
+			// change when they read whatever was checked out.
+			//
 			// The stack round is the one honest exception, and it is
 			// checked rather than skipped: it holds every change in a
 			// stack at once, so a single commit on the run would name
@@ -171,9 +177,7 @@ describe("a round records the commit it was formed against", () => {
 			const carries = source.includes(
 				name === "stack-round.ts"
 					? "request.witnessFor,"
-					: name === "council.ts"
-						? "...witnessed"
-						: "witness: request.witness",
+					: "whatItRead(request)",
 			);
 			expect({ name, carries }).toEqual({ name, carries: true });
 		}

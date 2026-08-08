@@ -55,6 +55,48 @@ describe("what a round says when it is over", () => {
 		expect(lines[1]).toBe("[refused] read the working tree, not the change");
 	});
 
+	it("says the round could not read the commit it names, from the run", () => {
+		// The caveat used to live only in the answer the starting
+		// session was handed, and the run recorded a witness commit
+		// either way. So the durable record of a round that read the
+		// caller's checkout instead claimed it had read the change, and
+		// a round collected by a later session, which has nothing but
+		// the run, was told nothing at all. It has happened: two
+		// councils fell back because a worktree of that name already
+		// existed, and between them they returned 59 findings formed
+		// against whatever the checkout happened to be.
+		const lines = said(
+			roundAnswer(
+				run({
+					witness: "d7205e3c",
+					unpinned: "read /somewhere/else instead",
+					outcomes: [{ participantId: "hawk", findingIds: [1] }],
+				}),
+			),
+		);
+
+		expect(lines[1]).toBe("[refused] read /somewhere/else instead");
+	});
+
+	it("lets the caller's caveat stand rather than saying it twice", () => {
+		// The starting session passes what it just learned; the run
+		// holds the same fact for everybody after it. One line either
+		// way, and the live one wins because it can be more specific.
+		const lines = said(
+			roundAnswer(
+				run({
+					unpinned: "the recorded one",
+					outcomes: [{ participantId: "hawk", findingIds: [1] }],
+				}),
+				{ caveat: "the live one" },
+			),
+		);
+
+		expect(lines.filter((line) => line.startsWith("[refused]"))).toEqual([
+			"[refused] the live one",
+		]);
+	});
+
 	it("names the failures before saying they are the whole story", () => {
 		// The sentence says "above". It was printed above the failures
 		// it was talking about, which is the kind of thing only a test

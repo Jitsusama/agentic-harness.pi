@@ -16,7 +16,12 @@
 import { askOne, type CouncilDeps } from "./council.js";
 import { alsoRecorded, harvestFindings } from "./harvest.js";
 import { type Participant, participantIdentity } from "./identity.js";
-import { type AskRun, newRunId, type ParticipantOutcome } from "./run.js";
+import {
+	type AskRun,
+	newRunId,
+	type ParticipantOutcome,
+	whatItRead,
+} from "./run.js";
 
 /** Who consolidates, and what they are told. */
 export interface JudgeRequest {
@@ -26,6 +31,8 @@ export interface JudgeRequest {
 	seq: number;
 	/** Commit the findings' anchors are formed against. */
 	witness?: string;
+	/** Said when the tree the reviewers read was not that commit. */
+	unpinned?: string;
 }
 
 /** The run, and anything worth telling the caller. */
@@ -130,7 +137,7 @@ export async function runJudge(
 			// that cannot be taken. What it answers is a reader asking
 			// what a round was formed against, which until now the
 			// record could not say for three kinds out of four.
-			...(request.witness === undefined ? {} : { witness: request.witness }),
+			...whatItRead(request),
 		},
 		warnings,
 	};

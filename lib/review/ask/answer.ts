@@ -153,9 +153,15 @@ export function roundAnswer(run: AskRun, said?: AnswerContext): AnswerLine[] {
 		.map((text) => ({ text }));
 	// Before everything, not after: a caveat about which tree was read
 	// changes how every finding below it should be weighed.
-	if (said?.caveat !== undefined) {
-		lines.push({ mark: "refused", text: said.caveat });
-	}
+	//
+	// Falling back to the run means a round collected by a later
+	// session says it too. That reader has nothing but the file, and
+	// the file records a witness commit whether or not the reviewers
+	// could be given it. The caller's own caveat wins where there is
+	// one, since a live round can be more specific than what was
+	// written down.
+	const caveat = said?.caveat ?? run.unpinned;
+	if (caveat !== undefined) lines.push({ mark: "refused", text: caveat });
 	// Above the roll call rather than among it, and the roll call says
 	// "as above" instead of repeating the paragraph, or hoisting a
 	// sentence already on every outcome would make a seven-reviewer
