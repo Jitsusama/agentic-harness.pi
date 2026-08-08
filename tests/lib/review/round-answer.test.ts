@@ -78,6 +78,23 @@ describe("what a round says when it is over", () => {
 		expect(lines[1]).toBe("[refused] read /somewhere/else instead");
 	});
 
+	it("marks it in the listing line, where a reader browses", () => {
+		// The listing is what somebody scanning sixty rounds sees, and
+		// it showed findings and a bill beside a round whose findings
+		// were formed against a different tree. Two words there, the
+		// sentence on the run for whoever wants it.
+		const lines = said(
+			roundAnswer(
+				run({
+					unpinned: "read the checkout",
+					outcomes: [{ participantId: "hawk", findingIds: [1] }],
+				}),
+			),
+		);
+
+		expect(lines[0]).toContain("tree not pinned");
+	});
+
 	it("lets the caller's caveat stand rather than saying it twice", () => {
 		// The starting session passes what it just learned; the run
 		// holds the same fact for everybody after it. One line either

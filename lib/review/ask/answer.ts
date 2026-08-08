@@ -89,7 +89,15 @@ export function describeRun(run: AskRun): string {
 			: run.open === true
 				? ", opened and never settled"
 				: "";
-	const head = `${run.id}: ${summary.answered}/${summary.asked} answered${failed}${pending}, ${count(summary.findings, "finding")}${spent(summary)}${abandoned}`;
+	// Two words in the listing, not the whole sentence. This is the
+	// surface a reader browses sixty rounds through, and until now it
+	// was the one place that could not say a round had read the wrong
+	// tree: the sentence went into the answer of the session that
+	// started the round, and the listing showed findings and a bill
+	// beside a round whose findings were formed against something
+	// else. The sentence itself is on the run for whoever wants it.
+	const unpinned = run.unpinned === undefined ? "" : ", tree not pinned";
+	const head = `${run.id}: ${summary.answered}/${summary.asked} answered${failed}${pending}, ${count(summary.findings, "finding")}${spent(summary)}${unpinned}${abandoned}`;
 	// A stopped reviewer's answer was being recorded and never shown,
 	// which is most of the way to losing it: the path is only useful to
 	// somebody who knows to look for it.

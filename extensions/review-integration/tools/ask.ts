@@ -931,6 +931,9 @@ async function askStack(
 			seq: 1,
 			stackRefs,
 			witnessFor: (ref) => witnesses.get(ref),
+			// Per-change witnesses, but one tree, so the caveat is about
+			// the round exactly as it is for every other kind.
+			...(tree.caveat === undefined ? {} : { unpinned: tree.caveat }),
 		},
 		{
 			ask: deps(tip.change, tree.path, watch, charters).ask,
@@ -1163,8 +1166,6 @@ async function retryOne(
 		proposal.headCommit,
 		process.cwd(),
 	);
-	// Both halves, so a retry into an unpinned round records what the
-	// original read rather than quietly claiming better fidelity.
 	const read = readFrom(tree, proposal.headCommit);
 	const intent = params.intent === undefined ? {} : { intent: params.intent };
 
@@ -1206,7 +1207,12 @@ async function retryOne(
 		return refuse(`Asking "${asked.id}" again produced no outcome at all.`);
 	}
 
-	const updated = substituteOutcome(held, outcome);
+	// Which tree this attempt read, not just which the round did. A
+	// retry that fell back leaves the round less faithful than it was,
+	// and until this was passed the fresh run carrying it was thrown
+	// away, so the caveat here was inert and the comment above it
+	// described something that did not happen.
+	const updated = substituteOutcome(held, outcome, read);
 	await store.replace(change, updated);
 	return say(
 		[

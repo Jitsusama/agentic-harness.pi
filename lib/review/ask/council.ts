@@ -382,7 +382,7 @@ export function openingRun(request: CouncilRequest, startedAt: Date): AskRun {
 		),
 		outcomes: [],
 		open: true,
-		...(request.witness === undefined ? {} : { witness: request.witness }),
+		...whatItRead(request),
 	};
 }
 

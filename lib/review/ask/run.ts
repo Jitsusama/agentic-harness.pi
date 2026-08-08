@@ -436,10 +436,17 @@ export function askedOf(
  * refusing softly: it would make the run claim it asked somebody it
  * never did, and no caller has a sensible way to carry on from
  * that.
+ *
+ * What this attempt read is required rather than optional, since
+ * omitting it means "the same tree the round had", which is the most
+ * optimistic reading available and the wrong default for the case
+ * that matters: a retry that fell back leaves the round less faithful
+ * than it was. Pass an empty record to say there is nothing to add.
  */
 export function substituteOutcome(
 	run: AskRun,
 	outcome: ParticipantOutcome,
+	read: TreeRead,
 ): AskRun {
 	if (askedOf(run, outcome.participantId) === undefined) {
 		throw new Error(
@@ -467,6 +474,15 @@ export function substituteOutcome(
 	const waiting = run.participants.some(
 		(asked) => !outcomes.some((held) => held.participantId === asked.id),
 	);
+	// A retry that fell back to the caller's checkout makes the round
+	// less faithful than it was, and the run is the only place that can
+	// say so. Told rather than inferred, since only the caller knows
+	// which tree this attempt got, and one-way: a retry that happened
+	// to be pinned does not clear a caveat earned by the reviewers
+	// already in the round.
+	const fell = read?.unpinned === undefined ? {} : { unpinned: read.unpinned };
 	const { open: _wasOpen, ...rest } = run;
-	return waiting ? { ...run, outcomes } : { ...rest, outcomes };
+	return waiting
+		? { ...run, outcomes, ...fell }
+		: { ...rest, outcomes, ...fell };
 }
