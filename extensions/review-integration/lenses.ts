@@ -23,6 +23,7 @@ import type {
 	AgentFile,
 	DiffModel,
 	PersonaBinding,
+	RepoGuidance,
 	Roster,
 } from "../../lib/review/index.js";
 import {
@@ -55,6 +56,62 @@ import type { ReadableTree } from "./work.js";
  * else on disk holds any, so nothing else is looked in.
  */
 const AGENT_DIRS = [join(".claude", "agents"), "agents"];
+
+/**
+ * Where a repo writes down what it asks of its contributors.
+ *
+ * The names pi itself looks for, in the order it prefers them, since
+ * the point is to hand over deliberately what it was picking up
+ * ambiently. An override wins outright, which is what the name means.
+ */
+const GUIDANCE_FILES = ["AGENTS.override.md", "AGENTS.md", "CLAUDE.md"];
+
+/** How much of a repo's conventions to carry into a prompt. */
+const MOST_GUIDANCE = 32_000;
+
+/**
+ * What the repo under review asks of its contributors.
+ *
+ * Read from the tree the round reads, and handed to the prompt as
+ * quoted material. Before this it arrived by itself, because a pi
+ * child reads the context files in its working directory and a
+ * reviewer's working directory is a tree pinned to the commit under
+ * review. That put the change author's prose above the round's own
+ * instructions, unasked and unrecorded.
+ */
+export async function guidanceInRepo(
+	tree: ReadableTree,
+	touched: Touched,
+): Promise<RepoGuidance | undefined> {
+	for (const name of GUIDANCE_FILES) {
+		let text: string;
+		try {
+			text = await readFile(join(tree.path, name), "utf8");
+		} catch {
+			// Most repos have one of these and no repo has all three.
+			continue;
+		}
+		if (text.trim() === "") continue;
+		return {
+			path: name,
+			// Cut rather than refused, unlike a charter. A charter that
+			// arrives half-written is a lens nobody wrote; conventions are
+			// reference, and the first thirty thousand characters of them
+			// are worth more to a reviewer than none.
+			text:
+				text.length <= MOST_GUIDANCE
+					? text
+					: `${text.slice(0, MOST_GUIDANCE)}\n\n[cut here: ${name} is ${text.length} characters]`,
+			// Not knowing counts as edited, since the whole reason to say so
+			// is that the change may have written what the reviewer is about
+			// to read, and "we could not tell" is not "it did not".
+			edited: Array.isArray(touched)
+				? touched.some((path) => path.endsWith(name))
+				: true,
+		};
+	}
+	return undefined;
+}
 
 /**
  * Every charter the operator wrote, by persona id.
