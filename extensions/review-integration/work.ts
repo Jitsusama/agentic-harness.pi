@@ -179,11 +179,23 @@ export async function treeForFixing(
 }
 
 /** Where a round will run, and whether that is what was wanted. */
-export interface RoundTree {
-	path: string;
-	/** Said out loud when the tree is not the commit under review. */
-	caveat?: string;
-}
+export type RoundTree =
+	| {
+			path: string;
+			/** Said out loud when the tree is not the commit under review. */
+			caveat?: string;
+	  }
+	| {
+			/**
+			 * Why no round should be run at all.
+			 *
+			 * Degrading is right when the fallback is the repo under
+			 * review at some other commit, and worthless when it is a
+			 * different repository. The second is not a worse review, it
+			 * is a review of something else.
+			 */
+			refusal: string;
+	  };
 
 /**
  * What a round formed here read, in the shape a run records it.
@@ -204,9 +216,14 @@ export function readFrom(
 	tree: RoundTree,
 	headCommit: string | undefined,
 ): TreeRead {
+	// A refused tree has no round to record anything about. Taking the
+	// whole RoundTree rather than the caveat alone is deliberate, so
+	// that adding the refusal made every caller a compile error until
+	// it decided what to do, which is how the seven sites were found.
+	const caveat = "refusal" in tree ? undefined : tree.caveat;
 	return whatItRead({
 		...(headCommit === undefined ? {} : { witness: headCommit }),
-		...(tree.caveat === undefined ? {} : { unpinned: tree.caveat }),
+		...(caveat === undefined ? {} : { unpinned: caveat }),
 	});
 }
 
@@ -223,6 +240,22 @@ export async function treeForRound(
 	commit: string | undefined,
 	fallback: string,
 ): Promise<RoundTree> {
+	// Before anything else, because this is the one failure a caveat
+	// cannot cover. A repo with neither a checkout nor a remote is a
+	// repo nothing on this machine can point at, and the thing that
+	// makes a fallback plausible, that the caller is sitting in the
+	// repo under review, is the same thing that would have given it a
+	// local path. So the fallback here is somebody else's repository.
+	//
+	// Three councils established the price. Asked about a change in
+	// one repo from a session sitting in another, they read the
+	// session's repo and returned 225 findings about code the change
+	// does not contain, at $75.63. Every one of them read plausibly.
+	if (repo.localPath === undefined && repo.remoteUrl === undefined) {
+		return {
+			refusal: `Nothing here knows where ${repo.key} lives, so there is no tree to review it in and the only fallback is ${fallback}, which is a different repository. A round against the wrong repository returns findings that read perfectly and are about nothing. Run this from a checkout of ${repo.key}, or register a provider that knows where it is.`,
+		};
+	}
 	if (work === undefined) {
 		return {
 			path: fallback,

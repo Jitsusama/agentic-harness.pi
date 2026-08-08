@@ -574,6 +574,7 @@ async function askCouncil(
 		proposal.headCommit,
 		process.cwd(),
 	);
+	if ("refusal" in tree) return refuse(tree.refusal);
 
 	const { run, warnings } = await runCouncil(
 		{
@@ -632,6 +633,7 @@ async function startRound(
 		proposal.headCommit,
 		process.cwd(),
 	);
+	if ("refusal" in tree) return refuse(tree.refusal);
 	const budget = await budgetForRound();
 	const starter = reviewerStarter(getParentPiInstall(), runArtifactDir());
 	const store = createRunStore(runDir());
@@ -763,6 +765,7 @@ async function askJudge(
 		proposal.headCommit,
 		process.cwd(),
 	);
+	if ("refusal" in tree) return refuse(tree.refusal);
 	const { run, warnings } = await runJudge(
 		{
 			judge: roster.judge,
@@ -809,6 +812,7 @@ async function askCritique(
 		proposal.headCommit,
 		process.cwd(),
 	);
+	if ("refusal" in tree) return refuse(tree.refusal);
 
 	const { run, critiques, warnings } = await runCritique(
 		{
@@ -909,6 +913,7 @@ async function askStack(
 		tip.proposal.headCommit,
 		process.cwd(),
 	);
+	if ("refusal" in tree) return refuse(tree.refusal);
 
 	const stackRefs = changes.map((one) => one.ref);
 	const witnesses = new Map(
@@ -1007,6 +1012,7 @@ async function askAudit(
 		proposal.headCommit,
 		process.cwd(),
 	);
+	if ("refusal" in tree) return refuse(tree.refusal);
 
 	// Indices are the ones a person cites, meaning the position in the
 	// full thread listing rather than among the unresolved ones. An
@@ -1166,6 +1172,7 @@ async function retryOne(
 		proposal.headCommit,
 		process.cwd(),
 	);
+	if ("refusal" in tree) return refuse(tree.refusal);
 	const read = readFrom(tree, proposal.headCommit);
 	const intent = params.intent === undefined ? {} : { intent: params.intent };
 
