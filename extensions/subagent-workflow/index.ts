@@ -52,6 +52,7 @@ import {
 } from "../../lib/subagent/events.js";
 import { getParentPiInstall } from "../../lib/subagent/install.js";
 import { createSupervisorRunPi } from "../../lib/subagent/runpi/supervisor.js";
+import { THINKING_LEVELS } from "../../lib/thinking/index.js";
 import {
 	FleetCancellationRegistry,
 	formatFleetCancellation,
@@ -221,7 +222,9 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 					),
 					thinkingLevel: Type.Optional(
 						StringEnum(
-							["off", "minimal", "low", "medium", "high", "xhigh"] as const,
+							// The shared list, so this schema and the one the review
+							// tools offer cannot come to disagree about what pi takes.
+							THINKING_LEVELS,
 							{
 								description:
 									"Pi --thinking value. Omit to inherit pi's session default.",

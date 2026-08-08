@@ -456,10 +456,24 @@ every round kind honours it. Three things it will not do:
   written. It used to be any non-blank string, so a typo reached the
   CLI and the reviewer ran at whatever pi makes of a level it has
   never heard of.
-- **An id that has already raised findings is held to what it meant.**
-  Overriding one is refused exactly as editing the file would be,
-  because findings already say who raised them. Use another id, or
+- **An id that has raised findings in this session is held to what it
+  meant.** Overriding one is refused exactly as editing the file would
+  be, because findings already say who raised them. Use another id, or
   release that one.
+
+That last hold is worth stating precisely, because the scope is
+narrower than it sounds. The ledger is rebuilt per session, so a fresh
+session does not know what an id meant yesterday and will not refuse
+an override that changes it. Within a session, which is the scope a
+reader comparing two findings by reviewer id is working in, it holds.
+Across sessions, the findings themselves still carry the run they came
+from, and that is what to read when the attribution matters.
+
+A retry takes no `who` at all. It re-asks a participant and
+substitutes the answer into the round that already recorded what it
+asked and under what settings, so a retry on a different model would
+file one participant's answer into a run whose ledger names another.
+Run a fresh council instead.
 
 ## Reviewing a Stack as a Stack
 

@@ -12,6 +12,7 @@
  * has six reviewers.
  */
 
+import { isThinkingLevel, THINKING_LEVELS } from "../../thinking/index.js";
 import type { Participant } from "./identity.js";
 
 /** Settings a call may change for one round. */
@@ -20,22 +21,6 @@ export interface ParticipantOverride {
 	thinkingLevel?: string;
 	tools?: readonly string[];
 }
-
-/**
- * The levels pi's `--thinking` flag accepts.
- *
- * Spelled here because this is where a level arrives from outside. The
- * runner's own type says the same thing to the compiler, which is no
- * help at all against a string read out of a config file.
- */
-const THINKING_LEVELS = [
-	"off",
-	"minimal",
-	"low",
-	"medium",
-	"high",
-	"xhigh",
-] as const;
 
 /**
  * Apply per-call settings to a roster, or say why they cannot be.
@@ -56,18 +41,31 @@ const THINKING_LEVELS = [
 export function overrideRoster(
 	roster: Roster,
 	overrides: Record<string, ParticipantOverride>,
+	// Who this round will actually ask, when that is narrower than the
+	// roster. Checking against the roster alone accepts an override for
+	// somebody this round never asks, which is the same silent drop the
+	// unknown-name refusal exists to prevent, one level down: a council
+	// does not ask the judge, so tuning the judge for a council did
+	// nothing and said nothing.
+	asks: readonly Participant[] = [
+		...roster.reviewers,
+		...(roster.judge === undefined ? [] : [roster.judge]),
+	],
 ): RosterParse {
 	const everybody = [
 		...roster.reviewers,
 		...(roster.judge === undefined ? [] : [roster.judge]),
 	];
-	const named = new Set(everybody.map((one) => one.id));
-	const strangers = Object.keys(overrides).filter((id) => !named.has(id));
+	const asked = new Set(asks.map((one) => one.id));
+	const strangers = Object.keys(overrides).filter((id) => !asked.has(id));
 	if (strangers.length > 0) {
+		const named = new Set(everybody.map((one) => one.id));
+		const onRoster = strangers.filter((id) => named.has(id));
 		return {
 			refusal:
-				`This roster has nobody called ${strangers.map((id) => `"${id}"`).join(", ")}. ` +
-				`It asks ${[...named].map((id) => `"${id}"`).join(", ")}.`,
+				onRoster.length > 0
+					? `This round does not ask ${onRoster.map((id) => `"${id}"`).join(", ")}, so setting anything for them would do nothing. It asks ${[...asked].map((id) => `"${id}"`).join(", ")}.`
+					: `This roster has nobody called ${strangers.map((id) => `"${id}"`).join(", ")}. It asks ${[...named].map((id) => `"${id}"`).join(", ")}.`,
 		};
 	}
 
@@ -78,11 +76,20 @@ export function overrideRoster(
 			applied.set(participant.id, participant);
 			continue;
 		}
-		// Back through the config parse rather than merged by hand, so
-		// there is one place that decides what a participant may say and
-		// an override cannot become the lenient road in.
+		// Three named fields rather than a spread of whatever arrived. The
+		// type says three, and a type says nothing at runtime: spreading
+		// let a caller set `id` or `persona` through a door meant for
+		// settings, and a changed id would slip past the collision check
+		// that only runs when a whole roster is parsed.
 		const parsed = parseParticipant(
-			{ ...participant, ...over },
+			{
+				...participant,
+				...(over.model === undefined ? {} : { model: over.model }),
+				...(over.thinkingLevel === undefined
+					? {}
+					: { thinkingLevel: over.thinkingLevel }),
+				...(over.tools === undefined ? {} : { tools: over.tools }),
+			},
 			`the override for "${participant.id}"`,
 		);
 		if ("refusal" in parsed) return parsed;
@@ -158,7 +165,7 @@ export function parseParticipant(
 
 	if (
 		thinkingLevel.text !== undefined &&
-		!THINKING_LEVELS.some((level) => level === thinkingLevel.text)
+		!isThinkingLevel(thinkingLevel.text)
 	) {
 		// Read as any non-blank string until now, so a typo went to pi's
 		// --thinking flag and the reviewer ran at whatever pi makes of a
@@ -290,6 +297,15 @@ function optionalTools(
 	if (!("tools" in value) || value.tools === undefined) return {};
 	if (!Array.isArray(value.tools)) {
 		return { refusal: `${path}.tools must be an array of tool names.` };
+	}
+	if (value.tools.length === 0) {
+		// It reads as "no tools at all" and means the opposite: the runner
+		// treats an empty palette as none given and hands over the default
+		// one. So a reviewer meant to be blind would have got everything,
+		// and the ledger would have recorded a palette it never had.
+		return {
+			refusal: `${path}.tools is empty, which reads as no tools but gives the reviewer the default palette. Name the tools it may reach, or leave tools out.`,
+		};
 	}
 	const tools: string[] = [];
 	for (const [index, entry] of value.tools.entries()) {

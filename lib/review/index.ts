@@ -134,6 +134,7 @@ export {
 	askedOf,
 	failureLines,
 	newRunId,
+	retryCannotResettle,
 	runSummary,
 	staleRuntimeAdvisory,
 	stoppedNotes,

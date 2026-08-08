@@ -26,6 +26,7 @@ import { randomUUID } from "node:crypto";
 import { rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ThinkingLevel } from "../thinking/index.js";
 // Type-only, and erased, so the pairing with artifacts.ts importing
 // ReviewerRunArtifacts back out of here is not a runtime cycle. The
 // state belongs beside the store that writes it and the result that
@@ -233,14 +234,15 @@ export interface SubagentSpec {
  */
 export type CouncilReviewer = SubagentSpec;
 
-/** Thinking levels accepted by pi's `--thinking` flag. */
-export type ReviewerThinkingLevel =
-	| "off"
-	| "minimal"
-	| "low"
-	| "medium"
-	| "high"
-	| "xhigh";
+/**
+ * Thinking levels accepted by pi's `--thinking` flag.
+ *
+ * The shared list, not a fourth copy of it. This one and the roster
+ * parser's used to be written out separately in domains that share no
+ * module, which is a disagreement waiting to happen in the one place
+ * it cannot be seen: a level one accepts and pi does not.
+ */
+export type ReviewerThinkingLevel = ThinkingLevel;
 
 export interface ReviewerVerification {
 	/** Whether the reviewer called verify_output at least once. */
