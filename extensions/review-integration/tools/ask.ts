@@ -106,6 +106,7 @@ import {
 	answerLeftBehind,
 	archivedAnswer,
 	keepAnswer,
+	recordReviewerRun,
 	reviewerRunner,
 	reviewerStarter,
 	whyNotYet,
@@ -1197,7 +1198,7 @@ async function retryOne(
 						seq: 1,
 						...read,
 					},
-					deps(change, tree.path, watch, charters),
+					deps(change, tree.path, watch, charters, held.id),
 				)
 			: await runCouncil(
 					{
@@ -1206,7 +1207,7 @@ async function retryOne(
 						seq: 1,
 						...read,
 					},
-					substituting(deps(change, tree.path, watch, charters)),
+					substituting(deps(change, tree.path, watch, charters, held.id)),
 				);
 
 	const outcome = fresh.outcomes[0];
@@ -1508,6 +1509,14 @@ function deps(
 	cwd: string,
 	watch: RoundWatch,
 	charters: ReadonlyMap<string, string> = new Map(),
+	// Which round the spend belongs to, when that is not the round
+	// doing the asking. A retry runs a throwaway round and substitutes
+	// its outcome into the held one, so billing it to the id it ran
+	// under files the money against a round the ledger never names and
+	// leaves the round that actually paid under-reporting forever. The
+	// artifacts still go under the fresh id, because the transcript
+	// belongs to the attempt that produced it.
+	billTo?: string,
 ) {
 	const findings = createFindingStore(findingDir());
 	// The watch knows which round this is, so it is not passed twice.
@@ -1523,6 +1532,10 @@ function deps(
 			context: AskContext,
 		): Promise<AskAnswer> {
 			const budget = await bounds;
+			// Taken here rather than from the result, since what a run cost
+			// in wall time is a fact about the round and the runner does
+			// not report one.
+			const startedAt = Date.now();
 			const result = await runReviewer({
 				reviewer: {
 					id: participant.id,
@@ -1600,6 +1613,19 @@ function deps(
 								if (activity !== null) context.report?.(activity);
 							},
 						}),
+			});
+			// Counted before it is read, and counted whatever it turns
+			// out to say. This is the same publication a fleet makes for
+			// each of its subagents, and it is what puts a round in the
+			// footer meter and in the run table beside one.
+			recordReviewerRun({
+				runId: billTo ?? context.runId,
+				participantId: participant.id,
+				...(participant.model === undefined
+					? {}
+					: { model: participant.model }),
+				startedAt,
+				result,
 			});
 			// Told what it was allowed, so a stop records the clock it ran
 			// out of rather than only that one did. A retry cannot
