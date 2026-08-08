@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+	guidanceFor,
 	guidanceInRepo,
 	lensesFor,
 	touchedBy,
@@ -70,7 +71,7 @@ describe("what the repo asks of its contributors", () => {
 		expect(await guidanceInRepo(tree, ["src/main.ts"])).toEqual({
 			path: "AGENTS.md",
 			text: "Do not merge them.",
-			edited: false,
+			edited: "no",
 		});
 	});
 
@@ -84,9 +85,31 @@ describe("what the repo asks of its contributors", () => {
 	});
 
 	it("says the change wrote it when the change wrote it", async () => {
+		// The plain spelling, which is what a diff model actually carries;
+		// the only positive case here used to be `b/AGENTS.md`, a shape
+		// production never produces for this name, so the branch every
+		// real round takes had no test at all.
 		const { tree } = await repoWith({ "AGENTS.md": "Do not merge them." });
 
-		expect((await guidanceInRepo(tree, ["b/AGENTS.md"]))?.edited).toBe(true);
+		expect((await guidanceInRepo(tree, ["AGENTS.md"]))?.edited).toBe("yes");
+		expect((await guidanceInRepo(tree, ["b/AGENTS.md"]))?.edited).toBe("yes");
+	});
+
+	it("asks about the file the bytes came from, not the link", async () => {
+		// A link inside the tree is followed for its content, so asking
+		// whether the change edited the link's own name asks about the
+		// wrong file: the change rewrites the target and the conventions
+		// are quoted as settled rules. The same mistake as the lens one,
+		// in its other half.
+		const { tree } = await repoWith({ "docs/conventions.md": "Do not." });
+		await symlink(
+			join(tree.path, "docs", "conventions.md"),
+			join(tree.path, "AGENTS.md"),
+		);
+
+		expect((await guidanceInRepo(tree, ["docs/conventions.md"]))?.edited).toBe(
+			"yes",
+		);
 	});
 
 	it("is not fooled by a file of the same name somewhere else", async () => {
@@ -97,16 +120,20 @@ describe("what the repo asks of its contributors", () => {
 
 		expect(
 			(await guidanceInRepo(tree, ["packages/ui/AGENTS.md"]))?.edited,
-		).toBe(false);
+		).toBe("no");
 	});
 
-	it("counts not knowing as written by the change", async () => {
+	it("says it does not know, rather than guessing either way", async () => {
+		// It used to answer yes, on the reasoning that being careful is
+		// safe. It is not safe when the answer is printed as a sentence:
+		// the reviewer was told the change edits a file the change may
+		// never touch.
 		const { tree } = await repoWith({ "AGENTS.md": "Do not merge them." });
 
 		expect(
 			(await guidanceInRepo(tree, { unknown: "a stack half proposed" }))
 				?.edited,
-		).toBe(true);
+		).toBe("unknown");
 	});
 
 	it("will not follow a link out of the tree", async () => {
@@ -144,12 +171,51 @@ describe("what the repo asks of its contributors", () => {
 
 		expect(said?.text).toContain("cut here");
 		expect(said?.text).toContain("AGENTS.md at the root");
+		// And the bound itself, which nothing asserted: a cut that said
+		// the right thing and kept everything passed the earlier version.
+		expect(said?.text.length).toBeLessThan(100_000);
 	});
 
 	it("says nothing when the repo says nothing", async () => {
 		const { tree } = await repoWith({ "AGENTS.md": "   \n\n" });
 
 		expect(await guidanceInRepo(tree, [])).toBeUndefined();
+	});
+
+	it("reaches a prompt input through the join a round uses", async () => {
+		// The join itself, which lived in the tool file where nothing
+		// could execute it: both halves had tests and the thing putting
+		// them together had none. A rename is the case that decides it,
+		// since the conventions arrive on the side the file left.
+		const { tree } = await repoWith({ "AGENTS.md": "Do not merge them." });
+
+		const renamed = await guidanceFor(tree, {
+			files: [
+				{
+					oldPath: "AGENTS.md",
+					newPath: "CONTRIBUTING.md",
+					status: "renamed",
+					hunks: [],
+				},
+			],
+		});
+		const untouched = await guidanceFor(tree, {
+			files: [{ newPath: "src/main.ts", status: "modified", hunks: [] }],
+		});
+
+		expect(renamed.guidance?.edited).toBe("yes");
+		expect(untouched.guidance?.edited).toBe("no");
+	});
+
+	it("hands a prompt nothing at all when the repo says nothing", async () => {
+		// Spread into a prompt input, so absent has to mean an empty
+		// object rather than a key holding undefined: the section renders
+		// on the key, not on the value.
+		const { tree } = await repoWith({});
+
+		expect(
+			await guidanceFor(tree, { files: [] as DiffModel["files"] }),
+		).toEqual({});
 	});
 });
 

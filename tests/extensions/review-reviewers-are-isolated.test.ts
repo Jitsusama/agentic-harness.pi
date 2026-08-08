@@ -129,7 +129,7 @@ describe("what a reviewer inherits", () => {
 			if (calls.length === 0) return [`${round} is gone`];
 			return calls.flatMap((index) => {
 				const call = argumentsOf(source, index);
-				return call.includes("says(") || call.includes("...guidance")
+				return call.includes("guidanceFor(") || call.includes("...guidance")
 					? []
 					: [`a ${round} call at ${index} passes no conventions`];
 			});

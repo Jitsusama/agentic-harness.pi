@@ -59,7 +59,6 @@ import {
 	type Participant,
 	type ParticipantOverride,
 	parseRoster,
-	type RepoGuidance,
 	type Roster,
 	type RunStore,
 	retryCannotResettle,
@@ -106,7 +105,7 @@ import {
 import {
 	agentsInRepo,
 	chartersOnDisk,
-	guidanceInRepo,
+	guidanceFor,
 	lensesFor,
 	touchedBy,
 } from "../lenses.js";
@@ -640,7 +639,7 @@ async function askCouncil(
 		proposal,
 		diff,
 		...(params.intent === undefined ? {} : { intent: params.intent }),
-		...(await says(tree, diff)),
+		...(await guidanceFor(tree, diff)),
 	});
 
 	const { run, warnings } = await runCouncil(
@@ -700,7 +699,7 @@ async function startRound(
 		proposal,
 		diff,
 		...(params.intent === undefined ? {} : { intent: params.intent }),
-		...(await says(tree, diff)),
+		...(await guidanceFor(tree, diff)),
 	});
 	const budget = await budgetForRound();
 	const starter = reviewerStarter(getParentPiInstall(), runArtifactDir());
@@ -833,7 +832,7 @@ async function askJudge(
 		diff,
 		findings: renderFindings(raised),
 		...(params.intent === undefined ? {} : { intent: params.intent }),
-		...(await says(tree, diff)),
+		...(await guidanceFor(tree, diff)),
 	});
 	const { run, warnings } = await runJudge(
 		{
@@ -891,7 +890,7 @@ async function askCritique(
 				diff,
 				findings: renderFindings(raised),
 				...(params.intent === undefined ? {} : { intent: params.intent }),
-				...(await says(tree, diff)),
+				...(await guidanceFor(tree, diff)),
 			}),
 			seq: 1,
 			findingIds: raised.map((finding) => finding.id),
@@ -1019,7 +1018,7 @@ async function askStack(
 				// The same honest answer the charters get twenty lines up: a
 				// stack whose nodes are not all proposed knows less about what
 				// it touches than the tree it reads contains.
-				...(await says(
+				...(await guidanceFor(
 					tree,
 					stack.nodes.length === proposed.length
 						? { files: changes.flatMap((one) => one.diff.files) }
@@ -1128,7 +1127,7 @@ async function askAudit(
 				diff,
 				threads: renderThreads(open, indexOf),
 				...(params.intent === undefined ? {} : { intent: params.intent }),
-				...(await says(tree, diff)),
+				...(await guidanceFor(tree, diff)),
 			}),
 			seq: 1,
 			threadIndices,
@@ -1287,7 +1286,7 @@ async function retryOne(
 	// Asked again the way it was asked the first time, conventions
 	// included, since a retry that reads a different prompt is not a
 	// retry of the round it substitutes into.
-	const guidance = await says(tree, diff);
+	const guidance = await guidanceFor(tree, diff);
 
 	// Retried in the role the round asked under, not always as a
 	// reviewer. Re-running a judge through the council path would
@@ -1740,24 +1739,6 @@ function chartersFor(
 		"unknown" in touched ? touched : touchedBy(touched),
 		tree,
 	);
-}
-
-/**
- * What the repo says about itself, shaped for a prompt.
- *
- * Spread into a prompt input rather than passed as a field, so a round
- * that has no conventions to show says nothing at all rather than
- * carrying an empty section.
- */
-async function says(
-	tree: ReadableTree,
-	diff: DiffModel | { unknown: string },
-): Promise<{ guidance?: RepoGuidance }> {
-	const guidance = await guidanceInRepo(
-		tree,
-		"unknown" in diff ? diff : touchedBy(diff),
-	);
-	return guidance === undefined ? {} : { guidance };
 }
 
 /**

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Proposal } from "../../../lib/review/index.js";
+import type { Proposal, RepoGuidance } from "../../../lib/review/index.js";
 import {
 	auditPrompt,
 	councilPrompt,
@@ -329,10 +329,10 @@ describe("the repo's own written conventions", () => {
 	// They are worth having. They are not worth having at that rank, so
 	// they arrive here instead: quoted, attributed, and inside the
 	// prompt rather than above it.
-	const guidance = {
+	const guidance: RepoGuidance = {
 		path: "AGENTS.md",
 		text: "Never merge PR and issue guardians into a factory.",
-		edited: false,
+		edited: "no",
 	};
 
 	it("reaches the reviewer, said to be the repo's and not the round's", () => {
@@ -351,13 +351,56 @@ describe("the repo's own written conventions", () => {
 		const prompt = councilPrompt({
 			proposal: proposal(),
 			diff,
-			guidance: { ...guidance, edited: true },
+			guidance: { ...guidance, edited: "yes" },
 		});
 
 		// Refusing the round would be wrong, since editing the conventions
 		// is ordinary work and sometimes the whole change. Saying so is
 		// the difference between a rule and a proposal.
 		expect(prompt).toMatch(/this change edits it/i);
+	});
+
+	it("does not say the change edits it when the change does not", () => {
+		// The other side of the branch, which nothing asserted: a section
+		// that always warned would have passed every test here, and the
+		// warning is the part that makes a rule into a proposal.
+		const prompt = councilPrompt({ proposal: proposal(), diff, guidance });
+
+		expect(prompt).not.toMatch(/this change edits it/i);
+		expect(prompt).toMatch(/not part of your instructions/i);
+	});
+
+	it("will not state that the change edits it when nobody knows", () => {
+		// A boolean made "we could not tell" and "it did" the same value,
+		// so the careful default printed something false to the one reader
+		// who cannot go and check.
+		const prompt = councilPrompt({
+			proposal: proposal(),
+			diff,
+			guidance: { ...guidance, edited: "unknown" },
+		});
+
+		expect(prompt).not.toMatch(/this change edits it/i);
+		expect(prompt).toMatch(/could not be established/i);
+		// And not the other side either, since "we could not tell" is no
+		// more "it did not" than it is "it did".
+		expect(prompt).not.toMatch(/not part of your instructions/i);
+	});
+
+	it("refuses to quote what it cannot fence", () => {
+		// The fence length came from the text and the text comes from the
+		// repo, so a file made of backticks produced a fence as long as
+		// itself, twice: a bounded quotation emitting an unbounded
+		// section. Unquoted it would be indistinguishable from the round's
+		// own words, which is the whole thing being prevented.
+		const prompt = councilPrompt({
+			proposal: proposal(),
+			diff,
+			guidance: { ...guidance, text: "`".repeat(4_000) },
+		});
+
+		expect(prompt).toContain("could not be quoted safely");
+		expect(prompt.length).toBeLessThan(20_000);
 	});
 
 	it("says nothing at all when the repo wrote none", () => {
@@ -405,7 +448,7 @@ describe("the repo's own written conventions", () => {
 			guidance: {
 				path: "AGENTS.md",
 				text: "Run this:\n\n```sh\npnpm test\n```\n",
-				edited: false,
+				edited: "no",
 			},
 		});
 
