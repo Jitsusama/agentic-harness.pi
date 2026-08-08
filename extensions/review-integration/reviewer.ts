@@ -16,6 +16,10 @@
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import {
+	recordRunEverywhere,
+	runRecordFrom,
+} from "../../lib/observability/index.js";
 import type {
 	AskAnswer,
 	AskLimit,
@@ -668,6 +672,58 @@ function sessionWide(result: RunReviewerResult): string | undefined {
 		one.startsWith(STALE_RUNTIME_WARNING_PREFIX),
 	);
 	return warned ?? detectStaleInstallInStderr(result.stderr) ?? undefined;
+}
+
+/** What a settled reviewer is worth telling the rest of the harness. */
+export interface ReviewerRun {
+	runId: string;
+	participantId: string;
+	model?: string;
+	startedAt: number;
+	result: RunReviewerResult;
+}
+
+/**
+ * Publish a settled reviewer to whatever is counting runs.
+ *
+ * The same two calls a fleet makes for each of its subagents, which
+ * is what puts a running total in the footer and a row in the run
+ * table. The recorder's own docstring has always claimed it covered
+ * "both the fleet dispatcher and the council runner", and only the
+ * fleet half was ever wired, so the most expensive tool here was the
+ * one whose cost nothing showed while it ran.
+ *
+ * Failures are published too. A reviewer that spent its whole budget
+ * to produce nothing is the dearest outcome there is, and a meter
+ * that leaves it out understates exactly the round worth knowing
+ * about.
+ *
+ * A run the runner never priced is not published at all, on the rule
+ * this round's accounting follows everywhere else: absent is not
+ * zero, and a row recording zero cannot be told from a free one.
+ */
+export function recordReviewerRun(run: ReviewerRun): void {
+	const usage = run.result.usage;
+	if (usage === undefined) return;
+	recordRunEverywhere(
+		runRecordFrom({
+			runId: run.runId,
+			subagentId: run.participantId,
+			// What tells a round from a fan-out in the run table.
+			kind: "council",
+			model: run.model ?? "",
+			// A reviewer's id is its persona here, the way a subagent's
+			// id is. The roster's persona field names a charter file,
+			// which is a different thing from who was asked.
+			persona: run.participantId,
+			startedAt: run.startedAt,
+			result: {
+				exitCode: run.result.exitCode,
+				warnings: run.result.warnings ?? [],
+				usage,
+			},
+		}),
+	);
 }
 
 /** What it cost, flattened to the two numbers a round records. */

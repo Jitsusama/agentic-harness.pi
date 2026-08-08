@@ -106,6 +106,7 @@ import {
 	answerLeftBehind,
 	archivedAnswer,
 	keepAnswer,
+	recordReviewerRun,
 	reviewerRunner,
 	reviewerStarter,
 	whyNotYet,
@@ -1523,6 +1524,10 @@ function deps(
 			context: AskContext,
 		): Promise<AskAnswer> {
 			const budget = await bounds;
+			// Taken here rather than from the result, since what a run cost
+			// in wall time is a fact about the round and the runner does
+			// not report one.
+			const startedAt = Date.now();
 			const result = await runReviewer({
 				reviewer: {
 					id: participant.id,
@@ -1600,6 +1605,19 @@ function deps(
 								if (activity !== null) context.report?.(activity);
 							},
 						}),
+			});
+			// Counted before it is read, and counted whatever it turns
+			// out to say. This is the same publication a fleet makes for
+			// each of its subagents, and it is what puts a round in the
+			// footer meter and in the run table beside one.
+			recordReviewerRun({
+				runId: context.runId,
+				participantId: participant.id,
+				...(participant.model === undefined
+					? {}
+					: { model: participant.model }),
+				startedAt,
+				result,
 			});
 			// Told what it was allowed, so a stop records the clock it ran
 			// out of rather than only that one did. A retry cannot
