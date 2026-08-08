@@ -318,7 +318,21 @@ export interface RoundWatch {
 	 * the key in. Returns the notice to show.
 	 */
 	cancelOne(participantId: string): string;
-	/** The rows as they stand, which is what the panel is drawing. */
+	/**
+	 * Stop the whole round and mark every row that had not settled.
+	 *
+	 * What Escape does, here for the same reason: it is the commoner of
+	 * the two ways a round is stopped and there was no way to drive it
+	 * without a terminal.
+	 */
+	cancelAll(): void;
+	/**
+	 * The rows as they stand, which is what the panel is drawing.
+	 *
+	 * Read by cancellation to decide what is still stoppable, so this is
+	 * the watch's own view of the round rather than a window opened for
+	 * a test to look through.
+	 */
 	entries(): AskProgressEntry[];
 }
 
@@ -398,6 +412,13 @@ export function watchRound(
 	};
 
 	const cancelOne = (participantId: string): string => {
+		// A row that already settled is not cancellable. Pressing the key
+		// on a reviewer that has answered would otherwise rewrite it as
+		// cancelled and take its findings count off the board, which is
+		// destroying the result rather than stopping the work.
+		const row = entries().find((one) => one.participantId === participantId);
+		if (row !== undefined && row.state !== "pending" && row.state !== "running")
+			return `${participantId} already ${row.state}`;
 		signalFor(participantId);
 		each.get(participantId)?.abort();
 		// Said on the row as well as in the notice. The notice is one line
@@ -412,6 +433,15 @@ export function watchRound(
 	const controls: RoundControls = {
 		all() {
 			whole.abort();
+			// Every row that had not settled, not merely the signal. Escape
+			// is the commoner of the two ways to stop a round and it marked
+			// nothing at all, so the state added for exactly this was
+			// reachable only one participant at a time, and a round somebody
+			// abandoned still painted itself as one that answered.
+			for (const row of entries()) {
+				if (row.state === "pending" || row.state === "running")
+					progress.cancelled(row.participantId);
+			}
 			// Give the keyboard back at once. The round will settle on its
 			// own, and waiting for it would strand the person meanwhile.
 			teardown();
@@ -446,6 +476,9 @@ export function watchRound(
 		signal: whole.signal,
 		signalFor,
 		cancelOne,
+		cancelAll: () => {
+			controls.all();
+		},
 		entries,
 		progress: {
 			start(participants) {

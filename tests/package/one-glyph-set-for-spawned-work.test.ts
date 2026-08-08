@@ -36,7 +36,39 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const DRAWS_SPAWNED_WORK = [
 	"extensions/subagent-workflow/progress-render.ts",
 	"extensions/review-integration/progress.ts",
+	// The one that was missed the first time. Both panels above call
+	// this renderer, and it kept its own five marks after both of them
+	// had been converted, so quest's diamonds stayed on screen for every
+	// subagent while the change claimed they were gone.
+	"lib/ui/pipeline-progress.ts",
 ];
+
+/** The words a surface writes beside a state mark. */
+const STATE_WORD = "pending|running|complete|done|cancelled|skipped|failed";
+
+/**
+ * A state drawn with a mark of the file's own, either way round.
+ *
+ * `"◇ pending"` writes the mark inside the literal; `pending: { glyph:
+ * "◇" }` writes it beside one, and a panel row writes it inside a
+ * template. All three had to be learned the hard way: the first cut
+ * knew only the first shape and passed the mutation that put quest's
+ * diamonds back, and the second knew only double quotes and passed the
+ * one that put them back in a template, which is how every row in the
+ * fleet panel is actually drawn.
+ */
+const QUOTED =
+	/"[^"\n]*[\u0080-\uffff][^"\n]*"|`[^`\n]*[\u0080-\uffff][^`\n]*`/;
+
+/** Lines that name a state and carry a mark of their own. */
+function spelledStates(source: string): string[] {
+	return source
+		.split("\n")
+		.filter((line) => !line.trimStart().startsWith("*"))
+		.filter((line) => QUOTED.test(line))
+		.filter((line) => new RegExp(`\\b(?:${STATE_WORD})\\b`).test(line))
+		.map((line) => line.trim());
+}
 
 /** The five states anything spawned can be in. */
 const STATES = ["pending", "running", "done", "cancelled", "failed"] as const;
@@ -72,15 +104,18 @@ describe("one glyph set for spawned work", () => {
 			const source = readFileSync(join(ROOT, surface), "utf8");
 
 			expect(source).toContain("AGENT_GLYPH");
-			// The five marks themselves, spelled either way a glyph gets
-			// written here: as the character, or as its escape. Other marks
-			// in these files are rules, arrows and key hints, which are not
-			// states and are nobody's family.
-			const spelled = STATES.flatMap((state) => {
-				const mark = AGENT_GLYPH[state];
-				const written = `\\u${mark.codePointAt(0)?.toString(16).padStart(4, "0")}`;
-				return source.includes(mark) || source.includes(written) ? [state] : [];
-			});
+			// Any literal that names a state and carries a mark of its own.
+			//
+			// The first version of this looked for the five marks the set
+			// had settled on, which is the one thing a regression will never
+			// contain: putting the diamonds back would have passed it, and
+			// the diamonds were still on screen at the time. What gives a
+			// hand-spelled state away is not which mark it is but that it is
+			// written beside the word for the state.
+			//
+			// Rules, cursors and key hints are left alone: they say nothing
+			// about what a run is doing, so they are not this set's business.
+			const spelled = spelledStates(source);
 			expect({ surface, spelled }).toEqual({ surface, spelled: [] });
 		}
 	});

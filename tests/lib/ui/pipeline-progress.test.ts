@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { AGENT_GLYPH } from "../../../lib/ui/agent-glyphs.js";
 import {
 	type PipelineStage,
 	renderPipelineProgress,
@@ -30,11 +31,11 @@ describe("renderPipelineProgress", () => {
 		);
 		expect(out).toBe(
 			[
-				"<muted>◇</muted> <muted>pending</muted>",
-				"<accent>◈</accent> <accent><b>running</b></accent>",
-				"<success>✓</success> <success>complete</success>",
-				"<dim>·</dim> <dim>skipped</dim>",
-				"<error>✕</error> <error>failed</error>",
+				`<muted>${AGENT_GLYPH.pending}</muted> <muted>pending</muted>`,
+				`<accent>${AGENT_GLYPH.running}</accent> <accent><b>running</b></accent>`,
+				`<success>${AGENT_GLYPH.done}</success> <success>complete</success>`,
+				`<dim>${AGENT_GLYPH.cancelled}</dim> <dim>skipped</dim>`,
+				`<error>${AGENT_GLYPH.failed}</error> <error>failed</error>`,
 			].join(" <dim>─▸</dim> "),
 		);
 	});
@@ -71,7 +72,7 @@ describe("renderPipelineProgress", () => {
 			theme,
 		);
 		expect(out).toBe(
-			"<accent>◈</accent> <accent><b>fanout</b></accent> <dim>(3/5)</dim>",
+			`<accent>${AGENT_GLYPH.running}</accent> <accent><b>fanout</b></accent> <dim>(3/5)</dim>`,
 		);
 	});
 
@@ -128,7 +129,11 @@ describe("renderPipelineProgressLines", () => {
 			{ vertical: true },
 		);
 		expect(lines).toHaveLength(2);
-		expect(lines[0]).toBe("<success>✓</success> <success>a</success>");
-		expect(lines[1]).toBe("<muted>◇</muted> <muted>b</muted>");
+		expect(lines[0]).toBe(
+			`<success>${AGENT_GLYPH.done}</success> <success>a</success>`,
+		);
+		expect(lines[1]).toBe(
+			`<muted>${AGENT_GLYPH.pending}</muted> <muted>b</muted>`,
+		);
 	});
 });

@@ -160,6 +160,19 @@ export function trackAskProgress(
 	// in, which Map preserves and an object does not promise.
 	const rows = new Map<string, AskProgressEntry>();
 
+	/**
+	 * Whether somebody already stopped this one.
+	 *
+	 * Cancelling outranks whatever the runner says next, in both
+	 * directions. Killing a subprocess is not instant, so a reviewer can
+	 * report home after the kill has reached the panel, and it is likelier
+	 * to report a failure than an answer: a killed process exits non-zero.
+	 * Guarding only the answer left the likelier of the two paths
+	 * repainting the row red, so the panel blamed the round for something
+	 * a person did on purpose.
+	 */
+	const stopped = (id: string): boolean => rows.get(id)?.state === "cancelled";
+
 	/** Change one row, if we have heard of it. */
 	const amend = (id: string, change: Partial<AskProgressEntry>): void => {
 		const row = rows.get(id);
@@ -191,17 +204,16 @@ export function trackAskProgress(
 			answered(id) {
 				// Clearing the activity is the point: a settled row still
 				// reading "reading app.ts" reads as though it still is.
-				//
-				// A cancelled row is left alone. Cancelling is what a person
-				// did, and the runner reporting a moment later that the work
-				// finished anyway must not paint over the reason it stopped.
-				if (rows.get(id)?.state === "cancelled") return;
+				if (stopped(id)) return;
 				amend(id, { state: "answered", activity: "", settledAtMs: now() });
 			},
 			cancelled(id) {
 				amend(id, { state: "cancelled", activity: "", settledAtMs: now() });
 			},
 			failed(id, reason) {
+				// The likelier of the two late reports after a kill, since a
+				// killed process exits non-zero.
+				if (stopped(id)) return;
 				amend(id, {
 					state: "failed",
 					activity: "",
