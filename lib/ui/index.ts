@@ -9,6 +9,8 @@
  * re-exported.
  */
 
+// ── Spawned work ────────────────────────────────────────────
+export { AGENT_GLYPH, type AgentState } from "./agent-glyphs.js";
 // ── Badges and bars ─────────────────────────────────────────
 export {
 	type BadgeKind,

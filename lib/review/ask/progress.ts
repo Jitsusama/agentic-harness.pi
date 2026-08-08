@@ -15,8 +15,20 @@
 
 import type { Participant } from "./identity.js";
 
-/** Where one participant has got to. */
-export type AskProgressState = "pending" | "running" | "answered" | "failed";
+/**
+ * Where one participant has got to.
+ *
+ * Five, because a reviewer somebody stopped is not a reviewer that
+ * answered. With four states a cancelled one kept the mark and the
+ * colour of success, so the panel said the round had gone well at the
+ * exact moment somebody was telling it otherwise.
+ */
+export type AskProgressState =
+	| "pending"
+	| "running"
+	| "answered"
+	| "cancelled"
+	| "failed";
 
 /** One participant's row, as a reporter would draw it. */
 export interface AskProgressEntry {
@@ -68,6 +80,15 @@ export interface AskProgress {
 	answered(participantId: string): void;
 	/** It failed, and why. */
 	failed(participantId: string, reason: string): void;
+	/**
+	 * Somebody stopped it.
+	 *
+	 * Separate from failing, because it is the one settled state that is
+	 * not news about the change. It outranks a later answer: the runner
+	 * can report a reviewer home after the kill reached the panel, and
+	 * repainting that row green loses the only thing the watcher knew.
+	 */
+	cancelled(participantId: string): void;
 	/** Its findings have landed and been numbered. */
 	recorded(participantId: string, findings: number): void;
 	/** The round is over. */
@@ -113,6 +134,7 @@ export const noAskProgress: AskProgress = {
 	activity() {},
 	answered() {},
 	failed() {},
+	cancelled() {},
 	recorded() {},
 	finish() {},
 };
@@ -169,7 +191,15 @@ export function trackAskProgress(
 			answered(id) {
 				// Clearing the activity is the point: a settled row still
 				// reading "reading app.ts" reads as though it still is.
+				//
+				// A cancelled row is left alone. Cancelling is what a person
+				// did, and the runner reporting a moment later that the work
+				// finished anyway must not paint over the reason it stopped.
+				if (rows.get(id)?.state === "cancelled") return;
 				amend(id, { state: "answered", activity: "", settledAtMs: now() });
+			},
+			cancelled(id) {
+				amend(id, { state: "cancelled", activity: "", settledAtMs: now() });
 			},
 			failed(id, reason) {
 				amend(id, {

@@ -34,27 +34,25 @@ import {
 	type AskRound,
 	trackAskProgress,
 } from "../../lib/review/index.js";
-import { GLYPH as REVIEW_GLYPH } from "./render.js";
+import { AGENT_GLYPH } from "../../lib/ui/agent-glyphs.js";
 
 /**
- * Geometry, not emoji, per the review tools' convention: triangles, since
- * that is the review surface's family, and a participant in a round is part
- * of a review. An open one is waiting, a small one is working, a filled one
- * has answered and a cross has failed.
+ * The spawned-work set, not the review family, and that is the point. A
+ * reviewer in a round and a subagent in a fan-out are the same thing seen
+ * from two tools, so they are drawn the same way and the marks live in
+ * neither surface.
  *
- * These were diamonds, which quests own. A round drawn in quest glyphs put
- * seven reviewers on screen looking like seven subquests.
+ * These were diamonds first, which quests own: a round drawn in quest glyphs
+ * put seven reviewers on screen looking like seven subquests. They were then
+ * review's own triangles, which meant a running participant and a finding
+ * wore the same mark, and a panel of seven could be read as seven findings.
  */
 const GLYPH: Record<AskProgressEntry["state"], string> = {
-	// The shared set's mark for accepted but not finished. A participant not yet
-	// run and a change sitting in a merge queue are the same fact about
-	// different subjects, so they are the same mark, spelled in one place.
-	pending: REVIEW_GLYPH.queued,
-	running: "\u25b8",
-	answered: "\u25b6",
-	// Taken from the shared set rather than spelled again, so the panel and the
-	// recorded answer cannot disagree about what a failed participant looks like.
-	failed: REVIEW_GLYPH.failed,
+	pending: AGENT_GLYPH.pending,
+	running: AGENT_GLYPH.running,
+	answered: AGENT_GLYPH.done,
+	cancelled: AGENT_GLYPH.cancelled,
+	failed: AGENT_GLYPH.failed,
 };
 
 /** The glyph and the word for it, coloured by what it means. */
@@ -66,6 +64,10 @@ function status(entry: AskProgressEntry, theme: Theme): string {
 			return theme.fg("accent", `${GLYPH.running} running`);
 		case "answered":
 			return theme.fg("success", `${GLYPH.answered} answered`);
+		case "cancelled":
+			// Dim rather than red. Somebody stopping a reviewer is not the
+			// round going wrong, and it used to paint in success green.
+			return theme.fg("dim", `${GLYPH.cancelled} cancelled`);
 		case "failed":
 			return theme.fg("error", `${GLYPH.failed} failed`);
 	}
@@ -308,6 +310,16 @@ export interface RoundWatch {
 	 * reaches each of them.
 	 */
 	signalFor(participantId: string): AbortSignal;
+	/**
+	 * Stop one participant and say so on its row.
+	 *
+	 * What the panel's `r` key does, here rather than inside the panel so
+	 * that stopping a reviewer can be driven without a terminal to press
+	 * the key in. Returns the notice to show.
+	 */
+	cancelOne(participantId: string): string;
+	/** The rows as they stand, which is what the panel is drawing. */
+	entries(): AskProgressEntry[];
 }
 
 /**
@@ -385,6 +397,18 @@ export function watchRound(
 		panel = null;
 	};
 
+	const cancelOne = (participantId: string): string => {
+		signalFor(participantId);
+		each.get(participantId)?.abort();
+		// Said on the row as well as in the notice. The notice is one line
+		// that the next one replaces, so without this the only record of
+		// the kill vanished and the row went on to paint itself answered,
+		// in success green, whatever had actually happened to it.
+		progress.cancelled(participantId);
+		draw();
+		return `cancelled ${participantId}`;
+	};
+
 	const controls: RoundControls = {
 		all() {
 			whole.abort();
@@ -392,11 +416,7 @@ export function watchRound(
 			// own, and waiting for it would strand the person meanwhile.
 			teardown();
 		},
-		one(participantId) {
-			signalFor(participantId);
-			each.get(participantId)?.abort();
-			return `cancelled ${participantId}`;
-		},
+		one: (participantId) => cancelOne(participantId),
 	};
 
 	const install = (): void => {
@@ -425,6 +445,8 @@ export function watchRound(
 		round,
 		signal: whole.signal,
 		signalFor,
+		cancelOne,
+		entries,
 		progress: {
 			start(participants) {
 				progress.start(participants);
@@ -441,6 +463,10 @@ export function watchRound(
 			},
 			answered(id) {
 				progress.answered(id);
+				draw();
+			},
+			cancelled(id) {
+				progress.cancelled(id);
 				draw();
 			},
 			failed(id, reason) {

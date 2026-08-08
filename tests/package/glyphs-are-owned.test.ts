@@ -32,7 +32,12 @@ interface Use {
  */
 const SURFACES = [
 	"extensions/review-integration/render.ts",
-	"extensions/review-integration/progress.ts",
+	// Where the marks for anything spawned live, in neither of the two
+	// surfaces that draw them. Review's round panel and the fleet's panel
+	// both used to spell their own, which is how one of them ended up
+	// drawing subagents in quest's diamonds without anything noticing:
+	// this list is what notices, and that file was never in it.
+	"lib/ui/agent-glyphs.ts",
 	"extensions/work-integration/render.ts",
 	"extensions/quest-workflow/render.ts",
 	"extensions/tdd-workflow/glyphs.ts",
@@ -170,6 +175,11 @@ describe("glyph ownership across the package", () => {
 			// The circle-fill progression, a phase getting fuller, ending on a
 			// centred circle for the refactor that follows green.
 			"tdd-workflow": /[\u25c9\u25cb-\u25d5\u25cc]/,
+			// Hexagons for how far along a spawned agent is, and marks rather
+			// than shapes for how it ended, since those are two questions. The
+			// family is its own because every other one is taken and a spawned
+			// agent should read as neither a quest nor a review nor a tree.
+			ui: /[\u2b21\u2b22\u2713\u2212\u2715]/,
 		};
 
 		const strays: string[] = [];

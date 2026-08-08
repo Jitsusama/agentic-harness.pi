@@ -232,6 +232,61 @@ describe("the panel names every participant", () => {
 	});
 });
 
+describe("a reviewer somebody stopped", () => {
+	// The panel had four states, so there was no way to draw this one.
+	// A cancelled reviewer kept the mark and the colour of one that had
+	// answered, which is the panel saying the round went well at the
+	// moment somebody was telling it otherwise.
+	it("is drawn as cancelled rather than as an answer", () => {
+		const { progress, entries } = trackAskProgress(() => 60_000);
+		progress.start(PARTICIPANTS);
+		progress.started("test-skeptic");
+		progress.cancelled("test-skeptic");
+
+		const drawn = panelLines("council", entries(), theme, -1, 80, 90_000);
+		const row = drawn.find((line) => line.includes("test-skeptic"));
+
+		expect(row).toContain("cancelled");
+		expect(row).not.toContain("answered");
+	});
+
+	it("stays cancelled when the runner reports it home afterwards", () => {
+		// The race that makes this worth a rule. Killing a subprocess is
+		// not instant, so the runner can hand back an answer after the
+		// kill has reached the panel. Whoever stopped it is the authority
+		// on why it stopped.
+		const { progress, entries } = trackAskProgress(() => 60_000);
+		progress.start(PARTICIPANTS);
+		progress.started("test-skeptic");
+		progress.cancelled("test-skeptic");
+		progress.answered("test-skeptic");
+
+		expect(
+			entries().find((row) => row.participantId === "test-skeptic"),
+		).toMatchObject({ state: "cancelled" });
+	});
+
+	it("is marked cancelled by the same call the panel's key makes", () => {
+		// The wiring, not the piece. Everything above would pass with the
+		// watch never telling the row anything, which is the state this
+		// panel was already in.
+		const watch = watchRound("council", null);
+		watch.progress.start(PARTICIPANTS);
+		watch.progress.started("test-skeptic");
+
+		const notice = watch.cancelOne("test-skeptic");
+
+		expect(notice).toBe("cancelled test-skeptic");
+		expect(watch.signalFor("test-skeptic").aborted).toBe(true);
+		expect(watch.entries()).toContainEqual(
+			expect.objectContaining({
+				participantId: "test-skeptic",
+				state: "cancelled",
+			}),
+		);
+	});
+});
+
 describe("cancelling a round", () => {
 	it("gives each participant a signal derived from the round's", () => {
 		const watch = watchRound("council", null);
