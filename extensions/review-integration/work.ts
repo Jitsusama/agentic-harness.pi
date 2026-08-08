@@ -15,8 +15,13 @@
  * The seam is the event bus, so this package needs the work library
  * and never the work extension. If nothing answers, asking still
  * succeeds and says it fell back, because a round is worth running
- * against the caller's own checkout and is not worth losing to a
+ * against a checkout of the right repo and is not worth losing to a
  * missing optional dependency.
+ *
+ * Falling back has one limit, and it is not about the commit. A
+ * directory that is a checkout of some other project is not a worse
+ * tree, it is a different subject, so a round with nowhere honest to
+ * stand refuses instead of degrading.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -30,8 +35,28 @@ import {
 	type WorkApi,
 } from "../../lib/work/index.js";
 
+/**
+ * How long to wait for git to name a directory's remotes.
+ *
+ * Reading local config, so a second is generous. It is a bound rather
+ * than a budget: the failure it exists for is a git that blocks on a
+ * prompt, and waiting on that costs the round it was protecting.
+ */
+const REMOTE_PROBE_MS = 5_000;
+
 /** The working layer, once something has announced one. */
 let work: WorkApi | undefined;
+
+/**
+ * The host, kept for the one question only a command can answer.
+ *
+ * Which repository a directory is a checkout of is not something a
+ * locator knows: that is the whole reason a round could be run
+ * against somebody else's repo. Asking git is the only honest answer,
+ * and asking is optional, because a caller who cannot ask is a caller
+ * who cannot show the fallback is the right repo either.
+ */
+let host: ExtensionAPI | undefined;
 
 /** How to stop listening for it, so listening twice does not stack. */
 let stopListening: (() => void) | undefined;
@@ -45,6 +70,7 @@ let stopListening: (() => void) | undefined;
  * nothing, which is the point.
  */
 export function watchForWorkLayer(pi: ExtensionAPI): void {
+	host = pi;
 	// Once. This runs at registration and again on every session start,
 	// and the bus outlives a reload, so keeping the old subscription
 	// would stack a listener per start until node warns about a leak in
@@ -60,6 +86,7 @@ export function watchForWorkLayer(pi: ExtensionAPI): void {
 /** Forget it, so a reload does not answer with a dead broker. */
 export function forgetWorkLayer(): void {
 	work = undefined;
+	host = undefined;
 	stopListening?.();
 	stopListening = undefined;
 }
@@ -143,7 +170,7 @@ export function treeStandingFor(
 export async function treeForFixing(
 	repo: RepoLocator,
 	branch: string,
-): Promise<RoundTree | { refusal: string }> {
+): Promise<{ path: string } | { refusal: string }> {
 	if (work === undefined) {
 		return {
 			refusal:
@@ -178,12 +205,27 @@ export async function treeForFixing(
 	}
 }
 
-/** Where a round will run, and whether that is what was wanted. */
-export interface RoundTree {
+/** A tree a round can actually read, wanted or merely acceptable. */
+export interface ReadableTree {
 	path: string;
 	/** Said out loud when the tree is not the commit under review. */
 	caveat?: string;
 }
+
+/** Where a round will run, and whether that is what was wanted. */
+export type RoundTree =
+	| ReadableTree
+	| {
+			/**
+			 * Why no round should be run at all.
+			 *
+			 * Degrading is right when the fallback is the repo under
+			 * review at some other commit, and worthless when it is a
+			 * different repository. The second is not a worse review, it
+			 * is a review of something else.
+			 */
+			refusal: string;
+	  };
 
 /**
  * What a round formed here read, in the shape a run records it.
@@ -201,9 +243,13 @@ export interface RoundTree {
  * findings formed against whatever the checkout happened to be.
  */
 export function readFrom(
-	tree: RoundTree,
+	tree: ReadableTree,
 	headCommit: string | undefined,
 ): TreeRead {
+	// A readable tree only. Widening this to the union let a refused
+	// tree be recorded as a round that read the commit faithfully,
+	// which is the opposite of what a refusal means, and it weakened
+	// the one compile-time guarantee this change relies on.
 	return whatItRead({
 		...(headCommit === undefined ? {} : { witness: headCommit }),
 		...(tree.caveat === undefined ? {} : { unpinned: tree.caveat }),
@@ -211,18 +257,94 @@ export function readFrom(
 }
 
 /**
+ * Where a degraded round may read, or why it may not run.
+ *
+ * The fault is a relation between two things, not a property of one:
+ * the question is whether the ground the reviewers would stand on is
+ * the repo under review. Asking the locator instead let two shapes
+ * through. A repo known only by remote still fell back to whatever
+ * the caller was sitting in, and a repo known only by key refused
+ * even when the caller was standing in it.
+ *
+ * A checkout we know about wins over the caller's own directory,
+ * since it is the right repo by construction and the caller's
+ * directory is only ever right by luck.
+ */
+async function groundFor(
+	repo: RepoLocator,
+	fallback: string,
+): Promise<{ path: string } | { refusal: string }> {
+	if (repo.localPath !== undefined) return { path: repo.localPath };
+	if (await isCheckoutOf(fallback, repo)) return { path: fallback };
+	return {
+		refusal: `${fallback} is not a checkout of ${repo.key}, and nothing here knows where that repo lives, so a round would read a different project. Findings from the wrong repository read perfectly and are about nothing. Run this from a checkout of ${repo.key}, or register a provider that knows where it is.`,
+	};
+}
+
+/**
+ * Whether a directory is a checkout of this repo, by asking git.
+ *
+ * Matched on the owner and name the key carries rather than on a URL
+ * verbatim, because the same repo is reached by ssh and by https and
+ * is named two ways by two hosts. A caller with no host to ask
+ * answers no, which is right: it cannot show the fallback is the repo
+ * either.
+ */
+async function isCheckoutOf(
+	directory: string,
+	repo: RepoLocator,
+): Promise<boolean> {
+	const named = repo.key.split(":").pop();
+	if (named === undefined || named === "") return false;
+	if (host === undefined) return false;
+	try {
+		const said = await host.exec("git", ["-C", directory, "remote", "-v"], {
+			timeout: REMOTE_PROBE_MS,
+		});
+		if (said.code !== 0) return false;
+		const wanted = named.toLowerCase();
+		return said.stdout
+			.toLowerCase()
+			.split("\n")
+			.some((line) => line.includes(wanted) || line.includes(`${wanted}.git`));
+	} catch {
+		// A directory that is not a repository, or a git that will not
+		// run. Either way we cannot show this is the right repo, and
+		// saying so is the safe answer rather than the optimistic one.
+		return false;
+	}
+}
+
+/**
  * A tree to review a commit in, falling back to the caller's own.
  *
- * Every failure here degrades rather than refusing, and says so. A
- * council is expensive and a caller's checkout is usually the right
- * tree anyway; what is not acceptable is reviewing the wrong code
- * silently.
+ * Every failure about the commit degrades rather than refusing, and
+ * says so. A council is expensive and a checkout of the right repo is
+ * usually close enough; what is not acceptable is reviewing the wrong
+ * code silently.
+ *
+ * Being in the wrong repository is not one of those failures. That is
+ * settled first, and refused, because no caveat makes findings about
+ * another project worth reading.
  */
 export async function treeForRound(
 	repo: RepoLocator,
 	commit: string | undefined,
 	fallback: string,
 ): Promise<RoundTree> {
+	// Where a degraded round may honestly read, decided before
+	// anything is cut, because this is the one failure a caveat cannot
+	// cover: a caveat about the commit is no use when the tree is
+	// another project.
+	//
+	// Three councils established the price. Asked about a change in
+	// one repo from a session sitting in another, they read the
+	// session's repo and returned 225 findings about code the change
+	// does not contain, at $75.63. Every one of them read plausibly.
+	const ground = await groundFor(repo, fallback);
+	if ("refusal" in ground) return ground;
+	fallback = ground.path;
+
 	if (work === undefined) {
 		return {
 			path: fallback,

@@ -33,20 +33,84 @@ import {
 import { runCouncil, startCouncil } from "../../lib/review/index.js";
 
 describe("what a round records about the tree it read", () => {
-	it("carries the caveat beside the commit, or neither", async () => {
-		// The real producer, in the state that produces a caveat with
-		// nothing stubbed: no working layer is loaded in a bare test
-		// process, so there is nobody to cut a snapshot.
+	it("refuses when nothing knows where the repo under review lives", async () => {
+		// Degrading is right when the fallback is the same repository at
+		// some other commit, and catastrophic when it is a different
+		// repository altogether. Three councils proved which: asked
+		// about a change in one repo from a session sitting in another,
+		// they read the session's repo and returned 225 findings about
+		// code the change does not contain, for $75.63.
+		//
+		// A repo with neither a checkout nor a remote is exactly that
+		// case, because the thing that makes a fallback plausible, that
+		// the caller is sitting in the repo under review, is the same
+		// thing that would have given it a local path.
 		const tree = await treeForRound(
-			{ key: "github:Jitsusama/agentic-harness.pi" },
+			{ key: "github:elsewhere/other" },
 			"d7205e3c",
 			"/the/callers/checkout",
 		);
 
+		expect(tree).toEqual({
+			refusal: expect.stringContaining("github:elsewhere/other"),
+		});
+	});
+
+	it("carries the caveat beside the commit, or neither", async () => {
+		// The real producer, in the state that produces a caveat with
+		// nothing stubbed: no working layer is loaded in a bare test
+		// process, so there is nobody to cut a snapshot. The repo has a
+		// local checkout, so the fallback is at worst the right repo at
+		// the wrong commit, which is what a caveat is for.
+		const tree = await treeForRound(
+			{
+				key: "github:Jitsusama/agentic-harness.pi",
+				localPath: "/the/callers/checkout",
+			},
+			"d7205e3c",
+			"/the/callers/checkout",
+		);
+
+		// Narrowed rather than asserted around, so a refusal here fails
+		// as a refusal rather than as `false` not being a path.
+		if ("refusal" in tree) throw new Error(`refused: ${tree.refusal}`);
 		expect(tree.path).toBe("/the/callers/checkout");
 		expect(readFrom(tree, "d7205e3c")).toEqual({
 			witness: "d7205e3c",
 			unpinned: expect.stringContaining("/the/callers/checkout"),
+		});
+	});
+
+	it("reads the checkout it knows about, not the one it is sitting in", async () => {
+		// When a checkout of the right repo is known, that is where a
+		// degraded round belongs. It is the right repo by construction,
+		// and the caller's own directory is only ever right by luck.
+		const tree = await treeForRound(
+			{ key: "github:Jitsusama/agentic-harness.pi", localPath: "/the/repo" },
+			"d7205e3c",
+			"/somewhere/else/entirely",
+		);
+
+		if ("refusal" in tree) throw new Error(`refused: ${tree.refusal}`);
+		expect(tree.path).toBe("/the/repo");
+	});
+
+	it("refuses a repo known only by a remote it cannot cut", async () => {
+		// The shape the first attempt let straight through. Knowing a
+		// remote says where the repo is on the internet, which is no
+		// evidence at all about the directory the caller is sitting in,
+		// and that directory was the thing about to be reviewed.
+		const tree = await treeForRound(
+			{
+				key: "github:elsewhere/other",
+				remoteUrl: "https://github.com/elsewhere/other.git",
+			},
+			"d7205e3c",
+			"/the/callers/checkout",
+		);
+
+		expect(tree).toEqual({
+			refusal: expect.stringContaining("not a checkout of"),
 		});
 	});
 
@@ -136,6 +200,22 @@ describe("what a round records about the tree it read", () => {
 		// a caller passing an empty record, and an empty record is the
 		// original bug in a shorter spelling.
 		expect(source).toContain("substituteOutcome(held, outcome, read)");
+
+		// And that every one of them refuses a tree that was refused.
+		// The union makes reading a refused tree a compile error, which
+		// is most of the guard, but nothing stops a new caller taking
+		// the path and never touching it. Counted against the calls
+		// rather than fixed at seven, so an eighth round has to answer
+		// the question rather than inherit a number.
+		const cut = source.split("await treeForRound(").length - 1;
+		const refused =
+			source.split('if ("refusal" in tree) return refuse(tree.refusal);')
+				.length - 1;
+		// Both sides counted, because equal counts are satisfied by zero
+		// and zero: a rename would take the guard and the calls out
+		// together and this would go green on a file that no longer
+		// contains the thing it polices.
+		expect({ cut, refused }).toEqual({ cut: rounds.length + 2, refused: cut });
 	});
 
 	it("says nothing about a tree that was the commit", () => {
