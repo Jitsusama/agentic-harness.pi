@@ -480,11 +480,18 @@ Run a fresh council instead.
 
 ### What a Reviewer Sees
 
-A reviewer gets what the round gives it and nothing off the machine it
-happens to run on: no user-scoped skills, no auto-discovered
-extensions, no ambient context files. Two people asking the same
-question about the same change should get the same council, and before
-this they did not, with nothing in the answer to say why.
+A reviewer gets what the round gives it: no user-scoped skills, no
+auto-discovered extensions, no ambient context files. Two people
+asking the same question about the same change should get the same
+council, and before this they did not, with nothing in the answer to
+say why.
+
+One thing does still cross, and it is deliberate: an extension that
+registered itself as a subagent default is loaded into every child,
+isolation or not. That is how a credentials helper reaches a reviewer
+that needs one. It is worth knowing about, because it means the answer
+to "what did this reviewer have" is the round's list plus whatever the
+session registered.
 
 The repo's own conventions still reach the reviewer, because a
 reviewer that does not know a project files findings asking why it is

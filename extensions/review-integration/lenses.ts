@@ -64,10 +64,31 @@ const AGENT_DIRS = [join(".claude", "agents"), "agents"];
  * the point is to hand over deliberately what it was picking up
  * ambiently. An override wins outright, which is what the name means.
  */
-const GUIDANCE_FILES = ["AGENTS.override.md", "AGENTS.md", "CLAUDE.md"];
+const GUIDANCE_FILES = [
+	"AGENTS.override.md",
+	"CLAUDE.override.md",
+	"AGENTS.md",
+	"CLAUDE.md",
+];
 
-/** How much of a repo's conventions to carry into a prompt. */
-const MOST_GUIDANCE = 32_000;
+/**
+ * How much of a repo's conventions to carry into a prompt.
+ *
+ * Measured against the file this repo ships, which is the one case to
+ * hand: 32,000 cut it, and cut the tail, which is where a file like
+ * this says what not to do. Raised past it with room, and the cut says
+ * where the rest is rather than pretending there is no rest.
+ */
+const MOST_GUIDANCE = 96_000;
+
+/** Whether a path from a diff names this file at the repo root. */
+function sameRootFile(path: string, name: string): boolean {
+	const plain = path
+		.replace(/\\/g, "/")
+		.replace(/^\.\//, "")
+		.replace(/^[ab]\//, "");
+	return plain.toLowerCase() === name.toLowerCase();
+}
 
 /**
  * What the repo under review asks of its contributors.
@@ -83,12 +104,30 @@ export async function guidanceInRepo(
 	tree: ReadableTree,
 	touched: Touched,
 ): Promise<RepoGuidance | undefined> {
+	if (tree.caveat !== undefined) {
+		// The tree is not the change's, so whatever sits at its root is
+		// somebody else's conventions, and the edited flag would be
+		// computed against a commit nobody read. Handing that over as "the
+		// repo's own text" is worse than handing over nothing: the caveat
+		// goes to the operator, and the reviewer never hears it.
+		return undefined;
+	}
+	const root = await realpath(tree.path).catch(() => resolve(tree.path));
+
 	for (const name of GUIDANCE_FILES) {
+		const at = join(tree.path, name);
 		let text: string;
 		try {
-			text = await readFile(join(tree.path, name), "utf8");
+			// The same rule the agent files get, and for the same reason: a
+			// link is followed for its bytes, so without this a change could
+			// point AGENTS.md at any readable file on the machine and have it
+			// quoted into every reviewer's prompt. It was guarded one
+			// function along and not here.
+			const real = await realpath(at);
+			if (real !== resolve(at) && !real.startsWith(`${root}/`)) continue;
+			text = await readFile(at, "utf8");
 		} catch {
-			// Most repos have one of these and no repo has all three.
+			// Most repos have one of these and none has all four.
 			continue;
 		}
 		if (text.trim() === "") continue;
@@ -101,12 +140,17 @@ export async function guidanceInRepo(
 			text:
 				text.length <= MOST_GUIDANCE
 					? text
-					: `${text.slice(0, MOST_GUIDANCE)}\n\n[cut here: ${name} is ${text.length} characters]`,
+					: `${text.slice(0, MOST_GUIDANCE)}\n\n[cut here at ${MOST_GUIDANCE} of ${text.length} characters. The rest is in ${name} at the root of your working directory, and the end of one of these files is usually where it says what not to do.]`,
 			// Not knowing counts as edited, since the whole reason to say so
 			// is that the change may have written what the reviewer is about
 			// to read, and "we could not tell" is not "it did not".
+			//
+			// The comparison is against this file and not against any file
+			// whose name ends the same way. A repo with an AGENTS.md in a
+			// subdirectory, which is most of them, marked the root one as
+			// edited whenever the change touched the other.
 			edited: Array.isArray(touched)
-				? touched.some((path) => path.endsWith(name))
+				? touched.some((path) => sameRootFile(path, name))
 				: true,
 		};
 	}

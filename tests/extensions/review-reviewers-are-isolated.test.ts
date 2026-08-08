@@ -81,18 +81,33 @@ describe("what a reviewer inherits", () => {
 	it("still includes what the round means to give it", () => {
 		// Isolation strips ambient inheritance, so anything a round needs
 		// has to be handed over explicitly. Losing the contract skill
-		// silently would leave every reviewer answering in a shape
-		// nothing can read.
-		expect(source).toContain("extraSkills: [contract]");
-		expect(source).toContain("journalPack()");
+		// silently would leave every reviewer answering in a shape nothing
+		// can read.
+		//
+		// Scoped to each spawn, because searching the whole file is
+		// satisfied by the other spawn still having it, which is the
+		// first-occurrence bug fixed one test below and left standing
+		// here.
+		const given = ["startReviewer", "runReviewer"].map((which) => {
+			const call = argumentsOf(source, source.indexOf(`await ${which}({`));
+			return {
+				which,
+				contract: call.includes("extraSkills: [contract]"),
+				journal: call.includes("journalPack()"),
+			};
+		});
+
+		expect(given).toEqual([
+			{ which: "startReviewer", contract: true, journal: true },
+			{ which: "runReviewer", contract: true, journal: true },
+		]);
 	});
 
-	it("takes the repo's conventions as material in the prompt", () => {
-		// Not as ambient context, which is where they were arriving from,
-		// and which put the change author's prose above the round's own
-		// instructions. Every round that builds a prompt passes them, so
-		// isolation does not cost a reviewer the conventions it should be
-		// holding the change to.
+	it("passes the repo's conventions from every round that builds a prompt", () => {
+		// Half of the join. That the prompts render what they are passed
+		// is the other half, and it is asserted against real prompt text
+		// in the prompt suite, because this one passed while four of the
+		// five builders discarded the argument.
 		const rounds = [
 			"councilPrompt({",
 			"judgePrompt({",

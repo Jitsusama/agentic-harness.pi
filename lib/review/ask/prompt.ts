@@ -28,7 +28,6 @@ import { anchorableRanges, describeRanges } from "./anchorable.js";
 const ANSWER_AS_CONTRACTED =
 	"Answer in the JSON your output contract skill describes. A pass with nothing to say answers with an empty findings list rather than prose.";
 
-/** What a round needs to say to whoever it asks. */
 /**
  * What the repo under review says about how it wants to be worked in.
  *
@@ -55,6 +54,7 @@ export interface RepoGuidance {
 	edited: boolean;
 }
 
+/** What a round needs to say to whoever it asks. */
 export interface PromptInput {
 	proposal: Proposal;
 	diff: DiffModel;
@@ -133,6 +133,7 @@ export function judgePrompt(input: JudgePromptInput): string {
 		"Be willing to drop a finding entirely. A reviewer that misread the code, or flagged a risk the surrounding code already handles, produced a finding that would waste the author's time. Check the ones that matter against the tree before you keep them.",
 		anchorGuidance(input.diff),
 		intentSection(input.intent),
+		guidanceSection(input.guidance),
 		changeSection(input.proposal),
 		"## What the reviewers said",
 		input.findings.trim() === ""
@@ -160,6 +161,7 @@ export function critiquePrompt(input: CritiquePromptInput): string {
 		"Say nothing about a finding you have no view on. Silence is read as no position, never as agreement, so there is no cost to leaving one out and a real cost to guessing.",
 		"You are not raising new findings here. If you notice something nobody raised, that is worth knowing, but this round records positions only.",
 		intentSection(input.intent),
+		guidanceSection(input.guidance),
 		changeSection(input.proposal),
 		"## The findings put to you",
 		input.findings.trim() === ""
@@ -188,6 +190,7 @@ export function auditPrompt(input: AuditPromptInput): string {
 		"Go and read the code before you call something addressed. A thread saying the handle leaks is addressed by a close on the error path, not by a comment saying it should be closed. Cite where you saw it.",
 		"You are not replying to anybody and not raising findings. These are other people's words, and what you produce informs a reply that somebody else will write.",
 		intentSection(input.intent),
+		guidanceSection(input.guidance),
 		changeSection(input.proposal),
 		input.stack?.trim()
 			? `## The rest of the stack\n\n${input.stack.trim()}`
@@ -216,6 +219,13 @@ export interface StackPromptInput {
 	/** Roots before children, the order the stack reports them in. */
 	changes: StackChangePrompt[];
 	intent?: string;
+	/**
+	 * What the repo says about itself, if it says anything.
+	 *
+	 * A stack has many changes and one repo, so this is the repo's, not
+	 * any one change's, exactly as the tree the round reads is one tree.
+	 */
+	guidance?: RepoGuidance;
 }
 
 /**
@@ -234,6 +244,7 @@ export function stackPrompt(input: StackPromptInput): string {
 		"Review each change on its own merits too. A stack pass that only reports cross-change findings is half a review.",
 		"Read the changes below, then use your tools on the tree to check what the diffs cannot tell you. When a change looks wrong on its own, check whether a later change in the stack fixes it before you say so.",
 		intentSection(input.intent),
+		guidanceSection(input.guidance),
 		...input.changes.map(stackChangeSection),
 		ANSWER_AS_CONTRACTED,
 	]

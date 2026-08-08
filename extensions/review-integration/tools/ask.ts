@@ -1016,9 +1016,17 @@ async function askStack(
 					diff: one.diff,
 				})),
 				...(params.intent === undefined ? {} : { intent: params.intent }),
-				...(await says(tree, {
-					files: changes.flatMap((one) => one.diff.files),
-				})),
+				// The same honest answer the charters get twenty lines up: a
+				// stack whose nodes are not all proposed knows less about what
+				// it touches than the tree it reads contains.
+				...(await says(
+					tree,
+					stack.nodes.length === proposed.length
+						? { files: changes.flatMap((one) => one.diff.files) }
+						: {
+								unknown: "not every branch in this stack is proposed",
+							},
+				)),
 			}),
 			seq: 1,
 			stackRefs,

@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+	guidanceInRepo,
 	lensesFor,
 	touchedBy,
 } from "../../extensions/review-integration/lenses.js";
@@ -56,6 +57,100 @@ function lens(name: string, body: string): string {
 
 const ROSTER = (persona: string): Roster => ({
 	reviewers: [{ id: "hawk", persona }],
+});
+
+describe("what the repo asks of its contributors", () => {
+	// It shipped with none of this, beside a sibling reader with sixteen
+	// cases, and the gate that looked like its test only read source
+	// text. Every hole below was found by somebody else first.
+
+	it("is read from the tree, and says the change did not write it", async () => {
+		const { tree } = await repoWith({ "AGENTS.md": "Do not merge them." });
+
+		expect(await guidanceInRepo(tree, ["src/main.ts"])).toEqual({
+			path: "AGENTS.md",
+			text: "Do not merge them.",
+			edited: false,
+		});
+	});
+
+	it("prefers the override, which is what the name means", async () => {
+		const { tree } = await repoWith({
+			"AGENTS.md": "The ordinary one.",
+			"AGENTS.override.md": "The one that wins.",
+		});
+
+		expect((await guidanceInRepo(tree, []))?.text).toBe("The one that wins.");
+	});
+
+	it("says the change wrote it when the change wrote it", async () => {
+		const { tree } = await repoWith({ "AGENTS.md": "Do not merge them." });
+
+		expect((await guidanceInRepo(tree, ["b/AGENTS.md"]))?.edited).toBe(true);
+	});
+
+	it("is not fooled by a file of the same name somewhere else", async () => {
+		// Most repos of any size have one of these in a subdirectory, so
+		// matching on the suffix marked the root file as edited whenever a
+		// change touched the other one.
+		const { tree } = await repoWith({ "AGENTS.md": "Do not merge them." });
+
+		expect(
+			(await guidanceInRepo(tree, ["packages/ui/AGENTS.md"]))?.edited,
+		).toBe(false);
+	});
+
+	it("counts not knowing as written by the change", async () => {
+		const { tree } = await repoWith({ "AGENTS.md": "Do not merge them." });
+
+		expect(
+			(await guidanceInRepo(tree, { unknown: "a stack half proposed" }))
+				?.edited,
+		).toBe(true);
+	});
+
+	it("will not follow a link out of the tree", async () => {
+		// Otherwise a change points AGENTS.md at any readable file on the
+		// machine and has it quoted into every reviewer's prompt. Guarded
+		// one function along and not here.
+		const { tree } = await repoWith({});
+		const elsewhere = await repoWith({ "secrets.md": "The private one." });
+		await symlink(
+			join(elsewhere.tree.path, "secrets.md"),
+			join(tree.path, "AGENTS.md"),
+		);
+
+		expect(await guidanceInRepo(tree, [])).toBeUndefined();
+	});
+
+	it("hands over nothing at all from a tree that is not the change's", async () => {
+		// The caveat goes to the operator and the reviewer never hears it,
+		// so quoting somebody else's conventions as "the repo's own text"
+		// is worse than quoting none.
+		const { tree } = await repoWith({ "AGENTS.md": "Do not merge them." });
+
+		expect(
+			await guidanceInRepo(
+				{ path: tree.path, caveat: "No working layer is loaded." },
+				[],
+			),
+		).toBeUndefined();
+	});
+
+	it("says where the rest is when it has to cut", async () => {
+		const { tree } = await repoWith({ "AGENTS.md": "x".repeat(200_000) });
+
+		const said = await guidanceInRepo(tree, []);
+
+		expect(said?.text).toContain("cut here");
+		expect(said?.text).toContain("AGENTS.md at the root");
+	});
+
+	it("says nothing when the repo says nothing", async () => {
+		const { tree } = await repoWith({ "AGENTS.md": "   \n\n" });
+
+		expect(await guidanceInRepo(tree, [])).toBeUndefined();
+	});
 });
 
 describe("a lens the repo under review defined", () => {

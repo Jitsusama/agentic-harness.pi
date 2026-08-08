@@ -361,9 +361,55 @@ describe("the repo's own written conventions", () => {
 	});
 
 	it("says nothing at all when the repo wrote none", () => {
+		// Against the heading the section actually prints. The first
+		// version looked for the word "conventions", which the section
+		// never says, so it passed whether or not anything rendered.
 		const prompt = councilPrompt({ proposal: proposal(), diff });
 
-		expect(prompt).not.toMatch(/conventions/i);
+		expect(prompt).not.toContain("What the repo asks of its contributors");
+	});
+
+	it("reaches every round, not only the one it was written for", () => {
+		// Three reviewers found this independently and they were right: the
+		// section was added to the council prompt alone, so isolating the
+		// reviewers took the conventions away from the judge, the critic,
+		// the auditor and the stack round, and each of them was handed an
+		// argument it discarded.
+		const shared = { proposal: proposal(), diff, guidance };
+		const prompts = {
+			council: councilPrompt(shared),
+			judge: judgePrompt({ ...shared, findings: "[F1] something" }),
+			critique: critiquePrompt({ ...shared, findings: "[F1] something" }),
+			audit: auditPrompt({ ...shared, threads: "[T1] something" }),
+			stack: stackPrompt({
+				changes: [{ ref: "topic", proposal: proposal(), diff }],
+				guidance,
+			}),
+		};
+
+		expect(
+			Object.entries(prompts)
+				.filter(([, text]) => !text.includes(guidance.text))
+				.map(([round]) => round),
+		).toEqual([]);
+	});
+
+	it("quotes it inside a fence the text cannot close", () => {
+		// The conventions are markdown written by somebody else and full of
+		// fences of their own. A fence that the quoted text can close ends
+		// the quotation early, and everything after it reads as the
+		// round's own words again.
+		const prompt = councilPrompt({
+			proposal: proposal(),
+			diff,
+			guidance: {
+				path: "AGENTS.md",
+				text: "Run this:\n\n```sh\npnpm test\n```\n",
+				edited: false,
+			},
+		});
+
+		expect(prompt).toContain("````\nRun this:");
 	});
 });
 
