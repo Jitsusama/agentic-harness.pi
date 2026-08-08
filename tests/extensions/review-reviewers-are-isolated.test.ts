@@ -129,9 +129,86 @@ describe("what a reviewer inherits", () => {
 			if (calls.length === 0) return [`${round} is gone`];
 			return calls.flatMap((index) => {
 				const call = argumentsOf(source, index);
-				return call.includes("guidanceFor(") || call.includes("...guidance")
+				return call.includes("...conventions")
 					? []
 					: [`a ${round} call at ${index} passes no conventions`];
+			});
+		});
+
+		expect(missing).toEqual([]);
+	});
+
+	it("reads what it spreads from the repo and nowhere else", () => {
+		// The case above holds every prompt to spreading `conventions`,
+		// which is worth exactly as much as that name holding the repo's
+		// conventions. A local of the same name bound to something else
+		// would satisfy five assertions and hand every reviewer nothing.
+		// The first spelling tried was `said`, which this file already
+		// used for the text of a review comment.
+		const bound: string[] = [];
+		for (const match of source.matchAll(/const conventions = ([^;]*)/g)) {
+			bound.push(match[1] ?? "");
+		}
+
+		expect(bound.length).toBeGreaterThan(0);
+		for (const from of bound) {
+			expect(from).toContain("await guidanceFor(");
+		}
+	});
+
+	it("builds the conditions it records from the conventions it read", () => {
+		// The same rule for the other name a round may spread, since the
+		// retry path hoists it: two calls into one const rather than the
+		// same expression twice.
+		const bound = [...source.matchAll(/const given = ([^;]*)/g)].map(
+			(match) => match[1] ?? "",
+		);
+
+		expect(bound.length).toBeGreaterThan(0);
+		for (const from of bound) {
+			expect(from).toContain("givenBy(ISOLATED, conventions)");
+		}
+	});
+
+	it("records the conditions on every round it starts", () => {
+		// Nothing on a run said what its reviewers were given, so a round
+		// from before isolation and one from after left records that read
+		// identically while being worth different amounts. That was the
+		// charge laid against the old behaviour, and leaving the new
+		// behaviour unrecorded would be the same mistake with a happier
+		// outcome.
+		//
+		// The rounds are discovered from what this file imports out of the
+		// review library rather than named here, since a list written in a
+		// test is a list that waves the next round kind through. A round
+		// nobody imports is a round nobody calls.
+		const imports = source.slice(
+			0,
+			source.indexOf('} from "../../../lib/review/index.js"'),
+		);
+		const rounds = [...imports.matchAll(/^\t((?:run|start)[A-Z]\w*),$/gm)].map(
+			(match) => `${match[1]}(`,
+		);
+
+		expect(rounds.length).toBeGreaterThan(4);
+		const missing = rounds.flatMap((round) => {
+			const calls: number[] = [];
+			for (let at = source.indexOf(round); at !== -1; ) {
+				calls.push(at);
+				at = source.indexOf(round, at + 1);
+			}
+			// A round imported and never called is the drift this cannot
+			// see, so say so rather than passing quietly.
+			if (calls.length === 0) return [`${round} is imported and never run`];
+			return calls.flatMap((index) => {
+				const call = argumentsOf(source, index);
+				// The constant, not a literal: what is recorded and what is
+				// passed to the spawn have to be one value, or the ledger
+				// describes a configuration the round did not run under.
+				return call.includes("givenBy(ISOLATED, conventions)") ||
+					call.includes("...given,")
+					? []
+					: [`a ${round} call at ${index} records no conditions`];
 			});
 		});
 

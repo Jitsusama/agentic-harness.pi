@@ -20,6 +20,8 @@ import {
 	type AskRun,
 	newRunId,
 	type ParticipantOutcome,
+	type RoundGiven,
+	whatItGave,
 	whatItRead,
 } from "./run.js";
 
@@ -33,6 +35,8 @@ export interface JudgeRequest {
 	witness?: string;
 	/** Said when the tree the reviewers read was not that commit. */
 	unpinned?: string;
+	/** What the judge was handed, besides the change. */
+	given?: RoundGiven;
 }
 
 /** The run, and anything worth telling the caller. */
@@ -138,6 +142,7 @@ export async function runJudge(
 			// what a round was formed against, which until now the
 			// record could not say for three kinds out of four.
 			...whatItRead(request),
+			...whatItGave(request),
 		},
 		warnings,
 	};

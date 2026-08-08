@@ -21,6 +21,8 @@ import {
 	type AskRun,
 	newRunId,
 	type ParticipantOutcome,
+	type RoundGiven,
+	whatItGave,
 	whatItRead,
 } from "./run.js";
 import { ANSWER_WAS_CUT_OFF, isRecord, readAnswer, wireText } from "./wire.js";
@@ -67,6 +69,8 @@ export interface CritiqueRequest {
 	witness?: string;
 	/** Said when the tree the reviewers read was not that commit. */
 	unpinned?: string;
+	/** What the critics were handed, besides the change. */
+	given?: RoundGiven;
 }
 
 /** The round, the positions taken, and anything worth saying. */
@@ -127,6 +131,7 @@ export async function runCritique(
 				participants: [],
 				outcomes: [],
 				...whatItRead(request),
+				...whatItGave(request),
 			},
 			critiques: [],
 			warnings: [],
@@ -190,6 +195,7 @@ export async function runCritique(
 			),
 			outcomes,
 			...whatItRead(request),
+			...whatItGave(request),
 		},
 		critiques,
 		warnings,

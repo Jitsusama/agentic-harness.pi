@@ -21,6 +21,8 @@ import {
 	type AskRun,
 	newRunId,
 	type ParticipantOutcome,
+	type RoundGiven,
+	whatItGave,
 	whatItRead,
 } from "./run.js";
 import {
@@ -74,6 +76,8 @@ export interface AuditRequest {
 	witness?: string;
 	/** Said when the tree the reviewers read was not that commit. */
 	unpinned?: string;
+	/** What the auditor was handed, besides the change. */
+	given?: RoundGiven;
 }
 
 /** The round, the judgements, and anything worth saying. */
@@ -139,6 +143,7 @@ export async function runAudit(
 				participants: [],
 				outcomes: [],
 				...whatItRead(request),
+				...whatItGave(request),
 			},
 			audits: [],
 			warnings: [],
@@ -194,6 +199,7 @@ export async function runAudit(
 			participants: [participantIdentity("judge", request.auditor)],
 			outcomes: [outcome],
 			...whatItRead(request),
+			...whatItGave(request),
 		},
 		audits,
 		warnings,

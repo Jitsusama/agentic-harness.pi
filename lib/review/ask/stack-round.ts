@@ -27,7 +27,13 @@ import {
 import { type ParticipantIdentity, participantIdentity } from "./identity.js";
 import { type AskProgress, settleReplies } from "./progress.js";
 import type { Roster } from "./roster.js";
-import { newRunId, type ParticipantOutcome, whatItRead } from "./run.js";
+import {
+	newRunId,
+	type ParticipantOutcome,
+	type RoundGiven,
+	whatItGave,
+	whatItRead,
+} from "./run.js";
 import { alsoRecordedInStack, harvestStackFindings, saidAt } from "./span.js";
 
 /** The impure things a stack round needs. */
@@ -64,6 +70,14 @@ export interface StackCouncilRequest {
 	witnessFor?: (ref: string) => string | undefined;
 	/** Said when the tree the reviewers read was not the stack's tip. */
 	unpinned?: string;
+	/**
+	 * What the reviewers were handed, besides the changes.
+	 *
+	 * Not exempted the way the witness is. A stack is read in one tree
+	 * under one set of conditions, so what its reviewers were given is
+	 * a single fact however many changes they read.
+	 */
+	given?: RoundGiven;
 }
 
 /** Ask a roster about a stack and file what it says. */
@@ -108,6 +122,7 @@ export async function runStackCouncil(
 					? {}
 					: { unpinned: request.unpinned }),
 			}),
+			...whatItGave(request),
 		},
 		warnings,
 	};

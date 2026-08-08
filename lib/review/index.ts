@@ -134,6 +134,7 @@ export type {
 	AskRun,
 	AskUsage,
 	ParticipantOutcome,
+	RoundGiven,
 	RunSummary,
 	TreeRead,
 } from "./ask/run.js";
@@ -146,6 +147,7 @@ export {
 	staleRuntimeAdvisory,
 	stoppedNotes,
 	substituteOutcome,
+	whatItGave,
 	whatItRead,
 } from "./ask/run.js";
 export type {

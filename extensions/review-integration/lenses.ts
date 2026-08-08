@@ -25,6 +25,7 @@ import type {
 	PersonaBinding,
 	RepoGuidance,
 	Roster,
+	RoundGiven,
 } from "../../lib/review/index.js";
 import {
 	bindPersonas,
@@ -190,6 +191,38 @@ export async function guidanceFor(
 		"unknown" in diff ? diff : touchedBy(diff),
 	);
 	return guidance === undefined ? {} : { guidance };
+}
+
+/**
+ * What a round handed its reviewers, in the shape a run records it.
+ *
+ * The counterpart of `readFrom`, and it takes the conditions rather
+ * than reading them, so the value recorded and the value passed to the
+ * spawn are one constant used twice rather than two that agree today.
+ *
+ * The path and the edited state, not the text. A reader chasing a
+ * finding needs to know which file was folded into that reviewer's
+ * prompt and whether the change under review had written it; the bytes
+ * are in the tree at the witness, and tens of thousands of characters
+ * per round would cost more than the whole ledger.
+ */
+export function givenBy(
+	isolated: boolean,
+	said: { guidance?: RepoGuidance },
+): { given: RoundGiven } {
+	return {
+		given: {
+			isolated,
+			...(said.guidance === undefined
+				? {}
+				: {
+						quoted: {
+							path: said.guidance.path,
+							edited: said.guidance.edited,
+						},
+					}),
+		},
+	};
 }
 
 /**

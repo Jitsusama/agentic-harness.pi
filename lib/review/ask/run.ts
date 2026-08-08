@@ -139,6 +139,70 @@ export interface AskRun {
 	 * findings formed against whatever the checkout happened to be.
 	 */
 	unpinned?: string;
+	/**
+	 * What its reviewers were handed, besides the change itself.
+	 *
+	 * A reviewer's answer depends on what it was given, and a run that
+	 * records only who was asked and what they read cannot be compared
+	 * with one recorded under a different configuration. Two councils a
+	 * week apart, one before reviewers were isolated and one after,
+	 * left records that read identically while being worth different
+	 * amounts.
+	 *
+	 * Absent on every round that predates it, which is most of the
+	 * ledger, and absent has to keep meaning nobody said: a default
+	 * filled in by a builder would make the whole history claim a
+	 * configuration nobody can check.
+	 */
+	given?: RoundGiven;
+}
+
+/**
+ * What a round handed its reviewers, besides the change.
+ *
+ * Not who they were, which the participants already carry, and not
+ * what they read, which the witness does. This is the part that comes
+ * from neither the roster nor the repository under review: the
+ * conditions the round chose to run them under.
+ */
+export interface RoundGiven {
+	/**
+	 * They ran without the operator's ambient setup.
+	 *
+	 * Required, not optional. There are three states and the whole
+	 * field carries the first: a run with no `given` at all is one
+	 * nobody recorded, which is most of the ledger. Within a record
+	 * that exists, saying nothing about isolation would be a fourth
+	 * state meaning the same as the first, in a place a reader has
+	 * already been promised an answer.
+	 */
+	isolated: boolean;
+	/**
+	 * The repo's own written conventions, where the round quoted them.
+	 *
+	 * The path and not the text. A reader chasing a finding needs to
+	 * know which file was folded into the prompt and whether the change
+	 * itself had written it; the bytes are in the tree at the witness,
+	 * and copying tens of thousands of characters into every run record
+	 * would cost more than the whole ledger.
+	 */
+	quoted?: {
+		path: string;
+		edited: "yes" | "no" | "unknown";
+	};
+}
+
+/**
+ * What a round was given, in the shape a run records it.
+ *
+ * The counterpart of `whatItRead`, and one helper for the same reason:
+ * it is one fact, six builders write it, and the last fact that had to
+ * reach all six reached four.
+ */
+export function whatItGave(request: { given?: RoundGiven }): {
+	given?: RoundGiven;
+} {
+	return request.given === undefined ? {} : { given: request.given };
 }
 
 /** How a run went, in counts. */

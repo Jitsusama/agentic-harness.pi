@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+	givenBy,
 	guidanceFor,
 	guidanceInRepo,
 	lensesFor,
@@ -205,6 +206,42 @@ describe("what the repo asks of its contributors", () => {
 
 		expect(renamed.guidance?.edited).toBe("yes");
 		expect(untouched.guidance?.edited).toBe("no");
+	});
+
+	it("records the path and the state, not the text", async () => {
+		// What a reader chasing a finding needs is which file was folded
+		// into that reviewer's prompt and whether the change had written
+		// it. The bytes are in the tree at the witness, and this repo's
+		// own conventions run to tens of thousands of characters, which
+		// would cost more per round than the whole ledger holds.
+		// Deliberately not the first name on the list. With AGENTS.md the
+		// case passes just as happily against a recorded path that was
+		// hard-coded, which is a mutant this suite let through once.
+		const { tree } = await repoWith({ "CLAUDE.md": "Do not merge them." });
+		const conventions = await guidanceFor(tree, {
+			files: [{ newPath: "CLAUDE.md", status: "modified", hunks: [] }],
+		});
+
+		expect(givenBy(true, conventions)).toEqual({
+			given: {
+				isolated: true,
+				quoted: { path: "CLAUDE.md", edited: "yes" },
+			},
+		});
+	});
+
+	it("still records the conditions when the repo said nothing", async () => {
+		// A round that quoted nothing is not a round nobody recorded. The
+		// distinction is the entire point of the field: a run with no
+		// `given` predates this, and a run with `given` and no `quoted`
+		// ran isolated against a repo that writes nothing down.
+		expect(givenBy(true, {})).toEqual({ given: { isolated: true } });
+		expect("quoted" in givenBy(true, {}).given).toBe(false);
+	});
+
+	it("says so when a round was not isolated", async () => {
+		// Three states, and the false one is a record rather than a gap.
+		expect(givenBy(false, {}).given.isolated).toBe(false);
 	});
 
 	it("hands a prompt nothing at all when the repo says nothing", async () => {
