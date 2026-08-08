@@ -26,7 +26,6 @@ import {
 	type AskRound,
 	type AskRun,
 	type AskUsage,
-	anchorWitness,
 	newRunId,
 	type ParticipantOutcome,
 	whatItRead,
@@ -207,7 +206,7 @@ export interface CouncilRequest {
 	prompt: string;
 	/** Distinguishes two rounds started in the same millisecond. */
 	seq: number;
-	/** Commit the findings' anchors are formed against. */
+	/** Commit under review, which anchors claim when the tree is it. */
 	witness?: string;
 	/** Said when the tree the reviewers read was not that commit. */
 	unpinned?: string;
@@ -588,20 +587,18 @@ export async function recordReply(
 	// wrap-up is asked for only what the reviewer was sure of and may
 	// honestly be the shorter of the two. Ties go to the later answer,
 	// which is the considered one.
-	// Only a commit these findings were actually formed against. A
-	// round that read the caller's checkout has no business stamping
-	// the change's head on an anchor.
-	const formed = anchorWitness(run);
+	// The harvest is handed what the round read, not a commit, so it
+	// is the harvest that decides whether an anchor may claim one.
 	const harvest = alsoRecorded(
 		richer(
-			harvestFindings(answer.text, origin, formed),
+			harvestFindings(answer.text, origin, run),
 			answer.earlierText === undefined
 				? undefined
-				: harvestFindings(answer.earlierText, origin, formed),
+				: harvestFindings(answer.earlierText, origin, run),
 		),
 		answer.recorded,
 		origin,
-		formed,
+		run,
 	);
 	// A stopped reviewer answers for its own harvest warnings. Those
 	// warnings describe the shape of the text, and the text is a

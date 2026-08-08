@@ -2,6 +2,7 @@ import type { AskAnswer, CouncilDeps, CouncilResult } from "./council.js";
 import { recordReply } from "./council.js";
 import { settleReplies } from "./progress.js";
 import type { AskRun, ParticipantOutcome } from "./run.js";
+import { whatItRead } from "./run.js";
 
 /**
  * What collecting a round needs, which is less than running one.
@@ -75,10 +76,12 @@ export async function collectRound(
 			}
 			const outcome = await recordReply(
 				{ participant: { id: participant.id }, answer },
-				{
-					runId: run.id,
-					...(run.witness === undefined ? {} : { witness: run.witness }),
-				},
+				// The whole fact, not the commit alone. Spreading half of
+				// it here was how the collect path went on stamping the
+				// change's head on findings harvested off a round that had
+				// read something else, which is the path most likely to be
+				// unpinned in the first place.
+				{ runId: run.id, ...whatItRead(run) },
 				deps,
 				warnings,
 			);

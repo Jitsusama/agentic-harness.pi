@@ -18,7 +18,6 @@ import { alsoRecorded, harvestFindings } from "./harvest.js";
 import { type Participant, participantIdentity } from "./identity.js";
 import {
 	type AskRun,
-	anchorWitness,
 	newRunId,
 	type ParticipantOutcome,
 	whatItRead,
@@ -30,7 +29,7 @@ export interface JudgeRequest {
 	prompt: string;
 	/** Distinguishes two rounds started in the same millisecond. */
 	seq: number;
-	/** Commit the findings' anchors are formed against. */
+	/** Commit under review, which anchors claim when the tree is it. */
 	witness?: string;
 	/** Said when the tree the reviewers read was not that commit. */
 	unpinned?: string;
@@ -83,13 +82,11 @@ export async function runJudge(
 		// unioning would overrule the one participant paid to choose.
 		// When it produced no consolidation at all, what it wrote down
 		// on the way is all there is.
-		// Only a commit these findings were actually formed against.
-		const formed = anchorWitness(request);
-		const said = harvestFindings(answer.text, origin, formed);
+		const said = harvestFindings(answer.text, origin, request);
 		const harvest =
 			said.findings.length > 0
 				? said
-				: alsoRecorded(said, answer.recorded, origin, formed);
+				: alsoRecorded(said, answer.recorded, origin, request);
 		for (const warning of [...harvest.warnings, ...(answer.notes ?? [])]) {
 			warnings.push(`${request.judge.id}: ${warning}`);
 		}

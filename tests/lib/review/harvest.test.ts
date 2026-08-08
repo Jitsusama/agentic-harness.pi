@@ -250,9 +250,25 @@ describe("where a finding points", () => {
 	it("records the witness on every anchor when it is given one", () => {
 		// Without the witness an anchor cannot say whether a force-push
 		// stranded it or the backend kept it reachable.
-		const { findings } = harvestFindings(answer(wire()), origin, "abc123");
+		const { findings } = harvestFindings(answer(wire()), origin, {
+			witness: "abc123",
+		});
 
 		expect(findings[0]?.anchor).toMatchObject({ witness: "abc123" });
+	});
+
+	it("refuses the witness when the round read another tree", () => {
+		// The rule lives here rather than at each caller, because a
+		// caller handed a bare commit is a caller free to pass one it
+		// should not. Taking what the round read instead is what makes
+		// the collect path, which spread half the fact, impossible to
+		// get wrong by omission.
+		const { findings } = harvestFindings(answer(wire()), origin, {
+			witness: "abc123",
+			unpinned: "read the checkout instead",
+		});
+
+		expect(findings[0]?.anchor).not.toHaveProperty("witness");
 	});
 
 	it("keeps a line finding with no file against the change", () => {

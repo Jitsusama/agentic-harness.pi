@@ -315,4 +315,48 @@ describe("a stack-wide round", () => {
 
 		expect(seen).toEqual(["refs/heads/base"]);
 	});
+
+	it("asks for no witness at all when it read another tree", async () => {
+		// The same rule every round follows, in the shape this one can
+		// keep it. Its witnesses are per change and a fallback tree
+		// misses all of them at once, so the lookup goes whole rather
+		// than answer by answer. Asserted by running the round, since
+		// matching the source only proves somebody typed the words.
+		const seen: string[] = [];
+		const { deps: d, spy } = deps({
+			wren: {
+				text: answer(
+					one({
+						refs: ["refs/heads/base"],
+						location: { kind: "line", file: "a.ts", start: 3 },
+					}),
+				),
+			},
+			finch: { text: answer() },
+		});
+
+		await runStackCouncil(
+			{
+				roster,
+				prompt: "p",
+				seq: 1,
+				stackRefs: [...stack],
+				unpinned: "read the checkout instead",
+				witnessFor: (ref) => {
+					seen.push(ref);
+					return `sha-${ref}`;
+				},
+			},
+			d,
+		);
+
+		// Never asked, which is stronger than an anchor that came back
+		// bare: a lookup nobody calls cannot put a commit anywhere. The
+		// finding still lands, since withholding the witness must not
+		// cost the round its findings.
+		expect(seen).toEqual([]);
+		expect(spy.filed).toEqual([
+			{ ref: "refs/heads/base", subjects: ["leaks"] },
+		]);
+	});
 });

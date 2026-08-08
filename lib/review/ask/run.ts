@@ -393,7 +393,13 @@ function sum(
 
 /** What a round was told about the tree it would read. */
 export interface TreeRead {
-	/** Commit the findings' anchors are formed against. */
+	/**
+	 * Commit under review, which anchors claim when the tree was it.
+	 *
+	 * Not "the commit the anchors are formed against", which is what
+	 * this said while being true only of a pinned round. An unpinned
+	 * round records the commit here and claims it nowhere else.
+	 */
 	witness?: string;
 	/** Said when the tree the reviewers read was not that commit. */
 	unpinned?: string;

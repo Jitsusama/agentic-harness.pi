@@ -23,6 +23,7 @@ import type {
 	FindingOrigin,
 	FindingSeverity,
 } from "../finding.js";
+import { anchorWitness, type TreeRead } from "./run.js";
 import {
 	ANSWER_WAS_CUT_OFF,
 	isRecord,
@@ -118,8 +119,9 @@ const SEVERITIES: Record<string, FindingSeverity> = {
 export function harvestFindings(
 	text: string,
 	origin: FindingOrigin,
-	witness?: string,
+	read: TreeRead = {},
 ): Harvest {
+	const witness = anchorWitness(read);
 	const warnings: string[] = [];
 	// An answer that will not parse is usually not a malformed answer.
 	// It is a good one that was interrupted, and everything the
@@ -182,8 +184,9 @@ export function alsoRecorded(
 	said: Harvest,
 	recorded: readonly unknown[] | undefined,
 	origin: FindingOrigin,
-	witness?: string,
+	read: TreeRead = {},
 ): Harvest {
+	const witness = anchorWitness(read);
 	if (recorded === undefined || recorded.length === 0) return said;
 	const findings = [...said.findings];
 	const recordedWarnings: string[] = [];

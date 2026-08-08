@@ -107,6 +107,7 @@ describe("a finding claims only a commit it was formed against", () => {
 			keeping(FOUND, recorded) as never,
 		);
 
+		expect(recorded).toHaveLength(1);
 		expect(recorded[0]?.anchor?.witness).toBe(WITNESS);
 	});
 
@@ -134,6 +135,11 @@ describe("a finding claims only a commit it was formed against", () => {
 			keeping(FOUND, recorded) as never,
 		);
 
+		// A finding was recorded, and its anchor names no commit. The
+		// length matters: without it the case passes just as happily on
+		// a round that recorded nothing, which is how a rule can look
+		// enforced by a test that never reached it.
+		expect(recorded).toHaveLength(1);
 		expect(recorded[0]?.anchor?.witness).toBeUndefined();
 	});
 
@@ -150,6 +156,7 @@ describe("a finding claims only a commit it was formed against", () => {
 			keeping(FOUND, recorded) as never,
 		);
 
+		expect(recorded).toHaveLength(1);
 		expect(recorded[0]?.anchor?.witness).toBeUndefined();
 	});
 
