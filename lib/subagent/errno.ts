@@ -43,15 +43,39 @@ function codeOf(error: unknown): string | undefined {
  * the agreement this enforces is between the two things keyed by one
  * subagent run id.
  *
- * A leading dot is replaced rather than kept. Keeping it allowed `.`
- * and `..`, which name the directory and its parent, so an id of two
- * dots resolved a ledger file one level above the ledger. The sibling
- * spelling in `lib/review` guarded that and this one, promoted from
- * the artifact store, did not.
+ * Every disallowed character is escaped rather than replaced, which
+ * is the part that took three attempts. A leading dot has to go,
+ * because `.` and `..` name a directory and its parent and an id of
+ * two dots reached a level above the store. Stripping it made `.x`
+ * and `x` one name; substituting a dash made `.x` and `-x` one name.
+ * Any map that folds two characters into one collides somewhere, and
+ * a collision here is two runs sharing the record that decides
+ * whether either may be deleted. So the map is reversible, and
+ * nothing needs to reverse it: being able to is what makes it
+ * injective.
  */
 export function safeSegment(value: string): string {
-	const clean = value
-		.replace(/[^a-zA-Z0-9._-]+/g, "-")
-		.replace(/^[.-]+|-+$/g, "");
-	return clean.length > 0 ? clean : "unknown";
+	const escaped = [...value]
+		.map((character, at) => {
+			const plain = /[a-zA-Z0-9._-]/.test(character);
+			// A dot is legal anywhere but the front, where it makes a
+			// name that walks rather than a name that reads.
+			if (plain && !(at === 0 && character === ".")) return character;
+			return [...character]
+				.map(
+					(part) =>
+						`${ESCAPE}${(part.codePointAt(0) ?? 0).toString(16).padStart(2, "0")}`,
+				)
+				.join("");
+		})
+		.join("");
+	return escaped.length > 0 ? escaped : "unknown";
 }
+
+/**
+ * What an escaped character starts with.
+ *
+ * Outside the allowed set on purpose, so it escapes itself and two
+ * different ids cannot escape to one name.
+ */
+const ESCAPE = "~";

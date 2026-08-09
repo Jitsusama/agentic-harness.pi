@@ -22,6 +22,7 @@ import {
 	readFile,
 	rename,
 	rm,
+	stat,
 	writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
@@ -162,6 +163,8 @@ export function createFleetLedger(root: string): FleetLedger {
 				staged.push(join(root, file));
 				continue;
 			}
+			// Beyond this point, a name is either a record or none of
+			// this module's business.
 			// Ledger files only. This is a state directory and will
 			// collect temporary files, editor droppings and whatever
 			// else, none of which is a fleet that would not read.
@@ -198,6 +201,12 @@ export function createFleetLedger(root: string): FleetLedger {
 		},
 
 		async settle(id) {
+			// Derived, and the one place that is right: this is where a
+			// record is looked up by the id its writer used, so the
+			// derivation is the lookup. `forgetSettledBefore` keeps the
+			// path it read instead, because it starts from a listing and
+			// a record somebody put there by hand names a different file
+			// than its own id derives.
 			const path = pathFor(id);
 			let parsed: unknown;
 			try {
@@ -266,7 +275,19 @@ export function createFleetLedger(root: string): FleetLedger {
 			// Interrupted writes, reclaimed on the same pass. They are
 			// unreachable by anything and they accumulate in the one
 			// directory whose whole purpose is to stay small.
-			for (const path of staged) await forget(path);
+			//
+			// Only the ones old enough to be nobody's. A staging file is
+			// live for the microseconds between a write and its rename, so
+			// deleting every one a listing finds means a session start can
+			// delete another process's ledger write mid-flight, and that
+			// write is a fleet losing its protection at the moment it was
+			// being granted. An hour is far beyond any write and far
+			// inside any window that matters.
+			const abandoned = Date.now() - STAGING_IS_NOBODYS_AFTER_MS;
+			for (const path of staged) {
+				const wrote = await writtenAt(path);
+				if (wrote !== undefined && wrote < abandoned) await forget(path);
+			}
 			return forgotten;
 		},
 	};
@@ -283,6 +304,26 @@ let staging = 0;
 
 /** What an interrupted write leaves behind, so a sweep can find it. */
 const STAGING_SUFFIX = ".staging";
+
+/**
+ * How long a staging file must sit before it counts as abandoned.
+ *
+ * The gap it covers is a write and a rename, which is microseconds.
+ * The window is an hour because the cost of waiting is one small
+ * file and the cost of being wrong is deleting a live write.
+ */
+const STAGING_IS_NOBODYS_AFTER_MS = 60 * 60 * 1000;
+
+/** When a path was last written, or nothing if it has gone. */
+async function writtenAt(path: string): Promise<number | undefined> {
+	try {
+		return (await stat(path)).mtimeMs;
+	} catch {
+		// Gone, or unreachable. Either way this is not a file to delete
+		// on the strength of an age nothing could read.
+		return undefined;
+	}
+}
 
 /** Remove a file, reporting whether it went. */
 async function forget(path: string): Promise<boolean> {

@@ -56,6 +56,7 @@ import { createFleetLedger } from "../../lib/subagent/fleet.js";
 import { getParentPiInstall } from "../../lib/subagent/install.js";
 import { createSupervisorRunPi } from "../../lib/subagent/runpi/supervisor.js";
 import { THINKING_LEVELS } from "../../lib/thinking/index.js";
+import { count } from "../../lib/ui/count.js";
 import {
 	FleetCancellationRegistry,
 	formatFleetCancellation,
@@ -470,6 +471,11 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 					}),
 				`could not write ${runId} down before dispatching it, so the sweep will not know to keep its transcripts`,
 			);
+			// What, if anything, was cut off before it could answer. Set
+			// inside the try and read in the finally, because the finally
+			// is the only place that sees both endings.
+			let cutOff: string | undefined =
+				signal?.aborted === true ? "the call was cancelled" : undefined;
 			try {
 				const result = await dispatchFleet({
 					runId,
@@ -479,6 +485,14 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 					progress,
 					...(signal ? { signal } : {}),
 				});
+				const stopped = result.results.filter(
+					(one) => one.state === "cancelled",
+				);
+				if (stopped.length > 0) {
+					cutOff = `${count(stopped.length, "subagent")} was cancelled`;
+				} else if (signal?.aborted === true) {
+					cutOff = "the call was cancelled";
+				}
 				// Decorate the result with on-disk artifact paths so the full
 				// per-subagent output is discoverable from the summary and the
 				// details payload, not buried in the supervisor's state dir.
@@ -494,15 +508,23 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 				// ever run, which is the unbounded population wearing a
 				// different hat.
 				//
-				// Except when the call was torn away. An abort is the one
-				// ending where nobody receives anything: the answer never
-				// reaches the model, whatever the subagents wrote is on disk
-				// and nowhere else, and that is precisely the population this
-				// ledger exists to keep. Settling it here would have released
-				// the protection at the one moment it was doing its job.
-				if (signal?.aborted === true) {
+				// Except where somebody was cut off. Cancellation is the
+				// ending where an answer does not arrive: whatever that
+				// subagent wrote is on disk and nowhere else, which is
+				// precisely the population this ledger exists to keep, so
+				// settling would release the protection at the one moment it
+				// was doing its job.
+				//
+				// Both cancellations, and the second is the one that matters:
+				// the signal is pi tearing the call away, and the registry is
+				// somebody pressing a key in the panel, which is the only
+				// cancellation this extension documents to anybody. That one
+				// leaves the signal untouched and hands back a result with
+				// cancelled entries in it, so a guard reading the signal
+				// alone released every fleet a person actually stopped.
+				if (cutOff !== undefined) {
 					console.error(
-						`[subagent-workflow] ${runId} was cancelled, so its transcripts under ${join(runs, "runs")} are held rather than reclaimed. Delete ${join(fleets, `${safeSegment(runId)}.json`)} once you have read or given up on them.`,
+						`[subagent-workflow] ${cutOff} in ${runId}, so its transcripts under ${join(runs, "runs")} are held rather than reclaimed. Delete ${join(fleets, `${safeSegment(runId)}.json`)} once you have read them or given up on them.`,
 					);
 				} else {
 					await recordOrSay(

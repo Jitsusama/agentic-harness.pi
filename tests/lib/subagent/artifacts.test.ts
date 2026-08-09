@@ -36,15 +36,32 @@ describe("ReviewerArtifactsStore", () => {
 	});
 
 	it("builds sanitized reviewer paths under the run directory", () => {
+		// Escaped rather than replaced. A map that folds two characters
+		// into one is shorter to read and collides: two ids that differ
+		// only where it folds share one directory, and one of them then
+		// reads the other's transcripts.
 		const store = new ReviewerArtifactsStore("/tmp/state");
 
 		const paths = store.paths("run/one", "reviewer:fast");
 
-		expect(paths.runDir).toBe("/tmp/state/runs/run-one");
+		expect(paths.runDir).toBe("/tmp/state/runs/run~2fone");
 		expect(paths.reviewerDir).toBe(
-			"/tmp/state/runs/run-one/reviewers/reviewer-fast",
+			"/tmp/state/runs/run~2fone/reviewers/reviewer~3afast",
 		);
 		expect(paths.resultPath).toBe(`${paths.reviewerDir}/result.json`);
+	});
+
+	it("gives two ids that differ at all two names that differ", () => {
+		// The property the escaping is for, and the one a replacement
+		// map cannot have. Every pair here folded together under some
+		// version of this function: a slash and a dash, a leading dot
+		// stripped, a leading dot substituted.
+		const store = new ReviewerArtifactsStore("/tmp/state");
+		const ids = ["a/b", "a-b", "a b", ".x", "x", "-x", "~x", "..", "."];
+
+		const named = ids.map((id) => store.paths(id, "one").runDir);
+
+		expect(new Set(named).size).toBe(ids.length);
 	});
 
 	it("writes JSON atomically and reads it back", async () => {

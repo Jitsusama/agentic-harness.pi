@@ -14,6 +14,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { SubagentCancelledError } from "../../../extensions/subagent-workflow/cancellation.js";
 import { createFleetLedger } from "../../../lib/subagent/fleet.js";
 import type { RunPi } from "../../../lib/subagent/subagent.js";
 import { activateWith } from "../support/review-extension.js";
@@ -143,6 +144,28 @@ describe("dispatching a fleet", () => {
 		expect(about).toHaveLength(1);
 		expect(about[0]).toContain("was cancelled");
 		expect(about[0]).toContain("fleet-cut.json");
+	});
+
+	it("holds a fleet somebody stopped from the panel", async () => {
+		// The cancellation this extension actually documents, and the
+		// one a guard on the signal cannot see: a key pressed in the
+		// panel leaves the signal untouched and comes back as a result
+		// with cancelled entries in it. Reading the signal alone
+		// released every fleet a person had stopped on purpose, which is
+		// the one population most likely to be worth reading later.
+		answer = async () => {
+			throw new SubagentCancelledError("one");
+		};
+
+		await dispatch("fleet-stopped");
+
+		const { runs } = await createFleetLedger(fleetDir()).everyFleet();
+		expect(runs).toEqual([
+			expect.objectContaining({ id: "fleet-stopped", open: true }),
+		]);
+		const about = said.filter((line) => line.includes("fleet-stopped"));
+		expect(about).toHaveLength(1);
+		expect(about[0]).toContain("1 subagent was cancelled");
 	});
 
 	it("releases a fleet whose subagents all failed", async () => {

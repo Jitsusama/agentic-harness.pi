@@ -231,15 +231,22 @@ describe("the fleet retention sweep", () => {
 	});
 
 	it("says nothing while only a few are held", async () => {
-		// A channel that speaks every session is a channel nobody
-		// reads, and one held fleet is the ordinary state of a machine
-		// that ran one this morning.
+		// A channel that speaks every session is a channel nobody reads,
+		// and a couple of held fleets is the ordinary state of a machine
+		// somebody used this morning.
+		//
+		// Four, not zero. Holding none would pin the threshold only from
+		// above, so a version that spoke at one would pass this and the
+		// case below it alike.
 		const ledger = createFleetLedger(stateDir("fleets"));
-		await ledger.open({
-			id: "fleet-0",
-			startedAt: new Date().toISOString(),
-			jobs: ["one"],
-		});
+		for (let n = 0; n < 4; n++) {
+			await ledger.open({
+				id: `fleet-${n}`,
+				startedAt: new Date().toISOString(),
+				jobs: ["one"],
+			});
+			await age(staleFleet(`fleet-${n}`));
+		}
 		const transcripts = staleFleet("fleet-swept");
 		await age(transcripts);
 

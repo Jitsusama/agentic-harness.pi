@@ -185,6 +185,19 @@ panel and just return results.
   rather than a handler body because it is four policies
   in a row.
 
+- `run.ts`: orchestrator. Takes assignments, dispatches
+  via the library's `runSubagent`, threads progress and
+  cancellation, aggregates usage.
+- `progress.ts`: observer interface plus the stream-
+  activity summarizer.
+- `progress-render.ts`: production status-line +
+  focused-panel reporter.
+- `cancellation.ts`: fleet-shaped cancellation
+  registry. A review-shaped sibling once lived beside it;
+  the review substrate bounds a participant's run with a
+  timeout instead, since a tool's execute is handed no
+  cancellation signal to hang a keystroke off.
+
 ## What Is Kept, and What Reclaims It
 
 A fleet's answers exist in two places: the tool result
@@ -198,9 +211,15 @@ ledger under `fleets/` beside the run directories, and
 released when it is handed back. An unreleased fleet is
 protected absolutely: no window takes it, because what
 protection asserts is that this run holds the only copy
-of something and a clock does not make that untrue.
-Cancellation counts as unreleased, since an aborted call
-returns nothing to anybody.
+of something, and a clock does not make that untrue.
+
+Cancellation counts as unreleased, both kinds. The
+signal is pi tearing the call away; the panel is somebody
+pressing a key, which is the only cancellation this
+extension documents to anybody, and it leaves the signal
+untouched and hands back a result with cancelled entries
+in it. Either way an answer did not arrive, and what
+that subagent wrote is on disk and nowhere else.
 
 That leaves one population that grows without a bound,
 and two things follow from it. The sweep says how many
@@ -213,24 +232,22 @@ transcript.
 
 The ledger has a window of its own, over settled records
 older than the longest window their transcripts get, or
-it becomes the unbounded thing it was built to bound.
+it becomes the unbounded thing it was built to bound. It
+reclaims abandoned staging files on the same pass, and
+only ones an hour old, since the gap between a write and
+its rename is microseconds and a fresh one is somebody's.
 
 A ledger file that will not read stops the sweep, on this
 machine, until somebody deals with it. An empty protect
 set is not the cautious reading of a torn ledger: it is
 the one that deletes everything the ledger was keeping.
-- `run.ts`: orchestrator. Takes assignments, dispatches
-  via the library's `runSubagent`, threads progress and
-  cancellation, aggregates usage.
-- `progress.ts`: observer interface plus the stream-
-  activity summarizer.
-- `progress-render.ts`: production status-line +
-  focused-panel reporter.
-- `cancellation.ts`: fleet-shaped cancellation
-  registry. A review-shaped sibling once lived beside it;
-  the review substrate bounds a participant's run with a
-  timeout instead, since a tool's execute is handed no
-  cancellation signal to hang a keystroke off.
+
+One gap is known and open. A record for a fleet that
+never wrote a transcript is protected like any other and
+is never mentioned, since the count reports what the
+sweep held and there is nothing on disk to hold. Those
+are small and rare, but they are the one population no
+window reaches.
 
 The library at `lib/subagent/` is the substrate. The
 `subagent-fleet-guide` skill is the methodology. Read it

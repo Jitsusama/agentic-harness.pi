@@ -12,17 +12,19 @@
  */
 import {
 	chmodSync,
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
 	rmSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { safeSegment } from "../../../lib/subagent/errno.js";
+import { ReviewerArtifactsStore } from "../../../lib/subagent/artifacts.js";
 import { createFleetLedger } from "../../../lib/subagent/fleet.js";
 
 let root: string;
@@ -205,13 +207,32 @@ describe("a fleet ledger", () => {
 		const ledger = createFleetLedger(root);
 		await ledger.open(fleet("fleet-a"));
 		await ledger.settle("fleet-a");
-		writeFileSync(join(root, "fleet-b.json.999.1.staging"), "{}", "utf8");
+		const abandoned = join(root, "fleet-b.json.999.1.staging");
+		writeFileSync(abandoned, "{}", "utf8");
+		const long = new Date(Date.now() - 48 * 60 * 60 * 1000);
+		utimesSync(abandoned, long, long);
 
 		await ledger.forgetSettledBefore(new Date("2020-01-01T00:00:00.000Z"));
 
 		// The settled fleet is inside the window and stays; the staging
 		// file is nobody's and goes.
 		expect(await readdir(root)).toEqual(["fleet-a.json"]);
+	});
+
+	it("leaves a staging file another process may be mid-write on", async () => {
+		// The gap a staging name covers is a write and a rename, which
+		// is microseconds, so a fresh one is somebody's. Deleting every
+		// one a listing turns up means a session start can destroy
+		// another process's ledger write in flight, which is a fleet
+		// losing its protection at the moment it was being granted.
+		const ledger = createFleetLedger(root);
+		const live = join(root, "fleet-b.json.999.1.staging");
+		await ledger.open(fleet("fleet-a"));
+		writeFileSync(live, "{}", "utf8");
+
+		await ledger.forgetSettledBefore(new Date());
+
+		expect(existsSync(live)).toBe(true);
 	});
 
 	it("keeps a record whose settled time will not parse", async () => {
@@ -262,12 +283,12 @@ describe("a fleet ledger", () => {
 	});
 
 	it("will not let an id climb out of the ledger", async () => {
-		// Two dots name the parent directory. The ledger appends a
-		// suffix, so `..` lands as a file called `...json` and stays
-		// inside whatever happens; the spelling is shared with the
-		// transcripts, where an id is a bare directory name and the same
-		// two dots are the parent itself. Held here because this is the
-		// caller that takes an id straight from a tool parameter.
+		// Two dots name the parent directory. The spelling escapes a
+		// leading dot, so this lands inside as a name that reads rather
+		// than one that walks; the same spelling keys the transcripts,
+		// where an id is a bare directory segment and the escape is what
+		// stops it being the parent. Held here as well because this is
+		// the caller taking an id straight from a tool parameter.
 		const ledger = createFleetLedger(join(root, "inside"));
 
 		await ledger.open(fleet(".."));
@@ -282,13 +303,18 @@ describe("a fleet ledger", () => {
 		// means two ways for distinct ids to collide, differently, and a
 		// pair sharing one ledger record while owning separate
 		// directories: settling either releases the protection on both.
+		//
+		// Compared against the transcripts rather than against
+		// `safeSegment`, which would only say this file calls the
+		// function it calls. The agreement is with the other caller.
+		const awkward = "../../etc/fleet a";
 		const ledger = createFleetLedger(root);
+		const store = new ReviewerArtifactsStore(join(root, "transcripts"));
 
-		await ledger.open(fleet("../../etc/fleet a"));
+		await ledger.open(fleet(awkward));
 
-		expect(await readdir(root)).toEqual([
-			`${safeSegment("../../etc/fleet a")}.json`,
-		]);
+		const [named] = await readdir(root);
+		expect(named).toBe(`${basename(store.paths(awkward, "one").runDir)}.json`);
 	});
 
 	it("forgets a settled fleet once its transcripts would be gone", async () => {
