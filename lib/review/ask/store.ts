@@ -56,8 +56,30 @@ export interface RunStore {
 	 * that judges a run by whether it is terminal will happily delete
 	 * the answers a round is still waiting to be asked for. Before
 	 * rounds outlived their sessions the two could not disagree.
+	 *
+	 * What could not be read is answered beside what could, rather
+	 * than thrown or quietly skipped. Skipping was wrong in the one
+	 * direction that costs something: a torn file drops protection
+	 * from every round it held, silently and only for that change,
+	 * which is a sweep deleting paid-for reviews and reporting a clean
+	 * run. Throwing would be no better, since the answer for every
+	 * other change is perfectly good and a sweep that ran would
+	 * reclaim real disk. The caller decides, and it has what it needs
+	 * to decide with.
 	 */
-	openRunIds(): Promise<Set<string>>;
+	openRunIds(): Promise<OpenRuns>;
+}
+
+/** Which rounds are open, and which files could not be asked. */
+export interface OpenRuns {
+	readonly open: ReadonlySet<string>;
+	/**
+	 * Ledger files that exist and would not read, by name.
+	 *
+	 * Non-empty means the open set is incomplete and there is no way
+	 * to tell which rounds are missing from it.
+	 */
+	readonly unreadable: readonly string[];
 }
 
 /** What one change's file holds. */
@@ -132,14 +154,22 @@ export function createRunStore(root: string): RunStore {
 
 		async openRunIds() {
 			const open = new Set<string>();
+			const unreadable: string[] = [];
 			let files: string[];
 			try {
 				files = await readdir(root);
-			} catch {
+			} catch (error) {
 				// No ledger directory at all, so no rounds are open. The
 				// caller is a sweep, and answering "none" is the honest
 				// reading of an empty history.
-				return open;
+				//
+				// Only for that reading, though. Every other errno says the
+				// history is there and cannot be seen, and answering "none"
+				// to those tells a sweep every round is collectable rubbish.
+				// The catch used to be untyped, so a permissions problem on
+				// this directory read as an empty history.
+				if (!isMissing(error)) return { open, unreadable: [root] };
+				return { open, unreadable };
 			}
 			for (const file of files) {
 				if (!file.endsWith(".json")) continue;
@@ -147,10 +177,13 @@ export function createRunStore(root: string): RunStore {
 				try {
 					parsed = JSON.parse(await readFile(join(root, file), "utf8"));
 				} catch {
-					// A torn or unreadable ledger is somebody else's problem
-					// to report. Skipping it here only means a sweep does not
-					// know about its rounds, and the sweep errs towards
-					// deleting nothing it was unsure about.
+					// Said, not skipped. Skipping used to be justified on the
+					// grounds that the sweep errs towards deleting nothing it
+					// was unsure about, and it does not: a run it is unsure
+					// about is a run nothing protects, which is the ordinary
+					// window. One torn file among twenty took protection off
+					// that change's rounds with no error anywhere.
+					unreadable.push(file);
 					continue;
 				}
 				if (
@@ -159,6 +192,9 @@ export function createRunStore(root: string): RunStore {
 					!("runs" in parsed) ||
 					!Array.isArray(parsed.runs)
 				) {
+					// A file that parses into the wrong shape is no more
+					// readable than one that does not parse at all.
+					unreadable.push(file);
 					continue;
 				}
 				for (const run of parsed.runs as AskRun[]) {
@@ -167,7 +203,7 @@ export function createRunStore(root: string): RunStore {
 					}
 				}
 			}
-			return open;
+			return { open, unreadable };
 		},
 
 		async latest(change, round) {
@@ -217,6 +253,23 @@ export function createRunStore(root: string): RunStore {
 			});
 		},
 	};
+}
+
+/**
+ * Whether a filesystem error means the thing is simply not there.
+ *
+ * The distinction matters wherever absence is an answer, because
+ * every other errno means the thing exists and could not be reached,
+ * and reporting that as absence is how a sweep concludes a full
+ * history is an empty one.
+ */
+function isMissing(error: unknown): boolean {
+	return (
+		typeof error === "object" &&
+		error !== null &&
+		"code" in error &&
+		error.code === "ENOENT"
+	);
 }
 
 /**

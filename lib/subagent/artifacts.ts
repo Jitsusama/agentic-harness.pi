@@ -130,6 +130,16 @@ export interface RetentionPolicy {
 export interface CleanupSummary {
 	readonly removed: number;
 	readonly kept: number;
+	/**
+	 * How many were kept only because the caller protected them.
+	 *
+	 * Apart from {@link kept}, which folds "kept because it is recent"
+	 * together with "kept because a person has not dealt with it".
+	 * Only the second grows without limit, and a caller cannot see it
+	 * any other way: protection is absolute, so this number is the
+	 * whole of what that costs.
+	 */
+	readonly held: number;
 	readonly warnings: readonly string[];
 }
 
@@ -251,12 +261,19 @@ export class ReviewerArtifactsStore {
 	async cleanupTerminalRuns(policy: RetentionPolicy): Promise<CleanupSummary> {
 		const warnings: string[] = [];
 		const entries = await listDirs(this.runsDir);
-		const runs = await Promise.all(
+		// A run that goes while this is looking at it is dropped rather
+		// than thrown over. Sessions sweep concurrently by design, so one
+		// removing a directory between the listing and the stat is the
+		// ordinary case, and it used to abort the sweep for everything
+		// else in the directory.
+		const seen = await Promise.all(
 			entries.map(async (name) => {
 				const runDir = join(this.runsDir, name);
-				return { name, runDir, mtimeMs: (await stat(runDir)).mtimeMs };
+				const mtimeMs = await mtimeOf(runDir);
+				return mtimeMs === undefined ? undefined : { name, runDir, mtimeMs };
 			}),
 		);
+		const runs = seen.filter((run) => run !== undefined);
 		const sorted = runs.sort((a, b) => b.mtimeMs - a.mtimeMs);
 		// Why each one is being kept, worked out for all of them before
 		// any of them is judged, because the count below has to rank a run
@@ -270,11 +287,24 @@ export class ReviewerArtifactsStore {
 				// Protection first, since it is the stronger claim and the
 				// cheaper question: a set lookup against a directory walk.
 				if (protect.has(run.name)) return "protected";
-				return (await isTerminalRun(run.runDir)) ? "spendable" : "unfinished";
+				try {
+					return (await isTerminalRun(run.runDir)) ? "spendable" : "unfinished";
+				} catch (error) {
+					// One directory nobody can walk must not cost the sweep
+					// every other directory. Unfinished is the careful reading
+					// of a run that cannot be asked whether it finished: it
+					// buys the long window rather than the short one, and this
+					// says so rather than deciding quietly.
+					warnings.push(
+						`Could not tell whether ${run.runDir} finished, so it is held as unfinished: ${errorMessage(error)}`,
+					);
+					return "unfinished";
+				}
 			}),
 		);
 		let removed = 0;
 		let kept = 0;
+		let held = 0;
 		// A run's rank among the ones the count may take. Counting every
 		// directory instead let runs the count can never evict fill the
 		// budget and push out ones it can: a hundred rounds open on a
@@ -301,9 +331,10 @@ export class ReviewerArtifactsStore {
 				}
 			} else {
 				kept++;
+				if (why === "protected") held++;
 			}
 		}
-		return { removed, kept, warnings };
+		return { removed, kept, held, warnings };
 	}
 }
 
@@ -345,6 +376,31 @@ function isSpent(
 
 /** Why a run is being kept, which decides what may take it. */
 type Keeping = "protected" | "unfinished" | "spendable";
+
+/**
+ * When a path was last written, or nothing if it is not there.
+ *
+ * Absence is an answer here rather than a failure: a concurrent sweep
+ * removing a run directory is the expected case, not a fault.
+ *
+ * No test covers the window this guards, and it is worth saying so.
+ * The gap is between the listing and this stat, inside one call, with
+ * no seam to hold it open from outside, and a case that raced for it
+ * would be a case that fails sometimes. So this is reasoned rather
+ * than demonstrated: everything else here that touches the disk
+ * tolerates a missing file, this was the one that did not, and what
+ * it cost was the whole sweep plus, once the caller began reporting
+ * failures, a loud message at session start about two windows having
+ * been opened together.
+ */
+async function mtimeOf(path: string): Promise<number | undefined> {
+	try {
+		return (await stat(path)).mtimeMs;
+	} catch (error) {
+		if (isNotFound(error)) return undefined;
+		throw error;
+	}
+}
 
 function safeSegment(value: string): string {
 	const clean = value.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");

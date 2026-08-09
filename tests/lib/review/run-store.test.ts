@@ -1,4 +1,5 @@
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -290,9 +291,56 @@ describe("replacing a run", () => {
 			run({ id: "council-elsewhere", open: true }),
 		);
 
-		expect(await store.openRunIds()).toEqual(
-			new Set(["council-open", "council-elsewhere"]),
-		);
+		expect(await store.openRunIds()).toEqual({
+			open: new Set(["council-open", "council-elsewhere"]),
+			unreadable: [],
+		});
+	});
+
+	it("names a ledger file it could not ask, rather than passing over it", async () => {
+		// The sweep reads this to decide what it may delete, and a file it
+		// skipped is a change whose open rounds are missing from the
+		// answer with nothing saying so. Those rounds are detached ones
+		// that finished on disk, so nothing protecting them means the
+		// ordinary window takes findings nobody has read yet.
+		//
+		// Skipping was justified on the grounds that a sweep errs towards
+		// deleting nothing it is unsure about. It does not: a run nothing
+		// protects is a run on the ordinary window.
+		const store = createRunStore(root);
+		await store.keep(change, run({ id: "council-open", open: true }));
+		await writeFile(join(root, "torn.json"), "{ not json", "utf8");
+		await writeFile(join(root, "wrong-shape.json"), '{"rounds":[]}', "utf8");
+
+		const { open, unreadable } = await store.openRunIds();
+
+		// What could be read is still read: one bad file is not a reason
+		// to answer nothing about twenty good ones.
+		expect(open).toEqual(new Set(["council-open"]));
+		expect([...unreadable].sort()).toEqual(["torn.json", "wrong-shape.json"]);
+	});
+
+	it("tells a missing ledger from one it cannot get into", async () => {
+		// Absence is an answer: most changes have never been reviewed, so
+		// no directory means no open rounds. Every other errno means the
+		// history is there and cannot be seen, and answering "none" to
+		// those tells the sweep every round on disk is collectable
+		// rubbish. The catch used to be untyped and made no distinction.
+		expect(
+			await createRunStore(join(root, "nothing-here")).openRunIds(),
+		).toEqual({ open: new Set(), unreadable: [] });
+
+		const shut = join(root, "shut");
+		await mkdir(shut);
+		await chmod(shut, 0o000);
+		try {
+			const { open, unreadable } = await createRunStore(shut).openRunIds();
+
+			expect(open).toEqual(new Set());
+			expect(unreadable).toEqual([shut]);
+		} finally {
+			await chmod(shut, 0o700);
+		}
 	});
 
 	it("refuses to replace a run it does not hold", async () => {

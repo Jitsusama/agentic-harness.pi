@@ -87,6 +87,15 @@ function isProvider(data: unknown): data is ReviewProvider {
  * said.
  */
 const ROUNDS_RETAIN = 100;
+/**
+ * How many uncollected rounds before the sweep says so.
+ *
+ * Not one, because one is the ordinary state of somebody who started
+ * a round this morning and has not read it yet, and a message at
+ * every session start is a message nobody reads. Enough of them to be
+ * a habit rather than a moment.
+ */
+const ROUNDS_HELD_BEFORE_SAYING = 5;
 const ROUNDS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const ROUNDS_ABANDONED_AFTER_MS = 4 * ROUNDS_MAX_AGE_MS;
 
@@ -132,15 +141,37 @@ async function reclaimRoundTranscripts(): Promise<void> {
 		// protecting it the ordinary week takes it, and the findings go
 		// while the ledger entry advertising them stays. Skipping costs a
 		// session's worth of disk, and the next session sweeps.
-		const protect = await createRunStore(runDir()).openRunIds();
+		const { open, unreadable } = await createRunStore(runDir()).openRunIds();
+		if (unreadable.length > 0) {
+			// An incomplete protect set is worse than none of the sweep. The
+			// rounds missing from it cannot be named, and each one is a
+			// detached round that finished on disk, so nothing protecting it
+			// means the ordinary week takes findings nobody has read.
+			// Skipping costs a session's worth of disk.
+			console.error(
+				`[review-integration] round transcripts were not swept: ${unreadable.join(", ")} could not be read, so a round still waiting to be collected cannot be told from one nobody needs`,
+			);
+			return;
+		}
 		const swept = await new ReviewerArtifactsStore(
 			transcripts,
 		).cleanupTerminalRuns({
 			maxRuns: ROUNDS_RETAIN,
 			maxAgeMs: ROUNDS_MAX_AGE_MS,
 			abandonedAfterMs: ROUNDS_ABANDONED_AFTER_MS,
-			protect,
+			protect: open,
 		});
+		// What protection is costing, once there is enough of it to be
+		// worth a person's attention. Nothing else can tell them: a
+		// protected round is one nobody collected, every listing is scoped
+		// to one change, and a round opened against a change nobody
+		// attaches again appears in none of them. Protection is absolute,
+		// so this is the only number here that grows without a limit.
+		if (swept.held >= ROUNDS_HELD_BEFORE_SAYING) {
+			console.error(
+				`[review-integration] ${swept.held} rounds are still open and holding their reviewers' transcripts, which until they are collected is the only copy of what those reviewers said. Collect them to file their findings, or stop the ones that left nothing.`,
+			);
+		}
 		// Said out loud, because the summary was being computed and
 		// dropped. A round is megabytes per reviewer, so a sweep that
 		// cannot delete what it decided to delete is a disk filling at a

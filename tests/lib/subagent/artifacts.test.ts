@@ -120,6 +120,63 @@ describe("ReviewerArtifactsStore", () => {
 		await expect(stat(older.runDir)).rejects.toMatchObject({ code: "ENOENT" });
 	});
 
+	it("reclaims the rest when one run cannot be walked", async () => {
+		// The terminal check is asked for every run before any run is
+		// judged, so that the count can rank a run among the ones the
+		// count may take. That hoist put a rethrow ahead of the whole
+		// sweep: before it, everything ranked ahead of a bad directory had
+		// already been reclaimed, and after it one directory the process
+		// cannot enter meant zero bytes back, every session, until
+		// somebody fixed it by hand.
+		const store = await tempStore();
+		const shut = store.paths("shut", "fast");
+		const ordinary = store.paths("ordinary", "fast");
+		await store.writeJsonAtomic(shut.resultPath, { ok: true });
+		await store.writeJsonAtomic(ordinary.resultPath, { ok: true });
+		await chmod(shut.runDir, 0o000);
+
+		try {
+			const result = await store.cleanupTerminalRuns({
+				maxAgeMs: -1,
+				maxRuns: 0,
+				now: new Date(),
+			});
+
+			await expect(stat(ordinary.runDir)).rejects.toMatchObject({
+				code: "ENOENT",
+			});
+			// Held rather than taken, since a run that cannot be asked
+			// whether it finished gets the careful answer, and said rather
+			// than decided quietly.
+			expect((await stat(shut.runDir)).isDirectory()).toBe(true);
+			expect(result.warnings.join(" ")).toContain(shut.runDir);
+		} finally {
+			await chmod(shut.runDir, 0o700);
+		}
+	});
+
+	it("counts what protection is holding apart from what is merely fresh", async () => {
+		// Nothing else can tell a person this. Protection is absolute, so
+		// it is the only number here that grows without a limit, and a
+		// protected round is by definition one nobody has collected, so no
+		// listing they read is going to mention it.
+		const store = await tempStore();
+		const waiting = store.paths("waiting", "fast");
+		const fresh = store.paths("fresh", "fast");
+		await store.writeJsonAtomic(waiting.resultPath, { ok: true });
+		await store.writeJsonAtomic(fresh.resultPath, { ok: true });
+
+		const result = await store.cleanupTerminalRuns({
+			maxAgeMs: Number.POSITIVE_INFINITY,
+			maxRuns: 100,
+			protect: new Set(["waiting"]),
+			now: new Date(),
+		});
+
+		expect(result.kept).toBe(2);
+		expect(result.held).toBe(1);
+	});
+
 	it("reports a run it decided to take and could not", async () => {
 		// Two callers print this array now, and nothing showed it could
 		// ever hold anything: a summary that is always empty reads the
