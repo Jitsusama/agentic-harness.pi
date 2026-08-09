@@ -92,7 +92,20 @@ companion skill.
   assistant turn, watches `verify_output` tool calls,
   enforces line and warning caps.
 - `artifacts.ts`: durable on-disk state for supervised
-  runs (events, progress, lease, result).
+  runs (events, progress, lease, result), and the
+  retention sweep over them.
+- `fleet.ts`: the durable record of a dispatched fleet,
+  one file each. A fleet's answers live in the tool result
+  handed back and in the transcripts on disk, so a session
+  that dies mid-fleet leaves the transcripts as the only
+  copy. This is what says so, and what the sweep reads to
+  know which runs it may not take.
+- `errno.ts`: what a filesystem error was, and how a run
+  id is spelled as a path segment. Both are one definition
+  because a caller reading "broken" as "missing" answers
+  "nothing to keep", and two spellings of an id mean the
+  ledger and the transcripts can disagree about which run
+  a record is for.
 - `recovery.ts`: replay on-disk artifacts back into
   `RecoverySummary`/`RecoveredReviewerProgress` records for
   the parent to surface in-flight work.

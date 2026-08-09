@@ -8,6 +8,7 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { isNotFound, safeSegment } from "./errno.js";
 import type { ReviewerRunArtifacts } from "./subagent.js";
 
 /**
@@ -428,11 +429,6 @@ type Keeping = "protected" | "unfinished" | "spendable";
  */
 const NOT_IN_THE_RUNNING = Number.NEGATIVE_INFINITY;
 
-function safeSegment(value: string): string {
-	const clean = value.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
-	return clean.length > 0 ? clean : "unknown";
-}
-
 async function fileSize(path: string): Promise<number> {
 	try {
 		return (await stat(path)).size;
@@ -467,15 +463,6 @@ async function isTerminalRun(runDir: string): Promise<boolean> {
 		}
 	}
 	return true;
-}
-
-function isNotFound(error: unknown): boolean {
-	return (
-		typeof error === "object" &&
-		error !== null &&
-		"code" in error &&
-		error.code === "ENOENT"
-	);
 }
 
 function errorMessage(error: unknown): string {
