@@ -127,6 +127,35 @@ async function reclaimRoundTranscripts(): Promise<void> {
 	const mine = sessionKey();
 	// Separately, because one failing is not a reason to skip the
 	// other, and the transcript sweep races other sessions by nature.
+	// Each in its own function for the same reason: declining the
+	// transcript sweep has to be a decision about the transcript sweep,
+	// and a bare return inside this one was twice a decision about
+	// everything below it.
+	await sweepTranscripts(transcripts);
+	try {
+		await pruneAttachments(attached, {
+			olderThanMs: ATTACHMENTS_MAX_AGE_MS,
+			keep: mine,
+		});
+	} catch {
+		// Advisory, for the same reason.
+	}
+	try {
+		await reapOrphanedReviewers(transcripts);
+	} catch {
+		// Advisory, for the same reason.
+	}
+}
+
+/**
+ * Reclaim what finished rounds are holding, or decline and say why.
+ *
+ * Its own function because declining is a real outcome here, and the
+ * two ways of expressing that inside the caller were a bare return
+ * that also cancelled the sweeps below it and a flag threaded past
+ * them.
+ */
+async function sweepTranscripts(transcripts: string): Promise<void> {
 	try {
 		// Which rounds are still waiting to be collected. A detached
 		// round is finished on disk and unfinished to the person who
@@ -169,7 +198,7 @@ async function reclaimRoundTranscripts(): Promise<void> {
 		// so this is the only number here that grows without a limit.
 		if (swept.held >= ROUNDS_HELD_BEFORE_SAYING) {
 			console.error(
-				`[review-integration] ${swept.held} rounds are still open and holding their reviewers' transcripts, which until they are collected is the only copy of what those reviewers said. Collect them to file their findings, or stop the ones that left nothing.`,
+				`[review-integration] ${swept.held} rounds have been open long enough that everything else their age has been reclaimed, and each is holding the only copy of what its reviewers said. Attach the change a round was started on and collect it to file the findings, or stop it to close one that left nothing. Both need the change, so the ones to deal with first are the changes you are about to stop thinking about.`,
 			);
 		}
 		// Said out loud, because the summary was being computed and
@@ -190,19 +219,6 @@ async function reclaimRoundTranscripts(): Promise<void> {
 		console.error(
 			`[review-integration] round transcripts were not swept: ${error instanceof Error ? error.message : String(error)}`,
 		);
-	}
-	try {
-		await pruneAttachments(attached, {
-			olderThanMs: ATTACHMENTS_MAX_AGE_MS,
-			keep: mine,
-		});
-	} catch {
-		// Advisory, for the same reason.
-	}
-	try {
-		await reapOrphanedReviewers(transcripts);
-	} catch {
-		// Advisory, for the same reason.
 	}
 }
 

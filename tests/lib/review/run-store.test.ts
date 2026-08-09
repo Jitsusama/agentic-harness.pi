@@ -297,6 +297,30 @@ describe("replacing a run", () => {
 		});
 	});
 
+	it("refuses a change whose ledger is there and will not open", async () => {
+		// The same errno confusion as the sweep's, and worse here. A file
+		// that cannot be opened is not a change with no history, and
+		// answering "no rounds" means the next round written lays a
+		// one-round ledger over everything behind it.
+		const store = createRunStore(root);
+		await store.keep(change, run({ id: "council-one" }));
+		const [held] = readdirSync(root);
+		await chmod(join(root, held), 0o000);
+
+		try {
+			await expect(store.list(change)).rejects.toThrow(/could not be read/);
+		} finally {
+			await chmod(join(root, held), 0o600);
+		}
+	});
+
+	it("reads a change nobody has ever reviewed as having no rounds", async () => {
+		// The other half, and the reason the errno has to be looked at
+		// rather than every failure being treated the same: most changes
+		// have no file at all, and that is an answer.
+		expect(await createRunStore(root).list(change)).toEqual([]);
+	});
+
 	it("names a ledger file it could not ask, rather than passing over it", async () => {
 		// The sweep reads this to decide what it may delete, and a file it
 		// skipped is a change whose open rounds are missing from the
@@ -337,7 +361,12 @@ describe("replacing a run", () => {
 			const { open, unreadable } = await createRunStore(shut).openRunIds();
 
 			expect(open).toEqual(new Set());
-			expect(unreadable).toEqual([shut]);
+			// Naming the directory as a directory. The rest of this list is
+			// file names, and a bare path dropped among them reads as one
+			// more torn file rather than as the whole history being shut.
+			expect(unreadable).toHaveLength(1);
+			expect(unreadable[0]).toContain(shut);
+			expect(unreadable[0]).toContain("the whole ledger");
 		} finally {
 			await chmod(shut, 0o700);
 		}

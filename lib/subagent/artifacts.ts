@@ -133,11 +133,12 @@ export interface CleanupSummary {
 	/**
 	 * How many were kept only because the caller protected them.
 	 *
-	 * Apart from {@link kept}, which folds "kept because it is recent"
-	 * together with "kept because a person has not dealt with it".
-	 * Only the second grows without limit, and a caller cannot see it
-	 * any other way: protection is absolute, so this number is the
-	 * whole of what that costs.
+	 * Only because: a protected run that the windows would have kept
+	 * anyway is not counted, since it is costing nothing yet. What
+	 * this measures is what protection is holding past the point
+	 * everything else would have been let go, which is the part that
+	 * grows without limit, and {@link kept} cannot show it because it
+	 * folds that in with every run kept for being recent.
 	 */
 	readonly held: number;
 	readonly warnings: readonly string[];
@@ -305,22 +306,23 @@ export class ReviewerArtifactsStore {
 		let removed = 0;
 		let kept = 0;
 		let held = 0;
-		// A run's rank among the ones the count may take. Counting every
+		// How many runs the count could have taken so far. Counting every
 		// directory instead let runs the count can never evict fill the
 		// budget and push out ones it can: a hundred rounds open on a
 		// ledger are all newer than a stale finished one, so every
 		// finished round would be past the line however recently it ran.
-		let place = 0;
+		let spendable = 0;
 		const now = policy.now?.getTime() ?? Date.now();
 		for (let index = 0; index < sorted.length; index++) {
 			const run = sorted[index];
 			const why = keeping[index];
-			const gone = isSpent(policy, {
-				age: now - run.mtimeMs,
-				place: why === "spendable" ? place++ : Number.NEGATIVE_INFINITY,
-				keeping: why,
-			});
-			if (gone) {
+			const age = now - run.mtimeMs;
+			// Where this one stands among the runs the count may take, and
+			// nowhere at all if it is not one of them. Only a spendable run
+			// advances the rank, which is what stops a kept one spending the
+			// budget on everybody else's behalf.
+			const place = why === "spendable" ? spendable++ : NOT_IN_THE_RUNNING;
+			if (isSpent(policy, { age, place, keeping: why })) {
 				try {
 					await rm(run.runDir, { recursive: true, force: true });
 					removed++;
@@ -331,7 +333,18 @@ export class ReviewerArtifactsStore {
 				}
 			} else {
 				kept++;
-				if (why === "protected") held++;
+				// Only the ones protection is actually paying for. Asking the
+				// policy what it would say about this run without the
+				// protection is the only way to tell a round somebody is
+				// sitting on from one that simply finished this morning.
+				// Ranked where it would stand rather than taking a place,
+				// since the question is hypothetical and the budget is not.
+				if (
+					why === "protected" &&
+					isSpent(policy, { age, place: spendable, keeping: "spendable" })
+				) {
+					held++;
+				}
 			}
 		}
 		return { removed, kept, held, warnings };
@@ -376,6 +389,14 @@ function isSpent(
 
 /** Why a run is being kept, which decides what may take it. */
 type Keeping = "protected" | "unfinished" | "spendable";
+
+/**
+ * The rank of a run the count cannot take.
+ *
+ * Below every threshold, so a policy that reads it still answers, and
+ * answers that the count is not what would take this one.
+ */
+const NOT_IN_THE_RUNNING = Number.NEGATIVE_INFINITY;
 
 /**
  * When a path was last written, or nothing if it is not there.

@@ -155,21 +155,28 @@ describe("ReviewerArtifactsStore", () => {
 		}
 	});
 
-	it("counts what protection is holding apart from what is merely fresh", async () => {
+	it("counts what protection is paying for, not everything it covers", async () => {
 		// Nothing else can tell a person this. Protection is absolute, so
 		// it is the only number here that grows without a limit, and a
 		// protected round is by definition one nobody has collected, so no
 		// listing they read is going to mention it.
+		//
+		// Only what it is paying for, though. A protected round that
+		// finished this morning would have been kept anyway, and counting
+		// it makes the number say "how many rounds are open", which is a
+		// different question and one that is loud on the ordinary day.
 		const store = await tempStore();
-		const waiting = store.paths("waiting", "fast");
-		const fresh = store.paths("fresh", "fast");
-		await store.writeJsonAtomic(waiting.resultPath, { ok: true });
-		await store.writeJsonAtomic(fresh.resultPath, { ok: true });
+		const sat = store.paths("sat-on", "fast");
+		const justRan = store.paths("just-ran", "fast");
+		await store.writeJsonAtomic(sat.resultPath, { ok: true });
+		await utimes(sat.runDir, new Date(), new Date(Date.now() - 60_000));
+		await store.writeJsonAtomic(justRan.resultPath, { ok: true });
 
 		const result = await store.cleanupTerminalRuns({
-			maxAgeMs: Number.POSITIVE_INFINITY,
+			// Old enough to have taken the one, not the other.
+			maxAgeMs: 30_000,
 			maxRuns: 100,
-			protect: new Set(["waiting"]),
+			protect: new Set(["sat-on", "just-ran"]),
 			now: new Date(),
 		});
 

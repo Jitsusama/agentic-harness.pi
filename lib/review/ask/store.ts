@@ -70,14 +70,17 @@ export interface RunStore {
 	openRunIds(): Promise<OpenRuns>;
 }
 
-/** Which rounds are open, and which files could not be asked. */
+/** Which rounds are open, and what could not be asked. */
 export interface OpenRuns {
 	readonly open: ReadonlySet<string>;
 	/**
-	 * Ledger files that exist and would not read, by name.
+	 * What exists and would not read, said the way a person can act on
+	 * it: a ledger file by name, or the whole directory when that is
+	 * what could not be opened.
 	 *
 	 * Non-empty means the open set is incomplete and there is no way
-	 * to tell which rounds are missing from it.
+	 * to tell which rounds are missing from it, so a caller deciding
+	 * what to delete has to decline rather than read it as "none".
 	 */
 	readonly unreadable: readonly string[];
 }
@@ -91,12 +94,25 @@ interface Ledger {
 export function createRunStore(root: string): RunStore {
 	async function read(change: ChangeRef): Promise<Ledger> {
 		let raw: string;
+		const path = join(root, fileFor(change));
 		try {
-			raw = await readFile(join(root, fileFor(change)), "utf8");
-		} catch {
+			raw = await readFile(path, "utf8");
+		} catch (error) {
 			// No file. This change has no rounds behind it, which is an
 			// answer rather than a failure: most changes have never been
 			// reviewed.
+			//
+			// Only ENOENT, though. Every other errno says the history is
+			// there and could not be reached, and answering "no rounds" to
+			// those is worse here than in the sweep: the next write lays a
+			// one-round ledger over whatever was behind it. The reasoning
+			// twenty lines down, about a file that will not parse, applies
+			// exactly as well to a file that will not open.
+			if (!isMissing(error)) {
+				throw new Error(
+					`The rounds held against ${change.label} could not be read from ${path}: ${error instanceof Error ? error.message : String(error)}. Fix or move that file: answering "no rounds" for it would let the next round overwrite the history behind it.`,
+				);
+			}
 			return { runs: [] };
 		}
 		// A file that will not parse is a different thing entirely, and
@@ -168,7 +184,9 @@ export function createRunStore(root: string): RunStore {
 				// to those tells a sweep every round is collectable rubbish.
 				// The catch used to be untyped, so a permissions problem on
 				// this directory read as an empty history.
-				if (!isMissing(error)) return { open, unreadable: [root] };
+				if (!isMissing(error)) {
+					return { open, unreadable: [`${root} (the whole ledger)`] };
+				}
 				return { open, unreadable };
 			}
 			for (const file of files) {
