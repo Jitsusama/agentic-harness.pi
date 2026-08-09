@@ -129,11 +129,19 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 	// for recovery, but not forever.
 	pi.on("session_start", async () => {
 		try {
-			await new ReviewerArtifactsStore(stateDir()).cleanupTerminalRuns({
+			const swept = await new ReviewerArtifactsStore(
+				stateDir(),
+			).cleanupTerminalRuns({
 				maxRuns: FLEET_RUNS_RETAIN,
 				maxAgeMs: FLEET_RUNS_MAX_AGE_MS,
 				abandonedAfterMs: FLEET_RUNS_ABANDONED_AFTER_MS,
 			});
+			// Only the failures, and out loud: a sweep that decided to
+			// delete something and could not is a disk filling at a rate
+			// nothing reports, and the summary saying so was being dropped.
+			for (const warning of swept.warnings) {
+				console.error(`[subagent] fleet runs: ${warning}`);
+			}
 		} catch {
 			// Retention is advisory; a transient sweep failure is fine.
 		}

@@ -80,8 +80,12 @@ function isProvider(data: unknown): data is ReviewProvider {
  * ten megabytes across rotations, so a busy day writes hundreds of
  * megabytes. Keeping a transcript is what makes a lost round
  * diagnosable; keeping every transcript ever written is just a disk
- * that fills. An unfinished run is held far longer, because that is
- * the one somebody may still be trying to recover.
+ * that fills. A round somebody may still be coming back for, because
+ * it never finished or because it is still open on the ledger, is
+ * held to the long window instead. Held to it, though, and not
+ * excused from every window: a detached round nobody ever collects is
+ * a round nobody is ever going to collect, and four weeks is a
+ * generous reading of "about to be read".
  */
 const ROUNDS_RETAIN = 100;
 const ROUNDS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -117,7 +121,7 @@ async function reclaimRoundTranscripts(): Promise<void> {
 	// is finished on disk and unfinished to the person who started it,
 	// and this is the only thing that tells the two apart: without it
 	// the sweep deletes reviews that have been paid for and were about
-	// to be read.
+	// to be read. It buys them the long window, not immunity.
 	let protect: ReadonlySet<string> = new Set();
 	try {
 		protect = await createRunStore(runDir()).openRunIds();
@@ -130,12 +134,23 @@ async function reclaimRoundTranscripts(): Promise<void> {
 	// Separately, because one failing is not a reason to skip the
 	// other, and the transcript sweep races other sessions by nature.
 	try {
-		await new ReviewerArtifactsStore(transcripts).cleanupTerminalRuns({
+		const swept = await new ReviewerArtifactsStore(
+			transcripts,
+		).cleanupTerminalRuns({
 			maxRuns: ROUNDS_RETAIN,
 			maxAgeMs: ROUNDS_MAX_AGE_MS,
 			abandonedAfterMs: ROUNDS_ABANDONED_AFTER_MS,
 			protect,
 		});
+		// Said out loud, because the summary was being computed and
+		// dropped. A round is megabytes per reviewer, so a sweep that
+		// cannot delete what it decided to delete is a disk filling at a
+		// rate nothing reports, and the way that gets noticed is the disk
+		// being full. Only the failures: a sweep doing its job every
+		// session start has nothing to say.
+		for (const warning of swept.warnings) {
+			console.error(`[review] round transcripts: ${warning}`);
+		}
 	} catch {
 		// Advisory. A sweep that cannot run costs disk, and failing the
 		// session over it would cost the session.

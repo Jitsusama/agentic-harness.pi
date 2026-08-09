@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -71,7 +71,85 @@ describe("ReviewerArtifactsStore", () => {
 		expect((await stat(active.runDir)).isDirectory()).toBe(true);
 	});
 
-	it("keeps a protected run however finished and however old", async () => {
+	it("takes a finished run that is too old, however few there are", async () => {
+		// The two ordinary windows separately, because the sweep that
+		// covered them together set both to fire at once and either alone
+		// would have passed it. Room for a hundred runs and one run in
+		// the directory, so only age can be doing this.
+		const store = await tempStore();
+		const stale = store.paths("stale", "fast");
+		await store.writeJsonAtomic(stale.resultPath, { ok: true });
+
+		const result = await store.cleanupTerminalRuns({
+			maxAgeMs: -1,
+			maxRuns: 100,
+			now: new Date(),
+		});
+
+		expect(result.removed).toBe(1);
+		await expect(stat(stale.runDir)).rejects.toMatchObject({ code: "ENOENT" });
+	});
+
+	it("takes the oldest finished runs past the count, however fresh", async () => {
+		// The other half. An age window nothing can exceed, so only the
+		// count can be doing this, and it has to fall on the older of the
+		// two rather than on whichever the directory happened to list
+		// first.
+		const store = await tempStore();
+		const older = store.paths("older", "fast");
+		const newer = store.paths("newer", "fast");
+		await store.writeJsonAtomic(older.resultPath, { ok: true });
+		await utimes(older.runDir, new Date(), new Date(Date.now() - 60_000));
+		await store.writeJsonAtomic(newer.resultPath, { ok: true });
+
+		const result = await store.cleanupTerminalRuns({
+			maxAgeMs: Number.POSITIVE_INFINITY,
+			maxRuns: 1,
+			now: new Date(),
+		});
+
+		expect(result.removed).toBe(1);
+		expect((await stat(newer.runDir)).isDirectory()).toBe(true);
+		await expect(stat(older.runDir)).rejects.toMatchObject({ code: "ENOENT" });
+	});
+
+	it("reclaims a protected run once it is past the abandoned window", async () => {
+		// Protection defers the sweep; it does not exempt the run from it.
+		// The set handed in is every round still open on the ledger, which
+		// is exactly the set the abandoned window was written for, so a
+		// protection that short-circuits ahead of that check switches the
+		// window off for the only runs it was ever going to reclaim. A
+		// detached round nobody collects then pins its reviewers'
+		// transcripts forever, which is the unbounded growth the window
+		// exists to stop.
+		const store = await tempStore();
+		const unfinished = store.paths("uncollected-unfinished", "fast");
+		const finished = store.paths("uncollected-finished", "fast");
+		await store.writeJsonAtomic(unfinished.progressPath, { state: "running" });
+		await store.writeJsonAtomic(finished.resultPath, { ok: true });
+
+		const result = await store.cleanupTerminalRuns({
+			// Wide open, so nothing but the window can be doing the work.
+			maxAgeMs: Number.POSITIVE_INFINITY,
+			maxRuns: 100,
+			abandonedAfterMs: -1,
+			protect: new Set(["uncollected-unfinished", "uncollected-finished"]),
+			now: new Date(),
+		});
+
+		// Both of them: a round waiting to be collected is past collecting
+		// at the same point whether or not its reviewers got as far as
+		// writing a result.
+		expect(result.removed).toBe(2);
+		await expect(stat(unfinished.runDir)).rejects.toMatchObject({
+			code: "ENOENT",
+		});
+		await expect(stat(finished.runDir)).rejects.toMatchObject({
+			code: "ENOENT",
+		});
+	});
+
+	it("keeps a protected run the ordinary windows would take", async () => {
 		// A round detached from its session writes every result file and
 		// then waits to be collected, so to this sweep it is a finished
 		// round nobody needs. Deleting it throws away reviews that have

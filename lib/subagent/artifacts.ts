@@ -90,20 +90,24 @@ export interface RetentionPolicy {
 	readonly maxAgeMs: number;
 	readonly maxRuns: number;
 	/**
-	 * How long an unfinished run is kept before it is reclaimed anyway.
+	 * How long a run somebody may still want is kept before it is
+	 * reclaimed anyway.
 	 *
 	 * A run whose reviewer never wrote a result is not terminal, and a
 	 * terminal-only sweep can never reclaim it, so a run killed hard
 	 * lives forever and the directory grows without bound. This window
 	 * is deliberately separate from {@link maxAgeMs} and much longer:
-	 * an unfinished run is kept for recovery, and the question is not
-	 * whether it finished but whether anybody could still plausibly
-	 * resume it. Omit to keep unfinished runs indefinitely, which is
-	 * what the policy did before this existed.
+	 * the question it asks is not whether the run finished but whether
+	 * anybody could still plausibly come back for it. Omit to keep such
+	 * runs indefinitely, which is what the policy did before this
+	 * existed.
+	 *
+	 * It is the outer bound on every run, {@link protect}ed ones
+	 * included, and the only window those are held to.
 	 */
 	readonly abandonedAfterMs?: number;
 	/**
-	 * Runs to keep whatever their age, named by run id.
+	 * Runs the ordinary windows may not take, named by run id.
 	 *
 	 * For work that is finished on disk and unfinished to whoever is
 	 * going to read it. A round detached from its session writes every
@@ -111,6 +115,15 @@ export interface RetentionPolicy {
 	 * to this sweep it looks exactly like a finished round nobody
 	 * needs. Deleting it throws away reviews that have been paid for
 	 * and leaves a ledger entry pointing at nothing.
+	 *
+	 * This defers the sweep rather than exempting the run from it: a
+	 * protected run is held to {@link abandonedAfterMs} instead of to
+	 * {@link maxAgeMs} and {@link maxRuns}, not to nothing at all.
+	 * Exempting it was the bug. The set a caller has to hand in is
+	 * every round still open on its ledger, which is the same set the
+	 * abandoned window was written for, so a protection that answered
+	 * first switched that window off for precisely the runs it existed
+	 * to reclaim.
 	 */
 	readonly protect?: ReadonlySet<string>;
 	readonly now?: Date;
@@ -253,22 +266,14 @@ export class ReviewerArtifactsStore {
 		const now = policy.now?.getTime() ?? Date.now();
 		for (let index = 0; index < sorted.length; index++) {
 			const run = sorted[index];
-			const terminal = await isTerminalRun(run.runDir);
-			const age = now - run.mtimeMs;
-			const tooOld = age > policy.maxAgeMs;
-			const tooMany = index >= policy.maxRuns;
-			// An unfinished run is kept for recovery, but not forever: past
-			// this window nobody is going to resume it, and leaving it is
-			// how the directory grew unbounded.
-			const abandoned =
-				!terminal &&
-				policy.abandonedAfterMs !== undefined &&
-				age > policy.abandonedAfterMs;
-			if (policy.protect?.has(run.name)) {
-				kept++;
-				continue;
-			}
-			if ((terminal && (tooOld || tooMany)) || abandoned) {
+			const gone = isSpent(policy, {
+				age: now - run.mtimeMs,
+				place: index,
+				wanted:
+					!(await isTerminalRun(run.runDir)) ||
+					policy.protect?.has(run.name) === true,
+			});
+			if (gone) {
 				try {
 					await rm(run.runDir, { recursive: true, force: true });
 					removed++;
@@ -283,6 +288,39 @@ export class ReviewerArtifactsStore {
 		}
 		return { removed, kept, warnings };
 	}
+}
+
+/**
+ * Whether a run has outlived the reason to keep it.
+ *
+ * Two ways to be a run somebody may still want, and they get the same
+ * answer. Unfinished means its reviewer never wrote a result, so
+ * whatever it did is only on disk here. Protected means the round is
+ * still open on the caller's ledger, which is a detached round that
+ * finished and is waiting to be collected. Neither is subject to the
+ * ordinary windows, and both are subject to the long one.
+ *
+ * Protection defers the sweep rather than exempting the run from it.
+ * Exempting was the bug. The protected set a caller can build is every
+ * round still open on its ledger, so a protection answering ahead of
+ * the abandoned window switched that window off for precisely the runs
+ * it was written to reclaim, and a round nobody ever collected pinned
+ * its reviewers' transcripts for good.
+ *
+ * Separate from the loop because the loop is a filesystem walk and
+ * this is the policy: one of them needs a disk to exercise and the
+ * other needs three numbers.
+ */
+function isSpent(
+	policy: RetentionPolicy,
+	run: { age: number; place: number; wanted: boolean },
+): boolean {
+	if (run.wanted) {
+		return (
+			policy.abandonedAfterMs !== undefined && run.age > policy.abandonedAfterMs
+		);
+	}
+	return run.age > policy.maxAgeMs || run.place >= policy.maxRuns;
 }
 
 function safeSegment(value: string): string {

@@ -688,6 +688,16 @@ way the round would have. Name the round with `run:"id"` when more than
 one is unsettled, since collecting files findings against the change
 and doing that to the wrong round cannot be undone.
 
+Do not sit on one indefinitely. A round is megabytes of event stream
+per reviewer, so what they leave on disk is swept eventually, and
+being open on the ledger buys a long window rather than an exemption:
+about four weeks, against the week an ordinary finished round gets.
+After that the round is still on the ledger and there is nothing left
+to collect, which `collect` says rather than guessing at. What each
+reviewer actually said outlives the sweep, because a finding's
+provenance has to survive housekeeping, but it is the transcripts a
+collect reads.
+
 ## Attach the Change, Then Stop Naming It
 
 `review attach` binds the change you are working on, and
