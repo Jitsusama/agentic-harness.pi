@@ -59,7 +59,30 @@ export interface RepoGuidance {
 	 * change may not touch at all. Being careful is not a licence to
 	 * state something untrue to the only reader who cannot check.
 	 */
-	edited: "yes" | "no" | "unknown";
+	edited: GuidanceState;
+	/**
+	 * Only the first part of the file is here.
+	 *
+	 * Carried rather than left implicit in the text, because whoever
+	 * records what a reviewer was given has to be able to tell a round
+	 * that got the whole file from one that got the beginning of it.
+	 */
+	cut?: true;
+}
+
+/** What is known about who wrote the conventions a round quotes. */
+export type GuidanceState = "yes" | "no" | "unknown";
+
+/**
+ * Whether this text can be quoted as quotation.
+ *
+ * Exported because the record of what a reviewer was given has to
+ * agree with what the prompt actually did, and the prompt is the one
+ * that decides. Asking the reader instead would let a run claim a
+ * quotation that was never made.
+ */
+export function quotable(text: string): boolean {
+	return fenceFor(text) < MOST_FENCE;
 }
 
 /** What a round needs to say to whoever it asks. */
@@ -109,7 +132,7 @@ export function councilPrompt(input: PromptInput): string {
  */
 function guidanceSection(guidance: RepoGuidance | undefined): string {
 	if (guidance === undefined) return "";
-	if (fenceFor(guidance.text) >= MOST_FENCE) {
+	if (!quotable(guidance.text)) {
 		// Nothing here can quote it in a way the reviewer will read as
 		// quotation, and unquoted it is indistinguishable from the round's
 		// own instructions, which is the whole thing being prevented.

@@ -199,7 +199,11 @@ describe("what a round records about the tree it read", () => {
 		// parameter required stopped the silent omission; it cannot stop
 		// a caller passing an empty record, and an empty record is the
 		// original bug in a shorter spelling.
-		expect(source).toContain("substituteOutcome(held, outcome, read)");
+		// The outcome carries this attempt's conditions, which are not
+		// the round's, so the spread is part of the call this checks.
+		expect(source).toContain(
+			"substituteOutcome(held, { ...outcome, ...given }, read)",
+		);
 
 		// And that every one of them refuses a tree that was refused.
 		// The union makes reading a refused tree a compile error, which

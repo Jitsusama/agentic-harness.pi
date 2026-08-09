@@ -105,6 +105,7 @@ import {
 import {
 	agentsInRepo,
 	chartersOnDisk,
+	givenBy,
 	guidanceFor,
 	lensesFor,
 	touchedBy,
@@ -635,11 +636,12 @@ async function askCouncil(
 	// reviewer running without the lens it was asked for files generic
 	// findings under a specialist's name.
 	const charters = await chartersFor(roster, tree, "reviewers", diff);
+	const conventions = await guidanceFor(tree, diff);
 	const prompt = councilPrompt({
 		proposal,
 		diff,
 		...(params.intent === undefined ? {} : { intent: params.intent }),
-		...(await guidanceFor(tree, diff)),
+		...conventions,
 	});
 
 	const { run, warnings } = await runCouncil(
@@ -648,6 +650,7 @@ async function askCouncil(
 			prompt,
 			seq: 1,
 			...readFrom(tree, proposal.headCommit),
+			...givenBy(ISOLATED, conventions),
 		},
 		deps(change, tree.path, watch, charters),
 	);
@@ -695,11 +698,12 @@ async function startRound(
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
 	const charters = await chartersFor(roster, tree, "reviewers", diff);
+	const conventions = await guidanceFor(tree, diff);
 	const prompt = councilPrompt({
 		proposal,
 		diff,
 		...(params.intent === undefined ? {} : { intent: params.intent }),
-		...(await guidanceFor(tree, diff)),
+		...conventions,
 	});
 	const budget = await budgetForRound();
 	const starter = reviewerStarter(getParentPiInstall(), runArtifactDir());
@@ -712,6 +716,7 @@ async function startRound(
 			prompt,
 			seq: 1,
 			...readFrom(tree, proposal.headCommit),
+			...givenBy(ISOLATED, conventions),
 		},
 		{
 			now: () => new Date(),
@@ -827,12 +832,13 @@ async function askJudge(
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
 	const charters = await chartersFor(roster, tree, "judge", diff);
+	const conventions = await guidanceFor(tree, diff);
 	const prompt = judgePrompt({
 		proposal,
 		diff,
 		findings: renderFindings(raised),
 		...(params.intent === undefined ? {} : { intent: params.intent }),
-		...(await guidanceFor(tree, diff)),
+		...conventions,
 	});
 	const { run, warnings } = await runJudge(
 		{
@@ -840,6 +846,7 @@ async function askJudge(
 			prompt,
 			seq: 1,
 			...readFrom(tree, proposal.headCommit),
+			...givenBy(ISOLATED, conventions),
 		},
 		deps(change, tree.path, watch, charters),
 	);
@@ -881,6 +888,7 @@ async function askCritique(
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
 	const charters = await chartersFor(roster, tree, "reviewers", diff);
+	const conventions = await guidanceFor(tree, diff);
 
 	const { run, critiques, warnings } = await runCritique(
 		{
@@ -890,11 +898,12 @@ async function askCritique(
 				diff,
 				findings: renderFindings(raised),
 				...(params.intent === undefined ? {} : { intent: params.intent }),
-				...(await guidanceFor(tree, diff)),
+				...conventions,
 			}),
 			seq: 1,
 			findingIds: raised.map((finding) => finding.id),
 			...readFrom(tree, proposal.headCommit),
+			...givenBy(ISOLATED, conventions),
 		},
 		{
 			ask: deps(change, tree.path, watch, charters).ask,
@@ -1005,6 +1014,15 @@ async function askStack(
 	const changeFor = new Map(changes.map((one) => [one.ref, one.change]));
 	const findings = createFindingStore(findingDir());
 
+	// The same honest answer the charters get twenty lines up: a stack
+	// whose nodes are not all proposed knows less about what it touches
+	// than the tree it reads contains.
+	const conventions = await guidanceFor(
+		tree,
+		stack.nodes.length === proposed.length
+			? { files: changes.flatMap((one) => one.diff.files) }
+			: { unknown: "not every branch in this stack is proposed" },
+	);
 	const { run, warnings } = await runStackCouncil(
 		{
 			roster,
@@ -1015,17 +1033,7 @@ async function askStack(
 					diff: one.diff,
 				})),
 				...(params.intent === undefined ? {} : { intent: params.intent }),
-				// The same honest answer the charters get twenty lines up: a
-				// stack whose nodes are not all proposed knows less about what
-				// it touches than the tree it reads contains.
-				...(await guidanceFor(
-					tree,
-					stack.nodes.length === proposed.length
-						? { files: changes.flatMap((one) => one.diff.files) }
-						: {
-								unknown: "not every branch in this stack is proposed",
-							},
-				)),
+				...conventions,
 			}),
 			seq: 1,
 			stackRefs,
@@ -1033,6 +1041,7 @@ async function askStack(
 			// Per-change witnesses, but one tree, so the caveat is about
 			// the round exactly as it is for every other kind.
 			...(tree.caveat === undefined ? {} : { unpinned: tree.caveat }),
+			...givenBy(ISOLATED, conventions),
 		},
 		{
 			ask: deps(tip.change, tree.path, watch, charters).ask,
@@ -1119,6 +1128,7 @@ async function askAudit(
 		return at === undefined ? [] : [at];
 	});
 
+	const conventions = await guidanceFor(tree, diff);
 	const { run, audits, warnings } = await runAudit(
 		{
 			auditor,
@@ -1127,11 +1137,12 @@ async function askAudit(
 				diff,
 				threads: renderThreads(open, indexOf),
 				...(params.intent === undefined ? {} : { intent: params.intent }),
-				...(await guidanceFor(tree, diff)),
+				...conventions,
 			}),
 			seq: 1,
 			threadIndices,
 			...readFrom(tree, proposal.headCommit),
+			...givenBy(ISOLATED, conventions),
 		},
 		{
 			ask: deps(change, tree.path, watch, charters).ask,
@@ -1286,7 +1297,14 @@ async function retryOne(
 	// Asked again the way it was asked the first time, conventions
 	// included, since a retry that reads a different prompt is not a
 	// retry of the round it substitutes into.
-	const guidance = await guidanceFor(tree, diff);
+	const conventions = await guidanceFor(tree, diff);
+	// The attempt's conditions, which are not the round's. The fresh run
+	// this builds is discarded once its outcome is lifted out, so these
+	// ride on the outcome itself: a retry substitutes into a round that
+	// may have been recorded before any of this existed, and writing
+	// today's conditions onto that round would claim them for reviewers
+	// who never ran under them.
+	const given = givenBy(ISOLATED, conventions);
 
 	// Retried in the role the round asked under, not always as a
 	// reviewer. Re-running a judge through the council path would
@@ -1305,19 +1323,26 @@ async function retryOne(
 								await councilFindingsBehind(change, store),
 							),
 							...intent,
-							...guidance,
+							...conventions,
 						}),
 						seq: 1,
 						...read,
+						...given,
 					},
 					deps(change, tree.path, watch, charters, held.id),
 				)
 			: await runCouncil(
 					{
 						roster: { reviewers: [participant] } satisfies Roster,
-						prompt: councilPrompt({ proposal, diff, ...intent, ...guidance }),
+						prompt: councilPrompt({
+							proposal,
+							diff,
+							...intent,
+							...conventions,
+						}),
 						seq: 1,
 						...read,
+						...given,
 					},
 					substituting(deps(change, tree.path, watch, charters, held.id)),
 				);
@@ -1332,7 +1357,7 @@ async function retryOne(
 	// and until this was passed the fresh run carrying it was thrown
 	// away, so the caveat here was inert and the comment above it
 	// described something that did not happen.
-	const updated = substituteOutcome(held, outcome, read);
+	const updated = substituteOutcome(held, { ...outcome, ...given }, read);
 	await store.replace(change, updated);
 	return say(
 		[

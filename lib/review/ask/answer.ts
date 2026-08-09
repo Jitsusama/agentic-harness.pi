@@ -97,11 +97,39 @@ export function describeRun(run: AskRun): string {
 	// beside a round whose findings were formed against something
 	// else. The sentence itself is on the run for whoever wants it.
 	const unpinned = run.unpinned === undefined ? "" : ", tree not pinned";
-	const head = `${run.id}: ${summary.answered}/${summary.asked} answered${failed}${pending}, ${count(summary.findings, "finding")}${spent(summary)}${unpinned}${abandoned}`;
+	const head = `${run.id}: ${summary.answered}/${summary.asked} answered${failed}${pending}, ${count(summary.findings, "finding")}${spent(summary)}${unpinned}${conditions(run)}${abandoned}`;
 	// A stopped reviewer's answer was being recorded and never shown,
 	// which is most of the way to losing it: the path is only useful to
 	// somebody who knows to look for it.
 	return [head, ...stoppedNotes(run).map((note) => `  ${note}`)].join("\n");
+}
+
+/**
+ * What a round was run under, in as few words as it takes.
+ *
+ * A field nothing prints is a field nobody reads, and the guide told
+ * people to read this one off the run. So the listing says it, on the
+ * same terms as the tree caveat beside it: the exceptional states get
+ * words and the ordinary one gets silence.
+ *
+ * The exception here is what the reader would want stopped. A round
+ * whose reviewers ran with the operator's whole setup loaded is a
+ * round two people cannot reproduce between them, and a round whose
+ * conventions could not be quoted read a change against rules it was
+ * told about and never shown.
+ *
+ * A round that recorded nothing says nothing, because that is most of
+ * the ledger and a phrase on every historic round is a phrase nobody
+ * sees after the first screen.
+ */
+function conditions(run: AskRun): string {
+	const given = run.given;
+	if (given === undefined) return "";
+	return [
+		given.isolated ? "" : ", reviewers not isolated",
+		given.quoted?.withheld === true ? ", conventions not quotable" : "",
+		given.quoted?.cut === true ? ", conventions cut" : "",
+	].join("");
 }
 
 /**

@@ -19,9 +19,6 @@
  * why three of them drifted.
  */
 
-import { readdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { AskAnswer, Participant } from "../../../lib/review/index.js";
 import {
@@ -30,6 +27,7 @@ import {
 	runCritique,
 	runJudge,
 } from "../../../lib/review/index.js";
+import { BUILDERS, roundBuilders } from "./support/round-builders.js";
 
 const WITNESS = "abc1234";
 const hawk: Participant = { id: "hawk" };
@@ -240,29 +238,11 @@ describe("a round records the commit it was formed against", () => {
 		// that stamps a round with its kind has to carry the witness
 		// onto the run it returns, so the omission that took three of
 		// the four this long to notice cannot be made quietly again.
-		const dir = join(
-			dirname(fileURLToPath(import.meta.url)),
-			"..",
-			"..",
-			"..",
-			"lib",
-			"review",
-			"ask",
-		);
-		const builders: string[] = [];
-		for (const name of readdirSync(dir)) {
-			if (!name.endsWith(".ts")) continue;
-			const source = readFileSync(join(dir, name), "utf8");
-			// Every builder stamps a run with the moment it started, and
-			// that is what identifies one. Looking for the round's kind as
-			// a literal missed the council, which takes it from the
-			// opening and writes it shorthand: the scan could not see the
-			// one builder that was already right, and the count it was
-			// checked against happened to match without it.
-			const built =
-				source.split("startedAt: startedAt.toISOString()").length - 1;
-			if (built === 0) continue;
-			builders.push(name);
+		// The discovery is shared with the sweep that holds the same
+		// builders to recording what they gave, since a second copy of it
+		// is a second thing to update when a builder changes shape.
+		const builders = roundBuilders();
+		for (const { name, source, built } of builders) {
 			// One spelling now, because what a round read is one fact
 			// and was being written by hand in four different ways.
 			// Recording the commit without the caveat is the failure
@@ -316,18 +296,7 @@ describe("a round records the commit it was formed against", () => {
 			});
 		}
 
-		// The canary, naming them rather than counting them, because a
-		// count is what let a missing builder look like a full sweep.
-		// `collect.ts` is not among them and should not be: it settles a
-		// round somebody else formed, spreading what that round already
-		// held, so it inherits the witness rather than choosing one.
-		expect(builders.sort()).toEqual([
-			"audit.ts",
-			"council.ts",
-			"critique.ts",
-			"judge.ts",
-			"stack-round.ts",
-		]);
+		expect(builders.map((builder) => builder.name).sort()).toEqual(BUILDERS);
 	});
 
 	it("and says nothing when it was given nothing", async () => {

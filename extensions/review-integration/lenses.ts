@@ -25,12 +25,14 @@ import type {
 	PersonaBinding,
 	RepoGuidance,
 	Roster,
+	RoundGiven,
 } from "../../lib/review/index.js";
 import {
 	bindPersonas,
 	discoverAgents,
 	NAMESPACE,
 	parsePersona,
+	quotable,
 } from "../../lib/review/index.js";
 
 /** How much repo-written text a refusal may repeat, and how often. */
@@ -144,10 +146,14 @@ export async function guidanceInRepo(
 		if (text.trim() === "") continue;
 		return {
 			path: name,
+			// Said as a field as well as in the text, so whoever records
+			// what this reviewer was given can tell a round that got the
+			// whole file from one that got the beginning of it.
+			...(text.length <= MOST_GUIDANCE ? {} : { cut: true as const }),
 			// Cut rather than refused, unlike a charter. A charter that
 			// arrives half-written is a lens nobody wrote; conventions are
-			// reference, and the first thirty thousand characters of them
-			// are worth more to a reviewer than none.
+			// reference, and the first ninety-six thousand characters of
+			// them are worth more to a reviewer than none.
 			text:
 				text.length <= MOST_GUIDANCE
 					? text
@@ -190,6 +196,47 @@ export async function guidanceFor(
 		"unknown" in diff ? diff : touchedBy(diff),
 	);
 	return guidance === undefined ? {} : { guidance };
+}
+
+/**
+ * What a round handed its reviewers, in the shape a run records it.
+ *
+ * The counterpart of `readFrom`, and it takes the conditions rather
+ * than reading them, so the value recorded and the value passed to the
+ * spawn are one constant used twice rather than two that agree today.
+ *
+ * The path and the edited state, not the text. A reader chasing a
+ * finding needs to know which file was folded into that reviewer's
+ * prompt and whether the change under review had written it; the bytes
+ * are in the tree at the witness, and tens of thousands of characters
+ * per round would cost more than the whole ledger.
+ */
+export function givenBy(
+	isolated: boolean,
+	conventions: { guidance?: RepoGuidance },
+): { given: RoundGiven } {
+	const guidance = conventions.guidance;
+	return {
+		given: {
+			isolated,
+			...(guidance === undefined
+				? {}
+				: {
+						quoted: {
+							path: guidance.path,
+							edited: guidance.edited,
+							...(guidance.cut === undefined ? {} : { cut: true as const }),
+							// What the prompt did with it, asked of the prompt.
+							// Derived from what was read, this would claim a
+							// quotation the reviewer never saw: text that cannot
+							// be fenced is named and not reproduced, since
+							// unquoted it would be indistinguishable from the
+							// round's own words.
+							...(quotable(guidance.text) ? {} : { withheld: true as const }),
+						},
+					}),
+		},
+	};
 }
 
 /**

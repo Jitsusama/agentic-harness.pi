@@ -28,6 +28,8 @@ import {
 	type AskUsage,
 	newRunId,
 	type ParticipantOutcome,
+	type RoundGiven,
+	whatItGave,
 	whatItRead,
 } from "./run.js";
 
@@ -210,6 +212,8 @@ export interface CouncilRequest {
 	witness?: string;
 	/** Said when the tree the reviewers read was not that commit. */
 	unpinned?: string;
+	/** What the reviewers were handed, besides the change. */
+	given?: RoundGiven;
 	/** Defaults to a council round. */
 	round?: AskRound;
 }
@@ -303,7 +307,15 @@ export async function runCouncil(
 	const opening = openingRun(request, deps.now());
 	const { id, round, participants } = opening;
 	const startedAt = opening.startedAt;
-	const witnessed = whatItRead(request);
+	// What this round says about itself beyond its own outcomes: the
+	// tree its reviewers read, and the conditions they read it under.
+	//
+	// Taken off the opening record rather than computed again from the
+	// request. The two are written three hundred lines apart and have to
+	// agree, and a second call agrees only for as long as nobody edits
+	// one of the two sites: reading it back from what was already
+	// written down makes disagreement impossible rather than unlikely.
+	const provenance = { ...whatItRead(opening), ...whatItGave(opening) };
 
 	// Written down before anything is asked, because everything after
 	// this line costs money and takes minutes, and until now the round
@@ -348,7 +360,7 @@ export async function runCouncil(
 			startedAt,
 			participants,
 			outcomes,
-			...witnessed,
+			...provenance,
 			// No `open`, which is what settles it: the field is present
 			// only while a round is unfinished.
 		},
@@ -378,6 +390,7 @@ export function openingRun(request: CouncilRequest, startedAt: Date): AskRun {
 		outcomes: [],
 		open: true,
 		...whatItRead(request),
+		...whatItGave(request),
 	};
 }
 
