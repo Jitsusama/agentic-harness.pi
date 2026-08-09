@@ -8,6 +8,7 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { isNotFound } from "./errno.js";
 import type { ReviewerRunArtifacts } from "./subagent.js";
 
 /**
@@ -467,15 +468,6 @@ async function isTerminalRun(runDir: string): Promise<boolean> {
 		}
 	}
 	return true;
-}
-
-function isNotFound(error: unknown): boolean {
-	return (
-		typeof error === "object" &&
-		error !== null &&
-		"code" in error &&
-		error.code === "ENOENT"
-	);
 }
 
 function errorMessage(error: unknown): string {

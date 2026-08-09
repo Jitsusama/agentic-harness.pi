@@ -36,6 +36,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
@@ -50,6 +51,7 @@ import {
 	SUBAGENT_REGISTER_DEFAULT_EXTENSION,
 	SUBAGENT_REGISTER_DEFAULT_SKILL,
 } from "../../lib/subagent/events.js";
+import { createFleetLedger } from "../../lib/subagent/fleet.js";
 import { getParentPiInstall } from "../../lib/subagent/install.js";
 import { createSupervisorRunPi } from "../../lib/subagent/runpi/supervisor.js";
 import { THINKING_LEVELS } from "../../lib/thinking/index.js";
@@ -118,9 +120,42 @@ const FLEET_RUNS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 // Four times the normal window, because an unfinished run is kept for
 // recovery and the question is whether anybody could still resume it.
 const FLEET_RUNS_ABANDONED_AFTER_MS = 4 * FLEET_RUNS_MAX_AGE_MS;
+/**
+ * How many unread fleets to hold before saying so out loud.
+ *
+ * Protection is absolute, so the population it holds is the one that
+ * can grow without a limit, and nothing else would ever mention it: a
+ * fleet nobody collected is by definition one nobody knows about.
+ */
+const FLEETS_HELD_BEFORE_SAYING = 5;
+
+/**
+ * Do a piece of bookkeeping, and say so if it fails.
+ *
+ * Bookkeeping must never cost a fleet. A ledger write that throws
+ * would take down a dispatch that is otherwise fine, or turn the end
+ * of an expensive fleet into an exception that throws away everything
+ * it found. Said out loud rather than swallowed, because what a
+ * failure here costs is a fleet nothing protects or a fleet nothing
+ * ever releases, and neither is visible from anywhere else.
+ */
+async function recordOrSay(work: Promise<void>, cost: string): Promise<void> {
+	try {
+		await work;
+	} catch (error) {
+		console.error(
+			`[subagent-workflow] ${cost}: ${error instanceof Error ? error.message : String(error)}`,
+		);
+	}
+}
 
 export default function subagentWorkflow(pi: ExtensionAPI) {
 	const stateDir = () => packageStateDir("subagent-workflow");
+	// Beside the run directories rather than inside them: this is a
+	// small file read at every session start, and those are megabytes
+	// of event stream per subagent. The run id is the key on both
+	// sides, so either points at the other without holding it.
+	const fleetDir = () => join(stateDir(), "fleets");
 	const cancellations = new FleetCancellationRegistry();
 
 	// Prune old fleet run directories at session start so the raw
@@ -128,13 +163,35 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 	// goes on the normal window; an unfinished one is kept far longer,
 	// for recovery, but not forever.
 	pi.on("session_start", async () => {
+		// Both paths up front, before anything is awaited. They resolve
+		// against the environment each time they are called and this runs
+		// unawaited, so a lookup after the first await is a lookup
+		// against whatever the environment says by then.
+		const runs = stateDir();
+		const fleets = fleetDir();
 		try {
-			const swept = await new ReviewerArtifactsStore(
-				stateDir(),
-			).cleanupTerminalRuns({
+			const { open, unreadable } = await createFleetLedger(fleets).openFleets();
+			if (unreadable.length > 0) {
+				// Declined rather than swept with an empty protect set. An
+				// empty set is not the cautious reading of a ledger that
+				// will not open: a fleet's transcripts are the only copy of
+				// what it said, so sweeping without knowing which are
+				// spoken for deletes exactly the work this protects.
+				console.error(
+					`[subagent-workflow] fleet runs will not be swept while ${unreadable.join(", ")} cannot be read, because nothing can then say which fleets nobody has collected. Nothing repairs those files on their own, so this holds for every session until they are fixed or moved aside.`,
+				);
+				return;
+			}
+			if (open.size >= FLEETS_HELD_BEFORE_SAYING) {
+				console.error(
+					`[subagent-workflow] ${open.size} fleet runs were dispatched and never handed back, so their transcripts are held under ${runs} and nothing will reclaim them.`,
+				);
+			}
+			const swept = await new ReviewerArtifactsStore(runs).cleanupTerminalRuns({
 				maxRuns: FLEET_RUNS_RETAIN,
 				maxAgeMs: FLEET_RUNS_MAX_AGE_MS,
 				abandonedAfterMs: FLEET_RUNS_ABANDONED_AFTER_MS,
+				protect: open,
 			});
 			// Only the failures, and out loud: a sweep that decided to
 			// delete something and could not is a disk filling at a rate
@@ -338,22 +395,50 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 			const runId = params.runId ?? `fleet-${randomUUID()}`;
 			const assignments: FleetAssignment[] = params.jobs.map(buildAssignment);
 			const progress = createFleetProgressReporter(ctx, controls());
-			const result = await dispatchFleet({
-				runId,
-				assignments,
-				runPi: getRunPi(),
-				cancellations,
-				progress,
-				...(signal ? { signal } : {}),
-			});
-			// Decorate the result with on-disk artifact paths so the full
-			// per-subagent output is discoverable from the summary and the
-			// details payload, not buried in the supervisor's state dir.
-			const located = locateArtifacts(stateDir(), result);
-			return {
-				content: [{ type: "text", text: formatFleetSummary(located) }],
-				details: { ok: true, ...located },
-			};
+			const ledger = createFleetLedger(fleetDir());
+			// Written down before it is dispatched, and best effort. A
+			// fleet recorded when it finishes is recorded exactly when
+			// nothing needed it to be, since the population this protects
+			// is the fleets that never reached their own ending. Best
+			// effort because bookkeeping must not cost a fleet: the cost
+			// of failing to write is that one fleet goes unprotected, and
+			// the cost of throwing is that it never runs at all.
+			await recordOrSay(
+				ledger.open({
+					id: runId,
+					startedAt: new Date().toISOString(),
+					jobs: assignments.map((one) => one.spec.id),
+				}),
+				`could not write ${runId} down before dispatching it, so the sweep will not know to keep its transcripts`,
+			);
+			try {
+				const result = await dispatchFleet({
+					runId,
+					assignments,
+					runPi: getRunPi(),
+					cancellations,
+					progress,
+					...(signal ? { signal } : {}),
+				});
+				// Decorate the result with on-disk artifact paths so the full
+				// per-subagent output is discoverable from the summary and the
+				// details payload, not buried in the supervisor's state dir.
+				const located = locateArtifacts(stateDir(), result);
+				return {
+					content: [{ type: "text", text: formatFleetSummary(located) }],
+					details: { ok: true, ...located },
+				};
+			} finally {
+				// From a finally, because the fleet is settled by having been
+				// handed back and a throw hands back too: the caller has the
+				// error and can go and look. Settling only on the happy path
+				// would protect every failed fleet forever, which is the
+				// unbounded population wearing a different hat.
+				await recordOrSay(
+					ledger.settle(runId),
+					`could not settle ${runId}, so its transcripts will be held until somebody clears it`,
+				);
+			}
 		},
 	});
 }
