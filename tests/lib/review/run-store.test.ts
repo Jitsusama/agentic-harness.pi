@@ -341,7 +341,13 @@ describe("replacing a run", () => {
 		// What could be read is still read: one bad file is not a reason
 		// to answer nothing about twenty good ones.
 		expect(open).toEqual(new Set(["council-open"]));
-		expect([...unreadable].sort()).toEqual(["torn.json", "wrong-shape.json"]);
+		// Full paths, since a caller that declines to sweep over this has
+		// to tell somebody which file to deal with, and a bare name does
+		// not locate one under a state directory nobody has memorized.
+		expect([...unreadable].sort()).toEqual([
+			join(root, "torn.json"),
+			join(root, "wrong-shape.json"),
+		]);
 	});
 
 	it("tells a missing ledger from one it cannot get into", async () => {

@@ -287,8 +287,32 @@ export class ReviewerArtifactsStore {
 		const seen = await Promise.all(
 			entries.map(async (name) => {
 				const runDir = join(this.runsDir, name);
-				const mtimeMs = await mtimeOf(runDir);
-				return mtimeMs === undefined ? undefined : { name, runDir, mtimeMs };
+				try {
+					return { name, runDir, mtimeMs: (await stat(runDir)).mtimeMs };
+				} catch (error) {
+					// Gone since the listing is the expected case and says
+					// nothing. Anything else is one directory this cannot ask
+					// about, and skipping it costs that run's disk, where
+					// throwing costs every other run's as well.
+					//
+					// Neither branch is covered, and neither can be from here.
+					// The window for the first is between the listing and this
+					// stat, inside one call and with nothing to hold it open;
+					// the second needs a parent this cannot stat through but
+					// could list, which is not a state a directory reaches.
+					// Two attempts at a test for the first deleted the
+					// directory before the listing, which exercises nothing
+					// and passes. So this is defensive, and said out loud
+					// rather than counted as tested. What it replaced was an
+					// unguarded stat that cost the whole sweep, which is a
+					// worse answer to an unreachable case than this one.
+					if (!isNotFound(error)) {
+						warnings.push(
+							`Could not read ${runDir}, so it was left alone: ${errorMessage(error)}`,
+						);
+					}
+					return undefined;
+				}
 			}),
 		);
 		const runs = seen.filter((run) => run !== undefined);
@@ -403,31 +427,6 @@ type Keeping = "protected" | "unfinished" | "spendable";
  * answers that the count is not what would take this one.
  */
 const NOT_IN_THE_RUNNING = Number.NEGATIVE_INFINITY;
-
-/**
- * When a path was last written, or nothing if it is not there.
- *
- * Absence is an answer here rather than a failure: a concurrent sweep
- * removing a run directory is the expected case, not a fault.
- *
- * No test covers the window this guards, and it is worth saying so.
- * The gap is between the listing and this stat, inside one call, with
- * no seam to hold it open from outside, and a case that raced for it
- * would be a case that fails sometimes. So this is reasoned rather
- * than demonstrated: everything else here that touches the disk
- * tolerates a missing file, this was the one that did not, and what
- * it cost was the whole sweep plus, once the caller began reporting
- * failures, a loud message at session start about two windows having
- * been opened together.
- */
-async function mtimeOf(path: string): Promise<number | undefined> {
-	try {
-		return (await stat(path)).mtimeMs;
-	} catch (error) {
-		if (isNotFound(error)) return undefined;
-		throw error;
-	}
-}
 
 function safeSegment(value: string): string {
 	const clean = value.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");

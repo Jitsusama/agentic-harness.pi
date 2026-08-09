@@ -75,8 +75,9 @@ export interface OpenRuns {
 	readonly open: ReadonlySet<string>;
 	/**
 	 * What exists and would not read, said the way a person can act on
-	 * it: a ledger file by name, or the whole directory when that is
-	 * what could not be opened.
+	 * it: a full path, since a caller that declines over this has to
+	 * tell somebody which file to go and deal with, and a bare name is
+	 * not enough to find one under a state directory nobody memorized.
 	 *
 	 * Non-empty means the open set is incomplete and there is no way
 	 * to tell which rounds are missing from it, so a caller deciding
@@ -191,17 +192,32 @@ export function createRunStore(root: string): RunStore {
 			}
 			for (const file of files) {
 				if (!file.endsWith(".json")) continue;
+				const path = join(root, file);
 				let parsed: unknown;
 				try {
-					parsed = JSON.parse(await readFile(join(root, file), "utf8"));
-				} catch {
+					parsed = JSON.parse(await readFile(path, "utf8"));
+				} catch (error) {
+					// A file that has gone since the listing is not a file
+					// that will not read. Another session settling a round
+					// deletes nothing, but a person tidying up does, and
+					// treating that as a torn ledger stops the sweep on this
+					// machine for good over a file nobody has any more.
+					//
+					// Nothing covers this branch, and the same is true of the
+					// matching one in the artifact sweep's stat. Both windows
+					// are between a listing and a read inside one call, with
+					// no seam to hold open from outside, and a case that raced
+					// for one would be a case that fails sometimes. Two
+					// attempts at a test for this deleted the file before the
+					// listing, which exercises nothing and passes.
+					if (isMissing(error)) continue;
 					// Said, not skipped. Skipping used to be justified on the
 					// grounds that the sweep errs towards deleting nothing it
 					// was unsure about, and it does not: a run it is unsure
 					// about is a run nothing protects, which is the ordinary
 					// window. One torn file among twenty took protection off
 					// that change's rounds with no error anywhere.
-					unreadable.push(file);
+					unreadable.push(path);
 					continue;
 				}
 				if (
@@ -212,7 +228,7 @@ export function createRunStore(root: string): RunStore {
 				) {
 					// A file that parses into the wrong shape is no more
 					// readable than one that does not parse at all.
-					unreadable.push(file);
+					unreadable.push(path);
 					continue;
 				}
 				for (const run of parsed.runs as AskRun[]) {

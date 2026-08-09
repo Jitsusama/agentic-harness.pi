@@ -96,6 +96,14 @@ const ROUNDS_RETAIN = 100;
  * a habit rather than a moment.
  */
 const ROUNDS_HELD_BEFORE_SAYING = 5;
+/**
+ * How many sweep failures to print before summarizing the rest.
+ *
+ * These arrive per run directory, and what causes them is rarely one
+ * run: a permissions change lands on all of them at once, so the
+ * choice is a cap or a hundred lines.
+ */
+const MOST_WARNINGS = 5;
 const ROUNDS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const ROUNDS_ABANDONED_AFTER_MS = 4 * ROUNDS_MAX_AGE_MS;
 
@@ -116,13 +124,18 @@ const ATTACHMENTS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
  * to reclaim space is not a reason to fail a session.
  */
 async function reclaimRoundTranscripts(): Promise<void> {
-	// Both paths up front, before anything is awaited. These resolve
+	// Every path up front, before anything is awaited. These resolve
 	// against the environment each time they are called, and this runs
 	// unawaited, so a second lookup after the first await is a lookup
 	// against whatever the environment says by then. In a test that
 	// points the state directory at a sandbox and takes it away again,
 	// that is a sweep of the real one.
+	//
+	// Every path, so the ledger is read here too and passed down. It
+	// was being looked up inside the sweep, one await later, by a
+	// function extracted out of this one from below this comment.
 	const transcripts = runArtifactDir();
+	const rounds = runDir();
 	const attached = attachmentDir();
 	const mine = sessionKey();
 	// Separately, because one failing is not a reason to skip the
@@ -131,7 +144,7 @@ async function reclaimRoundTranscripts(): Promise<void> {
 	// transcript sweep has to be a decision about the transcript sweep,
 	// and a bare return inside this one was twice a decision about
 	// everything below it.
-	await sweepTranscripts(transcripts);
+	await sweepTranscripts(transcripts, rounds);
 	try {
 		await pruneAttachments(attached, {
 			olderThanMs: ATTACHMENTS_MAX_AGE_MS,
@@ -155,7 +168,10 @@ async function reclaimRoundTranscripts(): Promise<void> {
  * that also cancelled the sweeps below it and a flag threaded past
  * them.
  */
-async function sweepTranscripts(transcripts: string): Promise<void> {
+async function sweepTranscripts(
+	transcripts: string,
+	rounds: string,
+): Promise<void> {
 	try {
 		// Which rounds are still waiting to be collected. A detached
 		// round is finished on disk and unfinished to the person who
@@ -170,7 +186,7 @@ async function sweepTranscripts(transcripts: string): Promise<void> {
 		// protecting it the ordinary week takes it, and the findings go
 		// while the ledger entry advertising them stays. Skipping costs a
 		// session's worth of disk, and the next session sweeps.
-		const { open, unreadable } = await createRunStore(runDir()).openRunIds();
+		const { open, unreadable } = await createRunStore(rounds).openRunIds();
 		if (unreadable.length > 0) {
 			// An incomplete protect set is worse than none of the sweep. The
 			// rounds missing from it cannot be named, and each one is a
@@ -210,15 +226,29 @@ async function sweepTranscripts(transcripts: string): Promise<void> {
 		// rate nothing reports, and the way that gets noticed is the disk
 		// being full. Only the failures: a sweep doing its job every
 		// session start has nothing to say.
-		for (const warning of swept.warnings) {
+		// Capped, because the failures that produce these are the ones
+		// that hit every run at once: a mode botched across the tree
+		// would otherwise print a hundred lines into somebody's session
+		// start and bury whatever else was said.
+		for (const warning of swept.warnings.slice(0, MOST_WARNINGS)) {
 			console.error(`[review-integration] round transcripts: ${warning}`);
+		}
+		if (swept.warnings.length > MOST_WARNINGS) {
+			console.error(
+				`[review-integration] and ${swept.warnings.length - MOST_WARNINGS} more like it, which together say the transcripts directory is not writable rather than that one round is stuck.`,
+			);
 		}
 	} catch (error) {
 		// Advisory. A sweep that cannot run costs disk, and failing the
 		// session over it would cost the session. Named rather than
-		// silent, since the two things that land here are a ledger that
-		// will not read and a store that will not walk, and both mean
-		// this directory is now growing with nothing watching it.
+		// silent, because whatever lands here means this directory is
+		// growing with nothing watching it.
+		//
+		// A ledger that will not read is no longer one of them: that is
+		// answered rather than thrown, and declined above by name. What
+		// is left is the store failing to list its own root, and a change
+		// ledger whose file is there and will not open, which the read
+		// refuses over rather than treating as a change with no history.
 		console.error(
 			`[review-integration] round transcripts were not swept: ${error instanceof Error ? error.message : String(error)}`,
 		);
