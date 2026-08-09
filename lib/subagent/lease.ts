@@ -17,6 +17,7 @@
  */
 
 import { execFile } from "node:child_process";
+import { stat } from "node:fs/promises";
 import { promisify } from "node:util";
 import type { ReviewerArtifactsStore } from "./artifacts.js";
 
@@ -123,7 +124,13 @@ export async function supervisorStanding(
 	// "gone" means another session starting in that moment cancels a
 	// job that is just getting going. Nothing has been spawned yet
 	// either, so there is nothing there to reap by mistake.
-	if (lease === null) return { kind: "starting" };
+	//
+	// Bounded, because an absence on its own never resolves: a
+	// supervisor killed before it wrote anything leaves a directory
+	// that is starting forever, and forever is not a state a run can
+	// be reported in. The window only has to cover a process being
+	// spawned and writing one small file.
+	if (lease === null) return await begun(store, runId, reviewerId, now);
 	// It said so itself, which beats anything inferred about it.
 	if (typeof lease.completedAt === "string") return { kind: "finished" };
 	const pid = lease.supervisorPid;
@@ -152,6 +159,45 @@ export async function supervisorStanding(
 		? { kind: "gone" }
 		: { kind: "running", pid, sinceMs };
 }
+
+/**
+ * Where a run with no lease stands, by how long it has had none.
+ *
+ * Its own function because the answer is about the directory rather
+ * than about the lease, and the caller above reads only leases.
+ */
+async function begun(
+	store: ReviewerArtifactsStore,
+	runId: string,
+	reviewerId: string,
+	now: number,
+): Promise<SupervisorStanding> {
+	const { reviewerDir } = store.paths(runId, reviewerId);
+	try {
+		const { birthtimeMs, mtimeMs } = await stat(reviewerDir);
+		// Whichever the platform actually fills in. Birth time is the
+		// honest one and is not reported everywhere; modification time is
+		// never earlier than it for a directory nothing writes to twice.
+		const since = birthtimeMs > 0 ? birthtimeMs : mtimeMs;
+		return now - since < STARTING_FOR_MS
+			? { kind: "starting" }
+			: { kind: "gone" };
+	} catch {
+		// No directory either, so there is nothing here that could be
+		// starting.
+		return { kind: "gone" };
+	}
+}
+
+/**
+ * How long a run may have no lease before it is presumed dead.
+ *
+ * The gap is a process spawning and writing one small file. Minutes
+ * rather than seconds because a machine under load can take a while
+ * to get a doubly nested node process going, and the cost of waiting
+ * is a run reported as starting when it is not.
+ */
+export const STARTING_FOR_MS = 5 * 60 * 1000;
 
 /** Asking the operating system, which is what the real thing must do. */
 export const systemFacts: ProcessFacts = {

@@ -81,6 +81,21 @@ describe("ReviewerArtifactsStore", () => {
 		expect(existsSync(paths.cancelPath)).toBe(false);
 	});
 
+	it("clears a run-wide cancellation when the run begins again", async () => {
+		// The supervisor polls both sentinels on the same tick, so
+		// clearing only the per-reviewer one leaves the run-wide one to
+		// kill every later run under this id on arrival. Cleared once for
+		// the run rather than in `ensureReviewerDir`, because a run's
+		// later jobs are prepared while its earlier ones are running and
+		// doing it there would erase a cancellation that had just landed.
+		const store = await tempStore();
+		await store.requestRunCancellation("run", "user");
+
+		await store.beginRun("run");
+
+		expect(existsSync(store.rootPaths("run").cancelPath)).toBe(false);
+	});
+
 	it("writes JSON atomically and reads it back", async () => {
 		const store = await tempStore();
 		const path = store.paths("run", "fast").resultPath;

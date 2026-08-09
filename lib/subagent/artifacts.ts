@@ -226,9 +226,33 @@ export class ReviewerArtifactsStore {
 		// model that answered instantly.
 		//
 		// Safe to clear here because this runs before the supervisor is
-		// spawned, so no cancellation of this run can have arrived yet.
+		// spawned, so no cancellation of this reviewer can have arrived
+		// yet. The run-wide sentinel is not cleared here for the mirror
+		// of that reason: a run's later reviewers are prepared while its
+		// earlier ones are already running, so clearing it here would
+		// erase a cancellation of the run that had just arrived. That one
+		// belongs to {@link beginRun}.
 		await rm(paths.cancelPath, { force: true });
 		return paths;
+	}
+
+	/**
+	 * Clear what a previous run under this id left behind.
+	 *
+	 * Called once, before any of a run's reviewers are prepared. The
+	 * supervisor stops the moment it sees a cancellation, and a run id
+	 * comes round again whenever a caller supplies one, so a single
+	 * cancelled run would otherwise poison that name for good: every
+	 * later run under it would die on arrival, looking exactly like a
+	 * model that answered instantly and said nothing.
+	 *
+	 * Separate from {@link ensureReviewerDir} because this must happen
+	 * once for the run rather than once per reviewer, and doing it per
+	 * reviewer would erase a cancellation that arrived while the run
+	 * was still being dispatched.
+	 */
+	async beginRun(runId: string): Promise<void> {
+		await rm(this.rootPaths(runId).cancelPath, { force: true });
 	}
 
 	/** Write JSON by temp-file + rename so readers never see a partial object. */

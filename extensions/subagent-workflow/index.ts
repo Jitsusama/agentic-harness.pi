@@ -174,13 +174,6 @@ async function recordOrSay(
 }
 
 /**
- * Give back the disk that finished fleets are still holding.
- *
- * Its own function rather than an event handler body, because it is
- * four policies in a row and a handler should say which ones rather
- * than be them.
- */
-/**
  * Who is waiting, asked once.
  *
  * The answer cannot change and asking costs a subprocess, so it is
@@ -241,9 +234,14 @@ async function stopOrphanedSubagents(runs: string): Promise<void> {
 		// identifiably still there could be killed as well. Reporting the
 		// killable subset alone would say nothing at all about the run
 		// whose child had already gone, which is the ordinary case.
+		//
+		// Said once, which the recovery decides rather than this: the
+		// runs it names are the ones nobody had asked before, since
+		// nothing empties this population and the same line would
+		// otherwise be printed at every session start forever.
 		if (stale.length > 0) {
 			console.error(
-				`[subagent-workflow] asked ${count(stale.length, "subagent")} whose supervisor had died to stop${reaped.length > 0 ? `, and killed ${count(reaped.length, "child")} still holding on` : ""}: ${stale
+				`[subagent-workflow] asked ${count(stale.length, "subagent")} whose supervisor had died to stop${reaped.length > 0 ? `, and killed ${count(reaped.length, "child", "children")} still holding on` : ""}: ${stale
 					.map((one) => `${one.runId}/${one.reviewerId}`)
 					.join(", ")}`,
 			);
@@ -262,11 +260,26 @@ async function stopOrphanedSubagents(runs: string): Promise<void> {
 	}
 }
 
+/**
+ * Give back the disk that finished fleets are still holding.
+ *
+ * Its own function rather than an event handler body, because it is
+ * four policies in a row and a handler should say which ones rather
+ * than be them.
+ */
 async function sweepFleetRuns(runs: string, fleets: string): Promise<void> {
 	const transcripts = join(runs, "runs");
 	const ledger = createFleetLedger(fleets);
 	try {
-		const { open, unreadable } = await ledger.openFleets();
+		// One walk, answering both questions. Two reads of a directory
+		// inside one handler can disagree, and the pair that disagrees is
+		// a protect set that kept a run beside a listing that no longer
+		// mentions it: the sweep would keep the transcripts and the
+		// message would never mention them again.
+		const { runs: held, unreadable } = await ledger.everyFleet();
+		const open = new Set(
+			held.filter((run) => run.open === true).map((run) => run.id),
+		);
 		if (unreadable.length > 0) {
 			// Declined rather than swept with an empty protect set. An
 			// empty set is not the cautious reading of a ledger that will
@@ -278,11 +291,6 @@ async function sweepFleetRuns(runs: string, fleets: string): Promise<void> {
 			);
 			return;
 		}
-		// Read once, and used for both questions below. Two walks of one
-		// directory inside a single handler can disagree, and the pair
-		// that disagrees is a protect set that kept a run beside a
-		// listing that no longer mentions it.
-		const held = (await ledger.everyFleet()).runs;
 		const swept = await new ReviewerArtifactsStore(runs).cleanupTerminalRuns({
 			maxRuns: FLEET_RUNS_RETAIN,
 			maxAgeMs: FLEET_RUNS_MAX_AGE_MS,
@@ -307,10 +315,7 @@ async function sweepFleetRuns(runs: string, fleets: string): Promise<void> {
 		// these and the answer is thrown away below that line anyway.
 		if (swept.held >= FLEETS_HELD_BEFORE_SAYING) {
 			const store = new ReviewerArtifactsStore(runs);
-			const gone = await abandonedFleets(
-				held.filter((run) => run.open === true),
-				systemFacts,
-			);
+			const gone = await abandonedFleets(held, systemFacts);
 			// Down to the ones with something behind them, so the count and
 			// the directory it points at describe one population. A record
 			// whose dispatch never wrote anything is real and abandoned and
@@ -596,21 +601,26 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 			// effort because bookkeeping must not cost a fleet: the cost
 			// of failing to write is that one fleet goes unprotected, and
 			// the cost of throwing is that it never runs at all.
-			// Who is waiting, so a later session can tell a fleet running
-			// right now from one whose session never came back for it.
-			// Both are open records and they want opposite things said
-			// about them: the first is nobody else's business, and the
-			// second is transcripts that are final and worth reading.
-			const owner = await ourOwner();
+			await recordOrSay(async () => {
+				// Asked inside the guard, since it forks a subprocess and
+				// bookkeeping must not cost a fleet: outside it, a `ps`
+				// that hung or threw took the dispatch with it.
+				const owner = await ourOwner();
+				await ledger.open({
+					id: runId,
+					startedAt: new Date().toISOString(),
+					jobs: assignments.map((one) => one.spec.id),
+					...(owner ? { owner } : {}),
+				});
+			}, `could not write ${runId} down before dispatching it, so the sweep will not know to keep its transcripts`);
+			// Once for the run, before any of its jobs are prepared. A run
+			// id comes round again whenever a caller supplies one, and the
+			// supervisor stops the moment it sees a cancellation, so a run
+			// stopped once would otherwise kill every later run under the
+			// same name on arrival.
 			await recordOrSay(
-				() =>
-					ledger.open({
-						id: runId,
-						startedAt: new Date().toISOString(),
-						jobs: assignments.map((one) => one.spec.id),
-						...(owner ? { owner } : {}),
-					}),
-				`could not write ${runId} down before dispatching it, so the sweep will not know to keep its transcripts`,
+				() => new ReviewerArtifactsStore(runs).beginRun(runId),
+				`could not clear an earlier cancellation of ${runId}, so its jobs may stop the moment they start`,
 			);
 			// What, if anything, was cut off before it could answer. Set
 			// inside the try and read in the finally, because the finally

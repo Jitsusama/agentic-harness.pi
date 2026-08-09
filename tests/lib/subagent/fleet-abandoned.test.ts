@@ -150,6 +150,28 @@ describe("abandoned fleets", () => {
 		expect(asked).toEqual([4242, 7]);
 	});
 
+	it("says nothing about a fleet somebody was already handed", async () => {
+		// A settled fleet went to whoever asked for it, and what became
+		// of that session afterwards says nothing about it: every
+		// session ends eventually, so a dead owner is the ordinary state
+		// of a settled record. Decided here rather than asked of the
+		// caller, since a precondition living at one call site is one
+		// the next caller cannot know about.
+		const runs: FleetRun[] = [
+			{
+				id: "fleet-handed-over",
+				startedAt: new Date().toISOString(),
+				jobs: ["one"],
+				settledAt: new Date().toISOString(),
+				owner: { pid: 4242, startedAt: BIRTHDAY },
+			},
+		];
+
+		const abandoned = await abandonedFleets(runs, machine({}));
+
+		expect(abandoned).toEqual([]);
+	});
+
 	it("leaves a record that never said who was waiting", async () => {
 		// Written by a version that did not record an owner. Absent means
 		// not told, and the safe reading of not being told is that

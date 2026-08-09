@@ -131,6 +131,53 @@ describe("a fleet ledger", () => {
 		expect(files[0]).not.toContain("/");
 	});
 
+	it("refuses an owner whose pid could not name a process", async () => {
+		// Zero and the negatives name a process group or nothing at all,
+		// and the two sibling gates that decide whether to signal
+		// something already refuse them. Here the same number decides
+		// whether a session counts as still waiting, so a liveness check
+		// on it would answer for whatever the platform makes of a pid
+		// nobody can have.
+		writeFileSync(
+			join(root, "fleet-a.json"),
+			JSON.stringify({
+				id: "fleet-a",
+				startedAt: new Date().toISOString(),
+				jobs: ["one"],
+				open: true,
+				owner: { pid: 0, startedAt: 1_760_000_000_000 },
+			}),
+			"utf8",
+		);
+
+		const { open, unreadable } = await createFleetLedger(root).openFleets();
+
+		expect(open.size).toBe(0);
+		expect(unreadable).toEqual([join(root, "fleet-a.json")]);
+	});
+
+	it("reads a record that spells no owner as null", async () => {
+		// What JSON says when something writes the field out empty.
+		// Refusing the record over a spelling of "nobody" wedges the
+		// sweep for this machine until somebody edits a file by hand.
+		writeFileSync(
+			join(root, "fleet-a.json"),
+			JSON.stringify({
+				id: "fleet-a",
+				startedAt: new Date().toISOString(),
+				jobs: ["one"],
+				open: true,
+				owner: null,
+			}),
+			"utf8",
+		);
+
+		const { open, unreadable } = await createFleetLedger(root).openFleets();
+
+		expect([...open]).toEqual(["fleet-a"]);
+		expect(unreadable).toEqual([]);
+	});
+
 	it("refuses a record whose owner is half written", async () => {
 		// Which way a half-written owner falls is the whole reason to
 		// check it. A pid with no birthday cannot be identified, so it

@@ -130,7 +130,16 @@ export async function recoverReviewerRuns(
 					// nothing has been spawned yet.
 					active.push(progress);
 				} else {
-					stale.push(progress);
+					// Only the first time. Nothing empties this population:
+					// the progress and lease files stay exactly as they are,
+					// so every later session finds the same runs, and a
+					// caller reporting what it found would say the same line
+					// forever. The cancellation already on disk is the record
+					// that somebody has been here, and it is the only marker
+					// that survives the process that wrote it.
+					const told =
+						(await store.readJson<unknown>(paths.cancelPath)) !== null;
+					if (!told) stale.push(progress);
 					await store.requestReviewerCancellation(
 						runId,
 						reviewerId,

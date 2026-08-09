@@ -69,6 +69,38 @@ function staleFleet(id: string): string {
 	return paths.runDir;
 }
 
+/**
+ * A run the housekeeping must act on, so absence can be observed.
+ *
+ * Every case that asserts something did not happen needs a moment
+ * that is definitely after the decision it denies, and there is no
+ * such moment inside the thing being denied. This is one: its
+ * supervisor is plainly gone, so it is acted on and announced, and
+ * that announcement comes after every run has been decided and after
+ * the sweep that runs before them.
+ */
+async function alsoOrphaned(store: ReviewerArtifactsStore): Promise<void> {
+	const paths = await store.ensureReviewerDir("zz-orphan", "one");
+	await store.writeJsonAtomic(paths.progressPath, {
+		state: "running",
+		activity: "thinking",
+		updatedAt: new Date().toISOString(),
+	});
+	await store.writeJsonAtomic(paths.leasePath, {
+		state: "running",
+		supervisorPid: noSuchProcess(),
+		supervisorStartedAt: 1_000_000,
+		updatedAt: new Date().toISOString(),
+	});
+}
+
+/** Wait until the housekeeping has said what it did. */
+async function finished(): Promise<void> {
+	await vi.waitFor(() => expect(said.join(" ")).toContain("zz-orphan/one"), {
+		timeout: 30_000,
+	});
+}
+
 /** Age a path past every ordinary window. */
 async function age(path: string): Promise<void> {
 	const long = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
@@ -179,7 +211,12 @@ describe("a fleet child whose supervisor died", () => {
 				// Already gone, which is the outcome the test wanted.
 			}
 		}
-	});
+		// The budget belongs on the case as well as on the waits inside
+		// it. This path sleeps half a second between its two signals by
+		// design and forks `ps` around them, and thirty seconds given to
+		// a `vi.waitFor` inside a case vitest ends at five is a number
+		// that reads as generous and is never reached.
+	}, 60_000);
 
 	it("leaves a fleet whose supervisor is still there", async () => {
 		// The other side, and the one that costs money to get wrong: a
@@ -200,29 +237,16 @@ describe("a fleet child whose supervisor died", () => {
 			updatedAt: new Date().toISOString(),
 		});
 
-		// A second run in the same tree, whose supervisor is plainly
-		// gone, so there is something the recovery must do. Waiting for
-		// that is what makes the absence below an observation rather
-		// than a race: the first version waited on
-		// `said.join(" ")).not.toBe(undefined)`, which is true of the
-		// empty string, so it asserted against a session start that had
-		// not begun.
-		const dead = await store.ensureReviewerDir("fleet-dead", "one");
-		await store.writeJsonAtomic(dead.progressPath, {
-			state: "running",
-			activity: "thinking",
-			updatedAt: new Date().toISOString(),
-		});
-		await store.writeJsonAtomic(dead.leasePath, {
-			state: "running",
-			supervisorPid: noSuchProcess(),
-			supervisorStartedAt: 1_000_000,
-			updatedAt: new Date().toISOString(),
-		});
+		// Something the recovery must act on, so the absence below is an
+		// observation rather than a race. The first version of this case
+		// waited on `said.join(" ")).not.toBe(undefined)`, which is true
+		// of the empty string, so it asserted against a session start
+		// that had not begun.
+		await alsoOrphaned(store);
 
 		await startSession();
 
-		await vi.waitFor(() => expect(existsSync(dead.cancelPath)).toBe(true));
+		await finished();
 		expect(existsSync(paths.cancelPath)).toBe(false);
 	});
 
@@ -234,17 +258,11 @@ describe("a fleet child whose supervisor died", () => {
 		// session dispatched a heartbeat earlier.
 		const store = new ReviewerArtifactsStore(stateDir());
 		const paths = await store.ensureReviewerDir("fleet-starting", "one");
-		const dead = await store.ensureReviewerDir("fleet-dead", "one");
-		await store.writeJsonAtomic(dead.leasePath, {
-			state: "running",
-			supervisorPid: noSuchProcess(),
-			supervisorStartedAt: 1_000_000,
-			updatedAt: new Date().toISOString(),
-		});
+		await alsoOrphaned(store);
 
 		await startSession();
 
-		await vi.waitFor(() => expect(existsSync(dead.cancelPath)).toBe(true));
+		await finished();
 		expect(existsSync(paths.cancelPath)).toBe(false);
 	});
 });
@@ -411,17 +429,14 @@ describe("the fleet retention sweep", () => {
 			await age(staleFleet(`fleet-${n}`));
 		}
 
+		// Anchored to something that happens strictly after the decision
+		// being denied. Waiting for the sweep to delete something is not
+		// that, since the sweep runs before this message is considered.
+		await alsoOrphaned(new ReviewerArtifactsStore(stateDir()));
+
 		await startSession();
 
-		// Waited on something that does happen, so this is not asserting
-		// absence against a session start that has not got there yet.
-		const transcripts = staleFleet("fleet-settled");
-		await ledger.open({ id: "fleet-settled", startedAt: "x", jobs: [] });
-		await ledger.settle("fleet-settled");
-		await age(transcripts);
-		await startSession();
-
-		await vi.waitFor(() => expect(existsSync(transcripts)).toBe(false));
+		await finished();
 		expect(said.filter((line) => line.includes("never came back"))).toEqual([]);
 	});
 

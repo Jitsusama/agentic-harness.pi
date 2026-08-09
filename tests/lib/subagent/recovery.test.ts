@@ -73,6 +73,45 @@ describe("recoverReviewerRuns", () => {
 		});
 	});
 
+	it("names a stale reviewer once, not at every session start", async () => {
+		// Nothing empties this population: the progress and lease files
+		// stay as they are, so every later session finds the same runs
+		// and a caller reporting what it found would print the same line
+		// forever. The cancellation on disk is the record that somebody
+		// has been here, and it is the only marker that outlives the
+		// process that wrote it.
+		const store = await tempStore();
+		const paths = await store.ensureReviewerDir("run", "fast");
+		await store.writeJsonAtomic(paths.progressPath, {
+			state: "running",
+			activity: "reading x",
+			updatedAt: "2026-01-01T00:00:00Z",
+		});
+		await store.writeJsonAtomic(paths.leasePath, {
+			state: "running",
+			supervisorPid: 4242,
+			supervisorStartedAt: 1_000_000,
+			updatedAt: new Date().toISOString(),
+		});
+		const machine = {
+			alive: () => false,
+			startedAt: async () => undefined,
+			kill: () => {},
+			wait: async () => {},
+		};
+
+		const first = await recoverReviewerRuns(store, machine);
+		const second = await recoverReviewerRuns(store, machine);
+
+		expect(first.stale).toHaveLength(1);
+		expect(second.stale).toEqual([]);
+		// Still cancelled, though. Saying it twice is noise; leaving a
+		// run uncancelled because it was mentioned once is a bug.
+		expect(
+			await store.readJson<{ reason: string }>(paths.cancelPath),
+		).toMatchObject({ reason: "startup-stale" });
+	});
+
 	it("files a supervisor whose pid the machine reissued as gone", async () => {
 		// Recovery used to ask only whether the pid was alive, which the
 		// collect path had already learned not to trust. The asymmetry

@@ -38,11 +38,16 @@ const supervisorPath = join(
 );
 
 /** Wait for a path to hold parseable JSON, or give up saying so. */
-async function appears<T>(path: string): Promise<T> {
+async function appears<T>(
+	path: string,
+	enough: (value: T) => boolean = () => true,
+): Promise<T> {
 	const until = Date.now() + APPEARS_WITHIN_MS;
 	while (Date.now() < until) {
 		try {
-			return JSON.parse(await readFile(path, "utf8")) as T;
+			const value = JSON.parse(await readFile(path, "utf8")) as T;
+			if (enough(value)) return value;
+			await new Promise((resolve) => setTimeout(resolve, 50));
 		} catch {
 			// Not written, or half-written. Both mean "not yet".
 			await new Promise((resolve) => setTimeout(resolve, 50));
@@ -91,12 +96,21 @@ describe("a supervisor whose session has gone", () => {
 			{ cwd: stateDir, detached: false, stdio: "ignore" },
 		);
 
+		let child: number | undefined;
 		try {
 			const store = new ReviewerArtifactsStore(stateDir);
 			const { resultPath, leasePath } = store.paths("run", "abandoned");
-			// Read before the result, because the lease is where the child
-			// says who it is and it is gone from nothing afterwards.
-			const lease = await appears<{ childPid?: number }>(leasePath);
+			// Waited for with the pid in it, not merely present. The lease
+			// is written once as "starting" before anything is spawned, so
+			// a plain read here returns a record with no child in it about
+			// as often as not, and the assertion below would then be
+			// skipped or thrown over on timing.
+			child = (
+				await appears<{ childPid?: number }>(
+					leasePath,
+					(lease) => typeof lease.childPid === "number",
+				)
+			).childPid;
 			const result = await appears<{
 				state: string;
 				exitCode: number;
@@ -116,15 +130,25 @@ describe("a supervisor whose session has gone", () => {
 			// from the one this test is named for: a supervisor that wrote
 			// "parent-exit" and left the model running would satisfy every
 			// line before this one.
-			const child = lease.childPid;
 			if (child === undefined) throw new Error("the lease named no child");
 			await gone(child, APPEARS_WITHIN_MS);
 		} finally {
 			supervisor.kill("SIGKILL");
+			// The child too, and this is the half that matters: it is
+			// detached and in its own process group, so a failed assertion
+			// above would otherwise leave an immortal node process behind
+			// on the machine, once per failing run.
+			if (child !== undefined) {
+				try {
+					process.kill(-child, "SIGKILL");
+				} catch {
+					// Already gone, which is what the test wanted anyway.
+				}
+			}
 		}
 	}, 120_000);
 
-	it("is what the waiting path asks for, on every fleet job", async () => {
+	it("is what the runner every fleet job uses asks for", async () => {
 		// The other half, and the half a dead parent cannot show. The
 		// case above proves that a supervisor told about a parent stops
 		// when that parent goes; this one proves the runner every fleet
@@ -136,10 +160,20 @@ describe("a supervisor whose session has gone", () => {
 			stateDir,
 			// Nothing runs: the request is written before the spawn, which
 			// is all this reads.
-			spawn: (() => ({ pid: 1, unref() {}, on() {} })) as never,
+			spawn: (() => ({ pid: 1, unref() {}, on() {}, once() {} })) as never,
 		});
 
-		void runPi({ args: [], cwd: stateDir, runId: "run", reviewerId: "one" });
+		// Caught rather than voided. Nothing here finishes the run, so
+		// this promise never settles happily, and a void would surface
+		// whatever it does as an unhandled rejection that the assertion
+		// below cannot see and a later test reports instead.
+		const running = runPi({
+			args: [],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "one",
+		});
+		running.catch(() => {});
 
 		const store = new ReviewerArtifactsStore(stateDir);
 		const request = await appears<{ parentPid?: number }>(

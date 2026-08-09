@@ -77,6 +77,12 @@ export interface FleetRun {
  * holding models open against their own backstops for hours, and the
  * answers will have nowhere to go when they arrive.
  *
+ * Only open records can be abandoned, and that is decided here rather
+ * than asked of the caller. A settled fleet was handed to somebody
+ * whatever became of them afterwards, so a dead owner says nothing
+ * about it, and a precondition living at one call site is one the
+ * next caller has no way to know about.
+ *
  * Identity decides, both ways, the same discipline the supervisor
  * lease uses: a live pid that started when the record says is the
  * session still waiting, and a live pid that started at some other
@@ -98,6 +104,7 @@ export async function abandonedFleets(
 	// is a hundred subprocesses at every session start.
 	const asked = new Map<number, number | undefined>();
 	for (const run of runs) {
+		if (run.open !== true) continue;
 		const owner = run.owner;
 		if (owner === undefined) continue;
 		if (!facts.alive(owner.pid)) {
@@ -451,8 +458,19 @@ function isFleetRun(value: unknown): value is FleetRun {
  * sweep, and being offered a live fleet to delete does not.
  */
 function isOwner(value: unknown): boolean {
-	if (value === undefined) return true;
-	if (typeof value !== "object" || value === null) return false;
+	// Null as well as undefined, since null is what JSON says when
+	// something writes the field out empty, and refusing the record
+	// over a spelling of "nobody" wedges the sweep for no reason.
+	if (value === undefined || value === null) return true;
+	if (typeof value !== "object") return false;
 	const owner = value as Record<string, unknown>;
-	return typeof owner.pid === "number" && typeof owner.startedAt === "number";
+	return (
+		typeof owner.pid === "number" &&
+		// Positive, like the two sibling gates that decide whether to
+		// signal something. A zero or negative pid names a process
+		// group or nothing at all, and it must not reach a comparison
+		// that concludes a session is still alive.
+		owner.pid > 0 &&
+		typeof owner.startedAt === "number"
+	);
 }
