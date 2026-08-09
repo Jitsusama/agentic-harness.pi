@@ -99,7 +99,11 @@ companion skill.
   handed back and in the transcripts on disk, so a session
   that dies mid-fleet leaves the transcripts as the only
   copy. This is what says so, and what the sweep reads to
-  know which runs it may not take.
+  know which runs it may not take. It also records who was
+  waiting, so a later session can tell a fleet running
+  right now from one nobody came back for: both are open
+  records, and only the second is worth mentioning or safe
+  to offer to release.
 - `errno.ts`: what a filesystem error was, and how a run
   id is spelled as a path segment. Both are one definition
   because a caller reading "broken" as "missing" answers

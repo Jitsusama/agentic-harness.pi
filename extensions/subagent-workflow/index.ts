@@ -52,8 +52,14 @@ import {
 	SUBAGENT_REGISTER_DEFAULT_EXTENSION,
 	SUBAGENT_REGISTER_DEFAULT_SKILL,
 } from "../../lib/subagent/events.js";
-import { createFleetLedger } from "../../lib/subagent/fleet.js";
+import {
+	abandonedFleets,
+	createFleetLedger,
+	type FleetRun,
+} from "../../lib/subagent/fleet.js";
 import { getParentPiInstall } from "../../lib/subagent/install.js";
+import { systemFacts } from "../../lib/subagent/lease.js";
+import { recoverReviewerRuns } from "../../lib/subagent/recovery.js";
 import { createSupervisorRunPi } from "../../lib/subagent/runpi/supervisor.js";
 import { THINKING_LEVELS } from "../../lib/thinking/index.js";
 import { count } from "../../lib/ui/count.js";
@@ -172,6 +178,67 @@ async function recordOrSay(
  * four policies in a row and a handler should say which ones rather
  * than be them.
  */
+/**
+ * Stop a subagent whose supervisor died, and say that it stopped.
+ *
+ * The narrow case, and the only orphan a fleet can have. A supervisor
+ * whose session goes stops its own child within half a second, since
+ * a fleet job is always one somebody is waiting for and its request
+ * carries the waiting pid; that is asserted against the real script
+ * in `tests/lib/subagent/runpi/parent-exit.test.ts`. So a dead
+ * session leaves nothing running, and no ledger reading is needed to
+ * work out whose fleet this was.
+ *
+ * A supervisor that is itself killed is the gap. Its child was
+ * spawned into its own process group and outlives it, holding an
+ * expensive model against a wall clock nothing is watching, and the
+ * pid was only ever known to the process that died.
+ */
+/**
+ * This session, as something a later one can check.
+ *
+ * A pid alone identifies nothing: the number comes round again, and a
+ * stranger wearing it reads as this session still being here. So the
+ * birthday goes with it, and when the machine will not report one the
+ * answer is nothing at all rather than a pid on its own, since absent
+ * is read as "still waiting" and a bare pid would be read as proof.
+ *
+ * Asked once. It cannot change, and asking costs a subprocess.
+ */
+async function whoIsWaiting(): Promise<FleetRun["owner"]> {
+	if (waiting === undefined) {
+		const startedAt = await systemFacts.startedAt(process.pid);
+		waiting = startedAt === undefined ? null : { pid: process.pid, startedAt };
+	}
+	return waiting ?? undefined;
+}
+
+/** Cached, with null meaning the machine would not say. */
+let waiting: FleetRun["owner"] | null | undefined;
+
+async function stopOrphanedSubagents(runs: string): Promise<void> {
+	try {
+		const { reaped } = await recoverReviewerRuns(
+			new ReviewerArtifactsStore(runs),
+		);
+		if (reaped.length === 0) return;
+		// Said out loud. A session that quietly kills processes it finds
+		// running is worse than one that leaves them, and whoever is
+		// paying for those tokens should hear that they stopped.
+		console.error(
+			`[subagent-workflow] stopped ${count(reaped.length, "subagent")} whose supervisor had died: ${reaped
+				.map((one) => `${one.runId}/${one.reviewerId}`)
+				.join(", ")}`,
+		);
+	} catch (error) {
+		// Advisory, like the sweep beside it: a session that cannot
+		// check for orphans is still a session.
+		console.error(
+			`[subagent-workflow] could not look for orphaned subagents: ${error instanceof Error ? error.message : String(error)}`,
+		);
+	}
+}
+
 async function sweepFleetRuns(runs: string, fleets: string): Promise<void> {
 	const transcripts = join(runs, "runs");
 	const ledger = createFleetLedger(fleets);
@@ -199,9 +266,24 @@ async function sweepFleetRuns(runs: string, fleets: string): Promise<void> {
 		// no transcripts at all, and announcing megabytes that are not
 		// there sends somebody looking for a directory that does not
 		// exist.
-		if (swept.held >= FLEETS_HELD_BEFORE_SAYING) {
+		//
+		// Held is not the same question as abandoned, either. A fleet
+		// another session is running right now is held, and saying so
+		// invites somebody to delete the record protecting work that is
+		// still being paid for. Only the ones nobody is waiting for are
+		// worth a word, and they are the ones where the offer to delete
+		// is safe to make.
+		const gone = await abandonedFleets(
+			(await ledger.everyFleet()).runs.filter((run) => run.open === true),
+			systemFacts,
+		);
+		if (swept.held >= FLEETS_HELD_BEFORE_SAYING && gone.length > 0) {
 			console.error(
-				`[subagent-workflow] ${swept.held} fleet runs were dispatched and never handed back, so their transcripts under ${transcripts} are held and nothing will reclaim them. Delete a fleet's file under ${fleets} to release the one it names.`,
+				`[subagent-workflow] ${count(gone.length, "fleet")} of the ${swept.held} being held was dispatched by a session that never came back for it, so its transcripts under ${transcripts} are final and nothing will reclaim them: ${gone
+					.map((run) => run.id)
+					.join(
+						", ",
+					)}. Delete a fleet's file under ${fleets} to release the one it names.`,
 			);
 		}
 		// Capped, because what produces these is rarely one run: a
@@ -256,6 +338,7 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 		// session, and the sibling extension does the same: a handler
 		// that awaits this makes every start wait on a directory walk.
 		void sweepFleetRuns(stateDir(), fleetDir());
+		void stopOrphanedSubagents(stateDir());
 	});
 	let runPi: ReturnType<typeof createSupervisorRunPi> | null = null;
 	const getRunPi = () => {
@@ -462,12 +545,19 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 			// effort because bookkeeping must not cost a fleet: the cost
 			// of failing to write is that one fleet goes unprotected, and
 			// the cost of throwing is that it never runs at all.
+			// Who is waiting, so a later session can tell a fleet running
+			// right now from one whose session never came back for it.
+			// Both are open records and they want opposite things said
+			// about them: the first is nobody else's business, and the
+			// second is transcripts that are final and worth reading.
+			const owner = await whoIsWaiting();
 			await recordOrSay(
 				() =>
 					ledger.open({
 						id: runId,
 						startedAt: new Date().toISOString(),
 						jobs: assignments.map((one) => one.spec.id),
+						...(owner ? { owner } : {}),
 					}),
 				`could not write ${runId} down before dispatching it, so the sweep will not know to keep its transcripts`,
 			);

@@ -15,7 +15,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SubagentCancelledError } from "../../../extensions/subagent-workflow/cancellation.js";
-import { createFleetLedger } from "../../../lib/subagent/fleet.js";
+import {
+	createFleetLedger,
+	type FleetRun,
+} from "../../../lib/subagent/fleet.js";
+import { systemFacts } from "../../../lib/subagent/lease.js";
 import type { RunPi } from "../../../lib/subagent/subagent.js";
 import { activateWith } from "../support/review-extension.js";
 
@@ -115,6 +119,31 @@ describe("dispatching a fleet", () => {
 		expect(duringRun).toEqual([
 			expect.objectContaining({ id: "fleet-b", open: true }),
 		]);
+	});
+
+	it("records the session waiting on it, checkably", async () => {
+		// So a later session can tell a fleet running right now from one
+		// whose session never came back. Both are open records, and they
+		// want opposite things said: the first is nobody else's
+		// business, and offering to release it offers to unprotect work
+		// that is still being paid for.
+		//
+		// The birthday is the part that matters. A pid on its own
+		// identifies nothing, since the number comes round again and a
+		// stranger wearing it reads as this session still being here.
+		let duringRun: FleetRun["owner"];
+		answer = async () => {
+			const { runs } = await createFleetLedger(fleetDir()).everyFleet();
+			duringRun = runs[0]?.owner;
+			return { exitCode: 0, finalAssistantText: "done", warnings: [] };
+		};
+
+		await dispatch("fleet-owned");
+
+		expect(duringRun).toEqual({
+			pid: process.pid,
+			startedAt: await systemFacts.startedAt(process.pid),
+		});
 	});
 
 	it("holds a fleet that was cancelled, rather than releasing it", async () => {

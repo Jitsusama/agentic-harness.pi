@@ -12,6 +12,8 @@
  * argument one layer down, so the cases are deliberately the same
  * cases.
  */
+
+import { spawn } from "node:child_process";
 import {
 	existsSync,
 	mkdirSync,
@@ -27,6 +29,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import subagentWorkflow from "../../../extensions/subagent-workflow/index.js";
 import { createFleetLedger } from "../../../lib/subagent/fleet.js";
 import { ReviewerArtifactsStore } from "../../../lib/subagent/index.js";
+import { systemFacts } from "../../../lib/subagent/lease.js";
 import { activateWith } from "../support/review-extension.js";
 
 let root: string;
@@ -65,6 +68,27 @@ function staleFleet(id: string): string {
 	return paths.runDir;
 }
 
+/**
+ * A pid nothing is wearing.
+ *
+ * Asked rather than assumed: a number picked out of the air is one
+ * the machine may have handed to something, and a lease naming a live
+ * stranger is how a test comes to signal a process it knows nothing
+ * about.
+ */
+function noSuchProcess(): number {
+	for (let pid = 60_000; pid < 70_000; pid++) {
+		try {
+			process.kill(pid, 0);
+		} catch (error) {
+			// ESRCH is nobody. EPERM is somebody we may not signal,
+			// which is still somebody.
+			if ((error as NodeJS.ErrnoException).code === "ESRCH") return pid;
+		}
+	}
+	throw new Error("every pid probed was in use, which cannot be right");
+}
+
 /** Age a path past every ordinary window. */
 async function age(path: string): Promise<void> {
 	const long = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
@@ -79,6 +103,119 @@ async function startSession(): Promise<void> {
 	}
 	await started({ reason: "startup" }, {});
 }
+
+describe("a fleet child whose supervisor died", () => {
+	it("is asked to stop at the next session start", async () => {
+		// The one orphan a fleet can actually have. A supervisor whose
+		// session goes stops its own child within half a second, so a
+		// dead session leaves nothing running; a supervisor that is
+		// itself killed leaves a child nothing can reach, because the
+		// pid was only ever known to the process that died.
+		//
+		// Nothing is signalled here: the lease names processes that are
+		// already gone, so what is asserted is the request to stop
+		// rather than a kill. A test that reaps for real is a test that
+		// kills something by a number it read off disk.
+		const store = new ReviewerArtifactsStore(stateDir());
+		const paths = await store.ensureReviewerDir("fleet-orphaned", "one");
+		await store.writeJsonAtomic(paths.progressPath, {
+			state: "running",
+			activity: "thinking",
+			updatedAt: new Date().toISOString(),
+		});
+		await store.writeJsonAtomic(paths.leasePath, {
+			state: "running",
+			supervisorPid: noSuchProcess(),
+			supervisorStartedAt: 1_000_000,
+			updatedAt: new Date().toISOString(),
+		});
+
+		await startSession();
+
+		await vi.waitFor(() => expect(existsSync(paths.cancelPath)).toBe(true));
+	});
+
+	it("kills it, and says so, when the lease names it exactly", async () => {
+		// The whole path, against a real process, because this is the
+		// one that spends money when it is broken: an orphan holding a
+		// large model runs to a backstop measured in hours.
+		//
+		// A test that reaps for real is a test that kills something by a
+		// number it read off disk, which is why the rest of these avoid
+		// it. This one is safe on both counts: the process is one the
+		// test spawned, and it is spawned detached so it leads its own
+		// group, which is what the reaper signals.
+		const child = spawn(process.execPath, ["-e", "setInterval(()=>{},1000)"], {
+			detached: true,
+			stdio: "ignore",
+		});
+		const pid = child.pid;
+		if (pid === undefined) throw new Error("the child never got a pid");
+		child.unref();
+		try {
+			const store = new ReviewerArtifactsStore(stateDir());
+			const paths = await store.ensureReviewerDir("fleet-holding", "one");
+			await store.writeJsonAtomic(paths.progressPath, {
+				state: "running",
+				activity: "thinking",
+				updatedAt: new Date().toISOString(),
+			});
+			await store.writeJsonAtomic(paths.leasePath, {
+				state: "running",
+				supervisorPid: noSuchProcess(),
+				supervisorStartedAt: 1_000_000,
+				childPid: pid,
+				// Read from the machine rather than guessed. The reaper
+				// compares the lease against a fresh observation and
+				// refuses on a mismatch, and `ps` reports whole seconds,
+				// so a timestamp taken here would sometimes differ.
+				childStartedAt: await systemFacts.startedAt(pid),
+				updatedAt: new Date().toISOString(),
+			});
+
+			await startSession();
+
+			await vi.waitFor(() =>
+				expect(said.join(" ")).toContain("fleet-holding/one"),
+			);
+			expect(said.join(" ")).toContain("stopped 1 subagent");
+			await vi.waitFor(() => expect(systemFacts.alive(pid)).toBe(false));
+		} finally {
+			try {
+				process.kill(pid, "SIGKILL");
+			} catch {
+				// Already gone, which is the outcome the test wanted.
+			}
+		}
+	});
+
+	it("leaves a fleet whose supervisor is still there", async () => {
+		// The other side, and the one that costs money to get wrong: a
+		// concurrent session's fleet is running, and cancelling it
+		// throws away work somebody is waiting for. This process is the
+		// live supervisor, since it is the one process the test can
+		// prove is alive.
+		const store = new ReviewerArtifactsStore(stateDir());
+		const paths = await store.ensureReviewerDir("fleet-running", "one");
+		await store.writeJsonAtomic(paths.progressPath, {
+			state: "running",
+			activity: "thinking",
+			updatedAt: new Date().toISOString(),
+		});
+		await store.writeJsonAtomic(paths.leasePath, {
+			state: "running",
+			supervisorPid: process.pid,
+			updatedAt: new Date().toISOString(),
+		});
+
+		await startSession();
+
+		// Waited for rather than asserted immediately, or this passes
+		// against a session start that has not got there yet.
+		await vi.waitFor(() => expect(said.join(" ")).not.toBe(undefined));
+		expect(existsSync(paths.cancelPath)).toBe(false);
+	});
+});
 
 describe("the fleet retention sweep", () => {
 	it("reclaims a fleet somebody has been handed", async () => {
@@ -183,11 +320,17 @@ describe("the fleet retention sweep", () => {
 		// megabytes that are not there sends somebody looking for a
 		// directory that does not exist.
 		const ledger = createFleetLedger(stateDir("fleets"));
+		const dead = noSuchProcess();
 		for (let n = 0; n < 5; n++) {
 			await ledger.open({
 				id: `fleet-${n}`,
 				startedAt: new Date().toISOString(),
 				jobs: ["one"],
+				// Dispatched by a session that is gone, which is what makes
+				// these worth mentioning. A held fleet another session is
+				// running right now is nobody else's business, and offering
+				// to delete its record offers to unprotect live work.
+				owner: { pid: dead, startedAt: 1_000 },
 			});
 			await age(staleFleet(`fleet-${n}`));
 		}
@@ -195,9 +338,9 @@ describe("the fleet retention sweep", () => {
 		await startSession();
 
 		await vi.waitFor(() => {
-			const about = said.filter((line) => line.includes("never handed back"));
+			const about = said.filter((line) => line.includes("never came back"));
 			expect(about).toHaveLength(1);
-			expect(about[0]).toContain("5 fleet runs");
+			expect(about[0]).toContain("5 fleets");
 			// Where they are, and how to let one go. Announcing an
 			// unbounded population that nothing in the product can
 			// release, without saying what releases it, is a nag with no
@@ -205,6 +348,39 @@ describe("the fleet retention sweep", () => {
 			expect(about[0]).toContain(stateDir("runs"));
 			expect(about[0]).toContain(stateDir("fleets"));
 		});
+	});
+
+	it("says nothing about a held fleet another session is running", async () => {
+		// The case the count alone could not see, and the one where
+		// speaking does harm: these transcripts are held because work is
+		// in flight, and the only lever the message offers would
+		// unprotect it. This process stands in for the live session,
+		// since it is the one this test can prove is alive.
+		const ledger = createFleetLedger(stateDir("fleets"));
+		const mine = await systemFacts.startedAt(process.pid);
+		if (mine === undefined) throw new Error("the machine would not say");
+		for (let n = 0; n < 5; n++) {
+			await ledger.open({
+				id: `fleet-${n}`,
+				startedAt: new Date().toISOString(),
+				jobs: ["one"],
+				owner: { pid: process.pid, startedAt: mine },
+			});
+			await age(staleFleet(`fleet-${n}`));
+		}
+
+		await startSession();
+
+		// Waited on something that does happen, so this is not asserting
+		// absence against a session start that has not got there yet.
+		const transcripts = staleFleet("fleet-settled");
+		await ledger.open({ id: "fleet-settled", startedAt: "x", jobs: [] });
+		await ledger.settle("fleet-settled");
+		await age(transcripts);
+		await startSession();
+
+		await vi.waitFor(() => expect(existsSync(transcripts)).toBe(false));
+		expect(said.filter((line) => line.includes("never came back"))).toEqual([]);
 	});
 
 	it("says nothing about fleets the ledger holds but the disk does not", async () => {

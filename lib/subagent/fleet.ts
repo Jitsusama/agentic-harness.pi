@@ -27,6 +27,7 @@ import {
 } from "node:fs/promises";
 import { join } from "node:path";
 import { isDirectory, isNotFound, safeSegment } from "./errno.js";
+import { type ProcessFacts, sameProcess } from "./lease.js";
 
 /** A fleet that was dispatched, as the ledger holds it. */
 export interface FleetRun {
@@ -45,6 +46,66 @@ export interface FleetRun {
 	 */
 	readonly open?: true;
 	readonly settledAt?: string;
+	/**
+	 * The session that dispatched this fleet and is waiting for it.
+	 *
+	 * Optional because a record written before this existed cannot
+	 * have one, and absent has to keep meaning not told rather than
+	 * nobody: reading it as nobody would cancel every fleet on an
+	 * older ledger at the next session start.
+	 */
+	readonly owner?: {
+		readonly pid: number;
+		/**
+		 * When that process started, so the pid can be checked.
+		 *
+		 * A pid identifies nothing on its own. The number comes round
+		 * again, and a stranger wearing it reads as the session still
+		 * being there, which is the reading that leaves an orphan
+		 * running.
+		 */
+		readonly startedAt: number;
+	};
+}
+
+/**
+ * Which of these fleets nobody is waiting for any more.
+ *
+ * There is no detached dispatch: nothing starts a fleet meaning to
+ * come back for it later, the way a review round can be started and
+ * collected. So a fleet whose session has gone is running for nobody,
+ * holding models open against their own backstops for hours, and the
+ * answers will have nowhere to go when they arrive.
+ *
+ * Identity decides, both ways, the same discipline the supervisor
+ * lease uses: a live pid that started when the record says is the
+ * session still waiting, and a live pid that started at some other
+ * time is a stranger wearing a recycled number. Everything unsure
+ * resolves to leaving the fleet alone, because the cost of that is an
+ * orphan running to a backstop it would have reached anyway, and the
+ * cost of being wrong the other way is cancelling work somebody is
+ * sitting in front of.
+ */
+export async function abandonedFleets(
+	runs: readonly FleetRun[],
+	facts: ProcessFacts,
+): Promise<readonly FleetRun[]> {
+	const abandoned: FleetRun[] = [];
+	for (const run of runs) {
+		const owner = run.owner;
+		if (owner === undefined) continue;
+		if (!facts.alive(owner.pid)) {
+			abandoned.push(run);
+			continue;
+		}
+		const observed = await facts.startedAt(owner.pid);
+		// Nothing could say, so liveness is the only evidence there is
+		// and it says somebody is there. It fails open, which is why it
+		// is the fallback rather than the rule.
+		if (observed === undefined) continue;
+		if (!sameProcess(observed, owner.startedAt)) abandoned.push(run);
+	}
+	return abandoned;
 }
 
 /** Which fleets nothing has read yet, and what could not be asked. */
