@@ -178,9 +178,47 @@ panel and just return results.
 
 ## Files
 
-- `index.ts`: registration only. Declares the tool,
-  wires the supervisor, the cancellation registry and
-  the progress reporter.
+- `index.ts`: registration, plus the session-start
+  housekeeping. Declares the tool, wires the supervisor,
+  the cancellation registry and the progress reporter,
+  and holds `sweepFleetRuns`, which is its own function
+  rather than a handler body because it is four policies
+  in a row.
+
+## What Is Kept, and What Reclaims It
+
+A fleet's answers exist in two places: the tool result
+handed back to the session that asked, and the
+transcripts on disk. A session that dies mid-fleet never
+produces the first, so the second is the only copy of
+work that has been paid for.
+
+So a fleet is written down before it is dispatched, in a
+ledger under `fleets/` beside the run directories, and
+released when it is handed back. An unreleased fleet is
+protected absolutely: no window takes it, because what
+protection asserts is that this run holds the only copy
+of something and a clock does not make that untrue.
+Cancellation counts as unreleased, since an aborted call
+returns nothing to anybody.
+
+That leaves one population that grows without a bound,
+and two things follow from it. The sweep says how many
+such fleets it held once there are enough to matter, and
+names both the directory holding the transcripts and the
+file to delete to let one go. Deleting that file is the
+only release there is, and it is deliberate rather than
+automatic: nothing can tell whether somebody has read a
+transcript.
+
+The ledger has a window of its own, over settled records
+older than the longest window their transcripts get, or
+it becomes the unbounded thing it was built to bound.
+
+A ledger file that will not read stops the sweep, on this
+machine, until somebody deals with it. An empty protect
+set is not the cautious reading of a torn ledger: it is
+the one that deletes everything the ledger was keeping.
 - `run.ts`: orchestrator. Takes assignments, dispatches
   via the library's `runSubagent`, threads progress and
   cancellation, aggregates usage.

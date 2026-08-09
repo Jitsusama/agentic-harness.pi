@@ -76,15 +76,19 @@ export interface FleetLedger {
 	/** Mark a fleet as one somebody has been handed. */
 	settle(id: string): Promise<void>;
 	/**
-	 * Every fleet held, beside what would not read.
+	 * Every fleet on the ledger, beside what would not read.
 	 *
 	 * The unreadable half is not optional and not separable. A listing
 	 * answering a bare array would answer "no fleets" for a ledger that
 	 * will not open, which is the misreading the rest of this module
 	 * exists to prevent, and it would be the one call on the public
 	 * surface that makes it.
+	 *
+	 * Not called `held`, though it lists what is held, because `held`
+	 * is already the count of runs a sweep kept and the two are
+	 * different populations: this one includes the settled.
 	 */
-	held(): Promise<HeldFleets>;
+	everyFleet(): Promise<HeldFleets>;
 	/** Which fleets are still nobody's, for the retention sweep. */
 	openFleets(): Promise<OpenFleets>;
 	/**
@@ -120,15 +124,20 @@ export function createFleetLedger(root: string): FleetLedger {
 		// The staging name carries a counter as well as the pid, because
 		// a pid does not tell two writes in one process apart and the
 		// open and the settle of one fleet are exactly that pair.
+		//
+		// A timestamp as well as the counter, because the counter starts
+		// again at zero every time this module is loaded and a reload is
+		// an ordinary event in a long session.
 		staging += 1;
-		const pending = `${path}.${process.pid}.${staging}.tmp`;
+		const pending = `${path}.${process.pid}.${Date.now()}.${staging}${STAGING_SUFFIX}`;
 		await writeFile(pending, JSON.stringify(run, null, 2), "utf8");
 		await rename(pending, path);
 	}
 
 	async function readAll(): Promise<{
-		runs: FleetRun[];
+		runs: { run: FleetRun; path: string }[];
 		unreadable: string[];
+		staged: string[];
 	}> {
 		let files: string[];
 		try {
@@ -138,12 +147,21 @@ export function createFleetLedger(root: string): FleetLedger {
 			// majority of sessions never dispatch a fleet. Reading that
 			// as an empty ledger is right; reading a directory that is
 			// there and will not open as one is not, so it is reported.
-			if (isNotFound(error)) return { runs: [], unreadable: [] };
-			return { runs: [], unreadable: [root] };
+			if (isNotFound(error)) return { runs: [], unreadable: [], staged: [] };
+			return { runs: [], unreadable: [root], staged: [] };
 		}
-		const runs: FleetRun[] = [];
+		const runs: { run: FleetRun; path: string }[] = [];
 		const unreadable: string[] = [];
+		const staged: string[] = [];
 		for (const file of files) {
+			// A write that was interrupted between the write and the
+			// rename, which is the failure the pair exists for, so this
+			// directory would otherwise accumulate them in the one place
+			// whose whole job is to stay small.
+			if (file.endsWith(STAGING_SUFFIX)) {
+				staged.push(join(root, file));
+				continue;
+			}
 			// Ledger files only. This is a state directory and will
 			// collect temporary files, editor droppings and whatever
 			// else, none of which is a fleet that would not read.
@@ -162,10 +180,10 @@ export function createFleetLedger(root: string): FleetLedger {
 				unreadable.push(path);
 				continue;
 			}
-			if (isFleetRun(parsed)) runs.push(parsed);
+			if (isFleetRun(parsed)) runs.push({ run: parsed, path });
 			else unreadable.push(path);
 		}
-		return { runs, unreadable };
+		return { runs, unreadable, staged };
 	}
 
 	return {
@@ -209,36 +227,46 @@ export function createFleetLedger(root: string): FleetLedger {
 			await put({ ...rest, settledAt: new Date().toISOString() });
 		},
 
-		async held() {
-			return await readAll();
+		async everyFleet() {
+			const { runs, unreadable } = await readAll();
+			return { runs: runs.map((held) => held.run), unreadable };
 		},
 
 		async openFleets() {
 			const { runs, unreadable } = await readAll();
 			return {
 				open: new Set(
-					runs.filter((run) => run.open === true).map((run) => run.id),
+					runs
+						.filter((held) => held.run.open === true)
+						.map((held) => held.run.id),
 				),
 				unreadable,
 			};
 		},
 
 		async forgetSettledBefore(cutoff) {
-			const { runs } = await readAll();
+			const { runs, staged } = await readAll();
 			let forgotten = 0;
-			for (const run of runs) {
+			// The file this record was read out of, not a path derived
+			// again from the id inside it. Those are the same path for
+			// every record this wrote, and are not for one somebody put
+			// there by hand, where deriving deletes a different fleet's
+			// record and leaves this one to be found again next time.
+			for (const { run, path } of runs) {
 				if (run.open === true || run.settledAt === undefined) continue;
-				if (Date.parse(run.settledAt) >= cutoff.getTime()) continue;
-				try {
-					await rm(pathFor(run.id));
-					forgotten += 1;
-				} catch {
-					// One small file left behind costs a listing entry and
-					// nothing else, so it is not worth failing a sweep the rest
-					// of which reclaims megabytes. Gone already is the answer
-					// this wanted anyway.
-				}
+				const settled = Date.parse(run.settledAt);
+				// A date that will not parse compares false against
+				// everything, so asking whether it is recent enough to keep
+				// answers no and the record goes whatever the cutoff. Kept
+				// instead: one small file is cheaper than a fleet forgotten
+				// on the strength of a field nothing could read.
+				if (Number.isNaN(settled) || settled >= cutoff.getTime()) continue;
+				if (await forget(path)) forgotten += 1;
 			}
+			// Interrupted writes, reclaimed on the same pass. They are
+			// unreachable by anything and they accumulate in the one
+			// directory whose whole purpose is to stay small.
+			for (const path of staged) await forget(path);
 			return forgotten;
 		},
 	};
@@ -252,6 +280,22 @@ export function createFleetLedger(root: string): FleetLedger {
  * those apart either.
  */
 let staging = 0;
+
+/** What an interrupted write leaves behind, so a sweep can find it. */
+const STAGING_SUFFIX = ".staging";
+
+/** Remove a file, reporting whether it went. */
+async function forget(path: string): Promise<boolean> {
+	try {
+		await rm(path);
+		return true;
+	} catch {
+		// One small file left behind costs a listing entry and nothing
+		// else, so it is not worth failing a sweep the rest of which
+		// reclaims megabytes. Gone already is the answer this wanted.
+		return false;
+	}
+}
 
 /** Whether this is a record this ledger wrote. */
 function isFleetRun(value: unknown): value is FleetRun {

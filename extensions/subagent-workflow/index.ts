@@ -46,6 +46,7 @@ import {
 	registerSubagentDefaultExtension,
 	registerSubagentDefaultSkill,
 } from "../../lib/subagent/defaults.js";
+import { safeSegment } from "../../lib/subagent/errno.js";
 import {
 	SUBAGENT_READY,
 	SUBAGENT_REGISTER_DEFAULT_EXTENSION,
@@ -249,7 +250,12 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 	// resolve against the environment each time they are called and
 	// this runs unawaited, so a lookup after the first await is a
 	// lookup against whatever the environment says by then.
-	pi.on("session_start", () => sweepFleetRuns(stateDir(), fleetDir()));
+	pi.on("session_start", () => {
+		// Not returned. Nothing about reclaiming disk should delay a
+		// session, and the sibling extension does the same: a handler
+		// that awaits this makes every start wait on a directory walk.
+		void sweepFleetRuns(stateDir(), fleetDir());
+	});
 	let runPi: ReturnType<typeof createSupervisorRunPi> | null = null;
 	const getRunPi = () => {
 		if (runPi !== null) return runPi;
@@ -426,8 +432,14 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 			),
 			runId: Type.Optional(
 				Type.String({
+					// Held to the same shape a job id is held to, and for a
+					// sharper reason: this one keys both the transcript
+					// directory and the ledger record that protects it, so two
+					// ids that sanitize alike share protection, and one
+					// finishing releases the other's.
+					pattern: "^[a-zA-Z0-9._-]+$",
 					description:
-						"Stable id for this fleet run. Used for durable supervisor artifacts and progress correlation. Auto-generated when omitted.",
+						"Stable id for this fleet run. Used for durable supervisor artifacts, the ledger entry that keeps them, and progress correlation. Letters, digits, dot, underscore and dash, so it names exactly one run on disk. Auto-generated when omitted.",
 				}),
 			),
 		}),
@@ -440,7 +452,8 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 			// can run for hours, so a lookup after the dispatch is a lookup
 			// against whatever the environment says by then.
 			const runs = stateDir();
-			const ledger = createFleetLedger(fleetDir());
+			const fleets = fleetDir();
+			const ledger = createFleetLedger(fleets);
 			// Written down before it is dispatched, and best effort. A
 			// fleet recorded when it finishes is recorded exactly when
 			// nothing needed it to be, since the population this protects
@@ -475,15 +488,28 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 					details: { ok: true, ...located },
 				};
 			} finally {
-				// From a finally, because the fleet is settled by having been
-				// handed back and a throw hands back too: the caller has the
-				// error and can go and look. Settling only on the happy path
-				// would protect every failed fleet forever, which is the
-				// unbounded population wearing a different hat.
-				await recordOrSay(
-					() => ledger.settle(runId),
-					`could not settle ${runId}, so whatever transcripts it left are held until its file under ${fleetDir()} is cleared`,
-				);
+				// From a finally, because a failed fleet is handed back like
+				// any other: the caller has the result and can go and look.
+				// Settling only on the happy path would protect every failure
+				// ever run, which is the unbounded population wearing a
+				// different hat.
+				//
+				// Except when the call was torn away. An abort is the one
+				// ending where nobody receives anything: the answer never
+				// reaches the model, whatever the subagents wrote is on disk
+				// and nowhere else, and that is precisely the population this
+				// ledger exists to keep. Settling it here would have released
+				// the protection at the one moment it was doing its job.
+				if (signal?.aborted === true) {
+					console.error(
+						`[subagent-workflow] ${runId} was cancelled, so its transcripts under ${join(runs, "runs")} are held rather than reclaimed. Delete ${join(fleets, `${safeSegment(runId)}.json`)} once you have read or given up on them.`,
+					);
+				} else {
+					await recordOrSay(
+						() => ledger.settle(runId),
+						`could not settle ${runId}, so whatever transcripts it left are held until its file under ${fleets} is cleared`,
+					);
+				}
 			}
 		},
 	});

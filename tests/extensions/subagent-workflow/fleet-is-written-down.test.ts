@@ -53,6 +53,24 @@ function fleetDir(): string {
 	return join(root, "pi", "agentic-harness.pi", "subagent-workflow", "fleets");
 }
 
+/** Run one fleet through the tool as pi would, and let it be cut off. */
+async function dispatchWith(
+	runId: string,
+	signal: AbortSignal,
+): Promise<unknown> {
+	const tool = activateWith(
+		(await import("../../../extensions/subagent-workflow/index.js")).default,
+	).definitions.get("subagent");
+	if (tool === undefined) throw new Error("no subagent tool was registered");
+	return await tool.execute(
+		"call-1",
+		{ runId, jobs: [{ id: "one", cwd: root, userPrompt: "go" }] },
+		signal,
+		undefined,
+		{ hasUI: false },
+	);
+}
+
 /** Run one fleet through the tool as pi would. */
 async function dispatch(runId: string): Promise<unknown> {
 	const tool = activateWith(
@@ -72,7 +90,7 @@ describe("dispatching a fleet", () => {
 	it("writes the fleet down and releases it once it is handed back", async () => {
 		await dispatch("fleet-a");
 
-		const { runs } = await createFleetLedger(fleetDir()).held();
+		const { runs } = await createFleetLedger(fleetDir()).everyFleet();
 		expect(runs).toEqual([
 			expect.objectContaining({ id: "fleet-a", jobs: ["one"] }),
 		]);
@@ -84,10 +102,10 @@ describe("dispatching a fleet", () => {
 		// is about: a ledger checked afterwards cannot tell a fleet
 		// written down first from one written down last.
 		let duringRun: Awaited<
-			ReturnType<ReturnType<typeof createFleetLedger>["held"]>
+			ReturnType<ReturnType<typeof createFleetLedger>["everyFleet"]>
 		>["runs"] = [];
 		answer = async () => {
-			duringRun = (await createFleetLedger(fleetDir()).held()).runs;
+			duringRun = (await createFleetLedger(fleetDir()).everyFleet()).runs;
 			return { exitCode: 0, finalAssistantText: "done", warnings: [] };
 		};
 
@@ -96,6 +114,35 @@ describe("dispatching a fleet", () => {
 		expect(duringRun).toEqual([
 			expect.objectContaining({ id: "fleet-b", open: true }),
 		]);
+	});
+
+	it("holds a fleet that was cancelled, rather than releasing it", async () => {
+		// The ending where nobody receives anything. A failure is handed
+		// back and can be gone and looked at; an abort is the answer
+		// never reaching the model at all, so whatever the subagents
+		// wrote is on disk and nowhere else. That is exactly the
+		// population this ledger exists to keep, and settling it here
+		// released the protection at the one moment it was working.
+		const stop = new AbortController();
+		answer = async () => {
+			stop.abort();
+			throw new Error("cancelled");
+		};
+
+		await dispatchWith("fleet-cut", stop.signal).catch(() => undefined);
+
+		const { runs } = await createFleetLedger(fleetDir()).everyFleet();
+		expect(runs).toEqual([
+			expect.objectContaining({ id: "fleet-cut", open: true }),
+		]);
+		// And says so, with the two paths a person needs: where the work
+		// is, and what to delete once they have read it. Holding
+		// something forever without saying so is a disk nobody can
+		// account for.
+		const about = said.filter((line) => line.includes("fleet-cut"));
+		expect(about).toHaveLength(1);
+		expect(about[0]).toContain("was cancelled");
+		expect(about[0]).toContain("fleet-cut.json");
 	});
 
 	it("releases a fleet whose subagents all failed", async () => {
@@ -111,7 +158,7 @@ describe("dispatching a fleet", () => {
 
 		await dispatch("fleet-c");
 
-		const { runs } = await createFleetLedger(fleetDir()).held();
+		const { runs } = await createFleetLedger(fleetDir()).everyFleet();
 		expect(runs).toHaveLength(1);
 		expect(runs[0]?.open).toBeUndefined();
 	});
@@ -142,7 +189,7 @@ describe("dispatching a fleet", () => {
 			),
 		).rejects.toThrow("Duplicate subagent");
 
-		const { runs } = await createFleetLedger(fleetDir()).held();
+		const { runs } = await createFleetLedger(fleetDir()).everyFleet();
 		expect(runs).toHaveLength(1);
 		expect(runs[0]?.open).toBeUndefined();
 	});

@@ -16,6 +16,7 @@ import {
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	readFileSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
@@ -121,6 +122,32 @@ describe("the fleet retention sweep", () => {
 		await startSession();
 		await vi.waitFor(() => expect(existsSync(other)).toBe(false));
 		expect(existsSync(transcripts)).toBe(true);
+	});
+
+	it("forgets a settled record once its transcripts have gone", async () => {
+		// The seam that makes the ledger's own window real. Without the
+		// call, `fleets/` is the unbounded thing the ledger was built to
+		// bound: one small file per fleet ever dispatched, all of them
+		// read at every session start, long after what they point at
+		// has been reclaimed.
+		const ledger = createFleetLedger(stateDir("fleets"));
+		await ledger.open({
+			id: "fleet-ancient",
+			startedAt: "2019-01-01T00:00:00.000Z",
+			jobs: ["one"],
+		});
+		await ledger.settle("fleet-ancient");
+		const record = join(stateDir("fleets"), "fleet-ancient.json");
+		const old = JSON.parse(readFileSync(record, "utf8"));
+		writeFileSync(
+			record,
+			JSON.stringify({ ...old, settledAt: "2019-01-01T00:00:00.000Z" }),
+			"utf8",
+		);
+
+		await startSession();
+
+		await vi.waitFor(() => expect(existsSync(record)).toBe(false));
 	});
 
 	it("declines the sweep when the fleet ledger will not read", async () => {

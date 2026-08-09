@@ -50,7 +50,7 @@ describe("a fleet ledger", () => {
 
 		await ledger.open(fleet("fleet-a"));
 
-		expect((await ledger.held()).runs).toEqual([
+		expect((await ledger.everyFleet()).runs).toEqual([
 			expect.objectContaining({ id: "fleet-a", open: true }),
 		]);
 	});
@@ -64,7 +64,7 @@ describe("a fleet ledger", () => {
 
 		await ledger.settle("fleet-a");
 
-		const { runs } = await ledger.held();
+		const { runs } = await ledger.everyFleet();
 		expect(runs).toHaveLength(1);
 		expect(runs[0]?.open).toBeUndefined();
 		expect(runs[0]?.settledAt).toEqual(expect.any(String));
@@ -106,7 +106,7 @@ describe("a fleet ledger", () => {
 		// directory to discover it is empty is a write on a read path.
 		const ledger = createFleetLedger(join(root, "not-yet"));
 
-		expect((await ledger.held()).runs).toEqual([]);
+		expect((await ledger.everyFleet()).runs).toEqual([]);
 		expect((await ledger.openFleets()).open).toEqual(new Set());
 		expect(await readdir(root)).toEqual([]);
 	});
@@ -139,7 +139,7 @@ describe("a fleet ledger", () => {
 
 		await ledger.settle("never-opened");
 
-		expect((await ledger.held()).runs).toEqual([]);
+		expect((await ledger.everyFleet()).runs).toEqual([]);
 	});
 
 	it("refuses to settle over a record it cannot read", async () => {
@@ -167,7 +167,7 @@ describe("a fleet ledger", () => {
 		await Promise.all([ledger.settle("fleet-a"), ledger.settle("fleet-b")]);
 
 		expect((await ledger.openFleets()).open).toEqual(new Set());
-		expect((await ledger.held()).runs).toHaveLength(2);
+		expect((await ledger.everyFleet()).runs).toHaveLength(2);
 	});
 
 	it("keeps two writes for one fleet from staging over each other", async () => {
@@ -179,14 +179,101 @@ describe("a fleet ledger", () => {
 
 		await Promise.all([
 			ledger.open(fleet("fleet-a", ["one"])),
-			ledger.open(fleet("fleet-a", ["two"])),
-			ledger.open(fleet("fleet-a", ["three"])),
+			ledger.open(fleet("fleet-a", ["two", "three", "four"])),
+			ledger.open(fleet("fleet-a", ["five", "six"])),
 		]);
 
-		const { runs, unreadable } = await ledger.held();
+		const { runs, unreadable } = await ledger.everyFleet();
 		expect(unreadable).toEqual([]);
 		expect(runs).toHaveLength(1);
 		expect(await readdir(root)).toEqual(["fleet-a.json"]);
+		// What landed, not merely that something did. A torn rename
+		// leaves a document that parses and says the wrong thing, so a
+		// count of files cannot see the failure this is named for: the
+		// job lists differ in length, and the survivor has to be exactly
+		// one of the three.
+		expect([["one"], ["two", "three", "four"], ["five", "six"]]).toContainEqual(
+			runs[0]?.jobs,
+		);
+	});
+
+	it("reclaims a write that never got as far as its rename", async () => {
+		// The failure the write-and-rename pair exists for leaves its
+		// staging file behind, and nothing reaches those again. In the
+		// one directory whose whole purpose is to stay small, that is
+		// the leak arriving by the door the safety measure opened.
+		const ledger = createFleetLedger(root);
+		await ledger.open(fleet("fleet-a"));
+		await ledger.settle("fleet-a");
+		writeFileSync(join(root, "fleet-b.json.999.1.staging"), "{}", "utf8");
+
+		await ledger.forgetSettledBefore(new Date("2020-01-01T00:00:00.000Z"));
+
+		// The settled fleet is inside the window and stays; the staging
+		// file is nobody's and goes.
+		expect(await readdir(root)).toEqual(["fleet-a.json"]);
+	});
+
+	it("keeps a record whose settled time will not parse", async () => {
+		// Asking whether an unreadable date is recent enough to keep
+		// answers no, because every comparison against NaN is false, so
+		// the record goes whatever the cutoff says. One small file is
+		// cheaper than a fleet forgotten on the strength of a field
+		// nothing could read.
+		writeFileSync(
+			join(root, "fleet-odd.json"),
+			JSON.stringify({
+				id: "fleet-odd",
+				startedAt: "2019-01-01T00:00:00.000Z",
+				jobs: ["one"],
+				settledAt: "the other day",
+			}),
+			"utf8",
+		);
+		const ledger = createFleetLedger(root);
+
+		expect(await ledger.forgetSettledBefore(new Date())).toBe(0);
+		expect(await readdir(root)).toEqual(["fleet-odd.json"]);
+	});
+
+	it("forgets the file it read, not one derived from the record", async () => {
+		// The two are the same path for every record this wrote, and are
+		// not for one somebody put there by hand. Deriving deletes a
+		// different fleet's record and leaves this one to be found again
+		// on the next pass, which is a sweep that reports progress and
+		// destroys a neighbour.
+		writeFileSync(
+			join(root, "put-here-by-hand.json"),
+			JSON.stringify({
+				id: "fleet-live",
+				startedAt: "2019-01-01T00:00:00.000Z",
+				jobs: ["one"],
+				settledAt: "2019-01-01T00:00:00.000Z",
+			}),
+			"utf8",
+		);
+		const ledger = createFleetLedger(root);
+		await ledger.open(fleet("fleet-live"));
+
+		expect(await ledger.forgetSettledBefore(new Date())).toBe(1);
+
+		expect(await readdir(root)).toEqual(["fleet-live.json"]);
+		expect((await ledger.openFleets()).open).toEqual(new Set(["fleet-live"]));
+	});
+
+	it("will not let an id climb out of the ledger", async () => {
+		// Two dots name the parent directory. The ledger appends a
+		// suffix, so `..` lands as a file called `...json` and stays
+		// inside whatever happens; the spelling is shared with the
+		// transcripts, where an id is a bare directory name and the same
+		// two dots are the parent itself. Held here because this is the
+		// caller that takes an id straight from a tool parameter.
+		const ledger = createFleetLedger(join(root, "inside"));
+
+		await ledger.open(fleet(".."));
+
+		expect(await readdir(root)).toEqual(["inside"]);
+		expect((await ledger.openFleets()).open).toEqual(new Set([".."]));
 	});
 
 	it("spells an id the way the transcripts spell it", async () => {
@@ -230,10 +317,9 @@ describe("a fleet ledger", () => {
 		);
 
 		expect(forgotten).toBe(1);
-		expect((await ledger.held()).runs.map((run) => run.id).sort()).toEqual([
-			"fleet-open",
-			"fleet-recent",
-		]);
+		expect(
+			(await ledger.everyFleet()).runs.map((run) => run.id).sort(),
+		).toEqual(["fleet-open", "fleet-recent"]);
 	});
 
 	it("never forgets a fleet nobody has collected, however old", async () => {
@@ -286,12 +372,12 @@ describe("a fleet ledger", () => {
 		const ledger = createFleetLedger(root);
 		await ledger.open(fleet("fleet-a"));
 		await ledger.settle("fleet-a");
-		const settled = (await ledger.held()).runs[0];
+		const settled = (await ledger.everyFleet()).runs[0];
 		if (settled === undefined) throw new Error("nothing was settled");
 
 		await ledger.open(settled);
 
-		const again = (await ledger.held()).runs[0];
+		const again = (await ledger.everyFleet()).runs[0];
 		expect(again?.open).toBe(true);
 		expect(again?.settledAt).toBeUndefined();
 	});
@@ -308,7 +394,7 @@ describe("a fleet ledger", () => {
 		// from a file that will not parse.
 		mkdirSync(join(root, "looks-like.json"));
 
-		const { runs, unreadable } = await ledger.held();
+		const { runs, unreadable } = await ledger.everyFleet();
 		expect(runs).toHaveLength(1);
 		expect(unreadable).toEqual([]);
 	});

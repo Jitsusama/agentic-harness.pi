@@ -18,6 +18,23 @@ async function tempStore(): Promise<ReviewerArtifactsStore> {
 }
 
 describe("ReviewerArtifactsStore", () => {
+	it("keeps a run id from naming a directory above its own", async () => {
+		// An id becomes a bare path segment here, so two dots are the
+		// parent directory itself rather than a filename: a reviewer id
+		// of `..` writes its transcripts over the run directory's
+		// neighbours, and a run id of `..` writes over the store's.
+		// This is the caller where the id is a bare segment; the ledger
+		// appends a suffix and is safe either way, which is why the
+		// guard belongs to the spelling and not to either of them.
+		const store = await tempStore();
+
+		const paths = store.paths("..", "..");
+
+		expect(paths.runDir.startsWith(store.runsDir)).toBe(true);
+		expect(paths.reviewerDir.startsWith(paths.runDir)).toBe(true);
+		expect(paths.runDir).not.toContain("..");
+	});
+
 	it("builds sanitized reviewer paths under the run directory", () => {
 		const store = new ReviewerArtifactsStore("/tmp/state");
 
