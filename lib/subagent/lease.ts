@@ -44,6 +44,14 @@ export const HEARTBEAT_STALE_MS = 60_000;
 export type SupervisorStanding =
 	| { readonly kind: "running"; readonly pid: number; readonly sinceMs: number }
 	| { readonly kind: "finished" }
+	/**
+	 * Written down, but not yet begun.
+	 *
+	 * Distinct from running, because nothing can be collected from it,
+	 * and distinct from gone, because acting on it cancels a run that
+	 * was moments from starting. Absent means not told yet.
+	 */
+	| { readonly kind: "starting" }
 	| { readonly kind: "gone" };
 
 /** What the lease holds about the two processes it describes. */
@@ -108,7 +116,14 @@ export async function supervisorStanding(
 ): Promise<SupervisorStanding> {
 	const { leasePath } = store.paths(runId, reviewerId);
 	const lease = await store.readJson<LeaseRecord>(leasePath).catch(() => null);
-	if (lease === null) return { kind: "gone" };
+	// No lease at all is not a supervisor that has gone: it is one that
+	// has not written yet. The supervisor writes this before it spawns
+	// anything, so there is a window at the start of every run where
+	// the directory exists and the lease does not, and reading that as
+	// "gone" means another session starting in that moment cancels a
+	// job that is just getting going. Nothing has been spawned yet
+	// either, so there is nothing there to reap by mistake.
+	if (lease === null) return { kind: "starting" };
 	// It said so itself, which beats anything inferred about it.
 	if (typeof lease.completedAt === "string") return { kind: "finished" };
 	const pid = lease.supervisorPid;

@@ -119,7 +119,15 @@ export async function recoverReviewerRuns(
 					reviewerId,
 					reaper,
 				);
-				if (standing.kind === "running") {
+				if (standing.kind === "running" || standing.kind === "starting") {
+					// Starting counts as active here, and the distinction is
+					// the whole reason it exists. A run whose directory is
+					// there and whose lease is not is one that began moments
+					// ago, since the lease is written before anything is
+					// spawned; filing it stale means a session starting in
+					// that window cancels a job another session just
+					// dispatched. There is nothing to reap either way, because
+					// nothing has been spawned yet.
 					active.push(progress);
 				} else {
 					stale.push(progress);

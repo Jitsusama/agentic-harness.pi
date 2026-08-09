@@ -112,7 +112,12 @@ companion skill.
   a record is for.
 - `recovery.ts`: replay on-disk artifacts back into
   `RecoverySummary`/`RecoveredReviewerProgress` records for
-  the parent to surface in-flight work.
+  the parent to surface in-flight work, and stop a child
+  whose supervisor died. A run whose lease has not been
+  written is starting rather than gone: the lease is
+  written before anything is spawned, so that window is
+  the beginning of every run, and reading it as gone
+  cancels a job another session dispatched moments ago.
 - `runpi/spawn.ts`: fire-and-forget runner. Cheapest path.
 - `runpi/supervisor.ts`: durable runner. Each call writes
   a request file, spawns `supervisor.mjs` detached and

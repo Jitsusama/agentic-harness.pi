@@ -36,6 +36,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -56,6 +57,7 @@ import {
 	abandonedFleets,
 	createFleetLedger,
 	type FleetRun,
+	whoIsWaiting,
 } from "../../lib/subagent/fleet.js";
 import { getParentPiInstall } from "../../lib/subagent/install.js";
 import { systemFacts } from "../../lib/subagent/lease.js";
@@ -179,7 +181,37 @@ async function recordOrSay(
  * than be them.
  */
 /**
- * Stop a subagent whose supervisor died, and say that it stopped.
+ * Who is waiting, asked once.
+ *
+ * The answer cannot change and asking costs a subprocess, so it is
+ * kept; the library is left stateless, since a cache belongs to a
+ * session rather than to a definition. A failure is not kept, because
+ * `ps` can miss for a moment under load and caching that turns one
+ * slow probe into a session where no fleet is attributed to anybody.
+ */
+async function ourOwner(): Promise<FleetRun["owner"]> {
+	if (waiting !== undefined) return waiting;
+	waiting = await whoIsWaiting(systemFacts);
+	return waiting;
+}
+
+/** What {@link ourOwner} has settled on, once it has. */
+let waiting: FleetRun["owner"] | undefined;
+
+/** Whether a path is there at all. */
+async function exists(path: string): Promise<boolean> {
+	try {
+		await stat(path);
+		return true;
+	} catch {
+		// Gone, or unreachable. Both mean there is nothing to send
+		// somebody to go and read.
+		return false;
+	}
+}
+
+/**
+ * Stop a subagent whose supervisor died, and say what happened to it.
  *
  * The narrow case, and the only orphan a fleet can have. A supervisor
  * whose session goes stops its own child within half a second, since
@@ -194,42 +226,33 @@ async function recordOrSay(
  * expensive model against a wall clock nothing is watching, and the
  * pid was only ever known to the process that died.
  */
-/**
- * This session, as something a later one can check.
- *
- * A pid alone identifies nothing: the number comes round again, and a
- * stranger wearing it reads as this session still being here. So the
- * birthday goes with it, and when the machine will not report one the
- * answer is nothing at all rather than a pid on its own, since absent
- * is read as "still waiting" and a bare pid would be read as proof.
- *
- * Asked once. It cannot change, and asking costs a subprocess.
- */
-async function whoIsWaiting(): Promise<FleetRun["owner"]> {
-	if (waiting === undefined) {
-		const startedAt = await systemFacts.startedAt(process.pid);
-		waiting = startedAt === undefined ? null : { pid: process.pid, startedAt };
-	}
-	return waiting ?? undefined;
-}
-
-/** Cached, with null meaning the machine would not say. */
-let waiting: FleetRun["owner"] | null | undefined;
-
 async function stopOrphanedSubagents(runs: string): Promise<void> {
 	try {
-		const { reaped } = await recoverReviewerRuns(
+		const { reaped, stale, warnings } = await recoverReviewerRuns(
 			new ReviewerArtifactsStore(runs),
 		);
-		if (reaped.length === 0) return;
-		// Said out loud. A session that quietly kills processes it finds
-		// running is worse than one that leaves them, and whoever is
-		// paying for those tokens should hear that they stopped.
-		console.error(
-			`[subagent-workflow] stopped ${count(reaped.length, "subagent")} whose supervisor had died: ${reaped
-				.map((one) => `${one.runId}/${one.reviewerId}`)
-				.join(", ")}`,
-		);
+		// Said out loud, and both halves of it. A session that quietly
+		// interferes with processes it finds running is worse than one
+		// that leaves them, and whoever is paying for those tokens should
+		// hear that they stopped.
+		//
+		// Stale is the larger set: every one of those was asked to stop,
+		// and only the ones whose lease named a process that is
+		// identifiably still there could be killed as well. Reporting the
+		// killable subset alone would say nothing at all about the run
+		// whose child had already gone, which is the ordinary case.
+		if (stale.length > 0) {
+			console.error(
+				`[subagent-workflow] asked ${count(stale.length, "subagent")} whose supervisor had died to stop${reaped.length > 0 ? `, and killed ${count(reaped.length, "child")} still holding on` : ""}: ${stale
+					.map((one) => `${one.runId}/${one.reviewerId}`)
+					.join(", ")}`,
+			);
+		}
+		// Capped for the reason the sweep's are: what produces these is
+		// rarely one run.
+		for (const warning of warnings.slice(0, MOST_WARNINGS)) {
+			console.error(`[subagent-workflow] orphaned subagents: ${warning}`);
+		}
 	} catch (error) {
 		// Advisory, like the sweep beside it: a session that cannot
 		// check for orphans is still a session.
@@ -255,6 +278,11 @@ async function sweepFleetRuns(runs: string, fleets: string): Promise<void> {
 			);
 			return;
 		}
+		// Read once, and used for both questions below. Two walks of one
+		// directory inside a single handler can disagree, and the pair
+		// that disagrees is a protect set that kept a run beside a
+		// listing that no longer mentions it.
+		const held = (await ledger.everyFleet()).runs;
 		const swept = await new ReviewerArtifactsStore(runs).cleanupTerminalRuns({
 			maxRuns: FLEET_RUNS_RETAIN,
 			maxAgeMs: FLEET_RUNS_MAX_AGE_MS,
@@ -273,18 +301,33 @@ async function sweepFleetRuns(runs: string, fleets: string): Promise<void> {
 		// still being paid for. Only the ones nobody is waiting for are
 		// worth a word, and they are the ones where the offer to delete
 		// is safe to make.
-		const gone = await abandonedFleets(
-			(await ledger.everyFleet()).runs.filter((run) => run.open === true),
-			systemFacts,
-		);
-		if (swept.held >= FLEETS_HELD_BEFORE_SAYING && gone.length > 0) {
-			console.error(
-				`[subagent-workflow] ${count(gone.length, "fleet")} of the ${swept.held} being held was dispatched by a session that never came back for it, so its transcripts under ${transcripts} are final and nothing will reclaim them: ${gone
-					.map((run) => run.id)
-					.join(
-						", ",
-					)}. Delete a fleet's file under ${fleets} to release the one it names.`,
+		//
+		// Asked only once the sweep has held enough to be worth a word,
+		// since the question costs a subprocess per session owning one of
+		// these and the answer is thrown away below that line anyway.
+		if (swept.held >= FLEETS_HELD_BEFORE_SAYING) {
+			const store = new ReviewerArtifactsStore(runs);
+			const gone = await abandonedFleets(
+				held.filter((run) => run.open === true),
+				systemFacts,
 			);
+			// Down to the ones with something behind them, so the count and
+			// the directory it points at describe one population. A record
+			// whose dispatch never wrote anything is real and abandoned and
+			// still sends whoever reads this looking for a directory that
+			// is not there.
+			const worthReading: string[] = [];
+			for (const run of gone) {
+				if (await exists(store.rootPaths(run.id).runDir)) {
+					worthReading.push(run.id);
+				}
+			}
+			const one = worthReading.length === 1;
+			if (worthReading.length > 0) {
+				console.error(
+					`[subagent-workflow] ${count(worthReading.length, "fleet")} of the ${swept.held} being held ${one ? "was" : "were"} dispatched by a session that never came back, so ${one ? "its transcripts under" : "their transcripts under"} ${transcripts} will never be reclaimed: ${worthReading.join(", ")}. Delete a fleet's file under ${fleets} to release the one it names.`,
+				);
+			}
 		}
 		// Capped, because what produces these is rarely one run: a
 		// permissions change lands on all of them at once, and the two
@@ -337,8 +380,16 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 		// Not returned. Nothing about reclaiming disk should delay a
 		// session, and the sibling extension does the same: a handler
 		// that awaits this makes every start wait on a directory walk.
-		void sweepFleetRuns(stateDir(), fleetDir());
-		void stopOrphanedSubagents(stateDir());
+		// One after the other, over one tree. Fired side by side, the
+		// recovery walks directories the sweep is removing and writes
+		// cancel sentinels back into ones it has already taken, which
+		// recreates as a stub the very directory that was just reclaimed.
+		const runs = stateDir();
+		const fleets = fleetDir();
+		void (async () => {
+			await sweepFleetRuns(runs, fleets);
+			await stopOrphanedSubagents(runs);
+		})();
 	});
 	let runPi: ReturnType<typeof createSupervisorRunPi> | null = null;
 	const getRunPi = () => {
@@ -550,7 +601,7 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 			// Both are open records and they want opposite things said
 			// about them: the first is nobody else's business, and the
 			// second is transcripts that are final and worth reading.
-			const owner = await whoIsWaiting();
+			const owner = await ourOwner();
 			await recordOrSay(
 				() =>
 					ledger.open({

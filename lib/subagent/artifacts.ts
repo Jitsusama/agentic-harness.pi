@@ -217,6 +217,17 @@ export class ReviewerArtifactsStore {
 	): Promise<ReviewerRunPaths> {
 		const paths = this.paths(runId, reviewerId);
 		await mkdir(paths.reviewerDir, { recursive: true });
+		// A cancellation belongs to the run that was cancelled, and
+		// nothing ever removed one. A run id can come round again, by a
+		// caller naming one or by a reviewer id repeating under a new
+		// run, and the supervisor stops the moment it sees this file: one
+		// cancelled run would otherwise poison that name for good, and
+		// every later run under it would die on arrival looking like a
+		// model that answered instantly.
+		//
+		// Safe to clear here because this runs before the supervisor is
+		// spawned, so no cancellation of this run can have arrived yet.
+		await rm(paths.cancelPath, { force: true });
 		return paths;
 	}
 

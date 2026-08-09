@@ -30,6 +30,7 @@ import subagentWorkflow from "../../../extensions/subagent-workflow/index.js";
 import { createFleetLedger } from "../../../lib/subagent/fleet.js";
 import { ReviewerArtifactsStore } from "../../../lib/subagent/index.js";
 import { systemFacts } from "../../../lib/subagent/lease.js";
+import { noSuchProcess } from "../../support/processes.js";
 import { activateWith } from "../support/review-extension.js";
 
 let root: string;
@@ -66,27 +67,6 @@ function staleFleet(id: string): string {
 	// file above moves the run directory's mtime and this would then
 	// be aging a directory that is about to look new again.
 	return paths.runDir;
-}
-
-/**
- * A pid nothing is wearing.
- *
- * Asked rather than assumed: a number picked out of the air is one
- * the machine may have handed to something, and a lease naming a live
- * stranger is how a test comes to signal a process it knows nothing
- * about.
- */
-function noSuchProcess(): number {
-	for (let pid = 60_000; pid < 70_000; pid++) {
-		try {
-			process.kill(pid, 0);
-		} catch (error) {
-			// ESRCH is nobody. EPERM is somebody we may not signal,
-			// which is still somebody.
-			if ((error as NodeJS.ErrnoException).code === "ESRCH") return pid;
-		}
-	}
-	throw new Error("every pid probed was in use, which cannot be right");
 }
 
 /** Age a path past every ordinary window. */
@@ -175,11 +155,23 @@ describe("a fleet child whose supervisor died", () => {
 
 			await startSession();
 
-			await vi.waitFor(() =>
-				expect(said.join(" ")).toContain("fleet-holding/one"),
+			// A budget rather than the default second: this path sleeps
+			// half a second between the two signals by design, and forks
+			// `ps` twice around it, so the default leaves nothing for a
+			// loaded machine and fails as a flake rather than a finding.
+			await vi.waitFor(
+				() => expect(said.join(" ")).toContain("fleet-holding/one"),
+				{ timeout: 30_000 },
 			);
-			expect(said.join(" ")).toContain("stopped 1 subagent");
-			await vi.waitFor(() => expect(systemFacts.alive(pid)).toBe(false));
+			// Both halves. Asking is what happened to every stale run;
+			// killing is what happened to the subset still holding on, and
+			// a message reporting only the second says nothing at all
+			// about the ordinary case where the child had already gone.
+			expect(said.join(" ")).toContain("asked 1 subagent");
+			expect(said.join(" ")).toContain("killed 1 child");
+			await vi.waitFor(() => expect(systemFacts.alive(pid)).toBe(false), {
+				timeout: 30_000,
+			});
 		} finally {
 			try {
 				process.kill(pid, "SIGKILL");
@@ -208,11 +200,51 @@ describe("a fleet child whose supervisor died", () => {
 			updatedAt: new Date().toISOString(),
 		});
 
+		// A second run in the same tree, whose supervisor is plainly
+		// gone, so there is something the recovery must do. Waiting for
+		// that is what makes the absence below an observation rather
+		// than a race: the first version waited on
+		// `said.join(" ")).not.toBe(undefined)`, which is true of the
+		// empty string, so it asserted against a session start that had
+		// not begun.
+		const dead = await store.ensureReviewerDir("fleet-dead", "one");
+		await store.writeJsonAtomic(dead.progressPath, {
+			state: "running",
+			activity: "thinking",
+			updatedAt: new Date().toISOString(),
+		});
+		await store.writeJsonAtomic(dead.leasePath, {
+			state: "running",
+			supervisorPid: noSuchProcess(),
+			supervisorStartedAt: 1_000_000,
+			updatedAt: new Date().toISOString(),
+		});
+
 		await startSession();
 
-		// Waited for rather than asserted immediately, or this passes
-		// against a session start that has not got there yet.
-		await vi.waitFor(() => expect(said.join(" ")).not.toBe(undefined));
+		await vi.waitFor(() => expect(existsSync(dead.cancelPath)).toBe(true));
+		expect(existsSync(paths.cancelPath)).toBe(false);
+	});
+
+	it("leaves a job that has not written its lease yet", async () => {
+		// The window every run passes through: the directory is there
+		// and the lease is not, because the supervisor writes the lease
+		// before it spawns anything. Read as "supervisor gone", a
+		// session starting in that moment cancels a fleet another
+		// session dispatched a heartbeat earlier.
+		const store = new ReviewerArtifactsStore(stateDir());
+		const paths = await store.ensureReviewerDir("fleet-starting", "one");
+		const dead = await store.ensureReviewerDir("fleet-dead", "one");
+		await store.writeJsonAtomic(dead.leasePath, {
+			state: "running",
+			supervisorPid: noSuchProcess(),
+			supervisorStartedAt: 1_000_000,
+			updatedAt: new Date().toISOString(),
+		});
+
+		await startSession();
+
+		await vi.waitFor(() => expect(existsSync(dead.cancelPath)).toBe(true));
 		expect(existsSync(paths.cancelPath)).toBe(false);
 	});
 });
@@ -319,18 +351,23 @@ describe("the fleet retention sweep", () => {
 		// with nothing behind it at all, and a message announcing
 		// megabytes that are not there sends somebody looking for a
 		// directory that does not exist.
+		// Three abandoned among five held, so the two numbers differ.
+		// Five and five cannot tell them apart, and they are different
+		// populations: what the sweep held includes fleets another
+		// session is running right now, which must not be offered up.
 		const ledger = createFleetLedger(stateDir("fleets"));
 		const dead = noSuchProcess();
+		const mine = await systemFacts.startedAt(process.pid);
+		if (mine === undefined) throw new Error("the machine would not say");
 		for (let n = 0; n < 5; n++) {
 			await ledger.open({
 				id: `fleet-${n}`,
 				startedAt: new Date().toISOString(),
 				jobs: ["one"],
-				// Dispatched by a session that is gone, which is what makes
-				// these worth mentioning. A held fleet another session is
-				// running right now is nobody else's business, and offering
-				// to delete its record offers to unprotect live work.
-				owner: { pid: dead, startedAt: 1_000 },
+				owner:
+					n < 3
+						? { pid: dead, startedAt: 1_000 }
+						: { pid: process.pid, startedAt: mine },
 			});
 			await age(staleFleet(`fleet-${n}`));
 		}
@@ -340,7 +377,12 @@ describe("the fleet retention sweep", () => {
 		await vi.waitFor(() => {
 			const about = said.filter((line) => line.includes("never came back"));
 			expect(about).toHaveLength(1);
-			expect(about[0]).toContain("5 fleets");
+			expect(about[0]).toContain("3 fleets of the 5");
+			// Named, so somebody can act on one rather than on the count.
+			// The two still running are not named, since the only lever
+			// offered here would unprotect them.
+			expect(about[0]).toContain("fleet-0, fleet-1, fleet-2");
+			expect(about[0]).not.toContain("fleet-3");
 			// Where they are, and how to let one go. Announcing an
 			// unbounded population that nothing in the product can
 			// release, without saying what releases it, is a nag with no

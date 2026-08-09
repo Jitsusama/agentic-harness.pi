@@ -91,6 +91,12 @@ export async function abandonedFleets(
 	facts: ProcessFacts,
 ): Promise<readonly FleetRun[]> {
 	const abandoned: FleetRun[] = [];
+	// Asked once per session rather than once per fleet. Every fleet
+	// one session dispatched names the same pid, the answer cannot
+	// change while this runs, and the population being walked is the
+	// one designed to grow: a hundred held fleets from one dead session
+	// is a hundred subprocesses at every session start.
+	const asked = new Map<number, number | undefined>();
 	for (const run of runs) {
 		const owner = run.owner;
 		if (owner === undefined) continue;
@@ -98,7 +104,10 @@ export async function abandonedFleets(
 			abandoned.push(run);
 			continue;
 		}
-		const observed = await facts.startedAt(owner.pid);
+		if (!asked.has(owner.pid)) {
+			asked.set(owner.pid, await facts.startedAt(owner.pid));
+		}
+		const observed = asked.get(owner.pid);
 		// Nothing could say, so liveness is the only evidence there is
 		// and it says somebody is there. It fails open, which is why it
 		// is the fallback rather than the rule.
@@ -106,6 +115,26 @@ export async function abandonedFleets(
 		if (!sameProcess(observed, owner.startedAt)) abandoned.push(run);
 	}
 	return abandoned;
+}
+
+/**
+ * This process, as something a later session can check.
+ *
+ * The counterpart of {@link abandonedFleets} and here beside it, so
+ * the two spellings of an owner cannot drift: one writes the pair, the
+ * other believes it.
+ *
+ * Nothing at all when the machine will not report a birthday, rather
+ * than a pid on its own. A bare pid is worse than no owner, because
+ * absent reads as "still waiting" and a pid the machine cannot
+ * identify reads as whatever wears that number next.
+ */
+export async function whoIsWaiting(
+	facts: ProcessFacts,
+	pid: number = process.pid,
+): Promise<FleetRun["owner"]> {
+	const startedAt = await facts.startedAt(pid);
+	return startedAt === undefined ? undefined : { pid, startedAt };
 }
 
 /** Which fleets nothing has read yet, and what could not be asked. */
@@ -406,6 +435,24 @@ function isFleetRun(value: unknown): value is FleetRun {
 	return (
 		typeof run.id === "string" &&
 		typeof run.startedAt === "string" &&
-		Array.isArray(run.jobs)
+		Array.isArray(run.jobs) &&
+		isOwner(run.owner)
 	);
+}
+
+/**
+ * Whether an owner is one, or is honestly absent.
+ *
+ * Checked rather than trusted because of which way a half-written one
+ * falls. An owner with a pid and no birthday cannot be identified, so
+ * it reads as a session that has gone, and this is the field that
+ * decides whether a fleet is offered up for deletion. A record that
+ * cannot be believed is better refused whole: unreadable stops the
+ * sweep, and being offered a live fleet to delete does not.
+ */
+function isOwner(value: unknown): boolean {
+	if (value === undefined) return true;
+	if (typeof value !== "object" || value === null) return false;
+	const owner = value as Record<string, unknown>;
+	return typeof owner.pid === "number" && typeof owner.startedAt === "number";
 }

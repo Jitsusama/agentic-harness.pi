@@ -21,7 +21,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { ReviewerArtifactsStore } from "../../../../lib/subagent/artifacts.js";
-import { createSupervisorStartPi } from "../../../../lib/subagent/runpi/supervisor.js";
+import {
+	createSupervisorRunPi,
+	createSupervisorStartPi,
+} from "../../../../lib/subagent/runpi/supervisor.js";
+import { gone, noSuchProcess } from "../../../support/processes.js";
 
 // Real processes, doubly nested, on a pool that may be saturated.
 // Nothing here waits on work: the child sleeps and is meant to be
@@ -45,27 +49,6 @@ async function appears<T>(path: string): Promise<T> {
 		}
 	}
 	throw new Error(`${path} never appeared within ${APPEARS_WITHIN_MS}ms`);
-}
-
-/**
- * A pid nothing is wearing.
- *
- * Found by asking rather than assumed, since a number picked out of
- * the air is one the machine may well have handed to something, and
- * the whole point of this test is what happens when it has not.
- */
-function noSuchProcess(): number {
-	for (let pid = 60_000; pid < 70_000; pid++) {
-		try {
-			process.kill(pid, 0);
-		} catch (error) {
-			const code = (error as NodeJS.ErrnoException).code;
-			// ESRCH is nobody. EPERM is somebody we may not signal,
-			// which is still somebody.
-			if (code === "ESRCH") return pid;
-		}
-	}
-	throw new Error("every pid probed was in use, which cannot be right");
 }
 
 describe("a supervisor whose session has gone", () => {
@@ -110,7 +93,10 @@ describe("a supervisor whose session has gone", () => {
 
 		try {
 			const store = new ReviewerArtifactsStore(stateDir);
-			const { resultPath } = store.paths("run", "abandoned");
+			const { resultPath, leasePath } = store.paths("run", "abandoned");
+			// Read before the result, because the lease is where the child
+			// says who it is and it is gone from nothing afterwards.
+			const lease = await appears<{ childPid?: number }>(leasePath);
 			const result = await appears<{
 				state: string;
 				exitCode: number;
@@ -124,8 +110,41 @@ describe("a supervisor whose session has gone", () => {
 			// would have called it a pass.
 			expect(result.state).toBe("parent-exit");
 			expect(result.exitCode).toBe(130);
+
+			// And the child is actually gone. Everything above is the
+			// supervisor's report of itself, which is a different claim
+			// from the one this test is named for: a supervisor that wrote
+			// "parent-exit" and left the model running would satisfy every
+			// line before this one.
+			const child = lease.childPid;
+			if (child === undefined) throw new Error("the lease named no child");
+			await gone(child, APPEARS_WITHIN_MS);
 		} finally {
 			supervisor.kill("SIGKILL");
 		}
+	}, 120_000);
+
+	it("is what the waiting path asks for, on every fleet job", async () => {
+		// The other half, and the half a dead parent cannot show. The
+		// case above proves that a supervisor told about a parent stops
+		// when that parent goes; this one proves the runner every fleet
+		// job uses tells it. Without both, the claim holds only for a
+		// request nothing produces.
+		const stateDir = await mkdtemp(join(tmpdir(), "pr-parent-stamp-"));
+		const runPi = createSupervisorRunPi({
+			piInstall: { node: process.execPath, entry: "child.mjs" },
+			stateDir,
+			// Nothing runs: the request is written before the spawn, which
+			// is all this reads.
+			spawn: (() => ({ pid: 1, unref() {}, on() {} })) as never,
+		});
+
+		void runPi({ args: [], cwd: stateDir, runId: "run", reviewerId: "one" });
+
+		const store = new ReviewerArtifactsStore(stateDir);
+		const request = await appears<{ parentPid?: number }>(
+			store.paths("run", "one").requestPath,
+		);
+		expect(request.parentPid).toBe(process.pid);
 	});
 });

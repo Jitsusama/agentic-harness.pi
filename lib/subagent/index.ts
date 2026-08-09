@@ -56,7 +56,11 @@ export type {
 } from "./fleet.js";
 // What a fleet is on disk, so a consumer can say which runs the
 // sweep may not take and find one whose session never came back.
-export { abandonedFleets, createFleetLedger } from "./fleet.js";
+export {
+	abandonedFleets,
+	createFleetLedger,
+	whoIsWaiting,
+} from "./fleet.js";
 // Whether the install a session pins its children to is still there,
 // and how to tell a child that died of its absence. Exported because
 // the round above has to say that once rather than per reviewer, and

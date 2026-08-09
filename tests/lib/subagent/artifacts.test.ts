@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import {
 	chmod,
 	mkdtemp,
@@ -62,6 +63,22 @@ describe("ReviewerArtifactsStore", () => {
 		const named = ids.map((id) => store.paths(id, "one").runDir);
 
 		expect(new Set(named).size).toBe(ids.length);
+	});
+
+	it("clears a cancellation left by a run that used this name before", async () => {
+		// A cancellation belongs to the run it stopped, and nothing ever
+		// removed one. The supervisor stops the moment it sees this
+		// file, so one cancelled run would poison its own name for good:
+		// every later run under it would die on arrival, looking exactly
+		// like a model that answered instantly and said nothing. A run
+		// id repeats whenever a caller supplies one, and a job id
+		// repeats by design.
+		const store = await tempStore();
+		await store.requestReviewerCancellation("run", "one", "startup-stale");
+
+		const paths = await store.ensureReviewerDir("run", "one");
+
+		expect(existsSync(paths.cancelPath)).toBe(false);
 	});
 
 	it("writes JSON atomically and reads it back", async () => {

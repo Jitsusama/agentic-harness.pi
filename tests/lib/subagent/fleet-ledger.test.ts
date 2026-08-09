@@ -131,6 +131,31 @@ describe("a fleet ledger", () => {
 		expect(files[0]).not.toContain("/");
 	});
 
+	it("refuses a record whose owner is half written", async () => {
+		// Which way a half-written owner falls is the whole reason to
+		// check it. A pid with no birthday cannot be identified, so it
+		// reads as a session that has gone, and that is the reading
+		// which offers somebody a live fleet's protection to delete.
+		// Refusing the record stops the sweep instead, which is the
+		// outcome that costs nothing but a message.
+		writeFileSync(
+			join(root, "fleet-a.json"),
+			JSON.stringify({
+				id: "fleet-a",
+				startedAt: new Date().toISOString(),
+				jobs: ["one"],
+				open: true,
+				owner: { pid: 4242 },
+			}),
+			"utf8",
+		);
+
+		const { open, unreadable } = await createFleetLedger(root).openFleets();
+
+		expect(open.size).toBe(0);
+		expect(unreadable).toEqual([join(root, "fleet-a.json")]);
+	});
+
 	it("settles a fleet it has never heard of without inventing one", async () => {
 		// A settle whose open write failed, which is the ordering this
 		// uses on purpose: recording a fleet must never cost the fleet,
