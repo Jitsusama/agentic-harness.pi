@@ -89,7 +89,7 @@ import { fromScript } from "../../../lib/subagent/runpi/fresh.js";
 import { THINKING_LEVELS } from "../../../lib/thinking/index.js";
 import { count } from "../../../lib/ui/count.js";
 import {
-	budgetFor,
+	boundsFor,
 	type ReviewerBudget,
 	retryWouldRepeat,
 	reviewerBudget,
@@ -724,7 +724,7 @@ async function startRound(
 		...(params.intent === undefined ? {} : { intent: params.intent }),
 		...conventions,
 	});
-	const round = await budgetForRound();
+	const bounding = await boundsForRound();
 	const starter = reviewerStarter(getParentPiInstall(), runArtifactDir());
 	const store = createRunStore(runDir());
 	const contract = contractSkill("council");
@@ -781,7 +781,7 @@ async function startRound(
 					// makes. A detached round is the one where a clock matters
 					// most, since nobody is watching to notice a reviewer cut
 					// off early.
-					...budgetFor(participant, round),
+					...bounding(participant),
 				});
 			},
 		},
@@ -1302,7 +1302,11 @@ async function retryOne(
 	const before = held.outcomes.find((o) => o.participantId === asked.id);
 	const repeats = retryWouldRepeat(
 		before?.stopped,
-		budgetFor(participant, await budgetForRound()),
+		(await boundsForRound())(participant),
+		// Named only when this one keeps clocks of its own, since that is
+		// exactly when the round's knob is the wrong thing to be told to
+		// raise.
+		keepsItsOwnClocks(participant) ? participant.id : undefined,
 	);
 	if (repeats !== undefined) return refuse(repeats);
 
@@ -1626,11 +1630,13 @@ async function reportRoster(): Promise<Answer> {
 	lines.push("");
 	lines.push(
 		"This is what the config says. Pass `who` to change model, " +
-			"thinkingLevel, tools or persona for one round, e.g. " +
-			'{"hawk": {"thinkingLevel": "xhigh"}}. It is refused rather than ' +
+			"thinkingLevel, tools, persona or any of the three clocks for " +
+			'one round, e.g. {"hawk": {"thinkingLevel": "xhigh"}} or ' +
+			'{"hawk": {"backstopMs": 5400000}}. It is refused rather than ' +
 			"ignored when it names somebody this round will not ask. A " +
 			"`repo:` persona is one the repo under review defines, and comes " +
-			"from the tree that round reads rather than from here.",
+			"from the tree that round reads rather than from here. A " +
+			"participant with no clocks listed takes the round's.",
 	);
 
 	return say(lines.join("\n"), {
@@ -1640,6 +1646,15 @@ async function reportRoster(): Promise<Answer> {
 		repoAgents: inRepo.agents,
 		...(inRepo.skipped.length === 0 ? {} : { skipped: inRepo.skipped }),
 	});
+}
+
+/** Whether this participant's limits come from its own entry. */
+function keepsItsOwnClocks(participant: Participant): boolean {
+	return (
+		participant.backstopMs !== undefined ||
+		participant.idleMs !== undefined ||
+		participant.answerMs !== undefined
+	);
 }
 
 /**
@@ -1669,15 +1684,23 @@ async function keptAt(
  * Falls back to the defaults for any config that cannot be read: a
  * round is better bounded generously than refused over a budget.
  *
- * The floor rather than the whole answer, since a participant may keep
- * clocks of its own. Narrow it with `budgetFor` before handing it to
- * anything that spawns or judges one reviewer.
+ * Hands back a way to ask about one participant rather than the budget
+ * itself, because a participant may keep clocks of its own and every
+ * place that bounds a reviewer has to narrow to it. A round budget
+ * that could be spread straight into a spawn is a round budget that
+ * will be, at whichever of the three sites somebody forgets, and that
+ * join is the failure this project keeps making. A function cannot be
+ * spread, so forgetting stops compiling.
  */
-async function budgetForRound(): Promise<ReviewerBudget> {
+async function boundsForRound(): Promise<
+	(participant: Participant) => ReviewerBudget
+> {
 	const loaded = await loadPackageConfig(packageConfigPath());
-	if (!loaded.ok) return reviewerBudget(undefined);
-	const review = loaded.config.sections[REVIEW_SLUG];
-	return reviewerBudget(isRecord(review) ? review.ask : undefined);
+	const review = loaded.ok ? loaded.config.sections[REVIEW_SLUG] : undefined;
+	const round = reviewerBudget(
+		isRecord(review) ? (review as { ask?: unknown }).ask : undefined,
+	);
+	return (participant) => boundsFor(participant, round);
 }
 
 /**
@@ -1893,7 +1916,7 @@ function deps(
 	// Read once for the round rather than once per participant, and
 	// started here rather than awaited, so seven reviewers share one
 	// config read without any of them waiting on it to be asked.
-	const bounds = budgetForRound();
+	const bounds = boundsForRound();
 	return {
 		async ask(
 			participant: Participant,
@@ -1904,7 +1927,7 @@ function deps(
 			// own. Resolved here rather than once for the round, because a
 			// clock sized for the slowest member is a clock every faster
 			// member is also held to.
-			const budget = budgetFor(participant, await bounds);
+			const budget = (await bounds)(participant);
 			// Taken here rather than from the result, since what a run cost
 			// in wall time is a fact about the round and the runner does
 			// not report one.

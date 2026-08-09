@@ -55,6 +55,13 @@ The package manager is **pnpm**. `pnpm-lock.yaml` is canonical;
     digest, the shared JSONPath query and the citation rule
     (public). `lib/mcp` re-exports it, so the MCP surface and the
     tool families share one store
+  - `lib/clock/`: what a duration bounding a child process may
+    be (public). Its own module on the `lib/exec` reasoning: the
+    rules belong to the runner, which is the last place they can
+    be applied, and the first place they are needed is whoever
+    reads a duration out of a config file. One definition, two
+    readers, so a roster cannot accept a clock the runner will
+    then throw over from inside a paid round
   - `lib/guardian/`: guardian contract, registration and
     redirect formatting (public)
   - `lib/shell/`: shell command parsing: flag extraction,

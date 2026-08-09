@@ -155,9 +155,37 @@ describe("overriding a roster for one round", () => {
 
 		expect(why).toContain("cannot take new settings");
 		expect(why).toContain("council-1");
+		// Naming what it objected to, since the refusal now lets some
+		// settings through and a reader has to know which one stopped it.
+		expect(why).toContain('"model"');
 		// And says what to do instead, since a refusal without one is a
 		// dead end for whoever hit it.
 		expect(why).toContain("fresh council");
+	});
+
+	it("lets a retry move the clock that refused it", () => {
+		// The retry of a stopped reviewer is refused outright unless its
+		// wall has moved, so refusing the setting that moves the wall
+		// leaves editing a committed file as the only road to the retry
+		// this rule is telling somebody to run. How long a reviewer was
+		// allowed does not change what its findings mean, which is the
+		// whole reason the other settings are refused.
+		expect(
+			retryCannotResettle(
+				{ hawk: { backstopMs: 5_400_000 } },
+				{ id: "council-1" },
+				"hawk",
+			),
+		).toBeUndefined();
+		// And still refuses when a clock is carrying something else in
+		// beside it.
+		expect(
+			retryCannotResettle(
+				{ hawk: { backstopMs: 5_400_000, thinkingLevel: "low" } },
+				{ id: "council-1" },
+				"hawk",
+			),
+		).toContain('"thinkingLevel"');
 	});
 
 	it("leaves an ordinary retry alone", () => {
@@ -238,11 +266,15 @@ describe("a clock one participant keeps", () => {
 		});
 	});
 
-	it("is refused where it would stop the reviewer at once", () => {
-		// The same rule the model and the level get. A clock written down
-		// and silently dropped is a reviewer running under settings
-		// nobody chose, and the one place to catch it is before anybody
-		// is asked and before anybody is billed.
+	it("is held to what the runner will actually accept", () => {
+		// The same rule the model and the level get, and taken from the
+		// runner rather than restated: a clock written down and silently
+		// dropped is a reviewer running under settings nobody chose, and
+		// a clock refused hours later from inside a round is a council
+		// nobody gets.
+		//
+		// The first version of this refused zero and nothing else, which
+		// let through every value that actually kills a spawn.
 		expect(
 			parseParticipant(
 				{ id: "hawk", backstopMs: 0 },
@@ -250,13 +282,33 @@ describe("a clock one participant keeps", () => {
 			),
 		).toEqual({
 			refusal:
-				"review.ask.reviewers[0].backstopMs is 0, which would stop this " +
-				"reviewer the moment it started. Give it a duration in " +
-				"milliseconds, or leave it out to take the round's.",
+				"review.ask.reviewers[0].backstopMs is 0ms, which is below the " +
+				"1000ms floor and would stop the run almost at once. " +
+				"Milliseconds, not seconds. Give it a duration in milliseconds, " +
+				"or leave it out to take the round's.",
+		});
+		// The one somebody actually writes: seconds where milliseconds
+		// were meant. It passed the first version of this gate and threw
+		// at spawn, hours later, as an error about a runner.
+		expect(
+			parseParticipant(
+				{ id: "hawk", backstopMs: 45 },
+				"review.ask.reviewers[0]",
+			),
+		).toMatchObject({
+			refusal: expect.stringContaining("Milliseconds, not seconds"),
+		});
+		expect(
+			parseParticipant(
+				{ id: "hawk", answerMs: 1_500.5 },
+				"review.ask.reviewers[0]",
+			),
+		).toMatchObject({
+			refusal: expect.stringContaining("whole number of milliseconds"),
 		});
 		expect(
 			parseParticipant({ id: "hawk", idleMs: -1 }, "review.ask.reviewers[0]"),
-		).toMatchObject({ refusal: expect.stringContaining("idleMs is -1") });
+		).toMatchObject({ refusal: expect.stringContaining("idleMs is -1ms") });
 		expect(
 			parseParticipant(
 				{ id: "hawk", answerMs: "90s" },
@@ -293,7 +345,44 @@ describe("a clock one participant keeps", () => {
 		// An override is easier to get wrong than a file, since nobody
 		// reviews it, so it is the road that most needs the refusal.
 		expect(overrideRoster(ROSTER, { owl: { idleMs: 0 } })).toMatchObject({
-			refusal: expect.stringContaining('the override for "owl".idleMs is 0'),
+			refusal: expect.stringContaining('the override for "owl".idleMs is 0ms'),
+		});
+	});
+
+	it("refuses an idle guard that outlives the wall beside it", () => {
+		// No single value is wrong here, which is why it needs a rule of
+		// its own: the runner refuses the pair outright, and this is the
+		// mistake somebody makes by moving one column of the table.
+		expect(
+			parseParticipant(
+				{ id: "hawk", backstopMs: 600_000, idleMs: 900_000 },
+				"review.ask.reviewers[0]",
+			),
+		).toMatchObject({
+			refusal: expect.stringContaining(
+				"idleMs (900000ms) outlives backstopMs (600000ms)",
+			),
+		});
+	});
+
+	it("keeps a clock that is perfectly usable", () => {
+		// The other side, which nothing asserted: a parse that read every
+		// clock and dropped it would have passed every refusal above.
+		expect(
+			parseParticipant(
+				{ id: "hawk", idleMs: 1_200_000 },
+				"review.ask.reviewers[0]",
+			),
+		).toEqual({ participant: { id: "hawk", idleMs: 1_200_000 } });
+		expect(
+			overrideRoster(ROSTER, { owl: { idleMs: 1_200_000 } }),
+		).toMatchObject({
+			roster: {
+				reviewers: [
+					expect.objectContaining({ id: "hawk" }),
+					expect.objectContaining({ id: "owl", idleMs: 1_200_000 }),
+				],
+			},
 		});
 	});
 });

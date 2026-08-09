@@ -22,6 +22,7 @@
 		"./web": "./lib/web/index.ts",
 		"./review": "./lib/review/index.ts",
 		"./work": "./lib/work/index.ts",
+		"./clock": "./lib/clock/index.ts",
 		"./exec": "./lib/exec/index.ts",
 		"./remote": "./lib/remote/index.ts",
 		"./result": "./lib/result/index.ts",

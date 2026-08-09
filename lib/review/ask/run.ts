@@ -551,6 +551,55 @@ export function askedOf(
 }
 
 /**
+ * Why a retry may not be given new settings, if it may not.
+ *
+ * A retry re-asks one participant and substitutes the answer into a
+ * round that already recorded who it asked and what each was set to.
+ * Asking on a different model puts one participant's answer into a run
+ * whose ledger names another, and the identity ledger cannot catch it,
+ * because the substitution keeps the held run's participants: nothing
+ * ever claims the new configuration.
+ *
+ * The clocks are the exception, and they are the reason somebody is
+ * retrying at all. How long a reviewer was allowed does not change
+ * what its findings mean, the ledger does not record it against the
+ * participant, and a reviewer stopped by a wall is refused the retry
+ * outright unless that wall moves. Refusing the one setting that makes
+ * the retry worth running would leave editing a committed file as the
+ * only road.
+ *
+ * A predicate rather than a branch inside the tool, so the rule can be
+ * read and tested without a round on disk to retry.
+ */
+export function retryCannotResettle(
+	who: Record<string, object> | undefined,
+	run: { id: string },
+	participantId: string,
+): string | undefined {
+	if (who === undefined) return undefined;
+	const resettles = Object.values(who).flatMap((over) =>
+		Object.keys(over).filter((key) => !CLOCKS.has(key)),
+	);
+	if (resettles.length === 0) return undefined;
+	return (
+		`A retry re-asks "${participantId}" as round ${run.id} asked it, so ` +
+		`it cannot take new settings: its answer is substituted into that ` +
+		`round, whose ledger records what it originally asked under. ` +
+		`${resettles.map((key) => `"${key}"`).join(", ")} would change that. ` +
+		`Run a fresh council with who, or release the id and ask again. The ` +
+		`clocks are the exception and may be raised here, since how long a ` +
+		`reviewer was allowed does not change what it found.`
+	);
+}
+
+/** The settings a retry may take, being the ones that change no meaning. */
+const CLOCKS: ReadonlySet<string> = new Set([
+	"backstopMs",
+	"idleMs",
+	"answerMs",
+]);
+
+/**
  * Replace one participant's outcome, returning a new run.
  *
  * This is what a retry does. The outcome keeps its position, since
@@ -569,33 +618,6 @@ export function askedOf(
  * that matters: a retry that fell back leaves the round less faithful
  * than it was. Pass an empty record to say there is nothing to add.
  */
-/**
- * Why a retry may not be given new settings, if it may not.
- *
- * A retry re-asks one participant and substitutes the answer into a
- * round that already recorded who it asked and what each was set to.
- * Asking on a different model puts one participant's answer into a run
- * whose ledger names another, and the identity ledger cannot catch it,
- * because the substitution keeps the held run's participants: nothing
- * ever claims the new configuration.
- *
- * A predicate rather than a branch inside the tool, so the rule can be
- * read and tested without a round on disk to retry.
- */
-export function retryCannotResettle(
-	who: Record<string, unknown> | undefined,
-	run: { id: string },
-	participantId: string,
-): string | undefined {
-	if (who === undefined) return undefined;
-	return (
-		`A retry re-asks "${participantId}" as round ${run.id} asked it, so ` +
-		`it cannot take new settings: its answer is substituted into that ` +
-		`round, whose ledger records what it originally asked under. Run a ` +
-		`fresh council with who, or release the id and ask again.`
-	);
-}
-
 export function substituteOutcome(
 	run: AskRun,
 	outcome: ParticipantOutcome,

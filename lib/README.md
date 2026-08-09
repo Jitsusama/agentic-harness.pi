@@ -46,6 +46,13 @@ from internal files.
   so a refusal that names one verbatim prints a live secret.
   The credential comes out for display and stays in for the
   fetch, which needs it.
+- **[`clock/`](clock/)**: what a duration bounding a child
+  process may be. The rules belong to the runner, which is the
+  last place they can be applied: by then a roster has been
+  read, a change fetched and a tree cut, and the refusal
+  arrives as a thrown error mid-round rather than as an answer
+  about a config file. One definition, so a roster cannot
+  accept a clock the runner will throw over.
 - **[`subagent/`](subagent/)**: subagent engine for
   running pi as a child process: spec/job composition,
   fleet fan-out, durable supervisor runs, stream parsing,

@@ -26,6 +26,7 @@ import { randomUUID } from "node:crypto";
 import { rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { whyUnusableClock, whyUnusableClocks } from "../clock/index.js";
 import type { ThinkingLevel } from "../thinking/index.js";
 // Type-only, and erased, so the pairing with artifacts.ts importing
 // ReviewerRunArtifacts back out of here is not a runtime cycle. The
@@ -57,23 +58,25 @@ export type { ReviewerError } from "./reviewer-error.js";
 const STALE_RUNTIME_EXIT_CODE = 127;
 
 /**
- * Lower bound on per-call timeout overrides. Mirrors the
- * tool schema's `Type.Integer({ minimum: 1000 })` so the
- * library boundary applies the same floor regardless of
- * which entry point fires (the fleet tool, a review round,
- * a direct library consumer).
- */
-const MIN_TIMEOUT_MS = 1000;
-
-/**
- * Upper bound on per-call timeout overrides. Eight hours
- * covers overnight benchmark soaks, long deep-investigation
- * personas and the slowest reviewer at xhigh thinking on a
- * stack of meaningful PRs. Stays well below Node's
+ * The bounds a per-call timeout override is held to.
+ *
+ * The floor mirrors the tool schema's
+ * `Type.Integer({ minimum: 1000 })` so the library boundary
+ * applies the same one regardless of which entry point
+ * fires. The ceiling of eight hours covers overnight
+ * benchmark soaks, long deep-investigation personas and the
+ * slowest reviewer at xhigh thinking on a stack of
+ * meaningful PRs, while staying well below Node's
  * 32-bit-signed-int timer ceiling (~24.8 days) where
  * `setTimeout` silently coerces back to 1 ms.
+ *
+ * Both live in `lib/clock` rather than here, because the
+ * runner is the last place they can be applied and the
+ * first place they are needed is whoever reads a duration
+ * out of a config file. One definition, so a roster cannot
+ * accept a clock this would then throw over from inside a
+ * round somebody is paying for.
  */
-const MAX_TIMEOUT_MS = 8 * 60 * 60 * 1000;
 
 /**
  * Validate a per-call timeout override at the library
@@ -83,26 +86,8 @@ const MAX_TIMEOUT_MS = 8 * 60 * 60 * 1000;
  * default in place and skip the check.
  */
 function validateTimeout(field: string, value: number | undefined): void {
-	if (value === undefined) return;
-	if (
-		typeof value !== "number" ||
-		!Number.isFinite(value) ||
-		!Number.isInteger(value)
-	) {
-		throw new Error(
-			`Invalid ${field}: expected a finite integer in milliseconds, got ${String(value)}.`,
-		);
-	}
-	if (value < MIN_TIMEOUT_MS) {
-		throw new Error(
-			`Invalid ${field}: ${value} ms is below the ${MIN_TIMEOUT_MS} ms floor.`,
-		);
-	}
-	if (value > MAX_TIMEOUT_MS) {
-		throw new Error(
-			`Invalid ${field}: ${value} ms exceeds the ${MAX_TIMEOUT_MS} ms ceiling.`,
-		);
-	}
+	const why = whyUnusableClock(field, value);
+	if (why !== undefined) throw new Error(`Invalid ${field}: ${why}`);
 }
 
 /**
@@ -131,15 +116,11 @@ function validateTimeoutPair(
 		// so it is the one value below the floor that means something.
 		validateTimeout("wrapUpReserveMs", wrapUpReserveMs);
 	}
-	if (
-		timeoutMs !== undefined &&
-		idleTimeoutMs !== undefined &&
-		idleTimeoutMs > timeoutMs
-	) {
-		throw new Error(
-			`Invalid timeout pair: idleTimeoutMs (${idleTimeoutMs} ms) exceeds timeoutMs (${timeoutMs} ms); the wall clock would fire first.`,
-		);
-	}
+	const why = whyUnusableClocks({
+		...(timeoutMs === undefined ? {} : { timeoutMs }),
+		...(idleTimeoutMs === undefined ? {} : { idleTimeoutMs }),
+	});
+	if (why !== undefined) throw new Error(`Invalid timeout pair: ${why}`);
 }
 
 import { ReviewerStreamParser } from "./stream.js";

@@ -12,6 +12,7 @@
  * has six reviewers.
  */
 
+import { whyUnusableClock, whyUnusableClocks } from "../../clock/index.js";
 import { isThinkingLevel, THINKING_LEVELS } from "../../thinking/index.js";
 import type { Participant, ParticipantClocks } from "./identity.js";
 
@@ -331,35 +332,62 @@ function optionalText(
  * nobody chose, and the one place to catch it is before anybody is
  * asked and before anybody is billed.
  *
+ * Held to the runner's own rules rather than to a looser set written
+ * here. The first version of this refused zero and nothing else, which
+ * let through every value that actually kills a spawn: a fraction, a
+ * duration past the ceiling, and above all `backstopMs: 45` from
+ * somebody writing seconds. All of those passed the config gate and
+ * threw hours later, from inside a round, as an error about a runner.
+ *
  * Zero passes only for `answerMs`, which is the documented way to say
- * do not interrupt me early. A zero wall or a zero idle clock stops
- * the reviewer the instant it starts, which nobody writing one meant.
+ * do not interrupt me early.
  */
 function optionalClocks(
 	value: Record<string, unknown>,
 	path: string,
 ): { clocks: ParticipantClocks } | { refusal: string } {
 	const clocks: ParticipantClocks = {};
-	for (const key of ["backstopMs", "idleMs", "answerMs"] as const) {
+	for (const key of CLOCKS) {
 		if (!(key in value) || value[key] === undefined) continue;
 		const held = value[key];
-		if (typeof held !== "number" || !Number.isFinite(held)) {
+		if (typeof held !== "number") {
 			return {
 				refusal: `${path}.${key} must be a number of milliseconds.`,
 			};
 		}
-		if (held < 0 || (held === 0 && key !== "answerMs")) {
+		// Zero for the reserve alone, and it skips the floor rather than
+		// passing it: it is the one value under the floor that means
+		// something instead of being a mistake.
+		const why =
+			key === "answerMs" && held === 0
+				? undefined
+				: whyUnusableClock(`${path}.${key}`, held);
+		if (why !== undefined) {
 			return {
-				refusal:
-					`${path}.${key} is ${held}, which would stop this reviewer ` +
-					`the moment it started. Give it a duration in milliseconds, ` +
-					`or leave it out to take the round's.`,
+				refusal: `${why} Give it a duration in milliseconds, or leave it out to take the round's.`,
 			};
 		}
 		clocks[key] = held;
 	}
+	// The pair rule, which no single value breaks. A reviewer whose idle
+	// guard outlives its own wall is one the runner refuses outright,
+	// and it is the mistake somebody makes by moving one column.
+	const why = whyUnusableClocks({
+		...(clocks.backstopMs === undefined
+			? {}
+			: { timeoutMs: clocks.backstopMs }),
+		...(clocks.idleMs === undefined ? {} : { idleTimeoutMs: clocks.idleMs }),
+	});
+	if (why !== undefined) {
+		return {
+			refusal: `${path} sets clocks that cannot run together: ${why.replace("idleTimeoutMs", "idleMs").replace("timeoutMs", "backstopMs")}`,
+		};
+	}
 	return { clocks };
 }
+
+/** The clocks a participant may keep, in the order they are read. */
+const CLOCKS = ["backstopMs", "idleMs", "answerMs"] as const;
 
 /** The tool palette, refused as a whole if any entry is not a name. */
 function optionalTools(

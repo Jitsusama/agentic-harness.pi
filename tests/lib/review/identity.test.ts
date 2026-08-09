@@ -49,6 +49,23 @@ describe("what a participant id means", () => {
 			persona: "architect",
 		});
 	});
+
+	it("leaves out how long the reviewer was allowed to take", () => {
+		// The line between the two. What a reviewer was set to think with
+		// decides what its findings mean, so an id is held to it for the
+		// session and reconfiguring one is refused. How long it was
+		// allowed does not, and folding the clocks in here would refuse
+		// the one adjustment somebody makes right after being told a
+		// reviewer ran out of time.
+		expect(
+			participantIdentity("reviewer", {
+				id: "opus",
+				backstopMs: 5_400_000,
+				idleMs: 1_200_000,
+				answerMs: 0,
+			}),
+		).toEqual({ id: "opus", role: "reviewer" });
+	});
 });
 
 describe("whether a finding is attributed to an id", () => {

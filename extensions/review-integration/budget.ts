@@ -12,6 +12,7 @@
  * with a new terminal state there.
  */
 
+import { CLOCK_FLOOR_MS } from "../../lib/clock/index.js";
 import type { AskLimit, AskStop, Participant } from "../../lib/review/index.js";
 import { DEFAULT_RUN_PI_TIMEOUT_MS } from "../../lib/subagent/runpi/spawn.js";
 import { WRAP_UP_TIMEOUT_MS } from "../../lib/subagent/subagent.js";
@@ -78,15 +79,6 @@ export type ReviewerClocks = Pick<
 > &
 	Partial<Pick<ReviewerBudget, "wrapUpReserveMs">>;
 
-/**
- * What bounds a round, taking any override from config.
- *
- * The fix for a bad constant is not a better constant. Both numbers
- * are guesses about somebody else's hardware, model and diff, so they
- * are overridable without patching source; a value that could not be
- * used is ignored rather than honoured, because a typo that produced a
- * zero budget would stop every reviewer the instant it started.
- */
 /**
  * Which budget a limit is measured against, when it is one at all.
  *
@@ -180,6 +172,13 @@ const REPEATS: ReadonlySet<AskLimit> = new Set<AskLimit>([
 export function retryWouldRepeat(
 	stopped: AskStop | undefined,
 	budget: ReviewerClocks,
+	// Whose clock this is, when it is not the round's. The refusal
+	// exists to name the knob that would let the retry through, and a
+	// participant keeping its own is precisely the reviewer whose limit
+	// the round's knob does not move: told to raise `review.ask.
+	// backstopMs`, somebody would raise it, retry, and be refused by the
+	// same number for the same reason.
+	keptBy?: string,
 ): string | undefined {
 	if (stopped?.budgetMs === undefined) return undefined;
 	if (!REPEATS.has(stopped.limit)) return undefined;
@@ -194,10 +193,22 @@ export function retryWouldRepeat(
 	return (
 		`This reviewer was not failing, it was stopped: it hit the ${stopped.limit} ` +
 		`limit of ${stopped.budgetMs}ms and the limit is still ${now}ms, so asking ` +
-		`again buys the same wall at the same price. Raise review.ask.${measure.named} ` +
+		`again buys the same wall at the same price. Raise ${knob(measure.named, keptBy)} ` +
 		"past what it needed and ask again, or take what it did send: a stopped " +
 		"reviewer's answer is kept, and the findings it finished are already read."
 	);
+}
+
+/**
+ * Where the number that stopped this reviewer is written.
+ *
+ * A participant keeping its own is the reviewer whose limit the
+ * round's knob does not move, so naming the round's would send
+ * somebody to raise a number, retry, and meet the same wall.
+ */
+function knob(named: string, keptBy: string | undefined): string {
+	if (keptBy === undefined) return `review.ask.${named}`;
+	return `${named} on "${keptBy}" in review.ask.reviewers, which is where this one's clocks are kept, or pass it in who for one round`;
 }
 
 /**
@@ -215,26 +226,73 @@ export function retryWouldRepeat(
  * questions and a participant with a lot to read needs the wall moved
  * and not the liveness guard.
  */
-export function budgetFor(
+export function boundsFor(
 	participant: Participant,
 	round: ReviewerBudget,
 ): ReviewerBudget {
+	const timeoutMs = participant.backstopMs ?? round.timeoutMs;
 	return {
-		timeoutMs: positiveNumber(participant.backstopMs) ?? round.timeoutMs,
-		idleTimeoutMs: positiveNumber(participant.idleMs) ?? round.idleTimeoutMs,
+		timeoutMs,
+		// Never past the wall it now sits inside. Each clock is taken on
+		// its own, and that is the right reading of what somebody wrote,
+		// but the three are not independent: an idle guard that outlives
+		// its wall is a pair the runner refuses outright, so a reviewer
+		// given a shorter wall than the round's would not have started at
+		// all. Held down rather than refused, because the wall firing
+		// first is exactly what asking for a shorter wall means.
+		idleTimeoutMs: Math.min(
+			participant.idleMs ?? round.idleTimeoutMs,
+			timeoutMs,
+		),
 		// Zero is honoured here for the same reason it is honoured in the
 		// round's own config: it is the documented way to say do not
 		// interrupt me early. Read as a typo, a participant asking not to
 		// be interrupted would fall back to the round's reserve and be
 		// interrupted anyway, which is the one outcome nobody wrote it
 		// for.
-		wrapUpReserveMs:
-			participant.answerMs === 0
-				? 0
-				: (positiveNumber(participant.answerMs) ?? round.wrapUpReserveMs),
+		wrapUpReserveMs: reserveInside(
+			participant.answerMs ?? round.wrapUpReserveMs,
+			timeoutMs,
+		),
 	};
 }
 
+/**
+ * A wrap-up reserve that leaves a reviewer something to wrap up.
+ *
+ * The reserve is carved out of the wall rather than added to it, so a
+ * reserve as large as the wall asks a reviewer for its findings before
+ * it has read anything. That could not happen while both numbers came
+ * from one config section; it can now, because a participant may
+ * shorten its wall and inherit the round's reserve, and five minutes
+ * out of forty-five is four minutes out of six.
+ *
+ * Held to half rather than refused, since the participant asked about
+ * the wall and has no opinion about the reserve it inherited. Below
+ * the floor it goes to zero, which is a reviewer that runs to the wall
+ * and is asked afterwards: the behaviour from before the reserve
+ * existed, and the honest answer for a wall too short to divide.
+ */
+function reserveInside(reserve: number, timeoutMs: number): number {
+	if (reserve === 0) return 0;
+	const held = Math.min(reserve, Math.floor(timeoutMs / 2));
+	return held < CLOCK_FLOOR_MS ? 0 : held;
+}
+
+/**
+ * What bounds a round, taking any override from config.
+ *
+ * The fix for a bad constant is not a better constant. Both numbers
+ * are guesses about somebody else's hardware, model and diff, so they
+ * are overridable without patching source; a value that could not be
+ * used is ignored rather than honoured, because a typo that produced a
+ * zero budget would stop every reviewer the instant it started.
+ *
+ * This one is ignored rather than refused because it is read on the
+ * way into a round that is about to run, where the alternative to a
+ * default is no council at all. A participant's own clocks are read at
+ * config time with nothing yet spent, so those are refused instead.
+ */
 export function reviewerBudget(section: unknown): ReviewerBudget {
 	const held = isRecord(section) ? section : {};
 	return {
