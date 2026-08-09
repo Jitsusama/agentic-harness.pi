@@ -28,7 +28,11 @@ import {
 	heldByLiveSupervisor,
 } from "../../extensions/review-integration/reviewer.js";
 import type { AskAnswer, AskRun, Finding } from "../../lib/review/index.js";
-import { collectRound, stoppedNotes } from "../../lib/review/index.js";
+import {
+	collectRound,
+	runSummary,
+	stoppedNotes,
+} from "../../lib/review/index.js";
 import type { ProcessFacts } from "../../lib/subagent/index.js";
 import {
 	ReviewerArtifactsStore,
@@ -159,6 +163,33 @@ describe("collecting a round the session did not live to finish", () => {
 		expect(kept.map((f) => f.subject)).toEqual(["a", "b"]);
 		expect(run.outcomes.map((o) => o.findingIds)).toEqual([[1], [2]]);
 		expect(run.open).toBeUndefined();
+	});
+
+	it("bills a collected round for what its reviewers burned", async () => {
+		// A round recovered off disk cost exactly what it cost, and the
+		// money is in the result file the supervisor already wrote. A
+		// collect that recovered the findings and dropped the bill would
+		// make the interrupted rounds, which are the expensive ones, read
+		// as the cheap ones.
+		const store = new ReviewerArtifactsStore(root);
+		leaveBehind(store, "hawk", {
+			finalAssistantText: said("a leak"),
+			usage: {
+				tokens: { total: 1_234 },
+				cost: { total: 5.5 },
+			},
+		});
+		leaveBehind(store, "owl", {
+			finalAssistantText: said("a race"),
+			usage: { tokens: { total: 766 }, cost: { total: 1.25 } },
+		});
+
+		const { run } = await collect(unsettled(), store);
+
+		expect(runSummary(run)).toMatchObject({ tokens: 2_000, cost: 6.75 });
+		// Per participant as well as in total, since a summary is a sum
+		// and a sum can be right with one of its terms in the wrong row.
+		expect(run.outcomes.map((one) => one.usage?.cost)).toEqual([5.5, 1.25]);
 	});
 
 	it("keeps what a reviewer wrote down when its answer never came", async () => {

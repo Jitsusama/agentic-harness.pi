@@ -26,7 +26,31 @@ export interface Participant {
 	thinkingLevel?: string;
 	tools?: readonly string[];
 	persona?: string;
+	/**
+	 * Clocks this one keeps, where the round's do not suit it.
+	 *
+	 * One number for a whole fan-out has to be sized for its slowest
+	 * member, so a roster mixing a small fast model with a large one at
+	 * high thinking either holds slots the fast reviewers do not need
+	 * or cuts the slow one off mid-thought.
+	 *
+	 * Not part of the identity below, deliberately. What a reviewer was
+	 * set to think with decides what its findings mean and is held for
+	 * the session; how long it was allowed to take does not change what
+	 * it said, and holding an id to a clock would refuse the one
+	 * adjustment a reader makes after being told a reviewer ran out of
+	 * time.
+	 */
+	backstopMs?: number;
+	idleMs?: number;
+	answerMs?: number;
 }
+
+/** The clocks a participant may keep for itself. */
+export type ParticipantClocks = Pick<
+	Participant,
+	"backstopMs" | "idleMs" | "answerMs"
+>;
 
 /** What an id has been taken to mean. */
 export interface ParticipantIdentity {

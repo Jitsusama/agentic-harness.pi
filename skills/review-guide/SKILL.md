@@ -446,9 +446,21 @@ prints are the only ids an override may name.
 { "action": "council", "who": { "hawk": { "thinkingLevel": "xhigh" } } }
 ```
 
-It takes `model`, `thinkingLevel`, `tools` and `persona`, by
-participant id, and every round kind honours it. Three things it will
-not do:
+It takes `model`, `thinkingLevel`, `tools`, `persona` and the three
+clocks, by participant id, and every round kind honours it.
+
+The clocks are `backstopMs`, `idleMs` and `answerMs`, the same three
+that bound a round, and they are worth knowing about because a round's
+have to be sized for its slowest reviewer. A roster mixing a small
+fast model with a large one at high thinking either holds slots the
+fast reviewers do not need or cuts the slow one off mid-thought.
+Writing one on a participant, in the file or through `who`, bounds
+that reviewer alone; each clock moves on its own, so giving a reviewer
+with a lot to read more wall leaves its liveness guard where it was.
+This is the adjustment to make when a round comes back saying somebody
+hit a limit.
+
+Three things `who` will not do:
 
 - **A name this round will not ask is refused**, not ignored. A round
   that quietly skipped the setting still costs what a round costs, and

@@ -29,12 +29,14 @@
 
 import { describe, expect, it } from "vitest";
 import {
+	boundsFor,
 	REVIEWER_ANSWER_MS,
 	REVIEWER_BACKSTOP_MS,
 	REVIEWER_IDLE_MS,
 	retryWouldRepeat,
 	reviewerBudget,
 } from "../../extensions/review-integration/budget.js";
+import { whyUnusableClocks } from "../../lib/clock/index.js";
 import { DEFAULT_RUN_PI_TIMEOUT_MS } from "../../lib/subagent/runpi/spawn.js";
 
 describe("the wall clock as a backstop", () => {
@@ -191,5 +193,122 @@ describe("asking a stopped reviewer again", () => {
 		expect(
 			retryWouldRepeat({ limit: "cancelled", detail: "cancelled" }, budget),
 		).toBe(undefined);
+	});
+});
+
+describe("what bounds one participant", () => {
+	const round = reviewerBudget(undefined);
+
+	it("holds a participant to the round's clocks by default", () => {
+		// A roster where nobody says otherwise is one fan-out under one
+		// set of numbers, which is what it has always been.
+		expect(boundsFor({ id: "hawk" }, round)).toEqual(round);
+	});
+
+	it("gives one participant the wall it needs", () => {
+		// The reason this is a knob at all. A roster mixing a small fast
+		// model with a large one at high thinking has to be sized for the
+		// slowest, so either the fast reviewers hold slots nobody needs
+		// them to hold or the slow one is cut off mid-thought. The
+		// evidence is the incident this work came out of: rounds of 15.6,
+		// 16.0, 15.1 and 15.8 minutes lost two, three, six and seven
+		// reviewers, while the 7.8 and 8.4 minute rounds beside them lost
+		// none.
+		const slower = boundsFor({ id: "opus", backstopMs: 90 * 60 * 1000 }, round);
+
+		expect(slower.timeoutMs).toBe(90 * 60 * 1000);
+		// And nothing else moves with it, since the three clocks answer
+		// three different questions.
+		expect(slower.idleTimeoutMs).toBe(round.idleTimeoutMs);
+		expect(slower.wrapUpReserveMs).toBe(round.wrapUpReserveMs);
+	});
+
+	it("takes each clock on its own", () => {
+		expect(boundsFor({ id: "owl", idleMs: 20 * 60 * 1000 }, round)).toEqual({
+			idleTimeoutMs: 20 * 60 * 1000,
+			timeoutMs: round.timeoutMs,
+			wrapUpReserveMs: round.wrapUpReserveMs,
+		});
+		expect(boundsFor({ id: "owl", answerMs: 90_000 }, round)).toEqual({
+			idleTimeoutMs: round.idleTimeoutMs,
+			timeoutMs: round.timeoutMs,
+			wrapUpReserveMs: 90_000,
+		});
+	});
+
+	it("lets a participant switch its own soft deadline off", () => {
+		// Zero is the documented way to turn the soft deadline off, and it
+		// has to keep meaning that one level down. Treated as a typo here,
+		// a participant asking not to be interrupted would fall back to
+		// the round's reserve and be interrupted anyway.
+		expect(boundsFor({ id: "wren", answerMs: 0 }, round)).toMatchObject({
+			wrapUpReserveMs: 0,
+		});
+	});
+
+	it("keeps the idle guard inside a wall the participant shortened", () => {
+		// The clocks read independently and they are not independent. An
+		// idle guard outliving its wall is a pair the runner refuses
+		// outright, so a reviewer given ten minutes on a roster whose
+		// round allows fifteen minutes of silence would not have started
+		// at all. Held down rather than refused, because a wall that
+		// fires first is exactly what a shorter wall means.
+		const short = boundsFor({ id: "wren", backstopMs: 10 * 60 * 1000 }, round);
+
+		expect(short.idleTimeoutMs).toBeLessThanOrEqual(short.timeoutMs);
+		expect(whyUnusableClocks(short)).toBeUndefined();
+	});
+
+	it("keeps the wrap-up inside a wall the participant shortened", () => {
+		// The reserve is carved out of the wall rather than added to it,
+		// so a reserve as large as the wall asks a reviewer for its
+		// findings before it has read anything. Five minutes out of
+		// forty-five is four minutes out of six.
+		const short = boundsFor({ id: "wren", backstopMs: 6 * 60 * 1000 }, round);
+
+		expect(short.wrapUpReserveMs).toBe(3 * 60 * 1000);
+	});
+
+	it("drops a wrap-up that will not fit rather than shrinking it past use", () => {
+		// A wall too short to divide leaves a reserve under the runner's
+		// own floor, which the runner refuses. Zero is the honest answer:
+		// the reviewer runs to the wall and is asked afterwards, which is
+		// what this did before the reserve existed.
+		const tiny = boundsFor({ id: "wren", backstopMs: 1_500 }, round);
+
+		expect(tiny.wrapUpReserveMs).toBe(0);
+		expect(whyUnusableClocks(tiny)).toBeUndefined();
+	});
+
+	it("hands the runner nothing it would refuse, whatever it is given", () => {
+		// The pairs are what break, not the values, and there are more
+		// pairs than anybody enumerates by hand. Every combination of the
+		// clocks a participant may legally write, against the round's own
+		// defaults, has to come out as something a reviewer can be
+		// spawned with.
+		const legal = [undefined, 1_000, 6 * 60 * 1000, 90 * 60 * 1000];
+		for (const backstopMs of legal) {
+			for (const idleMs of legal) {
+				for (const answerMs of [...legal, 0]) {
+					const one = {
+						id: "wren",
+						...(backstopMs === undefined ? {} : { backstopMs }),
+						...(idleMs === undefined ? {} : { idleMs }),
+						...(answerMs === undefined ? {} : { answerMs }),
+					};
+					// Only the combinations the config gate would accept, since
+					// the others never reach here.
+					const written = whyUnusableClocks({
+						...(backstopMs === undefined ? {} : { timeoutMs: backstopMs }),
+						...(idleMs === undefined ? {} : { idleTimeoutMs: idleMs }),
+					});
+					if (written !== undefined) continue;
+					expect({
+						one,
+						why: whyUnusableClocks(boundsFor(one, round)),
+					}).toEqual({ one, why: undefined });
+				}
+			}
+		}
 	});
 });

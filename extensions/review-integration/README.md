@@ -166,6 +166,37 @@ A reserve at least half the backstop is ignored rather than
 honoured, since a reviewer asked to wrap up before it has read
 anything has nothing to wrap up.
 
+### Clocks One Reviewer Keeps
+
+The three above bound the round. Any of them can also be written
+on a participant, and that one is then bounded by its own:
+
+```jsonc
+{
+  "reviewers": [
+    { "id": "hawk" },
+    {
+      "id": "opus",
+      "model": "anthropic/claude-opus-5",
+      "thinkingLevel": "xhigh",
+      "backstopMs": 5400000
+    }
+  ]
+}
+```
+
+A single number for a whole fan-out has to be sized for its
+slowest member, so a roster mixing a small fast model with a
+large one at high thinking either holds slots the fast reviewers
+do not need or cuts the slow one off mid-thought. Each clock is
+taken on its own: moving the wall for a reviewer with a lot to
+read leaves its liveness guard where it was.
+
+The same three can be passed per round through `who`, which is
+the adjustment somebody makes right after being told a reviewer
+ran out of time. A clock that could not be used is refused where
+it is written rather than dropped, on either road.
+
 ## Registering a Provider
 
 A provider registers over the event bus, so it can live in

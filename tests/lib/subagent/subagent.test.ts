@@ -2002,7 +2002,7 @@ describe("runReviewer: timeout validation", () => {
 				runPi,
 				timeoutMs: 500,
 			}),
-		).rejects.toThrow(/Invalid timeoutMs.*below the 1000 ms floor/);
+		).rejects.toThrow(/Invalid timeoutMs.*below the 1000ms floor/);
 	});
 
 	it("rejects negative idleTimeoutMs with a clear error", async () => {
@@ -2028,7 +2028,7 @@ describe("runReviewer: timeout validation", () => {
 				runPi,
 				timeoutMs: Number.POSITIVE_INFINITY,
 			}),
-		).rejects.toThrow(/expected a finite integer/);
+		).rejects.toThrow(/must be a whole number of milliseconds/);
 	});
 
 	it("rejects non-integer timeout values", async () => {
@@ -2041,7 +2041,7 @@ describe("runReviewer: timeout validation", () => {
 				runPi,
 				timeoutMs: 1500.5,
 			}),
-		).rejects.toThrow(/expected a finite integer/);
+		).rejects.toThrow(/must be a whole number of milliseconds/);
 	});
 
 	it("rejects values above the 8-hour ceiling", async () => {
@@ -2054,7 +2054,7 @@ describe("runReviewer: timeout validation", () => {
 				runPi,
 				timeoutMs: 9 * 60 * 60 * 1000,
 			}),
-		).rejects.toThrow(/exceeds the.*ceiling/);
+		).rejects.toThrow(/past the.*ceiling/);
 	});
 
 	it("accepts a 6-hour timeout (within the 8-hour ceiling)", async () => {
@@ -2087,7 +2087,7 @@ describe("runReviewer: timeout validation", () => {
 				idleTimeoutMs: 10 * 60 * 1000,
 			}),
 		).rejects.toThrow(
-			/idleTimeoutMs.*exceeds timeoutMs.*wall clock would fire first/,
+			/idleTimeoutMs.*outlives timeoutMs.*wall clock fires first/,
 		);
 	});
 
