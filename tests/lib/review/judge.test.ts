@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type {
 	AskAnswer,
+	AskRun,
 	CouncilDeps,
 	Finding,
 	Participant,
@@ -75,6 +76,57 @@ describe("asking a judge", () => {
 
 		expect(run.round).toBe("judge");
 		expect(run.id).toMatch(/^judge-/);
+	});
+
+	it("writes the round down before it asks anybody", async () => {
+		// A judge is cheaper than the council it consolidates and not
+		// cheap, and a session that dies partway through leaves a
+		// directory on disk with nothing saying it was ever a round, so
+		// the sweep takes the only copy of what was concluded. The
+		// callback was on the shared dependency type and honoured by one
+		// of the two runners that take it.
+		const opened: AskRun[] = [];
+		const base = deps({ text: consolidated() });
+
+		await runJudge(
+			{ judge, prompt: "p", seq: 1 },
+			{
+				...base,
+				async ask(participant, prompt, runId) {
+					// Read here, which is the claim: written down before the
+					// asking rather than at some point during it.
+					expect(opened.map((run) => run.id)).toEqual([runId]);
+					return base.ask(participant, prompt, runId);
+				},
+				async opened(run) {
+					opened.push(run);
+				},
+			},
+		);
+
+		expect(opened).toHaveLength(1);
+		expect(opened[0]?.open).toBe(true);
+		expect(opened[0]?.round).toBe("judge");
+		// The judge as a judge, so a ledger entry for an interrupted
+		// round says who was asked rather than merely that somebody was.
+		expect(opened[0]?.participants.map((one) => one.role)).toEqual(["judge"]);
+	});
+
+	it("runs even when writing it down throws", async () => {
+		// The bookkeeping is worth less than the round. A callback that
+		// throws must not take down a consolidation that has a council
+		// behind it.
+		const { run } = await runJudge(
+			{ judge, prompt: "p", seq: 1 },
+			{
+				...deps({ text: consolidated() }),
+				async opened() {
+					throw new Error("the ledger is a directory");
+				},
+			},
+		);
+
+		expect(run.round).toBe("judge");
 	});
 
 	it("holds the judge as a judge, not a reviewer", async () => {

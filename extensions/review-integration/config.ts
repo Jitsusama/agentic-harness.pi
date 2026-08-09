@@ -47,11 +47,22 @@ function readRepoMappings(value: unknown, problems: string[]): RepoMapping[] {
 			continue;
 		}
 		const providers = stringList(entry.providers);
-		if (providers.length === 0) {
-			problems.push(`review.repos[${index}] needs at least one provider id.`);
+		const path = typeof entry.path === "string" ? entry.path : undefined;
+		// One or the other. A mapping used to be a way to pin a provider
+		// and nothing else, so an empty list meant an entry that did
+		// nothing; now it can also be the only place that says where a
+		// repo lives, and saying that is a whole job.
+		if (providers.length === 0 && path === undefined) {
+			problems.push(
+				`review.repos[${index}] needs at least one provider id, or a "path" saying where the repo is checked out.`,
+			);
 			continue;
 		}
-		mappings.push({ match: entry.match, providers });
+		mappings.push({
+			match: entry.match,
+			providers,
+			...(path === undefined ? {} : { path }),
+		});
 	}
 	return mappings;
 }

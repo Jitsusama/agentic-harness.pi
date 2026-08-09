@@ -490,7 +490,7 @@ Run the suite with:
 
 ```sh
 pnpm test            # everything, about 94s
-pnpm test:unit       # skip the browser tests, about 26s
+pnpm test:unit       # skip the browser and process tests, about 26s
 pnpm test:browser    # only the browser tests
 pnpm test:watch      # re-run on save
 pnpm test:coverage   # v8 coverage report
@@ -611,6 +611,16 @@ a twelve-core machine and then starve its own subprocess tests until
 they blew a two-minute budget. If you add a test that spawns
 something, keep its budget small enough that a starved run says so in
 seconds.
+
+Those tests now have their own lane, `process`, listed by name in
+`vitest.config.ts` and run one file at a time on one worker. Capping
+the pool was not enough on its own: a supervisor test competing with
+four workers of ordinary tests starves the very child it is watching,
+and the failure reads as a reviewer that would not spawn rather than
+as a machine that was busy. Two cases failed that way for weeks and
+were green whenever anybody ran them alone, which is the signature.
+Add a test that spawns a process to that list. It costs about 45
+seconds and `pnpm test` runs it, unlike the browser lane.
 
 CI runs `pnpm lint`, `pnpm typecheck` and `pnpm test` on every push
 and pull request via `.github/workflows/ci.yml`, as three parallel
