@@ -25,3 +25,18 @@ function codeOf(error: unknown): string | undefined {
 	const code = (error as { code?: unknown }).code;
 	return typeof code === "string" ? code : undefined;
 }
+
+/**
+ * A run id as a path segment, the one way this package spells one.
+ *
+ * One definition because a run id keys two things that have to agree:
+ * the directory its transcripts live in, and the ledger record that
+ * says whether anything may take them. Two sanitizers meant two ways
+ * for distinct ids to collide, differently, so a pair could share a
+ * ledger record while owning separate directories, and settling
+ * either one released the protection on both.
+ */
+export function safeSegment(value: string): string {
+	const clean = value.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+	return clean.length > 0 ? clean : "unknown";
+}

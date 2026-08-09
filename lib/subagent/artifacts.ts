@@ -8,7 +8,7 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { isNotFound } from "./errno.js";
+import { isNotFound, safeSegment } from "./errno.js";
 import type { ReviewerRunArtifacts } from "./subagent.js";
 
 /**
@@ -428,11 +428,6 @@ type Keeping = "protected" | "unfinished" | "spendable";
  * answers that the count is not what would take this one.
  */
 const NOT_IN_THE_RUNNING = Number.NEGATIVE_INFINITY;
-
-function safeSegment(value: string): string {
-	const clean = value.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
-	return clean.length > 0 ? clean : "unknown";
-}
 
 async function fileSize(path: string): Promise<number> {
 	try {

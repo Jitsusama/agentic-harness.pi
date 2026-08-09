@@ -10,7 +10,7 @@
  * one succeeds protects every failed fleet forever, which is the
  * unbounded population wearing a different hat.
  */
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -26,11 +26,15 @@ vi.mock("../../../lib/subagent/runpi/supervisor.js", () => ({
 }));
 
 let root: string;
+let said: string[];
 
 beforeEach(() => {
 	root = mkdtempSync(join(tmpdir(), "fleet-written-"));
 	vi.stubEnv("XDG_STATE_HOME", root);
-	vi.spyOn(console, "error").mockImplementation(() => {});
+	said = [];
+	vi.spyOn(console, "error").mockImplementation((line: unknown) => {
+		said.push(String(line));
+	});
 	answer = async () => ({
 		exitCode: 0,
 		finalAssistantText: "done",
@@ -68,11 +72,11 @@ describe("dispatching a fleet", () => {
 	it("writes the fleet down and releases it once it is handed back", async () => {
 		await dispatch("fleet-a");
 
-		const held = await createFleetLedger(fleetDir()).list();
-		expect(held).toEqual([
+		const { runs } = await createFleetLedger(fleetDir()).held();
+		expect(runs).toEqual([
 			expect.objectContaining({ id: "fleet-a", jobs: ["one"] }),
 		]);
-		expect(held[0]?.open).toBeUndefined();
+		expect(runs[0]?.open).toBeUndefined();
 	});
 
 	it("holds the fleet while it is still running", async () => {
@@ -80,10 +84,10 @@ describe("dispatching a fleet", () => {
 		// is about: a ledger checked afterwards cannot tell a fleet
 		// written down first from one written down last.
 		let duringRun: Awaited<
-			ReturnType<ReturnType<typeof createFleetLedger>["list"]>
-		> = [];
+			ReturnType<ReturnType<typeof createFleetLedger>["held"]>
+		>["runs"] = [];
 		answer = async () => {
-			duringRun = await createFleetLedger(fleetDir()).list();
+			duringRun = (await createFleetLedger(fleetDir()).held()).runs;
 			return { exitCode: 0, finalAssistantText: "done", warnings: [] };
 		};
 
@@ -107,9 +111,9 @@ describe("dispatching a fleet", () => {
 
 		await dispatch("fleet-c");
 
-		const held = await createFleetLedger(fleetDir()).list();
-		expect(held).toHaveLength(1);
-		expect(held[0]?.open).toBeUndefined();
+		const { runs } = await createFleetLedger(fleetDir()).held();
+		expect(runs).toHaveLength(1);
+		expect(runs[0]?.open).toBeUndefined();
 	});
 
 	it("releases a fleet that threw before it asked anybody", async () => {
@@ -138,17 +142,20 @@ describe("dispatching a fleet", () => {
 			),
 		).rejects.toThrow("Duplicate subagent");
 
-		const held = await createFleetLedger(fleetDir()).list();
-		expect(held).toHaveLength(1);
-		expect(held[0]?.open).toBeUndefined();
+		const { runs } = await createFleetLedger(fleetDir()).held();
+		expect(runs).toHaveLength(1);
+		expect(runs[0]?.open).toBeUndefined();
 	});
 
-	it("dispatches anyway when the fleet cannot be written down", async () => {
-		// Bookkeeping must not cost a fleet. Failing to record one
-		// costs that fleet its protection; refusing to run it costs the
-		// whole fleet, which is the worse trade by a wide margin.
-		const { writeFileSync } = await import("node:fs");
-		const { mkdirSync } = await import("node:fs");
+	it("dispatches anyway when the fleet cannot be written down, and says so", async () => {
+		// Bookkeeping must not cost a fleet. Failing to record one costs
+		// that fleet its protection; refusing to run it costs the whole
+		// fleet, which is the worse trade by a wide margin.
+		//
+		// Out loud, though, and this is the half worth pinning: a silent
+		// failure here is a fleet running with nothing protecting it,
+		// which is invisible from everywhere else and looks exactly like
+		// a fleet that is safe.
 		mkdirSync(join(root, "pi", "agentic-harness.pi", "subagent-workflow"), {
 			recursive: true,
 		});
@@ -158,5 +165,13 @@ describe("dispatching a fleet", () => {
 		const result = await dispatch("fleet-d");
 
 		expect(result).toMatchObject({ details: { ok: true } });
+		const about = said.filter((line) => line.includes("fleet-d"));
+		expect(about).toHaveLength(2);
+		expect(about[0]).toContain("before dispatching it");
+		expect(about[0]).toContain("will not know to keep its transcripts");
+		// And the settle, which fails for the same reason and costs
+		// something different: not a fleet left unprotected but one left
+		// held. Two failures, two sentences.
+		expect(about[1]).toContain("could not settle");
 	});
 });

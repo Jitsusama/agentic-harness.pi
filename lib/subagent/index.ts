@@ -48,7 +48,12 @@ export {
 	SUBAGENT_REGISTER_DEFAULT_EXTENSION,
 	SUBAGENT_REGISTER_DEFAULT_SKILL,
 } from "./events.js";
-export type { FleetLedger, FleetRun, OpenFleets } from "./fleet.js";
+export type {
+	FleetLedger,
+	FleetRun,
+	HeldFleets,
+	OpenFleets,
+} from "./fleet.js";
 // What a fleet is on disk, so a consumer can say which runs the
 // sweep may not take and find one whose session never came back.
 export { createFleetLedger } from "./fleet.js";

@@ -148,6 +148,43 @@ describe("the fleet retention sweep", () => {
 		// grow without a limit, and nothing else would ever mention it:
 		// a fleet nobody collected is by definition one nobody knows
 		// about.
+		//
+		// Counted from what the sweep held rather than from what the
+		// ledger says, so each of these has transcripts on disk. The two
+		// numbers are not the same: a fleet can be open on the ledger
+		// with nothing behind it at all, and a message announcing
+		// megabytes that are not there sends somebody looking for a
+		// directory that does not exist.
+		const ledger = createFleetLedger(stateDir("fleets"));
+		for (let n = 0; n < 5; n++) {
+			await ledger.open({
+				id: `fleet-${n}`,
+				startedAt: new Date().toISOString(),
+				jobs: ["one"],
+			});
+			await age(staleFleet(`fleet-${n}`));
+		}
+
+		await startSession();
+
+		await vi.waitFor(() => {
+			const about = said.filter((line) => line.includes("never handed back"));
+			expect(about).toHaveLength(1);
+			expect(about[0]).toContain("5 fleet runs");
+			// Where they are, and how to let one go. Announcing an
+			// unbounded population that nothing in the product can
+			// release, without saying what releases it, is a nag with no
+			// answer.
+			expect(about[0]).toContain(stateDir("runs"));
+			expect(about[0]).toContain(stateDir("fleets"));
+		});
+	});
+
+	it("says nothing about fleets the ledger holds but the disk does not", async () => {
+		// The other half of counting what was held. Five open records
+		// with no transcripts behind them is five fleets whose
+		// dispatches never got as far as writing anything, and there is
+		// nothing there to go and look at.
 		const ledger = createFleetLedger(stateDir("fleets"));
 		for (let n = 0; n < 5; n++) {
 			await ledger.open({
@@ -159,11 +196,11 @@ describe("the fleet retention sweep", () => {
 
 		await startSession();
 
-		await vi.waitFor(() => {
-			const about = said.filter((line) => line.includes("never handed back"));
-			expect(about).toHaveLength(1);
-			expect(about[0]).toContain("5 fleet runs");
-		});
+		const transcripts = staleFleet("fleet-swept");
+		await age(transcripts);
+		await startSession();
+		await vi.waitFor(() => expect(existsSync(transcripts)).toBe(false));
+		expect(said).toEqual([]);
 	});
 
 	it("says nothing while only a few are held", async () => {
