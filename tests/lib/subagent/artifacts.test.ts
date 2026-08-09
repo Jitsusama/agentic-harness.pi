@@ -1,6 +1,13 @@
-import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import {
+	chmod,
+	mkdtemp,
+	readFile,
+	stat,
+	utimes,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ReviewerArtifactsStore } from "../../../lib/subagent/artifacts.js";
 
@@ -71,7 +78,231 @@ describe("ReviewerArtifactsStore", () => {
 		expect((await stat(active.runDir)).isDirectory()).toBe(true);
 	});
 
-	it("keeps a protected run however finished and however old", async () => {
+	it("takes a finished run that is too old, however few there are", async () => {
+		// The two ordinary windows separately, because the sweep that
+		// covered them together set both to fire at once and either alone
+		// would have passed it. Room for a hundred runs and one run in
+		// the directory, so only age can be doing this.
+		const store = await tempStore();
+		const stale = store.paths("stale", "fast");
+		await store.writeJsonAtomic(stale.resultPath, { ok: true });
+
+		const result = await store.cleanupTerminalRuns({
+			maxAgeMs: -1,
+			maxRuns: 100,
+			now: new Date(),
+		});
+
+		expect(result.removed).toBe(1);
+		await expect(stat(stale.runDir)).rejects.toMatchObject({ code: "ENOENT" });
+	});
+
+	it("takes the oldest finished runs past the count, however fresh", async () => {
+		// The other half. An age window nothing can exceed, so only the
+		// count can be doing this, and it has to fall on the older of the
+		// two rather than on whichever the directory happened to list
+		// first.
+		const store = await tempStore();
+		const older = store.paths("older", "fast");
+		const newer = store.paths("newer", "fast");
+		await store.writeJsonAtomic(older.resultPath, { ok: true });
+		await utimes(older.runDir, new Date(), new Date(Date.now() - 60_000));
+		await store.writeJsonAtomic(newer.resultPath, { ok: true });
+
+		const result = await store.cleanupTerminalRuns({
+			maxAgeMs: Number.POSITIVE_INFINITY,
+			maxRuns: 1,
+			now: new Date(),
+		});
+
+		expect(result.removed).toBe(1);
+		expect((await stat(newer.runDir)).isDirectory()).toBe(true);
+		await expect(stat(older.runDir)).rejects.toMatchObject({ code: "ENOENT" });
+	});
+
+	it("reclaims the rest when one run cannot be walked", async () => {
+		// The terminal check is asked for every run before any run is
+		// judged, so that the count can rank a run among the ones the
+		// count may take. That hoist put a rethrow ahead of the whole
+		// sweep: before it, everything ranked ahead of a bad directory had
+		// already been reclaimed, and after it one directory the process
+		// cannot enter meant zero bytes back, every session, until
+		// somebody fixed it by hand.
+		const store = await tempStore();
+		const shut = store.paths("shut", "fast");
+		const ordinary = store.paths("ordinary", "fast");
+		await store.writeJsonAtomic(shut.resultPath, { ok: true });
+		await store.writeJsonAtomic(ordinary.resultPath, { ok: true });
+		await chmod(shut.runDir, 0o000);
+
+		try {
+			const result = await store.cleanupTerminalRuns({
+				maxAgeMs: -1,
+				maxRuns: 0,
+				now: new Date(),
+			});
+
+			await expect(stat(ordinary.runDir)).rejects.toMatchObject({
+				code: "ENOENT",
+			});
+			// Held rather than taken, since a run that cannot be asked
+			// whether it finished gets the careful answer, and said rather
+			// than decided quietly.
+			expect((await stat(shut.runDir)).isDirectory()).toBe(true);
+			expect(result.warnings.join(" ")).toContain(shut.runDir);
+		} finally {
+			await chmod(shut.runDir, 0o700);
+		}
+	});
+
+	it("counts what protection is holding, apart from what is merely kept", async () => {
+		// Nothing else can tell a person this. Protection is absolute, so
+		// it is the only population here that grows without a limit, and a
+		// protected round is by definition one nobody has collected, so no
+		// listing they read is going to mention it.
+		//
+		// Counted plainly rather than as "how many protection is costing".
+		// Working that out means asking what would have happened without
+		// the protection, and the answer turns on whether the run
+		// finished, which is the question protection skips: guessing
+		// "finished" counted every unfinished protected run three weeks
+		// before its own window, and still could not see a hundred fresh
+		// protected runs, which is the case that actually runs away.
+		const store = await tempStore();
+		const waiting = store.paths("waiting", "fast");
+		const dispatched = store.paths("dispatched", "fast");
+		const justRan = store.paths("just-ran", "fast");
+		await store.writeJsonAtomic(waiting.resultPath, { ok: true });
+		await store.writeJsonAtomic(dispatched.progressPath, { state: "running" });
+		await store.writeJsonAtomic(justRan.resultPath, { ok: true });
+
+		const result = await store.cleanupTerminalRuns({
+			maxAgeMs: Number.POSITIVE_INFINITY,
+			maxRuns: 100,
+			abandonedAfterMs: Number.POSITIVE_INFINITY,
+			protect: new Set(["waiting", "dispatched"]),
+			now: new Date(),
+		});
+
+		// All three kept, and the two nothing may take counted apart from
+		// the one that is merely recent, whether or not they finished.
+		expect(result.kept).toBe(3);
+		expect(result.held).toBe(2);
+	});
+
+	it("reports a run it decided to take and could not", async () => {
+		// Two callers print this array now, and nothing showed it could
+		// ever hold anything: a summary that is always empty reads the
+		// same as a sweep that always works. A directory the process
+		// cannot write is how a delete fails in the field, and the point
+		// of saying so is that the alternative is finding out from the
+		// disk.
+		const store = await tempStore();
+		const stuck = store.paths("stuck", "fast");
+		await store.writeJsonAtomic(stuck.resultPath, { ok: true });
+		const parent = dirname(stuck.runDir);
+		await chmod(parent, 0o500);
+
+		try {
+			const result = await store.cleanupTerminalRuns({
+				maxAgeMs: -1,
+				maxRuns: 0,
+				now: new Date(),
+			});
+
+			expect(result.removed).toBe(0);
+			expect(result.warnings).toHaveLength(1);
+			// Naming the directory, since a reader with several rounds on
+			// disk needs to know which one is stuck.
+			expect(result.warnings[0]).toContain(stuck.runDir);
+		} finally {
+			await chmod(parent, 0o700);
+		}
+	});
+
+	it("keeps a protected run past every window there is", async () => {
+		// No clock takes a protected run, including the long one, and this
+		// is the case that says so rather than leaving it to be inferred
+		// from a policy that omits the window. A round detached from its
+		// session writes what its reviewers said nowhere but here until
+		// somebody collects it, so a sweep taking one on a timer deletes
+		// the findings and leaves the ledger entry advertising them.
+		//
+		// This was briefly the other way. Nothing but a person bounds
+		// these, which is the honest answer: every listing reports the
+		// round as unsettled until it is collected or closed.
+		const store = await tempStore();
+		const unfinished = store.paths("uncollected-unfinished", "fast");
+		const finished = store.paths("uncollected-finished", "fast");
+		await store.writeJsonAtomic(unfinished.progressPath, { state: "running" });
+		await store.writeJsonAtomic(finished.resultPath, { ok: true });
+
+		const result = await store.cleanupTerminalRuns({
+			// Every window set to take everything it is allowed to take.
+			maxAgeMs: -1,
+			maxRuns: 0,
+			abandonedAfterMs: -1,
+			protect: new Set(["uncollected-unfinished", "uncollected-finished"]),
+			now: new Date(),
+		});
+
+		expect(result.removed).toBe(0);
+		expect((await stat(unfinished.runDir)).isDirectory()).toBe(true);
+		expect((await stat(finished.runDir)).isDirectory()).toBe(true);
+	});
+
+	it("protects a run whose id is not its directory name", async () => {
+		// The set comes from a caller's ledger and holds run ids; the
+		// names here have been through safeSegment. Every id this package
+		// mints today is already a safe segment, so the two coincide and
+		// a mismatch would not crash: the lookup misses, the round loses
+		// its protection, and reviews somebody paid for are deleted
+		// quietly. That is the one failure protection exists to prevent.
+		const store = await tempStore();
+		const awkward = store.paths("council:2026/07", "fast");
+		await store.writeJsonAtomic(awkward.resultPath, { ok: true });
+
+		const result = await store.cleanupTerminalRuns({
+			maxAgeMs: -1,
+			maxRuns: 0,
+			protect: new Set(["council:2026/07"]),
+			now: new Date(),
+		});
+
+		expect(result.removed).toBe(0);
+		expect((await stat(awkward.runDir)).isDirectory()).toBe(true);
+	});
+
+	it("does not let kept runs spend the count on behalf of finished ones", async () => {
+		// The count ranks a run among the runs the count may take. Ranking
+		// it among every directory lets runs that can never be evicted
+		// fill the budget and push out ones that can, and the runs that
+		// cannot be evicted are the recent ones, so a fresh finished round
+		// goes while a stale protected one stays.
+		const store = await tempStore();
+		const open = store.paths("still-open", "fast");
+		const running = store.paths("still-running", "fast");
+		const done = store.paths("finished", "fast");
+		await store.writeJsonAtomic(done.resultPath, { ok: true });
+		await utimes(done.runDir, new Date(), new Date(Date.now() - 60_000));
+		await store.writeJsonAtomic(open.resultPath, { ok: true });
+		await store.writeJsonAtomic(running.progressPath, { state: "running" });
+
+		const result = await store.cleanupTerminalRuns({
+			maxAgeMs: Number.POSITIVE_INFINITY,
+			// Room for one, and the finished run is the only candidate, so
+			// it is the one the room is for.
+			maxRuns: 1,
+			abandonedAfterMs: Number.POSITIVE_INFINITY,
+			protect: new Set(["still-open"]),
+			now: new Date(),
+		});
+
+		expect(result.removed).toBe(0);
+		expect((await stat(done.runDir)).isDirectory()).toBe(true);
+	});
+
+	it("keeps a protected run the ordinary windows would take", async () => {
 		// A round detached from its session writes every result file and
 		// then waits to be collected, so to this sweep it is a finished
 		// round nobody needs. Deleting it throws away reviews that have

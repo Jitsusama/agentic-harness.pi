@@ -88,6 +88,16 @@ export interface AppendOutcome {
 /** Retention policy for reviewer run directories. */
 export interface RetentionPolicy {
 	readonly maxAgeMs: number;
+	/**
+	 * How many finished, unprotected runs to keep.
+	 *
+	 * Not a bound on the directory, and it never quite was: a run is
+	 * ranked among the runs this could take, so the ones it cannot
+	 * take do not spend it. Ranking among every directory instead read
+	 * as a bound and behaved like a hazard, since the runs it cannot
+	 * take are the recent ones, so enough of them pushed every
+	 * finished run past the line however recently it ran.
+	 */
 	readonly maxRuns: number;
 	/**
 	 * How long an unfinished run is kept before it is reclaimed anyway.
@@ -100,10 +110,12 @@ export interface RetentionPolicy {
 	 * whether it finished but whether anybody could still plausibly
 	 * resume it. Omit to keep unfinished runs indefinitely, which is
 	 * what the policy did before this existed.
+	 *
+	 * It does not reach a {@link protect}ed run. Nothing does.
 	 */
 	readonly abandonedAfterMs?: number;
 	/**
-	 * Runs to keep whatever their age, named by run id.
+	 * Runs no window may take, named by run id.
 	 *
 	 * For work that is finished on disk and unfinished to whoever is
 	 * going to read it. A round detached from its session writes every
@@ -111,6 +123,14 @@ export interface RetentionPolicy {
 	 * to this sweep it looks exactly like a finished round nobody
 	 * needs. Deleting it throws away reviews that have been paid for
 	 * and leaves a ledger entry pointing at nothing.
+	 *
+	 * Protection is absolute rather than a longer window, because what
+	 * a caller is asserting is that this run holds the only copy of
+	 * something, and a clock does not make that untrue. What bounds a
+	 * protected run is the caller taking it off the list. Ids are
+	 * matched however they are spelled, since a caller holds run ids
+	 * and these are stored under sanitized directory names: a miss
+	 * here is not an error, it is a paid-for round quietly deleted.
 	 */
 	readonly protect?: ReadonlySet<string>;
 	readonly now?: Date;
@@ -120,6 +140,24 @@ export interface RetentionPolicy {
 export interface CleanupSummary {
 	readonly removed: number;
 	readonly kept: number;
+	/**
+	 * How many were kept because the caller protected them.
+	 *
+	 * Counted plainly, and deliberately not as "how many protection is
+	 * costing": working that out means asking what each window would
+	 * have said instead, and the answer depends on whether the run
+	 * finished, which is the question protection skips. A first
+	 * attempt guessed "finished" and so counted every unfinished
+	 * protected run three weeks before its own window, while missing
+	 * the case protection is genuinely unbounded along, which is a
+	 * hundred fresh protected runs no age test will ever object to.
+	 *
+	 * So: the number of runs nothing may take. It is exact, it is the
+	 * one population that grows without limit, and {@link kept} cannot
+	 * show it because that folds it in with every run kept for being
+	 * recent.
+	 */
+	readonly held: number;
 	readonly warnings: readonly string[];
 }
 
@@ -241,34 +279,91 @@ export class ReviewerArtifactsStore {
 	async cleanupTerminalRuns(policy: RetentionPolicy): Promise<CleanupSummary> {
 		const warnings: string[] = [];
 		const entries = await listDirs(this.runsDir);
-		const runs = await Promise.all(
+		// A run that goes while this is looking at it is dropped rather
+		// than thrown over. Sessions sweep concurrently by design, so one
+		// removing a directory between the listing and the stat is the
+		// ordinary case, and it used to abort the sweep for everything
+		// else in the directory.
+		const seen = await Promise.all(
 			entries.map(async (name) => {
 				const runDir = join(this.runsDir, name);
-				return { name, runDir, mtimeMs: (await stat(runDir)).mtimeMs };
+				try {
+					return { name, runDir, mtimeMs: (await stat(runDir)).mtimeMs };
+				} catch (error) {
+					// Gone since the listing is the expected case and says
+					// nothing. Anything else is one directory this cannot ask
+					// about, and skipping it costs that run's disk, where
+					// throwing costs every other run's as well.
+					//
+					// Neither branch is covered, and neither can be from here.
+					// The window for the first is between the listing and this
+					// stat, inside one call and with nothing to hold it open;
+					// the second needs a parent this cannot stat through but
+					// could list, which is not a state a directory reaches.
+					// Two attempts at a test for the first deleted the
+					// directory before the listing, which exercises nothing
+					// and passes. So this is defensive, and said out loud
+					// rather than counted as tested. What it replaced was an
+					// unguarded stat that cost the whole sweep, which is a
+					// worse answer to an unreachable case than this one.
+					if (!isNotFound(error)) {
+						warnings.push(
+							`Could not read ${runDir}, so it was left alone: ${errorMessage(error)}`,
+						);
+					}
+					return undefined;
+				}
 			}),
 		);
+		const runs = seen.filter((run) => run !== undefined);
 		const sorted = runs.sort((a, b) => b.mtimeMs - a.mtimeMs);
+		// Why each one is being kept, worked out for all of them before
+		// any of them is judged, because the count below has to rank a run
+		// among the runs the count can actually take. In one pass rather
+		// than one after another: this is a readdir and a stat per
+		// reviewer, up to a hundred runs deep, on a path nobody is
+		// awaiting at session start.
+		const protect = new Set([...(policy.protect ?? [])].map(safeSegment));
+		const keeping = await Promise.all(
+			sorted.map(async (run): Promise<Keeping> => {
+				// Protection first, since it is the stronger claim and the
+				// cheaper question: a set lookup against a directory walk.
+				if (protect.has(run.name)) return "protected";
+				try {
+					return (await isTerminalRun(run.runDir)) ? "spendable" : "unfinished";
+				} catch (error) {
+					// One directory nobody can walk must not cost the sweep
+					// every other directory. Unfinished is the careful reading
+					// of a run that cannot be asked whether it finished: it
+					// buys the long window rather than the short one, and this
+					// says so rather than deciding quietly.
+					warnings.push(
+						`Could not tell whether ${run.runDir} finished, so it is held as unfinished: ${errorMessage(error)}`,
+					);
+					return "unfinished";
+				}
+			}),
+		);
 		let removed = 0;
 		let kept = 0;
+		let held = 0;
+		// How many runs the count could have taken so far. Counting every
+		// directory instead let runs the count can never evict fill the
+		// budget and push out ones it can: a hundred rounds open on a
+		// ledger are all newer than a stale finished one, so every
+		// finished round would be past the line however recently it ran.
+		let spendable = 0;
 		const now = policy.now?.getTime() ?? Date.now();
 		for (let index = 0; index < sorted.length; index++) {
 			const run = sorted[index];
-			const terminal = await isTerminalRun(run.runDir);
+			const why = keeping[index];
 			const age = now - run.mtimeMs;
-			const tooOld = age > policy.maxAgeMs;
-			const tooMany = index >= policy.maxRuns;
-			// An unfinished run is kept for recovery, but not forever: past
-			// this window nobody is going to resume it, and leaving it is
-			// how the directory grew unbounded.
-			const abandoned =
-				!terminal &&
-				policy.abandonedAfterMs !== undefined &&
-				age > policy.abandonedAfterMs;
-			if (policy.protect?.has(run.name)) {
-				kept++;
-				continue;
-			}
-			if ((terminal && (tooOld || tooMany)) || abandoned) {
+			// Where this one stands among the runs the count may take, and
+			// nowhere at all if it is not one of them. Only a spendable run
+			// advances the rank, which is what stops a kept one spending the
+			// budget on everybody else's behalf.
+			const place = why === "spendable" ? spendable++ : NOT_IN_THE_RUNNING;
+			if (isSpent(policy, { age, place, keeping: why })) {
 				try {
 					await rm(run.runDir, { recursive: true, force: true });
 					removed++;
@@ -279,11 +374,59 @@ export class ReviewerArtifactsStore {
 				}
 			} else {
 				kept++;
+				if (why === "protected") held++;
 			}
 		}
-		return { removed, kept, warnings };
+		return { removed, kept, held, warnings };
 	}
 }
+
+/**
+ * Whether a run has outlived the reason to keep it.
+ *
+ * Three kinds of run and three answers. A protected one is never
+ * spent: the caller has said its content is the only copy of
+ * something somebody paid for, and no clock makes that untrue. An
+ * unfinished one is kept while recovery is plausible and reclaimed
+ * once it is not, which is the long window. Everything else is
+ * finished and unclaimed, and gets the ordinary two.
+ *
+ * The long window was briefly extended over protected runs as well,
+ * on the reasoning that nothing otherwise bounds them. That was
+ * wrong, and worth writing down because it is a tempting mistake: a
+ * round detached from its session writes its answers nowhere but
+ * here until somebody collects it, so a sweep that took one on a
+ * timer would delete the findings while leaving the ledger entry
+ * that advertises them. What bounds these is a person, and every
+ * listing tells them the round is unsettled.
+ *
+ * Separate from the loop because the loop is a filesystem walk and
+ * this is the policy: one of them needs a disk to exercise and the
+ * other needs three numbers.
+ */
+function isSpent(
+	policy: RetentionPolicy,
+	run: { age: number; place: number; keeping: Keeping },
+): boolean {
+	if (run.keeping === "protected") return false;
+	if (run.keeping === "unfinished") {
+		return (
+			policy.abandonedAfterMs !== undefined && run.age > policy.abandonedAfterMs
+		);
+	}
+	return run.age > policy.maxAgeMs || run.place >= policy.maxRuns;
+}
+
+/** Why a run is being kept, which decides what may take it. */
+type Keeping = "protected" | "unfinished" | "spendable";
+
+/**
+ * The rank of a run the count cannot take.
+ *
+ * Below every threshold, so a policy that reads it still answers, and
+ * answers that the count is not what would take this one.
+ */
+const NOT_IN_THE_RUNNING = Number.NEGATIVE_INFINITY;
 
 function safeSegment(value: string): string {
 	const clean = value.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");

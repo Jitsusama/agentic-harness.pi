@@ -81,9 +81,29 @@ function isProvider(data: unknown): data is ReviewProvider {
  * megabytes. Keeping a transcript is what makes a lost round
  * diagnosable; keeping every transcript ever written is just a disk
  * that fills. An unfinished run is held far longer, because that is
- * the one somebody may still be trying to recover.
+ * the one somebody may still be trying to recover, and a round still
+ * open on the ledger is held until somebody settles it, because until
+ * they collect it these files are the only copy of what its reviewers
+ * said.
  */
 const ROUNDS_RETAIN = 100;
+/**
+ * How many uncollected rounds before the sweep says so.
+ *
+ * Not one, because one is the ordinary state of somebody who started
+ * a round this morning and has not read it yet, and a message at
+ * every session start is a message nobody reads. Enough of them to be
+ * a habit rather than a moment.
+ */
+const ROUNDS_HELD_BEFORE_SAYING = 5;
+/**
+ * How many sweep failures to print before summarizing the rest.
+ *
+ * These arrive per run directory, and what causes them is rarely one
+ * run: a permissions change lands on all of them at once, so the
+ * choice is a cap or a hundred lines.
+ */
+const MOST_WARNINGS = 5;
 const ROUNDS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const ROUNDS_ABANDONED_AFTER_MS = 4 * ROUNDS_MAX_AGE_MS;
 
@@ -104,42 +124,27 @@ const ATTACHMENTS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
  * to reclaim space is not a reason to fail a session.
  */
 async function reclaimRoundTranscripts(): Promise<void> {
-	// Both paths up front, before anything is awaited. These resolve
+	// Every path up front, before anything is awaited. These resolve
 	// against the environment each time they are called, and this runs
 	// unawaited, so a second lookup after the first await is a lookup
 	// against whatever the environment says by then. In a test that
 	// points the state directory at a sandbox and takes it away again,
 	// that is a sweep of the real one.
+	//
+	// Every path, so the ledger is read here too and passed down. It
+	// was being looked up inside the sweep, one await later, by a
+	// function extracted out of this one from below this comment.
 	const transcripts = runArtifactDir();
+	const rounds = runDir();
 	const attached = attachmentDir();
 	const mine = sessionKey();
-	// Which rounds are still waiting to be collected. A detached round
-	// is finished on disk and unfinished to the person who started it,
-	// and this is the only thing that tells the two apart: without it
-	// the sweep deletes reviews that have been paid for and were about
-	// to be read.
-	let protect: ReadonlySet<string> = new Set();
-	try {
-		protect = await createRunStore(runDir()).openRunIds();
-	} catch {
-		// An unreadable ledger must not stop the sweep, but it must not
-		// licence one either: an empty protect set is the cautious
-		// reading only because the sweep below keeps anything it is
-		// unsure about for the abandoned window first.
-	}
 	// Separately, because one failing is not a reason to skip the
 	// other, and the transcript sweep races other sessions by nature.
-	try {
-		await new ReviewerArtifactsStore(transcripts).cleanupTerminalRuns({
-			maxRuns: ROUNDS_RETAIN,
-			maxAgeMs: ROUNDS_MAX_AGE_MS,
-			abandonedAfterMs: ROUNDS_ABANDONED_AFTER_MS,
-			protect,
-		});
-	} catch {
-		// Advisory. A sweep that cannot run costs disk, and failing the
-		// session over it would cost the session.
-	}
+	// Each in its own function for the same reason: declining the
+	// transcript sweep has to be a decision about the transcript sweep,
+	// and a bare return inside this one was twice a decision about
+	// everything below it.
+	await sweepTranscripts(transcripts, rounds);
 	try {
 		await pruneAttachments(attached, {
 			olderThanMs: ATTACHMENTS_MAX_AGE_MS,
@@ -152,6 +157,101 @@ async function reclaimRoundTranscripts(): Promise<void> {
 		await reapOrphanedReviewers(transcripts);
 	} catch {
 		// Advisory, for the same reason.
+	}
+}
+
+/**
+ * Reclaim what finished rounds are holding, or decline and say why.
+ *
+ * Its own function because declining is a real outcome here, and the
+ * two ways of expressing that inside the caller were a bare return
+ * that also cancelled the sweeps below it and a flag threaded past
+ * them.
+ */
+async function sweepTranscripts(
+	transcripts: string,
+	rounds: string,
+): Promise<void> {
+	try {
+		// Which rounds are still waiting to be collected. A detached
+		// round is finished on disk and unfinished to the person who
+		// started it, and this is the only thing that tells the two
+		// apart: without it the sweep deletes reviews that have been paid
+		// for and were about to be read.
+		//
+		// Inside the try, so a ledger that will not read takes the sweep
+		// with it. An empty set is not the cautious reading of an
+		// unreadable ledger, it is the most destructive one: a detached
+		// round that finished on disk is terminal, so with nothing
+		// protecting it the ordinary week takes it, and the findings go
+		// while the ledger entry advertising them stays. Skipping costs a
+		// session's worth of disk, and the next session sweeps.
+		const { open, unreadable } = await createRunStore(rounds).openRunIds();
+		if (unreadable.length > 0) {
+			// An incomplete protect set is worse than none of the sweep. The
+			// rounds missing from it cannot be named, and each one is a
+			// detached round that finished on disk, so nothing protecting it
+			// means the ordinary week takes findings nobody has read.
+			//
+			// Named, and named as something to go and fix, because nothing
+			// heals a torn file: this is not one session's sweep deferred,
+			// it is every sweep from here until somebody deals with it.
+			console.error(
+				`[review-integration] round transcripts will not be swept while ${unreadable.join(", ")} cannot be read, since a round waiting to be collected cannot be told from one nobody needs. Nothing repairs that file on its own, so this holds for every session until it is fixed or moved aside.`,
+			);
+			return;
+		}
+		const swept = await new ReviewerArtifactsStore(
+			transcripts,
+		).cleanupTerminalRuns({
+			maxRuns: ROUNDS_RETAIN,
+			maxAgeMs: ROUNDS_MAX_AGE_MS,
+			abandonedAfterMs: ROUNDS_ABANDONED_AFTER_MS,
+			protect: open,
+		});
+		// How much protection is holding, once there is enough of it to
+		// be worth a person's attention. Nothing else can tell them: a
+		// protected round is one nobody collected, every listing is scoped
+		// to one change, and a round opened against a change nobody
+		// attaches again appears in none of them. Protection is absolute,
+		// so this is the only population here that grows without a limit.
+		if (swept.held >= ROUNDS_HELD_BEFORE_SAYING) {
+			console.error(
+				`[review-integration] ${swept.held} rounds are open and holding their reviewers' transcripts, which until a round is collected is the only copy of what its reviewers said, and is megabytes per reviewer. Attach the change a round was started on and collect it to file the findings, or stop it to close one that left nothing. Both need the change, so deal first with the changes you are about to stop thinking about.`,
+			);
+		}
+		// Said out loud, because the summary was being computed and
+		// dropped. A round is megabytes per reviewer, so a sweep that
+		// cannot delete what it decided to delete is a disk filling at a
+		// rate nothing reports, and the way that gets noticed is the disk
+		// being full. Only the failures: a sweep doing its job every
+		// session start has nothing to say.
+		// Capped, because the failures that produce these are the ones
+		// that hit every run at once: a mode botched across the tree
+		// would otherwise print a hundred lines into somebody's session
+		// start and bury whatever else was said.
+		for (const warning of swept.warnings.slice(0, MOST_WARNINGS)) {
+			console.error(`[review-integration] round transcripts: ${warning}`);
+		}
+		if (swept.warnings.length > MOST_WARNINGS) {
+			console.error(
+				`[review-integration] and ${swept.warnings.length - MOST_WARNINGS} more like it, which together say the transcripts directory is not writable rather than that one round is stuck.`,
+			);
+		}
+	} catch (error) {
+		// Advisory. A sweep that cannot run costs disk, and failing the
+		// session over it would cost the session. Named rather than
+		// silent, because whatever lands here means this directory is
+		// growing with nothing watching it.
+		//
+		// A ledger that will not read is no longer one of them: that is
+		// answered rather than thrown, and declined above by name. What
+		// is left is the store failing to list its own root, and a change
+		// ledger whose file is there and will not open, which the read
+		// refuses over rather than treating as a change with no history.
+		console.error(
+			`[review-integration] round transcripts were not swept: ${error instanceof Error ? error.message : String(error)}`,
+		);
 	}
 }
 

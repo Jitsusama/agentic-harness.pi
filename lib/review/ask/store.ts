@@ -56,8 +56,34 @@ export interface RunStore {
 	 * that judges a run by whether it is terminal will happily delete
 	 * the answers a round is still waiting to be asked for. Before
 	 * rounds outlived their sessions the two could not disagree.
+	 *
+	 * What could not be read is answered beside what could, rather
+	 * than thrown or quietly skipped. Skipping was wrong in the one
+	 * direction that costs something: a torn file drops protection
+	 * from every round it held, silently and only for that change,
+	 * which is a sweep deleting paid-for reviews and reporting a clean
+	 * run. Throwing would be no better, since the answer for every
+	 * other change is perfectly good and a sweep that ran would
+	 * reclaim real disk. The caller decides, and it has what it needs
+	 * to decide with.
 	 */
-	openRunIds(): Promise<Set<string>>;
+	openRunIds(): Promise<OpenRuns>;
+}
+
+/** Which rounds are open, and what could not be asked. */
+export interface OpenRuns {
+	readonly open: ReadonlySet<string>;
+	/**
+	 * What exists and would not read, said the way a person can act on
+	 * it: a full path, since a caller that declines over this has to
+	 * tell somebody which file to go and deal with, and a bare name is
+	 * not enough to find one under a state directory nobody memorized.
+	 *
+	 * Non-empty means the open set is incomplete and there is no way
+	 * to tell which rounds are missing from it, so a caller deciding
+	 * what to delete has to decline rather than read it as "none".
+	 */
+	readonly unreadable: readonly string[];
 }
 
 /** What one change's file holds. */
@@ -69,12 +95,25 @@ interface Ledger {
 export function createRunStore(root: string): RunStore {
 	async function read(change: ChangeRef): Promise<Ledger> {
 		let raw: string;
+		const path = join(root, fileFor(change));
 		try {
-			raw = await readFile(join(root, fileFor(change)), "utf8");
-		} catch {
+			raw = await readFile(path, "utf8");
+		} catch (error) {
 			// No file. This change has no rounds behind it, which is an
 			// answer rather than a failure: most changes have never been
 			// reviewed.
+			//
+			// Only ENOENT, though. Every other errno says the history is
+			// there and could not be reached, and answering "no rounds" to
+			// those is worse here than in the sweep: the next write lays a
+			// one-round ledger over whatever was behind it. The reasoning
+			// twenty lines down, about a file that will not parse, applies
+			// exactly as well to a file that will not open.
+			if (!isMissing(error)) {
+				throw new Error(
+					`The rounds held against ${change.label} could not be read from ${path}: ${error instanceof Error ? error.message : String(error)}. Fix or move that file: answering "no rounds" for it would let the next round overwrite the history behind it.`,
+				);
+			}
 			return { runs: [] };
 		}
 		// A file that will not parse is a different thing entirely, and
@@ -132,25 +171,53 @@ export function createRunStore(root: string): RunStore {
 
 		async openRunIds() {
 			const open = new Set<string>();
+			const unreadable: string[] = [];
 			let files: string[];
 			try {
 				files = await readdir(root);
-			} catch {
+			} catch (error) {
 				// No ledger directory at all, so no rounds are open. The
 				// caller is a sweep, and answering "none" is the honest
 				// reading of an empty history.
-				return open;
+				//
+				// Only for that reading, though. Every other errno says the
+				// history is there and cannot be seen, and answering "none"
+				// to those tells a sweep every round is collectable rubbish.
+				// The catch used to be untyped, so a permissions problem on
+				// this directory read as an empty history.
+				if (!isMissing(error)) {
+					return { open, unreadable: [`${root} (the whole ledger)`] };
+				}
+				return { open, unreadable };
 			}
 			for (const file of files) {
 				if (!file.endsWith(".json")) continue;
+				const path = join(root, file);
 				let parsed: unknown;
 				try {
-					parsed = JSON.parse(await readFile(join(root, file), "utf8"));
-				} catch {
-					// A torn or unreadable ledger is somebody else's problem
-					// to report. Skipping it here only means a sweep does not
-					// know about its rounds, and the sweep errs towards
-					// deleting nothing it was unsure about.
+					parsed = JSON.parse(await readFile(path, "utf8"));
+				} catch (error) {
+					// A file that has gone since the listing is not a file
+					// that will not read. Another session settling a round
+					// deletes nothing, but a person tidying up does, and
+					// treating that as a torn ledger stops the sweep on this
+					// machine for good over a file nobody has any more.
+					//
+					// Nothing covers this branch, and the same is true of the
+					// matching one in the artifact sweep's stat. Both windows
+					// are between a listing and a read inside one call, with
+					// no seam to hold open from outside, and a case that raced
+					// for one would be a case that fails sometimes. Two
+					// attempts at a test for this deleted the file before the
+					// listing, which exercises nothing and passes.
+					if (isMissing(error)) continue;
+					// Said, not skipped. Skipping used to be justified on the
+					// grounds that the sweep errs towards deleting nothing it
+					// was unsure about, and it does not: a run it is unsure
+					// about is a run nothing protects, which is the ordinary
+					// window. One torn file among twenty took protection off
+					// that change's rounds with no error anywhere.
+					unreadable.push(path);
 					continue;
 				}
 				if (
@@ -159,6 +226,9 @@ export function createRunStore(root: string): RunStore {
 					!("runs" in parsed) ||
 					!Array.isArray(parsed.runs)
 				) {
+					// A file that parses into the wrong shape is no more
+					// readable than one that does not parse at all.
+					unreadable.push(path);
 					continue;
 				}
 				for (const run of parsed.runs as AskRun[]) {
@@ -167,7 +237,7 @@ export function createRunStore(root: string): RunStore {
 					}
 				}
 			}
-			return open;
+			return { open, unreadable };
 		},
 
 		async latest(change, round) {
@@ -217,6 +287,23 @@ export function createRunStore(root: string): RunStore {
 			});
 		},
 	};
+}
+
+/**
+ * Whether a filesystem error means the thing is simply not there.
+ *
+ * The distinction matters wherever absence is an answer, because
+ * every other errno means the thing exists and could not be reached,
+ * and reporting that as absence is how a sweep concludes a full
+ * history is an empty one.
+ */
+function isMissing(error: unknown): boolean {
+	return (
+		typeof error === "object" &&
+		error !== null &&
+		"code" in error &&
+		error.code === "ENOENT"
+	);
 }
 
 /**

@@ -688,6 +688,24 @@ way the round would have. Name the round with `run:"id"` when more than
 one is unsettled, since collecting files findings against the change
 and doing that to the wrong round cannot be undone.
 
+Until you collect it, what its reviewers wrote is on disk in one
+place and one only. A round you sat and waited for archives each
+answer as it arrives, and a round you collect archives them then, so
+those survive the housekeeping that eventually clears the raw event
+streams. A started round that was never collected has archived
+nothing: collecting it is what makes its findings durable. Housekeeping
+leaves it alone, since the sweep is told which rounds are still open,
+but nothing else is keeping a second copy either.
+
+Collect it against the change it was started on, and do it while you
+still have the change to hand. Every listing here is scoped to one:
+`runs` reports the rounds on the change you are attached to, and there
+is no view across all of them. A round left open against a branch you
+deleted or a pull request you have stopped thinking about is still
+there, still holding a reviewer's only copy, and nothing is going to
+remind you. What it costs is a directory that grows, so a session
+start says so once several have piled up.
+
 ## Attach the Change, Then Stop Naming It
 
 `review attach` binds the change you are working on, and
