@@ -401,7 +401,7 @@ export type {
 	ResolveContext,
 	ResolvedVia,
 } from "./resolve.js";
-export { resolveReference } from "./resolve.js";
+export { checkoutFor, resolveReference } from "./resolve.js";
 export type { Retarget, RetargetPlan, RetargetRoute } from "./retarget.js";
 export { retargetPlan, retargetRoute } from "./retarget.js";
 export type { SinceLastVisit, Visit, VisitLog } from "./revisited.js";

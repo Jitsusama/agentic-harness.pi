@@ -71,11 +71,11 @@ function announce(layer: ReturnType<typeof workLayerHolding>): void {
 }
 
 describe("where a change's tree stands", () => {
-	it("names the call that would cut one, when none is", () => {
+	it("names the call that would cut one, when none is", async () => {
 		forgetWorkLayer();
 		announce(workLayerHolding());
 
-		const standing = treeStandingFor(REPO, COMMIT);
+		const standing = await treeStandingFor(REPO, COMMIT);
 
 		expect(standing.kind).toBe("none");
 		// The call itself, not a description of it.
@@ -88,7 +88,7 @@ describe("where a change's tree stands", () => {
 		);
 	});
 
-	it("reports the tree already cut for that commit", () => {
+	it("reports the tree already cut for that commit", async () => {
 		forgetWorkLayer();
 		const request = {
 			intent: "snapshot",
@@ -104,13 +104,13 @@ describe("where a change's tree stands", () => {
 			}),
 		);
 
-		expect(treeStandingFor(REPO, COMMIT)).toEqual({
+		expect(await treeStandingFor(REPO, COMMIT)).toEqual({
 			kind: "cut",
 			path: "/src/widgets/.worktrees/snap",
 		});
 	});
 
-	it("does not mistake another commit's tree for this one's", () => {
+	it("does not mistake another commit's tree for this one's", async () => {
 		forgetWorkLayer();
 		announce(
 			workLayerHolding({
@@ -125,13 +125,13 @@ describe("where a change's tree stands", () => {
 			}),
 		);
 
-		expect(treeStandingFor(REPO, COMMIT).kind).toBe("none");
+		expect((await treeStandingFor(REPO, COMMIT)).kind).toBe("none");
 	});
 
-	it("says it cannot tell, rather than guessing, with no working layer", () => {
+	it("says it cannot tell, rather than guessing, with no working layer", async () => {
 		forgetWorkLayer();
 
-		const standing = treeStandingFor(REPO, COMMIT);
+		const standing = await treeStandingFor(REPO, COMMIT);
 
 		expect(standing.kind).toBe("unknown");
 		expect(standing.kind === "unknown" && standing.why).toContain(
@@ -139,11 +139,11 @@ describe("where a change's tree stands", () => {
 		);
 	});
 
-	it("says it cannot tell when the provider reports no commit", () => {
+	it("says it cannot tell when the provider reports no commit", async () => {
 		forgetWorkLayer();
 		announce(workLayerHolding());
 
-		const standing = treeStandingFor(REPO, undefined);
+		const standing = await treeStandingFor(REPO, undefined);
 
 		expect(standing.kind).toBe("unknown");
 		expect(standing.kind === "unknown" && standing.why).toContain("commit");

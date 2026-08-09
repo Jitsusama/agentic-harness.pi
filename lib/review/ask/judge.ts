@@ -54,6 +54,38 @@ export async function runJudge(
 	const id = newRunId("judge", startedAt, request.seq);
 	const warnings: string[] = [];
 
+	// Written down before it is asked, for the reason a council is. A
+	// judge is cheaper than the round it consolidates and not cheap: a
+	// session that dies partway through leaves a reviewer directory on
+	// disk with nothing saying which change it belonged to or that it
+	// was ever a round, so the sweep takes it on the ordinary window
+	// while it holds the only copy of what was concluded.
+	//
+	// This callback was on the shared dependency type and honoured by
+	// one of the two runners that take it, so a caller keeping a ledger
+	// had its judge rounds silently left out of it.
+	try {
+		await deps.opened?.({
+			id,
+			round: "judge",
+			startedAt: startedAt.toISOString(),
+			participants: [participantIdentity("judge", request.judge)],
+			outcomes: [],
+			open: true,
+			// The provenance too, and a gate caught me leaving it out. An
+			// interrupted round is the one a reader has least context for,
+			// so recording it without what it read and what it was given
+			// is where the omission costs most rather than least.
+			...whatItRead(request),
+			...whatItGave(request),
+		});
+	} catch {
+		// Guarded like the council's, and for the same reason: a
+		// bookkeeping callback that throws must not take down the round
+		// it was recording. The cost is that an interrupted judge may
+		// not be findable, which is what it was before this existed.
+	}
+
 	// Reported, which this round did not used to be. A judge is one
 	// participant, so it never went through the roster path that does the
 	// reporting, and nothing here did it instead: a consolidation of sixty

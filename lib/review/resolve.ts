@@ -53,6 +53,25 @@ function mappingMatches(mapping: RepoMapping, probe: RepoProbe): boolean {
 	return haystacks.some((value) => value.includes(mapping.match));
 }
 
+/**
+ * Where the config says a repo is checked out, if it says.
+ *
+ * Matched against the repo's key rather than against a probe, because
+ * the caller asking this has a repo and no directory: that is the
+ * whole situation it is for. The same substring rule as everywhere
+ * else, so one mapping serves both questions.
+ */
+export function checkoutFor(
+	repoKey: string,
+	config: ReviewConfig | undefined,
+): string | undefined {
+	for (const mapping of config?.repos ?? []) {
+		if (mapping.path === undefined) continue;
+		if (repoKey.includes(mapping.match)) return mapping.path;
+	}
+	return undefined;
+}
+
 /** Providers a repo mapping names, in the order it names them. */
 function mappedProviders(context: ResolveContext | undefined): {
 	ids: string[];

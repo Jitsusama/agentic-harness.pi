@@ -31,6 +31,33 @@ const MAX_WORKERS = Math.max(1, Math.min(4, Math.floor(cpus().length / 2)));
  */
 const BROWSER_TESTS = "tests/browser/**/*.test.ts";
 
+/**
+ * Everything that spawns a real operating system process.
+ *
+ * Their own lane for the reason the browser tests have one, and
+ * arrived at the same way: they cannot share the unit lane's
+ * parallelism, and until they were separated they lost to it. A
+ * supervisor test is node spawning a script spawning a child, so a
+ * handful of them running beside four workers of ordinary tests
+ * starves exactly the children they are watching, and the failure
+ * reads as a reviewer that would not spawn rather than as a machine
+ * that was too busy. Two cases failed that way for weeks, both green
+ * whenever anybody ran them alone, which is the signature.
+ *
+ * Run one file at a time. Named individually rather than matched by
+ * a pattern, because what belongs here is not a directory: it is the
+ * handful of suites that spawn node from node, and a rule broad
+ * enough to catch them by shape would catch every test that shells
+ * out to git.
+ */
+const PROCESS_TESTS = [
+	"tests/lib/subagent/runpi/supervisor.test.ts",
+	"tests/lib/subagent/runpi/detached.test.ts",
+	"tests/lib/subagent/runpi/parent-exit.test.ts",
+	"tests/extensions/review-starts-a-round-it-will-not-wait-for.test.ts",
+	"tests/extensions/subagent-workflow/fleet-outlives-its-session.test.ts",
+];
+
 // Pi's loader rewrites the @sinclair/typebox imports onto its
 // bundled `typebox` package at runtime. Mirror that mapping for
 // vitest so the same imports work in tests without a separate
@@ -61,7 +88,7 @@ export default defineConfig({
 				test: {
 					name: "unit",
 					include: ["tests/**/*.test.ts"],
-					exclude: [BROWSER_TESTS],
+					exclude: [BROWSER_TESTS, ...PROCESS_TESTS],
 					// Says which pi install this process belongs to before
 					// anything asks, so an upgrade of the pi running the
 					// session cannot fail tests that never spawn anything.
@@ -70,6 +97,23 @@ export default defineConfig({
 						"./tests/setup/xdg-sandbox.ts",
 					],
 					maxWorkers: MAX_WORKERS,
+				},
+			},
+			{
+				resolve: { alias: ALIAS },
+				test: {
+					name: "process",
+					include: PROCESS_TESTS,
+					setupFiles: [
+						"./tests/setup/pi-install.ts",
+						"./tests/setup/xdg-sandbox.ts",
+					],
+					// One at a time, and one worker. The point is not to be
+					// quick here: it is that a test watching a grandchild
+					// process is measuring the machine as much as the code, so
+					// it must not be measuring the rest of the suite too.
+					fileParallelism: false,
+					maxWorkers: 1,
 				},
 			},
 			{

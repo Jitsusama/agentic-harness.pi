@@ -22,15 +22,86 @@
  * how the fault existed in the first place.
  */
 
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	forgetWorkLayer,
 	readFrom,
 	treeForRound,
+	watchForWorkLayer,
 } from "../../extensions/review-integration/work.js";
 import { runCouncil, startCouncil } from "../../lib/review/index.js";
+
+let home: string;
+
+beforeEach(() => {
+	home = mkdtempSync(join(tmpdir(), "review-config-home-"));
+	vi.stubEnv("XDG_CONFIG_HOME", home);
+	forgetWorkLayer();
+	// A host to ask git with. Without one, nothing can show a
+	// directory is a checkout of anything, and every configured path
+	// is refused: the module answers no rather than optimistically,
+	// which is right in production and would make these cases vacuous.
+	watchForWorkLayer({
+		exec: async (file: string, args: string[]) => {
+			try {
+				return {
+					code: 0,
+					stdout: execFileSync(file, args, { encoding: "utf8" }),
+					stderr: "",
+				};
+			} catch {
+				// Not a repository, most likely, which is a real answer.
+				return { code: 1, stdout: "", stderr: "" };
+			}
+		},
+		events: { on: () => () => {}, emit: () => {} },
+	} as unknown as Parameters<typeof watchForWorkLayer>[0]);
+});
+
+afterEach(() => {
+	vi.unstubAllEnvs();
+	rmSync(home, { recursive: true, force: true });
+	forgetWorkLayer();
+});
+
+/**
+ * A real checkout, since the configured path is now verified.
+ *
+ * Verified by asking git what the directory's remotes are, so a
+ * fixture cannot be an empty temp directory: that is exactly what a
+ * stale path looks like, and the refusal it produces is correct.
+ */
+function checkoutOf(named: string): string {
+	const path = mkdtempSync(join(tmpdir(), "review-checkout-"));
+	execFileSync("git", ["-C", path, "init", "-q"]);
+	execFileSync("git", [
+		"-C",
+		path,
+		"remote",
+		"add",
+		"origin",
+		`git@github.com:${named}.git`,
+	]);
+	return path;
+}
+
+/** Where the package config lives under the stubbed home. */
+function configPath(): string {
+	const dir = join(home, "pi", "agentic-harness.pi");
+	mkdirSync(dir, { recursive: true });
+	return join(dir, "config.json");
+}
 
 describe("what a round records about the tree it read", () => {
 	it("refuses when nothing knows where the repo under review lives", async () => {
@@ -54,6 +125,76 @@ describe("what a round records about the tree it read", () => {
 		expect(tree).toEqual({
 			refusal: expect.stringContaining("github:elsewhere/other"),
 		});
+		// And it names the way out that exists, since the refusal is the
+		// only place somebody meets this problem.
+		if (!("refusal" in tree)) throw new Error("expected a refusal");
+		expect(tree.refusal).toContain("review config");
+	});
+
+	it("reads a repo the config says where to find", async () => {
+		// The other repo problem, and the one that cost a week: a change
+		// in a repo this session is not sitting in cannot be reviewed at
+		// all. Reading the wrong project was stopped, which turned the
+		// silent version into a refusal, and a refusal is still a change
+		// nobody reviews. Nothing but a person can say where a repo
+		// lives on this machine, so a person says it once in the config.
+		const elsewhere = checkoutOf("elsewhere/other");
+		writeFileSync(
+			configPath(),
+			JSON.stringify({
+				sections: {
+					review: {
+						repos: [
+							{ match: "elsewhere/other", providers: [], path: elsewhere },
+						],
+					},
+				},
+			}),
+			"utf8",
+		);
+
+		const tree = await treeForRound(
+			{ key: "github:elsewhere/other" },
+			"d7205e3c",
+			"/the/callers/checkout",
+		);
+
+		// Not a refusal, and standing in the configured checkout rather
+		// than in whatever the caller was sitting in.
+		if ("refusal" in tree) throw new Error(tree.refusal);
+		expect(tree.path).toBe(elsewhere);
+		expect(tree.caveat).toContain("working layer");
+	});
+
+	it("refuses a configured path git will not vouch for", async () => {
+		// The direction that matters. A mapping matches by substring, so
+		// a loose one names a sibling repo, and a path goes stale the day
+		// somebody moves a checkout. Trusting it unchecked would put the
+		// one failure this whole function exists to prevent behind a
+		// config edit, which is worse than not having the field at all.
+		const notIt = checkoutOf("someone/different");
+		writeFileSync(
+			configPath(),
+			JSON.stringify({
+				sections: {
+					review: {
+						repos: [{ match: "elsewhere/other", providers: [], path: notIt }],
+					},
+				},
+			}),
+			"utf8",
+		);
+
+		const tree = await treeForRound(
+			{ key: "github:elsewhere/other" },
+			"d7205e3c",
+			"/the/callers/checkout",
+		);
+
+		if (!("refusal" in tree)) throw new Error(`stood in ${tree.path}`);
+		// Naming the path it was told about, since the reader's next move
+		// is to go and correct it.
+		expect(tree.refusal).toContain(notIt);
 	});
 
 	it("carries the caveat beside the commit, or neither", async () => {

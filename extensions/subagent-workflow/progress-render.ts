@@ -26,6 +26,7 @@ import {
 	type TUI,
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
+import { count as grouped } from "../../lib/result/counts.js";
 import { AGENT_GLYPH } from "../../lib/ui/agent-glyphs.js";
 import {
 	type PipelineStage,
@@ -206,7 +207,7 @@ function renderStatusLine(
 function widgetSubtext(entry: FleetProgressEntry): string | undefined {
 	if (entry.state === "complete") {
 		if (entry.usage) {
-			return `${entry.usage.tokens.total.toLocaleString()} tokens`;
+			return `${grouped(entry.usage.tokens.total)} tokens`;
 		}
 		return "done";
 	}

@@ -26,7 +26,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { RepoLocator, TreeRead } from "../../lib/review/index.js";
-import { whatItRead } from "../../lib/review/index.js";
+import { checkoutFor, whatItRead } from "../../lib/review/index.js";
 import {
 	satisfies,
 	treeRequestFrom,
@@ -34,6 +34,7 @@ import {
 	WORK_REQUEST,
 	type WorkApi,
 } from "../../lib/work/index.js";
+import { loadReviewConfig } from "./config.js";
 
 /**
  * How long to wait for git to name a directory's remotes.
@@ -87,6 +88,10 @@ export function watchForWorkLayer(pi: ExtensionAPI): void {
 export function forgetWorkLayer(): void {
 	work = undefined;
 	host = undefined;
+	// The config too, since a reload is how somebody applies an edit to
+	// it, and answering from the copy read before the edit is the one
+	// thing a reload is supposed to fix.
+	configured = undefined;
 	stopListening?.();
 	stopListening = undefined;
 }
@@ -110,10 +115,10 @@ export type TreeStanding =
  * call that would change it, which is the difference between a slow
  * surprise and a choice.
  */
-export function treeStandingFor(
+export async function treeStandingFor(
 	repo: RepoLocator,
 	commit: string | undefined,
-): TreeStanding {
+): Promise<TreeStanding> {
 	if (work === undefined) {
 		return { kind: "unknown", why: "no working layer is loaded" };
 	}
@@ -124,11 +129,16 @@ export function treeStandingFor(
 		};
 	}
 
+	// The configured checkout too, so attaching a cross-repo change
+	// reports where it stands rather than refusing to say. Without it
+	// this answered "nothing can be told" for exactly the repos the
+	// config had just made reviewable.
+	const known = repo.localPath ?? (await configuredCheckout(repo));
 	const asked = treeRequestFrom({
 		intent: "snapshot",
 		repo: {
 			key: repo.key,
-			...(repo.localPath === undefined ? {} : { localPath: repo.localPath }),
+			...(known === undefined ? {} : { localPath: known }),
 			...(repo.remoteUrl === undefined ? {} : { remoteUrl: repo.remoteUrl }),
 		},
 		purpose: "review",
@@ -179,11 +189,12 @@ export async function treeForFixing(
 		};
 	}
 
+	const known = repo.localPath ?? (await configuredCheckout(repo));
 	const asked = treeRequestFrom({
 		intent: "worktree",
 		repo: {
 			key: repo.key,
-			...(repo.localPath === undefined ? {} : { localPath: repo.localPath }),
+			...(known === undefined ? {} : { localPath: known }),
 			...(repo.remoteUrl === undefined ? {} : { remoteUrl: repo.remoteUrl }),
 		},
 		purpose: "fix",
@@ -275,11 +286,50 @@ async function groundFor(
 	fallback: string,
 ): Promise<{ path: string } | { refusal: string }> {
 	if (repo.localPath !== undefined) return { path: repo.localPath };
+	// Asked the same question the caller's own directory is asked, and
+	// it is not a formality. A mapping matches by substring, so a loose
+	// one names a sibling repo, and a path goes stale the day somebody
+	// moves a checkout. Trusting it unchecked would put the one thing
+	// this function exists to prevent behind a config edit: a round
+	// reading a different project and returning findings that read
+	// perfectly and are about nothing.
+	const configured = await configuredCheckout(repo);
+	if (configured !== undefined && (await isCheckoutOf(configured, repo))) {
+		return { path: configured };
+	}
 	if (await isCheckoutOf(fallback, repo)) return { path: fallback };
+	if (configured !== undefined) {
+		return {
+			refusal: `The review config points ${repo.key} at ${configured}, and git does not say that is a checkout of it, so a round there would read a different project. Findings from the wrong repository read perfectly and are about nothing. Correct the path, or run this from a checkout of ${repo.key}.`,
+		};
+	}
 	return {
-		refusal: `${fallback} is not a checkout of ${repo.key}, and nothing here knows where that repo lives, so a round would read a different project. Findings from the wrong repository read perfectly and are about nothing. Run this from a checkout of ${repo.key}, or register a provider that knows where it is.`,
+		refusal: `${fallback} is not a checkout of ${repo.key}, and nothing here knows where that repo lives, so a round would read a different project. Findings from the wrong repository read perfectly and are about nothing. Run this from a checkout of ${repo.key}, or add it to the review config: a repo mapping matching ${repo.key} with a path naming its checkout.`,
 	};
 }
+
+/**
+ * Where the config says this repo is checked out.
+ *
+ * The answer to the one question nothing else on this machine can
+ * answer. Without it the only reviewable repo is the one the session
+ * happens to sit in, which is how a change in a second repo goes
+ * unreviewed for a week: every round from here reads the wrong
+ * project, and since that was stopped, refuses instead.
+ *
+ * Read once and kept. It is a file a person edits between sessions,
+ * and re-reading it per round buys nothing.
+ */
+async function configuredCheckout(
+	repo: RepoLocator,
+): Promise<string | undefined> {
+	configured ??= loadReviewConfig();
+	const { config } = await configured;
+	return checkoutFor(repo.key, config);
+}
+
+/** The config, once something has asked for it. */
+let configured: ReturnType<typeof loadReviewConfig> | undefined;
 
 /**
  * Whether a directory is a checkout of this repo, by asking git.
@@ -366,7 +416,12 @@ export async function treeForRound(
 		// working layer's own rule and not this module's to soften.
 		repo: {
 			key: repo.key,
-			...(repo.localPath === undefined ? {} : { localPath: repo.localPath }),
+			// The ground, which is the locator's path when it had one and
+			// otherwise the checkout that was found for it. Passing only
+			// the locator's own is what made a cross-repo round degrade
+			// even once its checkout was known: right repo, wrong commit,
+			// when a snapshot at the right commit was available.
+			localPath: fallback,
 			...(repo.remoteUrl === undefined ? {} : { remoteUrl: repo.remoteUrl }),
 		},
 		purpose: "review",

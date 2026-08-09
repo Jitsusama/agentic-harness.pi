@@ -26,6 +26,17 @@ export interface RepoMapping {
 	 * to write before the provider ships.
 	 */
 	providers: string[];
+	/**
+	 * Where this repo is checked out, for reading it.
+	 *
+	 * Without it, the only repo reviewable from a session is
+	 * the one the session is sitting in: a round elsewhere
+	 * either reads the wrong project or, since that was
+	 * stopped, refuses. Nothing else can supply this, because
+	 * which directory holds a repo is a fact about this
+	 * machine and no provider knows it.
+	 */
+	path?: string;
 }
 
 /** Teaches the substrate a reference shape. */

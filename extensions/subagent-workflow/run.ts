@@ -20,6 +20,7 @@ import {
 	recordRunEverywhere,
 	runRecordFrom,
 } from "../../lib/observability/index.js";
+import { count as grouped } from "../../lib/result/counts.js";
 import { ReviewerArtifactsStore } from "../../lib/subagent/artifacts.js";
 import type {
 	ReviewerThinkingLevel,
@@ -492,7 +493,7 @@ export function formatFleetSummary(result: FleetRunResult): string {
 	if (cancelled > 0) headerParts.push(`${cancelled} cancelled`);
 	if (result.totalUsage) {
 		headerParts.push(
-			`${result.totalUsage.tokens.total.toLocaleString()} tokens, $${result.totalUsage.cost.total.toFixed(4)}`,
+			`${grouped(result.totalUsage.tokens.total)} tokens, $${result.totalUsage.cost.total.toFixed(4)}`,
 		);
 	}
 	const lines: string[] = [headerParts.join(" · ")];

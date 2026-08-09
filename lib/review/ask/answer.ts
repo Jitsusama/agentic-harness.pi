@@ -19,6 +19,7 @@
 // put pi's runtime in the module graph of a library that has never
 // needed it. Every other `count` consumer in `lib/` takes the leaf
 // for the same reason.
+import { count as group } from "../../result/counts.js";
 import { count } from "../../ui/count.js";
 import type { AskRun, RunSummary } from "./run.js";
 import {
@@ -175,7 +176,10 @@ function money(cost: number): string {
 
 /** A whole number with thousands separated, the same way everywhere. */
 function grouped(value: number): string {
-	return String(Math.round(value)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+	// Rounded here, grouped there. The rule had been written out three
+	// times across the package, which is three chances for one of them
+	// to answer differently about the same number.
+	return group(Math.round(value));
 }
 
 /** What a round's answer says, in order. */

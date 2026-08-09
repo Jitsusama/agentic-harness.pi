@@ -42,16 +42,47 @@ function readRepoMappings(value: unknown, problems: string[]): RepoMapping[] {
 	}
 	const mappings: RepoMapping[] = [];
 	for (const [index, entry] of value.entries()) {
-		if (!isRecord(entry) || typeof entry.match !== "string") {
-			problems.push(`review.repos[${index}] needs a "match" string.`);
+		if (
+			!isRecord(entry) ||
+			typeof entry.match !== "string" ||
+			entry.match.trim().length === 0
+		) {
+			// Non-empty, because matching is a substring test and every
+			// string contains the empty one: an empty match claims every
+			// repo there is, which for a mapping carrying a path means
+			// every round in every repo reads one directory.
+			problems.push(`review.repos[${index}] needs a non-empty "match" string.`);
 			continue;
 		}
 		const providers = stringList(entry.providers);
-		if (providers.length === 0) {
-			problems.push(`review.repos[${index}] needs at least one provider id.`);
+		// Absolute and non-empty. A relative path is resolved against
+		// whatever directory the session happens to be in, which is the
+		// thing this field exists to stop mattering, and `~` is the
+		// shell's expansion rather than one node does. Both fail far from
+		// here and read as "that is not a checkout".
+		const said = typeof entry.path === "string" ? entry.path.trim() : "";
+		if (said.length > 0 && !said.startsWith("/")) {
+			problems.push(
+				`review.repos[${index}].path must be an absolute path; "${said}" is relative${said.startsWith("~") ? ", and a leading ~ is the shell's expansion rather than one node performs" : ""}.`,
+			);
 			continue;
 		}
-		mappings.push({ match: entry.match, providers });
+		const path = said.length > 0 ? said : undefined;
+		// One or the other. A mapping used to be a way to pin a provider
+		// and nothing else, so an empty list meant an entry that did
+		// nothing; now it can also be the only place that says where a
+		// repo lives, and saying that is a whole job.
+		if (providers.length === 0 && path === undefined) {
+			problems.push(
+				`review.repos[${index}] needs at least one provider id, or a "path" saying where the repo is checked out.`,
+			);
+			continue;
+		}
+		mappings.push({
+			match: entry.match,
+			providers,
+			...(path === undefined ? {} : { path }),
+		});
 	}
 	return mappings;
 }
@@ -97,9 +128,14 @@ function readReferenceMappings(
 }
 
 /** Load the review configuration, reporting anything malformed. */
-export async function loadReviewConfig(): Promise<LoadedReviewConfig> {
+export async function loadReviewConfig(
+	// Named for a test, and defaulted for everybody else. The reader
+	// is otherwise reachable only through the one path the whole
+	// machine shares, which a test can redirect but not isolate.
+	path?: string,
+): Promise<LoadedReviewConfig> {
 	const problems: string[] = [];
-	const loaded = await loadPackageConfig();
+	const loaded = await loadPackageConfig(path);
 	if (!loaded.ok) {
 		return { config: {}, problems: [loaded.error] };
 	}
