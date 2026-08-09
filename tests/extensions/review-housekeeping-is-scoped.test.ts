@@ -17,6 +17,7 @@
  */
 
 import {
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	rmSync,
@@ -27,6 +28,7 @@ import { readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ReviewerArtifactsStore } from "../../lib/subagent/index.js";
 import { activate } from "./support/review-extension.js";
 
 let root: string;
@@ -83,9 +85,36 @@ function staleAttachment(session: string): string {
 	return path;
 }
 
-/** Start the session the way pi starts one, and wait as pi waits. */
-async function startSession(stub: ReturnType<typeof activate>): Promise<void> {
-	const started = stub.lifecycle.get("session_start");
+/**
+ * A finished round's transcripts, old enough for the ordinary window.
+ *
+ * The thing the sweep is for, and the thing the first version of this
+ * file never put on disk: with no transcripts tree the sweep walks
+ * nothing, reclaims nothing and reports nothing, so every assertion
+ * here passed whether it declined or swept.
+ */
+function staleRound(id: string): string {
+	const paths = new ReviewerArtifactsStore(stateDir("transcripts")).paths(
+		id,
+		"one",
+	);
+	mkdirSync(join(paths.resultPath, ".."), { recursive: true });
+	writeFileSync(paths.resultPath, JSON.stringify({ ok: true }), "utf8");
+	const long = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+	utimesSync(paths.runDir, long, long);
+	return paths.runDir;
+}
+
+/**
+ * Start the session the way pi starts one.
+ *
+ * The housekeeping is deliberately not awaited by the handler, so a
+ * sweep never delays a session. Every assertion about it therefore
+ * waits for the state it expects rather than for a fixed pause, which
+ * is a race dressed as a delay.
+ */
+async function startSession(): Promise<void> {
+	const started = activate().lifecycle.get("session_start");
 	if (started === undefined) {
 		throw new Error("the extension registered no session_start on pi.on");
 	}
@@ -93,49 +122,78 @@ async function startSession(stub: ReturnType<typeof activate>): Promise<void> {
 		{ reason: "startup" },
 		{ sessionManager: { getSessionId: () => "this-session" } },
 	);
-	// The housekeeping is deliberately not awaited by the handler, so
-	// that a sweep never delays a session. Give it the turns it needs.
-	await new Promise((resolve) => setTimeout(resolve, 50));
 }
 
 describe("housekeeping at session start", () => {
-	it("prunes attachments even when the ledger cannot be read", async () => {
-		// The one that matters. A torn ledger is a reason to leave the
-		// transcripts alone, and no reason at all to stop pruning
-		// attachments, which do not depend on it.
+	it("sweeps a finished round when the ledger reads", async () => {
+		// The other side of everything below. Without it, declining
+		// unconditionally passes the lot, since a sweep that never runs
+		// deletes nothing and reports nothing either way.
 		mkdirSync(stateDir("runs"), { recursive: true });
-		writeFileSync(stateDir("runs", "torn.json"), "{ not json", "utf8");
-		const stale = staleAttachment("someone-elses-session");
+		const round = staleRound("council-old");
 
-		await startSession(activate());
+		await startSession();
 
-		expect(await readdir(stateDir("attached"))).toEqual([]);
-		expect(stale).toContain("attached");
+		await vi.waitFor(() => expect(existsSync(round)).toBe(false));
 	});
 
-	it("says which ledger file stopped it, rather than sweeping anyway", async () => {
+	it("leaves a finished round alone when the ledger will not read", async () => {
 		// An empty protect set is not the cautious reading of a ledger
-		// that will not open, it is the destructive one: every detached
-		// round that finished on disk is terminal, so with nothing
-		// protecting it the ordinary window takes it.
+		// that will not open, it is the destructive one: a detached round
+		// that finished on disk is terminal, so with nothing protecting
+		// it the ordinary window takes findings nobody has read.
 		mkdirSync(stateDir("runs"), { recursive: true });
 		writeFileSync(stateDir("runs", "torn.json"), "{ not json", "utf8");
+		const round = staleRound("council-old");
 
-		await startSession(activate());
+		await startSession();
 
-		const about = said.filter((line) => line.includes("were not swept"));
-		expect(about).toHaveLength(1);
-		expect(about[0]).toContain("torn.json");
+		await vi.waitFor(() => {
+			const about = said.filter((line) => line.includes("will not be swept"));
+			expect(about).toHaveLength(1);
+			// Naming the file, and naming it as something to go and deal
+			// with: nothing repairs a torn ledger, so this is every sweep
+			// from here rather than one deferred.
+			expect(about[0]).toContain("torn.json");
+			expect(about[0]).toContain("every session");
+		});
+		expect(existsSync(round)).toBe(true);
+	});
+
+	it("prunes attachments even so", async () => {
+		// The one this file exists for. Declining the transcript sweep
+		// was twice written as a bare return, and twice returned from the
+		// whole housekeeping function, cancelling sweeps that never read
+		// the ledger that stopped it.
+		//
+		// The orphan reaper is the third of them and is not pinned here.
+		// Watching it needs a lease naming a live process whose
+		// supervisor is gone, and the fixture for that is a test that
+		// kills things; it has its own tests over an injected reaper. So
+		// this holds the ordering property through the sweep that can be
+		// watched from outside, and the reaper below it is only as safe
+		// as this one staying honest.
+		mkdirSync(stateDir("runs"), { recursive: true });
+		writeFileSync(stateDir("runs", "torn.json"), "{ not json", "utf8");
+		staleAttachment("someone-elses-session");
+
+		await startSession();
+
+		await vi.waitFor(async () =>
+			expect(await readdir(stateDir("attached"))).toEqual([]),
+		);
 	});
 
 	it("says nothing on an ordinary start", async () => {
 		// A channel that speaks every session is a channel nobody reads,
-		// and everything here is advisory, so silence is the ordinary
-		// outcome and worth pinning.
+		// and all of this is advisory. Paired with a sweep that has work
+		// to do, so it cannot be satisfied by nothing having run.
 		mkdirSync(stateDir("runs"), { recursive: true });
+		const round = staleRound("council-old");
 
-		await startSession(activate());
+		await startSession();
 
+		await vi.waitFor(() => expect(existsSync(round)).toBe(false));
 		expect(said).toEqual([]);
 	});
 });

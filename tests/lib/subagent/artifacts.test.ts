@@ -155,33 +155,39 @@ describe("ReviewerArtifactsStore", () => {
 		}
 	});
 
-	it("counts what protection is paying for, not everything it covers", async () => {
+	it("counts what protection is holding, apart from what is merely kept", async () => {
 		// Nothing else can tell a person this. Protection is absolute, so
-		// it is the only number here that grows without a limit, and a
+		// it is the only population here that grows without a limit, and a
 		// protected round is by definition one nobody has collected, so no
 		// listing they read is going to mention it.
 		//
-		// Only what it is paying for, though. A protected round that
-		// finished this morning would have been kept anyway, and counting
-		// it makes the number say "how many rounds are open", which is a
-		// different question and one that is loud on the ordinary day.
+		// Counted plainly rather than as "how many protection is costing".
+		// Working that out means asking what would have happened without
+		// the protection, and the answer turns on whether the run
+		// finished, which is the question protection skips: guessing
+		// "finished" counted every unfinished protected run three weeks
+		// before its own window, and still could not see a hundred fresh
+		// protected runs, which is the case that actually runs away.
 		const store = await tempStore();
-		const sat = store.paths("sat-on", "fast");
+		const waiting = store.paths("waiting", "fast");
+		const dispatched = store.paths("dispatched", "fast");
 		const justRan = store.paths("just-ran", "fast");
-		await store.writeJsonAtomic(sat.resultPath, { ok: true });
-		await utimes(sat.runDir, new Date(), new Date(Date.now() - 60_000));
+		await store.writeJsonAtomic(waiting.resultPath, { ok: true });
+		await store.writeJsonAtomic(dispatched.progressPath, { state: "running" });
 		await store.writeJsonAtomic(justRan.resultPath, { ok: true });
 
 		const result = await store.cleanupTerminalRuns({
-			// Old enough to have taken the one, not the other.
-			maxAgeMs: 30_000,
+			maxAgeMs: Number.POSITIVE_INFINITY,
 			maxRuns: 100,
-			protect: new Set(["sat-on", "just-ran"]),
+			abandonedAfterMs: Number.POSITIVE_INFINITY,
+			protect: new Set(["waiting", "dispatched"]),
 			now: new Date(),
 		});
 
-		expect(result.kept).toBe(2);
-		expect(result.held).toBe(1);
+		// All three kept, and the two nothing may take counted apart from
+		// the one that is merely recent, whether or not they finished.
+		expect(result.kept).toBe(3);
+		expect(result.held).toBe(2);
 	});
 
 	it("reports a run it decided to take and could not", async () => {

@@ -88,6 +88,16 @@ export interface AppendOutcome {
 /** Retention policy for reviewer run directories. */
 export interface RetentionPolicy {
 	readonly maxAgeMs: number;
+	/**
+	 * How many finished, unprotected runs to keep.
+	 *
+	 * Not a bound on the directory, and it never quite was: a run is
+	 * ranked among the runs this could take, so the ones it cannot
+	 * take do not spend it. Ranking among every directory instead read
+	 * as a bound and behaved like a hazard, since the runs it cannot
+	 * take are the recent ones, so enough of them pushed every
+	 * finished run past the line however recently it ran.
+	 */
 	readonly maxRuns: number;
 	/**
 	 * How long an unfinished run is kept before it is reclaimed anyway.
@@ -131,14 +141,21 @@ export interface CleanupSummary {
 	readonly removed: number;
 	readonly kept: number;
 	/**
-	 * How many were kept only because the caller protected them.
+	 * How many were kept because the caller protected them.
 	 *
-	 * Only because: a protected run that the windows would have kept
-	 * anyway is not counted, since it is costing nothing yet. What
-	 * this measures is what protection is holding past the point
-	 * everything else would have been let go, which is the part that
-	 * grows without limit, and {@link kept} cannot show it because it
-	 * folds that in with every run kept for being recent.
+	 * Counted plainly, and deliberately not as "how many protection is
+	 * costing": working that out means asking what each window would
+	 * have said instead, and the answer depends on whether the run
+	 * finished, which is the question protection skips. A first
+	 * attempt guessed "finished" and so counted every unfinished
+	 * protected run three weeks before its own window, while missing
+	 * the case protection is genuinely unbounded along, which is a
+	 * hundred fresh protected runs no age test will ever object to.
+	 *
+	 * So: the number of runs nothing may take. It is exact, it is the
+	 * one population that grows without limit, and {@link kept} cannot
+	 * show it because that folds it in with every run kept for being
+	 * recent.
 	 */
 	readonly held: number;
 	readonly warnings: readonly string[];
@@ -333,18 +350,7 @@ export class ReviewerArtifactsStore {
 				}
 			} else {
 				kept++;
-				// Only the ones protection is actually paying for. Asking the
-				// policy what it would say about this run without the
-				// protection is the only way to tell a round somebody is
-				// sitting on from one that simply finished this morning.
-				// Ranked where it would stand rather than taking a place,
-				// since the question is hypothetical and the budget is not.
-				if (
-					why === "protected" &&
-					isSpent(policy, { age, place: spendable, keeping: "spendable" })
-				) {
-					held++;
-				}
+				if (why === "protected") held++;
 			}
 		}
 		return { removed, kept, held, warnings };

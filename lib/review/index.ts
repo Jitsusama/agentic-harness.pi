@@ -167,7 +167,7 @@ export {
 	type StartResult,
 	startCouncil,
 } from "./ask/start.js";
-export type { RunStore } from "./ask/store.js";
+export type { OpenRuns, RunStore } from "./ask/store.js";
 export { createRunStore } from "./ask/store.js";
 export type {
 	Attachment,

@@ -176,9 +176,12 @@ async function sweepTranscripts(transcripts: string): Promise<void> {
 			// rounds missing from it cannot be named, and each one is a
 			// detached round that finished on disk, so nothing protecting it
 			// means the ordinary week takes findings nobody has read.
-			// Skipping costs a session's worth of disk.
+			//
+			// Named, and named as something to go and fix, because nothing
+			// heals a torn file: this is not one session's sweep deferred,
+			// it is every sweep from here until somebody deals with it.
 			console.error(
-				`[review-integration] round transcripts were not swept: ${unreadable.join(", ")} could not be read, so a round still waiting to be collected cannot be told from one nobody needs`,
+				`[review-integration] round transcripts will not be swept while ${unreadable.join(", ")} cannot be read, since a round waiting to be collected cannot be told from one nobody needs. Nothing repairs that file on its own, so this holds for every session until it is fixed or moved aside.`,
 			);
 			return;
 		}
@@ -190,15 +193,15 @@ async function sweepTranscripts(transcripts: string): Promise<void> {
 			abandonedAfterMs: ROUNDS_ABANDONED_AFTER_MS,
 			protect: open,
 		});
-		// What protection is costing, once there is enough of it to be
-		// worth a person's attention. Nothing else can tell them: a
+		// How much protection is holding, once there is enough of it to
+		// be worth a person's attention. Nothing else can tell them: a
 		// protected round is one nobody collected, every listing is scoped
 		// to one change, and a round opened against a change nobody
 		// attaches again appears in none of them. Protection is absolute,
-		// so this is the only number here that grows without a limit.
+		// so this is the only population here that grows without a limit.
 		if (swept.held >= ROUNDS_HELD_BEFORE_SAYING) {
 			console.error(
-				`[review-integration] ${swept.held} rounds have been open long enough that everything else their age has been reclaimed, and each is holding the only copy of what its reviewers said. Attach the change a round was started on and collect it to file the findings, or stop it to close one that left nothing. Both need the change, so the ones to deal with first are the changes you are about to stop thinking about.`,
+				`[review-integration] ${swept.held} rounds are open and holding their reviewers' transcripts, which until a round is collected is the only copy of what its reviewers said, and is megabytes per reviewer. Attach the change a round was started on and collect it to file the findings, or stop it to close one that left nothing. Both need the change, so deal first with the changes you are about to stop thinking about.`,
 			);
 		}
 		// Said out loud, because the summary was being computed and
