@@ -27,6 +27,7 @@ import {
 } from "node:fs/promises";
 import { join } from "node:path";
 import { isDirectory, isNotFound, safeSegment } from "./errno.js";
+import { type ProcessFacts, sameProcess } from "./lease.js";
 
 /** A fleet that was dispatched, as the ledger holds it. */
 export interface FleetRun {
@@ -45,6 +46,102 @@ export interface FleetRun {
 	 */
 	readonly open?: true;
 	readonly settledAt?: string;
+	/**
+	 * The session that dispatched this fleet and is waiting for it.
+	 *
+	 * Optional because a record written before this existed cannot
+	 * have one, and absent has to keep meaning not told rather than
+	 * nobody: reading it as nobody would cancel every fleet on an
+	 * older ledger at the next session start.
+	 */
+	readonly owner?: {
+		readonly pid: number;
+		/**
+		 * When that process started, so the pid can be checked.
+		 *
+		 * A pid identifies nothing on its own. The number comes round
+		 * again, and a stranger wearing it reads as the session still
+		 * being there, which is the reading that leaves an orphan
+		 * running.
+		 */
+		readonly startedAt: number;
+	};
+}
+
+/**
+ * Which of these fleets nobody is waiting for any more.
+ *
+ * There is no detached dispatch: nothing starts a fleet meaning to
+ * come back for it later, the way a review round can be started and
+ * collected. So a fleet whose session has gone is running for nobody,
+ * holding models open against their own backstops for hours, and the
+ * answers will have nowhere to go when they arrive.
+ *
+ * Only open records can be abandoned, and that is decided here rather
+ * than asked of the caller. A settled fleet was handed to somebody
+ * whatever became of them afterwards, so a dead owner says nothing
+ * about it, and a precondition living at one call site is one the
+ * next caller has no way to know about.
+ *
+ * Identity decides, both ways, the same discipline the supervisor
+ * lease uses: a live pid that started when the record says is the
+ * session still waiting, and a live pid that started at some other
+ * time is a stranger wearing a recycled number. Everything unsure
+ * resolves to leaving the fleet alone, because the cost of that is an
+ * orphan running to a backstop it would have reached anyway, and the
+ * cost of being wrong the other way is cancelling work somebody is
+ * sitting in front of.
+ */
+export async function abandonedFleets(
+	runs: readonly FleetRun[],
+	facts: ProcessFacts,
+): Promise<readonly FleetRun[]> {
+	const abandoned: FleetRun[] = [];
+	// Asked once per session rather than once per fleet. Every fleet
+	// one session dispatched names the same pid, the answer cannot
+	// change while this runs, and the population being walked is the
+	// one designed to grow: a hundred held fleets from one dead session
+	// is a hundred subprocesses at every session start.
+	const asked = new Map<number, number | undefined>();
+	for (const run of runs) {
+		if (run.open !== true) continue;
+		const owner = run.owner;
+		if (owner === undefined) continue;
+		if (!facts.alive(owner.pid)) {
+			abandoned.push(run);
+			continue;
+		}
+		if (!asked.has(owner.pid)) {
+			asked.set(owner.pid, await facts.startedAt(owner.pid));
+		}
+		const observed = asked.get(owner.pid);
+		// Nothing could say, so liveness is the only evidence there is
+		// and it says somebody is there. It fails open, which is why it
+		// is the fallback rather than the rule.
+		if (observed === undefined) continue;
+		if (!sameProcess(observed, owner.startedAt)) abandoned.push(run);
+	}
+	return abandoned;
+}
+
+/**
+ * This process, as something a later session can check.
+ *
+ * The counterpart of {@link abandonedFleets} and here beside it, so
+ * the two spellings of an owner cannot drift: one writes the pair, the
+ * other believes it.
+ *
+ * Nothing at all when the machine will not report a birthday, rather
+ * than a pid on its own. A bare pid is worse than no owner, because
+ * absent reads as "still waiting" and a pid the machine cannot
+ * identify reads as whatever wears that number next.
+ */
+export async function whoIsWaiting(
+	facts: ProcessFacts,
+	pid: number = process.pid,
+): Promise<FleetRun["owner"]> {
+	const startedAt = await facts.startedAt(pid);
+	return startedAt === undefined ? undefined : { pid, startedAt };
 }
 
 /** Which fleets nothing has read yet, and what could not be asked. */
@@ -345,6 +442,35 @@ function isFleetRun(value: unknown): value is FleetRun {
 	return (
 		typeof run.id === "string" &&
 		typeof run.startedAt === "string" &&
-		Array.isArray(run.jobs)
+		Array.isArray(run.jobs) &&
+		isOwner(run.owner)
+	);
+}
+
+/**
+ * Whether an owner is one, or is honestly absent.
+ *
+ * Checked rather than trusted because of which way a half-written one
+ * falls. An owner with a pid and no birthday cannot be identified, so
+ * it reads as a session that has gone, and this is the field that
+ * decides whether a fleet is offered up for deletion. A record that
+ * cannot be believed is better refused whole: unreadable stops the
+ * sweep, and being offered a live fleet to delete does not.
+ */
+function isOwner(value: unknown): boolean {
+	// Null as well as undefined, since null is what JSON says when
+	// something writes the field out empty, and refusing the record
+	// over a spelling of "nobody" wedges the sweep for no reason.
+	if (value === undefined || value === null) return true;
+	if (typeof value !== "object") return false;
+	const owner = value as Record<string, unknown>;
+	return (
+		typeof owner.pid === "number" &&
+		// Positive, like the two sibling gates that decide whether to
+		// signal something. A zero or negative pid names a process
+		// group or nothing at all, and it must not reach a comparison
+		// that concludes a session is still alive.
+		owner.pid > 0 &&
+		typeof owner.startedAt === "number"
 	);
 }

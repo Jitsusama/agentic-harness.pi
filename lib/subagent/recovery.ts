@@ -119,10 +119,27 @@ export async function recoverReviewerRuns(
 					reviewerId,
 					reaper,
 				);
-				if (standing.kind === "running") {
+				if (standing.kind === "running" || standing.kind === "starting") {
+					// Starting counts as active here, and the distinction is
+					// the whole reason it exists. A run whose directory is
+					// there and whose lease is not is one that began moments
+					// ago, since the lease is written before anything is
+					// spawned; filing it stale means a session starting in
+					// that window cancels a job another session just
+					// dispatched. There is nothing to reap either way, because
+					// nothing has been spawned yet.
 					active.push(progress);
 				} else {
-					stale.push(progress);
+					// Only the first time. Nothing empties this population:
+					// the progress and lease files stay exactly as they are,
+					// so every later session finds the same runs, and a
+					// caller reporting what it found would say the same line
+					// forever. The cancellation already on disk is the record
+					// that somebody has been here, and it is the only marker
+					// that survives the process that wrote it.
+					const told =
+						(await store.readJson<unknown>(paths.cancelPath)) !== null;
+					if (!told) stale.push(progress);
 					await store.requestReviewerCancellation(
 						runId,
 						reviewerId,

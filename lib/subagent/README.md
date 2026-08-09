@@ -99,7 +99,11 @@ companion skill.
   handed back and in the transcripts on disk, so a session
   that dies mid-fleet leaves the transcripts as the only
   copy. This is what says so, and what the sweep reads to
-  know which runs it may not take.
+  know which runs it may not take. It also records who was
+  waiting, so a later session can tell a fleet running
+  right now from one nobody came back for: both are open
+  records, and only the second is worth mentioning or safe
+  to offer to release.
 - `errno.ts`: what a filesystem error was, and how a run
   id is spelled as a path segment. Both are one definition
   because a caller reading "broken" as "missing" answers
@@ -108,7 +112,12 @@ companion skill.
   a record is for.
 - `recovery.ts`: replay on-disk artifacts back into
   `RecoverySummary`/`RecoveredReviewerProgress` records for
-  the parent to surface in-flight work.
+  the parent to surface in-flight work, and stop a child
+  whose supervisor died. A run whose lease has not been
+  written is starting rather than gone: the lease is
+  written before anything is spawned, so that window is
+  the beginning of every run, and reading it as gone
+  cancels a job another session dispatched moments ago.
 - `runpi/spawn.ts`: fire-and-forget runner. Cheapest path.
 - `runpi/supervisor.ts`: durable runner. Each call writes
   a request file, spawns `supervisor.mjs` detached and

@@ -225,7 +225,12 @@ That leaves one population that grows without a bound,
 and two things follow from it. The sweep says how many
 such fleets it held once there are enough to matter, and
 names both the directory holding the transcripts and the
-file to delete to let one go. Deleting that file is the
+file to delete to let one go. It says it only of the ones
+nobody is waiting for, which is why a record carries the
+pid and birthday of the session that dispatched it: a
+fleet another session is running right now is held too,
+and the only lever the message offers would unprotect
+work still being paid for. Deleting that file is the
 only release there is, and it is deliberate rather than
 automatic: nothing can tell whether somebody has read a
 transcript.
@@ -241,6 +246,23 @@ A ledger file that will not read stops the sweep, on this
 machine, until somebody deals with it. An empty protect
 set is not the cautious reading of a torn ledger: it is
 the one that deletes everything the ledger was keeping.
+
+Orphans are the other half, and they are narrower than
+they look. A fleet job is always one somebody is waiting
+for, so its request carries the waiting session's pid and
+the supervisor stops its child within half a second of
+that pid going. A session dying mid-fleet therefore
+leaves nothing running, which is asserted against the
+real supervisor script rather than assumed. What it does
+leave is transcripts, and that is what the ledger is for.
+
+The one orphan a fleet can have is a child whose
+supervisor was itself killed. That child was spawned into
+its own process group, so it outlives the supervisor,
+holding a model against a wall clock nothing is watching,
+and its pid was known only to the process that died. Each
+session start asks the same recovery the review side uses
+to stop those, and says which ones it stopped.
 
 One gap is known and open. A record for a fleet that
 never wrote a transcript is protected like any other and
