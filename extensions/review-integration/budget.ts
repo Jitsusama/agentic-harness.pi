@@ -12,7 +12,7 @@
  * with a new terminal state there.
  */
 
-import type { AskLimit, AskStop } from "../../lib/review/index.js";
+import type { AskLimit, AskStop, Participant } from "../../lib/review/index.js";
 import { DEFAULT_RUN_PI_TIMEOUT_MS } from "../../lib/subagent/runpi/spawn.js";
 import { WRAP_UP_TIMEOUT_MS } from "../../lib/subagent/subagent.js";
 
@@ -198,6 +198,41 @@ export function retryWouldRepeat(
 		"past what it needed and ask again, or take what it did send: a stopped " +
 		"reviewer's answer is kept, and the findings it finished are already read."
 	);
+}
+
+/**
+ * What bounds this one participant, given what bounds the round.
+ *
+ * One number for a whole fan-out has to be sized for its slowest
+ * member, so a roster mixing a small fast model with a large one at
+ * high thinking either holds slots the fast reviewers do not need or
+ * cuts the slow one off mid-thought. That is the shape of the incident
+ * this whole workstream came out of: the rounds that ran past fifteen
+ * minutes lost two, three, six and seven reviewers, and the eight
+ * minute rounds beside them lost none.
+ *
+ * Each clock on its own, because the three answer three different
+ * questions and a participant with a lot to read needs the wall moved
+ * and not the liveness guard.
+ */
+export function budgetFor(
+	participant: Participant,
+	round: ReviewerBudget,
+): ReviewerBudget {
+	return {
+		timeoutMs: positiveNumber(participant.backstopMs) ?? round.timeoutMs,
+		idleTimeoutMs: positiveNumber(participant.idleMs) ?? round.idleTimeoutMs,
+		// Zero is honoured here for the same reason it is honoured in the
+		// round's own config: it is the documented way to say do not
+		// interrupt me early. Read as a typo, a participant asking not to
+		// be interrupted would fall back to the round's reserve and be
+		// interrupted anyway, which is the one outcome nobody wrote it
+		// for.
+		wrapUpReserveMs:
+			participant.answerMs === 0
+				? 0
+				: (positiveNumber(participant.answerMs) ?? round.wrapUpReserveMs),
+	};
 }
 
 export function reviewerBudget(section: unknown): ReviewerBudget {

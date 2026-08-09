@@ -13,7 +13,7 @@
  */
 
 import { isThinkingLevel, THINKING_LEVELS } from "../../thinking/index.js";
-import type { Participant } from "./identity.js";
+import type { Participant, ParticipantClocks } from "./identity.js";
 
 /** Settings a call may change for one round. */
 export interface ParticipantOverride {
@@ -31,6 +31,18 @@ export interface ParticipantOverride {
 	 * everywhere else. Per-round is the only scope that fits.
 	 */
 	persona?: string;
+	/**
+	 * Clocks for this one round.
+	 *
+	 * The adjustment somebody makes right after being told a reviewer
+	 * ran out of time, which is exactly when editing a committed file
+	 * and running again is the wrong shape. Unlike the model and the
+	 * thinking level, these do not change what a finding means, so the
+	 * identity ledger does not hold an id to them.
+	 */
+	backstopMs?: number;
+	idleMs?: number;
+	answerMs?: number;
 }
 
 /**
@@ -101,6 +113,11 @@ export function overrideRoster(
 					: { thinkingLevel: over.thinkingLevel }),
 				...(over.tools === undefined ? {} : { tools: over.tools }),
 				...(over.persona === undefined ? {} : { persona: over.persona }),
+				...(over.backstopMs === undefined
+					? {}
+					: { backstopMs: over.backstopMs }),
+				...(over.idleMs === undefined ? {} : { idleMs: over.idleMs }),
+				...(over.answerMs === undefined ? {} : { answerMs: over.answerMs }),
 			},
 			`the override for "${participant.id}"`,
 		);
@@ -191,6 +208,9 @@ export function parseParticipant(
 	const tools = optionalTools(value, path);
 	if ("refusal" in tools) return tools;
 
+	const clocks = optionalClocks(value, path);
+	if ("refusal" in clocks) return clocks;
+
 	return {
 		participant: {
 			id: name,
@@ -200,6 +220,7 @@ export function parseParticipant(
 				? {}
 				: { thinkingLevel: thinkingLevel.text }),
 			...(tools.tools === undefined ? {} : { tools: tools.tools }),
+			...clocks.clocks,
 		},
 	};
 }
@@ -299,6 +320,45 @@ function optionalText(
 		};
 	}
 	return { text };
+}
+
+/**
+ * The clocks this participant sets for itself, if it sets any.
+ *
+ * Refused rather than ignored where the number cannot be used, on the
+ * same reasoning the model and the thinking level get: a clock written
+ * down and silently dropped is a reviewer running under settings
+ * nobody chose, and the one place to catch it is before anybody is
+ * asked and before anybody is billed.
+ *
+ * Zero passes only for `answerMs`, which is the documented way to say
+ * do not interrupt me early. A zero wall or a zero idle clock stops
+ * the reviewer the instant it starts, which nobody writing one meant.
+ */
+function optionalClocks(
+	value: Record<string, unknown>,
+	path: string,
+): { clocks: ParticipantClocks } | { refusal: string } {
+	const clocks: ParticipantClocks = {};
+	for (const key of ["backstopMs", "idleMs", "answerMs"] as const) {
+		if (!(key in value) || value[key] === undefined) continue;
+		const held = value[key];
+		if (typeof held !== "number" || !Number.isFinite(held)) {
+			return {
+				refusal: `${path}.${key} must be a number of milliseconds.`,
+			};
+		}
+		if (held < 0 || (held === 0 && key !== "answerMs")) {
+			return {
+				refusal:
+					`${path}.${key} is ${held}, which would stop this reviewer ` +
+					`the moment it started. Give it a duration in milliseconds, ` +
+					`or leave it out to take the round's.`,
+			};
+		}
+		clocks[key] = held;
+	}
+	return { clocks };
 }
 
 /** The tool palette, refused as a whole if any entry is not a name. */

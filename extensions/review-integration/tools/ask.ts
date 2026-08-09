@@ -89,6 +89,7 @@ import { fromScript } from "../../../lib/subagent/runpi/fresh.js";
 import { THINKING_LEVELS } from "../../../lib/thinking/index.js";
 import { count } from "../../../lib/ui/count.js";
 import {
+	budgetFor,
 	type ReviewerBudget,
 	retryWouldRepeat,
 	reviewerBudget,
@@ -266,10 +267,28 @@ export function registerAskTool(pi: ExtensionAPI): void {
 									"The lens to read through, by id. A `repo:` id is one the repo under review defined for itself, which action roster lists; anything else is one of your own personas.",
 							}),
 						),
+						backstopMs: Type.Optional(
+							Type.Number({
+								description:
+									"How long this one may run before something stops it regardless, in milliseconds. The round's applies to everybody who does not say, and a round's has to be sized for its slowest member, so this is what gives one reviewer the wall it needs without holding the rest to it.",
+							}),
+						),
+						idleMs: Type.Optional(
+							Type.Number({
+								description:
+									"How long this one may say nothing at all before it counts as wedged, in milliseconds. A different question from the wall clock: it fires on silence rather than on effort.",
+							}),
+						),
+						answerMs: Type.Optional(
+							Type.Number({
+								description:
+									"How much of this one's wall is kept back to ask it for what it has, in milliseconds. Zero switches that off, so it runs to the wall instead of being asked early.",
+							}),
+						),
 					}),
 					{
 						description:
-							"Settings for this round only, by participant id, overriding the configured roster: model, thinkingLevel, tools and persona. Ask with action roster to see who this roster has and what each is set to. A name this round will not ask is refused rather than ignored, since a round that silently skipped the setting still costs what a round costs, and a council does not ask the judge. An id that has raised findings in this session is held to what it meant, so overriding one is refused as reconfiguring it in the file would be; across sessions that ledger is rebuilt and the findings carry their own run. Not accepted on a retry, which substitutes its answer into a round that already recorded what it asked under.",
+							"Settings for this round only, by participant id, overriding the configured roster: model, thinkingLevel, tools, persona and the three clocks. Ask with action roster to see who this roster has and what each is set to. A name this round will not ask is refused rather than ignored, since a round that silently skipped the setting still costs what a round costs, and a council does not ask the judge. An id that has raised findings in this session is held to what it meant, so overriding one is refused as reconfiguring it in the file would be; across sessions that ledger is rebuilt and the findings carry their own run. Not accepted on a retry, which substitutes its answer into a round that already recorded what it asked under.",
 					},
 				),
 			),
@@ -705,7 +724,7 @@ async function startRound(
 		...(params.intent === undefined ? {} : { intent: params.intent }),
 		...conventions,
 	});
-	const budget = await budgetForRound();
+	const round = await budgetForRound();
 	const starter = reviewerStarter(getParentPiInstall(), runArtifactDir());
 	const store = createRunStore(runDir());
 	const contract = contractSkill("council");
@@ -758,7 +777,11 @@ async function startRound(
 					runId,
 					stateDir: runArtifactDir(),
 					startPi: starter,
-					...budget,
+					// The same per-participant resolution the waiting path
+					// makes. A detached round is the one where a clock matters
+					// most, since nobody is watching to notice a reviewer cut
+					// off early.
+					...budgetFor(participant, round),
 				});
 			},
 		},
@@ -1252,14 +1275,6 @@ async function retryOne(
 		);
 	}
 
-	// A stopped reviewer is not a failed one, and asking it again while
-	// the clock that stopped it has not moved spends the same money to
-	// meet the same wall. Refused rather than warned about: the whole
-	// point is that the outcome is known in advance.
-	const before = held.outcomes.find((o) => o.participantId === asked.id);
-	const repeats = retryWouldRepeat(before?.stopped, await budgetForRound());
-	if (repeats !== undefined) return refuse(repeats);
-
 	// The round to change settings for is the next one, not this one.
 	const resettles = retryCannotResettle(params.who, held, asked.id);
 	if (resettles !== undefined) return refuse(resettles);
@@ -1273,6 +1288,23 @@ async function retryOne(
 			`The roster no longer names "${asked.id}", so it cannot be asked again. Re-add it to the config, or run a fresh round.`,
 		);
 	}
+
+	// A stopped reviewer is not a failed one, and asking it again while
+	// the clock that stopped it has not moved spends the same money to
+	// meet the same wall. Refused rather than warned about: the whole
+	// point is that the outcome is known in advance.
+	//
+	// Judged after the roster is read, because the clocks are this
+	// participant's and the roster is where it keeps them. Against the
+	// round's, a reviewer given a wall of its own would be refused on a
+	// number it was never held to, and the refusal would name the knob
+	// that does not move it.
+	const before = held.outcomes.find((o) => o.participantId === asked.id);
+	const repeats = retryWouldRepeat(
+		before?.stopped,
+		budgetFor(participant, await budgetForRound()),
+	);
+	if (repeats !== undefined) return refuse(repeats);
 
 	await claimIdentities(change, asked.role, [participant]);
 	const { proposal, diff } = await material(bound);
@@ -1480,6 +1512,27 @@ function clipped(text: string): string {
 	return flat.length <= MOST_WORDS ? flat : `${flat.slice(0, MOST_WORDS)}...`;
 }
 
+/**
+ * The clocks a participant keeps, where it keeps any.
+ *
+ * Named in the units they are written in rather than prettied into
+ * minutes, since the reader of this listing is about to write one of
+ * these numbers into a config file or an override.
+ */
+function clocksOf(one: Participant): string[] {
+	return [
+		...(one.backstopMs === undefined ? [] : [`backstop ${one.backstopMs}ms`]),
+		...(one.idleMs === undefined ? [] : [`idle ${one.idleMs}ms`]),
+		...(one.answerMs === undefined
+			? []
+			: [
+					one.answerMs === 0
+						? "no early wrap-up"
+						: `wrap-up reserve ${one.answerMs}ms`,
+				]),
+	];
+}
+
 async function reportRoster(): Promise<Answer> {
 	// What the file says, deliberately without this call's overrides.
 	// Applying them here would print them back as though somebody had
@@ -1497,9 +1550,13 @@ async function reportRoster(): Promise<Answer> {
 				? []
 				: [`${one.thinkingLevel} thinking`]),
 			...(one.persona === undefined ? [] : [`the ${one.persona} persona`]),
-			// One of the three things an override can change, so leaving it
-			// out made the listing silent about a third of its own subject.
+			// One of the things an override can change, so leaving it out
+			// made the listing silent about part of its own subject. The
+			// clocks are here for the same reason: a reviewer given a wall
+			// of its own is the one somebody is most likely to be looking
+			// for when they come to read this.
 			...(one.tools === undefined ? [] : [`tools ${one.tools.join(", ")}`]),
+			...clocksOf(one),
 		].join(", ");
 		lines.push(`${GLYPH.target} ${one.id} (${role}): ${at}`);
 	};
@@ -1586,14 +1643,6 @@ async function reportRoster(): Promise<Answer> {
 }
 
 /**
- * What bounds this round's reviewers, as configured.
- *
- * Read from the same section the roster comes from, because who is
- * asked and how long they get are one decision about one fan-out.
- * Falls back to the defaults for any config that cannot be read: a
- * round is better bounded generously than refused over a budget.
- */
-/**
  * Keep one answer, and never let keeping it cost the round.
  *
  * A full disk or a read-only state directory is a reason to lose the
@@ -1612,6 +1661,18 @@ async function keptAt(
 	}
 }
 
+/**
+ * What bounds this round's reviewers, as configured.
+ *
+ * Read from the same section the roster comes from, because who is
+ * asked and how long they get are one decision about one fan-out.
+ * Falls back to the defaults for any config that cannot be read: a
+ * round is better bounded generously than refused over a budget.
+ *
+ * The floor rather than the whole answer, since a participant may keep
+ * clocks of its own. Narrow it with `budgetFor` before handing it to
+ * anything that spawns or judges one reviewer.
+ */
 async function budgetForRound(): Promise<ReviewerBudget> {
 	const loaded = await loadPackageConfig(packageConfigPath());
 	if (!loaded.ok) return reviewerBudget(undefined);
@@ -1839,7 +1900,11 @@ function deps(
 			prompt: string,
 			context: AskContext,
 		): Promise<AskAnswer> {
-			const budget = await bounds;
+			// This participant's, which is the round's unless it keeps its
+			// own. Resolved here rather than once for the round, because a
+			// clock sized for the slowest member is a clock every faster
+			// member is also held to.
+			const budget = budgetFor(participant, await bounds);
 			// Taken here rather than from the result, since what a run cost
 			// in wall time is a fact about the round and the runner does
 			// not report one.

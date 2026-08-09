@@ -225,3 +225,75 @@ describe("overriding a roster for one round", () => {
 		});
 	});
 });
+
+describe("a clock one participant keeps", () => {
+	it("is read off the roster it was written in", () => {
+		const parsed = parseParticipant(
+			{ id: "opus", backstopMs: 5_400_000, answerMs: 0 },
+			"review.ask.reviewers[0]",
+		);
+
+		expect(parsed).toEqual({
+			participant: { id: "opus", backstopMs: 5_400_000, answerMs: 0 },
+		});
+	});
+
+	it("is refused where it would stop the reviewer at once", () => {
+		// The same rule the model and the level get. A clock written down
+		// and silently dropped is a reviewer running under settings
+		// nobody chose, and the one place to catch it is before anybody
+		// is asked and before anybody is billed.
+		expect(
+			parseParticipant(
+				{ id: "hawk", backstopMs: 0 },
+				"review.ask.reviewers[0]",
+			),
+		).toEqual({
+			refusal:
+				"review.ask.reviewers[0].backstopMs is 0, which would stop this " +
+				"reviewer the moment it started. Give it a duration in " +
+				"milliseconds, or leave it out to take the round's.",
+		});
+		expect(
+			parseParticipant({ id: "hawk", idleMs: -1 }, "review.ask.reviewers[0]"),
+		).toMatchObject({ refusal: expect.stringContaining("idleMs is -1") });
+		expect(
+			parseParticipant(
+				{ id: "hawk", answerMs: "90s" },
+				"review.ask.reviewers[0]",
+			),
+		).toEqual({
+			refusal:
+				"review.ask.reviewers[0].answerMs must be a number of milliseconds.",
+		});
+	});
+
+	it("can be moved for one round, which is when somebody asks", () => {
+		// The adjustment made right after being told a reviewer ran out
+		// of time. Editing a committed file and running again is the
+		// wrong shape for that, and it is the shape this had.
+		const over = overrideRoster(ROSTER, { hawk: { backstopMs: 5_400_000 } });
+
+		expect(over).toEqual({
+			roster: expect.objectContaining({
+				reviewers: [
+					{
+						id: "hawk",
+						persona: "architect",
+						model: "anthropic/claude-opus-5",
+						backstopMs: 5_400_000,
+					},
+					{ id: "owl", persona: "test-skeptic", thinkingLevel: "high" },
+				],
+			}),
+		});
+	});
+
+	it("goes through the same gate wherever it was written", () => {
+		// An override is easier to get wrong than a file, since nobody
+		// reviews it, so it is the road that most needs the refusal.
+		expect(overrideRoster(ROSTER, { owl: { idleMs: 0 } })).toMatchObject({
+			refusal: expect.stringContaining('the override for "owl".idleMs is 0'),
+		});
+	});
+});

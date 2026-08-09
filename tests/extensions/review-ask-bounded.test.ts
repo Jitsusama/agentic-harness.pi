@@ -27,8 +27,10 @@
  * which is why both are asserted here together.
  */
 
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+	budgetFor,
 	REVIEWER_ANSWER_MS,
 	REVIEWER_BACKSTOP_MS,
 	REVIEWER_IDLE_MS,
@@ -191,5 +193,90 @@ describe("asking a stopped reviewer again", () => {
 		expect(
 			retryWouldRepeat({ limit: "cancelled", detail: "cancelled" }, budget),
 		).toBe(undefined);
+	});
+});
+
+describe("what bounds one participant", () => {
+	const round = reviewerBudget(undefined);
+
+	it("holds a participant to the round's clocks by default", () => {
+		// A roster where nobody says otherwise is one fan-out under one
+		// set of numbers, which is what it has always been.
+		expect(budgetFor({ id: "hawk" }, round)).toEqual(round);
+	});
+
+	it("gives one participant the wall it needs", () => {
+		// The reason this is a knob at all. A roster mixing a small fast
+		// model with a large one at high thinking has to be sized for the
+		// slowest, so either the fast reviewers hold slots nobody needs
+		// them to hold or the slow one is cut off mid-thought. The evidence
+		// is the incident this work came out of: rounds of 15.6, 16.0,
+		// 15.1 and 15.8 minutes lost two, three, six and seven reviewers,
+		// while the 7.8 and 8.4 minute rounds beside them lost none.
+		const slower = budgetFor({ id: "opus", backstopMs: 90 * 60 * 1000 }, round);
+
+		expect(slower.timeoutMs).toBe(90 * 60 * 1000);
+		// And nothing else moves with it, since the three clocks answer
+		// three different questions.
+		expect(slower.idleTimeoutMs).toBe(round.idleTimeoutMs);
+		expect(slower.wrapUpReserveMs).toBe(round.wrapUpReserveMs);
+	});
+
+	it("takes each clock on its own", () => {
+		expect(
+			budgetFor({ id: "owl", idleMs: 20 * 60 * 1000 }, round),
+		).toMatchObject({
+			idleTimeoutMs: 20 * 60 * 1000,
+			timeoutMs: round.timeoutMs,
+		});
+		expect(budgetFor({ id: "owl", answerMs: 90_000 }, round)).toMatchObject({
+			wrapUpReserveMs: 90_000,
+		});
+	});
+
+	it("lets a participant switch its own soft deadline off", () => {
+		// Zero is the documented way to turn the soft deadline off, and it
+		// has to keep meaning that one level down. Treated as a typo here,
+		// a participant asking not to be interrupted would fall back to
+		// the round's reserve and be interrupted anyway.
+		expect(budgetFor({ id: "wren", answerMs: 0 }, round)).toMatchObject({
+			wrapUpReserveMs: 0,
+		});
+	});
+
+	it("is what every place a reviewer is bounded asks for", () => {
+		// The join, which is the failure this project keeps making: two
+		// spawn sites and a retry gate each take a budget, and a
+		// per-participant clock honoured at one of the three is a clock
+		// that works in a waiting round and not in a detached one, or
+		// works until somebody retries.
+		//
+		// Found by reading the file rather than by driving it, because
+		// the two spawns want a live provider and a tree, and a gate that
+		// needs both is a gate nobody runs.
+		const source = readFileSync(
+			new URL(
+				"../../extensions/review-integration/tools/ask.ts",
+				import.meta.url,
+			),
+			"utf8",
+		);
+		// The declaration is one of these, so the call sites are one
+		// fewer than the mentions.
+		const asks = source.split("budgetForRound()").length - 2;
+		const resolved = source.split("budgetFor(participant,").length - 1;
+
+		// Both numbers named, since a pair compared only against each
+		// other agrees just as happily at zero: a file that had stopped
+		// bounding reviewers at all would pass.
+		expect({ asks, resolved }).toEqual({ asks: 3, resolved: 3 });
+	});
+
+	it("ignores a clock that could not be used", () => {
+		// The same rule the round's own config gets. A zero or negative
+		// backstop would stop this reviewer the instant it started, which
+		// is never what somebody writing one meant.
+		expect(budgetFor({ id: "wren", backstopMs: 0 }, round)).toEqual(round);
+		expect(budgetFor({ id: "wren", idleMs: -1 }, round)).toEqual(round);
 	});
 });
