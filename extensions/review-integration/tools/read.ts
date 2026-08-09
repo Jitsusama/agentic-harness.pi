@@ -225,7 +225,7 @@ async function attachChange(
 	// diff. So this reports where things stand and names the call that
 	// would change it, which is a choice rather than a slow surprise.
 	const proposal = await bound.proposal();
-	const standing = treeStandingFor(bound.repo, proposal?.headCommit);
+	const standing = await treeStandingFor(bound.repo, proposal?.headCommit);
 	const aboutTrees =
 		standing.kind === "cut"
 			? `\n   Reading it in ${displayPath(standing.path)}.`

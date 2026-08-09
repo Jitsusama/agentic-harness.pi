@@ -874,7 +874,12 @@ async function askJudge(
 		deps(change, tree.path, watch, charters),
 	);
 
-	await store.record(change, run);
+	// Upserted, not appended. This round wrote itself down before it
+	// asked anybody, so appending here files it twice under one id and
+	// leaves the first copy open forever: protected, never swept, and
+	// nagging at every session start. A settle is the same round
+	// arriving in its finished state, which is what `keep` means.
+	await store.keep(change, run);
 	return say(answerFor(run, warnings, tree.caveat), { run, warnings });
 }
 
@@ -1365,7 +1370,7 @@ async function retryOne(
 						...read,
 						...given,
 					},
-					deps(change, tree.path, watch, charters, held.id),
+					substituting(deps(change, tree.path, watch, charters, held.id)),
 				)
 			: await runCouncil(
 					{
@@ -2067,11 +2072,16 @@ function deps(
  *
  * A retry runs one participant through the council path to substitute
  * its outcome into a round that already exists. That path now opens a
- * ledger entry before it asks, which is right for a council and wrong
- * here: it would leave a one-participant round on the ledger that
- * nothing ever settles, and an unsettled round is precisely the signal
- * meaning a session died holding one. The retry would manufacture the
- * alarm it is meant to help answer.
+ * ledger entry before it asks, which is right for a round somebody
+ * asked for and wrong here: it would leave a one-participant round on
+ * the ledger that nothing ever settles, and an unsettled round is
+ * precisely the signal meaning a session died holding one. The retry
+ * would manufacture the alarm it is meant to help answer.
+ *
+ * Both retries, now that the judge writes itself down too. Only the
+ * council path was wrapped, which was harmless for exactly as long as
+ * the judge ignored the callback, and became a stray round the day it
+ * stopped.
  */
 function substituting(deps: CouncilDeps): Omit<CouncilDeps, "opened"> {
 	// Typed against CouncilDeps rather than a structural constraint.

@@ -44,9 +44,11 @@ const BROWSER_TESTS = "tests/browser/**/*.test.ts";
  * that was too busy. Two cases failed that way for weeks, both green
  * whenever anybody ran them alone, which is the signature.
  *
- * Run one file at a time, and run by `pnpm test`, unlike the browser
- * lane: these are seconds rather than minutes, and they cover the
- * paths where being wrong costs a running model nobody can reach.
+ * Run one file at a time. Named individually rather than matched by
+ * a pattern, because what belongs here is not a directory: it is the
+ * handful of suites that spawn node from node, and a rule broad
+ * enough to catch them by shape would catch every test that shells
+ * out to git.
  */
 const PROCESS_TESTS = [
 	"tests/lib/subagent/runpi/supervisor.test.ts",

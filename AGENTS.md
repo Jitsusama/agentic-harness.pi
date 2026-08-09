@@ -490,7 +490,7 @@ Run the suite with:
 
 ```sh
 pnpm test            # everything, about 94s
-pnpm test:unit       # skip the browser and process tests, about 26s
+pnpm test:unit       # only the unit project, about 26s
 pnpm test:browser    # only the browser tests
 pnpm test:watch      # re-run on save
 pnpm test:coverage   # v8 coverage report
@@ -619,8 +619,10 @@ four workers of ordinary tests starves the very child it is watching,
 and the failure reads as a reviewer that would not spawn rather than
 as a machine that was busy. Two cases failed that way for weeks and
 were green whenever anybody ran them alone, which is the signature.
-Add a test that spawns a process to that list. It costs about 45
-seconds and `pnpm test` runs it, unlike the browser lane.
+Add a test that spawns node from node to that list; the five there
+now are the supervisor and reviewer suites, not every test that
+shells out. It costs about 45 seconds, and `pnpm test` runs every
+project, this one included.
 
 CI runs `pnpm lint`, `pnpm typecheck` and `pnpm test` on every push
 and pull request via `.github/workflows/ci.yml`, as three parallel

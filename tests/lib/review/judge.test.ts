@@ -87,29 +87,40 @@ describe("asking a judge", () => {
 		// of the two runners that take it.
 		const opened: AskRun[] = [];
 		const base = deps({ text: consolidated() });
+		// Recorded and asserted afterwards, never inside the callback.
+		// `askOne` folds a thrown runner into a reported failure, so an
+		// expectation raised in there is swallowed and the case passes
+		// however the ordering comes out. The first version of this test
+		// did exactly that and could not fail on the thing it is named
+		// for.
+		const order: string[] = [];
 
 		await runJudge(
-			{ judge, prompt: "p", seq: 1 },
+			{ judge, prompt: "p", seq: 1, witness: "abc1234" },
 			{
 				...base,
-				async ask(participant, prompt, runId) {
-					// Read here, which is the claim: written down before the
-					// asking rather than at some point during it.
-					expect(opened.map((run) => run.id)).toEqual([runId]);
-					return base.ask(participant, prompt, runId);
+				async ask(participant, prompt, context) {
+					order.push("asked");
+					return base.ask(participant, prompt, context);
 				},
 				async opened(run) {
+					order.push("written down");
 					opened.push(run);
 				},
 			},
 		);
 
+		expect(order).toEqual(["written down", "asked"]);
 		expect(opened).toHaveLength(1);
 		expect(opened[0]?.open).toBe(true);
 		expect(opened[0]?.round).toBe("judge");
 		// The judge as a judge, so a ledger entry for an interrupted
 		// round says who was asked rather than merely that somebody was.
 		expect(opened[0]?.participants.map((one) => one.role)).toEqual(["judge"]);
+		// And what it read, which is the half most worth having on an
+		// interrupted round: whoever finds one has nothing else saying
+		// which commit it was formed against.
+		expect(opened[0]?.witness).toBe("abc1234");
 	});
 
 	it("runs even when writing it down throws", async () => {
