@@ -80,12 +80,11 @@ function isProvider(data: unknown): data is ReviewProvider {
  * ten megabytes across rotations, so a busy day writes hundreds of
  * megabytes. Keeping a transcript is what makes a lost round
  * diagnosable; keeping every transcript ever written is just a disk
- * that fills. A round somebody may still be coming back for, because
- * it never finished or because it is still open on the ledger, is
- * held to the long window instead. Held to it, though, and not
- * excused from every window: a detached round nobody ever collects is
- * a round nobody is ever going to collect, and four weeks is a
- * generous reading of "about to be read".
+ * that fills. An unfinished run is held far longer, because that is
+ * the one somebody may still be trying to recover, and a round still
+ * open on the ledger is held until somebody settles it, because until
+ * they collect it these files are the only copy of what its reviewers
+ * said.
  */
 const ROUNDS_RETAIN = 100;
 const ROUNDS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -117,23 +116,23 @@ async function reclaimRoundTranscripts(): Promise<void> {
 	const transcripts = runArtifactDir();
 	const attached = attachmentDir();
 	const mine = sessionKey();
-	// Which rounds are still waiting to be collected. A detached round
-	// is finished on disk and unfinished to the person who started it,
-	// and this is the only thing that tells the two apart: without it
-	// the sweep deletes reviews that have been paid for and were about
-	// to be read. It buys them the long window, not immunity.
-	let protect: ReadonlySet<string> = new Set();
-	try {
-		protect = await createRunStore(runDir()).openRunIds();
-	} catch {
-		// An unreadable ledger must not stop the sweep, but it must not
-		// licence one either: an empty protect set is the cautious
-		// reading only because the sweep below keeps anything it is
-		// unsure about for the abandoned window first.
-	}
 	// Separately, because one failing is not a reason to skip the
 	// other, and the transcript sweep races other sessions by nature.
 	try {
+		// Which rounds are still waiting to be collected. A detached
+		// round is finished on disk and unfinished to the person who
+		// started it, and this is the only thing that tells the two
+		// apart: without it the sweep deletes reviews that have been paid
+		// for and were about to be read.
+		//
+		// Inside the try, so a ledger that will not read takes the sweep
+		// with it. An empty set is not the cautious reading of an
+		// unreadable ledger, it is the most destructive one: a detached
+		// round that finished on disk is terminal, so with nothing
+		// protecting it the ordinary week takes it, and the findings go
+		// while the ledger entry advertising them stays. Skipping costs a
+		// session's worth of disk, and the next session sweeps.
+		const protect = await createRunStore(runDir()).openRunIds();
 		const swept = await new ReviewerArtifactsStore(
 			transcripts,
 		).cleanupTerminalRuns({
@@ -149,11 +148,17 @@ async function reclaimRoundTranscripts(): Promise<void> {
 		// being full. Only the failures: a sweep doing its job every
 		// session start has nothing to say.
 		for (const warning of swept.warnings) {
-			console.error(`[review] round transcripts: ${warning}`);
+			console.error(`[review-integration] round transcripts: ${warning}`);
 		}
-	} catch {
+	} catch (error) {
 		// Advisory. A sweep that cannot run costs disk, and failing the
-		// session over it would cost the session.
+		// session over it would cost the session. Named rather than
+		// silent, since the two things that land here are a ledger that
+		// will not read and a store that will not walk, and both mean
+		// this directory is now growing with nothing watching it.
+		console.error(
+			`[review-integration] round transcripts were not swept: ${error instanceof Error ? error.message : String(error)}`,
+		);
 	}
 	try {
 		await pruneAttachments(attached, {

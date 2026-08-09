@@ -688,15 +688,14 @@ way the round would have. Name the round with `run:"id"` when more than
 one is unsettled, since collecting files findings against the change
 and doing that to the wrong round cannot be undone.
 
-Do not sit on one indefinitely. A round is megabytes of event stream
-per reviewer, so what they leave on disk is swept eventually, and
-being open on the ledger buys a long window rather than an exemption:
-about four weeks, against the week an ordinary finished round gets.
-After that the round is still on the ledger and there is nothing left
-to collect, which `collect` says rather than guessing at. What each
-reviewer actually said outlives the sweep, because a finding's
-provenance has to survive housekeeping, but it is the transcripts a
-collect reads.
+Until you collect it, what its reviewers wrote is on disk in one
+place and one only. A round you sat and waited for archives each
+answer as it arrives, and a round you collect archives them then, so
+those survive the housekeeping that eventually clears the raw event
+streams. A started round that was never collected has archived
+nothing: collecting it is what makes its findings durable. Nothing
+sweeps it out from under you, since the sweep is told which rounds
+are still open, but nothing else is keeping a second copy either.
 
 ## Attach the Change, Then Stop Naming It
 
