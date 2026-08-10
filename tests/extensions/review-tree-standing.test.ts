@@ -83,9 +83,12 @@ describe("where a change's tree stands", () => {
 			"work snapshot",
 		);
 		expect(standing.kind === "none" && standing.would).toContain(REPO.key);
-		expect(standing.kind === "none" && standing.would).toContain(
-			COMMIT.slice(0, 12),
-		);
+		// The whole commit, because this is a command rather than a
+		// description of one. It used to be abbreviated for reading, and
+		// running what it said then failed: a fetch of an unmerged head
+		// answers `couldn't find remote ref d99232b14cb8`, which reads as
+		// a commit that does not exist rather than one named too short.
+		expect(standing.kind === "none" && standing.would).toContain(COMMIT);
 	});
 
 	it("reports the tree already cut for that commit", async () => {
