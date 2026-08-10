@@ -97,19 +97,35 @@ describe("treeRequestFrom", () => {
 		expect(refusal).toMatch(/purpose/);
 	});
 
-	// A repo with neither a checkout nor a remote cannot be cut
-	// from at all, and the provider would otherwise be asked to
-	// work it out and fail further from the cause.
-	it("refuses a repo that is neither on disk nor remote", () => {
-		const refusal = refused(
-			treeRequestFrom({
+	// Whether a repo can be cut from is the provider's question, and
+	// this used to answer it on the git provider's behalf: no local
+	// path and no remote was refused here, before any provider was
+	// chosen. A provider needing neither could therefore never be
+	// reached. The World one needs neither, since `dev tree` knows
+	// where World lives, so a World snapshot could only be cut by
+	// naming a checkout the provider then ignored, and a World review
+	// round with nothing configured degraded to the caller's own
+	// tree rather than cutting the tree that was waiting for it.
+	//
+	// The git provider refuses this for itself, closer to the cause
+	// and with more to say: it separates nothing known at all from
+	// known only as a remote it declines to clone unasked.
+	it("leaves a repo that is neither on disk nor remote to the provider", () => {
+		const outcome = treeRequestFrom({
+			intent: "worktree",
+			repo: { key: "github:Shopify/world" },
+			purpose: "fix",
+			branch: "topic",
+		});
+
+		expect(outcome).toEqual({
+			request: {
 				intent: "worktree",
 				repo: { key: "github:Shopify/world" },
 				purpose: "fix",
 				branch: "topic",
-			}),
-		);
-		expect(refusal).toMatch(/checkout|remote/);
+			},
+		});
 	});
 
 	// Sending a commit to a worktree is a different error from
