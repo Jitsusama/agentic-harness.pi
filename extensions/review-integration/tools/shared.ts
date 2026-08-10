@@ -270,6 +270,51 @@ export async function boundFor(
  * proposed into another repo at all, while listing another repo's
  * changes succeeds and answers a question nobody asked.
  */
+/**
+ * The repo an action is about, for the one action that is about a
+ * repo rather than a change.
+ *
+ * Everything else on this surface needs a change, so {@link boundFor}
+ * insists on one: a reference, a range, a stack, or the attachment
+ * standing in for all three. Listing is the exception, and going
+ * through that resolution anyway meant naming the one thing the
+ * action is about was refused with "Name a change".
+ *
+ * The refusal was worse than it read, because the way out was to
+ * attach a change in the repo you wanted to list, which means already
+ * knowing one of the answers you were asking for. A session that has
+ * just started has nothing attached, which is exactly when somebody
+ * asks what is open here.
+ *
+ * A change still wins when there is one, since resolution through it
+ * carries the repo it was resolved against. `bound` comes back with
+ * it, so the caller can still check a named checkout against it; the
+ * question cannot arise on the other path, where the checkout is what
+ * was resolved.
+ */
+export async function repoToList(
+	pi: ExtensionAPI,
+	params: TargetParams,
+	cwd: string,
+): Promise<{
+	provider: BoundTarget["provider"];
+	repo: BoundTarget["repo"];
+	bound?: BoundTarget;
+}> {
+	const named =
+		params.change !== undefined ||
+		(params.refs?.length ?? 0) > 0 ||
+		(params.heads?.length ?? 0) > 0 ||
+		(params.base !== undefined && params.head !== undefined);
+	if (!named && (await attachments().list()).length === 0) {
+		const { engine } = await reviewEngine(pi);
+		const serving = await engine.serving(cwd);
+		return { provider: serving.provider, repo: serving.repo };
+	}
+	const bound = await boundFor(pi, params, cwd);
+	return { provider: bound.provider, repo: bound.repo, bound };
+}
+
 export async function checkoutElsewhere(
 	pi: Pick<ExtensionAPI, "exec">,
 	cwd: string,

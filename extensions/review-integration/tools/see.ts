@@ -51,6 +51,7 @@ import {
 	refuseFailure,
 	renderAnswer,
 	renderInvocation,
+	repoToList,
 	say,
 	type TargetParams,
 	threadsOf,
@@ -565,14 +566,13 @@ async function seeChanges(
 	},
 ): Promise<Answer> {
 	const cwd = params.repo ?? process.cwd();
-	// Through the shared resolution, so the attached change counts here like
-	// it does everywhere else. This used to resolve `params.change` alone and
-	// refuse without it, telling a person to name a change in the repo they
-	// meant while one sat attached naming that very repo. The reasoning
-	// written above it was that listing is about a repo rather than a change;
-	// true, and beside the point, since a change is how this surface has
-	// always named a repo.
-	const bound = await boundFor(pi, params, cwd);
+	// A change when there is one, and otherwise the checkout itself.
+	// The attached change counts here like it does everywhere else,
+	// which is why this goes through the shared resolution at all; but
+	// a change is how this surface usually names a repo, not the only
+	// way, and insisting on one refused the caller who named the very
+	// thing the action is about.
+	const bound = await repoToList(pi, params, cwd);
 
 	// Naming a repo and being answered about another one is the failure
 	// this guards. Resolution prefers the change in play, which is right
@@ -581,8 +581,8 @@ async function seeChanges(
 	// disagrees with the attachment is a contradiction rather than a
 	// detail. Only checked when the caller named one, since falling back
 	// to the attachment's repo is the documented convenience.
-	if (params.repo) {
-		const apart = await checkoutElsewhere(pi, params.repo, bound);
+	if (params.repo && bound.bound) {
+		const apart = await checkoutElsewhere(pi, params.repo, bound.bound);
 		if (apart) {
 			return refuse(
 				`You named ${apart.checkout}, and the change in play is on ${apart.repo}, so this would list ${apart.repo} instead. Detach that change, or name a change in ${apart.checkout}.`,
