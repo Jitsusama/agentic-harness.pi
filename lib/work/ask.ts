@@ -15,7 +15,14 @@
 
 import type { TreeRequest } from "./tree.js";
 
-/** A repo, as loosely as a caller may name one. */
+/**
+ * A repo, as loosely as a caller may name one.
+ *
+ * Nothing here reads the last two. They are carried through to the
+ * provider, which is the only thing that knows whether it needs a
+ * checkout, a remote or neither, and they are declared here because
+ * this is the shape a caller fills in.
+ */
 export interface AskedRepo {
 	key: string;
 	remoteUrl?: string;
@@ -46,16 +53,25 @@ export function treeRequestFrom(ask: TreeAsk): TreeRequestOutcome {
 		};
 	}
 
-	// Neither on disk nor reachable is a dead end, and the provider
-	// would otherwise be the one to discover it, further from the
-	// cause and with less to say about it.
-	if (!ask.repo.localPath && !ask.repo.remoteUrl) {
-		return {
-			refusal:
-				`No tree can be cut for ${ask.repo.key}: it has neither a ` +
-				"local checkout nor a remote. Name one of the two.",
-		};
-	}
+	// Where a tree can be cut from is deliberately not asked here.
+	// It reads like the same kind of question as the rest, and it is
+	// not: the others are about whether the caller's own words hang
+	// together, which is knowable from the words. This one is about
+	// the world, and the answer belongs to whichever provider is
+	// about to be chosen.
+	//
+	// Answering it here answered it for the git provider, which does
+	// need a checkout or a remote, and imposed that on every other
+	// provider before one was picked. A provider needing neither
+	// could not be reached at all: `dev tree` knows where World
+	// lives, so a World snapshot could only be cut by naming a
+	// checkout the provider then ignored, and a World review round
+	// with nothing configured degraded to reading the caller's own
+	// tree while the right tree sat there waiting to be used.
+	//
+	// The git provider refuses it for itself, closer to the cause
+	// and with more to say: nothing known at all is a different
+	// answer from known only as a remote it will not clone unasked.
 
 	if (ask.intent === "worktree") {
 		if (!ask.branch) {
