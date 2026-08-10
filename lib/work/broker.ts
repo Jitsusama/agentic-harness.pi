@@ -9,6 +9,7 @@
  * `provider.ts`, so what is left here is genuinely just custody.
  */
 
+import type { Owner } from "../process/index.js";
 import type { TreeMemory } from "./memory.js";
 import { chooseTreeProvider, type TreeProviderInfo } from "./provider.js";
 import {
@@ -30,6 +31,16 @@ export interface HeldTree {
 	 * dynamic, and a tree has to go back to whoever made it.
 	 */
 	providerId: string;
+	/**
+	 * The session that cut it, when the machine would say.
+	 *
+	 * Optional because a record written before this existed has none,
+	 * and because a machine that will not report a start time gives
+	 * half an identity, which is worse than none: a pid alone reads as
+	 * whoever holds that number next. Absent means "nobody can say",
+	 * which every reader here treats as still held.
+	 */
+	owner?: Owner;
 }
 
 /** Something that can cut a tree and take it back. */
@@ -84,6 +95,21 @@ export interface TreeBroker {
 	 * plainly existed, with commits inside it and no way back to them.
 	 */
 	held(): readonly HeldTree[];
+	/**
+	 * Those a running session would miss, which is a narrower set.
+	 *
+	 * `held` answers what is reachable, and that has to include a dead
+	 * session's trees: finding them is the whole reason the record
+	 * exists. This answers what is claimed, which is the only question
+	 * worth asking before taking a directory away, and the two were
+	 * the same set for as long as nothing recorded who cut anything.
+	 * Every tree ever cut therefore read as claimed, so nothing was
+	 * ever reclaimable: 59 records and 649MB on the machine where
+	 * this was found.
+	 */
+	stillHeld(): Promise<readonly HeldTree[]>;
+	/** Those held only because nothing recorded who cut them. */
+	unattributed(): readonly HeldTree[];
 	/** Whether this session is the one that cut a tree, for a listing to say so. */
 	cutHere(path: string): boolean;
 }
@@ -144,6 +170,25 @@ export function createTreeBroker(
 	};
 
 	return {
+		unattributed() {
+			// Never this session's. Ours were stamped as they were cut, so
+			// anything unattributable came from a record on disk.
+			const mine = new Set(trees.map((tree) => tree.path));
+			return (memory?.unattributed() ?? []).filter(
+				(tree) => !mine.has(tree.path),
+			);
+		},
+
+		async stillHeld() {
+			const mine = new Set(trees.map((tree) => tree.path));
+			// Ours are held by definition, whatever a record says: this
+			// process is running, since it is the one asking.
+			const earlier = (await memory?.heldNow())?.filter(
+				(tree) => !mine.has(tree.path),
+			);
+			return [...trees, ...(earlier ?? [])];
+		},
+
 		async ensure(request) {
 			// Searches remembered trees too, so a second session reuses what the
 			// first cut instead of asking a provider to cut a tree that is
@@ -175,7 +220,15 @@ export function createTreeBroker(
 				providerId: choice.provider.id,
 			};
 			trees.push(held);
-			memory?.remember(held);
+			// Awaited, though it costs a `ps` on the way out of every cut.
+			// Left running in the background it is a write that may not
+			// have happened when the caller gets the tree, and a one-shot
+			// session can be gone by then: the record exists precisely so
+			// the next session finds the tree, so losing the race loses
+			// the tree, which is the fault this whole module was written
+			// for. A few milliseconds against cutting a worktree is not a
+			// cost worth that.
+			await memory?.rememberHeldByUs(held);
 			return held;
 		},
 

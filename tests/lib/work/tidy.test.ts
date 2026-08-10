@@ -173,6 +173,26 @@ describe("trees left behind", () => {
 		expect(kept?.decide).toBeUndefined();
 	});
 
+	it("puts a tree nobody's name is on to a person, not to a rule", () => {
+		// Every record written before the broker stamped an owner. There
+		// is no sound way to attribute one after the fact: the machine
+		// has not rebooted since they were written, so nothing can be
+		// ruled out that way, and an age threshold reclaims a live
+		// session's tree the first time somebody leaves one open over a
+		// weekend. Neither held nor reclaimable, and self-clearing.
+		const path = "/repo/.worktrees/from-before";
+		const plan = orphanedTrees({
+			...ask([{ path: main }, { path, mergedIntoTrunk: true }]),
+			unattributed: [path],
+		});
+
+		// Merged and unheld, so the rules alone would have reclaimed it.
+		expect(plan.reclaimable).toEqual([]);
+		const kept = plan.retained.at(-1);
+		expect(kept?.decide).toBe(true);
+		expect(kept?.why).toContain("who cut it");
+	});
+
 	it("names both readings when nothing can prove the work landed", () => {
 		const plan = orphanedTrees(
 			ask([{ path: main }, { path: "/repo/.worktrees/x", branch: "plan-9" }]),

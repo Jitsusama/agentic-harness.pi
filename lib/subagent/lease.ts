@@ -16,20 +16,19 @@
  * ours did is the only question with a true answer.
  */
 
-import { execFile } from "node:child_process";
 import { stat } from "node:fs/promises";
-import { promisify } from "node:util";
+import {
+	type ProcessFacts,
+	SAME_PROCESS_MS,
+	sameProcess,
+	systemFacts,
+} from "../process/index.js";
 import type { ReviewerArtifactsStore } from "./artifacts.js";
 
-/**
- * How far apart two observations of one process's birth may be.
- *
- * The supervisor stamps its own clock; the operating system stamped
- * its own a moment earlier, and reports it to the second. Two seconds
- * is scheduling noise. A recycled pid is minutes or hours away, never
- * this.
- */
-export const SAME_PROCESS_MS = 2_000;
+// Re-exported rather than moved out of sight. These were defined here
+// first and the whole of `lib/subagent` imports them from here, so the
+// extraction is not an excuse to touch thirty call sites.
+export { type ProcessFacts, SAME_PROCESS_MS, sameProcess, systemFacts };
 
 /**
  * How stale a heartbeat may be before its writer is presumed gone.
@@ -64,33 +63,6 @@ export interface LeaseRecord {
 	readonly completedAt?: string | null;
 	readonly updatedAt?: string | null;
 	readonly state?: string;
-}
-
-/**
- * Asking the machine about a process.
- *
- * Injected because it is the one part of this that cannot be decided
- * from a file, and because a test that exercises it for real is a test
- * that kills something by a number it read off disk.
- */
-export interface ProcessFacts {
-	/** When this process started, or undefined when nothing can say. */
-	startedAt(pid: number): Promise<number | undefined>;
-	/** Whether anything is wearing this pid at all. */
-	alive(pid: number): boolean;
-}
-
-/**
- * Whether two observations describe the same process.
- *
- * Two-sided on purpose. Only refusing the later ones would let a pid
- * that has been around far longer than our child pass: a lease holding
- * a garbage or truncated pid can name `1`, and `1` started at boot,
- * which is emphatically earlier. Signalling that process group is not
- * a mistake anybody gets to make twice.
- */
-export function sameProcess(observed: number, recorded: number): boolean {
-	return Math.abs(observed - recorded) <= SAME_PROCESS_MS;
 }
 
 /**
@@ -198,48 +170,3 @@ async function begun(
  * is a run reported as starting when it is not.
  */
 export const STARTING_FOR_MS = 5 * 60 * 1000;
-
-/** Asking the operating system, which is what the real thing must do. */
-export const systemFacts: ProcessFacts = {
-	async startedAt(pid) {
-		try {
-			// `lstart` rather than `etime`, because elapsed time is
-			// relative to now and the comparison wants an absolute
-			// moment. LC_ALL is pinned because the output is a formatted
-			// date: under a locale Date.parse cannot read, every identity
-			// check would decline and the reaper would turn itself off
-			// without saying anything.
-			const { stdout } = await promisify(execFile)(
-				"ps",
-				["-o", "lstart=", "-p", String(pid)],
-				{ timeout: PS_TIMEOUT_MS, env: { ...process.env, LC_ALL: "C" } },
-			);
-			const parsed = Date.parse(stdout.trim());
-			return Number.isNaN(parsed) ? undefined : parsed;
-		} catch {
-			// No such process, no ps, or a process table too wedged to
-			// answer in time. Nothing here knows what it would be
-			// talking about, and saying so is the safe answer.
-			return undefined;
-		}
-	},
-	alive(pid) {
-		try {
-			process.kill(pid, 0);
-			return true;
-		} catch {
-			// No such process, or one we may not signal. Either way it is
-			// not a supervisor of ours.
-			return false;
-		}
-	},
-};
-
-/**
- * How long to wait for the process table.
- *
- * Startup recovery walks every reviewer directory and this runs inside
- * that walk, so an unbounded probe against a wedged process table
- * stalls a session's startup rather than one reviewer's recovery.
- */
-const PS_TIMEOUT_MS = 2_000;

@@ -114,9 +114,16 @@ async function treesLeftBehind(
 			...tree,
 			path: resolved(tree.path),
 		})),
-		remembered: [...broker.held().map((one) => one.path), ...claims.paths].map(
-			resolved,
-		),
+		// `stillHeld`, not `held`. A tree stays in the record after the
+		// session that cut it has gone, deliberately, so that the next
+		// session can find it: asking the wider question here meant every
+		// tree ever cut answered "something still holds it" and nothing
+		// was ever reclaimable.
+		remembered: [
+			...(await broker.stillHeld()).map((one) => one.path),
+			...claims.paths,
+		].map(resolved),
+		unattributed: broker.unattributed().map((one) => resolved(one.path)),
 	});
 }
 

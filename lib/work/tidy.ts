@@ -43,6 +43,22 @@ export interface OrphanAsk {
 	 * that costs work.
 	 */
 	remembered: readonly string[];
+	/**
+	 * Those whose record says nothing about who cut them.
+	 *
+	 * Every record written before the broker stamped an owner is one of
+	 * these, and there is no sound way to attribute one after the fact.
+	 * The obvious rules all fail. The machine has not rebooted since
+	 * they were written, so nothing can be ruled out that way, and any
+	 * age threshold is a guess that takes a live session's tree the
+	 * first time somebody leaves one open over a weekend.
+	 *
+	 * So they are neither held nor reclaimable: they are reported as a
+	 * decision for a person, which is the honest answer and is also
+	 * self-clearing, since a tree taken this way is gone and every tree
+	 * cut from now on carries an owner.
+	 */
+	unattributed?: readonly string[];
 }
 
 /** A tree nothing claims any more, and what was in it. */
@@ -83,6 +99,7 @@ export interface OrphanPlan {
  */
 export function orphanedTrees(ask: OrphanAsk): OrphanPlan {
 	const held = new Set(ask.remembered);
+	const unattributed = new Set(ask.unattributed ?? []);
 	const reclaimable: Reclaimable[] = [];
 	const retained: Retained[] = [];
 
@@ -93,6 +110,16 @@ export function orphanedTrees(ask: OrphanAsk): OrphanPlan {
 
 		if (tree.path === ask.mainPath) {
 			keep("it is the checkout the others hang off");
+			continue;
+		}
+		if (unattributed.has(tree.path)) {
+			// Ahead of the held check, because a path in both sets is in
+			// this one for a reason: `remembered` is what a session claims,
+			// and a claim with nobody's name on it is exactly this.
+			keep(
+				"it was recorded before the broker wrote down who cut it, so nothing can say whether a running session still wants it",
+				true,
+			);
 			continue;
 		}
 		if (held.has(tree.path)) {

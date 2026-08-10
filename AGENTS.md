@@ -43,6 +43,16 @@ The package manager is **pnpm**. `pnpm-lock.yaml` is canonical;
     module because both `lib/review` and `lib/work` need it and
     neither owns it; `lib/review` re-exports it, since downstream
     packages import `Exec` from that barrel
+  - `lib/process/`: asking the machine about a process, and saying
+    which one you meant (public). Its own module on the `lib/exec`
+    reasoning: `lib/subagent` asks whether the supervisor holding a
+    reviewer's lease is still there and `lib/work` asks whether the
+    session holding a worktree is, which is one question, and the
+    second was about to be answered by a second copy of the first.
+    A pid identifies nothing on its own, so the start time travels
+    with it everywhere here; `lib/subagent/lease.ts` re-exports what
+    it used to define, since the whole of that module imports these
+    from there
   - `lib/remote/`: naming a git remote to a person (public). Its
     own module for the same reason `lib/exec` is: both
     `lib/review` and `lib/work` show a remote in their refusals,

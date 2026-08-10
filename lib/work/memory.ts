@@ -15,6 +15,12 @@
  * only supplies the identity a directory name cannot faithfully carry. When the
  * two disagree the directory wins, because somebody who deletes a tree by hand
  * has said something and a stale record has not.
+ *
+ * A record also says who cut it, which is a later addition and the reason
+ * anything is ever reclaimed. Without it "remembered" and "held" were one set,
+ * so every tree ever cut answered "something still holds it" forever: measured
+ * at 59 records and 649MB on one machine, growing by a snapshot per review
+ * round.
  */
 
 import {
@@ -26,16 +32,51 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import {
+	isOwner,
+	ownerNow,
+	ownerStanding,
+	type ProcessFacts,
+	systemFacts,
+} from "../process/index.js";
 import type { HeldTree } from "./broker.js";
 
 /** Somewhere to write down what was cut. */
 export interface TreeMemory {
 	/** Write a tree down, so a later session can find it. */
 	remember(held: HeldTree): void;
+	/**
+	 * Write a tree down as held by this session.
+	 *
+	 * Separate from `remember`, which stays exactly as literal as it was: a
+	 * caller replaying a record, or a test constructing one, must be able to
+	 * write what it means rather than have this process's identity stamped
+	 * over it.
+	 */
+	rememberHeldByUs(held: HeldTree): Promise<void>;
 	/** Forget one, once it has genuinely gone. */
 	forget(path: string): void;
 	/** Every tree written down that is still on disk. */
 	recall(): readonly HeldTree[];
+	/**
+	 * Those a running session still holds.
+	 *
+	 * Distinct from `recall`, which must keep returning a dead session's
+	 * trees: reusing the snapshot a finished round left behind is the point
+	 * of a shareable tree, and it is what lets six reviewers of one commit
+	 * share one directory. This is the narrower question tidy asks, and only
+	 * tidy: whether taking the directory away would pull it out from under
+	 * somebody.
+	 */
+	heldNow(facts?: ProcessFacts): Promise<readonly HeldTree[]>;
+	/**
+	 * Those whose record does not say who cut them.
+	 *
+	 * A subset of what `heldNow` returns, since an unattributable tree is
+	 * counted as held: this names them so a caller can report them as the
+	 * decision they are rather than as a claim somebody made.
+	 */
+	unattributed(): readonly HeldTree[];
 }
 
 /** A record as it sits on disk. */
@@ -100,6 +141,15 @@ export function createTreeMemory(dir: string): TreeMemory {
 			);
 		},
 
+		async rememberHeldByUs(held) {
+			// Stamped here rather than by the caller, so a tree cannot be
+			// written down without the identity that lets it be released
+			// later. The owner is this process: whoever asks the broker for a
+			// tree is the session that will be holding it.
+			const owner = await ownerNow();
+			this.remember({ ...held, ...(owner === undefined ? {} : { owner }) });
+		},
+
 		forget(path) {
 			for (const { at, held } of all()) {
 				if (held.path === path) rmSync(at, { force: true });
@@ -120,6 +170,29 @@ export function createTreeMemory(dir: string): TreeMemory {
 				rmSync(at, { force: true });
 			}
 			return found;
+		},
+
+		unattributed() {
+			return this.recall().filter((tree) => !isOwner(tree.owner));
+		},
+
+		async heldNow(facts = systemFacts) {
+			const held: HeldTree[] = [];
+			for (const tree of this.recall()) {
+				// No owner recorded means nobody can say, and every record
+				// written before owners existed is one of these. Reading it as
+				// nobody's would offer a live session's trees for reclaiming on
+				// the first run of this code, which is worse than the leak it
+				// fixes.
+				if (!isOwner(tree.owner)) {
+					held.push(tree);
+					continue;
+				}
+				if ((await ownerStanding(tree.owner, facts)) !== "gone") {
+					held.push(tree);
+				}
+			}
+			return held;
 		},
 	};
 }
