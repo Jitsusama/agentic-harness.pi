@@ -9,6 +9,7 @@
  * `provider.ts`, so what is left here is genuinely just custody.
  */
 
+import type { Owner } from "../process/index.js";
 import type { TreeMemory } from "./memory.js";
 import { chooseTreeProvider, type TreeProviderInfo } from "./provider.js";
 import {
@@ -30,6 +31,22 @@ export interface HeldTree {
 	 * dynamic, and a tree has to go back to whoever made it.
 	 */
 	providerId: string;
+	/**
+	 * The sessions holding it, which is a list because a snapshot is
+	 * shareable and two of them can want the same commit at once.
+	 *
+	 * One field would mean the second session to take a shared tree
+	 * erased the first, and the first is still working in it: a single
+	 * owner is only correct for a tree nobody may share, and the
+	 * shareable kind is the kind this leaks most of.
+	 *
+	 * Optional because a record written before this existed has none,
+	 * and because a machine that will not report a start time gives
+	 * half an identity, which is worse than none: a pid alone reads as
+	 * whoever holds that number next. Absent means "nobody can say",
+	 * which every reader here treats as still held.
+	 */
+	owners?: Owner[];
 }
 
 /** Something that can cut a tree and take it back. */
@@ -58,7 +75,18 @@ export interface TreeProvider extends TreeProviderInfo {
  * success for doing nothing is the one outcome nobody can detect.
  */
 export type ReleaseOutcome =
-	| { kind: "released" }
+	| {
+			kind: "released";
+			/**
+			 * How many other sessions are still standing in it, when the
+			 * directory was therefore left where it is.
+			 *
+			 * Absent means it was taken down. A caller that tells somebody
+			 * the tree is gone would otherwise be wrong for a shared
+			 * snapshot, which is the kind two sessions hold at once.
+			 */
+			kept?: number;
+	  }
 	/** Nothing here can remove it, so it is still there and still recorded. */
 	| {
 			kind: "no-provider";
@@ -84,6 +112,21 @@ export interface TreeBroker {
 	 * plainly existed, with commits inside it and no way back to them.
 	 */
 	held(): readonly HeldTree[];
+	/**
+	 * Those a running session would miss, which is a narrower set.
+	 *
+	 * `held` answers what is reachable, and that has to include a dead
+	 * session's trees: finding them is the whole reason the record
+	 * exists. This answers what is claimed, which is the only question
+	 * worth asking before taking a directory away, and the two were
+	 * the same set for as long as nothing recorded who cut anything.
+	 * Every tree ever cut therefore read as claimed, so nothing was
+	 * ever reclaimable: 59 records and 649MB on the machine where
+	 * this was found.
+	 */
+	stillHeld(): Promise<readonly HeldTree[]>;
+	/** Those held only because nothing recorded who cut them. */
+	unattributed(): readonly HeldTree[];
 	/** Whether this session is the one that cut a tree, for a listing to say so. */
 	cutHere(path: string): boolean;
 }
@@ -144,6 +187,25 @@ export function createTreeBroker(
 	};
 
 	return {
+		unattributed() {
+			// Never this session's. Ours were stamped as they were cut, so
+			// anything unattributable came from a record on disk.
+			const mine = new Set(trees.map((tree) => tree.path));
+			return (memory?.unattributed() ?? []).filter(
+				(tree) => !mine.has(tree.path),
+			);
+		},
+
+		async stillHeld() {
+			const mine = new Set(trees.map((tree) => tree.path));
+			// Ours are held by definition, whatever a record says: this
+			// process is running, since it is the one asking.
+			const earlier = (await memory?.heldNow())?.filter(
+				(tree) => !mine.has(tree.path),
+			);
+			return [...trees, ...(earlier ?? [])];
+		},
+
 		async ensure(request) {
 			// Searches remembered trees too, so a second session reuses what the
 			// first cut instead of asking a provider to cut a tree that is
@@ -153,7 +215,20 @@ export function createTreeBroker(
 			const reusable = everything().find((tree) =>
 				satisfies(tree.identity, request),
 			);
-			if (reusable) return reusable;
+			if (reusable) {
+				// Taking a tree is holding it, however it was obtained. A
+				// reused tree still carries whoever cut it, and that session
+				// is usually gone: without this, the tree this session is
+				// working in reads as nobody's, and reclaiming it is exactly
+				// the thing that must never happen. Held locally as well,
+				// since our own list is what makes this session's answer true
+				// whatever the record on disk says.
+				if (!trees.some((tree) => tree.path === reusable.path)) {
+					trees.push(reusable);
+				}
+				await memory?.rememberHeldByUs(reusable);
+				return reusable;
+			}
 
 			const choice = chooseTreeProvider(roster(), request.repo);
 			if (choice.kind === "none") {
@@ -175,7 +250,15 @@ export function createTreeBroker(
 				providerId: choice.provider.id,
 			};
 			trees.push(held);
-			memory?.remember(held);
+			// Awaited, though it costs a `ps` on the way out of every cut.
+			// Left running in the background it is a write that may not
+			// have happened when the caller gets the tree, and a one-shot
+			// session can be gone by then: the record exists precisely so
+			// the next session finds the tree, so losing the race loses
+			// the tree, which is the fault this whole module was written
+			// for. A few milliseconds against cutting a worktree is not a
+			// cost worth that.
+			await memory?.rememberHeldByUs(held);
 			return held;
 		},
 
@@ -199,6 +282,19 @@ export function createTreeBroker(
 
 			const at = trees.findIndex((tree) => tree.path === held.path);
 			if (at >= 0) trees.splice(at, 1);
+
+			// Giving up our share of a shared tree is not taking it away.
+			// A snapshot can be held by two sessions, and once this change
+			// started writing that down, releasing had to read it: taking
+			// the directory while somebody else is standing in it is the
+			// failure this whole change is about, arriving through the one
+			// door that always could remove a tree.
+			const others = await memory?.otherHolders(held.path);
+			if (others !== undefined && others.length > 0) {
+				await memory?.forgetUsAsHolder(held.path);
+				return { kind: "released", kept: others.length };
+			}
+
 			// Forgotten before the provider acts, so a provider that throws
 			// halfway does not leave a record claiming a tree that is now
 			// half-gone. A record for a tree still on disk is recoverable on the

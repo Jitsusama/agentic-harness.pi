@@ -41,6 +41,13 @@ from internal files.
   which is what lets six reviewers of one commit share a
   single tree. Tree providers register over the event bus, so
   one can live in another package.
+- **[`process/`](process/)**: asking the machine about a
+  process, and saying which one you meant. A pid identifies
+  nothing on its own, since the operating system hands the
+  number out again, so the start time travels with it and a
+  live pid whose start time disagrees is a stranger. Both the
+  subagent leases and the tree memory ask this, which is why
+  it is neither's.
 - **[`remote/`](remote/)**: naming a git remote to a person.
   A remote can carry a token as its user or as its password,
   so a refusal that names one verbatim prints a live secret.

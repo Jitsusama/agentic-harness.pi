@@ -43,6 +43,22 @@ export interface OrphanAsk {
 	 * that costs work.
 	 */
 	remembered: readonly string[];
+	/**
+	 * Those whose record says nothing about who cut them.
+	 *
+	 * Every record written before the broker stamped an owner is one of
+	 * these, and there is no sound way to attribute one after the fact.
+	 * The obvious rules all fail. The machine has not rebooted since
+	 * they were written, so nothing can be ruled out that way, and any
+	 * age threshold is a guess that takes a live session's tree the
+	 * first time somebody leaves one open over a weekend.
+	 *
+	 * So they are neither held nor reclaimable: they are reported as a
+	 * decision for a person, which is the honest answer and is also
+	 * self-clearing, since a tree taken this way is gone and every tree
+	 * cut from now on carries an owner.
+	 */
+	unattributed?: readonly string[];
 }
 
 /** A tree nothing claims any more, and what was in it. */
@@ -83,6 +99,7 @@ export interface OrphanPlan {
  */
 export function orphanedTrees(ask: OrphanAsk): OrphanPlan {
 	const held = new Set(ask.remembered);
+	const unattributed = new Set(ask.unattributed ?? []);
 	const reclaimable: Reclaimable[] = [];
 	const retained: Retained[] = [];
 
@@ -111,6 +128,22 @@ export function orphanedTrees(ask: OrphanAsk): OrphanPlan {
 			// A refusal, not a decision. An uncommitted change exists in
 			// exactly one place and removing the tree ends it.
 			keep("it has uncommitted changes, which exist nowhere else");
+			continue;
+		}
+		if (unattributed.has(tree.path)) {
+			// Third, and each step of the order is a safety. Above a claim
+			// it downgraded somebody saying they want this now to nobody
+			// can say, which put a freshly claimed tree into the list a
+			// person is invited to clear. Above the dirty check it offered
+			// up a tree holding uncommitted work as a judgement call, and
+			// that work exists in exactly one place.
+			//
+			// Everything left here is unclaimed and committed, so the only
+			// thing missing is who wanted it.
+			keep(
+				"nothing recorded who cut it, so nothing can say whether a running session still wants it",
+				true,
+			);
 			continue;
 		}
 		if (tree.mergedIntoTrunk) {

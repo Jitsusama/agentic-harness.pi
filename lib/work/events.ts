@@ -74,7 +74,20 @@ export interface TreeClaims {
 	paths: string[];
 }
 
-/** What the host hands out over {@link WORK_READY}. */
+/**
+ * What the host hands out over {@link WORK_READY}.
+ *
+ * Adding a member to this, or to a type it hands back, is not the
+ * breaking change the version tag is for. A consumer that does not
+ * know about a member cannot call it, so every existing consumer
+ * keeps working unchanged; what breaks is a consumer calling a member
+ * an older host does not have, and that consumer is the one that has
+ * to be careful, since a version bump would only turn a missing
+ * method into a host it never hears from at all.
+ *
+ * Removing a member, renaming one, or changing what one returns is
+ * the breaking kind, and that is what ships as `:v2`.
+ */
 export interface WorkApi {
 	/** Register a tree provider. Replaces one with the same id. */
 	registerTreeProvider(provider: TreeProvider): void;

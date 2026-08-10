@@ -24,6 +24,7 @@
 		"./work": "./lib/work/index.ts",
 		"./clock": "./lib/clock/index.ts",
 		"./exec": "./lib/exec/index.ts",
+		"./process": "./lib/process/index.ts",
 		"./remote": "./lib/remote/index.ts",
 		"./result": "./lib/result/index.ts",
 		"./command": "./lib/command/index.ts",
