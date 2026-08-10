@@ -156,9 +156,17 @@ export async function treeStandingFor(
 	// exists has to go and work out which of nineteen actions makes
 	// one, and with which arguments, which is the moment they give up
 	// and run git themselves.
+	//
+	// The whole commit, because this is a command and not a
+	// description of one. Abbreviating it read better and did not
+	// run: a tree that has to fetch an unmerged head is answered by
+	// gitstream with `couldn't find remote ref d99232b14cb8`, which
+	// reads as a commit that does not exist rather than one named too
+	// short. Anything printed to be pasted has to survive being
+	// pasted.
 	return {
 		kind: "none",
-		would: `work snapshot repo:${repo.key} commit:${commit.slice(0, 12)} purpose:review`,
+		would: `work snapshot repo:${repo.key} commit:${commit} purpose:review`,
 	};
 }
 
