@@ -58,8 +58,38 @@ describe("createTreeBroker", () => {
 		const first = await broker.ensure(snapshot("abc123"));
 		const second = await broker.ensure(snapshot("abc123"));
 
+		// One tree, handed back both times.
 		expect(second).toEqual(first);
-		expect(cuts).toHaveLength(1);
+		// And the provider asked again, which is not a second cut: every
+		// provider treats already-there as the ordinary case, and the
+		// built-in one uses the second call to check the tree still
+		// stands at the commit its name claims. Returning on the record
+		// alone made that check unreachable for precisely the trees that
+		// had drifted, since a drifted tree is one somebody cut earlier.
+		expect(cuts).toHaveLength(2);
+	});
+
+	it("asks the provider again about a tree it already remembers", async () => {
+		// The provider is where the knowledge of what a correct tree
+		// looks like lives. A World snapshot left standing on main by an
+		// older version of its provider could never be pinned, because
+		// the pinning code sat behind a branch nothing reached once a
+		// record existed.
+		const { provider } = fakeProvider("git-worktree");
+		const asked: TreeRequest[] = [];
+		const watching: TreeProvider = {
+			...provider,
+			async ensure(request) {
+				asked.push(request);
+				return { path: "/trees/pinned" };
+			},
+		};
+		const broker = createTreeBroker([watching]);
+
+		await broker.ensure(snapshot("abc123"));
+		await broker.ensure(snapshot("abc123"));
+
+		expect(asked).toHaveLength(2);
 	});
 
 	it("cuts a second tree for a different request", async () => {
