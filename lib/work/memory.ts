@@ -34,9 +34,11 @@ import {
 import { join } from "node:path";
 import {
 	isOwner,
+	type Owner,
 	ownerNow,
 	ownerStanding,
 	type ProcessFacts,
+	sameProcess,
 	systemFacts,
 } from "../process/index.js";
 import type { HeldTree } from "./broker.js";
@@ -53,7 +55,7 @@ export interface TreeMemory {
 	 * write what it means rather than have this process's identity stamped
 	 * over it.
 	 */
-	rememberHeldByUs(held: HeldTree): Promise<void>;
+	rememberHeldByUs(held: HeldTree, facts?: ProcessFacts): Promise<void>;
 	/** Forget one, once it has genuinely gone. */
 	forget(path: string): void;
 	/** Every tree written down that is still on disk. */
@@ -84,6 +86,16 @@ interface Written {
 	identity?: HeldTree["identity"];
 	path?: string;
 	providerId?: string;
+}
+
+/** The holders a record names, ignoring anything malformed. */
+function named(tree: HeldTree): readonly Owner[] {
+	return (tree.owners ?? []).filter(isOwner);
+}
+
+/** Whether two records name one process. */
+function sameOwner(one: Owner, two: Owner): boolean {
+	return one.pid === two.pid && sameProcess(one.startedAt, two.startedAt);
 }
 
 /** Whether a record read back off disk says enough to be useful. */
@@ -141,13 +153,32 @@ export function createTreeMemory(dir: string): TreeMemory {
 			);
 		},
 
-		async rememberHeldByUs(held) {
+		async rememberHeldByUs(held, facts = systemFacts) {
 			// Stamped here rather than by the caller, so a tree cannot be
 			// written down without the identity that lets it be released
 			// later. The owner is this process: whoever asks the broker for a
 			// tree is the session that will be holding it.
-			const owner = await ownerNow();
-			this.remember({ ...held, ...(owner === undefined ? {} : { owner }) });
+			const us = await ownerNow(facts);
+			if (us === undefined) {
+				// The machine will not say when we started, so we cannot write
+				// an identity anybody could check later. Recording the tree
+				// without one is right: it reads as unattributable, which is
+				// held, and a tree wrongly held costs disk where a tree
+				// wrongly reclaimed costs work.
+				this.remember(held);
+				return;
+			}
+			// Added to whoever else holds it rather than replacing them. A
+			// snapshot is shareable, so two sessions can hold one tree, and
+			// the one that wrote last is not the only one that would miss it.
+			// Dead holders are left to be filtered on the way out rather than
+			// probed here, since this is on the path of every cut.
+			const before = (
+				this.recall().find((tree) => tree.path === held.path)?.owners ??
+				held.owners ??
+				[]
+			).filter((one) => isOwner(one) && !sameOwner(one, us));
+			this.remember({ ...held, owners: [...before, us] });
 		},
 
 		forget(path) {
@@ -173,24 +204,41 @@ export function createTreeMemory(dir: string): TreeMemory {
 		},
 
 		unattributed() {
-			return this.recall().filter((tree) => !isOwner(tree.owner));
+			return this.recall().filter((tree) => named(tree).length === 0);
 		},
 
 		async heldNow(facts = systemFacts) {
 			const held: HeldTree[] = [];
+			// One answer per process, not per record. Every reviewer of one
+			// round shares a session, so the same handful of pids recurs
+			// across the whole directory: without this, tidy forked `ps`
+			// once per record, serially, which is 59 spawns on the machine
+			// this was found on. The sibling ledger already memoizes this
+			// way and has a test holding it there.
+			const asked = new Map<number, Promise<"running" | "gone" | "unknown">>();
+			const standing = (owner: Owner) => {
+				const already = asked.get(owner.pid);
+				if (already !== undefined) return already;
+				const answer = ownerStanding(owner, facts);
+				asked.set(owner.pid, answer);
+				return answer;
+			};
+
 			for (const tree of this.recall()) {
-				// No owner recorded means nobody can say, and every record
+				const owners = named(tree);
+				// Nobody recorded means nobody can say, and every record
 				// written before owners existed is one of these. Reading it as
 				// nobody's would offer a live session's trees for reclaiming on
 				// the first run of this code, which is worse than the leak it
 				// fixes.
-				if (!isOwner(tree.owner)) {
+				if (owners.length === 0) {
 					held.push(tree);
 					continue;
 				}
-				if ((await ownerStanding(tree.owner, facts)) !== "gone") {
-					held.push(tree);
-				}
+				// Any one of them is enough. A shared snapshot outlives the
+				// first holder to finish with it.
+				const stands = await Promise.all(owners.map(standing));
+				if (stands.some((one) => one !== "gone")) held.push(tree);
 			}
 			return held;
 		},

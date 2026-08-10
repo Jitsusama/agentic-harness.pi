@@ -32,7 +32,13 @@ export interface HeldTree {
 	 */
 	providerId: string;
 	/**
-	 * The session that cut it, when the machine would say.
+	 * The sessions holding it, which is a list because a snapshot is
+	 * shareable and two of them can want the same commit at once.
+	 *
+	 * One field would mean the second session to take a shared tree
+	 * erased the first, and the first is still working in it: a single
+	 * owner is only correct for a tree nobody may share, and the
+	 * shareable kind is the kind this leaks most of.
 	 *
 	 * Optional because a record written before this existed has none,
 	 * and because a machine that will not report a start time gives
@@ -40,7 +46,7 @@ export interface HeldTree {
 	 * whoever holds that number next. Absent means "nobody can say",
 	 * which every reader here treats as still held.
 	 */
-	owner?: Owner;
+	owners?: Owner[];
 }
 
 /** Something that can cut a tree and take it back. */
@@ -198,7 +204,20 @@ export function createTreeBroker(
 			const reusable = everything().find((tree) =>
 				satisfies(tree.identity, request),
 			);
-			if (reusable) return reusable;
+			if (reusable) {
+				// Taking a tree is holding it, however it was obtained. A
+				// reused tree still carries whoever cut it, and that session
+				// is usually gone: without this, the tree this session is
+				// working in reads as nobody's, and reclaiming it is exactly
+				// the thing that must never happen. Held locally as well,
+				// since our own list is what makes this session's answer true
+				// whatever the record on disk says.
+				if (!trees.some((tree) => tree.path === reusable.path)) {
+					trees.push(reusable);
+				}
+				await memory?.rememberHeldByUs(reusable);
+				return reusable;
+			}
 
 			const choice = chooseTreeProvider(roster(), request.repo);
 			if (choice.kind === "none") {

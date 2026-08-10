@@ -193,6 +193,26 @@ describe("trees left behind", () => {
 		expect(kept?.why).toContain("who cut it");
 	});
 
+	it("lets a live claim outrank a record with nobody's name on it", () => {
+		// The ordering, which is the whole safety of the pair and which
+		// the case above cannot see, since it leaves the claim set empty.
+		// A quest holds trees against a piece of work and says so over
+		// the bus: that is something running making a positive statement,
+		// where an unattributed record is the absence of one. Asked in
+		// the wrong order, the claim was downgraded to a decision and a
+		// tree somebody had just claimed joined the list a person is
+		// invited to clear.
+		const path = "/repo/.worktrees/claimed";
+		const plan = orphanedTrees({
+			...ask([{ path: main }, { path, mergedIntoTrunk: true }], [path]),
+			unattributed: [path],
+		});
+
+		const kept = plan.retained.at(-1);
+		expect(kept?.why).toContain("still holds it");
+		expect(kept?.decide).toBeUndefined();
+	});
+
 	it("names both readings when nothing can prove the work landed", () => {
 		const plan = orphanedTrees(
 			ask([{ path: main }, { path: "/repo/.worktrees/x", branch: "plan-9" }]),

@@ -112,16 +112,6 @@ export function orphanedTrees(ask: OrphanAsk): OrphanPlan {
 			keep("it is the checkout the others hang off");
 			continue;
 		}
-		if (unattributed.has(tree.path)) {
-			// Ahead of the held check, because a path in both sets is in
-			// this one for a reason: `remembered` is what a session claims,
-			// and a claim with nobody's name on it is exactly this.
-			keep(
-				"it was recorded before the broker wrote down who cut it, so nothing can say whether a running session still wants it",
-				true,
-			);
-			continue;
-		}
 		if (held.has(tree.path)) {
 			// Not an orphan at all, and saying so matters: giving it back
 			// goes through whatever cut it, which knows things about taking
@@ -131,6 +121,20 @@ export function orphanedTrees(ask: OrphanAsk): OrphanPlan {
 			// same question. Naming the broker would be wrong for those.
 			keep(
 				"something still holds it, so give it back rather than reclaiming it",
+			);
+			continue;
+		}
+		if (unattributed.has(tree.path)) {
+			// After the held check, and the order is the safety. A claim is
+			// somebody saying they want this now: a quest holds trees
+			// against a piece of work and answers over the bus, and that is
+			// a positive statement from something running. An unattributed
+			// record is the absence of a statement. Asking this first
+			// downgraded the one to the other, which put a tree somebody
+			// had just claimed into the list a person is invited to clear.
+			keep(
+				"it was recorded before the broker wrote down who cut it, so nothing can say whether a running session still wants it",
+				true,
 			);
 			continue;
 		}

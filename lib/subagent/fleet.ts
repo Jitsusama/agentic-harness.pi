@@ -26,8 +26,13 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
+import {
+	type Owner,
+	ownerNow,
+	ownerStanding,
+	type ProcessFacts,
+} from "../process/index.js";
 import { isDirectory, isNotFound, safeSegment } from "./errno.js";
-import { type ProcessFacts, sameProcess } from "./lease.js";
 
 /** A fleet that was dispatched, as the ledger holds it. */
 export interface FleetRun {
@@ -54,18 +59,13 @@ export interface FleetRun {
 	 * nobody: reading it as nobody would cancel every fleet on an
 	 * older ledger at the next session start.
 	 */
-	readonly owner?: {
-		readonly pid: number;
-		/**
-		 * When that process started, so the pid can be checked.
-		 *
-		 * A pid identifies nothing on its own. The number comes round
-		 * again, and a stranger wearing it reads as the session still
-		 * being there, which is the reading that leaves an orphan
-		 * running.
-		 */
-		readonly startedAt: number;
-	};
+	/**
+	 * A pid and when that process started, because a pid identifies
+	 * nothing on its own: the number comes round again, and a stranger
+	 * wearing it reads as the session still being there, which is the
+	 * reading that leaves an orphan running.
+	 */
+	readonly owner?: Owner;
 }
 
 /**
@@ -102,24 +102,18 @@ export async function abandonedFleets(
 	// change while this runs, and the population being walked is the
 	// one designed to grow: a hundred held fleets from one dead session
 	// is a hundred subprocesses at every session start.
-	const asked = new Map<number, number | undefined>();
+	const asked = new Map<number, Promise<"running" | "gone" | "unknown">>();
 	for (const run of runs) {
 		if (run.open !== true) continue;
 		const owner = run.owner;
 		if (owner === undefined) continue;
-		if (!facts.alive(owner.pid)) {
-			abandoned.push(run);
-			continue;
-		}
-		if (!asked.has(owner.pid)) {
-			asked.set(owner.pid, await facts.startedAt(owner.pid));
-		}
-		const observed = asked.get(owner.pid);
-		// Nothing could say, so liveness is the only evidence there is
-		// and it says somebody is there. It fails open, which is why it
-		// is the fallback rather than the rule.
-		if (observed === undefined) continue;
-		if (!sameProcess(observed, owner.startedAt)) abandoned.push(run);
+		const already = asked.get(owner.pid) ?? ownerStanding(owner, facts);
+		asked.set(owner.pid, already);
+		// Only a decisive "gone" counts. Undecidable means the machine
+		// would not say when the pid started, so liveness is the only
+		// evidence there is and it says somebody is there: it fails open,
+		// which is why it is the fallback rather than the rule.
+		if ((await already) === "gone") abandoned.push(run);
 	}
 	return abandoned;
 }
@@ -140,8 +134,11 @@ export async function whoIsWaiting(
 	facts: ProcessFacts,
 	pid: number = process.pid,
 ): Promise<FleetRun["owner"]> {
-	const startedAt = await facts.startedAt(pid);
-	return startedAt === undefined ? undefined : { pid, startedAt };
+	// The shared one. Kept as a name of its own because the caller
+	// here is asking a question in this module's vocabulary, and
+	// because the two spellings of an owner cannot be allowed to drift
+	// whatever they are called.
+	return await ownerNow(facts, pid);
 }
 
 /** Which fleets nothing has read yet, and what could not be asked. */
@@ -443,12 +440,17 @@ function isFleetRun(value: unknown): value is FleetRun {
 		typeof run.id === "string" &&
 		typeof run.startedAt === "string" &&
 		Array.isArray(run.jobs) &&
-		isOwner(run.owner)
+		ownerIsWellFormed(run.owner)
 	);
 }
 
 /**
  * Whether an owner is one, or is honestly absent.
+ *
+ * Deliberately not the shared `isOwner`, which asks whether something
+ * identifies a process and answers no for absent. This asks whether a
+ * record may be believed, and absent is a perfectly believable record.
+ * They were briefly the same name for those two opposite answers.
  *
  * Checked rather than trusted because of which way a half-written one
  * falls. An owner with a pid and no birthday cannot be identified, so
@@ -457,7 +459,7 @@ function isFleetRun(value: unknown): value is FleetRun {
  * cannot be believed is better refused whole: unreadable stops the
  * sweep, and being offered a live fleet to delete does not.
  */
-function isOwner(value: unknown): boolean {
+function ownerIsWellFormed(value: unknown): boolean {
 	// Null as well as undefined, since null is what JSON says when
 	// something writes the field out empty, and refusing the record
 	// over a spelling of "nobody" wedges the sweep for no reason.

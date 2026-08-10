@@ -155,9 +155,14 @@ export const systemFacts: ProcessFacts = {
 		try {
 			process.kill(pid, 0);
 			return true;
-		} catch {
-			// No such process, or one we may not signal. Either way it is
-			// not ours.
+		} catch (error) {
+			// EPERM means a process is there and is not ours to signal,
+			// which is emphatically alive. Collapsing it into "gone" was
+			// safe reasoning for a supervisor we spawned ourselves, since
+			// one we may not signal cannot be ours; it is not safe for a
+			// worktree, where the holder can be another user's session and
+			// the penalty for guessing is deleting their work.
+			if ((error as NodeJS.ErrnoException)?.code === "EPERM") return true;
 			return false;
 		}
 	},
