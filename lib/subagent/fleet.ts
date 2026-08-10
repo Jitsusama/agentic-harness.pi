@@ -27,6 +27,7 @@ import {
 } from "node:fs/promises";
 import { join } from "node:path";
 import {
+	askedOnce,
 	type Owner,
 	ownerNow,
 	ownerStanding,
@@ -102,18 +103,22 @@ export async function abandonedFleets(
 	// change while this runs, and the population being walked is the
 	// one designed to grow: a hundred held fleets from one dead session
 	// is a hundred subprocesses at every session start.
-	const asked = new Map<number, Promise<"running" | "gone" | "unknown">>();
+	//
+	// What the machine said, not what was concluded from it. Caching
+	// the verdict here was a regression this had already got right:
+	// two fleets can name one pid with different start times, one
+	// stale and one live, and a verdict held by pid alone lets the
+	// stale one decide for the live one.
+	const once = askedOnce(facts);
 	for (const run of runs) {
 		if (run.open !== true) continue;
 		const owner = run.owner;
 		if (owner === undefined) continue;
-		const already = asked.get(owner.pid) ?? ownerStanding(owner, facts);
-		asked.set(owner.pid, already);
 		// Only a decisive "gone" counts. Undecidable means the machine
 		// would not say when the pid started, so liveness is the only
 		// evidence there is and it says somebody is there: it fails open,
 		// which is why it is the fallback rather than the rule.
-		if ((await already) === "gone") abandoned.push(run);
+		if ((await ownerStanding(owner, once)) === "gone") abandoned.push(run);
 	}
 	return abandoned;
 }

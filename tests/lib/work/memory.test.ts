@@ -22,7 +22,11 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { Owner, ProcessFacts } from "../../../lib/process/index.js";
+import {
+	type Owner,
+	type ProcessFacts,
+	systemFacts,
+} from "../../../lib/process/index.js";
 import {
 	createTreeBroker,
 	type HeldTree,
@@ -505,6 +509,75 @@ describe("a tree remembers which session cut it", () => {
 			theirs,
 			{ pid: process.pid, startedAt: 5000 },
 		]);
+	});
+
+	it("does not let one stale record answer for a live one", async () => {
+		// Two records naming one pid with different start times, which is
+		// what a recycled pid looks like from here. Caching the verdict
+		// rather than the fact let whichever was read first decide for
+		// both, so the live session's tree read as gone.
+		const memory = memoryAt();
+		memory.remember(tree("stale", { pid: 4001, startedAt: 1000 }));
+		memory.remember(tree("live", { pid: 4001, startedAt: 999_000 }));
+
+		const held = await memory.heldNow(machine({ 4001: 999_000 }));
+
+		expect(held.map((one) => one.identity.key)).toEqual(["live"]);
+	});
+
+	it("reads a record whose owners field is not a list", async () => {
+		// A record is a file anybody can edit. Throwing out of the filter
+		// took tidy and reclaim down for every repo over one bad file.
+		const memory = memoryAt();
+		const path = join(root, "broken");
+		mkdirSync(path, { recursive: true });
+		memory.remember({
+			identity: { key: "broken", shareable: true },
+			path,
+			owners: {} as unknown as [],
+			providerId: "git",
+		});
+
+		// Names nobody, so it is unattributable, which is held.
+		expect(
+			(await memory.heldNow(machine({}))).map((one) => one.identity.key),
+		).toEqual(["broken"]);
+		expect(memory.unattributed().map((one) => one.identity.key)).toEqual([
+			"broken",
+		]);
+	});
+
+	it("leaves a shared tree standing when another session still holds it", async () => {
+		// Releasing our share is not taking the directory away. The only
+		// door that always could remove a tree had to learn to read the
+		// list this change started writing.
+		const released: string[] = [];
+		const memory = memoryAt();
+		const broker = createTreeBroker({
+			providers: [provider(released)],
+			memory,
+		});
+		const cut = await broker.ensure(asked("fix-410"));
+		// Somebody else took it too, and is genuinely still running. Pid
+		// 1, read through the same facts everything else uses, because a
+		// made-up start time reads as a recycled pid and is correctly
+		// counted as gone: the first version of this test did that and
+		// passed for the wrong reason.
+		const init = await systemFacts.startedAt(1);
+		if (init === undefined) throw new Error("the machine will not say");
+		memory.remember({
+			...cut,
+			owners: [
+				...(memory.recall()[0]?.owners ?? []),
+				{ pid: 1, startedAt: init },
+			],
+		});
+
+		const outcome = await broker.release(cut);
+
+		expect(outcome).toEqual({ kind: "released", kept: 1 });
+		expect(released).toEqual([]);
+		expect(existsSync(cut.path)).toBe(true);
 	});
 
 	it("asks the machine once per process, not once per record", async () => {

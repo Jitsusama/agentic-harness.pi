@@ -108,6 +108,8 @@ async function treesLeftBehind(
 	const claims: TreeClaims = { paths: [] };
 	pi.events.emit(WORK_TREE_CLAIMS, claims);
 
+	const unattributed = new Set(broker.unattributed().map((one) => one.path));
+
 	return orphanedTrees({
 		mainPath: resolved(mainPath),
 		worktrees: (await history.worktrees(mainPath, trunk)).map((tree) => ({
@@ -119,11 +121,20 @@ async function treesLeftBehind(
 		// session can find it: asking the wider question here meant every
 		// tree ever cut answered "something still holds it" and nothing
 		// was ever reclaimable.
+		//
+		// Minus the unattributable ones, which `stillHeld` counts as held
+		// because it must fail safe on its own. Left in both sets they
+		// answer the held question first and the branch reporting them
+		// never runs, which is a whole feature that reads as implemented
+		// and does nothing. A claim is added back afterwards, since a
+		// quest saying it wants a tree outranks a record saying nothing.
 		remembered: [
-			...(await broker.stillHeld()).map((one) => one.path),
+			...(await broker.stillHeld())
+				.filter((one) => !unattributed.has(one.path))
+				.map((one) => one.path),
 			...claims.paths,
 		].map(resolved),
-		unattributed: broker.unattributed().map((one) => resolved(one.path)),
+		unattributed: [...unattributed].map(resolved),
 	});
 }
 

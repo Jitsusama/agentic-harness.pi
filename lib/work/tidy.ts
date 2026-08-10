@@ -124,24 +124,26 @@ export function orphanedTrees(ask: OrphanAsk): OrphanPlan {
 			);
 			continue;
 		}
-		if (unattributed.has(tree.path)) {
-			// After the held check, and the order is the safety. A claim is
-			// somebody saying they want this now: a quest holds trees
-			// against a piece of work and answers over the bus, and that is
-			// a positive statement from something running. An unattributed
-			// record is the absence of a statement. Asking this first
-			// downgraded the one to the other, which put a tree somebody
-			// had just claimed into the list a person is invited to clear.
-			keep(
-				"it was recorded before the broker wrote down who cut it, so nothing can say whether a running session still wants it",
-				true,
-			);
-			continue;
-		}
 		if (tree.dirty) {
 			// A refusal, not a decision. An uncommitted change exists in
 			// exactly one place and removing the tree ends it.
 			keep("it has uncommitted changes, which exist nowhere else");
+			continue;
+		}
+		if (unattributed.has(tree.path)) {
+			// Third, and each step of the order is a safety. Above a claim
+			// it downgraded somebody saying they want this now to nobody
+			// can say, which put a freshly claimed tree into the list a
+			// person is invited to clear. Above the dirty check it offered
+			// up a tree holding uncommitted work as a judgement call, and
+			// that work exists in exactly one place.
+			//
+			// Everything left here is unclaimed and committed, so the only
+			// thing missing is who wanted it.
+			keep(
+				"nothing recorded who cut it, so nothing can say whether a running session still wants it",
+				true,
+			);
 			continue;
 		}
 		if (tree.mergedIntoTrunk) {

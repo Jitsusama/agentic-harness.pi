@@ -75,7 +75,18 @@ export interface TreeProvider extends TreeProviderInfo {
  * success for doing nothing is the one outcome nobody can detect.
  */
 export type ReleaseOutcome =
-	| { kind: "released" }
+	| {
+			kind: "released";
+			/**
+			 * How many other sessions are still standing in it, when the
+			 * directory was therefore left where it is.
+			 *
+			 * Absent means it was taken down. A caller that tells somebody
+			 * the tree is gone would otherwise be wrong for a shared
+			 * snapshot, which is the kind two sessions hold at once.
+			 */
+			kept?: number;
+	  }
 	/** Nothing here can remove it, so it is still there and still recorded. */
 	| {
 			kind: "no-provider";
@@ -271,6 +282,19 @@ export function createTreeBroker(
 
 			const at = trees.findIndex((tree) => tree.path === held.path);
 			if (at >= 0) trees.splice(at, 1);
+
+			// Giving up our share of a shared tree is not taking it away.
+			// A snapshot can be held by two sessions, and once this change
+			// started writing that down, releasing had to read it: taking
+			// the directory while somebody else is standing in it is the
+			// failure this whole change is about, arriving through the one
+			// door that always could remove a tree.
+			const others = await memory?.otherHolders(held.path);
+			if (others !== undefined && others.length > 0) {
+				await memory?.forgetUsAsHolder(held.path);
+				return { kind: "released", kept: others.length };
+			}
+
 			// Forgotten before the provider acts, so a provider that throws
 			// halfway does not leave a record claiming a tree that is now
 			// half-gone. A record for a tree still on disk is recoverable on the

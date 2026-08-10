@@ -33,6 +33,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import {
+	askedOnce,
 	isOwner,
 	type Owner,
 	ownerNow,
@@ -79,6 +80,18 @@ export interface TreeMemory {
 	 * decision they are rather than as a claim somebody made.
 	 */
 	unattributed(): readonly HeldTree[];
+	/**
+	 * Who else is standing in this tree, this session excluded.
+	 *
+	 * Only holders still running count, since a dead one is not
+	 * somebody a release has to be careful of. Empty for a tree nobody
+	 * else holds and for one whose record names nobody, which is right
+	 * for a release: the caller asked to take its own tree down, and
+	 * only another live session is a reason not to.
+	 */
+	otherHolders(path: string, facts?: ProcessFacts): Promise<readonly Owner[]>;
+	/** Take this session off a tree's record, leaving the record. */
+	forgetUsAsHolder(path: string, facts?: ProcessFacts): Promise<void>;
 }
 
 /** A record as it sits on disk. */
@@ -88,9 +101,18 @@ interface Written {
 	providerId?: string;
 }
 
-/** The holders a record names, ignoring anything malformed. */
+/**
+ * The holders a record names, ignoring anything malformed.
+ *
+ * Checks that it is an array before filtering it. A record is a file
+ * anybody can edit, and `owners: {}` on one of them would otherwise
+ * throw out of here and take tidy and reclaim down with it: one bad
+ * file, and the whole cleanup path stops for every repo.
+ */
 function named(tree: HeldTree): readonly Owner[] {
-	return (tree.owners ?? []).filter(isOwner);
+	const owners: unknown = tree.owners;
+	if (!Array.isArray(owners)) return [];
+	return owners.filter(isOwner);
 }
 
 /** Whether two records name one process. */
@@ -207,22 +229,45 @@ export function createTreeMemory(dir: string): TreeMemory {
 			return this.recall().filter((tree) => named(tree).length === 0);
 		},
 
+		async otherHolders(path, facts = systemFacts) {
+			const tree = this.recall().find((one) => one.path === path);
+			if (tree === undefined) return [];
+			const once = askedOnce(facts);
+			const us = await ownerNow(once);
+			const others: Owner[] = [];
+			for (const owner of named(tree)) {
+				if (us !== undefined && sameOwner(owner, us)) continue;
+				if ((await ownerStanding(owner, once)) !== "gone") others.push(owner);
+			}
+			return others;
+		},
+
+		async forgetUsAsHolder(path, facts = systemFacts) {
+			const tree = this.recall().find((one) => one.path === path);
+			if (tree === undefined) return;
+			const us = await ownerNow(facts);
+			if (us === undefined) return;
+			this.remember({
+				...tree,
+				owners: named(tree).filter((owner) => !sameOwner(owner, us)),
+			});
+		},
+
 		async heldNow(facts = systemFacts) {
 			const held: HeldTree[] = [];
-			// One answer per process, not per record. Every reviewer of one
-			// round shares a session, so the same handful of pids recurs
-			// across the whole directory: without this, tidy forked `ps`
-			// once per record, serially, which is 59 spawns on the machine
-			// this was found on. The sibling ledger already memoizes this
-			// way and has a test holding it there.
-			const asked = new Map<number, Promise<"running" | "gone" | "unknown">>();
-			const standing = (owner: Owner) => {
-				const already = asked.get(owner.pid);
-				if (already !== undefined) return already;
-				const answer = ownerStanding(owner, facts);
-				asked.set(owner.pid, answer);
-				return answer;
-			};
+			// One question per process, not per record. Every reviewer of
+			// one round shares a session, so the same handful of pids
+			// recurs across the whole directory: without this, tidy forked
+			// `ps` once per record, serially, which is 59 spawns on the
+			// machine this was found on.
+			//
+			// The fact is cached, never the verdict. A standing compares
+			// the pid's real start time against the one a given record
+			// wrote down, so it belongs to the record and not to the pid:
+			// held per pid, one stale record answers for a live session
+			// wearing the same number, which is the exact confusion this
+			// module exists to prevent.
+			const once = askedOnce(facts);
 
 			for (const tree of this.recall()) {
 				const owners = named(tree);
@@ -237,7 +282,9 @@ export function createTreeMemory(dir: string): TreeMemory {
 				}
 				// Any one of them is enough. A shared snapshot outlives the
 				// first holder to finish with it.
-				const stands = await Promise.all(owners.map(standing));
+				const stands = await Promise.all(
+					owners.map((owner) => ownerStanding(owner, once)),
+				);
 				if (stands.some((one) => one !== "gone")) held.push(tree);
 			}
 			return held;
