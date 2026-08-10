@@ -36,6 +36,7 @@ import {
 import { count } from "../../../lib/ui/index.js";
 import { createGitRebaser, createGitStacks } from "../../../lib/work/index.js";
 import { proposalComplaint } from "../conventions.js";
+import { attachments } from "../engine.js";
 import { confirmWrite } from "../gate.js";
 import { type GatePanel, GLYPH, proposalLine } from "../render.js";
 import {
@@ -1330,11 +1331,25 @@ async function merge(
 			{ ok: true, merged: false, enqueued: true },
 		);
 	}
+	// Landing is the moment a change stops being in play, and nothing
+	// used to say so, so the attachment outlived the change it named
+	// and every later call still preferred it. A session that had
+	// shipped eight changes carried eight of them, and each one
+	// hijacked the calls whose subject is a repo rather than a change:
+	// naming a checkout was answered with "the change in play is on
+	// ...", once per pop, eight times over.
+	//
+	// Only here, and not for a change the queue has merely accepted.
+	// That one lands when the queue reaches it and not at all if its
+	// checks fail, which is exactly the state in which it is still
+	// yours to watch.
+	const letGo = await attachments().detach(change.label);
 	return say(
-		`${GLYPH.lands} ${change.label} merged${outcome.commit ? ` at ${outcome.commit.slice(0, 12)}` : ""}.`,
+		`${GLYPH.lands} ${change.label} merged${outcome.commit ? ` at ${outcome.commit.slice(0, 12)}` : ""}.${letGo ? " Detached, since it is no longer what you are working on." : ""}`,
 		{
 			ok: true,
 			merged: true,
+			detached: letGo,
 			...(outcome.commit === undefined ? {} : { commit: outcome.commit }),
 		},
 	);
