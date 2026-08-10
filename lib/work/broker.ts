@@ -208,14 +208,30 @@ export function createTreeBroker(
 
 		async ensure(request) {
 			// Searches remembered trees too, so a second session reuses what the
-			// first cut instead of asking a provider to cut a tree that is
-			// already there. The git provider survives that (it treats "already
-			// there" as the ordinary case) but only because it was taught to;
-			// asking is still wrong when we know the answer.
+			// first cut instead of cutting a second tree for the same thing.
+			//
+			// A record is not the directory, which is this module's own rule
+			// and was broken here. Returning on a record alone meant the
+			// provider was never asked about any tree already written down,
+			// so a tree standing somewhere other than where it was asked to
+			// stand stayed there for good: a World snapshot left on main by
+			// an older version of its provider could never be pinned,
+			// because the code that pins it was unreachable for exactly the
+			// trees that needed it. The provider is asked either way, and
+			// every provider treats already-there as the ordinary case,
+			// which is what makes `ensure` mean what the word says.
 			const reusable = everything().find((tree) =>
 				satisfies(tree.identity, request),
 			);
 			if (reusable) {
+				const by = roster().find(
+					(provider) => provider.id === reusable.providerId,
+				);
+				// Nothing to ask when whoever cut it is not loaded. The
+				// directory is still there and still the right one to hand
+				// back; only the check goes missing, which is where this
+				// stood for every tree until now.
+				if (by !== undefined) await by.ensure(request);
 				// Taking a tree is holding it, however it was obtained. A
 				// reused tree still carries whoever cut it, and that session
 				// is usually gone: without this, the tree this session is
