@@ -18,10 +18,10 @@
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
+import { attest } from "@jitsusama/agentic-harness.core/tdd";
 import { Type } from "@sinclair/typebox";
 import { drawInto } from "../../lib/ui/index.js";
 import { persist, restore, updateScoreboard } from "./lifecycle.js";
-import { transition } from "./machine.js";
 import { formatTransitionReply } from "./reply.js";
 import { createTddState } from "./state.js";
 import { buildTddContext, tddContextFilter } from "./transitions.js";
@@ -104,7 +104,7 @@ export default function tddMode(pi: ExtensionAPI) {
 			),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const result = transition(state.loop, {
+			const result = attest(state.loop, {
 				action: params.action,
 				behaviour: params.behaviour,
 				interface: params.interface,
@@ -114,28 +114,22 @@ export default function tddMode(pi: ExtensionAPI) {
 				reflection: params.reflection,
 				reason: params.reason,
 			});
+			const message = formatTransitionReply(result);
 
-			if (!result.ok) {
-				const message = formatTransitionReply(result, state.loop.phase);
+			if (result.outcome === "refused") {
 				return {
 					content: [{ type: "text", text: message }],
-					details: {
-						ok: false,
-						phase: state.loop.phase,
-						message,
-					},
+					details: { ok: false, phase: result.loop.phase, message },
 				};
 			}
 
-			state.loop = result.state;
+			state.loop = result.loop;
 			persist(state, pi);
 			updateScoreboard(state, ctx);
 
-			const phase = result.state.phase;
-			const message = formatTransitionReply(result);
 			return {
 				content: [{ type: "text", text: message }],
-				details: { ok: true, phase, message },
+				details: { ok: true, phase: result.loop.phase, message },
 			};
 		},
 

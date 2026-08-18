@@ -1,6 +1,6 @@
 import type { ContextEvent } from "@earendil-works/pi-coding-agent";
+import type { Loop } from "@jitsusama/agentic-harness.core/tdd";
 import { describe, expect, it } from "vitest";
-import type { LoopState } from "../../../extensions/tdd-workflow/machine.js";
 import { createTddState } from "../../../extensions/tdd-workflow/state.js";
 import {
 	buildTddContext,
@@ -13,7 +13,7 @@ function contextEvent(messages: Array<Record<string, unknown>>): ContextEvent {
 	return { type: "context", messages } as unknown as ContextEvent;
 }
 
-function stateWith(overrides: Partial<LoopState> = {}): { loop: LoopState } {
+function stateWith(overrides: Partial<Loop> = {}): { loop: Loop } {
 	return {
 		loop: {
 			phase: "plan",

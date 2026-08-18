@@ -14,7 +14,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 /** A glyph, and the name some module knows it by. */
@@ -30,7 +30,7 @@ interface Use {
  * Named rather than discovered, because a gate whose scope is a pattern grows
  * a second list of exceptions the first time something legitimate matches it.
  */
-const SURFACES = [
+const OWNED_SURFACES = [
 	"extensions/review-integration/render.ts",
 	// Where the marks for anything spawned live, in neither of the two
 	// surfaces that draw them. Review's round panel and the fleet's panel
@@ -40,8 +40,19 @@ const SURFACES = [
 	"lib/ui/agent-glyphs.ts",
 	"extensions/work-integration/render.ts",
 	"extensions/quest-workflow/render.ts",
-	"extensions/tdd-workflow/glyphs.ts",
 ];
+
+/**
+ * Surfaces whose glyph table now lives in agentic-harness.core, not
+ * this repo. Their integrity is pinned by pnpm-lock.yaml (the
+ * dependency version) rather than by `git ls-files`, since the file
+ * itself is an installed artifact, not something this repo tracks.
+ */
+const EXTERNAL_SURFACES = [
+	"node_modules/@jitsusama/agentic-harness.core/dist/tdd/presentation.js",
+];
+
+const SURFACES = [...OWNED_SURFACES, ...EXTERNAL_SURFACES];
 
 /**
  * Which surface a file belongs to, for saying who is arguing with whom.
@@ -53,6 +64,7 @@ const SURFACES = [
  * declares.
  */
 function domainOf(path: string): string {
+	if (EXTERNAL_SURFACES.includes(path)) return "tdd-workflow";
 	const parts = path.split("/");
 	if (parts[0] === "lib") return parts.at(-1)?.replace(/\.ts$/, "") ?? path;
 	return parts[1] ?? path;
@@ -241,15 +253,24 @@ describe("glyph ownership across the package", () => {
 		expect(emoji.map((use) => `${use.glyph} ${use.name}`)).toEqual([]);
 	});
 
-	it("is checking files that are actually tracked", async () => {
+	it("is checking owned files that are actually tracked", async () => {
 		// A renamed surface would otherwise take its glyphs out of scope and
 		// the gate would keep passing.
-		const tracked = execFileSync("git", ["ls-files", ...SURFACES], {
+		const tracked = execFileSync("git", ["ls-files", ...OWNED_SURFACES], {
 			encoding: "utf8",
 		})
 			.split("\n")
 			.filter((line) => line !== "");
 
-		expect(tracked.sort()).toEqual([...SURFACES].sort());
+		expect(tracked.sort()).toEqual([...OWNED_SURFACES].sort());
+	});
+
+	it("is checking external files that actually exist", async () => {
+		// External surfaces are pinned by pnpm-lock.yaml, not git, so their
+		// integrity check is that the resolved path is present on disk
+		// rather than tracked by this repo.
+		for (const surface of EXTERNAL_SURFACES) {
+			expect(existsSync(surface), surface).toBe(true);
+		}
 	});
 });

@@ -12,8 +12,7 @@
  * prose, is the contract the agent reads first.
  */
 
-import { disciplineFor } from "./discipline.js";
-import type { Phase, TransitionResult } from "./machine.js";
+import type { AttestResult } from "@jitsusama/agentic-harness.core/tdd";
 
 /** Leads a landed transition. */
 const ADVANCE_MARKER = "✓";
@@ -21,19 +20,14 @@ const ADVANCE_MARKER = "✓";
 const REFUSE_MARKER = "✗";
 
 /**
- * Render the reply for a transition attempt. A success advances
- * into `result.state.phase` and carries that phase's standing
- * discipline as the reminder; a refusal names the phase that held
- * (`refusedPhase`) and carries the machine's guidance unchanged.
+ * Render the reply for an attested transition. An advance names
+ * the new phase and carries its standing discipline as the
+ * reminder; a refusal names the phase that held and carries
+ * core/tdd's guidance unchanged.
  */
-export function formatTransitionReply(
-	result: TransitionResult,
-	refusedPhase?: Phase,
-): string {
-	if (result.ok) {
-		const phase = result.state.phase;
-		return `${ADVANCE_MARKER} Advanced to ${phase}. Discipline: ${disciplineFor(phase)}`;
+export function formatTransitionReply(result: AttestResult): string {
+	if (result.outcome === "advanced") {
+		return `${ADVANCE_MARKER} Advanced to ${result.loop.phase}. Discipline: ${result.discipline}`;
 	}
-	const held = refusedPhase ?? "the current phase";
-	return `${REFUSE_MARKER} Refused, still in ${held}, nothing changed. ${result.guidance}`;
+	return `${REFUSE_MARKER} Refused, still in ${result.loop.phase}, nothing changed. ${result.guidance}`;
 }

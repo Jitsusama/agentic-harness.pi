@@ -10,12 +10,12 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { idleLoop } from "@jitsusama/agentic-harness.core/tdd";
 import { describe, expect, it } from "vitest";
 import {
 	persist,
 	restore,
 } from "../../../extensions/tdd-workflow/lifecycle.js";
-import { initialState } from "../../../extensions/tdd-workflow/machine.js";
 import { createTddState } from "../../../extensions/tdd-workflow/state.js";
 
 interface Entry {
@@ -44,7 +44,7 @@ describe("tdd-workflow lifecycle", () => {
 	it("restores the initial state when nothing has been persisted", () => {
 		const state = createTddState();
 		restore(state, makeCtx([]));
-		expect(state.loop).toEqual(initialState());
+		expect(state.loop).toEqual(idleLoop());
 	});
 
 	it("round-trips an active loop through persist and restore", () => {
@@ -74,7 +74,7 @@ describe("tdd-workflow lifecycle", () => {
 		];
 		const state = createTddState();
 		restore(state, makeCtx(entries));
-		expect(state.loop).toEqual(initialState());
+		expect(state.loop).toEqual(idleLoop());
 	});
 
 	it("preserves a live loop entry that is missing a later field", () => {

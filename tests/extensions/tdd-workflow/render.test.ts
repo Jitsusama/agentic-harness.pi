@@ -1,6 +1,6 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
+import type { Loop } from "@jitsusama/agentic-harness.core/tdd";
 import { describe, expect, it } from "vitest";
-import type { LoopState } from "../../../extensions/tdd-workflow/machine.js";
 import {
 	renderStatus,
 	renderWidget,
@@ -12,7 +12,7 @@ function plain(line: string): string {
 	return line.replace(/<\/?[^>]+>/g, "");
 }
 
-function loop(overrides: Partial<LoopState> = {}): LoopState {
+function loop(overrides: Partial<Loop> = {}): Loop {
 	return {
 		phase: "plan",
 		assertionFailure: false,

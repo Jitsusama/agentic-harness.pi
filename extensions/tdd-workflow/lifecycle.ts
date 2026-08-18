@@ -10,8 +10,8 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { idleLoop, type Phase } from "@jitsusama/agentic-harness.core/tdd";
 import { getLastEntry } from "../../lib/internal/state.js";
-import { initialState, type Phase } from "./machine.js";
 import { renderStatus, renderWidget } from "./render.js";
 import type { TddState } from "./state.js";
 
@@ -60,7 +60,7 @@ function isLoopEntry(saved: PersistedLoop): boolean {
 export function restore(state: TddState, ctx: ExtensionContext): void {
 	const saved = getLastEntry<PersistedLoop>(ctx, "tdd-workflow");
 	if (!saved || !isLoopEntry(saved)) {
-		state.loop = initialState();
+		state.loop = idleLoop();
 		return;
 	}
 	state.loop = {

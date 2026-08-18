@@ -64,6 +64,7 @@
 		]
 	},
 	"dependencies": {
+		"@jitsusama/agentic-harness.core": "github:Jitsusama/agentic-harness.core",
 		"@modelcontextprotocol/sdk": "^1.29.0",
 		"axe-core": "^4.12.1",
 		"defuddle": "^0.19.1",

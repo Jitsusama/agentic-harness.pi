@@ -11,8 +11,11 @@
 
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
-import { glyph, visualState } from "./glyphs.js";
-import type { LoopState } from "./machine.js";
+import type { Loop } from "@jitsusama/agentic-harness.core/tdd";
+import {
+	glyph,
+	visualState,
+} from "@jitsusama/agentic-harness.core/tdd/presentation";
 
 /** Columns reserved for the glyph and the space that follows it. */
 const GLYPH_COLS = 2;
@@ -27,10 +30,7 @@ const STATUS_LABEL = "TDD";
  * through its shape and colour. The per-step detail lives in the
  * widget.
  */
-export function renderStatus(
-	state: LoopState,
-	theme: Theme,
-): string | undefined {
+export function renderStatus(state: Loop, theme: Theme): string | undefined {
 	if (state.phase === "idle") {
 		return undefined;
 	}
@@ -43,7 +43,7 @@ export function renderStatus(
  * behaviour under test, truncated to the available width.
  */
 export function renderWidget(
-	state: LoopState,
+	state: Loop,
 	theme: Theme,
 	width: number,
 ): string[] {
