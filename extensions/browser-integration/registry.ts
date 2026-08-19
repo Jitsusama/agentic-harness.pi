@@ -10,8 +10,22 @@
  * reaped underneath itself.
  */
 
-import { closeBrowser } from "../../lib/web/browser.js";
-import { BrowserSession, type SessionOptions } from "../../lib/web/session.js";
+import { closeBrowser } from "@jitsusama/agentic-harness.core/web/browser";
+import {
+	BrowserSession,
+	type SessionOptions,
+} from "@jitsusama/agentic-harness.core/web/session";
+import { dataDir } from "../../lib/internal/paths.js";
+
+/**
+ * Where this extension's baselines already live on disk.
+ *
+ * Passed explicitly rather than left to the library's own default,
+ * so moving the browser engine out to agentic-harness.core did not
+ * orphan comparison baselines a user already has on disk under
+ * pi's own XDG path.
+ */
+const DATA_ROOT = dataDir("browser-integration");
 
 /**
  * Close a session after this long without use.
@@ -136,7 +150,12 @@ export function createSessionRegistry(): SessionRegistry {
 				touch(name, existing);
 				return existing.opening;
 			}
-			const held: Held = { opening: BrowserSession.open(name, options) };
+			const held: Held = {
+				opening: BrowserSession.open(name, {
+					dataRoot: DATA_ROOT,
+					...options,
+				}),
+			};
 			departed.delete(name);
 			sessions.set(name, held);
 			touch(name, held);

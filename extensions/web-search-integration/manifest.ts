@@ -8,7 +8,7 @@
  * rather than in the public web library.
  */
 
-import type { PageBundle } from "../../lib/web/reader.js";
+import type { PageBundle } from "@jitsusama/agentic-harness.core/web/reader";
 
 /**
  * Render a page bundle as a pointer manifest. Lists only the

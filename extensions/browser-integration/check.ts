@@ -9,12 +9,11 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { type Static, Type } from "@sinclair/typebox";
 import {
 	analyseWalk,
 	MAX_LISTED_FINDINGS,
 	renderWalk,
-} from "../../lib/web/a11y/index.js";
+} from "@jitsusama/agentic-harness.core/web/a11y";
 import {
 	type A11yFinding,
 	analyseStructure,
@@ -37,12 +36,22 @@ import {
 	targetFindings,
 	widthsToSweep,
 	withinBar,
-} from "../../lib/web/audit/index.js";
-import { renderComparison } from "../../lib/web/compare/index.js";
-import { renderInventory, takeInventory } from "../../lib/web/design/index.js";
-import { measure, renderVitals } from "../../lib/web/perf/index.js";
-import type { BrowserSession } from "../../lib/web/session.js";
-import { describeRefusal, parseTarget } from "../../lib/web/target/index.js";
+} from "@jitsusama/agentic-harness.core/web/audit";
+import { renderComparison } from "@jitsusama/agentic-harness.core/web/compare";
+import {
+	renderInventory,
+	takeInventory,
+} from "@jitsusama/agentic-harness.core/web/design";
+import {
+	measure,
+	renderVitals,
+} from "@jitsusama/agentic-harness.core/web/perf";
+import type { BrowserSession } from "@jitsusama/agentic-harness.core/web/session";
+import {
+	describeRefusal,
+	parseTarget,
+} from "@jitsusama/agentic-harness.core/web/target";
+import { type Static, Type } from "@sinclair/typebox";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
 import { renderBrowserCall, renderBrowserResult } from "./render.js";
 import {

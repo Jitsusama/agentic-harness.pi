@@ -9,13 +9,7 @@
 
 import { readFile, writeFile } from "node:fs/promises";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
-import { KnownDevices } from "puppeteer-core";
-import { count } from "../../lib/web/audit/verdict.js";
-import {
-	deviceEmulation,
-	noSuchDevice,
-} from "../../lib/web/environment/devices.js";
+import { count } from "@jitsusama/agentic-harness.core/web/audit/verdict";
 import {
 	type EmulationState,
 	type NetworkRule,
@@ -26,12 +20,18 @@ import {
 	type ThrottleConditions,
 	throttleNames,
 	throttleProfile,
-} from "../../lib/web/environment/index.js";
+} from "@jitsusama/agentic-harness.core/web/environment";
+import {
+	deviceEmulation,
+	noSuchDevice,
+} from "@jitsusama/agentic-harness.core/web/environment/devices";
 import {
 	type BrowserSession,
 	CookieSetupNeeded,
-} from "../../lib/web/session.js";
-import { renderDialogs } from "../../lib/web/telemetry/index.js";
+} from "@jitsusama/agentic-harness.core/web/session";
+import { renderDialogs } from "@jitsusama/agentic-harness.core/web/telemetry";
+import { Type } from "@sinclair/typebox";
+import { KnownDevices } from "puppeteer-core";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
 import { renderBrowserCall, renderBrowserResult } from "./render.js";
 import { answer, refusal } from "./result.js";

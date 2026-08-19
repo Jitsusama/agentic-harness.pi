@@ -5,6 +5,9 @@ import {
 	sessionResultDir,
 	withdrawQueryTool,
 } from "@jitsusama/agentic-harness.core/result";
+import type { AxNode } from "@jitsusama/agentic-harness.core/web/a11y";
+import { renderAxOutline } from "@jitsusama/agentic-harness.core/web/a11y";
+import type { Observation } from "@jitsusama/agentic-harness.core/web/session";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	bodyAnswer,
@@ -13,9 +16,6 @@ import {
 	pageAnswer,
 	storageAnswer,
 } from "../../../extensions/browser-integration/stored.js";
-import type { AxNode } from "../../../lib/web/a11y/index.js";
-import { renderAxOutline } from "../../../lib/web/a11y/index.js";
-import type { Observation } from "../../../lib/web/session.js";
 
 /**
  * A page like the one that caused this: rows of listitems, each

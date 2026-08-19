@@ -24,13 +24,16 @@ import {
 	type BudgetedOutline,
 	describeStates,
 	withinOutlineBudget,
-} from "../../lib/web/a11y/index.js";
+} from "@jitsusama/agentic-harness.core/web/a11y";
 import {
 	type CookieRecord,
 	renderStorage,
 	type StorageSnapshot,
-} from "../../lib/web/environment/index.js";
-import type { Inspection, Observation } from "../../lib/web/session.js";
+} from "@jitsusama/agentic-harness.core/web/environment";
+import type {
+	Inspection,
+	Observation,
+} from "@jitsusama/agentic-harness.core/web/session";
 
 /** A node as a caller queries it: their vocabulary, not the protocol's. */
 interface StoredNode {

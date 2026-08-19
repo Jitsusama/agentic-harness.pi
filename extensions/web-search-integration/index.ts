@@ -13,22 +13,25 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
-import { count } from "../../lib/ui/count.js";
-import { drawInto } from "../../lib/ui/index.js";
-import { closeBrowser, killBrowserSync } from "../../lib/web/browser.js";
+import {
+	closeBrowser,
+	killBrowserSync,
+} from "@jitsusama/agentic-harness.core/web/browser";
 import {
 	isSetUp,
 	StaleKeyError,
 	setupChromeKey,
-} from "../../lib/web/cookies/index.js";
+} from "@jitsusama/agentic-harness.core/web/cookies";
 import {
 	AuthSetupNeeded,
 	cleanupSessionBundles,
 	readPage,
 	reapAbandonedBundles,
-} from "../../lib/web/reader.js";
-import { webSearch as doSearch } from "../../lib/web/search.js";
+} from "@jitsusama/agentic-harness.core/web/reader";
+import { webSearch as doSearch } from "@jitsusama/agentic-harness.core/web/search";
+import { Type } from "@sinclair/typebox";
+import { count } from "../../lib/ui/count.js";
+import { drawInto } from "../../lib/ui/index.js";
 import { formatManifest } from "./manifest.js";
 
 /** Details returned by web_read on success. */

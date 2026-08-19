@@ -8,8 +8,6 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
-import { count } from "../../lib/ui/count.js";
 import {
 	ACTION_VIEW_BUDGET_BYTES,
 	MAX_OUTLINE_BUDGET_BYTES,
@@ -19,7 +17,7 @@ import {
 	renderFocus,
 	type Skeleton,
 	type TreeScope,
-} from "../../lib/web/a11y/index.js";
+} from "@jitsusama/agentic-harness.core/web/a11y";
 import {
 	type PseudoState,
 	renderAnimations,
@@ -31,21 +29,21 @@ import {
 	renderTrace,
 	renderVariants,
 	renderVisibility,
-} from "../../lib/web/element/index.js";
-import { renderStatus } from "../../lib/web/environment/index.js";
+} from "@jitsusama/agentic-harness.core/web/element";
+import { renderStatus } from "@jitsusama/agentic-harness.core/web/environment";
 import {
 	measure,
 	renderHeap,
 	renderHotspots,
 	renderLayers,
 	renderVitals,
-} from "../../lib/web/perf/index.js";
+} from "@jitsusama/agentic-harness.core/web/perf";
 import type {
 	BrowserSession,
 	Inspection,
 	Observation,
 	Shot,
-} from "../../lib/web/session.js";
+} from "@jitsusama/agentic-harness.core/web/session";
 import {
 	describeNode,
 	describeStyles,
@@ -54,8 +52,11 @@ import {
 	isElement,
 	type Query,
 	tally,
-} from "../../lib/web/snapshot/index.js";
-import { describeRefusal, parseTarget } from "../../lib/web/target/index.js";
+} from "@jitsusama/agentic-harness.core/web/snapshot";
+import {
+	describeRefusal,
+	parseTarget,
+} from "@jitsusama/agentic-harness.core/web/target";
 import {
 	anyUrlShortened,
 	type NetworkRequest,
@@ -64,7 +65,9 @@ import {
 	renderRequests,
 	renderSockets,
 	strandedByCrash,
-} from "../../lib/web/telemetry/index.js";
+} from "@jitsusama/agentic-harness.core/web/telemetry";
+import { Type } from "@sinclair/typebox";
+import { count } from "../../lib/ui/count.js";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
 import { renderBrowserCall, renderBrowserResult } from "./render.js";
 import {

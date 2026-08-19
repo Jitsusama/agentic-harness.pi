@@ -18,14 +18,6 @@ The package manager is **pnpm**. `pnpm-lock.yaml` is canonical;
     renderers, resolvers and types (public)
   - `lib/google/`: Google Workspace API clients,
     authentication, renderers and types (public)
-  - `lib/web/`: driving a browser and reading back everything
-    it knows, plus web search and one-shot page reading
-    (public). Split into subdomain barrels: `a11y`, `audit`,
-    `compare`, `design`, `element`, `envelope`, `environment`,
-    `evaluate`, `input`, `perf`, `snapshot`, `sourcemap`,
-    `styles`, `target`, `telemetry`, `wait`. Every one but
-    `session` is pure and capture-agnostic, enforced by
-    `tests/lib/web/purity.test.ts`
   - `lib/work/`: the working layer under a review: where a tree
     is cut from, what pins it, which provider serves a repo, and
     the broker holding the trees a session is using (public).
@@ -385,15 +377,17 @@ extension owns session lifetime.
 **Analysis must not require the service.** Where an
 integration's library also analyses what the service returned,
 that analysis takes serializable data and returns answers, with
-no path back to the client that fetched it. `lib/web` holds the
-strongest form of this: every subdomain but `session` can judge
-a stored capture, or one taken by a different tool entirely,
-and none of them can start a browser. It is worth stating
-because it breaks silently. A disk sink that imported the page
-reader once dragged `jsdom` into anything writing a PNG, and
-neither the types nor the tests noticed. `tests/lib/web/
-purity.test.ts` walks the import graph and fails when an
-analysis barrel reaches something heavy.
+no path back to the client that fetched it. `agentic-harness.core`'s
+`web` (the browser engine this package's `browser-integration` and
+`web-search-integration` extensions drive) holds the strongest form
+of this: every subdomain but `session` can judge a stored capture,
+or one taken by a different tool entirely, and none of them can
+start a browser. It is worth stating because it breaks silently. A
+disk sink that imported the page reader once dragged `jsdom` into
+anything writing a PNG, and neither the types nor the tests
+noticed. Its `tests/web/purity.test.ts`, in that package, walks the
+import graph and fails when an analysis barrel reaches something
+heavy.
 
 ### `index.ts` Is for Registration and Wiring
 

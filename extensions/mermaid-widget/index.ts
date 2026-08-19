@@ -5,8 +5,8 @@
  * into two artifacts: a crisp SVG and a PNG scaled to the vision-model
  * pixel budget. The agent calls it in conversation ("draw this as a
  * diagram"); there is no command. Rendering reuses the shared headless
- * browser from lib/web, so it inherits that hardened lifecycle rather
- * than managing its own browser.
+ * browser from agentic-harness.core's web library, so it inherits
+ * that hardened lifecycle rather than managing its own browser.
  *
  * The result carries the PNG path (portable raster, and the inline image
  * a vision model sees), the SVG path (crisp vector, the human's readable
@@ -24,9 +24,12 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import {
+	MermaidRenderError,
+	renderMermaid,
+} from "@jitsusama/agentic-harness.core/web/mermaid";
 import { Type } from "@sinclair/typebox";
 import { drawInto, firstText } from "../../lib/ui/index.js";
-import { MermaidRenderError, renderMermaid } from "../../lib/web/mermaid.js";
 
 /** The platform command that opens a file in its default app. */
 function osOpenCommand(): { command: string; args: string[] } | null {

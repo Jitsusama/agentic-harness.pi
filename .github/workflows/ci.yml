@@ -32,18 +32,13 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
 
-  # One job running the whole suite, browser included. It was two
-  # jobs and then briefly six, which was work routed around a
-  # problem rather than through it: the browser lane was running
-  # twice and serially, and both facts were consequences of each
-  # other. With that fixed the whole suite is about 94s locally, so
-  # there is nothing left worth sharding and no second command for
-  # anyone to forget.
+  # One job running the whole suite. The browser lane (and the
+  # Chrome-on-the-runner setup it needed) moved with lib/web to
+  # agentic-harness.core, which carries its own dedicated
+  # tests/browser lane over the same source now.
   test:
     name: Test (vitest)
     runs-on: ubuntu-latest
-    env:
-      CHROME_PATH: /usr/bin/google-chrome
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -52,10 +47,4 @@ jobs:
           node-version: "24"
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # Fail loudly rather than skipping silently: a suite that
-      # quietly decides it has nothing to do is how the browser
-      # tests went unrun in CI for months.
-      - run: test -x "$CHROME_PATH"
-      # The race guard only runs when asked, and the point of
-      # running the browser tests at all is to run that one.
-      - run: PI_RACE_TESTS=1 pnpm test
+      - run: pnpm test

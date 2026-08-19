@@ -18,8 +18,7 @@ import type {
 	AgentToolResult,
 	ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
-import { renderEvaluation } from "../../lib/web/evaluate/index.js";
+import { renderEvaluation } from "@jitsusama/agentic-harness.core/web/evaluate";
 import {
 	composeClick,
 	composeDrag,
@@ -29,23 +28,27 @@ import {
 	composeTap,
 	LONG_PRESS_MS,
 	type MouseButton,
-} from "../../lib/web/input/index.js";
+} from "@jitsusama/agentic-harness.core/web/input";
 import {
 	renderTrace,
 	type TraceCapture,
 	type TraceProfile,
-} from "../../lib/web/perf/index.js";
-import type { BrowserSession, TargetedAction } from "../../lib/web/session.js";
+} from "@jitsusama/agentic-harness.core/web/perf";
+import type {
+	BrowserSession,
+	TargetedAction,
+} from "@jitsusama/agentic-harness.core/web/session";
 import {
 	describeRefusal,
 	describeTarget,
 	type Target,
-} from "../../lib/web/target/index.js";
+} from "@jitsusama/agentic-harness.core/web/target";
 import {
 	DEFAULT_QUIET_MS,
 	renderWait,
 	type WaitCondition,
-} from "../../lib/web/wait/index.js";
+} from "@jitsusama/agentic-harness.core/web/wait";
+import { Type } from "@sinclair/typebox";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
 import { renderBrowserCall, renderBrowserResult } from "./render.js";
 import type { BrowserDetails } from "./result.js";
