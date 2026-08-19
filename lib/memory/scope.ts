@@ -1,24 +1,13 @@
 /**
- * Scope resolution and serialization. A fact's scope is
- * stored as a single string key so recall is a plain lookup;
- * these helpers are the only place that shape is minted.
+ * Resolving which scope currently applies. This is pi-specific
+ * (it reads pi's own session log for a loaded quest); scope
+ * serialization itself lives in agentic-harness.core and is
+ * re-exported from ./index.js.
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { Scope } from "@jitsusama/agentic-harness.core/memory";
 import { getLastEntry } from "../internal/state.js";
-import type { Scope } from "./types.js";
-
-/** The canonical string key for a scope. */
-export function serializeScope(scope: Scope): string {
-	switch (scope.kind) {
-		case "global":
-			return "global";
-		case "project":
-			return `project:${scope.path}`;
-		case "quest":
-			return `quest:${scope.id}`;
-	}
-}
 
 /**
  * Resolve the active scope for the current session: the loaded

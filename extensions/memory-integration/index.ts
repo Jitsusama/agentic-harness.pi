@@ -15,18 +15,16 @@
  * No slash command: the agent calls the tools.
  */
 
-import { mkdirSync } from "node:fs";
-import { join } from "node:path";
 import type {
 	AgentToolResult,
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { packageStateDir } from "../../lib/internal/package-state-dir.js";
 import {
 	type Fact,
 	type MemoryStore,
+	memoryDbPath,
 	openMemoryStore,
 	resolveScope,
 } from "../../lib/memory/index.js";
@@ -48,9 +46,7 @@ export default function memoryIntegration(pi: ExtensionAPI) {
 
 	pi.on("session_start", async () => {
 		if (store) return;
-		const dir = packageStateDir("memory");
-		mkdirSync(dir, { recursive: true });
-		store = await openMemoryStore(join(dir, "memory.db"));
+		store = await openMemoryStore(await memoryDbPath());
 	});
 
 	pi.on("session_shutdown", async () => {
