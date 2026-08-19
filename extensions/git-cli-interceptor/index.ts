@@ -17,13 +17,8 @@ import {
 	isToolCallEventType,
 	type ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
+import { checkGitCli } from "@jitsusama/agentic-harness.core/git-cli";
 import { isGitBypassed } from "../../lib/internal/git/bypass.js";
-import { stripHeredocBodies, stripShellData } from "../../lib/shell/parse.js";
-import {
-	detectAmendViolation,
-	detectCompoundViolation,
-	detectUnquotedCommitHeredoc,
-} from "./patterns.js";
 
 export default function gitCliInterceptor(pi: ExtensionAPI) {
 	pi.on(
@@ -32,19 +27,8 @@ export default function gitCliInterceptor(pi: ExtensionAPI) {
 			if (!isToolCallEventType("bash", event)) return;
 			if (isGitBypassed()) return;
 
-			const command = event.input.command;
-			const stripped = stripShellData(stripHeredocBodies(command));
-
-			const amend = detectAmendViolation(stripped);
-			if (amend) return { block: true, reason: amend };
-
-			// Heredoc check uses original command for the operator
-			// and stripped for git commit scoping.
-			const heredoc = detectUnquotedCommitHeredoc(stripped, command);
-			if (heredoc) return { block: true, reason: heredoc };
-
-			const compound = detectCompoundViolation(stripped);
-			if (compound) return { block: true, reason: compound };
+			const reason = checkGitCli(event.input.command);
+			if (reason) return { block: true, reason };
 		},
 	);
 }

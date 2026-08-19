@@ -8,6 +8,7 @@
  * cd, GH_HOST and -R when it reconstructed the command.
  */
 
+import { GH_BODY_SPEC } from "@jitsusama/agentic-harness.core/github-cli";
 import {
 	applyEdits,
 	type Edit,
@@ -15,9 +16,8 @@ import {
 	type SimpleCommand,
 	tokenize,
 } from "../../command/index.js";
-import { stripHeredocBodies, stripShellData } from "../../shell/parse.js";
+import { stripHeredocBodies, stripShellData } from "../../shell/index.js";
 import { isGhCommand } from "./cli.js";
-import { GH_BODY_SPEC } from "./command-spec.js";
 
 /** The outcome of attempting to attribute a gh command. */
 export type GhFooterInsertion =

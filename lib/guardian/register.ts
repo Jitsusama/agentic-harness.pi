@@ -13,7 +13,7 @@ import {
 	type ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
 import { record, register } from "../internal/guardian/registry.js";
-import { stripHeredocBodies, stripShellData } from "../shell/parse.js";
+import { stripHeredocBodies, stripShellData } from "../shell/index.js";
 import { blockIfUnsupported } from "./enforce.js";
 import type { CommandGuardian } from "./types.js";
 

@@ -17,7 +17,7 @@ import {
 	tokenize,
 	type Word,
 } from "../../command/index.js";
-import { unquote } from "../../shell/parse.js";
+import { unquote } from "../../shell/index.js";
 
 /**
  * Git global options that sit before the subcommand and take a

@@ -28,8 +28,11 @@ const ROOT = join(import.meta.dirname, "..", "..");
  * stopped.
  */
 const BLOCK_SOURCES = [
-	"extensions/github-cli-interceptor/patterns.ts",
-	"extensions/git-cli-interceptor/patterns.ts",
+	// The detection logic (and its block messages) now lives in
+	// agentic-harness.core, pinned by pnpm-lock.yaml rather than
+	// tracked in this repo; read it from the installed dependency.
+	"node_modules/@jitsusama/agentic-harness.core/dist/github-cli/index.js",
+	"node_modules/@jitsusama/agentic-harness.core/dist/git-cli/index.js",
 ];
 
 /** Telling the reader to go and read something, in the shapes people write it. */
@@ -55,19 +58,13 @@ describe("a block message", () => {
 		// An agent told to use --body-file with a heredoc can still reach for a file
 		// path or an unquoted delimiter, both of which are separately blocked. Three
 		// blocks in a row for one mistake is a message that did not do its job.
-		const source = readFileSync(
-			join(ROOT, "extensions/github-cli-interceptor/patterns.ts"),
-			"utf8",
-		);
+		const source = readFileSync(join(ROOT, BLOCK_SOURCES[0]), "utf8");
 
 		expect(source).toContain("--body-file - <<'EOF'");
 	});
 
 	it("shows the git commit form literally, for the same reason", () => {
-		const source = readFileSync(
-			join(ROOT, "extensions/git-cli-interceptor/patterns.ts"),
-			"utf8",
-		);
+		const source = readFileSync(join(ROOT, BLOCK_SOURCES[1]), "utf8");
 
 		expect(source).toContain("git commit -F- <<'EOF'");
 	});

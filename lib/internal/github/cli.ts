@@ -12,14 +12,14 @@
  * so this module no longer reconstructs commands.
  */
 
+import { GH_BODY_SPEC } from "@jitsusama/agentic-harness.core/github-cli";
 import {
 	type FlagSpec,
 	findFlag,
 	type SimpleCommand,
 	tokenize,
 } from "../../command/index.js";
-import { unquote } from "../../shell/parse.js";
-import { GH_BODY_SPEC } from "./command-spec.js";
+import { unquote } from "../../shell/index.js";
 
 /** The title flag of gh pr/issue, in its long and short forms. */
 const GH_TITLE_SPEC: FlagSpec = {

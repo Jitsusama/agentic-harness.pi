@@ -15,15 +15,7 @@ import {
 	isToolCallEventType,
 	type ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
-import { stripHeredocBodies, stripShellData } from "../../lib/shell/parse.js";
-import {
-	detectBodyFilePath,
-	detectDeleteBranchOnMerge,
-	detectInlineBody,
-	detectMissingHeredoc,
-	detectPackedMetadata,
-	detectUnsafeHeredoc,
-} from "./patterns.js";
+import { checkGithubCli } from "@jitsusama/agentic-harness.core/github-cli";
 
 export default function githubCliInterceptor(pi: ExtensionAPI) {
 	pi.on(
@@ -31,28 +23,8 @@ export default function githubCliInterceptor(pi: ExtensionAPI) {
 		async (event): Promise<ToolCallEventResult | undefined> => {
 			if (!isToolCallEventType("bash", event)) return;
 
-			const command = event.input.command;
-			const stripped = stripShellData(stripHeredocBodies(command));
-
-			// Checks on the stripped command (heredoc bodies and
-			// non-executable content removed).
-			const strippedViolation =
-				detectInlineBody(command) ??
-				detectPackedMetadata(stripped) ??
-				detectDeleteBranchOnMerge(stripped) ??
-				detectBodyFilePath(stripped) ??
-				detectMissingHeredoc(stripped, command);
-			if (strippedViolation) {
-				return { block: true, reason: strippedViolation };
-			}
-
-			// The unquoted heredoc check runs on the original
-			// command because it validates the heredoc operator
-			// itself, which stripping would remove.
-			const heredocViolation = detectUnsafeHeredoc(stripped, command);
-			if (heredocViolation) {
-				return { block: true, reason: heredocViolation };
-			}
+			const reason = checkGithubCli(event.input.command);
+			if (reason) return { block: true, reason };
 		},
 	);
 }

@@ -5,22 +5,30 @@
  *
  * Public entry point. Guardians and interceptors pull from here to
  * detect, enforce and rewrite commands without reconstructing them.
+ * The implementation lives in agentic-harness.core (shared with
+ * the Claude Code adapter); this re-exports it so existing local
+ * imports keep working unchanged.
  */
 
-export type { EffectiveCwd } from "./cwd.js";
-export { effectiveCwd } from "./cwd.js";
-export type { Edit } from "./edit.js";
-export { applyEdits } from "./edit.js";
-export type { FlagDef, FlagMatch, FlagSpec } from "./flags.js";
-export { findFlag, findFlags } from "./flags.js";
-export { tokenize } from "./tokenize.js";
 export type {
 	CommandLine,
 	Connector,
+	Edit,
+	EffectiveCwd,
+	FlagDef,
+	FlagMatch,
+	FlagSpec,
 	Heredoc,
 	Quoting,
 	Redirect,
 	SimpleCommand,
 	Span,
 	Word,
-} from "./types.js";
+} from "@jitsusama/agentic-harness.core/command";
+export {
+	applyEdits,
+	effectiveCwd,
+	findFlag,
+	findFlags,
+	tokenize,
+} from "@jitsusama/agentic-harness.core/command";
