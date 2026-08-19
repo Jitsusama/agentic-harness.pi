@@ -12,7 +12,10 @@
  * so this module no longer reconstructs commands.
  */
 
-import { GH_BODY_SPEC } from "@jitsusama/agentic-harness.core/github-cli";
+import {
+	GH_BODY_SPEC,
+	isGhCommand,
+} from "@jitsusama/agentic-harness.core/github-cli";
 import {
 	type FlagSpec,
 	findFlag,
@@ -21,16 +24,12 @@ import {
 } from "../../command/index.js";
 import { unquote } from "../../shell/index.js";
 
+export { isGhCommand } from "@jitsusama/agentic-harness.core/github-cli";
+
 /** The title flag of gh pr/issue, in its long and short forms. */
 const GH_TITLE_SPEC: FlagSpec = {
 	flags: [{ name: "title", long: "title", short: "t", takesValue: true }],
 };
-
-/** Detect whether a bash command contains a specific gh subcommand. */
-export function isGhCommand(command: string, subcommand: string): boolean {
-	const re = new RegExp(`\\bgh\\s+${subcommand}\\s+(create|edit)\\b`);
-	return re.test(command);
-}
 
 // ── Shared gh entity parsing ────────────────────────────────
 
