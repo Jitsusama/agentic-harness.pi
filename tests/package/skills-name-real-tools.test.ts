@@ -42,6 +42,34 @@ function sharedActionLists(toolFile: string): string[] {
 		for (const [, act] of source.matchAll(/"([a-z][a-zA-Z-]*)"/g)) {
 			found.push(act);
 		}
+		// A re-export barrel points its real action list at an installed
+		// package instead of holding it inline; follow the re-export into
+		// the compiled dist artifact (per that package's "exports" map,
+		// every subpath resolves under "dist/") or the gate reads an
+		// empty shell.
+		const coreImport = /from "@jitsusama\/agentic-harness\.core\/([^"]+)"/.exec(
+			source,
+		);
+		if (coreImport) {
+			try {
+				const distSource = readFileSync(
+					join(
+						ROOT,
+						"node_modules",
+						"@jitsusama",
+						"agentic-harness.core",
+						"dist",
+						`${coreImport[1]}.js`,
+					),
+					"utf8",
+				);
+				for (const [, act] of distSource.matchAll(/"([a-z][a-zA-Z-]*)"/g)) {
+					found.push(act);
+				}
+			} catch {
+				// Missing dist artifact is caught by the do-not-lose guards.
+			}
+		}
 	}
 	return found;
 }

@@ -5,78 +5,24 @@
  * reorder, alias, session, spawn, tree-ops, queries)
  * imports from here. transitions.ts is the dispatcher that
  * wires the action name to one of these handlers.
+ *
+ * QuestToolParams, QuestResult, refuse, ok and the kind sets
+ * are re-exported from agentic-harness.core -- they need no
+ * pi coupling at all. currentSessionId and isPersistedSession
+ * stay here: both duck-type pi's own `ctx.sessionManager`,
+ * which no other adapter has an equivalent for.
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-export interface QuestToolParams {
-	action: string;
-	id?: string;
-	url?: string;
-	title?: string;
-	parent?: string;
-	kind?: string;
-	note?: string;
-	reason?: string;
-	priority?: string;
-	status?: string;
-	target?: string;
-	ref?: string;
-	query?: string;
-	since?: string;
-	until?: string;
-	field?: string;
-	refType?: string;
-	pattern?: string;
-	role?: string;
-	name?: string;
-	layout?: string;
-	command?: string;
-	cwd?: string;
-	sessionId?: string;
-	scope?: string;
-	force?: boolean;
-	dryRun?: boolean;
-	limit?: number;
-	offset?: number;
-}
-
-export type QuestResult =
-	| { ok: true; message: string; details?: Record<string, unknown> }
-	| { ok: false; guidance: string };
-
-export const QUEST_KINDS_SET = new Set(["quest", "subquest", "sidequest"]);
-export const DOCUMENT_KINDS_SET = new Set([
-	"plan",
-	"research",
-	"brief",
-	"report",
-]);
-
-/**
- * Build a structured refusal result.
- *
- * The mark goes on here, in the text the model reads, not only in the colour a
- * human sees. `\u2298` is the package's one mark for no, shared by all three
- * surfaces and asserted by tests/package/glyphs-are-owned.test.ts. Quest was the
- * exception: it refused with no mark at all and painted the refusal in the warning
- * colour while its successes glowed green, so the one surface a person meets first
- * inverted the severity signal every other surface agrees on.
- */
-export function refuse(guidance: string): QuestResult {
-	return { ok: false, guidance: `${REFUSED} ${guidance}` };
-}
-
-/** The shared mark for no. */
-const REFUSED = "\u2298";
-
-/** Build a structured success result. */
-export function ok(
-	message: string,
-	details?: Record<string, unknown>,
-): QuestResult {
-	return { ok: true, message, details };
-}
+export {
+	DOCUMENT_KINDS_SET,
+	ok,
+	QUEST_KINDS_SET,
+	type QuestResult,
+	type QuestToolParams,
+	refuse,
+} from "@jitsusama/agentic-harness.core/quest/verbs/shared";
 
 /**
  * Read the current pi session id off the tool context.

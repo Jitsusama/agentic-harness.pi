@@ -15,6 +15,13 @@ import { QUEST_ACTIONS } from "../../../extensions/quest-workflow/actions";
  * disappears (or a core verb is dropped from the surface) this
  * file fails, forcing a conscious decision rather than a silent
  * regression.
+ *
+ * Three guards point at agentic-harness.core's installed dist
+ * artifact rather than a test file in this repo: their real
+ * coverage moved with the pure logic it tests (actions, machine,
+ * render-rows), and core's own test files are not part of the
+ * published package (only `dist/` ships). Presence is what this
+ * repo can still check; correctness is core's own CI's job now.
  */
 
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
@@ -30,7 +37,9 @@ interface Capability {
 const DO_NOT_LOSE: Capability[] = [
 	{
 		name: "One tool with one verb surface",
-		guards: ["tests/extensions/quest-workflow/actions.test.ts"],
+		guards: [
+			"node_modules/@jitsusama/agentic-harness.core/dist/quest/actions.js",
+		],
 	},
 	{
 		name: "Single hierarchical model, documents under quests",
@@ -41,7 +50,9 @@ const DO_NOT_LOSE: Capability[] = [
 	},
 	{
 		name: "Four-kind stage machine and focus loop",
-		guards: ["tests/extensions/quest-workflow/machine.test.ts"],
+		guards: [
+			"node_modules/@jitsusama/agentic-harness.core/dist/quest/machine.js",
+		],
 	},
 	{
 		name: "Discipline gate with honest-by-destination classification",
@@ -71,7 +82,7 @@ const DO_NOT_LOSE: Capability[] = [
 		name: "Richness of the show projection",
 		guards: [
 			"tests/extensions/quest-workflow/render.test.ts",
-			"tests/extensions/quest-workflow/render-rows.test.ts",
+			"node_modules/@jitsusama/agentic-harness.core/dist/quest/render-rows.js",
 		],
 	},
 	{
