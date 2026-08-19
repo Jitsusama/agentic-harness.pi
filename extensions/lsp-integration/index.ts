@@ -2,10 +2,10 @@
  * LSP Integration extension.
  *
  * Bridges pi to language servers through the `lsp` tool. The
- * domain logic lives in lib/lsp; this extension is the thin
- * wiring: it registers the standalone backend, exposes the
- * tool, keeps the servers in step with pi's own edits, and
- * disposes everything at shutdown.
+ * domain logic lives in agentic-harness.core's lsp module; this
+ * extension is the thin wiring: it registers the standalone
+ * backend, exposes the tool, keeps the servers in step with
+ * pi's own edits, and disposes everything at shutdown.
  *
  * The tool resolves whichever backend is active, so when
  * neovim.pi registers a higher-priority backend for a paired
@@ -20,22 +20,22 @@ import type {
 	AgentToolResult,
 	ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
 import {
-	type CodeAction,
 	createStandaloneBackend,
-	type Diagnostic,
-	type HoverInfo,
-	type LspLocation,
+	formatCodeActions,
+	formatDiagnostics,
+	formatHover,
+	formatLocations,
+	formatSymbols,
+	formatWorkspaceEdit,
 	MissingServerError,
 	registerLspBackend,
 	resolveLspBackend,
 	type StandaloneBackend,
-	type SymbolInfo,
 	toBackendEntry,
 	unregisterLspBackend,
-	type WorkspaceEdit,
-} from "../../lib/lsp/index.js";
+} from "@jitsusama/agentic-harness.core/lsp";
+import { Type } from "@sinclair/typebox";
 import { citeListing, openSessionStore } from "../../lib/result/index.js";
 
 const STANDALONE = "standalone";
@@ -277,55 +277,4 @@ export default function lspIntegration(pi: ExtensionAPI) {
 			}
 		},
 	});
-}
-
-function formatDiagnostics(diagnostics: readonly Diagnostic[]): string {
-	if (diagnostics.length === 0) return "No problems reported.";
-	return diagnostics
-		.map((d) => {
-			const where = `${d.path}:${d.range.start.line}:${d.range.start.character}`;
-			const tail = [d.source, d.code].filter(Boolean).join(" ");
-			return `${d.severity} ${where} ${d.message}${tail ? ` (${tail})` : ""}`;
-		})
-		.join("\n");
-}
-
-function formatLocations(locations: readonly LspLocation[]): string {
-	if (locations.length === 0) return "No results.";
-	return locations
-		.map((l) => `${l.path}:${l.range.start.line}:${l.range.start.character}`)
-		.join("\n");
-}
-
-function formatSymbols(symbols: readonly SymbolInfo[]): string {
-	if (symbols.length === 0) return "No symbols.";
-	return symbols
-		.map((s) => {
-			const where = `${s.location.path}:${s.location.range.start.line}`;
-			const container = s.containerName ? ` in ${s.containerName}` : "";
-			return `${s.kind} ${s.name}${container} (${where})`;
-		})
-		.join("\n");
-}
-
-function formatHover(hover: HoverInfo): string {
-	return hover.contents.trim() || "No hover information.";
-}
-
-function formatCodeActions(actions: readonly CodeAction[]): string {
-	if (actions.length === 0) return "No code actions.";
-	return actions
-		.map((a) => (a.kind ? `${a.title} [${a.kind}]` : a.title))
-		.join("\n");
-}
-
-function formatWorkspaceEdit(edit: WorkspaceEdit): string {
-	if (edit.changes.length === 0) return "Rename made no changes.";
-	const files = edit.changes.length;
-	const edits = edit.changes.reduce((n, c) => n + c.edits.length, 0);
-	const lines = edit.changes.map((c) => `- ${c.path}: ${c.edits.length} edits`);
-	return [
-		`Renamed and wrote ${edits} edits across ${files} files:`,
-		...lines,
-	].join("\n");
 }

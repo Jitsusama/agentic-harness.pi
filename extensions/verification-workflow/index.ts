@@ -26,11 +26,11 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { resolveLspBackend } from "@jitsusama/agentic-harness.core/lsp";
 import { runVerify } from "@jitsusama/agentic-harness.core/verify";
 import { Type } from "@sinclair/typebox";
 import { getLastEntry } from "../../lib/internal/state.js";
 import { setVerificationFailing } from "../../lib/internal/verification/signal.js";
-import { resolveLspBackend } from "../../lib/lsp/index.js";
 import {
 	type FileError,
 	fastLayerVerdict,
