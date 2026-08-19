@@ -19,6 +19,9 @@ function initRepo(): string {
 	execFileSync("git", ["-C", repo, "init", "-q"]);
 	execFileSync("git", ["-C", repo, "config", "user.email", "t@example.com"]);
 	execFileSync("git", ["-C", repo, "config", "user.name", "Tester"]);
+	// A throwaway test repo should never depend on (or be broken by) the
+	// developer's real commit-signing setup.
+	execFileSync("git", ["-C", repo, "config", "commit.gpgsign", "false"]);
 	return repo;
 }
 

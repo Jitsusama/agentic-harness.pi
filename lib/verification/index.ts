@@ -12,7 +12,7 @@ export {
 	type CheckCommandSources,
 	type ResolvedCheck,
 	resolveCheckCommand,
-} from "./resolve.js";
+} from "@jitsusama/agentic-harness.core/verify";
 export {
 	type FastLayerInput,
 	type FastLayerVerdict,

@@ -20,14 +20,13 @@
  * loop acts at the turn boundary and when the agent is asked.
  */
 
-import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import type {
 	AgentToolResult,
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { runVerify } from "@jitsusama/agentic-harness.core/verify";
 import { Type } from "@sinclair/typebox";
 import { getLastEntry } from "../../lib/internal/state.js";
 import { setVerificationFailing } from "../../lib/internal/verification/signal.js";
@@ -35,7 +34,6 @@ import { resolveLspBackend } from "../../lib/lsp/index.js";
 import {
 	type FileError,
 	fastLayerVerdict,
-	resolveCheckCommand,
 } from "../../lib/verification/index.js";
 import {
 	createVerificationState,
@@ -46,10 +44,6 @@ import {
 const STATUS_KEY = "verification-workflow";
 /** Files the LSP fast layer can serve today. */
 const SYNCABLE = /\.(ts|tsx|js|jsx|mjs|cjs)$/;
-/** How long a medium-layer check command may run. */
-const CHECK_TIMEOUT_MS = 300_000;
-/** Cap on captured check output held in memory (a rolling tail). */
-const MAX_CAPTURE_BYTES = 512 * 1024;
 
 export default function verificationWorkflow(pi: ExtensionAPI) {
 	const state = createVerificationState();
@@ -157,58 +151,25 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 			_params,
 			signal,
 		): Promise<AgentToolResult<VerifyDetails>> {
-			const project = findProject(process.cwd());
 			const questVerify = ctxRef
 				? (getLastEntry<{ verify?: string | null }>(ctxRef, "quest-workflow")
 						?.verify ?? undefined)
 				: undefined;
-			const resolved = resolveCheckCommand({
-				questVerify: questVerify ?? undefined,
-				packageScripts: project?.scripts ?? {},
-				packageManager: project?.packageManager ?? "pnpm",
+			const result = await runVerify({
+				cwd: process.cwd(),
+				...(questVerify ? { questVerify } : {}),
+				...(signal ? { signal } : {}),
 			});
-			if (!resolved) {
-				return {
-					content: [
-						{
-							type: "text",
-							text: "No verification command found (no lint, typecheck, test or verify script).",
-						},
-					],
-					details: { ok: false },
-				};
-			}
-			const run = await runCommand(
-				resolved.command,
-				project?.dir ?? process.cwd(),
-				signal,
-			);
 			if (ctxRef) {
-				state.outcome = run.code === 0 ? "clean" : "failing";
+				state.outcome = result.ok ? "clean" : "failing";
 				refreshStatus(ctxRef, state);
 			}
-			// A passing run needs only its summary; a failing one keeps
-			// the captured tail so the errors are there to act on.
-			if (run.code === 0) {
-				const tail = run.output.split("\n").slice(-12).join("\n").trim();
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Passed: ${resolved.command}\n\n${tail}`.trim(),
-						},
-					],
-					details: { ok: true, command: resolved.command },
-				};
-			}
 			return {
-				content: [
-					{
-						type: "text",
-						text: `Failed (exit ${run.code}): ${resolved.command}\n\n${run.output}`.trim(),
-					},
-				],
-				details: { ok: false, command: resolved.command },
+				content: [{ type: "text", text: result.output }],
+				details: {
+					ok: result.ok,
+					...(result.command ? { command: result.command } : {}),
+				},
 			};
 		},
 	});
@@ -258,154 +219,6 @@ async function collectErrors(
 		}
 	}
 	return { errors, failed };
-}
-
-interface ProjectInfo {
-	readonly dir: string;
-	readonly scripts: Readonly<Record<string, string>>;
-	readonly packageManager: string;
-}
-
-export function findProject(startDir: string): ProjectInfo | null {
-	let dir = startDir;
-	while (true) {
-		const pkgPath = join(dir, "package.json");
-		if (existsSync(pkgPath)) {
-			try {
-				const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as {
-					scripts?: Record<string, string>;
-				};
-				return {
-					dir,
-					scripts: pkg.scripts ?? {},
-					packageManager: detectPackageManager(dir),
-				};
-			} catch {
-				return null;
-			}
-		}
-		const parent = dirname(dir);
-		if (parent === dir) return null;
-		dir = parent;
-	}
-}
-
-export function detectPackageManager(dir: string): string {
-	if (existsSync(join(dir, "pnpm-lock.yaml"))) return "pnpm";
-	if (existsSync(join(dir, "yarn.lock"))) return "yarn";
-	if (existsSync(join(dir, "package-lock.json"))) return "npm";
-	return "pnpm";
-}
-
-interface CommandResult {
-	readonly code: number;
-	readonly output: string;
-}
-
-/**
- * Strip ANSI escape sequences (colour and cursor control) from
- * captured output. A test runner emits these even into a pipe, and
- * left in the returned text they smear the TUI when the result is
- * rendered.
- */
-// ESC[ control sequences (colour, cursor) with the full 0x30-0x3F
-// parameter class so `:<=>?` are covered, and ESC] OSC sequences
-// terminated by either BEL or ST (ESC backslash). Built from a
-// string so the source carries no literal control bytes; the
-// regex engine expands the \u escapes at construction.
-// biome-ignore lint/complexity/useRegexLiterals: a literal would embed control bytes the linter rejects.
-const ANSI_PATTERN = new RegExp(
-	"\\u001b\\[[0-9:;<=>?]*[ -/]*[@-~]|\\u001b\\][\\s\\S]*?(?:\\u0007|\\u001b\\\\)",
-	"g",
-);
-
-export function stripAnsi(text: string): string {
-	return text.replace(ANSI_PATTERN, "");
-}
-
-function runCommand(
-	command: string,
-	cwd: string,
-	signal: AbortSignal | undefined,
-): Promise<CommandResult> {
-	return new Promise((resolvePromise) => {
-		// The child runs in its own session (detached) with no stdin
-		// and piped output. Detaching removes the controlling terminal,
-		// so a test-runner descendant cannot write progress straight to
-		// pi's screen and clobber the status line; the pipes are still
-		// captured here. The environment forces plain, non-interactive
-		// output so nothing tries cursor control in the first place.
-		const child = spawn(command, {
-			cwd,
-			shell: true,
-			detached: true,
-			stdio: ["ignore", "pipe", "pipe"],
-			env: {
-				...process.env,
-				CI: "true",
-				NO_COLOR: "1",
-				FORCE_COLOR: "0",
-				TERM: "dumb",
-			},
-		});
-
-		// Kill the whole process group, not just the shell, so detached
-		// test workers do not outlive an abort or a timeout.
-		const killGroup = () => {
-			try {
-				if (child.pid) process.kill(-child.pid, "SIGKILL");
-			} catch {
-				// Already gone, or never grouped; nothing to reap.
-			}
-		};
-		const timer = setTimeout(killGroup, CHECK_TIMEOUT_MS);
-		const onAbort = () => killGroup();
-		// addEventListener does not fire for a signal that is already
-		// aborted, so kill up front in that case; otherwise the
-		// detached suite would run to the timeout after an abort.
-		if (signal?.aborted) killGroup();
-		else signal?.addEventListener("abort", onAbort, { once: true });
-		const cleanup = () => {
-			clearTimeout(timer);
-			signal?.removeEventListener("abort", onAbort);
-		};
-
-		// Keep a rolling tail rather than the whole stream, so a
-		// runaway command cannot grow the buffer without bound for the
-		// whole timeout window; the tail is what the summary keeps.
-		let output = "";
-		const onData = (chunk: Buffer) => {
-			output += chunk.toString();
-			if (output.length > MAX_CAPTURE_BYTES) {
-				output = output.slice(output.length - MAX_CAPTURE_BYTES);
-			}
-		};
-		child.stdout?.on("data", onData);
-		child.stderr?.on("data", onData);
-		child.on("error", (err) => {
-			cleanup();
-			resolvePromise({
-				code: 1,
-				output: stripAnsi(`${output}\n${err.message}`).trim(),
-			});
-		});
-		child.on("close", (code) => {
-			cleanup();
-			resolvePromise({ code: code ?? 1, output: truncate(stripAnsi(output)) });
-		});
-	});
-}
-
-/** Cap the captured output so a noisy suite does not flood the turn. */
-export function truncate(output: string, maxLines = 200): string {
-	const lines = output.split("\n");
-	if (lines.length <= maxLines) return output.trim();
-	return [
-		`... (${lines.length - maxLines} earlier lines omitted)`,
-		...lines.slice(lines.length - maxLines),
-	]
-		.join("\n")
-		.trim();
 }
 
 function refreshStatus(ctx: ExtensionContext, state: VerificationState): void {
