@@ -184,7 +184,7 @@ describe("what a reviewer inherits", () => {
 		// nobody imports is a round nobody calls.
 		const imports = source.slice(
 			0,
-			source.indexOf('} from "../../../lib/review/index.js"'),
+			source.indexOf('} from "@jitsusama/agentic-harness.core/review"'),
 		);
 		const rounds = [...imports.matchAll(/^\t((?:run|start)[A-Z]\w*),$/gm)].map(
 			(match) => `${match[1]}(`,

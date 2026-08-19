@@ -30,7 +30,6 @@
  */
 
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { detectProseViolations } from "../../lib/prose/index.js";
 import type {
 	Anchor,
 	ChecksRollup,
@@ -40,12 +39,13 @@ import type {
 	PublishPlan,
 	Stack,
 	Thread,
-} from "../../lib/review/index.js";
+} from "@jitsusama/agentic-harness.core/review";
 import {
 	anchorable,
 	describeAnchor,
 	standsAt,
-} from "../../lib/review/index.js";
+} from "@jitsusama/agentic-harness.core/review";
+import { detectProseViolations } from "../../lib/prose/index.js";
 import {
 	languageFromPath,
 	renderCode,

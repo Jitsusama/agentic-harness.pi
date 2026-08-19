@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import type { Exec, ExecResult } from "../../../../lib/review";
+import type { Exec, ExecResult } from "@jitsusama/agentic-harness.core/exec";
 
 /** One command a fake should answer, matched loosely. */
 export interface Reply {

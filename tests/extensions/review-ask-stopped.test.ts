@@ -16,8 +16,8 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
+import { retryWouldRepeat } from "@jitsusama/agentic-harness.core/review";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { retryWouldRepeat } from "../../extensions/review-integration/budget.js";
 import {
 	answerFromReviewer,
 	keepAnswer,

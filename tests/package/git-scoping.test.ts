@@ -24,8 +24,14 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-/** Libraries whose only scoping mechanism is `-C`. */
-const SCOPED_LIBS = ["lib/review", "lib/work"];
+/**
+ * Libraries whose only scoping mechanism is `-C`.
+ *
+ * `lib/review` moved to `agentic-harness.core`, which carries its own
+ * copy of this gate over its own source; this one now covers what is
+ * still local.
+ */
+const SCOPED_LIBS = ["lib/work"];
 
 /**
  * Subcommands that are not about a repo, so a scope would be
@@ -119,10 +125,10 @@ describe("git invocations name the repo they mean", () => {
 		// Guards against the pattern silently matching nothing, which
 		// would make this whole file pass by finding no work to do.
 		const text = readFileSync(
-			join(process.cwd(), "lib/review/engine.ts"),
+			join(process.cwd(), "lib/work/stacks.ts"),
 			"utf8",
 		);
 
-		expect(invocations(text, "engine.ts").length).toBeGreaterThanOrEqual(3);
+		expect(invocations(text, "stacks.ts").length).toBeGreaterThanOrEqual(3);
 	});
 });

@@ -4,7 +4,7 @@ import {
 	createGitHistory,
 	type WorkingState,
 } from "../../../lib/work/history.js";
-import { fakeExec } from "../review/support/fake-exec.js";
+import { fakeExec } from "../../support/fake-exec.js";
 
 const statusOf = (stdout: string) => [{ when: ["status"], stdout }];
 const state = (changed: WorkingState["changed"]): WorkingState => ({

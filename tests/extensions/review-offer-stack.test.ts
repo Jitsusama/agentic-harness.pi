@@ -12,7 +12,6 @@
  * body would put the wrong text on a change nobody reread.
  */
 
-import { afterEach, describe, expect, it } from "vitest";
 import {
 	type AuthoringCapabilities,
 	clearReviewProviders,
@@ -21,8 +20,9 @@ import {
 	type ProposalDraft,
 	type RepoLocator,
 	registerReviewProvider,
-} from "../../lib/review/index.js";
-import { stubProvider } from "../lib/review/support/stub-provider.js";
+} from "@jitsusama/agentic-harness.core/review";
+import { afterEach, describe, expect, it } from "vitest";
+import { stubProvider } from "../support/stub-provider.js";
 import { activate, HEADLESS, toolNamed } from "./support/review-extension.js";
 
 const world: RepoLocator = { key: "meteorite:shop/world" };

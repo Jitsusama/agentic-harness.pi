@@ -1,5 +1,5 @@
+import type { RepoLocator } from "@jitsusama/agentic-harness.core/review";
 import { describe, expect, it } from "vitest";
-import type { RepoLocator } from "../../../lib/review/index.js";
 import {
 	createTreeBroker,
 	type TreeProvider,

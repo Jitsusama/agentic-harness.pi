@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from "vitest";
 import { createGitPublisher } from "../../../lib/work/publish.js";
-import { fakeExec } from "../review/support/fake-exec.js";
+import { fakeExec } from "../../support/fake-exec.js";
 
 const TREE = "/trees/topic";
 

@@ -20,8 +20,8 @@ import type {
 	ConversationFacet,
 	Reaction,
 	Thread,
-} from "../../../lib/review/index.js";
-import { isReactableRefusal } from "../../../lib/review/index.js";
+} from "@jitsusama/agentic-harness.core/review";
+import { isReactableRefusal } from "@jitsusama/agentic-harness.core/review";
 import { confirmBatch, type GateItem, REDIRECT_QUOTE_WIDTH } from "../gate.js";
 import {
 	anchorLabel,

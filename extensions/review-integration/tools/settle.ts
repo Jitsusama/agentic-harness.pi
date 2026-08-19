@@ -15,7 +15,7 @@ import type {
 	ChangeRef,
 	ConversationFacet,
 	Thread,
-} from "../../../lib/review/index.js";
+} from "@jitsusama/agentic-harness.core/review";
 
 /** The settling half of a conversation, which is all this file needs. */
 type Settler = Pick<ConversationFacet, "resolve" | "unresolve">;

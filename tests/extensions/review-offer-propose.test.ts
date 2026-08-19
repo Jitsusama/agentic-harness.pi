@@ -15,7 +15,6 @@
  * itself because a headless context has nothing to draw on.
  */
 
-import { afterEach, describe, expect, it } from "vitest";
 import {
 	type AuthoringCapabilities,
 	clearReviewProviders,
@@ -23,8 +22,9 @@ import {
 	type Proposal,
 	type RepoLocator,
 	registerReviewProvider,
-} from "../../lib/review/index.js";
-import { stubProvider } from "../lib/review/support/stub-provider.js";
+} from "@jitsusama/agentic-harness.core/review";
+import { afterEach, describe, expect, it } from "vitest";
+import { stubProvider } from "../support/stub-provider.js";
 import { activate, HEADLESS, toolNamed } from "./support/review-extension.js";
 
 /** The hosted repo the checkout maps onto, as a provider would claim it. */

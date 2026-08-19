@@ -20,7 +20,6 @@
 		"./google/auth": "./lib/google/auth/index.ts",
 		"./google/renderers": "./lib/google/renderers/index.ts",
 		"./web": "./lib/web/index.ts",
-		"./review": "./lib/review/index.ts",
 		"./work": "./lib/work/index.ts",
 		"./clock": "./lib/clock/index.ts",
 		"./exec": "./lib/exec/index.ts",

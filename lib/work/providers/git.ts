@@ -16,8 +16,8 @@
  */
 
 import { join } from "node:path";
+import { type Exec, run } from "@jitsusama/agentic-harness.core/exec";
 import { withoutCredentials } from "../../remote/index.js";
-import { type Exec, run } from "../../review/index.js";
 import { displayPath } from "../../ui/path.js";
 import type { TreeProvider } from "../broker.js";
 import { treeIdentity, treeSource } from "../tree.js";

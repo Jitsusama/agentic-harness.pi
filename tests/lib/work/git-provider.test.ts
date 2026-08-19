@@ -1,8 +1,8 @@
+import type { RepoLocator } from "@jitsusama/agentic-harness.core/review";
 import { describe, expect, it } from "vitest";
-import type { RepoLocator } from "../../../lib/review/index.js";
 import { createGitTreeProvider } from "../../../lib/work/providers/git.js";
 import { type TreeRequest, treeIdentity } from "../../../lib/work/tree.js";
-import { fakeExec } from "../review/support/fake-exec.js";
+import { fakeExec } from "../../support/fake-exec.js";
 
 const checkedOut: RepoLocator = {
 	key: "github:Shopify/world",

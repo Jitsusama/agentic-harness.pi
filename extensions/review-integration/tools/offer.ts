@@ -16,8 +16,6 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
-import type { Exec } from "../../../lib/exec/index.js";
 import type {
 	AuthoringIntent,
 	BoundTarget,
@@ -25,17 +23,19 @@ import type {
 	FieldEdit,
 	Proposal,
 	SetEdit,
-} from "../../../lib/review/index.js";
+} from "@jitsusama/agentic-harness.core/review";
 import {
 	fillProposal,
 	misnamedPeople,
 	offerable,
+	proposalComplaint,
 	retargetPlan,
 	retargetRoute,
-} from "../../../lib/review/index.js";
+} from "@jitsusama/agentic-harness.core/review";
+import { Type } from "@sinclair/typebox";
+import type { Exec } from "../../../lib/exec/index.js";
 import { count } from "../../../lib/ui/index.js";
 import { createGitRebaser, createGitStacks } from "../../../lib/work/index.js";
-import { proposalComplaint } from "../conventions.js";
 import { attachments } from "../engine.js";
 import { confirmWrite } from "../gate.js";
 import { type GatePanel, GLYPH, proposalLine } from "../render.js";

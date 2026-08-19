@@ -15,8 +15,8 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { run } from "@jitsusama/agentic-harness.core/review";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { run } from "../../../lib/review/index.js";
 import {
 	blocksRepoint,
 	createGitAuthor,

@@ -28,7 +28,7 @@ import {
 	type ReviewProvider,
 	type ReviewSubstrateApi,
 	registerReviewProvider,
-} from "../../lib/review/index.js";
+} from "@jitsusama/agentic-harness.core/review";
 import {
 	ReviewerArtifactsStore,
 	recoverReviewerRuns,

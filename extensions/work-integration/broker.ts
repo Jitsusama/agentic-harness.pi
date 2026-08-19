@@ -16,8 +16,8 @@
 
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { Exec } from "@jitsusama/agentic-harness.core/exec";
 import { stateDir } from "../../lib/internal/paths.js";
-import type { Exec } from "../../lib/review/index.js";
 import {
 	createGitTreeProvider,
 	createTreeBroker,

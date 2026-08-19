@@ -4,7 +4,7 @@ import {
 	namingComplaints,
 	safeBranchName,
 } from "../../../lib/work/index.js";
-import { fakeExec } from "../review/support/fake-exec.js";
+import { fakeExec } from "../../support/fake-exec.js";
 
 const ok = [{ when: [], stdout: "" }];
 

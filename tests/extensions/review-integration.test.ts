@@ -9,8 +9,6 @@
  * someone tries to use the thing.
  */
 
-import { afterEach, describe, expect, it } from "vitest";
-import { watchRound } from "../../extensions/review-integration/progress.js";
 import {
 	clearReviewProviders,
 	listReviewProviders,
@@ -18,7 +16,9 @@ import {
 	REVIEW_REGISTER_PROVIDER,
 	REVIEW_REQUEST_SUBSTRATE,
 	type ReviewSubstrateApi,
-} from "../../lib/review/index.js";
+} from "@jitsusama/agentic-harness.core/review";
+import { afterEach, describe, expect, it } from "vitest";
+import { watchRound } from "../../extensions/review-integration/progress.js";
 import { activate } from "./support/review-extension.js";
 
 afterEach(() => clearReviewProviders());

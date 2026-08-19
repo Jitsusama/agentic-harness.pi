@@ -9,7 +9,8 @@
  * Asserted through the adapter rather than through the tool, because
  * the seam that can silently rot is the one between what the
  * supervisor wrote to disk and what a round can read back. The
- * library's own rules are pinned in tests/lib/review/collect.test.ts.
+ * library's own rules are pinned in agentic-harness.core's
+ * tests/review/collect.test.ts.
  */
 
 import {
@@ -21,18 +22,22 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type {
+	AskAnswer,
+	AskRun,
+	Finding,
+} from "@jitsusama/agentic-harness.core/review";
+import {
+	collectRound,
+	runSummary,
+	stoppedNotes,
+} from "@jitsusama/agentic-harness.core/review";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	answerLeftBehind,
 	archivedAnswer,
 	heldByLiveSupervisor,
 } from "../../extensions/review-integration/reviewer.js";
-import type { AskAnswer, AskRun, Finding } from "../../lib/review/index.js";
-import {
-	collectRound,
-	runSummary,
-	stoppedNotes,
-} from "../../lib/review/index.js";
 import type { ProcessFacts } from "../../lib/subagent/index.js";
 import {
 	ReviewerArtifactsStore,

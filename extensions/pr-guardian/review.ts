@@ -9,6 +9,7 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { runProseGate } from "@jitsusama/agentic-harness.core/guardian/prose-gate";
+import { runRedirectGate } from "@jitsusama/agentic-harness.core/guardian/redirect-gate";
 import { runSectionGate } from "@jitsusama/agentic-harness.core/guardian/section-gate";
 import { runTitleGate } from "@jitsusama/agentic-harness.core/guardian/title-gate";
 import { PR_SECTIONS } from "@jitsusama/agentic-harness.core/sections";
@@ -17,7 +18,6 @@ import type {
 	GuardianResult,
 } from "../../lib/guardian/types.js";
 import { sessionGateDeps } from "../../lib/internal/gate/session-deps.js";
-import { runRedirectGate } from "../../lib/internal/guardian/redirect-gate.js";
 import {
 	type EntityReviewConfig,
 	reviewMarkdownEntity,

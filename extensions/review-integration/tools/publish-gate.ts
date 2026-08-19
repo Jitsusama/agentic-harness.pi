@@ -26,7 +26,7 @@ import type {
 	DiffModel,
 	PlannedOp,
 	PublishPlan,
-} from "../../../lib/review/index.js";
+} from "@jitsusama/agentic-harness.core/review";
 import type { GateItem, GateView } from "../gate.js";
 import { REDIRECT_QUOTE_WIDTH } from "../gate.js";
 import {

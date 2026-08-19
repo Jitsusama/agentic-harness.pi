@@ -12,15 +12,15 @@
  * the state in which it is still yours to watch.
  */
 
-import { afterEach, describe, expect, it } from "vitest";
 import {
 	type AuthoringCapabilities,
 	clearReviewProviders,
 	clearTargetBindings,
 	type Proposal,
 	registerReviewProvider,
-} from "../../lib/review/index.js";
-import { stubProvider } from "../lib/review/support/stub-provider.js";
+} from "@jitsusama/agentic-harness.core/review";
+import { afterEach, describe, expect, it } from "vitest";
+import { stubProvider } from "../support/stub-provider.js";
 import { activate, HEADLESS, toolNamed } from "./support/review-extension.js";
 
 const AT = "b8210c7420448a5390ca3b2d8bc65c5ceab2af0f";

@@ -8,9 +8,9 @@
  * the one thing the line would not say.
  */
 
+import type { Proposal } from "@jitsusama/agentic-harness.core/review";
 import { describe, expect, it } from "vitest";
 import { proposalLine } from "../../extensions/review-integration/render.js";
-import type { Proposal } from "../../lib/review/index.js";
 
 function change(size: Partial<Proposal>): Proposal {
 	return {

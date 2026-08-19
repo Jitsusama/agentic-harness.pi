@@ -16,14 +16,14 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, it } from "vitest";
-import type { PrCommand } from "../../../extensions/pr-guardian/parse.js";
-import { createPrGuardian } from "../../../extensions/pr-guardian/review.js";
 import {
 	clearReviewProviders,
 	registerReviewProvider,
-} from "../../../lib/review/index.js";
-import { stubProvider } from "../../lib/review/support/stub-provider.js";
+} from "@jitsusama/agentic-harness.core/review";
+import { afterEach, describe, expect, it } from "vitest";
+import type { PrCommand } from "../../../extensions/pr-guardian/parse.js";
+import { createPrGuardian } from "../../../extensions/pr-guardian/review.js";
+import { stubProvider } from "../../support/stub-provider.js";
 
 const cleanBody = [
 	"### 🌐 Situation",

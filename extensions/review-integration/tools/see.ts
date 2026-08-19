@@ -16,12 +16,11 @@ import {
 	citeListing,
 	openSessionStore,
 } from "@jitsusama/agentic-harness.core/result";
-import { Type } from "@sinclair/typebox";
 import type {
 	BoundTarget,
 	Decision,
 	Finding,
-} from "../../../lib/review/index.js";
+} from "@jitsusama/agentic-harness.core/review";
 import {
 	createDecisionLedger,
 	createFindingStore,
@@ -35,7 +34,8 @@ import {
 	reactables,
 	sinceLastVisit,
 	tallyReceptions,
-} from "../../../lib/review/index.js";
+} from "@jitsusama/agentic-harness.core/review";
+import { Type } from "@sinclair/typebox";
 import { count } from "../../../lib/ui/index.js";
 import { decisionDir, findingDir, fixDir, visitDir } from "../engine.js";
 import {

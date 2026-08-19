@@ -25,8 +25,14 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { RepoLocator, TreeRead } from "../../lib/review/index.js";
-import { checkoutFor, whatItRead } from "../../lib/review/index.js";
+import type {
+	RepoLocator,
+	TreeRead,
+} from "@jitsusama/agentic-harness.core/review";
+import {
+	checkoutFor,
+	whatItRead,
+} from "@jitsusama/agentic-harness.core/review";
 import {
 	satisfies,
 	treeRequestFrom,

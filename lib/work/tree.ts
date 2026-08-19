@@ -17,7 +17,7 @@
  * neither about is reported as unplaceable rather than guessed at.
  */
 
-import type { RepoLocator } from "../review/index.js";
+import type { RepoLocator } from "@jitsusama/agentic-harness.core/review";
 
 /**
  * Where the source for a tree comes from.

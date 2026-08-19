@@ -13,7 +13,7 @@ importers:
     dependencies:
       '@jitsusama/agentic-harness.core':
         specifier: github:Jitsusama/agentic-harness.core
-        version: https://codeload.github.com/Jitsusama/agentic-harness.core/tar.gz/21296b2a83d370177ee627290aac842d476202a1
+        version: https://codeload.github.com/Jitsusama/agentic-harness.core/tar.gz/f1b6c673d2ba5fef2baee00dba51c0c049e12be8
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@4.4.3)
@@ -32,9 +32,6 @@ importers:
       jsdom:
         specifier: ^29.1.1
         version: 29.1.1
-      jsonpath-plus:
-        specifier: ^10.4.0
-        version: 10.4.0
       pixelmatch:
         specifier: ^7.2.0
         version: 7.2.0
@@ -47,12 +44,6 @@ importers:
       sqlite3:
         specifier: ^6.0.1
         version: 6.0.1
-      vscode-jsonrpc:
-        specifier: ^9.0.1
-        version: 9.0.1
-      vscode-languageserver-protocol:
-        specifier: ^3.18.2
-        version: 3.18.2
       yaml:
         specifier: ^2.9.0
         version: 2.9.0
@@ -406,8 +397,8 @@ packages:
     resolution: {integrity: sha512-wgm9Ehl2jpeqP3zw/7mo3kRHFp5MEDhqAdwy1fTGkHAwnkGOVsgpvQhL8B5n1qlb01jV3n/bI0ZfZp5lWA1k4w==}
     engines: {node: '>=18.0.0'}
 
-  '@jitsusama/agentic-harness.core@https://codeload.github.com/Jitsusama/agentic-harness.core/tar.gz/21296b2a83d370177ee627290aac842d476202a1':
-    resolution: {tarball: https://codeload.github.com/Jitsusama/agentic-harness.core/tar.gz/21296b2a83d370177ee627290aac842d476202a1}
+  '@jitsusama/agentic-harness.core@https://codeload.github.com/Jitsusama/agentic-harness.core/tar.gz/f1b6c673d2ba5fef2baee00dba51c0c049e12be8':
+    resolution: {tarball: https://codeload.github.com/Jitsusama/agentic-harness.core/tar.gz/f1b6c673d2ba5fef2baee00dba51c0c049e12be8}
     version: 0.1.0
     engines: {node: '>=22.19.0'}
     hasBin: true
@@ -2815,9 +2806,13 @@ snapshots:
     dependencies:
       minipass: 7.1.3
 
-  '@jitsusama/agentic-harness.core@https://codeload.github.com/Jitsusama/agentic-harness.core/tar.gz/21296b2a83d370177ee627290aac842d476202a1':
+  '@jitsusama/agentic-harness.core@https://codeload.github.com/Jitsusama/agentic-harness.core/tar.gz/f1b6c673d2ba5fef2baee00dba51c0c049e12be8':
     dependencies:
+      jsonpath-plus: 10.4.0
       sqlite3: 6.0.1
+      vscode-jsonrpc: 9.0.1
+      vscode-languageserver-protocol: 3.18.2
+      yaml: 2.9.0
 
   '@jridgewell/resolve-uri@3.1.2': {}
 

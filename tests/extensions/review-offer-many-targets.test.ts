@@ -14,8 +14,6 @@
  * those two is a label somebody loses.
  */
 
-import { afterEach, describe, expect, it } from "vitest";
-import { editPanel } from "../../extensions/review-integration/tools/offer.js";
 import {
 	type AuthoringCapabilities,
 	clearReviewProviders,
@@ -23,8 +21,10 @@ import {
 	type Proposal,
 	type RepoLocator,
 	registerReviewProvider,
-} from "../../lib/review/index.js";
-import { stubProvider } from "../lib/review/support/stub-provider.js";
+} from "@jitsusama/agentic-harness.core/review";
+import { afterEach, describe, expect, it } from "vitest";
+import { editPanel } from "../../extensions/review-integration/tools/offer.js";
+import { stubProvider } from "../support/stub-provider.js";
 import { activate, HEADLESS, toolNamed } from "./support/review-extension.js";
 
 const world: RepoLocator = { key: "meteorite:shop/world" };

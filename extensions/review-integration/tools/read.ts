@@ -11,15 +11,15 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
 import {
 	type BoundTarget,
 	changeInPlay,
 	chooseChange,
 	type ServingRepo,
+	stackStep,
 	unbackedDeclarations,
-} from "../../../lib/review/index.js";
-import { stackStep } from "../../../lib/review/stack.js";
+} from "@jitsusama/agentic-harness.core/review";
+import { Type } from "@sinclair/typebox";
 import { displayPath } from "../../../lib/ui/index.js";
 import { attachments, reviewEngine } from "../engine.js";
 import { GLYPH } from "../render.js";

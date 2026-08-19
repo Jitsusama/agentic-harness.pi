@@ -4,7 +4,7 @@ import type {
 	RepoLocator,
 	RepoProbe,
 	ReviewProvider,
-} from "../../../../lib/review";
+} from "@jitsusama/agentic-harness.core/review";
 
 /** Overrides a test cares about; the rest is inert. */
 export interface StubOptions {

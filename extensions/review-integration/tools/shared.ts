@@ -24,7 +24,7 @@ import {
 	reactables,
 	repoElsewhere,
 	type Thread,
-} from "../../../lib/review/index.js";
+} from "@jitsusama/agentic-harness.core/review";
 import { firstText, renderToolCall } from "../../../lib/ui/index.js";
 import { attachments, reviewEngine } from "../engine.js";
 import type { GateRefusal } from "../gate.js";

@@ -13,12 +13,15 @@
  * rejection the backend could not honour.
  */
 
+import type {
+	PublishPlan,
+	Thread,
+} from "@jitsusama/agentic-harness.core/review";
 import { describe, expect, it } from "vitest";
 import {
 	PLAN_TAB,
 	publishTabs,
 } from "../../extensions/review-integration/tools/publish-gate.js";
-import type { PublishPlan, Thread } from "../../lib/review/index.js";
 import { plainTheme } from "../lib/ui/fake-theme.js";
 
 const HERE = "shop/world#2000980 \u00b7 meteorite";

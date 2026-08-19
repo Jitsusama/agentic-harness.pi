@@ -11,7 +11,6 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
 import {
 	type Anchor,
 	type BoundTarget,
@@ -34,7 +33,8 @@ import {
 	subjectOf,
 	type Thread,
 	type Verdict,
-} from "../../../lib/review/index.js";
+} from "@jitsusama/agentic-harness.core/review";
+import { Type } from "@sinclair/typebox";
 import { count, displayPath } from "../../../lib/ui/index.js";
 import {
 	decisionDir,

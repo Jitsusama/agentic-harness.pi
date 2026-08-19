@@ -13,7 +13,6 @@ import { open } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { stateDir } from "../../lib/internal/paths.js";
 import {
 	type AttachmentStore,
 	createAttachmentStore,
@@ -24,7 +23,8 @@ import {
 	type Exec,
 	type ReviewEngine,
 	registerReviewProvider,
-} from "../../lib/review/index.js";
+} from "@jitsusama/agentic-harness.core/review";
+import { stateDir } from "../../lib/internal/paths.js";
 import { loadReviewConfig } from "./config.js";
 
 /** Where drafts live. */

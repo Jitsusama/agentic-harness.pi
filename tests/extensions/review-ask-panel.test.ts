@@ -14,12 +14,12 @@
  * offer.
  */
 
+import { trackAskProgress } from "@jitsusama/agentic-harness.core/review";
 import { describe, expect, it } from "vitest";
 import {
 	panelLines,
 	watchRound,
 } from "../../extensions/review-integration/progress.js";
-import { trackAskProgress } from "../../lib/review/index.js";
 
 /**
  * A theme that returns its text, so assertions read as content.

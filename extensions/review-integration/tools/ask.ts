@@ -27,12 +27,6 @@ import type {
 	Theme,
 } from "@earendil-works/pi-coding-agent";
 import type { Text } from "@earendil-works/pi-tui";
-import { Type } from "@sinclair/typebox";
-import {
-	type ConfigLoadResult,
-	loadPackageConfig,
-} from "../../../lib/internal/config/loader.js";
-import { packageConfigPath } from "../../../lib/internal/paths.js";
 import {
 	type AnswerContext,
 	type AnswerLine,
@@ -40,10 +34,13 @@ import {
 	type AskContext,
 	type AskRound,
 	type AskRun,
+	agentsInRepo,
 	auditPrompt,
+	boundsFor,
 	type ChangeRef,
 	type CouncilDeps,
 	type Critique,
+	chartersOnDisk,
 	collectRound,
 	councilPrompt,
 	createFindingStore,
@@ -54,14 +51,20 @@ import {
 	describeAnchor,
 	describeRun,
 	type Finding,
+	givenBy,
+	guidanceFor,
 	judgePrompt,
+	lensesFor,
 	overrideRoster,
 	type Participant,
 	type ParticipantOverride,
 	parseRoster,
+	type ReviewerBudget,
 	type Roster,
 	type RunStore,
 	retryCannotResettle,
+	retryWouldRepeat,
+	reviewerBudget,
 	roundAnswer,
 	runAudit,
 	runCouncil,
@@ -73,7 +76,14 @@ import {
 	substituteOutcome,
 	type Thread,
 	type ThreadAudit,
-} from "../../../lib/review/index.js";
+	touchedBy,
+} from "@jitsusama/agentic-harness.core/review";
+import { Type } from "@sinclair/typebox";
+import {
+	type ConfigLoadResult,
+	loadPackageConfig,
+} from "../../../lib/internal/config/loader.js";
+import { packageConfigPath } from "../../../lib/internal/paths.js";
 import type { ReviewerThinkingLevel } from "../../../lib/subagent/index.js";
 import {
 	getParentPiInstall,
@@ -88,12 +98,6 @@ import {
 import { fromScript } from "../../../lib/subagent/runpi/fresh.js";
 import { THINKING_LEVELS } from "../../../lib/thinking/index.js";
 import { count } from "../../../lib/ui/count.js";
-import {
-	boundsFor,
-	type ReviewerBudget,
-	retryWouldRepeat,
-	reviewerBudget,
-} from "../budget.js";
 import { REVIEW_SLUG } from "../config.js";
 import {
 	answerDir,
@@ -103,14 +107,6 @@ import {
 	runArtifactDir,
 	runDir,
 } from "../engine.js";
-import {
-	agentsInRepo,
-	chartersOnDisk,
-	givenBy,
-	guidanceFor,
-	lensesFor,
-	touchedBy,
-} from "../lenses.js";
 import { type RoundWatch, watchRound } from "../progress.js";
 import { GLYPH } from "../render.js";
 import {

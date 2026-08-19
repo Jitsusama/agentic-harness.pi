@@ -13,6 +13,17 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type {
+	AskAnswer,
+	AskRun,
+	ChangeRef,
+	Finding,
+} from "@jitsusama/agentic-harness.core/review";
+import {
+	collectRound,
+	createRunStore,
+	startCouncil,
+} from "@jitsusama/agentic-harness.core/review";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	answerLeftBehind,
@@ -20,17 +31,6 @@ import {
 	reviewerStarter,
 	whyNotYet,
 } from "../../extensions/review-integration/reviewer.js";
-import type {
-	AskAnswer,
-	AskRun,
-	ChangeRef,
-	Finding,
-} from "../../lib/review/index.js";
-import {
-	collectRound,
-	createRunStore,
-	startCouncil,
-} from "../../lib/review/index.js";
 import {
 	ReviewerArtifactsStore,
 	startReviewer,

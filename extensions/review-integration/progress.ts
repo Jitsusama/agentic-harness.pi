@@ -33,7 +33,7 @@ import {
 	type AskProgressEntry,
 	type AskRound,
 	trackAskProgress,
-} from "../../lib/review/index.js";
+} from "@jitsusama/agentic-harness.core/review";
 import { AGENT_GLYPH } from "../../lib/ui/agent-glyphs.js";
 
 /**

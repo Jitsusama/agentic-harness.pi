@@ -41,9 +41,12 @@ async function buildTemplate(): Promise<string> {
 	const dir = mkdtempSync(join(tmpdir(), "git-fixture-template-"));
 	await git(dir, "init", "-q", "-b", "main");
 	// Committing needs an identity, and a developer's own global
-	// config must not decide whether the suite passes.
+	// config must not decide whether the suite passes. gpgsign is
+	// disabled the same way: a machine with commit signing on by
+	// default must not make these commits hang on a signing prompt.
 	await git(dir, "config", "user.email", "test@example.com");
 	await git(dir, "config", "user.name", "Test");
+	await git(dir, "config", "commit.gpgsign", "false");
 	writeFileSync(join(dir, "README.md"), "scratch repo\n");
 	await git(dir, "add", "README.md");
 	await git(dir, "commit", "-qm", "initial");

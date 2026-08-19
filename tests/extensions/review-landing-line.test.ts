@@ -1,15 +1,19 @@
 /**
  * Saying whether a change could land.
  *
- * The narration is tested against the contract in `tests/lib/review/landing.test.ts`.
+ * The narration is tested against the contract in agentic-harness.core's
+ * `tests/review/landing.test.ts`.
  * This is the other half of the seam: that the line a reader actually sees carries it.
  * A test on either side of a seam passes against a system that does not work, and this
  * substrate has shipped that exact defect three times, so the reader gets its own test.
  */
 
+import type {
+	Landability,
+	Proposal,
+} from "@jitsusama/agentic-harness.core/review";
 import { describe, expect, it } from "vitest";
 import { proposalLine } from "../../extensions/review-integration/render.js";
-import type { Landability, Proposal } from "../../lib/review/index.js";
 
 function change(landing?: Landability): Proposal {
 	return {
