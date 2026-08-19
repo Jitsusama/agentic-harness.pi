@@ -8,21 +8,19 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { runProseGate } from "@jitsusama/agentic-harness.core/guardian/prose-gate";
+import { runSectionGate } from "@jitsusama/agentic-harness.core/guardian/section-gate";
+import { runTitleGate } from "@jitsusama/agentic-harness.core/guardian/title-gate";
+import { ISSUE_SECTIONS } from "@jitsusama/agentic-harness.core/sections";
 import type {
 	CommandGuardian,
 	GuardianResult,
 } from "../../lib/guardian/types.js";
-import {
-	runProseGate,
-	sessionGateDeps,
-} from "../../lib/internal/guardian/prose-gate.js";
+import { sessionGateDeps } from "../../lib/internal/gate/session-deps.js";
 import {
 	type EntityReviewConfig,
 	reviewMarkdownEntity,
 } from "../../lib/internal/guardian/review-entity.js";
-import { runSectionGate } from "../../lib/internal/guardian/section-gate.js";
-import { runTitleGate } from "../../lib/internal/guardian/title-gate.js";
-import { ISSUE_SECTIONS } from "../../lib/sections/index.js";
 import {
 	type IssueCommand,
 	isIssueCommand,

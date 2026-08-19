@@ -26,18 +26,18 @@
  */
 
 import {
-	detectProseViolations,
-	formatProseBlock,
-} from "../../lib/prose/index.js";
-import {
 	detectSectionViolations,
 	formatSectionBlock,
 	PR_SECTIONS,
-} from "../../lib/sections/index.js";
+} from "@jitsusama/agentic-harness.core/sections";
 import {
 	detectTitleViolations,
 	formatTitleBlock,
-} from "../../lib/title/index.js";
+} from "@jitsusama/agentic-harness.core/title";
+import {
+	detectProseViolations,
+	formatProseBlock,
+} from "../../lib/prose/index.js";
 
 /**
  * A refusal naming what to fix about a proposal, or nothing.

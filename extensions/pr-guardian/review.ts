@@ -8,22 +8,20 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { runProseGate } from "@jitsusama/agentic-harness.core/guardian/prose-gate";
+import { runSectionGate } from "@jitsusama/agentic-harness.core/guardian/section-gate";
+import { runTitleGate } from "@jitsusama/agentic-harness.core/guardian/title-gate";
+import { PR_SECTIONS } from "@jitsusama/agentic-harness.core/sections";
 import type {
 	CommandGuardian,
 	GuardianResult,
 } from "../../lib/guardian/types.js";
-import {
-	runProseGate,
-	sessionGateDeps,
-} from "../../lib/internal/guardian/prose-gate.js";
+import { sessionGateDeps } from "../../lib/internal/gate/session-deps.js";
 import { runRedirectGate } from "../../lib/internal/guardian/redirect-gate.js";
 import {
 	type EntityReviewConfig,
 	reviewMarkdownEntity,
 } from "../../lib/internal/guardian/review-entity.js";
-import { runSectionGate } from "../../lib/internal/guardian/section-gate.js";
-import { runTitleGate } from "../../lib/internal/guardian/title-gate.js";
-import { PR_SECTIONS } from "../../lib/sections/index.js";
 import { isPrCommand, type PrCommand, parsePrCommand } from "./parse.js";
 
 const PR_SECTION_CONFIG = {

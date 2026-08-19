@@ -1,8 +1,11 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import {
+	ISSUE_SECTIONS,
+	PR_SECTIONS,
+} from "@jitsusama/agentic-harness.core/sections";
 import { describe, expect, it } from "vitest";
 import { buildBindingRules } from "../../../extensions/convention-context/rules.js";
-import { ISSUE_SECTIONS, PR_SECTIONS } from "../../../lib/sections/index.js";
 
 function skill(relPath: string): string {
 	return readFileSync(
