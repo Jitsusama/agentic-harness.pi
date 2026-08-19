@@ -13,7 +13,10 @@
  * knowing how a caller asks for less.
  */
 
-import { boundedByDetails, openSessionStore } from "../../lib/result/index.js";
+import {
+	boundedByDetails,
+	openSessionStore,
+} from "@jitsusama/agentic-harness.core/result";
 
 /** How a caller asks Slack for a smaller answer. */
 const NARROWING =

@@ -1,11 +1,11 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { boundedAnswer } from "../../../extensions/slack-integration/bounded.js";
 import {
 	cleanupSessionResults,
 	createResultStore,
 	recordsIn,
 	sessionResultDir,
-} from "../../../lib/result/index.js";
+} from "@jitsusama/agentic-harness.core/result";
+import { afterEach, describe, expect, it } from "vitest";
+import { boundedAnswer } from "../../../extensions/slack-integration/bounded.js";
 
 /** A rendered message list long enough to need bounding. */
 function longHistory(count: number): {

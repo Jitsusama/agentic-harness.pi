@@ -26,7 +26,7 @@ import {
 	type TUI,
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
-import { count as grouped } from "../../lib/result/counts.js";
+import { count as grouped } from "@jitsusama/agentic-harness.core/result";
 import { AGENT_GLYPH } from "../../lib/ui/agent-glyphs.js";
 import {
 	type PipelineStage,

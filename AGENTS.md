@@ -60,11 +60,6 @@ The package manager is **pnpm**. `pnpm-lock.yaml` is canonical;
     carry a token as its user or as its password, so a message
     naming one verbatim prints a live secret; the credential comes
     out for display and stays in for the fetch
-  - `lib/result/`: tool answers that are bounded without being
-    lossy: the session result store, the bounded structural
-    digest, the shared JSONPath query and the citation rule
-    (public). `lib/mcp` re-exports it, so the MCP surface and the
-    tool families share one store
   - `lib/clock/`: what a duration bounding a child process may
     be (public). Its own module on the `lib/exec` reasoning: the
     rules belong to the runner, which is the last place they can
@@ -323,7 +318,7 @@ oblivion: the caller who needed the part that was cut has to be
 able to reach it without calling the tool again and guessing at
 different arguments.
 
-Use `lib/result`: `citeListing` for a rendered listing whose
+Use agentic-harness.core's `result` module: `citeListing` for a rendered listing whose
 records are to hand, `boundedByDetails` where a family already
 passes its records through a result's details, and `cite` for
 anything shaped differently. A handle is cited exactly when the

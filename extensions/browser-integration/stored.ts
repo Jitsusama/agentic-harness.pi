@@ -14,7 +14,11 @@
  * moved.
  */
 
-import { cite, citeListing, openSessionStore } from "../../lib/result/index.js";
+import {
+	cite,
+	citeListing,
+	openSessionStore,
+} from "@jitsusama/agentic-harness.core/result";
 import {
 	type AxNode,
 	type BudgetedOutline,

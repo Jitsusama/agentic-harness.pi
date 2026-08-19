@@ -1,3 +1,10 @@
+import {
+	cleanupSessionResults,
+	createResultStore,
+	offerQueryTool,
+	sessionResultDir,
+	withdrawQueryTool,
+} from "@jitsusama/agentic-harness.core/result";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	bodyAnswer,
@@ -6,13 +13,6 @@ import {
 	pageAnswer,
 	storageAnswer,
 } from "../../../extensions/browser-integration/stored.js";
-import {
-	cleanupSessionResults,
-	createResultStore,
-	offerQueryTool,
-	sessionResultDir,
-	withdrawQueryTool,
-} from "../../../lib/result/index.js";
 import type { AxNode } from "../../../lib/web/a11y/index.js";
 import { renderAxOutline } from "../../../lib/web/a11y/index.js";
 import type { Observation } from "../../../lib/web/session.js";

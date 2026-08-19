@@ -12,8 +12,11 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import {
+	citeListing,
+	openSessionStore,
+} from "@jitsusama/agentic-harness.core/result";
 import { Type } from "@sinclair/typebox";
-import { citeListing, openSessionStore } from "../../../lib/result/index.js";
 import type {
 	BoundTarget,
 	Decision,

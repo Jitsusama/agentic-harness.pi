@@ -37,9 +37,11 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+	boundedByDetails,
+	createResultStore,
+} from "@jitsusama/agentic-harness.core/result";
 import { describe, expect, it } from "vitest";
-import { boundedByDetails } from "../../lib/result/details.js";
-import { createResultStore } from "../../lib/result/store.js";
 
 /**
  * Extensions whose tools can answer with a payload larger than a
@@ -93,13 +95,25 @@ function sourceFiles(dir: string): string[] {
 	});
 }
 
+/**
+ * Whether a source file imports the shared result machinery,
+ * either the local library or the agentic-harness.core module it
+ * was extracted to.
+ */
+function importsResultLibrary(source: string): boolean {
+	return (
+		source.includes("lib/result/") ||
+		source.includes("agentic-harness.core/result")
+	);
+}
+
 /** Whether an extension reaches the shared result machinery. */
 function reachesTheStore(extension: string): boolean {
 	const dir = join("extensions", extension);
 	return sourceFiles(dir).some((file) => {
 		const source = readFileSync(file, "utf-8");
 		return (
-			source.includes("lib/result/") &&
+			importsResultLibrary(source) &&
 			/\b(citeListing|cite|boundedByDetails|queryStored)\b/.test(source)
 		);
 	});
@@ -123,7 +137,7 @@ describe("tools that can answer big must bound their answers", () => {
 			// not do is inline an unbounded payload with neither.
 			const pointsSomewhere = sources.some(
 				(source) =>
-					source.includes("lib/result/") ||
+					importsResultLibrary(source) ||
 					/\b(resultPath|runDir|bundle|manifest)\b/.test(source),
 			);
 			expect(pointsSomewhere).toBe(true);

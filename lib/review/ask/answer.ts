@@ -19,7 +19,7 @@
 // put pi's runtime in the module graph of a library that has never
 // needed it. Every other `count` consumer in `lib/` takes the leaf
 // for the same reason.
-import { count as group } from "../../result/counts.js";
+import { count as group } from "@jitsusama/agentic-harness.core/result";
 import { count } from "../../ui/count.js";
 import type { AskRun, RunSummary } from "./run.js";
 import {

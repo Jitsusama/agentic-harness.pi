@@ -22,6 +22,10 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { keyHint, SessionManager } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
+import {
+	boundedByDetails,
+	openSessionStore,
+} from "@jitsusama/agentic-harness.core/result";
 import { Type } from "@sinclair/typebox";
 import {
 	getSection,
@@ -37,7 +41,6 @@ import {
 } from "../../lib/people/index.js";
 import { registerBuiltinUrlFetchers } from "../../lib/quest/index.js";
 import { registerBuiltinRefTypes } from "../../lib/refs/index.js";
-import { boundedByDetails, openSessionStore } from "../../lib/result/index.js";
 import { registerBuiltinTerminalDrivers } from "../../lib/terminal/index.js";
 import { registerBuiltinTreeProviders } from "../../lib/tree/index.js";
 import { count, drawInto, firstText } from "../../lib/ui/index.js";

@@ -20,7 +20,10 @@
  * whole thing and discarding it.
  */
 
-import { type BudgetedView, withinLineBudget } from "../../result/view.js";
+import {
+	type BudgetedView,
+	withinLineBudget,
+} from "@jitsusama/agentic-harness.core/result";
 
 /**
  * What an explicit read of a page spends on the outline.
@@ -78,9 +81,9 @@ export interface BudgetedOutline extends BudgetedView {
 /**
  * As much of an outline as the budget affords, and never none.
  *
- * The cutting is the general rule from `lib/result`; what belongs
- * to the page is the advice about what to do next, since narrowing
- * a page read has its own vocabulary.
+ * The cutting is the general rule from agentic-harness.core's result
+ * module; what belongs to the page is the advice about what to do
+ * next, since narrowing a page read has its own vocabulary.
  */
 export function withinOutlineBudget(
 	rendered: string,

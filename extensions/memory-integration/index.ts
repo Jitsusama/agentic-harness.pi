@@ -20,6 +20,10 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import {
+	citeListing,
+	openSessionStore,
+} from "@jitsusama/agentic-harness.core/result";
 import { Type } from "@sinclair/typebox";
 import {
 	type Fact,
@@ -29,7 +33,6 @@ import {
 	resolveScope,
 } from "../../lib/memory/index.js";
 import { registerPromptContributor } from "../../lib/prompt/index.js";
-import { citeListing, openSessionStore } from "../../lib/result/index.js";
 
 /** Memory recall sits just below the conventions in the resident block. */
 const MEMORY_ORDER = 10;

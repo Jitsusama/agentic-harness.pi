@@ -35,8 +35,11 @@ import {
 	toBackendEntry,
 	unregisterLspBackend,
 } from "@jitsusama/agentic-harness.core/lsp";
+import {
+	citeListing,
+	openSessionStore,
+} from "@jitsusama/agentic-harness.core/result";
 import { Type } from "@sinclair/typebox";
-import { citeListing, openSessionStore } from "../../lib/result/index.js";
 
 const STANDALONE = "standalone";
 /** The standalone backend registers here; a paired editor sits below it. */

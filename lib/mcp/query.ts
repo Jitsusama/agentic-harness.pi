@@ -2,7 +2,7 @@
  * Querying a stored MCP payload.
  *
  * The query language and its bounds are general and live in
- * `lib/result`. What stays here is the MCP shape of the answer:
+ * agentic-harness.core's result module. What stays here is the MCP shape of the answer:
  * content blocks, and the absolute ceiling that can send an
  * over-broad answer straight back to the store it came from.
  */
@@ -11,7 +11,7 @@ import {
 	DEFAULT_MAX_MATCHES,
 	type QueryOptions,
 	queryStored,
-} from "../result/query.js";
+} from "@jitsusama/agentic-harness.core/result";
 import {
 	DEFAULT_RESULT_CEILING_BYTES,
 	enforceResultCeiling,
@@ -19,7 +19,7 @@ import {
 import type { ResultStore } from "./store.js";
 import type { McpContent } from "./types.js";
 
-export type { QueryOptions } from "../result/query.js";
+export type { QueryOptions } from "@jitsusama/agentic-harness.core/result";
 
 /**
  * Run a JSONPath expression against a stored JSON payload and return the matched

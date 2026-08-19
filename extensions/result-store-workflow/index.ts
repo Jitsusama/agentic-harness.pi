@@ -15,7 +15,6 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
 import {
 	cleanupSessionResults,
 	DEFAULT_MAX_MATCHES,
@@ -25,7 +24,8 @@ import {
 	queryStored,
 	RESULT_ROOT,
 	reapAbandonedResults,
-} from "../../lib/result/index.js";
+} from "@jitsusama/agentic-harness.core/result";
+import { Type } from "@sinclair/typebox";
 import { renderQueryCall, renderQueryResult } from "./render.js";
 
 /** What the tool reports alongside its text, for the renderers. */

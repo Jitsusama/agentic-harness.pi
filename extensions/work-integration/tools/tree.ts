@@ -14,12 +14,15 @@
 
 import { realpathSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import {
+	citeListing,
+	openSessionStore,
+} from "@jitsusama/agentic-harness.core/result";
 import { Type } from "@sinclair/typebox";
 import { sessionGateDeps } from "../../../lib/internal/gate/session-deps.js";
 import { complaintsAbout } from "../../../lib/internal/guardian/commit-format.js";
 import { runProseGate } from "../../../lib/internal/guardian/prose-gate.js";
 import { gitTreeRootOf } from "../../../lib/internal/quest/git-signals.js";
-import { citeListing, openSessionStore } from "../../../lib/result/index.js";
 import type { Exec } from "../../../lib/review/index.js";
 import { count, displayPath } from "../../../lib/ui/index.js";
 import {
