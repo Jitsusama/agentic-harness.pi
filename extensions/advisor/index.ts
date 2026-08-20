@@ -23,30 +23,32 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
-import { runInvestigation } from "../../lib/completion/index.js";
+import {
+	advisorCharter,
+	channelFor,
+	type Finding,
+	investigationTools,
+	isSubstantiveTurn,
+	loadAdvisorEnabled,
+	nextImmuneTurns,
+	parseFindings,
+	reviewPrompt,
+	saveAdvisorEnabled,
+} from "@jitsusama/agentic-harness.core/advisor";
 import {
 	condenseTranscript,
 	openRuleStore,
 	type RuleStore,
-} from "../../lib/governance/index.js";
-import { dataDir } from "../../lib/internal/paths.js";
-import { entriesToTurns } from "../../lib/internal/transcript.js";
+} from "@jitsusama/agentic-harness.core/governance";
 import {
 	recordRunEverywhere,
 	runRecordFrom,
-} from "../../lib/observability/index.js";
+} from "@jitsusama/agentic-harness.core/observability";
+import { Type } from "@sinclair/typebox";
+import { runInvestigation } from "../../lib/completion/index.js";
+import { dataDir } from "../../lib/internal/paths.js";
+import { entriesToTurns } from "../../lib/internal/transcript.js";
 import { drawInto } from "../../lib/ui/index.js";
-import { advisorCharter, reviewPrompt } from "./charter.js";
-import {
-	channelFor,
-	type Finding,
-	nextImmuneTurns,
-	parseFindings,
-} from "./findings.js";
-import { loadAdvisorEnabled, saveAdvisorEnabled } from "./settings.js";
-import { isSubstantiveTurn } from "./substantive.js";
-import { investigationTools } from "./tools.js";
 
 /**
  * The runtime context fields the advisor uses that the older

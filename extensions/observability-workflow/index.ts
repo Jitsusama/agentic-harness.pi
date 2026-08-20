@@ -23,8 +23,6 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
-import { packageStateDir } from "../../lib/internal/package-state-dir.js";
 import {
 	openRunStore,
 	type RunRecord,
@@ -32,7 +30,9 @@ import {
 	type RunStore,
 	type RunSummary,
 	registerRunRecorder,
-} from "../../lib/observability/index.js";
+} from "@jitsusama/agentic-harness.core/observability";
+import { Type } from "@sinclair/typebox";
+import { packageStateDir } from "../../lib/internal/package-state-dir.js";
 
 const STATUS_KEY = "observability:summary";
 

@@ -18,8 +18,6 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
-import { runSideCompletion } from "../../lib/completion/index.js";
 import {
 	condenseTranscript,
 	distillSystemPrompt,
@@ -29,7 +27,9 @@ import {
 	type RuleStore,
 	renderRulesBlock,
 	type Turn,
-} from "../../lib/governance/index.js";
+} from "@jitsusama/agentic-harness.core/governance";
+import { Type } from "@sinclair/typebox";
+import { runSideCompletion } from "../../lib/completion/index.js";
 import { dataDir } from "../../lib/internal/paths.js";
 import { entriesToTurns } from "../../lib/internal/transcript.js";
 import { registerPromptContributor } from "../../lib/prompt/index.js";

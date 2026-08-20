@@ -1,13 +1,13 @@
+import type {
+	RunRecord,
+	RunRollup,
+	VerifyOutcome,
+} from "@jitsusama/agentic-harness.core/observability";
 import { describe, expect, it } from "vitest";
 import {
 	formatDigest,
 	groupByRun,
 } from "../../../extensions/observability-workflow/index.js";
-import type {
-	RunRecord,
-	RunRollup,
-	VerifyOutcome,
-} from "../../../lib/observability/index.js";
 
 const ZERO = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
 

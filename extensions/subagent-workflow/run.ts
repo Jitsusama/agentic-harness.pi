@@ -16,11 +16,11 @@
  * `lib/subagent/`.
  */
 
-import { count as grouped } from "@jitsusama/agentic-harness.core/result";
 import {
 	recordRunEverywhere,
 	runRecordFrom,
-} from "../../lib/observability/index.js";
+} from "@jitsusama/agentic-harness.core/observability";
+import { count as grouped } from "@jitsusama/agentic-harness.core/result";
 import { ReviewerArtifactsStore } from "../../lib/subagent/artifacts.js";
 import type {
 	ReviewerThinkingLevel,

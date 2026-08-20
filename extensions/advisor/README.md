@@ -23,11 +23,17 @@ the text it read, the rule it breaks.
 ## How It Works
 
 The advisor runs on a cheap side model (GLM via the proxy) using
-the shared investigation loop (`lib/completion`), which lets the
-model call read-only tools (`read`, `grep`, `glob`) before it
+the shared investigation loop (`lib/completion`, itself a thin
+wrapper over `agentic-harness.core`'s `completion`), which lets
+the model call read-only tools (`read`, `grep`, `glob`, from
+`agentic-harness.core`'s `advisor` tool palette) before it
 answers. It keeps one long-lived context per session, so its
 prefix caches turn to turn rather than re-paying a cold spawn
-each turn.
+each turn. The charter, finding parsing, back-off and
+substantive-turn detection are `agentic-harness.core`'s `advisor`
+too; this extension is the session-wide orchestration (turn_end,
+`ctx.modelRegistry`, delivering a finding as a steer or a note)
+that needs a live pi session to run.
 
 It is bounded and quiet by design:
 

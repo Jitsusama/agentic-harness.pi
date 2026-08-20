@@ -16,6 +16,10 @@
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import {
+	recordRunEverywhere,
+	runRecordFrom,
+} from "@jitsusama/agentic-harness.core/observability";
 import type {
 	AskAnswer,
 	AskLimit,
@@ -23,10 +27,6 @@ import type {
 	AskStop,
 } from "@jitsusama/agentic-harness.core/review";
 import { budgetForLimit } from "@jitsusama/agentic-harness.core/review";
-import {
-	recordRunEverywhere,
-	runRecordFrom,
-} from "../../lib/observability/index.js";
 import type {
 	PiInstall,
 	ProcessFacts,

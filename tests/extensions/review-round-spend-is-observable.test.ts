@@ -15,10 +15,10 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { RunRecord } from "@jitsusama/agentic-harness.core/observability";
+import { registerRunRecorder } from "@jitsusama/agentic-harness.core/observability";
 import { describe, expect, it } from "vitest";
 import { recordReviewerRun } from "../../extensions/review-integration/reviewer.js";
-import type { RunRecord } from "../../lib/observability/index.js";
-import { registerRunRecorder } from "../../lib/observability/index.js";
 import type { RunReviewerResult } from "../../lib/subagent/index.js";
 
 /** Whatever the recorder is handed while the body runs. */
