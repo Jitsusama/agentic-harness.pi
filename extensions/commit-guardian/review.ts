@@ -9,6 +9,11 @@ import type {
 	ExtensionContext,
 	Theme,
 } from "@earendil-works/pi-coding-agent";
+import { readCommitFile } from "@jitsusama/agentic-harness.core/guardian/commit-file";
+import {
+	type CommitValidation,
+	validate,
+} from "@jitsusama/agentic-harness.core/guardian/commit-format";
 import { runProseGate } from "@jitsusama/agentic-harness.core/guardian/prose-gate";
 import {
 	ALLOW,
@@ -17,11 +22,6 @@ import {
 	type GuardianResult,
 } from "../../lib/guardian/index.js";
 import { sessionGateDeps } from "../../lib/internal/gate/session-deps.js";
-import { readCommitFile } from "../../lib/internal/guardian/commit-file.js";
-import {
-	type CommitValidation,
-	validate,
-} from "../../lib/internal/guardian/commit-format.js";
 import { isVerificationFailing } from "../../lib/internal/verification/signal.js";
 import { promptSingle } from "../../lib/ui/index.js";
 import { extractMessage, isCommitCommand } from "./parse.js";

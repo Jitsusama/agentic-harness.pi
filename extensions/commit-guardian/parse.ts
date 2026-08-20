@@ -4,9 +4,9 @@
  * detect function.
  */
 
-import { isGitCommitCommand } from "../../lib/internal/guardian/shell.js";
+import { isGitCommitCommand } from "@jitsusama/agentic-harness.core/guardian/commit-shell";
 
-export { extractMessage } from "../../lib/internal/guardian/shell.js";
+export { extractMessage } from "@jitsusama/agentic-harness.core/guardian/commit-shell";
 
 /**
  * Detect whether a bash command contains a git commit. Routes

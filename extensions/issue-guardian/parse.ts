@@ -1,6 +1,7 @@
 /**
  * Issue command parsing: re-exports the shared gh issue parsing
- * utilities from lib/internal/github/cli for the issue guardian.
+ * utilities from agentic-harness.core's github/cli for the issue
+ * guardian.
  *
  * Editing an issue body for attribution is done by splicing in
  * place (lib/internal/github/attribution-edit), not by rebuilding
@@ -11,4 +12,4 @@ export {
 	type IssueCommand,
 	isIssueCommand,
 	parseIssueCommand,
-} from "../../lib/internal/github/cli.js";
+} from "@jitsusama/agentic-harness.core/github/cli";

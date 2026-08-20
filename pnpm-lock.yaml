@@ -13,7 +13,7 @@ importers:
     dependencies:
       '@jitsusama/agentic-harness.core':
         specifier: github:Jitsusama/agentic-harness.core
-        version: https://codeload.github.com/Jitsusama/agentic-harness.core/tar.gz/2ac54f8ae7705ce22c496676607c3c48b2591338(yauzl@2.10.0)
+        version: https://codeload.github.com/Jitsusama/agentic-harness.core/tar.gz/047f5c27ef4485c26af428eb08acc86376e9e750(yauzl@2.10.0)
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@4.4.3)
@@ -370,8 +370,8 @@ packages:
     resolution: {integrity: sha512-wgm9Ehl2jpeqP3zw/7mo3kRHFp5MEDhqAdwy1fTGkHAwnkGOVsgpvQhL8B5n1qlb01jV3n/bI0ZfZp5lWA1k4w==}
     engines: {node: '>=18.0.0'}
 
-  '@jitsusama/agentic-harness.core@https://codeload.github.com/Jitsusama/agentic-harness.core/tar.gz/2ac54f8ae7705ce22c496676607c3c48b2591338':
-    resolution: {tarball: https://codeload.github.com/Jitsusama/agentic-harness.core/tar.gz/2ac54f8ae7705ce22c496676607c3c48b2591338}
+  '@jitsusama/agentic-harness.core@https://codeload.github.com/Jitsusama/agentic-harness.core/tar.gz/047f5c27ef4485c26af428eb08acc86376e9e750':
+    resolution: {tarball: https://codeload.github.com/Jitsusama/agentic-harness.core/tar.gz/047f5c27ef4485c26af428eb08acc86376e9e750}
     version: 0.1.0
     engines: {node: '>=22.19.0'}
     hasBin: true
@@ -2764,7 +2764,7 @@ snapshots:
     dependencies:
       minipass: 7.1.3
 
-  '@jitsusama/agentic-harness.core@https://codeload.github.com/Jitsusama/agentic-harness.core/tar.gz/2ac54f8ae7705ce22c496676607c3c48b2591338(yauzl@2.10.0)':
+  '@jitsusama/agentic-harness.core@https://codeload.github.com/Jitsusama/agentic-harness.core/tar.gz/047f5c27ef4485c26af428eb08acc86376e9e750(yauzl@2.10.0)':
     dependencies:
       axe-core: 4.12.1
       defuddle: 0.19.1
