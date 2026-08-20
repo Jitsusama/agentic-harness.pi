@@ -5,41 +5,27 @@
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
+	type DestructiveMatch,
+	detectDestructiveCommand,
+} from "@jitsusama/agentic-harness.core/guardian/history-gate";
+import {
 	ALLOW,
 	type CommandGuardian,
 	formatRedirectBlock,
 	type GuardianResult,
 } from "../../lib/guardian/index.js";
 import { promptSingle, renderMarkdown } from "../../lib/ui/index.js";
-import {
-	DESTRUCTIVE_PATTERNS,
-	type DestructivePattern,
-	type Severity,
-} from "./patterns.js";
 
 const DESTRUCTIVE_ACTIONS = [{ key: "r", label: "Reject" }];
-
-interface DestructiveMatch {
-	command: string;
-	severity: Severity;
-	description: string;
-}
 
 /** Guardian that intercepts destructive git commands and requires confirmation. */
 export const historyGuardian: CommandGuardian<DestructiveMatch> = {
 	detect(command) {
-		return DESTRUCTIVE_PATTERNS.some((p: DestructivePattern) =>
-			p.pattern.test(command),
-		);
+		return detectDestructiveCommand(command) !== null;
 	},
 
 	parse(command) {
-		for (const { pattern, severity, description } of DESTRUCTIVE_PATTERNS) {
-			if (pattern.test(command)) {
-				return { command, severity, description };
-			}
-		}
-		return null;
+		return detectDestructiveCommand(command);
 	},
 
 	async review(
