@@ -2,42 +2,11 @@
  * Slack library: API client, authentication, renderers,
  * resolvers and shared types.
  *
- * Public entry point for external consumers.
+ * Public entry point for external consumers. Everything but the
+ * interactive auth orchestration lives in agentic-harness.core now;
+ * `ensureAuthenticated` (this package's own `./auth`) is the piece
+ * that needs pi's UI to run the setup wizard and/or OAuth flow.
  */
 
-export * from "./api/index.js";
-export * from "./auth/index.js";
-export { formatSlackBlock } from "./block-message.js";
-export {
-	extractCellText,
-	extractTables,
-	mrkdwnToBlocks,
-	mrkdwnToCell,
-	parseMrkdwnToElements,
-	renderRichTextCell,
-	tableToBlock,
-} from "./blocks.js";
-export {
-	type SlackGateDecision,
-	slackGateDecision,
-} from "./content-gate.js";
-export { detectSlackViolations, type SlackViolation } from "./detect.js";
-export * from "./renderers/index.js";
-export * from "./resolvers/index.js";
-
-// Re-export domain types (omit router internals).
-export type {
-	Conversation,
-	ConversationKind,
-	MessageTarget,
-	OAuthApp,
-	SlackAttachment,
-	SlackChannel,
-	SlackColumnSetting,
-	SlackFile,
-	SlackMessage,
-	SlackReaction,
-	SlackTable,
-	SlackUser,
-	StoredToken,
-} from "./types.js";
+export * from "@jitsusama/agentic-harness.core/slack";
+export { ensureAuthenticated } from "./auth/index.js";

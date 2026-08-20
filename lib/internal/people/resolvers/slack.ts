@@ -17,10 +17,13 @@
  * `@` or a hint of `"handle"`.
  */
 
+import {
+	getToken,
+	hasToken,
+	resolveUser,
+	SlackClient,
+} from "@jitsusama/agentic-harness.core/slack";
 import type { Identity, PersonResolver } from "../../../people/types.js";
-import { SlackClient } from "../../../slack/api/client.js";
-import { getToken, hasToken } from "../../../slack/auth/credentials.js";
-import { resolveUser } from "../../../slack/resolvers/user.js";
 
 let cachedClient: SlackClient | undefined;
 

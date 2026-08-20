@@ -2,33 +2,29 @@
  * Drive action handlers.
  */
 
-import type { OAuth2Client } from "google-auth-library";
 import {
 	type DocTab,
 	getDocComments,
 	getDocContent,
-} from "../../../lib/google/apis/docs.js";
-import {
 	getFileMetadata,
+	getSheetContent,
+	getSlideContent,
 	listFiles,
 	listSharedDrives,
 	parseGoogleUrl,
-} from "../../../lib/google/apis/drive.js";
-import { getSheetContent } from "../../../lib/google/apis/sheets.js";
-import { getSlideContent } from "../../../lib/google/apis/slides.js";
-import {
 	renderDoc,
 	renderFileList,
 	renderSheet,
 	renderSlides,
-} from "../../../lib/google/renderers/drive.js";
+} from "@jitsusama/agentic-harness.core/google";
 import {
 	type ActionParams,
 	getBooleanParam,
 	getNumberParam,
 	getStringParam,
 	type ToolResult,
-} from "../../../lib/google/types.js";
+} from "@jitsusama/agentic-harness.core/google/types";
+import type { OAuth2Client } from "google-auth-library";
 
 /** Search and list Google Drive files with optional filters. */
 export async function handleListFiles(

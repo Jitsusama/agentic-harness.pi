@@ -10,17 +10,21 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { view } from "../../ui/index.js";
-import { SlackClient } from "../api/client.js";
-import { openInBrowser } from "./browser.js";
 import {
 	getToken,
 	hasToken,
 	type OAuthApp,
+	SlackClient,
 	storeToken,
-} from "./credentials.js";
-import { buildAuthUrl, CALLBACK_PORT, exchangeCodeForToken } from "./oauth.js";
-import { waitForOAuthCallback } from "./server.js";
+} from "@jitsusama/agentic-harness.core/slack";
+import { openInBrowser } from "@jitsusama/agentic-harness.core/slack/auth/browser";
+import {
+	buildAuthUrl,
+	CALLBACK_PORT,
+	exchangeCodeForToken,
+} from "@jitsusama/agentic-harness.core/slack/auth/oauth";
+import { waitForOAuthCallback } from "@jitsusama/agentic-harness.core/slack/auth/server";
+import { view } from "../../ui/index.js";
 import { ensureSetup } from "./setup-wizard.js";
 
 /**
@@ -129,20 +133,6 @@ async function runOAuthFlow(
 	} finally {
 		dismiss.abort();
 	}
-}
-
-/** Format an auth error for the tool result. */
-export function formatAuthError(error: unknown): string {
-	const message = error instanceof Error ? error.message : String(error);
-	if (message.includes("cancelled")) {
-		return (
-			"⚠️ Authentication required but was cancelled.\n\n" +
-			"Run /slack-auth to authenticate with Slack."
-		);
-	}
-	// Errors from describeError() already have a "Slack API error:" prefix.
-	if (message.startsWith("Slack API error:")) return message;
-	return `Slack API error: ${message}`;
 }
 
 /** Generate a random state parameter for CSRF protection. */

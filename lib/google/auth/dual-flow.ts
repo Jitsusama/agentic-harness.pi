@@ -4,16 +4,16 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { Credentials } from "google-auth-library";
-import { view } from "../../ui/index.js";
-import { openInBrowser } from "./browser.js";
-import type { OAuth2Config } from "./oauth.js";
+import { openInBrowser } from "@jitsusama/agentic-harness.core/google/auth/browser";
+import type { OAuth2Config } from "@jitsusama/agentic-harness.core/google/auth/oauth";
 import {
 	initiateDeviceFlow,
 	pollForDeviceAuthorization,
 	SCOPES,
-} from "./oauth.js";
-import { waitForOAuthCallback } from "./server.js";
+} from "@jitsusama/agentic-harness.core/google/auth/oauth";
+import { waitForOAuthCallback } from "@jitsusama/agentic-harness.core/google/auth/server";
+import type { Credentials } from "google-auth-library";
+import { view } from "../../ui/index.js";
 
 /** Result of an OAuth flow. */
 export interface OAuthFlowResult {

@@ -6,14 +6,14 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { SlackClient } from "../../lib/slack/api/client.js";
 import {
 	clearAllConfig,
 	getToken,
 	hasToken,
-} from "../../lib/slack/auth/credentials.js";
+	type OAuthApp,
+	SlackClient,
+} from "@jitsusama/agentic-harness.core/slack";
 import { ensureSetup } from "../../lib/slack/auth/setup-wizard.js";
-import type { OAuthApp } from "../../lib/slack/types.js";
 import { view } from "../../lib/ui/index.js";
 
 /**

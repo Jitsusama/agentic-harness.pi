@@ -8,12 +8,15 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+	ActionParams,
+	ToolResult,
+} from "@jitsusama/agentic-harness.core/google/types";
 import {
 	boundedByDetails,
 	openSessionStore,
 } from "@jitsusama/agentic-harness.core/result";
 import type { OAuth2Client } from "google-auth-library";
-import type { ActionParams, ToolResult } from "../../lib/google/types.js";
 import {
 	handleCheckAvailability,
 	handleCreateEvent,

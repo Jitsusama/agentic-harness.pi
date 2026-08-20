@@ -9,50 +9,43 @@
 
 import { basename } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { GateDeps } from "../../lib/gate/index.js";
-import { getChannelInfo } from "../../lib/slack/api/channels.js";
-import type { SlackClient } from "../../lib/slack/api/client.js";
-import {
-	type DownloadedFile,
-	downloadFiles,
-	getFileSize,
-	uploadFiles,
-} from "../../lib/slack/api/files.js";
-import {
-	editMessage,
-	formatMentions,
-	getMessage,
-	getThread,
-	listMessages,
-	replyToThread,
-	sendMessage,
-} from "../../lib/slack/api/messages.js";
 import {
 	addReaction,
+	type DownloadedFile,
+	downloadFiles,
+	editMessage,
+	formatMentions,
+	getChannelInfo,
+	getFileSize,
+	getMessage,
 	getReactions,
+	getThread,
+	getUserInfo,
+	listMessages,
 	listReactions,
+	mrkdwnToBlocks,
 	removeReaction,
-} from "../../lib/slack/api/reactions.js";
-import { resolveMessages } from "../../lib/slack/api/resolve-messages.js";
-import { searchFiles, searchMessages } from "../../lib/slack/api/search.js";
-import { getUserInfo } from "../../lib/slack/api/users.js";
-import { mrkdwnToBlocks, tableToBlock } from "../../lib/slack/blocks.js";
-import { slackGateDecision } from "../../lib/slack/content-gate.js";
-import { renderChannel } from "../../lib/slack/renderers/channel.js";
-import {
+	renderChannel,
+	renderFileList,
 	renderMessage,
 	renderMessageList,
-	renderThread,
-} from "../../lib/slack/renderers/message.js";
-import {
 	renderMessageReactions,
 	renderReactedMessages,
-} from "../../lib/slack/renderers/reactions.js";
-import { renderFileList } from "../../lib/slack/renderers/search.js";
-import { renderUser } from "../../lib/slack/renderers/user.js";
-import { resolveConversation } from "../../lib/slack/resolvers/conversation.js";
-import { resolveTarget } from "../../lib/slack/resolvers/target.js";
-import { resolveUser } from "../../lib/slack/resolvers/user.js";
+	renderThread,
+	renderUser,
+	replyToThread,
+	resolveConversation,
+	resolveMessages,
+	resolveTarget,
+	resolveUser,
+	type SlackClient,
+	searchFiles,
+	searchMessages,
+	sendMessage,
+	slackGateDecision,
+	tableToBlock,
+	uploadFiles,
+} from "@jitsusama/agentic-harness.core/slack";
 import {
 	type ActionParams,
 	numberParam,
@@ -63,7 +56,8 @@ import {
 	stringParam,
 	type ToolContent,
 	type ToolResult,
-} from "../../lib/slack/types.js";
+} from "@jitsusama/agentic-harness.core/slack/types";
+import type { GateDeps } from "../../lib/gate/index.js";
 import { count, verb } from "../../lib/ui/count.js";
 import { boundedAnswer } from "./bounded.js";
 import {

@@ -2,23 +2,12 @@
  * Google Workspace library: API clients, authentication,
  * renderers and shared types.
  *
- * Public entry point for external consumers.
+ * Public entry point for external consumers. Everything but the
+ * interactive auth orchestration lives in agentic-harness.core now;
+ * `ensureAuthenticated` (this package's own `./auth`) is the piece
+ * that needs pi's UI to run the setup wizard and/or device/web
+ * OAuth flow.
  */
 
-export * from "./apis/index.js";
-export * from "./auth/index.js";
-export * from "./renderers/index.js";
-
-// Re-export domain types (omit router internals).
-export type {
-	BusyPeriod,
-	CalendarEvent,
-	CalendarFreeBusy,
-	DocumentComment,
-	DriveFile,
-	EmailMessage,
-	EmailMessageFull,
-	FreeBusyResult,
-	GoogleAccount,
-	StoredCredentials,
-} from "./types.js";
+export * from "@jitsusama/agentic-harness.core/google";
+export { ensureAuthenticated } from "./auth/index.js";

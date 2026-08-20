@@ -4,18 +4,18 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { promptSingle } from "../../ui/index.js";
 import {
 	getOAuthApp,
 	hasOAuthApp,
 	type OAuthAppCredentials,
 	storeOAuthApp,
-} from "./credentials.js";
+} from "@jitsusama/agentic-harness.core/google";
 import {
 	ERRORS,
 	isValidClientId,
 	isValidClientSecret,
-} from "./setup-instructions.js";
+} from "@jitsusama/agentic-harness.core/google/auth/setup-instructions";
+import { promptSingle } from "../../ui/index.js";
 
 /**
  * Check if OAuth app is configured, and if not, run the setup wizard.

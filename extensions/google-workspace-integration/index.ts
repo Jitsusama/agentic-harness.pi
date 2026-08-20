@@ -8,13 +8,13 @@
 
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import {
+	clearAllConfig,
+	formatAuthError,
+} from "@jitsusama/agentic-harness.core/google";
 import { Type } from "@sinclair/typebox";
 import type { OAuth2Client } from "google-auth-library";
-import { clearAllConfig } from "../../lib/google/auth/credentials.js";
-import {
-	ensureAuthenticated,
-	formatAuthError,
-} from "../../lib/google/auth/ensure-auth.js";
+import { ensureAuthenticated } from "../../lib/google/auth/ensure-auth.js";
 import { ensureOAuthApp } from "../../lib/google/auth/setup-wizard.js";
 import { handleGoogleAuthCommand } from "./auth-command.js";
 import { renderGoogleCall } from "./render-call.js";

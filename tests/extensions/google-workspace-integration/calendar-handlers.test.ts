@@ -2,7 +2,8 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { OAuth2Client } from "google-auth-library";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../../../lib/google/apis/calendar", () => ({
+vi.mock("@jitsusama/agentic-harness.core/google", async (importOriginal) => ({
+	...(await importOriginal()),
 	createEvent: vi.fn(),
 	deleteEvent: vi.fn(),
 	getEvent: vi.fn(),
@@ -12,8 +13,8 @@ vi.mock("../../../lib/google/apis/calendar", () => ({
 	updateEvent: vi.fn(),
 }));
 
+import { createEvent } from "@jitsusama/agentic-harness.core/google";
 import { handleCreateEvent } from "../../../extensions/google-workspace-integration/router/calendar-handlers";
-import { createEvent } from "../../../lib/google/apis/calendar";
 
 const mockedCreateEvent = vi.mocked(createEvent);
 

@@ -1,8 +1,13 @@
 # Slack Library
 
 Slack API client, authentication, renderers and resolvers for
-Pi extensions. Designed for use within Pi; the auth flow uses
-Pi's interactive UI.
+Pi extensions.
+
+The API client, renderers, resolvers, credential storage and error
+formatting are pi-agnostic and live in `agentic-harness.core`'s
+`slack` library; this package re-exports all of it. The one thing
+that stays here is `ensureAuthenticated`: the interactive setup
+wizard and OAuth web redirect flow need Pi's UI to run.
 
 ## Getting Started
 
@@ -26,11 +31,11 @@ const rendered = renderMessageList(results.messages);
 
 ## Sub-Modules
 
-Each subdomain has its own barrel for fine-grained imports:
-
-- **`api/`**: `SlackClient` and all API functions (messages,
-  channels, reactions, search, users).
-- **`auth/`**: `ensureAuthenticated` (one-call entry point),
-  credential state readers (`hasToken`, `getToken`).
-- **`renderers/`**: markdown formatting for Slack entities.
-- **`resolvers/`**: channel, user and conversation resolution.
+- **`agentic-harness.core/slack`**: `SlackClient` and every API,
+  renderer and resolver function, plus credential state readers
+  (`hasToken`, `getToken`) and `formatAuthError`. Deeper subpaths
+  (`.../slack/auth/oauth`, `.../slack/auth/browser`, etc.) exist for
+  the pieces the setup wizard needs directly.
+- **`./auth`**: `ensureAuthenticated`, the one-call entry point that
+  bridges the setup wizard and the OAuth web redirect flow through
+  Pi's interactive UI.

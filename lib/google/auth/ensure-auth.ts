@@ -5,33 +5,24 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { OAuth2Client } from "google-auth-library";
-import { promptSingle } from "../../ui/index.js";
 import {
+	AUTH_MESSAGES,
 	getCredentials,
 	getDefaultAccount,
 	listAccounts,
 	type OAuthAppCredentials,
 	saveAccount,
 	storeCredentials,
-} from "./credentials.js";
-import { authenticateWithFallback } from "./dual-flow.js";
+} from "@jitsusama/agentic-harness.core/google";
 import {
 	createOAuth2Client,
 	refreshTokenIfNeeded,
 	setCredentials,
-} from "./oauth.js";
+} from "@jitsusama/agentic-harness.core/google/auth/oauth";
+import type { OAuth2Client } from "google-auth-library";
+import { promptSingle } from "../../ui/index.js";
+import { authenticateWithFallback } from "./dual-flow.js";
 import { ensureOAuthApp } from "./setup-wizard.js";
-
-const AUTH_MESSAGES = {
-	cancelled:
-		"⚠️ Authentication required but was cancelled.\n\n" +
-		"Run /google-auth to authenticate with your Google account.",
-
-	setupCancelled:
-		"⚠️ OAuth credentials setup required but was cancelled.\n\n" +
-		"Run /google-setup to configure Google Workspace access.",
-};
 
 /**
  * Ensure the user is authenticated with Google Workspace.
@@ -120,21 +111,6 @@ export async function ensureAuthenticated(
 	);
 
 	return client;
-}
-
-/** Format an auth error for tool results. */
-export function formatAuthError(error: unknown): string {
-	const message = error instanceof Error ? error.message : String(error);
-
-	if (message.includes("cancelled")) {
-		return AUTH_MESSAGES.cancelled;
-	}
-
-	if (message.includes("setup required")) {
-		return AUTH_MESSAGES.setupCancelled;
-	}
-
-	return `Google Workspace API error: ${message}`;
 }
 
 /** Extract email from token info, returning undefined on failure. */

@@ -9,19 +9,22 @@
 
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ThemeColor } from "@earendil-works/pi-coding-agent";
+import {
+	clearAllConfig,
+	displayNameForId,
+	formatAuthError,
+	formatSlackText,
+	getToken,
+	type OAuthApp,
+	parseSlackUrl,
+	SlackApiError,
+	type SlackClient,
+	type SlackUser,
+} from "@jitsusama/agentic-harness.core/slack";
 import { Type } from "@sinclair/typebox";
 import { sessionGateDeps } from "../../lib/internal/gate/session-deps.js";
 import { getLastEntry } from "../../lib/internal/state.js";
-import { SlackApiError, type SlackClient } from "../../lib/slack/api/client.js";
-import { clearAllConfig, getToken } from "../../lib/slack/auth/credentials.js";
-import {
-	ensureAuthenticated,
-	formatAuthError,
-} from "../../lib/slack/auth/ensure-auth.js";
-import { formatSlackText } from "../../lib/slack/renderers/message.js";
-import { parseSlackUrl } from "../../lib/slack/resolvers/url.js";
-import { displayNameForId } from "../../lib/slack/resolvers/user.js";
-import type { OAuthApp, SlackUser } from "../../lib/slack/types.js";
+import { ensureAuthenticated } from "../../lib/slack/auth/ensure-auth.js";
 import { count } from "../../lib/ui/count.js";
 import { drawInto } from "../../lib/ui/index.js";
 import { handleSlackAuthCommand } from "./auth-command.js";

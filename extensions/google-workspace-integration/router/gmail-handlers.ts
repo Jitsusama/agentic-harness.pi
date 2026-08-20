@@ -3,7 +3,6 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { OAuth2Client } from "google-auth-library";
 import {
 	archiveEmail,
 	createDraft,
@@ -12,22 +11,21 @@ import {
 	getThread,
 	markRead,
 	markUnread,
-	searchEmails,
-	sendEmail,
-	unarchiveEmail,
-} from "../../../lib/google/apis/gmail.js";
-import {
 	renderEmail,
 	renderEmailList,
 	renderThread,
-} from "../../../lib/google/renderers/email.js";
+	searchEmails,
+	sendEmail,
+	unarchiveEmail,
+} from "@jitsusama/agentic-harness.core/google";
 import {
 	type ActionParams,
 	getNumberParam,
 	getStringArrayParam,
 	getStringParam,
 	type ToolResult,
-} from "../../../lib/google/types.js";
+} from "@jitsusama/agentic-harness.core/google/types";
+import type { OAuth2Client } from "google-auth-library";
 import { confirmDeleteEmail, confirmSendEmail } from "../confirmation.js";
 
 /** Search Gmail messages using a query string. */

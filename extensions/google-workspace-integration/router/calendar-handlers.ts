@@ -3,28 +3,26 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { OAuth2Client } from "google-auth-library";
 import {
 	createEvent,
 	deleteEvent,
 	getEvent,
 	listEvents,
 	queryFreeBusy,
-	respondToEvent,
-	updateEvent,
-} from "../../../lib/google/apis/calendar.js";
-import {
 	renderEvent,
 	renderEventList,
 	renderFreeBusy,
-} from "../../../lib/google/renderers/calendar.js";
+	respondToEvent,
+	updateEvent,
+} from "@jitsusama/agentic-harness.core/google";
 import {
 	type ActionParams,
 	getNumberParam,
 	getStringArrayParam,
 	getStringParam,
 	type ToolResult,
-} from "../../../lib/google/types.js";
+} from "@jitsusama/agentic-harness.core/google/types";
+import type { OAuth2Client } from "google-auth-library";
 import {
 	confirmCreateEvent,
 	confirmDeleteEvent,

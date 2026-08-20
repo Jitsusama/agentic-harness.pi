@@ -12,19 +12,19 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { promptSingle, view } from "../../ui/index.js";
-import { SlackClient } from "../api/client.js";
-import { extractFromBrowser } from "./browser-extract.js";
 import {
 	getOAuthApp,
 	getToken,
 	hasOAuthApp,
 	hasToken,
 	type OAuthApp,
+	SlackClient,
 	storeOAuthApp,
 	storeToken,
-} from "./credentials.js";
-import { extractFromCurl } from "./extract.js";
+} from "@jitsusama/agentic-harness.core/slack";
+import { extractFromBrowser } from "@jitsusama/agentic-harness.core/slack/auth/browser-extract";
+import { extractFromCurl } from "@jitsusama/agentic-harness.core/slack/auth/extract";
+import { promptSingle, view } from "../../ui/index.js";
 
 /**
  * Ensure the user has valid Slack credentials.
