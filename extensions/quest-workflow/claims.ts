@@ -15,8 +15,11 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import {
+	type TreeClaims,
+	WORK_TREE_CLAIMS,
+} from "@jitsusama/agentic-harness.core/work";
 import { discoverQuests } from "../../lib/internal/quest/discovery.js";
-import { type TreeClaims, WORK_TREE_CLAIMS } from "../../lib/work/index.js";
 
 /**
  * Answer the working layer's question about held trees.

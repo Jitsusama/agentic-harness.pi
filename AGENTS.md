@@ -18,44 +18,13 @@ The package manager is **pnpm**. `pnpm-lock.yaml` is canonical;
     renderers, resolvers and types (public)
   - `lib/google/`: Google Workspace API clients,
     authentication, renderers and types (public)
-  - `lib/work/`: the working layer under a review: where a tree
-    is cut from, what pins it, which provider serves a repo, and
-    the broker holding the trees a session is using (public).
-    Tree providers register over the event bus, so one can live
-    in another package entirely. The review the working layer
-    sits under, `lib/review`, moved to `agentic-harness.core`;
-    this package depends on it for `Exec` and the review types
-  - `lib/exec/`: running a command, taken as a dependency rather
-    than imported (public). One type, one result shape and one
-    runner that throws with the backend's own words. Its own
-    module because `lib/work` needs it and does not own it;
-    `agentic-harness.core`'s `review` re-exports its own copy of
-    this, since downstream packages import `Exec` from that
-    barrel
-  - `lib/process/`: asking the machine about a process, and saying
-    which one you meant (public). Its own module on the `lib/exec`
-    reasoning: `lib/subagent` asks whether the supervisor holding a
-    reviewer's lease is still there and `lib/work` asks whether the
-    session holding a worktree is, which is one question, and the
-    second was about to be answered by a second copy of the first.
-    A pid identifies nothing on its own, so the start time travels
-    with it everywhere here; `lib/subagent/lease.ts` re-exports what
-    it used to define, since the whole of that module imports these
-    from there
-  - `lib/remote/`: naming a git remote to a person (public). Its
-    own module for the same reason `lib/exec` is: `lib/work` shows
-    a remote in its refusals and does not own what a remote may
-    safely say. A remote can carry a token as its user or as its
-    password, so a message naming one verbatim prints a live
-    secret; the credential comes out for display and stays in for
-    the fetch
   - `lib/clock/`: what a duration bounding a child process may
-    be (public). Its own module on the `lib/exec` reasoning: the
-    rules belong to the runner, which is the last place they can
-    be applied, and the first place they are needed is whoever
-    reads a duration out of a config file. One definition, two
-    readers, so a roster cannot accept a clock the runner will
-    then throw over from inside a paid round
+    be (public). Its own module because the rules belong to the
+    runner, which is the last place they can be applied, and the
+    first place they are needed is whoever reads a duration out
+    of a config file. One definition, two readers, so a roster
+    cannot accept a clock the runner will then throw over from
+    inside a paid round
   - `lib/guardian/`: guardian contract, registration and
     redirect formatting (public)
   - `lib/shell/`: shell command parsing: flag extraction,
@@ -118,7 +87,7 @@ it does:
   `agentic-harness.core`'s `review`, and every provider behind
   them registers over the event bus, so the extension has no
   idea which backends exist. `work-integration` does the same
-  for `lib/work` and
+  for `agentic-harness.core`'s `work` and
   the trees underneath. Neither imports the other: the review
   side reaches the working layer over the bus, so a consumer
   needs the work *library* and never the work *extension*.

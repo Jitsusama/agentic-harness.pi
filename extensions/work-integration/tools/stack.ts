@@ -14,7 +14,7 @@ import {
 	type ReplayResult,
 	type StackedBranch,
 	type WorkStacks,
-} from "../../../lib/work/index.js";
+} from "@jitsusama/agentic-harness.core/work";
 import { GLYPH } from "../render.js";
 import { type Answer, refuse, say } from "./shared.js";
 

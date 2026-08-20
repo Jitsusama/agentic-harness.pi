@@ -24,7 +24,7 @@ import {
 	WORK_REGISTER_TREE_PROVIDER,
 	WORK_REQUEST,
 	type WorkApi,
-} from "../../lib/work/index.js";
+} from "@jitsusama/agentic-harness.core/work";
 import {
 	forgetTreeBroker,
 	registerBuiltinTreeProviders,

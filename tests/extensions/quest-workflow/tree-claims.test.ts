@@ -12,9 +12,12 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+	type TreeClaims,
+	WORK_TREE_CLAIMS,
+} from "@jitsusama/agentic-harness.core/work";
 import { describe, expect, it } from "vitest";
 import { answerTreeClaims } from "../../../extensions/quest-workflow/claims.js";
-import { type TreeClaims, WORK_TREE_CLAIMS } from "../../../lib/work/index.js";
 
 /** Just enough of pi's bus for a listener to be reached over it. */
 function bus() {

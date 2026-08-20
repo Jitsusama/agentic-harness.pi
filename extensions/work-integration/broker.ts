@@ -17,7 +17,6 @@
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Exec } from "@jitsusama/agentic-harness.core/exec";
-import { stateDir } from "../../lib/internal/paths.js";
 import {
 	createGitTreeProvider,
 	createTreeBroker,
@@ -28,7 +27,8 @@ import {
 	registerTreeProvider,
 	type TreeBroker,
 	WORK_PUBLISH_CHECK,
-} from "../../lib/work/index.js";
+} from "@jitsusama/agentic-harness.core/work";
+import { stateDir } from "../../lib/internal/paths.js";
 
 /** Where trees this package cuts are put. */
 export function treeDir(): string {

@@ -83,7 +83,7 @@ describe("the package's exports map", () => {
 		// Guards the parser above: if the Structure section is
 		// reshaped so the markers stop matching, the test before
 		// this one passes by reading an empty list.
-		expect(documentedPublic()).toContain("work");
+		expect(documentedPublic()).toContain("guardian");
 		expect(documentedPublic().length).toBeGreaterThan(5);
 	});
 });

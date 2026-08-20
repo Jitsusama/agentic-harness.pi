@@ -20,11 +20,6 @@ import {
 	citeListing,
 	openSessionStore,
 } from "@jitsusama/agentic-harness.core/result";
-import { Type } from "@sinclair/typebox";
-import { sessionGateDeps } from "../../../lib/internal/gate/session-deps.js";
-import { complaintsAbout } from "../../../lib/internal/guardian/commit-format.js";
-import { gitTreeRootOf } from "../../../lib/internal/quest/git-signals.js";
-import { count, displayPath } from "../../../lib/ui/index.js";
 import {
 	blocksRepoint,
 	cautionsFrom,
@@ -48,7 +43,12 @@ import {
 	treeRequestFrom,
 	WORK_TREE_CLAIMS,
 	type WorkHistory,
-} from "../../../lib/work/index.js";
+} from "@jitsusama/agentic-harness.core/work";
+import { Type } from "@sinclair/typebox";
+import { sessionGateDeps } from "../../../lib/internal/gate/session-deps.js";
+import { complaintsAbout } from "../../../lib/internal/guardian/commit-format.js";
+import { gitTreeRootOf } from "../../../lib/internal/quest/git-signals.js";
+import { count, displayPath } from "../../../lib/ui/index.js";
 import { execFor, objectionsTo, treeBroker } from "../broker.js";
 import { GLYPH, treeLine } from "../render.js";
 import {

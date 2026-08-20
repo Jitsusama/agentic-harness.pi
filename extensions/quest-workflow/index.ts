@@ -26,6 +26,7 @@ import {
 	boundedByDetails,
 	openSessionStore,
 } from "@jitsusama/agentic-harness.core/result";
+import { registerBuiltinTreeProviders } from "@jitsusama/agentic-harness.core/tree";
 import { Type } from "@sinclair/typebox";
 import {
 	getSection,
@@ -42,7 +43,6 @@ import {
 import { registerBuiltinUrlFetchers } from "../../lib/quest/index.js";
 import { registerBuiltinRefTypes } from "../../lib/refs/index.js";
 import { registerBuiltinTerminalDrivers } from "../../lib/terminal/index.js";
-import { registerBuiltinTreeProviders } from "../../lib/tree/index.js";
 import { count, drawInto, firstText } from "../../lib/ui/index.js";
 import { QUEST_ACTIONS } from "./actions.js";
 import { answerTreeClaims } from "./claims.js";

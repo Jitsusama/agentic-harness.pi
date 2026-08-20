@@ -7,9 +7,9 @@
  * first thing anybody would turn off.
  */
 
+import { WORK_PUBLISH_CHECK } from "@jitsusama/agentic-harness.core/work";
 import { describe, expect, it, vi } from "vitest";
 import { objectionsTo } from "../../extensions/work-integration/broker.js";
-import { WORK_PUBLISH_CHECK } from "../../lib/work/index.js";
 
 const INTENT = {
 	repoKey: "github:Jitsusama/agentic-harness.pi",

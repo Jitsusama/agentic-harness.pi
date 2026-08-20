@@ -1,15 +1,15 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+	clearTreeProviders,
+	registerBuiltinTreeProviders,
+} from "@jitsusama/agentic-harness.core/tree";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { enforceQuest } from "../../../extensions/quest-workflow/enforce";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
 import { addTreeToQuest } from "../../../lib/internal/quest/trees";
-import {
-	clearTreeProviders,
-	registerBuiltinTreeProviders,
-} from "../../../lib/tree/index";
 import { freshRepo } from "../../support/git-fixture.js";
 import { createEnvGuard } from "./_helpers";
 

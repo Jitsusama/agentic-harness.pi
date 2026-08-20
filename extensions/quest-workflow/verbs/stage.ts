@@ -8,6 +8,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { resolveTreeProvider } from "@jitsusama/agentic-harness.core/tree";
 import { nowYmd } from "../../../lib/internal/quest/dates.js";
 import { discoverQuests } from "../../../lib/internal/quest/discovery.js";
 import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter.js";
@@ -32,7 +33,6 @@ import {
 	type QuestSession,
 	scaffoldDocument,
 } from "../../../lib/quest/index.js";
-import { resolveTreeProvider } from "../../../lib/tree/index.js";
 import { count, noun, verb } from "../../../lib/ui/count.js";
 import { displayPath } from "../../../lib/ui/path.js";
 import {

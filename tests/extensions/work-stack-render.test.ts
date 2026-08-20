@@ -7,10 +7,10 @@
  * in git, which is exactly why it has to be drawn.
  */
 
+import type { StackedBranch } from "@jitsusama/agentic-harness.core/work";
 import { describe, expect, it } from "vitest";
 import { GLYPH } from "../../extensions/work-integration/render.js";
 import { stackLines } from "../../extensions/work-integration/tools/stack.js";
-import type { StackedBranch } from "../../lib/work/index.js";
 
 const chain: StackedBranch[] = [
 	{ name: "a" },

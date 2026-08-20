@@ -67,22 +67,21 @@ describe("bus names are declared by a library, not an extension", () => {
 
 		// Proves the check above is looking for something that exists,
 		// rather than passing because the pattern never matches anything.
-		// `review:ready:v1` and `review:request:v1` used to be here too;
-		// they moved to agentic-harness.core along with the rest of
-		// `lib/review`, which is the "different package" this file's own
-		// docstring describes, not a violation of what it checks.
+		// `review:ready:v1`, `review:request:v1`, `work:ready:v1`,
+		// `work:request:v1` and `work:tree-claims:v1` used to be here
+		// too; they moved to agentic-harness.core along with the rest of
+		// `lib/review` and `lib/work`, which is the "different package"
+		// this file's own docstring describes, not a violation of what
+		// it checks.
 		expect([...names].sort()).toEqual([
 			"subagent:ready:v1",
 			"subagent:register-default-extension:v1",
 			"subagent:register-default-skill:v1",
-			"work:ready:v1",
-			"work:request:v1",
-			"work:tree-claims:v1",
 		]);
 	});
 
 	it("names a domain, then a topic, then a version", () => {
-		const domains = new Set(["subagent", "work"]);
+		const domains = new Set(["subagent"]);
 		for (const file of sourcesUnder(join(ROOT, "lib"))) {
 			for (const match of readFileSync(file, "utf8").matchAll(
 				/=\s*"([a-z][a-z-]*):[a-z][a-z-]*:v\d+"/g,

@@ -39,7 +39,7 @@ import {
 	WORK_READY,
 	WORK_REQUEST,
 	type WorkApi,
-} from "../../lib/work/index.js";
+} from "@jitsusama/agentic-harness.core/work";
 import { loadReviewConfig } from "./config.js";
 
 /**

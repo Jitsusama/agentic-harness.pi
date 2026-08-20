@@ -10,17 +10,17 @@
  * out which of nineteen actions makes one.
  */
 
+import {
+	type HeldTree,
+	treeIdentity,
+	WORK_READY,
+} from "@jitsusama/agentic-harness.core/work";
 import { describe, expect, it } from "vitest";
 import {
 	forgetWorkLayer,
 	treeStandingFor,
 	watchForWorkLayer,
 } from "../../extensions/review-integration/work.js";
-import {
-	type HeldTree,
-	treeIdentity,
-	WORK_READY,
-} from "../../lib/work/index.js";
 
 const REPO = { key: "github:acme/widgets", localPath: "/src/widgets" };
 const COMMIT = "abcdef0123456789abcdef0123456789abcdef01";

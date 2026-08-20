@@ -7,6 +7,10 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import {
+	getTreeProvider,
+	resolveTreeProvider,
+} from "@jitsusama/agentic-harness.core/tree";
 import { discoverQuests } from "../../../lib/internal/quest/discovery.js";
 import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter.js";
 import {
@@ -23,10 +27,6 @@ import {
 	setPendingPrune,
 } from "../../../lib/internal/quest/trees.js";
 import type { QuestSession } from "../../../lib/quest/index.js";
-import {
-	getTreeProvider,
-	resolveTreeProvider,
-} from "../../../lib/tree/index.js";
 import { count, noun } from "../../../lib/ui/count.js";
 import { displayPath } from "../../../lib/ui/path.js";
 import { appendJourneyEntry, inventoryWorktrees } from "../lifecycle.js";

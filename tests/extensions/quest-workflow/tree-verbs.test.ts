@@ -7,6 +7,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+	clearTreeProviders,
+	registerBuiltinTreeProviders,
+} from "@jitsusama/agentic-harness.core/tree";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
@@ -16,10 +20,6 @@ import {
 	clearRefTypes,
 	registerBuiltinRefTypes,
 } from "../../../lib/refs/index";
-import {
-	clearTreeProviders,
-	registerBuiltinTreeProviders,
-} from "../../../lib/tree/index";
 import { disposeRepo, freshRepo } from "../../support/git-fixture.js";
 import { createEnvGuard, succeeded } from "./_helpers";
 
