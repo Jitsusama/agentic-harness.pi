@@ -152,6 +152,28 @@ readers:
 - Are there changes not explained in the description?
 - Is anything claimed that the diff doesn't support?
 
+## Symptoms, Mechanisms and the Citation Rule
+
+A finding may report a symptom on observation alone: what you
+saw, where, and what it looked like. "The fallback never renders
+in the reduced-motion capture" stands on the capture.
+
+A finding may not assert a mechanism, the *because* clause,
+without quoting the responsible code to a file and line. "The
+fallback never renders because the poster is gated on the wrong
+flag in Hero.tsx:42" earns its severity only if line 42 says so.
+When you can see the symptom but have not found the mechanism,
+report the symptom and phrase the mechanism as a question rather
+than letting the claim stand at severity. A confident causal
+narrative unsupported by source is the most expensive false
+positive a review produces: it reads as diagnosis, gets acted
+on, and sends the author to fix a line that was never the cause.
+
+The same discipline caps severity. Never stand a blocking
+finding on a single ambiguous symptom when a wrong input or a
+stale assumption could explain it; pair the finding with the
+one-line question that would settle it.
+
 ## Review Priorities
 
 Not all feedback is equally important. Here's the priority
