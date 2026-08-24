@@ -371,7 +371,7 @@ packages:
     engines: {node: '>=18.0.0'}
 
   '@jitsusama/agentic-harness.core@0.1.0':
-    resolution: {integrity: sha512-u4lUz7PC3tpkr6fWmH9AI0VnstjAZkjs9P6EAir15FMNa9e/XrBBCVz1uwA5uRxa0+I+BUsGYXKGCqwRXrcKRA==, tarball: https://npm.pkg.github.com/download/@jitsusama/agentic-harness.core/0.1.0/bcc7a64a3f66019f17758ebf380d85da60e4914b}
+    resolution: {integrity: sha512-FeE7GxAz3hXBRd9Z6dYlmnOdabtf9iPgoa3ghM1qviRPq3lbbgFGgy1Ghz9UfT+ucRhS9ZNC/r1muSgLZJ9DuQ==}
     engines: {node: '>=22.19.0'}
     hasBin: true
 
