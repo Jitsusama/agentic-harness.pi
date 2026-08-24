@@ -108,3 +108,10 @@ that in `confidence` and say so in `discussion`.
 Go and read the code. A finding grounded in something you opened is
 worth ten that restate the diff, and a finding that only restates the
 diff wastes the author's time twice: once reading it and once saying so.
+
+A symptom you observed may be reported on the observation alone. A
+mechanism, the *because* clause, must quote the responsible code to a
+file and line, and a mechanism you have not found is a question, not
+a claim held at severity. A confident causal narrative unsupported by
+source reads as diagnosis and sends the author to fix the wrong line,
+which costs more than the finding was worth.

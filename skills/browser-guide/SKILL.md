@@ -106,6 +106,10 @@ here.
 | Know what the page announced | `see kind:"announcements"` |
 | Find a node the outline does not show | `see kind:"query"`, which crosses frames and shadow roots |
 | See what changed since last time | `check kind:"compare"` |
+| Know whether the page honours reduced motion | `check kind:"motion"` |
+| Find orphans and runts in real line wrapping | `check kind:"typography"` |
+| Know whether hydration changed what the server sent | `check kind:"hydration"` |
+| Rate vitals over several loads, not one | `check kind:"perf" samples:3` |
 | Get the whole of an answer that was bounded | `result_query` with the cited handle |
 
 If what you want is not here and not in the verb summaries below,
@@ -140,6 +144,7 @@ conditions: `kind:"open"`, `kind:"navigate"`, `kind:"close"`,
 **`browser_check`**, which forms a verdict: `kind:"keyboard"`,
 `kind:"accessibility"`, `kind:"visual"`, `kind:"design"`,
 `kind:"contrast"`, `kind:"compare"`, `kind:"perf"`,
+`kind:"motion"`, `kind:"typography"`, `kind:"hydration"`,
 `kind:"health"`.
 
 Two answers live in stored results rather than in a kind of their
@@ -591,11 +596,27 @@ before quoting a frame count, rather than assuming either way.
 
 Covered in full by the `browser-accessibility-guide` for the
 accessibility kinds. In brief: `keyboard`, `accessibility`,
-`visual`, `design`, `compare`, `perf`, `health`.
+`visual`, `design`, `compare`, `perf`, `motion`, `typography`,
+`hydration`, `health`.
 
 Start with `health` when the question is "did I break
 anything". It runs everything and reports one digest, then name
-a kind to see that one in full.
+a kind to see that one in full. Two kinds stay out of the
+digest because each reloads the page and would throw away its
+state: `motion`, which asks for reduced motion and reports what
+kept moving anyway, and `hydration`, which fetches the server
+render and diffs it against the hydrated page. Run those on a
+fresh navigation, before driving state you would miss.
+
+`perf` rates one load by default. Pass `samples` to reload a few
+times and rate medians with the spread beside them; a rating
+that straddled the loads is called out, and an unstable pass
+reads WARN, because a single headless load drifts.
+
+`typography` is taste rather than conformance: it reads real
+line boxes for orphans (one word alone on a last line) and runts
+(a stub of a last line), worst in headings, and never says more
+than WARN.
 
 Any check but `keyboard` takes `widths` and answers with a table
 across them. Most layout faults are conditional, so a check at

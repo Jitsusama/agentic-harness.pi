@@ -23,7 +23,14 @@ describe("the health digest", () => {
 
 	it("still runs every check it reports", () => {
 		expect([...HEALTH_RUN_ORDER].sort()).toEqual(
-			["accessibility", "design", "keyboard", "perf", "visual"].sort(),
+			[
+				"accessibility",
+				"design",
+				"keyboard",
+				"perf",
+				"typography",
+				"visual",
+			].sort(),
 		);
 	});
 });

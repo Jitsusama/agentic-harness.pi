@@ -56,8 +56,15 @@ Beyond location, it decides the conditions the page runs under:
 - `visual`: what the layout did wrong
 - `design`: what the page is built from, and its drift
 - `compare`: diff against a stored baseline of itself
-- `perf`: web vitals against their published thresholds
-- `health`: all of the above, as one digest
+- `perf`: web vitals against their published thresholds, with
+  `samples` to rate medians over several loads
+- `motion`: what keeps moving when the page is asked for
+  reduced motion (reloads the page)
+- `typography`: orphans and runts, read from real line boxes
+- `hydration`: the server render diffed against the hydrated
+  page (reloads nothing, but fetches the page again)
+- `health`: the above as one digest, except motion and
+  hydration, which cost a reload and stay one call away
 
 Any check but `keyboard` takes `widths` and answers with a table
 across them, because most layout faults are conditional.

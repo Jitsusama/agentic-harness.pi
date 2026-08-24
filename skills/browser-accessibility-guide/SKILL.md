@@ -337,6 +337,24 @@ Contrast and target size are conditional. A control that clears
 24 pixels on a desktop can shrink below it in a mobile layout,
 and a colour pair that passes in light mode can fail in dark.
 
+### 6. Reduced motion
+
+```
+browser_check kind:"motion"
+```
+
+The one accessibility setting a page can ignore without failing
+a single axe rule: the markup is fine, the contrast is fine, and
+the page is still unusable for the person who asked it to hold
+still. The check emulates prefers-reduced-motion: reduce,
+reloads so the page decides its motion under the preference, and
+reports what kept moving: video with no way to stop it and
+animation past the five second line fail 2.2.2, scroll-driven
+motion fails 2.3.3 at AAA, and a brief fade is left alone,
+because the preference asks for less motion, not none. It
+reloads the page, so run it before driving state a reload would
+lose, and it restores the session's emulation afterwards.
+
 ## What the Tools Refuse to Decide, and Why
 
 Each of these is a deliberate silence. Do not fill it with a

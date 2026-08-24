@@ -16,6 +16,7 @@ import {
 } from "@jitsusama/agentic-harness.core/web/a11y";
 import {
 	type A11yFinding,
+	analyseMotion,
 	analyseStructure,
 	analyseVisual,
 	type Condition,
@@ -39,12 +40,19 @@ import {
 } from "@jitsusama/agentic-harness.core/web/audit";
 import { renderComparison } from "@jitsusama/agentic-harness.core/web/compare";
 import {
+	analyseTypography,
 	renderInventory,
+	renderTypography,
 	takeInventory,
 } from "@jitsusama/agentic-harness.core/web/design";
 import {
-	measure,
+	judgeHydration,
+	renderHydration,
+} from "@jitsusama/agentic-harness.core/web/hydration";
+import {
+	measureSamples,
 	renderVitals,
+	type Vitals,
 } from "@jitsusama/agentic-harness.core/web/perf";
 import type { BrowserSession } from "@jitsusama/agentic-harness.core/web/session";
 import {
@@ -112,6 +120,9 @@ const parameters = Type.Object({
 				Type.Literal("contrast"),
 				Type.Literal("compare"),
 				Type.Literal("perf"),
+				Type.Literal("motion"),
+				Type.Literal("typography"),
+				Type.Literal("hydration"),
 				Type.Literal("health"),
 			],
 			{
@@ -132,7 +143,17 @@ const parameters = Type.Object({
 					"and diff it against a stored baseline of itself, " +
 					"recording one on the first run. perf: what the page " +
 					"cost to show, against the published web vitals " +
-					"thresholds. health: run every check and report one " +
+					"thresholds; pass samples to rate medians over several " +
+					"loads instead of one. motion: emulate " +
+					"prefers-reduced-motion, reload, and report what kept " +
+					"moving anyway, which no axe rule sees. typography: read " +
+					"real line boxes and report orphans and runts, one word " +
+					"or a stub stranded on a last line. hydration: fetch the " +
+					"server render and diff it against the hydrated page, " +
+					"reading the console for the framework's own complaints. " +
+					"motion and hydration reload the page, so run them after " +
+					"reading any state a reload would lose. health: run every " +
+					"check and report one " +
 					"digest. Defaults to keyboard.",
 			},
 		),
@@ -156,7 +177,8 @@ const parameters = Type.Object({
 	rule: Type.Optional(
 		Type.String({
 			description:
-				"For accessibility and visual: name one rule from the index " +
+				"For accessibility, visual and motion: name one rule from " +
+				"the index " +
 				"to see the elements it hit and how to fix them. For design: " +
 				"name one property to see every value and where it is used.",
 		}),
@@ -219,6 +241,17 @@ const parameters = Type.Object({
 				"page looks like now, accepting the change.",
 		}),
 	),
+	samples: Type.Optional(
+		Type.Number({
+			description:
+				"For perf: how many loads to sample. The report answers " +
+				"with the median per metric and the spread beside it, and " +
+				"a rating that differed between loads is called out, since " +
+				"a single headless load drifts. Defaults to 1, which " +
+				"measures the load the session already paid for; sampling " +
+				"reloads the page between readings.",
+		}),
+	),
 	maxStops: Type.Optional(
 		Type.Number({
 			description:
@@ -254,11 +287,15 @@ export function registerCheck(
 			"shadows the page actually uses, and points out values close " +
 			"enough to have been meant as one. kind 'compare' diffs the page " +
 			"against a stored baseline of itself and says which regions " +
-			"changed and what they sit on.",
+			"changed and what they sit on. kind 'motion' asks for reduced " +
+			"motion and reports what kept moving; kind 'typography' reads " +
+			"real line boxes for orphans and runts; kind 'hydration' diffs " +
+			"the server render against the hydrated page.",
 		promptSnippet:
 			"browser_check forms a verdict about a page: keyboard, " +
-			"accessibility, visual, design, compare, perf, or health " +
-			"for all of them at once. Every answer opens PASS, WARN or " +
+			"accessibility, visual, design, compare, perf, motion, " +
+			"typography, hydration, or health " +
+			"for most of them at once. Every answer opens PASS, WARN or " +
 			"FAIL, where WARN means undecided rather than nearly fine. " +
 			"Read the browser-accessibility-guide skill before " +
 			"reporting an accessibility result.",
@@ -373,8 +410,61 @@ async function runOnce(
 	}
 
 	if (kind === "perf") {
-		const vitals = await session.vitals();
-		return renderVitals(vitals, measure(vitals));
+		// The most loads one call will pay for, however large the ask.
+		const MAX_SAMPLES = 9;
+		const wanted = Math.min(
+			Math.max(1, Math.round(params.samples ?? 1)),
+			MAX_SAMPLES,
+		);
+		const samples: Vitals[] = [await session.vitals()];
+		while (samples.length < wanted) {
+			const { failure } = await session.reload();
+			// A reload that failed ends the sampling rather than the
+			// check: the loads that did land are still a measurement.
+			if (failure) break;
+			samples.push(await session.vitals());
+		}
+		const last = samples[samples.length - 1] as Vitals;
+		return renderVitals(last, measureSamples(samples));
+	}
+
+	if (kind === "motion") {
+		const findings = analyseMotion(await session.motionUnderReduce());
+		return auditAnswer(
+			renderAudit(findings, tallyFindings(findings), {
+				...(params.rule === undefined ? {} : { rule: params.rule }),
+				measured:
+					"Emulated prefers-reduced-motion: reduce, reloaded so the " +
+					"page decided its motion under the preference, and read " +
+					"what was still moving. The session's emulation was put " +
+					"back afterwards.",
+			}),
+			findings,
+			keep,
+			params.rule,
+		);
+	}
+
+	if (kind === "typography") {
+		const blocks = await session.typography();
+		const view = renderTypography(blocks, analyseTypography(blocks));
+		if (keep === "discard") return view;
+		return listAnswer({
+			view,
+			records: blocks,
+			unit: "text blocks",
+			narrowing:
+				"Query the stored text blocks by selector, tag, line count " +
+				"or last line.",
+		});
+	}
+
+	if (kind === "hydration") {
+		const capture = await session.hydration();
+		const lines = session
+			.logs()
+			.entries.map(({ item }) => ({ level: item.level, text: item.text }));
+		return renderHydration(judgeHydration(capture, lines));
 	}
 
 	if (kind === "accessibility") {
@@ -644,6 +734,7 @@ const HEALTH_KINDS = [
 	"visual",
 	"perf",
 	"design",
+	"typography",
 ] as const;
 
 /**
@@ -679,6 +770,10 @@ export const HEALTH_RUN_ORDER = [
  * compare is left out on purpose: it needs a baseline and a
  * decision about what is being held still, which is not a
  * question a general health check can answer for somebody.
+ * motion and hydration are left out for a different reason:
+ * each reloads the page, and a digest that quietly threw away
+ * the page's state would cost more than the two lines it added.
+ * Both are one call away under their own kinds.
  */
 async function digest(
 	session: BrowserSession,
