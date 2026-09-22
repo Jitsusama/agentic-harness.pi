@@ -73,7 +73,16 @@ it does:
   persistent session workflows such as planning and TDD.
   `quest-workflow`, `tdd-workflow`,
   `ask-workflow`, `git-bypass-workflow`,
-  `guardian-status-workflow`, `result-store-workflow`
+  `guardian-status-workflow`, `result-store-workflow`,
+  `cost-workflow`.
+
+  `cost-workflow` is the only extension here that reasons about
+  money, deliberately: cost counted by whoever needed it
+  produced five wrong answers in a row. It derives spend from
+  the session logs pi already writes, so there is one writer of
+  the truth and the ledger can be rebuilt whenever its shape
+  changes. Anything else that learns a cost should emit to it
+  rather than keep a second figure.
 
 - **Integrations** (`*-integration`): bridge to external
   services via registered tools.
