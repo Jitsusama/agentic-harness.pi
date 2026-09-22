@@ -1,5 +1,6 @@
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { billedTokens, fitToBudget } from "./budget.js";
+import { describeScaling, readDimensionNote, type Size } from "./note.js";
 
 /** What pi's resizer answers with. */
 export interface Resized {
@@ -19,6 +20,15 @@ export type Resize = (
 	options: { maxWidth: number; maxHeight: number },
 ) => Promise<Resized | null>;
 
+/**
+ * The original bytes, when the caller can reach them. A `read` names a
+ * path, so the file on disk is available and re-encoding from it avoids
+ * compressing an already-compressed picture a second time. A tool that
+ * produced its image in memory has no such source, and the payload is
+ * all there is.
+ */
+export type LoadOriginal = () => Promise<Uint8Array | null>;
+
 /** A block of a tool result, as pi shapes them. */
 export type Block = ImageContent | TextContent;
 
@@ -26,15 +36,9 @@ export type Block = ImageContent | TextContent;
 export interface Rebudgeted {
 	/** The blocks to answer with, or null when nothing changed. */
 	readonly content: Block[] | null;
-	/** Billed tokens no longer being paid, per turn, for the rest of the session. */
+	/** Billed tokens no longer paid, per turn, for the rest of the session. */
 	readonly saved: number;
 }
-
-/** Widest a dimension note can be before it is not worth the words. */
-const NOTE = (r: Resized) =>
-	`[Image scaled from ${r.originalWidth}x${r.originalHeight} to ` +
-	`${r.width}x${r.height} to fit the context budget. Coordinates in ` +
-	`the image map to the scaled size.]`;
 
 function isImage(block: Block): block is ImageContent {
 	return (
@@ -44,60 +48,96 @@ function isImage(block: Block): block is ImageContent {
 	);
 }
 
+/** pi's note for an image, if the next block is one. */
+function noteAt(blocks: readonly Block[], index: number) {
+	const next = blocks[index + 1];
+	if (!next || next.type !== "text") return null;
+	return readDimensionNote(next.text);
+}
+
 /**
  * Bring every oversized image in a tool result down to the allowance.
  *
- * Answers with null content when nothing needed changing, which is the
- * common case: an untouched result is not re-encoded, does not pay a
- * second compression, and costs no worker time.
+ * The budget is computed from the size pi reports as original, not from
+ * the payload handed over. pi resizes before any extension sees a
+ * result, so the payload is already an intermediate, and budgeting
+ * against it would both understate the reduction and describe the wrong
+ * scale to anyone reading a coordinate off the picture.
  *
- * A resize that fails or declines leaves the original in place. An image
- * the model cannot see is worse than one that costs too much, so every
- * failure path here keeps the picture.
+ * Exactly one note comes out, naming the true original and the size
+ * actually sent. pi's note is consumed rather than left beside a second
+ * one, because two notes each telling half the truth leave the real
+ * factor stated nowhere.
+ *
+ * Answers with null content when nothing needed changing, which is the
+ * common case. Every path that cannot help keeps the original picture:
+ * an image the model cannot see is worse than one that costs too much.
  */
 export async function rebudget(
 	content: readonly Block[],
 	resize: Resize,
+	loadOriginal?: LoadOriginal,
 ): Promise<Rebudgeted> {
 	const next: Block[] = [];
 	let saved = 0;
 	let changed = false;
 
-	for (const block of content) {
+	for (let index = 0; index < content.length; index += 1) {
+		const block = content[index];
 		if (!isImage(block)) {
 			next.push(block);
 			continue;
 		}
 
-		const bytes = Buffer.from(block.data, "base64");
-		// Ask for a resize that cannot bind, purely to learn the size pi's
-		// decoder reports. Cheaper than carrying an image decoder here,
-		// and it is the same decoder that will do the real work.
-		const probe = await resize(bytes, block.mimeType, {
-			maxWidth: Number.MAX_SAFE_INTEGER,
-			maxHeight: Number.MAX_SAFE_INTEGER,
-		});
-		const fit = probe
-			? fitToBudget(probe.originalWidth, probe.originalHeight)
-			: null;
-		if (!probe || !fit) {
+		const piNote = noteAt(content, index);
+		const payload = Buffer.from(block.data, "base64");
+		// Prefer the file on disk: re-encoding from the source means one
+		// compression rather than two stacked on each other.
+		const source = (await loadOriginal?.()) ?? null;
+		const bytes = source ?? payload;
+
+		const probe = piNote
+			? null
+			: await resize(bytes, block.mimeType, {
+					maxWidth: Number.MAX_SAFE_INTEGER,
+					maxHeight: Number.MAX_SAFE_INTEGER,
+				});
+		const original: Size | null = piNote
+			? { width: piNote.originalWidth, height: piNote.originalHeight }
+			: probe
+				? { width: probe.originalWidth, height: probe.originalHeight }
+				: null;
+		const fit = original ? fitToBudget(original.width, original.height) : null;
+		if (!original || !fit) {
 			next.push(block);
+			if (piNote) next.push(content[index + 1]);
+			index += piNote ? 1 : 0;
 			continue;
 		}
 
 		const small = await resize(bytes, block.mimeType, fit);
 		if (!small?.wasResized) {
 			next.push(block);
+			if (piNote) next.push(content[index + 1]);
+			index += piNote ? 1 : 0;
 			continue;
 		}
 
-		saved +=
-			billedTokens(small.originalWidth, small.originalHeight) -
-			billedTokens(small.width, small.height);
+		// What was being paid was the payload pi handed over, so that is
+		// what the saving is measured against.
+		const before = piNote
+			? billedTokens(piNote.width, piNote.height)
+			: billedTokens(small.originalWidth, small.originalHeight);
+		saved += before - billedTokens(small.width, small.height);
+
 		next.push({ type: "image", data: small.data, mimeType: small.mimeType });
-		// Say what happened, so a caller reasoning about a position in the
-		// picture maps it to the scale the picture is actually at.
-		next.push({ type: "text", text: NOTE(small) });
+		const told = describeScaling(original, {
+			width: small.width,
+			height: small.height,
+		});
+		if (told) next.push({ type: "text", text: told });
+		// pi's note is consumed, replaced by the one above.
+		index += piNote ? 1 : 0;
 		changed = true;
 	}
 

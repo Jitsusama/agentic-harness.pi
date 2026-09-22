@@ -18,21 +18,35 @@ that error cannot come back quietly.
 
 ## Why It Is Safe To Do Silently
 
-A screenshot from a 2x Retina display arrives at 2858x1428 and bills
-about 5,441 tokens. Its logical rendering, 1429x714, bills about 1,361.
-
-Those extra pixels are device redundancy. **The logical rendering is the
-thing that was on screen and read**, so discarding the rest preserves
-everything a human saw. That makes this a lossless reduction rather than
-a quality trade, which is what allows it to happen without asking.
+A full-screen capture on a 2x Retina display is 3024x1964, which is 5.94
+megapixels. Its logical rendering, the thing that was actually on screen
+and read, is 1512x982. The pixels between the two are device redundancy,
+so discarding them preserves everything a human saw. That makes this a
+lossless reduction rather than a quality trade, which is what allows it
+to happen without asking.
 
 The allowance is 1.5 megapixels, set from what a display shows rather
-than from a provider maximum: a full-screen capture on a 2x Retina panel
-is 5.94 megapixels and its logical resolution is 1.48, so the allowance
-preserves any full-screen logical capture exactly.
+than from a provider maximum, so any full-screen logical capture passes
+through at full fidelity.
 
-pi already resizes to 2000x2000, and that dimension is not configurable,
-so this takes the remaining step.
+## What It Is Actually Worth
+
+Less than first claimed, and the difference is worth recording because
+the first figure was arrived at by measuring the wrong thing.
+
+pi resizes to 2000x2000 before any extension sees a result, and that
+already does most of the work. Measured on one real paste:
+
+| Stage | Pixels | Billed |
+| ----- | ------ | ------ |
+| File on disk | 3024x1964 | ~7,919 |
+| After pi's own cap | 2000x1299 | ~3,464 |
+| After this allowance | 1519x987 | ~2,000 |
+
+So the reduction is about **1.85x against what was previously being
+billed**, taking a measured median paste from 3,705 tokens to roughly
+2,000. An earlier version of this file claimed a 4x saving by comparing
+against the file on disk, which was never what a provider charged for.
 
 ## Why It Exists At All
 
@@ -50,19 +64,31 @@ price, not pasting less.
 - **Enlarge anything.** Spending the allowance because it is there costs
   tokens and adds no detail the original did not have.
 - **Touch an image already within the allowance.** Nothing is re-encoded,
-  so no picture pays a second compression for no reason.
+  so no picture pays a compression it did not need.
+- **Stack a second compression when it can avoid one.** pi has already
+  re-encoded by the time this runs, so where a `read` names a file the
+  original bytes are loaded from disk and encoded once. Where there is no
+  file, an in-memory image from another tool, the payload is all there is
+  and it is re-encoded; that case is a real quality cost and is the price
+  of not disabling pi's own resize.
 - **Lose a picture to a failure.** Every path that cannot help keeps the
   original. An image the model cannot see is worse than one that costs
   too much.
-- **Hide what it did.** A scaled image is followed by a note naming both
-  sizes, so a caller reasoning about a position in the picture maps it to
-  the scale the picture is actually at.
+- **Leave two notes that disagree.** pi writes a note giving the factor
+  from its output back to the original. Adding a second note about a
+  further change would leave the real factor stated nowhere, and a
+  coordinate read off the picture would land in the wrong place. So pi's
+  note is consumed and replaced by one that names the true original, the
+  size actually sent, and the single factor between them.
 
 ## Files
 
 - `budget.ts`: pricing and the allowance decision. Pure.
-- `rebudget.ts`: one pass over a tool result, with the resizer injected
-  so the behaviour is testable without loading the WASM decoder.
+- `note.ts`: reading pi's dimension note, which is the only place the
+  true original size survives, and writing the one that replaces it.
+- `rebudget.ts`: one pass over a tool result, with the resizer and the
+  original-bytes loader both injected so the behaviour is testable
+  without loading the WASM decoder or touching a disk.
 - `index.ts`: registration, and the `tool_result` seam.
 
 It runs at `tool_result` because that is where a clipboard paste arrives:

@@ -26,15 +26,38 @@
  * price.
  */
 
+import { readFile } from "node:fs/promises";
 import {
 	type ExtensionAPI,
 	resizeImage,
 } from "@earendil-works/pi-coding-agent";
-import { type Resize, rebudget } from "./rebudget.js";
+import { type LoadOriginal, type Resize, rebudget } from "./rebudget.js";
 
 /** pi's resizer, narrowed to the shape this extension needs. */
 const resize: Resize = (bytes, mimeType, options) =>
 	resizeImage(bytes, mimeType, options);
+
+/**
+ * The file a `read` names, when it named one. Re-encoding from the
+ * source is one compression rather than pi's with ours stacked on top,
+ * which is the difference between a picture that has been through two
+ * lossy passes and one that has been through a single.
+ */
+function originalFrom(input: unknown): LoadOriginal | undefined {
+	if (typeof input !== "object" || input === null) return undefined;
+	const path = (input as Record<string, unknown>).path;
+	if (typeof path !== "string" || path.length === 0) return undefined;
+	return async () => {
+		try {
+			return await readFile(path);
+		} catch {
+			// The file may be gone, or may never have been local. The
+			// payload is still there, so this costs a compression and not
+			// the picture.
+			return null;
+		}
+	};
+}
 
 export default function imageBudgetWorkflow(pi: ExtensionAPI) {
 	pi.on("tool_result", async (event) => {
@@ -44,7 +67,11 @@ export default function imageBudgetWorkflow(pi: ExtensionAPI) {
 		// scan of a short array and no decoding.
 		if (!blocks.some((block) => block.type === "image")) return;
 
-		const { content } = await rebudget(blocks, resize);
+		const { content } = await rebudget(
+			blocks,
+			resize,
+			originalFrom(event.input),
+		);
 		// Returning nothing keeps the result exactly as it was, which is
 		// what every path that could not help has to do.
 		if (!content) return;

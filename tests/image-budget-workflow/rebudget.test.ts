@@ -69,7 +69,7 @@ describe("rebudget", () => {
 
 		expect(note).toBeDefined();
 		expect(String(note?.text)).toContain("2858x1428");
-		expect(String(note?.text)).toContain("Coordinates");
+		expect(String(note?.text)).toContain("Multiply coordinates");
 	});
 
 	it("keeps the original when the resizer cannot decode it", async () => {
@@ -96,6 +96,46 @@ describe("rebudget", () => {
 		const prose = blocks.filter((b): b is TextContent => b.type === "text");
 		expect(prose[0].text).toBe("before");
 		expect(prose.at(-1)?.text).toBe("after");
+	});
+
+	it("budgets from pi's reported original, not the payload it shrank", async () => {
+		// pi resizes 3024x1964 down to 2000x1299 before this runs. A
+		// budget computed from 2000x1299 is a budget against an
+		// intermediate, and the note it produces describes the wrong scale.
+		const piNote: Block = {
+			type: "text",
+			text:
+				"[Image: original 3024x1964, displayed at 2000x1299. " +
+				"Multiply coordinates by 1.51 to map to original image.]",
+		};
+		const out = await rebudget([image, piNote], resizerFor(2000, 1299));
+		const blocks = out.content ?? [];
+
+		// One note out, not two, and it names the true original.
+		const prose = blocks.filter((b): b is TextContent => b.type === "text");
+		expect(prose).toHaveLength(1);
+		expect(prose[0].text).toContain("3024x1964");
+		expect(prose[0].text).not.toContain("1.51");
+	});
+
+	it("re-encodes from the original file when one is available", async () => {
+		// Resizing the payload stacks a second compression on pi's. Given
+		// the bytes on disk, there is only ever one.
+		const seen: string[] = [];
+		const watching: Resize = async (bytes, mimeType, options) => {
+			seen.push(Buffer.from(bytes).toString("utf8").slice(0, 8));
+			return resizerFor(3024, 1964)(bytes, mimeType, options);
+		};
+		const piNote: Block = {
+			type: "text",
+			text: "[Image: original 3024x1964, displayed at 2000x1299. x]",
+		};
+
+		await rebudget([image, piNote], watching, async () =>
+			Buffer.from("fromdisk"),
+		);
+
+		expect(seen.every((s) => s === "fromdisk")).toBe(true);
 	});
 
 	it("handles several images in one result", async () => {
