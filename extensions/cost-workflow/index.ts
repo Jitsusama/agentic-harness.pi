@@ -47,6 +47,7 @@ import {
 	formatRepeats,
 	formatSlices,
 	formatTotal,
+	formatVerifierOutcomes,
 	type IndexOutcome,
 } from "./report.js";
 
@@ -230,6 +231,13 @@ export default function costWorkflow(pi: ExtensionAPI) {
 						"context having to re-fetch what it had just lost.",
 				}),
 			),
+			verify: Type.Optional(
+				Type.Boolean({
+					description:
+						"Report how test, build, typecheck and lint calls fared, worst " +
+						"pass rate first, instead of a spend report.",
+				}),
+			),
 		}),
 		async execute(_toolCallId, params): Promise<AgentToolResult<CostDetails>> {
 			const opened = await open();
@@ -274,6 +282,14 @@ export default function costWorkflow(pi: ExtensionAPI) {
 							}),
 						},
 					],
+					details: { ok: true },
+				};
+			}
+
+			if (params.verify) {
+				const outcomes = await opened.verifierOutcomes();
+				return {
+					content: [{ type: "text", text: formatVerifierOutcomes(outcomes) }],
 					details: { ok: true },
 				};
 			}

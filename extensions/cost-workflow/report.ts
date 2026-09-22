@@ -3,6 +3,7 @@ import type {
 	LedgerTotal,
 	Regret,
 	RepeatedCall,
+	VerifierOutcome,
 } from "@jitsusama/agentic-harness.core/observability";
 
 /** What indexing a corpus of session logs did. */
@@ -142,6 +143,34 @@ export function formatRegret(regret: readonly Regret[]): string {
 				`times after being dropped  ${(r.chars / 1e6).toFixed(1)}M chars`,
 		);
 	return [`Regret (${byArgs.size} distinct questions)`, ...rows].join("\n");
+}
+
+/**
+ * Render each verifier kind's pass rate, worst first: the kind most
+ * worth attention belongs at the top, not buried under the healthy
+ * ones. Unknown outcomes are named apart from failures, since a call
+ * whose result never arrived is not the same claim as one that failed.
+ */
+export function formatVerifierOutcomes(
+	outcomes: readonly VerifierOutcome[],
+): string {
+	if (outcomes.length === 0) {
+		return "nothing verified: no test, build, typecheck or lint call seen";
+	}
+	const rate = (o: VerifierOutcome) =>
+		o.passed + o.failed > 0 ? o.passed / (o.passed + o.failed) : 1;
+	const rows = [...outcomes]
+		.sort((a, b) => rate(a) - rate(b))
+		.map((o) => {
+			const decided = o.passed + o.failed;
+			const pct = decided > 0 ? Math.round((o.passed / decided) * 100) : 0;
+			const unknown = o.unknown > 0 ? `  ${o.unknown} unknown` : "";
+			return (
+				`  ${o.kind.padEnd(10)} ${o.passed} passed, ${o.failed} failed ` +
+				`(${pct}%)${unknown}`
+			);
+		});
+	return ["Verifier outcomes", ...rows].join("\n");
 }
 
 /** Say what an index pass read and what it was able to skip. */

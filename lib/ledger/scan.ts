@@ -280,6 +280,83 @@ type MutableCall = {
  */
 const PATH_ARG = "path";
 
+/**
+ * Command substrings that mark a verifier of each kind, checked against
+ * the raw command text at scan time, before that text is digested away.
+ * Drawn from a census of the real corpus rather than guessed: `go test`
+ * and `go build` dominate it, and every entry here was seen there.
+ */
+const VERIFIER_PATTERNS: ReadonlyArray<{
+	kind: "test" | "build" | "typecheck" | "lint";
+	matches: readonly string[];
+}> = [
+	{
+		kind: "test",
+		matches: [
+			"go test",
+			"cargo test",
+			"pytest",
+			"rspec",
+			"vitest",
+			"jest",
+			"npm test",
+			"npm run test",
+			"pnpm test",
+			"pnpm run test",
+		],
+	},
+	{
+		kind: "build",
+		matches: [
+			"go build",
+			"cargo build",
+			"npm run build",
+			"pnpm build",
+			"pnpm run build",
+			"make ",
+		],
+	},
+	{
+		kind: "typecheck",
+		matches: ["tsc ", "tsc--", "npm run typecheck", "pnpm typecheck", "mypy"],
+	},
+	{
+		kind: "lint",
+		matches: [
+			"eslint",
+			"biome",
+			"golangci-lint",
+			"rubocop",
+			"ruff",
+			"npm run lint",
+			"pnpm lint",
+			"pnpm run lint",
+		],
+	},
+];
+
+/**
+ * Which kind of verifier a bash command ran, if any. A command matching
+ * more than one kind, the shape of a chained gate running lint, a
+ * typecheck and a test suite under one exit code, is `verify` rather
+ * than a pick of one: one exit code cannot support the precision of
+ * naming a single kind.
+ */
+function classifyVerifier(
+	name: string,
+	command: unknown,
+): "test" | "build" | "typecheck" | "lint" | "verify" | null {
+	if (name !== "bash" || typeof command !== "string") return null;
+	const kinds = new Set<string>();
+	for (const { kind, matches } of VERIFIER_PATTERNS) {
+		if (matches.some((m) => command.includes(m))) kinds.add(kind);
+	}
+	if (kinds.size === 0) return null;
+	if (kinds.size > 1) return "verify";
+	const [only] = kinds;
+	return only as "test" | "build" | "typecheck" | "lint";
+}
+
 /** Take every tool call an assistant turn made. */
 function collectCalls(
 	into: Map<string, MutableCall>,
@@ -297,6 +374,7 @@ function collectCalls(
 		const name = typeof b.name === "string" ? b.name : "?";
 		const args = asRecord(b.arguments);
 		const declared = args?.[PATH_ARG];
+		const command = args?.command;
 		into.set(callId, {
 			// The tool's name is inside the address, so the same arguments
 			// to two different tools are two different calls.
@@ -311,6 +389,7 @@ function collectCalls(
 			resultChars: null,
 			resultDigest: null,
 			isError: null,
+			verifierKind: classifyVerifier(name, command),
 		});
 	}
 }

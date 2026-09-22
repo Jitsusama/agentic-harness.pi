@@ -5,6 +5,7 @@ import {
 	formatRepeats,
 	formatSlices,
 	formatTotal,
+	formatVerifierOutcomes,
 } from "../../extensions/cost-workflow/report.js";
 
 describe("formatTotal", () => {
@@ -139,6 +140,33 @@ describe("formatRegret", () => {
 
 		expect(text).toContain("read");
 		expect(text).toContain("1");
+	});
+});
+
+describe("formatVerifierOutcomes", () => {
+	it("reports nothing verified rather than an empty table", () => {
+		expect(formatVerifierOutcomes([])).toContain("nothing");
+	});
+
+	it("names each kind's pass rate, worst first", () => {
+		const text = formatVerifierOutcomes([
+			{ kind: "lint", passed: 9, failed: 1, unknown: 0 },
+			{ kind: "test", passed: 5, failed: 5, unknown: 0 },
+		]);
+
+		const lines = text.split("\n").filter((l) => l.includes("passed"));
+		expect(lines[0]).toContain("test");
+		expect(lines[0]).toContain("50%");
+		expect(lines[1]).toContain("lint");
+	});
+
+	it("names an unknown outcome separately from a failure", () => {
+		const text = formatVerifierOutcomes([
+			{ kind: "build", passed: 1, failed: 0, unknown: 3 },
+		]);
+
+		expect(text).toContain("3");
+		expect(text).toContain("unknown");
 	});
 });
 
