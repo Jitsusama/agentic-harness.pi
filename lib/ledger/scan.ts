@@ -6,7 +6,7 @@ import type {
 	TurnRecord,
 } from "@jitsusama/agentic-harness.core/observability";
 import { SessionCollector } from "./session.js";
-import type { LedgerScan, ToolCallRecord } from "./types.js";
+import type { DroppedCallRecord, LedgerScan, ToolCallRecord } from "./types.js";
 
 /** Width of a stored content address. 96 bits is ample for a corpus of
  * a few million turns and keeps the index small. */
@@ -40,6 +40,19 @@ export function readTurns(
 	// whose result never arrives stays in the list with an unknown
 	// result rather than being dropped: the call still happened.
 	const calls = new Map<string, MutableCall>();
+	// The order every entry with an id was seen in, which is what makes a
+	// compaction's firstKeptEntryId comparable to a call's own entry:
+	// entry ids are not sortable strings, but the log's own line order is
+	// the session's real timeline.
+	const entryOrder = new Map<string, number>();
+	// Compaction boundaries in the order they happened. A boundary only
+	// ever moves forward, so the first one after a call's order is the
+	// one compaction that actually dropped it.
+	const boundaries: Array<{
+		order: number;
+		entryId: string;
+		timestamp: string;
+	}> = [];
 	const session = new SessionCollector(sessionId);
 	let count = 0;
 	let parsed = 0;
@@ -66,6 +79,9 @@ export function readTurns(
 			continue;
 		}
 		parsed += 1;
+		if (typeof entry.id === "string" && !entryOrder.has(entry.id)) {
+			entryOrder.set(entry.id, entryOrder.size);
+		}
 
 		if (entry.type === "session") {
 			session.observeHeader(entry);
@@ -91,14 +107,58 @@ export function readTurns(
 		if (turn.cost) billable += 1;
 		else unmetered += 1;
 		collectCalls(calls, sessionId, turn.entryId, turn.timestamp, message);
+		if (turn.kind === "compaction" && turn.firstKeptEntryId) {
+			const order = entryOrder.get(turn.firstKeptEntryId);
+			// An entry this scan never saw cannot be placed on the
+			// timeline, so nothing is dropped on its account rather than
+			// guessed at.
+			if (order !== undefined) {
+				boundaries.push({
+					order,
+					entryId: turn.entryId,
+					timestamp: turn.timestamp,
+				});
+			}
+		}
 	}
 
 	return {
 		turns,
 		calls: [...calls.values()],
+		dropped: droppedCallsOf(sessionId, calls, entryOrder, boundaries),
 		coverage: { lines: count, parsed, unparseable, billable, unmetered },
 		session: session.record(),
 	};
+}
+
+/**
+ * Which calls each compaction dropped: a call is dropped by the first
+ * boundary whose kept entry comes after it, since a boundary only ever
+ * moves forward and the earliest one to pass a call is the one that
+ * actually superseded it.
+ */
+function droppedCallsOf(
+	sessionId: string,
+	calls: ReadonlyMap<string, MutableCall>,
+	entryOrder: ReadonlyMap<string, number>,
+	boundaries: readonly { order: number; entryId: string; timestamp: string }[],
+): DroppedCallRecord[] {
+	if (boundaries.length === 0) return [];
+	const ordered = [...boundaries].sort((a, b) => a.order - b.order);
+	const dropped: DroppedCallRecord[] = [];
+	for (const call of calls.values()) {
+		const callOrder = entryOrder.get(call.entryId);
+		if (callOrder === undefined) continue;
+		const boundary = ordered.find((b) => b.order > callOrder);
+		if (!boundary) continue;
+		dropped.push({
+			callDigest: call.digest,
+			sessionId,
+			droppedAtEntryId: boundary.entryId,
+			droppedAtTimestamp: boundary.timestamp,
+		});
+	}
+	return dropped;
 }
 
 function turnFrom(

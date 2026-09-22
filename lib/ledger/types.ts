@@ -1,10 +1,14 @@
 import type {
+	DroppedCallRecord,
 	SessionRecord,
 	ToolCallRecord,
 	TurnRecord,
 } from "@jitsusama/agentic-harness.core/observability";
 
-export type { ToolCallRecord } from "@jitsusama/agentic-harness.core/observability";
+export type {
+	DroppedCallRecord,
+	ToolCallRecord,
+} from "@jitsusama/agentic-harness.core/observability";
 
 /**
  * What a scan saw, so any aggregate built on it can state its own
@@ -33,6 +37,7 @@ export interface ScanCoverage {
 export interface LedgerScan {
 	readonly turns: TurnRecord[];
 	readonly calls: ToolCallRecord[];
+	readonly dropped: DroppedCallRecord[];
 	readonly coverage: ScanCoverage;
 	readonly session: SessionRecord;
 }
