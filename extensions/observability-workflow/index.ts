@@ -9,10 +9,14 @@
  * touch the file.
  *
  * The extension registers a recorder sink that the fleet
- * dispatcher and the council runner emit into, exposes a
- * no-command `observe_runs` query tool, and rolls rows
- * older than the retention window into weekly per-model and
- * per-persona summaries lazily at session start.
+ * dispatcher and the council runner emit into, and exposes a
+ * no-command `observe_runs` query tool.
+ *
+ * Nothing is ever discarded. Rows used to be rolled into
+ * weekly summaries and deleted at session start, which
+ * destroyed the detail behind 2,199 runs and $11,926 before
+ * anyone looked. Summaries are computed from the rows now,
+ * so they cost a query instead of the evidence.
  *
  * It deliberately shows no cost of its own. `cost-workflow`
  * subscribes to the same recorder and folds fan-out into the
@@ -45,9 +49,6 @@ interface ObserveDetails {
 	readonly runCount?: number;
 }
 
-/** Raw per-run rows are kept for a rolling 30-day window, then rolled up. */
-const RAW_ROW_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
-
 export default function observabilityWorkflow(pi: ExtensionAPI) {
 	let store: RunStore | null = null;
 	let unregister: (() => void) | null = null;
@@ -61,15 +62,6 @@ export default function observabilityWorkflow(pi: ExtensionAPI) {
 			const dir = packageStateDir("observability");
 			mkdirSync(dir, { recursive: true });
 			store = await openRunStore(join(dir, "runs.db"));
-			// Lazy retention: distil rows past the window into
-			// weekly summaries. Best-effort; a prune failure must
-			// not stop the session from starting.
-			try {
-				await store.rollupBefore(Date.now() - RAW_ROW_RETENTION_MS);
-			} catch {
-				// A locked or corrupt telemetry file is not worth
-				// blocking a session over.
-			}
 			unregister = registerRunRecorder((record) => {
 				const write =
 					store?.recordRun(record).catch(() => {
