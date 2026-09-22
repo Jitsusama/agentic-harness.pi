@@ -47,14 +47,52 @@ Logs are streamed a line at a time rather than read whole. The largest
 log here is 1.2 GB, past the ceiling on a JavaScript string, so anything
 reading a file in one piece cannot open it at all.
 
+## Beyond a Total: Tool Calls, Drops and Verifiers
+
+The ledger holds three other things past turns and their cost:
+
+- Every tool call, content addressed by its arguments and its result,
+  with no bytes of either kept. `cost --repeats` names arguments asked
+  more than once inside one session, which the context could already
+  answer.
+- Which calls a compaction dropped, and which of those were asked again
+  afterward. `cost --regret` names that: a dropped answer re-fetched is
+  the compaction having been wrong, measured rather than estimated.
+- Which calls ran a verifier, classified from the command text at scan
+  time before that text is digested away, and how each kind fared.
+  `cost --verify` reports pass rates worst first.
+
+## Retrospection Without a Second Store
+
+The ledger is a plain SQLite file of TEXT and INTEGER columns, nothing
+exotic. DuckDB reads it directly through its own `sqlite_scanner`
+extension, with no export step and no second copy of the data to keep in
+step with the first:
+
+```sql
+INSTALL sqlite; LOAD sqlite;
+ATTACH '~/.local/state/pi/agentic-harness.pi/observability/ledger.db'
+  AS ledger (TYPE sqlite);
+SELECT * FROM ledger.tool_calls LIMIT 10;
+```
+
+This is the retrospective leg the plan called a Parquet and DuckDB
+derivative. A Parquet export was tried first and dropped: the only pure
+JavaScript writer available through this project's registry ships no
+TypeScript types and shows no sign of active maintenance, a poor trade
+for a second materialisation of data a SQL-speaking tool can already
+read where it sits. DuckDB's own SQLite reader costs no code and no
+dependency, and it is DuckDB doing the retrospecting either way.
+
 ## Files
 
 - `index.ts`: registration, store lifecycle and the `cost` tool.
 - `indexer.ts`: walking pi's session directories incrementally.
 - `report.ts`: pure formatting, tested without loading pi.
 
-The store, the turn and session types and `repoOf` live in
-`agentic-harness.core`'s `observability` module, since a billable turn is
-not a pi-specific idea. Reading pi's log format is, which is why the scan
-is the piece that belongs here; it currently still sits upstream and
-moving it is recorded as follow-up.
+The store, the turn and session types live in `agentic-harness.core`'s
+`observability` module, since a billable turn is not a pi-specific idea.
+Reading pi's log format is: the scan, the tool-call and dropped-call
+classification, and `repoOf` all live here, in
+`agentic-harness.pi/lib/ledger/`, moved out of the portable package once
+the layering error was noticed.
