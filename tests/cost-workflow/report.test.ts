@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	formatIndexOutcome,
+	formatRepeats,
 	formatSlices,
 	formatTotal,
 } from "../../extensions/cost-workflow/report.js";
@@ -87,6 +88,37 @@ describe("formatSlices", () => {
 	});
 });
 
+describe("formatRepeats", () => {
+	it("reports no repeats as none, not as an empty table", () => {
+		expect(formatRepeats([])).toContain("no repeated");
+	});
+
+	it("names the tool, the count and the weight, heaviest first", () => {
+		const text = formatRepeats([
+			{
+				argsDigest: "a1b2c3",
+				name: "read",
+				asked: 3,
+				repeated: 2,
+				repeatedChars: 29_400_000,
+			},
+			{
+				argsDigest: "d4e5f6",
+				name: "bash",
+				asked: 2,
+				repeated: 1,
+				repeatedChars: 500,
+			},
+		]);
+
+		const lines = text.split("\n").filter((l) => l.includes("asked"));
+		expect(lines[0]).toContain("read");
+		expect(lines[0]).toContain("3");
+		expect(lines[0]).toContain("29.4M");
+		expect(lines[1]).toContain("bash");
+	});
+});
+
 describe("formatIndexOutcome", () => {
 	it("says what it skipped, so an instant pass is not mistaken for a failure", () => {
 		const text = formatIndexOutcome({
@@ -97,6 +129,8 @@ describe("formatIndexOutcome", () => {
 			unparseable: 0,
 			inserted: 12,
 			duplicates: 3,
+			insertedCalls: 30,
+			duplicateCalls: 5,
 			seconds: 0.4,
 		});
 
@@ -114,6 +148,8 @@ describe("formatIndexOutcome", () => {
 			unparseable: 1,
 			inserted: 9,
 			duplicates: 0,
+			insertedCalls: 9,
+			duplicateCalls: 0,
 			seconds: 1,
 		});
 

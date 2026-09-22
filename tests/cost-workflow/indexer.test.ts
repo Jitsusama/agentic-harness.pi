@@ -1,0 +1,80 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { openTurnStore } from "@jitsusama/agentic-harness.core/observability";
+import { afterEach, describe, expect, it } from "vitest";
+import { indexSessionLogs } from "../../extensions/cost-workflow/indexer.js";
+
+let scratch: string | null = null;
+
+afterEach(() => {
+	if (scratch) rmSync(scratch, { recursive: true, force: true });
+	scratch = null;
+});
+
+function assistantLine(id: string, callId: string): string {
+	return JSON.stringify({
+		id,
+		type: "message",
+		timestamp: "2026-09-21T17:55:00.000Z",
+		message: {
+			role: "assistant",
+			model: "claude-opus-5",
+			usage: { input: 1, output: 1, cost: { total: 0.1 } },
+			content: [
+				{
+					type: "toolCall",
+					id: callId,
+					name: "bash",
+					arguments: { command: "ls" },
+				},
+			],
+		},
+	});
+}
+
+describe("indexing tool calls", () => {
+	it("records calls alongside turns, and reports how many were new", async () => {
+		scratch = mkdtempSync(join(tmpdir(), "ledger-indexer-"));
+		const sessionsRoot = join(scratch, "sessions", "proj");
+		mkdirSync(sessionsRoot, { recursive: true });
+		writeFileSync(
+			join(sessionsRoot, "one.jsonl"),
+			`${[assistantLine("a1", "t1"), assistantLine("a2", "t2")].join("\n")}\n`,
+			"utf8",
+		);
+
+		const store = await openTurnStore(join(scratch, "ledger.db"));
+		const outcome = await indexSessionLogs(
+			store,
+			join(scratch, "watermarks.json"),
+			join(scratch, "sessions"),
+		);
+
+		expect(outcome.insertedCalls).toBe(2);
+		expect(outcome.duplicateCalls).toBe(0);
+		expect(await store.queryCalls()).toHaveLength(2);
+		await store.close();
+	});
+
+	it("does not re-record calls from a log that has not grown", async () => {
+		scratch = mkdtempSync(join(tmpdir(), "ledger-indexer-"));
+		const sessionsRoot = join(scratch, "sessions", "proj");
+		mkdirSync(sessionsRoot, { recursive: true });
+		const path = join(sessionsRoot, "one.jsonl");
+		writeFileSync(path, `${assistantLine("a1", "t1")}\n`, "utf8");
+
+		const store = await openTurnStore(join(scratch, "ledger.db"));
+		const watermarks = join(scratch, "watermarks.json");
+		await indexSessionLogs(store, watermarks, join(scratch, "sessions"));
+		const second = await indexSessionLogs(
+			store,
+			watermarks,
+			join(scratch, "sessions"),
+		);
+
+		expect(second.skipped).toBe(1);
+		expect(second.insertedCalls).toBe(0);
+		await store.close();
+	});
+});

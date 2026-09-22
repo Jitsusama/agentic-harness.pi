@@ -1,6 +1,7 @@
 import type {
 	CostSlice,
 	LedgerTotal,
+	RepeatedCall,
 } from "@jitsusama/agentic-harness.core/observability";
 
 /** What indexing a corpus of session logs did. */
@@ -12,6 +13,8 @@ export interface IndexOutcome {
 	readonly unparseable: number;
 	readonly inserted: number;
 	readonly duplicates: number;
+	readonly insertedCalls: number;
+	readonly duplicateCalls: number;
 	readonly seconds: number;
 }
 
@@ -87,6 +90,24 @@ export function formatSlices(
 	return [head, ...rows].join("\n");
 }
 
+/**
+ * Render arguments asked more than once inside one session, heaviest
+ * first by the bytes the repeats re-admitted. No cost figure: chars are
+ * not dollars, and the point is the repetition, not a price on it.
+ */
+export function formatRepeats(repeats: readonly RepeatedCall[]): string {
+	if (repeats.length === 0) {
+		return "no repeated tool calls found within a session";
+	}
+	const rows = repeats.map(
+		(r) =>
+			`  ${r.name.padEnd(12)} asked ${String(r.asked).padStart(4)} times` +
+			`  ${String(r.repeated).padStart(4)} repeats` +
+			`  ${(r.repeatedChars / 1e6).toFixed(1)}M chars re-admitted`,
+	);
+	return [`Repeated tool calls (${repeats.length})`, ...rows].join("\n");
+}
+
 /** Say what an index pass read and what it was able to skip. */
 export function formatIndexOutcome(outcome: IndexOutcome): string {
 	const parts = [
@@ -99,7 +120,8 @@ export function formatIndexOutcome(outcome: IndexOutcome): string {
 	parts.push(
 		`${outcome.lines.toLocaleString()} lines, ` +
 			`${outcome.inserted.toLocaleString()} new turns, ` +
-			`${outcome.duplicates.toLocaleString()} already held`,
+			`${outcome.duplicates.toLocaleString()} already held, ` +
+			`${outcome.insertedCalls.toLocaleString()} new calls`,
 	);
 	if (outcome.unparseable > 0) {
 		parts.push(`${outcome.unparseable} lines unreadable`);

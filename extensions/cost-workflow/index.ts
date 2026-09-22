@@ -43,6 +43,7 @@ import { packageStateDir } from "../../lib/internal/package-state-dir.js";
 import { indexSessionLogs } from "./indexer.js";
 import {
 	formatIndexOutcome,
+	formatRepeats,
 	formatSlices,
 	formatTotal,
 	type IndexOutcome,
@@ -211,6 +212,15 @@ export default function costWorkflow(pi: ExtensionAPI) {
 						"Run an index pass and report what it read, without a spend report.",
 				}),
 			),
+			repeats: Type.Optional(
+				Type.Boolean({
+					description:
+						"Report tool calls whose arguments were asked more than once " +
+						"within a session, heaviest first, instead of a spend report. " +
+						"Each is a question the session's own context could already " +
+						"answer.",
+				}),
+			),
 		}),
 		async execute(_toolCallId, params): Promise<AgentToolResult<CostDetails>> {
 			const opened = await open();
@@ -220,6 +230,24 @@ export default function costWorkflow(pi: ExtensionAPI) {
 				return {
 					content: [{ type: "text", text: formatIndexOutcome(index) }],
 					details: { ok: true, index },
+				};
+			}
+
+			if (params.repeats) {
+				const repeats = await opened.repeatedCalls();
+				return {
+					content: [
+						{
+							type: "text",
+							text: citeListing(openSessionStore(), {
+								view: formatRepeats(repeats.slice(0, params.limit ?? 12)),
+								records: repeats,
+								unit: "repeats",
+								narrowing: "Ask for a larger limit to see more.",
+							}),
+						},
+					],
+					details: { ok: true },
 				};
 			}
 
