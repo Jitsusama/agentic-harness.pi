@@ -39,10 +39,10 @@ import {
 	type RunStore,
 	type RunSummary,
 	registerRunRecorder,
-	repoOf,
 } from "@jitsusama/agentic-harness.core/observability";
 import { Type } from "@sinclair/typebox";
 import { packageStateDir } from "../../lib/internal/package-state-dir.js";
+import { repoOf } from "../../lib/ledger/index.js";
 
 /** Result payload the observe_runs tool returns. */
 interface ObserveDetails {

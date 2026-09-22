@@ -9,10 +9,8 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import {
-	readTurns,
-	type TurnStore,
-} from "@jitsusama/agentic-harness.core/observability";
+import type { TurnStore } from "@jitsusama/agentic-harness.core/observability";
+import { readTurns } from "../../lib/ledger/index.js";
 import type { IndexOutcome } from "./report.js";
 
 /** Where pi keeps session logs, honouring its own directory override. */
