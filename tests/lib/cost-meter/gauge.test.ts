@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
 	contextGauge,
+	MARKER_GAP,
 	marginalText,
 	medianOf,
+	PAIR_GAP,
 	sessionText,
 } from "../../../lib/internal/cost-meter/index.js";
 
@@ -58,11 +60,11 @@ describe("medianOf", () => {
 
 describe("marginalText", () => {
 	it("marks a rate with the partial, not a total's sigma", () => {
-		expect(marginalText(0.42)).toBe("\u2202$0.42");
+		expect(marginalText(0.42)).toBe("\u2202 $0.42");
 	});
 
 	it("keeps cents on a rate however small, since that is the signal", () => {
-		expect(marginalText(0.09)).toBe("\u2202$0.09");
+		expect(marginalText(0.09)).toBe("\u2202 $0.09");
 	});
 
 	it("says nothing until a session has turns to measure", () => {
@@ -72,14 +74,37 @@ describe("marginalText", () => {
 
 describe("sessionText", () => {
 	it("marks an accumulated total with a sigma", () => {
-		expect(sessionText(4.213)).toBe("\u03a3$4.21");
+		expect(sessionText(4.213)).toBe("\u03a3 $4.21");
 	});
 
 	it("drops cents once the figure is large enough not to need them", () => {
-		expect(sessionText(143.77)).toBe("\u03a3$144");
+		expect(sessionText(143.77)).toBe("\u03a3 $144");
 	});
 
 	it("says nothing before anything is spent", () => {
 		expect(sessionText(0)).toBeNull();
+	});
+});
+
+describe("spacing", () => {
+	it("separates every marker from its value the same way", () => {
+		// The rule is one space after a marker, with no exceptions. A gap
+		// that appears after the gauge but not after the rate reads as an
+		// oversight, because that is exactly what it was.
+		const gauge = contextGauge(361_000, 1_000_000);
+		const pieces = [
+			`${gauge.glyph}${MARKER_GAP}${gauge.text}`,
+			marginalText(0.42),
+			sessionText(4.21),
+		];
+		for (const piece of pieces) {
+			expect(piece?.slice(1, 1 + MARKER_GAP.length)).toBe(MARKER_GAP);
+		}
+	});
+
+	it("leaves a wider gap between pairs than inside one", () => {
+		// Otherwise a reader cannot tell whether a number belongs to the
+		// marker before it or the one after it.
+		expect(PAIR_GAP.length).toBeGreaterThan(MARKER_GAP.length);
 	});
 });

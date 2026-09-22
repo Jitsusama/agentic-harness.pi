@@ -29,7 +29,9 @@ import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import {
 	type ContextGauge,
 	contextGauge,
+	MARKER_GAP,
 	marginalText,
+	PAIR_GAP,
 	sessionText,
 } from "../../lib/internal/cost-meter/index.js";
 import { getPanelHeightGlyph } from "../../lib/ui/panel-height.js";
@@ -126,7 +128,7 @@ function buildCandidate(
 	const meter = [usePctContext ? d.contextPct : d.contextTokens];
 	if (d.marginal) meter.push(d.marginal);
 	if (!hideSessionTotal && d.sessionTotal) meter.push(d.sessionTotal);
-	right.push(meter.join(" "));
+	right.push(meter.join(PAIR_GAP));
 
 	if (!hideThinking && d.thinkGlyph) right.push(d.thinkGlyph);
 
@@ -136,15 +138,14 @@ function buildCandidate(
 const MAX_LEVEL = 6;
 
 /**
- * Paint a gauge: the glyph carries the band colour, the number stays
- * quiet, and a space separates them. Without the space the glyph reads
- * as a leading character of the number rather than a signal of its own.
+ * Paint a gauge: the glyph carries the band colour and the number stays
+ * quiet, separated by the same gap every marker gets.
  */
 function paintGauge(
 	theme: { fg: (color: ThemeColor, text: string) => string },
 	gauge: ContextGauge,
 ): string {
-	return `${theme.fg(gauge.token, gauge.glyph)} ${theme.fg("dim", gauge.text)}`;
+	return `${theme.fg(gauge.token, gauge.glyph)}${MARKER_GAP}${theme.fg("dim", gauge.text)}`;
 }
 
 /** Dim a meter piece, or pass the absence through untouched. */
