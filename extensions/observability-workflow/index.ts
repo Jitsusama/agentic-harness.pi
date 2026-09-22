@@ -9,11 +9,16 @@
  * touch the file.
  *
  * The extension registers a recorder sink that the fleet
- * dispatcher and the council runner emit into, surfaces a
- * compact session figure on the status line, exposes a
+ * dispatcher and the council runner emit into, exposes a
  * no-command `observe_runs` query tool, and rolls rows
  * older than the retention window into weekly per-model and
  * per-persona summaries lazily at session start.
+ *
+ * It deliberately shows no cost of its own. `cost-workflow`
+ * subscribes to the same recorder and folds fan-out into the
+ * one money figure on the status line, because a council round
+ * is the same money as the turn that asked for it and two
+ * readings of it invite adding them together.
  */
 
 import { mkdirSync } from "node:fs";
@@ -21,7 +26,6 @@ import { join } from "node:path";
 import type {
 	AgentToolResult,
 	ExtensionAPI,
-	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import {
 	openRunStore,
@@ -34,8 +38,6 @@ import {
 import { Type } from "@sinclair/typebox";
 import { packageStateDir } from "../../lib/internal/package-state-dir.js";
 
-const STATUS_KEY = "observability:summary";
-
 /** Result payload the observe_runs tool returns. */
 interface ObserveDetails {
 	readonly ok: boolean;
@@ -46,47 +48,15 @@ interface ObserveDetails {
 /** Raw per-run rows are kept for a rolling 30-day window, then rolled up. */
 const RAW_ROW_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
-/**
- * Format the session spend meter: how many runs were recorded
- * this session and what they cost. It reads as a cumulative
- * tally, not a live indicator, so it is not mistaken for an agent
- * that is still running. The sigma marks a total.
- */
-export function formatRunMeter(runs: number, cost: number): string {
-	const runWord = runs === 1 ? "run" : "runs";
-	return `\u03a3 ${runs} ${runWord} \u00b7 $${cost.toFixed(3)}`;
-}
-
 export default function observabilityWorkflow(pi: ExtensionAPI) {
 	let store: RunStore | null = null;
 	let unregister: (() => void) | null = null;
-	let ctxRef: ExtensionContext | null = null;
-	let sessionRuns = 0;
-	let sessionCost = 0;
 	// In-flight writes, drained at shutdown so a run recorded just
 	// before the process exits is not lost to the async gap between
 	// recordRun and the sqlite flush.
 	const pendingWrites = new Set<Promise<unknown>>();
 
-	const refreshStatus = (): void => {
-		if (!ctxRef) return;
-		if (sessionRuns === 0) {
-			ctxRef.ui.setStatus(STATUS_KEY, undefined);
-			return;
-		}
-		ctxRef.ui.setStatus(
-			STATUS_KEY,
-			ctxRef.ui.theme.fg("muted", formatRunMeter(sessionRuns, sessionCost)),
-		);
-	};
-
-	pi.on("session_start", async (_event, ctx) => {
-		ctxRef = ctx;
-		// Reset the per-session tally so a session switch in a live
-		// process does not carry the previous session's run count and
-		// cost into the new session's status line.
-		sessionRuns = 0;
-		sessionCost = 0;
+	pi.on("session_start", async () => {
 		if (store === null) {
 			const dir = packageStateDir("observability");
 			mkdirSync(dir, { recursive: true });
@@ -101,9 +71,6 @@ export default function observabilityWorkflow(pi: ExtensionAPI) {
 				// blocking a session over.
 			}
 			unregister = registerRunRecorder((record) => {
-				sessionRuns += 1;
-				sessionCost += record.cost.total;
-				refreshStatus();
 				const write =
 					store?.recordRun(record).catch(() => {
 						// Best-effort telemetry: never disturb the run.
@@ -112,13 +79,11 @@ export default function observabilityWorkflow(pi: ExtensionAPI) {
 				void write.finally(() => pendingWrites.delete(write));
 			});
 		}
-		refreshStatus();
 	});
 
 	const teardown = async (): Promise<void> => {
 		unregister?.();
 		unregister = null;
-		ctxRef?.ui.setStatus(STATUS_KEY, undefined);
 		// Let in-flight writes reach disk before the store closes, so
 		// a run recorded moments before shutdown is not dropped.
 		await Promise.allSettled([...pendingWrites]);

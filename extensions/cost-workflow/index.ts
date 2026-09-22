@@ -20,15 +20,18 @@
 
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type {
 	AgentToolResult,
 	ExtensionAPI,
+	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import type { CostSlice } from "@jitsusama/agentic-harness.core/observability";
 import {
 	type CostDimension,
 	type LedgerTotal,
 	openTurnStore,
+	registerRunRecorder,
 	type TurnStore,
 } from "@jitsusama/agentic-harness.core/observability";
 import {
@@ -38,6 +41,7 @@ import {
 import { Type } from "@sinclair/typebox";
 import { packageStateDir } from "../../lib/internal/package-state-dir.js";
 import { indexSessionLogs } from "./indexer.js";
+import { formatCostMeter } from "./meter.js";
 import {
 	formatIndexOutcome,
 	formatSlices,
@@ -71,9 +75,42 @@ interface CostDetails {
 	readonly index?: IndexOutcome;
 }
 
+/** The one cost reading on the status line. */
+const STATUS_KEY = "cost:meter";
+
+/** Cost of an assistant turn, or zero for anything else. */
+function assistantCost(message: { role: string }): number {
+	if (message.role === "assistant" && "usage" in message) {
+		return (message as AssistantMessage).usage.cost.total;
+	}
+	return 0;
+}
+
 export default function costWorkflow(pi: ExtensionAPI) {
 	let store: TurnStore | null = null;
 	let watermarks = "";
+	let ctxRef: ExtensionContext | null = null;
+	let unregisterRuns: (() => void) | null = null;
+	// What this process has spent. Fan-out is added here rather than
+	// shown separately, because it is the same money: a council round
+	// costs what it costs whether or not the parent did the talking.
+	let sessionSpend = 0;
+	// What the day had cost before this process started. Held apart from
+	// the live figure so a restored session cannot count its own earlier
+	// turns twice, once from the ledger and once from the branch.
+	let dayBefore = 0;
+
+	const refreshStatus = (): void => {
+		if (!ctxRef) return;
+		const text = formatCostMeter({
+			session: sessionSpend,
+			day: dayBefore + sessionSpend,
+		});
+		ctxRef.ui.setStatus(
+			STATUS_KEY,
+			text ? ctxRef.ui.theme.fg("muted", text) : undefined,
+		);
+	};
 
 	const open = async (): Promise<TurnStore> => {
 		if (store) return store;
@@ -84,7 +121,38 @@ export default function costWorkflow(pi: ExtensionAPI) {
 		return store;
 	};
 
+	pi.on("message_end", async (event) => {
+		sessionSpend += assistantCost(event.message);
+		refreshStatus();
+	});
+
+	pi.on("session_start", async (_event, ctx) => {
+		ctxRef = ctx;
+		sessionSpend = 0;
+		if (!unregisterRuns) {
+			unregisterRuns = registerRunRecorder((record) => {
+				sessionSpend += record.cost.total;
+				refreshStatus();
+			});
+		}
+		try {
+			const opened = await open();
+			const today = new Date().toISOString().slice(0, 10);
+			const days = await opened.costBy("day");
+			dayBefore = days.find((slice) => slice.key === today)?.cost ?? 0;
+		} catch {
+			// A ledger that will not open leaves the day unknown, which the
+			// meter shows by reporting the session alone rather than a
+			// figure it cannot stand behind.
+			dayBefore = 0;
+		}
+		refreshStatus();
+	});
+
 	pi.on("session_shutdown", async () => {
+		unregisterRuns?.();
+		unregisterRuns = null;
+		ctxRef?.ui.setStatus(STATUS_KEY, undefined);
 		const closing = store;
 		store = null;
 		if (closing) {

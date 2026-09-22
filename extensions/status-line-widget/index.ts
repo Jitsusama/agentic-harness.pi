@@ -2,22 +2,25 @@
  * Status Line Widget Extension
  *
  * Single-line responsive footer showing directory, model, context
- * usage, cost, thinking level, and extension statuses. Right-justified
+ * usage, thinking level, and extension statuses. Right-justified
  * status segments with left-side directory/model info that degrades
  * progressively as the terminal narrows.
  *
+ * Money is not among them. `cost-workflow` owns that question and
+ * publishes one figure as an extension status, which this line places
+ * like any other. Two extensions each rendering a cost is how a status
+ * line comes to disagree with itself.
+ *
  * Degradation order:
  *   1. Shrink directory (full path → basename)
- *   2. Remove cost
- *   3. Context tokens → percentage
- *   4. Shrink model name
- *   5. Remove thinking glyph
- *   6. Remove branch
+ *   2. Context tokens → percentage
+ *   3. Shrink model name
+ *   4. Remove thinking glyph
+ *   5. Remove branch
  *   (basename is never removed)
  */
 
 import * as path from "node:path";
-import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ThemeColor } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { getPanelHeightGlyph } from "../../lib/ui/panel-height.js";
@@ -72,7 +75,6 @@ interface FooterData {
 	shortModel: string;
 	contextTokens: string;
 	contextPct: string;
-	cost: string | null;
 	thinkGlyph: string;
 	panelGlyph: string;
 	statuses: string[];
@@ -90,11 +92,10 @@ function buildCandidate(
 ): { left: string[]; right: string[] } {
 	// Degradation flags
 	const useShortDir = level >= 1;
-	const hideCost = level >= 2;
-	const usePctContext = level >= 3;
-	const useShortModel = level >= 4;
-	const hideThinking = level >= 5;
-	const hideBranch = level >= 6;
+	const usePctContext = level >= 2;
+	const useShortModel = level >= 3;
+	const hideThinking = level >= 4;
+	const hideBranch = level >= 5;
 
 	const left: string[] = [];
 
@@ -115,40 +116,15 @@ function buildCandidate(
 
 	right.push(usePctContext ? d.contextPct : d.contextTokens);
 
-	if (!hideCost && d.cost) right.push(d.cost);
-
 	if (!hideThinking && d.thinkGlyph) right.push(d.thinkGlyph);
 
 	return { left, right };
 }
 
-const MAX_LEVEL = 6;
-
-/** Extract the cost from an assistant message, or 0 if not applicable. */
-function assistantCost(message: { role: string }): number {
-	if (message.role === "assistant" && "usage" in message) {
-		return (message as AssistantMessage).usage.cost.total;
-	}
-	return 0;
-}
+const MAX_LEVEL = 5;
 
 export default function statusLine(pi: ExtensionAPI) {
-	/** Running cost total, accumulated from session start and message_end events. */
-	let totalCost = 0;
-
-	pi.on("message_end", async (event) => {
-		totalCost += assistantCost(event.message);
-	});
-
 	pi.on("session_start", async (_event, ctx) => {
-		// Compute the initial cost from the existing branch (handles restored sessions).
-		totalCost = 0;
-		for (const e of ctx.sessionManager.getBranch()) {
-			if (e.type === "message") {
-				totalCost += assistantCost(e.message);
-			}
-		}
-
 		ctx.ui.setFooter((tui, theme, footerData) => {
 			const unsub = footerData.onBranchChange(() => tui.requestRender());
 			const sep = theme.fg("dim", SEP);
@@ -157,8 +133,6 @@ export default function statusLine(pi: ExtensionAPI) {
 				dispose: unsub,
 				invalidate() {},
 				render(width: number): string[] {
-					const cost = totalCost;
-
 					const branch = footerData.getGitBranch();
 					const modelId = ctx.model?.id || "no-model";
 					const usage = ctx.getContextUsage();
@@ -192,7 +166,6 @@ export default function statusLine(pi: ExtensionAPI) {
 							`${fmtTokens(tokens)}/${fmtTokens(window)}`,
 						),
 						contextPct: theme.fg(ctxColor, `${pct}%`),
-						cost: cost > 0 ? theme.fg("dim", `$${cost.toFixed(3)}`) : null,
 						thinkGlyph,
 						panelGlyph: theme.fg("dim", getPanelHeightGlyph()),
 						statuses: [],
