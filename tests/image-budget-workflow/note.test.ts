@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	describeScaling,
 	readDimensionNote,
+	stripDimensionNote,
 } from "../../extensions/image-budget-workflow/note.js";
 
 describe("readDimensionNote", () => {
@@ -29,6 +30,41 @@ describe("readDimensionNote", () => {
 		expect(
 			readDimensionNote("[Image: original wide, displayed at tall.]"),
 		).toBeNull();
+	});
+});
+
+describe("stripDimensionNote", () => {
+	it("lifts pi's note out of the block it shares with other prose", () => {
+		// pi writes its note before the image and folds it into the same
+		// text block as the tool's own first line, so looking at the block
+		// after the image finds nothing and the stale note survives.
+		const out = stripDimensionNote(
+			"Read image file [image/png]\n" +
+				"[Image: original 3024x1964, displayed at 2000x1299. " +
+				"Multiply coordinates by 1.51 to map to original image.]",
+		);
+
+		expect(out.note?.originalWidth).toBe(3024);
+		expect(out.text).toBe("Read image file [image/png]");
+		expect(out.text).not.toContain("1.51");
+	});
+
+	it("leaves a block with no note exactly as it was", () => {
+		const out = stripDimensionNote("Read image file [image/png]");
+
+		expect(out.note).toBeNull();
+		expect(out.text).toBe("Read image file [image/png]");
+	});
+
+	it("does not strip prose that merely discusses dimensions", () => {
+		// A file being read might well be this very module. A detector that
+		// matches talk about a string rather than the string itself has
+		// already cost this investigation one wrong number.
+		const prose = "the note reads original 3024x1964, displayed at 2000x1299";
+		const out = stripDimensionNote(prose);
+
+		expect(out.note).toBeNull();
+		expect(out.text).toBe(prose);
 	});
 });
 

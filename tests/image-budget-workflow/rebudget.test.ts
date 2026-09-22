@@ -138,6 +138,42 @@ describe("rebudget", () => {
 		expect(seen.every((s) => s === "fromdisk")).toBe(true);
 	});
 
+	it("finds pi's note where pi actually puts it, before the image", async () => {
+		// pi writes the note ahead of the image and folds it into the same
+		// block as the tool's own first line. Looking beside the image
+		// missed it entirely and left a stale factor above an accurate one.
+		const lead: Block = {
+			type: "text",
+			text:
+				"Read image file [image/png]\n" +
+				"[Image: original 3024x1964, displayed at 2000x1299. " +
+				"Multiply coordinates by 1.51 to map to original image.]",
+		};
+		const out = await rebudget([lead, image], resizerFor(3024, 1964));
+		const blocks = out.content ?? [];
+		const prose = blocks.filter((b): b is TextContent => b.type === "text");
+
+		// The tool's own line survives; pi's note does not; one note added.
+		expect(prose).toHaveLength(2);
+		expect(prose[0].text).toBe("Read image file [image/png]");
+		expect(prose[1].text).toContain("3024x1964");
+		expect(
+			blocks.some((b) => b.type === "text" && b.text.includes("1.51")),
+		).toBe(false);
+	});
+
+	it("puts pi's note back when it scaled nothing after all", async () => {
+		// A note lifted out and an image left alone must not end with the
+		// note gone: that would hide what pi said about the picture.
+		const lead: Block = {
+			type: "text",
+			text: "[Image: original 2100x600, displayed at 2000x571. x]",
+		};
+		const out = await rebudget([lead, image], resizerFor(2100, 600));
+
+		expect(out.content).toBeNull();
+	});
+
 	it("handles several images in one result", async () => {
 		const out = await rebudget([image, image, image], resizerFor(2858, 1428));
 

@@ -22,6 +22,17 @@ export interface DimensionNote extends Size {
 const NOTE = /^\[Image: original (\d+)x(\d+), displayed at (\d+)x(\d+)\./;
 
 /**
+ * The same note wherever it sits, because pi writes it before the image
+ * and folds it into the same text block as the tool's own first line.
+ * Matched whole, closing bracket included, so prose that merely
+ * discusses dimensions cannot be taken for it: a looser detector has
+ * already produced one wrong number in this investigation by matching
+ * the contents of files that talk about a string.
+ */
+const NOTE_ANYWHERE =
+	/\n?\[Image: original (\d+)x(\d+), displayed at (\d+)x(\d+)\.[^\]]*\]/;
+
+/**
  * Read pi's dimension note, or nothing when the text is not one.
  *
  * This is where the true original size survives. pi resizes before any
@@ -29,6 +40,24 @@ const NOTE = /^\[Image: original (\d+)x(\d+), displayed at (\d+)x(\d+)\./;
  * shrunk, and a budget computed from it would be a budget against an
  * intermediate. The note is the only record of what the image was.
  */
+export function stripDimensionNote(text: string): StrippedNote {
+	const found = NOTE_ANYWHERE.exec(text);
+	if (!found) return { text, note: null };
+	const [, ow, oh, w, h] = found.map(Number);
+	if (!ow || !oh || !w || !h) return { text, note: null };
+	return {
+		text: text.replace(NOTE_ANYWHERE, "").trim(),
+		note: { originalWidth: ow, originalHeight: oh, width: w, height: h },
+	};
+}
+
+/** A text block with pi's note lifted out of it. */
+export interface StrippedNote {
+	readonly text: string;
+	readonly note: DimensionNote | null;
+}
+
+/** Lift pi's note out of a block, leaving the rest of the prose. */
 export function readDimensionNote(text: string): DimensionNote | null {
 	const found = NOTE.exec(text.trim());
 	if (!found) return null;

@@ -1,6 +1,11 @@
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { billedTokens, fitToBudget } from "./budget.js";
-import { describeScaling, readDimensionNote, type Size } from "./note.js";
+import {
+	type DimensionNote,
+	describeScaling,
+	type Size,
+	stripDimensionNote,
+} from "./note.js";
 
 /** What pi's resizer answers with. */
 export interface Resized {
@@ -48,11 +53,38 @@ function isImage(block: Block): block is ImageContent {
 	);
 }
 
-/** pi's note for an image, if the next block is one. */
-function noteAt(blocks: readonly Block[], index: number) {
-	const next = blocks[index + 1];
-	if (!next || next.type !== "text") return null;
-	return readDimensionNote(next.text);
+/**
+ * Take pi's note out of every text block, keeping what it said.
+ *
+ * pi writes the note before the image and folds it into the same block
+ * as the tool's own first line, so it cannot be found by looking beside
+ * the image, and leaving it in place would put a stale factor above an
+ * accurate one.
+ */
+function withoutPiNotes(content: readonly Block[]): {
+	blocks: Block[];
+	note: DimensionNote | null;
+} {
+	let note: DimensionNote | null = null;
+	const blocks: Block[] = [];
+	for (const block of content) {
+		if (block.type !== "text") {
+			blocks.push(block);
+			continue;
+		}
+		const stripped = stripDimensionNote(block.text);
+		if (!stripped.note) {
+			blocks.push(block);
+			continue;
+		}
+		note ??= stripped.note;
+		// A block that was nothing but the note goes entirely, rather than
+		// leaving an empty line where it used to be.
+		if (stripped.text.length > 0) {
+			blocks.push({ type: "text", text: stripped.text });
+		}
+	}
+	return { blocks, note };
 }
 
 /**
@@ -78,18 +110,17 @@ export async function rebudget(
 	resize: Resize,
 	loadOriginal?: LoadOriginal,
 ): Promise<Rebudgeted> {
+	const { blocks: incoming, note: piNote } = withoutPiNotes(content);
 	const next: Block[] = [];
 	let saved = 0;
 	let changed = false;
 
-	for (let index = 0; index < content.length; index += 1) {
-		const block = content[index];
+	for (const block of incoming) {
 		if (!isImage(block)) {
 			next.push(block);
 			continue;
 		}
 
-		const piNote = noteAt(content, index);
 		const payload = Buffer.from(block.data, "base64");
 		// Prefer the file on disk: re-encoding from the source means one
 		// compression rather than two stacked on each other.
@@ -110,16 +141,12 @@ export async function rebudget(
 		const fit = original ? fitToBudget(original.width, original.height) : null;
 		if (!original || !fit) {
 			next.push(block);
-			if (piNote) next.push(content[index + 1]);
-			index += piNote ? 1 : 0;
 			continue;
 		}
 
 		const small = await resize(bytes, block.mimeType, fit);
 		if (!small?.wasResized) {
 			next.push(block);
-			if (piNote) next.push(content[index + 1]);
-			index += piNote ? 1 : 0;
 			continue;
 		}
 
@@ -136,10 +163,12 @@ export async function rebudget(
 			height: small.height,
 		});
 		if (told) next.push({ type: "text", text: told });
-		// pi's note is consumed, replaced by the one above.
-		index += piNote ? 1 : 0;
 		changed = true;
 	}
 
+	// Answering with nothing keeps the result as it arrived, pi's note
+	// included. That is what has to happen when a note was lifted out but
+	// no image ended up scaled, since dropping it would hide what pi
+	// said about an image this extension decided not to touch.
 	return { content: changed ? next : null, saved };
 }
