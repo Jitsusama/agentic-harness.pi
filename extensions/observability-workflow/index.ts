@@ -30,6 +30,7 @@ import { join } from "node:path";
 import type {
 	AgentToolResult,
 	ExtensionAPI,
+	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import {
 	openRunStore,
@@ -38,6 +39,7 @@ import {
 	type RunStore,
 	type RunSummary,
 	registerRunRecorder,
+	repoOf,
 } from "@jitsusama/agentic-harness.core/observability";
 import { Type } from "@sinclair/typebox";
 import { packageStateDir } from "../../lib/internal/package-state-dir.js";
@@ -51,20 +53,29 @@ interface ObserveDetails {
 
 export default function observabilityWorkflow(pi: ExtensionAPI) {
 	let store: RunStore | null = null;
+	let ctxRef: ExtensionContext | null = null;
 	let unregister: (() => void) | null = null;
 	// In-flight writes, drained at shutdown so a run recorded just
 	// before the process exits is not lost to the async gap between
 	// recordRun and the sqlite flush.
 	const pendingWrites = new Set<Promise<unknown>>();
 
-	pi.on("session_start", async () => {
+	pi.on("session_start", async (_event, ctx) => {
+		// Held so each record is stamped with the session current when
+		// it lands, not the one current when the sink was registered.
+		ctxRef = ctx;
 		if (store === null) {
 			const dir = packageStateDir("observability");
 			mkdirSync(dir, { recursive: true });
 			store = await openRunStore(join(dir, "runs.db"));
 			unregister = registerRunRecorder((record) => {
+				// Stamped here rather than by the producers, because only
+				// the parent knows which session it is and where it is
+				// working. Without this, fan-out could not be traced to the
+				// work that caused it.
+				const stamped = { ...record, ...whereFrom(ctxRef) };
 				const write =
-					store?.recordRun(record).catch(() => {
+					store?.recordRun(stamped).catch(() => {
 						// Best-effort telemetry: never disturb the run.
 					}) ?? Promise.resolve();
 				pendingWrites.add(write);
@@ -153,13 +164,19 @@ interface RunSummaryLike {
 	readonly tokens: { readonly total: number };
 	readonly cost: { readonly total: number };
 	readonly cacheReadRatio: number;
+	readonly unmetered: number;
+}
+
+/** Say the cost is a lower bound when some of it went unreported. */
+function unmeteredNote(count: number): string {
+	return count > 0 ? ` (${count} unmetered, so a lower bound)` : "";
 }
 
 function formatRunSummary(s: RunSummaryLike): string {
 	return [
 		`Run ${s.runId}: ${s.subagentCount} subagents, ${s.passed} passed, ${s.failed} failed`,
 		`retries ${s.totalRetries}, warnings ${s.totalWarnings}`,
-		`tokens ${s.tokens.total}, cost $${s.cost.total.toFixed(4)}, cache-read ${(s.cacheReadRatio * 100).toFixed(0)}%`,
+		`tokens ${s.tokens.total}, cost $${s.cost.total.toFixed(4)}${unmeteredNote(s.unmetered)}, cache-read ${(s.cacheReadRatio * 100).toFixed(0)}%`,
 	].join("\n");
 }
 
@@ -177,7 +194,8 @@ export function formatDigest(
 		for (const run of byRun.slice(0, 10)) {
 			lines.push(
 				`- ${run.runId} (${run.kind}): ${run.subagentCount} subagents, ` +
-					`${run.passed} passed / ${run.failed} failed, $${run.cost.toFixed(4)}`,
+					`${run.passed} passed / ${run.failed} failed, $${run.cost.toFixed(4)}` +
+					unmeteredNote(run.unmetered),
 			);
 		}
 	}
@@ -202,6 +220,24 @@ interface RunGroup {
 	passed: number;
 	failed: number;
 	cost: number;
+	/** Subagents with no reported usage, so the cost is a lower bound. */
+	unmetered: number;
+}
+
+/** Where a record came from: the parent's session, directory and repo. */
+function whereFrom(ctx: ExtensionContext | null): {
+	sessionId: string | null;
+	cwd: string | null;
+	repo: string | null;
+	endedAt: number;
+} {
+	const cwd = ctx?.cwd ?? null;
+	return {
+		sessionId: ctx?.sessionManager.getSessionId() ?? null,
+		cwd,
+		repo: repoOf(cwd),
+		endedAt: Date.now(),
+	};
 }
 
 export function groupByRun(rows: readonly RunRecord[]): RunGroup[] {
@@ -214,11 +250,13 @@ export function groupByRun(rows: readonly RunRecord[]): RunGroup[] {
 			passed: 0,
 			failed: 0,
 			cost: 0,
+			unmetered: 0,
 		};
 		group.subagentCount += 1;
 		if (row.verifyOutcome === "passed") group.passed += 1;
 		if (row.verifyOutcome === "failed") group.failed += 1;
-		group.cost += row.cost.total;
+		if (row.cost) group.cost += row.cost.total;
+		else group.unmetered += 1;
 		groups.set(row.runId, group);
 	}
 	return [...groups.values()];

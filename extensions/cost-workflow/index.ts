@@ -150,7 +150,10 @@ export default function costWorkflow(pi: ExtensionAPI) {
 			// council round is not a turn, and letting it set the marginal
 			// figure would say the next turn costs a hundred dollars.
 			unregisterRuns = registerRunRecorder((record) => {
-				sessionSpend += record.cost.total;
+				// An unmetered run adds nothing because nothing is known, not
+				// because it was free. The total is then a lower bound, which
+				// is the honest reading of a figure missing a term.
+				sessionSpend += record.cost?.total ?? 0;
 				publish();
 			});
 		}

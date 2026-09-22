@@ -68,8 +68,8 @@ describe("what a round spends", () => {
 			kind: "council",
 			model: "anthropic/claude-opus-5",
 		});
-		expect(kept[0]?.cost.total).toBeCloseTo(3.5);
-		expect(kept[0]?.tokens.total).toBe(900);
+		expect(kept[0]?.cost?.total).toBeCloseTo(3.5);
+		expect(kept[0]?.tokens?.total).toBe(900);
 	});
 
 	it("publishes a reviewer that died, since it was still billed", () => {
@@ -87,7 +87,7 @@ describe("what a round spends", () => {
 		});
 
 		expect(kept).toHaveLength(1);
-		expect(kept[0]?.cost.total).toBeCloseTo(3.5);
+		expect(kept[0]?.cost?.total).toBeCloseTo(3.5);
 	});
 
 	it("publishes a run nothing priced, rather than losing it", () => {
@@ -107,7 +107,10 @@ describe("what a round spends", () => {
 		});
 
 		expect(kept).toHaveLength(1);
-		expect(kept[0]?.cost.total).toBe(0);
+		// The row is kept, and its cost is unknown rather than zero: a
+		// zero would be a second claim, that the run was free, which
+		// nothing supports.
+		expect(kept[0]?.cost).toBeNull();
 	});
 
 	it("files each round kind under itself, not all under council", () => {
