@@ -43,6 +43,7 @@ import { packageStateDir } from "../../lib/internal/package-state-dir.js";
 import { indexSessionLogs } from "./indexer.js";
 import {
 	formatIndexOutcome,
+	formatPaybackReplay,
 	formatRegret,
 	formatRepeats,
 	formatSlices,
@@ -238,6 +239,14 @@ export default function costWorkflow(pi: ExtensionAPI) {
 						"pass rate first, instead of a spend report.",
 				}),
 			),
+			payback: Type.Optional(
+				Type.Boolean({
+					description:
+						"Report how real compactions compare against the payback " +
+						"test (would summarising have been worth what it cost to " +
+						"write), instead of a spend report.",
+				}),
+			),
 		}),
 		async execute(_toolCallId, params): Promise<AgentToolResult<CostDetails>> {
 			const opened = await open();
@@ -290,6 +299,14 @@ export default function costWorkflow(pi: ExtensionAPI) {
 				const outcomes = await opened.verifierOutcomes();
 				return {
 					content: [{ type: "text", text: formatVerifierOutcomes(outcomes) }],
+					details: { ok: true },
+				};
+			}
+
+			if (params.payback) {
+				const replay = await opened.paybackReplay();
+				return {
+					content: [{ type: "text", text: formatPaybackReplay(replay) }],
 					details: { ok: true },
 				};
 			}

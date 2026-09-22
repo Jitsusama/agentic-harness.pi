@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	formatIndexOutcome,
+	formatPaybackReplay,
 	formatRegret,
 	formatRepeats,
 	formatSlices,
@@ -167,6 +168,32 @@ describe("formatVerifierOutcomes", () => {
 
 		expect(text).toContain("3");
 		expect(text).toContain("unknown");
+	});
+});
+
+describe("formatPaybackReplay", () => {
+	it("reports nothing to replay rather than a division by zero", () => {
+		expect(
+			formatPaybackReplay({
+				compactions: 0,
+				evaluable: 0,
+				agreed: 0,
+				disagreed: 0,
+			}),
+		).toContain("no compactions");
+	});
+
+	it("names how many were evaluable and how the test would have called them", () => {
+		const text = formatPaybackReplay({
+			compactions: 82,
+			evaluable: 67,
+			agreed: 67,
+			disagreed: 0,
+		});
+
+		expect(text).toContain("82");
+		expect(text).toContain("67");
+		expect(text).toContain("0 declined");
 	});
 });
 

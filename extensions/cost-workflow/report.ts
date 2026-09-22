@@ -1,6 +1,7 @@
 import type {
 	CostSlice,
 	LedgerTotal,
+	PaybackReplay,
 	Regret,
 	RepeatedCall,
 	VerifierOutcome,
@@ -171,6 +172,30 @@ export function formatVerifierOutcomes(
 			);
 		});
 	return ["Verifier outcomes", ...rows].join("\n");
+}
+
+/**
+ * Render how real compactions compare against the payback test: a
+ * count evaluable out of the total, and how many the test would also
+ * have fired against how many it would have declined.
+ */
+export function formatPaybackReplay(replay: PaybackReplay): string {
+	if (replay.compactions === 0) {
+		return "no compactions recorded yet to replay the payback test against";
+	}
+	const lines = [
+		`${replay.evaluable} of ${replay.compactions} compactions evaluable`,
+		`  ${replay.agreed} the test would also have fired, ` +
+			`${replay.disagreed} declined`,
+	];
+	if (replay.evaluable < replay.compactions) {
+		const skipped = replay.compactions - replay.evaluable;
+		lines.push(
+			`  ${skipped} skipped: no turn followed, or the model has no ` +
+				"derivable rate yet",
+		);
+	}
+	return lines.join("\n");
 }
 
 /** Say what an index pass read and what it was able to skip. */
