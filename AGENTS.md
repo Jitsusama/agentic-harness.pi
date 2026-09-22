@@ -74,7 +74,13 @@ it does:
   `quest-workflow`, `tdd-workflow`,
   `ask-workflow`, `git-bypass-workflow`,
   `guardian-status-workflow`, `result-store-workflow`,
-  `cost-workflow`.
+  `cost-workflow`, `image-budget-workflow`.
+
+  `image-budget-workflow` scales images down at the
+  `tool_result` seam, on the one ground that makes a silent
+  reduction defensible: a provider bills an image by its
+  dimensions, and the pixels above a display's logical
+  resolution are redundancy rather than information.
 
   `cost-workflow` is the only extension here that reasons about
   money, deliberately: cost counted by whoever needed it
