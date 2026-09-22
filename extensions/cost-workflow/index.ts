@@ -43,6 +43,7 @@ import { packageStateDir } from "../../lib/internal/package-state-dir.js";
 import { indexSessionLogs } from "./indexer.js";
 import {
 	formatIndexOutcome,
+	formatRegret,
 	formatRepeats,
 	formatSlices,
 	formatTotal,
@@ -221,6 +222,14 @@ export default function costWorkflow(pi: ExtensionAPI) {
 						"answer.",
 				}),
 			),
+			regret: Type.Optional(
+				Type.Boolean({
+					description:
+						"Report tool calls a compaction dropped that were asked again " +
+						"afterward, instead of a spend report. Each is a case of the " +
+						"context having to re-fetch what it had just lost.",
+				}),
+			),
 		}),
 		async execute(_toolCallId, params): Promise<AgentToolResult<CostDetails>> {
 			const opened = await open();
@@ -244,6 +253,24 @@ export default function costWorkflow(pi: ExtensionAPI) {
 								records: repeats,
 								unit: "repeats",
 								narrowing: "Ask for a larger limit to see more.",
+							}),
+						},
+					],
+					details: { ok: true },
+				};
+			}
+
+			if (params.regret) {
+				const regret = await opened.regret();
+				return {
+					content: [
+						{
+							type: "text",
+							text: citeListing(openSessionStore(), {
+								view: formatRegret(regret),
+								records: regret,
+								unit: "regrets",
+								narrowing: "Query the stored result for the full list.",
 							}),
 						},
 					],

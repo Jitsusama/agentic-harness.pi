@@ -12,11 +12,15 @@ afterEach(() => {
 	scratch = null;
 });
 
-function assistantLine(id: string, callId: string): string {
+function assistantLine(
+	id: string,
+	callId: string,
+	timestamp = "2026-09-21T17:55:00.000Z",
+): string {
 	return JSON.stringify({
 		id,
 		type: "message",
-		timestamp: "2026-09-21T17:55:00.000Z",
+		timestamp,
 		message: {
 			role: "assistant",
 			model: "claude-opus-5",
@@ -30,6 +34,21 @@ function assistantLine(id: string, callId: string): string {
 				},
 			],
 		},
+	});
+}
+
+function compactionLine(
+	id: string,
+	timestamp: string,
+	firstKeptEntryId: string,
+): string {
+	return JSON.stringify({
+		id,
+		type: "compaction",
+		timestamp,
+		firstKeptEntryId,
+		tokensBefore: 400_000,
+		usage: { input: 1, output: 1, cost: { total: 0.05 } },
 	});
 }
 
@@ -54,6 +73,32 @@ describe("indexing tool calls", () => {
 		expect(outcome.insertedCalls).toBe(2);
 		expect(outcome.duplicateCalls).toBe(0);
 		expect(await store.queryCalls()).toHaveLength(2);
+		await store.close();
+	});
+
+	it("records what a compaction dropped", async () => {
+		scratch = mkdtempSync(join(tmpdir(), "ledger-indexer-"));
+		const sessionsRoot = join(scratch, "sessions", "proj");
+		mkdirSync(sessionsRoot, { recursive: true });
+		writeFileSync(
+			join(sessionsRoot, "one.jsonl"),
+			`${[
+				assistantLine("a1", "t1", "2026-09-21T17:50:00.000Z"),
+				assistantLine("a2", "t2", "2026-09-21T17:51:00.000Z"),
+				compactionLine("c1", "2026-09-21T17:52:00.000Z", "a2"),
+			].join("\n")}\n`,
+			"utf8",
+		);
+
+		const store = await openTurnStore(join(scratch, "ledger.db"));
+		const outcome = await indexSessionLogs(
+			store,
+			join(scratch, "watermarks.json"),
+			join(scratch, "sessions"),
+		);
+
+		expect(outcome.insertedDropped).toBe(1);
+		expect(await store.queryDropped()).toHaveLength(1);
 		await store.close();
 	});
 

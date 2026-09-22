@@ -1,6 +1,7 @@
 import type {
 	CostSlice,
 	LedgerTotal,
+	Regret,
 	RepeatedCall,
 } from "@jitsusama/agentic-harness.core/observability";
 
@@ -15,6 +16,7 @@ export interface IndexOutcome {
 	readonly duplicates: number;
 	readonly insertedCalls: number;
 	readonly duplicateCalls: number;
+	readonly insertedDropped: number;
 	readonly seconds: number;
 }
 
@@ -108,6 +110,40 @@ export function formatRepeats(repeats: readonly RepeatedCall[]): string {
 	return [`Repeated tool calls (${repeats.length})`, ...rows].join("\n");
 }
 
+/**
+ * Render dropped calls asked again afterward: the earlier answer was
+ * discarded by a compaction and the same question was put a second
+ * time. Grouped by tool and arguments, heaviest by how many times it
+ * happened, since one dropped call can be re-asked more than once.
+ */
+export function formatRegret(regret: readonly Regret[]): string {
+	if (regret.length === 0) {
+		return "no regret found: nothing dropped by a compaction was asked again";
+	}
+	const byArgs = new Map<
+		string,
+		{ name: string; times: number; chars: number }
+	>();
+	for (const r of regret) {
+		const existing = byArgs.get(r.argsDigest) ?? {
+			name: r.name,
+			times: 0,
+			chars: 0,
+		};
+		existing.times += 1;
+		existing.chars += r.resultChars ?? 0;
+		byArgs.set(r.argsDigest, existing);
+	}
+	const rows = [...byArgs.values()]
+		.sort((a, b) => b.chars - a.chars)
+		.map(
+			(r) =>
+				`  ${r.name.padEnd(12)} re-fetched ${String(r.times).padStart(4)} ` +
+				`times after being dropped  ${(r.chars / 1e6).toFixed(1)}M chars`,
+		);
+	return [`Regret (${byArgs.size} distinct questions)`, ...rows].join("\n");
+}
+
 /** Say what an index pass read and what it was able to skip. */
 export function formatIndexOutcome(outcome: IndexOutcome): string {
 	const parts = [
@@ -121,7 +157,8 @@ export function formatIndexOutcome(outcome: IndexOutcome): string {
 		`${outcome.lines.toLocaleString()} lines, ` +
 			`${outcome.inserted.toLocaleString()} new turns, ` +
 			`${outcome.duplicates.toLocaleString()} already held, ` +
-			`${outcome.insertedCalls.toLocaleString()} new calls`,
+			`${outcome.insertedCalls.toLocaleString()} new calls, ` +
+			`${outcome.insertedDropped.toLocaleString()} dropped by a compaction`,
 	);
 	if (outcome.unparseable > 0) {
 		parts.push(`${outcome.unparseable} lines unreadable`);

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	formatIndexOutcome,
+	formatRegret,
 	formatRepeats,
 	formatSlices,
 	formatTotal,
@@ -119,6 +120,28 @@ describe("formatRepeats", () => {
 	});
 });
 
+describe("formatRegret", () => {
+	it("reports no regret as none, not as an empty table", () => {
+		expect(formatRegret([])).toContain("no regret");
+	});
+
+	it("names the tool and how many times its dropped answer was re-fetched", () => {
+		const text = formatRegret([
+			{
+				name: "read",
+				argsDigest: "a1",
+				sessionId: "s1",
+				droppedAtTimestamp: "2026-09-21T17:00:00.000Z",
+				reAskedAtTimestamp: "2026-09-21T18:00:00.000Z",
+				resultChars: 900_000,
+			},
+		]);
+
+		expect(text).toContain("read");
+		expect(text).toContain("1");
+	});
+});
+
 describe("formatIndexOutcome", () => {
 	it("says what it skipped, so an instant pass is not mistaken for a failure", () => {
 		const text = formatIndexOutcome({
@@ -131,6 +154,7 @@ describe("formatIndexOutcome", () => {
 			duplicates: 3,
 			insertedCalls: 30,
 			duplicateCalls: 5,
+			insertedDropped: 2,
 			seconds: 0.4,
 		});
 
@@ -150,6 +174,7 @@ describe("formatIndexOutcome", () => {
 			duplicates: 0,
 			insertedCalls: 9,
 			duplicateCalls: 0,
+			insertedDropped: 0,
 			seconds: 1,
 		});
 

@@ -74,6 +74,7 @@ export async function indexSessionLogs(
 	let duplicates = 0;
 	let insertedCalls = 0;
 	let duplicateCalls = 0;
+	let insertedDropped = 0;
 
 	if (!existsSync(root)) {
 		return {
@@ -86,6 +87,7 @@ export async function indexSessionLogs(
 			duplicates: 0,
 			insertedCalls: 0,
 			duplicateCalls: 0,
+			insertedDropped: 0,
 			seconds: 0,
 		};
 	}
@@ -126,6 +128,8 @@ export async function indexSessionLogs(
 			const callOutcome = await store.recordCalls(scan.calls);
 			insertedCalls += callOutcome.inserted;
 			duplicateCalls += callOutcome.duplicates;
+			const droppedOutcome = await store.recordDropped(scan.dropped);
+			insertedDropped += droppedOutcome.inserted;
 			marks[path] = size;
 			scanned += 1;
 		}
@@ -142,6 +146,7 @@ export async function indexSessionLogs(
 		duplicates,
 		insertedCalls,
 		duplicateCalls,
+		insertedDropped,
 		seconds: (Date.now() - started) / 1000,
 	};
 }
