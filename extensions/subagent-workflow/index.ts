@@ -69,6 +69,7 @@ import {
 	FleetCancellationRegistry,
 	formatFleetCancellation,
 } from "./cancellation.js";
+import { digestFleetRuns } from "./digests.js";
 import { createFleetProgressReporter } from "./progress-render.js";
 import {
 	buildAssignment,
@@ -291,11 +292,25 @@ async function sweepFleetRuns(runs: string, fleets: string): Promise<void> {
 			);
 			return;
 		}
+		// Digest before sweeping. The sweep is right that whole streams
+		// cost too much disk to keep, and wrong that they are only needed
+		// while a run is live: they are the only record of what fleet
+		// spend bought. A digest is under one percent of a stream and
+		// keeps every turn's usage, so the bytes can go and the index stay.
+		const digested = await digestFleetRuns(transcripts, join(runs, "digests"));
+		// A run that could not be digested is spared, since its stream is
+		// still the only copy: nothing is swept that was not first captured.
+		const protect = new Set([...open, ...digested.failed]);
+		if (digested.failed.size > 0) {
+			console.error(
+				`[subagent-workflow] kept ${count(digested.failed.size, "fleet")} back from the sweep because ${digested.failed.size === 1 ? "its stream" : "their streams"} could not be digested, and a stream is the only copy of what a subagent did: ${[...digested.failed].join(", ")}`,
+			);
+		}
 		const swept = await new ReviewerArtifactsStore(runs).cleanupTerminalRuns({
 			maxRuns: FLEET_RUNS_RETAIN,
 			maxAgeMs: FLEET_RUNS_MAX_AGE_MS,
 			abandonedAfterMs: FLEET_RUNS_ABANDONED_AFTER_MS,
-			protect: open,
+			protect,
 		});
 		// What the sweep held, not what the ledger holds. They are
 		// different numbers: a fleet can be open on the ledger and have
