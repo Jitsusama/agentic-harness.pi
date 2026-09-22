@@ -14,4 +14,4 @@
 
 export { readTurns } from "./scan.js";
 export { repoOf } from "./session.js";
-export type { LedgerScan, ScanCoverage } from "./types.js";
+export type { LedgerScan, ScanCoverage, ToolCallRecord } from "./types.js";

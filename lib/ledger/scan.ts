@@ -6,7 +6,7 @@ import type {
 	TurnRecord,
 } from "@jitsusama/agentic-harness.core/observability";
 import { SessionCollector } from "./session.js";
-import type { LedgerScan } from "./types.js";
+import type { LedgerScan, ToolCallRecord } from "./types.js";
 
 /** Width of a stored content address. 96 bits is ample for a corpus of
  * a few million turns and keeps the index small. */
@@ -36,6 +36,10 @@ export function readTurns(
 	lines: Iterable<string>,
 ): LedgerScan {
 	const turns: TurnRecord[] = [];
+	// Keyed by call id so a result can find the call it answers. A call
+	// whose result never arrives stays in the list with an unknown
+	// result rather than being dropped: the call still happened.
+	const calls = new Map<string, MutableCall>();
 	const session = new SessionCollector(sessionId);
 	let count = 0;
 	let parsed = 0;
@@ -74,16 +78,24 @@ export function readTurns(
 			continue;
 		}
 
+		const message = asRecord(entry.message);
+		if (message?.role === "toolResult") {
+			absorbResult(calls, message);
+			continue;
+		}
+
 		const turn = turnFrom(sessionId, entry);
 		if (!turn) continue;
 		session.observeTurn(turn.timestamp);
 		turns.push(turn);
 		if (turn.cost) billable += 1;
 		else unmetered += 1;
+		collectCalls(calls, sessionId, turn.entryId, turn.timestamp, message);
 	}
 
 	return {
 		turns,
+		calls: [...calls.values()],
 		coverage: { lines: count, parsed, unparseable, billable, unmetered },
 		session: session.record(),
 	};
@@ -194,4 +206,82 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 	return typeof value === "object" && value !== null
 		? (value as Record<string, unknown>)
 		: null;
+}
+
+/** A call being assembled: made on one entry, answered on a later one. */
+type MutableCall = {
+	-readonly [K in keyof ToolCallRecord]: ToolCallRecord[K];
+};
+
+/**
+ * Arguments that name a file. Only these three tools declare one; bash
+ * is larger than all of them together and declares nothing, so what it
+ * touches is absent here rather than guessed at from a command line.
+ */
+const PATH_ARG = "path";
+
+/** Take every tool call an assistant turn made. */
+function collectCalls(
+	into: Map<string, MutableCall>,
+	sessionId: string,
+	entryId: string,
+	timestamp: string,
+	message: Record<string, unknown> | null,
+): void {
+	const content = message?.content;
+	if (!Array.isArray(content)) return;
+	for (const block of content) {
+		const b = asRecord(block);
+		if (b?.type !== "toolCall") continue;
+		const callId = typeof b.id === "string" ? b.id : "";
+		const name = typeof b.name === "string" ? b.name : "?";
+		const args = asRecord(b.arguments);
+		const declared = args?.[PATH_ARG];
+		into.set(callId, {
+			// The tool's name is inside the address, so the same arguments
+			// to two different tools are two different calls.
+			digest: digestText(JSON.stringify([entryId, callId, name, b.arguments])),
+			sessionId,
+			entryId,
+			callId,
+			timestamp,
+			name,
+			argsDigest: digestText(JSON.stringify([name, b.arguments ?? null])),
+			path: typeof declared === "string" ? declared : null,
+			resultChars: null,
+			resultDigest: null,
+			isError: null,
+		});
+	}
+}
+
+/** Attach a result to the call it answers. */
+function absorbResult(
+	into: Map<string, MutableCall>,
+	message: Record<string, unknown>,
+): void {
+	const callId =
+		typeof message.toolCallId === "string" ? message.toolCallId : "";
+	const call = into.get(callId);
+	if (!call) return;
+	const text = textOf(message.content);
+	call.resultChars = text.length;
+	call.resultDigest = digestText(text);
+	call.isError = message.isError === true;
+}
+
+/** The text blocks of a result, joined. Images are sized, not digested. */
+function textOf(content: unknown): string {
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	return content
+		.map((block) => {
+			const b = asRecord(block);
+			return b?.type === "text" && typeof b.text === "string" ? b.text : "";
+		})
+		.join("");
+}
+
+function digestText(text: string): string {
+	return createHash("sha256").update(text).digest("hex").slice(0, DIGEST_CHARS);
 }
