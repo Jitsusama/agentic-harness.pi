@@ -24,7 +24,6 @@ import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type {
 	AgentToolResult,
 	ExtensionAPI,
-	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import type { CostSlice } from "@jitsusama/agentic-harness.core/observability";
 import {
@@ -39,9 +38,9 @@ import {
 	openSessionStore,
 } from "@jitsusama/agentic-harness.core/result";
 import { Type } from "@sinclair/typebox";
+import { medianOf } from "../../lib/internal/cost-meter/index.js";
 import { packageStateDir } from "../../lib/internal/package-state-dir.js";
 import { indexSessionLogs } from "./indexer.js";
-import { formatCostMeter } from "./meter.js";
 import {
 	formatIndexOutcome,
 	formatSlices,
@@ -75,8 +74,20 @@ interface CostDetails {
 	readonly index?: IndexOutcome;
 }
 
-/** The one cost reading on the status line. */
-const STATUS_KEY = "cost:meter";
+/**
+ * Published whenever the figures move. The status line subscribes and
+ * lays them out; this extension never paints, because a brain that
+ * paints and a widget that prices are how a status line comes to
+ * disagree with itself.
+ */
+export const COST_READING = "cost:reading";
+
+/**
+ * How many recent turns the marginal rate is taken over. Long enough to
+ * shrug off one cold-cache turn, short enough to move when the context
+ * does.
+ */
+const MARGINAL_WINDOW = 20;
 
 /** Cost of an assistant turn, or zero for anything else. */
 function assistantCost(message: { role: string }): number {
@@ -89,8 +100,8 @@ function assistantCost(message: { role: string }): number {
 export default function costWorkflow(pi: ExtensionAPI) {
 	let store: TurnStore | null = null;
 	let watermarks = "";
-	let ctxRef: ExtensionContext | null = null;
 	let unregisterRuns: (() => void) | null = null;
+	const recentTurns: number[] = [];
 	// What this process has spent. Fan-out is added here rather than
 	// shown separately, because it is the same money: a council round
 	// costs what it costs whether or not the parent did the talking.
@@ -100,16 +111,12 @@ export default function costWorkflow(pi: ExtensionAPI) {
 	// turns twice, once from the ledger and once from the branch.
 	let dayBefore = 0;
 
-	const refreshStatus = (): void => {
-		if (!ctxRef) return;
-		const text = formatCostMeter({
+	const publish = (): void => {
+		pi.events.emit(COST_READING, {
 			session: sessionSpend,
 			day: dayBefore + sessionSpend,
+			marginal: medianOf(recentTurns),
 		});
-		ctxRef.ui.setStatus(
-			STATUS_KEY,
-			text ? ctxRef.ui.theme.fg("muted", text) : undefined,
-		);
 	};
 
 	const open = async (): Promise<TurnStore> => {
@@ -122,17 +129,25 @@ export default function costWorkflow(pi: ExtensionAPI) {
 	};
 
 	pi.on("message_end", async (event) => {
-		sessionSpend += assistantCost(event.message);
-		refreshStatus();
+		const cost = assistantCost(event.message);
+		sessionSpend += cost;
+		if (cost > 0) {
+			recentTurns.push(cost);
+			if (recentTurns.length > MARGINAL_WINDOW) recentTurns.shift();
+		}
+		publish();
 	});
 
-	pi.on("session_start", async (_event, ctx) => {
-		ctxRef = ctx;
+	pi.on("session_start", async () => {
 		sessionSpend = 0;
+		recentTurns.length = 0;
 		if (!unregisterRuns) {
+			// Fan-out lands in the session total but never in the rate: a
+			// council round is not a turn, and letting it set the marginal
+			// figure would say the next turn costs a hundred dollars.
 			unregisterRuns = registerRunRecorder((record) => {
 				sessionSpend += record.cost.total;
-				refreshStatus();
+				publish();
 			});
 		}
 		try {
@@ -146,13 +161,12 @@ export default function costWorkflow(pi: ExtensionAPI) {
 			// figure it cannot stand behind.
 			dayBefore = 0;
 		}
-		refreshStatus();
+		publish();
 	});
 
 	pi.on("session_shutdown", async () => {
 		unregisterRuns?.();
 		unregisterRuns = null;
-		ctxRef?.ui.setStatus(STATUS_KEY, undefined);
 		const closing = store;
 		store = null;
 		if (closing) {

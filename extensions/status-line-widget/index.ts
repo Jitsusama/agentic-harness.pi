@@ -6,23 +6,31 @@
  * status segments with left-side directory/model info that degrades
  * progressively as the terminal narrows.
  *
- * Money is not among them. `cost-workflow` owns that question and
- * publishes one figure as an extension status, which this line places
- * like any other. Two extensions each rendering a cost is how a status
- * line comes to disagree with itself.
+ * Context and money read as one segment, because they are one fact:
+ * cost per turn is 97 percent explained by the context resident when
+ * the turn runs. `cost-workflow` owns the figures and publishes them;
+ * this line lays them out and decides what to drop. The brain does not
+ * paint and the widget does not price.
  *
  * Degradation order:
  *   1. Shrink directory (full path → basename)
- *   2. Context tokens → percentage
- *   3. Shrink model name
- *   4. Remove thinking glyph
- *   5. Remove branch
- *   (basename is never removed)
+ *   2. Remove the session total (the one figure nothing can act on)
+ *   3. Context tokens → percentage
+ *   4. Shrink model name
+ *   5. Remove thinking glyph
+ *   6. Remove branch
+ *   (the marginal rate is never removed: it is the only reading here
+ *   that changes what you do next)
  */
 
 import * as path from "node:path";
 import type { ExtensionAPI, ThemeColor } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import {
+	contextGauge,
+	marginalText,
+	sessionText,
+} from "../../lib/internal/cost-meter/index.js";
 import { getPanelHeightGlyph } from "../../lib/ui/panel-height.js";
 
 const THINKING_GLYPHS: Record<string, string> = {
@@ -41,11 +49,6 @@ const ANSI_RESET = "\x1b[0m";
 /** Shorten a model ID: claude-sonnet-4-20250514 → sonnet-4 */
 function shortenModel(id: string): string {
 	return id.replace(/^claude-/, "").replace(/-\d{8}$/, "");
-}
-
-/** Format a token count: 45200 → "45.2k", 800 → "800" */
-function fmtTokens(n: number): string {
-	return n < 1000 ? `${n}` : `${(n / 1000).toFixed(1)}k`;
 }
 
 /** Home-relative path: /Users/joel/src/foo → ~/src/foo */
@@ -75,6 +78,8 @@ interface FooterData {
 	shortModel: string;
 	contextTokens: string;
 	contextPct: string;
+	marginal: string | null;
+	sessionTotal: string | null;
 	thinkGlyph: string;
 	panelGlyph: string;
 	statuses: string[];
@@ -92,10 +97,11 @@ function buildCandidate(
 ): { left: string[]; right: string[] } {
 	// Degradation flags
 	const useShortDir = level >= 1;
-	const usePctContext = level >= 2;
-	const useShortModel = level >= 3;
-	const hideThinking = level >= 4;
-	const hideBranch = level >= 5;
+	const hideSessionTotal = level >= 2;
+	const usePctContext = level >= 3;
+	const useShortModel = level >= 4;
+	const hideThinking = level >= 5;
+	const hideBranch = level >= 6;
 
 	const left: string[] = [];
 
@@ -114,16 +120,55 @@ function buildCandidate(
 
 	if (d.panelGlyph) right.push(d.panelGlyph);
 
-	right.push(usePctContext ? d.contextPct : d.contextTokens);
+	// Context, rate and total read as one segment rather than three,
+	// so the gauge emptying and the price falling are seen together.
+	const meter = [usePctContext ? d.contextPct : d.contextTokens];
+	if (d.marginal) meter.push(d.marginal);
+	if (!hideSessionTotal && d.sessionTotal) meter.push(d.sessionTotal);
+	right.push(meter.join(" "));
 
 	if (!hideThinking && d.thinkGlyph) right.push(d.thinkGlyph);
 
 	return { left, right };
 }
 
-const MAX_LEVEL = 5;
+const MAX_LEVEL = 6;
+
+/** Dim a meter piece, or pass the absence through untouched. */
+function withColour(
+	theme: { fg: (color: ThemeColor, text: string) => string },
+	text: string | null,
+): string | null {
+	return text === null ? null : theme.fg("dim", text);
+}
+
+/** The latest figures cost-workflow published. */
+interface CostReading {
+	session: number;
+	marginal: number | null;
+}
+
+function toReading(data: unknown): CostReading | null {
+	if (typeof data !== "object" || data === null) return null;
+	const record = data as Record<string, unknown>;
+	const session = record.session;
+	const marginal = record.marginal;
+	if (typeof session !== "number") return null;
+	return {
+		session,
+		marginal: typeof marginal === "number" ? marginal : null,
+	};
+}
 
 export default function statusLine(pi: ExtensionAPI) {
+	// Held rather than computed: this widget must not learn to price.
+	let reading: CostReading = { session: 0, marginal: null };
+
+	pi.events.on("cost:reading", (data: unknown) => {
+		const next = toReading(data);
+		if (next) reading = next;
+	});
+
 	pi.on("session_start", async (_event, ctx) => {
 		ctx.ui.setFooter((tui, theme, footerData) => {
 			const unsub = footerData.onBranchChange(() => tui.requestRender());
@@ -142,10 +187,9 @@ export default function statusLine(pi: ExtensionAPI) {
 					const cwd = process.cwd();
 					const tokens = usage?.tokens ?? 0;
 					const window = usage?.contextWindow ?? 0;
-					const pct = window > 0 ? Math.round((tokens / window) * 100) : 0;
 
-					// The context colour is dim normally but turns to warning when > 80%.
-					const ctxColor = pct > 80 ? "warning" : "dim";
+					const gauge = contextGauge(tokens, window);
+					const narrowGauge = contextGauge(tokens, window, true);
 
 					// We highlight the last path component and dim the rest.
 					const homeCwd = homePath(cwd);
@@ -161,11 +205,13 @@ export default function statusLine(pi: ExtensionAPI) {
 						branch,
 						fullModel: theme.fg("dim", modelId),
 						shortModel: theme.fg("dim", shortenModel(modelId)),
-						contextTokens: theme.fg(
-							ctxColor,
-							`${fmtTokens(tokens)}/${fmtTokens(window)}`,
+						contextTokens: theme.fg(gauge.token, `${gauge.glyph}${gauge.text}`),
+						contextPct: theme.fg(
+							narrowGauge.token,
+							`${narrowGauge.glyph}${narrowGauge.text}`,
 						),
-						contextPct: theme.fg(ctxColor, `${pct}%`),
+						marginal: withColour(theme, marginalText(reading.marginal)),
+						sessionTotal: withColour(theme, sessionText(reading.session)),
 						thinkGlyph,
 						panelGlyph: theme.fg("dim", getPanelHeightGlyph()),
 						statuses: [],
