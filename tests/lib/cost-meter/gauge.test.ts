@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
 	contextGauge,
-	MARKER_GAP,
+	GAP,
 	marginalText,
 	medianOf,
-	PAIR_GAP,
 	sessionText,
 } from "../../../lib/internal/cost-meter/index.js";
 
@@ -88,23 +87,29 @@ describe("sessionText", () => {
 
 describe("spacing", () => {
 	it("separates every marker from its value the same way", () => {
-		// The rule is one space after a marker, with no exceptions. A gap
-		// that appears after the gauge but not after the rate reads as an
-		// oversight, because that is exactly what it was.
+		// One gap, everywhere, no exceptions. A space that appears after
+		// the gauge but not after the rate reads as an oversight, because
+		// that is exactly what it was.
 		const gauge = contextGauge(361_000, 1_000_000);
 		const pieces = [
-			`${gauge.glyph}${MARKER_GAP}${gauge.text}`,
+			`${gauge.glyph}${GAP}${gauge.text}`,
 			marginalText(0.42),
 			sessionText(4.21),
 		];
 		for (const piece of pieces) {
-			expect(piece?.slice(1, 1 + MARKER_GAP.length)).toBe(MARKER_GAP);
+			expect(piece?.slice(1, 1 + GAP.length)).toBe(GAP);
 		}
 	});
 
-	it("leaves a wider gap between pairs than inside one", () => {
-		// Otherwise a reader cannot tell whether a number belongs to the
-		// marker before it or the one after it.
-		expect(PAIR_GAP.length).toBeGreaterThan(MARKER_GAP.length);
+	it("reads end to end with a single width throughout", () => {
+		const gauge = contextGauge(361_000, 1_000_000);
+		const line = [
+			`${gauge.glyph}${GAP}${gauge.text}`,
+			marginalText(0.42),
+			sessionText(4.21),
+		].join(GAP);
+
+		expect(line).toBe("\u25d1 361k \u2202 $0.42 \u03a3 $4.21");
+		expect(line).not.toContain("  ");
 	});
 });

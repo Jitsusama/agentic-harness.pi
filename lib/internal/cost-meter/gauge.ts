@@ -1,16 +1,11 @@
 /**
- * One space between a marker and its value, everywhere, with no
- * exceptions. A rule that holds for the gauge but not for the rate
- * reads as a mistake, because it is one.
+ * One space, everywhere in the meter: between a marker and its value,
+ * and between one pair and the next. A single rule with no exceptions,
+ * held in one place so the call sites cannot drift apart from each
+ * other, which is exactly how the gauge once ended up spaced and its
+ * two neighbours not.
  */
-export const MARKER_GAP = " ";
-
-/**
- * Two spaces between one marker-and-value pair and the next, so the
- * grouping survives. With a single gap throughout, a reader cannot tell
- * whether a number belongs to the marker before it or the one after.
- */
-export const PAIR_GAP = "  ";
+export const GAP = " ";
 
 /** Theme colours the meter names, applied by whoever renders it. */
 export type MeterToken = "dim" | "warning" | "error";
@@ -93,7 +88,7 @@ export function medianOf(values: readonly number[]): number | null {
  */
 export function marginalText(marginal: number | null): string | null {
 	if (marginal === null) return null;
-	return `${RATE}${MARKER_GAP}$${marginal.toFixed(2)}`;
+	return `${RATE}${GAP}$${marginal.toFixed(2)}`;
 }
 
 /** What the session has cost so far, marked as a total. */
@@ -101,5 +96,5 @@ export function sessionText(session: number): string | null {
 	if (session <= 0) return null;
 	const amount =
 		session >= CENTS_BELOW ? `${Math.round(session)}` : session.toFixed(2);
-	return `${TOTAL}${MARKER_GAP}$${amount}`;
+	return `${TOTAL}${GAP}$${amount}`;
 }

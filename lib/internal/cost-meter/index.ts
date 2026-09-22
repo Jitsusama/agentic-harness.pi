@@ -13,10 +13,9 @@
 export {
 	type ContextGauge,
 	contextGauge,
-	MARKER_GAP,
+	GAP,
 	type MeterToken,
 	marginalText,
 	medianOf,
-	PAIR_GAP,
 	sessionText,
 } from "./gauge.js";
