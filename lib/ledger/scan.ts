@@ -59,6 +59,10 @@ export function readTurns(
 	let unparseable = 0;
 	let billable = 0;
 	let unmetered = 0;
+	// A CompactionEntry carries no model field of its own, so without
+	// this every compaction turn's model would be empty, with nothing
+	// for a later join to a model's billed rate to join on.
+	let lastModel = "";
 
 	for (const line of lines) {
 		count += 1;
@@ -100,8 +104,9 @@ export function readTurns(
 			continue;
 		}
 
-		const turn = turnFrom(sessionId, entry);
+		const turn = turnFrom(sessionId, entry, lastModel);
 		if (!turn) continue;
+		if (turn.kind === "assistant" && turn.model) lastModel = turn.model;
 		session.observeTurn(turn.timestamp);
 		turns.push(turn);
 		if (turn.cost) billable += 1;
@@ -164,6 +169,12 @@ function droppedCallsOf(
 function turnFrom(
 	sessionId: string,
 	entry: Record<string, unknown>,
+	/**
+	 * The most recently seen assistant model in this session, used when
+	 * an entry carries no model of its own. Only a compaction entry does
+	 * this today, since a CompactionEntry has no model field to read.
+	 */
+	fallbackModel: string,
 ): TurnRecord | null {
 	const kind = kindOf(entry);
 	if (!kind) return null;
@@ -175,7 +186,9 @@ function turnFrom(
 	const entryId = typeof entry.id === "string" ? entry.id : "";
 	const timestamp = typeof entry.timestamp === "string" ? entry.timestamp : "";
 	const model =
-		typeof message?.model === "string" ? (message.model as string) : "";
+		typeof message?.model === "string"
+			? (message.model as string)
+			: fallbackModel;
 
 	return {
 		entryId,
