@@ -1,11 +1,19 @@
 import type { TextContent } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
+import { PIXEL_BUDGET } from "../../extensions/image-budget-workflow/budget.js";
 import {
 	type Block,
 	type Resize,
 	type Resized,
 	rebudget,
 } from "../../extensions/image-budget-workflow/rebudget.js";
+
+/**
+ * A square comfortably inside the allowance, whatever it is set to.
+ * Sizing against the allowance rather than in absolute pixels means
+ * tuning it does not turn these into failures about nothing.
+ */
+const SMALL = Math.floor(Math.sqrt(PIXEL_BUDGET / 2));
 
 /** A resizer that reports a fixed original size and honours the request. */
 function resizerFor(width: number, height: number, ok = true): Resize {
@@ -47,7 +55,7 @@ describe("rebudget", () => {
 	it("leaves an image already within the allowance alone", async () => {
 		// Null content means untouched: no re-encode, no second
 		// compression, no worker time spent for nothing.
-		const out = await rebudget([image], resizerFor(1429, 714));
+		const out = await rebudget([image], resizerFor(SMALL, SMALL));
 
 		expect(out.content).toBeNull();
 		expect(out.saved).toBe(0);
@@ -167,9 +175,9 @@ describe("rebudget", () => {
 		// note gone: that would hide what pi said about the picture.
 		const lead: Block = {
 			type: "text",
-			text: "[Image: original 2100x600, displayed at 2000x571. x]",
+			text: `[Image: original ${SMALL}x${SMALL}, displayed at ${SMALL}x${SMALL}. x]`,
 		};
-		const out = await rebudget([lead, image], resizerFor(2100, 600));
+		const out = await rebudget([lead, image], resizerFor(SMALL, SMALL));
 
 		expect(out.content).toBeNull();
 	});

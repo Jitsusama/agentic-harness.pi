@@ -25,9 +25,30 @@ so discarding them preserves everything a human saw. That makes this a
 lossless reduction rather than a quality trade, which is what allows it
 to happen without asking.
 
-The allowance is 1.5 megapixels, set from what a display shows rather
-than from a provider maximum, so any full-screen logical capture passes
-through at full fidelity.
+## Where The Allowance Comes From
+
+One megapixel, about 1,330 billed tokens, and it is set by reading
+downscaled screenshots to find where they stop being legible rather than
+by argument.
+
+At one megapixel a full window capture of a terminal stays comfortable:
+body text, command lines, file paths and a status line all read cleanly.
+At 0.6 it is still readable, surprisingly, with terminal text about four
+pixels tall, but the smallest row is at the edge of resolvable and a
+denser screenshot would fail. So the floor sits above the level where it
+was tested to be marginal.
+
+**This is a measured quality trade, not a lossless one**, and the
+distinction is worth keeping. An earlier allowance of 1.5 megapixels was
+chosen to match the logical resolution of a 2x Retina display, which
+made it information-preserving by construction: no pixel a human could
+see was discarded. One megapixel is below that, so it does throw away
+detail that was in principle visible. It is justified by evidence that
+the detail is not needed, which is a weaker claim than geometry and is
+held as such.
+
+Set `PI_IMAGE_PIXEL_BUDGET` to trade differently. Raising it to
+1_500_000 restores the lossless argument.
 
 ## What It Is Actually Worth
 
@@ -37,16 +58,22 @@ the first figure was arrived at by measuring the wrong thing.
 pi resizes to 2000x2000 before any extension sees a result, and that
 already does most of the work. Measured on one real paste:
 
-| Stage | Pixels | Billed |
-| ----- | ------ | ------ |
-| File on disk | 3024x1964 | ~7,919 |
-| After pi's own cap | 2000x1299 | ~3,464 |
-| After this allowance | 1519x987 | ~2,000 |
+Verified against the provider's own reported usage rather than by
+calculation. Median `cacheWrite` on the turn following a full-window
+paste:
 
-So the reduction is about **1.85x against what was previously being
-billed**, taking a measured median paste from 3,705 tokens to roughly
-2,000. An earlier version of this file claimed a 4x saving by comparing
-against the file on disk, which was never what a provider charged for.
+| | Pixels | Billed |
+| ----- | ------ | ------ |
+| File on disk | 3024x1964 | not what is charged |
+| pi's cap alone | 2000x999 | **3,422 measured** |
+| At 1.5 megapixels | 1519x987 | **2,001 measured** |
+| At one megapixel | 1240x807 | ~1,330 expected |
+
+An earlier version of this file claimed a 4x saving by comparing against
+the size of the file on disk, which is not what a provider charges for.
+The payload for a 1518x988 screenshot is still 1.4 MB of PNG and that
+costs nothing extra: billing is by pixels, so payload size affects
+upload time alone.
 
 ## Why It Exists At All
 

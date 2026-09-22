@@ -12,21 +12,38 @@ export interface ImageFit {
  */
 const PIXELS_PER_TOKEN = 750;
 
+/** Default allowance, and the level legibility was checked at. */
+const DEFAULT_BUDGET = 1_000_000;
+
+/** The allowance, overridable for a different trade. */
+function readBudget(): number {
+	const raw = Number(process.env.PI_IMAGE_PIXEL_BUDGET);
+	return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_BUDGET;
+}
+
 /**
- * Pixels an image may occupy before it is scaled down.
+ * Pixels an image may occupy before it is scaled down, about 1,330
+ * billed tokens.
  *
- * Set from what a human can actually see rather than from a provider
- * maximum. A full-screen capture on a 2x Retina display is 5.94
- * megapixels, and its logical resolution, which is the rendering the
- * human read, is 1.48. So an allowance of 1.5 megapixels preserves any
- * full-screen logical capture exactly while discarding the device-pixel
- * redundancy above it.
+ * Set by reading downscaled screenshots and finding where they stop
+ * being legible, rather than by argument. At one megapixel a full
+ * window capture of a terminal stays comfortable: body text, command
+ * lines, paths and a status line all read cleanly. At 0.6 it is still
+ * readable but the smallest row is at the edge of resolvable, which
+ * leaves no margin for a denser screenshot, so the floor is set above
+ * the point where it was tested to fail.
  *
- * That makes the common case information-preserving rather than a
- * quality trade, which is what puts this on the safe side of the
- * actuator partition: there is no judgement being economised on.
+ * This is a measured quality trade, not a lossless one, and the
+ * distinction matters. An earlier allowance of 1.5 megapixels was
+ * chosen to match the logical resolution of a 2x Retina display, which
+ * made it information-preserving by construction. One megapixel is
+ * below that, so it does discard detail a human could in principle
+ * have seen. It is justified by evidence that the detail is not needed
+ * rather than by the geometry, which is a weaker claim honestly held.
+ *
+ * Override with PI_IMAGE_PIXEL_BUDGET to trade differently.
  */
-export const PIXEL_BUDGET = 1_500_000;
+export const PIXEL_BUDGET = readBudget();
 
 /** What a provider bills for an image of these dimensions, in tokens. */
 export function billedTokens(width: number, height: number): number {

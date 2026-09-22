@@ -19,7 +19,12 @@ describe("fitToBudget", () => {
 	it("leaves an image already within the allowance alone", () => {
 		// Untouched means untouched: no re-encode, no quality loss, and no
 		// worker spun up for nothing.
-		expect(fitToBudget(1429, 714)).toBeNull();
+		//
+		// Sized against the allowance rather than in absolute pixels, so
+		// tuning the allowance does not turn this into a failure about
+		// nothing.
+		const comfortable = Math.floor(Math.sqrt(PIXEL_BUDGET / 2));
+		expect(fitToBudget(comfortable, comfortable)).toBeNull();
 		expect(fitToBudget(800, 600)).toBeNull();
 	});
 
