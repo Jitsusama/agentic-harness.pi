@@ -30,6 +30,7 @@ import {
 } from "@jitsusama/agentic-harness.core/web/mermaid";
 import { Type } from "@sinclair/typebox";
 import { drawInto, firstText } from "../../lib/ui/index.js";
+import { mermaidContent } from "./content.js";
 
 /** The platform command that opens a file in its default app. */
 function osOpenCommand(): { command: string; args: string[] } | null {
@@ -96,17 +97,20 @@ export default function mermaidWidget(pi: ExtensionAPI) {
 		name: "render_mermaid",
 		label: "Render Mermaid",
 		description:
-			"Render Mermaid diagram source to a crisp SVG plus a PNG scaled " +
-			"to the vision-model pixel budget. Returns both file paths and the " +
-			"PNG inline. Use when asked to draw or visualize something as a " +
-			"diagram, or to embed a diagram in a quest planning document.",
+			"Render Mermaid diagram source to a crisp SVG plus a PNG, and " +
+			"answer with both paths. The image is not returned inline unless " +
+			"'inline' is set, because a rasterized diagram costs about a " +
+			"hundred thousand tokens on every later turn of the session. Use " +
+			"when asked to draw or visualize something as a diagram, or to " +
+			"embed a diagram in a quest planning document.",
 		promptSnippet:
-			"Render Mermaid source to an SVG plus a capped PNG (paths plus inline image).",
+			"Render Mermaid source to an SVG plus a PNG, answering with paths.",
 		promptGuidelines: [
 			"Use render_mermaid to turn Mermaid source into a diagram rather than leaving it as prose.",
 			"It writes two files: an SVG (crisp at any zoom, for humans to read) and a PNG (the inline image and a portable raster) beside it.",
 			"Pass an explicit path (the PNG path) to write the pair beside a quest document you want to embed it in; the SVG lands next to it with the same base name.",
 			"Embed the PNG in markdown for portability; point a human at the SVG when they need to read a dense diagram closely.",
+			"You wrote the source, so you already know what the diagram says: do not ask for it inline just to confirm it rendered. Set inline only to check something the source cannot predict, such as whether nodes overlap.",
 			"Rendering needs internet access to load the Mermaid library.",
 		],
 		parameters: Type.Object({
@@ -114,6 +118,15 @@ export default function mermaidWidget(pi: ExtensionAPI) {
 			path: Type.Optional(
 				Type.String({
 					description: "Output PNG path. Defaults to a temp file when omitted.",
+				}),
+			),
+			inline: Type.Optional(
+				Type.Boolean({
+					description:
+						"Return the rendered image itself, not just its path. Costs " +
+						"about a hundred thousand tokens, re-read on every later " +
+						"turn, so ask only to check a layout the source cannot " +
+						"predict.",
 				}),
 			),
 		}),
@@ -152,13 +165,10 @@ export default function mermaidWidget(pi: ExtensionAPI) {
 				// for an interactive session.
 				if (ctxRef?.hasUI) openInViewer(pngPath);
 				return {
-					content: [
-						{
-							type: "text" as const,
-							text: `Rendered diagram to ${svgPath} (svg) and ${pngPath} (png)`,
-						},
-						{ type: "image" as const, data: base64, mimeType: "image/png" },
-					],
+					content: mermaidContent(
+						{ pngPath, svgPath, base64 },
+						params.inline === true,
+					),
 					details: { pngPath, svgPath } satisfies MermaidDetails,
 				};
 			} catch (err: unknown) {
