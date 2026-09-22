@@ -113,7 +113,19 @@ const DEFAULT_KILL_GRACE_MS = 5 * 1000;
  */
 const FINISH_WRITE_MARGIN_MS = 15 * 1000;
 const DEFAULT_MAX_EVENT_BYTES = 10 * 1024 * 1024;
-const DEFAULT_MAX_EVENT_ROTATIONS = 3;
+/**
+ * How many rotated segments of a subagent's event stream to keep before
+ * the oldest is deleted.
+ *
+ * The oldest segment holds the start of the run, so deleting it loses
+ * the session header and the first turns before anything has had a
+ * chance to digest them. At three, that happened past 40 MB of events,
+ * and the largest real stream had already reached its second rotation.
+ * Rotated segments are gzipped at roughly ten to one and are reclaimed
+ * once digested, so a much higher ceiling is cheap and transient while
+ * losing the head is permanent.
+ */
+const DEFAULT_MAX_EVENT_ROTATIONS = 32;
 const DEFAULT_MAX_STDERR_BYTES = 1024 * 1024;
 const DEFAULT_MAX_STDERR_ROTATIONS = 3;
 const DEFAULT_STDERR_TAIL_BYTES = 8 * 1024;
