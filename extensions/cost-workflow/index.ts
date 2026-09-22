@@ -102,21 +102,24 @@ export default function costWorkflow(pi: ExtensionAPI) {
 	let watermarks = "";
 	let unregisterRuns: (() => void) | null = null;
 	const recentTurns: number[] = [];
-	// What this process has spent. Fan-out is added here rather than
+	// What this session has spent. Fan-out is added here rather than
 	// shown separately, because it is the same money: a council round
 	// costs what it costs whether or not the parent did the talking.
 	let sessionSpend = 0;
-	// What the day had cost before this process started. Held apart from
-	// the live figure so a restored session cannot count its own earlier
-	// turns twice, once from the ledger and once from the branch.
-	let dayBefore = 0;
 
 	const publish = (): void => {
 		pi.events.emit(COST_READING, {
 			session: sessionSpend,
-			day: dayBefore + sessionSpend,
 			marginal: medianOf(recentTurns),
 		});
+	};
+
+	/** Take one turn's cost into the total and into the rate's window. */
+	const observeTurn = (cost: number): void => {
+		if (cost <= 0) return;
+		sessionSpend += cost;
+		recentTurns.push(cost);
+		if (recentTurns.length > MARGINAL_WINDOW) recentTurns.shift();
 	};
 
 	const open = async (): Promise<TurnStore> => {
@@ -129,18 +132,19 @@ export default function costWorkflow(pi: ExtensionAPI) {
 	};
 
 	pi.on("message_end", async (event) => {
-		const cost = assistantCost(event.message);
-		sessionSpend += cost;
-		if (cost > 0) {
-			recentTurns.push(cost);
-			if (recentTurns.length > MARGINAL_WINDOW) recentTurns.shift();
-		}
+		observeTurn(assistantCost(event.message));
 		publish();
 	});
 
-	pi.on("session_start", async () => {
+	pi.on("session_start", async (_event, ctx) => {
+		// Replay the branch rather than starting from zero. A reload or a
+		// resumed session has already spent money, and a total that resets
+		// to nothing is worse than no total: it reads as a cheap session.
 		sessionSpend = 0;
 		recentTurns.length = 0;
+		for (const entry of ctx.sessionManager.getBranch()) {
+			if (entry.type === "message") observeTurn(assistantCost(entry.message));
+		}
 		if (!unregisterRuns) {
 			// Fan-out lands in the session total but never in the rate: a
 			// council round is not a turn, and letting it set the marginal
@@ -149,17 +153,6 @@ export default function costWorkflow(pi: ExtensionAPI) {
 				sessionSpend += record.cost.total;
 				publish();
 			});
-		}
-		try {
-			const opened = await open();
-			const today = new Date().toISOString().slice(0, 10);
-			const days = await opened.costBy("day");
-			dayBefore = days.find((slice) => slice.key === today)?.cost ?? 0;
-		} catch {
-			// A ledger that will not open leaves the day unknown, which the
-			// meter shows by reporting the session alone rather than a
-			// figure it cannot stand behind.
-			dayBefore = 0;
 		}
 		publish();
 	});

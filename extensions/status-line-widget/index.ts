@@ -27,6 +27,7 @@ import * as path from "node:path";
 import type { ExtensionAPI, ThemeColor } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import {
+	type ContextGauge,
 	contextGauge,
 	marginalText,
 	sessionText,
@@ -134,6 +135,18 @@ function buildCandidate(
 
 const MAX_LEVEL = 6;
 
+/**
+ * Paint a gauge: the glyph carries the band colour, the number stays
+ * quiet, and a space separates them. Without the space the glyph reads
+ * as a leading character of the number rather than a signal of its own.
+ */
+function paintGauge(
+	theme: { fg: (color: ThemeColor, text: string) => string },
+	gauge: ContextGauge,
+): string {
+	return `${theme.fg(gauge.token, gauge.glyph)} ${theme.fg("dim", gauge.text)}`;
+}
+
 /** Dim a meter piece, or pass the absence through untouched. */
 function withColour(
 	theme: { fg: (color: ThemeColor, text: string) => string },
@@ -163,14 +176,21 @@ function toReading(data: unknown): CostReading | null {
 export default function statusLine(pi: ExtensionAPI) {
 	// Held rather than computed: this widget must not learn to price.
 	let reading: CostReading = { session: 0, marginal: null };
+	// The live surface, so a new reading can ask for a repaint. Without
+	// this the figures update and nothing shows them until some other
+	// event happens to redraw the line.
+	let surface: { requestRender: () => void } | null = null;
 
 	pi.events.on("cost:reading", (data: unknown) => {
 		const next = toReading(data);
-		if (next) reading = next;
+		if (!next) return;
+		reading = next;
+		surface?.requestRender();
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
 		ctx.ui.setFooter((tui, theme, footerData) => {
+			surface = tui;
 			const unsub = footerData.onBranchChange(() => tui.requestRender());
 			const sep = theme.fg("dim", SEP);
 
@@ -205,11 +225,8 @@ export default function statusLine(pi: ExtensionAPI) {
 						branch,
 						fullModel: theme.fg("dim", modelId),
 						shortModel: theme.fg("dim", shortenModel(modelId)),
-						contextTokens: theme.fg(gauge.token, `${gauge.glyph}${gauge.text}`),
-						contextPct: theme.fg(
-							narrowGauge.token,
-							`${narrowGauge.glyph}${narrowGauge.text}`,
-						),
+						contextTokens: paintGauge(theme, gauge),
+						contextPct: paintGauge(theme, narrowGauge),
 						marginal: withColour(theme, marginalText(reading.marginal)),
 						sessionTotal: withColour(theme, sessionText(reading.session)),
 						thinkGlyph,
