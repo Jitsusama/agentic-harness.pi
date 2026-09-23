@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cachePrices } from "../../../lib/internal/cache-prices.js";
+import { cachePrices } from "../../../lib/internal/cache-prices.ts";
 
 const RATES = { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 };
 

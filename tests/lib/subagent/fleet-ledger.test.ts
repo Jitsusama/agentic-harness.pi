@@ -24,8 +24,8 @@ import { readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ReviewerArtifactsStore } from "../../../lib/subagent/artifacts.js";
-import { createFleetLedger } from "../../../lib/subagent/fleet.js";
+import { ReviewerArtifactsStore } from "../../../lib/subagent/artifacts.ts";
+import { createFleetLedger } from "../../../lib/subagent/fleet.ts";
 
 let root: string;
 

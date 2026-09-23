@@ -15,7 +15,7 @@ import {
 	isValidClientId,
 	isValidClientSecret,
 } from "@jitsusama/agentic-harness.core/google/auth/setup-instructions";
-import { promptSingle } from "../../ui/index.js";
+import { promptSingle } from "../../ui/index.ts";
 
 /**
  * Check if OAuth app is configured, and if not, run the setup wizard.

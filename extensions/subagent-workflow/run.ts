@@ -21,7 +21,7 @@ import {
 	runRecordFrom,
 } from "@jitsusama/agentic-harness.core/observability";
 import { count as grouped } from "@jitsusama/agentic-harness.core/result";
-import { ReviewerArtifactsStore } from "../../lib/subagent/artifacts.js";
+import { ReviewerArtifactsStore } from "../../lib/subagent/artifacts.ts";
 import type {
 	ReviewerThinkingLevel,
 	RunPi,
@@ -29,21 +29,21 @@ import type {
 	SubagentRunResult,
 	SubagentSpec,
 	SubagentUsage,
-} from "../../lib/subagent/subagent.js";
-import { runSubagent } from "../../lib/subagent/subagent.js";
-import { noun } from "../../lib/ui/count.js";
+} from "../../lib/subagent/subagent.ts";
+import { runSubagent } from "../../lib/subagent/subagent.ts";
+import { noun } from "../../lib/ui/count.ts";
 import {
 	type FleetCancellationRegistry,
 	isSubagentCancelledError,
 	SubagentCancelledError,
-} from "./cancellation.js";
+} from "./cancellation.ts";
 import {
 	type FleetProgress,
 	type FleetProgressEntry,
 	NULL_FLEET_PROGRESS,
 	safelyNotify,
 	summarizeFleetActivity,
-} from "./progress.js";
+} from "./progress.ts";
 
 /** One subagent's assignment inside a fleet run. */
 export interface FleetAssignment {

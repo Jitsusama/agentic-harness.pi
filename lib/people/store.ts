@@ -18,9 +18,9 @@
 import {
 	get as getHandleType,
 	list as listHandleTypes,
-} from "../internal/people/registry.js";
-import { PeopleStorage } from "../internal/people/storage.js";
-import type { Handle, Identity } from "./types.js";
+} from "../internal/people/registry.ts";
+import { PeopleStorage } from "../internal/people/storage.ts";
+import type { Handle, Identity } from "./types.ts";
 
 /** Options for creating an identity. */
 export interface AddIdentityOptions {

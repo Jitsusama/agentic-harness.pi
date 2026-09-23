@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readTurns, repoOf } from "../../../lib/ledger/index.js";
+import { readTurns, repoOf } from "../../../lib/ledger/index.ts";
 
 function assistantLine(id: string, timestamp: string): string {
 	return JSON.stringify({

@@ -3,7 +3,7 @@ import {
 	changedValues,
 	runSurfaceConfigPanel,
 	type SurfaceConfigPanelInput,
-} from "../../../lib/mcp/config-panel.js";
+} from "../../../lib/mcp/config-panel.ts";
 
 function input(): SurfaceConfigPanelInput {
 	return {

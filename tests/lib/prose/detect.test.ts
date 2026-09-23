@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectProseViolations } from "../../../lib/prose/index.js";
+import { detectProseViolations } from "../../../lib/prose/index.ts";
 
 describe("detectProseViolations", () => {
 	it("finds nothing in clean Canadian prose", () => {

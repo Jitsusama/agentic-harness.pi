@@ -17,7 +17,7 @@ import {
 	registerRefType,
 	urlForRef,
 	whyRefHasNoUrl,
-} from "../../../lib/refs/index.js";
+} from "../../../lib/refs/index.ts";
 
 beforeEach(() => {
 	clearRefTypes();

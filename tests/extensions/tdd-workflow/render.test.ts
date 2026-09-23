@@ -4,8 +4,8 @@ import { describe, expect, it } from "vitest";
 import {
 	renderStatus,
 	renderWidget,
-} from "../../../extensions/tdd-workflow/render.js";
-import { fakeTheme } from "../../lib/ui/fake-theme.js";
+} from "../../../extensions/tdd-workflow/render.ts";
+import { fakeTheme } from "../../lib/ui/fake-theme.ts";
 
 /** Strip fakeTheme's <token> markers so width assertions see only glyph text. */
 function plain(line: string): string {

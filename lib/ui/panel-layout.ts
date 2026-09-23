@@ -7,7 +7,7 @@
 
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import type { KeyAction, ListChoice, PromptView } from "./types.js";
+import type { KeyAction, ListChoice, PromptView } from "./types.ts";
 
 /**
  * Compute total chrome lines for the panel (borders, tabs,

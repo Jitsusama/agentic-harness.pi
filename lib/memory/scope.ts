@@ -7,7 +7,7 @@
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Scope } from "@jitsusama/agentic-harness.core/memory";
-import { getLastEntry } from "../internal/state.js";
+import { getLastEntry } from "../internal/state.ts";
 
 /**
  * Resolve the active scope for the current session: the loaded

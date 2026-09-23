@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveRoles, type RoleModel } from "../../../lib/roles/index.js";
+import { deriveRoles, type RoleModel } from "../../../lib/roles/index.ts";
 
 function model(id: string, provider: string, cacheRead: number): RoleModel {
 	return {

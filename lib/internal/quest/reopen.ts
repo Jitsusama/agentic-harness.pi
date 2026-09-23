@@ -10,8 +10,8 @@
  */
 
 import { existsSync } from "node:fs";
-import type { QuestTree } from "../../quest/types.js";
-import type { SessionView } from "./session-liveness.js";
+import type { QuestTree } from "../../quest/types.ts";
+import type { SessionView } from "./session-liveness.ts";
 
 /** The resolved working directory and how it was chosen. */
 export interface ResolvedCwd {

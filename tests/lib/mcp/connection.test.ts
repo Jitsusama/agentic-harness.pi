@@ -3,8 +3,8 @@ import {
 	createMcpConnection,
 	mcpErrorFrom,
 	type SdkClientLike,
-} from "../../../lib/mcp/connection.js";
-import { McpError, type McpServerConfig } from "../../../lib/mcp/types.js";
+} from "../../../lib/mcp/connection.ts";
+import { McpError, type McpServerConfig } from "../../../lib/mcp/types.ts";
 
 const config: McpServerConfig = { id: "gw", url: "https://example/mcp" };
 

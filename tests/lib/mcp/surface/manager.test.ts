@@ -3,20 +3,20 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { Text } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
-import type { McpConnection } from "../../../../lib/mcp/connection.js";
-import { defaultResolved } from "../../../../lib/mcp/frontend/defaults.js";
-import { createFrontEndRegistry } from "../../../../lib/mcp/frontend/registry.js";
-import { createResultStore } from "../../../../lib/mcp/store.js";
-import { createSurfaceManager } from "../../../../lib/mcp/surface/manager.js";
+import type { McpConnection } from "../../../../lib/mcp/connection.ts";
+import { defaultResolved } from "../../../../lib/mcp/frontend/defaults.ts";
+import { createFrontEndRegistry } from "../../../../lib/mcp/frontend/registry.ts";
+import { createResultStore } from "../../../../lib/mcp/store.ts";
+import { createSurfaceManager } from "../../../../lib/mcp/surface/manager.ts";
 import {
 	defaultBackendOf,
 	type SurfaceConfig,
-} from "../../../../lib/mcp/surface/policy.js";
+} from "../../../../lib/mcp/surface/policy.ts";
 import type {
 	McpServerConfig,
 	McpTool,
 	McpToolResult,
-} from "../../../../lib/mcp/types.js";
+} from "../../../../lib/mcp/types.ts";
 
 const server: McpServerConfig = { id: "gw", url: "u" };
 const ctx = {} as never;

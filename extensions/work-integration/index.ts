@@ -29,8 +29,8 @@ import {
 	forgetTreeBroker,
 	registerBuiltinTreeProviders,
 	treeBroker,
-} from "./broker.js";
-import { registerWorkTool } from "./tools.js";
+} from "./broker.ts";
+import { registerWorkTool } from "./tools.ts";
 
 /**
  * Whether a bus payload is a usable tree provider. The bus is

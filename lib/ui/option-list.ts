@@ -19,8 +19,8 @@ import {
 	handleNavigableListInput,
 	type NavigableItem,
 	renderNavigableList,
-} from "./navigable-list.js";
-import type { ListChoice } from "./types.js";
+} from "./navigable-list.ts";
+import type { ListChoice } from "./types.ts";
 
 /** Result of navigating and selecting from an option list. */
 type OptionListResult = { type: "select"; index: number } | { type: "cancel" };

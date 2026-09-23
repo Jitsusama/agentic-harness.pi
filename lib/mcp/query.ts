@@ -15,9 +15,9 @@ import {
 import {
 	DEFAULT_RESULT_CEILING_BYTES,
 	enforceResultCeiling,
-} from "./ceiling.js";
-import type { ResultStore } from "./store.js";
-import type { McpContent } from "./types.js";
+} from "./ceiling.ts";
+import type { ResultStore } from "./store.ts";
+import type { McpContent } from "./types.ts";
 
 export type { QueryOptions } from "@jitsusama/agentic-harness.core/result";
 

@@ -20,9 +20,9 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { registerPromptContributor } from "../../lib/prompt/index.js";
-import { buildBindingRules } from "./rules.js";
-import { isInsideWorkTree } from "./scope.js";
+import { registerPromptContributor } from "../../lib/prompt/index.ts";
+import { buildBindingRules } from "./rules.ts";
+import { isInsideWorkTree } from "./scope.ts";
 
 /** Conventions sit at the very top of the resident block. */
 const CONVENTIONS_ORDER = 0;

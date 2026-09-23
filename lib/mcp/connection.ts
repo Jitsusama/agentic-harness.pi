@@ -8,7 +8,7 @@ import {
 	type McpServerConfig,
 	type McpTool,
 	type McpToolResult,
-} from "./types.js";
+} from "./types.ts";
 
 /** The slice of the SDK client the connection depends on, so a fake can stand in for tests. */
 export interface SdkClientLike {

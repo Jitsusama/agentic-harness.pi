@@ -32,10 +32,10 @@ import {
 	isToolCallEventType,
 	type ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
-import { effectiveCwd, tokenize } from "../../lib/command/index.js";
-import { ensureCommitHook } from "../../lib/internal/guardian/commit-hook.js";
-import { coAuthorTrailer } from "../../lib/internal/guardian/commit-trailer.js";
-import { attributeGh } from "./attribution.js";
+import { effectiveCwd, tokenize } from "../../lib/command/index.ts";
+import { ensureCommitHook } from "../../lib/internal/guardian/commit-hook.ts";
+import { coAuthorTrailer } from "../../lib/internal/guardian/commit-trailer.ts";
+import { attributeGh } from "./attribution.ts";
 
 const GH_ENTITIES = ["pr", "issue"] as const;
 

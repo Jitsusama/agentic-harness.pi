@@ -25,12 +25,12 @@ import {
 	handleListEvents,
 	handleRespondToEvent,
 	handleUpdateEvent,
-} from "./router/calendar-handlers.js";
+} from "./router/calendar-handlers.ts";
 import {
 	handleGetFile,
 	handleListFiles,
 	handleListSharedDrives,
-} from "./router/drive-handlers.js";
+} from "./router/drive-handlers.ts";
 import {
 	handleArchiveEmail,
 	handleCreateDraft,
@@ -42,7 +42,7 @@ import {
 	handleSearchEmails,
 	handleSendEmail,
 	handleUnarchiveEmail,
-} from "./router/gmail-handlers.js";
+} from "./router/gmail-handlers.ts";
 
 /** Handler function that processes a Google Workspace action. */
 type ActionHandler = (

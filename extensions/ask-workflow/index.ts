@@ -14,7 +14,7 @@
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
-import { count } from "../../lib/ui/count.js";
+import { count } from "../../lib/ui/count.ts";
 import {
 	drawInto,
 	firstText,
@@ -23,7 +23,7 @@ import {
 	promptSingle,
 	promptTabbed,
 	renderMarkdown,
-} from "../../lib/ui/index.js";
+} from "../../lib/ui/index.ts";
 
 // Types
 interface QuestionOption {

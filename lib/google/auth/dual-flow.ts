@@ -13,7 +13,7 @@ import {
 } from "@jitsusama/agentic-harness.core/google/auth/oauth";
 import { waitForOAuthCallback } from "@jitsusama/agentic-harness.core/google/auth/server";
 import type { Credentials } from "google-auth-library";
-import { view } from "../../ui/index.js";
+import { view } from "../../ui/index.ts";
 
 /** Result of an OAuth flow. */
 export interface OAuthFlowResult {

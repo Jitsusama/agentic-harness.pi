@@ -9,4 +9,4 @@
  */
 
 export * from "@jitsusama/agentic-harness.core/slack";
-export { ensureAuthenticated } from "./auth/index.js";
+export { ensureAuthenticated } from "./auth/index.ts";

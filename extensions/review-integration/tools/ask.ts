@@ -82,9 +82,9 @@ import { Type } from "@sinclair/typebox";
 import {
 	type ConfigLoadResult,
 	loadPackageConfig,
-} from "../../../lib/internal/config/loader.js";
-import { packageConfigPath } from "../../../lib/internal/paths.js";
-import type { ReviewerThinkingLevel } from "../../../lib/subagent/index.js";
+} from "../../../lib/internal/config/loader.ts";
+import { packageConfigPath } from "../../../lib/internal/paths.ts";
+import type { ReviewerThinkingLevel } from "../../../lib/subagent/index.ts";
 import {
 	getParentPiInstall,
 	JOURNAL_PACK_PATH,
@@ -94,11 +94,11 @@ import {
 	startReviewer,
 	summarizeStreamActivity,
 	WRAP_UP_SUFFIX,
-} from "../../../lib/subagent/index.js";
-import { fromScript } from "../../../lib/subagent/runpi/fresh.js";
-import { THINKING_LEVELS } from "../../../lib/thinking/index.js";
-import { count } from "../../../lib/ui/count.js";
-import { REVIEW_SLUG } from "../config.js";
+} from "../../../lib/subagent/index.ts";
+import { fromScript } from "../../../lib/subagent/runpi/fresh.ts";
+import { THINKING_LEVELS } from "../../../lib/thinking/index.ts";
+import { count } from "../../../lib/ui/count.ts";
+import { REVIEW_SLUG } from "../config.ts";
 import {
 	answerDir,
 	findingDir,
@@ -106,9 +106,9 @@ import {
 	reviewEngine,
 	runArtifactDir,
 	runDir,
-} from "../engine.js";
-import { type RoundWatch, watchRound } from "../progress.js";
-import { GLYPH } from "../render.js";
+} from "../engine.ts";
+import { type RoundWatch, watchRound } from "../progress.ts";
+import { GLYPH } from "../render.ts";
 import {
 	answerFromReviewer,
 	answerLeftBehind,
@@ -118,8 +118,8 @@ import {
 	reviewerRunner,
 	reviewerStarter,
 	whyNotYet,
-} from "../reviewer.js";
-import { type ReadableTree, readFrom, treeForRound } from "../work.js";
+} from "../reviewer.ts";
+import { type ReadableTree, readFrom, treeForRound } from "../work.ts";
 import {
 	type Answer,
 	boundFor,
@@ -130,7 +130,7 @@ import {
 	renderInvocation,
 	say,
 	type TargetParams,
-} from "./shared.js";
+} from "./shared.ts";
 
 /** What the tool can be asked to do. */
 type AskAction =

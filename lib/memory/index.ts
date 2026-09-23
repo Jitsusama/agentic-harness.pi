@@ -26,4 +26,4 @@ export {
 	openMemoryStore,
 	serializeScope,
 } from "@jitsusama/agentic-harness.core/memory";
-export { resolveScope } from "./scope.js";
+export { resolveScope } from "./scope.ts";

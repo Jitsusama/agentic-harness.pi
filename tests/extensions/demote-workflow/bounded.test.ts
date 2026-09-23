@@ -1,6 +1,6 @@
 import { cleanupSessionResults } from "@jitsusama/agentic-harness.core/result";
 import { afterEach, describe, expect, it } from "vitest";
-import { boundedExpansion } from "../../../extensions/demote-workflow/bounded.js";
+import { boundedExpansion } from "../../../extensions/demote-workflow/bounded.ts";
 
 describe("boundedExpansion", () => {
 	afterEach(() => {

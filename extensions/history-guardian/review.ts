@@ -13,8 +13,8 @@ import {
 	type CommandGuardian,
 	formatRedirectBlock,
 	type GuardianResult,
-} from "../../lib/guardian/index.js";
-import { promptSingle, renderMarkdown } from "../../lib/ui/index.js";
+} from "../../lib/guardian/index.ts";
+import { promptSingle, renderMarkdown } from "../../lib/ui/index.ts";
 
 const DESTRUCTIVE_ACTIONS = [{ key: "r", label: "Reject" }];
 

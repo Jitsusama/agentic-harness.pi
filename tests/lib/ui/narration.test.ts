@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
 	NARRATION_GLYPH,
 	renderNarrationLine,
-} from "../../../lib/ui/narration.js";
-import { fakeTheme } from "./fake-theme.js";
+} from "../../../lib/ui/narration.ts";
+import { fakeTheme } from "./fake-theme.ts";
 
 describe("NARRATION_GLYPH", () => {
 	it("is the ※ reference mark, exported as the canonical narration glyph", () => {

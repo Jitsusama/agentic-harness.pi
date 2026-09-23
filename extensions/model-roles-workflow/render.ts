@@ -1,5 +1,5 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import type { ArchaicFinding, RoleAssignment } from "../../lib/roles/index.js";
+import type { ArchaicFinding, RoleAssignment } from "../../lib/roles/index.ts";
 
 /** Render the derived roles and the archaic audit as a list of lines. */
 export function renderRoles(

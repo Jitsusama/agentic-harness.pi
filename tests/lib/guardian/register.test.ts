@@ -2,9 +2,9 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type {
 	CommandGuardian,
 	GuardianResult,
-} from "../../../lib/guardian/index.js";
-import { registerGuardian } from "../../../lib/guardian/index.js";
-import { clear, list } from "../../../lib/internal/guardian/registry.js";
+} from "../../../lib/guardian/index.ts";
+import { registerGuardian } from "../../../lib/guardian/index.ts";
+import { clear, list } from "../../../lib/internal/guardian/registry.ts";
 
 // Derive the pi and result types from registerGuardian's own signature
 // so the test never imports the pi package directly (which does not

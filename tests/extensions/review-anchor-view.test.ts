@@ -17,8 +17,8 @@ import {
 	parseUnifiedDiff,
 } from "@jitsusama/agentic-harness.core/review";
 import { describe, expect, it } from "vitest";
-import { anchorView } from "../../extensions/review-integration/render.js";
-import { plainTheme } from "../lib/ui/fake-theme.js";
+import { anchorView } from "../../extensions/review-integration/render.ts";
+import { plainTheme } from "../lib/ui/fake-theme.ts";
 
 const diff = parseUnifiedDiff(`diff --git a/pkg/policy.go b/pkg/policy.go
 index 83db48f..bf269f4 100644

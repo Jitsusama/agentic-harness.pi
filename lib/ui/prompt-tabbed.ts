@@ -18,15 +18,15 @@ import {
 	type TUI,
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
-import { type ActionBarResult, handleActionInput } from "./action-bar.js";
-import { buildNoteEditorTheme, renderNoteEditor } from "./note-editor.js";
+import { type ActionBarResult, handleActionInput } from "./action-bar.ts";
+import { buildNoteEditorTheme, renderNoteEditor } from "./note-editor.ts";
 import {
 	handleOptionInput,
 	optionValue,
 	renderOptionList,
-} from "./option-list.js";
-import { OVERLAID } from "./overlay.js";
-import { computeChromeLines, renderFooter } from "./panel-layout.js";
+} from "./option-list.ts";
+import { OVERLAID } from "./overlay.ts";
+import { computeChromeLines, renderFooter } from "./panel-layout.ts";
 import {
 	contentBudget,
 	HSCROLL_CONTENT_WIDTH,
@@ -35,12 +35,12 @@ import {
 	renderScrollRegion,
 	SCROLLBAR_GUTTER,
 	type ScrollState,
-} from "./scroll-region.js";
+} from "./scroll-region.ts";
 import {
 	handleTabInput,
 	renderProgressBar,
 	renderTabStrip,
-} from "./tab-strip.js";
+} from "./tab-strip.ts";
 import {
 	type ContentRenderer,
 	GLYPH,
@@ -51,7 +51,7 @@ import {
 	type TabbedPromptConfig,
 	type TabbedResult,
 	type TabStatus,
-} from "./types.js";
+} from "./types.ts";
 
 /** Cache key for content: "tabIndex-viewIndex". */
 function cacheKey(tab: number, view: number): string {

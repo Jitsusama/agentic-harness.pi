@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { describeCall } from "../../../../lib/mcp/render/call.js";
-import type { McpTool } from "../../../../lib/mcp/types.js";
+import { describeCall } from "../../../../lib/mcp/render/call.ts";
+import type { McpTool } from "../../../../lib/mcp/types.ts";
 
 function tool(name: string, schema: McpTool["inputSchema"]): McpTool {
 	return { serverId: "s", name, description: "", inputSchema: schema, raw: {} };

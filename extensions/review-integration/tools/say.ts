@@ -21,7 +21,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { BoundTarget } from "@jitsusama/agentic-harness.core/review";
 import { Type } from "@sinclair/typebox";
-import { batchRefusal, runBatch, type SayItem } from "./batch.js";
+import { batchRefusal, runBatch, type SayItem } from "./batch.ts";
 import {
 	type Answer,
 	boundFor,
@@ -31,7 +31,7 @@ import {
 	renderAnswer,
 	renderInvocation,
 	threadsOf,
-} from "./shared.js";
+} from "./shared.ts";
 
 /** Register the `review_say` tool. */
 export function registerSayTool(pi: ExtensionAPI): void {

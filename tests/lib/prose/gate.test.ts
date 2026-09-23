@@ -3,7 +3,7 @@ import {
 	detectProseViolations,
 	proseGateDecision,
 	violationSignature,
-} from "../../../lib/prose/index.js";
+} from "../../../lib/prose/index.ts";
 
 describe("proseGateDecision", () => {
 	it("allows clean prose", () => {

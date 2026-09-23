@@ -20,8 +20,8 @@ import {
 	type TerminalSessionHandle,
 	type TerminalTypeCapability,
 	terminalHandleKey,
-} from "../../../terminal/types.js";
-import { wrapCommandWithEnv } from "./shared.js";
+} from "../../../terminal/types.ts";
+import { wrapCommandWithEnv } from "./shared.ts";
 
 /** What a `wezterm cli list` read observed, or that it could not read. */
 export type WeztermObservation =

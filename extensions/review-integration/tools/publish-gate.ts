@@ -27,8 +27,8 @@ import type {
 	PlannedOp,
 	PublishPlan,
 } from "@jitsusama/agentic-harness.core/review";
-import type { GateItem, GateView } from "../gate.js";
-import { REDIRECT_QUOTE_WIDTH } from "../gate.js";
+import type { GateItem, GateView } from "../gate.ts";
+import { REDIRECT_QUOTE_WIDTH } from "../gate.ts";
 import {
 	anchorLabel,
 	anchorView,
@@ -37,7 +37,7 @@ import {
 	gateLines,
 	gateText,
 	planNarration,
-} from "../render.js";
+} from "../render.ts";
 
 /** A tab on the publish gate, and what rejecting it would drop. */
 export interface PublishTab {

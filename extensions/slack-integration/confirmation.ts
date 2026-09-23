@@ -16,8 +16,8 @@ import {
 	promptTabbed,
 	renderMarkdown,
 	runGate,
-} from "../../lib/ui/index.js";
-import { formatRedirectReason } from "../../lib/ui/redirect.js";
+} from "../../lib/ui/index.ts";
+import { formatRedirectReason } from "../../lib/ui/redirect.ts";
 
 /** File metadata for the upload confirmation gate. */
 export interface FileInfo {

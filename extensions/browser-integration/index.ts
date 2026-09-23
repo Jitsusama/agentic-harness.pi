@@ -21,16 +21,16 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { registerCheck } from "./check.js";
-import { registerDo } from "./do.js";
-import { registerGo } from "./go.js";
-import { createSessionRegistry } from "./registry.js";
-import { registerSee } from "./see.js";
+import { registerCheck } from "./check.ts";
+import { registerDo } from "./do.ts";
+import { registerGo } from "./go.ts";
+import { createSessionRegistry } from "./registry.ts";
+import { registerSee } from "./see.ts";
 import {
 	browserToolSurface,
 	calledBrowserBefore,
 	readsBrowserSkill,
-} from "./tool-surface.js";
+} from "./tool-surface.ts";
 
 /** Modes whose tool surface is this extension's to shape. */
 const SHAPED_MODES: ReadonlySet<string> = new Set(["tui", "rpc"]);

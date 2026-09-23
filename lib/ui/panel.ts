@@ -12,10 +12,10 @@
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
-import { OVERLAID } from "./overlay.js";
-import { showSinglePrompt } from "./prompt-single.js";
-import { showTabbedPrompt } from "./prompt-tabbed.js";
-import { showWorkspacePrompt } from "./prompt-workspace.js";
+import { OVERLAID } from "./overlay.ts";
+import { showSinglePrompt } from "./prompt-single.ts";
+import { showTabbedPrompt } from "./prompt-tabbed.ts";
+import { showWorkspacePrompt } from "./prompt-workspace.ts";
 import {
 	contentBudget,
 	HSCROLL_CONTENT_WIDTH,
@@ -24,7 +24,7 @@ import {
 	renderScrollRegion,
 	SCROLLBAR_GUTTER,
 	type ScrollState,
-} from "./scroll-region.js";
+} from "./scroll-region.ts";
 import {
 	GLYPH,
 	type PromptResult,
@@ -34,7 +34,7 @@ import {
 	type ViewConfig,
 	type WorkspacePromptConfig,
 	type WorkspaceResult,
-} from "./types.js";
+} from "./types.ts";
 
 /**
  * Show a single interactive prompt. Returns the user's decision

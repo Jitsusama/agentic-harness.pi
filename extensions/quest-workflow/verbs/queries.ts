@@ -10,9 +10,9 @@
 import {
 	discoverQuests,
 	type QuestIndex,
-} from "../../../lib/internal/quest/discovery.js";
-import { restoreRecipe } from "../../../lib/internal/quest/session-registry.js";
-import { count } from "../../../lib/ui/count.js";
+} from "../../../lib/internal/quest/discovery.ts";
+import { restoreRecipe } from "../../../lib/internal/quest/session-registry.ts";
+import { count } from "../../../lib/ui/count.ts";
 import {
 	ancestorsOf,
 	buildRowExpansion,
@@ -26,7 +26,7 @@ import {
 	type TreeNode,
 	treeAll,
 	workspaceQuests,
-} from "../lookup.js";
+} from "../lookup.ts";
 import {
 	type ListingDetails,
 	type ListingFlatRow,
@@ -34,20 +34,20 @@ import {
 	type QuestRowBrief,
 	renderListing,
 	renderRowBrief,
-} from "../render-rows.js";
+} from "../render-rows.ts";
 import {
 	pruneClosedRecords,
 	reopenLostSessions,
 	restorableSessions,
 	seedLiveSessions,
-} from "../session-registry.js";
-import type { QuestState } from "../state.js";
+} from "../session-registry.ts";
+import type { QuestState } from "../state.ts";
 import {
 	ok,
 	type QuestResult,
 	type QuestToolParams,
 	refuse,
-} from "./shared.js";
+} from "./shared.ts";
 
 export function find(state: QuestState, params: QuestToolParams): QuestResult {
 	const ALLOWED_FIELDS = ["started", "updated", "due", "eta", "activity"];

@@ -43,7 +43,7 @@ import {
 	readFrom,
 	treeForRound,
 	watchForWorkLayer,
-} from "../../extensions/review-integration/work.js";
+} from "../../extensions/review-integration/work.ts";
 
 let home: string;
 

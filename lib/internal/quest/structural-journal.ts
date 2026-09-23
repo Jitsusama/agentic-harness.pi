@@ -8,7 +8,7 @@
 
 import { appendFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { atomicWriteFile, withQuestLock } from "./io.js";
+import { atomicWriteFile, withQuestLock } from "./io.ts";
 
 /**
  * A field a mutation can change, journal and reverse. Widened past

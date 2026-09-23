@@ -1,7 +1,7 @@
 import { MINTED_HANDLE_SHAPE } from "@jitsusama/agentic-harness.core/result";
-import { count } from "../ui/count.js";
-import { joinTextContent, spillToFile } from "./content.js";
-import type { McpContent, McpToolResult } from "./types.js";
+import { count } from "../ui/count.ts";
+import { joinTextContent, spillToFile } from "./content.ts";
+import type { McpContent, McpToolResult } from "./types.ts";
 
 /** A byte ceiling at or above the 200KB soft default, so it never tightens an already-capped tool. */
 export const DEFAULT_RESULT_CEILING_BYTES = 256 * 1024;

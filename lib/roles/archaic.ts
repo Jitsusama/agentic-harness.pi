@@ -1,4 +1,4 @@
-import type { RoleModel, RoleModelCost } from "./model.js";
+import type { RoleModel, RoleModelCost } from "./model.ts";
 
 /**
  * A model whose entire catalogue entry is redundant: some other model

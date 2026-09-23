@@ -10,7 +10,7 @@
  */
 
 // ── Spawned work ────────────────────────────────────────────
-export { AGENT_GLYPH, type AgentState } from "./agent-glyphs.js";
+export { AGENT_GLYPH, type AgentState } from "./agent-glyphs.ts";
 // ── Badges and bars ─────────────────────────────────────────
 export {
 	type BadgeKind,
@@ -18,7 +18,7 @@ export {
 	type BarOptions,
 	renderBadge,
 	renderBar,
-} from "./badge.js";
+} from "./badge.ts";
 // ── Content rendering ───────────────────────────────────────
 export {
 	type CodeRenderOptions,
@@ -31,18 +31,18 @@ export {
 	renderCode,
 	renderDiff,
 	renderMarkdown,
-} from "./content-renderer.js";
+} from "./content-renderer.ts";
 // ── Counts ─────────────────────────────────────────
-export { count, noun, verb } from "./count.js";
+export { count, noun, verb } from "./count.ts";
 // ── Gate serialization ──────────────────────────────────────
-export { runGate } from "./gate-queue.js";
+export { runGate } from "./gate-queue.ts";
 // ── Narration ───────────────────────────────────────────────
 export {
 	NARRATION_GLYPH,
 	type NarrationLevel,
 	type NarrationOptions,
 	renderNarrationLine,
-} from "./narration.js";
+} from "./narration.ts";
 // ── Navigable lists ─────────────────────────────────────────
 export {
 	type DetailEntry,
@@ -56,16 +56,16 @@ export {
 	type NavigableSection,
 	renderNavigableList,
 	renderNavigableSections,
-} from "./navigable-list.js";
+} from "./navigable-list.ts";
 // ── Panel interaction ───────────────────────────────────────
 export {
 	promptSingle,
 	promptTabbed,
 	view,
 	workspace,
-} from "./panel.js";
+} from "./panel.ts";
 // ── Paths ──────────────────────────────────────────
-export { displayPath } from "./path.js";
+export { displayPath } from "./path.ts";
 // ── Pipeline progress ───────────────────────────────────────
 export {
 	type PipelineProgressOptions,
@@ -73,7 +73,7 @@ export {
 	renderPipelineProgress,
 	renderPipelineProgressLines,
 	type StageState,
-} from "./pipeline-progress.js";
+} from "./pipeline-progress.ts";
 // ── Toggle list ─────────────────────────────────────────────
 export {
 	initToggleModel,
@@ -82,9 +82,9 @@ export {
 	type ToggleListModel,
 	type ToggleRow,
 	type ToggleSection,
-} from "./prompt-toggle-list.js";
+} from "./prompt-toggle-list.ts";
 // ── Text layout ─────────────────────────────────────────────
-export { contentWrapWidth, wordWrap } from "./text-layout.js";
+export { contentWrapWidth, wordWrap } from "./text-layout.ts";
 // ── Tool call lines ───────────────────────────────────
 export {
 	asText,
@@ -92,9 +92,9 @@ export {
 	type RenderTheme,
 	renderToolCall,
 	type ToolCallLine,
-} from "./tool-call.js";
+} from "./tool-call.ts";
 // ── Tool results ───────────────────────
-export { firstText, type MaybeTextBlock } from "./tool-result.js";
+export { firstText, type MaybeTextBlock } from "./tool-result.ts";
 
 // ── Types ───────────────────────────────────────────────────
 export type {
@@ -118,4 +118,4 @@ export type {
 	WorkspacePromptConfig,
 	WorkspaceResult,
 	WorkspaceView,
-} from "./types.js";
+} from "./types.ts";

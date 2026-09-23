@@ -20,9 +20,9 @@ import {
 	setCredentials,
 } from "@jitsusama/agentic-harness.core/google/auth/oauth";
 import type { OAuth2Client } from "google-auth-library";
-import { promptSingle } from "../../ui/index.js";
-import { authenticateWithFallback } from "./dual-flow.js";
-import { ensureOAuthApp } from "./setup-wizard.js";
+import { promptSingle } from "../../ui/index.ts";
+import { authenticateWithFallback } from "./dual-flow.ts";
+import { ensureOAuthApp } from "./setup-wizard.ts";
 
 /**
  * Ensure the user is authenticated with Google Workspace.

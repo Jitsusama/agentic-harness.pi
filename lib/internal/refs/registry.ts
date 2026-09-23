@@ -10,8 +10,8 @@
  * isolate registrations between cases.
  */
 
-import type { Ref, RefType } from "../../refs/types.js";
-import { createGlobalSymbolRegistry } from "../registry/global-symbol-registry.js";
+import type { Ref, RefType } from "../../refs/types.ts";
+import { createGlobalSymbolRegistry } from "../registry/global-symbol-registry.ts";
 
 const registry = createGlobalSymbolRegistry<RefType>({
 	slot: "pi:agentic-harness:refs-registry",

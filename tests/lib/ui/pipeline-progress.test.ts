@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { AGENT_GLYPH } from "../../../lib/ui/agent-glyphs.js";
+import { AGENT_GLYPH } from "../../../lib/ui/agent-glyphs.ts";
 import {
 	type PipelineStage,
 	renderPipelineProgress,
 	renderPipelineProgressLines,
-} from "../../../lib/ui/pipeline-progress.js";
-import { fakeTheme } from "./fake-theme.js";
+} from "../../../lib/ui/pipeline-progress.ts";
+import { fakeTheme } from "./fake-theme.ts";
 
 function stages(...defs: PipelineStage[]): PipelineStage[] {
 	return defs;

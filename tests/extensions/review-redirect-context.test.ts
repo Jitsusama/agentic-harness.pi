@@ -21,8 +21,8 @@ import { describe, expect, it } from "vitest";
 import {
 	confirmBatch,
 	type GateItem,
-} from "../../extensions/review-integration/gate.js";
-import type { PromptResult } from "../../lib/ui/types.js";
+} from "../../extensions/review-integration/gate.ts";
+import type { PromptResult } from "../../lib/ui/types.ts";
 
 /** A ctx whose panel answers with whatever the test says it answered. */
 function context(answer: unknown) {

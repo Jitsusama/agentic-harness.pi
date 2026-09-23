@@ -18,9 +18,9 @@ import {
 	deriveRoles,
 	findArchaic,
 	type RoleModel,
-} from "../../lib/roles/index.js";
-import { view } from "../../lib/ui/index.js";
-import { renderRoles } from "./render.js";
+} from "../../lib/roles/index.ts";
+import { view } from "../../lib/ui/index.ts";
+import { renderRoles } from "./render.ts";
 
 export default function modelRolesWorkflow(pi: ExtensionAPI) {
 	pi.registerCommand("model-roles", {

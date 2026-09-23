@@ -16,4 +16,4 @@ export {
 	listAccounts,
 	type OAuthAppCredentials,
 } from "@jitsusama/agentic-harness.core/google";
-export { ensureAuthenticated } from "./ensure-auth.js";
+export { ensureAuthenticated } from "./ensure-auth.ts";

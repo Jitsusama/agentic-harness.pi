@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { GLYPH, treeLine } from "../../extensions/work-integration/render.js";
+import { GLYPH, treeLine } from "../../extensions/work-integration/render.ts";
 
 /** A held tree, with only the fields a line is made of. */
 function held(key: string, shareable: boolean) {

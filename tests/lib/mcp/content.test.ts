@@ -8,8 +8,8 @@ import {
 	materializeResources,
 	spillToFile,
 	truncateForDisplay,
-} from "../../../lib/mcp/content.js";
-import type { McpContent, McpToolResult } from "../../../lib/mcp/types.js";
+} from "../../../lib/mcp/content.ts";
+import type { McpContent, McpToolResult } from "../../../lib/mcp/types.ts";
 
 function result(
 	content: McpContent[],

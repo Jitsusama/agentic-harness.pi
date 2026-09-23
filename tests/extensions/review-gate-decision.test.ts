@@ -14,7 +14,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { decisionOf } from "../../extensions/review-integration/gate.js";
+import { decisionOf } from "../../extensions/review-integration/gate.ts";
 
 /** What both prompts report for a plain Enter. Their sentinel, not ours. */
 const SUBMIT = "__enter__";

@@ -19,21 +19,21 @@ export {
 	DEFAULT_RESULT_CEILING_BYTES,
 	enforceResultCeiling,
 	type SpillTarget,
-} from "./ceiling.js";
+} from "./ceiling.ts";
 // ── Config panel ────────────────────────────────────────────
 export {
 	changedValues,
 	runSurfaceConfigPanel,
 	type SurfaceConfigPanelInput,
 	type SurfaceConfigPanelResult,
-} from "./config-panel.js";
+} from "./config-panel.ts";
 // ── Connection ──────────────────────────────────────────────
 export {
 	createMcpConnection,
 	type McpConnection,
 	mcpErrorFrom,
 	type SdkClientLike,
-} from "./connection.js";
+} from "./connection.ts";
 // ── Content utilities ───────────────────────────────────────
 export {
 	type FailedResource,
@@ -43,7 +43,7 @@ export {
 	type SavedResource,
 	spillToFile,
 	truncateForDisplay,
-} from "./content.js";
+} from "./content.ts";
 export {
 	defaultResolved,
 	defaultWriteSignal,
@@ -52,7 +52,7 @@ export {
 	makeTruncatingShape,
 	toAgentContent,
 	WRITE_VERBS,
-} from "./frontend/defaults.js";
+} from "./frontend/defaults.ts";
 export {
 	hostFrontEndBus,
 	isFrontEndProvider,
@@ -60,11 +60,11 @@ export {
 	MCP_REGISTER_FRONTEND,
 	MCP_UNREGISTER_FRONTEND,
 	provideFrontEnd,
-} from "./frontend/events.js";
+} from "./frontend/events.ts";
 export {
 	createFrontEndRegistry,
 	type FrontEndRegistry,
-} from "./frontend/registry.js";
+} from "./frontend/registry.ts";
 // ── Front-end seam ──────────────────────────────────────────
 export type {
 	ConfirmResult,
@@ -74,44 +74,44 @@ export type {
 	Invoke,
 	ResolvedFrontEnd,
 	WrappedExecute,
-} from "./frontend/types.js";
+} from "./frontend/types.ts";
 // ── JSON summary ─────────────────────────────────────
 export {
 	type JsonSummaryContentOptions,
 	type JsonSummaryOptions,
 	jsonSummaryContent,
 	summarizeJson,
-} from "./json-summary.js";
+} from "./json-summary.ts";
 // ── Query ───────────────────────────────────────────────
-export { type QueryOptions, queryStoredJson } from "./query.js";
+export { type QueryOptions, queryStoredJson } from "./query.ts";
 // ── Rendering ───────────────────────────────────────────────
-export { renderDefaultCall } from "./render/call.js";
-export { CANCELLED_TEXT, renderDefaultResult } from "./render/result.js";
+export { renderDefaultCall } from "./render/call.ts";
+export { CANCELLED_TEXT, renderDefaultResult } from "./render/result.ts";
 export {
 	buildDiscoverySections,
 	type DiscoveryEntry,
 	modeBadge,
 	renderToolDiscovery,
-} from "./render/tools-list.js";
+} from "./render/tools-list.ts";
 // ── Result store ─────────────────────────────────────
 export {
 	createResultStore,
 	HandleExpiredError,
 	type ResultStore,
 	type StoredResult,
-} from "./store.js";
+} from "./store.ts";
 // ── Progressive helpers ─────────────────────────────────────
 export {
 	createProgressiveHelpers,
 	type HelperDescriptor,
-} from "./surface/helpers.js";
+} from "./surface/helpers.ts";
 // ── Surface manager ─────────────────────────────────────────
 export {
 	createSurfaceManager,
 	type SurfaceDelta,
 	type SurfaceManager,
 	type ToolRegistrationDescriptor,
-} from "./surface/manager.js";
+} from "./surface/manager.ts";
 // ── Surface policy ──────────────────────────────────────────
 export {
 	defaultBackendOf,
@@ -119,7 +119,7 @@ export {
 	type ServerPolicy,
 	type SurfaceConfig,
 	type ToolMode,
-} from "./surface/policy.js";
+} from "./surface/policy.ts";
 export type {
 	McpContent,
 	McpServerConfig,
@@ -127,6 +127,6 @@ export type {
 	McpToolAnnotations,
 	McpToolInputSchema,
 	McpToolResult,
-} from "./types.js";
+} from "./types.ts";
 // ── Value types ─────────────────────────────────────────────
-export { McpError } from "./types.js";
+export { McpError } from "./types.ts";

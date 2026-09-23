@@ -10,12 +10,12 @@ export {
 	type BatchInput,
 	planBatch,
 	type SizedMessage,
-} from "./batch.js";
-export { BoundedTextCache } from "./cache.js";
+} from "./batch.ts";
+export { BoundedTextCache } from "./cache.ts";
 export {
 	accumulateReexpansion,
 	INITIAL_REEXPANSION,
 	type ReexpansionTotals,
 	reexpansionRate,
-} from "./reexpansion.js";
-export { type Demotion, type DemotionInput, planDemotions } from "./stub.js";
+} from "./reexpansion.ts";
+export { type Demotion, type DemotionInput, planDemotions } from "./stub.ts";

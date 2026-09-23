@@ -46,11 +46,11 @@ import {
 	type WorkHistory,
 } from "@jitsusama/agentic-harness.core/work";
 import { Type } from "@sinclair/typebox";
-import { sessionGateDeps } from "../../../lib/internal/gate/session-deps.js";
-import { gitTreeRootOf } from "../../../lib/internal/quest/git-signals.js";
-import { count, displayPath } from "../../../lib/ui/index.js";
-import { execFor, objectionsTo, treeBroker } from "../broker.js";
-import { GLYPH, treeLine } from "../render.js";
+import { sessionGateDeps } from "../../../lib/internal/gate/session-deps.ts";
+import { gitTreeRootOf } from "../../../lib/internal/quest/git-signals.ts";
+import { count, displayPath } from "../../../lib/ui/index.ts";
+import { execFor, objectionsTo, treeBroker } from "../broker.ts";
+import { GLYPH, treeLine } from "../render.ts";
 import {
 	type Answer,
 	messageOf,
@@ -58,8 +58,8 @@ import {
 	renderAnswer,
 	renderInvocation,
 	say,
-} from "./shared.js";
-import { runStackAction } from "./stack.js";
+} from "./shared.ts";
+import { runStackAction } from "./stack.ts";
 
 /** Find a held tree by the key or path a caller named. */
 function heldByName(held: readonly HeldTree[], name: string) {

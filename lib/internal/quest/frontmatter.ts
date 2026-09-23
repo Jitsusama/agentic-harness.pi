@@ -38,7 +38,7 @@ import type {
 	QuestStatus,
 	QuestTree,
 	SessionStatus,
-} from "../../quest/types.js";
+} from "../../quest/types.ts";
 
 const QUEST_KINDS: QuestKind[] = ["quest", "subquest", "sidequest"];
 const QUEST_STATUSES: QuestStatus[] = [

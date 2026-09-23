@@ -40,7 +40,7 @@ import {
 	WORK_REQUEST,
 	type WorkApi,
 } from "@jitsusama/agentic-harness.core/work";
-import { loadReviewConfig } from "./config.js";
+import { loadReviewConfig } from "./config.ts";
 
 /**
  * How long to wait for git to name a directory's remotes.

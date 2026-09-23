@@ -8,8 +8,8 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { isNotFound, safeSegment } from "./errno.js";
-import type { ReviewerRunArtifacts } from "./subagent.js";
+import { isNotFound, safeSegment } from "./errno.ts";
+import type { ReviewerRunArtifacts } from "./subagent.ts";
 
 /**
  * Terminal lifecycle states persisted by supervised reviewer runs.

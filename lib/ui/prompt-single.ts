@@ -16,15 +16,15 @@ import {
 	type TUI,
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
-import { type ActionBarResult, handleActionInput } from "./action-bar.js";
-import { buildNoteEditorTheme, renderNoteEditor } from "./note-editor.js";
+import { type ActionBarResult, handleActionInput } from "./action-bar.ts";
+import { buildNoteEditorTheme, renderNoteEditor } from "./note-editor.ts";
 import {
 	handleOptionInput,
 	optionValue,
 	renderOptionList,
-} from "./option-list.js";
-import { OVERLAID } from "./overlay.js";
-import { computeChromeLines, renderFooter } from "./panel-layout.js";
+} from "./option-list.ts";
+import { OVERLAID } from "./overlay.ts";
+import { computeChromeLines, renderFooter } from "./panel-layout.ts";
 import {
 	contentBudget,
 	HSCROLL_CONTENT_WIDTH,
@@ -33,8 +33,8 @@ import {
 	renderScrollRegion,
 	SCROLLBAR_GUTTER,
 	type ScrollState,
-} from "./scroll-region.js";
-import { GLYPH, type PromptResult, type SinglePromptConfig } from "./types.js";
+} from "./scroll-region.ts";
+import { GLYPH, type PromptResult, type SinglePromptConfig } from "./types.ts";
 
 /** What the note editor is being used for in a single prompt. */
 type EditorContext = {

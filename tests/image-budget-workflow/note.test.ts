@@ -3,7 +3,7 @@ import {
 	describeScaling,
 	readDimensionNote,
 	stripDimensionNote,
-} from "../../extensions/image-budget-workflow/note.js";
+} from "../../extensions/image-budget-workflow/note.ts";
 
 describe("readDimensionNote", () => {
 	it("reads the true original out of pi's own note", () => {

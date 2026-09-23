@@ -4,7 +4,7 @@
 
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { Text } from "@earendil-works/pi-tui";
-import { drawInto } from "../../lib/ui/index.js";
+import { drawInto } from "../../lib/ui/index.ts";
 
 /**
  * Width to lay a call line out for.

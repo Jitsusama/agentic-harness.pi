@@ -23,10 +23,10 @@ import type {
 	JourneyEntry,
 	QuestDoc,
 	QuestFrontMatter,
-} from "../../quest/types.js";
-import { parseAllRefs } from "../../refs/index.js";
-import { parseQuestFrontMatter } from "./frontmatter.js";
-import { findIds, findIdsWithRelation, type IdMention } from "./id.js";
+} from "../../quest/types.ts";
+import { parseAllRefs } from "../../refs/index.ts";
+import { parseQuestFrontMatter } from "./frontmatter.ts";
+import { findIds, findIdsWithRelation, type IdMention } from "./id.ts";
 
 const SECTION_HEADERS = {
 	summary: /^##\s+(?:[\u{1F300}-\u{1FFFF}]\s+)?Summary\s*$/u,

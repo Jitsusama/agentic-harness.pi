@@ -15,17 +15,17 @@ import { ISSUE_SECTIONS } from "@jitsusama/agentic-harness.core/sections";
 import type {
 	CommandGuardian,
 	GuardianResult,
-} from "../../lib/guardian/types.js";
-import { sessionGateDeps } from "../../lib/internal/gate/session-deps.js";
+} from "../../lib/guardian/types.ts";
+import { sessionGateDeps } from "../../lib/internal/gate/session-deps.ts";
 import {
 	type EntityReviewConfig,
 	reviewMarkdownEntity,
-} from "../../lib/internal/guardian/review-entity.js";
+} from "../../lib/internal/guardian/review-entity.ts";
 import {
 	type IssueCommand,
 	isIssueCommand,
 	parseIssueCommand,
-} from "./parse.js";
+} from "./parse.ts";
 
 const ISSUE_SECTION_CONFIG = {
 	sanctioned: ISSUE_SECTIONS,

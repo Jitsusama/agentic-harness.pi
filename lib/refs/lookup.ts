@@ -8,8 +8,8 @@
  * bodies of prose: it returns every match.
  */
 
-import { get, list, parseAll } from "../internal/refs/registry.js";
-import type { Ref, RefType } from "./types.js";
+import { get, list, parseAll } from "../internal/refs/registry.ts";
+import type { Ref, RefType } from "./types.ts";
 
 /** Look up a registered type by its identifier. */
 export function getRefType(type: string): RefType | undefined {

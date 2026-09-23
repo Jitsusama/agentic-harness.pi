@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { createCommitGuardian } from "../../../extensions/commit-guardian/review.js";
-import { setVerificationFailing } from "../../../lib/internal/verification/signal.js";
+import { createCommitGuardian } from "../../../extensions/commit-guardian/review.ts";
+import { setVerificationFailing } from "../../../lib/internal/verification/signal.ts";
 
 // Derive the pi and context types from the factory so the test never
 // imports the pi package directly (which does not resolve for test

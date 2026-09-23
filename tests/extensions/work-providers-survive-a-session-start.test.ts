@@ -24,8 +24,8 @@ import {
 	WORK_REGISTER_TREE_PROVIDER,
 } from "@jitsusama/agentic-harness.core/work";
 import { describe, expect, it } from "vitest";
-import workIntegration from "../../extensions/work-integration/index.js";
-import { activateWith } from "./support/review-extension.js";
+import workIntegration from "../../extensions/work-integration/index.ts";
+import { activateWith } from "./support/review-extension.ts";
 
 /** A tree provider from a package that knows nothing about this one. */
 const ELSEWHERE = {

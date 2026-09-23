@@ -19,7 +19,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { queueRefusal } from "@jitsusama/agentic-harness.core/review";
 import type { PublishReview } from "@jitsusama/agentic-harness.core/work";
 import { WORK_PUBLISH_CHECK } from "@jitsusama/agentic-harness.core/work";
-import { reviewEngine } from "./engine.js";
+import { reviewEngine } from "./engine.ts";
 
 /**
  * Listen for publishes and object when one would eject a queued change.

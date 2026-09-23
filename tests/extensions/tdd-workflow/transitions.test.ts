@@ -1,11 +1,11 @@
 import type { ContextEvent } from "@earendil-works/pi-coding-agent";
 import type { Loop } from "@jitsusama/agentic-harness.core/tdd";
 import { describe, expect, it } from "vitest";
-import { createTddState } from "../../../extensions/tdd-workflow/state.js";
+import { createTddState } from "../../../extensions/tdd-workflow/state.ts";
 import {
 	buildTddContext,
 	tddContextFilter,
-} from "../../../extensions/tdd-workflow/transitions.js";
+} from "../../../extensions/tdd-workflow/transitions.ts";
 
 // AgentMessage is opaque to consumers, so test fixtures are cast
 // to a context event through the structural shape the filter reads.

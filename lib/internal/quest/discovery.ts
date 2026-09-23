@@ -40,13 +40,13 @@
 import { createHash } from "node:crypto";
 import { type Dirent, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { extname, join } from "node:path";
-import type { QuestDoc, QuestDocumentDoc } from "../../quest/types.js";
+import type { QuestDoc, QuestDocumentDoc } from "../../quest/types.ts";
 import {
 	explainDocumentFrontMatter,
 	parseDocumentFrontMatter,
-} from "./frontmatter.js";
-import { isId, prefixOf } from "./id.js";
-import { extractTitle, parseQuestDoc } from "./quest-doc.js";
+} from "./frontmatter.ts";
+import { isId, prefixOf } from "./id.ts";
+import { extractTitle, parseQuestDoc } from "./quest-doc.ts";
 
 /**
  * Maximum directory depth the walk follows. A quest tree

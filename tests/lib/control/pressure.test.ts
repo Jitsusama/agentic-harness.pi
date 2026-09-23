@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readPressure } from "../../../lib/control/index.js";
+import { readPressure } from "../../../lib/control/index.ts";
 
 describe("reading pressure across the three bands", () => {
 	it("reads calm when every input is comfortably inside its band", () => {

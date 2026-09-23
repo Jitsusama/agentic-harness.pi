@@ -11,7 +11,7 @@
  * thrash.
  */
 
-import { count } from "../ui/count.js";
+import { count } from "../ui/count.ts";
 
 /** One error-severity diagnostic on a touched file. */
 export interface FileError {

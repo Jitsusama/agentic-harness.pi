@@ -20,7 +20,7 @@ import {
 	renderDiff,
 	renderMarkdown,
 	view,
-} from "../../lib/ui/index.js";
+} from "../../lib/ui/index.ts";
 
 /** Content type for explicit rendering. */
 type ContentType = "markdown" | "diff" | "code";

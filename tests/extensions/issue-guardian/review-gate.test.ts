@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createIssueGuardian } from "../../../extensions/issue-guardian/review.js";
+import { createIssueGuardian } from "../../../extensions/issue-guardian/review.ts";
 
 // Derive the pi and context types from the factory so the test never
 // imports the pi package directly (which does not resolve for test

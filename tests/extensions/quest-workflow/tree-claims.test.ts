@@ -17,7 +17,7 @@ import {
 	WORK_TREE_CLAIMS,
 } from "@jitsusama/agentic-harness.core/work";
 import { describe, expect, it } from "vitest";
-import { answerTreeClaims } from "../../../extensions/quest-workflow/claims.js";
+import { answerTreeClaims } from "../../../extensions/quest-workflow/claims.ts";
 
 /** Just enough of pi's bus for a listener to be reached over it. */
 function bus() {

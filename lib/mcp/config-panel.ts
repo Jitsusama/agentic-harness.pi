@@ -2,7 +2,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	promptToggleList,
 	type ToggleSection,
-} from "../ui/prompt-toggle-list.js";
+} from "../ui/prompt-toggle-list.ts";
 
 /** The settings surface for a server, as titled sections of toggle rows. Server-agnostic: all data is injected. */
 export interface SurfaceConfigPanelInput {

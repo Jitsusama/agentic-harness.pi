@@ -26,8 +26,8 @@ import { randomUUID } from "node:crypto";
 import { rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { whyUnusableClock, whyUnusableClocks } from "../clock/index.js";
-import type { ThinkingLevel } from "../thinking/index.js";
+import { whyUnusableClock, whyUnusableClocks } from "../clock/index.ts";
+import type { ThinkingLevel } from "../thinking/index.ts";
 // Type-only, and erased, so the pairing with artifacts.ts importing
 // ReviewerRunArtifacts back out of here is not a runtime cycle. The
 // state belongs beside the store that writes it and the result that
@@ -35,18 +35,18 @@ import type { ThinkingLevel } from "../thinking/index.js";
 import {
 	ReviewerArtifactsStore,
 	type ReviewerTerminalState,
-} from "./artifacts.js";
-import { getSubagentDefaults } from "./defaults.js";
-import { checkSubagentRuntime, detectStaleInstallInStderr } from "./health.js";
+} from "./artifacts.ts";
+import { getSubagentDefaults } from "./defaults.ts";
+import { checkSubagentRuntime, detectStaleInstallInStderr } from "./health.ts";
 import {
 	classifyReviewerError,
 	describeReviewerError,
 	type ReviewerError,
-} from "./reviewer-error.js";
+} from "./reviewer-error.ts";
 import { JOURNAL_TOOL_NAME } from "./runpi/journal.mjs";
-import type { StartedPi, StartPi } from "./runpi/supervisor.js";
+import type { StartedPi, StartPi } from "./runpi/supervisor.ts";
 
-export type { ReviewerError } from "./reviewer-error.js";
+export type { ReviewerError } from "./reviewer-error.ts";
 
 /**
  * Synthetic exit code used when `runReviewer` short-
@@ -123,7 +123,7 @@ function validateTimeoutPair(
 	if (why !== undefined) throw new Error(`Invalid timeout pair: ${why}`);
 }
 
-import { ReviewerStreamParser } from "./stream.js";
+import { ReviewerStreamParser } from "./stream.ts";
 
 function dedupePaths(paths: readonly string[]): string[] {
 	const seen = new Set<string>();
@@ -179,7 +179,7 @@ export interface ReviewerRunArtifacts {
 	readonly sessionPath?: string;
 }
 
-export { extractUsageFromPiStream } from "./stream.js";
+export { extractUsageFromPiStream } from "./stream.ts";
 
 /**
  * A subagent spec: identity, model, thinking level, tool

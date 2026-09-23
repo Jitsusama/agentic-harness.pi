@@ -22,8 +22,8 @@ import {
 	answerFromReviewer,
 	keepAnswer,
 	reviewerRunner,
-} from "../../extensions/review-integration/reviewer.js";
-import type { RunReviewerResult } from "../../lib/subagent/index.js";
+} from "../../extensions/review-integration/reviewer.ts";
+import type { RunReviewerResult } from "../../lib/subagent/index.ts";
 
 /** A runner outcome, with the fields a caller always gets. */
 function ran(over: Partial<RunReviewerResult> = {}): RunReviewerResult {

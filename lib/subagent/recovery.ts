@@ -3,10 +3,10 @@ import { join } from "node:path";
 import type {
 	ReviewerArtifactsStore,
 	ReviewerTerminalState,
-} from "./artifacts.js";
-import type { LeaseRecord, ProcessFacts } from "./lease.js";
-import { sameProcess, supervisorStanding, systemFacts } from "./lease.js";
-import type { ReviewerUsage } from "./subagent.js";
+} from "./artifacts.ts";
+import type { LeaseRecord, ProcessFacts } from "./lease.ts";
+import { sameProcess, supervisorStanding, systemFacts } from "./lease.ts";
+import type { ReviewerUsage } from "./subagent.ts";
 
 /** Compact recovered result for a supervised reviewer job. */
 export interface RecoveredReviewerResult {

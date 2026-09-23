@@ -1,7 +1,7 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { McpContent, McpToolResult } from "./types.js";
+import type { McpContent, McpToolResult } from "./types.ts";
 
 /** A resource that was written to disk. */
 export interface SavedResource {

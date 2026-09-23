@@ -33,7 +33,7 @@ import {
 	ownerStanding,
 	type ProcessFacts,
 } from "@jitsusama/agentic-harness.core/process";
-import { isDirectory, isNotFound, safeSegment } from "./errno.js";
+import { isDirectory, isNotFound, safeSegment } from "./errno.ts";
 
 /** A fleet that was dispatched, as the ledger holds it. */
 export interface FleetRun {

@@ -8,8 +8,8 @@
  * check that turns an unparseable guardable command into a reissue.
  */
 
-import { tokenize } from "../command/index.js";
-import type { GuardianBlock } from "./types.js";
+import { tokenize } from "../command/index.ts";
+import type { GuardianBlock } from "./types.ts";
 
 /**
  * Block a command whose shape is outside the supported grammar,

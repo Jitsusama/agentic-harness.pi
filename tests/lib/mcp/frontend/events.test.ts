@@ -5,8 +5,8 @@ import {
 	isFrontEndProvider,
 	MCP_UNREGISTER_FRONTEND,
 	provideFrontEnd,
-} from "../../../../lib/mcp/frontend/events.js";
-import type { FrontEndProvider } from "../../../../lib/mcp/frontend/types.js";
+} from "../../../../lib/mcp/frontend/events.ts";
+import type { FrontEndProvider } from "../../../../lib/mcp/frontend/types.ts";
 
 /** A minimal in-memory EventBus for driving the wiring. */
 function fakeBus(): EventBus {

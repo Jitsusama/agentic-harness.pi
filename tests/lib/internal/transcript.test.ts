@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { entriesToTurns } from "../../../lib/internal/transcript.js";
+import { entriesToTurns } from "../../../lib/internal/transcript.ts";
 
 describe("entriesToTurns", () => {
 	it("keeps user and assistant messages with text", () => {

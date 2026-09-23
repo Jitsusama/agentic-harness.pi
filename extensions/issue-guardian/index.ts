@@ -6,8 +6,8 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { registerGuardian } from "../../lib/guardian/register.js";
-import { createIssueGuardian } from "./review.js";
+import { registerGuardian } from "../../lib/guardian/register.ts";
+import { createIssueGuardian } from "./review.ts";
 
 export default function issueGuardianExtension(pi: ExtensionAPI) {
 	registerGuardian(pi, createIssueGuardian(pi), {

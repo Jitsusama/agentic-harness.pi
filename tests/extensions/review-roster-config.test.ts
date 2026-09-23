@@ -15,8 +15,8 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { rosterFromConfig } from "../../extensions/review-integration/tools/ask.js";
-import { loadPackageConfig } from "../../lib/internal/config/loader.js";
+import { rosterFromConfig } from "../../extensions/review-integration/tools/ask.ts";
+import { loadPackageConfig } from "../../lib/internal/config/loader.ts";
 
 /** A config file holding one roster, written where the loader reads. */
 async function configHolding(sections: unknown): Promise<string> {

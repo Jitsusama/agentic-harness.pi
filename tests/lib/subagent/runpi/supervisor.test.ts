@@ -12,13 +12,13 @@ import { join } from "node:path";
 import type { Readable, Writable } from "node:stream";
 import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
-import { ReviewerArtifactsStore } from "../../../../lib/subagent/artifacts.js";
+import { ReviewerArtifactsStore } from "../../../../lib/subagent/artifacts.ts";
 import { STDIO_GRACE_MS } from "../../../../lib/subagent/runpi/grace.mjs";
 import {
 	createSupervisorRunPi as createRealSupervisorRunPi,
 	parentGraceMs,
-} from "../../../../lib/subagent/runpi/supervisor.js";
-import type { RunPiResult } from "../../../../lib/subagent/subagent.js";
+} from "../../../../lib/subagent/runpi/supervisor.ts";
+import type { RunPiResult } from "../../../../lib/subagent/subagent.ts";
 
 // Every test here spawns the real node supervisor, sometimes two
 // process levels deep. Under parallel suite load the OS can take tens

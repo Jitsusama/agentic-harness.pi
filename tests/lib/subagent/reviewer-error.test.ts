@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyReviewerError } from "../../../lib/subagent/reviewer-error.js";
+import { classifyReviewerError } from "../../../lib/subagent/reviewer-error.ts";
 
 // A reviewer's final turn can die for two very different
 // reasons. A dropped or reset stream, a timeout or a 5xx is

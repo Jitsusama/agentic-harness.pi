@@ -16,11 +16,11 @@ export {
 	parseRef,
 	urlForRef,
 	whyRefHasNoUrl,
-} from "./lookup.js";
+} from "./lookup.ts";
 export {
 	clearRefTypes,
 	registerBuiltinRefTypes,
 	registerRefType,
 	unregisterRefType,
-} from "./register.js";
-export type { Ref, RefType } from "./types.js";
+} from "./register.ts";
+export type { Ref, RefType } from "./types.ts";

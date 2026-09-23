@@ -3,8 +3,8 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ReviewerArtifactsStore } from "../../../../lib/subagent/artifacts.js";
-import { createSupervisorStartPi } from "../../../../lib/subagent/runpi/supervisor.js";
+import { ReviewerArtifactsStore } from "../../../../lib/subagent/artifacts.ts";
+import { createSupervisorStartPi } from "../../../../lib/subagent/runpi/supervisor.ts";
 
 // Real processes, so give the operating system room to schedule them
 // under a saturated pool. Nothing here waits on work: the point of a

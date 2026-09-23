@@ -22,15 +22,15 @@ import {
 	type SlackUser,
 } from "@jitsusama/agentic-harness.core/slack";
 import { Type } from "@sinclair/typebox";
-import { sessionGateDeps } from "../../lib/internal/gate/session-deps.js";
-import { getLastEntry } from "../../lib/internal/state.js";
-import { ensureAuthenticated } from "../../lib/slack/auth/ensure-auth.js";
-import { count } from "../../lib/ui/count.js";
-import { drawInto } from "../../lib/ui/index.js";
-import { handleSlackAuthCommand } from "./auth-command.js";
-import { identityContext } from "./context.js";
-import { routeAction } from "./router.js";
-import { createSessionState, type SlackSessionState } from "./state.js";
+import { sessionGateDeps } from "../../lib/internal/gate/session-deps.ts";
+import { getLastEntry } from "../../lib/internal/state.ts";
+import { ensureAuthenticated } from "../../lib/slack/auth/ensure-auth.ts";
+import { count } from "../../lib/ui/count.ts";
+import { drawInto } from "../../lib/ui/index.ts";
+import { handleSlackAuthCommand } from "./auth-command.ts";
+import { identityContext } from "./context.ts";
+import { routeAction } from "./router.ts";
+import { createSessionState, type SlackSessionState } from "./state.ts";
 
 /** Lightweight shapes for renderResult previews. */
 interface MessagePreview {

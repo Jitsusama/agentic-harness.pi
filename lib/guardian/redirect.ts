@@ -4,7 +4,7 @@
  * user steers toward a different approach.
  */
 
-import { formatRedirectReason } from "../ui/redirect.js";
+import { formatRedirectReason } from "../ui/redirect.ts";
 
 /**
  * Format a redirect as a guardian block result.

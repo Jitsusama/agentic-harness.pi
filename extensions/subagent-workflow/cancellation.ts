@@ -15,7 +15,7 @@
  * into the library.
  */
 
-import type { SubagentSpec } from "../../lib/subagent/subagent.js";
+import type { SubagentSpec } from "../../lib/subagent/subagent.ts";
 
 /** Error thrown when the user cancels a subagent subprocess. */
 export class SubagentCancelledError extends Error {

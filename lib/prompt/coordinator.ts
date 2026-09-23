@@ -11,7 +11,7 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { processGlobal } from "../internal/process-global.js";
+import { processGlobal } from "../internal/process-global.ts";
 
 /** A source of resident system-prompt text, ordered against its peers. */
 export interface PromptContributor {

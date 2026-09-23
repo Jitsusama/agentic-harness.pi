@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { digestFleetRuns } from "../../extensions/subagent-workflow/digests.js";
+import { digestFleetRuns } from "../../extensions/subagent-workflow/digests.ts";
 
 const turn = (total: number, text = "answer") =>
 	JSON.stringify({

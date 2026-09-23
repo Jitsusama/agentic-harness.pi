@@ -6,34 +6,34 @@
  * the tool only dispatches.
  */
 
-import { sessionsDir } from "../../lib/internal/paths.js";
+import { sessionsDir } from "../../lib/internal/paths.ts";
 import {
 	discoverQuests,
 	type QuestDocumentEntry,
 	type QuestEntry,
 	type QuestIndex,
-} from "../../lib/internal/quest/discovery.js";
+} from "../../lib/internal/quest/discovery.ts";
 import {
 	type SessionSummary,
 	summariseSessions,
-} from "../../lib/internal/quest/reopen.js";
+} from "../../lib/internal/quest/reopen.ts";
 import {
 	activityFromIndex,
 	deriveLiveness,
 	indexSessionFiles,
 	questLastActivity,
 	type SessionLiveness,
-} from "../../lib/internal/quest/session-liveness.js";
-import { authoritativeQuestFromLog } from "../../lib/internal/quest/session-ownership.js";
+} from "../../lib/internal/quest/session-liveness.ts";
+import { authoritativeQuestFromLog } from "../../lib/internal/quest/session-ownership.ts";
 import {
 	lastOpenAt,
 	type SessionRecord,
-} from "../../lib/internal/quest/session-registry.js";
+} from "../../lib/internal/quest/session-registry.ts";
 import {
 	getResolutionFallback,
 	type Identity,
 	resolveIdentity,
-} from "../../lib/people/index.js";
+} from "../../lib/people/index.ts";
 import {
 	type CastEntry,
 	extractCast,
@@ -41,16 +41,16 @@ import {
 	extractSectionParagraph,
 	type QuestFrontMatter,
 	type QuestSession,
-} from "../../lib/quest/index.js";
-import { parseRef, urlForRef, whyRefHasNoUrl } from "../../lib/refs/index.js";
-import { buildSessionSnapshot } from "./liveness.js";
-import type { RowCast, RowDocument, RowJourney } from "./render-rows.js";
+} from "../../lib/quest/index.ts";
+import { parseRef, urlForRef, whyRefHasNoUrl } from "../../lib/refs/index.ts";
+import { buildSessionSnapshot } from "./liveness.ts";
+import type { RowCast, RowDocument, RowJourney } from "./render-rows.ts";
 import {
 	loadRecords,
 	observeRecords,
 	seedLiveSessions,
-} from "./session-registry.js";
-import type { QuestState } from "./state.js";
+} from "./session-registry.ts";
+import type { QuestState } from "./state.ts";
 
 export interface FindParams {
 	query?: string;

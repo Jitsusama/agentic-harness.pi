@@ -21,9 +21,9 @@ import {
 	registerReviewProvider,
 } from "@jitsusama/agentic-harness.core/review";
 import { afterEach, describe, expect, it } from "vitest";
-import type { PrCommand } from "../../../extensions/pr-guardian/parse.js";
-import { createPrGuardian } from "../../../extensions/pr-guardian/review.js";
-import { stubProvider } from "../../support/stub-provider.js";
+import type { PrCommand } from "../../../extensions/pr-guardian/parse.ts";
+import { createPrGuardian } from "../../../extensions/pr-guardian/review.ts";
+import { stubProvider } from "../../support/stub-provider.ts";
 
 const cleanBody = [
 	"### 🌐 Situation",

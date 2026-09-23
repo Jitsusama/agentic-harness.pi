@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { fromScript } from "../../../../lib/subagent/runpi/fresh.js";
+import { fromScript } from "../../../../lib/subagent/runpi/fresh.ts";
 
 describe("a value read out of a script module", () => {
 	it("comes back as it is when it is there", () => {

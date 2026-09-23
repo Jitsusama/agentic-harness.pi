@@ -37,12 +37,12 @@ import {
 	answerLeftBehind,
 	archivedAnswer,
 	heldByLiveSupervisor,
-} from "../../extensions/review-integration/reviewer.js";
-import type { ProcessFacts } from "../../lib/subagent/index.js";
+} from "../../extensions/review-integration/reviewer.ts";
+import type { ProcessFacts } from "../../lib/subagent/index.ts";
 import {
 	ReviewerArtifactsStore,
 	WRAP_UP_SUFFIX,
-} from "../../lib/subagent/index.js";
+} from "../../lib/subagent/index.ts";
 
 let root: string;
 

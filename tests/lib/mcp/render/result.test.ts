@@ -1,6 +1,6 @@
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import { RESULT_VIEW_KEY } from "../../../../lib/mcp/json-summary.js";
+import { RESULT_VIEW_KEY } from "../../../../lib/mcp/json-summary.ts";
 import {
 	CANCELLED_TEXT,
 	classifyResult,
@@ -8,7 +8,7 @@ import {
 	formatBytes,
 	resultText,
 	resultViewOf,
-} from "../../../../lib/mcp/render/result.js";
+} from "../../../../lib/mcp/render/result.ts";
 
 function textResult(...texts: string[]): AgentToolResult<unknown> {
 	return {

@@ -2,8 +2,8 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ReviewerArtifactsStore } from "../../../lib/subagent/artifacts.js";
-import { recoverReviewerRuns } from "../../../lib/subagent/recovery.js";
+import { ReviewerArtifactsStore } from "../../../lib/subagent/artifacts.ts";
+import { recoverReviewerRuns } from "../../../lib/subagent/recovery.ts";
 
 async function tempStore(): Promise<ReviewerArtifactsStore> {
 	return new ReviewerArtifactsStore(

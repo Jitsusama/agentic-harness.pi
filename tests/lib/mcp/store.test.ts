@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	createResultStore,
 	HandleExpiredError,
-} from "../../../lib/mcp/store.js";
+} from "../../../lib/mcp/store.ts";
 
 let dir: string;
 beforeEach(() => {

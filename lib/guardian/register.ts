@@ -12,10 +12,10 @@ import {
 	isToolCallEventType,
 	type ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
-import { record, register } from "../internal/guardian/registry.js";
-import { stripHeredocBodies, stripShellData } from "../shell/index.js";
-import { blockIfUnsupported } from "./enforce.js";
-import type { CommandGuardian } from "./types.js";
+import { record, register } from "../internal/guardian/registry.ts";
+import { stripHeredocBodies, stripShellData } from "../shell/index.ts";
+import { blockIfUnsupported } from "./enforce.ts";
+import type { CommandGuardian } from "./types.ts";
 
 /** Options for guardian registration. */
 export interface RegisterGuardianOptions {

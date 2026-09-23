@@ -16,18 +16,18 @@
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, it } from "vitest";
-import { gateLines } from "../../extensions/review-integration/render.js";
+import { gateLines } from "../../extensions/review-integration/render.ts";
 import {
 	closePanel,
 	editPanel,
 	proposePanel,
-} from "../../extensions/review-integration/tools/offer.js";
-import { primaryPanelFor } from "../../extensions/review-integration/tools/publish-gate.js";
+} from "../../extensions/review-integration/tools/offer.ts";
+import { primaryPanelFor } from "../../extensions/review-integration/tools/publish-gate.ts";
 import {
 	entityGateLines,
 	type ReviewableEntity,
-} from "../../lib/internal/guardian/review-entity.js";
-import { fakeTheme } from "../lib/ui/fake-theme.js";
+} from "../../lib/internal/guardian/review-entity.ts";
+import { fakeTheme } from "../lib/ui/fake-theme.ts";
 
 const WIDTHS = [60, 80, 120, 200];
 

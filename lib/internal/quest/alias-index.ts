@@ -7,8 +7,8 @@
  * propose loading instead of creating a duplicate.
  */
 
-import type { QuestAlias } from "../../quest/types.js";
-import type { QuestIndex } from "./discovery.js";
+import type { QuestAlias } from "../../quest/types.ts";
+import type { QuestIndex } from "./discovery.ts";
 
 /**
  * Format a `{type, value}` alias as a flat lookup key. The type is

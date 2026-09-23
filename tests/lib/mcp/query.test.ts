@@ -2,9 +2,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { queryStoredJson } from "../../../lib/mcp/query.js";
-import { createResultStore } from "../../../lib/mcp/store.js";
-import type { McpContent } from "../../../lib/mcp/types.js";
+import { queryStoredJson } from "../../../lib/mcp/query.ts";
+import { createResultStore } from "../../../lib/mcp/store.ts";
+import type { McpContent } from "../../../lib/mcp/types.ts";
 
 let dir: string;
 beforeEach(() => {

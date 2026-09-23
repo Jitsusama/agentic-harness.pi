@@ -49,17 +49,17 @@ import {
 	type WaitCondition,
 } from "@jitsusama/agentic-harness.core/web/wait";
 import { Type } from "@sinclair/typebox";
-import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
-import { renderBrowserCall, renderBrowserResult } from "./render.js";
-import type { BrowserDetails } from "./result.js";
+import { DEFAULT_SESSION, type SessionRegistry } from "./registry.ts";
+import { renderBrowserCall, renderBrowserResult } from "./render.ts";
+import type { BrowserDetails } from "./result.ts";
 import {
 	answer,
 	chooseSession,
 	missingSession,
 	refusal,
 	sessionInPlay,
-} from "./result.js";
-import { settledPageView } from "./see.js";
+} from "./result.ts";
+import { settledPageView } from "./see.ts";
 
 const parameters = Type.Object({
 	kind: Type.Optional(

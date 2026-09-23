@@ -20,11 +20,11 @@ import {
 	type CommandGuardian,
 	formatRedirectBlock,
 	type GuardianResult,
-} from "../../lib/guardian/index.js";
-import { sessionGateDeps } from "../../lib/internal/gate/session-deps.js";
-import { isVerificationFailing } from "../../lib/internal/verification/signal.js";
-import { promptSingle } from "../../lib/ui/index.js";
-import { extractMessage, isCommitCommand } from "./parse.js";
+} from "../../lib/guardian/index.ts";
+import { sessionGateDeps } from "../../lib/internal/gate/session-deps.ts";
+import { isVerificationFailing } from "../../lib/internal/verification/signal.ts";
+import { promptSingle } from "../../lib/ui/index.ts";
+import { extractMessage, isCommitCommand } from "./parse.ts";
 
 const COMMIT_ACTIONS = [{ key: "r", label: "Reject" }];
 

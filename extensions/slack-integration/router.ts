@@ -57,9 +57,9 @@ import {
 	type ToolContent,
 	type ToolResult,
 } from "@jitsusama/agentic-harness.core/slack/types";
-import type { GateDeps } from "../../lib/gate/index.js";
-import { count, verb } from "../../lib/ui/count.js";
-import { boundedAnswer } from "./bounded.js";
+import type { GateDeps } from "../../lib/gate/index.ts";
+import { count, verb } from "../../lib/ui/count.ts";
+import { boundedAnswer } from "./bounded.ts";
 import {
 	confirmEditMessage,
 	confirmReaction,
@@ -70,7 +70,7 @@ import {
 	type FileInfo,
 	type TableParam,
 	type ThreadMessage,
-} from "./confirmation.js";
+} from "./confirmation.ts";
 
 /** Handler function that processes a Slack action. */
 type ActionHandler = (

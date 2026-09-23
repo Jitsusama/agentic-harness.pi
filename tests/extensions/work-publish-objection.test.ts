@@ -9,7 +9,7 @@
 
 import { WORK_PUBLISH_CHECK } from "@jitsusama/agentic-harness.core/work";
 import { describe, expect, it, vi } from "vitest";
-import { objectionsTo } from "../../extensions/work-integration/broker.js";
+import { objectionsTo } from "../../extensions/work-integration/broker.ts";
 
 const INTENT = {
 	repoKey: "github:Jitsusama/agentic-harness.pi",

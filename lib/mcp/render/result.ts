@@ -4,7 +4,7 @@ import type {
 	ToolRenderResultOptions,
 } from "@earendil-works/pi-coding-agent";
 import { type Component, Text } from "@earendil-works/pi-tui";
-import { RESULT_VIEW_KEY, type ResultView } from "../json-summary.js";
+import { RESULT_VIEW_KEY, type ResultView } from "../json-summary.ts";
 
 /** The slice of pi's ToolRenderContext the default result renderer reads. */
 interface ResultRenderContext {

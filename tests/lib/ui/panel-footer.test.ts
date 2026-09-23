@@ -14,8 +14,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { renderFooter } from "../../../lib/ui/panel-layout.js";
-import { fakeTheme } from "./fake-theme.js";
+import { renderFooter } from "../../../lib/ui/panel-layout.ts";
+import { fakeTheme } from "./fake-theme.ts";
 
 /**
  * The footer as one plain string, with the theme's markers taken out.

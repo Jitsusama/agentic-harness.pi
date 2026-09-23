@@ -14,7 +14,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { proposingElsewhere } from "../../extensions/review-integration/tools/offer.js";
+import { proposingElsewhere } from "../../extensions/review-integration/tools/offer.ts";
 
 /** A pi whose `exec` answers one origin URL, or fails. */
 function inCheckout(origin: string | undefined) {

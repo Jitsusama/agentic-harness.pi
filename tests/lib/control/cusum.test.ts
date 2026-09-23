@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeBaseline, cusum } from "../../../lib/control/index.js";
+import { computeBaseline, cusum } from "../../../lib/control/index.ts";
 
 describe("computing a frozen baseline", () => {
 	it("reads the mean and population standard deviation of a reference series", () => {

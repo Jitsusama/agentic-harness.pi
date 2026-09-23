@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { firstText } from "../../../lib/ui/tool-result.js";
+import { firstText } from "../../../lib/ui/tool-result.ts";
 
 describe("the first thing a result says", () => {
 	it("reads the text of a text block", () => {

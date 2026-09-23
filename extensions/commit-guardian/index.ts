@@ -7,9 +7,9 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { registerGuardian } from "../../lib/guardian/register.js";
-import { isGitBypassed } from "../../lib/internal/git/bypass.js";
-import { createCommitGuardian } from "./review.js";
+import { registerGuardian } from "../../lib/guardian/register.ts";
+import { isGitBypassed } from "../../lib/internal/git/bypass.ts";
+import { createCommitGuardian } from "./review.ts";
 
 export default function commitGuardianExtension(pi: ExtensionAPI) {
 	registerGuardian(pi, createCommitGuardian(pi), {

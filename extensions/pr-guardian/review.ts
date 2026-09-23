@@ -16,13 +16,13 @@ import { PR_SECTIONS } from "@jitsusama/agentic-harness.core/sections";
 import type {
 	CommandGuardian,
 	GuardianResult,
-} from "../../lib/guardian/types.js";
-import { sessionGateDeps } from "../../lib/internal/gate/session-deps.js";
+} from "../../lib/guardian/types.ts";
+import { sessionGateDeps } from "../../lib/internal/gate/session-deps.ts";
 import {
 	type EntityReviewConfig,
 	reviewMarkdownEntity,
-} from "../../lib/internal/guardian/review-entity.js";
-import { isPrCommand, type PrCommand, parsePrCommand } from "./parse.js";
+} from "../../lib/internal/guardian/review-entity.ts";
+import { isPrCommand, type PrCommand, parsePrCommand } from "./parse.ts";
 
 const PR_SECTION_CONFIG = {
 	sanctioned: PR_SECTIONS,

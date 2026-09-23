@@ -11,32 +11,32 @@ import {
 	getTreeProvider,
 	resolveTreeProvider,
 } from "@jitsusama/agentic-harness.core/tree";
-import { discoverQuests } from "../../../lib/internal/quest/discovery.js";
-import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter.js";
+import { discoverQuests } from "../../../lib/internal/quest/discovery.ts";
+import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter.ts";
 import {
 	canonicalPath,
 	gitTreeRootOf,
 	isMainWorkingTree,
 	isWithin,
-} from "../../../lib/internal/quest/git-signals.js";
-import { isSealedStatus } from "../../../lib/internal/quest/status.js";
+} from "../../../lib/internal/quest/git-signals.ts";
+import { isSealedStatus } from "../../../lib/internal/quest/status.ts";
 import {
 	addTreeToQuest,
 	listTreesOnQuest,
 	removeTreeFromQuest,
 	setPendingPrune,
-} from "../../../lib/internal/quest/trees.js";
-import type { QuestSession } from "../../../lib/quest/index.js";
-import { count, noun } from "../../../lib/ui/count.js";
-import { displayPath } from "../../../lib/ui/path.js";
-import { appendJourneyEntry, inventoryWorktrees } from "../lifecycle.js";
-import type { QuestState } from "../state.js";
+} from "../../../lib/internal/quest/trees.ts";
+import type { QuestSession } from "../../../lib/quest/index.ts";
+import { count, noun } from "../../../lib/ui/count.ts";
+import { displayPath } from "../../../lib/ui/path.ts";
+import { appendJourneyEntry, inventoryWorktrees } from "../lifecycle.ts";
+import type { QuestState } from "../state.ts";
 import {
 	ok,
 	type QuestResult,
 	type QuestToolParams,
 	refuse,
-} from "./shared.js";
+} from "./shared.ts";
 
 function defaultRepoRoot(_state: QuestState, params: QuestToolParams): string {
 	if (params.cwd) return params.cwd;

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { isInsideWorkTree } from "../../../extensions/convention-context/scope.js";
+import { isInsideWorkTree } from "../../../extensions/convention-context/scope.ts";
 
 type ExecResult = { stdout: string; stderr: string; code: number };
 

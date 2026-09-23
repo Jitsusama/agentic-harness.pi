@@ -1,4 +1,4 @@
-import type { McpTool } from "../types.js";
+import type { McpTool } from "../types.ts";
 
 /** Whether a tool is registered directly, hidden behind progressive helpers, or not registered at all. */
 export type ToolMode = "direct" | "progressive" | "disabled";

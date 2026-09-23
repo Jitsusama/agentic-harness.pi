@@ -8,7 +8,7 @@
  * disk and a change is a thing said about one.
  */
 
-import { displayPath } from "../../lib/ui/index.js";
+import { displayPath } from "../../lib/ui/index.ts";
 
 /** Glyphs for the working layer. */
 export const GLYPH = {

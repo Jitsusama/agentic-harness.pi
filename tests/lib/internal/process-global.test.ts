@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { processGlobal } from "../../../lib/internal/process-global.js";
+import { processGlobal } from "../../../lib/internal/process-global.ts";
 
 describe("processGlobal", () => {
 	it("creates the value once and returns it on later calls", () => {

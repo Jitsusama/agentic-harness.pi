@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { attributeGh } from "../../../extensions/attribution-interceptor/attribution.js";
+import { attributeGh } from "../../../extensions/attribution-interceptor/attribution.ts";
 
 function rewrittenCommand(command: string, entity: "pr" | "issue"): string {
 	const result = attributeGh(command, entity, null);

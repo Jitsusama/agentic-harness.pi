@@ -32,8 +32,8 @@ import {
 	drawInto,
 	type RenderTheme,
 	renderToolCall,
-} from "../../lib/ui/index.js";
-import type { BrowserDetails } from "./result.js";
+} from "../../lib/ui/index.ts";
+import type { BrowserDetails } from "./result.ts";
 
 /**
  * The colouring surface a renderer is handed.

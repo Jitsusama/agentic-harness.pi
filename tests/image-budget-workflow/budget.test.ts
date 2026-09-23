@@ -3,7 +3,7 @@ import {
 	billedTokens,
 	fitToBudget,
 	PIXEL_BUDGET,
-} from "../../extensions/image-budget-workflow/budget.js";
+} from "../../extensions/image-budget-workflow/budget.ts";
 
 describe("billedTokens", () => {
 	it("prices an image by its pixels, not its payload", () => {

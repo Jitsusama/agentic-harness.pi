@@ -6,9 +6,9 @@
  * detect → parse → review pipeline.
  */
 
-export { formatRedirectBlock } from "./redirect.js";
+export { formatRedirectBlock } from "./redirect.ts";
 export {
 	type RegisterGuardianOptions,
 	registerGuardian,
-} from "./register.js";
-export { ALLOW, type CommandGuardian, type GuardianResult } from "./types.js";
+} from "./register.ts";
+export { ALLOW, type CommandGuardian, type GuardianResult } from "./types.ts";

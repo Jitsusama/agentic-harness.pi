@@ -37,14 +37,14 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { extname, join } from "node:path";
-import { dataDir } from "../lib/internal/paths.js";
-import { mintId } from "../lib/internal/quest/id.js";
-import { scaffoldQuestReadme } from "../lib/internal/quest/scaffold.js";
+import { dataDir } from "../lib/internal/paths.ts";
+import { mintId } from "../lib/internal/quest/id.ts";
+import { scaffoldQuestReadme } from "../lib/internal/quest/scaffold.ts";
 import type {
 	QuestAlias,
 	QuestFrontMatter,
 	QuestKind,
-} from "../lib/quest/types.js";
+} from "../lib/quest/types.ts";
 
 const DRY_RUN = process.argv.includes("--dry-run");
 const PROJECTS_ROOT = join(homedir(), "src/localhost/documents/projects");

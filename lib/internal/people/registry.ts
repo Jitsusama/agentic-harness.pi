@@ -5,8 +5,8 @@
  * `createGlobalSymbolRegistry` helper.
  */
 
-import type { HandleType } from "../../people/types.js";
-import { createGlobalSymbolRegistry } from "../registry/global-symbol-registry.js";
+import type { HandleType } from "../../people/types.ts";
+import { createGlobalSymbolRegistry } from "../registry/global-symbol-registry.ts";
 
 const registry = createGlobalSymbolRegistry<HandleType>({
 	slot: "pi:agentic-harness:people-handle-types",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compactionPays } from "../../../lib/compaction/index.js";
+import { compactionPays } from "../../../lib/compaction/index.ts";
 
 /** Opus-shaped prices per token under one-hour retention. */
 const PRICES = { readPrice: 0.5, inputPrice: 5, writePrice: 10 };

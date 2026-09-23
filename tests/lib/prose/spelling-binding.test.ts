@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { SPELLING_PAIRS } from "../../../lib/prose/detect.js";
+import { SPELLING_PAIRS } from "../../../lib/prose/detect.ts";
 
 /**
  * Read the "Words the Gate Flags" table from the prose-standard

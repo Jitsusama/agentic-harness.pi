@@ -26,12 +26,12 @@ import { utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import subagentWorkflow from "../../../extensions/subagent-workflow/index.js";
-import { createFleetLedger } from "../../../lib/subagent/fleet.js";
-import { ReviewerArtifactsStore } from "../../../lib/subagent/index.js";
-import { systemFacts } from "../../../lib/subagent/lease.js";
-import { noSuchProcess } from "../../support/processes.js";
-import { activateWith } from "../support/review-extension.js";
+import subagentWorkflow from "../../../extensions/subagent-workflow/index.ts";
+import { createFleetLedger } from "../../../lib/subagent/fleet.ts";
+import { ReviewerArtifactsStore } from "../../../lib/subagent/index.ts";
+import { systemFacts } from "../../../lib/subagent/lease.ts";
+import { noSuchProcess } from "../../support/processes.ts";
+import { activateWith } from "../support/review-extension.ts";
 
 let root: string;
 let said: string[];

@@ -12,14 +12,14 @@
  *    back to printing instructions, or refuse).
  */
 
-import { get, list } from "../internal/terminal/registry.js";
+import { get, list } from "../internal/terminal/registry.ts";
 import type {
 	TerminalDriver,
 	TerminalLivenessCapability,
 	TerminalRequest,
 	TerminalSessionHandle,
 	TerminalTypeCapability,
-} from "./types.js";
+} from "./types.ts";
 
 /** Look up a driver by id, or `undefined`. */
 export function getTerminalDriver(id: string): TerminalDriver | undefined {

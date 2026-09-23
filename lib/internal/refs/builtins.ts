@@ -28,7 +28,7 @@
  * thread parent; a URL without is a `slack-message`.
  */
 
-import type { RefType } from "../../refs/types.js";
+import type { RefType } from "../../refs/types.ts";
 
 const GITHUB_URL_BASE = "https://github.com";
 

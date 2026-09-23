@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { alignmentNote } from "../../extensions/work-integration/tools/stack.js";
+import { alignmentNote } from "../../extensions/work-integration/tools/stack.ts";
 
 describe("the note after a shape change", () => {
 	it("names what is out of step, rather than warning in general", () => {

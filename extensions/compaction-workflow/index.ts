@@ -39,8 +39,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	compactionHistory,
 	compactionPays,
-} from "../../lib/compaction/index.js";
-import { cachePrices } from "../../lib/internal/cache-prices.js";
+} from "../../lib/compaction/index.ts";
+import { cachePrices } from "../../lib/internal/cache-prices.ts";
 
 /**
  * Never compact a context smaller than this. At 250k the replay cost

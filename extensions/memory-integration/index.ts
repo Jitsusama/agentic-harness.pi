@@ -31,8 +31,8 @@ import {
 	memoryDbPath,
 	openMemoryStore,
 	resolveScope,
-} from "../../lib/memory/index.js";
-import { registerPromptContributor } from "../../lib/prompt/index.js";
+} from "../../lib/memory/index.ts";
+import { registerPromptContributor } from "../../lib/prompt/index.ts";
 
 /** Memory recall sits just below the conventions in the resident block. */
 const MEMORY_ORDER = 10;

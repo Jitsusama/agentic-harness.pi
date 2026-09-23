@@ -14,7 +14,7 @@ describe("test harness", () => {
 	});
 
 	it("loads ESM modules", async () => {
-		const ui = await import("../lib/ui/text-layout.js");
+		const ui = await import("../lib/ui/text-layout.ts");
 		expect(typeof ui.wordWrap).toBe("function");
 	});
 });

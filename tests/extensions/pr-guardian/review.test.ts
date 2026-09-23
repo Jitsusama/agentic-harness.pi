@@ -3,8 +3,8 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import type { PrCommand } from "../../../extensions/pr-guardian/parse.js";
-import { createPrGuardian } from "../../../extensions/pr-guardian/review.js";
+import type { PrCommand } from "../../../extensions/pr-guardian/parse.ts";
+import { createPrGuardian } from "../../../extensions/pr-guardian/review.ts";
 
 /** A fake pi/ctx pair with no UI and an empty signature store. */
 function noUiContext(): { pi: ExtensionAPI; ctx: ExtensionContext } {

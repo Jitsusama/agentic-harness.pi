@@ -20,12 +20,12 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { ReviewerArtifactsStore } from "../../../../lib/subagent/artifacts.js";
+import { ReviewerArtifactsStore } from "../../../../lib/subagent/artifacts.ts";
 import {
 	createSupervisorRunPi,
 	createSupervisorStartPi,
-} from "../../../../lib/subagent/runpi/supervisor.js";
-import { gone, noSuchProcess } from "../../../support/processes.js";
+} from "../../../../lib/subagent/runpi/supervisor.ts";
+import { gone, noSuchProcess } from "../../../support/processes.ts";
 
 // Real processes, doubly nested, on a pool that may be saturated.
 // Nothing here waits on work: the child sleeps and is meant to be

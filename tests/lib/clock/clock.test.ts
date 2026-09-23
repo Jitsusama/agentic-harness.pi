@@ -14,7 +14,7 @@ import {
 	CLOCK_FLOOR_MS,
 	whyUnusableClock,
 	whyUnusableClocks,
-} from "../../../lib/clock/index.js";
+} from "../../../lib/clock/index.ts";
 
 describe("whether one duration can be used", () => {
 	it("says nothing about a duration that can", () => {

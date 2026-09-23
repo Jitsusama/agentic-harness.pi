@@ -20,7 +20,7 @@ import {
 	truncateToWidth,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
-import { GLYPH, type TabStatus } from "./types.js";
+import { GLYPH, type TabStatus } from "./types.ts";
 
 /** Width of ellipsis segment including spacing. */
 const ELLIPSIS_WIDTH = 3;

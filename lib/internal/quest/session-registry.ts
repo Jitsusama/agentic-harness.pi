@@ -8,7 +8,7 @@
  * wiring.
  */
 
-import type { ProcessIdentity } from "./process-liveness.js";
+import type { ProcessIdentity } from "./process-liveness.ts";
 
 /**
  * The terminal surface a session ran in, as recorded.

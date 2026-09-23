@@ -1,4 +1,4 @@
-import type { RoleModel } from "./model.js";
+import type { RoleModel } from "./model.ts";
 
 export interface RoleAssignment {
 	readonly provider: string;

@@ -18,7 +18,7 @@ import {
 	type ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
 import { checkGitCli } from "@jitsusama/agentic-harness.core/git-cli";
-import { isGitBypassed } from "../../lib/internal/git/bypass.js";
+import { isGitBypassed } from "../../lib/internal/git/bypass.ts";
 
 export default function gitCliInterceptor(pi: ExtensionAPI) {
 	pi.on(

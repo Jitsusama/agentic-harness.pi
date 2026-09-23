@@ -31,27 +31,27 @@ import { Type } from "@sinclair/typebox";
 import {
 	getSection,
 	loadPackageConfig,
-} from "../../lib/internal/config/loader.js";
-import { dataDir } from "../../lib/internal/paths.js";
-import { discoverQuests } from "../../lib/internal/quest/discovery.js";
-import { currentInstanceId } from "../../lib/internal/quest/process-liveness.js";
-import { formatRelativeAge } from "../../lib/internal/quest/session-liveness.js";
+} from "../../lib/internal/config/loader.ts";
+import { dataDir } from "../../lib/internal/paths.ts";
+import { discoverQuests } from "../../lib/internal/quest/discovery.ts";
+import { currentInstanceId } from "../../lib/internal/quest/process-liveness.ts";
+import { formatRelativeAge } from "../../lib/internal/quest/session-liveness.ts";
 import {
 	registerBuiltinHandleTypes,
 	registerBuiltinPersonResolvers,
-} from "../../lib/people/index.js";
-import { registerBuiltinUrlFetchers } from "../../lib/quest/index.js";
-import { registerBuiltinRefTypes } from "../../lib/refs/index.js";
-import { registerBuiltinTerminalDrivers } from "../../lib/terminal/index.js";
-import { count, drawInto, firstText } from "../../lib/ui/index.js";
-import { QUEST_ACTIONS } from "./actions.js";
-import { answerTreeClaims } from "./claims.js";
+} from "../../lib/people/index.ts";
+import { registerBuiltinUrlFetchers } from "../../lib/quest/index.ts";
+import { registerBuiltinRefTypes } from "../../lib/refs/index.ts";
+import { registerBuiltinTerminalDrivers } from "../../lib/terminal/index.ts";
+import { count, drawInto, firstText } from "../../lib/ui/index.ts";
+import { QUEST_ACTIONS } from "./actions.ts";
+import { answerTreeClaims } from "./claims.ts";
 import {
 	parseQuestWorkflowConfig,
 	QUEST_WORKFLOW_SLUG,
 	resolveQuestsRoot,
-} from "./config.js";
-import { enforceQuest, isFocusedDocWrite } from "./enforce.js";
+} from "./config.ts";
+import { enforceQuest, isFocusedDocWrite } from "./enforce.ts";
 import {
 	attachCurrentSession,
 	captureSessionIdentity,
@@ -63,15 +63,15 @@ import {
 	refreshLoadedSlice,
 	refreshProgress,
 	resolveStartup,
-} from "./lifecycle.js";
-import { recentSessionHints, showLoaded } from "./lookup.js";
-import { formatQuestList, renderStatus, renderWidget } from "./render.js";
+} from "./lifecycle.ts";
+import { recentSessionHints, showLoaded } from "./lookup.ts";
+import { formatQuestList, renderStatus, renderWidget } from "./render.ts";
 import {
 	collapseListingPreview,
 	collapseText,
 	isListingDetails,
 	renderListingExpanded,
-} from "./render-rows.js";
+} from "./render-rows.ts";
 import {
 	endReasonForShutdown,
 	lostSessionCount,
@@ -79,10 +79,10 @@ import {
 	recordSessionOnQuest,
 	startHeartbeat,
 	stopHeartbeat,
-} from "./session-registry.js";
-import { createQuestState, type QuestState } from "./state.js";
-import { handle, type QuestToolParams } from "./transitions.js";
-import { currentSessionId, isPersistedSession } from "./verbs/shared.js";
+} from "./session-registry.ts";
+import { createQuestState, type QuestState } from "./state.ts";
+import { handle, type QuestToolParams } from "./transitions.ts";
+import { currentSessionId, isPersistedSession } from "./verbs/shared.ts";
 
 const DEFAULT_WIDTH = 80;
 const CALL_PREFIX_WIDTH = 14;

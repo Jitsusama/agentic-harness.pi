@@ -34,7 +34,7 @@ import {
 	type AskRound,
 	trackAskProgress,
 } from "@jitsusama/agentic-harness.core/review";
-import { AGENT_GLYPH } from "../../lib/ui/agent-glyphs.js";
+import { AGENT_GLYPH } from "../../lib/ui/agent-glyphs.ts";
 
 /**
  * The spawned-work set, not the review family, and that is the point. A

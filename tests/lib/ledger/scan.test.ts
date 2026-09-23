@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readTurns } from "../../../lib/ledger/index.js";
+import { readTurns } from "../../../lib/ledger/index.ts";
 
 function assistantLine(
 	id: string,

@@ -43,8 +43,8 @@
 
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, visibleWidth } from "@earendil-works/pi-tui";
-import { wordWrap } from "./text-layout.js";
-import { CONTENT_INDENT, GLYPH } from "./types.js";
+import { wordWrap } from "./text-layout.ts";
+import { CONTENT_INDENT, GLYPH } from "./types.ts";
 
 // -- Types --
 

@@ -6,8 +6,8 @@ import {
 	contentByteSize,
 	DEFAULT_RESULT_CEILING_BYTES,
 	enforceResultCeiling,
-} from "../../../lib/mcp/ceiling.js";
-import type { McpContent, McpToolResult } from "../../../lib/mcp/types.js";
+} from "../../../lib/mcp/ceiling.ts";
+import type { McpContent, McpToolResult } from "../../../lib/mcp/types.ts";
 
 function result(content: McpContent[]): McpToolResult {
 	return { content };

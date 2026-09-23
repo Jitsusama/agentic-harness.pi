@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compactionHistory } from "../../../lib/compaction/index.js";
+import { compactionHistory } from "../../../lib/compaction/index.ts";
 
 function turn(prompt: number) {
 	return {

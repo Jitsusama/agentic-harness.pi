@@ -3,7 +3,7 @@
  */
 
 import { readFile } from "node:fs/promises";
-import { packageConfigPath } from "../paths.js";
+import { packageConfigPath } from "../paths.ts";
 
 /** Configuration version written by a fresh, empty config. */
 const EMPTY_CONFIG: PackageConfig = { version: 1, sections: {} };

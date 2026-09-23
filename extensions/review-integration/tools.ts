@@ -9,9 +9,9 @@
  * of paths.
  */
 
-export { registerAskTool } from "./tools/ask.js";
-export { registerDraftTool } from "./tools/draft.js";
-export { registerOfferTool } from "./tools/offer.js";
-export { registerReviewTool } from "./tools/read.js";
-export { registerSayTool } from "./tools/say.js";
-export { registerSeeTool } from "./tools/see.js";
+export { registerAskTool } from "./tools/ask.ts";
+export { registerDraftTool } from "./tools/draft.ts";
+export { registerOfferTool } from "./tools/offer.ts";
+export { registerReviewTool } from "./tools/read.ts";
+export { registerSayTool } from "./tools/say.ts";
+export { registerSeeTool } from "./tools/see.ts";

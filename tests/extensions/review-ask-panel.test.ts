@@ -19,7 +19,7 @@ import { describe, expect, it } from "vitest";
 import {
 	panelLines,
 	watchRound,
-} from "../../extensions/review-integration/progress.js";
+} from "../../extensions/review-integration/progress.ts";
 
 /**
  * A theme that returns its text, so assertions read as content.

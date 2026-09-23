@@ -14,9 +14,9 @@ import type {
 	QuestAlias,
 	QuestFrontMatter,
 	QuestTree,
-} from "../../quest/types.js";
-import { parseQuestFrontMatter } from "./frontmatter.js";
-import { mutateQuestFrontMatter } from "./mutate.js";
+} from "../../quest/types.ts";
+import { parseQuestFrontMatter } from "./frontmatter.ts";
+import { mutateQuestFrontMatter } from "./mutate.ts";
 
 /** Path to a quest's README. */
 function questReadme(questDir: string): string {

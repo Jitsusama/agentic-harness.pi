@@ -4,6 +4,6 @@
  * premium, primary and light.
  */
 
-export { type ArchaicFinding, findArchaic } from "./archaic.js";
-export { deriveRoles, type RoleAssignment } from "./derive.js";
-export type { RoleModel, RoleModelCost } from "./model.js";
+export { type ArchaicFinding, findArchaic } from "./archaic.ts";
+export { deriveRoles, type RoleAssignment } from "./derive.ts";
+export type { RoleModel, RoleModelCost } from "./model.ts";

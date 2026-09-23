@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { planDemotions } from "../../../lib/demote/index.js";
+import { planDemotions } from "../../../lib/demote/index.ts";
 
 describe("planning a demotion", () => {
 	it("names the tool, the size and a digest a caller can hand back later", () => {

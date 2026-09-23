@@ -13,17 +13,17 @@
  * when they need them. We do not enforce their presence.
  */
 
-import { wrapProse } from "../../prose/wrap.js";
+import { wrapProse } from "../../prose/wrap.ts";
 import type {
 	DocumentFrontMatter,
 	DocumentKind,
 	QuestFrontMatter,
 	QuestKind,
-} from "../../quest/types.js";
+} from "../../quest/types.ts";
 import {
 	serializeDocumentFrontMatter,
 	serializeQuestFrontMatter,
-} from "./frontmatter.js";
+} from "./frontmatter.ts";
 
 /** Inputs for scaffolding a fresh quest README. */
 export interface QuestScaffoldInput {

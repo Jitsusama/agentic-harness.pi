@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { paybackMargin, paybackTest } from "../../../lib/compaction/index.js";
+import { paybackMargin, paybackTest } from "../../../lib/compaction/index.ts";
 
 describe("payback test", () => {
 	it("fires when what compaction saves on re-admission outweighs the summary's own write cost", () => {

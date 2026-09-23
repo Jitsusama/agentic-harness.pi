@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { createSessionRegistry } from "../../../extensions/browser-integration/registry.js";
+import { createSessionRegistry } from "../../../extensions/browser-integration/registry.ts";
 
 describe("what the registry remembers", () => {
 	it("knows nothing about a name never used", () => {

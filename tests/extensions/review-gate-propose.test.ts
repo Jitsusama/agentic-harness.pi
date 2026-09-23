@@ -19,13 +19,13 @@ import {
 	type BodyRenderer,
 	type GatePanel,
 	gateLines,
-} from "../../extensions/review-integration/render.js";
+} from "../../extensions/review-integration/render.ts";
 import {
 	closePanel,
 	editPanel,
 	proposePanel,
-} from "../../extensions/review-integration/tools/offer.js";
-import { fakeTheme } from "../lib/ui/fake-theme.js";
+} from "../../extensions/review-integration/tools/offer.ts";
+import { fakeTheme } from "../lib/ui/fake-theme.ts";
 
 const WIDTH = 72;
 

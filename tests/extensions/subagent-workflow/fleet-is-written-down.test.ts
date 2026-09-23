@@ -14,19 +14,19 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SubagentCancelledError } from "../../../extensions/subagent-workflow/cancellation.js";
+import { SubagentCancelledError } from "../../../extensions/subagent-workflow/cancellation.ts";
 import {
 	createFleetLedger,
 	type FleetRun,
-} from "../../../lib/subagent/fleet.js";
-import { systemFacts } from "../../../lib/subagent/lease.js";
-import type { RunPi } from "../../../lib/subagent/subagent.js";
-import { activateWith } from "../support/review-extension.js";
+} from "../../../lib/subagent/fleet.ts";
+import { systemFacts } from "../../../lib/subagent/lease.ts";
+import type { RunPi } from "../../../lib/subagent/subagent.ts";
+import { activateWith } from "../support/review-extension.ts";
 
 /** What the supervisor would have spawned, had one been wanted. */
 let answer: RunPi;
 
-vi.mock("../../../lib/subagent/runpi/supervisor.js", () => ({
+vi.mock("../../../lib/subagent/runpi/supervisor.ts", () => ({
 	createSupervisorRunPi: () => (input: unknown) => answer(input as never),
 }));
 
@@ -64,7 +64,7 @@ async function dispatchWith(
 	signal: AbortSignal,
 ): Promise<unknown> {
 	const tool = activateWith(
-		(await import("../../../extensions/subagent-workflow/index.js")).default,
+		(await import("../../../extensions/subagent-workflow/index.ts")).default,
 	).definitions.get("subagent");
 	if (tool === undefined) throw new Error("no subagent tool was registered");
 	return await tool.execute(
@@ -79,7 +79,7 @@ async function dispatchWith(
 /** Run one fleet through the tool as pi would. */
 async function dispatch(runId: string): Promise<unknown> {
 	const tool = activateWith(
-		(await import("../../../extensions/subagent-workflow/index.js")).default,
+		(await import("../../../extensions/subagent-workflow/index.ts")).default,
 	).definitions.get("subagent");
 	if (tool === undefined) throw new Error("no subagent tool was registered");
 	return await tool.execute(
@@ -221,7 +221,7 @@ describe("dispatching a fleet", () => {
 		// dispatch, so a release written there holds it forever, and a
 		// fleet that never ran is the least worth keeping there is.
 		const tool = activateWith(
-			(await import("../../../extensions/subagent-workflow/index.js")).default,
+			(await import("../../../extensions/subagent-workflow/index.ts")).default,
 		).definitions.get("subagent");
 		if (tool === undefined) throw new Error("no subagent tool was registered");
 

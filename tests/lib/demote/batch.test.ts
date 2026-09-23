@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { planBatch, type SizedMessage } from "../../../lib/demote/index.js";
+import { planBatch, type SizedMessage } from "../../../lib/demote/index.ts";
 
 const STUB = 100;
 

@@ -20,7 +20,7 @@ import {
 	forgetWorkLayer,
 	treeStandingFor,
 	watchForWorkLayer,
-} from "../../extensions/review-integration/work.js";
+} from "../../extensions/review-integration/work.ts";
 
 const REPO = { key: "github:acme/widgets", localPath: "/src/widgets" };
 const COMMIT = "abcdef0123456789abcdef0123456789abcdef01";

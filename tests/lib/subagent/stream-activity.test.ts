@@ -12,7 +12,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { summarizeStreamActivity } from "../../../lib/subagent/activity.js";
+import { summarizeStreamActivity } from "../../../lib/subagent/activity.ts";
 
 describe("summarizeStreamActivity", () => {
 	it("passes through normalized supervisor activity events", () => {

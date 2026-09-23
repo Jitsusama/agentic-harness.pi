@@ -37,8 +37,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	answerFromReviewer,
 	keepAnswer,
-} from "../../extensions/review-integration/reviewer.js";
-import type { RunReviewerResult } from "../../lib/subagent/index.js";
+} from "../../extensions/review-integration/reviewer.ts";
+import type { RunReviewerResult } from "../../lib/subagent/index.ts";
 
 /** The seven that were asked, named as that round named them. */
 const SEVEN = [

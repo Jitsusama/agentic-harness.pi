@@ -19,11 +19,11 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import type { QuestPriority } from "../../lib/quest/index.js";
-import { suggestAction } from "./actions.js";
-import type { QuestState } from "./state.js";
-import { aliasAdd, aliasRemove } from "./verbs/alias.js";
-import { configReport } from "./verbs/config.js";
+import type { QuestPriority } from "../../lib/quest/index.ts";
+import { suggestAction } from "./actions.ts";
+import type { QuestState } from "./state.ts";
+import { aliasAdd, aliasRemove } from "./verbs/alias.ts";
+import { configReport } from "./verbs/config.ts";
 import {
 	create,
 	focus,
@@ -33,7 +33,7 @@ import {
 	show,
 	unfocus,
 	unload,
-} from "./verbs/lifecycle.js";
+} from "./verbs/lifecycle.ts";
 import {
 	ancestors,
 	expand,
@@ -45,33 +45,33 @@ import {
 	tree,
 	who,
 	workspace,
-} from "./verbs/queries.js";
-import { priorityJump, priorityShift, reorder } from "./verbs/reorder.js";
+} from "./verbs/queries.ts";
+import { priorityJump, priorityShift, reorder } from "./verbs/reorder.ts";
 import {
 	sessionAttach,
 	sessionAudit,
 	sessionDetach,
 	sessionRename,
 	spawn,
-} from "./verbs/session.js";
+} from "./verbs/session.ts";
 import {
 	type QuestResult,
 	type QuestToolParams,
 	refuse,
-} from "./verbs/shared.js";
+} from "./verbs/shared.ts";
 import {
 	concludeOrRetire,
 	reopenQuest,
 	stageTransition,
-} from "./verbs/stage.js";
-import { reparent, undo } from "./verbs/structural.js";
+} from "./verbs/stage.ts";
+import { reparent, undo } from "./verbs/structural.ts";
 import {
 	treeAdd,
 	treeAdopt,
 	treeExpand,
 	treeList,
 	treePrune,
-} from "./verbs/tree-ops.js";
+} from "./verbs/tree-ops.ts";
 
 export type { QuestResult, QuestToolParams };
 

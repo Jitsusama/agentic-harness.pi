@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findArchaic, type RoleModel } from "../../../lib/roles/index.js";
+import { findArchaic, type RoleModel } from "../../../lib/roles/index.ts";
 
 const RATES = { input: 1, output: 1, cacheRead: 1, cacheWrite: 1 };
 

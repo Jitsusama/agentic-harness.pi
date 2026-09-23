@@ -15,7 +15,7 @@ import {
 	BrowserSession,
 	type SessionOptions,
 } from "@jitsusama/agentic-harness.core/web/session";
-import { dataDir } from "../../lib/internal/paths.js";
+import { dataDir } from "../../lib/internal/paths.ts";
 
 /**
  * Where this extension's baselines already live on disk.

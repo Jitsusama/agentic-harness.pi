@@ -22,21 +22,21 @@ import type { ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import {
 	bashWriteTargets,
 	classifyBashWrite,
-} from "../../lib/internal/quest/bash-write.js";
+} from "../../lib/internal/quest/bash-write.ts";
 import {
 	canonicalPath,
 	gitTreeRootOf,
 	isGitignored,
 	isTracked,
 	isWithin,
-} from "../../lib/internal/quest/git-signals.js";
-import { ensureQuestScratchDir } from "../../lib/internal/quest/scratch.js";
-import { listTreesOnQuest } from "../../lib/internal/quest/trees.js";
+} from "../../lib/internal/quest/git-signals.ts";
+import { ensureQuestScratchDir } from "../../lib/internal/quest/scratch.ts";
+import { listTreesOnQuest } from "../../lib/internal/quest/trees.ts";
 import {
 	classifyWrite,
 	type WriteClassification,
-} from "../../lib/internal/quest/write-classifier.js";
-import type { QuestState } from "./state.js";
+} from "../../lib/internal/quest/write-classifier.ts";
+import type { QuestState } from "./state.ts";
 
 function isReadOnly(state: QuestState): boolean {
 	if (state.documentKind !== "plan") return false;

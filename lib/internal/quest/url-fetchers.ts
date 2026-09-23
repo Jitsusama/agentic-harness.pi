@@ -16,12 +16,12 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type { Ref } from "../../refs/index.js";
+import type { Ref } from "../../refs/index.ts";
 import {
 	sanitizeExcerpt,
 	sanitizeHandle,
 	sanitizeSingleLine,
-} from "./sanitize.js";
+} from "./sanitize.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -42,7 +42,7 @@ export interface UrlFetcher {
 	fetch(ref: Ref): Promise<SeedHints | undefined>;
 }
 
-import { createGlobalSymbolRegistry } from "../registry/global-symbol-registry.js";
+import { createGlobalSymbolRegistry } from "../registry/global-symbol-registry.ts";
 
 const registry = createGlobalSymbolRegistry<UrlFetcher>({
 	slot: "pi:agentic-harness:quest-url-fetchers",

@@ -36,15 +36,15 @@ import {
 	tallyReceptions,
 } from "@jitsusama/agentic-harness.core/review";
 import { Type } from "@sinclair/typebox";
-import { count } from "../../../lib/ui/index.js";
-import { decisionDir, findingDir, fixDir, visitDir } from "../engine.js";
+import { count } from "../../../lib/ui/index.ts";
+import { decisionDir, findingDir, fixDir, visitDir } from "../engine.ts";
 import {
 	checksLines,
 	GLYPH,
 	proposalLine,
 	stackLines,
 	threadLines,
-} from "../render.js";
+} from "../render.ts";
 import {
 	type Answer,
 	boundFor,
@@ -58,7 +58,7 @@ import {
 	say,
 	type TargetParams,
 	threadsOf,
-} from "./shared.js";
+} from "./shared.ts";
 
 /** What `review_see` can be asked for. */
 type SeeAction =

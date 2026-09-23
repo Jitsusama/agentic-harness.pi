@@ -24,8 +24,8 @@ import {
 	exchangeCodeForToken,
 } from "@jitsusama/agentic-harness.core/slack/auth/oauth";
 import { waitForOAuthCallback } from "@jitsusama/agentic-harness.core/slack/auth/server";
-import { view } from "../../ui/index.js";
-import { ensureSetup } from "./setup-wizard.js";
+import { view } from "../../ui/index.ts";
+import { ensureSetup } from "./setup-wizard.ts";
 
 /**
  * Ensure the user is authenticated with Slack.

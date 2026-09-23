@@ -9,22 +9,22 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { resolveTreeProvider } from "@jitsusama/agentic-harness.core/tree";
-import { nowYmd } from "../../../lib/internal/quest/dates.js";
-import { discoverQuests } from "../../../lib/internal/quest/discovery.js";
-import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter.js";
-import { isWithin } from "../../../lib/internal/quest/git-signals.js";
-import { mutateQuestFrontMatter } from "../../../lib/internal/quest/mutate.js";
-import { reapQuestScratchDir } from "../../../lib/internal/quest/scratch.js";
-import { isSealedStatus } from "../../../lib/internal/quest/status.js";
+import { nowYmd } from "../../../lib/internal/quest/dates.ts";
+import { discoverQuests } from "../../../lib/internal/quest/discovery.ts";
+import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter.ts";
+import { isWithin } from "../../../lib/internal/quest/git-signals.ts";
+import { mutateQuestFrontMatter } from "../../../lib/internal/quest/mutate.ts";
+import { reapQuestScratchDir } from "../../../lib/internal/quest/scratch.ts";
+import { isSealedStatus } from "../../../lib/internal/quest/status.ts";
 import {
 	type JournalChange,
 	recordStructuralOp,
-} from "../../../lib/internal/quest/structural-journal.js";
+} from "../../../lib/internal/quest/structural-journal.ts";
 import {
 	listTreesOnQuest,
 	removeTreeFromQuest,
 	setPendingPrune,
-} from "../../../lib/internal/quest/trees.js";
+} from "../../../lib/internal/quest/trees.ts";
 import {
 	checkboxProgress,
 	type DocumentFrontMatter,
@@ -32,9 +32,9 @@ import {
 	mintId,
 	type QuestSession,
 	scaffoldDocument,
-} from "../../../lib/quest/index.js";
-import { count, noun, verb } from "../../../lib/ui/count.js";
-import { displayPath } from "../../../lib/ui/path.js";
+} from "../../../lib/quest/index.ts";
+import { count, noun, verb } from "../../../lib/ui/count.ts";
+import { displayPath } from "../../../lib/ui/path.ts";
 import {
 	appendJourneyEntry,
 	createDocument,
@@ -45,18 +45,18 @@ import {
 	setQuestPriorityByDir,
 	stampQuestUpdated,
 	writeDocumentStage,
-} from "../lifecycle.js";
-import { type TransitionAction, transition } from "../machine.js";
-import type { QuestState } from "../state.js";
-import { subdirForDocumentId } from "./queries.js";
+} from "../lifecycle.ts";
+import { type TransitionAction, transition } from "../machine.ts";
+import type { QuestState } from "../state.ts";
+import { subdirForDocumentId } from "./queries.ts";
 import {
 	DOCUMENT_KINDS_SET,
 	ok,
 	type QuestResult,
 	type QuestToolParams,
 	refuse,
-} from "./shared.js";
-import { bulkConcludeOrRetire } from "./structural.js";
+} from "./shared.ts";
+import { bulkConcludeOrRetire } from "./structural.ts";
 
 /**
  * Pin `planId` as the quest's primary plan when no primary

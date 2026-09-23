@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isCommitCommand } from "../../../extensions/commit-guardian/parse.js";
+import { isCommitCommand } from "../../../extensions/commit-guardian/parse.ts";
 
 describe("isCommitCommand", () => {
 	it("detects a plain git commit", () => {

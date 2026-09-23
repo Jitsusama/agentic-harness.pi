@@ -15,7 +15,7 @@ import type {
 	PersonResolver,
 	ResolutionFallback,
 	ResolveOptions,
-} from "../../people/types.js";
+} from "../../people/types.ts";
 
 const REGISTRY_KEY = Symbol.for("pi:person-resolvers");
 

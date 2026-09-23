@@ -1,4 +1,4 @@
-import type { PressureReading } from "./pressure.js";
+import type { PressureReading } from "./pressure.ts";
 
 /**
  * A cheap, deterministic gate on an expensive call, the same shape as

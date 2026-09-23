@@ -12,10 +12,10 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ReviewerArtifactsStore } from "../../../lib/subagent/artifacts.js";
-import { systemFacts } from "../../../lib/subagent/lease.js";
-import type { ReaperDeps } from "../../../lib/subagent/recovery.js";
-import { recoverReviewerRuns } from "../../../lib/subagent/recovery.js";
+import { ReviewerArtifactsStore } from "../../../lib/subagent/artifacts.ts";
+import { systemFacts } from "../../../lib/subagent/lease.ts";
+import type { ReaperDeps } from "../../../lib/subagent/recovery.ts";
+import { recoverReviewerRuns } from "../../../lib/subagent/recovery.ts";
 
 const CHILD = 4242;
 const SPAWNED = 1_000_000;

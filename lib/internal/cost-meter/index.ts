@@ -18,4 +18,4 @@ export {
 	marginalText,
 	medianOf,
 	sessionText,
-} from "./gauge.js";
+} from "./gauge.ts";

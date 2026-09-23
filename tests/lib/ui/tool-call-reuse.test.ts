@@ -17,8 +17,8 @@
 
 import { Text } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
-import { renderToolCall } from "../../../lib/ui/tool-call.js";
-import { fakeTheme } from "./fake-theme.js";
+import { renderToolCall } from "../../../lib/ui/tool-call.ts";
+import { fakeTheme } from "./fake-theme.ts";
 
 const THEME = fakeTheme();
 

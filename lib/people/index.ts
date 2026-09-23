@@ -21,7 +21,7 @@ export {
 	registerBuiltinHandleTypes,
 	registerHandleType,
 	unregisterHandleType,
-} from "./register.js";
+} from "./register.ts";
 export {
 	clearPersonResolvers,
 	getPersonResolver,
@@ -32,7 +32,7 @@ export {
 	resolveIdentity,
 	setResolutionFallback,
 	unregisterPersonResolver,
-} from "./resolve.js";
+} from "./resolve.ts";
 export type {
 	Handle,
 	HandleType,
@@ -40,4 +40,4 @@ export type {
 	PersonResolver,
 	ResolutionFallback,
 	ResolveOptions,
-} from "./types.js";
+} from "./types.ts";

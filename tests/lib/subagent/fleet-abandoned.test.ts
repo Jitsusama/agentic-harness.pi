@@ -14,8 +14,8 @@
  * looks the same either way. It is answered from who was waiting.
  */
 import { describe, expect, it } from "vitest";
-import { abandonedFleets, type FleetRun } from "../../../lib/subagent/fleet.js";
-import type { ProcessFacts } from "../../../lib/subagent/lease.js";
+import { abandonedFleets, type FleetRun } from "../../../lib/subagent/fleet.ts";
+import type { ProcessFacts } from "../../../lib/subagent/lease.ts";
 
 /** A machine that says what these tests need it to say. */
 function machine(

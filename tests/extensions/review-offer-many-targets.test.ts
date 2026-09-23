@@ -23,9 +23,9 @@ import {
 	registerReviewProvider,
 } from "@jitsusama/agentic-harness.core/review";
 import { afterEach, describe, expect, it } from "vitest";
-import { editPanel } from "../../extensions/review-integration/tools/offer.js";
-import { stubProvider } from "../support/stub-provider.js";
-import { activate, HEADLESS, toolNamed } from "./support/review-extension.js";
+import { editPanel } from "../../extensions/review-integration/tools/offer.ts";
+import { stubProvider } from "../support/stub-provider.ts";
+import { activate, HEADLESS, toolNamed } from "./support/review-extension.ts";
 
 const world: RepoLocator = { key: "meteorite:shop/world" };
 

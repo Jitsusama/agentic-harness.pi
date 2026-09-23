@@ -13,15 +13,15 @@
 
 import { type Dirent, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { dataDir, sessionsDir } from "../lib/internal/paths.js";
-import { discoverQuests } from "../lib/internal/quest/discovery.js";
-import { atomicWriteFile } from "../lib/internal/quest/io.js";
+import { dataDir, sessionsDir } from "../lib/internal/paths.ts";
+import { discoverQuests } from "../lib/internal/quest/discovery.ts";
+import { atomicWriteFile } from "../lib/internal/quest/io.ts";
 import {
 	parseQuestFrontMatter,
 	type QuestFrontMatter,
 	type QuestSession,
 	serializeQuestFrontMatter,
-} from "../lib/quest/index.js";
+} from "../lib/quest/index.ts";
 
 /** One session's contribution to a quest, derived from its log. */
 export interface SessionRecord {
