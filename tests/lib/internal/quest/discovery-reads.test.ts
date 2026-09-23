@@ -25,10 +25,15 @@ import {
 
 vi.mock("node:fs", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:fs")>();
-	return { ...actual, readFileSync: vi.fn(actual.readFileSync) };
+	return {
+		...actual,
+		readFileSync: vi.fn(actual.readFileSync),
+		readdirSync: vi.fn(actual.readdirSync),
+	};
 });
 
 const reads = vi.mocked(fs.readFileSync);
+const listings = vi.mocked(fs.readdirSync);
 
 let root: string;
 
@@ -80,6 +85,10 @@ function readsOf(path: string): number {
 	return reads.mock.calls.filter(([p]) => p === path).length;
 }
 
+function listingsOf(path: string): number {
+	return listings.mock.calls.filter(([p]) => p === path).length;
+}
+
 let readmePath: string;
 let planPath: string;
 
@@ -93,6 +102,7 @@ beforeEach(() => {
 	writeSettled(planPath, plan());
 	clearDiscoveryCache();
 	reads.mockClear();
+	listings.mockClear();
 });
 
 afterEach(() => {
@@ -121,6 +131,15 @@ describe("discovery reads", () => {
 		writeSettled(readmePath, readme("paused"));
 		const second = discoverQuests(root);
 		expect(second.index.quests.get(ID)?.doc.frontMatter.status).toBe("paused");
+	});
+
+	it("lists each directory once on a cold walk, and only those that exist", () => {
+		discoverQuests(root);
+		const questDir = join(root, ID);
+		expect(listingsOf(root)).toBe(1);
+		expect(listingsOf(questDir)).toBe(1);
+		expect(listingsOf(join(questDir, "plans"))).toBe(1);
+		expect(listingsOf(join(questDir, "research"))).toBe(0);
 	});
 
 	it("keeps re-reading a file written too recently to trust its stat", () => {
