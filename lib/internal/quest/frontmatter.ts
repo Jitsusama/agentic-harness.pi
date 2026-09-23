@@ -65,24 +65,37 @@ const DOCUMENT_STAGES: DocumentStage[] = [
 ];
 const SESSION_STATUSES: SessionStatus[] = ["active", "detached"];
 
-/** Split a text into the front-matter block (raw YAML) and the body. */
+/**
+ * Split a text into the front-matter block (raw YAML) and the body.
+ *
+ * It walks line boundaries in place rather than splitting the text into
+ * lines, because discovery runs this over every README and document in
+ * the quest tree and the body is usually most of the text.
+ */
 export function splitFrontMatter(
 	text: string,
 ): { fmText: string; body: string } | undefined {
-	const lines = text.split("\n");
-	if (lines[0]?.trim() !== "---") return undefined;
-	let end = -1;
-	for (let i = 1; i < lines.length; i++) {
-		if (lines[i].trim() === "---") {
-			end = i;
-			break;
+	const lineEnd = (start: number): number => {
+		const end = text.indexOf("\n", start);
+		return end === -1 ? text.length : end;
+	};
+	const isFence = (start: number, end: number): boolean =>
+		text.slice(start, end).trim() === "---";
+
+	const openEnd = lineEnd(0);
+	if (!isFence(0, openEnd)) return undefined;
+	const blockStart = openEnd + 1;
+	for (let start = blockStart; start <= text.length; ) {
+		const end = lineEnd(start);
+		if (isFence(start, end)) {
+			const fmText = text.slice(blockStart, Math.max(blockStart, start - 1));
+			let body = text.slice(end + 1);
+			if (body.startsWith("\n")) body = body.slice(1);
+			return { fmText, body };
 		}
+		start = end + 1;
 	}
-	if (end === -1) return undefined;
-	const fmText = lines.slice(1, end).join("\n");
-	let body = lines.slice(end + 1).join("\n");
-	if (body.startsWith("\n")) body = body.slice(1);
-	return { fmText, body };
+	return undefined;
 }
 
 function parseFrontMatterBlock(
