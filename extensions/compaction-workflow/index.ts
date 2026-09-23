@@ -41,6 +41,7 @@ import {
 	compactionPays,
 } from "../../lib/compaction/index.ts";
 import { cachePrices } from "../../lib/internal/cache-prices.ts";
+import { compactionNotice } from "./notice.ts";
 
 /**
  * Never compact a context smaller than this. At 250k the replay cost
@@ -134,11 +135,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		compacting = true;
 		const resume = event.toolResults.length > 0;
 		if (ctx.hasUI) {
-			ctx.ui.notify(
-				`Compacting at ${Math.round(tokens / 1000)}k tokens: pays back ` +
-					`${decision.margin.toFixed(1)}x over the turns to come`,
-				"info",
-			);
+			ctx.ui.notify(compactionNotice(tokens, decision), "info");
 		}
 		ctx.compact({
 			onComplete: () => {

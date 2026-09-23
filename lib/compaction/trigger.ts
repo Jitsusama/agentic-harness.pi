@@ -45,20 +45,35 @@ export interface TriggerInput {
 
 export interface TriggerDecision {
 	readonly fire: boolean;
-	/** Saved over cost. Above one, compacting now pays. */
+	/**
+	 * Saved over cost. Above one, compacting now pays. It reads just past
+	 * one whenever the test fires, since the test fires on the first turn
+	 * it crosses, so it decides but does not explain.
+	 */
 	readonly margin: number;
+	/** What compacting now costs, in the prices' units times tokens. */
+	readonly cost: number;
+	/**
+	 * Turns at this size that earn the cost back: cost over what one
+	 * turn saves by not reading the dropped context. Infinite when
+	 * nothing would be dropped.
+	 */
+	readonly turnsToRepay: number;
 }
 
 /** Whether compacting now pays for itself. */
 export function compactionPays(input: TriggerInput): TriggerDecision {
-	if (input.contextTokens <= input.floorTokens) {
-		return { fire: false, margin: 0 };
-	}
 	const droppable = Math.max(0, input.contextTokens - input.retainedTokens);
-	const saved = droppable * input.readPrice * input.turnsSinceCompaction;
+	const savedPerTurn = droppable * input.readPrice;
 	const cost =
 		input.contextTokens * input.inputPrice +
 		input.retainedTokens * input.writePrice;
+	const turnsToRepay =
+		savedPerTurn > 0 ? cost / savedPerTurn : Number.POSITIVE_INFINITY;
+	if (input.contextTokens <= input.floorTokens) {
+		return { fire: false, margin: 0, cost, turnsToRepay };
+	}
+	const saved = savedPerTurn * input.turnsSinceCompaction;
 	const margin = cost > 0 ? saved / cost : 0;
-	return { fire: margin > 1, margin };
+	return { fire: margin > 1, margin, cost, turnsToRepay };
 }
