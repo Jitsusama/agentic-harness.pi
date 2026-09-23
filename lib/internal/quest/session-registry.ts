@@ -364,6 +364,32 @@ export function wasLost(record: SessionRecord): boolean {
 	return record.endReason === "died" || record.endReason === "signalled";
 }
 
+/**
+ * Sessions closed on purpose within the window, most recent first.
+ *
+ * Restore never reopens these unasked, since a quit is an instruction.
+ * It lists them anyway because the label is not always true: pi calls
+ * a signal a quit, and a session the registry only adopted says
+ * nothing about how it went. A tab that slipped through either way is
+ * then one line away instead of gone. Swaps are left out because their
+ * tab is still on screen, and lost sessions because restore already
+ * offers them.
+ */
+export function recentlyClosed(
+	records: readonly SessionRecord[],
+	window: { now: Date; withinHours: number },
+): SessionRecord[] {
+	const since = window.now.getTime() - window.withinHours * 3_600_000;
+	return records
+		.filter((record) => {
+			if (record.endReason !== "quit" && record.endReason !== "vanished") {
+				return false;
+			}
+			return Date.parse(record.closedAt ?? "") >= since;
+		})
+		.sort(newestClosedFirst);
+}
+
 /** Order closed records by when they closed, most recent first. */
 function newestClosedFirst(a: SessionRecord, b: SessionRecord): number {
 	return (b.closedAt ?? "").localeCompare(a.closedAt ?? "");

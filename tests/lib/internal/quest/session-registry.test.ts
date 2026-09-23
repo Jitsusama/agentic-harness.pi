@@ -7,6 +7,7 @@ import {
 	openRecord,
 	parseSessionRecord,
 	pruneRecords,
+	recentlyClosed,
 	reopenRecord,
 	restorable,
 	restoreRecipe,
@@ -222,6 +223,58 @@ describe("restorable", () => {
 			died("newer", LATER_STILL),
 		]);
 		expect(order.map((r) => r.sessionId)).toEqual(["newer", "older"]);
+	});
+});
+
+describe("recentlyClosed", () => {
+	const WINDOW = { now: LATER_STILL, withinHours: 24 };
+	const ended = (
+		sessionId: string,
+		reason: "quit" | "swapped" | "died" | "vanished",
+		at: Date,
+	) => closeRecord(opened({ sessionId }), reason, at);
+
+	it("lists a session the user quit, in case they want it back", () => {
+		// Restore leaves a quit alone, and pi calls some signals a quit
+		// too, so a tab taken away can still end up here. Showing the
+		// recent ones keeps it one line away rather than lost.
+		const ids = recentlyClosed([ended("sess-quit", "quit", LATER)], WINDOW).map(
+			(r) => r.sessionId,
+		);
+		expect(ids).toEqual(["sess-quit"]);
+	});
+
+	it("lists an adopted session that went, since nobody saw how", () => {
+		const ids = recentlyClosed(
+			[ended("sess-gone", "vanished", LATER)],
+			WINDOW,
+		).map((r) => r.sessionId);
+		expect(ids).toEqual(["sess-gone"]);
+	});
+
+	it("leaves out what restore already offers, and what never closed a tab", () => {
+		const records = [
+			opened({ sessionId: "sess-open" }),
+			ended("sess-died", "died", LATER),
+			markSignalled(opened({ sessionId: "sess-hup" }), LATER),
+			ended("sess-swapped", "swapped", LATER),
+		];
+		expect(recentlyClosed(records, WINDOW)).toEqual([]);
+	});
+
+	it("leaves out a session closed before the window", () => {
+		const longAgo = new Date(LATER_STILL.getTime() - 25 * 3_600_000);
+		expect(
+			recentlyClosed([ended("sess-old", "quit", longAgo)], WINDOW),
+		).toEqual([]);
+	});
+
+	it("puts the most recently closed first", () => {
+		const ids = recentlyClosed(
+			[ended("older", "quit", LATER), ended("newer", "quit", LATER_STILL)],
+			WINDOW,
+		).map((r) => r.sessionId);
+		expect(ids).toEqual(["newer", "older"]);
 	});
 });
 

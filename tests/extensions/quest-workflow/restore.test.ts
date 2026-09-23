@@ -17,7 +17,7 @@ import {
 	type TerminalSessionHandle,
 	type TerminalTypeCapability,
 } from "../../../lib/terminal/index";
-import { createEnvGuard, succeeded } from "./_helpers";
+import { createEnvGuard, refused, succeeded } from "./_helpers";
 
 let tmpRoot: string;
 
@@ -90,6 +90,46 @@ function lostSession(sessionId: string, questId: string) {
 		"died",
 		new Date("2026-07-28T18:30:00.000Z"),
 	);
+}
+
+/** A record for a session its user quit a moment ago. */
+function quitSession(sessionId: string, questId: string, minutesAgo = 5) {
+	const at = new Date(Date.now() - minutesAgo * 60_000);
+	return closeRecord(
+		openRecord({
+			sessionId,
+			instanceId: "inst-quit",
+			cwd: tmpRoot,
+			questId,
+			now: new Date(at.getTime() - 60_000),
+		}),
+		"quit",
+		at,
+	);
+}
+
+/** A terminal driver that records what restore typed, and where. */
+function recordingDriver(): { pane: string; text: string }[] {
+	const typed: { pane: string; text: string }[] = [];
+	let next = 0;
+	clearTerminalDrivers();
+	registerTerminalDriver({
+		id: "recording",
+		available: () => true,
+		async spawn() {
+			next++;
+			return {
+				driverId: "recording",
+				kind: "pane",
+				hostId: "here",
+				value: String(next),
+			};
+		},
+		async typeInto(handle: TerminalSessionHandle, text: string) {
+			typed.push({ pane: handle.value, text });
+		},
+	} as TerminalDriver & TerminalTypeCapability);
+	return typed;
 }
 
 async function restoreNow() {
@@ -246,6 +286,123 @@ describe("restore verb", () => {
 		saveRecord(lostSession("sess-A", "QEST-1"));
 		await restoreNow();
 		expect(spawns).toBe(0);
+	});
+
+	it("lists sessions closed in the last day below the lost ones", async () => {
+		// pi calls some signals a quit, so a tab taken away can land with
+		// the deliberate closes. Listing the recent ones is the backstop.
+		saveRecord(lostSession("sess-lost", "QEST-1"));
+		saveRecord(quitSession("sess-quit", "QEST-2"));
+		const { message } = await restoreNow();
+		const closedAt = message.indexOf("Closed in the last day");
+		expect(closedAt).toBeGreaterThan(message.indexOf("sess-lost"));
+		expect(message.indexOf("pi --session 'sess-quit'")).toBeGreaterThan(
+			closedAt,
+		);
+	});
+
+	it("lists recently closed sessions even when nothing was lost", async () => {
+		saveRecord(quitSession("sess-quit", "QEST-2"));
+		const { message } = await restoreNow();
+		expect(message).toContain("nothing to restore");
+		expect(message).toContain("pi --session 'sess-quit'");
+	});
+
+	it("leaves out a session closed more than a day ago", async () => {
+		saveRecord(quitSession("sess-old", "QEST-2", 25 * 60));
+		expect((await restoreNow()).message).not.toContain("sess-old");
+	});
+
+	it("shows the ten most recent closes and says how many it left out", async () => {
+		for (let i = 0; i < 12; i++) {
+			saveRecord(quitSession(`sess-q${i}`, "QEST-2", i + 1));
+		}
+		const { message } = await restoreNow();
+		expect(message).toContain("sess-q9'");
+		expect(message).not.toContain("sess-q10'");
+		expect(message).toContain("2 more");
+	});
+
+	it("reopens only the lost sessions when forced", async () => {
+		const typed = recordingDriver();
+		saveRecord(lostSession("sess-lost", "QEST-1"));
+		saveRecord(quitSession("sess-quit", "QEST-2"));
+		succeeded(
+			await handle(buildState(), fakePi(), fakeCtx(), {
+				action: "restore",
+				force: true,
+			}),
+		);
+		expect(typed.map((t) => t.text)).toEqual(["pi --session 'sess-lost'\n"]);
+	});
+
+	describe("naming sessions with id", () => {
+		async function restoreIds(id: string, force = false) {
+			return handle(buildState(), fakePi(), fakeCtx(), {
+				action: "restore",
+				id,
+				force,
+			});
+		}
+
+		it("reopens a recently closed session it was asked for", async () => {
+			// The backstop is only useful if bringing one back is a single
+			// call rather than a line to copy into a new tab by hand.
+			const typed = recordingDriver();
+			saveRecord(lostSession("sess-lost", "QEST-1"));
+			saveRecord(quitSession("sess-quit", "QEST-2"));
+			const result = succeeded(await restoreIds("sess-quit", true));
+			expect(typed.map((t) => t.text)).toEqual(["pi --session 'sess-quit'\n"]);
+			expect(result.message).toContain("Reopened 1 of 1");
+		});
+
+		it("takes several, by the front of each id", async () => {
+			const typed = recordingDriver();
+			saveRecord(lostSession("01aaa-lost", "QEST-1"));
+			saveRecord(quitSession("01bbb-quit", "QEST-2"));
+			saveRecord(quitSession("01ccc-quit", "QEST-3"));
+			succeeded(await restoreIds("01aaa, 01ccc", true));
+			expect(typed.map((t) => t.text).sort()).toEqual([
+				"pi --session '01aaa-lost'\n",
+				"pi --session '01ccc-quit'\n",
+			]);
+		});
+
+		it("lists only the named sessions without force", async () => {
+			saveRecord(lostSession("sess-lost", "QEST-1"));
+			saveRecord(quitSession("sess-quit", "QEST-2"));
+			const { message } = succeeded(await restoreIds("sess-quit"));
+			expect(message).toContain("pi --session 'sess-quit'");
+			expect(message).not.toContain("sess-lost");
+		});
+
+		it("refuses a name that matches no session it would list", async () => {
+			saveRecord(quitSession("sess-quit", "QEST-2"));
+			expect(refused(await restoreIds("sess-nope", true)).guidance).toContain(
+				"sess-nope",
+			);
+		});
+
+		it("refuses a name that could mean more than one session", async () => {
+			// Guessing which tab to open is worse than asking, since the
+			// wrong guess spawns a terminal.
+			let spawns = 0;
+			clearTerminalDrivers();
+			registerTerminalDriver({
+				id: "counting",
+				available: () => true,
+				async spawn() {
+					spawns++;
+					return undefined;
+				},
+			});
+			saveRecord(quitSession("sess-quit-1", "QEST-2"));
+			saveRecord(quitSession("sess-quit-2", "QEST-3"));
+			const result = refused(await restoreIds("sess-quit", true));
+			expect(result.guidance).toContain("sess-quit-1");
+			expect(result.guidance).toContain("sess-quit-2");
+			expect(spawns).toBe(0);
+		});
 	});
 
 	it("stops offering a session once it has been brought back", async () => {

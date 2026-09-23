@@ -34,6 +34,7 @@ import {
 	openRecord,
 	parseSessionRecord,
 	pruneRecords,
+	recentlyClosed,
 	reopenRecord,
 	restorable,
 	type SessionEndReason,
@@ -481,6 +482,25 @@ export function restorableSessions(): SessionRecord[] {
 	// the repairs to disk, and the reload is what makes the answer the
 	// same one a second reader would get.
 	return restorable(loadRecords().map((entry) => entry.record));
+}
+
+/**
+ * How far back restore looks for sessions closed on purpose. A day
+ * covers the evening's tabs the next morning, which is the recovery
+ * this exists for, without dredging up last week.
+ */
+const RECENTLY_CLOSED_HOURS = 24;
+
+/**
+ * The sessions closed on purpose within the last day, most recent
+ * first. Reads without probing, so ask after `restorableSessions`,
+ * which has already settled what the open records really are.
+ */
+export function recentlyClosedSessions(now = new Date()): SessionRecord[] {
+	return recentlyClosed(
+		loadRecords().map((entry) => entry.record),
+		{ now, withinHours: RECENTLY_CLOSED_HOURS },
+	);
 }
 
 /**

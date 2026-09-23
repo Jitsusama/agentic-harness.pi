@@ -256,15 +256,18 @@ mutates anything:
 - `quest workspace` is the live view: one row per session,
   never collapsed per quest, so two live panes read as two
   rows and a crash shows beside its live sibling.
-- `quest restore` reconstructs a terminal after a restart.
-  A session records itself in its terminal workspace when
-  it explicitly loads or reopens a quest, so once the panes
-  are gone the set that was open together is still known.
-  Restore previews that set for the current terminal,
-  excludes the panes still on screen, and prints a
-  `pi --session` recipe to reopen the rest. It plans and
-  prints only; you run the recipe, nothing reopens on its
-  own.
+- `quest restore` brings back the tabs something took away.
+  A session records itself when it loads a quest, and a
+  crash, a closed tab, WezTerm dying or quitting, or a
+  shutdown all leave that record marked lost; a deliberate
+  `/quit` does not. Restore lists the lost sessions with a
+  `pi --session` recipe each, then the sessions closed on
+  purpose in the last day as a backstop. It lists only;
+  `force` reopens the lost ones, and `id` (session ids or
+  unique prefixes, comma-separated) narrows it to named
+  sessions from either list, which `force` then reopens.
+  Confirm with the user before `force`, since it opens a
+  terminal per session.
 
 To resume a prior session, run `quest recent` and copy the
 resume command for the row you want, rather than reaching
