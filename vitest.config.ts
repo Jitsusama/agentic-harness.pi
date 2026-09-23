@@ -58,6 +58,7 @@ export default defineConfig({
 	test: {
 		environment: "node",
 		clearMocks: true,
+		globalSetup: ["./tests/setup/temp-root.ts"],
 		// Only the ceiling is ours to set: vitest 4 dropped the floor
 		// option and sizes the pool itself underneath the cap. The
 		// "never below one worker" part of the note above is the
