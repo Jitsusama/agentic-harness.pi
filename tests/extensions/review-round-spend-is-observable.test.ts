@@ -54,6 +54,7 @@ describe("what a round spends", () => {
 				runId: "council-20260808T000000000-000001",
 				participantId: "hawk",
 				model: "anthropic/claude-opus-5",
+				thinkingLevel: null,
 				startedAt: 1_700_000_000_000,
 				result: ran(),
 			});
@@ -72,6 +73,31 @@ describe("what a round spends", () => {
 		expect(kept[0]?.tokens?.total).toBe(900);
 	});
 
+	it("carries the level it was launched at and the sessions it billed under", () => {
+		// What joins a reviewer to its line on the bill exactly, and what
+		// `cost by thinking` could not say for any fan-out before this.
+		const kept = recorded(() => {
+			recordReviewerRun({
+				runId: "council-20260808T000000000-000001",
+				participantId: "hawk",
+				thinkingLevel: "xhigh",
+				startedAt: 1_700_000_000_000,
+				result: ran({
+					sessionIds: [
+						"01a0cff2-4244-75ad-b91b-7bdc1bc970b7",
+						"01a0cff9-7f1e-7c2a-9d3e-2a1b8e0c4f51",
+					],
+				}),
+			});
+		});
+
+		expect(kept[0]?.thinkingLevel).toBe("xhigh");
+		expect(kept[0]?.subagentSessionIds).toEqual([
+			"01a0cff2-4244-75ad-b91b-7bdc1bc970b7",
+			"01a0cff9-7f1e-7c2a-9d3e-2a1b8e0c4f51",
+		]);
+	});
+
 	it("publishes a reviewer that died, since it was still billed", () => {
 		// The same rule the round's own accounting follows: a reviewer
 		// that spent its whole budget to produce nothing is the dearest
@@ -81,6 +107,7 @@ describe("what a round spends", () => {
 			recordReviewerRun({
 				runId: "council-1",
 				participantId: "owl",
+				thinkingLevel: null,
 				startedAt: 1_700_000_000_000,
 				result: ran({ exitCode: 1, finalAssistantText: "" }),
 			});
@@ -101,6 +128,7 @@ describe("what a round spends", () => {
 			recordReviewerRun({
 				runId: "council-1",
 				participantId: "wren",
+				thinkingLevel: null,
 				startedAt: 1_700_000_000_000,
 				result: ran({ usage: undefined }),
 			});
@@ -128,6 +156,7 @@ describe("what a round spends", () => {
 				recordReviewerRun({
 					runId: id,
 					participantId: "hawk",
+					thinkingLevel: null,
 					startedAt: 1,
 					result: ran(),
 				});
@@ -150,6 +179,7 @@ describe("what a round spends", () => {
 			recordReviewerRun({
 				runId: "council-1",
 				participantId: "hawk",
+				thinkingLevel: null,
 				startedAt: 1,
 				result: ran({
 					verification: { ok: true },

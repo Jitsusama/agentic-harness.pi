@@ -31,6 +31,9 @@ export function assistantMessage(
 	event: unknown,
 ): Record<string, unknown> | null;
 
+/** The session a pi process announced, off the event that announces it. */
+export function sessionOf(event: unknown): string | null;
+
 /** Whether this event carries a message that is done. */
 export function isFinishedMessage(event: unknown): boolean;
 

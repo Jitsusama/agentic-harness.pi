@@ -283,6 +283,9 @@ async function runOneAssignment(
 				kind: "fleet",
 				model: assignment.spec.model ?? "",
 				persona: assignment.spec.id,
+				// Omitted, the child inherits pi's default, which this
+				// process cannot see, so omitted records as unknown.
+				thinkingLevel: assignment.spec.thinkingLevel ?? null,
 				startedAt,
 				result,
 			}),

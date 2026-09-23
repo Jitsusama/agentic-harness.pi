@@ -99,8 +99,10 @@ export function fanOutBy(
  * Choose how fan-out is shown for a grouping. Kind, model, day and repo
  * come from the run's own columns. Quest and session live on the
  * session that launched the run, so they come from the ledger's record
- * of it. The run store does not record a thinking level, so that
- * grouping is named as unrecorded rather than split.
+ * of it. Thinking is the level a run launched at, unknown for runs from
+ * before it was recorded and for runs left to inherit pi's default.
+ * A dimension the run store does not record is named as unrecorded
+ * rather than split.
  */
 export function fanOutView(
 	records: readonly RunRecord[],
@@ -120,10 +122,12 @@ export function fanOutView(
 			...limited(heaviestFirst(fanOutBy(records, dimension)), limit),
 		};
 	}
-	if (dimension === "repo") {
+	if (dimension === "repo" || dimension === "thinking") {
+		const keyOf = (r: RunRecord): string =>
+			(dimension === "repo" ? r.repo : r.thinkingLevel) ?? "";
 		return {
 			dimension,
-			...limited(heaviestFirst(group(records, (r) => r.repo ?? "")), limit),
+			...limited(heaviestFirst(group(records, keyOf)), limit),
 		};
 	}
 	if (dimension === "quest" || dimension === "session") {

@@ -1,3 +1,5 @@
+import type { RunRecord } from "@jitsusama/agentic-harness.core/observability";
+import { registerRunRecorder } from "@jitsusama/agentic-harness.core/observability";
 import { describe, expect, it, vi } from "vitest";
 import { FleetCancellationRegistry } from "../../../extensions/subagent-workflow/cancellation";
 import type {
@@ -129,6 +131,41 @@ describe("dispatchFleet", () => {
 			"third",
 		]);
 		expect(result.results.every((r) => r.state === "complete")).toBe(true);
+	});
+
+	it("files each job with the level it launched at and the session it billed under", async () => {
+		// The run table could say neither: 30 percent of fleet jobs launch
+		// at xhigh, and a job's bill could only be found by summing tokens.
+		const kept: RunRecord[] = [];
+		const stop = registerRunRecorder((record) => kept.push(record));
+		try {
+			const runPi: RunPi = async ({ reviewerId }) => ({
+				exitCode: 0,
+				finalAssistantText: "done",
+				warnings: [],
+				sessionIds: [`session-of-${reviewerId}`],
+			});
+			await dispatchFleet({
+				runId: "r1",
+				assignments: [
+					{
+						spec: { id: "deep", thinkingLevel: "xhigh" },
+						job: { userPrompt: "p", cwd: "/tmp" },
+					},
+					{ spec: { id: "inherits" }, job: { userPrompt: "p", cwd: "/tmp" } },
+				],
+				runPi,
+				cancellations: new FleetCancellationRegistry(),
+			});
+		} finally {
+			stop();
+		}
+
+		const byId = new Map(kept.map((record) => [record.subagentId, record]));
+		expect(byId.get("deep")?.thinkingLevel).toBe("xhigh");
+		expect(byId.get("deep")?.subagentSessionIds).toEqual(["session-of-deep"]);
+		// Left to inherit pi's default, which this process cannot see.
+		expect(byId.get("inherits")?.thinkingLevel).toBeNull();
 	});
 
 	it("isolates per-subagent failures", async () => {

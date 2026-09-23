@@ -32,6 +32,8 @@ function run(
 				? null
 				: { input: 0, output: 0, cacheRead: cost, cacheWrite: 0, total: cost },
 		startedAt: DAY,
+		thinkingLevel: null,
+		subagentSessionIds: null,
 		...rest,
 	};
 }
@@ -120,9 +122,34 @@ describe("fanOutView", () => {
 		expect(fanOutView(records, "model", 2)?.slices).toHaveLength(2);
 	});
 
-	it("offers no slices for a dimension the run store does not record", () => {
-		expect(fanOutView(records, "thinking", 12)).toEqual({
+	it("splits by the level each run launched at, keeping unknown apart", () => {
+		// Unknown is a run from before the level was recorded, or one that
+		// inherited pi's default, which the launching process cannot see.
+		const view = fanOutView(
+			[
+				run({ thinkingLevel: "xhigh", cost: 5 }),
+				run({ thinkingLevel: "high", cost: 9 }),
+				run({ thinkingLevel: "xhigh", cost: 6 }),
+				run({ thinkingLevel: null, cost: 2 }),
+			],
+			"thinking",
+			12,
+		);
+
+		expect(view).toEqual({
 			dimension: "thinking",
+			named: 2,
+			slices: [
+				{ key: "xhigh", cost: 11, runs: 2 },
+				{ key: "high", cost: 9, runs: 1 },
+				{ key: "", cost: 2, runs: 1 },
+			],
+		});
+	});
+
+	it("offers no slices for a dimension the run store does not record", () => {
+		expect(fanOutView(records, "weather", 12)).toEqual({
+			dimension: "weather",
 			unrecorded: true,
 		});
 	});
@@ -212,11 +239,11 @@ describe("formatFanOut", () => {
 
 	it("says so when the run store does not record the dimension at all", () => {
 		const text = formatFanOut(summary, {
-			dimension: "thinking",
+			dimension: "weather",
 			unrecorded: true,
 		});
 
-		expect(text).toContain("not split by thinking");
+		expect(text).toContain("not split by weather");
 		expect(text).toContain("does not record");
 	});
 

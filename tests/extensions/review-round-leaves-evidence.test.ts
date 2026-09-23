@@ -68,6 +68,7 @@ function stoppedAtTheWall(id: string): RunReviewerResult {
 		stderr: "",
 		state: "timeout",
 		warnings: ["Pi subprocess timed out after 2700000ms; sent SIGTERM."],
+		sessionIds: null,
 		usage: {
 			tokens: {
 				input: 0,
@@ -101,6 +102,7 @@ function pinnedToAnInstallThatIsGone(id: string): RunReviewerResult {
 		finalAssistantText: "",
 		stderr: said,
 		warnings: [said],
+		sessionIds: null,
 	};
 }
 

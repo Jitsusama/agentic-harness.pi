@@ -79,6 +79,7 @@ interface SupervisorResultFile {
 	readonly exitCode: number;
 	readonly finalAssistantText: string;
 	readonly usage?: RunPiResult["usage"];
+	readonly sessionIds?: RunPiResult["sessionIds"];
 	readonly warnings?: readonly string[];
 	readonly stderrTail?: string;
 	readonly verification?: RunPiResult["verification"];
@@ -681,6 +682,7 @@ function fromResult(
 		finalAssistantText: result.finalAssistantText,
 		...(result.state ? { state: result.state } : {}),
 		...(result.usage ? { usage: result.usage } : {}),
+		...(result.sessionIds ? { sessionIds: result.sessionIds } : {}),
 		warnings: [...warnings, ...(result.warnings ?? [])],
 		stderrTail: result.stderrTail ?? stderrTail,
 		...(result.verification ? { verification: result.verification } : {}),

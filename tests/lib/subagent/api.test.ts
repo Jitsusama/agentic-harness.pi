@@ -154,6 +154,18 @@ describe("runSubagent", () => {
 		expect(result.verification?.ok).toBe(false);
 	});
 
+	it("carries the sessions its process announced, so the job joins its bill", async () => {
+		const fake = fakeRunPi({
+			sessionIds: ["01a0cff2-4244-75ad-b91b-7bdc1bc970b7"],
+		});
+		const result = await runSubagent({
+			spec: { id: "s" },
+			job: { userPrompt: "p", cwd: "/tmp/s" },
+			runPi: fake.runPi,
+		});
+		expect(result.sessionIds).toEqual(["01a0cff2-4244-75ad-b91b-7bdc1bc970b7"]);
+	});
+
 	it("forwards per-job timeout overrides to the runner", async () => {
 		// The middle forwarding hop (job → reviewer → runner)
 		// is the production path: the fleet tool's

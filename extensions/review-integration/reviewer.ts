@@ -488,6 +488,9 @@ function whole(
 		// so a result file legitimately has no stderr at all.
 		stderr: read.stderr ?? "",
 		warnings: [...(read.warnings ?? [])],
+		// An older supervisor wrote none, and a lost one wrote nothing at
+		// all: neither says which sessions billed.
+		sessionIds: read.sessionIds ?? null,
 	};
 }
 
@@ -679,6 +682,8 @@ export interface ReviewerRun {
 	runId: string;
 	participantId: string;
 	model?: string;
+	/** The level it was launched at; null when the roster set none. */
+	thinkingLevel: string | null;
 	startedAt: number;
 	result: RunReviewerResult;
 }
@@ -720,6 +725,7 @@ export function recordReviewerRun(run: ReviewerRun): void {
 			// id is. The roster's persona field names a charter file,
 			// which is a different thing from who was asked.
 			persona: run.participantId,
+			thinkingLevel: run.thinkingLevel,
 			startedAt: run.startedAt,
 			// Passed through rather than projected by hand, which dropped
 			// the verification the run table's health columns read.

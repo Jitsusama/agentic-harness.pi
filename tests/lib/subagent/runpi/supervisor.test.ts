@@ -581,6 +581,65 @@ describe("createSupervisorRunPi", () => {
 		// 0.20 + 0.15 + 0.04, not the final turn's 0.04.
 		expect(result.usage?.cost.total).toBeCloseTo(0.39, 10);
 	});
+	it("reports the session the child announced, which is the id its bill carries", async () => {
+		// pi announces its session before its first request, even with
+		// --no-session, and the AI proxy bills every request under that id.
+		// Recorded, a job joins its bill exactly instead of by summing
+		// tokens, which missed about $850 of fan-out in a month.
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "session-child.mjs");
+		await writeFile(
+			childPath,
+			[
+				`process.stdout.write(JSON.stringify({type:"session",version:3,id:"01a0cff2-4244-75ad-b91b-7bdc1bc970b7",cwd:"/"})+"\\n");`,
+				`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"done"}]}})+"\\n");`,
+			].join("\n"),
+		);
+		const runPi = createSupervisorRunPi({
+			piInstall: { node: process.execPath, entry: childPath },
+			stateDir,
+			idleTimeoutMs: GENEROUS_MS,
+			timeoutMs: GENEROUS_MS,
+		});
+
+		const result = await runPi({
+			args: [],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "announced",
+		});
+
+		expectRan(result);
+		expect(result.sessionIds).toEqual(["01a0cff2-4244-75ad-b91b-7bdc1bc970b7"]);
+	});
+
+	it("reports no session for a child that never announced one", async () => {
+		// Watched from its first byte to its last, so this is known rather
+		// than missing: a child that never announced never made a request.
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "silent-child.mjs");
+		await writeFile(
+			childPath,
+			`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"done"}]}})+"\\n");`,
+		);
+		const runPi = createSupervisorRunPi({
+			piInstall: { node: process.execPath, entry: childPath },
+			stateDir,
+			idleTimeoutMs: GENEROUS_MS,
+			timeoutMs: GENEROUS_MS,
+		});
+
+		const result = await runPi({
+			args: [],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "silent",
+		});
+
+		expectRan(result);
+		expect(result.sessionIds).toEqual([]);
+	});
+
 	it("captures successful verify_output calls and their canonical output", async () => {
 		const stateDir = await tempStateDir();
 		const childPath = join(stateDir, "verified-child.mjs");

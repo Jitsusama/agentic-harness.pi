@@ -7,10 +7,13 @@ import {
 } from "../../../lib/subagent/index.ts";
 import {
 	type CouncilReviewer,
+	mergeResumeOutcome,
+	mergeWrapUpOutcome,
 	type ReviewerError,
 	type ReviewerVerification,
 	type RunPi,
 	type RunPiResult,
+	type RunReviewerResult,
 	runReviewer,
 } from "../../../lib/subagent/subagent.ts";
 
@@ -106,6 +109,94 @@ describe("runReviewer: how a run ended", () => {
 		});
 
 		expect(result.state).toBeUndefined();
+	});
+});
+
+describe("runReviewer: which sessions a run billed under", () => {
+	// The AI proxy bills every request under the pi session that made it,
+	// so these ids are how a run joins its bill exactly.
+	const SESSION = "01a0cff2-4244-75ad-b91b-7bdc1bc970b7";
+	const LATER = "01a0cff9-7f1e-7c2a-9d3e-2a1b8e0c4f51";
+
+	it("carries the sessions a supervised runner watched its child announce", async () => {
+		const { runPi } = scriptedRun([
+			{ exitCode: 0, finalAssistantText: "{}", sessionIds: [SESSION] },
+		]);
+
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "review this diff",
+			cwd: "/tmp/wt",
+			runPi,
+		});
+
+		expect(result.sessionIds).toEqual([SESSION]);
+	});
+
+	it("reads the session out of a raw stream when the runner hands one back", async () => {
+		const { runPi } = fakeRun({
+			stdout: [
+				JSON.stringify({ type: "session", version: 3, id: SESSION, cwd: "/" }),
+				assistantEvent("{}"),
+			].join("\n"),
+		});
+
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "review this diff",
+			cwd: "/tmp/wt",
+			runPi,
+		});
+
+		expect(result.sessionIds).toEqual([SESSION]);
+	});
+
+	it("says it does not know when the runner could not say", async () => {
+		// A runner that extracted the answer itself and reported no
+		// sessions saw a stream this cannot; guessing none would read as
+		// a run with no process.
+		const { runPi } = scriptedRun([{ exitCode: 0, finalAssistantText: "{}" }]);
+
+		const result = await runReviewer({
+			reviewer: REVIEWER,
+			prompt: "review this diff",
+			cwd: "/tmp/wt",
+			runPi,
+		});
+
+		expect(result.sessionIds).toBeNull();
+	});
+
+	const settled = (
+		sessionIds: readonly string[] | null,
+	): RunReviewerResult => ({
+		reviewerId: "r",
+		exitCode: 0,
+		finalAssistantText: "{}",
+		stderr: "",
+		warnings: [],
+		sessionIds,
+	});
+
+	it("keeps both sessions when a stopped reviewer is asked for its findings", () => {
+		const merged = mergeWrapUpOutcome(settled([SESSION]), settled([LATER]));
+		expect(merged.sessionIds).toEqual([SESSION, LATER]);
+	});
+
+	it("keeps both sessions when a dropped reviewer is resumed", () => {
+		const merged = mergeResumeOutcome(settled([SESSION]), settled([LATER]));
+		expect(merged.sessionIds).toEqual([SESSION, LATER]);
+	});
+
+	it("does not know the whole list when it does not know one half", () => {
+		// A partial list would join the run to less than its bill and say
+		// nothing about the rest.
+		expect(
+			mergeWrapUpOutcome(settled([SESSION]), settled(null)).sessionIds,
+		).toBeNull();
+		expect(
+			mergeResumeOutcome(settled(null), settled([LATER])).sessionIds,
+		).toBeNull();
 	});
 });
 

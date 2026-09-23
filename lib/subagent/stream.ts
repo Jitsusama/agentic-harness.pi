@@ -1,6 +1,7 @@
 import {
 	assistantMessage,
 	isFinishedMessage,
+	sessionOf,
 	textOf,
 	usageOf,
 } from "./runpi/assistant.mjs";
@@ -21,6 +22,8 @@ export interface ReviewerStreamLimits {
 export interface ReviewerStreamResult {
 	readonly finalAssistantText: string;
 	readonly usage?: ReviewerUsage;
+	/** Every session the stream announced, in order. */
+	readonly sessionIds: readonly string[];
 	readonly warnings: readonly string[];
 	readonly truncated: boolean;
 	readonly verification?: ReviewerVerification;
@@ -44,6 +47,7 @@ export class ReviewerStreamParser {
 	private pendingText = "";
 	private pendingUsage: ReviewerUsage | undefined;
 	private usage: ReviewerUsage | undefined;
+	private readonly sessionIds: string[] = [];
 	private readonly warnings: string[] = [];
 	private truncated = false;
 	private verification: ReviewerVerification | undefined;
@@ -97,6 +101,7 @@ export class ReviewerStreamParser {
 		return {
 			finalAssistantText: this.saidSoFar(),
 			...(spent ? { usage: spent } : {}),
+			sessionIds: [...this.sessionIds],
 			warnings: [...this.warnings],
 			truncated: this.truncated,
 			...(this.verification ? { verification: this.verification } : {}),
@@ -139,6 +144,8 @@ export class ReviewerStreamParser {
 			return null;
 		}
 		if (typeof event !== "object" || event === null) return null;
+		const announced = sessionOf(event);
+		if (announced !== null) this.sessionIds.push(announced);
 		this.captureAssistantMessage(event);
 		this.captureVerification(event);
 		return event as RunPiStreamEvent;

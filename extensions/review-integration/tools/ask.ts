@@ -2022,6 +2022,9 @@ function deps(
 				...(participant.model === undefined
 					? {}
 					: { model: participant.model }),
+				// Left unset, the child inherits pi's default, which this
+				// process cannot see, so unset records as unknown.
+				thinkingLevel: participant.thinkingLevel ?? null,
 				startedAt,
 				result,
 			});

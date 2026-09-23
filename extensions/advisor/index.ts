@@ -326,9 +326,16 @@ export default function advisor(pi: ExtensionAPI) {
 				kind: "advisor",
 				model: result.model ?? "unknown",
 				persona: "advisor",
+				// The advisor asks for no level, and what the provider does
+				// then depends on the model: some turn thinking off, some
+				// think adaptively at high. So nobody knows it from here.
+				thinkingLevel: null,
 				startedAt,
 				result: {
 					exitCode: result.ok ? 0 : 1,
+					// Run in this process, so there was no child session; its
+					// calls bill under the parent's.
+					sessionIds: [],
 					warnings: result.error ? [result.error] : [],
 					usage: { tokens, cost: result.usage.cost },
 				},

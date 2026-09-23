@@ -273,6 +273,11 @@ export interface RunPiResult {
 	readonly finalAssistantText?: string;
 	/** Extracted usage. Present when the stream carried usage data. */
 	readonly usage?: ReviewerUsage;
+	/**
+	 * Every session the child announced, when the runner watched its
+	 * whole stream. Absent from a runner that cannot say.
+	 */
+	readonly sessionIds?: readonly string[];
 	/** Runner-level warnings from streaming, supervision or recovery. */
 	readonly warnings?: readonly string[];
 	/** Bounded stderr tail fit for warnings and diagnostics. */
@@ -553,6 +558,14 @@ export interface RunReviewerResult {
 	 * stream carried no usage block (older pi, fake runners).
 	 */
 	readonly usage?: ReviewerUsage;
+	/**
+	 * Every pi session the run's processes announced, in order, which
+	 * are the ids the AI proxy bills them under. A stopped reviewer asked
+	 * for its findings, or a dropped one resumed, adds a process and so a
+	 * session. Null when any process's runner could not say, since a
+	 * partial list would join the run to less than its bill.
+	 */
+	readonly sessionIds: readonly string[] | null;
 	/** Result of the reviewer's verify_output calls, when observed. */
 	readonly verification?: ReviewerVerification;
 	/**
@@ -711,6 +724,8 @@ export async function runReviewer(
 			finalAssistantText: "",
 			stderr: runtimeError.message,
 			warnings: [runtimeError.message],
+			// Refused before anything was spawned.
+			sessionIds: [],
 		};
 	}
 
@@ -1041,8 +1056,21 @@ export function mergeWrapUpOutcome(
 			? { journal: [...(stopped.journal ?? []), ...(wrapUp.journal ?? [])] }
 			: {}),
 		warnings: [...stopped.warnings, note, ...wrapUp.warnings],
+		sessionIds: joinSessions(stopped.sessionIds, wrapUp.sessionIds),
 		...(usage ? { usage } : {}),
 	};
+}
+
+/**
+ * The sessions two processes of one run billed under, in order. Unknown
+ * if either is, because a list missing a session reads as the whole
+ * bill.
+ */
+function joinSessions(
+	first: readonly string[] | null,
+	second: readonly string[] | null,
+): readonly string[] | null {
+	return first === null || second === null ? null : [...first, ...second];
 }
 
 /**
@@ -1145,6 +1173,7 @@ export function mergeResumeOutcome(
 			? { journal: [...(initial.journal ?? []), ...(resume.journal ?? [])] }
 			: {}),
 		warnings: [...initialWarnings, note, ...resume.warnings],
+		sessionIds: joinSessions(initial.sessionIds, resume.sessionIds),
 		...(usage ? { usage } : {}),
 	};
 }
@@ -1257,6 +1286,7 @@ function assembleReviewerResult(
 				: (verifiedText ?? parsed.finalAssistantText),
 		stderr: parsed.stderr,
 		warnings,
+		sessionIds: parsed.sessionIds,
 		...(result.state ? { state: result.state } : {}),
 		...(parsed.usage ? { usage: parsed.usage } : {}),
 		...(verificationForResult
@@ -1277,6 +1307,7 @@ function assembleReviewerResult(
 interface ExtractedRunPiOutput {
 	readonly finalAssistantText: string;
 	readonly usage?: ReviewerUsage;
+	readonly sessionIds: readonly string[] | null;
 	readonly warnings: readonly string[];
 	readonly stderr: string;
 	readonly verification?: ReviewerVerification;
@@ -1287,6 +1318,7 @@ function extractRunPiOutput(result: RunPiResult): ExtractedRunPiOutput {
 		return {
 			finalAssistantText: result.finalAssistantText,
 			...(result.usage ? { usage: result.usage } : {}),
+			sessionIds: result.sessionIds ?? null,
 			warnings: result.warnings ?? [],
 			stderr: result.stderrTail ?? result.stderr ?? "",
 			...(result.verification ? { verification: result.verification } : {}),
@@ -1298,6 +1330,7 @@ function extractRunPiOutput(result: RunPiResult): ExtractedRunPiOutput {
 	return {
 		finalAssistantText: parsed.finalAssistantText,
 		...(parsed.usage ? { usage: parsed.usage } : {}),
+		sessionIds: result.sessionIds ?? parsed.sessionIds,
 		warnings: [...(result.warnings ?? []), ...parsed.warnings],
 		stderr: result.stderrTail ?? result.stderr ?? "",
 		...((result.verification ?? parsed.verification)
@@ -1658,6 +1691,8 @@ export interface SubagentRunResult {
 	readonly finalAssistantText: string;
 	readonly stderr: string;
 	readonly warnings: readonly string[];
+	/** Every session the subagent's process announced; null when unknown. */
+	readonly sessionIds: readonly string[] | null;
 	readonly usage?: SubagentUsage;
 	readonly verification?: SubagentVerification;
 	/**
@@ -1721,6 +1756,7 @@ export async function runSubagent(opts: {
 		finalAssistantText: result.finalAssistantText,
 		stderr: result.stderr,
 		warnings: result.warnings,
+		sessionIds: result.sessionIds,
 		...(result.usage ? { usage: result.usage } : {}),
 		...(result.verification ? { verification: result.verification } : {}),
 		...(result.error ? { error: result.error } : {}),
@@ -1792,6 +1828,9 @@ function synthesizeRejectedResult(
 		finalAssistantText: "",
 		stderr: "",
 		warnings: [`subagent failed to start: ${message}`],
+		// A rejection can come after the process started, so whether it
+		// announced a session and billed under it is not known.
+		sessionIds: null,
 	};
 }
 

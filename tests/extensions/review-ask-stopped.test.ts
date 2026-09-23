@@ -33,6 +33,7 @@ function ran(over: Partial<RunReviewerResult> = {}): RunReviewerResult {
 		finalAssistantText: "",
 		stderr: "",
 		warnings: [],
+		sessionIds: null,
 		...over,
 	};
 }

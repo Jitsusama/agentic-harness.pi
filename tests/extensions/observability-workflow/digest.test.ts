@@ -27,6 +27,8 @@ function row(runId: string, verifyOutcome: VerifyOutcome, cost = 1): RunRecord {
 		tokens: ZERO,
 		cost: { ...ZERO, total: cost },
 		startedAt: 0,
+		thinkingLevel: null,
+		subagentSessionIds: null,
 	};
 }
 
