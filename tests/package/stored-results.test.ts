@@ -61,6 +61,7 @@ import { describe, expect, it } from "vitest";
 const MUST_BOUND = [
 	"browser-integration",
 	"cost-workflow",
+	"demote-workflow",
 	"slack-integration",
 	"google-workspace-integration",
 	"lsp-integration",

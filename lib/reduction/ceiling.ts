@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { shortDigest } from "../internal/digest.js";
 
 /**
  * A ceiling on tool output, for the fat-tail tools that have one: read,
@@ -13,19 +13,12 @@ import { createHash } from "node:crypto";
  * wiring this live is a separate, deliberate step from writing it.
  */
 
-const DIGEST_CHARS = 16;
-
 export interface CeilingResult {
 	readonly truncated: boolean;
 	readonly text: string;
 	readonly originalChars: number;
 	/** Only set when truncated, since an untouched result has nothing to point back at. */
 	readonly digest?: string;
-}
-
-/** Digest the full text this ceiling is about to cut, for later lookup. */
-function digestOf(text: string): string {
-	return createHash("sha256").update(text).digest("hex").slice(0, DIGEST_CHARS);
 }
 
 /** Cut `text` to `maxChars` if it exceeds it, keeping a digest of the whole. */
@@ -37,6 +30,6 @@ export function applyCeiling(text: string, maxChars: number): CeilingResult {
 		truncated: true,
 		text: text.slice(0, maxChars),
 		originalChars: text.length,
-		digest: digestOf(text),
+		digest: shortDigest(text),
 	};
 }
