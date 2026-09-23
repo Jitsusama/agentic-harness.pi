@@ -23,3 +23,9 @@ export {
 	type PressureReading,
 	readPressure,
 } from "./pressure.js";
+export {
+	type CallOccurrence,
+	type ClassifiedRepeat,
+	classifyRepeats,
+	type RepeatClass,
+} from "./rework.js";
