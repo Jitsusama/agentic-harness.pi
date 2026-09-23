@@ -159,20 +159,48 @@ export function formatFanOut(
 
 /**
  * Render arguments asked more than once inside one session, heaviest
- * first by the bytes the repeats re-admitted. No cost figure: chars are
- * not dollars, and the point is the repetition, not a price on it.
+ * first by the bytes the repeats re-admitted. The header totals every
+ * repeat, not only the rows the limit shows, and splits them into
+ * rework, where nothing checked the work between the two asks, and
+ * appraisal, where a verifier did. Only rework is waste. No cost figure:
+ * chars are not dollars, and the point is the repetition, not a price.
  */
-export function formatRepeats(repeats: readonly RepeatedCall[]): string {
+export function formatRepeats(
+	repeats: readonly RepeatedCall[],
+	limit: number,
+): string {
 	if (repeats.length === 0) {
 		return "no repeated tool calls found within a session";
 	}
-	const rows = repeats.map(
-		(r) =>
+	const sum = (pick: (r: RepeatedCall) => number) =>
+		repeats.reduce((total, r) => total + pick(r), 0);
+	const chars = (n: number) => `${(n / 1e6).toFixed(1)}M chars`;
+	const lines = [
+		`Repeated tool calls: ${sum((r) => r.repeated).toLocaleString()} repeats ` +
+			`of ${repeats.length.toLocaleString()} argument sets, ` +
+			`${chars(sum((r) => r.repeatedChars))} re-admitted`,
+		`  rework    ${sum((r) => r.rework).toLocaleString()} ` +
+			`(${chars(sum((r) => r.reworkChars))}): nothing checked the work ` +
+			"between the two asks",
+		`  appraisal ${sum((r) => r.appraisal).toLocaleString()} ` +
+			`(${chars(sum((r) => r.appraisalChars))}): a verifier ran between ` +
+			"them, so the work was being checked",
+	];
+	const shown = repeats.slice(0, limit);
+	for (const r of shown) {
+		lines.push(
 			`  ${r.name.padEnd(12)} asked ${String(r.asked).padStart(4)} times` +
-			`  ${String(r.repeated).padStart(4)} repeats` +
-			`  ${(r.repeatedChars / 1e6).toFixed(1)}M chars re-admitted`,
-	);
-	return [`Repeated tool calls (${repeats.length})`, ...rows].join("\n");
+				`  ${String(r.repeated).padStart(4)} repeats` +
+				` (${r.rework} rework, ${r.appraisal} appraisal)` +
+				`  ${(r.repeatedChars / 1e6).toFixed(1)}M chars re-admitted`,
+		);
+	}
+	if (repeats.length > shown.length) {
+		lines.push(
+			`  ${(repeats.length - shown.length).toLocaleString()} more, ask for a larger limit`,
+		);
+	}
+	return lines.join("\n");
 }
 
 /**

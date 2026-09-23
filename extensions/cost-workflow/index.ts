@@ -242,7 +242,10 @@ export default function costWorkflow(pi: ExtensionAPI) {
 						"Report retrieval calls whose arguments were asked more than " +
 						"once within a session with no write to their file in between, " +
 						"heaviest first, instead of a spend report. Each is a question " +
-						"the session's own context could already answer.",
+						"the session's own context could already answer. Splits them " +
+						"into rework, with nothing checking the work between the two " +
+						"asks, and appraisal, where a verifier ran between: only rework " +
+						"is waste.",
 				}),
 			),
 			regret: Type.Optional(
@@ -288,7 +291,7 @@ export default function costWorkflow(pi: ExtensionAPI) {
 						{
 							type: "text",
 							text: citeListing(openSessionStore(), {
-								view: formatRepeats(repeats.slice(0, params.limit ?? 12)),
+								view: formatRepeats(repeats, params.limit ?? 12),
 								records: repeats,
 								unit: "repeats",
 								narrowing: "Ask for a larger limit to see more.",

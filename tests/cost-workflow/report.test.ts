@@ -1,3 +1,4 @@
+import type { RepeatedCall } from "@jitsusama/agentic-harness.core/observability";
 import { describe, expect, it } from "vitest";
 import {
 	formatIndexOutcome,
@@ -92,33 +93,69 @@ describe("formatSlices", () => {
 });
 
 describe("formatRepeats", () => {
+	function repeat(
+		name: string,
+		rework: number,
+		appraisal: number,
+		chars: number,
+	): RepeatedCall {
+		const repeated = rework + appraisal;
+		const share = repeated > 0 ? rework / repeated : 0;
+		return {
+			argsDigest: `${name}-${chars}`,
+			name,
+			asked: repeated + 1,
+			repeated,
+			repeatedChars: chars,
+			rework,
+			reworkChars: Math.round(chars * share),
+			appraisal,
+			appraisalChars: chars - Math.round(chars * share),
+		};
+	}
+
 	it("reports no repeats as none, not as an empty table", () => {
-		expect(formatRepeats([])).toContain("no repeated");
+		expect(formatRepeats([], 12)).toContain("no repeated");
 	});
 
 	it("names the tool, the count and the weight, heaviest first", () => {
-		const text = formatRepeats([
-			{
-				argsDigest: "a1b2c3",
-				name: "read",
-				asked: 3,
-				repeated: 2,
-				repeatedChars: 29_400_000,
-			},
-			{
-				argsDigest: "d4e5f6",
-				name: "bash",
-				asked: 2,
-				repeated: 1,
-				repeatedChars: 500,
-			},
-		]);
+		const text = formatRepeats(
+			[repeat("read", 2, 0, 29_400_000), repeat("bash", 1, 0, 500)],
+			12,
+		);
 
 		const lines = text.split("\n").filter((l) => l.includes("asked"));
 		expect(lines[0]).toContain("read");
 		expect(lines[0]).toContain("3");
 		expect(lines[0]).toContain("29.4M");
 		expect(lines[1]).toContain("bash");
+	});
+
+	it("totals every repeat in the header, not only the rows the limit shows", () => {
+		const text = formatRepeats(
+			[
+				repeat("read", 2, 1, 3_000_000),
+				repeat("grep", 1, 0, 1_000_000),
+				repeat("slack", 0, 2, 2_000_000),
+			],
+			1,
+		);
+
+		expect(text).toContain("6 repeats of 3 argument sets");
+		expect(text).toContain("2 more, ask for a larger limit");
+	});
+
+	it("splits the repeats into rework and appraisal, with what each re-admitted", () => {
+		const text = formatRepeats(
+			[repeat("read", 2, 1, 3_000_000), repeat("slack", 0, 2, 2_000_000)],
+			12,
+		);
+
+		expect(text).toMatch(/rework\s+2 \(2\.0M chars\)/);
+		expect(text).toMatch(/appraisal\s+3 \(3\.0M chars\)/);
+		expect(text.split("\n").find((l) => l.includes("read"))).toContain(
+			"2 rework, 1 appraisal",
+		);
 	});
 });
 
