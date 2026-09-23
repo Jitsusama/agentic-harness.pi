@@ -6,6 +6,7 @@
  * the tool only dispatches.
  */
 
+import { statSync } from "node:fs";
 import { sessionsDir } from "../../lib/internal/paths.ts";
 import {
 	discoverQuests,
@@ -497,36 +498,64 @@ export function recentSessionHints(
 ): SessionHint[] {
 	const { index } = discoverQuests(state.questsRoot);
 	const logIndex = indexSessionFiles(sessionsDir());
-	const bySession = new Map<string, SessionHint>();
+	// One candidate per session with a log, bounded by when its log was
+	// last written: no entry can be newer than the write that put it
+	// there, give or take clock skew. The first quest to name a session
+	// keeps it, as it did when every log was read.
+	const candidates = new Map<string, { hint: SessionHint; bound: number }>();
 	for (const entry of index.quests.values()) {
 		const fm = entry.doc.frontMatter;
 		for (const session of fm.sessions) {
-			const lastActivity = activityFromIndex(logIndex, session.id);
+			if (candidates.has(session.id)) continue;
+			const modified = logModifiedAt(logIndex.get(session.id));
 			// No log means no activity to point at; skip it rather than
 			// list a session the hint cannot date.
-			if (!lastActivity) continue;
-			const existing = bySession.get(session.id);
-			if (
-				existing?.lastActivity &&
-				Date.parse(existing.lastActivity) >= Date.parse(lastActivity)
-			) {
-				continue;
-			}
-			bySession.set(session.id, {
-				questId: fm.id,
-				title: entry.doc.title ?? null,
-				sessionId: session.id,
-				...(session.cwd ? { cwd: session.cwd } : {}),
-				lastActivity,
+			if (modified === undefined) continue;
+			candidates.set(session.id, {
+				hint: {
+					questId: fm.id,
+					title: entry.doc.title ?? null,
+					sessionId: session.id,
+					...(session.cwd ? { cwd: session.cwd } : {}),
+				},
+				bound: modified + CLOCK_SKEW_MS,
 			});
 		}
 	}
-	return [...bySession.values()]
-		.sort(
-			(a, b) =>
-				Date.parse(b.lastActivity ?? "") - Date.parse(a.lastActivity ?? ""),
-		)
-		.slice(0, limit);
+	// Read tails newest-written first, and stop once no remaining log
+	// could beat the hints already in hand; with hundreds of sessions
+	// recorded, that is a handful of tails rather than all of them.
+	const hints: SessionHint[] = [];
+	const activity = (h: SessionHint): number => Date.parse(h.lastActivity ?? "");
+	for (const { hint, bound } of [...candidates.values()].sort(
+		(a, b) => b.bound - a.bound,
+	)) {
+		const last = hints[limit - 1];
+		if (last && activity(last) >= bound) break;
+		const lastActivity = activityFromIndex(logIndex, hint.sessionId);
+		if (!lastActivity) continue;
+		hints.push({ ...hint, lastActivity });
+		hints.sort((a, b) => activity(b) - activity(a));
+		hints.length = Math.min(hints.length, limit);
+	}
+	return hints;
+}
+
+/**
+ * How far a log entry's timestamp may run ahead of its file's mtime and
+ * still be found. Both come from this machine's clock, so a minute is
+ * generous.
+ */
+const CLOCK_SKEW_MS = 60_000;
+
+function logModifiedAt(path: string | undefined): number | undefined {
+	if (!path) return undefined;
+	try {
+		return statSync(path).mtimeMs;
+	} catch {
+		// Listed but gone; the same as having no log.
+		return undefined;
+	}
 }
 
 /** A page of recent sessions, and how many there were in total. */

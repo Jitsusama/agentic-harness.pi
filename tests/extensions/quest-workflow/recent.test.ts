@@ -1,13 +1,15 @@
+import * as fs from "node:fs";
 import {
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
 	rmSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	recentSessionHints,
 	recentSessions,
@@ -25,6 +27,13 @@ import {
 	serializeQuestFrontMatter,
 } from "../../../lib/quest/index";
 import { createEnvGuard, succeeded } from "./_helpers";
+
+vi.mock("node:fs", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:fs")>();
+	return { ...actual, openSync: vi.fn(actual.openSync) };
+});
+
+const opens = vi.mocked(fs.openSync);
 
 let tmpRoot: string;
 
@@ -93,9 +102,18 @@ function writeLiveSessionLog(
 			}),
 		);
 	}
-	writeFileSync(
-		join(dir, `2026-06-04T10-00-00-000Z_${sessionId}.jsonl`),
-		lines.join("\n"),
+	const path = join(dir, `2026-06-04T10-00-00-000Z_${sessionId}.jsonl`);
+	writeFileSync(path, lines.join("\n"));
+	// Date the file when its newest entry was written, as a real log is.
+	const when = new Date(at);
+	utimesSync(path, when, when);
+}
+
+function logPath(sessionId: string): string {
+	return join(
+		sessionsDir(),
+		"--recent-test--",
+		`2026-06-04T10-00-00-000Z_${sessionId}.jsonl`,
 	);
 }
 
@@ -242,5 +260,19 @@ describe("recentSessionHints", () => {
 		writeLiveSessionLog("sess-logged");
 		const hints = recentSessionHints(state, 5);
 		expect(hints.map((h) => h.sessionId)).toEqual(["sess-logged"]);
+	});
+
+	it("leaves unread a log last written before every hint it already has", async () => {
+		const state = buildState();
+		const q = await createQuest(state, "Quest");
+		attachSessions(q, [{ id: "sess-stale" }, { id: "sess-fresh" }]);
+		writeLiveSessionLog("sess-stale", undefined, "2026-05-01T00:00:00.000Z");
+		writeLiveSessionLog("sess-fresh", undefined, "2026-06-10T00:00:00.000Z");
+		opens.mockClear();
+
+		const hints = recentSessionHints(state, 1);
+		expect(hints.map((h) => h.sessionId)).toEqual(["sess-fresh"]);
+		const opened = opens.mock.calls.map(([p]) => p);
+		expect(opened).not.toContain(logPath("sess-stale"));
 	});
 });

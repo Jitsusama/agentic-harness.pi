@@ -38,7 +38,13 @@
  */
 
 import { createHash } from "node:crypto";
-import { type Dirent, readdirSync, readFileSync, realpathSync } from "node:fs";
+import {
+	type Dirent,
+	readdirSync,
+	readFileSync,
+	realpathSync,
+	statSync,
+} from "node:fs";
 import { extname, join } from "node:path";
 import type { QuestDoc, QuestDocumentDoc } from "../../quest/types.ts";
 import {
@@ -116,7 +122,23 @@ export interface DiscoveryResult {
 	errors: DiscoveryError[];
 }
 
-function readMaybe(path: string): string | undefined {
+/**
+ * What one discovery call has read from disk. The signature pass fills
+ * it on the way to a cache miss and the walk reuses it, so a cold call
+ * reads each file and lists each directory once rather than twice.
+ */
+interface Pass {
+	bytes: Map<string, Buffer>;
+	listings: Map<string, Dirent[] | undefined>;
+}
+
+function newPass(): Pass {
+	return { bytes: new Map(), listings: new Map() };
+}
+
+function readMaybe(path: string, pass: Pass): string | undefined {
+	const bytes = pass.bytes.get(path);
+	if (bytes) return bytes.toString("utf8");
 	try {
 		return readFileSync(path, "utf8");
 	} catch {
@@ -141,12 +163,32 @@ const CANONICAL_DOCUMENT_DIRS = [
 	"reports",
 ] as const;
 
-function readEntries(path: string): Dirent[] | undefined {
+function readEntries(path: string, pass: Pass): Dirent[] | undefined {
+	if (pass.listings.has(path)) return pass.listings.get(path);
+	let entries: Dirent[] | undefined;
 	try {
-		return readdirSync(path, { withFileTypes: true });
+		entries = readdirSync(path, { withFileTypes: true });
 	} catch {
-		return undefined;
+		entries = undefined;
 	}
+	pass.listings.set(path, entries);
+	return entries;
+}
+
+/**
+ * A quest's kind subdirectory listing, or undefined when the quest has
+ * none. Most quests have one or two of the four, so asking the quest's
+ * own listing first spares a failed readdir for each one missing.
+ */
+function kindEntries(
+	questDir: string,
+	subdir: string,
+	pass: Pass,
+): Dirent[] | undefined {
+	const present = readEntries(questDir, pass)?.some(
+		(e) => e.name === subdir && (e.isDirectory() || e.isSymbolicLink()),
+	);
+	return present ? readEntries(join(questDir, subdir), pass) : undefined;
 }
 
 function parseDocumentFile(text: string): QuestDocumentDoc | undefined {
@@ -183,6 +225,23 @@ interface CacheSlot {
 
 const discoveryCache = new Map<string, CacheSlot>();
 
+/** A file's content hash, and the stat it was taken under. */
+interface Stamp {
+	stat: string;
+	hash: string;
+}
+
+const stamps = new Map<string, Stamp>();
+
+/**
+ * How long a file must have sat unwritten before its stat is trusted to
+ * stand for its content. A filesystem with coarse timestamps can give
+ * two writes inside one tick the same mtime, and a same-size rewrite
+ * would then keep its stat; this is git's racy-index rule. Two seconds
+ * covers the coarsest clock in use.
+ */
+const SETTLED_NS = 2_000_000_000n;
+
 /**
  * Drop the discovery memo. Tests call this between runs; write
  * paths do not need it because the signature catches their
@@ -190,6 +249,7 @@ const discoveryCache = new Map<string, CacheSlot>();
  */
 export function clearDiscoveryCache(): void {
 	discoveryCache.clear();
+	stamps.clear();
 }
 
 /**
@@ -203,10 +263,11 @@ export function clearDiscoveryCache(): void {
  * cache on the next read.
  */
 export function discoverQuests(questsRoot: string): DiscoveryResult {
-	const signature = discoverySignature(questsRoot);
+	const pass = newPass();
+	const signature = discoverySignature(questsRoot, pass);
 	const cached = discoveryCache.get(questsRoot);
 	if (cached && cached.signature === signature) return cached.result;
-	const result = discoverQuestsUncached(questsRoot);
+	const result = discoverQuestsUncached(questsRoot, pass);
 	discoveryCache.set(questsRoot, { signature, result });
 	return result;
 }
@@ -219,16 +280,17 @@ export function discoverQuests(questsRoot: string): DiscoveryResult {
  * folds in the directory listings of the root and each quest dir,
  * so the layout-drift conditions that drive the discovery `errors`
  * (a stray non-quest entry, a misplaced document at a quest root,
- * a nested quest) move it too. Hashing reads the file bytes but
- * skips the parse and object construction the cache exists to
- * avoid, so a warm read still wins on a large tree.
+ * a nested quest) move it too. A file whose stat still matches the
+ * one its hash was taken under keeps that hash without being read,
+ * provided it had settled before the hash was taken, so a warm read
+ * of an unchanged tree costs a stat per file rather than its bytes.
+ * Whatever it reads lands in `pass` for the walk to reuse.
  */
-function discoverySignature(questsRoot: string): string {
+function discoverySignature(questsRoot: string, pass: Pass): string {
 	const parts: string[] = [];
 	const stampContent = (path: string): void => {
 		try {
-			const hash = createHash("sha1").update(readFileSync(path)).digest("hex");
-			parts.push(`${path}:${hash}`);
+			parts.push(`${path}:${contentHash(path, pass)}`);
 		} catch {
 			// Missing or unreadable file contributes nothing; its
 			// absence is itself a change from a signature that had it.
@@ -239,19 +301,19 @@ function discoverySignature(questsRoot: string): string {
 			.map((e) => `${e.name}/${e.isDirectory() ? "d" : "f"}`)
 			.sort()
 			.join(",");
-	const rootEntries = readEntries(questsRoot);
+	const rootEntries = readEntries(questsRoot, pass);
 	if (!rootEntries) return "absent";
 	parts.push(`root:${layout(rootEntries)}`);
 	for (const entry of rootEntries) {
 		if (!entry.isDirectory()) continue;
 		if (!isId(entry.name) || prefixOf(entry.name) !== "QEST") continue;
 		const questDir = join(questsRoot, entry.name);
-		const questEntries = readEntries(questDir);
+		const questEntries = readEntries(questDir, pass);
 		if (questEntries) parts.push(`${entry.name}:${layout(questEntries)}`);
 		stampContent(join(questDir, "README.md"));
 		for (const subdir of CANONICAL_DOCUMENT_DIRS) {
 			const scanDir = join(questDir, subdir);
-			const docEntries = readEntries(scanDir);
+			const docEntries = kindEntries(questDir, subdir, pass);
 			if (!docEntries) continue;
 			for (const doc of docEntries) {
 				if (doc.isFile()) stampContent(join(scanDir, doc.name));
@@ -261,7 +323,25 @@ function discoverySignature(questsRoot: string): string {
 	return parts.sort().join("|");
 }
 
-function discoverQuestsUncached(questsRoot: string): DiscoveryResult {
+/** A file's content hash, from its stamp when the stat still vouches. */
+function contentHash(path: string, pass: Pass): string {
+	const st = statSync(path, { bigint: true });
+	const stat = `${st.size}:${st.mtimeNs}:${st.ctimeNs}:${st.ino}`;
+	const known = stamps.get(path);
+	if (known && known.stat === stat) return known.hash;
+	const bytes = readFileSync(path);
+	pass.bytes.set(path, bytes);
+	const hash = createHash("sha1").update(bytes).digest("hex");
+	const age = BigInt(Date.now()) * 1_000_000n - st.mtimeNs;
+	if (age > SETTLED_NS) stamps.set(path, { stat, hash });
+	else stamps.delete(path);
+	return hash;
+}
+
+function discoverQuestsUncached(
+	questsRoot: string,
+	pass: Pass,
+): DiscoveryResult {
 	const quests = new Map<string, QuestEntry>();
 	const children = new Map<string, string[]>();
 	const errors: DiscoveryError[] = [];
@@ -275,7 +355,7 @@ function discoverQuestsUncached(questsRoot: string): DiscoveryResult {
 		// kind subdirectory. We still skip the entry rather
 		// than parse it, so a stray misplaced file does not
 		// double-register.
-		const questEntries = readEntries(questDir);
+		const questEntries = readEntries(questDir, pass);
 		if (questEntries) {
 			for (const entry of questEntries) {
 				if (!entry.isFile()) continue;
@@ -291,7 +371,7 @@ function discoverQuestsUncached(questsRoot: string): DiscoveryResult {
 
 		for (const subdir of CANONICAL_DOCUMENT_DIRS) {
 			const scanDir = join(questDir, subdir);
-			const entries = readEntries(scanDir);
+			const entries = kindEntries(questDir, subdir, pass);
 			if (!entries) continue;
 			for (const entry of entries) {
 				if (!entry.isFile()) continue;
@@ -300,7 +380,7 @@ function discoverQuestsUncached(questsRoot: string): DiscoveryResult {
 				if (extname(child) !== ".md") continue;
 				const base = child.slice(0, -3);
 				if (!isId(base) || prefixOf(base) === "QEST") continue;
-				const docText = readMaybe(childPath);
+				const docText = readMaybe(childPath, pass);
 				if (!docText) continue;
 				const docDoc = parseDocumentFile(docText);
 				if (docDoc) {
@@ -328,7 +408,7 @@ function discoverQuestsUncached(questsRoot: string): DiscoveryResult {
 			});
 			return;
 		}
-		const entries = readEntries(questDir);
+		const entries = readEntries(questDir, pass);
 		if (!entries) return;
 		for (const entry of entries) {
 			if (entry.isSymbolicLink()) continue;
@@ -346,7 +426,7 @@ function discoverQuestsUncached(questsRoot: string): DiscoveryResult {
 
 	function acceptQuest(name: string, full: string): void {
 		const readmePath = join(full, "README.md");
-		const text = readMaybe(readmePath);
+		const text = readMaybe(readmePath, pass);
 		if (!text) {
 			errors.push({ path: readmePath, message: "README.md missing" });
 			return;
@@ -376,7 +456,7 @@ function discoverQuestsUncached(questsRoot: string): DiscoveryResult {
 		reportNestedQuests(full, 1);
 	}
 
-	const rootEntries = readEntries(questsRoot);
+	const rootEntries = readEntries(questsRoot, pass);
 	if (!rootEntries) {
 		errors.push({
 			path: questsRoot,
