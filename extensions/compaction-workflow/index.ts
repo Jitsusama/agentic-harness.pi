@@ -36,7 +36,10 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { compactionPays } from "../../lib/compaction/index.js";
+import {
+	compactionHistory,
+	compactionPays,
+} from "../../lib/compaction/index.js";
 import { cachePrices } from "../../lib/internal/cache-prices.js";
 
 /**
@@ -75,15 +78,17 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 	let awaitingRetained = false;
 	let compacting = false;
 
-	const reset = (): void => {
-		turnsSince = 0;
-		firstTurnTokens = null;
-		observedRetained = null;
+	// Seeded from the session's own log, not from this process: a resumed
+	// session's first turn here is its whole resumed context, which read
+	// as the fixed prompt made nothing look droppable.
+	pi.on("session_start", async (_event, ctx) => {
+		const history = compactionHistory(ctx.sessionManager.getBranch());
+		turnsSince = history.turnsSinceCompaction;
+		firstTurnTokens = history.firstPromptTokens;
+		observedRetained = history.retainedTokens;
 		awaitingRetained = false;
 		compacting = false;
-	};
-
-	pi.on("session_start", async () => reset());
+	});
 
 	pi.on("session_compact", async () => {
 		turnsSince = 0;

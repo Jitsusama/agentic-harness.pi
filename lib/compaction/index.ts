@@ -8,6 +8,7 @@
  * consequential change from writing the decision itself.
  */
 
+export { type CompactionHistory, compactionHistory } from "./history.js";
 export { type PaybackInput, paybackMargin, paybackTest } from "./payback.js";
 export { clampReserveTokens } from "./reserve.js";
 export {
