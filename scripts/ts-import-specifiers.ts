@@ -13,9 +13,13 @@
  * exists and no real `.js` file does, so genuine JavaScript stays
  * addressed as it is.
  *
- * Run it directly (Node strips the types), from the package root:
+ * Run it directly (Node strips the types), from the root of the package
+ * to rewrite:
  *
  *   node scripts/ts-import-specifiers.ts [dir ...]
+ *
+ * Node will not strip types under node_modules, so a sibling package runs
+ * it from an agentic-harness.pi checkout rather than its own install.
  *
  * With no directories it rewrites everything pi or the tests load. It
  * is safe to run again at any time, including after a merge brings in
@@ -30,6 +34,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /** Where a relative specifier can appear: import, export, import() and vi.mock(). */
 const SPECIFIER =
@@ -110,4 +115,6 @@ function main(): void {
 	console.log(`rewrote ${specifiers} specifiers in ${files} files`);
 }
 
-if (import.meta.main) main();
+// Not import.meta.main: sibling packages import this module and
+// typecheck it against older Node types that do not declare it.
+if (process.argv[1] === fileURLToPath(import.meta.url)) main();
