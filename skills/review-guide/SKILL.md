@@ -146,6 +146,40 @@ being wrong is expensive.
 And nothing here replaces reading the code. A council that finds
 nothing is not a change with nothing wrong with it.
 
+## Check the Direction With the User Before a Council
+
+A council is told what is wrong with a change as written. It is not
+asked whether the change should exist in this shape at all, and a
+change heading the wrong way gets four careful readings of the wrong
+thing. The user can usually tell in a few seconds whether the
+direction is right, and a round costs tens of dollars.
+
+So before a council on a change you wrote, show the user a short
+check with the `ask` tool and wait for the answer:
+
+- what the change does and why, in two or three sentences
+- how big it is: files and lines, from the diff
+- the one or two choices in it that another person might have made
+  differently
+- roughly what the round will cost, from the last council's cost in
+  `observe_runs`
+
+Offer to go ahead, to change direction first, or to skip the council.
+
+Ask even when a plan says to run the council after this step. The plan
+agreed that the change would be reviewed, not that the change turned
+out the way the user pictured it, and that is the question.
+
+This is a question, not a gate, and three cases do not ask it:
+
+- The user asked for a council on this change just now. That is the
+  answer.
+- The user said they are away or want the work to run unattended.
+  Waiting would stall the work for hours to save minutes, so write the
+  same check into your report where they will read it, and go ahead.
+- The change is somebody else's. The direction is its author's to
+  defend, and the review is how you say what you think of it.
+
 ## One Question Per Tool, Which Settles Where Deciding Lives
 
 The division that stops these overlapping:
