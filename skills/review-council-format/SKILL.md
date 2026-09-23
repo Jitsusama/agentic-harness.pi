@@ -34,6 +34,22 @@ end, which is the failure this avoids, wearing a different hat. A
 finding recorded and then repeated in your answer is counted once, so
 repeating costs nothing and leaving it out risks everything.
 
+## Ask for Independent Reads Together
+
+When you know of two or more reads, searches or listings that do not
+depend on each other, issue them in the same turn rather than one per
+turn. Every turn re-reads everything you have gathered so far, so the
+same reading spread over fewer turns costs less. This is about how you
+read, not how much: read everything you otherwise would.
+
+It does not touch the rule above. Findings are still recorded one at a
+time, the moment you are sure of each; a recording call can simply
+share a turn with the next reads.
+
+On a paired round over the same change, reviewers told this took 100
+turns between them rather than 156 and found the same things, 35 of 37
+landing in the same place.
+
 ## What a Finding Carries
 
 | Field | Required | What it is |
