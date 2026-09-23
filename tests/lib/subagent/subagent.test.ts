@@ -188,6 +188,14 @@ describe("runReviewer: which sessions a run billed under", () => {
 		expect(merged.sessionIds).toEqual([SESSION, LATER]);
 	});
 
+	it("names a resumed session once, since the resume continues the same one", () => {
+		// A resume runs --session on the first attempt's file, so its
+		// process announces the session the first one already did. Listed
+		// twice it would read as two sessions on the bill.
+		const merged = mergeResumeOutcome(settled([SESSION]), settled([SESSION]));
+		expect(merged.sessionIds).toEqual([SESSION]);
+	});
+
 	it("does not know the whole list when it does not know one half", () => {
 		// A partial list would join the run to less than its bill and say
 		// nothing about the rest.

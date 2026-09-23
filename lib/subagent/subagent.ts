@@ -1062,15 +1062,18 @@ export function mergeWrapUpOutcome(
 }
 
 /**
- * The sessions two processes of one run billed under, in order. Unknown
- * if either is, because a list missing a session reads as the whole
- * bill.
+ * The sessions two processes of one run billed under, in order, each
+ * once: a resume continues the first attempt's session file, so its
+ * process announces the same id again. Unknown if either half is,
+ * because a list missing a session reads as the whole bill.
  */
 function joinSessions(
 	first: readonly string[] | null,
 	second: readonly string[] | null,
 ): readonly string[] | null {
-	return first === null || second === null ? null : [...first, ...second];
+	return first === null || second === null
+		? null
+		: [...new Set([...first, ...second])];
 }
 
 /**
