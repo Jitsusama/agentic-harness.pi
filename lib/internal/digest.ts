@@ -1,9 +1,8 @@
 import { createHash } from "node:crypto";
 
 /**
- * A short, stable pointer to a piece of text, for the reduction and
- * demotion machinery that needs to name what it cut without keeping
- * the bytes. Not the ledger's own digest: `lib/ledger/scan.ts` computes
+ * A short, stable pointer to a piece of text, for the demotion
+ * machinery that needs to name what it cut without keeping the bytes. Not the ledger's own digest: `lib/ledger/scan.ts` computes
  * and persists its own, at its own length, and already has real,
  * live-stored rows keyed on it, so it is left alone rather than
  * unified with this one just because both call the same hash.

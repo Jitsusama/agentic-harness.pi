@@ -62,6 +62,9 @@ const MUST_BOUND = [
 	"browser-integration",
 	"cost-workflow",
 	"demote-workflow",
+	// Listed as small until one digest answered with 140,393 characters:
+	// its weekly trends grow with every row ever kept.
+	"observability-workflow",
 	"slack-integration",
 	"google-workspace-integration",
 	"lsp-integration",
@@ -208,7 +211,6 @@ describe("tools that can answer big must bound their answers", () => {
 			"advisor",
 			"ask-workflow",
 			"correction-capture",
-			"observability-workflow",
 			"mermaid-widget",
 			"tdd-workflow",
 			"verification-workflow",

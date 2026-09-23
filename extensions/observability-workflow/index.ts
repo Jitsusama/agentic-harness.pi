@@ -40,6 +40,10 @@ import {
 	type RunSummary,
 	registerRunRecorder,
 } from "@jitsusama/agentic-harness.core/observability";
+import {
+	citeListing,
+	openSessionStore,
+} from "@jitsusama/agentic-harness.core/result";
 import { Type } from "@sinclair/typebox";
 import { packageStateDir } from "../../lib/internal/package-state-dir.js";
 import { repoOf } from "../../lib/ledger/index.js";
@@ -147,7 +151,7 @@ export default function observabilityWorkflow(pi: ExtensionAPI) {
 			const rows = await store.queryRuns();
 			const rollups = await store.queryRollups();
 			return {
-				content: [{ type: "text", text: formatDigest(rows, rollups) }],
+				content: [{ type: "text", text: boundedDigest(rows, rollups) }],
 				details: { ok: true, runCount: rows.length },
 			};
 		},
@@ -178,6 +182,25 @@ function formatRunSummary(s: RunSummaryLike): string {
 		`retries ${s.totalRetries}, warnings ${s.totalWarnings}`,
 		`tokens ${s.tokens.total}, cost $${s.cost.total.toFixed(4)}${unmeteredNote(s.unmetered)}, cache-read ${(s.cacheReadRatio * 100).toFixed(0)}%`,
 	].join("\n");
+}
+
+/**
+ * The digest, bounded the way every other large answer in this package
+ * is. Weekly trends are computed over every row ever kept, one line per
+ * week, model and persona, so they grow without limit: one call once
+ * answered with 140,393 characters. The view is cut to the listing
+ * budget and every rollup is stored under a handle to query instead.
+ */
+export function boundedDigest(
+	rows: readonly RunRecord[],
+	rollups: readonly RunRollup[],
+): string {
+	return citeListing(openSessionStore(), {
+		view: formatDigest(rows, rollups),
+		records: rollups,
+		unit: "weekly rollups",
+		narrowing: "Pass a runId to summarize one run instead.",
+	});
 }
 
 export function formatDigest(

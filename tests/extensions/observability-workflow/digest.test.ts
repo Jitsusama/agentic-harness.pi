@@ -3,8 +3,10 @@ import type {
 	RunRollup,
 	VerifyOutcome,
 } from "@jitsusama/agentic-harness.core/observability";
-import { describe, expect, it } from "vitest";
+import { cleanupSessionResults } from "@jitsusama/agentic-harness.core/result";
+import { afterEach, describe, expect, it } from "vitest";
 import {
+	boundedDigest,
 	formatDigest,
 	groupByRun,
 } from "../../../extensions/observability-workflow/index.js";
@@ -81,5 +83,47 @@ describe("formatDigest", () => {
 
 		expect(digest).toContain("(default)");
 		expect(digest).toContain("cache-read 50%");
+	});
+});
+
+describe("boundedDigest", () => {
+	afterEach(() => {
+		cleanupSessionResults();
+	});
+
+	function rollup(week: number, persona: string): RunRollup {
+		return {
+			weekStart: Date.UTC(2026, 0, 1) + week * 7 * 86_400_000,
+			model: "anthropic/claude-opus-5",
+			persona,
+			runCount: 3,
+			totalRetries: 0,
+			totalWarnings: 0,
+			tokensTotal: 1000,
+			costTotal: 1.5,
+			cacheReadRatio: 0.5,
+		};
+	}
+
+	it("returns a small digest untouched", () => {
+		const rollups = [rollup(0, "correctness")];
+		expect(boundedDigest([], rollups)).toBe(formatDigest([], rollups));
+	});
+
+	it("bounds a digest whose weekly trends have grown past the budget, keeping every one queryable", () => {
+		// The real failure: rollups are computed over every row ever kept,
+		// one line per week, model and persona, so the digest grew without
+		// limit and one call answered with 140,393 characters.
+		const rollups = Array.from({ length: 40 }, (_, week) =>
+			Array.from({ length: 22 }, (_, p) => rollup(week, `persona-${p}`)),
+		).flat();
+		const whole = formatDigest([], rollups);
+
+		const bounded = boundedDigest([], rollups);
+
+		expect(Buffer.byteLength(bounded, "utf-8")).toBeLessThan(
+			Buffer.byteLength(whole, "utf-8") / 5,
+		);
+		expect(bounded).toMatch(/handle result-[0-9a-f]{16}/);
 	});
 });
