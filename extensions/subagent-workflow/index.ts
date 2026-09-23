@@ -490,7 +490,7 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 					model: Type.Optional(
 						Type.String({
 							description:
-								"Pi --model value: bare model id (claude-opus-4-7) or provider/model (anthropic/claude-opus-4-7). Omit to inherit pi's session default.",
+								"Pi --model value: bare model id (claude-opus-4-7) or provider/model (anthropic/claude-opus-4-7). Omit to use pi's configured defaultModel from settings, which is not necessarily the model this session is running: the child is a fresh pi process and is not handed the parent's model.",
 						}),
 					),
 					thinkingLevel: Type.Optional(
@@ -500,7 +500,7 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 							THINKING_LEVELS,
 							{
 								description:
-									"Pi --thinking value. Omit to inherit pi's session default.",
+									"Pi --thinking value. Omit to use pi's configured defaultThinkingLevel from settings, not this session's current level.",
 							},
 						),
 					),

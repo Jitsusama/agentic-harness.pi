@@ -197,11 +197,17 @@ export interface SubagentSpec {
 	 * (`anthropic/claude-opus-4-7`). The colon form
 	 * `provider:model` is NOT accepted by pi's CLI; colons
 	 * are reserved for the `model:thinking` shorthand.
+	 *
+	 * Omit to use pi's configured `defaultModel`. The child is a
+	 * fresh pi process and nothing hands it the parent's model, so a
+	 * parent switched to another model mid-session still spawns
+	 * children on the settings default.
 	 */
 	readonly model?: string;
 	/**
 	 * Pi `--thinking` value: `off`, `low`, `medium`, or
-	 * `high`. Omit to inherit pi's session default.
+	 * `high`. Omit to use pi's configured `defaultThinkingLevel`,
+	 * not the parent session's current level.
 	 */
 	readonly thinkingLevel?: ReviewerThinkingLevel;
 	/** Pi `--tools` palette (e.g. ["read", "grep", "bash"]). */
