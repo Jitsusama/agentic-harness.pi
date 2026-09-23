@@ -38,7 +38,13 @@
  */
 
 import { createHash } from "node:crypto";
-import { type Dirent, readdirSync, readFileSync, realpathSync } from "node:fs";
+import {
+	type Dirent,
+	readdirSync,
+	readFileSync,
+	realpathSync,
+	statSync,
+} from "node:fs";
 import { extname, join } from "node:path";
 import type { QuestDoc, QuestDocumentDoc } from "../../quest/types.ts";
 import {
@@ -116,7 +122,15 @@ export interface DiscoveryResult {
 	errors: DiscoveryError[];
 }
 
-function readMaybe(path: string): string | undefined {
+/**
+ * File bytes the signature pass read on the way to a cache miss, handed
+ * to the walk so a cold discovery reads each file once rather than twice.
+ */
+type ReadBytes = Map<string, Buffer>;
+
+function readMaybe(path: string, already: ReadBytes): string | undefined {
+	const bytes = already.get(path);
+	if (bytes) return bytes.toString("utf8");
 	try {
 		return readFileSync(path, "utf8");
 	} catch {
@@ -183,6 +197,23 @@ interface CacheSlot {
 
 const discoveryCache = new Map<string, CacheSlot>();
 
+/** A file's content hash, and the stat it was taken under. */
+interface Stamp {
+	stat: string;
+	hash: string;
+}
+
+const stamps = new Map<string, Stamp>();
+
+/**
+ * How long a file must have sat unwritten before its stat is trusted to
+ * stand for its content. A filesystem with coarse timestamps can give
+ * two writes inside one tick the same mtime, and a same-size rewrite
+ * would then keep its stat; this is git's racy-index rule. Two seconds
+ * covers the coarsest clock in use.
+ */
+const SETTLED_NS = 2_000_000_000n;
+
 /**
  * Drop the discovery memo. Tests call this between runs; write
  * paths do not need it because the signature catches their
@@ -190,6 +221,7 @@ const discoveryCache = new Map<string, CacheSlot>();
  */
 export function clearDiscoveryCache(): void {
 	discoveryCache.clear();
+	stamps.clear();
 }
 
 /**
@@ -203,10 +235,11 @@ export function clearDiscoveryCache(): void {
  * cache on the next read.
  */
 export function discoverQuests(questsRoot: string): DiscoveryResult {
-	const signature = discoverySignature(questsRoot);
+	const read: ReadBytes = new Map();
+	const signature = discoverySignature(questsRoot, read);
 	const cached = discoveryCache.get(questsRoot);
 	if (cached && cached.signature === signature) return cached.result;
-	const result = discoverQuestsUncached(questsRoot);
+	const result = discoverQuestsUncached(questsRoot, read);
 	discoveryCache.set(questsRoot, { signature, result });
 	return result;
 }
@@ -219,16 +252,17 @@ export function discoverQuests(questsRoot: string): DiscoveryResult {
  * folds in the directory listings of the root and each quest dir,
  * so the layout-drift conditions that drive the discovery `errors`
  * (a stray non-quest entry, a misplaced document at a quest root,
- * a nested quest) move it too. Hashing reads the file bytes but
- * skips the parse and object construction the cache exists to
- * avoid, so a warm read still wins on a large tree.
+ * a nested quest) move it too. A file whose stat still matches the
+ * one its hash was taken under keeps that hash without being read,
+ * provided it had settled before the hash was taken, so a warm read
+ * of an unchanged tree costs a stat per file rather than its bytes.
+ * Whatever it does read lands in `read` for the walk to reuse.
  */
-function discoverySignature(questsRoot: string): string {
+function discoverySignature(questsRoot: string, read: ReadBytes): string {
 	const parts: string[] = [];
 	const stampContent = (path: string): void => {
 		try {
-			const hash = createHash("sha1").update(readFileSync(path)).digest("hex");
-			parts.push(`${path}:${hash}`);
+			parts.push(`${path}:${contentHash(path, read)}`);
 		} catch {
 			// Missing or unreadable file contributes nothing; its
 			// absence is itself a change from a signature that had it.
@@ -261,7 +295,25 @@ function discoverySignature(questsRoot: string): string {
 	return parts.sort().join("|");
 }
 
-function discoverQuestsUncached(questsRoot: string): DiscoveryResult {
+/** A file's content hash, from its stamp when the stat still vouches. */
+function contentHash(path: string, read: ReadBytes): string {
+	const st = statSync(path, { bigint: true });
+	const stat = `${st.size}:${st.mtimeNs}:${st.ctimeNs}:${st.ino}`;
+	const known = stamps.get(path);
+	if (known && known.stat === stat) return known.hash;
+	const bytes = readFileSync(path);
+	read.set(path, bytes);
+	const hash = createHash("sha1").update(bytes).digest("hex");
+	const age = BigInt(Date.now()) * 1_000_000n - st.mtimeNs;
+	if (age > SETTLED_NS) stamps.set(path, { stat, hash });
+	else stamps.delete(path);
+	return hash;
+}
+
+function discoverQuestsUncached(
+	questsRoot: string,
+	read: ReadBytes,
+): DiscoveryResult {
 	const quests = new Map<string, QuestEntry>();
 	const children = new Map<string, string[]>();
 	const errors: DiscoveryError[] = [];
@@ -300,7 +352,7 @@ function discoverQuestsUncached(questsRoot: string): DiscoveryResult {
 				if (extname(child) !== ".md") continue;
 				const base = child.slice(0, -3);
 				if (!isId(base) || prefixOf(base) === "QEST") continue;
-				const docText = readMaybe(childPath);
+				const docText = readMaybe(childPath, read);
 				if (!docText) continue;
 				const docDoc = parseDocumentFile(docText);
 				if (docDoc) {
@@ -346,7 +398,7 @@ function discoverQuestsUncached(questsRoot: string): DiscoveryResult {
 
 	function acceptQuest(name: string, full: string): void {
 		const readmePath = join(full, "README.md");
-		const text = readMaybe(readmePath);
+		const text = readMaybe(readmePath, read);
 		if (!text) {
 			errors.push({ path: readmePath, message: "README.md missing" });
 			return;
