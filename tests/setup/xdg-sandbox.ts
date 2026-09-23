@@ -24,9 +24,12 @@
  *
  * A test that wants its own sandbox still overrides these itself; it
  * is inheriting a safe default, not losing control.
+ *
+ * The sandbox sits in the run's temp directory, which temp-root.ts
+ * removes when the run ends.
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -36,9 +39,3 @@ process.env.XDG_STATE_HOME = join(sandbox, "state");
 process.env.XDG_DATA_HOME = join(sandbox, "data");
 process.env.XDG_CACHE_HOME = join(sandbox, "cache");
 process.env.XDG_CONFIG_HOME = join(sandbox, "config");
-
-process.on("exit", () => {
-	// Best effort: a worker killed outright leaves its sandbox behind
-	// in the temp directory, where the OS reclaims it.
-	rmSync(sandbox, { recursive: true, force: true });
-});
