@@ -13,8 +13,8 @@ import {
 	ALLOW,
 	formatRedirectBlock,
 	type GuardianResult,
-} from "../../guardian/index.js";
-import { promptSingle, renderMarkdown, wordWrap } from "../../ui/index.js";
+} from "../../guardian/index.ts";
+import { promptSingle, renderMarkdown, wordWrap } from "../../ui/index.ts";
 
 /** Labels that distinguish one entity type from another. */
 export interface EntityReviewConfig {

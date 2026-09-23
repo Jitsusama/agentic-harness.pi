@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { withSessionPersistence } from "../../../../lib/subagent/runpi/supervisor.js";
+import { withSessionPersistence } from "../../../../lib/subagent/runpi/supervisor.ts";
 
 // A supervised reviewer must persist its session so a
 // dropped run can be resumed. The composed args default to

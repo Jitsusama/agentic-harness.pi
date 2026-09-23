@@ -18,7 +18,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	createFrozenResidentPrompt,
 	type FrozenResidentPrompt,
-} from "../../lib/prompt/index.js";
+} from "../../lib/prompt/index.ts";
 
 export default function promptCoordinator(pi: ExtensionAPI) {
 	let frozen: FrozenResidentPrompt = createFrozenResidentPrompt();

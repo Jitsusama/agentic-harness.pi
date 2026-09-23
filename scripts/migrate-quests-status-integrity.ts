@@ -28,14 +28,14 @@
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { dataDir } from "../lib/internal/paths.js";
+import { dataDir } from "../lib/internal/paths.ts";
 import {
 	parseDocumentFrontMatter,
 	parseQuestFrontMatter,
 	serializeDocumentFrontMatter,
 	serializeQuestFrontMatter,
-} from "../lib/internal/quest/frontmatter.js";
-import { atomicWriteFile } from "../lib/internal/quest/io.js";
+} from "../lib/internal/quest/frontmatter.ts";
+import { atomicWriteFile } from "../lib/internal/quest/io.ts";
 
 const LIVE_PRIORITIES = new Set(["driving", "active"]);
 const SEALED_STATUSES = new Set(["concluded", "retired"]);

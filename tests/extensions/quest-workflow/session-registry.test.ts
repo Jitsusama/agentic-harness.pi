@@ -24,7 +24,7 @@ import {
 	closeRecord,
 	openRecord,
 } from "../../../lib/internal/quest/session-registry";
-import { quietFor, until } from "../../support/until.js";
+import { quietFor, until } from "../../support/until.ts";
 
 let stateHome: string;
 let savedStateHome: string | undefined;

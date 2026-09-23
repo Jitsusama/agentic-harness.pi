@@ -14,8 +14,8 @@ import { describe, expect, it } from "vitest";
 import {
 	renderProgressBar,
 	renderTabStrip,
-} from "../../../lib/ui/tab-strip.js";
-import { plainTheme } from "./fake-theme.js";
+} from "../../../lib/ui/tab-strip.ts";
+import { plainTheme } from "./fake-theme.ts";
 
 /**
  * The strip as it would be drawn, through a theme that adds no width.

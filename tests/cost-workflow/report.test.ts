@@ -7,7 +7,7 @@ import {
 	formatSlices,
 	formatTotal,
 	formatVerifierOutcomes,
-} from "../../extensions/cost-workflow/report.js";
+} from "../../extensions/cost-workflow/report.ts";
 
 describe("formatTotal", () => {
 	it("names unmetered turns rather than folding them in as free", () => {

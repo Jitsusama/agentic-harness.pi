@@ -28,8 +28,8 @@ import type {
 	QuestKind,
 	QuestPriority,
 	QuestStatus,
-} from "../../quest/types.js";
-import type { QuestEntry, QuestIndex } from "./discovery.js";
+} from "../../quest/types.ts";
+import type { QuestEntry, QuestIndex } from "./discovery.ts";
 
 const PRIORITY_LABELS: Array<{ priority: QuestPriority; label: string }> = [
 	{ priority: "driving", label: "🚀 Driving" },

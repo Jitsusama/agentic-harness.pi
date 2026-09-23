@@ -13,9 +13,9 @@
  * values are the source quests.
  */
 
-import type { QuestIndex } from "./discovery.js";
-import type { IdMentionRelation } from "./id.js";
-import { extractMentions } from "./quest-doc.js";
+import type { QuestIndex } from "./discovery.ts";
+import type { IdMentionRelation } from "./id.ts";
+import { extractMentions } from "./quest-doc.ts";
 
 /** One inbound mention. */
 export interface MentionEdge {

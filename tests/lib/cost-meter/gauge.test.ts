@@ -5,7 +5,7 @@ import {
 	marginalText,
 	medianOf,
 	sessionText,
-} from "../../../lib/internal/cost-meter/index.js";
+} from "../../../lib/internal/cost-meter/index.ts";
 
 describe("contextGauge", () => {
 	it("fills the glyph as the window fills", () => {

@@ -21,13 +21,13 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
 
-import type { QuestEntry } from "../../lib/internal/quest/discovery.js";
+import type { QuestEntry } from "../../lib/internal/quest/discovery.ts";
 import type {
 	DocumentKind,
 	QuestKind,
 	QuestStatus,
-} from "../../lib/quest/index.js";
-import type { Stage } from "./machine.js";
+} from "../../lib/quest/index.ts";
+import type { Stage } from "./machine.ts";
 
 const KIND_GLYPHS: Record<QuestKind, string> = {
 	quest: "\u25c6", // ◆

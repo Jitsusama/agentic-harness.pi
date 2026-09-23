@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	jsonSummaryContent,
 	summarizeJson,
-} from "../../../lib/mcp/json-summary.js";
-import type { McpContent } from "../../../lib/mcp/types.js";
+} from "../../../lib/mcp/json-summary.ts";
+import type { McpContent } from "../../../lib/mcp/types.ts";
 
 function textOf(content: McpContent[] | undefined): string {
 	return (content ?? [])

@@ -22,12 +22,12 @@ import {
 	utimesSync,
 } from "node:fs";
 import { join } from "node:path";
-import { stateDir } from "../../lib/internal/paths.js";
-import { atomicWriteFile } from "../../lib/internal/quest/io.js";
+import { stateDir } from "../../lib/internal/paths.ts";
+import { atomicWriteFile } from "../../lib/internal/quest/io.ts";
 import {
 	localProcessDeps,
 	probeProcess,
-} from "../../lib/internal/quest/process-liveness.js";
+} from "../../lib/internal/quest/process-liveness.ts";
 import {
 	closeRecord,
 	openRecord,
@@ -39,12 +39,12 @@ import {
 	type SessionRecord,
 	shellSingleQuote,
 	switchQuest,
-} from "../../lib/internal/quest/session-registry.js";
-import type { QuestSession } from "../../lib/quest/index.js";
+} from "../../lib/internal/quest/session-registry.ts";
+import type { QuestSession } from "../../lib/quest/index.ts";
 import {
 	getTypeProvider,
 	spawnTerminalSurface,
-} from "../../lib/terminal/index.js";
+} from "../../lib/terminal/index.ts";
 
 /** Where the per-session records live. */
 export function sessionRegistryDir(): string {

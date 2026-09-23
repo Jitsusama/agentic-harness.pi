@@ -10,7 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ReviewerArtifactsStore } from "../../../lib/subagent/artifacts.js";
+import { ReviewerArtifactsStore } from "../../../lib/subagent/artifacts.ts";
 
 async function tempStore(): Promise<ReviewerArtifactsStore> {
 	return new ReviewerArtifactsStore(

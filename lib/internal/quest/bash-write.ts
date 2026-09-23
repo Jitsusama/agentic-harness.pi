@@ -7,12 +7,12 @@
  * not a security boundary.
  */
 
-import { tokenize, type Word } from "../../command/index.js";
+import { tokenize, type Word } from "../../command/index.ts";
 import {
 	stripHeredocBodies,
 	stripShellData,
 	unquote,
-} from "../../shell/index.js";
+} from "../../shell/index.ts";
 
 /** What kind of write, if any, a bash command performs. */
 export type BashWriteKind = "git-mutating" | "bash-write" | "read-only";

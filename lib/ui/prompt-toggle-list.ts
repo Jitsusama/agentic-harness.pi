@@ -3,16 +3,16 @@ import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 import {
 	type NavigableSection,
 	renderNavigableSections,
-} from "./navigable-list.js";
-import { OVERLAID } from "./overlay.js";
-import { computeChromeLines } from "./panel-layout.js";
+} from "./navigable-list.ts";
+import { OVERLAID } from "./overlay.ts";
+import { computeChromeLines } from "./panel-layout.ts";
 import {
 	contentBudget,
 	renderScrollRegion,
 	SCROLLBAR_GUTTER,
 	type ScrollState,
-} from "./scroll-region.js";
-import { GLYPH } from "./types.js";
+} from "./scroll-region.ts";
+import { GLYPH } from "./types.ts";
 
 /** One toggleable row: a labelled setting that cycles through a fixed set of options. */
 export interface ToggleRow {

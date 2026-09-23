@@ -5,8 +5,8 @@
  * helper.
  */
 
-import type { TerminalDriver } from "../../terminal/types.js";
-import { createGlobalSymbolRegistry } from "../registry/global-symbol-registry.js";
+import type { TerminalDriver } from "../../terminal/types.ts";
+import { createGlobalSymbolRegistry } from "../registry/global-symbol-registry.ts";
 
 const registry = createGlobalSymbolRegistry<TerminalDriver>({
 	slot: "pi:agentic-harness:terminal-drivers",

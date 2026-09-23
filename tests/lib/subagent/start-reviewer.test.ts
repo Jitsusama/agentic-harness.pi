@@ -2,9 +2,9 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ReviewerArtifactsStore } from "../../../lib/subagent/artifacts.js";
-import type { StartedPi } from "../../../lib/subagent/runpi/supervisor.js";
-import { startReviewer } from "../../../lib/subagent/subagent.js";
+import { ReviewerArtifactsStore } from "../../../lib/subagent/artifacts.ts";
+import type { StartedPi } from "../../../lib/subagent/runpi/supervisor.ts";
+import { startReviewer } from "../../../lib/subagent/subagent.ts";
 
 async function tempStateDir(): Promise<string> {
 	return mkdtemp(join(tmpdir(), "pr-start-reviewer-"));

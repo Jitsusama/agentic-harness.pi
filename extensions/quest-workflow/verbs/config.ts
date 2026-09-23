@@ -10,15 +10,15 @@
 import {
 	getSection,
 	loadPackageConfig,
-} from "../../../lib/internal/config/loader.js";
-import { dataDir, packageConfigPath } from "../../../lib/internal/paths.js";
+} from "../../../lib/internal/config/loader.ts";
+import { dataDir, packageConfigPath } from "../../../lib/internal/paths.ts";
 import {
 	parseQuestWorkflowConfig,
 	QUEST_WORKFLOW_SLUG,
 	type QuestWorkflowConfig,
 	summarizeQuestConfig,
-} from "../config.js";
-import { ok, type QuestResult } from "./shared.js";
+} from "../config.ts";
+import { ok, type QuestResult } from "./shared.ts";
 
 /** Report the resolved config path and effective values. */
 export async function configReport(): Promise<QuestResult> {

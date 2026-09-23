@@ -3,34 +3,34 @@
  * parameters that were meant to govern them.
  */
 
-export { pressureTriggersAdvisor } from "./advisor-trigger.js";
+export { pressureTriggersAdvisor } from "./advisor-trigger.ts";
 export {
 	type CusumBaseline,
 	type CusumOptions,
 	type CusumPoint,
 	computeBaseline,
 	cusum,
-} from "./cusum.js";
+} from "./cusum.ts";
 export {
 	type DeadHorseState,
 	INITIAL_DEAD_HORSE,
 	isDeadHorse,
 	observeVerify,
-} from "./dead-horse.js";
+} from "./dead-horse.ts";
 export {
 	type PressureBand,
 	type PressureInputs,
 	type PressureReading,
 	readPressure,
-} from "./pressure.js";
+} from "./pressure.ts";
 export {
 	choseWithPropensity,
 	type PropensityChoice,
 	type PropensityResult,
-} from "./propensity.js";
+} from "./propensity.ts";
 export {
 	type CallOccurrence,
 	type ClassifiedRepeat,
 	classifyRepeats,
 	type RepeatClass,
-} from "./rework.js";
+} from "./rework.ts";

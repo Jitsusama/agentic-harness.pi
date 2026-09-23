@@ -10,8 +10,8 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { nowYmd } from "./dates.js";
-import { atomicWriteFile, withQuestLock } from "./io.js";
+import { nowYmd } from "./dates.ts";
+import { atomicWriteFile, withQuestLock } from "./io.ts";
 
 /**
  * Append a Journey bullet to `<questDir>/README.md`. When

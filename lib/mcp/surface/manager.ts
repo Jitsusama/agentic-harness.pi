@@ -13,29 +13,29 @@ import {
 	DEFAULT_RESULT_CEILING_BYTES,
 	enforceResultCeiling,
 	type SpillTarget,
-} from "../ceiling.js";
-import type { McpConnection } from "../connection.js";
-import { joinTextContent } from "../content.js";
-import { toAgentContent } from "../frontend/defaults.js";
-import type { FrontEndRegistry } from "../frontend/registry.js";
-import type { FrontEndRenderContext, Invoke } from "../frontend/types.js";
+} from "../ceiling.ts";
+import type { McpConnection } from "../connection.ts";
+import { joinTextContent } from "../content.ts";
+import { toAgentContent } from "../frontend/defaults.ts";
+import type { FrontEndRegistry } from "../frontend/registry.ts";
+import type { FrontEndRenderContext, Invoke } from "../frontend/types.ts";
 import {
 	jsonSummaryContent,
 	RESULT_VIEW_KEY,
 	type ResultView,
-} from "../json-summary.js";
-import { renderDefaultCall } from "../render/call.js";
-import { renderDefaultResult } from "../render/result.js";
-import type { DiscoveryEntry } from "../render/tools-list.js";
-import { createResultStore, type ResultStore } from "../store.js";
-import type { McpServerConfig, McpTool, McpToolResult } from "../types.js";
-import { createProgressiveHelpers, type HelperDescriptor } from "./helpers.js";
+} from "../json-summary.ts";
+import { renderDefaultCall } from "../render/call.ts";
+import { renderDefaultResult } from "../render/result.ts";
+import type { DiscoveryEntry } from "../render/tools-list.ts";
+import { createResultStore, type ResultStore } from "../store.ts";
+import type { McpServerConfig, McpTool, McpToolResult } from "../types.ts";
+import { createProgressiveHelpers, type HelperDescriptor } from "./helpers.ts";
 import {
 	defaultBackendOf,
 	resolveToolMode,
 	type ServerPolicy,
 	type SurfaceConfig,
-} from "./policy.js";
+} from "./policy.ts";
 
 /** The tool-render state the host forwards; the manager adds the tool and server count before calling a front-end hook. */
 type PiRenderContext = Omit<FrontEndRenderContext, "tool" | "serverCount">;

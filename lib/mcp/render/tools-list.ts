@@ -1,4 +1,4 @@
-import type { ToolMode } from "../surface/policy.js";
+import type { ToolMode } from "../surface/policy.ts";
 
 /** One tool as it appears in a discovery listing. */
 export interface DiscoveryEntry {

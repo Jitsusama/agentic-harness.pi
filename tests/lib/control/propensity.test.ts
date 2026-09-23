@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { choseWithPropensity } from "../../../lib/control/index.js";
+import { choseWithPropensity } from "../../../lib/control/index.ts";
 
 describe("logging propensity alongside an exploratory choice", () => {
 	it("takes the deterministic choice most of the time, at propensity 1 minus the rate", () => {

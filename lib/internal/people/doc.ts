@@ -38,7 +38,7 @@
  * rewrites discard prose.
  */
 
-import type { Handle, Identity } from "../../people/types.js";
+import type { Handle, Identity } from "../../people/types.ts";
 
 /** A parsed identity document. */
 export interface IdentityDoc {

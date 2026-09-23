@@ -12,8 +12,8 @@ import {
 	type JsonSummaryOptions,
 	summarizeJson,
 } from "@jitsusama/agentic-harness.core/result";
-import type { SpillTarget } from "./ceiling.js";
-import type { McpContent } from "./types.js";
+import type { SpillTarget } from "./ceiling.ts";
+import type { McpContent } from "./types.ts";
 
 export {
 	type JsonSummaryOptions,

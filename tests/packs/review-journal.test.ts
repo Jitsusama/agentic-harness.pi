@@ -10,7 +10,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import reviewJournal from "../../packs/review-journal/index.js";
+import reviewJournal from "../../packs/review-journal/index.ts";
 
 type Tool = {
 	name: string;

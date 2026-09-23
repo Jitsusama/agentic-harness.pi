@@ -8,8 +8,8 @@
  */
 
 import { standingReminder } from "@jitsusama/agentic-harness.core/tdd";
-import { filterContext } from "../../lib/internal/state.js";
-import type { TddState } from "./state.js";
+import { filterContext } from "../../lib/internal/state.ts";
+import type { TddState } from "./state.ts";
 
 /** The customType tag for the injected TDD context message. */
 const CONTEXT_TYPE = "tdd-workflow-context";

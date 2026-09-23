@@ -1,12 +1,12 @@
 import type { TextContent } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
-import { PIXEL_BUDGET } from "../../extensions/image-budget-workflow/budget.js";
+import { PIXEL_BUDGET } from "../../extensions/image-budget-workflow/budget.ts";
 import {
 	type Block,
 	type Resize,
 	type Resized,
 	rebudget,
-} from "../../extensions/image-budget-workflow/rebudget.js";
+} from "../../extensions/image-budget-workflow/rebudget.ts";
 
 /**
  * A square comfortably inside the allowance, whatever it is set to.

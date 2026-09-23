@@ -5,8 +5,8 @@ import type {
 	TurnKind,
 	TurnRecord,
 } from "@jitsusama/agentic-harness.core/observability";
-import { SessionCollector } from "./session.js";
-import type { DroppedCallRecord, LedgerScan, ToolCallRecord } from "./types.js";
+import { SessionCollector } from "./session.ts";
+import type { DroppedCallRecord, LedgerScan, ToolCallRecord } from "./types.ts";
 
 /** Width of a stored content address. 96 bits is ample for a corpus of
  * a few million turns and keeps the index small. */

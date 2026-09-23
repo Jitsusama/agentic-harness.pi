@@ -17,7 +17,7 @@
 
 import type { AgentToolResult, Theme } from "@earendil-works/pi-coding-agent";
 import type { Text } from "@earendil-works/pi-tui";
-import { asText, drawInto, renderToolCall } from "../../../lib/ui/index.js";
+import { asText, drawInto, renderToolCall } from "../../../lib/ui/index.ts";
 
 /** What a tool answers with. */
 export type Answer = AgentToolResult<unknown>;

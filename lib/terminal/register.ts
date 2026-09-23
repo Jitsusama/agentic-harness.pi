@@ -5,9 +5,9 @@
  * clear for tests.
  */
 
-import { BUILTIN_TERMINAL_DRIVERS } from "../internal/terminal/builtins.js";
-import { clear, register, unregister } from "../internal/terminal/registry.js";
-import type { TerminalDriver } from "./types.js";
+import { BUILTIN_TERMINAL_DRIVERS } from "../internal/terminal/builtins.ts";
+import { clear, register, unregister } from "../internal/terminal/registry.ts";
+import type { TerminalDriver } from "./types.ts";
 
 /**
  * Register a terminal driver. Overwrites any previously

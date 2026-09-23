@@ -26,7 +26,7 @@ import {
 	reapAbandonedResults,
 } from "@jitsusama/agentic-harness.core/result";
 import { Type } from "@sinclair/typebox";
-import { renderQueryCall, renderQueryResult } from "./render.js";
+import { renderQueryCall, renderQueryResult } from "./render.ts";
 
 /** What the tool reports alongside its text, for the renderers. */
 export interface QueryDetails {

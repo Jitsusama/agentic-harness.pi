@@ -7,7 +7,7 @@ import {
 	setFilter,
 	type ToggleListConfig,
 	visibleOrder,
-} from "../../../lib/ui/prompt-toggle-list.js";
+} from "../../../lib/ui/prompt-toggle-list.ts";
 
 function config(): ToggleListConfig {
 	return {

@@ -20,9 +20,9 @@ import {
 	confirmBatch,
 	type GateItem,
 	withPosition,
-} from "../../extensions/review-integration/gate.js";
-import type { PromptResult } from "../../lib/ui/types.js";
-import { fakeTheme } from "../lib/ui/fake-theme.js";
+} from "../../extensions/review-integration/gate.ts";
+import type { PromptResult } from "../../lib/ui/types.ts";
+import { fakeTheme } from "../lib/ui/fake-theme.ts";
 
 /** What both prompts report for a plain Enter. Their sentinel, not ours. */
 const SUBMIT = "__enter__";

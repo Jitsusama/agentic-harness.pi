@@ -17,7 +17,7 @@ import {
 	addressOf,
 	batchRefusal,
 	glyphOf,
-} from "../../extensions/review-integration/tools/batch.js";
+} from "../../extensions/review-integration/tools/batch.ts";
 
 describe("refusing a batch that cannot be read", () => {
 	it("allows the array on its own", () => {

@@ -19,8 +19,8 @@ import type {
 	QuestKind,
 	QuestPriority,
 	QuestStatus,
-} from "../../quest/types.js";
-import type { MutableField } from "./structural-journal.js";
+} from "../../quest/types.ts";
+import type { MutableField } from "./structural-journal.ts";
 
 /** Reading and writing one field, as strings, the way the journal holds them. */
 export interface QuestFieldLens {

@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { type RenderTheme, renderToolCall } from "../../../lib/ui/tool-call.js";
+import { type RenderTheme, renderToolCall } from "../../../lib/ui/tool-call.ts";
 
 /** A theme that says what it was asked to do instead of doing it. */
 const THEME: RenderTheme = {

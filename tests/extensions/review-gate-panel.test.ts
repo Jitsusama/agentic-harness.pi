@@ -19,8 +19,8 @@ import {
 	type GatePanel,
 	gateLines,
 	gateText,
-} from "../../extensions/review-integration/render.js";
-import { fakeTheme } from "../lib/ui/fake-theme.js";
+} from "../../extensions/review-integration/render.ts";
+import { fakeTheme } from "../lib/ui/fake-theme.ts";
 
 const WIDTH = 72;
 

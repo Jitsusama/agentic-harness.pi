@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { createFrontEndRegistry } from "../../../../lib/mcp/frontend/registry.js";
+import { createFrontEndRegistry } from "../../../../lib/mcp/frontend/registry.ts";
 import type {
 	FrontEndProvider,
 	ResolvedFrontEnd,
-} from "../../../../lib/mcp/frontend/types.js";
-import { defaultBackendOf } from "../../../../lib/mcp/surface/policy.js";
-import type { McpTool } from "../../../../lib/mcp/types.js";
+} from "../../../../lib/mcp/frontend/types.ts";
+import { defaultBackendOf } from "../../../../lib/mcp/surface/policy.ts";
+import type { McpTool } from "../../../../lib/mcp/types.ts";
 
 // Sentinels: the resolver returns whichever hook won, so we detect the winner
 // by identity rather than by invoking it.

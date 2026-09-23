@@ -17,8 +17,8 @@ import { describe, expect, it } from "vitest";
 import {
 	confirmBatch,
 	type GateItem,
-} from "../../extensions/review-integration/gate.js";
-import type { PromptResult } from "../../lib/ui/types.js";
+} from "../../extensions/review-integration/gate.ts";
+import type { PromptResult } from "../../lib/ui/types.ts";
 
 /** What both prompts report for a plain Enter. Their sentinel, not ours. */
 const SUBMIT = "__enter__";

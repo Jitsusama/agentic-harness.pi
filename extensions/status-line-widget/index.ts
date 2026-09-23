@@ -32,8 +32,8 @@ import {
 	GAP,
 	marginalText,
 	sessionText,
-} from "../../lib/internal/cost-meter/index.js";
-import { getPanelHeightGlyph } from "../../lib/ui/panel-height.js";
+} from "../../lib/internal/cost-meter/index.ts";
+import { getPanelHeightGlyph } from "../../lib/ui/panel-height.ts";
 
 const THINKING_GLYPHS: Record<string, string> = {
 	off: "",

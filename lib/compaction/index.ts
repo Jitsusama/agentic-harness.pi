@@ -8,11 +8,11 @@
  * consequential change from writing the decision itself.
  */
 
-export { type CompactionHistory, compactionHistory } from "./history.js";
-export { type PaybackInput, paybackMargin, paybackTest } from "./payback.js";
-export { clampReserveTokens } from "./reserve.js";
+export { type CompactionHistory, compactionHistory } from "./history.ts";
+export { type PaybackInput, paybackMargin, paybackTest } from "./payback.ts";
+export { clampReserveTokens } from "./reserve.ts";
 export {
 	compactionPays,
 	type TriggerDecision,
 	type TriggerInput,
-} from "./trigger.js";
+} from "./trigger.ts";

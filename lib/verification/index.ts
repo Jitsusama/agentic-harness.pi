@@ -18,4 +18,4 @@ export {
 	type FastLayerVerdict,
 	type FileError,
 	fastLayerVerdict,
-} from "./verdict.js";
+} from "./verdict.ts";

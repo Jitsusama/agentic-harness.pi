@@ -38,10 +38,10 @@ import {
 	openSessionStore,
 } from "@jitsusama/agentic-harness.core/result";
 import { Type } from "@sinclair/typebox";
-import { medianOf } from "../../lib/internal/cost-meter/index.js";
-import { packageStateDir } from "../../lib/internal/package-state-dir.js";
-import { LEDGER_SCOPE } from "../../lib/ledger/index.js";
-import { indexSessionLogs } from "./indexer.js";
+import { medianOf } from "../../lib/internal/cost-meter/index.ts";
+import { packageStateDir } from "../../lib/internal/package-state-dir.ts";
+import { LEDGER_SCOPE } from "../../lib/ledger/index.ts";
+import { indexSessionLogs } from "./indexer.ts";
 import {
 	formatIndexOutcome,
 	formatPaybackReplay,
@@ -51,7 +51,7 @@ import {
 	formatTotal,
 	formatVerifierOutcomes,
 	type IndexOutcome,
-} from "./report.js";
+} from "./report.ts";
 
 /** Dimensions the tool will group by, in the ledger's own vocabulary. */
 const DIMENSIONS: readonly CostDimension[] = [

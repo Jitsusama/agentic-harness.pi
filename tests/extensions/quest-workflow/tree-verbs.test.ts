@@ -20,7 +20,7 @@ import {
 	clearRefTypes,
 	registerBuiltinRefTypes,
 } from "../../../lib/refs/index";
-import { disposeRepo, freshRepo } from "../../support/git-fixture.js";
+import { disposeRepo, freshRepo } from "../../support/git-fixture.ts";
 import { createEnvGuard, succeeded } from "./_helpers";
 
 let tmpRoot: string;

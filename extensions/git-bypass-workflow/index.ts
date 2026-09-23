@@ -16,7 +16,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	isGitBypassed,
 	setGitBypassed,
-} from "../../lib/internal/git/bypass.js";
+} from "../../lib/internal/git/bypass.ts";
 
 const STATUS_KEY = "git-bypass-workflow";
 

@@ -14,8 +14,8 @@ import {
 	spawn as nodeSpawn,
 	type SpawnOptions,
 } from "node:child_process";
-import type { PiInstall } from "../install.js";
-import type { RunPi, RunPiResult } from "../subagent.js";
+import type { PiInstall } from "../install.ts";
+import type { RunPi, RunPiResult } from "../subagent.ts";
 
 /** Subset of `child_process.spawn`'s signature we depend on. */
 export type SpawnFn = (

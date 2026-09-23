@@ -8,18 +8,18 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	pickResumeSession,
 	resolveSpawnCwd,
-} from "../../../lib/internal/quest/reopen.js";
+} from "../../../lib/internal/quest/reopen.ts";
 import {
 	deriveLiveness,
 	formatRelativeAge,
 	type SessionView,
-} from "../../../lib/internal/quest/session-liveness.js";
-import type { QuestSession } from "../../../lib/quest/index.js";
+} from "../../../lib/internal/quest/session-liveness.ts";
+import type { QuestSession } from "../../../lib/quest/index.ts";
 import {
 	resolveDriver,
 	type TerminalLayout,
-} from "../../../lib/terminal/index.js";
-import { count } from "../../../lib/ui/count.js";
+} from "../../../lib/terminal/index.ts";
+import { count } from "../../../lib/ui/count.ts";
 import {
 	attachSessionToLoaded,
 	captureSessionIdentity,
@@ -27,22 +27,22 @@ import {
 	detachSessionInQuestDir,
 	reconcileSessionMembership,
 	renameSessionOnLoaded,
-} from "../lifecycle.js";
-import { buildSessionSnapshot } from "../liveness.js";
+} from "../lifecycle.ts";
+import { buildSessionSnapshot } from "../liveness.ts";
 import {
 	auditSessionMembership,
 	getQuestEntry,
 	planDeadSessions,
 	planSessionRepair,
-} from "../lookup.js";
-import type { QuestState } from "../state.js";
+} from "../lookup.ts";
+import type { QuestState } from "../state.ts";
 import {
 	currentSessionId,
 	ok,
 	type QuestResult,
 	type QuestToolParams,
 	refuse,
-} from "./shared.js";
+} from "./shared.ts";
 
 /**
  * Repair session-to-quest membership across the store, in two

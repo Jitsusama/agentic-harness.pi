@@ -10,7 +10,7 @@
 
 import type { PublishPlan } from "@jitsusama/agentic-harness.core/review";
 import { describe, expect, it } from "vitest";
-import { proseComplaint } from "../../extensions/review-integration/render.js";
+import { proseComplaint } from "../../extensions/review-integration/render.ts";
 
 /** A plan carrying one review with the given body and comment bodies. */
 function planWith(body: string, ...comments: string[]): PublishPlan {

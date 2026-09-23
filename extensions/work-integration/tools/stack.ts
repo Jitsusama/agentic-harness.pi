@@ -15,8 +15,8 @@ import {
 	type StackedBranch,
 	type WorkStacks,
 } from "@jitsusama/agentic-harness.core/work";
-import { GLYPH } from "../render.js";
-import { type Answer, refuse, say } from "./shared.js";
+import { GLYPH } from "../render.ts";
+import { type Answer, refuse, say } from "./shared.ts";
 
 /** How far in a branch sits, so the shape is visible at a glance. */
 const STEP = "  ";

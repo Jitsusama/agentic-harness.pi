@@ -27,7 +27,7 @@ import {
 	confirmCreateEvent,
 	confirmDeleteEvent,
 	confirmUpdateEvent,
-} from "../confirmation.js";
+} from "../confirmation.ts";
 
 /** List calendar events within a date range. */
 export async function handleListEvents(

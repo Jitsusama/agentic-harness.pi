@@ -18,8 +18,8 @@ import { fileURLToPath } from "node:url";
 import type { RunRecord } from "@jitsusama/agentic-harness.core/observability";
 import { registerRunRecorder } from "@jitsusama/agentic-harness.core/observability";
 import { describe, expect, it } from "vitest";
-import { recordReviewerRun } from "../../extensions/review-integration/reviewer.js";
-import type { RunReviewerResult } from "../../lib/subagent/index.js";
+import { recordReviewerRun } from "../../extensions/review-integration/reviewer.ts";
+import type { RunReviewerResult } from "../../lib/subagent/index.ts";
 
 /** Whatever the recorder is handed while the body runs. */
 function recorded(body: () => void): RunRecord[] {

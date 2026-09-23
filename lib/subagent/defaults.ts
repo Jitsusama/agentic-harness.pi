@@ -29,7 +29,7 @@
  * and tightly-coupled internal callers.
  */
 
-import { processGlobal } from "../internal/process-global.js";
+import { processGlobal } from "../internal/process-global.ts";
 
 const defaultExtensions = processGlobal(
 	"pi:subagent-default-extensions",

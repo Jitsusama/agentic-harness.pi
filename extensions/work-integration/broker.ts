@@ -28,7 +28,7 @@ import {
 	type TreeBroker,
 	WORK_PUBLISH_CHECK,
 } from "@jitsusama/agentic-harness.core/work";
-import { stateDir } from "../../lib/internal/paths.js";
+import { stateDir } from "../../lib/internal/paths.ts";
 
 /** Where trees this package cuts are put. */
 export function treeDir(): string {

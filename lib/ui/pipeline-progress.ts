@@ -20,7 +20,7 @@
  */
 
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
-import { AGENT_GLYPH } from "./agent-glyphs.js";
+import { AGENT_GLYPH } from "./agent-glyphs.ts";
 
 /** Possible state of a single stage. */
 export type StageState =

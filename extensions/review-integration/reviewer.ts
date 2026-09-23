@@ -34,7 +34,7 @@ import type {
 	ReviewerTerminalState,
 	RunPi,
 	RunReviewerResult,
-} from "../../lib/subagent/index.js";
+} from "../../lib/subagent/index.ts";
 import {
 	detectStaleInstallInStderr,
 	mergeResumeOutcome,
@@ -44,7 +44,7 @@ import {
 	supervisorStanding,
 	systemFacts,
 	WRAP_UP_SUFFIX,
-} from "../../lib/subagent/index.js";
+} from "../../lib/subagent/index.ts";
 import {
 	JOURNAL_SAYS,
 	journalWarnings,
@@ -55,7 +55,7 @@ import {
 	createSupervisorStartPi,
 	type StartPi,
 	type SupervisorSpawnFn,
-} from "../../lib/subagent/runpi/supervisor.js";
+} from "../../lib/subagent/runpi/supervisor.ts";
 
 /**
  * Which of our limits took the reviewer away.

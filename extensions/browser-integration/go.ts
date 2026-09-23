@@ -32,11 +32,11 @@ import {
 import { renderDialogs } from "@jitsusama/agentic-harness.core/web/telemetry";
 import { Type } from "@sinclair/typebox";
 import { KnownDevices } from "puppeteer-core";
-import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
-import { renderBrowserCall, renderBrowserResult } from "./render.js";
-import { answer, refusal } from "./result.js";
-import { pageView } from "./see.js";
-import { storageAnswer } from "./stored.js";
+import { DEFAULT_SESSION, type SessionRegistry } from "./registry.ts";
+import { renderBrowserCall, renderBrowserResult } from "./render.ts";
+import { answer, refusal } from "./result.ts";
+import { pageView } from "./see.ts";
+import { storageAnswer } from "./stored.ts";
 
 const parameters = Type.Object({
 	kind: Type.Optional(

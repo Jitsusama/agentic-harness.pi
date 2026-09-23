@@ -4,5 +4,5 @@ export {
 	type GateDecision,
 	type Violation,
 	violationSignature,
-} from "./decision.js";
-export type { GateDeps } from "./deps.js";
+} from "./decision.ts";
+export type { GateDeps } from "./deps.ts";

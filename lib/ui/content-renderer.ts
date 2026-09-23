@@ -17,7 +17,7 @@ import {
 	type Theme,
 } from "@earendil-works/pi-coding-agent";
 import { Markdown, truncateToWidth } from "@earendil-works/pi-tui";
-import { SCROLLBAR_GUTTER } from "./scroll-region.js";
+import { SCROLLBAR_GUTTER } from "./scroll-region.ts";
 
 /**
  * Render markdown text to themed display lines.

@@ -10,7 +10,7 @@ import { enforceQuest } from "../../../extensions/quest-workflow/enforce";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
 import { addTreeToQuest } from "../../../lib/internal/quest/trees";
-import { freshRepo } from "../../support/git-fixture.js";
+import { freshRepo } from "../../support/git-fixture.ts";
 import { createEnvGuard } from "./_helpers";
 
 // The state dir is not a git repo, so paths under it read as

@@ -4,7 +4,7 @@
  */
 
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { CONTENT_INDENT } from "./types.js";
+import { CONTENT_INDENT } from "./types.ts";
 
 export { CONTENT_INDENT };
 

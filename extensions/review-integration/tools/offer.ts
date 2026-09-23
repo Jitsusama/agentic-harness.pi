@@ -38,10 +38,10 @@ import {
 	createGitStacks,
 } from "@jitsusama/agentic-harness.core/work";
 import { Type } from "@sinclair/typebox";
-import { count } from "../../../lib/ui/index.js";
-import { attachments } from "../engine.js";
-import { confirmWrite } from "../gate.js";
-import { type GatePanel, GLYPH, proposalLine } from "../render.js";
+import { count } from "../../../lib/ui/index.ts";
+import { attachments } from "../engine.ts";
+import { confirmWrite } from "../gate.ts";
+import { type GatePanel, GLYPH, proposalLine } from "../render.ts";
 import {
 	type Answer,
 	boundFor,
@@ -54,7 +54,7 @@ import {
 	renderAnswer,
 	renderInvocation,
 	say,
-} from "./shared.js";
+} from "./shared.ts";
 
 /** What the tool was asked to do. */
 interface OfferParams {

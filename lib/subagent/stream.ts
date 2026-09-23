@@ -8,7 +8,7 @@ import type {
 	ReviewerUsage,
 	ReviewerVerification,
 	RunPiStreamEvent,
-} from "./subagent.js";
+} from "./subagent.ts";
 
 /** Limits that keep reviewer stream parsing bounded in memory. */
 export interface ReviewerStreamLimits {

@@ -3,7 +3,7 @@ import {
 	INITIAL_DEAD_HORSE,
 	isDeadHorse,
 	observeVerify,
-} from "../../../lib/control/index.js";
+} from "../../../lib/control/index.ts";
 
 describe("counting consecutive verify failures", () => {
 	it("starts at zero", () => {

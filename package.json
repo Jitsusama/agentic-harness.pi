@@ -21,7 +21,8 @@
 		"./people": "./lib/people/index.ts",
 		"./terminal": "./lib/terminal/index.ts",
 		"./quest": "./lib/quest/index.ts",
-		"./mcp": "./lib/mcp/index.ts"
+		"./mcp": "./lib/mcp/index.ts",
+		"./ts-import-specifiers": "./scripts/ts-import-specifiers.ts"
 	},
 	"scripts": {
 		"lint": "biome check .",

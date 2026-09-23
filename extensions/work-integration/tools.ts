@@ -7,4 +7,4 @@
  * a line here instead of a change there.
  */
 
-export { registerWorkTool } from "./tools/tree.js";
+export { registerWorkTool } from "./tools/tree.ts";

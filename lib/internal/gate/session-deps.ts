@@ -12,7 +12,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import type { GateDeps } from "../../gate/index.js";
+import type { GateDeps } from "../../gate/index.ts";
 
 /** The custom session-entry type that holds a block signature. */
 const GATE_BLOCK_ENTRY = "gate-block-signature";

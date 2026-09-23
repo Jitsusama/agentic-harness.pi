@@ -24,10 +24,10 @@ import {
 	type TUI,
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
-import { handleActionInput, isShiftEscape } from "./action-bar.js";
-import { buildNoteEditorTheme, renderNoteEditor } from "./note-editor.js";
-import { OVERLAID } from "./overlay.js";
-import { computeChromeLines, renderFooter } from "./panel-layout.js";
+import { handleActionInput, isShiftEscape } from "./action-bar.ts";
+import { buildNoteEditorTheme, renderNoteEditor } from "./note-editor.ts";
+import { OVERLAID } from "./overlay.ts";
+import { computeChromeLines, renderFooter } from "./panel-layout.ts";
 import {
 	contentBudget,
 	HSCROLL_CONTENT_WIDTH,
@@ -36,8 +36,8 @@ import {
 	renderScrollRegion,
 	SCROLLBAR_GUTTER,
 	type ScrollState,
-} from "./scroll-region.js";
-import { handleTabInput, renderTabStrip } from "./tab-strip.js";
+} from "./scroll-region.ts";
+import { handleTabInput, renderTabStrip } from "./tab-strip.ts";
 import {
 	GLYPH,
 	type KeyAction,
@@ -47,7 +47,7 @@ import {
 	type WorkspacePromptConfig,
 	type WorkspaceResult,
 	type WorkspaceView,
-} from "./types.js";
+} from "./types.ts";
 
 /** Cache key for content: "tabIndex-viewIndex". */
 function cacheKey(tab: number, view: number): string {

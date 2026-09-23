@@ -17,7 +17,7 @@
 
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
-import { wordWrap } from "../../../lib/ui/text-layout.js";
+import { wordWrap } from "../../../lib/ui/text-layout.ts";
 
 const WIDTH = 20;
 

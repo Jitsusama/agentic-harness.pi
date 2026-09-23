@@ -17,8 +17,8 @@ import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import {
 	type GuardianOutcome,
 	list,
-} from "../../lib/internal/guardian/registry.js";
-import { view } from "../../lib/ui/index.js";
+} from "../../lib/internal/guardian/registry.ts";
+import { view } from "../../lib/ui/index.ts";
 
 const SECONDS_PER_MINUTE = 60;
 const SECONDS_PER_HOUR = SECONDS_PER_MINUTE * 60;

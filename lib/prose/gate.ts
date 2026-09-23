@@ -9,9 +9,9 @@ import {
 	decideGate,
 	type GateDecision,
 	violationSignature,
-} from "../gate/index.js";
-import { formatProseBlock } from "./block.js";
-import type { ProseViolation } from "./detect.js";
+} from "../gate/index.ts";
+import { formatProseBlock } from "./block.ts";
+import type { ProseViolation } from "./detect.ts";
 
 /** Re-exported so the prose barrel exposes one signature helper. */
 export { violationSignature };

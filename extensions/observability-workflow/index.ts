@@ -45,8 +45,8 @@ import {
 	openSessionStore,
 } from "@jitsusama/agentic-harness.core/result";
 import { Type } from "@sinclair/typebox";
-import { packageStateDir } from "../../lib/internal/package-state-dir.js";
-import { repoOf } from "../../lib/ledger/index.js";
+import { packageStateDir } from "../../lib/internal/package-state-dir.ts";
+import { repoOf } from "../../lib/ledger/index.ts";
 
 /** Result payload the observe_runs tool returns. */
 interface ObserveDetails {

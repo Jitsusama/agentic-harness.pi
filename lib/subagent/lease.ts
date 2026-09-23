@@ -23,7 +23,7 @@ import {
 	sameProcess,
 	systemFacts,
 } from "@jitsusama/agentic-harness.core/process";
-import type { ReviewerArtifactsStore } from "./artifacts.js";
+import type { ReviewerArtifactsStore } from "./artifacts.ts";
 
 // Re-exported rather than moved out of sight. These were defined here
 // first and the whole of `lib/subagent` imports them from here, so the

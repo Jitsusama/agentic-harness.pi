@@ -15,7 +15,7 @@ import type {
 	Thread,
 } from "@jitsusama/agentic-harness.core/review";
 import { describe, expect, it } from "vitest";
-import { runBatch } from "../../extensions/review-integration/tools/batch.js";
+import { runBatch } from "../../extensions/review-integration/tools/batch.ts";
 
 /** A ctx whose gate approves everything, as it does with nobody to ask. */
 const HEADLESS = { hasUI: false, ui: {} } as unknown as ExtensionContext;

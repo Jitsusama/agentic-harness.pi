@@ -15,7 +15,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
-import { digestEvents } from "../../lib/subagent/digest.js";
+import { digestEvents } from "../../lib/subagent/digest.ts";
 
 /** What a digesting pass over the fleet runs did. */
 export interface DigestOutcome {

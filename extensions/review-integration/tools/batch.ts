@@ -22,7 +22,7 @@ import type {
 	Thread,
 } from "@jitsusama/agentic-harness.core/review";
 import { isReactableRefusal } from "@jitsusama/agentic-harness.core/review";
-import { confirmBatch, type GateItem, REDIRECT_QUOTE_WIDTH } from "../gate.js";
+import { confirmBatch, type GateItem, REDIRECT_QUOTE_WIDTH } from "../gate.ts";
 import {
 	anchorLabel,
 	count,
@@ -31,9 +31,9 @@ import {
 	GLYPH,
 	gateLines,
 	gateText,
-} from "../render.js";
-import { type Settle, settleAfter, settleRefusal } from "./settle.js";
-import { type Answer, findReactableOn, refuse, say } from "./shared.js";
+} from "../render.ts";
+import { type Settle, settleAfter, settleRefusal } from "./settle.ts";
+import { type Answer, findReactableOn, refuse, say } from "./shared.ts";
 
 /** One thing a batch was asked to say. */
 export interface SayItem {

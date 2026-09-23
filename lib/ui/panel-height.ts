@@ -8,7 +8,7 @@
  * module boundaries.
  */
 
-import type { PanelHeightMode } from "./types.js";
+import type { PanelHeightMode } from "./types.ts";
 
 /** Panel height fraction when minimized. */
 const HEIGHT_FRACTION_MINIMIZED = 0.25;

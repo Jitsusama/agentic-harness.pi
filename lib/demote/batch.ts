@@ -1,4 +1,4 @@
-import { paybackMargin } from "../compaction/index.js";
+import { paybackMargin } from "../compaction/index.ts";
 
 /**
  * Deciding when a batch of resident tool results is worth demoting.

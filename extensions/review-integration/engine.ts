@@ -24,8 +24,8 @@ import {
 	type ReviewEngine,
 	registerReviewProvider,
 } from "@jitsusama/agentic-harness.core/review";
-import { stateDir } from "../../lib/internal/paths.js";
-import { loadReviewConfig } from "./config.js";
+import { stateDir } from "../../lib/internal/paths.ts";
+import { loadReviewConfig } from "./config.ts";
 
 /** Where drafts live. */
 export function draftDir(): string {

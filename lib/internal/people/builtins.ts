@@ -19,7 +19,7 @@
  * an email from a slack handle without one.
  */
 
-import type { HandleType } from "../../people/types.js";
+import type { HandleType } from "../../people/types.ts";
 
 const SLACK_USER_ID_REGEX = /^U[A-Z0-9]{7,12}$/;
 const SLACK_HANDLE_REGEX = /^[a-z0-9._-]+$/;

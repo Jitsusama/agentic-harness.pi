@@ -21,12 +21,12 @@
  */
 
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { runGate } from "../../lib/ui/gate-queue.js";
-import { promptSingle, promptTabbed } from "../../lib/ui/panel.js";
-import { formatRedirectReason } from "../../lib/ui/redirect.js";
-import { wordWrap } from "../../lib/ui/text-layout.js";
-import type { ContentRenderer, PromptResult } from "../../lib/ui/types.js";
-import { type GatePanel, gateLines, gateText } from "./render.js";
+import { runGate } from "../../lib/ui/gate-queue.ts";
+import { promptSingle, promptTabbed } from "../../lib/ui/panel.ts";
+import { formatRedirectReason } from "../../lib/ui/redirect.ts";
+import { wordWrap } from "../../lib/ui/text-layout.ts";
+import type { ContentRenderer, PromptResult } from "../../lib/ui/types.ts";
+import { type GatePanel, gateLines, gateText } from "./render.ts";
 
 /** Narrower than this and wrapping does more harm than the overflow. */
 const MIN_WRAP = 20;

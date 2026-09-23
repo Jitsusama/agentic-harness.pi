@@ -10,7 +10,7 @@
  */
 
 import { vi } from "vitest";
-import reviewIntegration from "../../../extensions/review-integration/index.js";
+import reviewIntegration from "../../../extensions/review-integration/index.ts";
 
 /** A tool as the extension registered it, execute included. */
 export type RegisteredTool = {

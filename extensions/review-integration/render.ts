@@ -45,14 +45,14 @@ import {
 	describeAnchor,
 	standsAt,
 } from "@jitsusama/agentic-harness.core/review";
-import { detectProseViolations } from "../../lib/prose/index.js";
+import { detectProseViolations } from "../../lib/prose/index.ts";
 import {
 	languageFromPath,
 	renderCode,
 	renderMarkdown,
-} from "../../lib/ui/content-renderer.js";
-import { count } from "../../lib/ui/count.js";
-import { wordWrap } from "../../lib/ui/text-layout.js";
+} from "../../lib/ui/content-renderer.ts";
+import { count } from "../../lib/ui/count.ts";
+import { wordWrap } from "../../lib/ui/text-layout.ts";
 
 /** Below this a gate is not wrapping text, it is shredding it. */
 const MIN_GATE_WIDTH = 24;

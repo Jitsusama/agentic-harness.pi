@@ -23,7 +23,7 @@ import {
 	resolveUser,
 	SlackClient,
 } from "@jitsusama/agentic-harness.core/slack";
-import type { Identity, PersonResolver } from "../../../people/types.js";
+import type { Identity, PersonResolver } from "../../../people/types.ts";
 
 let cachedClient: SlackClient | undefined;
 

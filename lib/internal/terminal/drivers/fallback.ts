@@ -8,7 +8,7 @@
 import type {
 	TerminalDriver,
 	TerminalRequest,
-} from "../../../terminal/types.js";
+} from "../../../terminal/types.ts";
 
 function formatRequest(request: TerminalRequest): string {
 	const parts: string[] = [];

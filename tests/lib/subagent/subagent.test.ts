@@ -1,10 +1,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import type { ReviewerTerminalState } from "../../../lib/subagent/artifacts.js";
+import type { ReviewerTerminalState } from "../../../lib/subagent/artifacts.ts";
 import {
 	clearSubagentDefaults,
 	registerSubagentDefaultExtension,
-} from "../../../lib/subagent/index.js";
+} from "../../../lib/subagent/index.ts";
 import {
 	type CouncilReviewer,
 	type ReviewerError,
@@ -12,7 +12,7 @@ import {
 	type RunPi,
 	type RunPiResult,
 	runReviewer,
-} from "../../../lib/subagent/subagent.js";
+} from "../../../lib/subagent/subagent.ts";
 
 /**
  * `runReviewer` spawns a separate pi process as a full

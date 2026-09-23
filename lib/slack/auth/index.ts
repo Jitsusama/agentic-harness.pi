@@ -18,4 +18,4 @@ export {
 	getToken,
 	hasToken,
 } from "@jitsusama/agentic-harness.core/slack";
-export { ensureAuthenticated } from "./ensure-auth.js";
+export { ensureAuthenticated } from "./ensure-auth.ts";

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveLayered } from "../../../../lib/internal/config/resolve.js";
+import { resolveLayered } from "../../../../lib/internal/config/resolve.ts";
 
 describe("resolving a value across the config ladder", () => {
 	it("falls back to the default when nothing is set at any layer", () => {

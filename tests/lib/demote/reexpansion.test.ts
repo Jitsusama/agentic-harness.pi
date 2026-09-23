@@ -3,7 +3,7 @@ import {
 	accumulateReexpansion,
 	INITIAL_REEXPANSION,
 	reexpansionRate,
-} from "../../../lib/demote/index.js";
+} from "../../../lib/demote/index.ts";
 
 describe("tracking re-expansion", () => {
 	it("starts at zero demotions and zero re-expansions", () => {

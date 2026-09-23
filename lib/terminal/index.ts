@@ -12,7 +12,7 @@ export {
 	registerBuiltinTerminalDrivers,
 	registerTerminalDriver,
 	unregisterTerminalDriver,
-} from "./register.js";
+} from "./register.ts";
 export {
 	getLivenessProvider,
 	getTerminalDriver,
@@ -22,7 +22,7 @@ export {
 	resolveDriver,
 	spawnTerminal,
 	spawnTerminalSurface,
-} from "./resolve.js";
+} from "./resolve.ts";
 export type {
 	TerminalDriver,
 	TerminalLayout,
@@ -31,5 +31,5 @@ export type {
 	TerminalRequest,
 	TerminalSessionHandle,
 	TerminalTypeCapability,
-} from "./types.js";
-export { terminalHandleKey } from "./types.js";
+} from "./types.ts";
+export { terminalHandleKey } from "./types.ts";

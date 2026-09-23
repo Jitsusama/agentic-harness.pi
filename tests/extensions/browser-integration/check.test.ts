@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { HEALTH_RUN_ORDER } from "../../../extensions/browser-integration/check.js";
+import { HEALTH_RUN_ORDER } from "../../../extensions/browser-integration/check.ts";
 
 describe("the health digest", () => {
 	it("measures the page before any check disturbs it", () => {

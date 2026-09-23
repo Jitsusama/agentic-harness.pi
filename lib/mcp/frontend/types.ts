@@ -5,7 +5,7 @@ import type {
 	ToolRenderResultOptions,
 } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
-import type { McpContent, McpTool, McpToolResult } from "../types.js";
+import type { McpContent, McpTool, McpToolResult } from "../types.ts";
 
 /** How a provider selects which tools it applies to. */
 export type FrontEndMatcher =

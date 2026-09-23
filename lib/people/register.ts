@@ -4,15 +4,15 @@
  * refs library's API.
  */
 
-import { BUILTIN_HANDLE_TYPES } from "../internal/people/builtins.js";
+import { BUILTIN_HANDLE_TYPES } from "../internal/people/builtins.ts";
 import {
 	clear,
 	get,
 	list,
 	register,
 	unregister,
-} from "../internal/people/registry.js";
-import type { HandleType } from "./types.js";
+} from "../internal/people/registry.ts";
+import type { HandleType } from "./types.ts";
 
 /**
  * Register a handle type. Overwrites any previously

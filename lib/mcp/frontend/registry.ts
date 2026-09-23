@@ -1,10 +1,10 @@
-import { globToRegex } from "../surface/policy.js";
-import type { McpTool } from "../types.js";
+import { globToRegex } from "../surface/policy.ts";
+import type { McpTool } from "../types.ts";
 import type {
 	FrontEndMatcher,
 	FrontEndProvider,
 	ResolvedFrontEnd,
-} from "./types.js";
+} from "./types.ts";
 
 /** A registry of front-end providers that resolves the winning hooks for a tool. */
 export interface FrontEndRegistry {

@@ -25,9 +25,9 @@
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, it } from "vitest";
-import { gateLines } from "../../extensions/review-integration/render.js";
-import { proposePanel } from "../../extensions/review-integration/tools/offer.js";
-import { fakeTheme } from "../lib/ui/fake-theme.js";
+import { gateLines } from "../../extensions/review-integration/render.ts";
+import { proposePanel } from "../../extensions/review-integration/tools/offer.ts";
+import { fakeTheme } from "../lib/ui/fake-theme.ts";
 
 /** A row as the terminal sees it, without the fake theme's markers. */
 function asDrawn(row: string): string {

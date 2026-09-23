@@ -14,12 +14,12 @@ import {
 } from "@jitsusama/agentic-harness.core/google";
 import { Type } from "@sinclair/typebox";
 import type { OAuth2Client } from "google-auth-library";
-import { ensureAuthenticated } from "../../lib/google/auth/ensure-auth.js";
-import { ensureOAuthApp } from "../../lib/google/auth/setup-wizard.js";
-import { handleGoogleAuthCommand } from "./auth-command.js";
-import { renderGoogleCall } from "./render-call.js";
-import { renderGoogleResult } from "./render-result.js";
-import { routeAction } from "./router.js";
+import { ensureAuthenticated } from "../../lib/google/auth/ensure-auth.ts";
+import { ensureOAuthApp } from "../../lib/google/auth/setup-wizard.ts";
+import { handleGoogleAuthCommand } from "./auth-command.ts";
+import { renderGoogleCall } from "./render-call.ts";
+import { renderGoogleResult } from "./render-result.ts";
+import { routeAction } from "./router.ts";
 
 // OAuth2 configuration from environment variables.
 const ENV_OAUTH_CONFIG = {

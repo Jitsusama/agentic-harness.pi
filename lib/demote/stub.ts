@@ -1,4 +1,4 @@
-import { shortDigest } from "../internal/digest.js";
+import { shortDigest } from "../internal/digest.ts";
 
 /**
  * Turning a demotion candidate into what actually gets sent in its

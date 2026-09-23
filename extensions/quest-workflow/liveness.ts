@@ -10,24 +10,24 @@
  * snapshot per request and derive every session over it.
  */
 
-import { sessionsDir } from "../../lib/internal/paths.js";
+import { sessionsDir } from "../../lib/internal/paths.ts";
 import {
 	localProcessDeps,
 	probeProcess,
-} from "../../lib/internal/quest/process-liveness.js";
+} from "../../lib/internal/quest/process-liveness.ts";
 import {
 	activityFromIndex,
 	buildLivenessSnapshot,
 	indexSessionFiles,
 	type LivenessSnapshot,
-} from "../../lib/internal/quest/session-liveness.js";
-import type { QuestSession } from "../../lib/quest/index.js";
+} from "../../lib/internal/quest/session-liveness.ts";
+import type { QuestSession } from "../../lib/quest/index.ts";
 import {
 	getLivenessProvider,
 	type TerminalProbe,
 	type TerminalSessionHandle,
 	terminalHandleKey,
-} from "../../lib/terminal/index.js";
+} from "../../lib/terminal/index.ts";
 
 /** How long to wait on one driver's batched terminal probe before giving up. */
 const TERMINAL_PROBE_TIMEOUT_MS = 2000;

@@ -20,7 +20,7 @@
 import type {
 	SubagentSpec,
 	SubagentUsage,
-} from "../../lib/subagent/subagent.js";
+} from "../../lib/subagent/subagent.ts";
 
 /** Per-subagent lifecycle state surfaced to the UI. */
 export type FleetProgressState =

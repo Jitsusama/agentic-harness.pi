@@ -6,7 +6,7 @@
  * status line.
  */
 
-import type { FileError } from "../../lib/verification/index.js";
+import type { FileError } from "../../lib/verification/index.ts";
 
 /** The last thing the fast layer concluded, for the status line. */
 export type VerifyOutcome = "unknown" | "clean" | "failing" | "deferred";

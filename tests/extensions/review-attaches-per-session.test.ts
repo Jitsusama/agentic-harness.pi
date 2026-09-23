@@ -26,8 +26,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ChangeRef } from "@jitsusama/agentic-harness.core/review";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { attachments } from "../../extensions/review-integration/engine.js";
-import { activate } from "./support/review-extension.js";
+import { attachments } from "../../extensions/review-integration/engine.ts";
+import { activate } from "./support/review-extension.ts";
 
 let root: string;
 let wasState: string | undefined;

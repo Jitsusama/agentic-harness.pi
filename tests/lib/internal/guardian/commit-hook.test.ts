@@ -10,7 +10,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { installCommitHook } from "../../../../lib/internal/guardian/commit-hook.js";
+import { installCommitHook } from "../../../../lib/internal/guardian/commit-hook.ts";
 
 const TRAILER = "Co-Authored-By: AI (Claude Opus 4.6 via Pi) <noreply@pi.dev>";
 

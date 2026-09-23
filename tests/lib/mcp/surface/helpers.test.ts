@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import type { DiscoveryEntry } from "../../../../lib/mcp/render/tools-list.js";
+import type { DiscoveryEntry } from "../../../../lib/mcp/render/tools-list.ts";
 import {
 	createProgressiveHelpers,
 	extractRunToolArguments,
 	scoreToolName,
 	searchTools,
-} from "../../../../lib/mcp/surface/helpers.js";
-import type { McpToolResult } from "../../../../lib/mcp/types.js";
+} from "../../../../lib/mcp/surface/helpers.ts";
+import type { McpToolResult } from "../../../../lib/mcp/types.ts";
 
 function entry(
 	name: string,

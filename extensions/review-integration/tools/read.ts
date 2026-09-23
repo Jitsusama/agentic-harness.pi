@@ -20,10 +20,10 @@ import {
 	unbackedDeclarations,
 } from "@jitsusama/agentic-harness.core/review";
 import { Type } from "@sinclair/typebox";
-import { displayPath } from "../../../lib/ui/index.js";
-import { attachments, reviewEngine } from "../engine.js";
-import { GLYPH } from "../render.js";
-import { treeStandingFor } from "../work.js";
+import { displayPath } from "../../../lib/ui/index.ts";
+import { attachments, reviewEngine } from "../engine.ts";
+import { GLYPH } from "../render.ts";
+import { treeStandingFor } from "../work.ts";
 import {
 	type Answer,
 	boundFor,
@@ -34,7 +34,7 @@ import {
 	renderInvocation,
 	say,
 	type TargetParams,
-} from "./shared.js";
+} from "./shared.ts";
 
 /**
  * Whether this is a question about a checkout rather than a change.

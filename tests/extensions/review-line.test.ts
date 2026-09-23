@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { reviewLine } from "../../extensions/review-integration/tools/see.js";
+import { reviewLine } from "../../extensions/review-integration/tools/see.ts";
 
 /** A review, with only the fields a line is made of. */
 function review(verdict: string, body: string) {

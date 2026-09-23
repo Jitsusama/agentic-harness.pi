@@ -6,7 +6,7 @@
  * writes and report exactly what moved.
  */
 
-import type { QuestIndex } from "./discovery.js";
+import type { QuestIndex } from "./discovery.ts";
 
 /** A single parent change produced by {@link planReparent}. */
 export interface ReparentChange {

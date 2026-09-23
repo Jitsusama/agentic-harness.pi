@@ -31,7 +31,7 @@ import {
 	type ExtensionAPI,
 	resizeImage,
 } from "@earendil-works/pi-coding-agent";
-import { type LoadOriginal, type Resize, rebudget } from "./rebudget.js";
+import { type LoadOriginal, type Resize, rebudget } from "./rebudget.ts";
 
 /** pi's resizer, narrowed to the shape this extension needs. */
 const resize: Resize = (bytes, mimeType, options) =>

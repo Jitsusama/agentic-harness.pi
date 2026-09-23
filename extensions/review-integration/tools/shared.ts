@@ -25,10 +25,10 @@ import {
 	repoElsewhere,
 	type Thread,
 } from "@jitsusama/agentic-harness.core/review";
-import { firstText, renderToolCall } from "../../../lib/ui/index.js";
-import { attachments, reviewEngine } from "../engine.js";
-import type { GateRefusal } from "../gate.js";
-import { GLYPH } from "../render.js";
+import { firstText, renderToolCall } from "../../../lib/ui/index.ts";
+import { attachments, reviewEngine } from "../engine.ts";
+import type { GateRefusal } from "../gate.ts";
+import { GLYPH } from "../render.ts";
 
 /** What a tool answers with. */
 export type Answer = AgentToolResult<unknown>;

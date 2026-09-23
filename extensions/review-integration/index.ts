@@ -32,8 +32,8 @@ import {
 import {
 	ReviewerArtifactsStore,
 	recoverReviewerRuns,
-} from "../../lib/subagent/index.js";
-import { count } from "../../lib/ui/index.js";
+} from "../../lib/subagent/index.ts";
+import { count } from "../../lib/ui/index.ts";
 import {
 	attachmentDir,
 	forgetReviewEngine,
@@ -44,8 +44,8 @@ import {
 	runDir,
 	sessionIdIn,
 	sessionKey,
-} from "./engine.js";
-import { guardPublishes } from "./guard-publish.js";
+} from "./engine.ts";
+import { guardPublishes } from "./guard-publish.ts";
 import {
 	registerAskTool,
 	registerDraftTool,
@@ -53,8 +53,8 @@ import {
 	registerReviewTool,
 	registerSayTool,
 	registerSeeTool,
-} from "./tools.js";
-import { forgetWorkLayer, watchForWorkLayer } from "./work.js";
+} from "./tools.ts";
+import { forgetWorkLayer, watchForWorkLayer } from "./work.ts";
 
 /**
  * Whether a bus payload is a usable provider. The bus is

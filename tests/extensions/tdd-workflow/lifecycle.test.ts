@@ -15,8 +15,8 @@ import { describe, expect, it } from "vitest";
 import {
 	persist,
 	restore,
-} from "../../../extensions/tdd-workflow/lifecycle.js";
-import { createTddState } from "../../../extensions/tdd-workflow/state.js";
+} from "../../../extensions/tdd-workflow/lifecycle.ts";
+import { createTddState } from "../../../extensions/tdd-workflow/state.ts";
 
 interface Entry {
 	type: string;

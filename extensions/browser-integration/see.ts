@@ -67,17 +67,17 @@ import {
 	strandedByCrash,
 } from "@jitsusama/agentic-harness.core/web/telemetry";
 import { Type } from "@sinclair/typebox";
-import { count } from "../../lib/ui/count.js";
-import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
-import { renderBrowserCall, renderBrowserResult } from "./render.js";
+import { count } from "../../lib/ui/count.ts";
+import { DEFAULT_SESSION, type SessionRegistry } from "./registry.ts";
+import { renderBrowserCall, renderBrowserResult } from "./render.ts";
 import {
 	answer,
 	chooseSession,
 	missingSession,
 	refusal,
 	sessionInPlay,
-} from "./result.js";
-import { bodyAnswer, elementAnswer, listAnswer, pageAnswer } from "./stored.js";
+} from "./result.ts";
+import { bodyAnswer, elementAnswer, listAnswer, pageAnswer } from "./stored.ts";
 
 /**
  * Lay an observation out for reading: where you are, then what is

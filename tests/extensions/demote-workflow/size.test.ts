@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	IMAGE_CHARS,
 	sizeOf,
-} from "../../../extensions/demote-workflow/size.js";
+} from "../../../extensions/demote-workflow/size.ts";
 
 describe("sizing a message by what it puts in the prompt", () => {
 	it("counts a tool result's text and names it", () => {

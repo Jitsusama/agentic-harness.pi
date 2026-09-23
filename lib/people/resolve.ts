@@ -8,7 +8,7 @@
  * precedence (e.g. a Vault lookup at priority 50).
  */
 
-import { slackResolver } from "../internal/people/resolvers/slack.js";
+import { slackResolver } from "../internal/people/resolvers/slack.ts";
 import {
 	clear,
 	get,
@@ -18,13 +18,13 @@ import {
 	resolveChain,
 	setFallback,
 	unregister,
-} from "../internal/people/resolvers.js";
+} from "../internal/people/resolvers.ts";
 import type {
 	Identity,
 	PersonResolver,
 	ResolutionFallback,
 	ResolveOptions,
-} from "./types.js";
+} from "./types.ts";
 
 /** Register a person resolver. Overwrites by id. */
 export function registerPersonResolver(resolver: PersonResolver): void {

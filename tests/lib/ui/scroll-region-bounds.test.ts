@@ -11,8 +11,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { renderScrollRegion } from "../../../lib/ui/scroll-region.js";
-import { fakeTheme } from "./fake-theme.js";
+import { renderScrollRegion } from "../../../lib/ui/scroll-region.ts";
+import { fakeTheme } from "./fake-theme.ts";
 
 const WIDTH = 80;
 const BUDGET = 20;

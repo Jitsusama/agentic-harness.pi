@@ -28,39 +28,39 @@
  */
 
 // What a subagent is doing right now, for a caller that is waiting.
-export { summarizeStreamActivity } from "./activity.js";
+export { summarizeStreamActivity } from "./activity.ts";
 // How a run ended is part of what a run result says, so a consumer
 // reading the result needs the vocabulary to read the field.
-export type { ReviewerTerminalState } from "./artifacts.js";
+export type { ReviewerTerminalState } from "./artifacts.ts";
 // Durable artifacts and recovery (supervisor path).
-export { ReviewerArtifactsStore } from "./artifacts.js";
+export { ReviewerArtifactsStore } from "./artifacts.ts";
 // Engine-wide always-load defaults.
 export {
 	clearSubagentDefaults,
 	getSubagentDefaults,
 	registerSubagentDefaultExtension,
 	registerSubagentDefaultSkill,
-} from "./defaults.js";
+} from "./defaults.ts";
 // The bus names the domain answers to, so a consumer registering a
 // default needs this library and never the extension that hosts it.
 export {
 	SUBAGENT_READY,
 	SUBAGENT_REGISTER_DEFAULT_EXTENSION,
 	SUBAGENT_REGISTER_DEFAULT_SKILL,
-} from "./events.js";
+} from "./events.ts";
 export type {
 	FleetLedger,
 	FleetRun,
 	HeldFleets,
 	OpenFleets,
-} from "./fleet.js";
+} from "./fleet.ts";
 // What a fleet is on disk, so a consumer can say which runs the
 // sweep may not take and find one whose session never came back.
 export {
 	abandonedFleets,
 	createFleetLedger,
 	whoIsWaiting,
-} from "./fleet.js";
+} from "./fleet.ts";
 // Whether the install a session pins its children to is still there,
 // and how to tell a child that died of its absence. Exported because
 // the round above has to say that once rather than per reviewer, and
@@ -68,26 +68,26 @@ export {
 export {
 	detectStaleInstallInStderr,
 	STALE_RUNTIME_WARNING_PREFIX,
-} from "./health.js";
+} from "./health.ts";
 // Parent-install resolution (pins subagents to the running install).
 export {
 	getParentPiInstall,
 	type PiInstall,
 	type ResolvePiInstallDeps,
 	resolveParentPiInstall,
-} from "./install.js";
+} from "./install.ts";
 export type {
 	LeaseRecord,
 	ProcessFacts,
 	SupervisorStanding,
-} from "./lease.js";
+} from "./lease.ts";
 export {
 	HEARTBEAT_STALE_MS,
 	SAME_PROCESS_MS,
 	sameProcess,
 	supervisorStanding,
 	systemFacts,
-} from "./lease.js";
+} from "./lease.ts";
 export {
 	type ReapedReviewerChild,
 	type ReaperDeps,
@@ -95,28 +95,28 @@ export {
 	type RecoveredReviewerResult,
 	type RecoverySummary,
 	recoverReviewerRuns,
-} from "./recovery.js";
+} from "./recovery.ts";
 // Reviewer error classification.
 export {
 	classifyReviewerError,
 	describeReviewerError,
 	type ReviewerError,
 	type ReviewerErrorClass,
-} from "./reviewer-error.js";
+} from "./reviewer-error.ts";
 // Runner implementations.
-export { createSpawnRunPi } from "./runpi/spawn.js";
+export { createSpawnRunPi } from "./runpi/spawn.ts";
 export {
 	createSupervisorRunPi,
 	createSupervisorStartPi,
 	type StartedPi,
 	type StartPi,
-} from "./runpi/supervisor.js";
+} from "./runpi/supervisor.ts";
 // Stream parsing (advanced consumers).
 export {
 	type ReviewerStreamLimits,
 	ReviewerStreamParser,
 	type ReviewerStreamResult,
-} from "./stream.js";
+} from "./stream.ts";
 // Spec, job and run plumbing.
 export type {
 	CouncilReviewer,
@@ -137,7 +137,7 @@ export type {
 	SubagentUsage,
 	SubagentVerification,
 	VerifyPack,
-} from "./subagent.js";
+} from "./subagent.ts";
 export {
 	extractUsageFromPiStream,
 	// The three halves of one fact about the journal: where the pack
@@ -165,4 +165,4 @@ export {
 	VERIFY_TOOL_NAME,
 	verifyProtocolInstruction,
 	WRAP_UP_SUFFIX,
-} from "./subagent.js";
+} from "./subagent.ts";

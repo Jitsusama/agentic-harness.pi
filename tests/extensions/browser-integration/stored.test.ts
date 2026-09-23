@@ -15,7 +15,7 @@ import {
 	listAnswer,
 	pageAnswer,
 	storageAnswer,
-} from "../../../extensions/browser-integration/stored.js";
+} from "../../../extensions/browser-integration/stored.ts";
 
 /**
  * A page like the one that caused this: rows of listitems, each

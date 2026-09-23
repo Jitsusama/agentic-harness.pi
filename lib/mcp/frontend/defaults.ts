@@ -1,13 +1,13 @@
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { truncateForDisplay } from "../content.js";
-import { renderDefaultCall } from "../render/call.js";
-import { CANCELLED_TEXT, renderDefaultResult } from "../render/result.js";
-import type { McpContent, McpTool, McpToolResult } from "../types.js";
+import { truncateForDisplay } from "../content.ts";
+import { renderDefaultCall } from "../render/call.ts";
+import { CANCELLED_TEXT, renderDefaultResult } from "../render/result.ts";
+import type { McpContent, McpTool, McpToolResult } from "../types.ts";
 import type {
 	ConfirmResult,
 	FrontEndProvider,
 	ResolvedFrontEnd,
-} from "./types.js";
+} from "./types.ts";
 
 /** Tool-name tokens that mark a call as state-changing when a server ships no annotations. */
 export const WRITE_VERBS = new Set([

@@ -20,11 +20,11 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import { attest } from "@jitsusama/agentic-harness.core/tdd";
 import { Type } from "@sinclair/typebox";
-import { drawInto } from "../../lib/ui/index.js";
-import { persist, restore, updateScoreboard } from "./lifecycle.js";
-import { formatTransitionReply } from "./reply.js";
-import { createTddState } from "./state.js";
-import { buildTddContext, tddContextFilter } from "./transitions.js";
+import { drawInto } from "../../lib/ui/index.ts";
+import { persist, restore, updateScoreboard } from "./lifecycle.ts";
+import { formatTransitionReply } from "./reply.ts";
+import { createTddState } from "./state.ts";
+import { buildTddContext, tddContextFilter } from "./transitions.ts";
 
 /** Width fallback when the terminal width is unknown. */
 const DEFAULT_WIDTH = 80;

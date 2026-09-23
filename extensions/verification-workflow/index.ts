@@ -29,17 +29,17 @@ import type {
 import { resolveLspBackend } from "@jitsusama/agentic-harness.core/lsp";
 import { runVerify } from "@jitsusama/agentic-harness.core/verify";
 import { Type } from "@sinclair/typebox";
-import { getLastEntry } from "../../lib/internal/state.js";
-import { setVerificationFailing } from "../../lib/internal/verification/signal.js";
+import { getLastEntry } from "../../lib/internal/state.ts";
+import { setVerificationFailing } from "../../lib/internal/verification/signal.ts";
 import {
 	type FileError,
 	fastLayerVerdict,
-} from "../../lib/verification/index.js";
+} from "../../lib/verification/index.ts";
 import {
 	createVerificationState,
 	MAX_FIX_ATTEMPTS,
 	type VerificationState,
-} from "./state.js";
+} from "./state.ts";
 
 const STATUS_KEY = "verification-workflow";
 /** Files the LSP fast layer can serve today. */

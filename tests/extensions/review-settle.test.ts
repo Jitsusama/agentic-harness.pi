@@ -17,7 +17,7 @@ import { describe, expect, it } from "vitest";
 import {
 	settleAfter,
 	settleRefusal,
-} from "../../extensions/review-integration/tools/settle.js";
+} from "../../extensions/review-integration/tools/settle.ts";
 
 /** A conversation that records what it was asked, and can be told to fail. */
 function conversation(failing?: "resolve" | "unresolve") {

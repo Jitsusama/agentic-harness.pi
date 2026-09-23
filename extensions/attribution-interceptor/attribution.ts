@@ -8,8 +8,8 @@
 import {
 	type GhFooterInsertion,
 	insertGhBodyFooter,
-} from "../../lib/internal/github/attribution-edit.js";
-import { formatModelName } from "../../lib/internal/guardian/commit-trailer.js";
+} from "../../lib/internal/github/attribution-edit.ts";
+import { formatModelName } from "../../lib/internal/guardian/commit-trailer.ts";
 
 /** Regex to detect existing attribution (case-insensitive). */
 const ATTRIBUTION_PATTERN = /co-authored-by[:\s]+ai/i;

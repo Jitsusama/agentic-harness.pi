@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 import {
 	detectProseViolations,
 	proseGateDecision,
-} from "../../lib/prose/index.js";
+} from "../../lib/prose/index.ts";
 
 /** The gate's answer for a message nobody has been warned about yet. */
 function firstAnswer(message: string) {

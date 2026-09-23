@@ -17,13 +17,13 @@ import {
 	readSync,
 } from "node:fs";
 import { join } from "node:path";
-import type { QuestSession } from "../../quest/types.js";
+import type { QuestSession } from "../../quest/types.ts";
 import {
 	type TerminalProbe,
 	type TerminalSessionHandle,
 	terminalHandleKey,
-} from "../../terminal/types.js";
-import type { ProcessIdentity, ProcessProbe } from "./process-liveness.js";
+} from "../../terminal/types.ts";
+import type { ProcessIdentity, ProcessProbe } from "./process-liveness.ts";
 
 /**
  * How a quest's attached session looks right now.

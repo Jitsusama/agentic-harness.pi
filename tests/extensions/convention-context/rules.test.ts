@@ -5,7 +5,7 @@ import {
 	PR_SECTIONS,
 } from "@jitsusama/agentic-harness.core/sections";
 import { describe, expect, it } from "vitest";
-import { buildBindingRules } from "../../../extensions/convention-context/rules.js";
+import { buildBindingRules } from "../../../extensions/convention-context/rules.ts";
 
 function skill(relPath: string): string {
 	return readFileSync(

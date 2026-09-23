@@ -5,10 +5,10 @@
  * wins when one is present.
  */
 
-import type { TerminalDriver } from "../../terminal/types.js";
-import { fallback } from "./drivers/fallback.js";
-import { tmux } from "./drivers/tmux.js";
-import { wezterm } from "./drivers/wezterm.js";
+import type { TerminalDriver } from "../../terminal/types.ts";
+import { fallback } from "./drivers/fallback.ts";
+import { tmux } from "./drivers/tmux.ts";
+import { wezterm } from "./drivers/wezterm.ts";
 
 export const BUILTIN_TERMINAL_DRIVERS: readonly TerminalDriver[] = [
 	wezterm,

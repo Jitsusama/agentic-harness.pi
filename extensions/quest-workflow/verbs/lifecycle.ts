@@ -15,19 +15,19 @@ import type {
 import {
 	buildAliasIndex,
 	lookupAliasDetail,
-} from "../../../lib/internal/quest/alias-index.js";
-import { nowYmd } from "../../../lib/internal/quest/dates.js";
+} from "../../../lib/internal/quest/alias-index.ts";
+import { nowYmd } from "../../../lib/internal/quest/dates.ts";
 import {
 	discoverQuests,
 	siblingRanks,
-} from "../../../lib/internal/quest/discovery.js";
-import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter.js";
-import { atomicWriteFile } from "../../../lib/internal/quest/io.js";
-import { nextRank } from "../../../lib/internal/quest/ranking.js";
-import { questIdForCwd } from "../../../lib/internal/quest/resolve-cwd.js";
-import { formatRelativeAge } from "../../../lib/internal/quest/session-liveness.js";
-import { isSealedStatus } from "../../../lib/internal/quest/status.js";
-import { recordStructuralOp } from "../../../lib/internal/quest/structural-journal.js";
+} from "../../../lib/internal/quest/discovery.ts";
+import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter.ts";
+import { atomicWriteFile } from "../../../lib/internal/quest/io.ts";
+import { nextRank } from "../../../lib/internal/quest/ranking.ts";
+import { questIdForCwd } from "../../../lib/internal/quest/resolve-cwd.ts";
+import { formatRelativeAge } from "../../../lib/internal/quest/session-liveness.ts";
+import { isSealedStatus } from "../../../lib/internal/quest/status.ts";
+import { recordStructuralOp } from "../../../lib/internal/quest/structural-journal.ts";
 import {
 	fetchUrlHints,
 	mintId,
@@ -36,10 +36,10 @@ import {
 	type QuestKind,
 	type QuestPriority,
 	scaffoldQuestReadme,
-} from "../../../lib/quest/index.js";
-import { parseRef, urlForRef } from "../../../lib/refs/index.js";
-import { count } from "../../../lib/ui/count.js";
-import { displayPath } from "../../../lib/ui/path.js";
+} from "../../../lib/quest/index.ts";
+import { parseRef, urlForRef } from "../../../lib/refs/index.ts";
+import { count } from "../../../lib/ui/count.ts";
+import { displayPath } from "../../../lib/ui/path.ts";
 import {
 	appendJourneyEntry,
 	attachCurrentSession,
@@ -54,14 +54,14 @@ import {
 	setLoadedKind,
 	unfocusDocument,
 	unloadQuest,
-} from "../lifecycle.js";
+} from "../lifecycle.ts";
 import {
 	buildRowExpansion,
 	locateOwner,
 	showLoaded,
 	showQuestById,
-} from "../lookup.js";
-import { recordSessionOnQuest } from "../session-registry.js";
+} from "../lookup.ts";
+import { recordSessionOnQuest } from "../session-registry.ts";
 
 /**
  * Priority ladder for sorting list output. Lower numbers
@@ -93,9 +93,9 @@ import {
 	type QuestRowBrief,
 	renderListing,
 	renderRowBrief,
-} from "../render-rows.js";
-import type { QuestState } from "../state.js";
-import { subdirForDocumentId } from "./queries.js";
+} from "../render-rows.ts";
+import type { QuestState } from "../state.ts";
+import { subdirForDocumentId } from "./queries.ts";
 import {
 	currentSessionId,
 	isPersistedSession,
@@ -104,7 +104,7 @@ import {
 	type QuestResult,
 	type QuestToolParams,
 	refuse,
-} from "./shared.js";
+} from "./shared.ts";
 
 /**
  * Look up the quest that owns the given cwd. Walks the

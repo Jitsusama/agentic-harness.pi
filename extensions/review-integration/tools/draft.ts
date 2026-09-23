@@ -35,7 +35,7 @@ import {
 	type Verdict,
 } from "@jitsusama/agentic-harness.core/review";
 import { Type } from "@sinclair/typebox";
-import { count, displayPath } from "../../../lib/ui/index.js";
+import { count, displayPath } from "../../../lib/ui/index.ts";
 import {
 	decisionDir,
 	draftDir,
@@ -43,18 +43,18 @@ import {
 	fixDir,
 	reviewEngine,
 	visitDir,
-} from "../engine.js";
-import { confirmBatch } from "../gate.js";
+} from "../engine.ts";
+import { confirmBatch } from "../gate.ts";
 import {
 	anchorLabel,
 	GLYPH,
 	outcomeNarration,
 	planNarration,
 	proseComplaint,
-} from "../render.js";
-import { treeForFixing } from "../work.js";
-import { publishTabs } from "./publish-gate.js";
-import type { Settle } from "./settle.js";
+} from "../render.ts";
+import { treeForFixing } from "../work.ts";
+import { publishTabs } from "./publish-gate.ts";
+import type { Settle } from "./settle.ts";
 import {
 	type Answer,
 	boundFor,
@@ -66,7 +66,7 @@ import {
 	renderInvocation,
 	say,
 	threadsOf,
-} from "./shared.js";
+} from "./shared.ts";
 
 /** The draft's contents, listed for a person. */
 function draftLines(draft: ReviewDraft): string {

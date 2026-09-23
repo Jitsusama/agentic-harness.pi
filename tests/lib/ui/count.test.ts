@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { count, noun, verb } from "../../../lib/ui/count.js";
+import { count, noun, verb } from "../../../lib/ui/count.ts";
 
 describe("count", () => {
 	it("says one thing in the singular, which is the whole point", () => {

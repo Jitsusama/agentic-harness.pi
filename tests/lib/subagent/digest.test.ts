@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { digestEvents } from "../../../lib/subagent/digest.js";
+import { digestEvents } from "../../../lib/subagent/digest.ts";
 
 const USAGE = {
 	input: 4,

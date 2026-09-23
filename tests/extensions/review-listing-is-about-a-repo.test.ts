@@ -15,7 +15,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { activate, HEADLESS, toolNamed } from "./support/review-extension.js";
+import { activate, HEADLESS, toolNamed } from "./support/review-extension.ts";
 
 /** A checkout that says it is a GitHub repo, and one open change in it. */
 const CHECKOUT = {

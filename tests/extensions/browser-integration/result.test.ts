@@ -13,7 +13,7 @@ import {
 	chooseSession,
 	missingSession,
 	sessionInPlay,
-} from "../../../extensions/browser-integration/result.js";
+} from "../../../extensions/browser-integration/result.ts";
 
 describe("which session a call without a name acts on", () => {
 	it("uses the default when it is open", () => {

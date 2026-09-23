@@ -10,4 +10,4 @@
  */
 
 export * from "@jitsusama/agentic-harness.core/google";
-export { ensureAuthenticated } from "./auth/index.js";
+export { ensureAuthenticated } from "./auth/index.ts";

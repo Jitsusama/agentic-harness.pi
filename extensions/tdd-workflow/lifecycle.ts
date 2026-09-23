@@ -11,9 +11,9 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { idleLoop, type Phase } from "@jitsusama/agentic-harness.core/tdd";
-import { getLastEntry } from "../../lib/internal/state.js";
-import { renderStatus, renderWidget } from "./render.js";
-import type { TddState } from "./state.js";
+import { getLastEntry } from "../../lib/internal/state.ts";
+import { renderStatus, renderWidget } from "./render.ts";
+import type { TddState } from "./state.ts";
 
 /** Width fallback when the terminal width is unknown. */
 const DEFAULT_WIDTH = 80;

@@ -24,7 +24,7 @@ import {
 } from "@jitsusama/agentic-harness.core/slack";
 import { extractFromBrowser } from "@jitsusama/agentic-harness.core/slack/auth/browser-extract";
 import { extractFromCurl } from "@jitsusama/agentic-harness.core/slack/auth/extract";
-import { promptSingle, view } from "../../ui/index.js";
+import { promptSingle, view } from "../../ui/index.ts";
 
 /**
  * Ensure the user has valid Slack credentials.

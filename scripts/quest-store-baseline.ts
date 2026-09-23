@@ -23,8 +23,8 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { dataDir } from "../lib/internal/paths.js";
-import { splitFrontMatter } from "../lib/internal/quest/frontmatter.js";
+import { dataDir } from "../lib/internal/paths.ts";
+import { splitFrontMatter } from "../lib/internal/quest/frontmatter.ts";
 
 // Canonical vocabularies. These mirror the strict sets in
 // lib/internal/quest/frontmatter.ts; the parser keeps them

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
 	isVerificationFailing,
 	setVerificationFailing,
-} from "../../../../lib/internal/verification/signal.js";
+} from "../../../../lib/internal/verification/signal.ts";
 
 afterEach(() => setVerificationFailing(false));
 

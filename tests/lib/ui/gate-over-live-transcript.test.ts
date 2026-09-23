@@ -19,9 +19,9 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, type Terminal, TUI } from "@earendil-works/pi-tui";
 import xterm from "@xterm/headless";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { showSinglePrompt } from "../../../lib/ui/prompt-single.js";
-import { wordWrap } from "../../../lib/ui/text-layout.js";
-import { plainTheme } from "./fake-theme.js";
+import { showSinglePrompt } from "../../../lib/ui/prompt-single.ts";
+import { wordWrap } from "../../../lib/ui/text-layout.ts";
+import { plainTheme } from "./fake-theme.ts";
 
 const COLUMNS = 170;
 const ROWS = 45;

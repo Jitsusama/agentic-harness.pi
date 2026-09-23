@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mermaidContent } from "../../extensions/mermaid-widget/content.js";
+import { mermaidContent } from "../../extensions/mermaid-widget/content.ts";
 
 const RENDER = {
 	pngPath: "/tmp/diagram.png",

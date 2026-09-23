@@ -8,7 +8,7 @@
  */
 
 import { Key, type KeyId, matchesKey, parseKey } from "@earendil-works/pi-tui";
-import type { KeyAction } from "./types.js";
+import type { KeyAction } from "./types.ts";
 
 /**
  * US keyboard mapping from shifted symbols to their base key.

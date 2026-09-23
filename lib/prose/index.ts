@@ -1,8 +1,8 @@
-export { formatProseBlock } from "./block.js";
-export { detectProseViolations, type ProseViolation } from "./detect.js";
+export { formatProseBlock } from "./block.ts";
+export { detectProseViolations, type ProseViolation } from "./detect.ts";
 export {
 	type ProseGateDecision,
 	proseGateDecision,
 	violationSignature,
-} from "./gate.js";
-export { wrapProse } from "./wrap.js";
+} from "./gate.ts";
+export { wrapProse } from "./wrap.ts";

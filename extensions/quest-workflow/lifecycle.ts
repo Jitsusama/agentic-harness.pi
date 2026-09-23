@@ -24,17 +24,17 @@ import {
 	focusDocument,
 	refreshProgress,
 } from "@jitsusama/agentic-harness.core/quest/lifecycle";
-import { sessionsDir } from "../../lib/internal/paths.js";
-import { discoverQuests } from "../../lib/internal/quest/discovery.js";
-import { mutateQuestFrontMatter } from "../../lib/internal/quest/mutate.js";
-import { questIdForCwd } from "../../lib/internal/quest/resolve-cwd.js";
+import { sessionsDir } from "../../lib/internal/paths.ts";
+import { discoverQuests } from "../../lib/internal/quest/discovery.ts";
+import { mutateQuestFrontMatter } from "../../lib/internal/quest/mutate.ts";
+import { questIdForCwd } from "../../lib/internal/quest/resolve-cwd.ts";
 import {
 	indexSessionFiles,
 	prunePhantomSessions,
-} from "../../lib/internal/quest/session-liveness.js";
-import { getLastEntry } from "../../lib/internal/state.js";
-import { sessionNameFor } from "./render.js";
-import type { QuestState } from "./state.js";
+} from "../../lib/internal/quest/session-liveness.ts";
+import { getLastEntry } from "../../lib/internal/state.ts";
+import { sessionNameFor } from "./render.ts";
+import type { QuestState } from "./state.ts";
 
 export {
 	addAliasesToLoaded,

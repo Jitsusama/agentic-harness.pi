@@ -14,8 +14,8 @@ import {
 	type BodyRenderer,
 	type GatePanel,
 	gateLines,
-} from "../../extensions/review-integration/render.js";
-import { plainTheme } from "../lib/ui/fake-theme.js";
+} from "../../extensions/review-integration/render.ts";
+import { plainTheme } from "../lib/ui/fake-theme.ts";
 
 const WIDTH = 72;
 

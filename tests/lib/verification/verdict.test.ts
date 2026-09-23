@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fastLayerVerdict } from "../../../lib/verification/verdict.js";
+import { fastLayerVerdict } from "../../../lib/verification/verdict.ts";
 
 const oneError = [
 	{ path: "src/a.ts", line: 3, character: 8, message: "Type error" },

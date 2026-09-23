@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampReserveTokens } from "../../../lib/compaction/index.js";
+import { clampReserveTokens } from "../../../lib/compaction/index.ts";
 
 describe("reserveTokens clamp", () => {
 	it("leaves a requested reserve alone when it fits comfortably", () => {

@@ -4,7 +4,7 @@ import {
 	list,
 	record,
 	register,
-} from "../../../../lib/internal/guardian/registry.js";
+} from "../../../../lib/internal/guardian/registry.ts";
 
 beforeEach(() => clear());
 

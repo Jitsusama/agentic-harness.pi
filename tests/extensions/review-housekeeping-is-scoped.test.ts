@@ -28,8 +28,8 @@ import { readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ReviewerArtifactsStore } from "../../lib/subagent/index.js";
-import { activate } from "./support/review-extension.js";
+import { ReviewerArtifactsStore } from "../../lib/subagent/index.ts";
+import { activate } from "./support/review-extension.ts";
 
 let root: string;
 let wasState: string | undefined;

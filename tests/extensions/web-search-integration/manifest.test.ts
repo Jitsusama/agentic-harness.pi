@@ -1,6 +1,6 @@
 import type { PageBundle } from "@jitsusama/agentic-harness.core/web/reader";
 import { describe, expect, it } from "vitest";
-import { formatManifest } from "../../../extensions/web-search-integration/manifest.js";
+import { formatManifest } from "../../../extensions/web-search-integration/manifest.ts";
 
 const base: PageBundle = {
 	title: "Support ticket #4563908",

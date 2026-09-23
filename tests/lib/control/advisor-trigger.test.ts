@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pressureTriggersAdvisor } from "../../../lib/control/index.js";
+import { pressureTriggersAdvisor } from "../../../lib/control/index.ts";
 
 describe("deciding whether a pressure reading is worth an advisor look", () => {
 	it("does not trigger on a calm reading", () => {

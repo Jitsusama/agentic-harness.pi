@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	detectProseViolations,
 	formatProseBlock,
-} from "../../../lib/prose/index.js";
+} from "../../../lib/prose/index.ts";
 
 describe("formatProseBlock", () => {
 	it("returns an empty string when there are no violations", () => {

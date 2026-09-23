@@ -13,8 +13,8 @@ import {
 	type OAuthApp,
 	SlackClient,
 } from "@jitsusama/agentic-harness.core/slack";
-import { ensureSetup } from "../../lib/slack/auth/setup-wizard.js";
-import { view } from "../../lib/ui/index.js";
+import { ensureSetup } from "../../lib/slack/auth/setup-wizard.ts";
+import { view } from "../../lib/ui/index.ts";
 
 /**
  * Handle /slack-auth command.

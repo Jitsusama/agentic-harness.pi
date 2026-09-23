@@ -10,9 +10,9 @@
  * to opt in.
  */
 
-import { BUILTIN_REF_TYPES } from "../internal/refs/builtins.js";
-import { clear, register, unregister } from "../internal/refs/registry.js";
-import type { RefType } from "./types.js";
+import { BUILTIN_REF_TYPES } from "../internal/refs/builtins.ts";
+import { clear, register, unregister } from "../internal/refs/registry.ts";
+import type { RefType } from "./types.ts";
 
 /**
  * Register a ref type. Overwrites any previously registered

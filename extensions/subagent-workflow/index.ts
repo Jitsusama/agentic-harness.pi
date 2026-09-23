@@ -41,43 +41,43 @@ import { join } from "node:path";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { packageStateDir } from "../../lib/internal/package-state-dir.js";
-import { ReviewerArtifactsStore } from "../../lib/subagent/artifacts.js";
+import { packageStateDir } from "../../lib/internal/package-state-dir.ts";
+import { ReviewerArtifactsStore } from "../../lib/subagent/artifacts.ts";
 import {
 	registerSubagentDefaultExtension,
 	registerSubagentDefaultSkill,
-} from "../../lib/subagent/defaults.js";
-import { safeSegment } from "../../lib/subagent/errno.js";
+} from "../../lib/subagent/defaults.ts";
+import { safeSegment } from "../../lib/subagent/errno.ts";
 import {
 	SUBAGENT_READY,
 	SUBAGENT_REGISTER_DEFAULT_EXTENSION,
 	SUBAGENT_REGISTER_DEFAULT_SKILL,
-} from "../../lib/subagent/events.js";
+} from "../../lib/subagent/events.ts";
 import {
 	abandonedFleets,
 	createFleetLedger,
 	type FleetRun,
 	whoIsWaiting,
-} from "../../lib/subagent/fleet.js";
-import { getParentPiInstall } from "../../lib/subagent/install.js";
-import { systemFacts } from "../../lib/subagent/lease.js";
-import { recoverReviewerRuns } from "../../lib/subagent/recovery.js";
-import { createSupervisorRunPi } from "../../lib/subagent/runpi/supervisor.js";
-import { THINKING_LEVELS } from "../../lib/thinking/index.js";
-import { count } from "../../lib/ui/count.js";
+} from "../../lib/subagent/fleet.ts";
+import { getParentPiInstall } from "../../lib/subagent/install.ts";
+import { systemFacts } from "../../lib/subagent/lease.ts";
+import { recoverReviewerRuns } from "../../lib/subagent/recovery.ts";
+import { createSupervisorRunPi } from "../../lib/subagent/runpi/supervisor.ts";
+import { THINKING_LEVELS } from "../../lib/thinking/index.ts";
+import { count } from "../../lib/ui/count.ts";
 import {
 	FleetCancellationRegistry,
 	formatFleetCancellation,
-} from "./cancellation.js";
-import { digestFleetRuns } from "./digests.js";
-import { createFleetProgressReporter } from "./progress-render.js";
+} from "./cancellation.ts";
+import { digestFleetRuns } from "./digests.ts";
+import { createFleetProgressReporter } from "./progress-render.ts";
 import {
 	buildAssignment,
 	dispatchFleet,
 	type FleetAssignment,
 	formatFleetSummary,
 	locateArtifacts,
-} from "./run.js";
+} from "./run.ts";
 
 /**
  * The domain's bus names, re-exported under their old spellings.

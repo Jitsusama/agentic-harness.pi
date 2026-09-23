@@ -17,7 +17,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { runGate } from "../../../lib/ui/gate-queue.js";
+import { runGate } from "../../../lib/ui/gate-queue.ts";
 
 interface Deferred<T> {
 	promise: Promise<T>;

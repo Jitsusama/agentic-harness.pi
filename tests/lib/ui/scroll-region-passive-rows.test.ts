@@ -14,8 +14,8 @@
 
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
-import { renderScrollRegion } from "../../../lib/ui/scroll-region.js";
-import { plainTheme } from "./fake-theme.js";
+import { renderScrollRegion } from "../../../lib/ui/scroll-region.ts";
+import { plainTheme } from "./fake-theme.ts";
 
 const WIDTH = 80;
 const BUDGET = 10;

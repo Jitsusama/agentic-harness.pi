@@ -29,7 +29,7 @@
  */
 
 import { existsSync } from "node:fs";
-import { getParentPiInstall } from "./install.js";
+import { getParentPiInstall } from "./install.ts";
 
 /**
  * Stable prefix every consumer can grep on to detect the

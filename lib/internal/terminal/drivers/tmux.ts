@@ -16,8 +16,8 @@ import { promisify } from "node:util";
 import type {
 	TerminalDriver,
 	TerminalRequest,
-} from "../../../terminal/types.js";
-import { wrapCommandWithEnv } from "./shared.js";
+} from "../../../terminal/types.ts";
+import { wrapCommandWithEnv } from "./shared.ts";
 
 const execFileAsync = promisify(execFile);
 

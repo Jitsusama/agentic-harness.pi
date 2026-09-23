@@ -15,8 +15,8 @@ import {
 	truncateToWidth,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
-import { getPanelHeightFraction } from "./panel-height.js";
-import { GLYPH } from "./types.js";
+import { getPanelHeightFraction } from "./panel-height.ts";
+import { GLYPH } from "./types.ts";
 
 /**
  * Width passed to content functions when horizontal scrolling

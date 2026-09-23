@@ -43,7 +43,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { detectProseViolations } from "../../lib/prose/index.js";
+import { detectProseViolations } from "../../lib/prose/index.ts";
 
 /** The rules about characters, as opposed to the ones about markup. */
 const GLYPH_RULES = ["emdash", "curly-quote", "ellipsis"];

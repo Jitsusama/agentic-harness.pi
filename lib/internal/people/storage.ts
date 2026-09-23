@@ -28,8 +28,8 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { extname, join } from "node:path";
-import type { Handle, Identity } from "../../people/types.js";
-import { type IdentityDoc, parseIdentity, serializeIdentity } from "./doc.js";
+import type { Handle, Identity } from "../../people/types.ts";
+import { type IdentityDoc, parseIdentity, serializeIdentity } from "./doc.ts";
 
 const VALID_ID_REGEX = /^[a-z0-9][a-z0-9.-]*$/;
 

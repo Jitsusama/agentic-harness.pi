@@ -9,14 +9,14 @@ import {
 	ReviewerArtifactsStore,
 	type ReviewerRunPaths,
 	type ReviewerTerminalState,
-} from "../artifacts.js";
-import type { PiInstall } from "../install.js";
-import type { ReviewerError } from "../reviewer-error.js";
-import type { RunPi, RunPiResult } from "../subagent.js";
+} from "../artifacts.ts";
+import type { PiInstall } from "../install.ts";
+import type { ReviewerError } from "../reviewer-error.ts";
+import type { RunPi, RunPiResult } from "../subagent.ts";
 // The same grace the supervisor gives its reviewer, read from the
 // same place. This is one hazard a level apart, and holding the
 // measurement twice is how the two came to disagree.
-import { fromScript } from "./fresh.js";
+import { fromScript } from "./fresh.ts";
 import { STDIO_GRACE_MS } from "./grace.mjs";
 
 /**

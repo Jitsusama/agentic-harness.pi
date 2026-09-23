@@ -28,7 +28,7 @@ export {
 	serializeDocumentFrontMatter,
 	serializeQuestFrontMatter,
 	splitFrontMatter,
-} from "../internal/quest/frontmatter.js";
+} from "../internal/quest/frontmatter.ts";
 export {
 	dateOf,
 	findIds,
@@ -40,7 +40,7 @@ export {
 	isId,
 	mintId,
 	prefixOf,
-} from "../internal/quest/id.js";
+} from "../internal/quest/id.ts";
 export {
 	checkboxProgress,
 	type ExtractedMentions,
@@ -54,15 +54,15 @@ export {
 	parseQuestDoc,
 	projectQuestForShow,
 	type QuestShowProjection,
-} from "../internal/quest/quest-doc.js";
+} from "../internal/quest/quest-doc.ts";
 export {
 	type DocumentScaffoldInput,
 	defaultsForKind,
 	type QuestScaffoldInput,
 	scaffoldDocument,
 	scaffoldQuestReadme,
-} from "../internal/quest/scaffold.js";
-export { renderToc } from "../internal/quest/toc.js";
+} from "../internal/quest/scaffold.ts";
+export { renderToc } from "../internal/quest/toc.ts";
 export {
 	clearUrlFetchers,
 	fetchUrlHints,
@@ -73,7 +73,7 @@ export {
 	type SeedHints,
 	type UrlFetcher,
 	unregisterUrlFetcher,
-} from "../internal/quest/url-fetchers.js";
+} from "../internal/quest/url-fetchers.ts";
 
 export type {
 	CastEntry,
@@ -92,4 +92,4 @@ export type {
 	QuestStatus,
 	QuestTree,
 	SessionStatus,
-} from "./types.js";
+} from "./types.ts";

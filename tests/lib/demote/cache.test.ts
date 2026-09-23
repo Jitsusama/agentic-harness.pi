@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BoundedTextCache } from "../../../lib/demote/index.js";
+import { BoundedTextCache } from "../../../lib/demote/index.ts";
 
 describe("BoundedTextCache", () => {
 	it("returns what was put in, by digest", () => {

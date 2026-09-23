@@ -3,7 +3,7 @@ import {
 	clearPromptContributors,
 	createFrozenResidentPrompt,
 	registerPromptContributor,
-} from "../../../lib/prompt/coordinator.js";
+} from "../../../lib/prompt/coordinator.ts";
 
 const ctx = { cwd: "/tmp" } as never;
 

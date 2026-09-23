@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { displayPath } from "../../../lib/ui/path.js";
+import { displayPath } from "../../../lib/ui/path.ts";
 
 const HOME = "/Users/somebody";
 

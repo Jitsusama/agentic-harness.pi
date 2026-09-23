@@ -27,17 +27,17 @@ import {
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
 import { count as grouped } from "@jitsusama/agentic-harness.core/result";
-import { AGENT_GLYPH } from "../../lib/ui/agent-glyphs.js";
+import { AGENT_GLYPH } from "../../lib/ui/agent-glyphs.ts";
 import {
 	type PipelineStage,
 	renderPipelineProgressLines,
 	type StageState,
-} from "../../lib/ui/pipeline-progress.js";
+} from "../../lib/ui/pipeline-progress.ts";
 import type {
 	FleetProgress,
 	FleetProgressEntry,
 	FleetProgressState,
-} from "./progress.js";
+} from "./progress.ts";
 
 const STATUS_KEY = "subagent-workflow:fleet";
 

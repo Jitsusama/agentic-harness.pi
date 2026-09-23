@@ -4,7 +4,7 @@ import {
 	browserToolSurface,
 	calledBrowserBefore,
 	readsBrowserSkill,
-} from "../../../extensions/browser-integration/tool-surface.js";
+} from "../../../extensions/browser-integration/tool-surface.ts";
 
 const REGISTERED = ["read", "bash", ...BROWSER_TOOLS];
 

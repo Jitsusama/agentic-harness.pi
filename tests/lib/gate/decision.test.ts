@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decideGate, violationSignature } from "../../../lib/gate/index.js";
+import { decideGate, violationSignature } from "../../../lib/gate/index.ts";
 
 interface TestViolation {
 	kind: string;

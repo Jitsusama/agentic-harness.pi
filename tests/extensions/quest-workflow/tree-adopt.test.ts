@@ -18,7 +18,7 @@ import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
 import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter";
 import { addTreeToQuest } from "../../../lib/internal/quest/trees";
-import { freshRepo } from "../../support/git-fixture.js";
+import { freshRepo } from "../../support/git-fixture.ts";
 import { createEnvGuard } from "./_helpers";
 
 const execFileAsync = promisify(execFile);

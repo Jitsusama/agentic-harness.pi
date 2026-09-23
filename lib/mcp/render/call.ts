@@ -1,6 +1,6 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, Text } from "@earendil-works/pi-tui";
-import type { McpTool } from "../types.js";
+import type { McpTool } from "../types.ts";
 
 /** The view-model for a default tool-call line, independent of styling. */
 export interface CallView {

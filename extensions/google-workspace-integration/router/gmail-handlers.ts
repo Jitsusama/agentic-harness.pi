@@ -26,7 +26,7 @@ import {
 	type ToolResult,
 } from "@jitsusama/agentic-harness.core/google/types";
 import type { OAuth2Client } from "google-auth-library";
-import { confirmDeleteEmail, confirmSendEmail } from "../confirmation.js";
+import { confirmDeleteEmail, confirmSendEmail } from "../confirmation.ts";
 
 /** Search Gmail messages using a query string. */
 export async function handleSearchEmails(

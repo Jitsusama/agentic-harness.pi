@@ -1,11 +1,11 @@
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
-import { billedTokens, fitToBudget } from "./budget.js";
+import { billedTokens, fitToBudget } from "./budget.ts";
 import {
 	type DimensionNote,
 	describeScaling,
 	type Size,
 	stripDimensionNote,
-} from "./note.js";
+} from "./note.ts";
 
 /** What pi's resizer answers with. */
 export interface Resized {

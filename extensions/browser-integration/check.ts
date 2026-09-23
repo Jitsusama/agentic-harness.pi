@@ -60,16 +60,16 @@ import {
 	parseTarget,
 } from "@jitsusama/agentic-harness.core/web/target";
 import { type Static, Type } from "@sinclair/typebox";
-import { DEFAULT_SESSION, type SessionRegistry } from "./registry.js";
-import { renderBrowserCall, renderBrowserResult } from "./render.js";
+import { DEFAULT_SESSION, type SessionRegistry } from "./registry.ts";
+import { renderBrowserCall, renderBrowserResult } from "./render.ts";
 import {
 	answer,
 	chooseSession,
 	missingSession,
 	refusal,
 	sessionInPlay,
-} from "./result.js";
-import { listAnswer } from "./stored.js";
+} from "./result.ts";
+import { listAnswer } from "./stored.ts";
 
 /**
  * A verdict, bounded, with every finding kept.

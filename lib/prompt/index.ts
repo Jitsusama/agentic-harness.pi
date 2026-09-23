@@ -16,4 +16,4 @@ export {
 	type PromptContributor,
 	registerPromptContributor,
 	unregisterPromptContributor,
-} from "./coordinator.js";
+} from "./coordinator.ts";

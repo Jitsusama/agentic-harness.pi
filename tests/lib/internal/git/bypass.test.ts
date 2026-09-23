@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	isGitBypassed,
 	setGitBypassed,
-} from "../../../../lib/internal/git/bypass.js";
+} from "../../../../lib/internal/git/bypass.ts";
 
 // The bypass lives on a Symbol.for slot on globalThis, so it
 // persists across tests. Reset it around each test to keep them

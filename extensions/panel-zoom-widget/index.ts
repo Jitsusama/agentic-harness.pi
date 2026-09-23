@@ -18,8 +18,8 @@ import { isKeyRelease, Key, matchesKey } from "@earendil-works/pi-tui";
 import {
 	getPanelHeightMode,
 	setPanelHeightMode,
-} from "../../lib/ui/panel-height.js";
-import type { PanelHeightMode } from "../../lib/ui/types.js";
+} from "../../lib/ui/panel-height.ts";
+import type { PanelHeightMode } from "../../lib/ui/types.ts";
 
 /** Toggle to a mode, returning to normal if already active. */
 function toggle(target: PanelHeightMode): void {

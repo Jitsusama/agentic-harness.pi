@@ -40,10 +40,10 @@ import {
 	planDemotions,
 	type ReexpansionTotals,
 	reexpansionRate,
-} from "../../lib/demote/index.js";
-import { cachePrices } from "../../lib/internal/cache-prices.js";
-import { boundedExpansion } from "./bounded.js";
-import { sizeOf } from "./size.js";
+} from "../../lib/demote/index.ts";
+import { cachePrices } from "../../lib/internal/cache-prices.ts";
+import { boundedExpansion } from "./bounded.ts";
+import { sizeOf } from "./size.ts";
 
 type OneMessage = ContextEvent["messages"][number];
 

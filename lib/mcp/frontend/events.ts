@@ -1,6 +1,6 @@
 import type { EventBus } from "@earendil-works/pi-coding-agent";
-import type { FrontEndRegistry } from "./registry.js";
-import type { FrontEndMatcher, FrontEndProvider } from "./types.js";
+import type { FrontEndRegistry } from "./registry.ts";
+import type { FrontEndMatcher, FrontEndProvider } from "./types.ts";
 
 /** Channel a provider emits to offer itself to a host. Payload: a FrontEndProvider. */
 export const MCP_REGISTER_FRONTEND = "mcp:register-frontend";

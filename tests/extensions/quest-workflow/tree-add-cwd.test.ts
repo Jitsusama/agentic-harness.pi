@@ -8,7 +8,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
-import { freshRepo } from "../../support/git-fixture.js";
+import { freshRepo } from "../../support/git-fixture.ts";
 import { createEnvGuard } from "./_helpers";
 
 let tmpRoot: string;

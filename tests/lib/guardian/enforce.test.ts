@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blockIfUnsupported } from "../../../lib/guardian/enforce.js";
+import { blockIfUnsupported } from "../../../lib/guardian/enforce.ts";
 
 describe("blockIfUnsupported", () => {
 	it("allows a command in a supported shape", () => {

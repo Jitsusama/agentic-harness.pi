@@ -13,7 +13,7 @@
 
 import type { LoadedReviewConfig } from "@jitsusama/agentic-harness.core/review";
 import { parseReviewSection } from "@jitsusama/agentic-harness.core/review";
-import { loadPackageConfig } from "../../lib/internal/config/loader.js";
+import { loadPackageConfig } from "../../lib/internal/config/loader.ts";
 
 /** Section key for this extension in the package config. */
 export const REVIEW_SLUG = "review";

@@ -4,7 +4,7 @@ import {
 	type DiscoveryEntry,
 	modeBadge,
 	renderToolDiscovery,
-} from "../../../../lib/mcp/render/tools-list.js";
+} from "../../../../lib/mcp/render/tools-list.ts";
 
 function entry(
 	name: string,

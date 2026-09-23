@@ -5,13 +5,13 @@ import {
 	makeDefaultWrap,
 	makeTruncatingShape,
 	toAgentContent,
-} from "../../../../lib/mcp/frontend/defaults.js";
-import { CANCELLED_TEXT } from "../../../../lib/mcp/render/result.js";
+} from "../../../../lib/mcp/frontend/defaults.ts";
+import { CANCELLED_TEXT } from "../../../../lib/mcp/render/result.ts";
 import type {
 	McpContent,
 	McpTool,
 	McpToolResult,
-} from "../../../../lib/mcp/types.js";
+} from "../../../../lib/mcp/types.ts";
 
 function tool(name: string, annotations?: McpTool["annotations"]): McpTool {
 	return {

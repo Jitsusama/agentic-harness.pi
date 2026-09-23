@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { renderBadge, renderBar } from "../../../lib/ui/badge.js";
-import { fakeTheme } from "./fake-theme.js";
+import { renderBadge, renderBar } from "../../../lib/ui/badge.ts";
+import { fakeTheme } from "./fake-theme.ts";
 
 describe("renderBadge", () => {
 	const theme = fakeTheme();

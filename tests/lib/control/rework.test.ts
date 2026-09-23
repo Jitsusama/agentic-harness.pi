@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyRepeats } from "../../../lib/control/index.js";
+import { classifyRepeats } from "../../../lib/control/index.ts";
 
 function call(argsDigest: string, isVerify = false) {
 	return { argsDigest, isVerify };

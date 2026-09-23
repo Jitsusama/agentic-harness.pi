@@ -3,8 +3,8 @@ import {
 	buildDiscoverySections,
 	type DiscoveryEntry,
 	renderToolDiscovery,
-} from "../render/tools-list.js";
-import type { McpContent, McpToolResult } from "../types.js";
+} from "../render/tools-list.ts";
+import type { McpContent, McpToolResult } from "../types.ts";
 
 const DEFAULT_SEARCH_LIMIT = 25;
 

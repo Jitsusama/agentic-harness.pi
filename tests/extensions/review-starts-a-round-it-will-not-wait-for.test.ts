@@ -30,13 +30,13 @@ import {
 	heldByLiveSupervisor,
 	reviewerStarter,
 	whyNotYet,
-} from "../../extensions/review-integration/reviewer.js";
+} from "../../extensions/review-integration/reviewer.ts";
 import {
 	ReviewerArtifactsStore,
 	startReviewer,
 	supervisorStanding,
 	systemFacts,
-} from "../../lib/subagent/index.js";
+} from "../../lib/subagent/index.ts";
 
 /** The parts of a run everyoneFinished reads, for a single reviewer. */
 const RUN: AskRun = {

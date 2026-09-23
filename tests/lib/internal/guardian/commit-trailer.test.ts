@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	coAuthorTrailer,
 	formatModelName,
-} from "../../../../lib/internal/guardian/commit-trailer.js";
+} from "../../../../lib/internal/guardian/commit-trailer.ts";
 
 describe("coAuthorTrailer", () => {
 	it("formats the model name and falls back without one", () => {

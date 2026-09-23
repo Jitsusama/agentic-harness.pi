@@ -13,7 +13,7 @@ import type {
 	Proposal,
 } from "@jitsusama/agentic-harness.core/review";
 import { describe, expect, it } from "vitest";
-import { proposalLine } from "../../extensions/review-integration/render.js";
+import { proposalLine } from "../../extensions/review-integration/render.ts";
 
 function change(landing?: Landability): Proposal {
 	return {

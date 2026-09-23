@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openTurnStore } from "@jitsusama/agentic-harness.core/observability";
 import { afterEach, describe, expect, it } from "vitest";
-import { indexSessionLogs } from "../../extensions/cost-workflow/indexer.js";
+import { indexSessionLogs } from "../../extensions/cost-workflow/indexer.ts";
 
 let scratch: string | null = null;
 

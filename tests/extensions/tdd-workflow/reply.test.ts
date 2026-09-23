@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatTransitionReply } from "../../../extensions/tdd-workflow/reply.js";
+import { formatTransitionReply } from "../../../extensions/tdd-workflow/reply.ts";
 
 describe("formatTransitionReply", () => {
 	it("marks a landed transition as an advance into the new phase", () => {

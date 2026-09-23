@@ -7,7 +7,7 @@
  * characters as sent, not tokens.
  */
 
-import type { SizedMessage } from "../../lib/demote/index.js";
+import type { SizedMessage } from "../../lib/demote/index.ts";
 
 /**
  * An image is billed by its pixels, not its payload, so its base64

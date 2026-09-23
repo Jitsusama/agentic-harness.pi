@@ -18,8 +18,8 @@ import {
 	type ReviewSubstrateApi,
 } from "@jitsusama/agentic-harness.core/review";
 import { afterEach, describe, expect, it } from "vitest";
-import { watchRound } from "../../extensions/review-integration/progress.js";
-import { activate } from "./support/review-extension.js";
+import { watchRound } from "../../extensions/review-integration/progress.ts";
+import { activate } from "./support/review-extension.ts";
 
 afterEach(() => clearReviewProviders());
 

@@ -21,8 +21,8 @@ import { describe, expect, it } from "vitest";
 import {
 	PLAN_TAB,
 	publishTabs,
-} from "../../extensions/review-integration/tools/publish-gate.js";
-import { plainTheme } from "../lib/ui/fake-theme.js";
+} from "../../extensions/review-integration/tools/publish-gate.ts";
+import { plainTheme } from "../lib/ui/fake-theme.ts";
 
 const HERE = "shop/world#2000980 \u00b7 meteorite";
 

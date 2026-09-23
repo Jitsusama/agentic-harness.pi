@@ -3,8 +3,8 @@ import {
 	defaultBackendOf,
 	resolveToolMode,
 	type SurfaceConfig,
-} from "../../../../lib/mcp/surface/policy.js";
-import type { McpTool } from "../../../../lib/mcp/types.js";
+} from "../../../../lib/mcp/surface/policy.ts";
+import type { McpTool } from "../../../../lib/mcp/types.ts";
 
 function tool(name: string): McpTool {
 	return {
