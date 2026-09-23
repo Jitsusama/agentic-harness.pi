@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -8,6 +8,7 @@ import {
 } from "../../../extensions/quest-workflow/session-registry";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
+import { parseQuestFrontMatter } from "../../../lib/quest/index";
 import { createEnvGuard, succeeded } from "./_helpers";
 
 let tmpRoot: string;
@@ -53,7 +54,8 @@ afterEach(() => {
 	envGuard.leave();
 });
 
-async function loadQuest(sessionId: string): Promise<void> {
+/** Load a fresh quest in this session, answering with its directory. */
+async function loadQuest(sessionId: string): Promise<string> {
 	const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
 	const created = succeeded(
 		await handle(state, fakePi(), fakeCtx(sessionId), {
@@ -67,6 +69,14 @@ async function loadQuest(sessionId: string): Promise<void> {
 			id: (created.details as { id: string }).id,
 		}),
 	);
+	return state.questDir as string;
+}
+
+function readmeStatus(questDir: string, sessionId: string) {
+	const parsed = parseQuestFrontMatter(
+		readFileSync(join(questDir, "README.md"), "utf8"),
+	);
+	return parsed?.frontMatter.sessions.find((s) => s.id === sessionId)?.status;
 }
 
 describe("the signal stamp after a quest load", () => {
@@ -77,6 +87,17 @@ describe("the signal stamp after a quest load", () => {
 		await loadQuest("sess-loaded");
 		process.emit("SIGHUP");
 		expect(readRecord("sess-loaded")?.endReason).toBe("signalled");
+	});
+
+	it("releases the session on its quest in the same breath", async () => {
+		// pi exits right after the signal, usually before its own
+		// shutdown hook reaches the README, which is how closed tabs kept
+		// reading active. The listener is the one step that always runs.
+		installQuietly();
+		const questDir = await loadQuest("sess-loaded");
+		expect(readmeStatus(questDir, "sess-loaded")).toBe("active");
+		process.emit("SIGHUP");
+		expect(readmeStatus(questDir, "sess-loaded")).toBe("detached");
 	});
 
 	it("starts listening when the load is the first thing to ask", async () => {

@@ -356,6 +356,8 @@ const REFIRE_GRACE_MS = 3_000;
  */
 interface SignalStampSlot {
 	sessionId?: string;
+	/** Run after the stamp, to release the session wherever else it shows. */
+	release?: () => void;
 	listeners?: Map<NodeJS.Signals, () => void>;
 }
 
@@ -378,6 +380,8 @@ export function setSignalStampSession(sessionId: string | undefined): void {
 	const slot = signalStampSlot();
 	if (sessionId) slot.sessionId = sessionId;
 	else delete slot.sessionId;
+	// A release belongs to the session it was given for.
+	delete slot.release;
 }
 
 const liveSignalStampDeps: SignalStampDeps = {
@@ -416,7 +420,14 @@ export function installSignalStamp(
 	const listeners = new Map<NodeJS.Signals, () => void>();
 	for (const signal of TERMINATING_SIGNALS) {
 		listeners.set(signal, () => {
-			if (slot.sessionId) stampSignalled(slot.sessionId, deps.now());
+			if (slot.sessionId) {
+				stampSignalled(slot.sessionId, deps.now());
+				// Best-effort and after the stamp, so a failure here can
+				// cost the README but never the record restore reads.
+				try {
+					slot.release?.();
+				} catch {}
+			}
 			removeSignalStamp();
 			deps.schedule(() => deps.raise(signal), REFIRE_GRACE_MS);
 		});
@@ -429,9 +440,18 @@ export function installSignalStamp(
  * Make this session the one a SIGHUP or SIGTERM stamps, listening if
  * nothing is yet. Called wherever a session's record is opened, so
  * the launch path and a later `quest load` are covered alike.
+ *
+ * `release` runs synchronously straight after the stamp. pi exits
+ * moments after the signal, usually before its own shutdown hook
+ * gets far, so anything else that must record the session's end, the
+ * quest README above all, has to happen here to happen at all.
  */
-export function followSessionForSignals(sessionId: string): void {
+export function followSessionForSignals(
+	sessionId: string,
+	release?: () => void,
+): void {
 	setSignalStampSession(sessionId);
+	if (release) signalStampSlot().release = release;
 	installSignalStamp();
 }
 

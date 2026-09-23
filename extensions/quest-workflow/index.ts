@@ -607,8 +607,11 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 				startHeartbeat(sid);
 				// pi reports a closed tab as a quit, and whether even that
 				// lands is a race with the process exiting, so the signal
-				// itself is what stamps the record.
-				followSessionForSignals(sid);
+				// itself is what stamps the record and releases the session
+				// on its quest.
+				followSessionForSignals(sid, () =>
+					releaseSessionOnShutdown(state, sid),
+				);
 			}
 		}
 		updateScoreboard(state, ctx);
