@@ -30,15 +30,18 @@ import {
 } from "../../lib/internal/quest/process-liveness.ts";
 import {
 	closeRecord,
+	markSignalled,
 	openRecord,
 	parseSessionRecord,
 	pruneRecords,
+	recentlyClosed,
 	reopenRecord,
 	restorable,
 	type SessionEndReason,
 	type SessionRecord,
 	shellSingleQuote,
 	switchQuest,
+	wasLost,
 } from "../../lib/internal/quest/session-registry.ts";
 import type { QuestSession } from "../../lib/quest/index.ts";
 import {
@@ -322,6 +325,138 @@ export function observeRecords(
 	return { repaired, refreshed };
 }
 
+/** What the signal stamp needs from the world, replaceable in tests. */
+export interface SignalStampDeps {
+	now: () => Date;
+	schedule: (fire: () => void, delayMs: number) => void;
+	raise: (signal: NodeJS.Signals) => void;
+}
+
+/**
+ * The signals that mean the terminal or the machine took the process
+ * away. SIGHUP is a closed tab, a terminal program that quit or died
+ * under a busy tab; SIGTERM is what a shutdown sends. A deliberate
+ * `/quit` sends neither, which is what makes them worth listening for.
+ */
+const TERMINATING_SIGNALS: readonly NodeJS.Signals[] = ["SIGHUP", "SIGTERM"];
+
+/**
+ * How long a dying process gets to finish on its own before the
+ * signal is sent again. pi's own shutdown normally ends the process
+ * within a second of a hang-up, so this only matters when nothing else
+ * is going to.
+ */
+const REFIRE_GRACE_MS = 3_000;
+
+/**
+ * The stamp's state, held on `globalThis` rather than in this module.
+ * A reload imports the extension afresh, and the listeners have to be
+ * installed once per process, not once per import, or a second copy
+ * would stamp and re-raise alongside the first.
+ */
+interface SignalStampSlot {
+	sessionId?: string;
+	listeners?: Map<NodeJS.Signals, () => void>;
+}
+
+const SIGNAL_STAMP_SLOT = Symbol.for(
+	"agentic-harness.quest-workflow.signal-stamp",
+);
+
+function signalStampSlot(): SignalStampSlot {
+	const holder = globalThis as { [SIGNAL_STAMP_SLOT]?: SignalStampSlot };
+	holder[SIGNAL_STAMP_SLOT] ??= {};
+	return holder[SIGNAL_STAMP_SLOT];
+}
+
+/**
+ * Say which session a signal should stamp. A session switch keeps the
+ * process and changes the session, so this follows the session rather
+ * than being fixed when the listeners go in.
+ */
+export function setSignalStampSession(sessionId: string | undefined): void {
+	const slot = signalStampSlot();
+	if (sessionId) slot.sessionId = sessionId;
+	else delete slot.sessionId;
+}
+
+const liveSignalStampDeps: SignalStampDeps = {
+	now: () => new Date(),
+	schedule: (fire, delayMs) => {
+		// Unref'd, so it only fires if something else is holding the
+		// process open. A process that exits on its own never sees it.
+		setTimeout(fire, delayMs).unref?.();
+	},
+	raise: (signal) => process.kill(process.pid, signal),
+};
+
+/**
+ * Listen for the signals that take a session away, and stamp its
+ * record `signalled` when one arrives.
+ *
+ * pi reports these signals as an ordinary quit, and whether its
+ * shutdown hook gets far enough to stamp that is a race against the
+ * process exiting. A listener of our own runs in the same synchronous
+ * dispatch as pi's, before anything can exit, so it is the one place
+ * the difference between a signal and a deliberate quit can be
+ * recorded reliably. The write is synchronous for the same reason.
+ *
+ * Listening for SIGHUP switches off Node's default exit, so after the
+ * stamp the listeners remove themselves and the signal is re-raised
+ * after a grace period. If pi has already exited, nothing happens. If
+ * it is still around, the signal now reaches whatever would have had
+ * it without us, so installing this can never keep alive a process
+ * that should have died.
+ */
+export function installSignalStamp(
+	deps: SignalStampDeps = liveSignalStampDeps,
+): void {
+	const slot = signalStampSlot();
+	if (slot.listeners) return;
+	const listeners = new Map<NodeJS.Signals, () => void>();
+	for (const signal of TERMINATING_SIGNALS) {
+		listeners.set(signal, () => {
+			if (slot.sessionId) stampSignalled(slot.sessionId, deps.now());
+			removeSignalStamp();
+			deps.schedule(() => deps.raise(signal), REFIRE_GRACE_MS);
+		});
+	}
+	for (const [signal, listener] of listeners) process.on(signal, listener);
+	slot.listeners = listeners;
+}
+
+/**
+ * Make this session the one a SIGHUP or SIGTERM stamps, listening if
+ * nothing is yet. Called wherever a session's record is opened, so
+ * the launch path and a later `quest load` are covered alike.
+ */
+export function followSessionForSignals(sessionId: string): void {
+	setSignalStampSession(sessionId);
+	installSignalStamp();
+}
+
+/** Stop listening, leaving the session the stamp follows in place. */
+export function removeSignalStamp(): void {
+	const slot = signalStampSlot();
+	if (!slot.listeners) return;
+	for (const [signal, listener] of slot.listeners) {
+		process.off(signal, listener);
+	}
+	delete slot.listeners;
+}
+
+/**
+ * Mark a session's record as ended by a signal, if it has one. A
+ * session the registry never recorded is left unrecorded: inventing a
+ * record at the moment of death would offer back a tab nobody tracked.
+ */
+function stampSignalled(sessionId: string, now: Date): void {
+	const record = readRecord(sessionId);
+	if (!record) return;
+	const stamped = markSignalled(record, now);
+	if (stamped !== record) saveRecord(stamped);
+}
+
 /** Apply an end reason to a session's record, if it has one. */
 export function recordSessionEnd(
 	sessionId: string,
@@ -350,6 +485,25 @@ export function restorableSessions(): SessionRecord[] {
 }
 
 /**
+ * How far back restore looks for sessions closed on purpose. A day
+ * covers the evening's tabs the next morning, which is the recovery
+ * this exists for, without dredging up last week.
+ */
+const RECENTLY_CLOSED_HOURS = 24;
+
+/**
+ * The sessions closed on purpose within the last day, most recent
+ * first. Reads without probing, so ask after `restorableSessions`,
+ * which has already settled what the open records really are.
+ */
+export function recentlyClosedSessions(now = new Date()): SessionRecord[] {
+	return recentlyClosed(
+		loadRecords().map((entry) => entry.record),
+		{ now, withinHours: RECENTLY_CLOSED_HOURS },
+	);
+}
+
+/**
  * How many sessions are recorded as lost, without probing anything.
  *
  * For the start-up hint, which must stay cheap: the hard rule is that
@@ -360,8 +514,7 @@ export function restorableSessions(): SessionRecord[] {
  * is what `quest restore` does.
  */
 export function lostSessionCount(): number {
-	return loadRecords().filter(({ record }) => record.endReason === "died")
-		.length;
+	return loadRecords().filter(({ record }) => wasLost(record)).length;
 }
 
 /** What happened when restore tried to reopen the lost sessions. */

@@ -11,7 +11,11 @@ import {
 	discoverQuests,
 	type QuestIndex,
 } from "../../../lib/internal/quest/discovery.ts";
-import { restoreRecipe } from "../../../lib/internal/quest/session-registry.ts";
+import {
+	restoreRecipe,
+	type SessionRecord,
+	wasLost,
+} from "../../../lib/internal/quest/session-registry.ts";
 import { count } from "../../../lib/ui/count.ts";
 import {
 	ancestorsOf,
@@ -37,6 +41,7 @@ import {
 } from "../render-rows.ts";
 import {
 	pruneClosedRecords,
+	recentlyClosedSessions,
 	reopenLostSessions,
 	restorableSessions,
 	seedLiveSessions,
@@ -230,6 +235,70 @@ export async function workspace(state: QuestState): Promise<QuestResult> {
  */
 const MAX_REOPEN_AT_ONCE = 16;
 
+/**
+ * How many recently closed sessions restore lists. Enough for an
+ * evening's tabs, few enough that the lost ones above stay the thing
+ * the eye lands on.
+ */
+const RECENTLY_CLOSED_SHOWN = 10;
+
+/**
+ * The backstop under the lost sessions: what was closed on purpose in
+ * the last day, as lines to run. Restore never reopens these unasked,
+ * but pi reports some signals as a quit, so a tab that was taken away
+ * can land here, and listing it keeps it one line away.
+ */
+function recentlyClosedSection(closed: readonly SessionRecord[]): string[] {
+	if (closed.length === 0) return [];
+	const shown = closed.slice(0, RECENTLY_CLOSED_SHOWN);
+	const lines = [
+		"",
+		`Closed in the last day, left alone unless you ask (${count(closed.length, "session")}):`,
+		...restoreRecipe(shown),
+	];
+	if (closed.length > shown.length) {
+		lines.push(`and ${closed.length - shown.length} more.`);
+	}
+	return lines;
+}
+
+/**
+ * The sessions an `id` list names, out of those restore would list.
+ *
+ * Each name is a session id or the front of one, since the ids are
+ * long and the listing shows them whole. A name that matches nothing
+ * or matches several is refused outright rather than guessed at,
+ * because a wrong guess opens a terminal.
+ */
+function namedSessions(
+	candidates: readonly SessionRecord[],
+	ids: string,
+): { ok: true; records: SessionRecord[] } | { ok: false; guidance: string } {
+	const picked = new Map<string, SessionRecord>();
+	for (const name of ids.split(",").map((part) => part.trim())) {
+		if (!name) continue;
+		const matches = candidates.filter((r) => r.sessionId.startsWith(name));
+		if (matches.length === 0) {
+			return {
+				ok: false,
+				guidance: `No lost or recently closed session matches "${name}". Run restore without id to see the ones it knows.`,
+			};
+		}
+		if (matches.length > 1) {
+			return {
+				ok: false,
+				guidance: `"${name}" matches more than one session: ${matches.map((r) => r.sessionId).join(", ")}. Give more of the id.`,
+			};
+		}
+		const [match] = matches as [SessionRecord];
+		picked.set(match.sessionId, match);
+	}
+	if (picked.size === 0) {
+		return { ok: false, guidance: "id named no sessions." };
+	}
+	return { ok: true, records: [...picked.values()] };
+}
+
 /** Every session any quest claims, paired with the quest claiming it. */
 function claimedSessions(state: QuestState) {
 	const { index } = discoverQuests(state.questsRoot);
@@ -243,53 +312,71 @@ function claimedSessions(state: QuestState) {
 
 export async function restore(
 	state: QuestState,
-	opts: { act?: boolean } = {},
+	opts: { act?: boolean; ids?: string } = {},
 ): Promise<QuestResult> {
 	// Seed before asking, so tabs that were already open when the
 	// registry arrived are known to be open rather than absent, and
 	// prune after, so a window that has passed is not carried by every
 	// later read.
 	seedLiveSessions(claimedSessions(state));
-	const lost = restorableSessions();
+	const allLost = restorableSessions();
+	const allClosed = recentlyClosedSessions();
 	pruneClosedRecords(state.sessionRetentionDays);
-	if (lost.length === 0) {
-		return ok("No sessions were lost; nothing to restore.", {
-			restore: { toRestore: [], recipe: [] },
-		});
+	// Naming sessions makes them the whole set: listed alone, and the
+	// ones force reopens, whichever list they came from.
+	let toRestore = allLost;
+	let closed = allClosed;
+	if (opts.ids !== undefined) {
+		const named = namedSessions([...allLost, ...allClosed], opts.ids);
+		if (!named.ok) return refuse(named.guidance);
+		toRestore = named.records;
+		closed = [];
 	}
-	const recipe = restoreRecipe(lost);
-	const rows = lost.map(
+	const closedSection = recentlyClosedSection(closed);
+	if (toRestore.length === 0) {
+		return ok(
+			["No sessions were lost; nothing to restore.", ...closedSection].join(
+				"\n",
+			),
+			{ restore: { toRestore: [], recipe: [], recentlyClosed: closed } },
+		);
+	}
+	const recipe = restoreRecipe(toRestore);
+	const rows = toRestore.map(
 		(record) =>
-			`- ${record.quest ?? "(no quest)"} ${record.cwd} (session ${record.sessionId}, lost ${record.closedAt})`,
+			`- ${record.quest ?? "(no quest)"} ${record.cwd} (session ${record.sessionId}, ${wasLost(record) ? "lost" : "closed"} ${record.closedAt})`,
 	);
 	if (!opts.act) {
 		const body = [
-			`${count(lost.length, "session")} to restore:`,
+			`${count(toRestore.length, "session")} to restore:`,
 			...rows,
 			"",
 			"Run to reopen them, or pass force to have restore do it:",
 			...recipe,
+			...closedSection,
 		].join("\n");
-		return ok(body, { restore: { toRestore: lost, recipe } });
+		return ok(body, {
+			restore: { toRestore, recipe, recentlyClosed: closed },
+		});
 	}
-	if (lost.length > MAX_REOPEN_AT_ONCE) {
+	if (toRestore.length > MAX_REOPEN_AT_ONCE) {
 		// Refuse whole rather than stopping halfway. A registry that has
 		// gone wrong, or a machine off for a month, should not be able
 		// to turn one verb into a screenful of windows, and a partial
 		// reopen would leave the user working out which half happened.
 		return ok(
 			[
-				`${lost.length} sessions were lost, more than the ${MAX_REOPEN_AT_ONCE} restore will open at once.`,
+				`${toRestore.length} sessions to restore, more than the ${MAX_REOPEN_AT_ONCE} restore will open at once.`,
 				"Reopen the ones you want by hand:",
 				"",
 				...recipe,
 			].join("\n"),
-			{ restore: { toRestore: lost, recipe, refused: "too-many" } },
+			{ restore: { toRestore, recipe, refused: "too-many" } },
 		);
 	}
-	const outcome = await reopenLostSessions(lost);
+	const outcome = await reopenLostSessions(toRestore);
 	const lines = [
-		`Reopened ${outcome.reopened.length} of ${count(lost.length, "session")}.`,
+		`Reopened ${outcome.reopened.length} of ${count(toRestore.length, "session")}.`,
 	];
 	if (outcome.failed.length > 0) {
 		lines.push(
@@ -297,7 +384,7 @@ export async function restore(
 			"Could not reopen these; run the lines by hand:",
 			...outcome.failed.map((f) => `- ${f.sessionId}: ${f.reason}`),
 			...restoreRecipe(
-				lost.filter((r) =>
+				toRestore.filter((r) =>
 					outcome.failed.some((f) => f.sessionId === r.sessionId),
 				),
 			),

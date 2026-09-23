@@ -58,25 +58,29 @@ export interface SessionRecord {
 }
 
 /**
- * How a session ended. `quit` means the pi process exited and took
- * its tab with it. `swapped` means the conversation was replaced
- * inside a tab that is still on screen, which is what a reload, a
- * session switch and a fork all do. `died` means no process recorded
- * an ending at all and a later reader found it gone, which is what a
- * crash looks like from the outside.
- */
-/**
  * Why a session's record stopped being open.
  *
- * `quit` and `swapped` are stamped by the session itself. `died` and
- * `vanished` are written by a later reader that found the process
- * gone, and the difference between them is whether anyone was ever in
- * a position to see it close: a session that opened its own record
- * had a shutdown hook and failing to use it means it was taken away,
- * while a session the registry merely adopted never had one, so its
- * disappearance says nothing about how it ended.
+ * `quit`, `swapped` and `signalled` are stamped by the session itself.
+ * `quit` means the pi process exited on the user's word and took its
+ * tab with it. `swapped` means the conversation was replaced inside a
+ * tab that is still on screen, which is what a reload, a session
+ * switch and a fork all do. `signalled` means a SIGHUP or SIGTERM took
+ * the process away: its terminal closed, the terminal program died or
+ * the machine shut down.
+ *
+ * `died` and `vanished` are written by a later reader that found the
+ * process gone, and the difference between them is whether anyone was
+ * ever in a position to see it close: a session that opened its own
+ * record had a shutdown hook and failing to use it means it was taken
+ * away, while a session the registry merely adopted never had one, so
+ * its disappearance says nothing about how it ended.
  */
-export type SessionEndReason = "quit" | "swapped" | "died" | "vanished";
+export type SessionEndReason =
+	| "quit"
+	| "swapped"
+	| "died"
+	| "vanished"
+	| "signalled";
 
 /** What a caller knows when a session first loads a quest. */
 export interface OpenInput {
@@ -111,7 +115,13 @@ export function openRecord(input: OpenInput): SessionRecord {
 }
 
 /** The end reasons a reader is willing to act on. */
-const END_REASONS: readonly string[] = ["quit", "swapped", "died", "vanished"];
+const END_REASONS: readonly string[] = [
+	"quit",
+	"swapped",
+	"died",
+	"vanished",
+	"signalled",
+];
 
 /**
  * Read a stored value back as a record, or refuse it.
@@ -340,9 +350,49 @@ function commentSafe(value: string): string {
  * is asked.
  */
 export function restorable(records: readonly SessionRecord[]): SessionRecord[] {
+	return records.filter(wasLost).sort(newestClosedFirst);
+}
+
+/**
+ * Whether a session was taken away rather than closed: it crashed and
+ * a reader found it gone, or a signal ended it. Every view that
+ * separates a lost tab from a closed one asks this, so they cannot
+ * drift apart on which endings count.
+ */
+export function wasLost(record: SessionRecord): boolean {
+	if (!record.closedAt) return false;
+	return record.endReason === "died" || record.endReason === "signalled";
+}
+
+/**
+ * Sessions closed on purpose within the window, most recent first.
+ *
+ * Restore never reopens these unasked, since a quit is an instruction.
+ * It lists them anyway because the label is not always true: pi calls
+ * a signal a quit, and a session the registry only adopted says
+ * nothing about how it went. A tab that slipped through either way is
+ * then one line away instead of gone. Swaps are left out because their
+ * tab is still on screen, and lost sessions because restore already
+ * offers them.
+ */
+export function recentlyClosed(
+	records: readonly SessionRecord[],
+	window: { now: Date; withinHours: number },
+): SessionRecord[] {
+	const since = window.now.getTime() - window.withinHours * 3_600_000;
 	return records
-		.filter((record) => record.endReason === "died" && record.closedAt)
-		.sort((a, b) => (b.closedAt ?? "").localeCompare(a.closedAt ?? ""));
+		.filter((record) => {
+			if (record.endReason !== "quit" && record.endReason !== "vanished") {
+				return false;
+			}
+			return Date.parse(record.closedAt ?? "") >= since;
+		})
+		.sort(newestClosedFirst);
+}
+
+/** Order closed records by when they closed, most recent first. */
+function newestClosedFirst(a: SessionRecord, b: SessionRecord): number {
+	return (b.closedAt ?? "").localeCompare(a.closedAt ?? "");
 }
 
 /**
@@ -390,4 +440,29 @@ export function closeRecord(
 ): SessionRecord {
 	if (record.closedAt) return record;
 	return { ...record, closedAt: now.toISOString(), endReason: reason };
+}
+
+/**
+ * Stamp a record as taken away by a signal: the terminal closing, the
+ * terminal program dying, or the machine shutting down.
+ *
+ * pi turns SIGHUP and SIGTERM into an ordinary shutdown whose reason
+ * is `quit`, so a session whose tab was closed under it usually stamps
+ * itself `quit` a moment before its own signal listener runs. That
+ * `quit` is pi's label for this same signal rather than anyone's
+ * decision, so it is the one ending this replaces. The moment it
+ * recorded stays, since it is when the session actually ended.
+ *
+ * Every other ending is left alone. `died` and `vanished` were written
+ * by a reader that already knows the session is gone, and `swapped`
+ * means the tab outlived the conversation. A second signal, which a
+ * busy tab gets from its shell as well as its terminal, finds the
+ * first stamp already there.
+ */
+export function markSignalled(record: SessionRecord, now: Date): SessionRecord {
+	if (!record.closedAt) {
+		return { ...record, closedAt: now.toISOString(), endReason: "signalled" };
+	}
+	if (record.endReason !== "quit") return record;
+	return { ...record, endReason: "signalled" };
 }

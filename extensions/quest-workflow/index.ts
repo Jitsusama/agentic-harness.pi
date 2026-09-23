@@ -74,9 +74,11 @@ import {
 } from "./render-rows.ts";
 import {
 	endReasonForShutdown,
+	followSessionForSignals,
 	lostSessionCount,
 	recordSessionEnd,
 	recordSessionOnQuest,
+	setSignalStampSession,
 	startHeartbeat,
 	stopHeartbeat,
 } from "./session-registry.ts";
@@ -142,7 +144,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			id: Type.Optional(
 				Type.String({
 					description:
-						"Target id. For load/focus: the quest or document id. For spawn-tab/pane/window: open the new terminal pointed at this quest without touching the caller's loaded state. For reparent: the quest id to move, comma-separated for a batch. For conclude/retire: a comma-separated id set triggers a bulk, reversible status sweep over those quests (no tree pruning), distinct from concluding the loaded quest. For locate: the needle to resolve to its owning quest (a quest id, document id, alias ref or session id). For ancestors: the quest whose parent chain to trace (defaults to the loaded quest). For create: ignored.",
+						"Target id. For load/focus: the quest or document id. For spawn-tab/pane/window: open the new terminal pointed at this quest without touching the caller's loaded state. For reparent: the quest id to move, comma-separated for a batch. For conclude/retire: a comma-separated id set triggers a bulk, reversible status sweep over those quests (no tree pruning), distinct from concluding the loaded quest. For locate: the needle to resolve to its owning quest (a quest id, document id, alias ref or session id). For ancestors: the quest whose parent chain to trace (defaults to the loaded quest). For restore: session ids or unique prefixes, comma-separated, picked from the lost or recently closed sessions restore lists; lists only those, or reopens exactly those with force. For create: ignored.",
 				}),
 			),
 			url: Type.Optional(
@@ -282,7 +284,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			force: Type.Optional(
 				Type.Boolean({
 					description:
-						"tree-prune: override safety refusals (dirty working tree, unmerged branch, attached session). Destructive: passing true is consent to lose uncommitted work, so the agent should confirm with the user first. restore: actually reopen the lost sessions rather than listing them, spawning a terminal per session, which the agent should likewise confirm first.",
+						"tree-prune: override safety refusals (dirty working tree, unmerged branch, attached session). Destructive: passing true is consent to lose uncommitted work, so the agent should confirm with the user first. restore: actually reopen the lost sessions (or, with id, exactly the named ones) rather than listing them, spawning a terminal per session, which the agent should likewise confirm first.",
 				}),
 			),
 			dryRun: Type.Optional(
@@ -604,6 +606,10 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 				// Keep the record dated for as long as this tab lives, so a
 				// crash can be placed in time even if nobody types again.
 				startHeartbeat(sid);
+				// pi reports a closed tab as a quit, and whether even that
+				// lands is a race with the process exiting, so the signal
+				// itself is what stamps the record.
+				followSessionForSignals(sid);
 			}
 		}
 		updateScoreboard(state, ctx);
@@ -632,6 +638,11 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		// as closed while it is still on screen.
 		const ended = endReasonForShutdown(event.reason);
 		if (sid && ended) recordSessionEnd(sid, ended);
+		// A swap hands the process to another conversation, so a later
+		// signal is no longer this session's to take. A quit keeps
+		// following it: pi reports a signal as a quit, and the listener
+		// that runs right after this is what corrects the record.
+		if (ended === "swapped") setSignalStampSession(undefined);
 		// Mark this session detached on the loaded quest so its
 		// liveness reads correctly after the process exits.
 		if (state.questId && state.questDir) {
@@ -754,7 +765,7 @@ function showSessionHint(
 	const lost = lostSessionCount();
 	if (lost > 0) {
 		ctx.ui.notify(
-			`${count(lost, "quest session")} ended without being closed. Run \`quest restore\` to see them, or \`quest restore force\` to reopen them.`,
+			`${count(lost, "quest session")} went with a crash or a closed terminal. Run \`quest restore\` to see them, or \`quest restore force\` to reopen them.`,
 			"info",
 		);
 	}

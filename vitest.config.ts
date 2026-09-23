@@ -77,6 +77,7 @@ export default defineConfig({
 					setupFiles: [
 						"./tests/setup/pi-install.ts",
 						"./tests/setup/xdg-sandbox.ts",
+						"./tests/setup/signal-stamp.ts",
 					],
 					maxWorkers: MAX_WORKERS,
 				},

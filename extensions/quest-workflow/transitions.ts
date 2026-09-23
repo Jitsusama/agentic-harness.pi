@@ -180,8 +180,12 @@ export async function handle(
 		case "restore":
 			// Listing is the default and acting needs force: reopening a
 			// dozen tabs is too large a side effect to fire from a verb
-			// the user may have run to look.
-			return restore(state, { act: params.force === true });
+			// the user may have run to look. Naming sessions with id picks
+			// them out of either list, recently closed ones included.
+			return restore(state, {
+				act: params.force === true,
+				...(params.id !== undefined ? { ids: params.id } : {}),
+			});
 		default: {
 			const suggestion = suggestAction(params.action ?? "");
 			const hint = suggestion

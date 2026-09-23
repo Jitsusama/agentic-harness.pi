@@ -29,6 +29,7 @@ import { authoritativeQuestFromLog } from "../../lib/internal/quest/session-owne
 import {
 	lastOpenAt,
 	type SessionRecord,
+	wasLost,
 } from "../../lib/internal/quest/session-registry.ts";
 import {
 	getResolutionFallback,
@@ -625,7 +626,7 @@ export async function recentSessions(
 function livenessOf(record: SessionRecord, isLive: boolean): SessionLiveness {
 	if (isLive) return "live";
 	if (!record.closedAt) return "idle";
-	return record.endReason === "died" ? "dead" : "detached";
+	return wasLost(record) ? "dead" : "detached";
 }
 
 /** Order rows live-first, then idle, then the rest, newest activity first. */
