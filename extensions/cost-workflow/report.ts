@@ -131,19 +131,27 @@ export function formatFanOut(
 		);
 	}
 	if (view?.slices) {
-		lines.push("", `Fan-out by ${view.dimension}`);
-		for (const s of view.slices) {
+		const named = view.slices.filter((s) => s.key !== "");
+		const blank = view.slices.find((s) => s.key === "");
+		const total = view.named ?? named.length;
+		const share =
+			blank && summary.cost > 0
+				? ` (${total} named, ${money(blank.cost)} unattributed, ` +
+					`${((blank.cost / summary.cost) * 100).toFixed(0)}%)`
+				: "";
+		lines.push("", `Fan-out by ${view.dimension}${share}`);
+		for (const s of named) {
 			lines.push(
 				`  ${elide(s.key).padEnd(KEY_WIDTH)} ${money(s.cost).padStart(9)}` +
 					`  ${s.runs.toLocaleString().padStart(9)} runs`,
 			);
 		}
-	} else if (view) {
+		if (total > named.length) {
+			lines.push(`  ${total - named.length} more, ask for a larger limit`);
+		}
+	} else if (view?.unrecorded) {
 		lines.push(
-			`  not split by ${view.dimension}: the run store names the session that ` +
-				`launched ${summary.traced.runs.toLocaleString()} of ` +
-				`${summary.runs.toLocaleString()} runs (${money(summary.traced.cost)}), ` +
-				"and a guess would be worse than the gap",
+			`  not split by ${view.dimension}: the run store does not record it`,
 		);
 	}
 	return lines.join("\n");

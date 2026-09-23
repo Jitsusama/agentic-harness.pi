@@ -120,3 +120,68 @@ describe("readTurns", () => {
 		expect(same.turns[0].digest).not.toBe(other.turns[0].digest);
 	});
 });
+
+describe("thinking level", () => {
+	/** An entry placed in the session tree under a parent. */
+	function under(parentId: string | null, line: string): string {
+		return JSON.stringify({ ...JSON.parse(line), parentId });
+	}
+
+	function levelLine(
+		id: string,
+		parentId: string | null,
+		level: string,
+	): string {
+		return JSON.stringify({
+			type: "thinking_level_change",
+			id,
+			parentId,
+			timestamp: "2026-09-21T17:55:00.000Z",
+			thinkingLevel: level,
+		});
+	}
+
+	it("gives each turn the level its branch last set, and null before any", () => {
+		const scan = readTurns("s1", [
+			under(null, assistantLine("a0", 1)),
+			levelLine("t1", "a0", "high"),
+			under("t1", assistantLine("a1", 1)),
+			levelLine("t2", "a1", "low"),
+			under("t2", assistantLine("a2", 1)),
+		]);
+
+		expect(scan.turns.map((t) => t.thinkingLevel)).toEqual([
+			null,
+			"high",
+			"low",
+		]);
+	});
+
+	it("keeps a level set on one branch out of its sibling", () => {
+		// A session log is a tree: navigating back and branching leaves
+		// the abandoned branch's lines in the file, before the new ones.
+		const scan = readTurns("s1", [
+			levelLine("t1", null, "high"),
+			under("t1", assistantLine("a1", 1)),
+			levelLine("t2", "a1", "xhigh"),
+			under("t2", assistantLine("a2", 1)),
+			under("a1", assistantLine("a3", 1)),
+		]);
+
+		expect(scan.turns.map((t) => [t.entryId, t.thinkingLevel])).toEqual([
+			["a1", "high"],
+			["a2", "xhigh"],
+			["a3", "high"],
+		]);
+	});
+
+	it("does not change a turn's address, so a rescan fills the level in place", () => {
+		const before = readTurns("s1", [assistantLine("a1", 1)]);
+		const after = readTurns("s1", [
+			levelLine("t1", null, "high"),
+			under("t1", assistantLine("a1", 1)),
+		]);
+
+		expect(after.turns[0].digest).toBe(before.turns[0].digest);
+	});
+});

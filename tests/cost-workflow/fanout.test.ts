@@ -1,4 +1,7 @@
-import type { RunRecord } from "@jitsusama/agentic-harness.core/observability";
+import type {
+	RunRecord,
+	SessionRecord,
+} from "@jitsusama/agentic-harness.core/observability";
 import { describe, expect, it } from "vitest";
 import {
 	fanOutBy,
@@ -51,14 +54,13 @@ describe("summarizeFanOut", () => {
 		]);
 	});
 
-	it("says how much of it can be traced to the session that launched it", () => {
+	it("names when the earliest run started", () => {
 		const summary = summarizeFanOut([
 			run({ cost: 3, sessionId: "01a0" }),
 			run({ cost: 7, sessionId: null }),
 			run({ cost: 1 }),
 		]);
 
-		expect(summary.traced).toEqual({ runs: 1, cost: 3 });
 		expect(summary.since).toBe(DAY);
 	});
 });
@@ -118,8 +120,62 @@ describe("fanOutView", () => {
 		expect(fanOutView(records, "model", 2)?.slices).toHaveLength(2);
 	});
 
-	it("offers no slices for a dimension the run store cannot yet answer", () => {
-		expect(fanOutView(records, "quest", 12)).toEqual({ dimension: "quest" });
+	it("offers no slices for a dimension the run store does not record", () => {
+		expect(fanOutView(records, "thinking", 12)).toEqual({
+			dimension: "thinking",
+			unrecorded: true,
+		});
+	});
+});
+
+describe("fanOutView by where it was launched from", () => {
+	const ledgerSession = (id: string, quest: string | null): SessionRecord => ({
+		sessionId: `2026-09-21T20-14-04-474Z_${id}.jsonl`,
+		cwd: "/src/repo",
+		repo: "github.com/o/repo",
+		quest,
+		firstSeen: null,
+		lastSeen: null,
+	});
+	const sessions = [
+		ledgerSession("01a0", "QEST-A"),
+		ledgerSession("01b0", null),
+	];
+	const records = [
+		run({ sessionId: "01a0", repo: "github.com/o/repo", cost: 5 }),
+		run({ sessionId: "01a0", repo: "github.com/o/repo", cost: 3 }),
+		run({ sessionId: "01b0", repo: null, cost: 2 }),
+		run({ sessionId: null, cost: 1 }),
+	];
+
+	it("splits by quest through the ledger's session, unattributed kept as a slice", () => {
+		expect(fanOutView(records, "quest", 12, sessions)?.slices).toEqual([
+			{ key: "QEST-A", cost: 8, runs: 2 },
+			{ key: "", cost: 3, runs: 2 },
+		]);
+	});
+
+	it("splits by repo from the run's own stamp", () => {
+		expect(fanOutView(records, "repo", 12, sessions)?.slices).toEqual([
+			{ key: "github.com/o/repo", cost: 8, runs: 2 },
+			{ key: "", cost: 3, runs: 2 },
+		]);
+	});
+
+	it("names a session the way the ledger does, so the two line up", () => {
+		expect(fanOutView(records, "session", 1, sessions)?.slices).toEqual([
+			{ key: "2026-09-21T20-14-04-474Z_01a0.jsonl", cost: 8, runs: 2 },
+			{ key: "", cost: 1, runs: 1 },
+		]);
+	});
+
+	it("keeps the unattributed slice even when the limit cuts the named ones", () => {
+		const slices = fanOutView(records, "quest", 0, sessions)?.slices ?? [];
+		expect(slices.map((s) => s.key)).toEqual([""]);
+	});
+
+	it("counts every named slice, not just the ones the limit shows", () => {
+		expect(fanOutView(records, "quest", 0, sessions)?.named).toBe(1);
 	});
 });
 
@@ -154,12 +210,43 @@ describe("formatFanOut", () => {
 		expect(text.match(/council/g)).toHaveLength(1);
 	});
 
-	it("names how little can be split by quest rather than guessing", () => {
-		const text = formatFanOut(summary, { dimension: "quest" });
+	it("says so when the run store does not record the dimension at all", () => {
+		const text = formatFanOut(summary, {
+			dimension: "thinking",
+			unrecorded: true,
+		});
 
-		expect(text).toContain("not split by quest");
-		expect(text).toContain("1 of 3 runs");
-		expect(text).toContain("$7,527");
+		expect(text).toContain("not split by thinking");
+		expect(text).toContain("does not record");
+	});
+
+	it("names the unattributed share of a split, as the ledger's slices do", () => {
+		const text = formatFanOut(summary, {
+			dimension: "quest",
+			slices: [
+				{ key: "QEST-A", cost: 7527, runs: 1 },
+				{ key: "", cost: 3653, runs: 2 },
+			],
+		});
+
+		expect(text).toContain(
+			"Fan-out by quest (1 named, $3,653 unattributed, 33%)",
+		);
+		expect(text).toContain("QEST-A");
+	});
+
+	it("says how many named slices the limit left out", () => {
+		const text = formatFanOut(summary, {
+			dimension: "quest",
+			named: 5,
+			slices: [
+				{ key: "QEST-A", cost: 7527, runs: 1 },
+				{ key: "", cost: 3653, runs: 2 },
+			],
+		});
+
+		expect(text).toContain("(5 named,");
+		expect(text).toContain("4 more, ask for a larger limit");
 	});
 
 	it("lists fan-out slices for a dimension the run store does carry", () => {

@@ -7,7 +7,9 @@
  * can be rebuilt from scratch whenever its shape changes.
  *
  * The `cost` tool indexes those logs into a content-addressed store and
- * answers what was spent, grouped by repo, quest, model, day or session.
+ * answers what was spent, grouped by repo, quest, model, day, session,
+ * kind or thinking level. Fan-out is read from the run store beside it,
+ * since subagents write no session log for the ledger to index.
  * Indexing is incremental: an append-only log that has not grown is not
  * read again, so a routine pass costs seconds rather than the minute a
  * full corpus takes.
@@ -65,6 +67,7 @@ const DIMENSIONS: readonly CostDimension[] = [
 	"day",
 	"session",
 	"kind",
+	"thinking",
 ];
 
 /** Human wording for each dimension's heading. */
@@ -75,6 +78,7 @@ const HEADINGS: Record<CostDimension, string> = {
 	day: "Cost by day",
 	session: "Cost by session",
 	kind: "Cost by kind",
+	thinking: "Cost by thinking level",
 };
 
 interface CostDetails {
@@ -200,8 +204,9 @@ export default function costWorkflow(pi: ExtensionAPI) {
 		label: "Cost",
 		description:
 			"Report what pi has actually cost, from the session logs it " +
-			"already writes. Group by repo, quest, model, day, session or " +
-			"kind, or omit a dimension for the overall total. Indexing is " +
+			"already writes, with subagent fan-out from the run store beside " +
+			"it. Group by repo, quest, model, day, session, kind or thinking " +
+			"level, or omit a dimension for the overall total. Indexing is " +
 			"incremental and runs automatically before a report; pass " +
 			"reindex to force a pass without reporting. Every answer states " +
 			"its coverage, including turns that carried no usage and spend " +
@@ -341,7 +346,12 @@ export default function costWorkflow(pi: ExtensionAPI) {
 			sections.push(
 				formatFanOut(
 					summarizeFanOut(fanOut),
-					fanOutView(fanOut, params.by, params.limit ?? 12),
+					fanOutView(
+						fanOut,
+						params.by,
+						params.limit ?? 12,
+						await opened.sessions(),
+					),
 				),
 			);
 			if (index.scanned > 0) sections.push(formatIndexOutcome(index));

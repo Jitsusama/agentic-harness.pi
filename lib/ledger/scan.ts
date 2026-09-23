@@ -21,8 +21,9 @@ const DIGEST_CHARS = 24;
  *
  * 1: turns, sessions, tool calls, dropped calls, verifier kinds and the
  * model a compaction ran under.
+ * 2: the thinking level each turn ran at.
  */
-export const SCAN_VERSION = 1;
+export const SCAN_VERSION = 2;
 
 interface RawUsage {
 	input?: number;
@@ -75,6 +76,11 @@ export function readTurns(
 	// this every compaction turn's model would be empty, with nothing
 	// for a later join to a model's billed rate to join on.
 	let lastModel = "";
+	// The thinking level in force at each entry, inherited through its
+	// parent. A log is a tree, so reading the last level set in line
+	// order would carry a level from an abandoned branch into its
+	// sibling; following parentId gives each turn its own branch's.
+	const levels = new Map<string, string | null>();
 
 	for (const line of lines) {
 		count += 1;
@@ -98,6 +104,7 @@ export function readTurns(
 		if (typeof entry.id === "string" && !entryOrder.has(entry.id)) {
 			entryOrder.set(entry.id, entryOrder.size);
 		}
+		const level = levelAt(levels, entry);
 
 		if (entry.type === "session") {
 			session.observeHeader(entry);
@@ -116,7 +123,7 @@ export function readTurns(
 			continue;
 		}
 
-		const turn = turnFrom(sessionId, entry, lastModel);
+		const turn = turnFrom(sessionId, entry, lastModel, level);
 		if (!turn) continue;
 		if (turn.kind === "assistant" && turn.model) lastModel = turn.model;
 		session.observeTurn(turn.timestamp);
@@ -187,6 +194,11 @@ function turnFrom(
 	 * this today, since a CompactionEntry has no model field to read.
 	 */
 	fallbackModel: string,
+	/**
+	 * The level the turn's branch last set. A compaction takes it too:
+	 * pi runs the summary at the session's thinking level.
+	 */
+	thinkingLevel: string | null,
 ): TurnRecord | null {
 	const kind = kindOf(entry);
 	if (!kind) return null;
@@ -208,6 +220,7 @@ function turnFrom(
 		timestamp,
 		kind,
 		model,
+		thinkingLevel,
 		tokens: tokensFrom(usage),
 		cost: costFrom(usage),
 		cacheWrite1h: usage?.cacheWrite1h ?? 0,
@@ -221,6 +234,29 @@ function turnFrom(
 				: null,
 		digest: digestOf(entryId, timestamp, kind, usage),
 	};
+}
+
+/**
+ * Record and return the thinking level in force at an entry: its own
+ * when it sets one, otherwise its parent's, and null when nothing on its
+ * branch has said. An entry whose parent this scan never saw starts from
+ * null rather than a guess.
+ */
+function levelAt(
+	levels: Map<string, string | null>,
+	entry: Record<string, unknown>,
+): string | null {
+	const inherited =
+		typeof entry.parentId === "string"
+			? (levels.get(entry.parentId) ?? null)
+			: null;
+	const level =
+		entry.type === "thinking_level_change" &&
+		typeof entry.thinkingLevel === "string"
+			? entry.thinkingLevel
+			: inherited;
+	if (typeof entry.id === "string") levels.set(entry.id, level);
+	return level;
 }
 
 /**
