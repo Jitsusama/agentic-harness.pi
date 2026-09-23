@@ -55,7 +55,28 @@ export interface SessionRecord {
 	closedAt?: string;
 	/** Why the session ended; absent while it is still running. */
 	endReason?: SessionEndReason;
+	/**
+	 * How the session ended each time before it was resumed, oldest
+	 * first. Reopening clears `closedAt` and `endReason` so the record
+	 * reads as running again, and this is where they go instead, so a
+	 * later question about why restore did or did not offer a tab still
+	 * has the answer.
+	 */
+	endings?: SessionEnding[];
 }
+
+/** One ending a resumed session has left behind. */
+export interface SessionEnding {
+	closedAt: string;
+	endReason: SessionEndReason;
+}
+
+/**
+ * How many past endings a record keeps. Enough to see a pattern in a
+ * tab that keeps getting lost, few enough that one resumed every
+ * morning for months stays small.
+ */
+const MAX_ENDINGS = 10;
 
 /**
  * Why a session's record stopped being open.
@@ -166,6 +187,7 @@ export function parseSessionRecord(value: unknown): SessionRecord | undefined {
 	if (v.previousQuests !== undefined && !isStringMap(v.previousQuests)) {
 		return undefined;
 	}
+	if (v.endings !== undefined && !isEndingList(v.endings)) return undefined;
 	return value as SessionRecord;
 }
 
@@ -175,6 +197,19 @@ function isStringMap(value: unknown): boolean {
 		return false;
 	}
 	return Object.values(value).every((entry) => typeof entry === "string");
+}
+
+/** Whether a value is a list of endings this reader understands. */
+function isEndingList(value: unknown): boolean {
+	if (!Array.isArray(value)) return false;
+	return value.every((entry) => {
+		if (typeof entry !== "object" || entry === null) return false;
+		const e = entry as Record<string, unknown>;
+		return (
+			typeof e.closedAt === "string" &&
+			END_REASONS.includes(e.endReason as string)
+		);
+	});
 }
 
 /** Milliseconds in a day, for the retention window. */
@@ -424,9 +459,15 @@ export function reopenRecord(
 	// `adopted` goes with the rest: a session being resumed is running
 	// a process that keeps this registry, so from here it has a
 	// shutdown hook and owns its own ending.
-	const { closedAt, endReason, process, terminal, adopted, ...rest } = record;
+	const { closedAt, endReason, process, terminal, adopted, endings, ...rest } =
+		record;
+	const kept =
+		closedAt && endReason
+			? [...(endings ?? []), { closedAt, endReason }].slice(-MAX_ENDINGS)
+			: endings;
 	return {
 		...rest,
+		...(kept ? { endings: kept } : {}),
 		instanceId: input.instanceId,
 		...(input.process ? { process: input.process } : {}),
 		...(input.terminal ? { terminal: input.terminal } : {}),

@@ -304,6 +304,43 @@ describe("reopenRecord", () => {
 		expect(back.process).toEqual(resumed.process);
 	});
 
+	it("remembers how the session ended before it was resumed", () => {
+		// Without this, a session brought back after a crash reads as if
+		// it had never ended, and a later question about why restore did
+		// or did not offer it has nothing left to go on.
+		const died = closeRecord(opened(), "died", LATER);
+		expect(reopenRecord(died, resumed).endings).toEqual([
+			{ closedAt: LATER.toISOString(), endReason: "died" },
+		]);
+	});
+
+	it("adds each later ending after the earlier ones", () => {
+		const first = reopenRecord(closeRecord(opened(), "died", LATER), resumed);
+		const second = reopenRecord(markSignalled(first, LATER_STILL), resumed);
+		expect(second.endings?.map((e) => e.endReason)).toEqual([
+			"died",
+			"signalled",
+		]);
+	});
+
+	it("keeps only the most recent endings", () => {
+		// A tab resumed every morning for months should not grow its
+		// record without limit.
+		let record = opened();
+		for (let i = 0; i < 12; i++) {
+			const at = new Date(NOW.getTime() + (i + 1) * 60_000);
+			record = reopenRecord(closeRecord(record, "quit", at), resumed);
+		}
+		expect(record.endings).toHaveLength(10);
+		expect(record.endings?.[9]?.closedAt).toBe(
+			new Date(NOW.getTime() + 12 * 60_000).toISOString(),
+		);
+	});
+
+	it("records nothing for a session that had not ended", () => {
+		expect(reopenRecord(opened(), resumed).endings).toBeUndefined();
+	});
+
 	it("keeps the moment the session first opened", () => {
 		// Resuming continues a session rather than starting one, so its
 		// origin is still its origin.
@@ -334,6 +371,25 @@ describe("parseSessionRecord", () => {
 		);
 		const round = parseSessionRecord(JSON.parse(JSON.stringify(record)));
 		expect(round).toEqual(record);
+	});
+
+	it("reads back the endings of a session resumed before", () => {
+		const record = reopenRecord(closeRecord(opened(), "died", LATER), {
+			instanceId: "inst-2",
+		});
+		const round = parseSessionRecord(JSON.parse(JSON.stringify(record)));
+		expect(round).toEqual(record);
+	});
+
+	it("refuses endings it cannot read", () => {
+		const base = JSON.parse(JSON.stringify(opened()));
+		for (const endings of [
+			"died",
+			[{ closedAt: LATER.toISOString(), endReason: "evaporated" }],
+			[{ endReason: "died" }],
+		]) {
+			expect(parseSessionRecord({ ...base, endings })).toBeUndefined();
+		}
 	});
 
 	it("reads back a session a signal took away", () => {
