@@ -29,7 +29,9 @@ import type { CostSlice } from "@jitsusama/agentic-harness.core/observability";
 import {
 	type CostDimension,
 	type LedgerTotal,
+	openRunStore,
 	openTurnStore,
+	type RunStore,
 	registerRunRecorder,
 	type TurnStore,
 } from "@jitsusama/agentic-harness.core/observability";
@@ -41,8 +43,10 @@ import { Type } from "@sinclair/typebox";
 import { medianOf } from "../../lib/internal/cost-meter/index.ts";
 import { packageStateDir } from "../../lib/internal/package-state-dir.ts";
 import { LEDGER_SCOPE } from "../../lib/ledger/index.ts";
+import { fanOutView, summarizeFanOut } from "./fanout.ts";
 import { indexSessionLogs } from "./indexer.ts";
 import {
+	formatFanOut,
 	formatIndexOutcome,
 	formatPaybackReplay,
 	formatRegret,
@@ -125,6 +129,17 @@ export default function costWorkflow(pi: ExtensionAPI) {
 		sessionSpend += cost;
 		recentTurns.push(cost);
 		if (recentTurns.length > MARGINAL_WINDOW) recentTurns.shift();
+	};
+
+	// The run store, read for fan-out. Subagents and review rounds write
+	// no session log the ledger indexes, so without it the total is the
+	// main loop alone and does not say so.
+	let runs: RunStore | undefined;
+	const openRuns = async (): Promise<RunStore> => {
+		runs ??= await openRunStore(
+			join(packageStateDir("observability"), "runs.db"),
+		);
+		return runs;
 	};
 
 	const open = async (): Promise<TurnStore> => {
@@ -322,6 +337,13 @@ export default function costWorkflow(pi: ExtensionAPI) {
 					formatSlices(HEADINGS[params.by], slices, params.limit ?? 12),
 				);
 			}
+			const fanOut = await (await openRuns()).queryRuns();
+			sections.push(
+				formatFanOut(
+					summarizeFanOut(fanOut),
+					fanOutView(fanOut, params.by, params.limit ?? 12),
+				),
+			);
 			if (index.scanned > 0) sections.push(formatIndexOutcome(index));
 			const view = sections.join("\n\n");
 

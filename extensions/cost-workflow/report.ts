@@ -6,6 +6,7 @@ import type {
 	RepeatedCall,
 	VerifierOutcome,
 } from "@jitsusama/agentic-harness.core/observability";
+import type { FanOutSummary, FanOutView } from "./fanout.ts";
 
 /** What indexing a corpus of session logs did. */
 export interface IndexOutcome {
@@ -92,6 +93,60 @@ export function formatSlices(
 		rows.push(`  ${named.length - limit} more, ask for a larger limit`);
 	}
 	return [head, ...rows].join("\n");
+}
+
+/**
+ * Render the run store's fan-out beside the ledger total. The ledger
+ * indexes session logs and subagents write none, so without this the
+ * total reads as everything while leaving out every subagent and
+ * review round.
+ */
+export function formatFanOut(
+	summary: FanOutSummary,
+	view?: FanOutView,
+): string {
+	const noun = summary.runs === 1 ? "run" : "runs";
+	// The run store starts months after the ledger, so the two totals
+	// cover different windows. Naming the start is what stops a reader
+	// adding them.
+	const since =
+		summary.since === undefined
+			? ""
+			: ` since ${new Date(summary.since).toISOString().slice(0, 10)}`;
+	const lines = [
+		`Fan-out, not in the total above: ${money(summary.cost)} over ` +
+			`${summary.runs.toLocaleString()} subagent ${noun} in the run store${since}`,
+	];
+	if (view?.dimension !== "kind") {
+		lines.push(
+			`  ${summary.byKind.map((k) => `${k.key} ${money(k.cost)}`).join(", ")}`,
+		);
+	}
+	if (summary.unmetered > 0) {
+		const one = summary.unmetered === 1;
+		lines.push(
+			`  ${summary.unmetered.toLocaleString()} ${one ? "run" : "runs"} carried no usage, ` +
+				`so ${one ? "it costs" : "they cost"} an unknown amount and ` +
+				`${one ? "is" : "are"} counted but not priced`,
+		);
+	}
+	if (view?.slices) {
+		lines.push("", `Fan-out by ${view.dimension}`);
+		for (const s of view.slices) {
+			lines.push(
+				`  ${elide(s.key).padEnd(KEY_WIDTH)} ${money(s.cost).padStart(9)}` +
+					`  ${s.runs.toLocaleString().padStart(9)} runs`,
+			);
+		}
+	} else if (view) {
+		lines.push(
+			`  not split by ${view.dimension}: the run store names the session that ` +
+				`launched ${summary.traced.runs.toLocaleString()} of ` +
+				`${summary.runs.toLocaleString()} runs (${money(summary.traced.cost)}), ` +
+				"and a guess would be worse than the gap",
+		);
+	}
+	return lines.join("\n");
 }
 
 /**
