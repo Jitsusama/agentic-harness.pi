@@ -22,7 +22,10 @@ import type {
 	ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
 import {
+	accumulate,
 	findReclaimable,
+	INITIAL_TOTALS,
+	type ReclaimTotals,
 	type ToolResultLike,
 } from "../../lib/context/index.js";
 
@@ -41,8 +44,11 @@ const KEEP_RECENT = 30;
 export const RECLAIMABLE_READING = "context:reclaimable";
 
 export interface ReclaimableReading {
+	/** This one call. */
 	readonly candidates: number;
 	readonly chars: number;
+	/** Running totals across the session so far, this call included. */
+	readonly session: ReclaimTotals;
 }
 
 /**
@@ -62,12 +68,23 @@ function toolResultLike(message: OneMessage): ToolResultLike {
 }
 
 export default function contextShadowWorkflow(pi: ExtensionAPI) {
+	let totals: ReclaimTotals = INITIAL_TOTALS;
+
+	pi.on("session_start", async () => {
+		// A resumed session's resident context is not something last
+		// session's totals describe, so this starts fresh rather than
+		// carrying a number forward that no longer means what it says.
+		totals = INITIAL_TOTALS;
+	});
+
 	pi.on("context", async (event) => {
 		const messages = event.messages.map(toolResultLike);
 		const analysis = findReclaimable(messages, { keepRecent: KEEP_RECENT });
+		totals = accumulate(totals, analysis);
 		pi.events.emit(RECLAIMABLE_READING, {
 			candidates: analysis.candidates.length,
 			chars: analysis.totalChars,
+			session: totals,
 		} satisfies ReclaimableReading);
 		// No return: the request goes out exactly as pi assembled it. This
 		// extension measures a lever, it does not pull one.

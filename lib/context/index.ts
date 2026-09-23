@@ -11,3 +11,8 @@ export {
 	type ReclaimCandidate,
 	type ToolResultLike,
 } from "./reclaim.js";
+export {
+	accumulate,
+	INITIAL_TOTALS,
+	type ReclaimTotals,
+} from "./totals.js";
