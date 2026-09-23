@@ -61,7 +61,10 @@ import {
 	showLoaded,
 	showQuestById,
 } from "../lookup.ts";
-import { recordSessionOnQuest } from "../session-registry.ts";
+import {
+	followSessionForSignals,
+	recordSessionOnQuest,
+} from "../session-registry.ts";
 
 /**
  * Priority ladder for sorting list output. Lower numbers
@@ -380,6 +383,9 @@ export async function load(
 			questId: state.questId,
 			...captureSessionIdentity(),
 		});
+		// A closed tab reaches pi as a signal that pi then reports as a
+		// quit, so the record is stamped from a listener of our own.
+		followSessionForSignals(sid);
 	}
 
 	// Reconcile membership so this session reads active on only the

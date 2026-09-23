@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	endReasonForShutdown,
 	forgetRecord,
+	installSignalStamp,
 	loadRecords,
 	lostSessionCount,
 	observeRecords,
@@ -15,6 +16,7 @@ import {
 	saveRecord,
 	seedLiveSessions,
 	sessionRegistryDir,
+	setSignalStampSession,
 	startHeartbeat,
 	stopHeartbeat,
 	touchHeartbeat,
@@ -22,6 +24,7 @@ import {
 import { currentProcessIdentity } from "../../../lib/internal/quest/process-liveness";
 import {
 	closeRecord,
+	markSignalled,
 	openRecord,
 } from "../../../lib/internal/quest/session-registry";
 import { quietFor, until } from "../../support/until.ts";
@@ -228,11 +231,88 @@ describe("endReasonForShutdown", () => {
 	});
 });
 
+describe("stamping a session a signal takes away", () => {
+	/** What the stamp scheduled, instead of re-raising for real. */
+	let raised: NodeJS.Signals[];
+	let scheduled: (() => void)[];
+	const deps = {
+		now: () => NOW,
+		schedule: (fire: () => void) => {
+			scheduled.push(fire);
+		},
+		raise: (signal: NodeJS.Signals) => {
+			raised.push(signal);
+		},
+	};
+
+	beforeEach(() => {
+		raised = [];
+		scheduled = [];
+	});
+
+	it("stamps the running session signalled when its terminal hangs up", () => {
+		saveRecord(openRecord(base("sess-hup")));
+		setSignalStampSession("sess-hup");
+		installSignalStamp(deps);
+		process.emit("SIGHUP");
+		expect(readRecord("sess-hup")).toMatchObject({
+			endReason: "signalled",
+			closedAt: NOW.toISOString(),
+		});
+	});
+
+	it("corrects the quit pi stamped for the same signal a moment earlier", () => {
+		// The signal probe saw pi's session_shutdown, reason quit, land
+		// before an extension's own signal listener every single time.
+		saveRecord(closeRecord(openRecord(base("sess-hup")), "quit", NOW));
+		setSignalStampSession("sess-hup");
+		installSignalStamp(deps);
+		process.emit("SIGTERM");
+		expect(readRecord("sess-hup")?.endReason).toBe("signalled");
+	});
+
+	it("writes nothing for a session the registry never recorded", () => {
+		setSignalStampSession("sess-unrecorded");
+		installSignalStamp(deps);
+		process.emit("SIGHUP");
+		expect(readRecord("sess-unrecorded")).toBeUndefined();
+	});
+
+	it("listens once per process however often it is installed", () => {
+		// A reload imports the extension afresh, and each copy would
+		// otherwise add its own listener.
+		const before = process.listenerCount("SIGHUP");
+		installSignalStamp(deps);
+		installSignalStamp(deps);
+		expect(process.listenerCount("SIGHUP")).toBe(before + 1);
+		expect(process.listenerCount("SIGTERM")).toBeGreaterThan(0);
+	});
+
+	it("steps aside after a signal so it can never keep a dying pi alive", () => {
+		// Listening for SIGHUP switches off Node's default exit. Once the
+		// record is stamped the listener goes, and if the process is still
+		// around after a grace period the signal is sent again, now to
+		// whatever default or handler would have had it without us.
+		const before = process.listenerCount("SIGHUP");
+		installSignalStamp(deps);
+		process.emit("SIGHUP");
+		expect(process.listenerCount("SIGHUP")).toBe(before);
+		expect(raised).toEqual([]);
+		for (const fire of scheduled) fire();
+		expect(raised).toEqual(["SIGHUP"]);
+	});
+});
+
 describe("counting what was lost, for the start-up hint", () => {
 	it("counts the sessions that ended without anyone asking", () => {
 		saveRecord(closeRecord(openRecord(base("sess-a")), "died", NOW));
 		saveRecord(closeRecord(openRecord(base("sess-b")), "died", NOW));
 		expect(lostSessionCount()).toBe(2);
+	});
+
+	it("counts a session its terminal took away", () => {
+		saveRecord(markSignalled(openRecord(base("sess-hup")), NOW));
+		expect(lostSessionCount()).toBe(1);
 	});
 
 	it("counts neither a deliberate close nor an open session", () => {

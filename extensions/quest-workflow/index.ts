@@ -74,9 +74,11 @@ import {
 } from "./render-rows.ts";
 import {
 	endReasonForShutdown,
+	followSessionForSignals,
 	lostSessionCount,
 	recordSessionEnd,
 	recordSessionOnQuest,
+	setSignalStampSession,
 	startHeartbeat,
 	stopHeartbeat,
 } from "./session-registry.ts";
@@ -604,6 +606,10 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 				// Keep the record dated for as long as this tab lives, so a
 				// crash can be placed in time even if nobody types again.
 				startHeartbeat(sid);
+				// pi reports a closed tab as a quit, and whether even that
+				// lands is a race with the process exiting, so the signal
+				// itself is what stamps the record.
+				followSessionForSignals(sid);
 			}
 		}
 		updateScoreboard(state, ctx);
@@ -632,6 +638,11 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		// as closed while it is still on screen.
 		const ended = endReasonForShutdown(event.reason);
 		if (sid && ended) recordSessionEnd(sid, ended);
+		// A swap hands the process to another conversation, so a later
+		// signal is no longer this session's to take. A quit keeps
+		// following it: pi reports a signal as a quit, and the listener
+		// that runs right after this is what corrects the record.
+		if (ended === "swapped") setSignalStampSession(undefined);
 		// Mark this session detached on the loaded quest so its
 		// liveness reads correctly after the process exits.
 		if (state.questId && state.questDir) {

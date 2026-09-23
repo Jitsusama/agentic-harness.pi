@@ -3,6 +3,7 @@ import {
 	closeRecord,
 	lastOpenAt,
 	lastOpenOnQuest,
+	markSignalled,
 	openRecord,
 	parseSessionRecord,
 	pruneRecords,
@@ -92,6 +93,38 @@ describe("closeRecord", () => {
 	});
 });
 
+describe("markSignalled", () => {
+	it("stamps a session its terminal or the machine took away", () => {
+		const record = markSignalled(opened(), LATER);
+		expect(record.closedAt).toBe(LATER.toISOString());
+		expect(record.endReason).toBe("signalled");
+	});
+
+	it("overrides the quit pi reports for the same signal", () => {
+		// pi turns SIGHUP into a shutdown whose reason is quit, and that
+		// stamp usually lands first. It is pi's name for this signal, not
+		// a decision anyone made, so the signal's stamp replaces it.
+		const quit = closeRecord(opened(), "quit", LATER);
+		const record = markSignalled(quit, LATER_STILL);
+		expect(record.endReason).toBe("signalled");
+		expect(record.closedAt).toBe(LATER.toISOString());
+	});
+
+	it("keeps the first signal when a second one arrives", () => {
+		// A busy tab hears SIGHUP twice, once from the shell and once
+		// from the terminal, and the end is the first of them.
+		const first = markSignalled(opened(), LATER);
+		expect(markSignalled(first, LATER_STILL)).toEqual(first);
+	});
+
+	it("leaves an ending it has no reason to doubt", () => {
+		for (const reason of ["died", "swapped", "vanished"] as const) {
+			const ended = closeRecord(opened(), reason, LATER);
+			expect(markSignalled(ended, LATER_STILL)).toEqual(ended);
+		}
+	});
+});
+
 describe("restoreRecipe", () => {
 	it("gives a runnable line per session", () => {
 		expect(restoreRecipe([opened()])).toEqual([
@@ -124,6 +157,23 @@ describe("restorable", () => {
 		expect(restorable([died("sess-1", LATER)]).map((r) => r.sessionId)).toEqual(
 			["sess-1"],
 		);
+	});
+
+	it("offers back a session its terminal or the machine took away", () => {
+		// Closing a tab, WezTerm dying or quitting, and a shutdown all
+		// reach pi as a signal. None of them is the user closing pi.
+		const signalled = markSignalled(opened({ sessionId: "sess-hup" }), LATER);
+		expect(restorable([signalled]).map((r) => r.sessionId)).toEqual([
+			"sess-hup",
+		]);
+	});
+
+	it("puts signalled and died sessions in one order, newest first", () => {
+		const order = restorable([
+			died("crashed", LATER),
+			markSignalled(opened({ sessionId: "hung-up" }), LATER_STILL),
+		]);
+		expect(order.map((r) => r.sessionId)).toEqual(["hung-up", "crashed"]);
 	});
 
 	it("never offers a session the user closed on purpose", () => {
@@ -229,6 +279,12 @@ describe("parseSessionRecord", () => {
 			"quit",
 			LATER_STILL,
 		);
+		const round = parseSessionRecord(JSON.parse(JSON.stringify(record)));
+		expect(round).toEqual(record);
+	});
+
+	it("reads back a session a signal took away", () => {
+		const record = markSignalled(opened(), LATER);
 		const round = parseSessionRecord(JSON.parse(JSON.stringify(record)));
 		expect(round).toEqual(record);
 	});

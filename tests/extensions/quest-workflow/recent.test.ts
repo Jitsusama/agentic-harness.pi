@@ -20,6 +20,7 @@ import { handle } from "../../../extensions/quest-workflow/transitions";
 import { sessionsDir } from "../../../lib/internal/paths";
 import {
 	closeRecord,
+	markSignalled,
 	openRecord,
 } from "../../../lib/internal/quest/session-registry";
 import {
@@ -144,6 +145,7 @@ function record(input: {
 	cwd?: string;
 	lost?: boolean;
 	quit?: boolean;
+	signalled?: boolean;
 }) {
 	const open = openRecord({
 		sessionId: input.sessionId,
@@ -159,6 +161,10 @@ function record(input: {
 	if (input.quit)
 		return saveRecord(
 			closeRecord(open, "quit", new Date("2026-07-28T18:30:00.000Z")),
+		);
+	if (input.signalled)
+		return saveRecord(
+			markSignalled(open, new Date("2026-07-28T18:30:00.000Z")),
 		);
 	return saveRecord(open);
 }
@@ -190,6 +196,14 @@ describe("recentSessions", () => {
 			liveness: "dead",
 			cwd: "/work/crashed",
 		});
+	});
+
+	it("reads a session its terminal took away as dead, like a crash", async () => {
+		const state = buildState();
+		const quest = await createQuest(state, "Hung Up Quest");
+		record({ sessionId: "sess-hup", questId: quest, signalled: true });
+		const { rows } = await recentSessions(state);
+		expect(rows.find((r) => r.sessionId === "sess-hup")?.liveness).toBe("dead");
 	});
 
 	it("shows one row per session however many quests it has visited", async () => {
