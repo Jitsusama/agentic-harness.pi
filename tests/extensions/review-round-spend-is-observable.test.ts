@@ -215,5 +215,10 @@ describe("what a round spends", () => {
 		// ledger never names.
 		expect(source).toContain("runId: billTo ?? context.runId");
 		expect(source.split("charters, held.id)").length - 1).toBe(2);
+		// And a round started and left running is counted when it is
+		// collected, since nothing else ever sees what it cost.
+		expect(source).toContain(
+			"recordReviewerRun(collectedRun(held, participant.id, left.result))",
+		);
 	});
 });

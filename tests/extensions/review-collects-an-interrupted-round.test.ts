@@ -36,6 +36,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	answerLeftBehind,
 	archivedAnswer,
+	collectedRun,
 	heldByLiveSupervisor,
 } from "../../extensions/review-integration/reviewer.ts";
 import type { ProcessFacts } from "../../lib/subagent/index.ts";
@@ -195,6 +196,75 @@ describe("collecting a round the session did not live to finish", () => {
 		// Per participant as well as in total, since a summary is a sum
 		// and a sum can be right with one of its terms in the wrong row.
 		expect(run.outcomes.map((one) => one.usage?.cost)).toEqual([5.5, 1.25]);
+	});
+
+	it("hands back the run it read, so the round can be counted", async () => {
+		// A round started and left running has nothing watching it, so
+		// collect is the only process that ever sees what its reviewers
+		// cost. Five collected councils were missing from the run table,
+		// $274 of billed work, because the answer came back and the run
+		// it was read from did not.
+		const store = new ReviewerArtifactsStore(root);
+		leaveBehind(store, "hawk", {
+			finalAssistantText: said("a leak"),
+			sessionIds: ["01a0c4d2-0000-7000-8000-000000000001"],
+			usage: { tokens: { total: 1_234 }, cost: { total: 5.5 } },
+		});
+		leaveBehind(store, `hawk${WRAP_UP_SUFFIX}`, {
+			finalAssistantText: said("a leak"),
+			sessionIds: ["01a0c4d2-0000-7000-8000-000000000002"],
+			usage: { tokens: { total: 10 }, cost: { total: 0.5 } },
+		});
+
+		const left = await answerLeftBehind(store, RUN, "hawk");
+
+		expect(left.kind).toBe("answer");
+		if (left.kind !== "answer") return;
+		expect(left.result.sessionIds).toEqual([
+			"01a0c4d2-0000-7000-8000-000000000001",
+			"01a0c4d2-0000-7000-8000-000000000002",
+		]);
+		expect(left.result.usage?.cost.total).toBe(6);
+	});
+
+	it("counts a collected reviewer as the roster launched it", () => {
+		// The level and model are the ones the round was asked with,
+		// which the ledger wrote down before it asked anybody. Every
+		// reviewer of a started round is launched in the same moment,
+		// so the round's start is each one's.
+		const run = unsettled({
+			participants: [
+				{
+					id: "hawk",
+					role: "reviewer",
+					model: "anthropic/claude-opus-5-5",
+					thinkingLevel: "xhigh",
+				},
+				{ id: "owl", role: "reviewer" },
+			],
+		});
+		const result = {
+			reviewerId: "hawk",
+			exitCode: 0,
+			finalAssistantText: "",
+			stderr: "",
+			warnings: [],
+			sessionIds: ["01a0c4d2-0000-7000-8000-000000000001"],
+		};
+
+		expect(collectedRun(run, "hawk", result)).toEqual({
+			runId: RUN,
+			participantId: "hawk",
+			model: "anthropic/claude-opus-5-5",
+			thinkingLevel: "xhigh",
+			startedAt: Date.parse("2026-08-06T12:00:00.000Z"),
+			result,
+		});
+		// Left to inherit pi's default, which nothing here can see.
+		expect(collectedRun(run, "owl", result)).toMatchObject({
+			thinkingLevel: null,
+		});
+		expect(collectedRun(run, "owl", result)).not.toHaveProperty("model");
 	});
 
 	it("keeps what a reviewer wrote down when its answer never came", async () => {

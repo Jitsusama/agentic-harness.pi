@@ -346,7 +346,11 @@ export async function answerLeftBehind(
 		);
 		const entire =
 			resume === undefined ? merged : mergeResumeOutcome(merged, resume);
-		return { kind: "answer", answer: answerFromReviewer(entire, budget) };
+		return {
+			kind: "answer",
+			answer: answerFromReviewer(entire, budget),
+			result: entire,
+		};
 	} catch (error) {
 		// One unreadable file costs one participant. Letting it out
 		// would abandon the whole collect over a single directory,
@@ -359,9 +363,16 @@ export async function answerLeftBehind(
 	}
 }
 
-/** What one reviewer's directories turned out to hold. */
+/**
+ * What one reviewer's directories turned out to hold.
+ *
+ * An answer carries the run it was read from, every directory folded
+ * together, because a round started and left running has nothing
+ * watching it: collect is the only process that ever sees what its
+ * reviewers cost.
+ */
 export type LeftBehind =
-	| { kind: "answer"; answer: AskAnswer }
+	| { kind: "answer"; answer: AskAnswer; result: RunReviewerResult }
 	| { kind: "missing" }
 	| { kind: "unreadable"; why: string };
 
@@ -732,6 +743,31 @@ export function recordReviewerRun(run: ReviewerRun): void {
 			result: { ...run.result, warnings: run.result.warnings ?? [] },
 		}),
 	);
+}
+
+/**
+ * A collected reviewer, as the round launched it.
+ *
+ * The model and level are the ones the ledger wrote down before the
+ * round asked anybody. A started round launches every reviewer in the
+ * same moment, so the round's start is each one's.
+ */
+export function collectedRun(
+	held: AskRun,
+	participantId: string,
+	result: RunReviewerResult,
+): ReviewerRun {
+	const participant = held.participants.find((one) => one.id === participantId);
+	return {
+		runId: held.id,
+		participantId,
+		...(participant?.model === undefined ? {} : { model: participant.model }),
+		// Left unset, the child inherited pi's default, which the round
+		// never saw.
+		thinkingLevel: participant?.thinkingLevel ?? null,
+		startedAt: Date.parse(held.startedAt),
+		result,
+	};
 }
 
 /**

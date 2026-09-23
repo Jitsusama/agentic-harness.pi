@@ -113,6 +113,7 @@ import {
 	answerFromReviewer,
 	answerLeftBehind,
 	archivedAnswer,
+	collectedRun,
 	keepAnswer,
 	recordReviewerRun,
 	reviewerRunner,
@@ -594,6 +595,11 @@ async function collectOne(
 		// never hit and then refuse the retry that raising it was for.
 		const left = await answerLeftBehind(artifacts, held.id, participant.id);
 		if (left.kind === "answer") {
+			// Nothing watched a started round, so this is the one place
+			// that sees what it cost. The run table upserts on the round
+			// and reviewer, so a reviewer a dying session already counted
+			// is counted once.
+			recordReviewerRun(collectedRun(held, participant.id, left.result));
 			answers.set(
 				participant.id,
 				await archivedAnswer(answerDir(), held, participant.id, left.answer),
