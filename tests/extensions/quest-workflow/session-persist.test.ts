@@ -6,6 +6,7 @@ import {
 	detachSessionFromLoaded,
 	persist,
 	prunePhantomSessionsOnLoaded,
+	releaseSessionOnShutdown,
 	restore,
 } from "../../../extensions/quest-workflow/lifecycle";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
@@ -443,7 +444,12 @@ describe("auto-attach on load", () => {
 		);
 	});
 
-	it("detaches the current session as the shutdown handler does", async () => {
+	it("detaches the session this process attached when it shuts down", async () => {
+		// The lease compares the instance id stored at attach with this
+		// process's own. Attach and shutdown once read that id from two
+		// copies of the module, each minting its own, so every shutdown
+		// thought another process owned the session and every README
+		// kept its tabs active for ever.
 		const state = buildState();
 		const a = await createQuest(state, "Alpha");
 		await handle(state, fakePi(), fakeCtx("/work/dir", "sess-x"), {
@@ -454,12 +460,35 @@ describe("auto-attach on load", () => {
 			"active",
 		);
 
-		// session_shutdown calls detachSessionFromLoaded with the
-		// current id; the on-disk session must flip to detached so
-		// reopen's detached-wins branch reads it correctly.
-		detachSessionFromLoaded(state, "sess-x");
+		releaseSessionOnShutdown(state, "sess-x");
 		expect(sessionsOf(a.dir).find((s) => s.id === "sess-x")?.status).toBe(
 			"detached",
+		);
+	});
+
+	it("leaves a session another process has since taken over", async () => {
+		// A resumed session reattaches under the new process's id. The
+		// old process shutting down late must not release it.
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		await handle(state, fakePi(), fakeCtx("/work/dir", "sess-x"), {
+			action: "load",
+			id: a.id,
+		});
+		const readme = join(a.dir, "README.md");
+		const parsed = parseQuestFrontMatter(readFileSync(readme, "utf8"));
+		if (!parsed) throw new Error("unreadable quest");
+		parsed.frontMatter.sessions = parsed.frontMatter.sessions.map((s) =>
+			s.id === "sess-x" ? { ...s, instanceId: "another-process" } : s,
+		);
+		writeFileSync(
+			readme,
+			`${serializeQuestFrontMatter(parsed.frontMatter)}\n${parsed.body}`,
+		);
+
+		releaseSessionOnShutdown(state, "sess-x");
+		expect(sessionsOf(a.dir).find((s) => s.id === "sess-x")?.status).toBe(
+			"active",
 		);
 	});
 

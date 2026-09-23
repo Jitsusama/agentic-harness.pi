@@ -34,7 +34,6 @@ import {
 } from "../../lib/internal/config/loader.ts";
 import { dataDir } from "../../lib/internal/paths.ts";
 import { discoverQuests } from "../../lib/internal/quest/discovery.ts";
-import { currentInstanceId } from "../../lib/internal/quest/process-liveness.ts";
 import { formatRelativeAge } from "../../lib/internal/quest/session-liveness.ts";
 import {
 	registerBuiltinHandleTypes,
@@ -55,13 +54,13 @@ import { enforceQuest, isFocusedDocWrite } from "./enforce.ts";
 import {
 	attachCurrentSession,
 	captureSessionIdentity,
-	detachSessionIfOwner,
 	listAllQuests,
 	persist,
 	prunePhantomSessionsOnLoaded,
 	reconcileSessionMembership,
 	refreshLoadedSlice,
 	refreshProgress,
+	releaseSessionOnShutdown,
 	resolveStartup,
 } from "./lifecycle.ts";
 import { recentSessionHints, showLoaded } from "./lookup.ts";
@@ -644,15 +643,10 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		// that runs right after this is what corrects the record.
 		if (ended === "swapped") setSignalStampSession(undefined);
 		// Mark this session detached on the loaded quest so its
-		// liveness reads correctly after the process exits.
-		if (state.questId && state.questDir) {
-			// Lease-guarded: only release the session when this process
-			// still owns it, so a process that resumed the session is not
-			// detached by our late shutdown.
-			if (sid) {
-				detachSessionIfOwner(state.questDir, sid, currentInstanceId());
-			}
-		}
+		// liveness reads correctly after the process exits. Only when
+		// something ended, for the same reason as the record: a reload
+		// keeps the session running in this process.
+		if (sid && ended) releaseSessionOnShutdown(state, sid);
 	});
 
 	// Inject the loaded-quest context into every agent
