@@ -1,7 +1,7 @@
 /**
- * The cache prices a demotion is weighed at, from the active model's
- * own rates rather than a table that goes stale when a provider
- * reprices.
+ * The cache prices a context decision is weighed at, demotion and
+ * compaction alike, from the active model's own rates rather than a
+ * table that goes stale when a provider reprices.
  *
  * pi bills a one-hour cache write at twice base input against the
  * model's own five-minute write rate, and only asks for one on the
@@ -13,6 +13,8 @@
 export interface CachePrices {
 	readonly readPrice: number;
 	readonly writePrice: number;
+	/** Full input price, which an uncached read such as pi's summariser pays. */
+	readonly inputPrice: number;
 }
 
 /** The only API pi requests one-hour retention on. */
@@ -39,5 +41,6 @@ export function cachePrices(
 	return {
 		readPrice: rates.cacheRead,
 		writePrice: long ? rates.input * LONG_WRITE_MULTIPLE : rates.cacheWrite,
+		inputPrice: rates.input,
 	};
 }

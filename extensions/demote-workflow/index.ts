@@ -41,8 +41,8 @@ import {
 	type ReexpansionTotals,
 	reexpansionRate,
 } from "../../lib/demote/index.js";
+import { cachePrices } from "../../lib/internal/cache-prices.js";
 import { boundedExpansion } from "./bounded.js";
-import { cachePrices } from "./prices.js";
 import { sizeOf } from "./size.js";
 
 type OneMessage = ContextEvent["messages"][number];
@@ -115,7 +115,8 @@ export default function demoteWorkflow(pi: ExtensionAPI) {
 			keepRecent: KEEP_RECENT,
 			turnsElapsed: turnsIn(event.messages),
 			stubChars: STUB_CHARS,
-			...prices,
+			readPrice: prices.readPrice,
+			writePrice: prices.writePrice,
 		});
 		if (decision.fire) {
 			for (const id of decision.candidates) demoted.add(id);

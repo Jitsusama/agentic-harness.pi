@@ -10,3 +10,8 @@
 
 export { type PaybackInput, paybackMargin, paybackTest } from "./payback.js";
 export { clampReserveTokens } from "./reserve.js";
+export {
+	compactionPays,
+	type TriggerDecision,
+	type TriggerInput,
+} from "./trigger.js";

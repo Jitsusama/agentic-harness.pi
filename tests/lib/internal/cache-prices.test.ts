@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { cachePrices } from "../../../extensions/demote-workflow/prices.js";
+import { cachePrices } from "../../../lib/internal/cache-prices.js";
 
 const RATES = { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 };
 
-describe("the cache prices a demotion is weighed at", () => {
+describe("the cache prices a context decision is weighed at", () => {
 	it("uses the model's own five-minute write price by default", () => {
 		expect(cachePrices(RATES, "anthropic-messages", undefined)).toEqual({
 			readPrice: 0.5,
 			writePrice: 6.25,
+			inputPrice: 5,
 		});
 	});
 
@@ -16,6 +17,7 @@ describe("the cache prices a demotion is weighed at", () => {
 		expect(cachePrices(RATES, "anthropic-messages", "long")).toEqual({
 			readPrice: 0.5,
 			writePrice: 10,
+			inputPrice: 5,
 		});
 	});
 
@@ -23,6 +25,7 @@ describe("the cache prices a demotion is weighed at", () => {
 		expect(cachePrices(RATES, "openai-responses", "long")).toEqual({
 			readPrice: 0.5,
 			writePrice: 6.25,
+			inputPrice: 5,
 		});
 	});
 

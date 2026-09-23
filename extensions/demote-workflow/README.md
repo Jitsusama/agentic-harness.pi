@@ -52,8 +52,8 @@ a demotion was wrong.
 - `index.ts`: registration, the `context` hook, `/demote-status` and
   `expand_demoted`.
 - `size.ts`: characters each of pi's message kinds puts in the prompt.
-- `prices.ts`: read and write prices under the retention in force.
 - `bounded.ts`: bounding a recovered result.
 
 The batch decision, stubs, cache and counting are pure and tested in
-`lib/demote/`.
+`lib/demote/`; cache prices under the retention in force come from
+`lib/internal/cache-prices.ts`, shared with `compaction-workflow`.
