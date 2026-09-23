@@ -8,5 +8,5 @@
  * consequential change from writing the decision itself.
  */
 
-export { type PaybackInput, paybackTest } from "./payback.js";
+export { type PaybackInput, paybackMargin, paybackTest } from "./payback.js";
 export { clampReserveTokens } from "./reserve.js";

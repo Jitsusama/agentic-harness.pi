@@ -28,12 +28,26 @@ export interface PaybackInput {
 }
 
 /**
+ * How far a compaction sits from the payback threshold: saved over
+ * cost. Above one, it pays for itself; the closer to one, the closer
+ * the call actually is, which a boolean throws away. A pressure
+ * reading needs that distance, not just the verdict.
+ */
+export function paybackMargin(input: PaybackInput): number {
+	const ratio = input.writePrice / input.readPrice;
+	const saved = input.droppedTokens * input.remainingTurns;
+	const cost = ratio * input.retainedTokens;
+	// A cost of zero (nothing retained) is an infinite margin only if
+	// there is also something to save; saving nothing at zero cost is
+	// not a payoff, it is a no-op, which the test below still declines.
+	if (cost === 0) return saved > 0 ? Number.POSITIVE_INFINITY : 0;
+	return saved / cost;
+}
+
+/**
  * Whether a compaction pays for itself: does re-admitting the dropped
  * tokens on every remaining turn cost more than writing the summary once.
  */
 export function paybackTest(input: PaybackInput): boolean {
-	const ratio = input.writePrice / input.readPrice;
-	const saved = input.droppedTokens * input.remainingTurns;
-	const cost = ratio * input.retainedTokens;
-	return saved > cost;
+	return paybackMargin(input) > 1;
 }

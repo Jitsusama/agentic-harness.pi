@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { paybackTest } from "../../../lib/compaction/index.js";
+import { paybackMargin, paybackTest } from "../../../lib/compaction/index.js";
 
 describe("payback test", () => {
 	it("fires when what compaction saves on re-admission outweighs the summary's own write cost", () => {
@@ -62,5 +62,43 @@ describe("payback test", () => {
 		});
 		expect(cheapWrite).toBe(true);
 		expect(expensiveWrite).toBe(false);
+	});
+});
+
+describe("payback margin", () => {
+	it("agrees with the boolean test at the same inputs", () => {
+		const input = {
+			droppedTokens: 400_000,
+			remainingTurns: 50,
+			retainedTokens: 100_000,
+			readPrice: 1,
+			writePrice: 5,
+		};
+		expect(paybackMargin(input) > 1).toBe(paybackTest(input));
+		expect(paybackMargin(input)).toBeCloseTo(40, 5);
+	});
+
+	it("reads as exactly one at the threshold itself", () => {
+		// saved = 100,000; cost = 5 * 20,000 = 100,000.
+		const margin = paybackMargin({
+			droppedTokens: 10_000,
+			remainingTurns: 10,
+			retainedTokens: 20_000,
+			readPrice: 1,
+			writePrice: 5,
+		});
+		expect(margin).toBeCloseTo(1, 5);
+	});
+
+	it("is zero, not NaN, when there is nothing to save and nothing retained either", () => {
+		expect(
+			paybackMargin({
+				droppedTokens: 0,
+				remainingTurns: 10,
+				retainedTokens: 0,
+				readPrice: 1,
+				writePrice: 5,
+			}),
+		).toBe(0);
 	});
 });
