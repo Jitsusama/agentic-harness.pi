@@ -1,10 +1,16 @@
 /**
- * Demote rather than delete: cutting resident content that a
- * shadow-mode measurement already found, in a way that always names
+ * Demote rather than delete: cutting resident content only when a batch
+ * of it pays for the cache rewrite it causes, in a way that always names
  * how to get it back, and counts how often getting it back actually
  * happens.
  */
 
+export {
+	type BatchDecision,
+	type BatchInput,
+	planBatch,
+	type SizedMessage,
+} from "./batch.js";
 export { BoundedTextCache } from "./cache.js";
 export {
 	accumulateReexpansion,

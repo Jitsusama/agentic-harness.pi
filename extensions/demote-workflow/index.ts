@@ -1,24 +1,30 @@
 /**
  * Demote Workflow extension.
  *
- * Rewrites an already-resident bash result that `context-shadow-workflow`
- * found reclaimable into a short stub, and gives the model a tool to ask
- * for it back by digest.
+ * Demotes old bash results out of the prompt in batches, only when a
+ * batch pays for the cache rewrite it causes, and gives the model
+ * `expand_demoted` to recover any of them by digest.
  *
- * This is the actuator half of demote-rather-than-delete; the other
- * extension is only the shadow-mode measurement. Rewriting what is
- * sent is a quality trade, not provable waste: the demoted result
- * might have been the part that mattered on this exact call, and there
- * is no sensor yet that would catch that going wrong. So this stays
- * behind `PI_DEMOTE_BASH_RESULTS`, off by default, same treatment as
- * `output-ceiling-workflow` and for the same reason.
+ * One policy, two modes. By default it runs in shadow: every turn it
+ * decides what it would demote and keeps the set it would have frozen,
+ * and sends the prompt exactly as pi assembled it. With
+ * `PI_DEMOTE_BASH_RESULTS=1` it acts on the same decisions. Shadow first
+ * is the rule for every controller in the spend plan, and it is what
+ * `/demote-status` reports from either way.
  *
- * Reversibility is the entire point: the full text of every demotion
- * is kept, for as long as the bounded cache holds it, so asking for it
- * back is answerable through `expand_demoted`. Every re-expansion is
- * counted, which is the direct measure of pruner error the wider plan
- * calls for: a controller that gets asked back for what it just cut is
- * wrong about that cut, whatever it saved.
+ * Why batches: the provider's prompt cache is a prefix cache, so a
+ * change mid-prompt re-writes everything after it. Demoting each result
+ * as it left a recent window would have cost $10,242 a month more than
+ * doing nothing, replayed over a month of real sessions. Batched through
+ * compaction's own payback test and frozen in between, the same replay
+ * nets about $300 a month. That is the size of this lever: real, small,
+ * and a quality trade, which is why acting stays behind the flag.
+ *
+ * Nothing is deleted: the stored session keeps every result, pi's
+ * `context` event only shapes what one request sends, and the full text
+ * of every demotion stays recoverable through `expand_demoted` for as
+ * long as the session's cache holds it. Every recovery is counted, as
+ * the direct measure of how often a demotion was wrong.
  */
 
 import type {
@@ -27,39 +33,42 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import {
-	findReclaimable,
-	type ToolResultLike,
-} from "../../lib/context/index.js";
-import {
 	accumulateReexpansion,
 	BoundedTextCache,
 	INITIAL_REEXPANSION,
+	planBatch,
 	planDemotions,
 	type ReexpansionTotals,
+	reexpansionRate,
 } from "../../lib/demote/index.js";
 import { boundedExpansion } from "./bounded.js";
+import { cachePrices } from "./prices.js";
+import { sizeOf } from "./size.js";
 
 type OneMessage = ContextEvent["messages"][number];
 
+/**
+ * Most recent tool results never demoted. The replay put a 10-result
+ * window at about $550 a month against $300 for 30; 30 is kept because
+ * nothing yet measures what a tighter window costs in quality.
+ */
 const KEEP_RECENT = 30;
-const CACHE_CAPACITY = 500;
 
-function toolResultLike(message: OneMessage): ToolResultLike {
-	if (message.role !== "toolResult") return { role: message.role };
-	return {
-		role: message.role,
-		toolCallId: message.toolCallId,
-		toolName: message.toolName,
-		content: message.content,
-	};
-}
+/** Characters a stub leaves behind, near enough for the planner. */
+const STUB_CHARS = 120;
 
-/** Whether the actuator is turned on. Unset or anything but "1" leaves this inert. */
-function enabled(): boolean {
+/** Demoted results whose full text stays recoverable. */
+const CACHE_CAPACITY = 2_000;
+
+/** Published after every decision, acted on or not. */
+export const DEMOTE_READING = "demote:reading";
+
+/** Whether this session acts on its decisions or only records them. */
+function acting(): boolean {
 	return process.env.PI_DEMOTE_BASH_RESULTS === "1";
 }
 
-/** The joined text of a toolResult message's text blocks. */
+/** The joined text of a tool result's text blocks. */
 function textOf(message: OneMessage): string {
 	if (message.role !== "toolResult") return "";
 	return message.content
@@ -70,52 +79,96 @@ function textOf(message: OneMessage): string {
 		.join("");
 }
 
+function turnsIn(messages: readonly OneMessage[]): number {
+	let turns = 0;
+	for (const message of messages) if (message.role === "assistant") turns++;
+	return turns;
+}
+
 export default function demoteWorkflow(pi: ExtensionAPI) {
 	const cache = new BoundedTextCache(CACHE_CAPACITY);
+	let demoted = new Set<string>();
+	let batches = 0;
+	let removedChars = 0;
 	let totals: ReexpansionTotals = INITIAL_REEXPANSION;
 
 	pi.on("session_start", async () => {
+		demoted = new Set();
+		batches = 0;
+		removedChars = 0;
 		totals = INITIAL_REEXPANSION;
 	});
 
-	pi.on("context", async (event) => {
-		if (!enabled()) return;
-
-		const likeMessages = event.messages.map(toolResultLike);
-		const analysis = findReclaimable(likeMessages, { keepRecent: KEEP_RECENT });
-		if (analysis.candidates.length === 0) return;
-
-		const plans = planDemotions(
-			analysis.candidates.map((candidate) => ({
-				index: candidate.index,
-				toolName: candidate.toolName,
-				text: textOf(event.messages[candidate.index]),
-			})),
+	pi.on("context", async (event, ctx) => {
+		const model = ctx.model;
+		if (!model) return;
+		const prices = cachePrices(
+			model.cost,
+			model.api,
+			process.env.PI_CACHE_RETENTION,
 		);
+		if (!prices) return;
 
-		// A candidate found on one call is still a candidate on the next,
-		// since the kept window only moves forward. Counting every
-		// re-application would inflate "demoted" far past the number of
-		// distinct results actually cut, and wreck the re-expansion rate
-		// this exists to measure. Only a digest the cache has not already
-		// seen this session counts as a new demotion.
-		let newlyDemoted = 0;
-		const byIndex = new Map(plans.map((plan) => [plan.index, plan]));
-		const messages = event.messages.map((message, index) => {
-			const plan = byIndex.get(index);
-			if (!plan || message.role !== "toolResult") return message;
-			if (cache.get(plan.digest) === undefined) newlyDemoted++;
-			cache.set(plan.digest, textOf(message));
+		const decision = planBatch({
+			messages: event.messages.map(sizeOf),
+			demoted,
+			keepRecent: KEEP_RECENT,
+			turnsElapsed: turnsIn(event.messages),
+			stubChars: STUB_CHARS,
+			...prices,
+		});
+		if (decision.fire) {
+			for (const id of decision.candidates) demoted.add(id);
+			batches += 1;
+			removedChars += decision.droppedChars;
+			totals = accumulateReexpansion(totals, {
+				demoted: decision.candidates.length,
+			});
+		}
+		pi.events.emit(DEMOTE_READING, {
+			acting: acting(),
+			fired: decision.fire,
+			margin: decision.margin,
+			batches,
+			demoted: demoted.size,
+			removedChars,
+		});
+
+		if (!acting() || demoted.size === 0) return;
+
+		// The frozen set is re-applied as the same stubs every call, so the
+		// prompt only changes when a batch fires.
+		let changed = false;
+		const messages = event.messages.map((message) => {
+			if (message.role !== "toolResult") return message;
+			if (!demoted.has(message.toolCallId)) return message;
+			const text = textOf(message);
+			const [plan] = planDemotions([
+				{ index: 0, toolName: message.toolName, text },
+			]);
+			cache.set(plan.digest, text);
+			changed = true;
 			return {
 				...message,
 				content: [{ type: "text" as const, text: plan.stubText }],
 			};
 		});
+		if (changed) return { messages };
+	});
 
-		if (newlyDemoted > 0) {
-			totals = accumulateReexpansion(totals, { demoted: newlyDemoted });
-		}
-		return { messages };
+	pi.registerCommand("demote-status", {
+		description:
+			"Show what batch demotion has done this session, or would have done in shadow mode.",
+		handler: async (_args, ctx) => {
+			const mode = acting() ? "acting" : "shadow";
+			const rate = (reexpansionRate(totals) * 100).toFixed(1);
+			ctx.ui.notify(
+				`demote (${mode}): ${batches} batches, ${demoted.size} results, ` +
+					`${removedChars.toLocaleString()} chars off every later prompt, ` +
+					`${totals.reexpanded} recovered (${rate}%)`,
+				"info",
+			);
+		},
 	});
 
 	pi.registerTool({
