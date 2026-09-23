@@ -13,6 +13,7 @@
  */
 
 export { readTurns, SCAN_VERSION } from "./scan.js";
+export { LEDGER_SCOPE, RETRIEVAL_TOOLS, WRITER_TOOLS } from "./scope.js";
 export { repoOf } from "./session.js";
 export type {
 	DroppedCallRecord,

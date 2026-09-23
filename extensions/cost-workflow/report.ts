@@ -2,7 +2,7 @@ import type {
 	CostSlice,
 	LedgerTotal,
 	PaybackReplay,
-	Regret,
+	RegretReport,
 	RepeatedCall,
 	VerifierOutcome,
 } from "@jitsusama/agentic-harness.core/observability";
@@ -115,35 +115,40 @@ export function formatRepeats(repeats: readonly RepeatedCall[]): string {
 /**
  * Render dropped calls asked again afterward: the earlier answer was
  * discarded by a compaction and the same question was put a second
- * time. Grouped by tool and arguments, heaviest by how many times it
- * happened, since one dropped call can be re-asked more than once.
+ * time. Leads with the rate against the drops it could have been out
+ * of, since that rate is the pruner error this measures, then breaks it
+ * down by tool, heaviest first by what the re-asks re-admitted.
  */
-export function formatRegret(regret: readonly Regret[]): string {
-	if (regret.length === 0) {
-		return "no regret found: nothing dropped by a compaction was asked again";
-	}
-	const byArgs = new Map<
-		string,
-		{ name: string; times: number; chars: number }
-	>();
-	for (const r of regret) {
-		const existing = byArgs.get(r.argsDigest) ?? {
-			name: r.name,
-			times: 0,
-			chars: 0,
-		};
-		existing.times += 1;
-		existing.chars += r.resultChars ?? 0;
-		byArgs.set(r.argsDigest, existing);
-	}
-	const rows = [...byArgs.values()]
-		.sort((a, b) => b.chars - a.chars)
-		.map(
-			(r) =>
-				`  ${r.name.padEnd(12)} re-fetched ${String(r.times).padStart(4)} ` +
-				`times after being dropped  ${(r.chars / 1e6).toFixed(1)}M chars`,
+export function formatRegret(report: RegretReport): string {
+	const { inScope, reAsked } = report;
+	if (reAsked.length === 0) {
+		return (
+			`no regret found: none of ${inScope.toLocaleString()} dropped ` +
+			"calls was asked again"
 		);
-	return [`Regret (${byArgs.size} distinct questions)`, ...rows].join("\n");
+	}
+	const byTool = new Map<string, { asked: number; chars: number }>();
+	let chars = 0;
+	for (const r of reAsked) {
+		const tool = byTool.get(r.name) ?? { asked: 0, chars: 0 };
+		tool.asked += 1;
+		tool.chars += r.resultChars ?? 0;
+		chars += r.resultChars ?? 0;
+		byTool.set(r.name, tool);
+	}
+	const rate = inScope > 0 ? (reAsked.length / inScope) * 100 : 0;
+	const head =
+		`Regret: ${reAsked.length.toLocaleString()} of ${inScope.toLocaleString()} ` +
+		`dropped calls asked again (${rate.toFixed(1)}%), ` +
+		`re-admitting ${(chars / 1e6).toFixed(1)}M chars`;
+	const rows = [...byTool.entries()]
+		.sort(([, a], [, b]) => b.chars - a.chars)
+		.map(
+			([name, tool]) =>
+				`  ${name.padEnd(28)} ${tool.asked.toLocaleString().padStart(6)} re-asked` +
+				`  ${(tool.chars / 1e6).toFixed(1)}M chars`,
+		);
+	return [head, ...rows].join("\n");
 }
 
 /**

@@ -123,24 +123,49 @@ describe("formatRepeats", () => {
 });
 
 describe("formatRegret", () => {
-	it("reports no regret as none, not as an empty table", () => {
-		expect(formatRegret([])).toContain("no regret");
+	function regret(name: string, resultChars: number) {
+		return {
+			name,
+			argsDigest: `${name}-${resultChars}`,
+			sessionId: "s1",
+			droppedAtTimestamp: "2026-09-21T17:00:00.000Z",
+			reAskedAtTimestamp: "2026-09-21T18:00:00.000Z",
+			resultChars,
+		};
+	}
+
+	it("reports no regret as none, still saying how many drops it was out of", () => {
+		const text = formatRegret({ inScope: 40, reAsked: [] });
+		expect(text).toContain("no regret");
+		expect(text).toContain("40");
 	});
 
-	it("names the tool and how many times its dropped answer was re-fetched", () => {
-		const text = formatRegret([
-			{
-				name: "read",
-				argsDigest: "a1",
-				sessionId: "s1",
-				droppedAtTimestamp: "2026-09-21T17:00:00.000Z",
-				reAskedAtTimestamp: "2026-09-21T18:00:00.000Z",
-				resultChars: 900_000,
-			},
-		]);
+	it("leads with the rate against its denominator", () => {
+		// A count of re-asks means nothing without how many drops it could
+		// have been out of.
+		const text = formatRegret({
+			inScope: 200,
+			reAsked: [regret("read", 900_000), regret("read", 100_000)],
+		});
+		const [head] = text.split("\n");
+		expect(head).toContain("2 of 200");
+		expect(head).toContain("1.0%");
+		expect(head).toContain("1.0M");
+	});
 
-		expect(text).toContain("read");
-		expect(text).toContain("1");
+	it("breaks regret down by tool, heaviest first", () => {
+		const text = formatRegret({
+			inScope: 10,
+			reAsked: [
+				regret("slack", 50_000),
+				regret("read", 900_000),
+				regret("read", 100_000),
+			],
+		});
+		const rows = text.split("\n").slice(1);
+		expect(rows[0]).toContain("read");
+		expect(rows[0]).toContain("2");
+		expect(rows[1]).toContain("slack");
 	});
 });
 

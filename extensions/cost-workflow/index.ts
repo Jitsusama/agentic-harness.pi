@@ -40,6 +40,7 @@ import {
 import { Type } from "@sinclair/typebox";
 import { medianOf } from "../../lib/internal/cost-meter/index.js";
 import { packageStateDir } from "../../lib/internal/package-state-dir.js";
+import { LEDGER_SCOPE } from "../../lib/ledger/index.js";
 import { indexSessionLogs } from "./indexer.js";
 import {
 	formatIndexOutcome,
@@ -218,18 +219,19 @@ export default function costWorkflow(pi: ExtensionAPI) {
 			repeats: Type.Optional(
 				Type.Boolean({
 					description:
-						"Report tool calls whose arguments were asked more than once " +
-						"within a session, heaviest first, instead of a spend report. " +
-						"Each is a question the session's own context could already " +
-						"answer.",
+						"Report retrieval calls whose arguments were asked more than " +
+						"once within a session with no write to their file in between, " +
+						"heaviest first, instead of a spend report. Each is a question " +
+						"the session's own context could already answer.",
 				}),
 			),
 			regret: Type.Optional(
 				Type.Boolean({
 					description:
-						"Report tool calls a compaction dropped that were asked again " +
-						"afterward, instead of a spend report. Each is a case of the " +
-						"context having to re-fetch what it had just lost.",
+						"Report retrieval calls a compaction dropped that were asked " +
+						"again afterward, as a rate over every dropped retrieval call, " +
+						"instead of a spend report. Each is a case of the context " +
+						"having to re-fetch what it had just lost.",
 				}),
 			),
 			verify: Type.Optional(
@@ -260,7 +262,7 @@ export default function costWorkflow(pi: ExtensionAPI) {
 			}
 
 			if (params.repeats) {
-				const repeats = await opened.repeatedCalls();
+				const repeats = await opened.repeatedCalls(LEDGER_SCOPE);
 				return {
 					content: [
 						{
@@ -278,14 +280,14 @@ export default function costWorkflow(pi: ExtensionAPI) {
 			}
 
 			if (params.regret) {
-				const regret = await opened.regret();
+				const regret = await opened.regret(LEDGER_SCOPE);
 				return {
 					content: [
 						{
 							type: "text",
 							text: citeListing(openSessionStore(), {
 								view: formatRegret(regret),
-								records: regret,
+								records: regret.reAsked,
 								unit: "regrets",
 								narrowing: "Query the stored result for the full list.",
 							}),
