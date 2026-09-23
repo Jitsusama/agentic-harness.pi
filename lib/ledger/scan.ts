@@ -12,6 +12,18 @@ import type { DroppedCallRecord, LedgerScan, ToolCallRecord } from "./types.js";
  * a few million turns and keeps the index small. */
 const DIGEST_CHARS = 24;
 
+/**
+ * What this scan extracts, as a number. Bump it whenever `readTurns`
+ * starts extracting something it did not before, or extracts something
+ * differently: an index built by an older scan is then read again in
+ * full, which is idempotent, rather than trusted as complete because
+ * the log it came from has not grown.
+ *
+ * 1: turns, sessions, tool calls, dropped calls, verifier kinds and the
+ * model a compaction ran under.
+ */
+export const SCAN_VERSION = 1;
+
 interface RawUsage {
 	input?: number;
 	output?: number;

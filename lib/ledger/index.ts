@@ -12,7 +12,7 @@
  * that holds them, and the summaries computed over them.
  */
 
-export { readTurns } from "./scan.js";
+export { readTurns, SCAN_VERSION } from "./scan.js";
 export { repoOf } from "./session.js";
 export type {
 	DroppedCallRecord,

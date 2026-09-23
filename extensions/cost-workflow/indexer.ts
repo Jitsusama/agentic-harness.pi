@@ -10,7 +10,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import type { TurnStore } from "@jitsusama/agentic-harness.core/observability";
-import { readTurns } from "../../lib/ledger/index.js";
+import { readTurns, SCAN_VERSION } from "../../lib/ledger/index.js";
 import type { IndexOutcome } from "./report.js";
 
 /** Where pi keeps session logs, honouring its own directory override. */
@@ -28,18 +28,50 @@ export function sessionsDir(): string {
  */
 type Watermarks = Record<string, number>;
 
+/**
+ * The sizes, and the scan version that read them. A size only proves a
+ * log has not grown; it says nothing about whether the scan that read
+ * it extracted everything the current one does. Without the version,
+ * every log indexed before tool calls were recorded was skipped forever
+ * and the live ledger held turns but not a single call.
+ */
+interface WatermarkFile {
+	readonly scanVersion: number;
+	readonly sizes: Watermarks;
+}
+
+function isWatermarkFile(value: unknown): value is WatermarkFile {
+	if (typeof value !== "object" || value === null) return false;
+	const candidate = value as Record<string, unknown>;
+	return (
+		typeof candidate.scanVersion === "number" &&
+		typeof candidate.sizes === "object" &&
+		candidate.sizes !== null
+	);
+}
+
+/**
+ * The sizes worth trusting: those read by the current scan. A file from
+ * an older scan, or in the older bare-map format that recorded no
+ * version at all, is trusted for nothing, which costs one full
+ * re-index, and a re-index is idempotent.
+ */
 function loadWatermarks(path: string): Watermarks {
 	if (!existsSync(path)) return {};
 	try {
 		const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
-		return typeof parsed === "object" && parsed !== null
-			? (parsed as Watermarks)
-			: {};
+		if (!isWatermarkFile(parsed)) return {};
+		return parsed.scanVersion === SCAN_VERSION ? { ...parsed.sizes } : {};
 	} catch {
 		// A truncated watermark file costs one full re-index, which is
 		// idempotent, so it is not worth failing over.
 		return {};
 	}
+}
+
+function saveWatermarks(path: string, sizes: Watermarks): void {
+	const file: WatermarkFile = { scanVersion: SCAN_VERSION, sizes };
+	writeFileSync(path, JSON.stringify(file), "utf8");
 }
 
 async function* linesOf(path: string): AsyncGenerator<string> {
@@ -135,7 +167,7 @@ export async function indexSessionLogs(
 		}
 	}
 
-	writeFileSync(watermarkPath, JSON.stringify(marks), "utf8");
+	saveWatermarks(watermarkPath, marks);
 	return {
 		files,
 		scanned,

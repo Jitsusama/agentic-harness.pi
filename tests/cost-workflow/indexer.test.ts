@@ -122,4 +122,58 @@ describe("indexing tool calls", () => {
 		expect(second.insertedCalls).toBe(0);
 		await store.close();
 	});
+
+	it("re-reads a log whose watermark predates what the scan now extracts", async () => {
+		// The real failure: every log indexed before tool calls were
+		// recorded kept its old size watermark, so it was skipped forever
+		// and the live ledger held turns but not a single call.
+		scratch = mkdtempSync(join(tmpdir(), "ledger-indexer-"));
+		const sessionsRoot = join(scratch, "sessions", "proj");
+		mkdirSync(sessionsRoot, { recursive: true });
+		const path = join(sessionsRoot, "one.jsonl");
+		const body = `${assistantLine("a1", "t1")}\n`;
+		writeFileSync(path, body, "utf8");
+		const watermarks = join(scratch, "watermarks.json");
+		// The format every existing watermark file is in: a bare map of
+		// path to size, with nothing saying what was extracted.
+		writeFileSync(
+			watermarks,
+			JSON.stringify({ [path]: Buffer.byteLength(body) }),
+			"utf8",
+		);
+
+		const store = await openTurnStore(join(scratch, "ledger.db"));
+		const outcome = await indexSessionLogs(
+			store,
+			watermarks,
+			join(scratch, "sessions"),
+		);
+
+		expect(outcome.skipped).toBe(0);
+		expect(outcome.insertedCalls).toBe(1);
+		await store.close();
+	});
+
+	it("skips an unchanged log once it has been read at the current scan version", async () => {
+		scratch = mkdtempSync(join(tmpdir(), "ledger-indexer-"));
+		const sessionsRoot = join(scratch, "sessions", "proj");
+		mkdirSync(sessionsRoot, { recursive: true });
+		writeFileSync(
+			join(sessionsRoot, "one.jsonl"),
+			`${assistantLine("a1", "t1")}\n`,
+			"utf8",
+		);
+		const watermarks = join(scratch, "watermarks.json");
+		const store = await openTurnStore(join(scratch, "ledger.db"));
+		await indexSessionLogs(store, watermarks, join(scratch, "sessions"));
+
+		const second = await indexSessionLogs(
+			store,
+			watermarks,
+			join(scratch, "sessions"),
+		);
+
+		expect(second.skipped).toBe(1);
+		await store.close();
+	});
 });
