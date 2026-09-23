@@ -24,6 +24,11 @@ export {
 	readPressure,
 } from "./pressure.js";
 export {
+	choseWithPropensity,
+	type PropensityChoice,
+	type PropensityResult,
+} from "./propensity.js";
+export {
 	type CallOccurrence,
 	type ClassifiedRepeat,
 	classifyRepeats,
