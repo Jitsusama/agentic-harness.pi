@@ -36,6 +36,11 @@ An aggregate that cannot say what it missed is not evidence, so:
   quarter of logs name a quest, so hiding the remainder would make every
   quest's share a fraction of a total that excluded most of the money.
 - Unreadable lines are counted and reported, never fatal.
+- Every figure is priced as pi priced each request, which is list price
+  for most models and not the bill. The report says so under the total.
+  Reconciled against the AI Proxy for 2026-08-23 to 09-22, the bill was
+  $26,597 against $30,485 of these records: contract discounts, not
+  missing tokens.
 
 ## Indexing
 

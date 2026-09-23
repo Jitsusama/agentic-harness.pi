@@ -37,13 +37,24 @@ function elide(text: string, max = KEY_WIDTH): string {
 }
 
 /**
+ * What every figure in the report is priced at. Each request carries
+ * the price pi's model registry put on it, which is list price for most
+ * models, and the AI Proxy bills after the contract discount. Said once,
+ * under the total, since the fan-out beside it is priced the same way.
+ */
+const PRICE_BASIS =
+	"  at the prices pi put on each request, which is not the bill: contract discounts are not applied";
+
+/**
  * State the ledger's own blind spots beside its total. An aggregate that
  * cannot say what it missed is not evidence, so unmetered turns are
- * reported rather than folded into the number as zero.
+ * reported rather than folded into the number as zero, and the price
+ * basis is named so the total is not read as the invoice.
  */
 export function formatTotal(total: LedgerTotal): string {
 	const lines = [
 		`${money(total.cost)} over ${total.turns.toLocaleString()} turns`,
+		PRICE_BASIS,
 	];
 	if (total.unmetered > 0) {
 		lines.push(

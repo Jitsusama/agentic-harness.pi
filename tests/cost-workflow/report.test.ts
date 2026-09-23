@@ -26,6 +26,24 @@ describe("formatTotal", () => {
 		expect(text).toContain("unknown amount");
 	});
 
+	it("says the prices are pi's, not the bill", () => {
+		// Reconciled against the AI Proxy for 2026-08-23 to 09-22, the
+		// bill ran $26,597 against $30,485 of these records: contract
+		// discounts, not tokens. A total that does not say which it is
+		// reads as the invoice.
+		const text = formatTotal({
+			cost: 10,
+			turns: 5,
+			unmetered: 0,
+			cacheWriteTokens: 0,
+			cacheWrite1hTokens: 0,
+		});
+
+		expect(text.split("\n")[1]).toBe(
+			"  at the prices pi put on each request, which is not the bill: contract discounts are not applied",
+		);
+	});
+
 	it("reports the one-hour cache share, which proves retention is in force", () => {
 		const text = formatTotal({
 			cost: 10,
