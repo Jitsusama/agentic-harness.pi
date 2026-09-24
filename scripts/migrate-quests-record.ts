@@ -339,7 +339,7 @@ type Style = "tilde" | "absolute" | "document" | "quest";
 const INLINE =
 	/!?\[(?:[^\]\\]|\\.)*\]\(\s*<?(?<target>[^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/dg;
 const REFERENCE_DEFINITION =
-	/^ {0,3}\[[^\]]+\]:\s*<?(?<target>[^\s>]+)>?(?:\s+.*)?$/dgm;
+	/^ {0,3}\[[^\]\n]+\]:[ \t]*<?(?<target>[^\s>]+)>?(?:[ \t]+.*)?$/dgm;
 const IMAGE_TAG = /<img[^>]+src=["'](?<target>[^"']+)/dgi;
 const CODE_SPAN = /(`+)([^`][\s\S]*?)\1(?!`)/g;
 

@@ -140,6 +140,26 @@ describe("planRecordMigration", () => {
 		expect(movesOf(plan)).toContain("A HANDOFF.md -> ws:HANDOFF.md (working)");
 	});
 
+	it("cites every one of consecutive reference definitions", () => {
+		put(
+			`${A}/plans/${PLAN}.md`,
+			"# Plan\n\nSee [one][a] and [two][b].\n\n[a]: ../lab/one.md\n[b]: ../lab/two.md\n",
+		);
+		put(`${A}/lab/one.md`);
+		put(`${A}/lab/two.md`);
+		const plan = planRecordMigration({ questsRoot, workspaceRoot });
+		expect(movesOf(plan).filter((m) => m.includes("(cited)"))).toContain(
+			"A lab/two.md -> attachments/lab/two.md (cited)",
+		);
+		const rewrite = plan.rewrites.find((r) => r.file.endsWith(`${PLAN}.md`));
+		expect(rewrite?.changes.map((c) => c.after)).toEqual(
+			expect.arrayContaining([
+				"../attachments/lab/one.md",
+				"../attachments/lab/two.md",
+			]),
+		);
+	});
+
 	it("leaves a skipped quest, and links into it, for a later run", () => {
 		const plan = planRecordMigration({ questsRoot, workspaceRoot, skip: [A] });
 		expect(plan.moves).toEqual([]);
