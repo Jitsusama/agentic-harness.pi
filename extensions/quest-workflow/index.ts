@@ -15,6 +15,7 @@
  * slash commands for the primary surface.
  */
 
+import { homedir } from "node:os";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type {
 	ExtensionAPI,
@@ -66,6 +67,7 @@ import {
 	resolveStartup,
 } from "./lifecycle.ts";
 import { recentSessionHints, showLoaded } from "./lookup.ts";
+import { questsTouchedBy, RecordWatch } from "./record-watch.ts";
 import { formatQuestList, renderStatus, renderWidget } from "./render.ts";
 import {
 	collapseListingPreview,
@@ -86,6 +88,18 @@ import {
 import { createQuestState, type QuestState } from "./state.ts";
 import { handle, type QuestToolParams } from "./transitions.ts";
 import { currentSessionId, isPersistedSession } from "./verbs/shared.ts";
+import { defaultWorkspaceRoot } from "./workspace.ts";
+
+/** What an `agent_before_settle` handler may return, as pi 0.87 defines it. */
+interface BeforeSettleResult {
+	entries?: {
+		type: "custom_message";
+		customType: string;
+		content: string;
+		display: boolean;
+	}[];
+	continue?: boolean;
+}
 
 const DEFAULT_WIDTH = 80;
 const CALL_PREFIX_WIDTH = 14;
@@ -495,16 +509,50 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		},
 	});
 
+	// The record, read from disk after each call that could touch a quest
+	// folder, since a command can make files without naming them.
+	const watch = new RecordWatch({
+		questsRoot,
+		workspaceRoot: defaultWorkspaceRoot(),
+	});
+
 	pi.on(
 		"tool_call",
-		async (event, ctx): Promise<ToolCallEventResult | undefined> =>
-			enforceQuest(
-				state,
-				event.toolName,
-				event.input as Record<string, unknown>,
-				ctx.cwd,
-			),
+		async (event, ctx): Promise<ToolCallEventResult | undefined> => {
+			const input = event.input as Record<string, unknown>;
+			const verdict = enforceQuest(state, event.toolName, input, ctx.cwd);
+			if (verdict?.block) return verdict;
+			watch.before(
+				event.toolCallId,
+				questsTouchedBy(state, event.toolName, input, ctx.cwd, homedir()),
+			);
+			return verdict;
+		},
 	);
+
+	// Before the run settles, continue once with whatever record breakage
+	// it left. The event arrived after the pi this package builds against,
+	// so it is registered through the untyped surface; an older pi never
+	// fires it, and the per-call reports still reach the agent.
+	const onBeforeSettle = pi.on.bind(pi) as unknown as (
+		event: "agent_before_settle",
+		handler: () => Promise<BeforeSettleResult | undefined>,
+	) => void;
+	onBeforeSettle("agent_before_settle", async () => {
+		const message = watch.settle();
+		if (!message) return;
+		return {
+			entries: [
+				{
+					type: "custom_message",
+					customType: "quest-record",
+					content: message,
+					display: true,
+				},
+			],
+			continue: true,
+		};
+	});
 
 	// When the focused document gets edited, repaint the
 	// scoreboard so progress numbers update. Persist the
@@ -527,6 +575,10 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			updateScoreboard(state, ctx);
 		}
 		persist(state, pi, ctx);
+		const broke = watch.after(event.toolCallId);
+		if (broke) {
+			return { content: [...event.content, { type: "text", text: broke }] };
+		}
 	});
 
 	pi.on("turn_end", async (_event, ctx) => {
