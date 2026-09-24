@@ -25,6 +25,22 @@ explicit.
 - The block is frozen on first assembly, so every turn in a
   session gets byte-identical output even if a contributor's
   text later changes. A new session gets a fresh freeze.
+- The freeze is written to the session log as a
+  `prompt-coordinator-frozen` entry and read back on every session
+  start, so a `/reload` or a resumed session renders the same bytes.
+
+## Why the freeze outlives a reload
+
+A freeze kept only in memory was assembled again by every reload
+and resume. Recalled memory takes in every fact retained during the
+session and captured rules every rule filed, so the system prompt
+came back different and the next turn rewrote the whole context at
+the cache-write price: about $2.40 at 300k tokens under one-hour
+retention. Measured live on pi 0.87.1, one retained fact then a
+reload: the turn after fell back to the end of the tool definitions
+(43,342 tokens read, 18,892 written) before this, and read all
+62,862 after. What was learned since the freeze is already in the
+conversation, so keeping the old bytes loses nothing.
 
 ## Contributors
 

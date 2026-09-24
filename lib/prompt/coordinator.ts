@@ -61,10 +61,13 @@ export function clearPromptContributors(): void {
  * Create a resident prompt that assembles its contributors on
  * the first call and returns those exact bytes thereafter. A
  * fresh one is created per session so the freeze is
- * session-scoped.
+ * session-scoped; `alreadyFrozen` carries a session's freeze
+ * across a reload or a resume, so it is never assembled twice.
  */
-export function createFrozenResidentPrompt(): FrozenResidentPrompt {
-	let frozen: string | undefined;
+export function createFrozenResidentPrompt(
+	alreadyFrozen?: string,
+): FrozenResidentPrompt {
+	let frozen = alreadyFrozen;
 	return {
 		async assemble(ctx: ExtensionContext): Promise<string> {
 			if (frozen !== undefined) return frozen;
