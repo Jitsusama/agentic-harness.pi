@@ -24,7 +24,7 @@ import { drawInto } from "../../lib/ui/index.ts";
 import { persist, restore, updateScoreboard } from "./lifecycle.ts";
 import { formatTransitionReply } from "./reply.ts";
 import { createTddState } from "./state.ts";
-import { buildTddContext, tddContextFilter } from "./transitions.ts";
+import { buildTddContext, remindedIn } from "./transitions.ts";
 
 /** Width fallback when the terminal width is unknown. */
 const DEFAULT_WIDTH = 80;
@@ -195,10 +195,9 @@ export default function tddMode(pi: ExtensionAPI) {
 
 	pi.on("before_agent_start", async () => buildTddContext(state));
 
-	pi.on("context", tddContextFilter(state));
-
 	pi.on("session_start", async (_event, ctx) => {
 		restore(state, ctx);
+		state.reminded = remindedIn(ctx.sessionManager.getEntries());
 		updateScoreboard(state, ctx);
 	});
 }

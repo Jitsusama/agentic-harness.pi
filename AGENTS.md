@@ -263,8 +263,8 @@ Each workflow extension uses these files:
   restore
 - `enforce.ts`: tool_call interception: what gets blocked,
   what gets allowed and why
-- `transitions.ts`: confirmation gates, context injection,
-  stale context filtering
+- `transitions.ts`: confirmation gates, context injection
+  and superseding context that has gone stale
 - `index.ts`: registration only: declares state, registers
   commands/shortcuts/flags, wires other modules to pi events.
   Should read as a table of contents for the extension.
@@ -272,6 +272,25 @@ Each workflow extension uses these files:
 Not every workflow needs every file; merge neighbours if a
 file would be trivially small. But the naming convention is
 what tells readers where to find each concern.
+
+### The Prompt Is Append-Only
+
+The provider caches the prompt as a prefix: tools, then the
+system prompt, then the conversation. Changing any byte of it
+re-writes everything after that byte at the cache-write price,
+which under one-hour retention is forty times a read on Opus
+5.5. So an extension never edits what a request has already
+sent. It does not re-render state into the system prompt on
+each prompt, and it does not filter or rewrite earlier messages
+from a `context` hook. State that changes is said as a new
+message (`before_agent_start` can return one), and context that
+has gone stale is superseded by a message saying so, never
+removed. Over a month the two patterns this replaced, a quest
+line re-rendered into the system prompt and TDD reminders
+filtered out once a loop ended, cost about $600 at list in
+rewrites that told the model nothing new. `demote-workflow` is
+the one sanctioned exception, and it rewrites only in batches
+that pay for themselves.
 
 ### Don't Merge Things That Merely Converge
 

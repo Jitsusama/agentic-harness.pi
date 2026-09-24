@@ -1,20 +1,17 @@
-import type { ContextEvent } from "@earendil-works/pi-coding-agent";
 import type { Loop } from "@jitsusama/agentic-harness.core/tdd";
 import { describe, expect, it } from "vitest";
-import { createTddState } from "../../../extensions/tdd-workflow/state.ts";
+import {
+	createTddState,
+	type TddState,
+} from "../../../extensions/tdd-workflow/state.ts";
 import {
 	buildTddContext,
-	tddContextFilter,
+	remindedIn,
 } from "../../../extensions/tdd-workflow/transitions.ts";
 
-// AgentMessage is opaque to consumers, so test fixtures are cast
-// to a context event through the structural shape the filter reads.
-function contextEvent(messages: Array<Record<string, unknown>>): ContextEvent {
-	return { type: "context", messages } as unknown as ContextEvent;
-}
-
-function stateWith(overrides: Partial<Loop> = {}): { loop: Loop } {
+function stateWith(overrides: Partial<Loop> = {}, reminded = false): TddState {
 	return {
+		reminded,
 		loop: {
 			phase: "plan",
 			assertionFailure: false,
@@ -49,23 +46,47 @@ describe("buildTddContext", () => {
 	});
 });
 
-describe("tddContextFilter", () => {
-	it("leaves the context in place while a loop is active", async () => {
-		const filter = tddContextFilter(stateWith({ phase: "red" }));
-		const event = contextEvent([
-			{ customType: "tdd-workflow-context", content: "x" },
-			{ customType: "other" },
-		]);
-		expect(await filter(event)).toBeUndefined();
+describe("closing a loop", () => {
+	it("says once that the reminders no longer apply when the loop goes idle", () => {
+		const state = stateWith({ phase: "red" });
+		expect(buildTddContext(state)?.message.content).toContain("red");
+		state.loop = { ...state.loop, phase: "idle" };
+		const closing = buildTddContext(state);
+		expect(closing?.message.customType).toBe("tdd-workflow-context");
+		expect(closing?.message.content).toContain("no longer apply");
+		expect(buildTddContext(state)).toBeUndefined();
 	});
 
-	it("strips stale context once the loop is no longer active", async () => {
-		const filter = tddContextFilter(stateWith({ phase: "idle" }));
-		const event = contextEvent([
-			{ customType: "tdd-workflow-context", content: "x" },
-			{ customType: "other" },
-		]);
-		const result = await filter(event);
-		expect(result?.messages).toEqual([{ customType: "other" }]);
+	it("reminds again when the next loop starts", () => {
+		const state = stateWith({ phase: "idle" }, true);
+		buildTddContext(state);
+		state.loop = { ...state.loop, phase: "plan" };
+		expect(buildTddContext(state)?.message.content).toContain("plan");
+	});
+});
+
+describe("remindedIn", () => {
+	const reminder = {
+		type: "custom_message",
+		customType: "tdd-workflow-context",
+		content: "TDD loop 1, phase red",
+	};
+	const other = { type: "custom_message", customType: "other", content: "x" };
+
+	it("is true when the last TDD message is a live reminder", () => {
+		expect(remindedIn([reminder, other])).toBe(true);
+	});
+
+	it("is false once a closing message followed it", () => {
+		const idle = stateWith({ phase: "idle" }, true);
+		const closing = {
+			type: "custom_message",
+			...buildTddContext(idle)?.message,
+		};
+		expect(remindedIn([reminder, closing])).toBe(false);
+	});
+
+	it("is false when the conversation holds no TDD message", () => {
+		expect(remindedIn([other])).toBe(false);
 	});
 });

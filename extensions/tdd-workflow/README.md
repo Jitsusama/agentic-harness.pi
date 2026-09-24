@@ -64,6 +64,13 @@ symbol. It admits what it is: a reminder for a cooperating agent,
 not a guard against a hostile one. There is no GREEN write-block
 and no language-specific heuristic.
 
+While a loop runs, each prompt carries a short hidden message
+saying where the loop is. When it goes idle, one closing message
+says the earlier reminders no longer apply. The reminders are
+never stripped from the conversation, because removing an earlier
+message changes the cached prefix and re-writes everything after
+it at the cache-write price.
+
 ## Status Display
 
 While a loop runs, the status line shows a constant `TDD` label

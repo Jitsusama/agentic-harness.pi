@@ -1,13 +1,9 @@
 /**
  * Shared helpers for extensions that need to persist state
- * across sessions, restore it on startup, and manage context
- * message injection and filtering.
+ * across sessions and restore it on startup.
  */
 
-import type {
-	ContextEvent,
-	ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 /** Type guard for custom entries with a specific customType. */
 function isCustomEntry(
@@ -34,30 +30,4 @@ export function getLastEntry<T>(
 		| { data?: T }
 		| undefined;
 	return last?.data;
-}
-
-/** Whether a message is a custom context entry tagged with the given type. */
-function isTaggedContext(message: unknown, customType: string): boolean {
-	return (
-		typeof message === "object" &&
-		message !== null &&
-		"customType" in message &&
-		message.customType === customType
-	);
-}
-
-/**
- * Returns a context handler that strips messages with the given
- * customType when the extension is inactive.
- *
- * Usage:
- *   pi.on("context", filterContext("my-context", () => enabled));
- */
-export function filterContext(customType: string, isActive: () => boolean) {
-	return async (event: ContextEvent) => {
-		if (isActive()) return;
-		return {
-			messages: event.messages.filter((m) => !isTaggedContext(m, customType)),
-		};
-	};
 }

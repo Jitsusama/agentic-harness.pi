@@ -13,9 +13,14 @@ export type { Loop } from "@jitsusama/agentic-harness.core/tdd";
 /** The mutable session state: which loop is currently in play. */
 export interface TddState {
 	loop: Loop;
+	/**
+	 * Whether the conversation carries a reminder of a live loop that
+	 * nothing has closed yet, so going idle knows to say so.
+	 */
+	reminded: boolean;
 }
 
 /** Create the initial session state, with no loop in play. */
 export function createTddState(): TddState {
-	return { loop: idleLoop() };
+	return { loop: idleLoop(), reminded: false };
 }

@@ -73,6 +73,13 @@ entry; it never triggers behaviour.
   status, and the focused document's stage and progress.
 - Auto-load on session start when the cwd is inside a
   quest's directory tree.
+- Telling the model which quest and document it is on. The
+  line is frozen into the system prompt the first time a
+  session renders it, and a later load, focus or stage change
+  is said once as an appended message, so a quest action
+  never rewrites the cached conversation. What was frozen and
+  last said is persisted, so a reload renders the same bytes;
+  a compaction resets it so a changed state is said again.
 
 ## What It Doesn't Own
 
