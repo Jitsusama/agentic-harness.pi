@@ -30,8 +30,8 @@
  * and the file list, which is the route back.
  *
  * Recorded exploration: whether one is the right margin to fire at can
- * only be measured if the policy sometimes fires elsewhere, so five
- * percent of stretches (one compaction to the next) draw a threshold of
+ * only be measured if the policy sometimes fires elsewhere, so a fifth
+ * of stretches (one compaction to the next) draw a threshold of
  * 1/√2 or √2 instead (`drawThreshold`). The draw and its probability go
  * into the session log as a custom entry, which the model never sees,
  * before the decision it shapes, and the notice says when a compaction
@@ -63,11 +63,14 @@ import { compactionNotice } from "./notice.ts";
 const DEFAULT_FLOOR_TOKENS = 250_000;
 
 /**
- * Share of stretches that draw an explored threshold. Small, since each
- * one spends a little on purpose, and enough over a month of sessions
- * to estimate from.
+ * Share of stretches that draw an explored threshold. About 156
+ * stretches a month pass the floor, so five percent would log four a
+ * side a month and take seven months to reach thirty; a fifth takes
+ * about two. The replay prices the cost as flat near a margin of one:
+ * every stretch at 1/√2 would cost $48 a month more and every one at √2
+ * $70, so a fifth spends about $12 a month on purpose.
  */
-const DEFAULT_EXPLORATION_RATE = 0.05;
+const DEFAULT_EXPLORATION_RATE = 0.2;
 
 /** Modes whose runs continue after a compaction and can be resumed. */
 const RESUMABLE_MODES: ReadonlySet<string> = new Set(["tui", "rpc"]);

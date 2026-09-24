@@ -42,9 +42,17 @@ is live are the real check. The replay lives with the spend quest as
 Firing once the saving crosses the cost, a margin of one, was chosen by
 replay. A live policy that always fires there cannot be checked against
 anything, since estimating another threshold from logged sessions needs
-some sessions to have used it. So five percent of stretches (a stretch
+some sessions to have used it. So a fifth of stretches (a stretch
 runs from one compaction to the next) draw a threshold of 1/√2, firing
 a little earlier, or √2, a little later, at equal chances.
+
+A fifth because a smaller share would take too long: about 156 stretches
+a month pass the floor, so five percent would log thirty a side in
+about seven months, and a fifth does it in about two. The replay prices
+it at about $12 a month, since it finds cost nearly flat around a
+margin of one ($48 a month more if every stretch fired at 1/√2, $70 at
+√2). Whether that flatness holds on live sessions is what the draws
+measure.
 
 The draw is made on the stretch's first turn above the floor, before
 the decision it shapes, and written to the session log as a
@@ -70,7 +78,7 @@ Only interactive and RPC sessions are touched. A subagent runs pi in
 - `PI_COMPACTION_POLICY=off` turns it off.
 - `PI_COMPACTION_FLOOR_TOKENS` moves the 250k floor.
 - `PI_COMPACTION_EXPLORATION_RATE` sets the share of stretches that
-  explore, 0.05 by default; `0` turns exploration off.
+  explore, 0.2 by default; `0` turns exploration off.
 
 ## Files
 
