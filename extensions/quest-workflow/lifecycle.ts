@@ -20,6 +20,8 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import {
+	captureSessionIdentity,
+	detachSessionIfOwner,
 	findQuestEntry,
 	focusDocument,
 	refreshProgress,
@@ -77,6 +79,27 @@ export {
 	type WorktreeInventoryEntry,
 	writeDocumentStage,
 } from "@jitsusama/agentic-harness.core/quest/lifecycle";
+
+/**
+ * Mark a session detached on the loaded quest as its process shuts
+ * down, unless another process has since taken it over.
+ *
+ * The lease compares the instance id attach stored with this
+ * process's own, so both have to come from the same place. Attach
+ * captures it through core's `captureSessionIdentity`, so this does
+ * too. Reading it from the extension's own copy of the liveness module
+ * gave a different id per copy, which made every shutdown believe
+ * another process owned the session and left every README showing
+ * its tabs active after they were gone.
+ */
+export function releaseSessionOnShutdown(
+	state: QuestState,
+	sessionId: string,
+): void {
+	if (!state.questDir) return;
+	const { instanceId } = captureSessionIdentity();
+	detachSessionIfOwner(state.questDir, sessionId, instanceId);
+}
 
 /** Load a quest into state by id. */
 export function loadQuest(

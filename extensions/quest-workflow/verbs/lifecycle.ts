@@ -51,6 +51,7 @@ import {
 	loadQuest,
 	prunePhantomSessionsOnLoaded,
 	reconcileSessionMembership,
+	releaseSessionOnShutdown,
 	setLoadedKind,
 	unfocusDocument,
 	unloadQuest,
@@ -384,8 +385,9 @@ export async function load(
 			...captureSessionIdentity(),
 		});
 		// A closed tab reaches pi as a signal that pi then reports as a
-		// quit, so the record is stamped from a listener of our own.
-		followSessionForSignals(sid);
+		// quit, so the record is stamped from a listener of our own,
+		// which releases the session on its quest in the same breath.
+		followSessionForSignals(sid, () => releaseSessionOnShutdown(state, sid));
 	}
 
 	// Reconcile membership so this session reads active on only the
