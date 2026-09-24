@@ -15,6 +15,7 @@
  * slash commands for the primary surface.
  */
 
+import { homedir } from "node:os";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type {
 	ExtensionAPI,
@@ -66,6 +67,7 @@ import {
 	resolveStartup,
 } from "./lifecycle.ts";
 import { recentSessionHints, showLoaded } from "./lookup.ts";
+import { questsTouchedBy, RecordWatch } from "./record-watch.ts";
 import { formatQuestList, renderStatus, renderWidget } from "./render.ts";
 import {
 	collapseListingPreview,
@@ -86,6 +88,18 @@ import {
 import { createQuestState, type QuestState } from "./state.ts";
 import { handle, type QuestToolParams } from "./transitions.ts";
 import { currentSessionId, isPersistedSession } from "./verbs/shared.ts";
+import { defaultWorkspaceRoot } from "./workspace.ts";
+
+/** What an `agent_before_settle` handler may return, as pi 0.87 defines it. */
+interface BeforeSettleResult {
+	entries?: {
+		type: "custom_message";
+		customType: string;
+		content: string;
+		display: boolean;
+	}[];
+	continue?: boolean;
+}
 
 const DEFAULT_WIDTH = 80;
 const CALL_PREFIX_WIDTH = 14;
@@ -133,7 +147,8 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			"convention skill for the README format.",
 		promptGuidelines: [
 			"Use action `create` to mint a new quest. Use action `load` to switch to an existing one. The status bar shows the loaded quest at all times.",
-			"`focus` and `unfocus` set or clear the focused document. While a plan is focused in think or draft, edits to already-tracked code defer to build; the plan itself, quest-directory files, scratch paths and brand-new files still flow.",
+			"`focus` and `unfocus` set or clear the focused document. While a plan is focused in think or draft, edits to already-tracked code defer to build; the plan itself, attachments, the workspace and brand-new files still flow.",
+			"A quest folder holds only its README, its ID documents and attachments/ (cited charts, notes and summaries within the limits). Clones, raw data, labs, runs and builds go in the quest's workspace, ~/.cache/pi/agentic-harness.pi/quest-workspace/<ID>/, whose tmp/ is cleared at conclude. When a result says a call left a record out of shape, move the files where it says.",
 			"Stage transitions are think → draft → build → concluded (or retired). `think` accepts a kind on a fresh loop (default plan); `draft` scaffolds the document and mints its id; `build` lets you implement.",
 			"A refused transition returns guidance and changes nothing. There is no human gate and no approval prompt.",
 		],
@@ -495,16 +510,50 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		},
 	});
 
+	// The record, read from disk after each call that could touch a quest
+	// folder, since a command can make files without naming them.
+	const watch = new RecordWatch({
+		questsRoot,
+		workspaceRoot: defaultWorkspaceRoot(),
+	});
+
 	pi.on(
 		"tool_call",
-		async (event, ctx): Promise<ToolCallEventResult | undefined> =>
-			enforceQuest(
-				state,
-				event.toolName,
-				event.input as Record<string, unknown>,
-				ctx.cwd,
-			),
+		async (event, ctx): Promise<ToolCallEventResult | undefined> => {
+			const input = event.input as Record<string, unknown>;
+			const verdict = enforceQuest(state, event.toolName, input, ctx.cwd);
+			if (verdict?.block) return verdict;
+			watch.before(
+				event.toolCallId,
+				questsTouchedBy(state, event.toolName, input, ctx.cwd, homedir()),
+			);
+			return verdict;
+		},
 	);
+
+	// Before the run settles, continue once with whatever record breakage
+	// it left. The event arrived after the pi this package builds against,
+	// so it is registered through the untyped surface; an older pi never
+	// fires it, and the per-call reports still reach the agent.
+	const onBeforeSettle = pi.on.bind(pi) as unknown as (
+		event: "agent_before_settle",
+		handler: () => Promise<BeforeSettleResult | undefined>,
+	) => void;
+	onBeforeSettle("agent_before_settle", async () => {
+		const message = watch.settle();
+		if (!message) return;
+		return {
+			entries: [
+				{
+					type: "custom_message",
+					customType: "quest-record",
+					content: message,
+					display: true,
+				},
+			],
+			continue: true,
+		};
+	});
 
 	// When the focused document gets edited, repaint the
 	// scoreboard so progress numbers update. Persist the
@@ -527,6 +576,10 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			updateScoreboard(state, ctx);
 		}
 		persist(state, pi, ctx);
+		const broke = watch.after(event.toolCallId);
+		if (broke) {
+			return { content: [...event.content, { type: "text", text: broke }] };
+		}
 	});
 
 	pi.on("turn_end", async (_event, ctx) => {

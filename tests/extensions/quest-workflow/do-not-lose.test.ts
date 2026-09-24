@@ -57,7 +57,9 @@ const DO_NOT_LOSE: Capability[] = [
 	{
 		name: "Discipline gate with honest-by-destination classification",
 		guards: [
-			"tests/lib/internal/quest/write-classifier.test.ts",
+			"node_modules/@jitsusama/agentic-harness.core/dist/internal/quest/write-classifier.js",
+			"node_modules/@jitsusama/agentic-harness.core/dist/internal/quest/record-gate.js",
+			"tests/extensions/quest-workflow/record-gate.test.ts",
 			"tests/extensions/quest-workflow/discipline.test.ts",
 			"tests/extensions/quest-workflow/tree-gate.test.ts",
 		],

@@ -158,16 +158,39 @@ document is a plan in `think` or `draft`. Other document
 kinds (research, brief, report) have no implementation
 phase and never block code writes.
 
-The gate classifies every write, edit and bash redirect
-destination, and treats scratch and devices as first-class
-so ad-hoc work is never cornered. Writes to a `/dev` node
-(the discard sink, the standard streams) always flow. A
-write to bare system temp (`/tmp`, the OS temp dir) is
-funnelled into a quest-owned managed scratch directory:
-the gate creates it on demand under the OS temp dir,
-records it on the quest, and reaps it when the quest
-concludes or retires, so all scratch stays controlled and
-cleaned up. In `build`, a write inside any tree the quest
+Every quest folder is held to its record, whether or not
+the quest is loaded and whatever is focused (quest-format
+describes the record). The gate refuses a write it is sure
+is wrong and names where it belongs instead:
+
+- a new document written by hand, rather than minted by
+  `quest draft`;
+- a document or README written by bash, rather than with
+  the edit or write tool;
+- a document, the README or a kind folder removed, rather
+  than the quest retired;
+- anything else in a quest folder outside `attachments/`,
+  which belongs in the workspace;
+- an attachment whose name says raw data.
+
+A script, a build or a clone can make files no command
+names, so after each call that could touch a quest folder
+the gate reads the record from disk and appends what the
+call broke to the result. Put it right straight away: move
+the file to the destination named. If a run ends with the
+record still broken, the agent is asked once to put it
+right before finishing. Conclude refuses while anything
+remains, and names attachments no document cites.
+
+The gate reads each write, edit and bash destination, and
+treats the workspace and devices as first-class so ad-hoc
+work is never cornered. Writes to a `/dev` node (the
+discard sink, the standard streams) always flow. A write
+to bare system temp (`/tmp`, the OS temp dir) is funnelled
+into the loaded quest's workspace `tmp/` folder, which is
+cleared when the quest concludes or retires. Write working
+material straight into the workspace rather than system
+temp when it should outlive the session. In `build`, a write inside any tree the quest
 tracks flows; a write inside a git tree the quest does not
 track is refused with guidance to register it through
 `tree-adopt`, so the quest comes to account for every tree

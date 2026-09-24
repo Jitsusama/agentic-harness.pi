@@ -1,8 +1,15 @@
 /**
- * Stage-aware enforcement for the focused document, driven by the
- * write classifier. The gate's job is to keep the agent in the
- * right phase and to keep quest code in a real working tree, never
- * to corner a legitimate write.
+ * The quest write gate: the record's rules, then stage-aware
+ * enforcement for the focused document. The gate's job is to keep
+ * each quest's record whole, the agent in the right phase and quest
+ * code in a real working tree, never to corner a legitimate write.
+ *
+ * The record's rules hold in every quest folder, with or without a
+ * quest loaded: a document is made by `quest draft` and changed by the
+ * edit and write tools, nothing in the record is removed by hand, and
+ * anything else a quest makes goes to its workspace or, when a document
+ * cites it, to `attachments/`. They refuse only what the path decides;
+ * the rest is found on disk after the write.
  *
  * During a plan's think or draft stage, writes to the plan itself,
  * to the quest's own directory, to scratch and to brand-new files
@@ -16,13 +23,24 @@
  * agent-facing reason, never a prompt.
  */
 
-import { tmpdir } from "node:os";
+import { existsSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import * as path from "node:path";
 import type { ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import {
 	bashWriteTargets,
 	classifyBashWrite,
-} from "../../lib/internal/quest/bash-write.ts";
+	resolveBashWrites,
+} from "@jitsusama/agentic-harness.core/quest/bash-write";
+import {
+	judgeRecordWrite,
+	type RecordWrite,
+} from "@jitsusama/agentic-harness.core/quest/record-gate";
+import { ensureQuestWorkspaceTmp } from "@jitsusama/agentic-harness.core/quest/workspace";
+import {
+	classifyWrite,
+	type WriteClassification,
+} from "@jitsusama/agentic-harness.core/quest/write-classifier";
 import {
 	canonicalPath,
 	gitTreeRootOf,
@@ -30,13 +48,9 @@ import {
 	isTracked,
 	isWithin,
 } from "../../lib/internal/quest/git-signals.ts";
-import { ensureQuestScratchDir } from "../../lib/internal/quest/scratch.ts";
 import { listTreesOnQuest } from "../../lib/internal/quest/trees.ts";
-import {
-	classifyWrite,
-	type WriteClassification,
-} from "../../lib/internal/quest/write-classifier.ts";
 import type { QuestState } from "./state.ts";
+import { defaultWorkspaceRoot, workspaceDirOf } from "./workspace.ts";
 
 function isReadOnly(state: QuestState): boolean {
 	if (state.documentKind !== "plan") return false;
@@ -72,12 +86,11 @@ function writeTargetsOf(
 }
 
 /**
- * Funnel a write to bare system temp into the quest's managed
- * scratch directory. System temp is not reaped and leaks across
- * runs, so instead of allowing it the gate creates (on first need)
- * a quest-owned scratch dir under the OS temp dir and names it as
- * the place to redirect. Writes already inside that dir classify as
- * quest-scratch, not system-temp, so they flow.
+ * Funnel a write to bare system temp into the `tmp/` of the quest's
+ * workspace. System temp is not reaped and leaks across runs, so
+ * instead of allowing it the gate creates `tmp/` on first need and
+ * names it as the place to redirect. Writes anywhere in the workspace
+ * classify as quest scratch, not system temp, so they flow.
  */
 function systemTempFunnel(
 	state: QuestState,
@@ -86,20 +99,16 @@ function systemTempFunnel(
 	cwd: string,
 	options: EnforceOptions,
 ): ToolCallEventResult | undefined {
-	if (!state.questDir || !state.questId) return;
+	const root = options.workspaceRoot ?? defaultWorkspaceRoot();
+	if (!state.questDir || !workspaceDirOf(root, state.questId)) return;
 	const hitsTemp = writeTargetsOf(toolName, input, cwd).some(
 		(t) => classifyTarget(state, t, options).category === "system-temp",
 	);
 	if (!hitsTemp) return;
-	const dir = ensureQuestScratchDir(
-		state.questDir,
-		state.questId,
-		state.scratchDir,
-	);
-	state.scratchDir = dir;
+	const dir = ensureQuestWorkspaceTmp(root, state.questId ?? "");
 	return {
 		block: true,
-		reason: `Quest workflow: this writes to system temp, which is not tracked or reaped. Redirect into this quest's managed scratch directory instead, which is cleaned up when the quest concludes: ${dir}`,
+		reason: `Quest workflow: this writes to system temp, which is not tracked or reaped. Redirect into the tmp/ folder of this quest's workspace instead, which is cleared when the quest concludes: ${dir}`,
 	};
 }
 
@@ -135,6 +144,10 @@ function defaultTempRoots(): string[] {
 export interface EnforceOptions {
 	/** System temp roots to funnel into managed scratch. Defaults to the temp dir, /tmp and /private/tmp. */
 	tempRoots?: string[];
+	/** Where quests' workspaces live. */
+	workspaceRoot?: string;
+	/** The home directory a bare `cd` or `~` means. */
+	home?: string;
 }
 
 /** Classify a write target against the loaded quest and git signals. */
@@ -144,9 +157,16 @@ function classifyTarget(
 	options: EnforceOptions,
 ): WriteClassification {
 	const tempRoots = (options.tempRoots ?? defaultTempRoots()).map(canonical);
+	// The whole workspace is the quest's own, so a write anywhere in it is
+	// scratch: never system temp, and never homeless in build.
+	const workspace =
+		workspaceDirOf(
+			options.workspaceRoot ?? defaultWorkspaceRoot(),
+			state.questId,
+		) ?? state.scratchDir;
 	return classifyWrite(canonical(absTarget), {
 		questDir: state.questDir ? canonical(state.questDir) : null,
-		scratchDir: state.scratchDir ? canonical(state.scratchDir) : null,
+		scratchDir: workspace ? canonical(workspace) : null,
 		tempRoots,
 		isGitignored,
 		isTracked,
@@ -173,7 +193,7 @@ function enforcePhase(
 		if (classifyTarget(state, target, options).category === "tracked-code") {
 			return {
 				block: true,
-				reason: `Quest workflow (plan ${state.documentStage}): this edits already-tracked code. Move to build to implement, or keep planning notes in the plan, the quest directory or a scratch path.`,
+				reason: `Quest workflow (plan ${state.documentStage}): this edits already-tracked code. Move to build to implement, or keep planning notes in the plan, the quest's attachments/ or its workspace.`,
 			};
 		}
 		return;
@@ -267,7 +287,76 @@ function enforceHome(
 	return;
 }
 
-/** Check a tool call against the focused document's discipline. */
+/**
+ * The writes and removals a tool call makes that the record can judge.
+ * A bash target whose place the command does not say is left out: the
+ * check on disk after the command finds whatever it did.
+ */
+export function recordWritesOf(
+	toolName: string,
+	input: Record<string, unknown>,
+	cwd: string,
+	home: string,
+): RecordWrite[] {
+	if (toolName === "write" || toolName === "edit") {
+		const target = path.resolve(cwd, String(input.path ?? ""));
+		return [
+			{
+				path: target,
+				effect: "write",
+				via: "tool",
+				exists: existsSync(target),
+			},
+		];
+	}
+	if (toolName !== "bash") return [];
+	const resolved = resolveBashWrites(String(input.command ?? ""), {
+		cwd,
+		home,
+	});
+	const of = (effect: RecordWrite["effect"]) => (target: string) => ({
+		path: target,
+		effect,
+		via: "bash" as const,
+		exists: existsSync(target),
+	});
+	return [
+		...resolved.paths.map(of("write")),
+		...resolved.removed.map(of("remove")),
+	];
+}
+
+/**
+ * The record's rules, which hold in every quest folder whatever is
+ * loaded or focused: a write into a record is a record write whichever
+ * session makes it.
+ */
+function enforceRecord(
+	state: QuestState,
+	toolName: string,
+	input: Record<string, unknown>,
+	cwd: string,
+	options: EnforceOptions,
+): ToolCallEventResult | undefined {
+	const roots = {
+		questsRoot: state.questsRoot,
+		workspaceRoot: options.workspaceRoot ?? defaultWorkspaceRoot(),
+	};
+	for (const write of recordWritesOf(
+		toolName,
+		input,
+		cwd,
+		options.home ?? homedir(),
+	)) {
+		const refusal = judgeRecordWrite(write, roots);
+		if (refusal) {
+			return { block: true, reason: `Quest workflow: ${refusal.reason}` };
+		}
+	}
+	return;
+}
+
+/** Check a tool call against the record and the focused document's discipline. */
 export function enforceQuest(
 	state: QuestState,
 	toolName: string,
@@ -275,6 +364,8 @@ export function enforceQuest(
 	cwd: string,
 	options: EnforceOptions = {},
 ): ToolCallEventResult | undefined {
+	const record = enforceRecord(state, toolName, input, cwd, options);
+	if (record) return record;
 	if (!isGateActive(state)) return;
 	const funnel = systemTempFunnel(state, toolName, input, cwd, options);
 	if (funnel) return funnel;

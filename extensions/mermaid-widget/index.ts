@@ -108,7 +108,7 @@ export default function mermaidWidget(pi: ExtensionAPI) {
 		promptGuidelines: [
 			"Use render_mermaid to turn Mermaid source into a diagram rather than leaving it as prose.",
 			"It writes two files: an SVG (crisp at any zoom, for humans to read) and a PNG (the inline image and a portable raster) beside it.",
-			"Pass an explicit path (the PNG path) to write the pair beside a quest document you want to embed it in; the SVG lands next to it with the same base name.",
+			"To embed a diagram in a quest document, pass an explicit PNG path inside that quest's attachments/ folder and link it from the document; the SVG lands next to it with the same base name.",
 			"Embed the PNG in markdown for portability; point a human at the SVG when they need to read a dense diagram closely.",
 			"You wrote the source, so you already know what the diagram says: do not ask for it inline just to confirm it rendered. Set inline only to check something the source cannot predict, such as whether nodes overlap.",
 			"Rendering needs internet access to load the Mermaid library.",

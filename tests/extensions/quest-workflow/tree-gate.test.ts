@@ -1,4 +1,10 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -9,6 +15,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { enforceQuest } from "../../../extensions/quest-workflow/enforce";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
+import { defaultWorkspaceRoot } from "../../../extensions/quest-workflow/workspace";
+import { ensureQuestScratchDir } from "../../../lib/internal/quest/scratch";
 import { addTreeToQuest } from "../../../lib/internal/quest/trees";
 import { freshRepo } from "../../support/git-fixture.ts";
 import { createEnvGuard } from "./_helpers";
@@ -143,18 +151,17 @@ describe("build home gate", () => {
 		const state = buildState();
 		await createQuestWithPlan(state);
 		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
-		const docPath = join(state.questDir ?? "", "plans", "PLAN-something.md");
 		const verdict = enforceQuest(
 			state,
 			"write",
-			{ path: docPath },
+			{ path: state.documentPath ?? "" },
 			state.questDir ?? "",
 			noScratch,
 		);
 		expect(verdict).toBeUndefined();
 	});
 
-	it("allows writes to any path under the loaded quest dir, not just named subdirs", async () => {
+	it("sends a write outside the quest's record to its workspace, not to tree-add", async () => {
 		const state = buildState();
 		await createQuestWithPlan(state);
 		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
@@ -167,7 +174,8 @@ describe("build home gate", () => {
 				state.questDir ?? "",
 				noScratch,
 			);
-			expect(verdict).toBeUndefined();
+			expect(verdict?.reason, rel).toContain("workspace");
+			expect(verdict?.reason, rel).not.toMatch(/tree-add/);
 		}
 	});
 
@@ -213,7 +221,7 @@ describe("build home gate", () => {
 		const verdict = enforceQuest(
 			state,
 			"bash",
-			{ command: `Q=${state.questDir}; echo hi >> $Q/plans/P.md` },
+			{ command: `Q=${state.questDir}; echo hi >> $Q/attachments/P.md` },
 			repoRoot,
 			noScratch,
 		);
@@ -256,17 +264,20 @@ describe("build home gate", () => {
 // These run with the production default temp roots (no tempRoots
 // override), the wiring the prior fix never exercised: a literal
 // /tmp write and a /dev/null redirect under the real defaults.
-describe("scratch funnel", () => {
-	// Track every managed scratch dir the gate creates and reap them in
-	// afterEach, so a failed assertion never leaks a dir under tmpdir.
-	const scratchDirs: string[] = [];
-	const trackScratch = (state: { scratchDir: string | null }) => {
-		if (state.scratchDir) scratchDirs.push(state.scratchDir);
-	};
-	afterEach(() => {
-		for (const dir of scratchDirs.splice(0))
-			rmSync(dir, { recursive: true, force: true });
+describe("workspace funnel", () => {
+	// Workspaces live under the cache home, pointed at the test's own
+	// state dir so nothing lands in the real cache.
+	let savedCache: string | undefined;
+	beforeEach(() => {
+		savedCache = process.env.XDG_CACHE_HOME;
+		process.env.XDG_CACHE_HOME = join(tmpRoot, "cache");
 	});
+	afterEach(() => {
+		if (savedCache === undefined) delete process.env.XDG_CACHE_HOME;
+		else process.env.XDG_CACHE_HOME = savedCache;
+	});
+	const workspaceOf = (state: { questId: string | null }) =>
+		join(defaultWorkspaceRoot(), state.questId ?? "<none>");
 
 	it("allows a /dev/null redirect in build", async () => {
 		const state = buildState();
@@ -281,7 +292,7 @@ describe("scratch funnel", () => {
 		expect(verdict).toBeUndefined();
 	});
 
-	it("blocks a literal /tmp write with a scratch remedy, not tree-add", async () => {
+	it("blocks a literal /tmp write with a workspace remedy, not tree-add", async () => {
 		const state = buildState();
 		await createQuestWithPlan(state);
 		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
@@ -291,14 +302,15 @@ describe("scratch funnel", () => {
 			{ path: "/tmp/repro.log" },
 			repoRoot,
 		);
+		const tmp = join(workspaceOf(state), "tmp");
 		expect(verdict?.block).toBe(true);
-		expect(verdict?.reason).toMatch(/scratch/i);
+		expect(verdict?.reason).toContain(tmp);
 		expect(verdict?.reason).not.toMatch(/tree-add/);
-		expect(state.scratchDir).toBeTruthy();
-		trackScratch(state);
+		expect(existsSync(tmp)).toBe(true);
+		expect(state.scratchDir).toBeNull();
 	});
 
-	it("blocks a /tmp bash redirect and names the managed scratch dir", async () => {
+	it("blocks a /tmp bash redirect and names the workspace's tmp/", async () => {
 		const state = buildState();
 		await createQuestWithPlan(state);
 		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
@@ -309,25 +321,22 @@ describe("scratch funnel", () => {
 			repoRoot,
 		);
 		expect(verdict?.block).toBe(true);
-		expect(state.scratchDir).toBeTruthy();
-		expect(verdict?.reason).toContain(state.scratchDir ?? "<none>");
-		trackScratch(state);
+		expect(verdict?.reason).toContain(join(workspaceOf(state), "tmp"));
 	});
 
-	it("allows a write into the managed scratch dir once created", async () => {
+	it("lets writes anywhere in the workspace through in build", async () => {
 		const state = buildState();
 		await createQuestWithPlan(state);
 		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
-		enforceQuest(state, "write", { path: "/tmp/seed.log" }, repoRoot);
-		const scratch = state.scratchDir ?? "";
-		const verdict = enforceQuest(
-			state,
-			"write",
-			{ path: join(scratch, "run.log") },
-			repoRoot,
-		);
-		expect(verdict).toBeUndefined();
-		trackScratch(state);
+		for (const rel of ["tmp/run.log", "lab/results.csv"]) {
+			const verdict = enforceQuest(
+				state,
+				"write",
+				{ path: join(workspaceOf(state), rel) },
+				repoRoot,
+			);
+			expect(verdict, rel).toBeUndefined();
+		}
 	});
 
 	it("funnels system temp in draft too", async () => {
@@ -341,42 +350,41 @@ describe("scratch funnel", () => {
 			repoRoot,
 		);
 		expect(verdict?.block).toBe(true);
-		expect(verdict?.reason).toMatch(/scratch/i);
-		trackScratch(state);
+		expect(verdict?.reason).toContain(join(workspaceOf(state), "tmp"));
 	});
 
-	it("reaps the managed scratch dir on conclude", async () => {
+	it("clears the workspace's tmp/ on conclude and keeps the rest", async () => {
 		const state = buildState();
 		await createQuestWithPlan(state);
 		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
 		enforceQuest(state, "write", { path: "/tmp/seed.log" }, repoRoot);
-		const dir = state.scratchDir ?? "";
-		expect(existsSync(dir)).toBe(true);
+		const workspace = workspaceOf(state);
+		mkdirSync(join(workspace, "lab"));
+		writeFileSync(join(workspace, "lab", "results.csv"), "x\n");
 		const concluded = await handle(state, fakePi(), fakeCtx(repoRoot), {
 			action: "conclude",
 			scope: "quest",
 		});
 		expect(concluded.ok).toBe(true);
-		expect(existsSync(dir)).toBe(false);
-		expect(state.scratchDir).toBeNull();
-		scratchDirs.push(dir);
+		expect(existsSync(join(workspace, "tmp"))).toBe(false);
+		expect(existsSync(join(workspace, "lab", "results.csv"))).toBe(true);
 	});
 
-	it("hydrates the recorded scratch dir into a fresh state on load", async () => {
+	it("still reaps a scratch dir recorded before workspaces", async () => {
 		const state = buildState();
-		const quest = await createQuestWithPlan(state);
-		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
-		enforceQuest(state, "write", { path: "/tmp/seed.log" }, repoRoot);
-		const dir = state.scratchDir ?? "";
-		expect(dir).toBeTruthy();
-
-		const fresh = buildState();
-		const loaded = await handle(fresh, fakePi(), fakeCtx(repoRoot), {
-			action: "load",
-			id: quest.id,
+		await createQuestWithPlan(state);
+		const legacy = ensureQuestScratchDir(
+			state.questDir ?? "",
+			state.questId ?? "",
+			null,
+		);
+		state.scratchDir = legacy;
+		const concluded = await handle(state, fakePi(), fakeCtx(repoRoot), {
+			action: "conclude",
+			scope: "quest",
 		});
-		expect(loaded.ok).toBe(true);
-		expect(fresh.scratchDir).toBe(dir);
-		scratchDirs.push(dir);
+		expect(concluded.ok).toBe(true);
+		expect(existsSync(legacy)).toBe(false);
+		expect(state.scratchDir).toBeNull();
 	});
 });
