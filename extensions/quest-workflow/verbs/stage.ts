@@ -14,6 +14,7 @@ import {
 } from "@jitsusama/agentic-harness.core/quest/record-audit";
 import { clearQuestWorkspaceTmp } from "@jitsusama/agentic-harness.core/quest/workspace";
 import { resolveTreeProvider } from "@jitsusama/agentic-harness.core/tree";
+import { appendJourneyByPath } from "../../../lib/internal/quest/append-journey.ts";
 import { nowYmd } from "../../../lib/internal/quest/dates.ts";
 import { discoverQuests } from "../../../lib/internal/quest/discovery.ts";
 import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter.ts";
@@ -64,6 +65,38 @@ import {
 	refuse,
 } from "./shared.ts";
 import { bulkConcludeOrRetire } from "./structural.ts";
+
+/**
+ * Conclude or retire a list of quests, then clear what each one's
+ * conclude would have: the workspace's tmp/ and any scratch recorded
+ * before workspaces. Core seals the records; the workspace root is
+ * this package's to know.
+ */
+function sweepQuests(
+	state: QuestState,
+	action: "conclude" | "retire",
+	params: QuestToolParams,
+): QuestResult {
+	const result = bulkConcludeOrRetire(state, action, params);
+	if (!result.ok || result.details?.dryRun) return result;
+	const changes = (result.details?.changes ?? []) as { id: string }[];
+	const { index } = discoverQuests(state.questsRoot);
+	for (const { id } of changes) {
+		const entry = index.quests.get(id);
+		if (!entry) continue;
+		if (
+			reapQuestScratchDir(entry.dir, entry.doc.frontMatter.scratchDir ?? null)
+		) {
+			appendJourneyByPath(entry.dir, "Reaped the managed scratch directory.");
+		}
+		if (id === state.questId) state.scratchDir = null;
+		if (!workspaceDirOf(defaultWorkspaceRoot(), id)) continue;
+		if (clearQuestWorkspaceTmp(defaultWorkspaceRoot(), id)) {
+			appendJourneyByPath(entry.dir, "Cleared the workspace's tmp/ folder.");
+		}
+	}
+	return result;
+}
 
 /**
  * Pin `planId` as the quest's primary plan when no primary
@@ -455,12 +488,12 @@ export async function concludeOrRetire(
 			return concludeDocumentById(state, action, params, ctx, targetId, subdir);
 		}
 		if (declaredScope === "quest") {
-			return bulkConcludeOrRetire(state, action, params);
+			return sweepQuests(state, action, params);
 		}
 		if (subdir) {
 			return concludeDocumentById(state, action, params, ctx, targetId, subdir);
 		}
-		return bulkConcludeOrRetire(state, action, params);
+		return sweepQuests(state, action, params);
 	}
 	if (!state.questDir) {
 		return refuse("Load a quest before concluding or retiring anything.");
