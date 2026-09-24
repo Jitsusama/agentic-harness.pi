@@ -1,8 +1,15 @@
 /**
- * Stage-aware enforcement for the focused document, driven by the
- * write classifier. The gate's job is to keep the agent in the
- * right phase and to keep quest code in a real working tree, never
- * to corner a legitimate write.
+ * The quest write gate: the record's rules, then stage-aware
+ * enforcement for the focused document. The gate's job is to keep
+ * each quest's record whole, the agent in the right phase and quest
+ * code in a real working tree, never to corner a legitimate write.
+ *
+ * The record's rules hold in every quest folder, with or without a
+ * quest loaded: a document is made by `quest draft` and changed by the
+ * edit and write tools, nothing in the record is removed by hand, and
+ * anything else a quest makes goes to its workspace or, when a document
+ * cites it, to `attachments/`. They refuse only what the path decides;
+ * the rest is found on disk after the write.
  *
  * During a plan's think or draft stage, writes to the plan itself,
  * to the quest's own directory, to scratch and to brand-new files
@@ -16,13 +23,24 @@
  * agent-facing reason, never a prompt.
  */
 
-import { tmpdir } from "node:os";
+import { existsSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import * as path from "node:path";
 import type { ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import {
 	bashWriteTargets,
 	classifyBashWrite,
-} from "../../lib/internal/quest/bash-write.ts";
+	resolveBashWrites,
+} from "@jitsusama/agentic-harness.core/quest/bash-write";
+import {
+	judgeRecordWrite,
+	type RecordWrite,
+} from "@jitsusama/agentic-harness.core/quest/record-gate";
+import {
+	classifyWrite,
+	type WriteClassification,
+} from "@jitsusama/agentic-harness.core/quest/write-classifier";
+import { cacheDir } from "../../lib/internal/paths.ts";
 import {
 	canonicalPath,
 	gitTreeRootOf,
@@ -32,10 +50,6 @@ import {
 } from "../../lib/internal/quest/git-signals.ts";
 import { ensureQuestScratchDir } from "../../lib/internal/quest/scratch.ts";
 import { listTreesOnQuest } from "../../lib/internal/quest/trees.ts";
-import {
-	classifyWrite,
-	type WriteClassification,
-} from "../../lib/internal/quest/write-classifier.ts";
 import type { QuestState } from "./state.ts";
 
 function isReadOnly(state: QuestState): boolean {
@@ -135,6 +149,10 @@ function defaultTempRoots(): string[] {
 export interface EnforceOptions {
 	/** System temp roots to funnel into managed scratch. Defaults to the temp dir, /tmp and /private/tmp. */
 	tempRoots?: string[];
+	/** Where quests' workspaces live. */
+	workspaceRoot?: string;
+	/** The home directory a bare `cd` or `~` means. */
+	home?: string;
 }
 
 /** Classify a write target against the loaded quest and git signals. */
@@ -267,7 +285,81 @@ function enforceHome(
 	return;
 }
 
-/** Check a tool call against the focused document's discipline. */
+/** Where quests' workspaces live unless a caller says otherwise. */
+export function defaultWorkspaceRoot(): string {
+	return cacheDir("quest-workspace");
+}
+
+/**
+ * The writes and removals a tool call makes that the record can judge.
+ * A bash target whose place the command does not say is left out: the
+ * check on disk after the command finds whatever it did.
+ */
+export function recordWritesOf(
+	toolName: string,
+	input: Record<string, unknown>,
+	cwd: string,
+	home: string,
+): RecordWrite[] {
+	if (toolName === "write" || toolName === "edit") {
+		const target = path.resolve(cwd, String(input.path ?? ""));
+		return [
+			{
+				path: target,
+				effect: "write",
+				via: "tool",
+				exists: existsSync(target),
+			},
+		];
+	}
+	if (toolName !== "bash") return [];
+	const resolved = resolveBashWrites(String(input.command ?? ""), {
+		cwd,
+		home,
+	});
+	const of = (effect: RecordWrite["effect"]) => (target: string) => ({
+		path: target,
+		effect,
+		via: "bash" as const,
+		exists: existsSync(target),
+	});
+	return [
+		...resolved.paths.map(of("write")),
+		...resolved.removed.map(of("remove")),
+	];
+}
+
+/**
+ * The record's rules, which hold in every quest folder whatever is
+ * loaded or focused: a write into a record is a record write whichever
+ * session makes it.
+ */
+function enforceRecord(
+	state: QuestState,
+	toolName: string,
+	input: Record<string, unknown>,
+	cwd: string,
+	options: EnforceOptions,
+): ToolCallEventResult | undefined {
+	const roots = {
+		questsRoot: state.questsRoot,
+		workspaceRoot: options.workspaceRoot ?? defaultWorkspaceRoot(),
+	};
+	for (const write of recordWritesOf(
+		toolName,
+		input,
+		cwd,
+		options.home ?? homedir(),
+	)) {
+		const refusal = judgeRecordWrite(write, roots);
+		if (refusal) {
+			return { block: true, reason: `Quest workflow: ${refusal.reason}` };
+		}
+	}
+	return;
+}
+
+/** Check a tool call against the record and the focused document's discipline. */
 export function enforceQuest(
 	state: QuestState,
 	toolName: string,
@@ -275,6 +367,8 @@ export function enforceQuest(
 	cwd: string,
 	options: EnforceOptions = {},
 ): ToolCallEventResult | undefined {
+	const record = enforceRecord(state, toolName, input, cwd, options);
+	if (record) return record;
 	if (!isGateActive(state)) return;
 	const funnel = systemTempFunnel(state, toolName, input, cwd, options);
 	if (funnel) return funnel;

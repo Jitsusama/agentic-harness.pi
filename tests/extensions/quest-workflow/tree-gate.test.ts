@@ -143,18 +143,17 @@ describe("build home gate", () => {
 		const state = buildState();
 		await createQuestWithPlan(state);
 		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
-		const docPath = join(state.questDir ?? "", "plans", "PLAN-something.md");
 		const verdict = enforceQuest(
 			state,
 			"write",
-			{ path: docPath },
+			{ path: state.documentPath ?? "" },
 			state.questDir ?? "",
 			noScratch,
 		);
 		expect(verdict).toBeUndefined();
 	});
 
-	it("allows writes to any path under the loaded quest dir, not just named subdirs", async () => {
+	it("sends a write outside the quest's record to its workspace, not to tree-add", async () => {
 		const state = buildState();
 		await createQuestWithPlan(state);
 		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
@@ -167,7 +166,8 @@ describe("build home gate", () => {
 				state.questDir ?? "",
 				noScratch,
 			);
-			expect(verdict).toBeUndefined();
+			expect(verdict?.reason, rel).toContain("workspace");
+			expect(verdict?.reason, rel).not.toMatch(/tree-add/);
 		}
 	});
 
@@ -213,7 +213,7 @@ describe("build home gate", () => {
 		const verdict = enforceQuest(
 			state,
 			"bash",
-			{ command: `Q=${state.questDir}; echo hi >> $Q/plans/P.md` },
+			{ command: `Q=${state.questDir}; echo hi >> $Q/attachments/P.md` },
 			repoRoot,
 			noScratch,
 		);
