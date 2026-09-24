@@ -193,7 +193,7 @@ function enforcePhase(
 		if (classifyTarget(state, target, options).category === "tracked-code") {
 			return {
 				block: true,
-				reason: `Quest workflow (plan ${state.documentStage}): this edits already-tracked code. Move to build to implement, or keep planning notes in the plan, the quest directory or a scratch path.`,
+				reason: `Quest workflow (plan ${state.documentStage}): this edits already-tracked code. Move to build to implement, or keep planning notes in the plan, the quest's attachments/ or its workspace.`,
 			};
 		}
 		return;

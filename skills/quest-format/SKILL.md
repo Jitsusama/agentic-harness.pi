@@ -51,6 +51,9 @@ questsRoot/
       PLAN-20260603-BBB222.md
     research/
       RSCH-20260604-CCC333.md
+    attachments/
+      cost-by-week.png
+      sweep/summary.md
   QEST-20260605-DDD444/          (subquest of AAA111,
     README.md                      flat at the root,
                                    parent: QEST-...-AAA111
@@ -65,8 +68,56 @@ errors and skips the offending entry:
   instead of inside `plans/`, `research/`, `briefs/`
   or `reports/`
 
-Free-form subdirectories (`runs/`, `tools/`, `evidence/`)
-are fine; the discovery walk ignores them.
+## The Record and the Workspace
+
+A quest folder holds the quest's record and nothing else:
+
+- the `README.md`;
+- ID-named documents in `plans/`, `research/`, `briefs/`
+  and `reports/`, minted by `quest draft`;
+- one `attachments/` folder, shared by every document in
+  the quest and free-form inside.
+
+An attachment is material a document stands on: a chart,
+a diagram, a summary table, a short script, a note too
+long for the document itself. Each must be a regular file
+(no symlink, nothing inside a git checkout), text up to
+1 MiB or a raster image up to 5 MiB, and not raw data:
+no databases, archives, packs, `.jsonl`, logs, traces or
+dumps. SVG counts as text.
+
+Everything else belongs in the quest's workspace, at
+`$XDG_CACHE_HOME/pi/agentic-harness.pi/quest-workspace/<ID>/`
+(`~/.cache/…` by default): clones, raw data, labs, runs,
+builds and downloads. Its `tmp/` folder takes the writes
+the gate funnels out of system temp and is cleared when
+the quest concludes or retires. The rest of the workspace
+outlives the conclusion for a while, then the disk guard
+reclaims it. The workspace is never backed up, so nothing
+a later reader needs may live only there.
+
+Cite what the record stands on. An attachment counts as
+cited when a document or the README mentions its path
+through `attachments/`, as a markdown link, an image or a
+code span; a mention of a folder cites everything in it.
+The backup keeps only cited attachments, and a markdown
+link into `attachments/` that leads nowhere keeps the
+quest from concluding.
+
+Cite raw data by provenance rather than by copy: say
+where it came from and how to get it again (the query,
+the command, the commit), and attach the summary the
+document actually uses. A 40 MiB trace belongs in the
+workspace; the table of its five slowest spans belongs in
+`attachments/`. From a plan, one folder down:
+
+```markdown
+![Cost by week](../attachments/cost-by-week.png)
+
+The sweep's summary is in `attachments/sweep/summary.md`.
+The raw rows came from `bq query < cost.sql` against
+`billing.daily` on 2026-06-04.
+```
 
 ## Frontmatter
 
