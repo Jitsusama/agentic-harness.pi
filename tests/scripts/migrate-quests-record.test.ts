@@ -140,6 +140,24 @@ describe("planRecordMigration", () => {
 		expect(movesOf(plan)).toContain("A HANDOFF.md -> ws:HANDOFF.md (working)");
 	});
 
+	it("leaves a skipped quest, and links into it, for a later run", () => {
+		const plan = planRecordMigration({ questsRoot, workspaceRoot, skip: [A] });
+		expect(plan.moves).toEqual([]);
+		expect(plan.rewrites).toEqual([]);
+	});
+
+	it("still points a skipped quest's links at what moved elsewhere", () => {
+		const plan = planRecordMigration({ questsRoot, workspaceRoot, skip: [B] });
+		expect(plan.moves.every((m) => m.quest === A)).toBe(true);
+		const readmeOfB = plan.rewrites.find((r) => r.quest === B);
+		expect(readmeOfB?.changes).toEqual([
+			{
+				before: `../${A}/evidence/chart.png`,
+				after: `../${A}/attachments/evidence/chart.png`,
+			},
+		]);
+	});
+
 	it("reports a destination that already exists and does not plan over it", () => {
 		mkdirSync(join(workspaceRoot, A, "lab"), { recursive: true });
 		const plan = planRecordMigration({ questsRoot, workspaceRoot });

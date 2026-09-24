@@ -28,11 +28,13 @@
  * Dry run by default, printing a summary; pass --manifest <file> to
  * write the full manifest for review, and --apply to migrate, which
  * writes a JSON journal of every move and rewrite. --root and
- * --workspace point at stores other than the defaults.
+ * --workspace point at stores other than the defaults. --skip takes
+ * comma-separated quest IDs to leave for a later run, such as quests a
+ * live session is writing in; links from them are still rewritten.
  *
  *   pnpm tsx scripts/migrate-quests-record.ts [--apply] [--manifest <file>]
  *     [--to-workspace <file>] [--journal <file>] [--root <path>]
- *     [--workspace <path>]
+ *     [--workspace <path>] [--skip <id,id>]
  */
 
 import {
@@ -66,6 +68,11 @@ export interface MigrationOptions {
 	workspaceRoot: string;
 	/** Review groups, as `<quest>/<folder>`, to send to the workspace. */
 	toWorkspace?: string[];
+	/**
+	 * Quests to leave for a later run, such as one a live session is
+	 * working in. Nothing in them moves, so no link into them changes.
+	 */
+	skip?: string[];
 }
 
 export type MoveReason = "cited" | "review" | "working";
@@ -117,11 +124,12 @@ export function planRecordMigration(options: MigrationOptions): MigrationPlan {
 		keys.some((k) => group === k || group.startsWith(`${k}/`));
 	const moves: Move[] = [];
 	const collisions: string[] = [];
+	const skipped = new Set(options.skip ?? []);
 	const quests = readdirSync(questsRoot)
 		.filter((name) => QUEST_ID.test(name))
 		.sort();
 
-	for (const quest of quests) {
+	for (const quest of quests.filter((q) => !skipped.has(q))) {
 		const questDir = join(questsRoot, quest);
 		const audit = auditQuestRecord(questDir);
 		if (audit.strays.length === 0 && audit.attachments.length === 0) continue;
@@ -794,7 +802,14 @@ function main(): void {
 				.filter(Boolean)
 		: [];
 
-	const plan = planRecordMigration({ questsRoot, workspaceRoot, toWorkspace });
+	const skip = (option("--skip") ?? "").split(",").filter(Boolean);
+
+	const plan = planRecordMigration({
+		questsRoot,
+		workspaceRoot,
+		toWorkspace,
+		skip,
+	});
 	const manifest = renderManifest(plan);
 	const manifestPath = option("--manifest");
 	if (manifestPath) writeFileSync(manifestPath, manifest);
