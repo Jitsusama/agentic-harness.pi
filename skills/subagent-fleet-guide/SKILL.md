@@ -208,6 +208,13 @@ windows, N model calls. Three habits keep this honest:
   the aggregate spend ("4,200 tokens, $0.012") so the
   user has a feedback loop on cost. The tool's text
   summary includes this when usage is present.
+- **Give an implementation job `thinkingLevel:
+  "medium"`.** A job with a checkable outcome (tests to
+  make pass, a benchmark to reproduce) needs no more.
+  Replayed on 22 real commits, Opus 5.5 at medium got
+  every task right, as it did at high, for 7 percent less
+  and 8 percent fewer turns. Investigation and review
+  keep the default: nothing has measured them at medium.
 
 If a fleet would dispatch more than ~5 jobs, ask first.
 "Want me to run security + performance + readability on
