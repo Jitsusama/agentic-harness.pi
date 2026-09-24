@@ -9,6 +9,12 @@
  */
 
 export {
+	isSummaryContributions,
+	newContributions,
+	SUMMARY_CONTRIBUTIONS,
+	type SummaryContributions,
+} from "./contributions.ts";
+export {
 	type CompactionFailure,
 	FAILURE_ENTRY,
 	failureRecord,
@@ -18,6 +24,18 @@ export {
 export { type CompactionHistory, compactionHistory } from "./history.ts";
 export { type PaybackInput, paybackMargin, paybackTest } from "./payback.ts";
 export { clampReserveTokens } from "./reserve.ts";
+export {
+	extendSentPayload,
+	type FileOperations,
+	readSummary,
+	type SpliceOutcome,
+	SUMMARY_SPAN,
+	type SummaryInstructionOptions,
+	type SummaryOutcome,
+	type SummaryReply,
+	summaryInstruction,
+	withFileLists,
+} from "./summary.ts";
 export {
 	currentThresholdDraw,
 	drawThreshold,

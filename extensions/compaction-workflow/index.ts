@@ -79,6 +79,7 @@ import {
 } from "../../lib/compaction/index.ts";
 import { cachePrices } from "../../lib/internal/cache-prices.ts";
 import { compactionFailureNotice, compactionNotice } from "./notice.ts";
+import { registerConversationSummary } from "./summariser.ts";
 
 /**
  * Never compact a context smaller than this. At 250k the replay cost
@@ -143,6 +144,8 @@ function explorationRate(): number {
 }
 
 export default function compactionWorkflow(pi: ExtensionAPI) {
+	registerConversationSummary(pi);
+
 	let turnsSince = 0;
 	let firstTurnTokens: number | null = null;
 	let observedRetained: number | null = null;

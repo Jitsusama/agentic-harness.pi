@@ -132,20 +132,92 @@ in `~/.pi/agent/settings.json`, which allows a 51,200-token summary,
 trigger earlier, to 936k on a 1M model and 436k on grok's 500k, both
 far above where this policy compacts.
 
+## Writing the Summary
+
+pi writes a summary by serialising the conversation to text, cutting
+every tool result to 2,000 characters, and sending it to the model
+with no cache. A turn that is split by the cut point takes a second,
+sequential call. So pi pays full input price for a copy of the context
+that the session's cache already holds, and the model only sees a
+clipped copy.
+
+`summariser.ts` writes it from the cached conversation instead. It
+keeps the last request the session sent to the provider, byte for
+byte, and on `session_before_compact` it sends that request again
+with the reply that came back, any tool results since, and one closing
+instruction added. The closing instruction reuses pi's checkpoint
+format word for word, so everything downstream reads an ordinary
+summary, and it tells the model to stop work and call no tool. The
+prefix is then read from cache, the model sees every token of the
+conversation, and it takes one call. The added messages carry no
+cache breakpoint, since nothing after the compaction starts with them.
+
+It hands back to pi's summariser, and writes a
+`compaction-summary-fallback` entry saying why, when it cannot do this
+cleanly: no request has been sent yet this session, the model is not on
+the Anthropic messages API or changed since, there are no credentials,
+the cache may have expired, the last request overflowed the window, the
+conversation moved on in a way the kept request cannot be extended to,
+or the reply called a tool, hit the token cap, came back empty or
+failed.
+
+Measured on pi 0.87.1:
+
+- **Live, about 100k tokens:** 102,506 of 102,514 prompt tokens read
+  from cache, 17 seconds against pi's 23. Compacting mid-run, with
+  tool results still unsent, read 90,217 from cache and sent the 7,232
+  new tokens at full price. At this size it costs a few cents more
+  than pi, which reads a clipped copy of a small context.
+- **At real sizes:** the 88 compactions pi ran from 2026-09-17 had a
+  median context of 315k tokens, of which pi sent 146k after clipping,
+  and wrote a median 12k tokens of output. Priced at Opus 5.5 list, a
+  full cache read of each context plus pi's own output comes to $31
+  against pi's $115; the replay below wrote a median 7.7k tokens
+  rather than pi's 13k, so the real difference should be larger.
+- **Quality:** ten of those compactions, sampled at random, were
+  replayed through this summariser and judged against the summary pi
+  wrote at the time, blind and in random order. The judge read the
+  whole conversation, knew which messages stay verbatim after either
+  summary, and saw what the session did next. Opus 5.5 preferred this
+  summary in all ten. Gemini 3.1 Pro, a different model family,
+  preferred it in seven. All three it did not came down to one
+  thing: the summary also covers what happens in the messages kept
+  after it, so it reads as ahead of them. That is deliberate, since it
+  describes the state at the end of the conversation while pi's
+  describes the state at the cut and can carry next steps the kept
+  messages have already done, which both judges flagged as misleading.
+  But the order was unsaid, so every summary now opens with a fixed
+  line saying it covers the messages that follow it. The replay cost
+  $28.
+
+The cost the trigger weighs (see The Decision) still assumes pi's
+summariser, so when this one writes the summary, compacting costs
+less than the trigger thinks and it fires somewhat later than it
+would with the true price. That errs toward keeping context.
+
+Another extension can add to the summary this writes through
+`SUMMARY_CONTRIBUTIONS` on `pi.events`, from `lib/compaction/`: it
+pushes a focus instruction or text to append onto the request emitted
+before each attempt, and reads `handled` afterwards to learn whether it
+needs a summariser of its own for that compaction.
+
 ## Settings
 
 - `PI_COMPACTION_POLICY=off` turns it off.
 - `PI_COMPACTION_FLOOR_TOKENS` moves the 250k floor.
 - `PI_COMPACTION_EXPLORATION_RATE` sets the share of stretches that
   explore, 0.2 by default; `0` turns exploration off.
+- `PI_COMPACTION_SUMMARY=pi` leaves every summary to pi's summariser.
 
 ## Files
 
 - `index.ts`: registration and the `turn_end` decision.
 - `notice.ts`: what the user is told when a compaction fires or fails.
+- `summariser.ts`: the summary written from the cached conversation.
 
 The decision is pure and tested in `lib/compaction/trigger.ts`, the
 draw in `lib/compaction/threshold.ts` and the back-off in
-`lib/compaction/failure.ts`; cache
+`lib/compaction/failure.ts`, the summary's instruction, splice and
+reading in `lib/compaction/summary.ts`; cache
 prices under the retention in force come from
 `lib/internal/cache-prices.ts`, shared with `demote-workflow`.
