@@ -2,15 +2,21 @@
  * The margin a stretch of session compacts at, drawn with a recorded
  * chance so the choice can be measured rather than only argued for.
  *
- * The payback test fires once the reads saved outweigh what compacting
- * costs, a threshold of one. The replay that chose it could compare
- * thresholds only by simulating what a session would have done, and a
- * live policy that always picks one leaves nothing to compare against:
- * with a propensity of exactly one, inverse-propensity and doubly-robust
- * estimates are undefined. So a small share of stretches compact a
- * little earlier (at 1/√2) or later (at √2), and each draw is written to
- * the session log with the probability it had, before anything it
- * influences has happened.
+ * The payback test fires once the reads saved reach a multiple of what
+ * compacting costs. The replay put the cheapest multiple at one, but
+ * nearly flat around it, and a compaction interrupts the user and loses
+ * detail the replay cannot price, so the usual multiple is √2: over the
+ * month from 2026-08-24 that is 8 percent fewer compactions for about
+ * $70 more ($9,376 against $9,306). The replay could compare multiples
+ * only by simulating what a session would have done, and a live policy
+ * that always picks one leaves nothing to compare against: with a
+ * propensity of exactly one, inverse-propensity and doubly-robust
+ * estimates are undefined. So a share of stretches compact a little
+ * earlier (at 1) or later (at 2), and each draw is written to the
+ * session log with the probability it had, before anything it
+ * influences has happened. Stretches logged before this, at a usual
+ * multiple of one with arms at 1/√2 and √2, are a different policy and
+ * are told apart by the thresholds they record.
  *
  * A stretch runs from one compaction to the next. The draw is made once
  * per stretch and read back from the log on resume, so a restart does
@@ -23,15 +29,15 @@ import { choseWithPropensity } from "../control/index.ts";
 export const THRESHOLD_ENTRY = "compaction-threshold";
 
 /** The margin the payback test uses when nothing is being explored. */
-const USUAL_THRESHOLD = 1;
+export const USUAL_THRESHOLD = Math.SQRT2;
 
 /**
- * Earlier and later, the same factor either side, so neither direction
- * is favoured. √2 either way moves a typical compaction by a few turns,
- * which is close enough to the usual choice to cost little and far
- * enough to show up in what a stretch costs.
+ * Earlier and later, a factor of √2 either side of the usual √2, so
+ * neither direction is favoured. The earlier arm is the replay's
+ * cheapest margin, which keeps it measured against the one in use.
+ * Written out rather than multiplied, so they record exactly 1 and 2.
  */
-const EXPLORED_THRESHOLDS = [Math.SQRT1_2, Math.SQRT2] as const;
+const EXPLORED_THRESHOLDS = [1, 2] as const;
 
 /** One stretch's threshold, and the chance it had of being chosen. */
 export interface ThresholdDraw {

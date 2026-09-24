@@ -22,7 +22,8 @@ After every turn, `compactionPays` in `lib/compaction/` weighs:
 - **cost**: pi's summariser reading the whole context at full input
   price, plus the retained prompt being written fresh to the cache.
 
-It never fires below 250k tokens. The retained prompt starts as the
+It fires once saved reaches √2 times the cost, and never below 250k
+tokens. The retained prompt starts as the
 session's first measured prompt (the fixed system prompt, tools and
 instructions) plus pi's 20k of kept messages and room for the summary,
 and after one of its own compactions it uses what that compaction
@@ -37,22 +38,40 @@ replay cannot prove, so the ledger's cost per turn and regret once this
 is live are the real check. The replay lives with the spend quest as
 `tools/threshold-replay.py`.
 
+## Why √2
+
+The replay put the cheapest margin at one, firing as soon as the saving
+crosses the cost, but found cost nearly flat around it. Over the month
+from 2026-08-24:
+
+| Margin | Compactions | Mean prompt | Cost |
+|---|---|---|---|
+| 1 | 533 | 197k | $9,306 |
+| √2 | 492 | 203k | $9,376 |
+| 2 | 456 | 210k | $9,431 |
+
+A compaction interrupts the run and loses detail the replay cannot
+price, so the margin is √2: 8 percent fewer compactions for about $70 a
+month. Raising the floor instead does the same job at a worse rate: a
+300k floor gives 411 compactions for $231 more.
+
 ## Recorded Exploration
 
-Firing once the saving crosses the cost, a margin of one, was chosen by
-replay. A live policy that always fires there cannot be checked against
+A live policy that always fires at √2 cannot be checked against
 anything, since estimating another threshold from logged sessions needs
-some sessions to have used it. So a fifth of stretches (a stretch
-runs from one compaction to the next) draw a threshold of 1/√2, firing
-a little earlier, or √2, a little later, at equal chances.
+some sessions to have used it. So a fifth of stretches (a stretch runs
+from one compaction to the next) draw a threshold of 1, firing a little
+earlier, or 2, a little later, at equal chances. The earlier arm is
+the replay's cheapest margin, so the one in use is measured against it.
 
 A fifth because a smaller share would take too long: about 156 stretches
 a month pass the floor, so five percent would log thirty a side in
-about seven months, and a fifth does it in about two. The replay prices
-it at about $12 a month, since it finds cost nearly flat around a
-margin of one ($48 a month more if every stretch fired at 1/√2, $70 at
-√2). Whether that flatness holds on live sessions is what the draws
-measure.
+about seven months, and a fifth does it in about two. By replay it costs
+about nothing, since the arms either side of √2 cost $70 a month less
+and $55 more if every stretch took them. Whether that flatness holds on
+live sessions is what the draws measure. Stretches logged before
+2026-09-24 used a margin of one with arms at 1/√2 and √2; the recorded
+thresholds tell the two policies apart.
 
 The draw is made on the stretch's first turn above the floor, before
 the decision it shapes, and written to the session log as a

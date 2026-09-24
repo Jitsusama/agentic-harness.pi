@@ -23,6 +23,7 @@ export {
 	drawThreshold,
 	THRESHOLD_ENTRY,
 	type ThresholdDraw,
+	USUAL_THRESHOLD,
 } from "./threshold.ts";
 export {
 	compactionPays,

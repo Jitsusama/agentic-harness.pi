@@ -24,10 +24,10 @@ describe("telling the user why the session is compacting", () => {
 	});
 
 	it("says so when this stretch is one of the logged experiments", () => {
-		const draw = { threshold: Math.SQRT2, propensity: 0.05, explored: true };
+		const draw = { threshold: 2, propensity: 0.05, explored: true };
 		expect(compactionNotice(265_000, FIRED, draw)).toBe(
 			"Compacting at 265k tokens: $1.21 to summarise, earned back after about 38 more turns at this size. " +
-				"This stretch was drawn to compact once savings reach 1.41 times the cost rather than 1, as a logged experiment",
+				"This stretch was drawn to compact once savings reach 2.00 times the cost rather than 1.41, as a logged experiment",
 		);
 	});
 

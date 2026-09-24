@@ -37,10 +37,14 @@
  * turn. A cancelled compaction holds off the same way but is not
  * resumed, since somebody stopped it on purpose.
  *
- * Recorded exploration: whether one is the right margin to fire at can
+ * It fires once the saving reaches √2 times the cost (`USUAL_THRESHOLD`)
+ * rather than the replay's cheapest multiple of one: the replay is
+ * nearly flat there, and later compaction interrupts less.
+ *
+ * Recorded exploration: whether √2 is the right margin to fire at can
  * only be measured if the policy sometimes fires elsewhere, so a fifth
- * of stretches (one compaction to the next) draw a threshold of
- * 1/√2 or √2 instead (`drawThreshold`). The draw and its probability go
+ * of stretches (one compaction to the next) draw a threshold of 1 or 2
+ * instead (`drawThreshold`). The draw and its probability go
  * into the session log as a custom entry, which the model never sees,
  * before the decision it shapes, and the notice says when a compaction
  * is one of them. `PI_COMPACTION_EXPLORATION_RATE` sets the share, and
@@ -77,9 +81,9 @@ const DEFAULT_FLOOR_TOKENS = 250_000;
  * Share of stretches that draw an explored threshold. About 156
  * stretches a month pass the floor, so five percent would log four a
  * side a month and take seven months to reach thirty; a fifth takes
- * about two. The replay prices the cost as flat near a margin of one:
- * every stretch at 1/√2 would cost $48 a month more and every one at √2
- * $70, so a fifth spends about $12 a month on purpose.
+ * about two. The replay prices the arms either side of the usual √2 at
+ * $70 a month less if every stretch fired at 1 and $55 more at 2, so a
+ * fifth split evenly between them costs about nothing.
  */
 const DEFAULT_EXPLORATION_RATE = 0.2;
 

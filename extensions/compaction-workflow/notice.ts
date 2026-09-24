@@ -2,18 +2,20 @@
  * What the user is told when a compaction fires, and when one fails.
  *
  * Not the margin. The test fires on the first turn the margin crosses
- * one, so at that moment it always reads about 1.0x, which looks like a
- * compaction that buys nothing. It is not: waiting for a larger margin
- * means paying to read the droppable context on every turn in between,
- * and replayed over a month of real sessions, firing at one was cheaper
- * than requiring two, three or five. What the user can weigh is the
+ * its threshold, so at that moment it always reads about the threshold,
+ * which looks like a compaction that buys next to nothing. It is not:
+ * waiting for a larger margin means paying to read the droppable
+ * context on every turn in between, and replayed over a month of real
+ * sessions, firing at one or √2 was cheaper than requiring two, three
+ * or five. What the user can weigh is the
  * price and the bet: this much to summarise, repaid if the session runs
  * about this many more turns.
  */
 
-import type {
-	ThresholdDraw,
-	TriggerDecision,
+import {
+	type ThresholdDraw,
+	type TriggerDecision,
+	USUAL_THRESHOLD,
 } from "../../lib/compaction/index.ts";
 
 /** pi prices models in dollars per million tokens. */
@@ -40,7 +42,8 @@ export function compactionNotice(
 	if (!draw?.explored) return notice;
 	return (
 		`${notice}. This stretch was drawn to compact once savings reach ` +
-		`${draw.threshold.toFixed(2)} times the cost rather than 1, as a ` +
+		`${draw.threshold.toFixed(2)} times the cost rather than ` +
+		`${USUAL_THRESHOLD.toFixed(2)}, as a ` +
 		"logged experiment"
 	);
 }
