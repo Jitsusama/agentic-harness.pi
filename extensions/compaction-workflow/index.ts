@@ -29,6 +29,15 @@
  * compaction would not also drop, and pi's compaction keeps a summary
  * and the file list, which is the route back.
  *
+ * Recorded exploration: whether one is the right margin to fire at can
+ * only be measured if the policy sometimes fires elsewhere, so five
+ * percent of stretches (one compaction to the next) draw a threshold of
+ * 1/√2 or √2 instead (`drawThreshold`). The draw and its probability go
+ * into the session log as a custom entry, which the model never sees,
+ * before the decision it shapes, and the notice says when a compaction
+ * is one of them. `PI_COMPACTION_EXPLORATION_RATE` sets the share, and
+ * zero turns it off.
+ *
  * Interactive and RPC sessions only: a subagent runs pi in `--mode
  * json` and ends when its run does, so interrupting one is not
  * something to assume is safe. `PI_COMPACTION_POLICY=off` turns this
@@ -39,6 +48,10 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	compactionHistory,
 	compactionPays,
+	currentThresholdDraw,
+	drawThreshold,
+	THRESHOLD_ENTRY,
+	type ThresholdDraw,
 } from "../../lib/compaction/index.ts";
 import { cachePrices } from "../../lib/internal/cache-prices.ts";
 import { compactionNotice } from "./notice.ts";
@@ -48,6 +61,13 @@ import { compactionNotice } from "./notice.ts";
  * the same as no floor at all, with a quarter fewer compactions.
  */
 const DEFAULT_FLOOR_TOKENS = 250_000;
+
+/**
+ * Share of stretches that draw an explored threshold. Small, since each
+ * one spends a little on purpose, and enough over a month of sessions
+ * to estimate from.
+ */
+const DEFAULT_EXPLORATION_RATE = 0.05;
 
 /** Modes whose runs continue after a compaction and can be resumed. */
 const RESUMABLE_MODES: ReadonlySet<string> = new Set(["tui", "rpc"]);
@@ -72,12 +92,23 @@ function floorTokens(): number {
 	return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_FLOOR_TOKENS;
 }
 
+/** The exploration share, from the environment when it names one in [0, 1]. */
+function explorationRate(): number {
+	const raw = Number.parseFloat(
+		process.env.PI_COMPACTION_EXPLORATION_RATE ?? "",
+	);
+	return Number.isFinite(raw) && raw >= 0 && raw <= 1
+		? raw
+		: DEFAULT_EXPLORATION_RATE;
+}
+
 export default function compactionWorkflow(pi: ExtensionAPI) {
 	let turnsSince = 0;
 	let firstTurnTokens: number | null = null;
 	let observedRetained: number | null = null;
 	let awaitingRetained = false;
 	let compacting = false;
+	let draw: ThresholdDraw | null = null;
 
 	// Seeded from the session's own log, not from this process: a resumed
 	// session's first turn here is its whole resumed context, which read
@@ -89,12 +120,14 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		observedRetained = history.retainedTokens;
 		awaitingRetained = false;
 		compacting = false;
+		draw = currentThresholdDraw(ctx.sessionManager.getBranch());
 	});
 
 	pi.on("session_compact", async () => {
 		turnsSince = 0;
 		compacting = false;
 		awaitingRetained = true;
+		draw = null;
 	});
 
 	pi.on("turn_end", async (event, ctx) => {
@@ -122,12 +155,23 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		);
 		if (!prices) return;
 
+		const floor = floorTokens();
+		if (tokens <= floor) return;
+		// Drawn on the stretch's first turn that could compact, so only
+		// stretches the policy decides for carry a draw, and recorded
+		// before the decision it shapes.
+		if (draw === null) {
+			draw = drawThreshold(Math.random, explorationRate());
+			pi.appendEntry(THRESHOLD_ENTRY, draw);
+		}
+
 		const retained = observedRetained ?? firstTurnTokens + KEPT_BEYOND_FLOOR;
 		const decision = compactionPays({
 			contextTokens: tokens,
 			retainedTokens: retained,
 			turnsSinceCompaction: turnsSince,
-			floorTokens: floorTokens(),
+			floorTokens: floor,
+			threshold: draw.threshold,
 			...prices,
 		});
 		if (!decision.fire) return;
@@ -135,7 +179,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		compacting = true;
 		const resume = event.toolResults.length > 0;
 		if (ctx.hasUI) {
-			ctx.ui.notify(compactionNotice(tokens, decision), "info");
+			ctx.ui.notify(compactionNotice(tokens, decision, draw), "info");
 		}
 		ctx.compact({
 			onComplete: () => {

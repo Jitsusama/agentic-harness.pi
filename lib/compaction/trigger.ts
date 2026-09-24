@@ -41,14 +41,19 @@ export interface TriggerInput {
 	readonly inputPrice: number;
 	/** Cache write price per token under the retention in force. */
 	readonly writePrice: number;
+	/**
+	 * The margin that has to be crossed to fire. One unless this stretch
+	 * drew another to explore (see `drawThreshold`).
+	 */
+	readonly threshold?: number;
 }
 
 export interface TriggerDecision {
 	readonly fire: boolean;
 	/**
 	 * Saved over cost. Above one, compacting now pays. It reads just past
-	 * one whenever the test fires, since the test fires on the first turn
-	 * it crosses, so it decides but does not explain.
+	 * the threshold whenever the test fires, since the test fires on the
+	 * first turn it crosses, so it decides but does not explain.
 	 */
 	readonly margin: number;
 	/** What compacting now costs, in the prices' units times tokens. */
@@ -75,5 +80,6 @@ export function compactionPays(input: TriggerInput): TriggerDecision {
 	}
 	const saved = savedPerTurn * input.turnsSinceCompaction;
 	const margin = cost > 0 ? saved / cost : 0;
-	return { fire: margin > 1, margin, cost, turnsToRepay };
+	const threshold = input.threshold ?? 1;
+	return { fire: margin > threshold, margin, cost, turnsToRepay };
 }

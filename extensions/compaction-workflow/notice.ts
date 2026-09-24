@@ -11,7 +11,10 @@
  * about this many more turns.
  */
 
-import type { TriggerDecision } from "../../lib/compaction/index.ts";
+import type {
+	ThresholdDraw,
+	TriggerDecision,
+} from "../../lib/compaction/index.ts";
 
 /** pi prices models in dollars per million tokens. */
 const TOKENS_PER_PRICE_UNIT = 1_000_000;
@@ -19,15 +22,25 @@ const TOKENS_PER_PRICE_UNIT = 1_000_000;
 /** Show a context size in thousands of tokens. */
 const TOKENS_PER_K = 1_000;
 
-/** The notice for a compaction that is firing. */
+/**
+ * The notice for a compaction that is firing. A stretch that drew an
+ * explored threshold says so, since it fired earlier or later than the
+ * user would otherwise expect, on purpose.
+ */
 export function compactionNotice(
 	tokens: number,
 	decision: TriggerDecision,
+	draw?: ThresholdDraw,
 ): string {
 	const dollars = (decision.cost / TOKENS_PER_PRICE_UNIT).toFixed(2);
-	return (
+	const notice =
 		`Compacting at ${Math.round(tokens / TOKENS_PER_K)}k tokens: ` +
 		`$${dollars} to summarise, earned back after about ` +
-		`${Math.round(decision.turnsToRepay)} more turns at this size`
+		`${Math.round(decision.turnsToRepay)} more turns at this size`;
+	if (!draw?.explored) return notice;
+	return (
+		`${notice}. This stretch was drawn to compact once savings reach ` +
+		`${draw.threshold.toFixed(2)} times the cost rather than 1, as a ` +
+		"logged experiment"
 	);
 }

@@ -61,6 +61,36 @@ describe("deciding whether to compact now", () => {
 		expect(decision.turnsToRepay).toBeCloseTo(3_700_000 / 190_000, 5);
 	});
 
+	it("waits for a larger margin when this stretch was drawn a higher threshold", () => {
+		// 22 turns of reading 380k saves 4.18M against 3.7M to compact: a
+		// margin of 1.13, enough at the usual threshold of one.
+		const input = {
+			contextTokens: 500_000,
+			retainedTokens: 120_000,
+			turnsSinceCompaction: 22,
+			floorTokens: 250_000,
+			...PRICES,
+		};
+		expect(compactionPays(input).fire).toBe(true);
+		const later = compactionPays({ ...input, threshold: Math.SQRT2 });
+		expect(later.fire).toBe(false);
+		expect(later.margin).toBeCloseTo(1.13, 2);
+	});
+
+	it("compacts sooner when this stretch was drawn a lower threshold", () => {
+		const input = {
+			contextTokens: 500_000,
+			retainedTokens: 120_000,
+			turnsSinceCompaction: 15,
+			floorTokens: 250_000,
+			...PRICES,
+		};
+		expect(compactionPays(input).fire).toBe(false);
+		expect(compactionPays({ ...input, threshold: Math.SQRT1_2 }).fire).toBe(
+			true,
+		);
+	});
+
 	it("never repays a compaction that drops nothing", () => {
 		const decision = compactionPays({
 			contextTokens: 300_000,

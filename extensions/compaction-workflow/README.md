@@ -37,6 +37,23 @@ replay cannot prove, so the ledger's cost per turn and regret once this
 is live are the real check. The replay lives with the spend quest as
 `tools/threshold-replay.py`.
 
+## Recorded Exploration
+
+Firing once the saving crosses the cost, a margin of one, was chosen by
+replay. A live policy that always fires there cannot be checked against
+anything, since estimating another threshold from logged sessions needs
+some sessions to have used it. So five percent of stretches (a stretch
+runs from one compaction to the next) draw a threshold of 1/√2, firing
+a little earlier, or √2, a little later, at equal chances.
+
+The draw is made on the stretch's first turn above the floor, before
+the decision it shapes, and written to the session log as a
+`compaction-threshold` custom entry holding the threshold, the
+probability it had and whether it was explored. Custom entries are not
+sent to the model, so this costs no context. A resumed session reads
+its draw back rather than drawing again, and the notice says when a
+compaction came from an explored threshold.
+
 ## Interrupt, Trigger, Resume
 
 pi's `compact()` aborts the run in progress and does not continue it.
@@ -52,11 +69,15 @@ Only interactive and RPC sessions are touched. A subagent runs pi in
 
 - `PI_COMPACTION_POLICY=off` turns it off.
 - `PI_COMPACTION_FLOOR_TOKENS` moves the 250k floor.
+- `PI_COMPACTION_EXPLORATION_RATE` sets the share of stretches that
+  explore, 0.05 by default; `0` turns exploration off.
 
 ## Files
 
 - `index.ts`: registration and the `turn_end` decision.
+- `notice.ts`: what the user is told when a compaction fires.
 
-The decision is pure and tested in `lib/compaction/trigger.ts`; cache
+The decision is pure and tested in `lib/compaction/trigger.ts`, and the
+draw in `lib/compaction/threshold.ts`; cache
 prices under the retention in force come from
 `lib/internal/cache-prices.ts`, shared with `demote-workflow`.
