@@ -41,6 +41,7 @@ import {
 	summaryInstruction,
 	withFileLists,
 } from "../../lib/compaction/index.ts";
+import { processGlobal } from "../../lib/internal/process-global.ts";
 
 /** Custom entry recording a compaction this summariser handed back to pi. */
 export const SUMMARY_FALLBACK_ENTRY = "compaction-summary-fallback";
@@ -78,6 +79,16 @@ function cacheMayHaveExpired(sentAt: number, now: number): boolean {
 	return now - sentAt > lifetime - CACHE_EXPIRY_MARGIN_MS;
 }
 
+/**
+ * The last request, carried across a `/reload`. A reload loads this
+ * module afresh, so without it the first compaction after one finds
+ * nothing sent and hands back to pi, even though the cache still holds
+ * that request. It is taken by the session it came from and no other.
+ */
+const reloadHandoff = processGlobal<{
+	held?: { readonly sessionId: string; readonly sent: SentRequest };
+}>("agentic-harness.pi:compaction-summary-handoff", () => ({}));
+
 function enabled(): boolean {
 	return process.env.PI_COMPACTION_SUMMARY !== "pi";
 }
@@ -89,8 +100,18 @@ function enabled(): boolean {
 export function registerConversationSummary(pi: ExtensionAPI): void {
 	let sent: SentRequest | null = null;
 
-	pi.on("session_start", async () => {
-		sent = null;
+	pi.on("session_start", async (event, ctx) => {
+		const held = reloadHandoff.held;
+		reloadHandoff.held = undefined;
+		sent =
+			event.reason === "reload" &&
+			held?.sessionId === ctx.sessionManager.getSessionId()
+				? held.sent
+				: null;
+	});
+	pi.on("session_shutdown", async (event, ctx) => {
+		if (event.reason !== "reload" || !sent) return;
+		reloadHandoff.held = { sessionId: ctx.sessionManager.getSessionId(), sent };
 	});
 	pi.on("session_compact", async () => {
 		sent = null;

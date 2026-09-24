@@ -247,6 +247,51 @@ describe("the conversation summariser", () => {
 		expect(seen[0]?.preparation).toBe(event.preparation);
 	});
 
+	it("keeps the last request across a reload of the same session", async () => {
+		const before = activate();
+		const ctx = context([userEntry, replyEntry]);
+		await before.fire("before_provider_request", { payload: sentPayload }, ctx);
+		await before.fire("session_shutdown", { reason: "reload" }, ctx);
+
+		const after = activate();
+		await after.fire("session_start", { reason: "reload" }, ctx);
+		completeSimple.mockResolvedValue({
+			stopReason: "stop",
+			content: [{ type: "text", text: "## Goal" }],
+			usage: {},
+		});
+		const result = await after.fire(
+			"session_before_compact",
+			compactEvent(),
+			ctx,
+		);
+
+		expect(after.entries).toEqual([]);
+		expect(result).toHaveProperty("compaction");
+	});
+
+	it("does not carry a request across a reload into another session", async () => {
+		const before = activate();
+		const ctx = context([userEntry, replyEntry]);
+		await before.fire("before_provider_request", { payload: sentPayload }, ctx);
+		await before.fire("session_shutdown", { reason: "reload" }, ctx);
+
+		const after = activate();
+		const other = {
+			...ctx,
+			sessionManager: { ...ctx.sessionManager, getSessionId: () => "s2" },
+		};
+		await after.fire("session_start", { reason: "reload" }, other);
+		await after.fire("session_before_compact", compactEvent(), other);
+
+		expect(after.entries).toEqual([
+			[
+				SUMMARY_FALLBACK_ENTRY,
+				{ reason: "nothing has been sent this session" },
+			],
+		]);
+	});
+
 	it("hands back to pi when the last request overflowed the window", async () => {
 		const { fire, entries } = activate();
 		const ctx = context([userEntry, replyEntry]);

@@ -154,7 +154,8 @@ cache breakpoint, since nothing after the compaction starts with them.
 
 It hands back to pi's summariser, and writes a
 `compaction-summary-fallback` entry saying why, when it cannot do this
-cleanly: no request has been sent yet this session, the model is not on
+cleanly: no request has been sent yet this session (a `/reload` keeps
+the last one, a restart does not), the model is not on
 the Anthropic messages API or changed since, there are no credentials,
 the cache may have expired, the last request overflowed the window, the
 conversation moved on in a way the kept request cannot be extended to,
