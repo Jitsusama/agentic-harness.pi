@@ -8,6 +8,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import {
+	auditQuestRecord,
+	isRecordSound,
+} from "@jitsusama/agentic-harness.core/quest/record-audit";
 import { clearQuestWorkspaceTmp } from "@jitsusama/agentic-harness.core/quest/workspace";
 import { resolveTreeProvider } from "@jitsusama/agentic-harness.core/tree";
 import { nowYmd } from "../../../lib/internal/quest/dates.ts";
@@ -48,6 +52,7 @@ import {
 	writeDocumentStage,
 } from "../lifecycle.ts";
 import { type TransitionAction, transition } from "../machine.ts";
+import { recordBreakage } from "../record-watch.ts";
 import type { QuestState } from "../state.ts";
 import { defaultWorkspaceRoot, workspaceDirOf } from "../workspace.ts";
 import { subdirForDocumentId } from "./queries.ts";
@@ -476,6 +481,21 @@ export async function concludeOrRetire(
 	if (state.questStatus === target) {
 		return ok(`Quest already ${target}.`);
 	}
+	// A concluded quest's record is what the backup keeps and what a
+	// later reader trusts, so it must be whole before the quest seals:
+	// nothing outside the record, no attachment over the limits, no link
+	// into attachments/ that leads nowhere. A retired quest is abandoned
+	// as it stands, so it is not held to this.
+	const audit =
+		action === "conclude" ? auditQuestRecord(state.questDir) : undefined;
+	if (audit && !isRecordSound(audit)) {
+		const workspace =
+			workspaceDirOf(defaultWorkspaceRoot(), state.questId) ?? "";
+		const lines = recordBreakage(audit, workspace).map((b) => `- ${b.line}`);
+		return refuse(
+			`${state.questId}'s record is not whole yet, so it cannot conclude. Put these right first:\n${lines.join("\n")}`,
+		);
+	}
 	// Prune before flipping status so a prune that cannot complete
 	// leaves the quest in its prior state with the blocked trees
 	// recorded, rather than sealing a still-active quest.
@@ -552,6 +572,9 @@ export async function concludeOrRetire(
 		message += ` Sealed ${count(sealedDocs, "document")}.`;
 	}
 	if (pruned.length > 0) message += ` Pruned ${count(pruned.length, "tree")}.`;
+	if (audit && audit.uncited.length > 0) {
+		message += ` No document cites ${audit.uncited.join(", ")}, so the backup leaves ${audit.uncited.length === 1 ? "it" : "them"} out.`;
+	}
 	// Warn about live children, matching the bulk path: sealing a loaded
 	// parent leaves its live subquests orphaned but live, so surface them
 	// rather than cascading or silently stranding them.

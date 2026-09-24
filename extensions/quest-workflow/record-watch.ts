@@ -25,7 +25,7 @@ import type { QuestState } from "./state.ts";
 import { workspaceDirOf } from "./workspace.ts";
 
 /** One thing wrong with a record: a stable key and what to tell the agent. */
-interface Breakage {
+export interface Breakage {
 	readonly key: string;
 	readonly line: string;
 }
@@ -113,22 +113,30 @@ export class RecordWatch {
 			return new Map();
 		}
 		const workspace = workspaceDirOf(this.roots.workspaceRoot, quest) ?? "";
-		const found: Breakage[] = [
-			...audit.strays.map((rel) => ({
-				key: `stray:${rel}`,
-				line: `${rel} is not part of the record. Move it to the workspace: ${join(workspace, rel)}`,
-			})),
-			...audit.attachments.map(({ rel, problem }) => ({
-				key: `attachment:${rel}:${problem.reason}`,
-				line: `${rel} is ${problem.detail}. Move it to the workspace: ${join(workspace, rel.replace(/^attachments\//, ""))}`,
-			})),
-			...audit.broken.map(({ document, target }) => ({
-				key: `broken:${document}:${target}`,
-				line: `${document} links to ${target}, which is not in attachments/. Restore the file or fix the link.`,
-			})),
-		];
+		const found = recordBreakage(audit, workspace);
 		return new Map(found.map((b) => [b.key, b]));
 	}
+}
+
+/** What an audit found wrong with a record, each with where it belongs. */
+export function recordBreakage(
+	audit: RecordAudit,
+	workspace: string,
+): Breakage[] {
+	return [
+		...audit.strays.map((rel) => ({
+			key: `stray:${rel}`,
+			line: `${rel} is not part of the record. Move it to the workspace: ${join(workspace, rel)}`,
+		})),
+		...audit.attachments.map(({ rel, problem }) => ({
+			key: `attachment:${rel}:${problem.reason}`,
+			line: `${rel} is ${problem.detail}. Move it to the workspace: ${join(workspace, rel.replace(/^attachments\//, ""))}`,
+		})),
+		...audit.broken.map(({ document, target }) => ({
+			key: `broken:${document}:${target}`,
+			line: `${document} links to ${target}, which is not in attachments/. Restore the file or fix the link.`,
+		})),
+	];
 }
 
 /** The breakage as a list per quest. */
