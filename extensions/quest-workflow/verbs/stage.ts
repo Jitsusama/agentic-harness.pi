@@ -8,6 +8,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { clearQuestWorkspaceTmp } from "@jitsusama/agentic-harness.core/quest/workspace";
 import { resolveTreeProvider } from "@jitsusama/agentic-harness.core/tree";
 import { nowYmd } from "../../../lib/internal/quest/dates.ts";
 import { discoverQuests } from "../../../lib/internal/quest/discovery.ts";
@@ -48,6 +49,7 @@ import {
 } from "../lifecycle.ts";
 import { type TransitionAction, transition } from "../machine.ts";
 import type { QuestState } from "../state.ts";
+import { defaultWorkspaceRoot, workspaceDirOf } from "../workspace.ts";
 import { subdirForDocumentId } from "./queries.ts";
 import {
 	DOCUMENT_KINDS_SET,
@@ -513,11 +515,16 @@ export async function concludeOrRetire(
 		}
 		recordStructuralOp(state.questsRoot, action, changes);
 	}
-	// Reap the managed scratch dir once the quest is sealing: it is
-	// throwaway by definition and lives under the OS temp dir, so it
-	// goes with the quest. Best-effort, never fatal.
+	// Clear the workspace's tmp/ once the quest is sealing, and any
+	// scratch dir recorded before workspaces existed: both are throwaway
+	// by definition, so they go with the quest. The rest of the workspace
+	// stays for the disk guard to compress and later reclaim, since a
+	// quest is sometimes reopened. Best-effort, never fatal.
 	const reapedScratch = reapQuestScratchDir(state.questDir, state.scratchDir);
 	state.scratchDir = null;
+	const clearedTmp =
+		workspaceDirOf(defaultWorkspaceRoot(), state.questId) !== undefined &&
+		clearQuestWorkspaceTmp(defaultWorkspaceRoot(), state.questId ?? "");
 	appendJourneyEntry(
 		state,
 		action === "conclude"
@@ -529,6 +536,9 @@ export async function concludeOrRetire(
 	}
 	if (reapedScratch) {
 		appendJourneyEntry(state, "Reaped the managed scratch directory.");
+	}
+	if (clearedTmp) {
+		appendJourneyEntry(state, "Cleared the workspace's tmp/ folder.");
 	}
 	let message =
 		action === "conclude"

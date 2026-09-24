@@ -36,11 +36,11 @@ import {
 	judgeRecordWrite,
 	type RecordWrite,
 } from "@jitsusama/agentic-harness.core/quest/record-gate";
+import { ensureQuestWorkspaceTmp } from "@jitsusama/agentic-harness.core/quest/workspace";
 import {
 	classifyWrite,
 	type WriteClassification,
 } from "@jitsusama/agentic-harness.core/quest/write-classifier";
-import { cacheDir } from "../../lib/internal/paths.ts";
 import {
 	canonicalPath,
 	gitTreeRootOf,
@@ -48,9 +48,9 @@ import {
 	isTracked,
 	isWithin,
 } from "../../lib/internal/quest/git-signals.ts";
-import { ensureQuestScratchDir } from "../../lib/internal/quest/scratch.ts";
 import { listTreesOnQuest } from "../../lib/internal/quest/trees.ts";
 import type { QuestState } from "./state.ts";
+import { defaultWorkspaceRoot, workspaceDirOf } from "./workspace.ts";
 
 function isReadOnly(state: QuestState): boolean {
 	if (state.documentKind !== "plan") return false;
@@ -86,12 +86,11 @@ function writeTargetsOf(
 }
 
 /**
- * Funnel a write to bare system temp into the quest's managed
- * scratch directory. System temp is not reaped and leaks across
- * runs, so instead of allowing it the gate creates (on first need)
- * a quest-owned scratch dir under the OS temp dir and names it as
- * the place to redirect. Writes already inside that dir classify as
- * quest-scratch, not system-temp, so they flow.
+ * Funnel a write to bare system temp into the `tmp/` of the quest's
+ * workspace. System temp is not reaped and leaks across runs, so
+ * instead of allowing it the gate creates `tmp/` on first need and
+ * names it as the place to redirect. Writes anywhere in the workspace
+ * classify as quest scratch, not system temp, so they flow.
  */
 function systemTempFunnel(
 	state: QuestState,
@@ -100,20 +99,16 @@ function systemTempFunnel(
 	cwd: string,
 	options: EnforceOptions,
 ): ToolCallEventResult | undefined {
-	if (!state.questDir || !state.questId) return;
+	const root = options.workspaceRoot ?? defaultWorkspaceRoot();
+	if (!state.questDir || !workspaceDirOf(root, state.questId)) return;
 	const hitsTemp = writeTargetsOf(toolName, input, cwd).some(
 		(t) => classifyTarget(state, t, options).category === "system-temp",
 	);
 	if (!hitsTemp) return;
-	const dir = ensureQuestScratchDir(
-		state.questDir,
-		state.questId,
-		state.scratchDir,
-	);
-	state.scratchDir = dir;
+	const dir = ensureQuestWorkspaceTmp(root, state.questId ?? "");
 	return {
 		block: true,
-		reason: `Quest workflow: this writes to system temp, which is not tracked or reaped. Redirect into this quest's managed scratch directory instead, which is cleaned up when the quest concludes: ${dir}`,
+		reason: `Quest workflow: this writes to system temp, which is not tracked or reaped. Redirect into the tmp/ folder of this quest's workspace instead, which is cleared when the quest concludes: ${dir}`,
 	};
 }
 
@@ -162,9 +157,16 @@ function classifyTarget(
 	options: EnforceOptions,
 ): WriteClassification {
 	const tempRoots = (options.tempRoots ?? defaultTempRoots()).map(canonical);
+	// The whole workspace is the quest's own, so a write anywhere in it is
+	// scratch: never system temp, and never homeless in build.
+	const workspace =
+		workspaceDirOf(
+			options.workspaceRoot ?? defaultWorkspaceRoot(),
+			state.questId,
+		) ?? state.scratchDir;
 	return classifyWrite(canonical(absTarget), {
 		questDir: state.questDir ? canonical(state.questDir) : null,
-		scratchDir: state.scratchDir ? canonical(state.scratchDir) : null,
+		scratchDir: workspace ? canonical(workspace) : null,
 		tempRoots,
 		isGitignored,
 		isTracked,
@@ -283,11 +285,6 @@ function enforceHome(
 		if (result) return result;
 	}
 	return;
-}
-
-/** Where quests' workspaces live unless a caller says otherwise. */
-export function defaultWorkspaceRoot(): string {
-	return cacheDir("quest-workspace");
 }
 
 /**
