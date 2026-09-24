@@ -246,5 +246,4 @@ prices it reads from the session in `lib/compaction/history.ts`, where
 a summary written ahead keeps from in `lib/compaction/prepared.ts`, the
 back-off in `lib/compaction/failure.ts`, and the summary's instruction,
 splice and reading in `lib/compaction/summary.ts`; cache prices under
-the retention in force come from `lib/internal/cache-prices.ts`, shared
-with `demote-workflow`.
+the retention in force come from `lib/internal/cache-prices.ts`.

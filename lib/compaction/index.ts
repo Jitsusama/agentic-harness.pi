@@ -24,7 +24,6 @@ export {
 	wasCancelled,
 } from "./failure.ts";
 export { type CompactionHistory, compactionHistory } from "./history.ts";
-export { type PaybackInput, paybackMargin, paybackTest } from "./payback.ts";
 export { type KeptBoundary, keptBoundary } from "./prepared.ts";
 export { clampReserveTokens } from "./reserve.ts";
 export {

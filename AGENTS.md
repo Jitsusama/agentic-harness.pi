@@ -292,9 +292,10 @@ into the system prompt once per session and says each change
 as a message. Over a month the two patterns this replaced, a quest
 line re-rendered into the system prompt and TDD reminders
 filtered out once a loop ended, cost about $600 at list in
-rewrites that told the model nothing new. `demote-workflow` is
-the one sanctioned exception, and it rewrites only in batches
-that pay for themselves.
+rewrites that told the model nothing new. There is no exception:
+a demotion workflow that rewrote old tool results in batches
+was removed on 2026-09-24, since it never ran outside shadow and
+its whole stake was about $300 a month.
 
 ### Don't Merge Things That Merely Converge
 

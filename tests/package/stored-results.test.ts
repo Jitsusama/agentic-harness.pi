@@ -61,7 +61,6 @@ import { describe, expect, it } from "vitest";
 const MUST_BOUND = [
 	"browser-integration",
 	"cost-workflow",
-	"demote-workflow",
 	// Listed as small until one digest answered with 140,393 characters:
 	// its weekly trends grow with every row ever kept.
 	"observability-workflow",
