@@ -89,6 +89,16 @@ going to carry on, a message resumes it once the compaction lands,
 unless a message of yours is already queued. Tested end to end in RPC
 mode: a run compacted between tool turns resumed and finished its task.
 
+That message is sent as a user message, the way you would type it. pi
+starts a run from a custom message without running the
+`before_agent_start` hooks, so a resume sent that way went out on the
+base system prompt, without the captured conventions or the loaded
+quest that extensions add. Your next message put them back, and
+because the system prompt sits right after the tool definitions, that
+rewrote the whole context at the cache-write price once per compaction.
+Measured on pi 0.87.1: the resumed request's system prompt was 4,813
+characters shorter, every captured rule missing.
+
 Only interactive and RPC sessions are touched. A subagent runs pi in
 `--mode json` and ends when its run does.
 

@@ -29,6 +29,15 @@
  * compaction would not also drop, and pi's compaction keeps a summary
  * and the file list, which is the route back.
  *
+ * The resume is sent as a user message, not a custom one. pi starts a
+ * run from `sendMessage(..., { triggerTurn: true })` without emitting
+ * `before_agent_start`, so that run went out on the base system prompt,
+ * missing everything extensions append to it: the captured conventions
+ * and the loaded quest. The next typed message put them back, which
+ * changed the prompt right after the tool definitions and rewrote the
+ * whole context at the cache-write price, once per compaction. A user
+ * message goes through pi's prompt path, which emits the hook.
+ *
  * A failed compaction resumes the run it interrupted too, is written
  * to the session log (`FAILURE_ENTRY`), and holds the trigger off for
  * a number of turns that doubles with each failure in a row
@@ -103,6 +112,15 @@ const RESUME_TEXT =
 const FAILED_RESUME_TEXT =
 	"Compacting the context failed, so it was left as it is. Carry on " +
 	"with the task you were working on from where you left off.";
+
+/**
+ * Starts the interrupted run again with the same system prompt a typed
+ * message gets. Queued behind a run already under way rather than
+ * refused, should one have started in the meantime.
+ */
+function resumeRun(pi: ExtensionAPI, text: string): void {
+	pi.sendUserMessage(text, { deliverAs: "followUp" });
+}
 
 function enabled(): boolean {
 	return process.env.PI_COMPACTION_POLICY !== "off";
@@ -216,14 +234,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		ctx.compact({
 			onComplete: () => {
 				if (!resume || ctx.hasPendingMessages()) return;
-				pi.sendMessage(
-					{
-						customType: "compaction-workflow",
-						content: RESUME_TEXT,
-						display: true,
-					},
-					{ triggerTurn: true },
-				);
+				resumeRun(pi, RESUME_TEXT);
 			},
 			onError: (error) => {
 				compacting = false;
@@ -240,14 +251,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 				if (!resume || wasCancelled(error) || ctx.hasPendingMessages()) {
 					return;
 				}
-				pi.sendMessage(
-					{
-						customType: "compaction-workflow",
-						content: FAILED_RESUME_TEXT,
-						display: true,
-					},
-					{ triggerTurn: true },
-				);
+				resumeRun(pi, FAILED_RESUME_TEXT);
 			},
 		});
 	});
