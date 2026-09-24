@@ -21,6 +21,7 @@
 		"./people": "./lib/people/index.ts",
 		"./terminal": "./lib/terminal/index.ts",
 		"./quest": "./lib/quest/index.ts",
+		"./prompt": "./lib/prompt/index.ts",
 		"./mcp": "./lib/mcp/index.ts",
 		"./ts-import-specifiers": "./scripts/ts-import-specifiers.ts"
 	},

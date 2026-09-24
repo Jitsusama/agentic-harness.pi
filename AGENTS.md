@@ -285,7 +285,11 @@ each prompt, and it does not filter or rewrite earlier messages
 from a `context` hook. State that changes is said as a new
 message (`before_agent_start` can return one), and context that
 has gone stale is superseded by a message saying so, never
-removed. Over a month the two patterns this replaced, a quest
+removed. For state the model should always know, register a
+standing context (`registerStandingContext` in `lib/prompt`,
+exported as `agentic-harness.pi/prompt`): it freezes the text
+into the system prompt once per session and says each change
+as a message. Over a month the two patterns this replaced, a quest
 line re-rendered into the system prompt and TDD reminders
 filtered out once a loop ended, cost about $600 at list in
 rewrites that told the model nothing new. `demote-workflow` is

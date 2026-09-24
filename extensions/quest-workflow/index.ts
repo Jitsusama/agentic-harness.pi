@@ -39,6 +39,7 @@ import {
 	registerBuiltinHandleTypes,
 	registerBuiltinPersonResolvers,
 } from "../../lib/people/index.ts";
+import { registerStandingContext } from "../../lib/prompt/index.ts";
 import { registerBuiltinUrlFetchers } from "../../lib/quest/index.ts";
 import { registerBuiltinRefTypes } from "../../lib/refs/index.ts";
 import { registerBuiltinTerminalDrivers } from "../../lib/terminal/index.ts";
@@ -50,15 +51,7 @@ import {
 	QUEST_WORKFLOW_SLUG,
 	resolveQuestsRoot,
 } from "./config.ts";
-import {
-	afterCompaction,
-	QUEST_CONTEXT_ENTRY,
-	type QuestContextLedger,
-	questContextTurn,
-	renderQuestContext,
-	restoredLedger,
-	sameLedger,
-} from "./context.ts";
+import { QUEST_CONTEXT, renderQuestContext } from "./context.ts";
 import { enforceQuest, isFocusedDocWrite } from "./enforce.ts";
 import {
 	attachCurrentSession,
@@ -124,8 +117,6 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		autoloadFromCwd: section.value.autoloadFromCwd,
 		sessionRetentionDays: section.value.sessionRetentionDays,
 	});
-	// What the model has been told about the quest (context.ts).
-	let questContext: QuestContextLedger = {};
 
 	// So the working layer does not reclaim a tree a quest is holding.
 	answerTreeClaims(pi, questsRoot);
@@ -549,9 +540,6 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
-		// What this session's model has been told about the quest, so a
-		// reload renders the same system prompt rather than a fresh one.
-		questContext = restoredLedger(ctx);
 		// Surface any layout-drift errors the discovery walk
 		// found. After the canonical-layout tightening, a
 		// nested QEST dir or a misplaced doc file gets recorded
@@ -668,30 +656,10 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 
 	// Tell the model which quest the conversation is on, which document
 	// is focused and at what stage, without re-deriving it from disk on
-	// every step. The line is frozen into the system prompt and a later
-	// change arrives as a message, so a quest action never rewrites the
-	// cached conversation (see context.ts).
-	pi.on("before_agent_start", async (event) => {
-		const turn = questContextTurn(
-			questContext,
-			renderQuestContext(state),
-			event.systemPrompt,
-		);
-		if (!sameLedger(turn.ledger, questContext)) {
-			pi.appendEntry(QUEST_CONTEXT_ENTRY, turn.ledger);
-		}
-		questContext = turn.ledger;
-		return turn.message
-			? { systemPrompt: turn.systemPrompt, message: turn.message }
-			: { systemPrompt: turn.systemPrompt };
-	});
-
-	// A compaction summarises the messages that carried a changed
-	// context, so the next turn says it again if it still differs.
-	pi.on("session_compact", async () => {
-		questContext = afterCompaction(questContext);
-		pi.appendEntry(QUEST_CONTEXT_ENTRY, questContext);
-	});
+	// every step. A standing context: frozen into the system prompt, with
+	// a later change said as a message, so a quest action never rewrites
+	// the cached conversation.
+	registerStandingContext(pi, QUEST_CONTEXT, () => renderQuestContext(state));
 }
 
 /** The minimal render component pi's setWidget callback form returns. */

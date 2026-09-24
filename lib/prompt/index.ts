@@ -17,3 +17,11 @@ export {
 	registerPromptContributor,
 	unregisterPromptContributor,
 } from "./coordinator.ts";
+export {
+	registerStandingContext,
+	type StandingContextLedger,
+	type StandingContextTurn,
+	type StandingContextWording,
+	standingContextAfterCompaction,
+	standingContextTurn,
+} from "./standing.ts";
