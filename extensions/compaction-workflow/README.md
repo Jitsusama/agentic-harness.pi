@@ -73,6 +73,36 @@ mode: a run compacted between tool turns resumed and finished its task.
 Only interactive and RPC sessions are touched. A subagent runs pi in
 `--mode json` and ends when its run does.
 
+## When a Compaction Fails
+
+A failed compaction resumes the run it interrupted the same way, so the
+work does not stop. Nothing is lost: the context is left as it was. The
+trigger then holds off for 8 turns, doubling with each failure in a row
+up to 128, and the failure is written to the session log as a
+`compaction-failed` entry with the size, the error, the streak and the
+wait. A cancelled compaction holds off too but is not resumed.
+
+Before this, the trigger fired again on the very next turn. Since pi's
+`compact()` aborts the turn in progress, a failure that repeated stopped
+the work on every turn, and pi only ever showed it as a passing notice,
+so no search of the logs could find one. In September 2026 that was a
+summary cut off at pi's summary cap: four fifths of
+`compaction.reserveTokens`, 13,107 tokens at the default 16,384. Each
+summary rewrites the one before it, so it grows over a long session:
+logged summaries ran 11k to 16k tokens of text, a 315k-token session
+compacted with no cap billed 27,375 output tokens with its thinking,
+and the proxy logged every failed attempt at exactly 13,107. The notice
+for that failure names the fix:
+
+```json
+{ "compaction": { "reserveTokens": 64000 } }
+```
+
+in `~/.pi/agent/settings.json`, which allows a 51,200-token summary,
+1.9 times the largest measured. The reserve also moves pi's own window
+trigger earlier, to 936k on a 1M model and 436k on grok's 500k, both
+far above where this policy compacts.
+
 ## Settings
 
 - `PI_COMPACTION_POLICY=off` turns it off.
@@ -83,9 +113,10 @@ Only interactive and RPC sessions are touched. A subagent runs pi in
 ## Files
 
 - `index.ts`: registration and the `turn_end` decision.
-- `notice.ts`: what the user is told when a compaction fires.
+- `notice.ts`: what the user is told when a compaction fires or fails.
 
-The decision is pure and tested in `lib/compaction/trigger.ts`, and the
-draw in `lib/compaction/threshold.ts`; cache
+The decision is pure and tested in `lib/compaction/trigger.ts`, the
+draw in `lib/compaction/threshold.ts` and the back-off in
+`lib/compaction/failure.ts`; cache
 prices under the retention in force come from
 `lib/internal/cache-prices.ts`, shared with `demote-workflow`.

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { compactionNotice } from "../../../extensions/compaction-workflow/notice.ts";
+import {
+	compactionFailureNotice,
+	compactionNotice,
+} from "../../../extensions/compaction-workflow/notice.ts";
 
 const FIRED = {
 	fire: true,
@@ -32,6 +35,25 @@ describe("telling the user why the session is compacting", () => {
 		const draw = { threshold: 1, propensity: 0.9, explored: false };
 		expect(compactionNotice(265_000, FIRED, draw)).toBe(
 			compactionNotice(265_000, FIRED),
+		);
+	});
+});
+
+describe("telling the user a compaction failed", () => {
+	it("says the context was left alone, why, and when it will try again", () => {
+		expect(compactionFailureNotice(new Error("Connection error."), 8)).toBe(
+			"Compaction failed, so the context was left as it is: Connection error. It will try again in 8 turns",
+		);
+	});
+
+	it("names the setting that fixes a summary cut off at the token cap", () => {
+		const capped = new Error(
+			"Summarization failed: generation hit the token cap and the summary is incomplete",
+		);
+		expect(compactionFailureNotice(capped, 16)).toBe(
+			"Compaction failed, so the context was left as it is: Summarization failed: generation hit the token cap and the summary is incomplete. " +
+				"It will try again in 16 turns. The summary needs more room than pi reserves for it: " +
+				'set "compaction": { "reserveTokens": 64000 } in ~/.pi/agent/settings.json and run /reload',
 		);
 	});
 });

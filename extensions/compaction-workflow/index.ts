@@ -29,6 +29,14 @@
  * compaction would not also drop, and pi's compaction keeps a summary
  * and the file list, which is the route back.
  *
+ * A failed compaction resumes the run it interrupted too, is written
+ * to the session log (`FAILURE_ENTRY`), and holds the trigger off for
+ * a number of turns that doubles with each failure in a row
+ * (`turnsBeforeRetry`). Firing again on the next turn aborted that turn
+ * as well, so a failure that repeats stopped the user's work on every
+ * turn. A cancelled compaction holds off the same way but is not
+ * resumed, since somebody stopped it on purpose.
+ *
  * Recorded exploration: whether one is the right margin to fire at can
  * only be measured if the policy sometimes fires elsewhere, so a fifth
  * of stretches (one compaction to the next) draw a threshold of
@@ -50,11 +58,14 @@ import {
 	compactionPays,
 	currentThresholdDraw,
 	drawThreshold,
+	FAILURE_ENTRY,
+	failureRecord,
 	THRESHOLD_ENTRY,
 	type ThresholdDraw,
+	wasCancelled,
 } from "../../lib/compaction/index.ts";
 import { cachePrices } from "../../lib/internal/cache-prices.ts";
-import { compactionNotice } from "./notice.ts";
+import { compactionFailureNotice, compactionNotice } from "./notice.ts";
 
 /**
  * Never compact a context smaller than this. At 250k the replay cost
@@ -85,6 +96,10 @@ const RESUME_TEXT =
 	"The context was compacted to keep this session affordable. Carry on " +
 	"with the task you were working on from where you left off.";
 
+const FAILED_RESUME_TEXT =
+	"Compacting the context failed, so it was left as it is. Carry on " +
+	"with the task you were working on from where you left off.";
+
 function enabled(): boolean {
 	return process.env.PI_COMPACTION_POLICY !== "off";
 }
@@ -112,6 +127,8 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 	let awaitingRetained = false;
 	let compacting = false;
 	let draw: ThresholdDraw | null = null;
+	let failures = 0;
+	let holdTurns = 0;
 
 	// Seeded from the session's own log, not from this process: a resumed
 	// session's first turn here is its whole resumed context, which read
@@ -124,6 +141,8 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		awaitingRetained = false;
 		compacting = false;
 		draw = currentThresholdDraw(ctx.sessionManager.getBranch());
+		failures = 0;
+		holdTurns = 0;
 	});
 
 	pi.on("session_compact", async () => {
@@ -131,6 +150,8 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		compacting = false;
 		awaitingRetained = true;
 		draw = null;
+		failures = 0;
+		holdTurns = 0;
 	});
 
 	pi.on("turn_end", async (event, ctx) => {
@@ -148,6 +169,10 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 			awaitingRetained = false;
 		}
 		if (compacting) return;
+		if (holdTurns > 0) {
+			holdTurns -= 1;
+			return;
+		}
 
 		const model = ctx.model;
 		if (!model) return;
@@ -198,9 +223,27 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 			},
 			onError: (error) => {
 				compacting = false;
+				failures += 1;
+				const failure = failureRecord(tokens, error, failures);
+				holdTurns = failure.retryAfterTurns;
+				pi.appendEntry(FAILURE_ENTRY, failure);
 				if (ctx.hasUI) {
-					ctx.ui.notify(`Compaction failed: ${error.message}`, "warning");
+					ctx.ui.notify(
+						compactionFailureNotice(error, failure.retryAfterTurns),
+						"warning",
+					);
 				}
+				if (!resume || wasCancelled(error) || ctx.hasPendingMessages()) {
+					return;
+				}
+				pi.sendMessage(
+					{
+						customType: "compaction-workflow",
+						content: FAILED_RESUME_TEXT,
+						display: true,
+					},
+					{ triggerTurn: true },
+				);
 			},
 		});
 	});
