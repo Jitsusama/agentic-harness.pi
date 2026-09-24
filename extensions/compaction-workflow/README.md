@@ -1,7 +1,8 @@
 # Compaction Workflow
 
-Compacts when compacting pays, rather than when the window runs out,
-and resumes the run it interrupted.
+Compacts when compacting pays and not a turn sooner, writes the summary
+in the background so nobody waits for it, and resumes the run it
+interrupted.
 
 ## Why
 
@@ -14,72 +15,86 @@ Below it, this decides on cost.
 
 ## The Decision
 
-After every turn, `compactionPays` in `lib/compaction/` weighs:
+Context a compaction would drop costs rent: every turn reads it again
+at the cache-read price. Compacting clears the rent for a fixed cost.
+That is the reorder-quantity problem, and its cheapest rhythm is to
+clear the rent once what it has cost since the last clearing reaches
+what clearing costs. So after every turn `lib/compaction/trigger.ts`
+adds that turn's rent (`droppableRent`: everything past what a
+compaction keeps, at the read price) and `compactionPays` fires once
+the total reaches `compactionCost`, which has three parts:
 
-- **saved**: what the droppable context, everything past the prompt a
-  compaction would retain, would cost to read on each of the turns
-  still to come, estimated as the turns since the last compaction;
-- **cost**: pi's summariser reading the whole context at full input
-  price, plus the retained prompt being written fresh to the cache.
+- **summary:** the summariser reading the context back from cache,
+  plus its output, thinking included;
+- **rewrite:** the first turn after a compaction writing what it kept
+  to the cache, priced at the write price less the read it replaces;
+- **re-fetching:** the turns spent fetching back what was dropped.
 
-It fires once saved reaches √2 times the cost, and never below 250k
-tokens. The retained prompt starts as the
-session's first measured prompt (the fixed system prompt, tools and
-instructions) plus pi's 20k of kept messages and room for the summary,
-and after one of its own compactions it uses what that compaction
-actually retained.
+Each part is measured from the session's own log rather than assumed:
+the output of its last summary, the cache write of the first turn
+after its last compaction, and the mean cost of its recent turns beyond
+their reads. Until the session has compacted once, defaults stand in,
+each from measurement:
 
-Replayed over a month of real sessions, with a simulator that
-reproduces the actual bill within five percent, this cost 38.7 percent
-less than compacting at the window: better than any fixed threshold,
-with fewer compactions than the best of them. The replay assumes each
-turn adds the same new content whatever the context size, which a
-replay cannot prove, so the ledger's cost per turn and regret once this
-is live are the real check. The replay lives with the spend quest as
-`tools/threshold-replay.py`.
+- **7,700 output tokens** for a summary: the median of ten real
+  compactions replayed through the summariser below.
+- **Everything kept, rewritten**: errs toward compacting later.
+- **Three turns** of re-fetching. Over 97 compactions from 2026-09-17,
+  re-fetched tool output cost a median $0.19 and a mean $0.35 a
+  compaction under 400k, about three turns at that size, and a
+  comparison cut that dropped nothing found 61 percent as much
+  re-reading. Three is the gross figure, so this too errs toward later.
+  It misses re-deriving something by another route and acting on a
+  summary that went stale, so it is a lower bound on what dropping
+  costs.
+- **$0.045** a turn beyond its reads: at 100k to 200k tokens under
+  one-hour retention a turn cost $0.076, of which reading was $0.031.
 
-## Why √2
+The cost is nearly flat around the optimum, so how well these inputs
+are measured matters more than where exactly it fires. That is why an
+earlier margin of √2 and a randomised experiment on it are gone: the
+experiment's stake was about one percent of spend, and its answer would
+have aged out with the next change to prices or to the summariser.
 
-The replay put the cheapest margin at one, firing as soon as the saving
-crosses the cost, but found cost nearly flat around it. Over the month
-from 2026-08-24:
+There is no floor by default. `PI_COMPACTION_FLOOR_TOKENS` sets a size
+it never compacts at or below.
 
-| Margin | Compactions | Mean prompt | Cost |
-|---|---|---|---|
-| 1 | 533 | 197k | $9,306 |
-| √2 | 492 | 203k | $9,376 |
-| 2 | 456 | 210k | $9,431 |
+## Writing Ahead
 
-A compaction interrupts the run and loses detail the replay cannot
-price, so the margin is √2: 8 percent fewer compactions for about $70 a
-month. Raising the floor instead does the same job at a worse rate: a
-300k floor gives 411 compactions for $231 more.
+A summary takes a minute or two at real sizes: output runs at about 80
+tokens a second and a summary is several thousand. So when the trigger
+fires, the summary is started in the background and work carries on.
+At the end of the first turn after it is ready, or at once when the
+session is idle, the compaction applies it, which takes no time.
 
-## Recorded Exploration
+Work carries on while it is written, so the summary covers the
+conversation only up to the point it was started at. Everything after
+that point stays verbatim (`lib/compaction/prepared.ts`): the kept
+messages start at the earlier of pi's own cut and the entry after the
+covered point, so nothing is dropped that the summary did not see. A
+compaction asked for while a summary is being written waits for that
+one rather than writing a second.
 
-A live policy that always fires at √2 cannot be checked against
-anything, since estimating another threshold from logged sessions needs
-some sessions to have used it. So a fifth of stretches (a stretch runs
-from one compaction to the next) draw a threshold of 1, firing a little
-earlier, or 2, a little later, at equal chances. The earlier arm is
-the replay's cheapest margin, so the one in use is measured against it.
+Only when the summary cannot be written from the cache (see Writing the
+Summary) does the session compact on the spot, and the notice says
+why. Each compaction's entry records `written` (`ahead` or `on the
+spot`), how long the summary took (`summaryMs`) and how long anybody
+waited for it (`waitedMs`). A summary written ahead that went unused is
+logged as a `compaction-summary-ahead-unused` entry with the reason.
 
-A fifth because a smaller share would take too long: about 156 stretches
-a month pass the floor, so five percent would log thirty a side in
-about seven months, and a fifth does it in about two. By replay it costs
-about nothing, since the arms either side of √2 cost $70 a month less
-and $55 more if every stretch took them. Whether that flatness holds on
-live sessions is what the draws measure. Stretches logged before
-2026-09-24 used a margin of one with arms at 1/√2 and √2; the recorded
-thresholds tell the two policies apart.
+## Compacting While Idle
 
-The draw is made on the stretch's first turn above the floor, before
-the decision it shapes, and written to the session log as a
-`compaction-threshold` custom entry holding the threshold, the
-probability it had and whether it was explored. Custom entries are not
-sent to the model, so this costs no context. A resumed session reads
-its draw back rather than drawing again, and the notice says when a
-compaction came from an explored threshold.
+An idle session's cache expires after an hour, and the first turn back
+then writes the whole context at the write price. Five minutes before
+it expires, an idle session is compacted if the rewrite that avoids
+(everything past what a compaction keeps, at the write price) is worth
+more than the summary and the re-fetching (`idleCompactionPays`). The
+rewrite of what it keeps is not counted: coming back pays it either way.
+The summary reads the cache while it is still warm. A run starting
+first calls it off.
+
+Under one-hour retention only: at five minutes this would compact every
+pause for coffee.
 
 ## Interrupt, Trigger, Resume
 
@@ -88,6 +103,8 @@ When the turn that tripped the decision made tool calls, so the run was
 going to carry on, a message resumes it once the compaction lands,
 unless a message of yours is already queued. Tested end to end in RPC
 mode: a run compacted between tool turns resumed and finished its task.
+A compaction applied while the session is idle interrupts nothing and
+resumes nothing.
 
 That message is sent as a user message, the way you would type it. pi
 starts a run from a custom message without running the
@@ -130,7 +147,9 @@ for that failure names the fix:
 in `~/.pi/agent/settings.json`, which allows a 51,200-token summary,
 1.9 times the largest measured. The reserve also moves pi's own window
 trigger earlier, to 936k on a 1M model and 436k on grok's 500k, both
-far above where this policy compacts.
+far above where this policy compacts. A summary written ahead is capped
+against that same 64,000 reserve, since pi hands an extension its
+settings only with a compaction.
 
 ## Writing the Summary
 
@@ -143,14 +162,14 @@ clipped copy.
 
 `summariser.ts` writes it from the cached conversation instead. It
 keeps the last request the session sent to the provider, byte for
-byte, and on `session_before_compact` it sends that request again
-with the reply that came back, any tool results since, and one closing
-instruction added. The closing instruction reuses pi's checkpoint
-format word for word, so everything downstream reads an ordinary
-summary, and it tells the model to stop work and call no tool. The
-prefix is then read from cache, the model sees every token of the
-conversation, and it takes one call. The added messages carry no
-cache breakpoint, since nothing after the compaction starts with them.
+byte, and sends that request again with the reply that came back, any
+tool results since, and one closing instruction added. The closing
+instruction reuses pi's checkpoint format word for word, so everything
+downstream reads an ordinary summary, and it tells the model to stop
+work and call no tool. The prefix is then read from cache, the model
+sees every token of the conversation, and it takes one call. The added
+messages carry no cache breakpoint, since nothing after the compaction
+starts with them. The kept request survives a `/reload`.
 
 It hands back to pi's summariser, and writes a
 `compaction-summary-fallback` entry saying why, when it cannot do this
@@ -191,34 +210,41 @@ Measured on pi 0.87.1:
   line saying it covers the messages that follow it. The replay cost
   $28.
 
-The cost the trigger weighs (see The Decision) still assumes pi's
-summariser, so when this one writes the summary, compacting costs
-less than the trigger thinks and it fires somewhat later than it
-would with the true price. That errs toward keeping context.
+The trigger prices a summary as this one writes it: a cache read of
+the context plus the output. When pi's summariser runs instead, the
+real cost is higher than the trigger thought, which is a fallback
+rather than the rule.
 
 Another extension can add to the summary this writes through
 `SUMMARY_CONTRIBUTIONS` on `pi.events`, from `lib/compaction/`: it
 pushes a focus instruction or text to append onto the request emitted
 before each attempt, and reads `handled` afterwards to learn whether it
-needs a summariser of its own for that compaction.
+needs a summariser of its own for that compaction. A summary written
+ahead asks once when it starts, for the focus, and again when the
+compaction applies it, for the appendix and `handled`.
 
 ## Settings
 
 - `PI_COMPACTION_POLICY=off` turns it off.
-- `PI_COMPACTION_FLOOR_TOKENS` moves the 250k floor.
-- `PI_COMPACTION_EXPLORATION_RATE` sets the share of stretches that
-  explore, 0.2 by default; `0` turns exploration off.
-- `PI_COMPACTION_SUMMARY=pi` leaves every summary to pi's summariser.
+- `PI_COMPACTION_FLOOR_TOKENS` sets a size it never compacts at or
+  below; there is none by default.
+- `PI_COMPACTION_SUMMARY=pi` leaves every summary to pi's summariser,
+  which also means nothing is written ahead.
+- `PI_CACHE_RETENTION=long` is what compacting while idle runs under.
 
 ## Files
 
-- `index.ts`: registration and the `turn_end` decision.
+- `index.ts`: registration, the `turn_end` decision and the idle
+  compaction.
+- `idle.ts`: the timer that waits out an idle session.
 - `notice.ts`: what the user is told when a compaction fires or fails.
-- `summariser.ts`: the summary written from the cached conversation.
+- `summariser.ts`: the summary written from the cached conversation,
+  ahead or on the spot.
 
 The decision is pure and tested in `lib/compaction/trigger.ts`, the
-draw in `lib/compaction/threshold.ts` and the back-off in
-`lib/compaction/failure.ts`, the summary's instruction, splice and
-reading in `lib/compaction/summary.ts`; cache
-prices under the retention in force come from
-`lib/internal/cache-prices.ts`, shared with `demote-workflow`.
+prices it reads from the session in `lib/compaction/history.ts`, where
+a summary written ahead keeps from in `lib/compaction/prepared.ts`, the
+back-off in `lib/compaction/failure.ts`, and the summary's instruction,
+splice and reading in `lib/compaction/summary.ts`; cache prices under
+the retention in force come from `lib/internal/cache-prices.ts`, shared
+with `demote-workflow`.

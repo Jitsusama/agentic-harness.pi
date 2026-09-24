@@ -1,50 +1,70 @@
 /**
  * What the user is told when a compaction fires, and when one fails.
  *
- * Not the margin. The test fires on the first turn the margin crosses
- * its threshold, so at that moment it always reads about the threshold,
- * which looks like a compaction that buys next to nothing. It is not:
- * waiting for a larger margin means paying to read the droppable
- * context on every turn in between, and replayed over a month of real
- * sessions, firing at one or √2 was cheaper than requiring two, three
- * or five. What the user can weigh is the
- * price and the bet: this much to summarise, repaid if the session runs
- * about this many more turns.
+ * What it costs, by part, and what the context it drops has already
+ * cost in reads: the two sides of the decision, so the user can see
+ * why now. And whether the summary is being written in the background
+ * or the session has to wait for it, with the reason when it waits,
+ * since that is the part the user feels.
  */
 
-import {
-	type ThresholdDraw,
-	type TriggerDecision,
-	USUAL_THRESHOLD,
+import type {
+	CompactionCost,
+	TriggerDecision,
 } from "../../lib/compaction/index.ts";
-
-/** pi prices models in dollars per million tokens. */
-const TOKENS_PER_PRICE_UNIT = 1_000_000;
 
 /** Show a context size in thousands of tokens. */
 const TOKENS_PER_K = 1_000;
 
-/**
- * The notice for a compaction that is firing. A stretch that drew an
- * explored threshold says so, since it fired earlier or later than the
- * user would otherwise expect, on purpose.
- */
+/** How the summary for a firing compaction is being written. */
+export type SummaryTiming = { ahead: true } | { ahead: false; reason: string };
+
+function dollars(amount: number): string {
+	return `$${amount.toFixed(2)}`;
+}
+
+function size(tokens: number): string {
+	return `${Math.round(tokens / TOKENS_PER_K)}k tokens`;
+}
+
+function priced(decision: TriggerDecision): string {
+	const { cost } = decision;
+	return (
+		`Compacting costs about ${dollars(cost.total)} ` +
+		`(summary ${dollars(cost.summary)}, rewrite ${dollars(cost.rewrite)}, ` +
+		`re-fetching ${dollars(cost.refetch)}), and what it drops has cost ` +
+		`${dollars(decision.rentPaid)} in reads since the last compaction`
+	);
+}
+
+/** The notice for a compaction the trigger has decided on. */
 export function compactionNotice(
 	tokens: number,
 	decision: TriggerDecision,
-	draw?: ThresholdDraw,
+	timing: SummaryTiming,
 ): string {
-	const dollars = (decision.cost / TOKENS_PER_PRICE_UNIT).toFixed(2);
-	const notice =
-		`Compacting at ${Math.round(tokens / TOKENS_PER_K)}k tokens: ` +
-		`$${dollars} to summarise, earned back after about ` +
-		`${Math.round(decision.turnsToRepay)} more turns at this size`;
-	if (!draw?.explored) return notice;
+	if (timing.ahead) {
+		return (
+			`Writing a compaction summary in the background at ${size(tokens)}. ` +
+			priced(decision)
+		);
+	}
 	return (
-		`${notice}. This stretch was drawn to compact once savings reach ` +
-		`${draw.threshold.toFixed(2)} times the cost rather than ` +
-		`${USUAL_THRESHOLD.toFixed(2)}, as a ` +
-		"logged experiment"
+		`Compacting at ${size(tokens)} now, since the summary could not be ` +
+		`written in the background: ${timing.reason}. ${priced(decision)}`
+	);
+}
+
+/** The notice for an idle session compacted before its cache expires. */
+export function idleCompactionNotice(
+	tokens: number,
+	avoidedRewrite: number,
+	cost: CompactionCost,
+): string {
+	return (
+		`Compacting at ${size(tokens)} while idle, before the cache expires: ` +
+		`coming back would rewrite ${dollars(avoidedRewrite)} of context, and ` +
+		`compacting now costs about ${dollars(cost.summary + cost.refetch)}`
 	);
 }
 

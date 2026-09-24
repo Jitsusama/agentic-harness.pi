@@ -1,8 +1,10 @@
 /**
- * Compaction: the decision logic for when summarising context pays for
- * itself, the session history it starts from, the recorded draw of the
- * threshold it fires at, the back-off after a compaction fails, and the
- * guard that keeps a reserve setting from breaking that decision.
+ * Compaction: when compacting pays for itself, the session history its
+ * prices come from, how a summary is asked for, read and spliced onto
+ * the cached conversation, where a summary written ahead keeps from,
+ * what other extensions contribute to it, the back-off after a
+ * compaction fails, and the guard that keeps a reserve setting from
+ * breaking the decision.
  *
  * Pure and standalone. None of these touches pi's live compaction
  * behaviour; `compaction-workflow` wires them into a running trigger.
@@ -23,6 +25,7 @@ export {
 } from "./failure.ts";
 export { type CompactionHistory, compactionHistory } from "./history.ts";
 export { type PaybackInput, paybackMargin, paybackTest } from "./payback.ts";
+export { type KeptBoundary, keptBoundary } from "./prepared.ts";
 export { clampReserveTokens } from "./reserve.ts";
 export {
 	extendSentPayload,
@@ -37,14 +40,14 @@ export {
 	withFileLists,
 } from "./summary.ts";
 export {
-	currentThresholdDraw,
-	drawThreshold,
-	THRESHOLD_ENTRY,
-	type ThresholdDraw,
-	USUAL_THRESHOLD,
-} from "./threshold.ts";
-export {
+	type CompactionCost,
+	type CompactionCostInput,
+	type CompactionPrices,
+	compactionCost,
 	compactionPays,
+	droppableRent,
+	type IdleInput,
+	idleCompactionPays,
 	type TriggerDecision,
 	type TriggerInput,
 } from "./trigger.ts";

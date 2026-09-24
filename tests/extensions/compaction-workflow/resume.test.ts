@@ -14,7 +14,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import compactionWorkflow from "../../../extensions/compaction-workflow/index.ts";
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
@@ -85,18 +85,6 @@ async function runUntilCompaction(
 	if (!compacted) throw new Error("the policy never compacted");
 	return calls;
 }
-
-let wasRate: string | undefined;
-
-beforeEach(() => {
-	wasRate = process.env.PI_COMPACTION_EXPLORATION_RATE;
-	process.env.PI_COMPACTION_EXPLORATION_RATE = "0";
-});
-
-afterEach(() => {
-	if (wasRate === undefined) delete process.env.PI_COMPACTION_EXPLORATION_RATE;
-	else process.env.PI_COMPACTION_EXPLORATION_RATE = wasRate;
-});
 
 describe("resuming the run a compaction interrupted", () => {
 	it("resumes after a compaction through the prompt path", async () => {

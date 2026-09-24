@@ -4,15 +4,20 @@
  * pi's own summariser with its reason recorded.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const completeSimple = vi.fn();
 vi.mock("@earendil-works/pi-ai/compat", () => ({ completeSimple }));
 
-const { registerConversationSummary, SUMMARY_FALLBACK_ENTRY } = await import(
-	"../../../extensions/compaction-workflow/summariser.ts"
-);
+const {
+	AHEAD_UNUSED_ENTRY,
+	registerConversationSummary,
+	SUMMARY_FALLBACK_ENTRY,
+} = await import("../../../extensions/compaction-workflow/summariser.ts");
 const { SUMMARY_CONTRIBUTIONS, SUMMARY_SPAN } = await import(
 	"../../../lib/compaction/index.ts"
 );
@@ -36,13 +41,18 @@ function activate() {
 			handlers.set(name, [...(handlers.get(name) ?? []), handler]),
 		appendEntry: (type: string, data: unknown) => entries.push([type, data]),
 	};
-	registerConversationSummary(pi as unknown as ExtensionAPI);
+	const summary = registerConversationSummary(pi as unknown as ExtensionAPI);
 	const fire = async (name: string, event: unknown, ctx: unknown) => {
 		let result: unknown;
 		for (const h of handlers.get(name) ?? []) result = await h(event, ctx);
 		return result;
 	};
-	return { fire, entries, events };
+	return { fire, entries, events, summary };
+}
+
+/** Let a summary being written in the background finish. */
+async function settle() {
+	for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0));
 }
 
 const model = {
@@ -89,6 +99,11 @@ function context(branch: unknown[], leaf: string | null = "u1") {
 			getSessionId: () => "s1",
 		},
 	};
+}
+
+/** The fake context, as the handle's API types it. */
+function asContext(ctx: ReturnType<typeof context>): ExtensionContext {
+	return ctx as unknown as ExtensionContext;
 }
 
 function compactEvent() {
@@ -391,6 +406,190 @@ describe("the conversation summariser", () => {
 		await fire("session_before_compact", compactEvent(), ctx);
 		expect(entries[0]?.[1]).toEqual({
 			reason: "nothing has been sent this session",
+		});
+	});
+
+	describe("writing the summary ahead of the compaction", () => {
+		const secondUser = {
+			type: "message",
+			id: "u2",
+			message: {
+				role: "user",
+				content: [{ type: "text", text: "more" }],
+				timestamp: 3,
+			},
+		};
+		const secondReply = { ...replyEntry, id: "a2" };
+		const reply = (text: string) => ({
+			stopReason: "stop",
+			content: [{ type: "text", text }],
+			usage: { output: 900 },
+		});
+
+		async function writtenAhead() {
+			const handle = activate();
+			await handle.fire(
+				"before_provider_request",
+				{ payload: sentPayload },
+				context([userEntry], "u1"),
+			);
+			return handle;
+		}
+
+		it("compacts at once with a summary written ahead, keeping everything after the point it covers", async () => {
+			const { fire, summary, entries } = await writtenAhead();
+			completeSimple.mockResolvedValue(reply("## Goal\nahead"));
+			expect(
+				summary.prepare(asContext(context([userEntry, replyEntry], "a1"))),
+			).toEqual({ ok: true });
+			await settle();
+			expect(summary.state()).toBe("ready");
+
+			// Work went on: pi would cut at a2, which would drop u2 unseen.
+			const event = compactEvent();
+			event.preparation.firstKeptEntryId = "a2";
+			const result = (await fire(
+				"session_before_compact",
+				event,
+				context([userEntry, replyEntry, secondUser, secondReply], "a2"),
+			)) as { compaction: Record<string, unknown> };
+
+			expect(result.compaction.firstKeptEntryId).toBe("u2");
+			expect(result.compaction.summary).toContain("## Goal\nahead");
+			expect(result.compaction.details).toMatchObject({
+				summariser: "conversation",
+				written: "ahead",
+			});
+			expect(completeSimple).toHaveBeenCalledTimes(1);
+			expect(summary.state()).toBe("none");
+			expect(entries).toEqual([]);
+		});
+
+		it("waits for a summary still being written rather than writing a second", async () => {
+			const { fire, summary } = await writtenAhead();
+			let finish: (value: unknown) => void = () => {};
+			completeSimple.mockImplementation(
+				() =>
+					new Promise((resolve) => {
+						finish = resolve;
+					}),
+			);
+			summary.prepare(asContext(context([userEntry, replyEntry], "a1")));
+			expect(summary.state()).toBe("writing");
+
+			const compacting = fire(
+				"session_before_compact",
+				compactEvent(),
+				context([userEntry, replyEntry], "a1"),
+			);
+			await vi.waitFor(() => expect(completeSimple).toHaveBeenCalled());
+			finish(reply("## Goal\nawaited"));
+			const result = (await compacting) as { compaction: { summary: string } };
+
+			expect(result.compaction.summary).toContain("awaited");
+			expect(completeSimple).toHaveBeenCalledTimes(1);
+		});
+
+		it("refuses to write ahead when nothing has been sent, saying why", () => {
+			const { summary } = activate();
+			expect(
+				summary.prepare(asContext(context([userEntry, replyEntry], "a1"))),
+			).toEqual({
+				ok: false,
+				reason: "nothing has been sent this session",
+			});
+			expect(completeSimple).not.toHaveBeenCalled();
+		});
+
+		it("records a summary that could not be written ahead and hands the failure over once", async () => {
+			const { fire, summary, entries } = await writtenAhead();
+			completeSimple.mockResolvedValueOnce({
+				stopReason: "toolUse",
+				content: [{ type: "toolCall", name: "read" }],
+				usage: {},
+			});
+			summary.prepare(asContext(context([userEntry, replyEntry], "a1")));
+			await settle();
+
+			expect(summary.state()).toBe("failed");
+			expect(summary.takeFailure()).toBe("the summariser called a tool");
+			expect(summary.state()).toBe("none");
+			expect(entries).toEqual([
+				[AHEAD_UNUSED_ENTRY, { reason: "the summariser called a tool" }],
+			]);
+
+			// The compaction that follows writes its own, on the spot.
+			completeSimple.mockResolvedValueOnce(reply("## Goal\nnow"));
+			const result = (await fire(
+				"session_before_compact",
+				compactEvent(),
+				context([userEntry, replyEntry], "a1"),
+			)) as { compaction: { details: Record<string, unknown> } };
+			expect(result.compaction.details).toMatchObject({
+				written: "on the spot",
+			});
+		});
+
+		it("asks contributors for focus when writing ahead and for the appendix when compacting", async () => {
+			const { fire, summary, events } = await writtenAhead();
+			const seen: Array<{ handled: boolean }> = [];
+			events.on(SUMMARY_CONTRIBUTIONS, (data) => {
+				const c = data as {
+					instructions: string[];
+					appendix: string[];
+					handled: boolean;
+				};
+				c.instructions.push("keep the mastery layer");
+				c.appendix.push("\n\n## Mastery\nlayer 2");
+				seen.push(c);
+			});
+			let closing = "";
+			completeSimple.mockImplementation(async (_m, c) => {
+				closing = JSON.stringify(c.messages.at(-1));
+				return reply("## Goal");
+			});
+			summary.prepare(asContext(context([userEntry, replyEntry], "a1")));
+			await settle();
+			const result = (await fire(
+				"session_before_compact",
+				compactEvent(),
+				context([userEntry, replyEntry], "a1"),
+			)) as { compaction: { summary: string } };
+
+			expect(closing).toContain("Additional focus: keep the mastery layer");
+			expect(result.compaction.summary.endsWith("## Mastery\nlayer 2")).toBe(
+				true,
+			);
+			expect(result.compaction.summary.split("## Mastery")).toHaveLength(2);
+			expect(seen.map((c) => c.handled)).toEqual([false, true]);
+		});
+
+		it("discards a summary of a point the branch has left, and writes one on the spot", async () => {
+			const { fire, summary, entries } = await writtenAhead();
+			completeSimple.mockResolvedValue(reply("## Goal"));
+			summary.prepare(asContext(context([userEntry, replyEntry], "a1")));
+			await settle();
+
+			const elsewhere = [userEntry, { ...replyEntry, id: "b1" }];
+			await fire(
+				"session_before_compact",
+				compactEvent(),
+				context(elsewhere, "b1"),
+			);
+
+			expect(entries[0]).toEqual([
+				AHEAD_UNUSED_ENTRY,
+				{ reason: "the summarised point is not on this branch" },
+			]);
+			expect(completeSimple).toHaveBeenCalledTimes(2);
+		});
+
+		it("drops a summary being written when the session starts over", async () => {
+			const { fire, summary } = await writtenAhead();
+			completeSimple.mockImplementation(() => new Promise(() => {}));
+			summary.prepare(asContext(context([userEntry, replyEntry], "a1")));
+			await fire("session_start", { reason: "new" }, context([], null));
+			expect(summary.state()).toBe("none");
 		});
 	});
 });
