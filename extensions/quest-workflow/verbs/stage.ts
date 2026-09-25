@@ -66,19 +66,81 @@ import {
 } from "./shared.ts";
 import { bulkConcludeOrRetire } from "./structural.ts";
 
+/** A quest a sweep held back, and what its record needs first. */
+interface HeldQuest {
+	id: string;
+	lines: string[];
+}
+
+/**
+ * The quests in a conclude sweep whose records are not whole, held to
+ * the same audit a single conclude is. Unknown ids and quests already
+ * concluded pass through, so core answers for them as it always has.
+ */
+function unwholeRecords(questsRoot: string, targets: string[]): HeldQuest[] {
+	const { index } = discoverQuests(questsRoot);
+	const held: HeldQuest[] = [];
+	for (const id of targets) {
+		const entry = index.quests.get(id);
+		if (!entry || entry.doc.frontMatter.status === "concluded") continue;
+		const audit = auditQuestRecord(entry.dir);
+		if (isRecordSound(audit)) continue;
+		const workspace = workspaceDirOf(defaultWorkspaceRoot(), id) ?? "";
+		const lines = recordBreakage(audit, workspace).map((b) => b.line);
+		held.push({ id, lines });
+	}
+	return held;
+}
+
+function describeHeld(held: HeldQuest[]): string {
+	return held
+		.map(({ id, lines }) => `${id}:\n${lines.map((l) => `- ${l}`).join("\n")}`)
+		.join("\n");
+}
+
 /**
  * Conclude or retire a list of quests, then clear what each one's
  * conclude would have: the workspace's tmp/ and any scratch recorded
  * before workspaces. Core seals the records; the workspace root is
  * this package's to know.
+ *
+ * A conclude holds each record to the audit a single conclude does,
+ * concluding the whole ones and naming the rest with what to put right,
+ * so one untidy quest neither slips through nor stalls the batch. A
+ * retire is abandoned as it stands, as it is one quest at a time.
  */
 function sweepQuests(
 	state: QuestState,
 	action: "conclude" | "retire",
 	params: QuestToolParams,
 ): QuestResult {
-	const result = bulkConcludeOrRetire(state, action, params);
-	if (!result.ok || result.details?.dryRun) return result;
+	const targets = (params.id ?? "")
+		.split(",")
+		.map((t) => t.trim())
+		.filter((t) => t.length > 0);
+	const held =
+		action === "conclude" ? unwholeRecords(state.questsRoot, targets) : [];
+	const heldIds = new Set(held.map((h) => h.id));
+	const sweeping = targets.filter((id) => !heldIds.has(id));
+	if (held.length > 0 && sweeping.length === 0) {
+		return refuse(
+			`No record in the batch is whole yet, so nothing was concluded. Put these right first:\n${describeHeld(held)}`,
+		);
+	}
+	const swept = bulkConcludeOrRetire(state, action, {
+		...params,
+		id: sweeping.join(","),
+	});
+	if (!swept.ok) return swept;
+	const result: QuestResult =
+		held.length === 0
+			? swept
+			: {
+					...swept,
+					message: `${swept.message} ${swept.details?.dryRun ? "Would skip" : "Skipped"} ${count(held.length, "quest")} whose record is not whole yet; put these right, then conclude ${held.length === 1 ? "it" : "them"}:\n${describeHeld(held)}`,
+					details: { ...swept.details, skipped: [...heldIds] },
+				};
+	if (result.details?.dryRun) return result;
 	const changes = (result.details?.changes ?? []) as { id: string }[];
 	const { index } = discoverQuests(state.questsRoot);
 	for (const { id } of changes) {
