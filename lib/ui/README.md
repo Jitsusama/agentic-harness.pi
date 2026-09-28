@@ -17,7 +17,8 @@ top of Pi's TUI primitives.
   nor can forget to clear it.
 - **`workspace`**: show a stateful workspace with per-tab
   views and input handlers.
-- **`view`**: show read-only scrollable content.
+- **`view`**: show read-only scrollable content. Pass a
+  `signal` to dismiss it from code.
 - **`runGate`**: hold work that shows a panel until whatever
   is already on screen has finished. Pi mounts one component
   at a time, so two panels raised in the same turn otherwise
@@ -34,6 +35,14 @@ top of Pi's TUI primitives.
   themselves and answer a withdrawn gate the way Escape would,
   so it fails closed. The holder's `release()` hands the
   screen on early, for a panel that left without settling.
+
+Every prompt and view comes off the screen by its own overlay
+handle, never by hiding whatever overlay happens to be on top,
+so answering one under another program's panel leaves that
+panel alone. Each also closes when its turn is stopped
+(interrupt, `/new`, a session switch) and answers the way
+Escape would, so a gate fails closed and nothing waits on a
+key after its turn is gone.
 
 ### Content rendering
 

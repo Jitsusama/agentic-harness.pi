@@ -22,7 +22,6 @@
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 /** Handed to the gate holding the screen. */
 export interface GateHold {
@@ -77,40 +76,6 @@ export function runGate<T>(
 	options?: GateOptions,
 ): Promise<T> {
 	return sharedQueue().run(fn, options);
-}
-
-/**
- * Mount a panel once the screen is free, in the turn that asked for it.
- *
- * The turn's signal is read now, as the call is made: a gate belongs to
- * the turn that raised it, not whichever is running when its turn in the
- * queue comes. Stopped while it waits, the panel never mounts and the
- * caller gets `cancelled`, the answer Escape would have given, so every
- * gate fails closed. Every primitive mounts through here.
- *
- * `also` is a second reason to give up the wait, for a panel its caller
- * can dismiss; one dismissed before its turn comes never mounts.
- */
-export async function mountWhenFree<T>(
-	ctx: ExtensionContext,
-	mount: () => Promise<T>,
-	cancelled: T,
-	also?: AbortSignal,
-): Promise<T> {
-	const signals = [ctx.signal, also].filter(
-		(s): s is AbortSignal => s !== undefined,
-	);
-	const signal = signals.length > 1 ? AbortSignal.any(signals) : signals[0];
-	try {
-		return await runGate(mount, { signal });
-	} catch (error) {
-		if (signal?.aborted && isAbortError(error)) return cancelled;
-		throw error;
-	}
-}
-
-function isAbortError(error: unknown): boolean {
-	return error instanceof Error && error.name === "AbortError";
 }
 
 function sharedQueue(): GateQueueProtocol {

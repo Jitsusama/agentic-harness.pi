@@ -12,8 +12,7 @@
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
-import { mountWhenFree } from "./gate-queue.ts";
-import { OVERLAID } from "./overlay.ts";
+import { mountPanel, type PanelFactory } from "./mount.ts";
 import { showSinglePrompt } from "./prompt-single.ts";
 import { showTabbedPrompt } from "./prompt-tabbed.ts";
 import { showWorkspacePrompt } from "./prompt-workspace.ts";
@@ -109,32 +108,21 @@ export async function view(
 	config: ViewConfig,
 ): Promise<void> {
 	if (!ctx.hasUI) return;
-	// Dismissed before its turn, it never mounts: its listener below would
-	// never hear an abort that had already happened, and the view would
-	// stay up for good.
-	await mountWhenFree(
-		ctx,
-		() => showView(ctx, config),
-		undefined,
-		config.signal,
-	);
+	// Dismissed before its turn, it never mounts; dismissed while up, it
+	// comes down by its own handle, not by hiding whatever is on top.
+	await mountPanel(ctx, viewPanel(config), {
+		cancelled: undefined,
+		dismiss: config.signal,
+	});
 }
 
-function showView(ctx: ExtensionContext, config: ViewConfig): Promise<void> {
-	return ctx.ui.custom<void>((tui, theme, _kb, done) => {
-		// See the OVERLAID note at the end of this call: a panel that is not
-		// overlaid grows the transcript and strands the rows it displaces.
+function viewPanel(config: ViewConfig): PanelFactory<void> {
+	return (tui, theme, _kb, done) => {
 		const scroll: ScrollState = { vOffset: 0, hOffset: 0 };
 		let cachedContent: string[] | null = null;
 		let cachedHScroll = false;
 		let cachedWidth = -1;
 		const hScrollEnabled = config.allowHScroll === true;
-
-		if (config.signal) {
-			config.signal.addEventListener("abort", () => done(undefined), {
-				once: true,
-			});
-		}
 
 		function getContent(width: number): string[] {
 			if (cachedContent && width === cachedWidth) return cachedContent;
@@ -227,5 +215,5 @@ function showView(ctx: ExtensionContext, config: ViewConfig): Promise<void> {
 				cachedContent = null;
 			},
 		};
-	}, OVERLAID);
+	};
 }

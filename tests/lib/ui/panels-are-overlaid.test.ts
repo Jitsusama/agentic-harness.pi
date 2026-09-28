@@ -14,6 +14,10 @@
  * shape as every other defect this plan has turned up: a rule held in one
  * place and checked in none, so half the surface quietly does not follow it.
  *
+ * Every primitive now mounts through `mount.ts`, which is also where the
+ * queue and the close by handle live, so the sweep expects that one file.
+ * A second file opening a panel directly would skip all three.
+ *
  * Checked as written, because whether a component was overlaid is a fact
  * about the call rather than about anything the call returns.
  */
@@ -31,7 +35,7 @@ const UI = join(import.meta.dirname, "..", "..", "..", "lib", "ui");
  * describe the mechanism in prose, and matching those made the sweep report
  * the docstring explaining the rule as a violation of it.
  */
-const OPENS_A_PANEL = /ui\.custom\s*[<(]/g;
+const OPENS_A_PANEL = /ui\s*\.custom\s*[<(]/g;
 
 /** How many panels a file opens. */
 function callsIn(source: string): number {
@@ -48,13 +52,7 @@ function filesOpeningPanels(): string[] {
 describe("every panel is drawn over the transcript", () => {
 	it("finds the files that open one", () => {
 		// Guards the sweep below against silently finding nothing.
-		expect(filesOpeningPanels()).toEqual([
-			"panel.ts",
-			"prompt-single.ts",
-			"prompt-tabbed.ts",
-			"prompt-toggle-list.ts",
-			"prompt-workspace.ts",
-		]);
+		expect(filesOpeningPanels()).toEqual(["mount.ts"]);
 	});
 
 	it("passes OVERLAID at every call", () => {

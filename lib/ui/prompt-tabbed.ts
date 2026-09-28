@@ -19,14 +19,13 @@ import {
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
 import { type ActionBarResult, handleActionInput } from "./action-bar.ts";
-import { mountWhenFree } from "./gate-queue.ts";
+import { mountPanel } from "./mount.ts";
 import { buildNoteEditorTheme, renderNoteEditor } from "./note-editor.ts";
 import {
 	handleOptionInput,
 	optionValue,
 	renderOptionList,
 } from "./option-list.ts";
-import { OVERLAID } from "./overlay.ts";
 import { computeChromeLines, renderFooter } from "./panel-layout.ts";
 import {
 	contentBudget,
@@ -716,21 +715,15 @@ export async function showTabbedPrompt(
 	// out at once: submit, cancel, redirect, abort, and a throw from inside.
 	// Written once the panel has the screen, since the count is for the
 	// panel a person can see.
-	return mountWhenFree(
+	return mountPanel<TabbedResult | null>(
 		ctx,
-		async () => {
-			report(renderProgressBar(0, config.items.length));
-			try {
-				return await ctx.ui.custom<TabbedResult | null>(
-					(tui, theme, _kb, done) =>
-						createTabbedController(config, tui, theme, done, report),
-					OVERLAID,
-				);
-			} finally {
-				report(undefined);
-			}
+		(tui, theme, _kb, done) =>
+			createTabbedController(config, tui, theme, done, report),
+		{
+			cancelled: null,
+			onShow: () => report(renderProgressBar(0, config.items.length)),
+			onGone: () => report(undefined),
 		},
-		null,
 	);
 }
 
