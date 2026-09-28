@@ -212,7 +212,10 @@ export function registerAskTool(pi: ExtensionAPI): void {
 				}),
 			),
 			repo: Type.Optional(
-				Type.String({ description: "Checkout path, for a local review." }),
+				Type.String({
+					description:
+						"Checkout path: the repo for a local review, and for a hosted change a checkout of its repo to cut the round's snapshot from, when the session is not sitting in one.",
+				}),
 			),
 			intent: Type.Optional(
 				Type.String({
@@ -649,7 +652,7 @@ async function askCouncil(
 	const tree = await treeForRound(
 		bound.repo,
 		proposal.headCommit,
-		process.cwd(),
+		params.repo ?? process.cwd(),
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
 	// After the tree, because a lens can come from the repo under review
@@ -715,7 +718,7 @@ async function startRound(
 	const tree = await treeForRound(
 		bound.repo,
 		proposal.headCommit,
-		process.cwd(),
+		params.repo ?? process.cwd(),
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
 	const charters = await chartersFor(roster, tree, "reviewers", diff);
@@ -853,7 +856,7 @@ async function askJudge(
 	const tree = await treeForRound(
 		bound.repo,
 		proposal.headCommit,
-		process.cwd(),
+		params.repo ?? process.cwd(),
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
 	const charters = await chartersFor(roster, tree, "judge", diff);
@@ -914,7 +917,7 @@ async function askCritique(
 	const tree = await treeForRound(
 		bound.repo,
 		proposal.headCommit,
-		process.cwd(),
+		params.repo ?? process.cwd(),
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
 	const charters = await chartersFor(roster, tree, "reviewers", diff);
@@ -1018,7 +1021,7 @@ async function askStack(
 	const tree = await treeForRound(
 		bound.repo,
 		tip.proposal.headCommit,
-		process.cwd(),
+		params.repo ?? process.cwd(),
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
 	// Every change in the stack, since a lens the stack edits anywhere
@@ -1142,7 +1145,7 @@ async function askAudit(
 	const tree = await treeForRound(
 		bound.repo,
 		proposal.headCommit,
-		process.cwd(),
+		params.repo ?? process.cwd(),
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
 
@@ -1322,7 +1325,7 @@ async function retryOne(
 	const tree = await treeForRound(
 		bound.repo,
 		proposal.headCommit,
-		process.cwd(),
+		params.repo ?? process.cwd(),
 	);
 	if ("refusal" in tree) return refuse(tree.refusal);
 	// The one participant this retry re-asks, not the whole roster. It
