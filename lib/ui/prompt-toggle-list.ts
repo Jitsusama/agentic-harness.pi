@@ -117,9 +117,9 @@ export function selectedValues(model: ToggleListModel): Record<string, string> {
 
 /**
  * Present a settings surface where up/down navigate, Enter cycles the selected
- * row's value, typing filters and Esc clears a non-empty filter or otherwise
- * closes the panel. Returns each row's selected value. Headless callers get the
- * config's initial values unchanged.
+ * row's value, typing filters, Ctrl+Enter submits and Esc clears a non-empty
+ * filter or otherwise cancels. Returns each row's selected value on submit and
+ * the config's initial values otherwise, as headless callers get them too.
  */
 export async function promptToggleList(
 	ctx: ExtensionContext,
@@ -128,9 +128,9 @@ export async function promptToggleList(
 	const initial = initToggleModel(config);
 	if (!ctx.hasUI) return selectedValues(initial);
 
-	// Stopped before or while it is up, the rows keep the values they came
-	// with, as they would for a caller with no screen: nothing a person had
-	// not confirmed is applied.
+	// Cancelled, or stopped before or while it is up, the rows keep the
+	// values they came with, as they would for a caller with no screen:
+	// nothing a person had not submitted is applied.
 	return mountPanel(ctx, toggleListPanel(config, initial), {
 		cancelled: selectedValues(initial),
 	});
@@ -148,10 +148,12 @@ function toggleListPanel(
 		function handleInput(data: string) {
 			if (matchesKey(data, Key.up)) model = moveSelection(model, -1);
 			else if (matchesKey(data, Key.down)) model = moveSelection(model, 1);
+			else if (matchesKey(data, Key.ctrl("enter")))
+				return done(selectedValues(model));
 			else if (matchesKey(data, Key.enter)) model = cycleSelected(model);
 			else if (matchesKey(data, Key.escape)) {
 				if (model.filter) model = setFilter(model, "");
-				else return done(selectedValues(model));
+				else return done(selectedValues(initial));
 			} else if (matchesKey(data, Key.backspace))
 				model = setFilter(model, model.filter.slice(0, -1));
 			else if (data.length === 1 && data >= " " && data <= "~")
@@ -194,17 +196,28 @@ function toggleListPanel(
 				add("");
 				if (model.filter) add(theme.fg("dim", ` filter: ${model.filter}`));
 				const escLabel = model.filter ? "Esc clear filter" : "Esc cancel";
+				// Submitting is the focal point once there is something to submit.
+				const submit = theme.fg(
+					changed(initial, model) ? "accent" : "dim",
+					"Ctrl+Enter submit",
+				);
+				const sep = theme.fg("dim", " · ");
 				add(
-					theme.fg(
-						"dim",
-						` ↑↓ select · type to filter · Enter cycle · ${escLabel}`,
-					),
+					`${theme.fg("dim", " ↑↓ select · type to filter · Enter cycle")}${sep}${submit}${sep}${theme.fg("dim", escLabel)}`,
 				);
 				add(theme.fg("accent", GLYPH.hrule.repeat(width)));
 				return lines;
 			},
 		};
 	};
+}
+
+/** Whether any row differs from the value it opened with. */
+function changed(initial: ToggleListModel, model: ToggleListModel): boolean {
+	const before = selectedValues(initial);
+	return Object.entries(selectedValues(model)).some(
+		([id, value]) => before[id] !== value,
+	);
 }
 
 function toSections(model: ToggleListModel, theme: Theme): NavigableSection[] {
