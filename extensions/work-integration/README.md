@@ -38,17 +38,25 @@ tree of the same workspace, that is what fills a disk. So when
 `target/` of the tree beside it (or the checkout it was cut from)
 that built most recently, from the same repository.
 
-The clone is copy-on-write (`cp -c` on APFS, `cp --reflink=always`
-on Linux), so it costs no space until one side writes, and a
-filesystem that cannot clone gets nothing rather than a slow full
-copy. Cargo reuses the registry crates, whose fingerprints name
-the registry and not the tree. The workspace's own crates and
-anything patched from a path inside the tree rebuild, as they
-would anyway, so each profile's `incremental/` is dropped from
-the clone. On a 56 GiB walgit-rs target the clone takes about a
-minute and a half, and the first `cargo test -p walgit-wal`
-afterwards compiled only the workspace crates and the gix family
-above its vendored `gix-hash`, in about a minute.
+The clone is copy-on-write or nothing: `clonefile(2)` on macOS,
+which fails rather than falling back to a copy the way `cp -c`
+does, and `cp --reflink=always` on Linux. It costs no space until
+one side writes. Cargo reuses the registry crates, whose
+fingerprints name the registry and not the tree. The workspace's
+own packages would not be safe to reuse: cargo hashes a path
+package by its place in the workspace, so a sibling's build of the
+same member looks fresh here. So every fingerprint of a package
+that either tree's `Cargo.lock` records without a source is
+removed, and those rebuild. Only the profiles are cloned, without
+`incremental/`, the lock or the uplifted binaries. The clone runs
+under cargo's lock on the sibling's profiles, skips a sibling
+that is mid-build, and is staged beside `target/` and moved into
+place, so a failure leaves nothing behind.
+
+On a 58 GiB walgit-rs target the clone took 1.3 seconds and
+18 MiB. The first `cargo test -p walgit-wal --no-run` afterwards
+compiled 30 packages in 32 seconds: the workspace's own crates,
+and the gix family above its `gix-hash` patched from a path.
 
 ## Why a Provider Registry
 
