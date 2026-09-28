@@ -35,7 +35,7 @@ export {
 // ── Counts ─────────────────────────────────────────
 export { count, noun, verb } from "./count.ts";
 // ── Gate serialization ──────────────────────────────────────
-export { runGate } from "./gate-queue.ts";
+export { type GateHold, type GateOptions, runGate } from "./gate-queue.ts";
 // ── Narration ───────────────────────────────────────────────
 export {
 	NARRATION_GLYPH,

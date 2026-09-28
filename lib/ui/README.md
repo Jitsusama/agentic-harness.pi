@@ -18,12 +18,22 @@ top of Pi's TUI primitives.
 - **`workspace`**: show a stateful workspace with per-tab
   views and input handlers.
 - **`view`**: show read-only scrollable content.
-- **`runGate`**: hold a confirmation prompt until whatever is
-  already on screen has finished. Pi mounts one component at
-  a time, so two gates raised in the same turn otherwise race:
-  the first takes the screen and the rest either hang or pass
-  unseen, and a gate nobody saw still counts as approval. Wrap
-  any prompt that guards a write.
+- **`runGate`**: hold work that shows a panel until whatever
+  is already on screen has finished. Pi mounts one component
+  at a time, so two panels raised in the same turn otherwise
+  race: the first takes the screen and the rest either hang or
+  pass unseen, and a gate nobody saw still counts as approval.
+  Every primitive above already mounts through this queue, so
+  a caller only needs it to keep several prompts together as
+  one turn on screen; a prompt asked for inside that turn runs
+  at once rather than queueing behind it. The queue is
+  process-global, so two packages carrying their own copy of
+  this library still share one. Pass a `signal` to leave the
+  queue while waiting (the call rejects with an `AbortError`
+  and nothing mounts); the primitives pass the turn's signal
+  themselves and answer a withdrawn gate the way Escape would,
+  so it fails closed. The holder's `release()` hands the
+  screen on early, for a panel that left without settling.
 
 ### Content rendering
 

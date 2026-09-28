@@ -25,6 +25,7 @@ import {
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
 import { handleActionInput, isShiftEscape } from "./action-bar.ts";
+import { mountWhenFree } from "./gate-queue.ts";
 import { buildNoteEditorTheme, renderNoteEditor } from "./note-editor.ts";
 import { OVERLAID } from "./overlay.ts";
 import { computeChromeLines, renderFooter } from "./panel-layout.ts";
@@ -451,9 +452,14 @@ export async function showWorkspacePrompt(
 ): Promise<WorkspaceResult> {
 	// Overlaid, like every other panel: one that is not grows the transcript
 	// and strands the rows it displaces, which reads as a duplicate later.
-	return ctx.ui.custom<WorkspaceResult>(
-		(tui, theme, _kb, done) =>
-			createWorkspaceController(config, tui, theme, done),
-		OVERLAID,
+	return mountWhenFree(
+		ctx,
+		() =>
+			ctx.ui.custom<WorkspaceResult>(
+				(tui, theme, _kb, done) =>
+					createWorkspaceController(config, tui, theme, done),
+				OVERLAID,
+			),
+		null,
 	);
 }
