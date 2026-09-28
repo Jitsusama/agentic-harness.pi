@@ -6,7 +6,8 @@
  */
 
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
 import {
 	getTreeProvider,
 	resolveTreeProvider,
@@ -26,7 +27,7 @@ import {
 	removeTreeFromQuest,
 	setPendingPrune,
 } from "../../../lib/internal/quest/trees.ts";
-import type { QuestSession } from "../../../lib/quest/index.ts";
+import type { QuestSession, QuestTree } from "../../../lib/quest/index.ts";
 import { count, noun } from "../../../lib/ui/count.ts";
 import { displayPath } from "../../../lib/ui/path.ts";
 import { appendJourneyEntry, inventoryWorktrees } from "../lifecycle.ts";
@@ -232,6 +233,47 @@ export function treeList(state: QuestState): QuestResult {
 	});
 }
 
+/**
+ * The tree a verb was pointed at: the one holding `named`, the deepest
+ * when trees nest, or the only tree when nothing was named. Anything
+ * else is refused with the trees listed, since the verbs that ask are
+ * the ones that change or delete a tree, and a guess there acts on a
+ * tree nobody chose.
+ */
+function namedTree(
+	trees: QuestTree[],
+	named: string | undefined,
+	verb: string,
+): { ok: true; tree: QuestTree } | { ok: false; reason: string } {
+	const listed = trees.map((t) => `  ${displayPath(t.path)}`).join("\n");
+	const wanted = named?.trim();
+	if (!wanted) {
+		if (trees.length === 1) return { ok: true, tree: trees[0] };
+		return {
+			ok: false,
+			reason: `The loaded quest has ${count(trees.length, "tree")}; name the one for ${verb} with \`cwd\`, a path inside it:\n${listed}`,
+		};
+	}
+	const path = resolve(expandHome(wanted));
+	const holding = trees
+		.filter((t) => isWithin(path, t.path))
+		.sort(
+			(a, b) => canonicalPath(b.path).length - canonicalPath(a.path).length,
+		);
+	if (holding.length > 0) return { ok: true, tree: holding[0] };
+	return {
+		ok: false,
+		reason: `No tree on the loaded quest holds ${displayPath(path)}. Its ${noun(trees.length, "tree")}:\n${listed}`,
+	};
+}
+
+/** A path with a leading `~` read as the home directory, as a shell would. */
+function expandHome(path: string): string {
+	if (path === "~") return homedir();
+	if (path.startsWith("~/")) return join(homedir(), path.slice(2));
+	return path;
+}
+
 export async function treePrune(
 	state: QuestState,
 	params: QuestToolParams,
@@ -244,10 +286,15 @@ export async function treePrune(
 	if (listing.trees.length === 0) {
 		return refuse("No trees on the loaded quest to prune.");
 	}
-	const target =
-		listing.trees.find(
-			(t) => t.path === params.target || t.path === params.ref,
-		) ?? listing.trees[0];
+	// `ref` is accepted for the prune alone, because it is what this
+	// verb matched on before `cwd` named the tree.
+	const chosen = namedTree(
+		listing.trees,
+		params.cwd ?? params.target ?? params.ref,
+		"tree-prune",
+	);
+	if (!chosen.ok) return refuse(chosen.reason);
+	const target = chosen.tree;
 	// `force` is a typed boolean parameter. The agent flips
 	// it only after confirming destructive intent with the
 	// user. We deliberately do NOT key off a `note` string
@@ -326,10 +373,21 @@ export async function treeExpand(
 	if (listing.trees.length === 0) {
 		return refuse("No trees on the loaded quest. Run tree-add first.");
 	}
-	const target = listing.trees[0];
-	const provider = resolveTreeProvider(target.repoRoot ?? target.path);
+	const chosen = namedTree(
+		listing.trees,
+		params.cwd ?? params.target,
+		"tree-expand",
+	);
+	if (!chosen.ok) return refuse(chosen.reason);
+	const target = chosen.tree;
+	// The provider that made the tree, as a prune finds it, so an
+	// expand cannot reach a different provider that happens to win
+	// resolution today.
+	const provider =
+		(target.providerId ? getTreeProvider(target.providerId) : undefined) ??
+		resolveTreeProvider(target.repoRoot ?? target.path);
 	if (!provider) {
-		return refuse("No tree provider applies to the loaded quest's tree.");
+		return refuse(`No tree provider applies to ${displayPath(target.path)}.`);
 	}
 	const expander = (
 		provider as unknown as {
@@ -342,7 +400,7 @@ export async function treeExpand(
 		);
 	}
 	try {
-		await expander({ path: target.path, zone });
+		await expander.call(provider, { path: target.path, zone });
 		appendJourneyEntry(state, `Expanded ${target.path} with zone ${zone}.`);
 		return ok(`Zone ${zone} added to ${displayPath(target.path)}.`, { zone });
 	} catch (error) {
