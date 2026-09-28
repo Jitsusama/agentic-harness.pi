@@ -74,7 +74,8 @@ it does:
   `quest-workflow`, `tdd-workflow`,
   `ask-workflow`, `git-bypass-workflow`,
   `guardian-status-workflow`, `result-store-workflow`,
-  `cost-workflow`, `image-budget-workflow`.
+  `cost-workflow`, `image-budget-workflow`,
+  `panel-lifecycle-workflow`.
 
   `image-budget-workflow` scales images down at the
   `tool_result` seam, on the one ground that makes a silent

@@ -131,6 +131,33 @@ export interface PiScreen {
 	stop(): void;
 }
 
+/**
+ * Point the process's stdout at a terminal's geometry, returning the
+ * undo. The panel budget reads stdout, which in a test is not the
+ * emulator.
+ */
+export function pinStdout(columns: number, rows: number): () => void {
+	const saved = {
+		rows: Object.getOwnPropertyDescriptor(process.stdout, "rows"),
+		columns: Object.getOwnPropertyDescriptor(process.stdout, "columns"),
+	};
+	Object.defineProperty(process.stdout, "rows", {
+		value: rows,
+		configurable: true,
+	});
+	Object.defineProperty(process.stdout, "columns", {
+		value: columns,
+		configurable: true,
+	});
+	return () => {
+		if (saved.rows) Object.defineProperty(process.stdout, "rows", saved.rows);
+		else Reflect.deleteProperty(process.stdout, "rows");
+		if (saved.columns)
+			Object.defineProperty(process.stdout, "columns", saved.columns);
+		else Reflect.deleteProperty(process.stdout, "columns");
+	};
+}
+
 /** Start a screen with a transcript under it. */
 export function piScreen(columns = 120, rows = 30): PiScreen {
 	const terminal = new VirtualTerminal(columns, rows);

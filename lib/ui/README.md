@@ -42,7 +42,11 @@ so answering one under another program's panel leaves that
 panel alone. Each also closes when its turn is stopped
 (interrupt, `/new`, a session switch) and answers the way
 Escape would, so a gate fails closed and nothing waits on a
-key after its turn is gone.
+key after its turn is gone. A panel raised outside a turn
+closes the same way when its session ends, whether it is up or
+still waiting: the panel registry records each one, and
+`panel-lifecycle-workflow` closes them all on
+`session_shutdown`, across every copy of this library.
 
 ### Content rendering
 

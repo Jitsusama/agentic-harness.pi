@@ -24,6 +24,7 @@ import type {
 import {
 	Lines,
 	type PiScreen,
+	pinStdout,
 	piScreen,
 	VirtualTerminal,
 } from "./pi-screen.ts";
@@ -65,30 +66,16 @@ describe("what pi's screen says about its overlays", () => {
 
 describe("a panel coming off the screen", () => {
 	let s: PiScreen;
-	let stdoutRows: PropertyDescriptor | undefined;
-	let stdoutColumns: PropertyDescriptor | undefined;
+	let unpin: () => void;
 
 	beforeEach(() => {
-		// The panel budget reads the process's own stdout, which in a test
-		// is not the emulator. Point it at the same geometry.
-		stdoutRows = Object.getOwnPropertyDescriptor(process.stdout, "rows");
-		stdoutColumns = Object.getOwnPropertyDescriptor(process.stdout, "columns");
-		Object.defineProperty(process.stdout, "rows", {
-			value: ROWS,
-			configurable: true,
-		});
-		Object.defineProperty(process.stdout, "columns", {
-			value: COLUMNS,
-			configurable: true,
-		});
+		unpin = pinStdout(COLUMNS, ROWS);
 		s = piScreen(COLUMNS, ROWS);
 	});
 
 	afterEach(() => {
 		s.stop();
-		if (stdoutRows) Object.defineProperty(process.stdout, "rows", stdoutRows);
-		if (stdoutColumns)
-			Object.defineProperty(process.stdout, "columns", stdoutColumns);
+		unpin();
 	});
 
 	it("closes on Escape, the baseline everything else is held to", async () => {
