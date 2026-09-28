@@ -15,7 +15,6 @@ import {
 	promptSingle,
 	promptTabbed,
 	renderMarkdown,
-	runGate,
 } from "../../lib/ui/index.ts";
 import { formatRedirectReason } from "../../lib/ui/redirect.ts";
 
@@ -59,29 +58,27 @@ export async function confirmSendMessage(
 
 	const context = `Send message to ${conversationName}:\n${text.slice(0, 200)}`;
 
-	const result = await runGate(() =>
-		promptSingle(ctx, {
-			content: (theme, width) => {
-				const lines = [
-					theme.fg("accent", theme.bold(" Send Slack Message")),
-					"",
-					` ${theme.fg("muted", "To:")} ${conversationName}`,
-					"",
-				];
-				for (const line of renderMarkdown(text, theme, width)) {
+	const result = await promptSingle(ctx, {
+		content: (theme, width) => {
+			const lines = [
+				theme.fg("accent", theme.bold(" Send Slack Message")),
+				"",
+				` ${theme.fg("muted", "To:")} ${conversationName}`,
+				"",
+			];
+			for (const line of renderMarkdown(text, theme, width)) {
+				lines.push(line);
+			}
+			if (table) {
+				lines.push("");
+				for (const line of renderTablePreview(table, theme, width)) {
 					lines.push(line);
 				}
-				if (table) {
-					lines.push("");
-					for (const line of renderTablePreview(table, theme, width)) {
-						lines.push(line);
-					}
-				}
-				return lines;
-			},
-			actions: REJECT_ACTION,
-		}),
-	);
+			}
+			return lines;
+		},
+		actions: REJECT_ACTION,
+	});
 
 	if (!result) return null;
 
@@ -121,30 +118,28 @@ export async function confirmEditMessage(
 
 	const context = `Edit message ${ts} in ${conversationName}:\n${text.slice(0, 200)}`;
 
-	const result = await runGate(() =>
-		promptSingle(ctx, {
-			content: (theme, width) => {
-				const lines = [
-					theme.fg("accent", theme.bold(" Edit Slack Message")),
-					"",
-					` ${theme.fg("muted", "In:")} ${conversationName}`,
-					` ${theme.fg("muted", "Message:")} ${ts}`,
-					"",
-				];
-				for (const line of renderMarkdown(text, theme, width)) {
+	const result = await promptSingle(ctx, {
+		content: (theme, width) => {
+			const lines = [
+				theme.fg("accent", theme.bold(" Edit Slack Message")),
+				"",
+				` ${theme.fg("muted", "In:")} ${conversationName}`,
+				` ${theme.fg("muted", "Message:")} ${ts}`,
+				"",
+			];
+			for (const line of renderMarkdown(text, theme, width)) {
+				lines.push(line);
+			}
+			if (table) {
+				lines.push("");
+				for (const line of renderTablePreview(table, theme, width)) {
 					lines.push(line);
 				}
-				if (table) {
-					lines.push("");
-					for (const line of renderTablePreview(table, theme, width)) {
-						lines.push(line);
-					}
-				}
-				return lines;
-			},
-			actions: REJECT_ACTION,
-		}),
-	);
+			}
+			return lines;
+		},
+		actions: REJECT_ACTION,
+	});
 
 	if (!result) return null;
 
@@ -179,30 +174,28 @@ export async function confirmReply(
 
 	const context = `Reply in ${conversationName} thread ${threadTs}:\n${text.slice(0, 200)}`;
 
-	const result = await runGate(() =>
-		promptSingle(ctx, {
-			content: (theme, width) => {
-				const lines = [
-					theme.fg("accent", theme.bold(" Reply to Thread")),
-					"",
-					` ${theme.fg("muted", "In:")} ${conversationName}`,
-					` ${theme.fg("muted", "Thread:")} ${threadTs}`,
-					"",
-				];
-				for (const line of renderMarkdown(text, theme, width)) {
+	const result = await promptSingle(ctx, {
+		content: (theme, width) => {
+			const lines = [
+				theme.fg("accent", theme.bold(" Reply to Thread")),
+				"",
+				` ${theme.fg("muted", "In:")} ${conversationName}`,
+				` ${theme.fg("muted", "Thread:")} ${threadTs}`,
+				"",
+			];
+			for (const line of renderMarkdown(text, theme, width)) {
+				lines.push(line);
+			}
+			if (table) {
+				lines.push("");
+				for (const line of renderTablePreview(table, theme, width)) {
 					lines.push(line);
 				}
-				if (table) {
-					lines.push("");
-					for (const line of renderTablePreview(table, theme, width)) {
-						lines.push(line);
-					}
-				}
-				return lines;
-			},
-			actions: REJECT_ACTION,
-		}),
-	);
+			}
+			return lines;
+		},
+		actions: REJECT_ACTION,
+	});
 
 	if (!result) return null;
 
@@ -237,35 +230,33 @@ export async function confirmUploadFile(
 
 	const context = `Upload ${files.length === 1 ? files[0].name : `${files.length} files`} to ${conversationName}`;
 
-	const result = await runGate(() =>
-		promptSingle(ctx, {
-			content: (theme, width) => {
-				const lines = [
-					theme.fg("accent", theme.bold(" Upload File")),
-					"",
-					` ${theme.fg("muted", "To:")} ${conversationName}`,
-				];
-				if (threadTs) {
-					lines.push(` ${theme.fg("muted", "Thread:")} ${threadTs}`);
-				}
+	const result = await promptSingle(ctx, {
+		content: (theme, width) => {
+			const lines = [
+				theme.fg("accent", theme.bold(" Upload File")),
+				"",
+				` ${theme.fg("muted", "To:")} ${conversationName}`,
+			];
+			if (threadTs) {
+				lines.push(` ${theme.fg("muted", "Thread:")} ${threadTs}`);
+			}
+			lines.push("");
+			for (const f of files) {
+				lines.push(
+					` 📄 ${f.name} ${theme.fg("dim", `(${formatBytes(f.size)})`)}`,
+				);
+			}
+			if (text) {
 				lines.push("");
-				for (const f of files) {
-					lines.push(
-						` 📄 ${f.name} ${theme.fg("dim", `(${formatBytes(f.size)})`)}`,
-					);
+				lines.push(` ${theme.fg("muted", "Comment:")}`);
+				for (const line of renderMarkdown(text, theme, width)) {
+					lines.push(line);
 				}
-				if (text) {
-					lines.push("");
-					lines.push(` ${theme.fg("muted", "Comment:")}`);
-					for (const line of renderMarkdown(text, theme, width)) {
-						lines.push(line);
-					}
-				}
-				return lines;
-			},
-			actions: REJECT_ACTION,
-		}),
-	);
+			}
+			return lines;
+		},
+		actions: REJECT_ACTION,
+	});
 
 	if (!result) return null;
 
@@ -432,54 +423,48 @@ export async function confirmSendThread(
 		: `Send Thread to ${conversationName}`;
 	const context = action;
 
-	const result = await runGate(() =>
-		promptTabbed(ctx, {
-			title,
-			items: messages.map((msg, i) => ({
-				label: `M${i + 1}`,
-				views: [
-					{
-						key: "1",
-						label: "Message",
-						content: (theme, width) => {
-							const lines: string[] = [];
-							const role = isReplyMode
-								? `Reply ${i + 1} of ${messages.length} (in thread ${parentTs})`
-								: i === 0
-									? "Thread parent"
-									: `Reply ${i}`;
-							lines.push(` ${theme.fg("muted", role)}`);
+	const result = await promptTabbed(ctx, {
+		title,
+		items: messages.map((msg, i) => ({
+			label: `M${i + 1}`,
+			views: [
+				{
+					key: "1",
+					label: "Message",
+					content: (theme, width) => {
+						const lines: string[] = [];
+						const role = isReplyMode
+							? `Reply ${i + 1} of ${messages.length} (in thread ${parentTs})`
+							: i === 0
+								? "Thread parent"
+								: `Reply ${i}`;
+						lines.push(` ${theme.fg("muted", role)}`);
+						lines.push("");
+						for (const line of renderMarkdown(msg.text, theme, width)) {
+							lines.push(line);
+						}
+						if (msg.table) {
 							lines.push("");
-							for (const line of renderMarkdown(msg.text, theme, width)) {
+							for (const line of renderTablePreview(msg.table, theme, width)) {
 								lines.push(line);
 							}
-							if (msg.table) {
-								lines.push("");
-								for (const line of renderTablePreview(
-									msg.table,
-									theme,
-									width,
-								)) {
-									lines.push(line);
-								}
+						}
+						if (msg.files?.length) {
+							lines.push("");
+							for (const f of msg.files) {
+								lines.push(
+									` 📄 ${f.name} ${theme.fg("dim", `(${formatBytes(f.size)})`)}`,
+								);
 							}
-							if (msg.files?.length) {
-								lines.push("");
-								for (const f of msg.files) {
-									lines.push(
-										` 📄 ${f.name} ${theme.fg("dim", `(${formatBytes(f.size)})`)}`,
-									);
-								}
-							}
-							return lines;
-						},
+						}
+						return lines;
 					},
-				],
-			})),
-			actions: REJECT_ACTION,
-			autoResolve: true,
-		}),
-	);
+				},
+			],
+		})),
+		actions: REJECT_ACTION,
+		autoResolve: true,
+	});
 
 	if (!result) return null;
 
@@ -526,18 +511,16 @@ export async function confirmReaction(
 	const verb = action === "add" ? "Add" : "Remove";
 	const context = `${verb} :${emoji}: reaction in ${conversationName}`;
 
-	const result = await runGate(() =>
-		promptSingle(ctx, {
-			content: (theme) => [
-				theme.fg("accent", theme.bold(` ${verb} Reaction`)),
-				"",
-				` ${theme.fg("muted", "In:")} ${conversationName}`,
-				` ${theme.fg("muted", "Message:")} ${ts}`,
-				` ${theme.fg("muted", "Emoji:")} :${emoji}:`,
-			],
-			actions: REJECT_ACTION,
-		}),
-	);
+	const result = await promptSingle(ctx, {
+		content: (theme) => [
+			theme.fg("accent", theme.bold(` ${verb} Reaction`)),
+			"",
+			` ${theme.fg("muted", "In:")} ${conversationName}`,
+			` ${theme.fg("muted", "Message:")} ${ts}`,
+			` ${theme.fg("muted", "Emoji:")} :${emoji}:`,
+		],
+		actions: REJECT_ACTION,
+	});
 
 	if (!result) return null;
 
