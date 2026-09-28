@@ -194,7 +194,7 @@ export function dock(
 	body: DockBody,
 	options: DockOptions = {},
 ): Docked {
-	if (!ctx.hasUI || ctx.mode !== "tui") return NOWHERE;
+	if (!drawsToTerminal(ctx)) return NOWHERE;
 	const owner = shared();
 	let tui: TUI | undefined;
 	let gone = false;
@@ -338,6 +338,21 @@ export function dock(
 	owner.entries = [...owner.entries.filter((one) => one.key !== key), entry];
 	unsubscribe = ctx.ui.onTerminalInput((data) => swallowRepeat(owner, data));
 	return handle;
+}
+
+/**
+ * Whether pi is drawing this session to a terminal.
+ *
+ * Read through `Reflect` because a pi older than `mode` still runs this
+ * package, whose peer range is open, and its declarations do not have
+ * the field. Such a pi said `hasUI` only for its terminal, so there the
+ * flag alone answers. Asking for `mode` outright left every board unmounted
+ * on those versions rather than drawn.
+ */
+function drawsToTerminal(ctx: ExtensionContext): boolean {
+	if (!ctx.hasUI) return false;
+	const mode: unknown = Reflect.get(ctx, "mode");
+	return mode === undefined || mode === "tui";
 }
 
 /** Each mounted component's way of asking for the room this frame. */
