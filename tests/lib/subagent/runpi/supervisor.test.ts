@@ -13,6 +13,7 @@ import type { Readable, Writable } from "node:stream";
 import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import { ReviewerArtifactsStore } from "../../../../lib/subagent/artifacts.ts";
+import { UNFINISHED } from "../../../../lib/subagent/reviewer-error.ts";
 import { STDIO_GRACE_MS } from "../../../../lib/subagent/runpi/grace.mjs";
 import {
 	createSupervisorRunPi as createRealSupervisorRunPi,
@@ -219,7 +220,11 @@ describe("createSupervisorRunPi", () => {
 		const childPath = join(stateDir, "child.mjs");
 		await writeFile(
 			childPath,
-			`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"supervised"}],usage:{input:1,output:2,totalTokens:3,cost:{total:0.01}}}})+"\\n");`,
+			[
+				`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"supervised"}],usage:{input:1,output:2,totalTokens:3,cost:{total:0.01}}}})+"\\n");`,
+				// How pi says the run is over, without which it is not.
+				`process.stdout.write(JSON.stringify({type:"agent_end",messages:[]})+"\\n");`,
+			].join("\n"),
 		);
 		const runPi = createSupervisorRunPi({
 			piInstall: { node: process.execPath, entry: childPath },
@@ -1663,5 +1668,133 @@ describe("a supervisor that never reports", () => {
 		// The age is the point. Without it both failure modes read as
 		// "running" and the CI log cannot say which one happened.
 		expect(said).toMatch(/progress says [^;]*, last written \d+ms ago/);
+	});
+});
+
+/**
+ * A child that exits 0 is not a run that finished.
+ *
+ * Node exits when nothing holds its event loop, and until core held a
+ * ref on Chrome that happened in the middle of a web read: pi left with
+ * exit 0, no error and no answer, and the supervisor wrote "complete".
+ * Fourteen runs on this machine ended that way. Pi says a run is over
+ * with agent_end and then agent_settled, so a clean exit without either
+ * is a run that stopped partway.
+ */
+describe("a child that exits 0 partway through its run", () => {
+	/** Run the supervisor over a child that prints these events and exits 0. */
+	async function supervise(
+		events: readonly string[],
+		options: { maxLineBytes?: number } = {},
+	): Promise<{ result: RunPiResult; persisted: { state: string } }> {
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "child.mjs");
+		await writeFile(
+			childPath,
+			events
+				.map((line) => `process.stdout.write(${JSON.stringify(`${line}\n`)});`)
+				.join("\n"),
+		);
+		const runPi = createSupervisorRunPi({
+			piInstall: { node: process.execPath, entry: childPath },
+			stateDir,
+			idleTimeoutMs: GENEROUS_MS,
+			timeoutMs: GENEROUS_MS,
+			...options,
+		});
+		const result = await runPi({
+			args: [],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "partway",
+		});
+		const resultPath = result.artifacts?.resultPath;
+		if (!resultPath) throw new Error("missing result path");
+		const persisted = JSON.parse(await readFile(resultPath, "utf-8"));
+		return { result, persisted };
+	}
+
+	const said = (text: string, stopReason = "stop") =>
+		JSON.stringify({
+			type: "message_end",
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text }],
+				stopReason,
+			},
+		});
+	const started = (toolCallId: string, toolName: string) =>
+		JSON.stringify({ type: "tool_execution_start", toolCallId, toolName });
+	const ended = (toolCallId: string, toolName: string) =>
+		JSON.stringify({ type: "tool_execution_end", toolCallId, toolName });
+	const AGENT_END = JSON.stringify({ type: "agent_end", messages: [] });
+	const AGENT_SETTLED = JSON.stringify({ type: "agent_settled" });
+
+	it("is unfinished when it leaves in the middle of a tool", async () => {
+		const { result, persisted } = await supervise([
+			said("let me look", "toolUse"),
+			started("a", "web_search"),
+			ended("a", "web_search"),
+			started("b", "web_read"),
+		]);
+
+		expect(result.exitCode).toBe(0);
+		expect(result.error?.stopReason).toBe(UNFINISHED);
+		expect(result.error?.message).toContain("web_read");
+		expect(result.error?.message).not.toContain("web_search");
+		expect(persisted.state).toBe("errored");
+	});
+
+	it("is unfinished when it never says its run ended", async () => {
+		const { result, persisted } = await supervise([said("half an answer")]);
+
+		expect(result.error?.stopReason).toBe(UNFINISHED);
+		expect(persisted.state).toBe("errored");
+	});
+
+	it("is complete when it ends its run", async () => {
+		const { result, persisted } = await supervise([
+			said("the answer"),
+			AGENT_END,
+			AGENT_SETTLED,
+		]);
+
+		expect(result.error).toBeUndefined();
+		expect(result.finalAssistantText).toBe("the answer");
+		expect(persisted.state).toBe("complete");
+	});
+
+	// agent_end carries every message of the run, so on a long one it is
+	// the line most likely to be over the cap and skipped. Small enough to
+	// arrive whole, or large enough to span pipe chunks: two skip paths.
+	it.each([
+		["arrives whole", 4096],
+		["spans chunks", 256 * 1024],
+	])("is complete when its agent_end was too large to read and %s", async (_, size) => {
+		const huge = JSON.stringify({
+			type: "agent_end",
+			messages: [{ role: "assistant", content: "x".repeat(size) }],
+		});
+		const { result, persisted } = await supervise([said("the answer"), huge], {
+			maxLineBytes: 1024,
+		});
+
+		expect(result.warnings?.join(" ")).toContain("exceeded 1024 bytes");
+		expect(result.error).toBeUndefined();
+		expect(persisted.state).toBe("complete");
+	});
+
+	// A tool result can be over the cap too, and a skipped end is not a
+	// tool still running once the run itself has said it finished.
+	it("is complete when the run ended even though a tool end was unread", async () => {
+		const { result, persisted } = await supervise([
+			started("a", "read"),
+			said("the answer"),
+			AGENT_END,
+			AGENT_SETTLED,
+		]);
+
+		expect(result.error).toBeUndefined();
+		expect(persisted.state).toBe("complete");
 	});
 });

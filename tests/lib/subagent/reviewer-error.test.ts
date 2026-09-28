@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { classifyReviewerError } from "../../../lib/subagent/reviewer-error.ts";
+import {
+	classifyReviewerError,
+	describeReviewerError,
+	UNFINISHED,
+} from "../../../lib/subagent/reviewer-error.ts";
 
 // A reviewer's final turn can die for two very different
 // reasons. A dropped or reset stream, a timeout or a 5xx is
@@ -65,5 +69,29 @@ describe("classifyReviewerError", () => {
 				message: "something nobody has seen before",
 			}),
 		).toBe("fatal");
+	});
+});
+
+// A child that exits 0 before its run ends had no provider error at all:
+// what stopped it was the process, and resuming meets the same cause. The
+// message names the tools that were running, which are anybody's words,
+// so a tool that happens to sound transient must not make it one.
+describe("an unfinished run", () => {
+	const unfinished = {
+		stopReason: UNFINISHED,
+		message:
+			"pi exited with code 0 while check_rate_limit was still running, before its run ended.",
+	};
+
+	it("is fatal whatever the running tool was called", () => {
+		expect(classifyReviewerError(unfinished)).toBe("fatal");
+	});
+
+	it("is described as a run that stopped partway, not a bad setup", () => {
+		const said = describeReviewerError(unfinished);
+
+		expect(said).toContain("check_rate_limit");
+		expect(said).toMatch(/before (it|its run) finished/);
+		expect(said).not.toMatch(/credentials|model id|thinking level/);
 	});
 });
