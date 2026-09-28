@@ -218,7 +218,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			ref: Type.Optional(
 				Type.String({
 					description:
-						"alias-add/alias-remove: the alias in `type:value` form (e.g. `github-pr:shop/world#47281`). Both accept a comma-separated list to add or remove several at once.",
+						"alias-add/alias-remove: the alias in `type:value` form (e.g. `github-pr:shop/world#47281`). Both accept a comma-separated list to add or remove several at once. tree-expand: the zone to add (e.g. system/gitstream).",
 				}),
 			),
 			query: Type.Optional(
@@ -265,7 +265,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			cwd: Type.Optional(
 				Type.String({
 					description:
-						"Working directory. For spawn: where the new terminal starts. For session-attach: the directory recorded on the attached session. For tree-add: the repo to scaffold a tree from. For tree-adopt: a path inside the existing git tree to register (you do not need to change your session's directory to adopt a tree). Defaults to the loaded quest's directory or the pi cwd.",
+						"Working directory. For spawn: where the new terminal starts. For session-attach: the directory recorded on the attached session. For tree-add: the repo to scaffold a tree from. For tree-adopt: a path inside the existing git tree to register (you do not need to change your session's directory to adopt a tree). For tree-prune and tree-expand: a path inside the quest's tree to act on, required when the quest has more than one; a path that names none of its trees is refused. Defaults to the loaded quest's directory or the pi cwd.",
 				}),
 			),
 			sessionId: Type.Optional(
@@ -324,8 +324,14 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 				}),
 			),
 		}),
-		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const result = await handle(state, pi, ctx, params as QuestToolParams);
+		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+			const result = await handle(
+				state,
+				pi,
+				ctx,
+				params as QuestToolParams,
+				signal,
+			);
 			if (!result.ok) {
 				return {
 					content: [{ type: "text", text: result.guidance }],

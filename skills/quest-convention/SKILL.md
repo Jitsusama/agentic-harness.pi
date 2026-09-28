@@ -218,7 +218,10 @@ retires, and a manual `tree-prune` removes it freely. An
 adopted (or legacy, unmarked) tree is a shared checkout the
 tool did not create, so it is never auto-pruned and a manual
 prune refuses unless you pass `force: true` after confirming
-with the user. The `tree-list` inventory flags any recorded
+with the user. Name the tree to prune or expand with `cwd`, a
+path inside it: a quest with several trees refuses rather than
+guess, and a path that names none of them is refused too. The
+`tree-list` inventory flags any recorded
 tree whose directory has gone missing on disk, so a stale
 entry is visible rather than trusted.
 

@@ -19,6 +19,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { createMutex } from "../../lib/internal/async-mutex.ts";
 import type { QuestPriority } from "../../lib/quest/index.ts";
 import { suggestAction } from "./actions.ts";
 import type { QuestState } from "./state.ts";
@@ -75,8 +76,32 @@ import {
 
 export type { QuestResult, QuestToolParams };
 
-/** Dispatch the action to its handler. */
-export async function handle(
+// Pi runs the tool calls of one assistant message concurrently, and a
+// verb reads the quest, awaits something, then writes it back. Two
+// prunes of one tree both found it listed and both removed it, and the
+// loser recorded a blocked prune against a tree already gone. So every
+// verb takes its turn. Marking the tool sequential would do the same
+// for quest calls and serialize every other tool in the batch too.
+const turns = createMutex();
+
+/**
+ * Dispatch the action to its handler, one call at a time. A call
+ * stopped while it waits for its turn rejects with an `AbortError`
+ * and never runs.
+ */
+export function handle(
+	state: QuestState,
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+	params: QuestToolParams,
+	signal?: AbortSignal,
+): Promise<QuestResult> {
+	return turns.runExclusive(() => dispatch(state, pi, ctx, params), {
+		signal,
+	});
+}
+
+async function dispatch(
 	state: QuestState,
 	pi: ExtensionAPI,
 	ctx: ExtensionContext,

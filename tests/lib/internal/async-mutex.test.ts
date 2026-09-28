@@ -68,4 +68,77 @@ describe("createMutex", () => {
 		const after = await mutex.runExclusive(async () => "recovered");
 		expect(after).toBe("recovered");
 	});
+
+	it("lets a waiter that is stopped leave the queue at once", async () => {
+		// A caller queued behind a long section used to wait out the whole
+		// section before it could even notice it had been stopped, so
+		// Escape on a queued call did nothing until the one ahead ended.
+		const mutex = createMutex();
+		let release: () => void = () => {};
+		const holding = mutex.runExclusive(
+			() =>
+				new Promise<string>((resolve) => {
+					release = () => resolve("held");
+				}),
+		);
+		const controller = new AbortController();
+		let ran = false;
+		const waiting = mutex.runExclusive(
+			async () => {
+				ran = true;
+			},
+			{ signal: controller.signal },
+		);
+		const behind = mutex.runExclusive(async () => "behind");
+
+		controller.abort();
+		const outcome = await Promise.race([
+			waiting.then(
+				() => "resolved",
+				(err: Error) => err.name,
+			),
+			new Promise((resolve) => setTimeout(() => resolve("still waiting"), 50)),
+		]);
+		expect(outcome).toBe("AbortError");
+
+		release();
+		expect(await holding).toBe("held");
+		expect(await behind).toBe("behind");
+		expect(ran).toBe(false);
+	});
+
+	it("waits out a section that had started before its signal stopped", async () => {
+		// Leaving then would report a failure for work that goes on
+		// changing things afterwards; the section owns its own stop.
+		const mutex = createMutex();
+		const controller = new AbortController();
+		let release: () => void = () => {};
+		const running = mutex.runExclusive(
+			() =>
+				new Promise<string>((resolve) => {
+					release = () => resolve("finished");
+				}),
+			{ signal: controller.signal },
+		);
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		controller.abort();
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		release();
+		expect(await running).toBe("finished");
+	});
+
+	it("never starts a section whose signal was stopped already", async () => {
+		const mutex = createMutex();
+		let ran = false;
+		await expect(
+			mutex.runExclusive(
+				async () => {
+					ran = true;
+				},
+				{ signal: AbortSignal.abort() },
+			),
+		).rejects.toMatchObject({ name: "AbortError" });
+		expect(ran).toBe(false);
+		expect(await mutex.runExclusive(async () => "next")).toBe("next");
+	});
 });

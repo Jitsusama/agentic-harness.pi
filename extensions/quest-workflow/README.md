@@ -36,7 +36,10 @@ shipped and tested.
   auto-prunes. Both accept a `cwd` parameter, so you scaffold or
   adopt from any session without changing its directory: point
   `cwd` at the repo to scaffold from, or at a path inside the tree
-  to adopt.
+  to adopt. `tree-prune` and `tree-expand` take `cwd` the same way,
+  as a path inside the tree to act on; with several trees on the
+  quest they refuse rather than pick one, and a path that names
+  none of them is refused with the list.
 - **Terminal spawn**: `spawn-tab`, `spawn-pane`,
   `spawn-window`.
 - **Queries**: `find`, `who`, `links`, `locate` (the inverse
@@ -53,6 +56,12 @@ prose:
 
 The `note` parameter is plain prose attached to a Journey
 entry; it never triggers behaviour.
+
+Quest calls run one at a time, even when pi runs a batch of
+tool calls concurrently: every verb reads the quest, waits on
+something, then writes it back, and two interleaved calls would
+each act on what the other had already changed. A call stopped
+while it waits its turn leaves without running.
 
 ## What It Owns
 
