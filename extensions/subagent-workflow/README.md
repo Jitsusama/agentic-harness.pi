@@ -175,8 +175,11 @@ turn's signal stops the fleet. `Ctrl+Alt+N` (registered by
 which then shows a cursor and a keys row: up and down
 select, `r` cancels the selected subagent, Escape cancels
 the fleet and gives the editor back while the turn goes
-on, and the same chord gives the editor back without
-cancelling anything. Ctrl+C and Ctrl+D always reach pi.
+on, and the same chord moves on without cancelling
+anything: to the next widget docked, if there is one, else
+back to the editor. With a gate or another fleet up, the
+board's footer counts the presses it is away ("Ctrl+Alt+N
+twice to manage"). Ctrl+C and Ctrl+D always reach pi.
 
 The board shrinks to fit the rows pi can give it without
 redrawing the transcript, keeping the title and the

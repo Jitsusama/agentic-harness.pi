@@ -40,7 +40,8 @@ import {
 import { focusedIn, roomForDock } from "./pi-layout.ts";
 
 /**
- * The chord that moves focus between the editor and the topmost widget.
+ * The chord that moves focus from the editor through every widget that
+ * takes keys, one press each, and back to the editor.
  *
  * Chosen against pi's own bindings and the terminal's: Ctrl+Alt+N is bound
  * by neither, reaches pi from both the kitty protocol and a legacy
@@ -53,6 +54,30 @@ export const DOCK_HOP_KEY: KeyId = "ctrl+alt+n";
 
 /** How the chord is written for a person reading a footer. */
 export const DOCK_HOP_LABEL = "Ctrl+Alt+N";
+
+/**
+ * The chord pressed `presses` times, as a footer says it: "Ctrl+Alt+N",
+ * "Ctrl+Alt+N twice", "Ctrl+Alt+N 3 times".
+ */
+export function hopLabel(presses: number): string {
+	if (presses <= 1) return DOCK_HOP_LABEL;
+	if (presses === 2) return `${DOCK_HOP_LABEL} twice`;
+	return `${DOCK_HOP_LABEL} ${presses} times`;
+}
+
+/** Where a widget sits in the hop's walk, for its footer. */
+export interface HopPlace {
+	/**
+	 * Presses of the chord that bring the keyboard here from wherever it
+	 * is now: 0 while this widget has it.
+	 */
+	readonly presses: number;
+	/**
+	 * What the next press reaches from here, by its name ("fleet",
+	 * "round", "gate"), or undefined for the editor.
+	 */
+	readonly next: string | undefined;
+}
 
 const DOCK_KEY = Symbol.for("agentic-harness.dock");
 
@@ -80,6 +105,11 @@ interface DockEntry {
 	/** Whether the hop chord can reach it. */
 	readonly focusable: boolean;
 	focus(): void;
+	/**
+	 * What another widget's footer calls it when the hop goes on to it.
+	 * Absent from a copy older than the walk, which never names one.
+	 */
+	readonly name?: string;
 	/**
 	 * Whether it is a gate, which is dealt its rows and reached by the hop
 	 * before any progress widget. Absent from a copy older than gates, which
@@ -177,6 +207,8 @@ export interface Docked {
 	focused(): boolean;
 	/** How many rows it showed in the last frame. */
 	shownRows(): number;
+	/** Where it sits in the hop's walk now, for its footer. */
+	hop(): HopPlace;
 	/** Takes it off the screen, handing focus back if it had it. */
 	close(): void;
 	/** Whether it has gone, closed by its owner or cleared by pi. */
@@ -206,6 +238,11 @@ export interface DockOptions {
 	readonly onHop?: (into: boolean) => void;
 	/** Called after each frame it drew rows in, with the width drawn at. */
 	readonly onPaint?: (width: number) => void;
+	/**
+	 * What another widget's footer calls it when the hop goes on to it:
+	 * "fleet", "round", "gate". Defaults to "next".
+	 */
+	readonly name?: string;
 }
 
 /** A widget that is never drawn, for a session with no terminal. */
@@ -215,6 +252,7 @@ const NOWHERE: Docked = {
 	release() {},
 	focused: () => false,
 	shownRows: () => 0,
+	hop: () => ({ presses: 0, next: undefined }),
 	close() {},
 	gone: true,
 	tui: undefined,
@@ -271,6 +309,7 @@ export function dock(
 		},
 		focused: isFocused,
 		shownRows: () => shown,
+		hop: () => placeIn(owner, entry, tui),
 		close: () => {
 			if (gone) return;
 			const had = isFocused();
@@ -347,8 +386,11 @@ export function dock(
 				return;
 			if (isKeyRelease(data)) return;
 			if (matchesKey(data, DOCK_HOP_KEY)) {
-				handle.release();
 				options.onHop?.(false);
+				after(owner, entry)?.focus();
+				// The last widget in the walk, or a next one that could not
+				// take the keys: the editor.
+				handle.release();
 			} else body.handleInput?.(data, handle);
 			// A key that took focus away keeps repeating into whatever has
 			// it now, which for Escape is pi's editor, where it stops the turn.
@@ -382,6 +424,7 @@ export function dock(
 			if (isFocused()) options.onHop?.(true);
 		},
 		gate: options.gate === true,
+		name: options.name,
 	};
 
 	const room = (width: number): number => {
@@ -519,8 +562,49 @@ function noteKey(
 }
 
 /**
- * Moves focus from the editor into the topmost widget that takes keys,
- * for the hop chord's shortcut. Does nothing when there is none.
+ * The widgets the hop walks, in the order it walks them: the order rows
+ * are dealt in, so gates before progress.
+ */
+function walk(owner: DockProtocol): DockEntry[] {
+	return owner.entries.filter((one) => one.focusable);
+}
+
+/** The widget the hop reaches from `me`, or undefined for the editor. */
+function after(owner: DockProtocol, me: DockEntry): DockEntry | undefined {
+	const stops = walk(owner);
+	const at = stops.indexOf(me);
+	return at < 0 ? undefined : stops[at + 1];
+}
+
+/**
+ * Where `me` sits in the hop's walk while the keyboard is wherever `tui`
+ * has it. The walk is a loop with the editor as its first stop, and
+ * anything else holding the keys counts as the editor, since that is
+ * where the chord's shortcut is heard.
+ */
+function placeIn(
+	owner: DockProtocol,
+	me: DockEntry,
+	tui: TUI | undefined,
+): HopPlace {
+	const stops = walk(owner);
+	const mine = stops.indexOf(me);
+	if (mine < 0 || tui === undefined) return { presses: 0, next: undefined };
+	const current = focusedIn(tui);
+	const holding = stops.findIndex((one) => one.component === current);
+	const loop = stops.length + 1;
+	const presses = (mine - holding + loop) % loop;
+	const next = stops[mine + 1];
+	return {
+		presses,
+		next: next === undefined ? undefined : (next.name ?? "next"),
+	};
+}
+
+/**
+ * Moves focus from the editor into the first widget that takes keys, for
+ * the hop chord's shortcut; each widget passes it on to the next, and the
+ * last back to the editor. Does nothing when there is none.
  */
 export function hopIntoDock(): void {
 	shared()

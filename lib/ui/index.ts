@@ -20,7 +20,13 @@ export {
 	renderBar,
 } from "./badge.ts";
 // ── Boards ──────────────────────────────────────────────────
-export { type Board, boardLines, fitBoard } from "./board.ts";
+export {
+	type Board,
+	boardLines,
+	fitBoard,
+	hopOnward,
+	reachBoard,
+} from "./board.ts";
 // ── Content rendering ───────────────────────────────────────
 export {
 	type CodeRenderOptions,
@@ -44,6 +50,8 @@ export {
 	type Docked,
 	type DockOptions,
 	dock,
+	type HopPlace,
+	hopLabel,
 } from "./dock.ts";
 // ── Gate serialization ──────────────────────────────────────
 export { type GateHold, type GateOptions, runGate } from "./gate-queue.ts";

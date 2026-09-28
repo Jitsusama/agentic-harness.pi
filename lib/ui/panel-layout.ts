@@ -121,8 +121,9 @@ function renderControlRow(opts: FooterOptions): string {
 	const rightParts: string[] = [];
 
 	// Left: the way out to the editor, for a docked panel holding the keys
-	const hop = panelRoom()?.hop;
-	if (hop !== undefined) leftParts.push(theme.fg("dim", `${hop} editor`));
+	const room = panelRoom();
+	if (room?.hop !== undefined)
+		leftParts.push(theme.fg("dim", `${room.hop} ${room.hopTo ?? "editor"}`));
 
 	// Then view hints + tab hints
 	const views = opts.views ?? [];

@@ -18,10 +18,14 @@ of every package carrying its own copy of the library.
 
 ## The Hop Chord
 
-It also registers `Ctrl+Alt+N`, which moves the keyboard from
-the editor into a widget docked above it and back again: a
-waiting gate first, then the topmost progress widget (a
-running fleet's board, a council's). Progress widgets leave
+It also registers `Ctrl+Alt+N`, which walks the keyboard from
+the editor through every widget docked above it, one press
+each, and back to the editor: a waiting gate first, then each
+progress widget in the order it docked (a running fleet's
+board, a council's). Every widget's footer counts the presses
+from wherever the keys are and names what the next press
+reaches, so two fleets at once are both within reach and
+both say how. Progress widgets leave
 the editor focused so a person can keep typing while work
 runs; this is how their own keys are reached. A gate takes
 the keyboard itself, and the chord is how a person leaves it

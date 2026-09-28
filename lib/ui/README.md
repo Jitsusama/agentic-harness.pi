@@ -71,8 +71,13 @@ still waiting: the panel registry records each one, and
 - **`dock`**: mount a widget above pi's editor and get a
   handle back. The editor keeps focus, so a person can go on
   typing while the widget shows progress. The hop chord,
-  `DOCK_HOP_KEY` (said as `DOCK_HOP_LABEL`), moves the keys
-  to the topmost widget that takes them and back again;
+  `DOCK_HOP_KEY` (said as `DOCK_HOP_LABEL`), walks the keys
+  from the editor through every widget that takes them, a
+  gate first, one press each, and then back to the editor.
+  The handle's `hop()` says how many presses reach the widget
+  from wherever the keys are and what the next press reaches,
+  by the `name` each widget docks with, and `hopLabel` writes
+  the count the way a footer says it ("Ctrl+Alt+N twice").
   Ctrl+C and Ctrl+D always reach pi. A widget shrinks to
   the rows pi can give it without redrawing the transcript,
   through the body's `fit`. With no terminal to draw on the
@@ -82,6 +87,9 @@ still waiting: the panel registry records each one, and
   row only while it has focus, one row per item and notes
   under them. `fitBoard` keeps the title and the selected row
   when rows run short and says how many it left out.
+  `reachBoard` and `hopOnward` write a board's hop hints from
+  its place in the walk: the aside while another has the keys,
+  and the end of the keys row while it has them.
 
 A widget closes as its tool call returns, not when its work
 finishes, and the result's card should be at least as tall as
