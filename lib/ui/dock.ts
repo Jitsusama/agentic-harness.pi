@@ -80,6 +80,12 @@ interface DockEntry {
 	/** Whether the hop chord can reach it. */
 	readonly focusable: boolean;
 	focus(): void;
+	/**
+	 * Whether it is a gate, which is dealt its rows and reached by the hop
+	 * before any progress widget. Absent from a copy older than gates, which
+	 * never mounts one.
+	 */
+	readonly gate?: boolean;
 }
 
 /**
@@ -94,6 +100,17 @@ interface DockProtocol {
 	editor: Component | undefined;
 	/** A focus-moving key whose repeats are swallowed until its release. */
 	swallow: KeyId | undefined;
+	/**
+	 * When a key last arrived, for a gate deciding whether the person is
+	 * mid-sentence. Absent until a copy that watches keys has seen one.
+	 */
+	lastTyped?: number;
+	/**
+	 * Whether pi has announced that the session is about to be replaced, so
+	 * a gate its teardown closes leaves no record in a transcript that is
+	 * about to be rebuilt without it.
+	 */
+	replacing?: boolean;
 }
 
 function shared(): DockProtocol {
@@ -139,6 +156,13 @@ export interface DockBody {
 	 * is not the body's.
 	 */
 	handleInput?(data: string, dock: Docked): boolean;
+	/**
+	 * Its rows when `room` is what is left for it, however many it wants,
+	 * for a body that decides its own height: a gate holds its height and
+	 * fills its share rather than be cut to it. When present it is used in
+	 * place of `render` and `fit`, for the rows shown and the rows wanted.
+	 */
+	layout?(room: number, width: number, focused: boolean): string[];
 }
 
 /** A docked widget, as its owner holds it. */
@@ -157,6 +181,10 @@ export interface Docked {
 	close(): void;
 	/** Whether it has gone, closed by its owner or cleared by pi. */
 	readonly gone: boolean;
+	/** The screen it is drawn on, once pi has mounted it. */
+	readonly tui: TUI | undefined;
+	/** What pi holds of it, for a caller measuring the screen around it. */
+	readonly component: Component | undefined;
 }
 
 /** How a widget behaves. */
@@ -168,6 +196,16 @@ export interface DockOptions {
 	readonly repeats?: "navigation" | "all";
 	/** Called once if pi takes the widget away (a reload or a new session). */
 	readonly onGone?: () => void;
+	/**
+	 * A gate: dealt its rows and reached by the hop before every progress
+	 * widget, and kept to at least one row, since a question nobody can see
+	 * is worse than one row taken from the transcript.
+	 */
+	readonly gate?: boolean;
+	/** Called when the hop chord moves the keyboard into it, or out of it. */
+	readonly onHop?: (into: boolean) => void;
+	/** Called after each frame it drew rows in, with the width drawn at. */
+	readonly onPaint?: (width: number) => void;
 }
 
 /** A widget that is never drawn, for a session with no terminal. */
@@ -179,6 +217,8 @@ const NOWHERE: Docked = {
 	shownRows: () => 0,
 	close() {},
 	gone: true,
+	tui: undefined,
+	component: undefined,
 };
 
 /**
@@ -246,6 +286,12 @@ export function dock(
 		get gone() {
 			return gone;
 		},
+		get tui() {
+			return tui;
+		},
+		get component() {
+			return component;
+		},
 	};
 
 	const leave = (): void => {
@@ -259,6 +305,14 @@ export function dock(
 		render(width) {
 			if (tui === undefined) return [];
 			const focused = isFocused();
+			if (body.layout !== undefined) {
+				const laid = body
+					.layout(roomLeft(owner, entry, width), width, focused)
+					.map((line) => clean(line, width));
+				shown = laid.length;
+				if (laid.length > 0) options.onPaint?.(width);
+				return laid;
+			}
 			const lines = body.render(width, focused);
 			let rows = allot(owner, entry, width);
 			// A widget with the keyboard never vanishes: keys going into
@@ -292,8 +346,10 @@ export function dock(
 			)
 				return;
 			if (isKeyRelease(data)) return;
-			if (matchesKey(data, DOCK_HOP_KEY)) handle.release();
-			else body.handleInput?.(data, handle);
+			if (matchesKey(data, DOCK_HOP_KEY)) {
+				handle.release();
+				options.onHop?.(false);
+			} else body.handleInput?.(data, handle);
 			// A key that took focus away keeps repeating into whatever has
 			// it now, which for Escape is pi's editor, where it stops the turn.
 			if (!isFocused()) {
@@ -315,9 +371,17 @@ export function dock(
 	const entry: DockEntry = {
 		key,
 		component,
-		want: (width) => body.render(width, isFocused()).length,
+		want: (width) =>
+			body.layout !== undefined
+				? body.layout(roomLeft(owner, entry, width), width, isFocused()).length
+				: body.render(width, isFocused()).length,
 		focusable: body.handleInput !== undefined,
-		focus: () => handle.focus(),
+		// Only the hop reaches a widget through its entry.
+		focus: () => {
+			handle.focus();
+			if (isFocused()) options.onHop?.(true);
+		},
+		gate: options.gate === true,
 	};
 
 	const room = (width: number): number => {
@@ -335,9 +399,57 @@ export function dock(
 		return component;
 	});
 	if (tui === undefined) return NOWHERE;
-	owner.entries = [...owner.entries.filter((one) => one.key !== key), entry];
-	unsubscribe = ctx.ui.onTerminalInput((data) => swallowRepeat(owner, data));
+	owner.entries = ranked(
+		owner.entries.filter((one) => one.key !== key),
+		entry,
+	);
+	unsubscribe = ctx.ui.onTerminalInput((data) => noteKey(owner, data));
 	return handle;
+}
+
+/**
+ * `entries` with `entry` added: a gate after the gates already up and
+ * ahead of every progress widget, anything else at the end. Stacking on
+ * screen stays pi's, which is mount order; this is the order rows are
+ * dealt in and the hop looks in, so a question outranks a progress bar.
+ */
+function ranked(entries: DockEntry[], entry: DockEntry): DockEntry[] {
+	if (entry.gate !== true) return [...entries, entry];
+	const at = entries.findIndex((one) => one.gate !== true);
+	if (at < 0) return [...entries, entry];
+	return [...entries.slice(0, at), entry, ...entries.slice(at)];
+}
+
+/**
+ * Watches every key for the session, for the dock: when the last one
+ * arrived, and the repeats of a key that moved focus out of a widget,
+ * which are swallowed until it is released. Every widget watches while it
+ * is up, but a gate needs to know about typing from before it arrived,
+ * and a key's repeats outlive the widget it closed, so the lifecycle
+ * extension watches for the whole session. Returns the call that stops.
+ */
+export function watchKeys(ctx: ExtensionContext): () => void {
+	if (!drawsToTerminal(ctx)) return () => {};
+	return ctx.ui.onTerminalInput((data) => noteKey(shared(), data));
+}
+
+/** When a key last arrived, in any copy, or undefined for none yet. */
+export function lastKeyAt(): number | undefined {
+	return shared().lastTyped;
+}
+
+/**
+ * Records whether pi has announced a session replace, which the next
+ * thing the person or the agent does, or the new session starting,
+ * clears: another handler can cancel a replace pi announced.
+ */
+export function noteReplacing(replacing: boolean): void {
+	shared().replacing = replacing;
+}
+
+/** Whether a session replace has been announced and not yet undone. */
+export function replacing(): boolean {
+	return shared().replacing === true;
 }
 
 /**
@@ -349,7 +461,7 @@ export function dock(
  * flag alone answers. Asking for `mode` outright left every board unmounted
  * on those versions rather than drawn.
  */
-function drawsToTerminal(ctx: ExtensionContext): boolean {
+export function drawsToTerminal(ctx: ExtensionContext): boolean {
 	if (!ctx.hasUI) return false;
 	const mode: unknown = Reflect.get(ctx, "mode");
 	return mode === undefined || mode === "tui";
@@ -374,13 +486,28 @@ function allot(owner: DockProtocol, me: DockEntry, width: number): number {
 }
 
 /**
- * Consumes the repeats and the release of a key that moved focus out of a
- * widget, and lets everything else through.
+ * Rows left for `me` once the widgets dealt before it have taken theirs,
+ * however many it wants.
  */
-function swallowRepeat(
+function roomLeft(owner: DockProtocol, me: DockEntry, width: number): number {
+	const room = roomOf.get(me.component);
+	let left = room ? room(width) : Number.POSITIVE_INFINITY;
+	for (const one of owner.entries) {
+		if (one === me) return left;
+		left -= Math.min(one.want(width), left);
+	}
+	return 0;
+}
+
+/**
+ * Notes when a key arrived, then consumes the repeats and the release of
+ * a key that moved focus out of a widget, and lets everything else through.
+ */
+function noteKey(
 	owner: DockProtocol,
 	data: string,
 ): { consume: true } | undefined {
+	if (!isKeyRelease(data)) owner.lastTyped = Date.now();
 	const held = owner.swallow;
 	if (held === undefined) return undefined;
 	if (matchesKey(data, held) && (isKeyRepeat(data) || isKeyRelease(data))) {
@@ -407,7 +534,7 @@ export function dockHasFocusable(): boolean {
 }
 
 /** Pi's editor, found in the tree when focus never came from it. */
-function findEditor(tui: TUI): Component | null {
+export function findEditor(tui: TUI): Component | null {
 	const walk = (component: Component): Component | undefined => {
 		if (isEditor(component)) return component;
 		const children = Reflect.get(component, "children");
@@ -426,7 +553,7 @@ function findEditor(tui: TUI): Component | null {
 }
 
 /** An editor, by the surface pi's editor slot requires. */
-function isEditor(component: Component): boolean {
+export function isEditor(component: Component): boolean {
 	return (
 		typeof Reflect.get(component, "getText") === "function" &&
 		typeof Reflect.get(component, "setText") === "function" &&
@@ -450,7 +577,7 @@ const CURSOR_MOVE = new RegExp(
  * of the screen out of step with the screen, and every later frame is
  * drawn against the wrong rows.
  */
-function clean(line: string, width: number): string {
+export function clean(line: string, width: number): string {
 	const flat = line
 		.replaceAll(CURSOR_MARKER, "")
 		.replace(/[\r\n]/g, " ")

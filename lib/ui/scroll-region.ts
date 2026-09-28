@@ -16,6 +16,7 @@ import {
 	visibleWidth,
 } from "@earendil-works/pi-tui";
 import { getPanelHeightFraction } from "./panel-height.ts";
+import { panelRoom } from "./panel-room.ts";
 import { GLYPH } from "./types.ts";
 
 /**
@@ -65,12 +66,11 @@ export function renderScrollRegion(
 
 	if (needsVScroll) {
 		const visible = contentLines.slice(vOffset, vOffset + budget);
-		const scrollbar = buildScrollbar(
-			contentLines.length,
-			budget,
-			vOffset,
-			theme,
-		);
+		// A record does not scroll, so it has no bar to show it could.
+		const scrollbar =
+			panelRoom()?.answered !== true
+				? buildScrollbar(contentLines.length, budget, vOffset, theme)
+				: [];
 		const contentWidth = width - SCROLLBAR_GUTTER;
 		for (let i = 0; i < visible.length; i++) {
 			const sliced = horizontalSlice(
@@ -169,10 +169,21 @@ function clampVScroll(
 	return Math.max(0, Math.min(offset, maxScroll));
 }
 
-/** Compute the content area height budget. */
+/**
+ * Compute the content area height budget.
+ *
+ * An overlay takes a share of the terminal. A docked panel takes the same
+ * share when its room allows, and otherwise what its room allots, down to
+ * a single row of content: below the share it is fitting a room it was
+ * given, and three rows it was not given would push the transcript's tail
+ * off the screen.
+ */
 export function contentBudget(chromeLines: number): number {
-	const termRows = process.stdout.rows || 40;
+	const room = panelRoom();
+	const termRows = room?.rows ?? (process.stdout.rows || 40);
 	const maxHeight = Math.floor(termRows * getPanelHeightFraction());
+	if (room !== undefined && room.allot < maxHeight)
+		return Math.max(1, room.allot - chromeLines);
 	return Math.max(3, maxHeight - chromeLines);
 }
 

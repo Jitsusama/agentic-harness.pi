@@ -57,6 +57,16 @@ row (`r` cancels), Escape cancels the whole job and gives
 the editor back, and the hop chord gives the editor back
 without doing anything. Ctrl+C and Ctrl+D always reach pi.
 
+A gate from `promptSingle` or `promptTabbed` docks there too
+in a terminal, and does take the keyboard, since it is a
+question waiting on its person: once it has been painted and
+the editor has gone untouched for half a second, then deaf to
+Enter and Escape for a moment so a key aimed at the editor
+cannot answer it. Its keys are the panel's own, unchanged.
+Its control row leads with the hop chord to the editor, and
+while the editor has the keys, its last row says how to come
+back. Gates outrank progress widgets for the hop.
+
 ## The Universal Input Model
 
 Every panel follows this model:

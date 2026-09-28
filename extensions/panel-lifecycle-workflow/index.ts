@@ -21,12 +21,36 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { DOCK_HOP_KEY, hopIntoDock } from "../../lib/ui/dock.ts";
+import {
+	DOCK_HOP_KEY,
+	hopIntoDock,
+	noteReplacing,
+	watchKeys,
+} from "../../lib/ui/dock.ts";
 import { closeEveryPanel } from "../../lib/ui/panel-registry.ts";
 
 export default function panelLifecycle(pi: ExtensionAPI): void {
+	let unwatch: (() => void) | undefined;
+	pi.on("session_start", (_event, ctx) => {
+		noteReplacing(false);
+		unwatch?.();
+		unwatch = watchKeys(ctx);
+	});
 	pi.on("session_shutdown", () => {
+		unwatch?.();
+		unwatch = undefined;
 		closeEveryPanel();
+	});
+	// A replace is announced before its teardown stops the turn, and a gate
+	// that stop closes would leave a record in a transcript about to be
+	// rebuilt without it. Another handler may cancel the replace, so the
+	// next thing the person or the agent does says it is not coming.
+	pi.on("session_before_switch", () => noteReplacing(true));
+	pi.on("session_before_fork", () => noteReplacing(true));
+	pi.on("agent_start", () => noteReplacing(false));
+	pi.on("input", () => {
+		noteReplacing(false);
+		return { action: "continue" };
 	});
 	pi.registerShortcut(DOCK_HOP_KEY, {
 		description: "Move between the editor and the board above it",

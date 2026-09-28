@@ -17,7 +17,7 @@ import {
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
 import { type ActionBarResult, handleActionInput } from "./action-bar.ts";
-import { mountPanel } from "./mount.ts";
+import { mountGate } from "./mount.ts";
 import { buildNoteEditorTheme, renderNoteEditor } from "./note-editor.ts";
 import {
 	handleOptionInput,
@@ -327,9 +327,43 @@ export async function showSinglePrompt(
 	ctx: ExtensionContext,
 	config: SinglePromptConfig,
 ): Promise<PromptResult | null> {
-	return mountPanel<PromptResult | null>(
+	return mountGate<PromptResult | null>(
 		ctx,
-		(tui, theme, _kb, done) => createSingleController(config, tui, theme, done),
-		{ cancelled: null },
+		(tui, theme, done) => createSingleController(config, tui, theme, done),
+		{
+			cancelled: null,
+			title: config.title ?? "A decision",
+			verdict: (result) => singleVerdict(config, result),
+		},
 	);
+}
+
+/** The key conventionally bound to rejecting, across every gate here. */
+const REJECT_KEY = "r";
+
+/** The action Enter stands for when no action is bound to it. */
+const ENTER_ACTION = "__enter__";
+
+/** What a single prompt's record says of `result`. */
+function singleVerdict(
+	config: SinglePromptConfig,
+	result: PromptResult | null,
+): string {
+	if (result === null) return "\u2717 cancelled";
+	const said = (() => {
+		if (result.type === "redirect") return "\u21aa redirected";
+		if (result.type === "option") {
+			const chosen = config.options?.find(
+				(option) => optionValue(option) === result.value,
+			);
+			return `\u2713 ${chosen?.label ?? result.value}`;
+		}
+		if (result.key === REJECT_KEY) return "\u2717 rejected";
+		if (result.key === ENTER_ACTION) return "\u2713 approved";
+		const action = config.actions?.find((one) => one.key === result.key);
+		return `\u2713 ${(action?.label ?? result.key).toLowerCase()}`;
+	})();
+	return result.note === undefined
+		? said
+		: `${said} \u00b7 note: ${result.note}`;
 }

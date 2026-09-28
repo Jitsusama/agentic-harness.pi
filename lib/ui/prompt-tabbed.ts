@@ -19,7 +19,7 @@ import {
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
 import { type ActionBarResult, handleActionInput } from "./action-bar.ts";
-import { mountPanel } from "./mount.ts";
+import { mountGate } from "./mount.ts";
 import { buildNoteEditorTheme, renderNoteEditor } from "./note-editor.ts";
 import {
 	handleOptionInput,
@@ -715,12 +715,17 @@ export async function showTabbedPrompt(
 	// out at once: submit, cancel, redirect, abort, and a throw from inside.
 	// Written once the panel has the screen, since the count is for the
 	// panel a person can see.
-	return mountPanel<TabbedResult | null>(
+	return mountGate<TabbedResult | null>(
 		ctx,
-		(tui, theme, _kb, done) =>
+		(tui, theme, done) =>
 			createTabbedController(config, tui, theme, done, report),
 		{
 			cancelled: null,
+			title: config.title ?? "A batch of decisions",
+			verdict: (result) =>
+				result === null
+					? "\u2717 cancelled"
+					: `\u2713 answered ${result.items.size} of ${config.items.length}`,
 			onShow: () => report(renderProgressBar(0, config.items.length)),
 			onGone: () => report(undefined),
 		},
