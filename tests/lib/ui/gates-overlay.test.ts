@@ -17,6 +17,12 @@
  * So the mode is the fix, and these pin it. They assert the option
  * reaches pi rather than anything about what the panel draws, because
  * the fault was never in the drawing.
+ *
+ * In a terminal a gate now docks above the editor instead (see
+ * `tests/screen/gate-widget.test.ts`), which answers the ghost another
+ * way: it leaves a record the same height in the frame it goes. The
+ * contexts here offer `custom` and no widgets, so what these pin is the
+ * overlay a gate falls back to on a host that cannot dock one.
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";

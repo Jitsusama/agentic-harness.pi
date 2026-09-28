@@ -28,6 +28,8 @@ import type {
 	Theme,
 } from "@earendil-works/pi-coding-agent";
 import type { Component, OverlayHandle, TUI } from "@earendil-works/pi-tui";
+import { drawsToTerminal } from "./dock.ts";
+import { dockGate, type GateFactory } from "./gate-dock.ts";
 import { runGate } from "./gate-queue.ts";
 import { OVERLAID } from "./overlay.ts";
 import { trackPanel } from "./panel-registry.ts";
@@ -71,21 +73,86 @@ export async function mountPanel<T>(
 	factory: PanelFactory<T>,
 	options: MountOptions<T>,
 ): Promise<T> {
+	return inTurn(ctx, options, (stop, end) =>
+		showUntilGone(
+			ctx,
+			factory,
+			options.cancelled,
+			AbortSignal.any([stop, end]),
+		),
+	);
+}
+
+/** How a gate is mounted: a panel's options, and what its record says. */
+export interface GateMountOptions<T> extends MountOptions<T> {
+	/** What the record it leaves says of an answer. */
+	verdict: (result: T) => string;
+	/** How it names itself when there is room for one row only. */
+	title: string;
+}
+
+/**
+ * Mount a gate: a panel waiting on a decision, docked above the editor
+ * where pi draws to a terminal (see `gate-dock.ts`), an overlay where it
+ * does not. It waits its turn, closes and fails closed exactly as
+ * `mountPanel` does.
+ */
+export async function mountGate<T>(
+	ctx: ExtensionContext,
+	factory: GateFactory<T>,
+	options: GateMountOptions<T>,
+): Promise<T> {
+	const overlay = (stop: AbortSignal, end: AbortSignal): Promise<T> =>
+		showUntilGone(
+			ctx,
+			(tui, theme, _keybindings, done) => factory(tui, theme, done),
+			options.cancelled,
+			AbortSignal.any([stop, end]),
+		);
+	// A host that offers no widgets has only the overlay to give.
+	const widgets = typeof Reflect.get(ctx.ui, "setWidget") === "function";
+	if (!drawsToTerminal(ctx) || !widgets) return inTurn(ctx, options, overlay);
+	return inTurn(
+		ctx,
+		options,
+		(stop, end) =>
+			dockGate(ctx, factory, {
+				cancelled: options.cancelled,
+				verdict: options.verdict,
+				title: options.title,
+				stop,
+				end,
+			}) ?? overlay(stop, end),
+	);
+}
+
+/**
+ * Runs `show` once the screen is free, with the two ways it can be closed
+ * from outside: `stop`, its turn stopping or its caller dismissing it, and
+ * `end`, its session ending. They are apart because a docked gate leaves
+ * a record for the first and none for the second.
+ */
+async function inTurn<T>(
+	ctx: ExtensionContext,
+	options: MountOptions<T>,
+	show: (stop: AbortSignal, end: AbortSignal) => Promise<T>,
+): Promise<T> {
 	// Recorded from now, not from when it mounts: a panel still waiting
 	// when its session ends must not mount in the next one.
 	const ended = new AbortController();
 	const forget = trackPanel(() => ended.abort());
-	const signal = AbortSignal.any(
-		[ctx.signal, options.dismiss, ended.signal].filter(
+	const stop = AbortSignal.any(
+		[ctx.signal, options.dismiss].filter(
 			(s): s is AbortSignal => s !== undefined,
 		),
 	);
+	const signal = AbortSignal.any([stop, ended.signal]);
 	try {
 		return await runGate(
 			async () => {
 				options.onShow?.();
 				try {
-					return await showUntilGone(ctx, factory, options.cancelled, signal);
+					return await show(stop, ended.signal);
 				} finally {
 					options.onGone?.();
 				}

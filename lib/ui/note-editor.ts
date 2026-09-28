@@ -16,6 +16,8 @@ import {
 	type EditorTheme,
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
+import { dockedFooter } from "./panel-layout.ts";
+import { panelRoom } from "./panel-room.ts";
 
 /** Configuration for the annotation editor overlay. */
 interface NoteEditorConfig {
@@ -63,9 +65,17 @@ export function renderNoteEditor(
 	}
 
 	lines.push("");
-	lines.push(
+	const hints = [
 		truncateToWidth(`  ${theme.fg("dim", "Enter submit · Esc back")}`, width),
-	);
+	];
+	lines.push(...dockedFooter(hints, theme, width));
+
+	// A docked panel too short for this says what is being typed instead.
+	const room = panelRoom();
+	if (room !== undefined)
+		room.editing = [config?.label, editor.getText().split("\n")[0]]
+			.filter((part) => part !== undefined && part !== "")
+			.join(" ");
 
 	return lines;
 }

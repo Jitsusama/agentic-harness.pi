@@ -14,7 +14,14 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type Component, Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { afterEach, describe, expect, it } from "vitest";
-import { focusedIn, roomForDock } from "../../lib/ui/pi-layout.ts";
+import {
+	focusedIn,
+	markSettling,
+	roomForDock,
+	rowsAfter,
+	rowsUnderGate,
+	settleIntoChat,
+} from "../../lib/ui/pi-layout.ts";
 import { bootPi, type PiSession, waitFor } from "./pi-session.ts";
 
 const COLS = 80;
@@ -126,5 +133,83 @@ describe("reading pi's screen", () => {
 		letGo?.();
 		await waitFor(() => !session.runtime.session.isStreaming, "the turn");
 		expect(room(session)).toBe(idle);
+	});
+});
+
+/** Boots pi with the holding tool running, its rows on screen. */
+async function holding(): Promise<PiSession> {
+	const session = await bootPi({
+		cols: COLS,
+		rows: ROWS,
+		extensions: [holdingTool],
+	});
+	pi = session;
+	session.faux.setResponses([
+		fauxAssistantMessage(fauxToolCall("hold", {})),
+		fauxAssistantMessage("MARK-done"),
+	]);
+	await session.prompt("hold on");
+	await waitFor(() => letGo !== undefined, "the tool to start");
+	await waitFor(() => session.onScreen("MARK-held-0"), "the tool's rows");
+	return session;
+}
+
+/** A record of one row, settling while `live` says so. */
+function recordOf(text: string, live: { now: boolean }): Component {
+	const record: Component = { render: () => [text], invalidate() {} };
+	markSettling(record, () => live.now);
+	return record;
+}
+
+describe("placing a gate's record in pi's transcript", () => {
+	it("puts it before the tool still running, so it never moves", async () => {
+		const session = await holding();
+
+		const put = settleIntoChat(
+			session.tui,
+			recordOf("MARK-record", { now: false }),
+		);
+		session.tui.requestRender();
+		await waitFor(() => session.onScreen("MARK-record"), "the record");
+
+		expect(put).toBe(true);
+		const shown = await session.viewport();
+		const record = shown.findIndex((row) => row.includes("MARK-record"));
+		const tool = shown.findIndex((row) => row.includes("MARK-held-0"));
+		expect(record).toBeLessThan(tool);
+	});
+
+	it("counts a record still settling as one row of the changing tail", async () => {
+		const session = await holding();
+		const before = room(session, true);
+		const live = { now: true };
+
+		settleIntoChat(session.tui, recordOf("MARK-record", live));
+		const settling = room(session, true);
+		live.now = false;
+		const settled = room(session, true);
+
+		expect(before).toBeTypeOf("number");
+		expect(settling).toBe((before ?? 0) - 1);
+		expect(settled).toBe(before);
+	});
+
+	it("measures what stands below a record and below a gate", async () => {
+		const session = await holding();
+		const record = recordOf("MARK-record", { now: false });
+		settleIntoChat(session.tui, record);
+		const gate: Component = { render: () => [], invalidate() {} };
+
+		const after = rowsAfter(session.tui, record, COLS);
+		const running = rowsUnderGate(session.tui, COLS, gate);
+		letGo?.();
+		await waitFor(() => !session.runtime.session.isStreaming, "the turn");
+		const finished = rowsUnderGate(session.tui, COLS, gate);
+
+		expect(after).toBeGreaterThanOrEqual(ROWS_HELD);
+		expect(running).toBeTypeOf("number");
+		expect(finished).toBeTypeOf("number");
+		// The running tool is the tail; once it finishes nothing below can grow.
+		expect((running ?? 0) - (finished ?? 0)).toBeGreaterThanOrEqual(ROWS_HELD);
 	});
 });

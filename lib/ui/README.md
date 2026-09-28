@@ -36,6 +36,24 @@ top of Pi's TUI primitives.
   so it fails closed. The holder's `release()` hands the
   screen on early, for a panel that left without settling.
 
+In a terminal, `promptSingle` and `promptTabbed` dock above the
+editor rather than cover it, so the transcript they ask about
+stays readable and the editor stays reachable. The gate takes
+the keyboard once it has been painted and the editor has gone
+untouched for half a second, and ignores Enter and Escape for a
+moment after, so a key meant for a draft never answers it; the
+hop chord moves between it and the editor, and anything sent
+meanwhile arrives after the gate is answered. It holds its
+height, fills what it is dealt, lays itself out in fewer rows
+when the room shrinks and says it is waiting on one row when
+even that will not fit. Answered, it settles into the
+transcript as a record the same height, its verdict on its
+last row, in the frame it leaves, then gives rows back as
+lines arrive below it. A gate closed by its session ending or
+by a session replace leaves no record. Views, the toggle list
+and the workspace are still overlays, and so is every gate on
+a host that cannot dock a widget.
+
 Every prompt and view comes off the screen by its own overlay
 handle, never by hiding whatever overlay happens to be on top,
 so answering one under another program's panel leaves that

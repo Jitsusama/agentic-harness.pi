@@ -57,7 +57,7 @@ function changeable(component: Component): boolean {
  * messages and tool rows. Before the first turn it holds neither, and then
  * the document's last child is it.
  */
-function chatOf(document: Holder): Holder | undefined {
+function chatOf(document: Holder): (Component & Holder) | undefined {
 	const found = document.children.find(
 		(child) =>
 			holds(child) &&
@@ -73,7 +73,10 @@ function chatOf(document: Holder): Holder | undefined {
 
 /**
  * Rows the transcript may still change: from the first tool still running
- * to the end, or the message still streaming when no tool is.
+ * to the end, or the message still streaming when no tool is, and a row
+ * for each gate's record still giving its rows back. A record counts at
+ * the one row it settles at: the rest it gives up to whatever grows below
+ * it, in the same frame, so they are room rather than tail.
  */
 function changeableTail(
 	chat: Holder,
@@ -85,7 +88,99 @@ function changeableTail(
 	const last = rows[rows.length - 1];
 	if (from < 0 && streaming && last instanceof AssistantMessageComponent)
 		from = rows.length - 1;
-	return from < 0 ? 0 : rowsOf(rows.slice(from), width);
+	const records = rows.filter(settling).length;
+	return records + (from < 0 ? 0 : rowsOf(rows.slice(from), width));
+}
+
+/**
+ * The key a gate's record answers under while it can still shrink. On
+ * the process-global registry, so a record one copy of this library left
+ * is counted by every other copy's dock.
+ */
+const SETTLING = Symbol.for("agentic-harness.settling-record");
+
+/** Marks `record` as one that shrinks while `live` says so. */
+export function markSettling(record: Component, live: () => boolean): void {
+	Reflect.set(record, SETTLING, live);
+}
+
+function settling(component: Component): boolean {
+	const live: unknown = Reflect.get(component, SETTLING);
+	return typeof live === "function" && live() === true;
+}
+
+/**
+ * Puts `record` into the transcript where a gate's record belongs: before
+ * the first tool still running, since that row can still grow and the
+ * record must not move once it is down, else at the end. False when the
+ * transcript is not laid out the way this reads it, and nothing is put.
+ */
+export function settleIntoChat(tui: TUI, record: Component): boolean {
+	const [document] = tui.children;
+	if (!holds(document)) return false;
+	const chat = chatOf(document);
+	if (chat === undefined) return false;
+	// The children are pi's own array, which is how a container is added
+	// to; a copy would put the record nowhere.
+	const rows = Reflect.get(chat, "children");
+	if (!Array.isArray(rows)) return false;
+	const at = rows.findIndex(changeable);
+	if (at < 0) rows.push(record);
+	else rows.splice(at, 0, record);
+	return true;
+}
+
+/**
+ * Rows drawn below `record` down to the top of the dock: the rest of its
+ * transcript, and whatever the document holds after the transcript.
+ */
+export function rowsAfter(tui: TUI, record: Component, width: number): number {
+	const [document] = tui.children;
+	if (!holds(document)) return 0;
+	const chat = document.children.find(
+		(child) => holds(child) && child.children.includes(record),
+	);
+	if (chat === undefined || !holds(chat)) return 0;
+	const at = chat.children.indexOf(record);
+	const later = document.children.slice(document.children.indexOf(chat) + 1);
+	return rowsOf(chat.children.slice(at + 1), width) + rowsOf(later, width);
+}
+
+/** Rows of everything pi docks around the editor, `except` left out. */
+export function dockRows(tui: TUI, width: number, except?: Component): number {
+	let rows = 0;
+	for (const part of tui.children.slice(1)) {
+		if (part === except) continue;
+		if (except !== undefined && holds(part) && part.children.includes(except))
+			rows += rowsOf(
+				part.children.filter((one) => one !== except),
+				width,
+			);
+		else rows += part.render(width).length;
+	}
+	return rows;
+}
+
+/**
+ * Rows a gate's record would have below it if it went down now: from the
+ * first tool still running to the transcript's end, what the document
+ * holds after it, and the dock, the gate itself left out. Taken while the
+ * gate draws, it is what the frame being painted shows, which is what the
+ * record's first frame has to match row for row.
+ */
+export function rowsUnderGate(
+	tui: TUI,
+	width: number,
+	gate: Component,
+): number | undefined {
+	const [document] = tui.children;
+	if (!holds(document)) return undefined;
+	const chat = chatOf(document);
+	if (chat === undefined) return undefined;
+	const at = chat.children.findIndex(changeable);
+	const tail = at < 0 ? 0 : rowsOf(chat.children.slice(at), width);
+	const later = document.children.slice(document.children.indexOf(chat) + 1);
+	return tail + rowsOf(later, width) + dockRows(tui, width, gate);
 }
 
 function isComponent(value: unknown): value is Component {

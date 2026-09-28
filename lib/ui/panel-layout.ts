@@ -7,6 +7,7 @@
 
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { panelRoom } from "./panel-room.ts";
 import type { KeyAction, ListChoice, PromptView } from "./types.ts";
 
 /**
@@ -65,7 +66,31 @@ export function renderFooter(opts: FooterOptions): string[] {
 	}
 
 	lines.push(renderControlRow(opts));
-	return lines;
+	return dockedFooter(lines, theme, width);
+}
+
+/**
+ * The footer as a docked panel shows it: blank once it has been answered,
+ * the same number of rows so the record stands exactly as tall as the
+ * panel did, since no key reaches a record (its verdict goes on its last
+ * row, see `gate-dock.ts`); and while the editor has the keyboard, how to
+ * come back, in place of keys that would not reach it. An overlay's
+ * footer is returned as it was.
+ */
+export function dockedFooter(
+	lines: string[],
+	theme: Theme,
+	width: number,
+): string[] {
+	const room = panelRoom();
+	if (room === undefined || lines.length === 0) return lines;
+	if (room.answered === true) return lines.map(() => "");
+	if (room.hop === undefined || room.focused !== false) return lines;
+	const back = theme.fg(
+		"dim",
+		` ${room.hop} back to this · anything you send now arrives after you answer`,
+	);
+	return [...lines.slice(0, -1), truncateToWidth(back, width)];
 }
 
 /** Row 1: actions (left) + modifiers (right). */
@@ -95,7 +120,11 @@ function renderControlRow(opts: FooterOptions): string {
 	const leftParts: string[] = [];
 	const rightParts: string[] = [];
 
-	// Left: view hints + tab hints
+	// Left: the way out to the editor, for a docked panel holding the keys
+	const hop = panelRoom()?.hop;
+	if (hop !== undefined) leftParts.push(theme.fg("dim", `${hop} editor`));
+
+	// Then view hints + tab hints
 	const views = opts.views ?? [];
 	if (views.length > 1) {
 		const activeIdx = opts.activeViewIndex ?? 0;
