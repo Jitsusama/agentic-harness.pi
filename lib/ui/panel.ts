@@ -12,6 +12,7 @@
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
+import { mountWhenFree } from "./gate-queue.ts";
 import { OVERLAID } from "./overlay.ts";
 import { showSinglePrompt } from "./prompt-single.ts";
 import { showTabbedPrompt } from "./prompt-tabbed.ts";
@@ -108,8 +109,19 @@ export async function view(
 	config: ViewConfig,
 ): Promise<void> {
 	if (!ctx.hasUI) return;
+	// Dismissed before its turn, it never mounts: its listener below would
+	// never hear an abort that had already happened, and the view would
+	// stay up for good.
+	await mountWhenFree(
+		ctx,
+		() => showView(ctx, config),
+		undefined,
+		config.signal,
+	);
+}
 
-	await ctx.ui.custom<void>((tui, theme, _kb, done) => {
+function showView(ctx: ExtensionContext, config: ViewConfig): Promise<void> {
+	return ctx.ui.custom<void>((tui, theme, _kb, done) => {
 		// See the OVERLAID note at the end of this call: a panel that is not
 		// overlaid grows the transcript and strands the rows it displaces.
 		const scroll: ScrollState = { vOffset: 0, hOffset: 0 };

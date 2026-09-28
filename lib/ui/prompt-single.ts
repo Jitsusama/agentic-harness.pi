@@ -17,6 +17,7 @@ import {
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
 import { type ActionBarResult, handleActionInput } from "./action-bar.ts";
+import { mountWhenFree } from "./gate-queue.ts";
 import { buildNoteEditorTheme, renderNoteEditor } from "./note-editor.ts";
 import {
 	handleOptionInput,
@@ -327,8 +328,14 @@ export async function showSinglePrompt(
 	ctx: ExtensionContext,
 	config: SinglePromptConfig,
 ): Promise<PromptResult | null> {
-	return ctx.ui.custom<PromptResult | null>(
-		(tui, theme, _kb, done) => createSingleController(config, tui, theme, done),
-		OVERLAID,
+	return mountWhenFree(
+		ctx,
+		() =>
+			ctx.ui.custom<PromptResult | null>(
+				(tui, theme, _kb, done) =>
+					createSingleController(config, tui, theme, done),
+				OVERLAID,
+			),
+		null,
 	);
 }

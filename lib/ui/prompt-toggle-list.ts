@@ -1,5 +1,6 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
+import { mountWhenFree } from "./gate-queue.ts";
 import {
 	type NavigableSection,
 	renderNavigableSections,
@@ -128,6 +129,20 @@ export async function promptToggleList(
 	const initial = initToggleModel(config);
 	if (!ctx.hasUI) return selectedValues(initial);
 
+	// Withdrawn before it mounts, the rows keep the values they came with,
+	// as they would for a caller with no screen.
+	return mountWhenFree(
+		ctx,
+		() => showToggleList(ctx, config, initial),
+		selectedValues(initial),
+	);
+}
+
+function showToggleList(
+	ctx: ExtensionContext,
+	config: ToggleListConfig,
+	initial: ToggleListModel,
+): Promise<Record<string, string>> {
 	return ctx.ui.custom<Record<string, string>>((tui, theme, _kb, done) => {
 		let model = initial;
 		const scroll: ScrollState = { vOffset: 0, hOffset: 0 };
