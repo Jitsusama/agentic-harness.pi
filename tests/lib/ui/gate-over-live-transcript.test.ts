@@ -16,7 +16,12 @@
  */
 
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { type Component, type Terminal, TUI } from "@earendil-works/pi-tui";
+import {
+	type Component,
+	type Terminal,
+	type TUI,
+	TuiMainScreen,
+} from "@earendil-works/pi-tui";
 import xterm from "@xterm/headless";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { showSinglePrompt } from "../../../lib/ui/prompt-single.ts";
@@ -155,7 +160,7 @@ describe("the merge gate over a live transcript", () => {
 
 	it("keeps every base row out of the panel while the spinner ticks", async () => {
 		const terminal = new VirtualTerminal(COLUMNS, ROWS);
-		const tui = new TUI(terminal);
+		const tui = new TuiMainScreen(terminal);
 		const transcript = new LiveTranscript();
 		tui.addChild(transcript);
 
