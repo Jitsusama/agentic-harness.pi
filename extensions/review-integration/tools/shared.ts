@@ -28,6 +28,7 @@ import {
 import { firstText, renderToolCall } from "../../../lib/ui/index.ts";
 import { attachments, reviewEngine } from "../engine.ts";
 import type { GateRefusal } from "../gate.ts";
+import { boardsOf, roundCardLines } from "../progress.ts";
 import { GLYPH } from "../render.ts";
 
 /** What a tool answers with. */
@@ -138,7 +139,14 @@ export function renderAnswer(
 		: digest
 			? digested(text, digest, theme)
 			: clipped(text, theme);
-	const painted = isRefusal(result.details) ? theme.fg("error", shown) : shown;
+	const said = isRefusal(result.details) ? theme.fg("error", shown) : shown;
+	// A round's board, as it stood when the call returned, opens the card.
+	// The board left in the frame this arrived, from the rows this now
+	// holds, so the screen neither jumps nor leaves them blank.
+	const boards = boardsOf(result.details).flatMap((one) =>
+		roundCardLines(one, theme),
+	);
+	const painted = [...boards, said].join("\n");
 	// Pi hands back what this returned last time so a redraw updates one
 	// component. Building a new one strands the old beside it, which is
 	// the ghost row above a finished call.

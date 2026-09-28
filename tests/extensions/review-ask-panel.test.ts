@@ -14,12 +14,17 @@
  * offer.
  */
 
-import { trackAskProgress } from "@jitsusama/agentic-harness.core/review";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import {
+	type AskProgressEntry,
+	trackAskProgress,
+} from "@jitsusama/agentic-harness.core/review";
 import { describe, expect, it } from "vitest";
 import {
-	panelLines,
+	roundBoard,
 	watchRound,
 } from "../../extensions/review-integration/progress.ts";
+import { boardLines } from "../../lib/ui/board.ts";
 
 /**
  * A theme that returns its text, so assertions read as content.
@@ -32,7 +37,33 @@ const theme = {
 	fg: (_role: string, text: string) => text,
 	bold: (text: string) => text,
 	dim: (text: string) => text,
-} as unknown as Parameters<typeof panelLines>[2];
+} as unknown as Theme;
+
+/** How a board is drawn for one assertion. */
+interface Drawing {
+	readonly selected?: number;
+	readonly width?: number;
+	readonly now?: number;
+	readonly focused?: boolean;
+}
+
+/** A council's board, as the dock would draw it with all the room it wants. */
+function panelLines(
+	entries: readonly AskProgressEntry[],
+	{
+		selected = -1,
+		width = 80,
+		now = Date.now(),
+		focused = false,
+	}: Drawing = {},
+): string[] {
+	return boardLines(
+		roundBoard("council", entries, theme, { selected, notice: "", now }),
+		theme,
+		width,
+		focused,
+	);
+}
 
 /** The one model a roster of personas usually shares. */
 const MODEL = "anthropic/claude-opus-5";
@@ -57,15 +88,8 @@ describe("the panel says how long each one has been at it", () => {
 		progress.start(PARTICIPANTS);
 		progress.started("correctness-and-tests");
 
-		const drawn = panelLines(
-			"council",
-			entries(),
-			theme,
-			-1,
-			80,
-			// Eight and a half minutes after it was sent away.
-			570_000,
-		).join("\n");
+		// Eight and a half minutes after it was sent away.
+		const drawn = panelLines(entries(), { now: 570_000 }).join("\n");
 
 		expect(drawn).toContain("8m30s");
 	});
@@ -81,14 +105,7 @@ describe("the panel says how long each one has been at it", () => {
 
 		// Drawn an hour later. A finished reviewer's time is a fact
 		// about the round, not a counter that keeps climbing.
-		const drawn = panelLines(
-			"council",
-			entries(),
-			theme,
-			-1,
-			80,
-			3_660_000,
-		).join("\n");
+		const drawn = panelLines(entries(), { now: 3_660_000 }).join("\n");
 
 		expect(drawn).toContain("2m0s");
 		expect(drawn).toContain("4 findings");
@@ -98,9 +115,7 @@ describe("the panel says how long each one has been at it", () => {
 		const { progress, entries } = trackAskProgress(() => 60_000);
 		progress.start(PARTICIPANTS);
 
-		const drawn = panelLines("council", entries(), theme, -1, 80, 600_000).join(
-			"\n",
-		);
+		const drawn = panelLines(entries(), { now: 600_000 }).join("\n");
 
 		expect(drawn).toContain("queued");
 		expect(drawn).not.toMatch(/\d+m\d+s/);
@@ -116,7 +131,7 @@ describe("the panel names every participant", () => {
 		progress.answered("test-skeptic");
 		progress.recorded("test-skeptic", 4);
 
-		const drawn = panelLines("council", entries(), theme).join("\n");
+		const drawn = panelLines(entries()).join("\n");
 
 		for (const id of IDS) expect(drawn).toContain(id);
 	});
@@ -129,7 +144,7 @@ describe("the panel names every participant", () => {
 		progress.answered("test-skeptic");
 		progress.recorded("test-skeptic", 4);
 
-		const drawn = panelLines("council", entries(), theme).join("\n");
+		const drawn = panelLines(entries()).join("\n");
 
 		expect(drawn).toContain("reading provider.ts");
 		expect(drawn).toContain("4 findings");
@@ -138,13 +153,22 @@ describe("the panel names every participant", () => {
 	});
 
 	it("says how to stop it, because a panel that can must say so", () => {
+		// Two halves now, because the board no longer takes the keyboard from
+		// the editor. Until the hop chord brings the keys to it, none of them
+		// would reach it, so it says how to get there; once they do, it says
+		// what they are.
 		const { progress, entries } = trackAskProgress();
 		progress.start(PARTICIPANTS);
 
-		const drawn = panelLines("council", entries(), theme).join("\n");
+		const unfocused = panelLines(entries(), { width: 120 }).join("\n");
+		const focused = panelLines(entries(), { width: 120, focused: true }).join(
+			"\n",
+		);
 
-		expect(drawn).toContain("esc cancel round");
-		expect(drawn).toContain("r cancel selected");
+		expect(unfocused).toContain("Ctrl+Alt+N to manage");
+		expect(unfocused).not.toContain("r cancel selected");
+		expect(focused).toContain("Esc cancel round");
+		expect(focused).toContain("r cancel selected");
 	});
 
 	it("marks the selected participant with a cursor, not only by colour", () => {
@@ -152,7 +176,7 @@ describe("the panel names every participant", () => {
 		const { progress, entries } = trackAskProgress();
 		progress.start(PARTICIPANTS);
 
-		const drawn = panelLines("council", entries(), theme, 1);
+		const drawn = panelLines(entries(), { selected: 1, focused: true });
 
 		expect(drawn.find((line) => line.includes("test-skeptic"))).toMatch(
 			/^\u25b8 /,
@@ -162,20 +186,24 @@ describe("the panel names every participant", () => {
 		);
 	});
 
-	it("draws one framed row per participant, not a stack of stages", () => {
+	it("draws one titled row per participant, not a stack of stages", () => {
 		// The shape is the whole complaint that brought the panel back, and it
 		// regressed once by reaching for the widget renderer because it was
-		// already imported. So the frame and the one-row-per-participant rule
+		// already imported. So the title and the one-row-per-participant rule
 		// are pinned rather than left to whichever renderer is nearest.
+		//
+		// The frame is a title rule now, with no rule below: the board sits
+		// directly on the editor, whose own border closes it.
 		const { progress, entries } = trackAskProgress();
 		progress.start(PARTICIPANTS);
 		progress.started("correctness-and-tests");
 		progress.activity("correctness-and-tests", "reading provider.ts");
 
-		const drawn = panelLines("council", entries(), theme, -1, 40);
+		const drawn = panelLines(entries(), { width: 60 });
 
-		expect(drawn[0]).toBe("\u2500".repeat(40));
-		expect(drawn.at(-1)).toBe("\u2500".repeat(40));
+		expect(drawn[0]).toMatch(/^\u2500\u2500 council .*\u2500\u2500$/);
+		expect(drawn.at(-1)).toContain("architecture-hawk");
+		expect(drawn).toHaveLength(1 + IDS.length);
 		for (const id of IDS) {
 			expect(drawn.filter((line) => line.includes(id))).toHaveLength(1);
 		}
@@ -187,9 +215,9 @@ describe("the panel names every participant", () => {
 		const { progress, entries } = trackAskProgress();
 		progress.start(PARTICIPANTS);
 
-		const drawn = panelLines("council", entries(), theme);
+		const drawn = panelLines(entries());
 
-		expect(drawn[1]).toContain(MODEL);
+		expect(drawn[0]).toContain(MODEL);
 		expect(drawn.filter((line) => line.includes(MODEL))).toHaveLength(1);
 	});
 
@@ -201,7 +229,7 @@ describe("the panel names every participant", () => {
 			{ id: "two", model: "b/second" },
 		] as never);
 
-		const drawn = panelLines("council", entries(), theme).join("\n");
+		const drawn = panelLines(entries()).join("\n");
 
 		expect(drawn).toContain("one \u00b7 a/first");
 		expect(drawn).toContain("two \u00b7 b/second");
@@ -214,7 +242,7 @@ describe("the panel names every participant", () => {
 		progress.start(PARTICIPANTS);
 		progress.failed("test-skeptic", "exited 1 without answering");
 
-		const drawn = panelLines("council", entries(), theme);
+		const drawn = panelLines(entries());
 
 		expect(
 			drawn.filter((line) => line.includes("exited 1 without answering")),
@@ -226,7 +254,7 @@ describe("the panel names every participant", () => {
 		progress.start(PARTICIPANTS);
 		progress.failed("architecture-hawk", "exited 1 without answering");
 
-		const drawn = panelLines("council", entries(), theme).join("\n");
+		const drawn = panelLines(entries()).join("\n");
 
 		expect(drawn).toContain("exited 1 without answering");
 	});
@@ -243,7 +271,7 @@ describe("a reviewer somebody stopped", () => {
 		progress.started("test-skeptic");
 		progress.cancelled("test-skeptic");
 
-		const drawn = panelLines("council", entries(), theme, -1, 80, 90_000);
+		const drawn = panelLines(entries(), { now: 90_000 });
 		const row = drawn.find((line) => line.includes("test-skeptic"));
 
 		expect(row).toContain("cancelled");

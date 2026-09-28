@@ -9,25 +9,26 @@
  * neither, because it has room for one participant's activity and no room
  * at all for a key binding.
  *
- * So this restores what the older surface had: a panel in the prompt area
- * listing every participant, its state and what it is doing, with the
- * status line kept beside it as the one-glance summary. Escape cancels.
+ * So a round is a board docked above the editor, listing every
+ * participant, its state and what it is doing. The editor keeps focus, so
+ * a person can type while a round runs; the hop chord reaches the board,
+ * where up and down select, `r` cancels one participant and Escape the
+ * round, and the same chord gives the editor back. Escape in the editor is
+ * pi's: it stops the turn, and the turn's signal stops the round.
  *
- * Cancellation is real here rather than cosmetic, which it could not be
- * before. Three separate comments in this extension claimed pi hands a
- * tool's execute no cancellation signal; the signature is
- * `execute(toolCallId, params, signal, onUpdate, ctx)` and it always had
- * one. The subagent runner already kills a child on abort, so the only
- * thing missing was passing the signal down.
+ * The board used to replace the editor, with a listener that swallowed
+ * Escape wherever focus was, so nothing could be typed for as long as a
+ * council ran, which is a quarter of an hour on a good day.
+ *
+ * Cancellation is real here rather than cosmetic. Three separate comments
+ * in this extension once claimed pi hands a tool's execute no cancellation
+ * signal; the signature is `execute(toolCallId, params, signal, onUpdate,
+ * ctx)` and it always had one. The subagent runner already kills a child
+ * on abort, so the only thing missing was passing the signal down.
  */
 
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import {
-	Key,
-	matchesKey,
-	type TUI,
-	truncateToWidth,
-} from "@earendil-works/pi-tui";
+import { Key, matchesKey } from "@earendil-works/pi-tui";
 import {
 	type AskProgress,
 	type AskProgressEntry,
@@ -35,6 +36,9 @@ import {
 	trackAskProgress,
 } from "@jitsusama/agentic-harness.core/review";
 import { AGENT_GLYPH } from "../../lib/ui/agent-glyphs.ts";
+import { type Board, boardLines, fitBoard } from "../../lib/ui/board.ts";
+import { DOCK_HOP_LABEL, type Docked, dock } from "../../lib/ui/dock.ts";
+import type { Answer } from "./tools/shared.ts";
 
 /**
  * The spawned-work set, not the review family, and that is the point. A
@@ -54,6 +58,9 @@ const GLYPH: Record<AskProgressEntry["state"], string> = {
 	cancelled: AGENT_GLYPH.cancelled,
 	failed: AGENT_GLYPH.failed,
 };
+
+/** Between the parts of a title or a row. */
+const SEPARATOR = " \u00b7 ";
 
 /** The glyph and the word for it, coloured by what it means. */
 function status(entry: AskProgressEntry, theme: Theme): string {
@@ -85,9 +92,9 @@ function participantLine(
 	const model =
 		entry.model === undefined || entry.model === shared
 			? ""
-			: ` · ${entry.model}`;
+			: `${SEPARATOR}${entry.model}`;
 	const said = subtext(entry, now);
-	const tail = said === undefined ? "" : ` · ${said}`;
+	const tail = said === undefined ? "" : `${SEPARATOR}${said}`;
 	const line = `${cursor} ${status(entry, theme)} ${entry.participantId}${model}${tail}`;
 	return selected ? theme.fg("accent", line) : line;
 }
@@ -115,7 +122,7 @@ function elapsed(entry: AskProgressEntry, now: number): string | undefined {
 /** What to say under a participant's name. */
 function subtext(entry: AskProgressEntry, now: number): string | undefined {
 	const since = elapsed(entry, now);
-	const took = since === undefined ? "" : ` · ${since}`;
+	const took = since === undefined ? "" : `${SEPARATOR}${since}`;
 	if (entry.state === "answered") {
 		const count = entry.findings;
 		if (count === undefined) return `answered${took}`;
@@ -146,153 +153,117 @@ function sharedModel(entries: readonly AskProgressEntry[]): string | undefined {
 	return entries.every((one) => one.model === first) ? first : undefined;
 }
 
-/**
- * The panel body, which is the part a status line cannot hold.
- *
- * Composed here rather than handed to `renderPipelineProgressLines`. That
- * is the widget renderer, and reaching for it because it was already
- * imported produced a stack of two-line stages where the old panel drew
- * one line per reviewer inside a frame. A panel is a different shape of
- * thing from a widget: it takes the whole prompt area, so it is framed and
- * titled, and each row has room for a name, a model and an activity side
- * by side.
- */
-export function panelLines(
+/** How a board is drawn at this moment. */
+export interface RoundBoardState {
+	/** The row holding the cursor, or -1 for none. */
+	readonly selected: number;
+	/** The last thing the board said, such as who was cancelled. */
+	readonly notice: string;
+	/** The instant every running row's clock is read at. */
+	readonly now: number;
+}
+
+/** The title: the round, its tally, and the model when all share one. */
+function roundTitle(
 	round: AskRound,
 	entries: readonly AskProgressEntry[],
 	theme: Theme,
-	selected = -1,
-	width = 80,
-	// Read once per draw rather than per row, so seven rows of one
-	// round are all measured against the same instant.
-	now = Date.now(),
-): string[] {
-	if (entries.length === 0) return [];
-	const rule = theme.fg("accent", "─".repeat(Math.max(1, width)));
+): string {
 	const answered = entries.filter((one) => one.state === "answered").length;
 	const shared = sharedModel(entries);
-	const title =
-		`${round} · ${answered}/${entries.length} answered` +
-		(shared === undefined ? "" : ` · ${shared}`);
-	const lines = [
-		rule,
-		` ${theme.fg("accent", theme.bold(title))}`,
-		` ${theme.fg("dim", "↑/↓ select · r cancel selected · esc cancel round")}`,
-		"",
+	const parts = [
+		theme.fg("accent", theme.bold(round)),
+		`${answered}/${entries.length} answered`,
+		...(shared === undefined ? [] : [shared]),
 	];
-	for (const [index, entry] of entries.entries()) {
-		lines.push(participantLine(entry, theme, index === selected, shared, now));
-	}
-	// A reason gets its own line under the rows: it is the one thing here
-	// long enough that squeezing it onto a row would truncate it away.
-	for (const entry of entries) {
-		if (entry.state === "failed" && entry.reason) {
-			lines.push(
-				theme.fg(
-					"error",
-					`   ${GLYPH.failed} ${entry.participantId}: ${entry.reason}`,
-				),
-			);
-		}
-	}
-	lines.push(rule);
-	return lines;
+	return parts.join(SEPARATOR);
+}
+
+/** A failure's reason, which is too long for its row. */
+function failureNotes(
+	entries: readonly AskProgressEntry[],
+	theme: Theme,
+): string[] {
+	return entries
+		.filter((entry) => entry.state === "failed" && entry.reason)
+		.map((entry) =>
+			theme.fg(
+				"error",
+				`  ${GLYPH.failed} ${entry.participantId}: ${entry.reason}`,
+			),
+		);
 }
 
 /**
- * The prompt-area panel: the part a status line cannot hold.
- *
- * It replaces the prompt editor while a round runs, which is what makes
- * the keys available: a panel that only drew would leave Escape belonging
- * to the editor behind it. That means implementing pi's editor surface,
- * and most of it is deliberately inert here, because this is a display
- * that borrows the keyboard rather than somewhere to type.
+ * The round as a board: one row per participant, a failure's reason under
+ * them. Exported so tests can assert what the rows say without a terminal.
  */
-class RoundPanel {
-	borderColor?: (str: string) => string;
-	onSubmit?: (text: string) => void;
-	onChange?: (text: string) => void;
-	private entries: readonly AskProgressEntry[];
-	private selected = 0;
-	private notice = "";
-
-	constructor(
-		private readonly tui: TUI,
-		private readonly theme: Theme,
-		private readonly round: AskRound,
-		entries: readonly AskProgressEntry[],
-		private readonly cancel: RoundControls,
-	) {
-		this.entries = entries;
-	}
-
-	setEntries(entries: readonly AskProgressEntry[]): void {
-		this.entries = entries;
-		if (this.selected >= entries.length) this.selected = 0;
-		this.tui.requestRender();
-	}
-
-	render(width: number): string[] {
-		const lines = panelLines(
-			this.round,
-			this.entries,
-			this.theme,
-			this.selected,
-			width,
-		);
-		if (this.notice !== "") {
-			lines.push(` ${this.theme.fg("warning", this.notice)}`);
-		}
-		// pi's own truncation, which counts what a terminal shows rather than
-		// what a string holds. Every line here carries colour escapes, and
-		// slicing by length cuts inside one, which spills the styling across
-		// the rest of the screen.
-		return lines.map((line) => truncateToWidth(line, width));
-	}
-
-	handleInput(data: string): void {
-		if (matchesKey(data, Key.up)) {
-			this.selected =
-				(this.selected - 1 + this.entries.length) % this.entries.length;
-			this.tui.requestRender();
-			return;
-		}
-		if (matchesKey(data, Key.down)) {
-			this.selected = (this.selected + 1) % this.entries.length;
-			this.tui.requestRender();
-			return;
-		}
-		if (matchesKey(data, Key.escape)) {
-			this.cancel.all();
-			return;
-		}
-		// One participant, by the letter its own line names, so a round
-		// with one wedged reviewer does not have to be abandoned whole.
-		if (data === "r" || data === "R") {
-			const one = this.entries[this.selected];
-			if (one === undefined) return;
-			this.notice = this.cancel.one(one.participantId);
-			this.tui.requestRender();
-		}
-	}
-
-	// Pi's editor surface, inert by design: nothing here is typed into.
-	getText(): string {
-		return "";
-	}
-	setText(_text: string): void {}
-	addToHistory(_text: string): void {}
-	insertTextAtCursor(_text: string): void {}
-	getExpandedText(): string {
-		return "";
-	}
-	setAutocompleteProvider(_provider: unknown): void {}
-	setPaddingX(_padding: number): void {}
-	setAutocompleteMaxVisible(_maxVisible: number): void {}
-	invalidate(): void {}
+export function roundBoard(
+	round: AskRound,
+	entries: readonly AskProgressEntry[],
+	theme: Theme,
+	state: RoundBoardState = { selected: -1, notice: "", now: Date.now() },
+): Board {
+	const shared = sharedModel(entries);
+	return {
+		title: roundTitle(round, entries, theme),
+		aside:
+			state.notice === ""
+				? theme.fg("dim", `${DOCK_HOP_LABEL} to manage`)
+				: theme.fg("warning", state.notice),
+		keys: theme.fg(
+			"dim",
+			`↑/↓ select · r cancel selected · Esc cancel round · ${DOCK_HOP_LABEL} back to the editor`,
+		),
+		rows: entries.map((entry, index) =>
+			participantLine(
+				entry,
+				theme,
+				index === state.selected,
+				shared,
+				state.now,
+			),
+		),
+		selected: state.selected,
+		notes: failureNotes(entries, theme),
+	};
 }
 
-/** What the panel can stop. */
+/** A round's board as it stood when the round's call returned. */
+export interface RoundSnapshot {
+	readonly round: AskRound;
+	readonly entries: readonly AskProgressEntry[];
+	/** When it was taken, so a running row's clock stops there. */
+	readonly at: number;
+}
+
+/**
+ * The rows a round's answer opens with: its board as it ended, without
+ * the rule and the keys, which belonged to something live.
+ *
+ * The answer's own text follows, so a card is at least a row taller than
+ * the rows here and never shorter than the board it replaces, focused or
+ * not: a shorter card would leave the difference as blank rows at the
+ * foot of the screen.
+ */
+export function roundCardLines(
+	snapshot: RoundSnapshot,
+	theme: Theme,
+): string[] {
+	const shared = sharedModel(snapshot.entries);
+	return [
+		roundTitle(snapshot.round, snapshot.entries, theme),
+		...snapshot.entries.map((entry) =>
+			participantLine(entry, theme, false, shared, snapshot.at),
+		),
+		...failureNotes(snapshot.entries, theme),
+	];
+}
+
+/** How many watches this process has opened, which keys each board. */
+let watches = 0;
+
+/** What the board can stop. */
 interface RoundControls {
 	all(): void;
 	one(participantId: string): string;
@@ -313,7 +284,7 @@ export interface RoundWatch {
 	/**
 	 * Stop one participant and say so on its row.
 	 *
-	 * What the panel's `r` key does, here rather than inside the panel so
+	 * What the board's `r` key does, here rather than inside the board so
 	 * that stopping a reviewer can be driven without a terminal to press
 	 * the key in. Returns the notice to show.
 	 */
@@ -321,23 +292,30 @@ export interface RoundWatch {
 	/**
 	 * Stop the whole round and mark every row that had not settled.
 	 *
-	 * What Escape does, here for the same reason: it is the commoner of
-	 * the two ways a round is stopped and there was no way to drive it
-	 * without a terminal.
+	 * What Escape on the board does, here for the same reason: it is the
+	 * commoner of the two ways a round is stopped and there was no way to
+	 * drive it without a terminal.
 	 */
 	cancelAll(): void;
 	/**
-	 * The rows as they stand, which is what the panel is drawing.
+	 * The rows as they stand, which is what the board is drawing.
 	 *
 	 * Read by cancellation to decide what is still stoppable, so this is
 	 * the watch's own view of the round rather than a window opened for
 	 * a test to look through.
 	 */
 	entries(): AskProgressEntry[];
+	/** The rows as they stand, to go with the round's answer. */
+	snapshot(): RoundSnapshot;
+	/**
+	 * Takes the board down. Called as the round's call returns rather than
+	 * when the round finishes, so the board leaves with the answer.
+	 */
+	close(): void;
 }
 
 /**
- * Watch a round: status line, panel, and signals that the panel trips.
+ * Watch a round: a board, and signals that its keys trip.
  *
  * Reporting is best-effort by construction. With no UI attached every
  * draw is a no-op, because a round must not depend on being watched, and
@@ -353,7 +331,7 @@ export function watchRound(
 	const each = new Map<string, AbortController>();
 
 	// Pi's own signal still cancels, so a round stops when the turn does.
-	// Without this the panel would be the only way out of something the
+	// Without this the board would be the only way out of something the
 	// session has already abandoned.
 	outer?.addEventListener("abort", () => whole.abort(), { once: true });
 
@@ -370,45 +348,31 @@ export function watchRound(
 		return made.signal;
 	};
 
-	let panel: RoundPanel | null = null;
-	let previousEditor: ReturnType<ExtensionContext["ui"]["getEditorComponent"]>;
-	let unsubscribe: (() => void) | undefined;
-	let installed = false;
+	let docked: Docked | undefined;
+	let selected = 0;
+	let notice = "";
 	// Redrawing on events alone would freeze the clock on exactly the
 	// participant worth watching: one that has gone quiet emits nothing,
 	// so its row would sit at the elapsed time of its last word while
 	// the minutes it is actually costing go unreported.
 	let tick: ReturnType<typeof setInterval> | undefined;
 
-	// The panel and nothing else. The status bar is for what stays true across
-	// a session, and a round in flight already owns the editor area, titled
-	// with the same round, the same tally and the same shared model the status
-	// line was writing. Two copies of one fact is not twice the reassurance:
-	// it costs the one line the whole harness shares, so a loaded quest and a
-	// disabled git interception have to compete with a transient.
+	// The board and nothing else. The status bar is for what stays true
+	// across a session, and the board is titled with the same round, the
+	// same tally and the same shared model a status line would write. Two
+	// copies of one fact is not twice the reassurance: it costs the one line
+	// the whole harness shares, so a loaded quest and a disabled git
+	// interception have to compete with a transient.
 	const draw = (): void => {
-		if (!ctx?.hasUI) return;
-		const rows = entries();
-		if (rows.length === 0) return;
-		panel?.setEntries(rows);
+		docked?.refresh();
 	};
 
-	const teardown = (): void => {
-		// Ahead of the UI check, and unconditional. A timer outlives the
-		// thing it was drawing for, so leaving it running because there
-		// is no UI to draw on is how a round that ended keeps a handle
-		// alive for the rest of the session.
+	const stopTicking = (): void => {
+		// Unconditional. A timer outlives the thing it was drawing for, so
+		// leaving it running because there is no UI to draw on is how a
+		// round that ended keeps a handle alive for the rest of the session.
 		if (tick !== undefined) clearInterval(tick);
 		tick = undefined;
-		if (!ctx?.hasUI) return;
-		unsubscribe?.();
-		unsubscribe = undefined;
-		// Restoring the editor must not depend on the round still being
-		// alive: if it died first, the person still needs the keyboard back.
-		if (installed) ctx.ui.setEditorComponent(previousEditor);
-		installed = false;
-		previousEditor = undefined;
-		panel = null;
 	};
 
 	const cancelOne = (participantId: string): string => {
@@ -444,31 +408,61 @@ export function watchRound(
 			}
 			// Give the keyboard back at once. The round will settle on its
 			// own, and waiting for it would strand the person meanwhile.
-			teardown();
+			docked?.release();
+			draw();
 		},
 		one: (participantId) => cancelOne(participantId),
 	};
 
-	const install = (): void => {
-		if (!ctx?.hasUI || installed) return;
-		previousEditor = ctx.ui.getEditorComponent();
-		const theme = ctx.ui.theme;
-		ctx.ui.setEditorComponent((tui) => {
-			panel = new RoundPanel(tui, theme, round, entries(), controls);
-			return panel as unknown as ReturnType<
-				NonNullable<ReturnType<ExtensionContext["ui"]["getEditorComponent"]>>
-			>;
-		});
-		unsubscribe = ctx.ui.onTerminalInput((data) => {
-			if (!matchesKey(data, Key.escape)) return undefined;
+	const act = (data: string): boolean => {
+		const total = entries().length;
+		if (matchesKey(data, Key.up)) {
+			selected = total === 0 ? 0 : (selected - 1 + total) % total;
+			return true;
+		}
+		if (matchesKey(data, Key.down)) {
+			selected = total === 0 ? 0 : (selected + 1) % total;
+			return true;
+		}
+		if (matchesKey(data, Key.escape)) {
 			controls.all();
-			return { consume: true };
+			return true;
+		}
+		// One participant, by the letter its own line names, so a round
+		// with one wedged reviewer does not have to be abandoned whole.
+		if (data === "r" || data === "R") {
+			const one = entries()[selected];
+			if (one !== undefined) notice = controls.one(one.participantId);
+			return true;
+		}
+		return false;
+	};
+
+	const install = (): void => {
+		if (ctx === null || !ctx.hasUI || docked !== undefined) return;
+		const theme = ctx.ui.theme;
+		// Read once per draw rather than per row, so every row of one round
+		// is measured against the same instant. The cursor shows only while
+		// the board has the keys, since until then it selects nothing.
+		const board = (focused: boolean): Board =>
+			roundBoard(round, entries(), theme, {
+				selected: focused ? selected : -1,
+				notice,
+				now: Date.now(),
+			});
+		// Keyed per watch, not per kind of round: two councils in one turn
+		// are two boards, and pi replaces a widget whose key comes round again.
+		docked = dock(ctx, `review-integration:round:${round}:${++watches}`, {
+			render: (width, focused) =>
+				boardLines(board(focused), theme, width, focused),
+			fit: (_lines, rows, width, focused) =>
+				fitBoard(board(focused), theme, width, focused, rows),
+			handleInput: (data) => act(data),
 		});
 		tick = setInterval(draw, TICK_MS);
 		// Never hold the process open for a redraw. A round is worth
 		// waiting for; the clock next to it is not.
 		tick.unref?.();
-		installed = true;
 	};
 
 	return {
@@ -480,6 +474,12 @@ export function watchRound(
 			controls.all();
 		},
 		entries,
+		snapshot: () => ({ round, entries: entries(), at: Date.now() }),
+		close: () => {
+			stopTicking();
+			docked?.close();
+			docked = undefined;
+		},
 		progress: {
 			start(participants) {
 				progress.start(participants);
@@ -512,10 +512,85 @@ export function watchRound(
 			},
 			finish() {
 				progress.finish();
-				// The round's own answer is about to say all of this properly,
-				// and a stale board outlives the thing it described.
-				teardown();
+				// The clock stops, since every row has settled or never will.
+				// The board stays until `close`: the call has more to do before
+				// it returns, and the board leaving now would leave the rows it
+				// held blank until the answer arrives.
+				stopTicking();
+				draw();
 			},
 		},
 	};
+}
+
+/**
+ * Answer a call that may open rounds, and take their boards down with it.
+ *
+ * `answer` is handed `watch`, which opens a round's board; every board it
+ * opened closes as the answer is handed back, whatever the answer was and
+ * however it was reached, and the answer carries each board's last state
+ * so its card can open with the same rows.
+ *
+ * Settling in one place is the point. Every round ends by telling its
+ * progress it has finished, and none of them do it from a finally: a round
+ * that threw once left the editor replaced and a timer repainting the
+ * board once a second for the rest of the session.
+ */
+export async function answerWatching(
+	ctx: ExtensionContext | null,
+	signal: AbortSignal | undefined,
+	answer: (watch: (round: AskRound) => RoundWatch) => Promise<Answer>,
+): Promise<Answer> {
+	const opened: RoundWatch[] = [];
+	const watch = (round: AskRound): RoundWatch => {
+		const made = watchRound(round, ctx, signal);
+		opened.push(made);
+		return made;
+	};
+	try {
+		return withBoards(await answer(watch), opened);
+	} finally {
+		for (const made of opened) {
+			made.progress.finish();
+			made.close();
+		}
+	}
+}
+
+/** The answer, carrying the last state of every round that drew a board. */
+function withBoards(answer: Answer, opened: readonly RoundWatch[]): Answer {
+	const boards = opened
+		.map((made) => made.snapshot())
+		.filter((one) => one.entries.length > 0);
+	if (boards.length === 0) return answer;
+	const details =
+		typeof answer.details === "object" && answer.details !== null
+			? answer.details
+			: {};
+	return { ...answer, details: { ...details, boards } };
+}
+
+/** The boards an answer carries, when its details hold any. */
+export function boardsOf(details: unknown): RoundSnapshot[] {
+	if (typeof details !== "object" || details === null) return [];
+	const boards: unknown = Reflect.get(details, "boards");
+	if (!Array.isArray(boards)) return [];
+	return boards.filter(isSnapshot);
+}
+
+function isSnapshot(value: unknown): value is RoundSnapshot {
+	if (typeof value !== "object" || value === null) return false;
+	const entries: unknown = Reflect.get(value, "entries");
+	return (
+		typeof Reflect.get(value, "round") === "string" &&
+		typeof Reflect.get(value, "at") === "number" &&
+		Array.isArray(entries) &&
+		entries.every(
+			(one: unknown) =>
+				typeof one === "object" &&
+				one !== null &&
+				typeof Reflect.get(one, "participantId") === "string" &&
+				typeof Reflect.get(one, "state") === "string",
+		)
+	);
 }

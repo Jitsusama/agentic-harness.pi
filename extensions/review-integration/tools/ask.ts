@@ -107,7 +107,7 @@ import {
 	runArtifactDir,
 	runDir,
 } from "../engine.ts";
-import { type RoundWatch, watchRound } from "../progress.ts";
+import { answerWatching, type RoundWatch } from "../progress.ts";
 import { GLYPH } from "../render.ts";
 import {
 	answerFromReviewer,
@@ -330,68 +330,60 @@ export function registerAskTool(pi: ExtensionAPI): void {
 		): Promise<Answer> {
 			const params = args as AskParams;
 			const action = params.action ?? "runs";
-			const opened: RoundWatch[] = [];
-			try {
-				// Before the change is bound, because this one is about the
-				// roster and not about any change. Binding first made the
-				// listing refuse from exactly the position it exists to be
-				// reachable from: deciding who to ask, before attaching
-				// anything to ask them about.
-				if (action === "roster") return await reportRoster();
+			// One watch per call rather than one per round helper, so the
+			// board and the signal are the same objects everything sees, and
+			// every board this call opens comes down as its answer is handed
+			// back, including the answer to a round that threw.
+			return answerWatching(ctx, signal, async (watch) => {
+				try {
+					// Before the change is bound, because this one is about the
+					// roster and not about any change. Binding first made the
+					// listing refuse from exactly the position it exists to be
+					// reachable from: deciding who to ask, before attaching
+					// anything to ask them about.
+					if (action === "roster") return await reportRoster();
 
-				const bound = await boundFor(pi, params, process.cwd());
-				const change = hostedChange(bound);
-				if (change === undefined) {
-					return refuse(
-						"Nothing hosts this target, so there is no change to ask about. Asking models to review a local range is worth doing and is not wired yet.",
-					);
+					const bound = await boundFor(pi, params, process.cwd());
+					const change = hostedChange(bound);
+					if (change === undefined) {
+						return refuse(
+							"Nothing hosts this target, so there is no change to ask about. Asking models to review a local range is worth doing and is not wired yet.",
+						);
+					}
+
+					switch (action) {
+						case "runs":
+							return await reportRuns(change);
+						case "collect":
+							return await collectOne(change, params);
+						case "council":
+							return await askCouncil(bound, change, params, watch("council"));
+						case "start":
+							return await startRound(bound, change, params);
+						case "stop":
+							return await stopRound(change, params);
+						case "judge":
+							return await askJudge(bound, change, params, watch("judge"));
+						case "critique":
+							return await askCritique(
+								bound,
+								change,
+								params,
+								watch("critique"),
+							);
+						case "audit":
+							return await askAudit(bound, change, params, watch("audit"));
+						case "stack":
+							return await askStack(pi, bound, params, watch("stack"));
+						case "retry":
+							return await retryOne(bound, change, params, watch("council"));
+						case "release":
+							return releaseIdentity(params);
+					}
+				} catch (error) {
+					return refuse(messageOf(error));
 				}
-
-				// One watch per call rather than one per round helper, so the
-				// panel and the signal are the same objects everything sees.
-				//
-				// Kept, so the finally below can settle whatever was opened.
-				// Every round ends by telling its progress it has finished,
-				// which is what takes the panel down, and none of them do it
-				// from a finally: a round that threw left the editor
-				// replaced and, once the panel grew a clock, a timer
-				// repainting it once a second for the rest of the session.
-				// Settling twice is harmless; not settling at all is not.
-				const watch = (round: AskRound): RoundWatch => {
-					const made = watchRound(round, ctx, signal);
-					opened.push(made);
-					return made;
-				};
-
-				switch (action) {
-					case "runs":
-						return await reportRuns(change);
-					case "collect":
-						return await collectOne(change, params);
-					case "council":
-						return await askCouncil(bound, change, params, watch("council"));
-					case "start":
-						return await startRound(bound, change, params);
-					case "stop":
-						return await stopRound(change, params);
-					case "judge":
-						return await askJudge(bound, change, params, watch("judge"));
-					case "critique":
-						return await askCritique(bound, change, params, watch("critique"));
-					case "audit":
-						return await askAudit(bound, change, params, watch("audit"));
-					case "stack":
-						return await askStack(pi, bound, params, watch("stack"));
-					case "retry":
-						return await retryOne(bound, change, params, watch("council"));
-					case "release":
-						return releaseIdentity(params);
-				}
-			} catch (error) {
-				return refuse(messageOf(error));
-			} finally {
-				for (const made of opened) made.progress.finish();
-			}
+			});
 		},
 	});
 }

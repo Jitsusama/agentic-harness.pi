@@ -19,6 +19,8 @@ export {
 	renderBadge,
 	renderBar,
 } from "./badge.ts";
+// ── Boards ──────────────────────────────────────────────────
+export { type Board, boardLines, fitBoard } from "./board.ts";
 // ── Content rendering ───────────────────────────────────────
 export {
 	type CodeRenderOptions,
@@ -34,6 +36,15 @@ export {
 } from "./content-renderer.ts";
 // ── Counts ─────────────────────────────────────────
 export { count, noun, verb } from "./count.ts";
+// ── Docked widgets ──────────────────────────────────────────
+export {
+	DOCK_HOP_KEY,
+	DOCK_HOP_LABEL,
+	type DockBody,
+	type Docked,
+	type DockOptions,
+	dock,
+} from "./dock.ts";
 // ── Gate serialization ──────────────────────────────────────
 export { type GateHold, type GateOptions, runGate } from "./gate-queue.ts";
 // ── Narration ───────────────────────────────────────────────

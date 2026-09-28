@@ -1,100 +1,140 @@
 /**
  * Production progress reporter for the fleet.
  *
- * Maintains an in-memory snapshot of every subagent's
- * state and pushes it into pi's status line and a focused
- * prompt-area panel on each lifecycle event.
+ * Keeps a snapshot of every subagent's state and shows it two ways:
  *
- * - The status line shows a one-glance summary
- *   (`2/3 done pending=1`) so the user always knows whether
- *   anyone is still working.
- * - Every state mark comes from the shared spawned-work set,
- *   which is also what a review round draws itself with. They
- *   are the same event seen from two tools.
- * - The focused panel replaces the prompt editor while
- *   the tool runs, lists each subagent and lets the user
- *   cancel the selected subagent or the whole fleet
- *   without queuing another prompt behind the active
- *   tool.
+ * - The status line carries a one-glance summary (`2/3 done pending=1`),
+ *   keyed by run, so two fleets in one turn keep two summaries.
+ * - A board docked above the editor lists each subagent. The editor keeps
+ *   focus, so a person can type a steer or a draft while the fleet runs;
+ *   the hop chord reaches the board, where up and down select, `r` cancels
+ *   the selected subagent and Escape cancels the fleet, and the same chord
+ *   gives the editor back. Escape in the editor is pi's: it stops the
+ *   turn, and the turn's signal stops the fleet.
+ *
+ * The board used to replace the editor, with a listener that swallowed
+ * Escape wherever focus was, which is what left a person unable to type
+ * anything for as long as a fleet ran.
+ *
+ * The board stays until `close`, which the tool calls as it returns, so
+ * it leaves in the frame its result card arrives. The card opens with the
+ * same rows (`fleetCardLines`), which makes it at least as tall as the
+ * board was, so the screen neither jumps nor leaves blank rows behind.
  */
 
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import type { AutocompleteProvider } from "@earendil-works/pi-tui";
-import {
-	Key,
-	matchesKey,
-	type TUI,
-	truncateToWidth,
-} from "@earendil-works/pi-tui";
+import { matchesKey } from "@earendil-works/pi-tui";
 import { count as grouped } from "@jitsusama/agentic-harness.core/result";
 import { AGENT_GLYPH } from "../../lib/ui/agent-glyphs.ts";
-import {
-	type PipelineStage,
-	renderPipelineProgressLines,
-	type StageState,
-} from "../../lib/ui/pipeline-progress.ts";
+import { type Board, boardLines, fitBoard } from "../../lib/ui/board.ts";
+import { DOCK_HOP_LABEL, type Docked, dock } from "../../lib/ui/dock.ts";
 import type {
 	FleetProgress,
 	FleetProgressEntry,
 	FleetProgressState,
 } from "./progress.ts";
+import type { FleetRunResult, FleetSubagentResult } from "./run.ts";
 
 const STATUS_KEY = "subagent-workflow:fleet";
 
-/** Controls that let the live progress panel interrupt subagents. */
+/** What the board is called, on screen and on its card. */
+const TITLE = "Subagent Fleet";
+
+/** Between the parts of a title. */
+const SEPARATOR = " · ";
+
+/** Controls that let the board interrupt subagents. */
 export interface FleetProgressControls {
 	cancelSubagent(subagentId: string): string;
 	cancelAll(): string;
 }
 
+/** The observer the orchestrator notifies, plus the call that ends it. */
+export interface FleetProgressReporter extends FleetProgress {
+	/**
+	 * Takes the board and the summary down. Called as the tool returns,
+	 * not when the fleet finishes, so the board leaves with its card.
+	 */
+	close(): void;
+}
+
 /**
- * Build a context-bound progress reporter for the fleet.
+ * Build a context-bound progress reporter for the fleet `runId`.
  * Returns the observer the orchestrator will notify.
  */
 export function createFleetProgressReporter(
 	ctx: ExtensionContext,
 	controls?: FleetProgressControls,
-): FleetProgress {
+	runId = "fleet",
+): FleetProgressReporter {
+	const statusKey = `${STATUS_KEY}:${runId}`;
 	let entries: FleetProgressEntry[] = [];
-	let panel: FleetProgressPanel | null = null;
-	let previousEditor: ReturnType<ExtensionContext["ui"]["getEditorComponent"]>;
-	let terminalInputUnsubscribe: (() => void) | undefined;
-	let editorInstalled = false;
+	let selected = 0;
+	let notice = "";
+	let docked: Docked | undefined;
+
+	// The cursor shows only while the board has the keys, since until
+	// then it selects nothing.
+	const board = (focused: boolean): Board =>
+		fleetBoard(entries, ctx.ui.theme, {
+			selected: focused ? selected : -1,
+			notice,
+		});
 
 	const render = (): void => {
-		ctx.ui.setStatus(STATUS_KEY, renderStatusLine(entries, ctx.ui.theme));
-		panel?.setEntries(entries);
+		if (!ctx.hasUI) return;
+		ctx.ui.setStatus(statusKey, renderFleetStatus(entries, ctx.ui.theme));
+		docked?.refresh();
 	};
 
-	const showPanel = (): void => {
-		if (!ctx.hasUI || editorInstalled) return;
-		previousEditor = ctx.ui.getEditorComponent();
-		ctx.ui.setEditorComponent((tui) => {
-			const component = new FleetProgressPanel(
-				tui,
-				ctx.ui.theme,
-				entries,
-				controls,
-			);
-			panel = component;
-			return component;
-		});
-		terminalInputUnsubscribe = ctx.ui.onTerminalInput((data) => {
-			if (!matchesKey(data, Key.escape)) return undefined;
-			controls?.cancelAll();
-			return { consume: true };
-		});
-		editorInstalled = true;
+	const act = (data: string, handle: Docked): boolean => {
+		const total = entries.length;
+		if (matchesKey(data, "up")) {
+			selected = total === 0 ? 0 : (selected - 1 + total) % total;
+			return true;
+		}
+		if (matchesKey(data, "down")) {
+			selected = total === 0 ? 0 : (selected + 1) % total;
+			return true;
+		}
+		if (matchesKey(data, "escape")) {
+			notice = controls?.cancelAll() ?? "Cancellation unavailable.";
+			handle.release();
+			return true;
+		}
+		if (data === "r" || data === "R") {
+			notice = cancelSelected();
+			return true;
+		}
+		return false;
 	};
 
-	const clear = (): void => {
-		ctx.ui.setStatus(STATUS_KEY, undefined);
-		terminalInputUnsubscribe?.();
-		terminalInputUnsubscribe = undefined;
-		if (editorInstalled) ctx.ui.setEditorComponent(previousEditor);
-		editorInstalled = false;
-		previousEditor = undefined;
-		panel = null;
+	const cancelSelected = (): string => {
+		const entry = entries[selected];
+		if (!entry) return "No subagent selected.";
+		if (entry.state !== "running" && entry.state !== "pending")
+			return `${entry.spec.id} is already ${entry.state}.`;
+		return (
+			controls?.cancelSubagent(entry.spec.id) ?? "Cancellation unavailable."
+		);
+	};
+
+	const show = (): void => {
+		if (docked !== undefined) return;
+		const theme = ctx.ui.theme;
+		docked = dock(ctx, statusKey, {
+			render: (width, focused) =>
+				boardLines(board(focused), theme, width, focused),
+			fit: (_lines, rows, width, focused) =>
+				fitBoard(board(focused), theme, width, focused, rows),
+			handleInput: act,
+		});
+	};
+
+	const close = (): void => {
+		if (ctx.hasUI) ctx.ui.setStatus(statusKey, undefined);
+		docked?.close();
+		docked = undefined;
 	};
 
 	const updateEntry = (
@@ -109,7 +149,7 @@ export function createFleetProgressReporter(
 	return {
 		start(initial) {
 			entries = initial.map((entry) => ({ ...entry }));
-			showPanel();
+			show();
 			render();
 		},
 		subagentStarted(subagentId) {
@@ -142,38 +182,136 @@ export function createFleetProgressReporter(
 			render();
 		},
 		finish() {
-			clear();
+			// The board stays until `close`: the tool has more to do before
+			// it returns, and the board leaving now would leave the rows it
+			// held blank until the card arrives.
+			render();
 		},
+		close,
+	};
+}
+
+/** How a board is drawn at this moment. */
+interface BoardState {
+	readonly selected: number;
+	readonly notice: string;
+}
+
+/**
+ * The fleet as a board: one row per subagent, a failure's reason under
+ * them. Exported so tests can assert what the rows say without a terminal.
+ */
+export function fleetBoard(
+	entries: readonly FleetProgressEntry[],
+	theme: Theme,
+	state: BoardState = { selected: -1, notice: "" },
+): Board {
+	const done = entries.filter((one) => one.state === "complete").length;
+	return {
+		title: `${theme.fg("accent", theme.bold(TITLE))}${SEPARATOR}${done}/${entries.length} done`,
+		aside:
+			state.notice === ""
+				? theme.fg("dim", `${DOCK_HOP_LABEL} to manage`)
+				: theme.fg("warning", state.notice),
+		keys: theme.fg(
+			"dim",
+			`↑/↓ select · r cancel selected · Esc cancel fleet · ${DOCK_HOP_LABEL} back to the editor`,
+		),
+		rows: entries.map((entry, index) =>
+			entryLine(entry, theme, index === state.selected),
+		),
+		selected: state.selected,
+		notes: failureNotes(
+			entries.map((entry) => ({
+				id: entry.spec.id,
+				failed: entry.state === "failed",
+				reason: entry.error,
+			})),
+			theme,
+		),
 	};
 }
 
 /**
- * Render the fleet progress widget lines (vertical
- * stage list). Exported so tests can assert structure
- * without poking into the UI.
+ * The result card: the board's rows as the fleet ended, then where the
+ * full output lives, and with `expanded` each subagent's own file.
+ *
+ * The same rows as the board, and one more, so a card is never shorter
+ * than the board it replaces: a shorter card would leave the difference
+ * as blank rows at the bottom of the screen.
  */
-export function renderFleetWidgetLines(
-	entries: readonly FleetProgressEntry[],
+export function fleetCardLines(
+	result: FleetRunResult,
 	theme: Theme,
+	expanded: boolean,
 ): string[] {
-	if (entries.length === 0) return [];
-	const stages: PipelineStage[] = entries.map((entry) => ({
-		label: entry.spec.id,
-		state: stageStateFrom(entry.state),
-		subtext: widgetSubtext(entry),
-	}));
-	const lines = renderPipelineProgressLines(stages, theme, { vertical: true });
-	for (const entry of entries) {
-		if (entry.state === "failed" && entry.error.length > 0) {
-			lines.push(
-				theme.fg(
-					"error",
-					`  ${AGENT_GLYPH.failed} ${entry.spec.id}: ${entry.error}`,
-				),
-			);
+	const entries = result.results.map(entryFromResult);
+	const done = entries.filter((one) => one.state === "complete").length;
+	const tally = [`${done}/${entries.length} done`];
+	const failed = entries.filter((one) => one.state === "failed").length;
+	const cancelled = entries.filter((one) => one.state === "cancelled").length;
+	if (failed > 0) tally.push(theme.fg("error", `${failed} failed`));
+	if (cancelled > 0) tally.push(`${cancelled} cancelled`);
+	if (result.totalUsage) {
+		tally.push(
+			`${grouped(result.totalUsage.tokens.total)} tokens, $${result.totalUsage.cost.total.toFixed(4)}`,
+		);
+	}
+	const lines = [
+		[theme.fg("accent", theme.bold(TITLE)), ...tally].join(SEPARATOR),
+		...entries.map((entry) => entryLine(entry, theme, false)),
+		...failureNotes(
+			result.results.map((one) => ({
+				id: one.id,
+				failed: one.state === "failed",
+				reason: one.error ?? "unknown failure",
+			})),
+			theme,
+		),
+		theme.fg(
+			"dim",
+			`  full output: ${result.runDir ?? "not recorded for this run"}`,
+		),
+	];
+	if (expanded) {
+		for (const one of result.results) {
+			if (one.resultPath)
+				lines.push(theme.fg("dim", `    ${one.id} → ${one.resultPath}`));
 		}
 	}
 	return lines;
+}
+
+/**
+ * Whether a tool result's details are a fleet's result, which is what the
+ * card draws. Anything else (an error, a result from an older version of
+ * this tool) is drawn as its text.
+ */
+export function isFleetRunResult(details: unknown): details is FleetRunResult {
+	if (typeof details !== "object" || details === null) return false;
+	const results: unknown = Reflect.get(details, "results");
+	return (
+		Array.isArray(results) &&
+		results.every(
+			(one: unknown) =>
+				typeof one === "object" &&
+				one !== null &&
+				typeof Reflect.get(one, "id") === "string" &&
+				typeof Reflect.get(one, "state") === "string",
+		)
+	);
+}
+
+/** A settled result as the board's entry for it. */
+function entryFromResult(result: FleetSubagentResult): FleetProgressEntry {
+	return {
+		spec: { id: result.id },
+		state: result.state,
+		warnings: result.warnings,
+		error: result.error ?? "",
+		activity: "",
+		...(result.usage ? { usage: result.usage } : {}),
+	};
 }
 
 /** Render the fleet status line summary. Exported for tests. */
@@ -197,11 +335,30 @@ export function renderFleetStatus(
 	return `${theme.fg("accent", label)} ${summary}${tail}`;
 }
 
-function renderStatusLine(
-	entries: readonly FleetProgressEntry[],
+/** One reason line per failure, since a reason is too long for its row. */
+function failureNotes(
+	rows: readonly { id: string; failed: boolean; reason: string }[],
 	theme: Theme,
+): string[] {
+	return rows
+		.filter((one) => one.failed && one.reason.length > 0)
+		.map((one) =>
+			theme.fg("error", `  ${AGENT_GLYPH.failed} ${one.id}: ${one.reason}`),
+		);
+}
+
+/** One subagent on one row: cursor, state, name, model, what it is doing. */
+function entryLine(
+	entry: FleetProgressEntry,
+	theme: Theme,
+	selected: boolean,
 ): string {
-	return renderFleetStatus(entries, theme);
+	const cursor = selected ? "▸" : " ";
+	const activity = widgetSubtext(entry);
+	const model = entry.spec.model ? ` · ${entry.spec.model}` : "";
+	const suffix = activity ? ` · ${activity}` : "";
+	const line = `${cursor} ${entryStatus(entry, theme)} ${entry.spec.id}${model}${suffix}`;
+	return selected ? theme.fg("accent", line) : line;
 }
 
 function widgetSubtext(entry: FleetProgressEntry): string | undefined {
@@ -219,21 +376,6 @@ function widgetSubtext(entry: FleetProgressEntry): string | undefined {
 	return undefined;
 }
 
-function stageStateFrom(state: FleetProgressState): StageState {
-	switch (state) {
-		case "pending":
-			return "pending";
-		case "running":
-			return "running";
-		case "complete":
-			return "complete";
-		case "cancelled":
-			return "skipped";
-		case "failed":
-			return "failed";
-	}
-}
-
 function countStates(
 	entries: readonly FleetProgressEntry[],
 ): Record<FleetProgressState, number> {
@@ -248,140 +390,6 @@ function countStates(
 		counts[entry.state] += 1;
 	}
 	return counts;
-}
-
-/** Focused progress panel that can cancel active subagent subprocesses. */
-export class FleetProgressPanel {
-	borderColor?: (str: string) => string;
-	onSubmit?: (text: string) => void;
-	onChange?: (text: string) => void;
-	private entries: FleetProgressEntry[];
-	private selectedIndex = 0;
-	private notice = "";
-
-	constructor(
-		private readonly tui: TUI,
-		private readonly theme: Theme,
-		entries: readonly FleetProgressEntry[],
-		private readonly controls: FleetProgressControls | undefined,
-		private readonly title = "Subagent Fleet",
-	) {
-		this.entries = entries.map((entry) => ({ ...entry }));
-	}
-
-	setEntries(entries: readonly FleetProgressEntry[]): void {
-		this.entries = entries.map((entry) => ({ ...entry }));
-		this.selectedIndex = clampSelection(
-			this.selectedIndex,
-			this.entries.length,
-		);
-		this.notice = "";
-		this.tui.requestRender();
-	}
-
-	getText(): string {
-		return "";
-	}
-
-	setText(_text: string): void {}
-
-	addToHistory(_text: string): void {}
-
-	insertTextAtCursor(_text: string): void {}
-
-	getExpandedText(): string {
-		return "";
-	}
-
-	setAutocompleteProvider(_provider: AutocompleteProvider): void {}
-
-	setPaddingX(_padding: number): void {}
-
-	setAutocompleteMaxVisible(_maxVisible: number): void {}
-
-	handleInput(data: string): void {
-		if (matchesKey(data, Key.up)) {
-			this.selectedIndex = moveSelection(
-				this.selectedIndex,
-				this.entries.length,
-				-1,
-			);
-			this.tui.requestRender();
-			return;
-		}
-		if (matchesKey(data, Key.down)) {
-			this.selectedIndex = moveSelection(
-				this.selectedIndex,
-				this.entries.length,
-				1,
-			);
-			this.tui.requestRender();
-			return;
-		}
-		if (matchesKey(data, Key.escape)) {
-			this.notice = this.controls?.cancelAll() ?? "Cancellation unavailable.";
-			this.tui.requestRender();
-			return;
-		}
-		if (data === "r" || data === "R") {
-			this.cancelSelected();
-			this.tui.requestRender();
-		}
-	}
-
-	render(width: number): string[] {
-		const lines: string[] = [];
-		const add = (line: string) => lines.push(truncateToWidth(line, width));
-		add(this.theme.fg("accent", "─".repeat(width)));
-		add(` ${this.theme.fg("accent", this.theme.bold(this.title))}`);
-		add(
-			` ${this.theme.fg(
-				"dim",
-				"↑/↓ select · r cancel selected subagent · Esc cancel fleet",
-			)}`,
-		);
-		if (this.notice) add(` ${this.theme.fg("warning", this.notice)}`);
-		add("");
-		if (this.entries.length === 0) {
-			add(` ${this.theme.fg("dim", "No subagents in this fleet.")}`);
-			add(this.theme.fg("accent", "─".repeat(width)));
-			return lines;
-		}
-		for (let i = 0; i < this.entries.length; i++) {
-			const entry = this.entries[i];
-			if (!entry) continue;
-			add(this.renderEntry(entry, i === this.selectedIndex));
-		}
-		add(this.theme.fg("accent", "─".repeat(width)));
-		return lines;
-	}
-
-	invalidate(): void {}
-
-	private cancelSelected(): void {
-		const entry = this.entries[this.selectedIndex];
-		if (!entry) {
-			this.notice = "No subagent selected.";
-			return;
-		}
-		if (entry.state !== "running" && entry.state !== "pending") {
-			this.notice = `${entry.spec.id} is already ${entry.state}.`;
-			return;
-		}
-		this.notice =
-			this.controls?.cancelSubagent(entry.spec.id) ??
-			"Cancellation unavailable.";
-	}
-
-	private renderEntry(entry: FleetProgressEntry, selected: boolean): string {
-		const cursor = selected ? "▸" : " ";
-		const status = entryStatus(entry, this.theme);
-		const activity = widgetSubtext(entry);
-		const model = entry.spec.model ? ` · ${entry.spec.model}` : "";
-		const suffix = activity ? ` · ${activity}` : "";
-		const line = `${cursor} ${status} ${entry.spec.id}${model}${suffix}`;
-		return selected ? this.theme.fg("accent", line) : line;
-	}
 }
 
 /**
@@ -406,14 +414,4 @@ function entryStatus(entry: FleetProgressEntry, theme: Theme): string {
 		case "failed":
 			return theme.fg("error", `${AGENT_GLYPH.failed} failed`);
 	}
-}
-
-function moveSelection(current: number, count: number, delta: number): number {
-	if (count === 0) return 0;
-	return (current + delta + count) % count;
-}
-
-function clampSelection(index: number, count: number): number {
-	if (count === 0) return 0;
-	return Math.min(index, count - 1);
 }

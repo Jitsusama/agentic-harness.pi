@@ -102,6 +102,21 @@ than something you run `drop` for beforehand and then cannot see
 what you dropped. Remarks are shown against the code they point
 at, from the diff already fetched to judge degradation.
 
+## A Round While It Runs
+
+A council, judge, critique or audit docks a board above the
+editor: one row per participant, its state, what it is doing and
+how long it has been at it. The editor keeps focus, so a round of
+a quarter of an hour does not stop anybody typing. Escape in the
+editor stops the turn and so the round. `Ctrl+Alt+N` moves the
+keys to the board, where `r` cancels the selected participant,
+Escape cancels the round while the turn goes on, and the same
+chord gives the editor back.
+
+The board leaves as the call returns, and the answer's card opens
+with the same rows as they ended, so what each participant did
+stays in the transcript after the board has gone.
+
 ## Configuration
 
 The `review` section of
