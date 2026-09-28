@@ -246,6 +246,8 @@ export interface Verdict {
 	readonly hygiene: string[];
 	/** The most blank rows any frame left under its content (I7). */
 	readonly blankMax: number;
+	/** Where `blankMax` was first reached, as label#frame; empty for none. */
+	readonly blankAt: string;
 	/** Full redraws pi did after the first frame, by label. */
 	readonly redrawsAt: string[];
 }
@@ -332,6 +334,8 @@ export interface PiSession {
 	inBuffer(text: string): Promise<number>;
 	/** Replays every frame and reports what it found. */
 	verdict(): Promise<Verdict>;
+	/** The codes pi asked `process.exit` for, in order; it is stubbed. */
+	exits(): readonly number[];
 	/** Shuts pi down and puts the process back as it was. */
 	stop(): Promise<void>;
 }
@@ -475,6 +479,7 @@ export async function bootPi(options: BootOptions = {}): Promise<PiSession> {
 		const desync: string[] = [];
 		const hygiene: string[] = [];
 		let blankMax = 0;
+		let blankAt = "";
 		let at = 0;
 		for (const [index, frame] of frames.entries()) {
 			if (replay.cols !== frame.cols || replay.rows !== frame.rows)
@@ -515,10 +520,20 @@ export async function bootPi(options: BootOptions = {}): Promise<PiSession> {
 				0,
 				Math.min(frame.rows, frame.lines.length) - drawn,
 			);
-			blankMax = Math.max(blankMax, blank);
+			if (blank > blankMax) {
+				blankMax = blank;
+				blankAt = `${frame.label}#${index}`;
+			}
 		}
 		replay.dispose();
-		return { frames: frames.length, desync, hygiene, blankMax, redrawsAt };
+		return {
+			frames: frames.length,
+			desync,
+			hygiene,
+			blankMax,
+			blankAt,
+			redrawsAt,
+		};
 	};
 
 	// Pi's editor, which InteractiveMode keeps private. Read on every call,
@@ -560,6 +575,7 @@ export async function bootPi(options: BootOptions = {}): Promise<PiSession> {
 		inBuffer: async (text) =>
 			(await term.buffer()).rows.filter((row) => row.includes(text)).length,
 		verdict,
+		exits: () => exits,
 		stop: async () => {
 			try {
 				mode.stop();
