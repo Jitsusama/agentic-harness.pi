@@ -366,6 +366,38 @@ describe("what a round records about the tree it read", () => {
 		expect({ cut, refused }).toEqual({ cut: rounds.length + 2, refused: cut });
 	});
 
+	it("falls back to the checkout the caller named before its own directory", () => {
+		// The refusal for a repo nobody knows the checkout of says to run
+		// from a checkout, and a session cannot move its own directory.
+		// `repo` is the parameter that says where one is, and every round
+		// passed the session's directory instead, so naming a checkout
+		// was refused with the same words as naming nothing. Scanned for
+		// the same reason the case above is: the join is six call sites.
+		const source = readFileSync(
+			join(
+				dirname(fileURLToPath(import.meta.url)),
+				"..",
+				"..",
+				"extensions",
+				"review-integration",
+				"tools",
+				"ask.ts",
+			),
+			"utf8",
+		);
+
+		const fallbacks = [
+			...source.matchAll(/await treeForRound\(([^;]*?)\);/gs),
+		].map((call) => call[1]?.split(",")[2]?.trim());
+
+		// Counted, so a rename that takes the calls out cannot pass on
+		// an empty list.
+		expect(fallbacks.length).toBeGreaterThan(0);
+		expect(new Set(fallbacks)).toEqual(
+			new Set(["params.repo ?? process.cwd()"]),
+		);
+	});
+
 	it("says nothing about a tree that was the commit", () => {
 		// A pinned tree has no caveat, and the record should not invent
 		// one: absence is what tells a reader the round was faithful.
