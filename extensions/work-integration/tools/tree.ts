@@ -51,6 +51,7 @@ import { gitTreeRootOf } from "../../../lib/internal/quest/git-signals.ts";
 import { count, displayPath } from "../../../lib/ui/index.ts";
 import { execFor, objectionsTo, treeBroker } from "../broker.ts";
 import { GLYPH, treeLine } from "../render.ts";
+import { candidatesFor, machineSeams, warmStart } from "../warm-start.ts";
 import {
 	type Answer,
 	messageOf,
@@ -539,8 +540,22 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 					}
 					const held = await broker.ensure(outcome.request);
 					const glyph = action === "snapshot" ? GLYPH.snapshot : GLYPH.tree;
+					// A worktree is where a build happens, so a Rust one starts from a
+					// sibling's target/ rather than compiling every dependency again.
+					// A snapshot is read, not built, and is left as cut.
+					const warmedFrom =
+						action === "tree"
+							? await warmStart(
+									held.path,
+									candidatesFor(held.path, args.checkout),
+									machineSeams(exec),
+								)
+							: undefined;
+					const warmed = warmedFrom
+						? `\n   target/ cloned from ${displayPath(warmedFrom)}`
+						: "";
 					return say(
-						`${glyph} ${held.identity.key}\n   ${displayPath(held.path)} · ${held.providerId}`,
+						`${glyph} ${held.identity.key}\n   ${displayPath(held.path)} · ${held.providerId}${warmed}`,
 						// The details keep the absolute path on purpose. A tilde is a
 						// courtesy for a reader, not something a caller can open, and
 						// this is the value another call gets fed.
