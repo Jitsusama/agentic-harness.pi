@@ -264,7 +264,7 @@ describe("dispatchFleet", () => {
 			// the registry. The engine's signal propagation
 			// surfaces as an AbortError; the orchestrator
 			// translates that into a cancelled result.
-			cancellations.cancel(opts.reviewerId);
+			cancellations.cancel("r5", opts.reviewerId);
 			throw new DOMException("aborted", "AbortError");
 		};
 		const result = await dispatchFleet({

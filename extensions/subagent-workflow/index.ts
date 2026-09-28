@@ -425,10 +425,12 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 		});
 		return runPi;
 	};
-	const controls = () => ({
+	// Scoped to one run, so the keys on one fleet's board reach that fleet
+	// and no other running beside it.
+	const controls = (runId: string) => ({
 		cancelSubagent: (subagentId: string) =>
-			formatFleetCancellation(cancellations.cancel(subagentId)),
-		cancelAll: () => formatFleetCancellation(cancellations.cancel()),
+			formatFleetCancellation(cancellations.cancel(runId, subagentId)),
+		cancelAll: () => formatFleetCancellation(cancellations.cancel(runId)),
 	});
 
 	// Announce the registration hook for other pi
@@ -622,7 +624,7 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 			const runId = params.runId ?? `fleet-${randomUUID()}`;
 			const assignments: FleetAssignment[] = params.jobs.map(buildAssignment);
-			const progress = createFleetProgressReporter(ctx, controls(), runId);
+			const progress = createFleetProgressReporter(ctx, controls(runId), runId);
 			// The board comes down as the tool returns, after the bookkeeping
 			// below, and not when the fleet finishes: pi draws the result card
 			// in the frame after the return, so the board leaving any earlier
