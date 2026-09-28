@@ -28,6 +28,28 @@ that matches what you are about to do, and always say what it is
 for: the purpose names the tree, which is how it is recognised
 later and how a second caller avoids cutting a duplicate.
 
+## A Cargo Tree Starts Warm
+
+A fresh worktree of a Rust workspace has no `target/`, so its
+first build compiles every registry crate again and writes
+another full copy of them. With several agents each cutting a
+tree of the same workspace, that is what fills a disk. So when
+`tree` cuts a cargo workspace with no `target/`, it clones the
+`target/` of the tree beside it (or the checkout it was cut from)
+that built most recently, from the same repository.
+
+The clone is copy-on-write (`cp -c` on APFS, `cp --reflink=always`
+on Linux), so it costs no space until one side writes, and a
+filesystem that cannot clone gets nothing rather than a slow full
+copy. Cargo reuses the registry crates, whose fingerprints name
+the registry and not the tree. The workspace's own crates and
+anything patched from a path inside the tree rebuild, as they
+would anyway, so each profile's `incremental/` is dropped from
+the clone. On a 56 GiB walgit-rs target the clone takes about a
+minute and a half, and the first `cargo test -p walgit-wal`
+afterwards compiled only the workspace crates and the gix family
+above its vendored `gix-hash`, in about a minute.
+
 ## Why a Provider Registry
 
 The plain-git provider cuts a `git worktree` and is right for
