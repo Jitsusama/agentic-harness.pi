@@ -13,6 +13,7 @@ import type { Readable, Writable } from "node:stream";
 import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import { ReviewerArtifactsStore } from "../../../../lib/subagent/artifacts.ts";
+import { UNFINISHED } from "../../../../lib/subagent/reviewer-error.ts";
 import { STDIO_GRACE_MS } from "../../../../lib/subagent/runpi/grace.mjs";
 import {
 	createSupervisorRunPi as createRealSupervisorRunPi,
@@ -219,7 +220,11 @@ describe("createSupervisorRunPi", () => {
 		const childPath = join(stateDir, "child.mjs");
 		await writeFile(
 			childPath,
-			`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"supervised"}],usage:{input:1,output:2,totalTokens:3,cost:{total:0.01}}}})+"\\n");`,
+			[
+				`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"supervised"}],usage:{input:1,output:2,totalTokens:3,cost:{total:0.01}}}})+"\\n");`,
+				// How pi says the run is over, without which it is not.
+				`process.stdout.write(JSON.stringify({type:"agent_end",messages:[]})+"\\n");`,
+			].join("\n"),
 		);
 		const runPi = createSupervisorRunPi({
 			piInstall: { node: process.execPath, entry: childPath },
@@ -1375,6 +1380,76 @@ describe("createSupervisorRunPi", () => {
 		expect(captured).toEqual({ timeoutMs: 8_888, idleTimeoutMs: 7_777 });
 	});
 
+	it("gives up on a supervisor that will not stop, and stops its child itself", async () => {
+		// Cancelling used to be a request and nothing more: the supervisor
+		// was asked, and only its answer or the whole run's deadline, most
+		// of an hour away, could settle the wait. A supervisor too wedged
+		// to act on the signal held Escape hostage for that hour and left
+		// its child, in a group of its own, running after it.
+		const stateDir = await tempStateDir();
+		const fake = makeFakeChild();
+		const group = nodeSpawn(
+			process.execPath,
+			["-e", "setInterval(() => {}, 1000)"],
+			{ detached: true, stdio: "ignore" },
+		);
+		const groupId = group.pid ?? 0;
+		const gone = new Promise((resolve) => group.once("exit", resolve));
+		let markSpawned: () => void = () => {};
+		const spawned = new Promise<void>((resolve) => {
+			markSpawned = resolve;
+		});
+		const runPi = createSupervisorRunPi({
+			piInstall: { node: "/pi/bin/node", entry: "/pi/dist/cli.js" },
+			nodeBinary: "node",
+			supervisorPath: "/pkg/reviewer-supervisor.mjs",
+			stateDir,
+			supervisorGraceMs: 300,
+			spawn: () => {
+				markSpawned();
+				return fake.child as unknown as ChildProcess;
+			},
+		});
+		const controller = new AbortController();
+		const promise = runPi({
+			args: [],
+			cwd: "/tmp",
+			runId: "run",
+			reviewerId: "wedged",
+			signal: controller.signal,
+		});
+		await spawned;
+		fake.stdout.write(
+			`${JSON.stringify({ type: "started", pid: groupId, pgid: groupId })}\n`,
+		);
+		await new Promise((resolve) => setTimeout(resolve, 20));
+
+		controller.abort();
+		const outcome = await Promise.race([
+			promise.then((result) => ({ settled: true as const, result })),
+			new Promise<{ settled: false }>((resolve) =>
+				setTimeout(() => resolve({ settled: false }), 5_000),
+			),
+		]);
+		const groupStopped = await Promise.race([
+			gone.then(() => true),
+			new Promise<boolean>((resolve) =>
+				setTimeout(() => resolve(false), 1_000),
+			),
+		]);
+		if (!groupStopped) process.kill(-groupId, "SIGKILL");
+
+		expect(outcome.settled).toBe(true);
+		expect(fake.kills).toEqual(["SIGTERM", "SIGKILL"]);
+		expect(groupStopped).toBe(true);
+		if (outcome.settled) {
+			expect(outcome.result.exitCode).toBe(130);
+			expect(outcome.result.warnings?.join(" ")).toMatch(
+				/did not stop within 300ms of being cancelled/,
+			);
+		}
+	});
+
 	it("writes a durable reviewer cancellation request on abort", async () => {
 		const stateDir = await tempStateDir();
 		const fake = makeFakeChild();
@@ -1663,5 +1738,386 @@ describe("a supervisor that never reports", () => {
 		// The age is the point. Without it both failure modes read as
 		// "running" and the CI log cannot say which one happened.
 		expect(said).toMatch(/progress says [^;]*, last written \d+ms ago/);
+	});
+});
+
+describe("a reviewer run again under the same ids", () => {
+	// A retry lands in the directory of the attempt before it. When the
+	// new supervisor dies before it writes anything, whatever is in
+	// result.json is the last attempt's, and reading it back reports an
+	// answer this attempt never gave.
+	it("does not answer with the attempt before it", async () => {
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "child.mjs");
+		await writeFile(
+			childPath,
+			[
+				`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"the first answer"}]}})+"\\n");`,
+				`process.stdout.write(JSON.stringify({type:"agent_end",messages:[]})+"\\n");`,
+			].join("\n"),
+		);
+		const crashing = join(stateDir, "crashing-supervisor.mjs");
+		await writeFile(crashing, "process.exit(1);\n");
+		const ids = { args: [], cwd: stateDir, runId: "run", reviewerId: "again" };
+		const config = {
+			piInstall: { node: process.execPath, entry: childPath },
+			stateDir,
+			idleTimeoutMs: GENEROUS_MS,
+			timeoutMs: GENEROUS_MS,
+		};
+		const first = await createSupervisorRunPi(config)(ids);
+		expect(first.finalAssistantText).toBe("the first answer");
+
+		const second = await createRealSupervisorRunPi({
+			...config,
+			supervisorPath: crashing,
+		})(ids);
+
+		expect(second.finalAssistantText).toBe("");
+		expect(second.exitCode).not.toBe(0);
+		expect(second.warnings?.join(" ")).toContain("without a terminal result");
+	});
+});
+
+/**
+ * A child that exits 0 is not a run that finished.
+ *
+ * Node exits when nothing holds its event loop, and until core held a
+ * ref on Chrome that happened in the middle of a web read: pi left with
+ * exit 0, no error and no answer, and the supervisor wrote "complete".
+ * Fourteen runs on this machine ended that way. Pi says a run is over
+ * with agent_end and then agent_settled, so a clean exit without either
+ * is a run that stopped partway.
+ */
+describe("a child that exits 0 partway through its run", () => {
+	/** Run the supervisor over a child that prints these events and exits 0. */
+	async function supervise(
+		events: readonly string[],
+		options: { maxLineBytes?: number } = {},
+	): Promise<{ result: RunPiResult; persisted: { state: string } }> {
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "child.mjs");
+		await writeFile(
+			childPath,
+			events
+				.map((line) => `process.stdout.write(${JSON.stringify(`${line}\n`)});`)
+				.join("\n"),
+		);
+		const runPi = createSupervisorRunPi({
+			piInstall: { node: process.execPath, entry: childPath },
+			stateDir,
+			idleTimeoutMs: GENEROUS_MS,
+			timeoutMs: GENEROUS_MS,
+			...options,
+		});
+		const result = await runPi({
+			args: [],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "partway",
+		});
+		const resultPath = result.artifacts?.resultPath;
+		if (!resultPath) throw new Error("missing result path");
+		const persisted = JSON.parse(await readFile(resultPath, "utf-8"));
+		return { result, persisted };
+	}
+
+	const said = (text: string, stopReason = "stop") =>
+		JSON.stringify({
+			type: "message_end",
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text }],
+				stopReason,
+			},
+		});
+	const started = (toolCallId: string, toolName: string) =>
+		JSON.stringify({ type: "tool_execution_start", toolCallId, toolName });
+	const ended = (toolCallId: string, toolName: string) =>
+		JSON.stringify({ type: "tool_execution_end", toolCallId, toolName });
+	const AGENT_END = JSON.stringify({ type: "agent_end", messages: [] });
+	const AGENT_SETTLED = JSON.stringify({ type: "agent_settled" });
+
+	it("is unfinished when it leaves in the middle of a tool", async () => {
+		const { result, persisted } = await supervise([
+			said("let me look", "toolUse"),
+			started("a", "web_search"),
+			ended("a", "web_search"),
+			started("b", "web_read"),
+		]);
+
+		expect(result.exitCode).toBe(0);
+		expect(result.error?.stopReason).toBe(UNFINISHED);
+		expect(result.error?.message).toContain("web_read");
+		expect(result.error?.message).not.toContain("web_search");
+		expect(persisted.state).toBe("errored");
+	});
+
+	it("is unfinished when it never says its run ended", async () => {
+		const { result, persisted } = await supervise([said("half an answer")]);
+
+		expect(result.error?.stopReason).toBe(UNFINISHED);
+		expect(persisted.state).toBe("errored");
+	});
+
+	it("is complete when it ends its run", async () => {
+		const { result, persisted } = await supervise([
+			said("the answer"),
+			AGENT_END,
+			AGENT_SETTLED,
+		]);
+
+		expect(result.error).toBeUndefined();
+		expect(result.finalAssistantText).toBe("the answer");
+		expect(persisted.state).toBe("complete");
+	});
+
+	// agent_end carries every message of the run, so on a long one it is
+	// the line most likely to be over the cap and skipped. Small enough to
+	// arrive whole, or large enough to span pipe chunks: two skip paths.
+	it.each([
+		["arrives whole", 4096],
+		["spans chunks", 256 * 1024],
+	])("is complete when its agent_end was too large to read and %s", async (_, size) => {
+		const huge = JSON.stringify({
+			type: "agent_end",
+			messages: [{ role: "assistant", content: "x".repeat(size) }],
+		});
+		const { result, persisted } = await supervise([said("the answer"), huge], {
+			maxLineBytes: 1024,
+		});
+
+		expect(result.warnings?.join(" ")).toContain("exceeded 1024 bytes");
+		expect(result.error).toBeUndefined();
+		expect(persisted.state).toBe("complete");
+	});
+
+	// A tool result can be over the cap too, and a skipped end is not a
+	// tool still running once the run itself has said it finished.
+	it("is complete when the run ended even though a tool end was unread", async () => {
+		const { result, persisted } = await supervise([
+			started("a", "read"),
+			said("the answer"),
+			AGENT_END,
+			AGENT_SETTLED,
+		]);
+
+		expect(result.error).toBeUndefined();
+		expect(persisted.state).toBe("complete");
+	});
+});
+
+/**
+ * The child runs in its own process group, so the supervisor is the only
+ * thing that can stop it. A signal that kills the supervisor instead of
+ * reaching its handler leaves a pi running that nobody will ever stop.
+ */
+describe("a supervisor that is signalled", () => {
+	function alive(pid: number): boolean {
+		try {
+			process.kill(pid, 0);
+			return true;
+		} catch {
+			// ESRCH: nothing has that pid any more.
+			return false;
+		}
+	}
+
+	/**
+	 * Start a run whose child holds on, send the supervisor these signals
+	 * once the child is up, and say whether the child outlived the run.
+	 */
+	async function signalled(
+		signals: readonly NodeJS.Signals[],
+		options: { deaf: boolean },
+	): Promise<{ result: RunPiResult; outlived: boolean; state: string }> {
+		const stateDir = await tempStateDir();
+		const marker = join(stateDir, "child-pid");
+		const childPath = join(stateDir, "child.mjs");
+		await writeFile(
+			childPath,
+			[
+				'import { writeFileSync } from "node:fs";',
+				...(options.deaf ? ['process.on("SIGTERM", () => {});'] : []),
+				`writeFileSync(${JSON.stringify(marker)}, String(process.pid));`,
+				"setInterval(() => {}, 1000);",
+			].join("\n"),
+		);
+		let supervisor: ChildProcess | undefined;
+		const runPi = createSupervisorRunPi({
+			piInstall: { node: process.execPath, entry: childPath },
+			stateDir,
+			idleTimeoutMs: GENEROUS_MS,
+			timeoutMs: GENEROUS_MS,
+			killGraceMs: 500,
+			spawn: (command, args, spawnOptions) => {
+				supervisor = nodeSpawn(command, args, spawnOptions);
+				return supervisor;
+			},
+		});
+		const running = runPi({
+			args: [],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "signalled",
+		});
+		let childPid = 0;
+		while (childPid === 0) {
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			childPid = Number(await readFile(marker, "utf-8").catch(() => "0"));
+		}
+		for (const signal of signals) {
+			supervisor?.kill(signal);
+			await new Promise((resolve) => setTimeout(resolve, 50));
+		}
+		const result = await running;
+		const outlived = alive(childPid);
+		// Never leave one behind for the next test to trip over.
+		if (outlived) process.kill(-childPid, "SIGKILL");
+		const resultPath = new ReviewerArtifactsStore(stateDir).paths(
+			"run",
+			"signalled",
+		).resultPath;
+		const persisted = await readFile(resultPath, "utf-8")
+			.then((text) => JSON.parse(text).state as string)
+			.catch(() => "none");
+		return { result, outlived, state: persisted };
+	}
+
+	it("stops its child when the terminal hangs up", async () => {
+		const { outlived, state } = await signalled(["SIGHUP"], { deaf: false });
+
+		expect(outlived).toBe(false);
+		expect(state).toBe("cancelled");
+	});
+
+	it("still kills a child that ignored the first stop when asked again", async () => {
+		// The second signal lands inside the kill grace, while the child
+		// is ignoring the first. Taking it by default would end the one
+		// process holding the SIGKILL that grace is waiting to send.
+		const { outlived, state } = await signalled(["SIGTERM", "SIGTERM"], {
+			deaf: true,
+		});
+
+		expect(outlived).toBe(false);
+		expect(state).toBe("cancelled");
+	});
+
+	it("never starts a child for a run already cancelled", async () => {
+		// A run's later reviewers are prepared while its earlier ones run,
+		// so a cancellation can be waiting before this one spawns.
+		const stateDir = await tempStateDir();
+		const marker = join(stateDir, "child-ran");
+		const childPath = join(stateDir, "child.mjs");
+		await writeFile(
+			childPath,
+			`import { writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(marker)}, "yes");\nsetInterval(() => {}, 1000);`,
+		);
+		const store = new ReviewerArtifactsStore(stateDir);
+		await store.requestRunCancellation("run", "user");
+		const runPi = createSupervisorRunPi({
+			piInstall: { node: process.execPath, entry: childPath },
+			stateDir,
+			idleTimeoutMs: GENEROUS_MS,
+			timeoutMs: GENEROUS_MS,
+			killGraceMs: 500,
+		});
+
+		const result = await runPi({
+			args: [],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "late",
+		});
+
+		const persisted = JSON.parse(
+			await readFile(store.paths("run", "late").resultPath, "utf-8"),
+		);
+		expect(persisted.state).toBe("cancelled");
+		expect(result.exitCode).toBe(130);
+		expect(await readFile(marker, "utf-8").catch(() => "never ran")).toBe(
+			"never ran",
+		);
+	});
+
+	it("carries on when the parent it was reporting to has gone", async () => {
+		// A waiting parent reads the supervisor's stdout. When that parent
+		// dies, the next activity line meets a closed pipe, and an EPIPE
+		// nobody listens for is thrown: the supervisor dies mid-run and
+		// the child, in its own group, runs on with nobody to stop it.
+		const stateDir = await tempStateDir();
+		const marker = join(stateDir, "child-pid");
+		const go = join(stateDir, "go");
+		const childPath = join(stateDir, "child.mjs");
+		const line = (event: object) =>
+			`process.stdout.write(${JSON.stringify(`${JSON.stringify(event)}\n`)});`;
+		await writeFile(
+			childPath,
+			[
+				'import { existsSync, writeFileSync } from "node:fs";',
+				`writeFileSync(${JSON.stringify(marker)}, String(process.pid));`,
+				`while (!existsSync(${JSON.stringify(go)})) await new Promise((r) => setTimeout(r, 20));`,
+				line({
+					type: "tool_execution_start",
+					toolCallId: "a",
+					toolName: "web_read",
+				}),
+				line({
+					type: "tool_execution_end",
+					toolCallId: "a",
+					toolName: "web_read",
+				}),
+				line({
+					type: "message_end",
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "read it" }],
+					},
+				}),
+				line({ type: "agent_end", messages: [] }),
+			].join("\n"),
+		);
+		let supervisor: ChildProcess | undefined;
+		const store = new ReviewerArtifactsStore(stateDir);
+		const runPi = createSupervisorRunPi({
+			piInstall: { node: process.execPath, entry: childPath },
+			stateDir,
+			idleTimeoutMs: GENEROUS_MS,
+			timeoutMs: GENEROUS_MS,
+			spawn: (command, args, spawnOptions) => {
+				supervisor = nodeSpawn(command, args, spawnOptions);
+				return supervisor;
+			},
+		});
+		const running = runPi({
+			args: [],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "orphaned-output",
+		});
+		while ((await readFile(marker, "utf-8").catch(() => "")) === "") {
+			await new Promise((resolve) => setTimeout(resolve, 20));
+		}
+		supervisor?.stdout?.destroy();
+		await writeFile(go, "");
+		const result = await running;
+
+		const persisted = await readFile(
+			store.paths("run", "orphaned-output").resultPath,
+			"utf-8",
+		)
+			.then((text) => JSON.parse(text))
+			.catch(() => ({ state: "none" }));
+		expect(persisted.state, result.stderrTail).toBe("complete");
+		expect(persisted.finalAssistantText).toBe("read it");
+	});
+
+	it("still kills it when interrupted twice", async () => {
+		const { outlived, state } = await signalled(["SIGINT", "SIGINT"], {
+			deaf: true,
+		});
+
+		expect(outlived).toBe(false);
+		expect(state).toBe("cancelled");
 	});
 });

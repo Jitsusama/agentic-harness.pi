@@ -12,6 +12,14 @@ export interface ReviewerError {
 	readonly message: string;
 }
 
+/**
+ * The stop reason of a run whose child exited cleanly without ever
+ * ending its run. Not one of pi's own stop reasons, since pi never got
+ * to say one. The supervisor writes this same string, and cannot import
+ * it, because it runs as a plain `.mjs` in a child process.
+ */
+export const UNFINISHED = "unfinished";
+
 /** Whether a reviewer's terminal error is worth resuming. */
 export type ReviewerErrorClass = "transient" | "fatal";
 
@@ -43,6 +51,10 @@ const TRANSIENT_PATTERNS: readonly RegExp[] = [
 export function classifyReviewerError(
 	error: ReviewerError,
 ): ReviewerErrorClass {
+	// Nothing the provider said: the process left, and a resume meets
+	// whatever made it leave. The message names tools, which are anybody's
+	// words, so it is never matched against the provider patterns.
+	if (error.stopReason === UNFINISHED) return "fatal";
 	const text = error.message;
 	if (TRANSIENT_PATTERNS.some((pattern) => pattern.test(text))) {
 		return "transient";
@@ -57,6 +69,9 @@ export function classifyReviewerError(
  * broken configuration.
  */
 export function describeReviewerError(error: ReviewerError): string {
+	if (error.stopReason === UNFINISHED) {
+		return `Reviewer stopped before its run finished and will not be resumed automatically: ${error.message}`;
+	}
 	if (classifyReviewerError(error) === "transient") {
 		return `Reviewer model stream ended before it could report (transient provider error): ${error.message}`;
 	}

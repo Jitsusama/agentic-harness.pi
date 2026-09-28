@@ -61,6 +61,16 @@ function hasErrorDetails(details: unknown): boolean {
 	);
 }
 
+/**
+ * The error a stopped call ends with. Pi marks a result as an error only
+ * when execute throws, and its own tools throw on abort, so a stop is
+ * thrown rather than answered: an answer would tell the model it has a
+ * result when nobody let the work finish. The wording is pi's own.
+ */
+function stopped(cause: unknown): Error {
+	return new Error("Operation aborted", { cause });
+}
+
 export default function webSearch(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "web_search",
@@ -92,7 +102,11 @@ export default function webSearch(pi: ExtensionAPI) {
 		renderResult(result, { expanded }, theme, context) {
 			const first = result.content?.[0];
 			const text = first?.type === "text" ? first.text : "";
-			if (hasErrorDetails(result.details) || text.startsWith("Search failed")) {
+			if (
+				context?.isError ||
+				hasErrorDetails(result.details) ||
+				text.startsWith("Search failed")
+			) {
 				return drawInto(context?.lastComponent, theme.fg("error", text));
 			}
 			// We count how many numbered results came back.
@@ -142,6 +156,7 @@ export default function webSearch(pi: ExtensionAPI) {
 					details: { count: results.length },
 				};
 			} catch (err: unknown) {
+				if (signal?.aborted) throw stopped(err);
 				const msg = err instanceof Error ? err.message : String(err);
 				return {
 					content: [
@@ -189,6 +204,7 @@ export default function webSearch(pi: ExtensionAPI) {
 			const first = result.content?.[0];
 			const text = first?.type === "text" ? first.text : "";
 			if (
+				context?.isError ||
 				!isReaderDetails(result.details) ||
 				text.startsWith("Failed to read page")
 			) {
@@ -236,6 +252,7 @@ export default function webSearch(pi: ExtensionAPI) {
 					},
 				};
 			} catch (err: unknown) {
+				if (signal?.aborted) throw stopped(err);
 				if (err instanceof AuthSetupNeeded || err instanceof StaleKeyError) {
 					return {
 						content: [

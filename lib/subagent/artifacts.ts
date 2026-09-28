@@ -233,6 +233,11 @@ export class ReviewerArtifactsStore {
 		// erase a cancellation of the run that had just arrived. That one
 		// belongs to {@link beginRun}.
 		await rm(paths.cancelPath, { force: true });
+		// The last attempt's result, for the same reason and more: the
+		// parent reads this file back whenever its supervisor goes quiet,
+		// so a supervisor that dies before writing one would be reported
+		// with the answer of a run that is already over.
+		await rm(paths.resultPath, { force: true });
 		return paths;
 	}
 

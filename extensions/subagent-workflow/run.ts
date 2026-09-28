@@ -22,6 +22,7 @@ import {
 } from "@jitsusama/agentic-harness.core/observability";
 import { count as grouped } from "@jitsusama/agentic-harness.core/result";
 import { ReviewerArtifactsStore } from "../../lib/subagent/artifacts.ts";
+import { UNFINISHED } from "../../lib/subagent/reviewer-error.ts";
 import type {
 	ReviewerThinkingLevel,
 	RunPi,
@@ -325,8 +326,12 @@ async function runOneAssignment(
 			// error while the child still exits 0. Treat the
 			// structured terminal error as a failure so the host
 			// agent never acts on partial output as if it were
-			// complete.
-			const message = `pi run ended on a ${result.error.stopReason} error: ${result.error.message}`;
+			// complete. A child that left before its run ended had no
+			// provider error to name, so it is said as what it was.
+			const message =
+				result.error.stopReason === UNFINISHED
+					? `pi stopped before its run finished: ${result.error.message}`
+					: `pi run ended on a ${result.error.stopReason} error: ${result.error.message}`;
 			safelyNotify(
 				() => progress.subagentFailed(assignment.spec.id, message),
 				"subagentFailed",

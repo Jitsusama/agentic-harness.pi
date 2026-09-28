@@ -14,6 +14,7 @@ import {
 	locateArtifacts,
 	summarizeStderrTail,
 } from "../../../extensions/subagent-workflow/run";
+import { UNFINISHED } from "../../../lib/subagent/reviewer-error";
 import type {
 	RunPi,
 	RunPiResult,
@@ -367,6 +368,39 @@ describe("dispatchFleet", () => {
 		expect(result.results[0].state).toBe("failed");
 		expect(result.results[0].error).toMatch(/stream ended/);
 		expect(events.some((e) => e.startsWith("failed:dropped:"))).toBe(true);
+	});
+
+	it("reports a subagent that exited partway as failed, in words that say so", async () => {
+		// Pi can leave with exit 0 before its run ends, which is not a
+		// provider error at all, so "ended on a unfinished error" would be
+		// both ungrammatical and a wrong account of what happened.
+		const cancellations = new FleetCancellationRegistry();
+		const { progress } = recordingProgress();
+		const runPi: RunPi = async () => ({
+			exitCode: 0,
+			lines: [],
+			finalAssistantText: "let me look",
+			stderr: "",
+			warnings: [],
+			error: {
+				stopReason: UNFINISHED,
+				message:
+					"pi exited with code 0 while web_read was still running, before its run ended.",
+			},
+		});
+		const result = await dispatchFleet({
+			runId: "r-partway",
+			assignments: [assignment("partway").assignment],
+			runPi,
+			cancellations,
+			progress,
+		});
+
+		expect(result.results[0].state).toBe("failed");
+		expect(result.results[0].error).toMatch(
+			/^pi stopped before its run finished: /,
+		);
+		expect(result.results[0].error).toContain("web_read");
 	});
 
 	it("inlines a stderr tail into the failure reason and preserves the full text", async () => {
