@@ -15,3 +15,15 @@ about a conversation nobody could see.
 The panels themselves are tracked by `lib/ui`'s panel registry,
 which is process-global, so this one handler closes the panels
 of every package carrying its own copy of the library.
+
+## The Hop Chord
+
+It also registers `Ctrl+Alt+N`, which moves the keyboard from
+the editor into the topmost widget docked above it (a running
+fleet's board, a council's) and back again. The widgets leave
+the editor focused so a person can keep typing while work
+runs; this is how their own keys are reached.
+
+One extension registers it because pi keeps one handler per
+shortcut, and the dock that answers it is process-global, so
+one registration serves the widgets of every package.

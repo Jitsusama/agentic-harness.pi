@@ -36,10 +36,12 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const DRAWS_SPAWNED_WORK = [
 	"extensions/subagent-workflow/progress-render.ts",
 	"extensions/review-integration/progress.ts",
-	// The one that was missed the first time. Both panels above call
-	// this renderer, and it kept its own five marks after both of them
-	// had been converted, so quest's diamonds stayed on screen for every
-	// subagent while the change claimed they were gone.
+	// The one that was missed the first time. Both panels above called
+	// this renderer then, and it kept its own five marks after both of
+	// them had been converted, so quest's diamonds stayed on screen for
+	// every subagent while the change claimed they were gone. Neither
+	// calls it now, but it is still exported for other packages to draw
+	// spawned work with, so it is still held to the one set.
 	"lib/ui/pipeline-progress.ts",
 ];
 

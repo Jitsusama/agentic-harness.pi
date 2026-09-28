@@ -65,12 +65,17 @@ import { recoverReviewerRuns } from "../../lib/subagent/recovery.ts";
 import { createSupervisorRunPi } from "../../lib/subagent/runpi/supervisor.ts";
 import { THINKING_LEVELS } from "../../lib/thinking/index.ts";
 import { count } from "../../lib/ui/count.ts";
+import { drawInto } from "../../lib/ui/tool-call.ts";
 import {
 	FleetCancellationRegistry,
 	formatFleetCancellation,
 } from "./cancellation.ts";
 import { digestFleetRuns } from "./digests.ts";
-import { createFleetProgressReporter } from "./progress-render.ts";
+import {
+	createFleetProgressReporter,
+	fleetCardLines,
+	isFleetRunResult,
+} from "./progress-render.ts";
 import {
 	buildAssignment,
 	dispatchFleet,
@@ -598,106 +603,130 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 				}),
 			),
 		}),
+		// The fleet as its board looked when it ended, so the card that
+		// replaces the board opens with the same rows and is never shorter.
+		renderResult(result, { expanded }, theme, context) {
+			if (!context?.isError && isFleetRunResult(result.details)) {
+				return drawInto(
+					context?.lastComponent,
+					fleetCardLines(result.details, theme, expanded).join("\n"),
+				);
+			}
+			const first = result.content?.[0];
+			const text = first?.type === "text" ? first.text : "";
+			return drawInto(
+				context?.lastComponent,
+				context?.isError ? theme.fg("error", text) : text,
+			);
+		},
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 			const runId = params.runId ?? `fleet-${randomUUID()}`;
 			const assignments: FleetAssignment[] = params.jobs.map(buildAssignment);
-			const progress = createFleetProgressReporter(ctx, controls());
-			// Both up front, for the reason the sweep resolves its paths up
-			// front: these read the environment on every call, and a fleet
-			// can run for hours, so a lookup after the dispatch is a lookup
-			// against whatever the environment says by then.
-			const runs = stateDir();
-			const fleets = fleetDir();
-			const ledger = createFleetLedger(fleets);
-			// Written down before it is dispatched, and best effort. A
-			// fleet recorded when it finishes is recorded exactly when
-			// nothing needed it to be, since the population this protects
-			// is the fleets that never reached their own ending. Best
-			// effort because bookkeeping must not cost a fleet: the cost
-			// of failing to write is that one fleet goes unprotected, and
-			// the cost of throwing is that it never runs at all.
-			await recordOrSay(async () => {
-				// Asked inside the guard, since it forks a subprocess and
-				// bookkeeping must not cost a fleet: outside it, a `ps`
-				// that hung or threw took the dispatch with it.
-				const owner = await ourOwner();
-				await ledger.open({
-					id: runId,
-					startedAt: new Date().toISOString(),
-					jobs: assignments.map((one) => one.spec.id),
-					...(owner ? { owner } : {}),
-				});
-			}, `could not write ${runId} down before dispatching it, so the sweep will not know to keep its transcripts`);
-			// Once for the run, before any of its jobs are prepared. A run
-			// id comes round again whenever a caller supplies one, and the
-			// supervisor stops the moment it sees a cancellation, so a run
-			// stopped once would otherwise kill every later run under the
-			// same name on arrival.
-			await recordOrSay(
-				() => new ReviewerArtifactsStore(runs).beginRun(runId),
-				`could not clear an earlier cancellation of ${runId}, so its jobs may stop the moment they start`,
-			);
-			// What, if anything, was cut off before it could answer. Set
-			// inside the try and read in the finally, because the finally
-			// is the only place that sees both endings.
-			let cutOff: string | undefined =
-				signal?.aborted === true ? "the call was cancelled" : undefined;
+			const progress = createFleetProgressReporter(ctx, controls(), runId);
+			// The board comes down as the tool returns, after the bookkeeping
+			// below, and not when the fleet finishes: pi draws the result card
+			// in the frame after the return, so the board leaving any earlier
+			// leaves its rows blank for as long as the bookkeeping takes.
 			try {
-				const result = await dispatchFleet({
-					runId,
-					assignments,
-					runPi: getRunPi(),
-					cancellations,
-					progress,
-					...(signal ? { signal } : {}),
-				});
-				const stopped = result.results.filter(
-					(one) => one.state === "cancelled",
+				// Both up front, for the reason the sweep resolves its paths up
+				// front: these read the environment on every call, and a fleet
+				// can run for hours, so a lookup after the dispatch is a lookup
+				// against whatever the environment says by then.
+				const runs = stateDir();
+				const fleets = fleetDir();
+				const ledger = createFleetLedger(fleets);
+				// Written down before it is dispatched, and best effort. A
+				// fleet recorded when it finishes is recorded exactly when
+				// nothing needed it to be, since the population this protects
+				// is the fleets that never reached their own ending. Best
+				// effort because bookkeeping must not cost a fleet: the cost
+				// of failing to write is that one fleet goes unprotected, and
+				// the cost of throwing is that it never runs at all.
+				await recordOrSay(async () => {
+					// Asked inside the guard, since it forks a subprocess and
+					// bookkeeping must not cost a fleet: outside it, a `ps`
+					// that hung or threw took the dispatch with it.
+					const owner = await ourOwner();
+					await ledger.open({
+						id: runId,
+						startedAt: new Date().toISOString(),
+						jobs: assignments.map((one) => one.spec.id),
+						...(owner ? { owner } : {}),
+					});
+				}, `could not write ${runId} down before dispatching it, so the sweep will not know to keep its transcripts`);
+				// Once for the run, before any of its jobs are prepared. A run
+				// id comes round again whenever a caller supplies one, and the
+				// supervisor stops the moment it sees a cancellation, so a run
+				// stopped once would otherwise kill every later run under the
+				// same name on arrival.
+				await recordOrSay(
+					() => new ReviewerArtifactsStore(runs).beginRun(runId),
+					`could not clear an earlier cancellation of ${runId}, so its jobs may stop the moment they start`,
 				);
-				if (stopped.length > 0) {
-					cutOff = `${count(stopped.length, "subagent")} was cancelled`;
-				} else if (signal?.aborted === true) {
-					cutOff = "the call was cancelled";
+				// What, if anything, was cut off before it could answer. Set
+				// inside the try and read in the finally, because the finally
+				// is the only place that sees both endings.
+				let cutOff: string | undefined =
+					signal?.aborted === true ? "the call was cancelled" : undefined;
+				try {
+					const result = await dispatchFleet({
+						runId,
+						assignments,
+						runPi: getRunPi(),
+						cancellations,
+						progress,
+						...(signal ? { signal } : {}),
+					});
+					const stopped = result.results.filter(
+						(one) => one.state === "cancelled",
+					);
+					if (stopped.length > 0) {
+						cutOff = `${count(stopped.length, "subagent")} was cancelled`;
+					} else if (signal?.aborted === true) {
+						cutOff = "the call was cancelled";
+					}
+					// Decorate the result with on-disk artifact paths so the full
+					// per-subagent output is discoverable from the summary and the
+					// details payload, not buried in the supervisor's state dir.
+					const located = locateArtifacts(runs, result);
+					return {
+						content: [{ type: "text", text: formatFleetSummary(located) }],
+						details: { ok: true, ...located },
+					};
+				} finally {
+					// From a finally, because a failed fleet is handed back like
+					// any other: the caller has the result and can go and look.
+					// Settling only on the happy path would protect every failure
+					// ever run, which is the unbounded population wearing a
+					// different hat.
+					//
+					// Except where somebody was cut off. Cancellation is the
+					// ending where an answer does not arrive: whatever that
+					// subagent wrote is on disk and nowhere else, which is
+					// precisely the population this ledger exists to keep, so
+					// settling would release the protection at the one moment it
+					// was doing its job.
+					//
+					// Both cancellations, and the second is the one that matters:
+					// the signal is pi tearing the call away, and the registry is
+					// somebody pressing a key in the panel, which is the only
+					// cancellation this extension documents to anybody. That one
+					// leaves the signal untouched and hands back a result with
+					// cancelled entries in it, so a guard reading the signal
+					// alone released every fleet a person actually stopped.
+					if (cutOff !== undefined) {
+						console.error(
+							`[subagent-workflow] ${cutOff} in ${runId}, so its transcripts under ${join(runs, "runs")} are held rather than reclaimed. Delete ${join(fleets, `${safeSegment(runId)}.json`)} once you have read them or given up on them.`,
+						);
+					} else {
+						await recordOrSay(
+							() => ledger.settle(runId),
+							`could not settle ${runId}, so whatever transcripts it left are held until its file under ${fleets} is cleared`,
+						);
+					}
 				}
-				// Decorate the result with on-disk artifact paths so the full
-				// per-subagent output is discoverable from the summary and the
-				// details payload, not buried in the supervisor's state dir.
-				const located = locateArtifacts(runs, result);
-				return {
-					content: [{ type: "text", text: formatFleetSummary(located) }],
-					details: { ok: true, ...located },
-				};
 			} finally {
-				// From a finally, because a failed fleet is handed back like
-				// any other: the caller has the result and can go and look.
-				// Settling only on the happy path would protect every failure
-				// ever run, which is the unbounded population wearing a
-				// different hat.
-				//
-				// Except where somebody was cut off. Cancellation is the
-				// ending where an answer does not arrive: whatever that
-				// subagent wrote is on disk and nowhere else, which is
-				// precisely the population this ledger exists to keep, so
-				// settling would release the protection at the one moment it
-				// was doing its job.
-				//
-				// Both cancellations, and the second is the one that matters:
-				// the signal is pi tearing the call away, and the registry is
-				// somebody pressing a key in the panel, which is the only
-				// cancellation this extension documents to anybody. That one
-				// leaves the signal untouched and hands back a result with
-				// cancelled entries in it, so a guard reading the signal
-				// alone released every fleet a person actually stopped.
-				if (cutOff !== undefined) {
-					console.error(
-						`[subagent-workflow] ${cutOff} in ${runId}, so its transcripts under ${join(runs, "runs")} are held rather than reclaimed. Delete ${join(fleets, `${safeSegment(runId)}.json`)} once you have read them or given up on them.`,
-					);
-				} else {
-					await recordOrSay(
-						() => ledger.settle(runId),
-						`could not settle ${runId}, so whatever transcripts it left are held until its file under ${fleets} is cleared`,
-					);
-				}
+				progress.close();
 			}
 		},
 	});

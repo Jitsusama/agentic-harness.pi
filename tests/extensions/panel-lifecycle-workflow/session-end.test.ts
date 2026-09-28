@@ -17,6 +17,9 @@ function activate() {
 	const handlers = new Map<string, Handler>();
 	const pi = {
 		on: (name: string, handler: Handler) => handlers.set(name, handler),
+		// The hop chord registers here too. What it does is driven in real
+		// pi by the screen tests, since a fake cannot dispatch a shortcut.
+		registerShortcut: () => {},
 	};
 	panelLifecycle(pi as unknown as ExtensionAPI);
 	return (name: string, event: unknown) => handlers.get(name)?.(event, {});

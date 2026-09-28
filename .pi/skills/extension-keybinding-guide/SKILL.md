@@ -19,7 +19,11 @@ codebase.
 1. **No global keyboard shortcuts.** Features are accessed
    through slash commands only. The only exceptions are
    `Ctrl+Alt+F` and `Ctrl+Alt+M` for panel height toggling,
-   which must work during panel display.
+   which must work during panel display, and `Ctrl+Alt+N`,
+   the hop chord, which moves the keys between the editor
+   and a widget docked above it. `panel-lifecycle-workflow`
+   registers the hop once for every package; a widget says
+   it with `DOCK_HOP_LABEL` and never registers its own.
 
 2. **Numbers for views, letters for actions.** View switching
    keys (`1`, `2`, `3`) and action keys (`r`, `p`, `w`) live
@@ -40,6 +44,18 @@ codebase.
    executing. `Shift+Enter` opens the editor then proceeds.
    `Shift+Escape` is the universal redirect: "none of the
    above, here's what I want instead."
+
+## Docked Widgets
+
+A progress widget docked above the editor (through `dock`
+in `lib/ui`) is not a panel: it never takes the keyboard on
+its own, because a person must be able to type while work
+runs. Until the hop reaches it, Escape belongs to pi and
+stops the turn. Once focused, the widget shows its keys and
+a cursor; up and down select, a letter acts on the selected
+row (`r` cancels), Escape cancels the whole job and gives
+the editor back, and the hop chord gives the editor back
+without doing anything. Ctrl+C and Ctrl+D always reach pi.
 
 ## The Universal Input Model
 

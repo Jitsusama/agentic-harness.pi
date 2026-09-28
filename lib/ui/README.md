@@ -48,6 +48,28 @@ still waiting: the panel registry records each one, and
 `panel-lifecycle-workflow` closes them all on
 `session_shutdown`, across every copy of this library.
 
+### Widgets above the editor
+
+- **`dock`**: mount a widget above pi's editor and get a
+  handle back. The editor keeps focus, so a person can go on
+  typing while the widget shows progress. The hop chord,
+  `DOCK_HOP_KEY` (said as `DOCK_HOP_LABEL`), moves the keys
+  to the topmost widget that takes them and back again;
+  Ctrl+C and Ctrl+D always reach pi. A widget shrinks to
+  the rows pi can give it without redrawing the transcript,
+  through the body's `fit`. With no terminal to draw on the
+  handle is inert, so a caller need not ask first.
+- **`Board`**, **`boardLines`**, **`fitBoard`**: the shape
+  a progress widget draws, a title rule with an aside, a keys
+  row only while it has focus, one row per item and notes
+  under them. `fitBoard` keeps the title and the selected row
+  when rows run short and says how many it left out.
+
+A widget closes as its tool call returns, not when its work
+finishes, and the result's card should be at least as tall as
+the widget, so the card arrives in the frame the widget leaves
+and the screen neither jumps nor leaves blank rows.
+
 ### Content rendering
 
 - **`renderMarkdown`**, **`renderDiff`**, **`renderCode`**:
@@ -97,6 +119,7 @@ import { promptSingle, renderMarkdown } from "agentic-harness.pi/ui";
 import { renderBadge, renderBar } from "agentic-harness.pi/ui";
 import { renderPipelineProgress } from "agentic-harness.pi/ui";
 import { renderNarrationLine } from "agentic-harness.pi/ui";
+import { boardLines, dock, fitBoard } from "agentic-harness.pi/ui";
 ```
 
 ## Composition patterns

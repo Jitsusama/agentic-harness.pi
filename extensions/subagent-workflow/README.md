@@ -6,7 +6,7 @@ investigation, or fleet brainstorming.
 
 The agent calls a single `subagent` tool with an array of
 job definitions; the extension fans them out, surfaces
-live progress in a focused prompt-area panel, and returns
+live progress on a board above the editor, and returns
 each subagent's final assistant text plus aggregate token
 and cost figures.
 
@@ -156,25 +156,39 @@ under `isolated: true` (i.e. alongside `--no-extensions`).
 That's the point of the hook: a clean-slate subagent
 that still has the bits it absolutely needs.
 
-## Progress panel
+## Progress Board
 
-When pi has a TUI, the tool installs a focused panel
-into the prompt area while the fleet runs:
+When pi has a TUI, the tool docks a board above the editor
+while the fleet runs. The editor keeps focus, so a steer or
+the next question can be typed meanwhile:
 
 ```
-─────────────────────────────────────────────────────────
- Subagent Fleet
- ↑/↓ select · r cancel selected subagent · Esc cancel fleet
-
- ▸ ◈ running   security  · claude-haiku · last: reading auth.go
-   ◇ pending   performance · claude-haiku · queued
-   ✓ complete  readability · claude-haiku · 12,403 tokens
-─────────────────────────────────────────────────────────
+── Subagent Fleet · 1/3 done ────────── Ctrl+Alt+N to manage ──
+  → running security · claude-haiku · last: reading auth.go
+  ◦ pending performance · claude-haiku · queued
+  ✓ complete readability · claude-haiku · 12,403 tokens
 ```
+
+Escape in the editor is pi's: it stops the turn, and the
+turn's signal stops the fleet. `Ctrl+Alt+N` (registered by
+`panel-lifecycle-workflow`) moves the keys to the board,
+which then shows a cursor and a keys row: up and down
+select, `r` cancels the selected subagent, Escape cancels
+the fleet and gives the editor back while the turn goes
+on, and the same chord gives the editor back without
+cancelling anything. Ctrl+C and Ctrl+D always reach pi.
+
+The board shrinks to fit the rows pi can give it without
+redrawing the transcript, keeping the title and the
+selected row. It leaves as the tool returns, in the frame
+the result card arrives: the card opens with the same rows
+and adds where the full output lives, so it is never
+shorter than the board it replaces.
 
 The status line shows a one-glance summary
-(`fleet 2/3 done running=1`). Headless sessions skip the
-panel and just return results.
+(`fleet 2/3 done running=1`), keyed per run so two fleets
+do not overwrite each other. Headless sessions skip the
+board and just return results.
 
 ## Files
 
@@ -190,13 +204,12 @@ panel and just return results.
   cancellation, aggregates usage.
 - `progress.ts`: observer interface plus the stream-
   activity summarizer.
-- `progress-render.ts`: production status-line +
-  focused-panel reporter.
+- `progress-render.ts`: production status line, docked
+  board and result card.
 - `cancellation.ts`: fleet-shaped cancellation
   registry. A review-shaped sibling once lived beside it;
-  the review substrate bounds a participant's run with a
-  timeout instead, since a tool's execute is handed no
-  cancellation signal to hang a keystroke off.
+  the review substrate now derives each participant's
+  signal from the one pi hands a tool's execute.
 
 ## What Is Kept, and What Reclaims It
 
@@ -214,7 +227,7 @@ protection asserts is that this run holds the only copy
 of something, and a clock does not make that untrue.
 
 Cancellation counts as unreleased, both kinds. The
-signal is pi tearing the call away; the panel is somebody
+signal is pi tearing the call away; the board is somebody
 pressing a key, which is the only cancellation this
 extension documents to anybody, and it leaves the signal
 untouched and hands back a result with cancelled entries
