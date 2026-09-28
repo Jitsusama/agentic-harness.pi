@@ -1,11 +1,10 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
-import { mountWhenFree } from "./gate-queue.ts";
+import { mountPanel, type PanelFactory } from "./mount.ts";
 import {
 	type NavigableSection,
 	renderNavigableSections,
 } from "./navigable-list.ts";
-import { OVERLAID } from "./overlay.ts";
 import { computeChromeLines } from "./panel-layout.ts";
 import {
 	contentBudget,
@@ -129,21 +128,19 @@ export async function promptToggleList(
 	const initial = initToggleModel(config);
 	if (!ctx.hasUI) return selectedValues(initial);
 
-	// Withdrawn before it mounts, the rows keep the values they came with,
-	// as they would for a caller with no screen.
-	return mountWhenFree(
-		ctx,
-		() => showToggleList(ctx, config, initial),
-		selectedValues(initial),
-	);
+	// Stopped before or while it is up, the rows keep the values they came
+	// with, as they would for a caller with no screen: nothing a person had
+	// not confirmed is applied.
+	return mountPanel(ctx, toggleListPanel(config, initial), {
+		cancelled: selectedValues(initial),
+	});
 }
 
-function showToggleList(
-	ctx: ExtensionContext,
+function toggleListPanel(
 	config: ToggleListConfig,
 	initial: ToggleListModel,
-): Promise<Record<string, string>> {
-	return ctx.ui.custom<Record<string, string>>((tui, theme, _kb, done) => {
+): PanelFactory<Record<string, string>> {
+	return (tui, theme, _kb, done) => {
 		let model = initial;
 		const scroll: ScrollState = { vOffset: 0, hOffset: 0 };
 		const rerender = () => tui.requestRender();
@@ -207,7 +204,7 @@ function showToggleList(
 				return lines;
 			},
 		};
-	}, OVERLAID);
+	};
 }
 
 function toSections(model: ToggleListModel, theme: Theme): NavigableSection[] {

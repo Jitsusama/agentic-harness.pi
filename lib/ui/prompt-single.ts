@@ -17,14 +17,13 @@ import {
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
 import { type ActionBarResult, handleActionInput } from "./action-bar.ts";
-import { mountWhenFree } from "./gate-queue.ts";
+import { mountPanel } from "./mount.ts";
 import { buildNoteEditorTheme, renderNoteEditor } from "./note-editor.ts";
 import {
 	handleOptionInput,
 	optionValue,
 	renderOptionList,
 } from "./option-list.ts";
-import { OVERLAID } from "./overlay.ts";
 import { computeChromeLines, renderFooter } from "./panel-layout.ts";
 import {
 	contentBudget,
@@ -328,14 +327,9 @@ export async function showSinglePrompt(
 	ctx: ExtensionContext,
 	config: SinglePromptConfig,
 ): Promise<PromptResult | null> {
-	return mountWhenFree(
+	return mountPanel<PromptResult | null>(
 		ctx,
-		() =>
-			ctx.ui.custom<PromptResult | null>(
-				(tui, theme, _kb, done) =>
-					createSingleController(config, tui, theme, done),
-				OVERLAID,
-			),
-		null,
+		(tui, theme, _kb, done) => createSingleController(config, tui, theme, done),
+		{ cancelled: null },
 	);
 }
