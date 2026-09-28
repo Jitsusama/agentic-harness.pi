@@ -12,7 +12,8 @@
  *   panel here comes off by its own overlay handle.
  * - A panel on screen when its turn is stopped stayed up until a key
  *   was pressed. Here it closes and answers as Escape would, so a gate
- *   fails closed.
+ *   fails closed. The same happens when its session ends, through the
+ *   panel registry, whether it is up or still waiting.
  *
  * Pi's close is still what settles its promise and disposes the panel,
  * and it is called whenever that is safe: once our own overlay is gone,
@@ -29,6 +30,7 @@ import type {
 import type { Component, OverlayHandle, TUI } from "@earendil-works/pi-tui";
 import { runGate } from "./gate-queue.ts";
 import { OVERLAID } from "./overlay.ts";
+import { trackPanel } from "./panel-registry.ts";
 
 /** A disposable panel, as pi's factories return one. */
 type Panel = Component & { dispose?(): void };
@@ -58,7 +60,7 @@ export interface MountOptions<T> {
 
 /**
  * Mount a panel once the screen is free, and take it down by its own
- * handle when it answers or its turn is stopped.
+ * handle when it answers, its turn is stopped or its session ends.
  *
  * The turn's signal is read now, as the call is made: a gate belongs to
  * the turn that raised it, not whichever is running when its turn in the
@@ -69,7 +71,15 @@ export async function mountPanel<T>(
 	factory: PanelFactory<T>,
 	options: MountOptions<T>,
 ): Promise<T> {
-	const signal = either(ctx.signal, options.dismiss);
+	// Recorded from now, not from when it mounts: a panel still waiting
+	// when its session ends must not mount in the next one.
+	const ended = new AbortController();
+	const forget = trackPanel(() => ended.abort());
+	const signal = AbortSignal.any(
+		[ctx.signal, options.dismiss, ended.signal].filter(
+			(s): s is AbortSignal => s !== undefined,
+		),
+	);
 	try {
 		return await runGate(
 			async () => {
@@ -83,8 +93,10 @@ export async function mountPanel<T>(
 			{ signal },
 		);
 	} catch (error) {
-		if (signal?.aborted && isAbortError(error)) return options.cancelled;
+		if (signal.aborted && isAbortError(error)) return options.cancelled;
 		throw error;
+	} finally {
+		forget();
 	}
 }
 
@@ -177,14 +189,6 @@ function showUntilGone<T>(
 export function overlaysLeft(tui: TUI): boolean | undefined {
 	const entries: unknown = Reflect.get(tui, "hasOverlayEntries");
 	return typeof entries === "boolean" ? entries : undefined;
-}
-
-function either(
-	a: AbortSignal | undefined,
-	b: AbortSignal | undefined,
-): AbortSignal | undefined {
-	if (a && b) return AbortSignal.any([a, b]);
-	return a ?? b;
 }
 
 function isAbortError(error: unknown): boolean {
