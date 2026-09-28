@@ -101,6 +101,8 @@ const SUPERVISOR_GRACE_MS = 10_000;
 const DEFAULT_TIMEOUT_MS = 45 * 60 * 1000;
 const DEFAULT_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 const DEFAULT_KILL_GRACE_MS = 5 * 1000;
+/** What the supervisor reports for a cancelled run: 128 plus SIGINT. */
+const CANCELLED_EXIT_CODE = 130;
 
 /**
  * What the supervisor's own shutdown needs after its last watchdog
@@ -358,11 +360,17 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 			let stdoutBuffer = "";
 			let stderrTail = "";
 			let terminalResultPath: string | null = null;
+			// The reviewer's process group, as the supervisor announced it,
+			// so a supervisor that has to be killed does not take the only
+			// way of stopping its reviewer with it.
+			let reviewerGroup: number | null = null;
+			let stopDeadline: ReturnType<typeof setTimeout> | undefined;
 			const warnings: string[] = [];
 			const settle = async (fn: () => Promise<RunPiResult>): Promise<void> => {
 				if (settled) return;
 				settled = true;
 				clearTimeout(deadline);
+				clearTimeout(stopDeadline);
 				signal?.removeEventListener("abort", abortHandler);
 				try {
 					resolve(await fn());
@@ -433,8 +441,44 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 						// Best-effort: the kill still stops the supervisor.
 					}
 					supervisor.kill("SIGTERM");
+					// Asking is not enough on its own. Until this, only the
+					// supervisor's answer or the run's own deadline, most of an
+					// hour away, could end the wait, so a supervisor too wedged to
+					// act held the person who cancelled for that hour. It gets the
+					// same room it has after any watchdog of its own: stop the
+					// reviewer, escalate, drain and write.
+					stopDeadline = setTimeout(() => {
+						void settle(async () => {
+							supervisor.kill("SIGKILL");
+							stopReviewerGroup();
+							const onDisk = await readResult(
+								terminalResultPath ?? paths.resultPath,
+							);
+							if (onDisk) return fromResult(onDisk, warnings, stderrTail);
+							return {
+								exitCode: CANCELLED_EXIT_CODE,
+								finalAssistantText: "",
+								warnings: [
+									...warnings,
+									`Reviewer supervisor did not stop within ${graceMs}ms ` +
+										"of being cancelled and was killed, with its reviewer.",
+									await supervisorPostMortem(supervisor, paths),
+								],
+								stderrTail,
+							};
+						});
+					}, graceMs);
+					stopDeadline.unref?.();
 				})();
 			};
+			function stopReviewerGroup(): void {
+				if (reviewerGroup === null) return;
+				try {
+					process.kill(-reviewerGroup, "SIGKILL");
+				} catch {
+					// ESRCH: the group had already gone, which is what we wanted.
+				}
+			}
 			if (signal) {
 				if (signal.aborted) abortHandler();
 				else signal.addEventListener("abort", abortHandler, { once: true });
@@ -448,6 +492,7 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 					stdoutBuffer = stdoutBuffer.slice(newlineIndex + 1);
 					const event = parseSupervisorLine(line, warnings);
 					if (!event) continue;
+					if (event.type === "started") reviewerGroup = groupOf(event);
 					if (
 						event.type === "terminal" &&
 						typeof event.resultPath === "string"
@@ -792,6 +837,20 @@ function parseSupervisorLine(
 		);
 		return null;
 	}
+}
+
+/**
+ * The process group a started event names, when it names a real one.
+ *
+ * Zero and one are refused, not merely unlikely: signalling group zero
+ * reaches our own group, and a supervisor that never spawned reports its
+ * child's pid as zero.
+ */
+function groupOf(event: Record<string, unknown>): number | null {
+	const group = event.pgid ?? event.pid;
+	return typeof group === "number" && Number.isInteger(group) && group > 1
+		? group
+		: null;
 }
 
 async function readResult(path: string): Promise<SupervisorResultFile | null> {
