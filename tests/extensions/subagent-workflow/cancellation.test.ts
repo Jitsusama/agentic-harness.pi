@@ -16,9 +16,9 @@ import {
 describe("FleetCancellationRegistry", () => {
 	it("aborts an active subagent's signal on cancel(id)", () => {
 		const registry = new FleetCancellationRegistry();
-		const run = registry.beginRun();
+		const run = registry.beginRun("r");
 		const handle = run.register({ id: "alpha" }, undefined);
-		const outcome = registry.cancel("alpha");
+		const outcome = registry.cancel("r", "alpha");
 		expect(handle.signal.aborted).toBe(true);
 		expect(handle.wasCancelledByUser()).toBe(true);
 		expect(outcome.ok).toBe(true);
@@ -30,10 +30,10 @@ describe("FleetCancellationRegistry", () => {
 
 	it("cancels every active subagent on cancel()", () => {
 		const registry = new FleetCancellationRegistry();
-		const run = registry.beginRun();
+		const run = registry.beginRun("r");
 		const a = run.register({ id: "alpha" }, undefined);
 		const b = run.register({ id: "beta" }, undefined);
-		const outcome = registry.cancel();
+		const outcome = registry.cancel("r");
 		expect(a.signal.aborted).toBe(true);
 		expect(b.signal.aborted).toBe(true);
 		expect(outcome.ok).toBe(true);
@@ -51,8 +51,8 @@ describe("FleetCancellationRegistry", () => {
 		// aborts on registration so the race doesn't
 		// silently start a doomed subprocess.
 		const registry = new FleetCancellationRegistry();
-		const run = registry.beginRun();
-		registry.cancel("late");
+		const run = registry.beginRun("r");
+		registry.cancel("r", "late");
 		const handle = run.register({ id: "late" }, undefined);
 		expect(handle.signal.aborted).toBe(true);
 		expect(handle.wasCancelledByUser()).toBe(true);
@@ -64,7 +64,7 @@ describe("FleetCancellationRegistry", () => {
 		// host signals via execute's signal), every
 		// active subagent must wind down with it.
 		const registry = new FleetCancellationRegistry();
-		const run = registry.beginRun();
+		const run = registry.beginRun("r");
 		const parent = new AbortController();
 		const handle = run.register({ id: "child" }, parent.signal);
 		parent.abort();
@@ -72,9 +72,47 @@ describe("FleetCancellationRegistry", () => {
 		run.end();
 	});
 
+	it("cancels within one fleet when two run at once", () => {
+		// Pi runs a turn's tool calls side by side, so two fleets can be
+		// up together, each with its own board, and job ids are the
+		// caller's, so both can have an "alpha". A key on one board must
+		// reach only that board's fleet.
+		const registry = new FleetCancellationRegistry();
+		const one = registry.beginRun("one");
+		const two = registry.beginRun("two");
+		const oneAlpha = one.register({ id: "alpha" }, undefined);
+		const twoAlpha = two.register({ id: "alpha" }, undefined);
+		const twoBeta = two.register({ id: "beta" }, undefined);
+
+		expect(registry.cancel("one", "alpha").ok).toBe(true);
+		expect(oneAlpha.signal.aborted).toBe(true);
+		expect(twoAlpha.signal.aborted).toBe(false);
+
+		registry.cancel("one");
+		expect(twoAlpha.signal.aborted).toBe(false);
+		expect(twoBeta.signal.aborted).toBe(false);
+
+		registry.cancel("two", "beta");
+		expect(twoBeta.signal.aborted).toBe(true);
+		expect(twoAlpha.signal.aborted).toBe(false);
+		one.end();
+		two.end();
+	});
+
+	it("stashes an early cancel for its own fleet only", () => {
+		const registry = new FleetCancellationRegistry();
+		const one = registry.beginRun("one");
+		const two = registry.beginRun("two");
+		registry.cancel("one", "late");
+		expect(two.register({ id: "late" }, undefined).signal.aborted).toBe(false);
+		expect(one.register({ id: "late" }, undefined).signal.aborted).toBe(true);
+		one.end();
+		two.end();
+	});
+
 	it("reports failure when nothing matches the cancel target", () => {
 		const registry = new FleetCancellationRegistry();
-		const outcome = registry.cancel("nobody");
+		const outcome = registry.cancel("r", "nobody");
 		expect(outcome.ok).toBe(false);
 		if (!outcome.ok) expect(outcome.error).toContain("nobody");
 	});

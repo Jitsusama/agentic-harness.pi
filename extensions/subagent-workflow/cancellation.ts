@@ -49,8 +49,16 @@ export type FleetCancellationOutcome =
 	  }
 	| { readonly ok: false; readonly error: string };
 
+/**
+ * One fleet in flight: its own subagents and its own early requests.
+ *
+ * Per run, because pi runs a turn's tool calls side by side and job ids
+ * are the caller's: two fleets up at once can both have an "alpha", and
+ * a key pressed on one board must reach only that board's fleet.
+ */
 interface FleetRun {
-	readonly id: number;
+	readonly key: string;
+	readonly active: Map<string, RegisteredSubagent>;
 	readonly cancelledIds: Set<string>;
 	cancelAllRequested: boolean;
 }
@@ -65,30 +73,43 @@ interface RegisteredSubagent {
 
 /** Tracks in-flight subagent subprocesses and aborts them on request. */
 export class FleetCancellationRegistry {
-	private nextRunId = 1;
-	private activeRun: FleetRun | null = null;
-	private readonly active = new Map<string, RegisteredSubagent>();
+	/**
+	 * The runs in flight under each key. A set, since a caller can name
+	 * two runs alike, and a request for the name then reaches both rather
+	 * than whichever began last.
+	 */
+	private readonly runs = new Map<string, Set<FleetRun>>();
 
-	/** Start a cancellable fleet run. */
-	beginRun(): FleetRunHandle {
+	/** Start a cancellable fleet run, found again by `key`. */
+	beginRun(key: string): FleetRunHandle {
 		const run: FleetRun = {
-			id: this.nextRunId++,
+			key,
+			active: new Map(),
 			cancelledIds: new Set(),
 			cancelAllRequested: false,
 		};
-		this.activeRun = run;
+		const alike = this.runs.get(key) ?? new Set();
+		alike.add(run);
+		this.runs.set(key, alike);
 		return {
 			end: () => {
-				if (this.activeRun?.id === run.id) this.activeRun = null;
+				alike.delete(run);
+				if (alike.size === 0 && this.runs.get(key) === alike) {
+					this.runs.delete(key);
+				}
 			},
 			register: (spec, parentSignal) => this.register(run, spec, parentSignal),
 		};
 	}
 
-	/** Cancel one active subagent, or every active one when no id is given. */
-	cancel(subagentId?: string): FleetCancellationOutcome {
-		if (subagentId) return this.cancelOne(subagentId);
-		return this.cancelAll();
+	/**
+	 * Cancel one subagent of the run under `key`, or every one of them
+	 * when no id is given.
+	 */
+	cancel(key: string, subagentId?: string): FleetCancellationOutcome {
+		const runs = [...(this.runs.get(key) ?? [])];
+		if (subagentId) return this.cancelOne(runs, subagentId);
+		return this.cancelAll(runs);
 	}
 
 	private register(
@@ -104,7 +125,7 @@ export class FleetCancellationRegistry {
 			startedAt: new Date().toISOString(),
 			cancelledByUser: false,
 		};
-		this.active.set(spec.id, entry);
+		run.active.set(spec.id, entry);
 		const abortFromParent = (): void => controller.abort();
 		if (parentSignal) {
 			if (parentSignal.aborted) controller.abort();
@@ -118,36 +139,47 @@ export class FleetCancellationRegistry {
 			signal: controller.signal,
 			wasCancelledByUser: () => entry.cancelledByUser,
 			finish: () => {
-				if (this.active.get(spec.id) === entry) this.active.delete(spec.id);
+				if (run.active.get(spec.id) === entry) run.active.delete(spec.id);
 				parentSignal?.removeEventListener("abort", abortFromParent);
 			},
 		};
 	}
 
-	private cancelOne(subagentId: string): FleetCancellationOutcome {
-		const entry = this.active.get(subagentId);
-		if (entry) {
-			this.abortEntry(entry);
-			return { ok: true, mode: "one", subagentId };
+	/**
+	 * A subagent not yet registered is remembered rather than refused,
+	 * since a board can show a row before the fleet reaches it.
+	 */
+	private cancelOne(
+		runs: readonly FleetRun[],
+		subagentId: string,
+	): FleetCancellationOutcome {
+		if (runs.length === 0) {
+			return {
+				ok: false,
+				error: `No active subagent "${subagentId}" to cancel.`,
+			};
 		}
-		if (this.activeRun) {
-			this.activeRun.cancelledIds.add(subagentId);
-			return { ok: true, mode: "one", subagentId };
+		for (const run of runs) {
+			const entry = run.active.get(subagentId);
+			if (entry) this.abortEntry(entry);
+			else run.cancelledIds.add(subagentId);
 		}
-		return {
-			ok: false,
-			error: `No active subagent "${subagentId}" to cancel.`,
-		};
+		return { ok: true, mode: "one", subagentId };
 	}
 
-	private cancelAll(): FleetCancellationOutcome {
-		if (this.activeRun) this.activeRun.cancelAllRequested = true;
-		const active = Array.from(this.active.values());
-		for (const entry of active) this.abortEntry(entry);
-		if (active.length === 0 && this.activeRun === null) {
+	private cancelAll(runs: readonly FleetRun[]): FleetCancellationOutcome {
+		if (runs.length === 0) {
 			return { ok: false, error: "No active subagent subprocesses to cancel." };
 		}
-		return { ok: true, mode: "all", count: active.length };
+		let count = 0;
+		for (const run of runs) {
+			run.cancelAllRequested = true;
+			for (const entry of run.active.values()) {
+				this.abortEntry(entry);
+				count++;
+			}
+		}
+		return { ok: true, mode: "all", count };
 	}
 
 	private abortEntry(entry: RegisteredSubagent): void {

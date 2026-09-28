@@ -211,7 +211,7 @@ export async function dispatchFleet(
 	assertUniqueIds(opts.assignments);
 	const warnings: string[] = [];
 	const progress = opts.progress ?? NULL_FLEET_PROGRESS;
-	const run = opts.cancellations.beginRun();
+	const run = opts.cancellations.beginRun(opts.runId);
 	const initial: FleetProgressEntry[] = opts.assignments.map(({ spec }) => ({
 		spec,
 		state: "pending",
