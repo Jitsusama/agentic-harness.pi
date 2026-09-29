@@ -353,7 +353,7 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 								"Publishing a stack needs the target, so the stack can be read. Name a change in it rather than a draft id.",
 							);
 						}
-						return publishStack(pi, bound, store, ctx);
+						return publishStack(pi, bound, store, ctx, signal);
 					}
 
 					if (params.action === "finding") {
@@ -547,7 +547,13 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 							);
 						}
 					}
-					const outcome = await draft.publish(sending, bound.provider);
+					// Stopped between operations, it sends nothing more, and what
+					// it did not send stays in the draft.
+					const outcome = await draft.publish(
+						sending,
+						bound.provider,
+						signal ? { signal } : {},
+					);
 					// Record where the change stood, so coming back to it later can say
 					// whether it has moved. Recorded after publishing rather than
 					// before: a review that failed to land is not a review of anything,
@@ -669,6 +675,7 @@ async function publishStack(
 	bound: BoundTarget,
 	store: DraftStore,
 	ctx: Parameters<Parameters<ExtensionAPI["registerTool"]>[0]["execute"]>[4],
+	signal: AbortSignal | undefined,
 ): Promise<Answer> {
 	const stack = await bound.stack();
 	if (!stack) {
@@ -706,7 +713,9 @@ async function publishStack(
 			skipped.push(node.ref);
 			continue;
 		}
-		entries.push({ ref: node.ref, change, plan });
+		// Handed over with its plan, so what lands leaves the draft and
+		// publishing the stack again sends only what is left.
+		entries.push({ ref: node.ref, change, plan, draft: one });
 		diffs.set(node.ref, diff);
 	}
 
@@ -766,7 +775,11 @@ async function publishStack(
 		return say("Every change was dropped at the gate. Nothing was sent.");
 	}
 
-	const outcome = await publishAcross(sending, bound.provider);
+	const outcome = await publishAcross(
+		sending,
+		bound.provider,
+		signal ? { signal } : {},
+	);
 	return say(
 		[
 			...outcome.changes.map(
