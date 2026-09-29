@@ -18,6 +18,10 @@ import { Type } from "@sinclair/typebox";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import panelLifecycle from "../../extensions/panel-lifecycle-workflow/index.ts";
 import { GATE_ARM_MS, GATE_TYPING_IDLE_MS } from "../../lib/ui/gate-dock.ts";
+import {
+	getPanelHeightFraction,
+	setPanelHeightMode,
+} from "../../lib/ui/panel-height.ts";
 import { showSinglePrompt } from "../../lib/ui/prompt-single.ts";
 import { bootPi, type PiSession, sleep, waitFor } from "./pi-session.ts";
 
@@ -104,13 +108,19 @@ beforeEach(() => {
 afterEach(async () => {
 	await pi?.stop();
 	pi = undefined;
+	setPanelHeightMode("normal");
 	vi.restoreAllMocks();
 });
 
-async function boot(cols = 100, rows = 30): Promise<PiSession> {
+async function boot(
+	cols = 100,
+	rows = 30,
+	tuiMode: "regular" | "fullscreen" = "regular",
+): Promise<PiSession> {
 	const session = await bootPi({
 		cols,
 		rows,
+		tuiMode,
 		extensions: [gateTool, pickTool, panelLifecycle],
 	});
 	pi = session;
@@ -300,6 +310,76 @@ describe("a gate across a resize", () => {
 
 		expect(gates).toEqual([APPROVED]);
 		await expectClean(session);
+	});
+});
+
+describe("a tall gate under each height mode", () => {
+	/** A body far taller than any screen here, so the mode decides. */
+	const tall = (width: number) =>
+		Array.from({ length: 80 }, (_, i) => `MARK-body-${i} tall`.slice(0, width));
+
+	/** Body rows the gate shows on screen now. */
+	const shown = async (session: PiSession) =>
+		(await session.viewport()).filter((row) => row.includes("MARK-body-"))
+			.length;
+
+	for (const [cols, rows] of [
+		[100, 30],
+		[200, 50],
+	] as const) {
+		it(`takes no more than its share of ${cols}x${rows}, and keeps pi below it`, async () => {
+			body = tall;
+			const counts: number[] = [];
+			for (const mode of ["minimized", "normal", "fullscreen"] as const) {
+				setPanelHeightMode(mode);
+				gates = [];
+				const session = await boot(cols, rows);
+				await turn(session, [fauxToolCall("ask_gate", { delay: 0 })]);
+				await gateHasKeys(session);
+
+				const count = await shown(session);
+				counts.push(count);
+				expect(count, mode).toBeGreaterThan(0);
+				expect(count, mode).toBeLessThanOrEqual(
+					Math.floor(rows * getPanelHeightFraction()),
+				);
+				const screen = await session.viewport();
+				const footer = screen.findIndex((row) => row.includes("faux-1"));
+				const gateEnd = screen.reduce(
+					(last, row, at) => (row.includes("MARK-body-") ? at : last),
+					-1,
+				);
+				expect(footer, mode).toBeGreaterThan(gateEnd);
+
+				await session.key("enter");
+				await turnEnds(session);
+				expect(gates, mode).toEqual([APPROVED]);
+				await expectClean(session);
+				await session.stop();
+				pi = undefined;
+			}
+			const [minimized, normal, fullscreen] = counts;
+			expect(minimized).toBeLessThan(normal ?? 0);
+			expect(normal).toBeLessThan(fullscreen ?? 0);
+		});
+	}
+});
+
+describe("a gate in pi's fullscreen renderer", () => {
+	it("shows, takes the keys, answers, and hands the editor back", async () => {
+		// A smoke run: the person uses the regular renderer, but fullscreen
+		// draws the same components through its own viewport.
+		const session = await boot(100, 30, "fullscreen");
+		await turn(session, [fauxToolCall("ask_gate", { delay: 0 })]);
+		await gateHasKeys(session);
+		expect(await session.onScreen("MARK-body-3")).toBe(true);
+
+		await session.key("enter");
+		await turnEnds(session);
+
+		expect(gates).toEqual([APPROVED]);
+		expect(await session.onScreen("MARK-title")).toBe(false);
+		await editorTakesTyping(session);
 	});
 });
 

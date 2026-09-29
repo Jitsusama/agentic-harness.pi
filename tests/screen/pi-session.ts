@@ -38,6 +38,7 @@ import {
 	InteractiveMode,
 	initTheme,
 	SessionManager,
+	type TuiMode,
 } from "@earendil-works/pi-coding-agent";
 import {
 	StdinBuffer,
@@ -389,6 +390,11 @@ export interface BootOptions {
 	readonly rows?: number;
 	/** Whether the terminal speaks the kitty keyboard protocol. */
 	readonly kitty?: boolean;
+	/**
+	 * Pi's renderer. The person runs regular; fullscreen has its own
+	 * viewport on the same component stack and gets a smoke run.
+	 */
+	readonly tuiMode?: TuiMode;
 	readonly extensions?: readonly InlineExtension[];
 }
 
@@ -458,7 +464,7 @@ export async function bootPi(options: BootOptions = {}): Promise<PiSession> {
 	const term = new HeadlessTerminal(cols, rows, kitty);
 	const mode = new InteractiveMode(runtime, {
 		terminal: term,
-		tuiMode: "regular",
+		tuiMode: options.tuiMode ?? "regular",
 	});
 
 	const realExit = process.exit;
@@ -475,28 +481,41 @@ export async function bootPi(options: BootOptions = {}): Promise<PiSession> {
 	await runtime.session.setModel(faux.getModel());
 
 	const tui: unknown = Reflect.get(mode, "ui");
-	if (!isPaintedTui(tui) || !isTui(tui))
+	// The regular renderer is measured frame by frame. Fullscreen draws
+	// through a renderer of its own that keeps none of this, so it is driven
+	// and read but not measured, and its verdict says so rather than
+	// reporting a clean run of nothing.
+	const measured = (options.tuiMode ?? "regular") === "regular";
+	if (
+		typeof tui !== "object" ||
+		tui === null ||
+		!isTui(tui) ||
+		(measured && !isPaintedTui(tui))
+	)
 		throw new Error("pi's TUI no longer exposes what the harness reads");
 	const frames: Frame[] = [];
 	const redrawsAt: string[] = [];
 	let label = "";
-	let redraws = tui.fullRedrawCount;
-	const paint = tui.doRender.bind(tui);
-	tui.doRender = () => {
-		paint();
-		if (tui.fullRedrawCount > redraws && frames.length > 0)
-			redrawsAt.push(`${label}#${frames.length}`);
-		redraws = tui.fullRedrawCount;
-		frames.push({
-			at: term.writes.length,
-			redraws,
-			top: tui.previousViewportTop ?? 0,
-			lines: tui.previousLines.slice(),
-			cols: term.columns,
-			rows: term.rows,
-			label,
-		});
-	};
+	if (isPaintedTui(tui)) {
+		let redraws = tui.fullRedrawCount;
+		const paint = tui.doRender.bind(tui);
+		tui.doRender = () => {
+			paint();
+			if (tui.fullRedrawCount > redraws && frames.length > 0)
+				redrawsAt.push(`${label}#${frames.length}`);
+			redraws = tui.fullRedrawCount;
+			frames.push({
+				at: term.writes.length,
+				redraws,
+				top: tui.previousViewportTop ?? 0,
+				lines: tui.previousLines.slice(),
+				cols: term.columns,
+				rows: term.rows,
+				label,
+			});
+		};
+	}
+	const focusedComponent = (): unknown => Reflect.get(tui, "focusedComponent");
 
 	const key = async (name: string): Promise<void> => {
 		for (const sequence of encode(name, kitty)) term.feed(sequence);
@@ -510,6 +529,8 @@ export async function bootPi(options: BootOptions = {}): Promise<PiSession> {
 	};
 
 	const verdict = async (): Promise<Verdict> => {
+		if (!measured)
+			throw new Error("only the regular renderer is measured frame by frame");
 		const first = frames[0];
 		const replay = new xterm.Terminal({
 			cols: first?.cols ?? cols,
@@ -610,8 +631,8 @@ export async function bootPi(options: BootOptions = {}): Promise<PiSession> {
 		answer: (...texts) =>
 			faux.setResponses(texts.map((text) => fauxAssistantMessage(text))),
 		editorText: () => editor().getText(),
-		editorFocused: () => tui.focusedComponent === editor(),
-		focused: () => tui.focusedComponent,
+		editorFocused: () => focusedComponent() === editor(),
+		focused: focusedComponent,
 		viewport: () => term.viewport(),
 		onScreen: async (text) =>
 			(await term.viewport()).some((row) => row.includes(text)),
