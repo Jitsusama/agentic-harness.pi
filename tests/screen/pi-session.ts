@@ -20,7 +20,7 @@
  * them in the lab this was moved from.
  */
 
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -47,6 +47,7 @@ import {
 	visibleWidth,
 } from "@earendil-works/pi-tui";
 import xterm from "@xterm/headless";
+import { expect } from "vitest";
 
 /** Resolves after `ms`. */
 export const sleep = (ms: number): Promise<void> =>
@@ -202,7 +203,11 @@ class HeadlessTerminal implements Terminal {
 	setTitle(): void {}
 	setProgress(): void {}
 
+	/** Whether the terminal changed size after it was made. */
+	resized = false;
+
 	resize(cols: number, rows: number): void {
+		this.resized = true;
 		this.cols = cols;
 		this.lines = rows;
 		this.emulator.resize(cols, rows);
@@ -229,6 +234,39 @@ class HeadlessTerminal implements Terminal {
 		const { rows, baseY } = await this.buffer();
 		return rows.slice(baseY, baseY + this.lines);
 	}
+}
+
+/** How many sessions this process has dumped, to name each one's files. */
+let dumped = 0;
+
+/**
+ * With `PI_SCREEN_DUMP` naming a directory, write what a session sent the
+ * terminal and what the headless emulator made of it, for replaying into
+ * a real terminal. This is the driven pass: the same bytes in WezTerm,
+ * read back and compared with xterm's buffer, which is how a gap between
+ * the two emulators would show. A session that was resized is marked, since
+ * a replay into a pane of one size cannot reproduce it.
+ */
+async function dump(term: HeadlessTerminal): Promise<void> {
+	const dir = process.env.PI_SCREEN_DUMP;
+	if (!dir) return;
+	mkdirSync(dir, { recursive: true });
+	const { rows } = await term.buffer();
+	const name = join(dir, `${process.pid}-${++dumped}`);
+	writeFileSync(`${name}.bin`, term.writes.join(""));
+	writeFileSync(
+		`${name}.xterm.all.txt`,
+		`${rows.map((row) => row.trimEnd()).join("\n")}\n`,
+	);
+	writeFileSync(
+		`${name}.json`,
+		JSON.stringify({
+			test: expect.getState().currentTestName ?? "",
+			cols: term.columns,
+			rows: term.rows,
+			resized: term.writes.length > 0 && term.resized,
+		}),
+	);
 }
 
 /** One painted frame: what pi believed it drew and where in the bytes. */
@@ -582,6 +620,7 @@ export async function bootPi(options: BootOptions = {}): Promise<PiSession> {
 		verdict,
 		exits: () => exits,
 		stop: async () => {
+			await dump(term);
 			try {
 				mode.stop();
 				await runtime.dispose();
