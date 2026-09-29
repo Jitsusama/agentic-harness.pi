@@ -60,6 +60,7 @@ import {
 	parseTarget,
 } from "@jitsusama/agentic-harness.core/web/target";
 import { type Static, Type } from "@sinclair/typebox";
+import { beyondBound, MAX_WALK_STOPS } from "./limits.ts";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.ts";
 import { renderBrowserCall, renderBrowserResult } from "./render.ts";
 import {
@@ -259,8 +260,8 @@ const parameters = Type.Object({
 				"twice the number of " +
 				"focusable things, which is enough to show a cycle, or 400 " +
 				"where that is fewer. A page with more controls than that " +
-				"reports what it did not reach; pass a larger number to " +
-				"walk it to the end.",
+				"reports what it did not reach; pass a larger number, up " +
+				"to 4000, to walk it to the end.",
 		}),
 	),
 });
@@ -304,7 +305,7 @@ export function registerCheck(
 			renderBrowserCall("check", args, theme, context?.lastComponent),
 		renderResult: (result, options, theme, context) =>
 			renderBrowserResult(result, options, theme, context?.lastComponent),
-		async execute(_id, params) {
+		async execute(_id, params, signal) {
 			const kind = params.kind ?? "keyboard";
 			const chosen = sessionInPlay(
 				params.session,
@@ -327,50 +328,60 @@ export function registerCheck(
 				);
 			}
 
-			const session = await registry.acquire(name);
+			const unbounded = beyondBound(
+				"maxStops",
+				params.maxStops,
+				MAX_WALK_STOPS,
+				"Walk the page a section at a time.",
+			);
+			if (unbounded) return refusal(name, kind, unbounded);
 
-			// A verdict about a page that is not there is worse than no
-			// verdict: about:blank has no lang attribute, no landmark and
-			// no heading, so a health check on it answers FAIL with four
-			// accessibility rules and says nothing about the application
-			// anybody meant to test. A session sits on about:blank before
-			// its first navigation and after going back past it, so this
-			// is easy to reach by accident.
-			if (session.url === "about:blank") {
-				return refusal(
-					name,
-					kind,
-					`Session '${name}' has nothing loaded, so there is nothing ` +
-						"to judge. A blank page fails rules about lang, " +
-						"landmarks and headings, which would say nothing about " +
-						"your page. Navigate with browser_go first.",
-				);
-			}
+			return registry.use(name, signal, async () => {
+				const session = await registry.acquire(name);
 
-			if (params.widths && params.widths.length > 0) {
-				// keyboard used to be refused here, on the grounds that a
-				// walk cannot survive being resized underneath it. It is
-				// not: the sweep resizes and then runs, never during, and
-				// the walk now puts focus and scroll back where it found
-				// them. The refusal was also a fiction, because health is
-				// swept and runs the same walk at every width, so anyone
-				// who hit the refusal could route around it by asking for
-				// health and never learn what it was protecting.
-				return answer(
-					name,
-					kind,
-					await sweep(session, params.widths, params.at, (at, keep) =>
-						runOnce(
-							session,
-							kind,
-							{ ...params, baseline: baselineAt(params, at) },
-							keep,
+				// A verdict about a page that is not there is worse than no
+				// verdict: about:blank has no lang attribute, no landmark and
+				// no heading, so a health check on it answers FAIL with four
+				// accessibility rules and says nothing about the application
+				// anybody meant to test. A session sits on about:blank before
+				// its first navigation and after going back past it, so this
+				// is easy to reach by accident.
+				if (session.url === "about:blank") {
+					return refusal(
+						name,
+						kind,
+						`Session '${name}' has nothing loaded, so there is nothing ` +
+							"to judge. A blank page fails rules about lang, " +
+							"landmarks and headings, which would say nothing about " +
+							"your page. Navigate with browser_go first.",
+					);
+				}
+
+				if (params.widths && params.widths.length > 0) {
+					// keyboard used to be refused here, on the grounds that a
+					// walk cannot survive being resized underneath it. It is
+					// not: the sweep resizes and then runs, never during, and
+					// the walk now puts focus and scroll back where it found
+					// them. The refusal was also a fiction, because health is
+					// swept and runs the same walk at every width, so anyone
+					// who hit the refusal could route around it by asking for
+					// health and never learn what it was protecting.
+					return answer(
+						name,
+						kind,
+						await sweep(session, params.widths, params.at, (at, keep) =>
+							runOnce(
+								session,
+								kind,
+								{ ...params, baseline: baselineAt(params, at) },
+								keep,
+							),
 						),
-					),
-				);
-			}
+					);
+				}
 
-			return answer(name, kind, await runOnce(session, kind, params));
+				return answer(name, kind, await runOnce(session, kind, params));
+			});
 		},
 	});
 }

@@ -49,6 +49,7 @@ import {
 	type WaitCondition,
 } from "@jitsusama/agentic-harness.core/web/wait";
 import { Type } from "@sinclair/typebox";
+import { beyondBound, MAX_WAIT_MS } from "./limits.ts";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.ts";
 import { renderBrowserCall, renderBrowserResult } from "./render.ts";
 import type { BrowserDetails } from "./result.ts";
@@ -174,11 +175,14 @@ const parameters = Type.Object({
 		}),
 	),
 	ms: Type.Optional(
-		Type.Number({ description: "For wait duration: how long to wait." }),
+		Type.Number({
+			description: "For wait duration: how long to wait, at most 120000.",
+		}),
 	),
 	timeoutMs: Type.Optional(
 		Type.Number({
-			description: "For wait: how long before giving up. Defaults to 10s.",
+			description:
+				"For wait: how long before giving up. Defaults to 10s, at most 120000.",
 		}),
 	),
 	keys: Type.Optional(
@@ -242,7 +246,9 @@ const parameters = Type.Object({
 		}),
 	),
 	holdMs: Type.Optional(
-		Type.Number({ description: "For longPress: how long to hold." }),
+		Type.Number({
+			description: "For longPress: how long to hold, at most 120000.",
+		}),
 	),
 	action: Type.Optional(
 		Type.Union(
@@ -352,7 +358,7 @@ export function registerDo(pi: ExtensionAPI, registry: SessionRegistry): void {
 			renderBrowserCall("do", args, theme, context?.lastComponent),
 		renderResult: (result, options, theme, context) =>
 			renderBrowserResult(result, options, theme, context?.lastComponent),
-		async execute(_id, params) {
+		async execute(_id, params, signal) {
 			const kind = params.kind ?? "act";
 			const profiles = wantedProfiles(params.trace);
 			if ("error" in profiles) {
@@ -379,18 +385,41 @@ export function registerDo(pi: ExtensionAPI, registry: SessionRegistry): void {
 				);
 			}
 
+			const unbounded =
+				beyondBound(
+					"timeoutMs",
+					params.timeoutMs,
+					MAX_WAIT_MS,
+					"Wait in steps, looking at the page between them.",
+				) ??
+				beyondBound(
+					"ms",
+					params.ms,
+					MAX_WAIT_MS,
+					"Wait in steps, or for the condition that ends the wait.",
+				) ??
+				beyondBound(
+					"holdMs",
+					params.holdMs,
+					MAX_WAIT_MS,
+					"No page needs a longer press.",
+				);
+			if (unbounded) return refusal(name, kind, unbounded);
+
 			// Every kind is traceable, because every kind is a way of
 			// making the page do something. Bracketing here rather than
 			// in each branch keeps one recording per call and means the
 			// permit cannot be left behind on a path that returns early.
-			if (profiles.profiles.length > 0) {
-				const session = await registry.acquire(name);
-				const recorded = await session.recordWhile(profiles.profiles, () =>
-					act(),
-				);
-				return withTrace(recorded.result, recorded.trace, recorded.refusal);
-			}
-			return act();
+			return registry.use(name, signal, async () => {
+				if (profiles.profiles.length > 0) {
+					const session = await registry.acquire(name);
+					const recorded = await session.recordWhile(profiles.profiles, () =>
+						act(),
+					);
+					return withTrace(recorded.result, recorded.trace, recorded.refusal);
+				}
+				return act();
+			});
 
 			async function act(): Promise<AgentToolResult<BrowserDetails>> {
 				if (kind === "eval") {

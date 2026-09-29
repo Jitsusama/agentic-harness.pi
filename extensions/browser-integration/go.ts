@@ -568,12 +568,14 @@ export function registerGo(pi: ExtensionAPI, registry: SessionRegistry): void {
 			renderBrowserCall("go", args, theme, context?.lastComponent),
 		renderResult: (result, options, theme, context) =>
 			renderBrowserResult(result, options, theme, context?.lastComponent),
-		async execute(_id, params) {
+		async execute(_id, params, signal) {
 			const name = params.session ?? DEFAULT_SESSION;
 			// A url is an intent to go there; without one there is
 			// nowhere to go, so the only thing left is to open.
 			const kind = params.kind ?? (params.url ? "navigate" : "open");
 
+			// Close takes no turn: it is how a session whose call is stuck
+			// gets put down, so it must not queue behind that call.
 			if (kind === "close") {
 				const closed = await registry.close(name);
 				return answer(
@@ -587,121 +589,130 @@ export function registerGo(pi: ExtensionAPI, registry: SessionRegistry): void {
 				return refusal(name, kind, "navigate needs a url.");
 			}
 
-			let session: BrowserSession;
-			try {
-				session = await registry.acquire(name, {
-					...(params.cookies === undefined ? {} : { cookies: params.cookies }),
-				});
-			} catch (err) {
-				// Asking for cookies that are not set up is a fixable
-				// mistake, so say how to fix it rather than throwing.
-				if (err instanceof CookieSetupNeeded) {
-					return refusal(name, kind, err.message);
-				}
-				throw err;
-			}
-
-			// Reloading and stepping through history land on a page just
-			// as navigating does, so they answer the same way. They used
-			// to report only a URL, which meant confirming where you
-			// actually ended up took a second call, and a reload that
-			// changed the page said exactly as much as one that did not.
-			if (kind === "reload") {
-				const again = await session.reload();
-				if (again.failure) {
-					return refusal(name, kind, arrivalFailed(again.failure));
-				}
-				return answer(
-					name,
-					kind,
-					`Reloaded ${session.url}.\n\n${await pageView(session)}`,
-				);
-			}
-
-			if (kind === "back" || kind === "forward") {
-				const moved = await session.step(kind);
-				if (!moved.ok) return refusal(name, kind, moved.refusal);
-				// Stepping back past the first navigation lands on the blank
-				// page the session started on. That is the truth, but an
-				// outline of nothing reads like a fault, so it is named.
-				const landed =
-					moved.url === "about:blank"
-						? "This is the blank page the session started on, " +
-							"before its first navigation."
-						: await pageView(session);
-				return answer(name, kind, `Went ${kind} to ${moved.url}.\n\n${landed}`);
-			}
-
-			if (kind === "network") {
-				const shaped = shapingFrom(params);
-				if ("error" in shaped) return refusal(name, kind, shaped.error);
-				const { rules, throttle } = await session.shape(shaped.change);
-				return answer(name, kind, renderShaping(rules, throttle));
-			}
-
-			if (kind === "storage") {
-				return answer(name, kind, await runStorage(session, params));
-			}
-
-			if (kind === "tabs") {
-				if (params.tab === undefined) {
-					return answer(name, kind, renderTabs(await session.tabs()));
-				}
-				const switched = await session.switchTab(params.tab);
-				if ("refusal" in switched) return answer(name, kind, switched.refusal);
-				return answer(
-					name,
-					kind,
-					`Now driving tab ${switched.index}, ${switched.url}. The tab ` +
-						"you left is still open and can be switched back to.",
-				);
-			}
-
-			if (kind === "emulate") {
-				const change = emulationFrom(params);
-				if ("error" in change) return refusal(name, kind, change.error);
-				const { asked, observed, gaps } = await session.emulate(
-					change.state,
-					change.clear,
-				);
-				return answer(name, kind, renderEnvironment(asked, observed, gaps));
-			}
-
-			if (kind === "dialogs") {
-				if (params.accept !== undefined || params.promptText !== undefined) {
-					session.setDialogPolicy({
-						accept: params.accept ?? false,
-						...(params.promptText === undefined
+			return registry.use(name, signal, async () => {
+				let session: BrowserSession;
+				try {
+					session = await registry.acquire(name, {
+						...(params.cookies === undefined
 							? {}
-							: { promptText: params.promptText }),
+							: { cookies: params.cookies }),
 					});
+				} catch (err) {
+					// Asking for cookies that are not set up is a fixable
+					// mistake, so say how to fix it rather than throwing.
+					if (err instanceof CookieSetupNeeded) {
+						return refusal(name, kind, err.message);
+					}
+					throw err;
 				}
-				const { policy, seen } = session.dialogs;
-				const stance = policy.accept
-					? `Dialogs are accepted${
-							policy.promptText === undefined
-								? ""
-								: `, and prompts answered "${policy.promptText}"`
-						}.`
-					: "Dialogs are dismissed.";
-				return answer(name, kind, `${stance}\n\n${renderDialogs(seen)}`);
-			}
 
-			if (!params.url) {
-				return answer(name, kind, `Opened session '${name}'.`);
-			}
-			const { status, failure } = await session.navigate(params.url);
-			if (failure) return refusal(name, kind, arrivalFailed(failure));
-			// An error page looks like a page. Saying the status up
-			// front is the difference between checking the site and
-			// checking its 404, which every later check would
-			// otherwise judge without knowing.
-			const arrival =
-				status !== undefined && status >= 400
-					? `The server answered ${status}. What follows is that ` +
-						"response, not the page you asked for.\n\n"
-					: "";
-			return answer(name, kind, `${arrival}${await pageView(session)}`);
+				// Reloading and stepping through history land on a page just
+				// as navigating does, so they answer the same way. They used
+				// to report only a URL, which meant confirming where you
+				// actually ended up took a second call, and a reload that
+				// changed the page said exactly as much as one that did not.
+				if (kind === "reload") {
+					const again = await session.reload();
+					if (again.failure) {
+						return refusal(name, kind, arrivalFailed(again.failure));
+					}
+					return answer(
+						name,
+						kind,
+						`Reloaded ${session.url}.\n\n${await pageView(session)}`,
+					);
+				}
+
+				if (kind === "back" || kind === "forward") {
+					const moved = await session.step(kind);
+					if (!moved.ok) return refusal(name, kind, moved.refusal);
+					// Stepping back past the first navigation lands on the blank
+					// page the session started on. That is the truth, but an
+					// outline of nothing reads like a fault, so it is named.
+					const landed =
+						moved.url === "about:blank"
+							? "This is the blank page the session started on, " +
+								"before its first navigation."
+							: await pageView(session);
+					return answer(
+						name,
+						kind,
+						`Went ${kind} to ${moved.url}.\n\n${landed}`,
+					);
+				}
+
+				if (kind === "network") {
+					const shaped = shapingFrom(params);
+					if ("error" in shaped) return refusal(name, kind, shaped.error);
+					const { rules, throttle } = await session.shape(shaped.change);
+					return answer(name, kind, renderShaping(rules, throttle));
+				}
+
+				if (kind === "storage") {
+					return answer(name, kind, await runStorage(session, params));
+				}
+
+				if (kind === "tabs") {
+					if (params.tab === undefined) {
+						return answer(name, kind, renderTabs(await session.tabs()));
+					}
+					const switched = await session.switchTab(params.tab);
+					if ("refusal" in switched)
+						return answer(name, kind, switched.refusal);
+					return answer(
+						name,
+						kind,
+						`Now driving tab ${switched.index}, ${switched.url}. The tab ` +
+							"you left is still open and can be switched back to.",
+					);
+				}
+
+				if (kind === "emulate") {
+					const change = emulationFrom(params);
+					if ("error" in change) return refusal(name, kind, change.error);
+					const { asked, observed, gaps } = await session.emulate(
+						change.state,
+						change.clear,
+					);
+					return answer(name, kind, renderEnvironment(asked, observed, gaps));
+				}
+
+				if (kind === "dialogs") {
+					if (params.accept !== undefined || params.promptText !== undefined) {
+						session.setDialogPolicy({
+							accept: params.accept ?? false,
+							...(params.promptText === undefined
+								? {}
+								: { promptText: params.promptText }),
+						});
+					}
+					const { policy, seen } = session.dialogs;
+					const stance = policy.accept
+						? `Dialogs are accepted${
+								policy.promptText === undefined
+									? ""
+									: `, and prompts answered "${policy.promptText}"`
+							}.`
+						: "Dialogs are dismissed.";
+					return answer(name, kind, `${stance}\n\n${renderDialogs(seen)}`);
+				}
+
+				if (!params.url) {
+					return answer(name, kind, `Opened session '${name}'.`);
+				}
+				const { status, failure } = await session.navigate(params.url);
+				if (failure) return refusal(name, kind, arrivalFailed(failure));
+				// An error page looks like a page. Saying the status up
+				// front is the difference between checking the site and
+				// checking its 404, which every later check would
+				// otherwise judge without knowing.
+				const arrival =
+					status !== undefined && status >= 400
+						? `The server answered ${status}. What follows is that ` +
+							"response, not the page you asked for.\n\n"
+						: "";
+				return answer(name, kind, `${arrival}${await pageView(session)}`);
+			});
 		},
 	});
 }
