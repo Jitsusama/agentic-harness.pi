@@ -51,23 +51,11 @@ beforeEach(() => {
 	home = mkdtempSync(join(tmpdir(), "review-config-home-"));
 	vi.stubEnv("XDG_CONFIG_HOME", home);
 	forgetWorkLayer();
-	// A host to ask git with. Without one, nothing can show a
+	// Git is asked for real, through the unattended runner the module
+	// uses by default. Without something to ask, nothing can show a
 	// directory is a checkout of anything, and every configured path
-	// is refused: the module answers no rather than optimistically,
-	// which is right in production and would make these cases vacuous.
+	// is refused, which would make these cases vacuous.
 	watchForWorkLayer({
-		exec: async (file: string, args: string[]) => {
-			try {
-				return {
-					code: 0,
-					stdout: execFileSync(file, args, { encoding: "utf8" }),
-					stderr: "",
-				};
-			} catch {
-				// Not a repository, most likely, which is a real answer.
-				return { code: 1, stdout: "", stderr: "" };
-			}
-		},
 		events: { on: () => () => {}, emit: () => {} },
 	} as unknown as Parameters<typeof watchForWorkLayer>[0]);
 });

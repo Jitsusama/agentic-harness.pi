@@ -40,6 +40,7 @@ import {
 	WORK_REQUEST,
 	type WorkApi,
 } from "@jitsusama/agentic-harness.core/work";
+import { REVIEW_COMMANDS } from "./commands.ts";
 import { loadReviewConfig } from "./config.ts";
 
 /**
@@ -62,8 +63,11 @@ let work: WorkApi | undefined;
  * against somebody else's repo. Asking git is the only honest answer,
  * and asking is optional, because a caller who cannot ask is a caller
  * who cannot show the fallback is the right repo either.
+ *
+ * Unattended rather than pi's own exec, whose child shares pi's terminal
+ * and would draw a credential prompt over it.
  */
-let host: ExtensionAPI | undefined;
+let host: Pick<ExtensionAPI, "exec"> | undefined;
 
 /** How to stop listening for it, so listening twice does not stack. */
 let stopListening: (() => void) | undefined;
@@ -74,10 +78,14 @@ let stopListening: (() => void) | undefined;
  * Both halves are needed and neither is enough: the announcement may
  * already have happened before this extension loaded, and the request
  * may arrive before the host is listening. Load order then decides
- * nothing, which is the point.
+ * nothing, which is the point. `runner` is what asks git, and is only
+ * worth naming to put a fake in its place.
  */
-export function watchForWorkLayer(pi: ExtensionAPI): void {
-	host = pi;
+export function watchForWorkLayer(
+	pi: ExtensionAPI,
+	runner: Pick<ExtensionAPI, "exec"> = REVIEW_COMMANDS,
+): void {
+	host = runner;
 	// Once. This runs at registration and again on every session start,
 	// and the bus outlives a reload, so keeping the old subscription
 	// would stack a listener per start until node warns about a leak in

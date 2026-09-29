@@ -39,6 +39,7 @@ import {
 } from "@jitsusama/agentic-harness.core/work";
 import { Type } from "@sinclair/typebox";
 import { count } from "../../../lib/ui/index.ts";
+import { REVIEW_COMMANDS } from "../commands.ts";
 import { attachments } from "../engine.ts";
 import { confirmWrite } from "../gate.ts";
 import { type GatePanel, GLYPH, proposalLine } from "../render.ts";
@@ -375,7 +376,7 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 				// is not available here to substitute.
 				if (params.action === "propose" || params.action === "propose-stack") {
 					const elsewhere = await proposingElsewhere(
-						pi,
+						REVIEW_COMMANDS,
 						params.repo ?? process.cwd(),
 						bound,
 					);
@@ -449,11 +450,11 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 				// the gate that shows them.
 
 				if (params.action === "propose") {
-					return propose(pi, ctx, bound, authoring, params);
+					return propose(ctx, bound, authoring, params);
 				}
 
 				if (params.action === "propose-stack") {
-					return proposeStack(pi, ctx, bound, authoring, params);
+					return proposeStack(ctx, bound, authoring, params);
 				}
 
 				const change = hostedChange(bound);
@@ -583,12 +584,12 @@ export function registerOfferTool(pi: ExtensionAPI): void {
  * to the trunk, which is what happened before any of this existed.
  */
 async function parentOf(
-	pi: ExtensionAPI,
+	host: Pick<ExtensionAPI, "exec">,
 	cwd: string,
 	branch: string,
 ): Promise<string | undefined> {
 	try {
-		const exec: Exec = (command, args) => pi.exec(command, [...args]);
+		const exec: Exec = (command, args) => host.exec(command, [...args]);
 		const stacks = createGitStacks({
 			exec,
 			rebaser: createGitRebaser({ exec }),
@@ -603,12 +604,12 @@ async function parentOf(
 }
 
 async function checkoutFacts(
-	pi: ExtensionAPI,
+	host: Pick<ExtensionAPI, "exec">,
 	cwd: string,
 ): Promise<CheckoutFacts> {
 	const git = async (...args: string[]): Promise<string | undefined> => {
 		try {
-			const result = await pi.exec("git", ["-C", cwd, ...args]);
+			const result = await host.exec("git", ["-C", cwd, ...args]);
 			const out = result.stdout.trim();
 			return result.code === 0 && out !== "" ? out : undefined;
 		} catch {
@@ -633,7 +634,7 @@ async function checkoutFacts(
 	const parent =
 		branch === undefined || branch === "HEAD"
 			? undefined
-			: await parentOf(pi, cwd, branch);
+			: await parentOf(host, cwd, branch);
 
 	return {
 		// A detached head reports the literal word HEAD, which is not a
@@ -686,12 +687,12 @@ export async function proposingElsewhere(
  * git knows about.
  */
 async function tipSubject(
-	pi: ExtensionAPI,
+	host: Pick<ExtensionAPI, "exec">,
 	cwd: string,
 	branch: string,
 ): Promise<string | undefined> {
 	try {
-		const result = await pi.exec("git", [
+		const result = await host.exec("git", [
 			"-C",
 			cwd,
 			"log",
@@ -722,7 +723,6 @@ async function tipSubject(
  * same lie as one that does not work, told from the other end.
  */
 async function proposeStack(
-	pi: ExtensionAPI,
 	ctx: Parameters<Parameters<ExtensionAPI["registerTool"]>[0]["execute"]>[4],
 	bound: BoundTarget,
 	authoring: NonNullable<BoundTarget["provider"]["authoring"]>,
@@ -773,7 +773,7 @@ async function proposeStack(
 	}
 
 	const cwd = params.repo ?? process.cwd();
-	const facts = await checkoutFacts(pi, cwd);
+	const facts = await checkoutFacts(REVIEW_COMMANDS, cwd);
 	const base = params.base ?? facts.trunk;
 	if (base === undefined) {
 		return refuse(
@@ -782,7 +782,7 @@ async function proposeStack(
 	}
 
 	const subjects = await Promise.all(
-		heads.map((head) => tipSubject(pi, cwd, head)),
+		heads.map((head) => tipSubject(REVIEW_COMMANDS, cwd, head)),
 	);
 	const missing = heads.filter((_, at) => subjects[at] === undefined);
 	if (missing.length > 0) {
@@ -1049,7 +1049,6 @@ function peopleComplaint(
 }
 
 async function propose(
-	pi: ExtensionAPI,
 	ctx: Parameters<Parameters<ExtensionAPI["registerTool"]>[0]["execute"]>[4],
 	bound: BoundTarget,
 	authoring: NonNullable<BoundTarget["provider"]["authoring"]>,
@@ -1078,7 +1077,7 @@ async function propose(
 			...(params.title === undefined ? {} : { title: params.title }),
 			...(params.body === undefined ? {} : { body: params.body }),
 		},
-		await checkoutFacts(pi, params.repo ?? process.cwd()),
+		await checkoutFacts(REVIEW_COMMANDS, params.repo ?? process.cwd()),
 	);
 	if ("refusal" in filled) return refuse(filled.refusal);
 	const { base, head, title, body, guessed, warnings } = filled.fill;

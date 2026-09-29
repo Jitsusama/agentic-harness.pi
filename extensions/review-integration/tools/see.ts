@@ -37,6 +37,7 @@ import {
 } from "@jitsusama/agentic-harness.core/review";
 import { Type } from "@sinclair/typebox";
 import { count } from "../../../lib/ui/index.ts";
+import { REVIEW_COMMANDS } from "../commands.ts";
 import { decisionDir, findingDir, fixDir, visitDir } from "../engine.ts";
 import {
 	checksLines,
@@ -585,7 +586,11 @@ async function seeChanges(
 	// detail. Only checked when the caller named one, since falling back
 	// to the attachment's repo is the documented convenience.
 	if (params.repo && bound.bound) {
-		const apart = await checkoutElsewhere(pi, params.repo, bound.bound);
+		const apart = await checkoutElsewhere(
+			REVIEW_COMMANDS,
+			params.repo,
+			bound.bound,
+		);
 		if (apart) {
 			return refuse(
 				`You named ${apart.checkout}, and the change in play is on ${apart.repo}, so this would list ${apart.repo} instead. Detach that change, or name a change in ${apart.checkout}.`,
