@@ -64,11 +64,7 @@ describe("a publish stopped while it sends", () => {
 				: { code: 0, stdout: "", stderr: "", killed: false };
 		});
 		const sent = stub.commands.length;
-		const said = await run({ action: "publish" }, stop.signal);
-		(await import("node:fs")).writeFileSync(
-			"/Users/joel.gerber/.cache/pi/agentic-harness.pi/quest-workspace/QEST-20260927-0V60MP/tmp/probe.json",
-			JSON.stringify([said, stub.commands.slice(sent)], null, 1),
-		);
+		await run({ action: "publish" }, stop.signal);
 
 		const posts = stub.commands
 			.slice(sent)
