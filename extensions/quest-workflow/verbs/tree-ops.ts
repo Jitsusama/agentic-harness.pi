@@ -61,6 +61,7 @@ function readSessionsFromQuest(state: QuestState): QuestSession[] {
 export async function treeAdd(
 	state: QuestState,
 	params: QuestToolParams,
+	signal?: AbortSignal,
 ): Promise<QuestResult> {
 	if (!state.questDir || !state.questId) {
 		return refuse("Load a quest first.");
@@ -92,6 +93,7 @@ export async function treeAdd(
 			name,
 			repoRoot,
 			baseBranch: params.ref,
+			...(signal ? { signal } : {}),
 		});
 		const tree = {
 			path: handle.path,
@@ -277,6 +279,7 @@ function expandHome(path: string): string {
 export async function treePrune(
 	state: QuestState,
 	params: QuestToolParams,
+	signal?: AbortSignal,
 ): Promise<QuestResult> {
 	if (!state.questDir || !state.questId) {
 		return refuse("Load a quest first.");
@@ -335,7 +338,11 @@ export async function treePrune(
 		);
 	}
 	try {
-		await provider.prune({ path: target.path, force });
+		await provider.prune({
+			path: target.path,
+			force,
+			...(signal ? { signal } : {}),
+		});
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		const detectedAt = new Date().toISOString();

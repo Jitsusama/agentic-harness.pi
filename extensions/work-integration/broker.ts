@@ -52,11 +52,17 @@ export function treeRecordDir(): string {
  *
  * Their git runs unattended rather than through the host's exec, which
  * shares pi's terminal: a passphrase or credential prompt there is drawn
- * over pi's interface and waits for keys that never reach it.
+ * over pi's interface and waits for keys that never reach it. A call
+ * that can be stopped gets git carrying its signal, so Escape ends git
+ * itself rather than only the promise waiting on it.
  */
 export function registerBuiltinTreeProviders(_pi: ExtensionAPI): void {
 	registerTreeProvider(
-		createGitTreeProvider({ exec: unattendedExec(), stateDir: treeDir() }),
+		createGitTreeProvider({
+			exec: unattendedExec(),
+			execFor: unattendedExec,
+			stateDir: treeDir(),
+		}),
 	);
 }
 
