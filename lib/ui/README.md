@@ -19,6 +19,10 @@ top of Pi's TUI primitives.
   views and input handlers.
 - **`view`**: show read-only scrollable content. Pass a
   `signal` to dismiss it from code.
+- **`viewWhile`**: show a view for as long as some work runs.
+  Closing the view aborts the work, with an `AbortError`, and
+  the work finishing takes the view down, so a waiting panel
+  such as a login's can always be escaped.
 - **`runGate`**: hold work that shows a panel until whatever
   is already on screen has finished. Pi mounts one component
   at a time, so two panels raised in the same turn otherwise
@@ -35,6 +39,11 @@ top of Pi's TUI primitives.
   themselves and answer a withdrawn gate the way Escape would,
   so it fails closed. The holder's `release()` hands the
   screen on early, for a panel that left without settling.
+- **`holdScreen`**: `runGate` for a section of several
+  prompts, pi's own `ctx.ui` dialogs included, such as a setup
+  wizard. Nothing else mounts between its steps, and stopped
+  while still waiting it answers the value you give it rather
+  than throwing.
 
 In a terminal, `promptSingle` and `promptTabbed` dock above the
 editor rather than cover it, so the transcript they ask about
