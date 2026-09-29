@@ -26,8 +26,14 @@ export interface PanelRoom {
 	readonly allot: number;
 	/** Set once the panel has been answered, to draw it as its record. */
 	readonly answered?: boolean;
-	/** The chord that moves between the panel and the editor, for its hints. */
+	/**
+	 * The chord that moves the keyboard to and from the panel, for its
+	 * hints: as it is pressed from wherever the keyboard is now, so
+	 * "Ctrl+Alt+N twice" when another widget stands between.
+	 */
 	readonly hop?: string;
+	/** What the chord reaches from the panel: "editor", or the next widget. */
+	readonly hopTo?: string;
 	/** Whether the panel holds the keyboard, which changes what its hints say. */
 	readonly focused?: boolean;
 	/**

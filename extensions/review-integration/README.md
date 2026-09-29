@@ -111,7 +111,8 @@ a quarter of an hour does not stop anybody typing. Escape in the
 editor stops the turn and so the round. `Ctrl+Alt+N` moves the
 keys to the board, where `r` cancels the selected participant,
 Escape cancels the round while the turn goes on, and the same
-chord gives the editor back.
+chord moves on to the next widget docked, or back to the
+editor from the last.
 
 The board leaves as the call returns, and the answer's card opens
 with the same rows as they ended, so what each participant did

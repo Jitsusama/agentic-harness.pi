@@ -26,8 +26,14 @@ import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { matchesKey } from "@earendil-works/pi-tui";
 import { count as grouped } from "@jitsusama/agentic-harness.core/result";
 import { AGENT_GLYPH } from "../../lib/ui/agent-glyphs.ts";
-import { type Board, boardLines, fitBoard } from "../../lib/ui/board.ts";
-import { DOCK_HOP_LABEL, type Docked, dock } from "../../lib/ui/dock.ts";
+import {
+	type Board,
+	boardLines,
+	fitBoard,
+	hopOnward,
+	reachBoard,
+} from "../../lib/ui/board.ts";
+import { type Docked, dock, type HopPlace } from "../../lib/ui/dock.ts";
 import type {
 	FleetProgress,
 	FleetProgressEntry,
@@ -79,6 +85,7 @@ export function createFleetProgressReporter(
 		fleetBoard(entries, ctx.ui.theme, {
 			selected: focused ? selected : -1,
 			notice,
+			hop: docked?.hop(),
 		});
 
 	const render = (): void => {
@@ -122,13 +129,18 @@ export function createFleetProgressReporter(
 	const show = (): void => {
 		if (docked !== undefined) return;
 		const theme = ctx.ui.theme;
-		docked = dock(ctx, statusKey, {
-			render: (width, focused) =>
-				boardLines(board(focused), theme, width, focused),
-			fit: (_lines, rows, width, focused) =>
-				fitBoard(board(focused), theme, width, focused, rows),
-			handleInput: act,
-		});
+		docked = dock(
+			ctx,
+			statusKey,
+			{
+				render: (width, focused) =>
+					boardLines(board(focused), theme, width, focused),
+				fit: (_lines, rows, width, focused) =>
+					fitBoard(board(focused), theme, width, focused, rows),
+				handleInput: act,
+			},
+			{ name: "fleet" },
+		);
 	};
 
 	const close = (): void => {
@@ -195,6 +207,8 @@ export function createFleetProgressReporter(
 interface BoardState {
 	readonly selected: number;
 	readonly notice: string;
+	/** Where the board sits in the hop's walk, for its footer. */
+	readonly hop?: HopPlace;
 }
 
 /**
@@ -211,11 +225,11 @@ export function fleetBoard(
 		title: `${theme.fg("accent", theme.bold(TITLE))}${SEPARATOR}${done}/${entries.length} done`,
 		aside:
 			state.notice === ""
-				? theme.fg("dim", `${DOCK_HOP_LABEL} to manage`)
+				? theme.fg("dim", reachBoard(state.hop))
 				: theme.fg("warning", state.notice),
 		keys: theme.fg(
 			"dim",
-			`↑/↓ select · r cancel selected · Esc cancel fleet · ${DOCK_HOP_LABEL} back to the editor`,
+			`↑/↓ select · r cancel selected · Esc cancel fleet · ${hopOnward(state.hop)}`,
 		),
 		rows: entries.map((entry, index) =>
 			entryLine(entry, theme, index === state.selected),

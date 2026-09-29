@@ -53,7 +53,7 @@ export default function panelLifecycle(pi: ExtensionAPI): void {
 		return { action: "continue" };
 	});
 	pi.registerShortcut(DOCK_HOP_KEY, {
-		description: "Move between the editor and the board above it",
+		description: "Move from the editor through the widgets above it",
 		handler: () => hopIntoDock(),
 	});
 }

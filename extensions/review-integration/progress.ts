@@ -36,8 +36,14 @@ import {
 	trackAskProgress,
 } from "@jitsusama/agentic-harness.core/review";
 import { AGENT_GLYPH } from "../../lib/ui/agent-glyphs.ts";
-import { type Board, boardLines, fitBoard } from "../../lib/ui/board.ts";
-import { DOCK_HOP_LABEL, type Docked, dock } from "../../lib/ui/dock.ts";
+import {
+	type Board,
+	boardLines,
+	fitBoard,
+	hopOnward,
+	reachBoard,
+} from "../../lib/ui/board.ts";
+import { type Docked, dock, type HopPlace } from "../../lib/ui/dock.ts";
 import type { Answer } from "./tools/shared.ts";
 
 /**
@@ -161,6 +167,8 @@ export interface RoundBoardState {
 	readonly notice: string;
 	/** The instant every running row's clock is read at. */
 	readonly now: number;
+	/** Where the board sits in the hop's walk, for its footer. */
+	readonly hop?: HopPlace;
 }
 
 /** The title: the round, its tally, and the model when all share one. */
@@ -209,11 +217,11 @@ export function roundBoard(
 		title: roundTitle(round, entries, theme),
 		aside:
 			state.notice === ""
-				? theme.fg("dim", `${DOCK_HOP_LABEL} to manage`)
+				? theme.fg("dim", reachBoard(state.hop))
 				: theme.fg("warning", state.notice),
 		keys: theme.fg(
 			"dim",
-			`↑/↓ select · r cancel selected · Esc cancel round · ${DOCK_HOP_LABEL} back to the editor`,
+			`↑/↓ select · r cancel selected · Esc cancel round · ${hopOnward(state.hop)}`,
 		),
 		rows: entries.map((entry, index) =>
 			participantLine(
@@ -449,16 +457,22 @@ export function watchRound(
 				selected: focused ? selected : -1,
 				notice,
 				now: Date.now(),
+				hop: docked?.hop(),
 			});
 		// Keyed per watch, not per kind of round: two councils in one turn
 		// are two boards, and pi replaces a widget whose key comes round again.
-		docked = dock(ctx, `review-integration:round:${round}:${++watches}`, {
-			render: (width, focused) =>
-				boardLines(board(focused), theme, width, focused),
-			fit: (_lines, rows, width, focused) =>
-				fitBoard(board(focused), theme, width, focused, rows),
-			handleInput: (data) => act(data),
-		});
+		docked = dock(
+			ctx,
+			`review-integration:round:${round}:${++watches}`,
+			{
+				render: (width, focused) =>
+					boardLines(board(focused), theme, width, focused),
+				fit: (_lines, rows, width, focused) =>
+					fitBoard(board(focused), theme, width, focused, rows),
+				handleInput: (data) => act(data),
+			},
+			{ name: "round" },
+		);
 		tick = setInterval(draw, TICK_MS);
 		// Never hold the process open for a redraw. A round is worth
 		// waiting for; the clock next to it is not.

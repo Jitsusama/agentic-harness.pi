@@ -21,6 +21,7 @@
 
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { DOCK_HOP_LABEL, type HopPlace, hopLabel } from "./dock.ts";
 
 /** What a board shows, before it is fitted to a width or a height. */
 export interface Board {
@@ -36,6 +37,28 @@ export interface Board {
 	readonly selected: number;
 	/** What does not fit on a row, such as a failure's reason. */
 	readonly notes: readonly string[];
+}
+
+/**
+ * How a board's title rule says to reach its keys, counted from wherever
+ * the keyboard is: "Ctrl+Alt+N to manage", "Ctrl+Alt+N twice to manage".
+ * Nothing while the board has them, since its keys row says what the
+ * chord does from there.
+ */
+export function reachBoard(place: HopPlace | undefined): string {
+	if (place?.presses === 0) return "";
+	return `${hopLabel(place?.presses ?? 1)} to manage`;
+}
+
+/**
+ * Where the chord goes from a board holding the keys, for its keys row:
+ * on to the next widget the hop reaches, or back to the editor.
+ */
+export function hopOnward(place: HopPlace | undefined): string {
+	const next = place?.next;
+	return next === undefined
+		? `${DOCK_HOP_LABEL} back to the editor`
+		: `${DOCK_HOP_LABEL} to the ${next}`;
 }
 
 /** The rows beyond participants and notes a board can take: title and keys. */

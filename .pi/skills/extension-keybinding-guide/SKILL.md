@@ -20,10 +20,11 @@ codebase.
    through slash commands only. The only exceptions are
    `Ctrl+Alt+F` and `Ctrl+Alt+M` for panel height toggling,
    which must work during panel display, and `Ctrl+Alt+N`,
-   the hop chord, which moves the keys between the editor
-   and a widget docked above it. `panel-lifecycle-workflow`
-   registers the hop once for every package; a widget says
-   it with `DOCK_HOP_LABEL` and never registers its own.
+   the hop chord, which walks the keys from the editor
+   through each widget docked above it and back.
+   `panel-lifecycle-workflow` registers the hop once for
+   every package; a widget says it with `hopLabel` and its
+   handle's `hop()`, and never registers its own.
 
 2. **Numbers for views, letters for actions.** View switching
    keys (`1`, `2`, `3`) and action keys (`r`, `p`, `w`) live
@@ -54,8 +55,18 @@ runs. Until the hop reaches it, Escape belongs to pi and
 stops the turn. Once focused, the widget shows its keys and
 a cursor; up and down select, a letter acts on the selected
 row (`r` cancels), Escape cancels the whole job and gives
-the editor back, and the hop chord gives the editor back
-without doing anything. Ctrl+C and Ctrl+D always reach pi.
+the editor back, and the hop chord moves on without doing
+anything: to the next widget, or back to the editor from
+the last. Ctrl+C and Ctrl+D always reach pi.
+
+With more than one widget up, every footer counts from
+where the keys are now, so a widget two presses away says
+"Ctrl+Alt+N twice to manage", and the one holding the keys
+names what the next press reaches ("Ctrl+Alt+N to the
+fleet", "Ctrl+Alt+N back to the editor"). Give `dock` a
+`name` for that hint, and build the footer from `hop()` on
+every draw rather than once, since focus moves between
+draws.
 
 A gate from `promptSingle` or `promptTabbed` docks there too
 in a terminal, and does take the keyboard, since it is a
@@ -63,9 +74,10 @@ question waiting on its person: once it has been painted and
 the editor has gone untouched for half a second, then deaf to
 Enter and Escape for a moment so a key aimed at the editor
 cannot answer it. Its keys are the panel's own, unchanged.
-Its control row leads with the hop chord to the editor, and
-while the editor has the keys, its last row says how to come
-back. Gates outrank progress widgets for the hop.
+Its control row leads with the hop chord and what it
+reaches, the editor or the next widget, and while the keys
+are elsewhere its last row says how many presses bring them
+back. Gates come before progress widgets in the walk.
 
 ## The Universal Input Model
 

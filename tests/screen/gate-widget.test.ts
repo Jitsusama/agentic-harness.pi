@@ -381,6 +381,9 @@ describe("the hop chord on a gate", () => {
 		expect(await session.onScreen("MARK-body-3")).toBe(true);
 		expect(await session.onScreen("MARK-progress-19")).toBe(false);
 
+		// Gate, then the progress widget, then the editor, then the gate.
+		await session.key("ctrl+alt+n");
+		expect(session.editorFocused()).toBe(false);
 		await session.key("ctrl+alt+n");
 		expect(session.editorFocused()).toBe(true);
 		await session.key("ctrl+alt+n");

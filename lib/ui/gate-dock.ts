@@ -44,6 +44,7 @@ import {
 	DOCK_HOP_LABEL,
 	type Docked,
 	dock,
+	hopLabel,
 	isEditor,
 	lastKeyAt,
 	replacing,
@@ -138,16 +139,31 @@ export function dockGate<T>(
 	let shape: Shape = { ask: Number.POSITIVE_INFINITY, oneRow: false, floor: 0 };
 	let editing: string | undefined;
 
+	/**
+	 * The chord as this gate's hints say it: pressed once while the gate
+	 * has the keys, else as many times as reach it; and where it goes next.
+	 */
+	const hop = (focused: boolean): { hop: string; hopTo: string } => {
+		const place = docked?.hop();
+		return {
+			hop: focused
+				? DOCK_HOP_LABEL
+				: hopLabel(Math.max(1, place?.presses ?? 1)),
+			hopTo: place?.next ?? "editor",
+		};
+	};
+
 	/** The panel drawn at `width`, told it has `allot` rows and why. */
 	const draw = (at: number, allot: number, answered = false): string[] => {
 		const tui = docked?.tui;
 		if (tui === undefined) return [];
+		const focused = docked?.focused() ?? false;
 		const room: PanelRoom = {
 			rows: tui.terminal.rows,
 			allot,
 			answered,
-			hop: DOCK_HOP_LABEL,
-			focused: docked?.focused() ?? false,
+			...hop(focused),
+			focused,
 		};
 		return withPanelRoom(room, () => {
 			inner ??= factory(tui, theme, (result) => answer(result, "key"));
@@ -162,10 +178,11 @@ export function dockGate<T>(
 
 	/** The keys the small form offers, the way out to the editor first. */
 	const hints = (focused: boolean): string => {
-		if (!focused) return `${DOCK_HOP_LABEL} to answer`;
+		const { hop: chord, hopTo } = hop(focused);
+		if (!focused) return `${chord} to answer`;
 		if (editing !== undefined)
-			return `${DOCK_HOP_LABEL} editor · Enter submit · Esc back`;
-		return `${DOCK_HOP_LABEL} editor · Enter answer · Esc cancel`;
+			return `${chord} ${hopTo} · Enter submit · Esc back`;
+		return `${chord} ${hopTo} · Enter answer · Esc cancel`;
 	};
 
 	/**
@@ -327,7 +344,7 @@ export function dockGate<T>(
 					{
 						rows: tui.terminal.rows,
 						allot: shape.ask,
-						hop: DOCK_HOP_LABEL,
+						...hop(true),
 						focused: true,
 					},
 					() => inner?.handleInput?.(data),
@@ -337,6 +354,7 @@ export function dockGate<T>(
 		},
 		{
 			gate: true,
+			name: "gate",
 			repeats: "all",
 			onGone: () => answer(options.cancelled, "gone"),
 			onHop: (into) => {
