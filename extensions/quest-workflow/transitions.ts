@@ -132,7 +132,7 @@ async function dispatch(
 			return stageTransition(state, params.action, params, ctx);
 		case "conclude":
 		case "retire":
-			return concludeOrRetire(state, params.action, params, ctx);
+			return concludeOrRetire(state, params.action, params, ctx, signal);
 		case "reopen":
 			return reopenQuest(state);
 		case "top":
@@ -166,13 +166,13 @@ async function dispatch(
 		case "tree":
 			return tree(state, params);
 		case "tree-add":
-			return treeAdd(state, { ...params, cwd: params.cwd ?? ctx.cwd });
+			return treeAdd(state, { ...params, cwd: params.cwd ?? ctx.cwd }, signal);
 		case "tree-adopt":
 			return treeAdopt(state, { ...params, cwd: params.cwd ?? ctx.cwd });
 		case "tree-list":
 			return treeList(state);
 		case "tree-prune":
-			return treePrune(state, params);
+			return treePrune(state, params, signal);
 		case "tree-expand":
 			return treeExpand(state, params);
 		case "expand":

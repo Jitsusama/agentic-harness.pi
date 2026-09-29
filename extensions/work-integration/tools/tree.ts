@@ -541,7 +541,10 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 					if ("refusal" in outcome) {
 						return refuse(`${GLYPH.refused} ${outcome.refusal}`);
 					}
-					const held = await broker.ensure(outcome.request);
+					const held = await broker.ensure(
+						outcome.request,
+						signal ? { signal } : {},
+					);
 					const glyph = action === "snapshot" ? GLYPH.snapshot : GLYPH.tree;
 					// A worktree is where a build happens, so a Rust one starts from a
 					// sibling's target/ rather than compiling every dependency again.
@@ -850,7 +853,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 				if (blocked) {
 					return refuse(`${GLYPH.refused} ${blocked}`);
 				}
-				const gone = await broker.release(found);
+				const gone = await broker.release(found, signal ? { signal } : {});
 				if (gone.kind === "no-provider") {
 					// Said as a refusal because nothing happened. This used to
 					// report success, leaving a tree on disk, tracked by git, with

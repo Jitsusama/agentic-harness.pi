@@ -377,7 +377,10 @@ function readSessionsFromQuest(state: QuestState): QuestSession[] {
 	}
 }
 
-async function pruneAllTreesOnQuest(state: QuestState): Promise<{
+async function pruneAllTreesOnQuest(
+	state: QuestState,
+	signal?: AbortSignal,
+): Promise<{
 	pruned: string[];
 	blocked: { path: string; reason: string }[];
 }> {
@@ -393,6 +396,9 @@ async function pruneAllTreesOnQuest(state: QuestState): Promise<{
 		// must never delete them; they are released deliberately with
 		// tree-prune.
 		if (tree.origin !== "scaffolded") continue;
+		// Stopped: the rest are left standing rather than each handed a
+		// signal that has already fired.
+		if (signal?.aborted) break;
 		// Re-read the live session list immediately before each prune
 		// rather than from one snapshot taken before the loop: the
 		// awaits below yield the event loop, so another session can
@@ -415,7 +421,10 @@ async function pruneAllTreesOnQuest(state: QuestState): Promise<{
 			continue;
 		}
 		try {
-			await provider.prune({ path: tree.path });
+			await provider.prune({
+				path: tree.path,
+				...(signal ? { signal } : {}),
+			});
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			blocked.push({ path: tree.path, reason: message });
@@ -519,6 +528,7 @@ export async function concludeOrRetire(
 	action: "conclude" | "retire",
 	params: QuestToolParams,
 	ctx: ExtensionContext,
+	signal?: AbortSignal,
 ): Promise<QuestResult> {
 	// An explicit id targets that id rather than the loaded quest, so
 	// naming an id never silently falls through to the loaded quest.
@@ -594,7 +604,18 @@ export async function concludeOrRetire(
 	// Prune before flipping status so a prune that cannot complete
 	// leaves the quest in its prior state with the blocked trees
 	// recorded, rather than sealing a still-active quest.
-	const { pruned, blocked } = await pruneAllTreesOnQuest(state);
+	const { pruned, blocked } = await pruneAllTreesOnQuest(state, signal);
+	// Stopped mid-prune is the person taking the seal back, so the quest
+	// stays as it was. A tree already removed stays removed, and says so.
+	if (signal?.aborted) {
+		const gone =
+			pruned.length > 0
+				? ` ${count(pruned.length, "tree")} already pruned: ${pruned.join(", ")}.`
+				: "";
+		return refuse(
+			`Stopped while pruning trees, so ${state.questId} was not ${action === "conclude" ? "concluded" : "retired"}.${gone}`,
+		);
+	}
 	// Capture the pre-seal status and priority so the seal can be
 	// journalled and reversed by undo, the same way the bulk path is.
 	const priorStatus = state.questStatus ?? "active";
