@@ -116,75 +116,102 @@ export function paneIdFromSpawn(stdout: string): string | undefined {
 	return /^\d+$/.test(trimmed) ? trimmed : undefined;
 }
 
-export const wezterm: TerminalDriver &
-	TerminalLivenessCapability &
-	TerminalTypeCapability = {
-	id: "wezterm",
-	async available() {
-		return isOnPath("wezterm");
-	},
-	async spawn(request) {
-		const args = buildArgs(request);
-		// Wait for the cli to finish rather than detaching, so its
-		// stdout can be read: it prints the new pane id, and without
-		// that the caller has no way to name what it just created. The
-		// cli returns as soon as the mux has spawned the pane, so this
-		// does not wait on the pane's own lifetime.
-		try {
-			const { stdout } = await execFileAsync("wezterm", args);
-			const pane = paneIdFromSpawn(stdout);
+/**
+ * How long one `wezterm cli` call may take.
+ *
+ * The cli answers as soon as the mux has acted, well under a second.
+ * One that has not answered in ten is talking to a mux that is wedged
+ * or to a socket a dead one left behind, and it would otherwise hold
+ * the quest call that asked, and every quest call queued behind it,
+ * for as long as the socket stayed open.
+ */
+export const WEZTERM_CLI_TIMEOUT_MS = 10_000;
+
+/** What a wezterm driver can be built with. */
+export interface WeztermDriverOptions {
+	/** How long one cli call may take. Defaults to WEZTERM_CLI_TIMEOUT_MS. */
+	readonly cliTimeoutMs?: number;
+}
+
+/** A wezterm driver whose cli calls end at the given clock. */
+export function createWeztermDriver(
+	options: WeztermDriverOptions = {},
+): TerminalDriver & TerminalLivenessCapability & TerminalTypeCapability {
+	const timeout = options.cliTimeoutMs ?? WEZTERM_CLI_TIMEOUT_MS;
+	return {
+		id: "wezterm",
+		async available() {
+			return isOnPath("wezterm");
+		},
+		async spawn(request) {
+			const args = buildArgs(request);
+			// Wait for the cli to finish rather than detaching, so its
+			// stdout can be read: it prints the new pane id, and without
+			// that the caller has no way to name what it just created. The
+			// cli returns as soon as the mux has spawned the pane, so this
+			// does not wait on the pane's own lifetime.
+			try {
+				const { stdout } = await execFileAsync("wezterm", args, { timeout });
+				const pane = paneIdFromSpawn(stdout);
+				if (!pane) return undefined;
+				return {
+					driverId: "wezterm",
+					kind: "wezterm-pane",
+					hostId: hostname(),
+					value: pane,
+					...(process.env.WEZTERM_UNIX_SOCKET
+						? { scope: process.env.WEZTERM_UNIX_SOCKET }
+						: {}),
+				};
+			} catch (error) {
+				// A spawn that failed is worth reporting: the caller asked for
+				// a surface and has not got one.
+				throw error instanceof Error ? error : new Error(String(error));
+			}
+		},
+		async typeInto(handle, text) {
+			// --no-paste sends the text as individual keystrokes rather than
+			// a bracketed paste, so the shell treats it as typed input and
+			// runs it on the newline.
+			await execFileAsync(
+				"wezterm",
+				["cli", "send-text", "--pane-id", handle.value, "--no-paste", text],
+				{ env: process.env, timeout },
+			);
+		},
+		identifyCurrent() {
+			const pane = process.env.WEZTERM_PANE;
 			if (!pane) return undefined;
 			return {
 				driverId: "wezterm",
 				kind: "wezterm-pane",
 				hostId: hostname(),
+				scope: process.env.WEZTERM_UNIX_SOCKET,
 				value: pane,
-				...(process.env.WEZTERM_UNIX_SOCKET
-					? { scope: process.env.WEZTERM_UNIX_SOCKET }
-					: {}),
 			};
-		} catch (error) {
-			// A spawn that failed is worth reporting: the caller asked for
-			// a surface and has not got one.
-			throw error instanceof Error ? error : new Error(String(error));
-		}
-	},
-	async typeInto(handle, text) {
-		// --no-paste sends the text as individual keystrokes rather than
-		// a bracketed paste, so the shell treats it as typed input and
-		// runs it on the newline.
-		await execFileAsync(
-			"wezterm",
-			["cli", "send-text", "--pane-id", handle.value, "--no-paste", text],
-			{ env: process.env },
-		);
-	},
-	identifyCurrent() {
-		const pane = process.env.WEZTERM_PANE;
-		if (!pane) return undefined;
-		return {
-			driverId: "wezterm",
-			kind: "wezterm-pane",
-			hostId: hostname(),
-			scope: process.env.WEZTERM_UNIX_SOCKET,
-			value: pane,
-		};
-	},
-	async probe(handles, signal) {
-		const observation = await observePanes(signal);
-		return classifyWeztermPanes(handles, observation);
-	},
-};
+		},
+		async probe(handles, signal) {
+			const observation = await observePanes(timeout, signal);
+			return classifyWeztermPanes(handles, observation);
+		},
+	};
+}
+
+/** The wezterm driver, on the default cli clock. */
+export const wezterm = createWeztermDriver();
 
 /** Read the live pane set from the wezterm mux, or report it unreachable. */
-async function observePanes(signal?: AbortSignal): Promise<WeztermObservation> {
+async function observePanes(
+	timeout: number,
+	signal?: AbortSignal,
+): Promise<WeztermObservation> {
 	const socket = process.env.WEZTERM_UNIX_SOCKET;
 	if (!socket) return { reachable: false };
 	try {
 		const { stdout } = await execFileAsync(
 			"wezterm",
 			["cli", "list", "--format", "json"],
-			{ signal },
+			{ signal, timeout },
 		);
 		const panes = JSON.parse(stdout) as Array<{ pane_id?: unknown }>;
 		const live = new Set<string>();

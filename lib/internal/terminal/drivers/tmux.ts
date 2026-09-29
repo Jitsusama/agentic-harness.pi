@@ -66,23 +66,51 @@ function buildArgs(request: TerminalRequest): string[] {
 	return args;
 }
 
-export const tmux: TerminalDriver = {
-	id: "tmux",
-	async available() {
-		if (!process.env.TMUX) return false;
-		return tmuxOnPath();
-	},
-	async spawn(request) {
-		const args = buildArgs(request);
-		await new Promise<void>((resolve, reject) => {
-			const child = nodeSpawn("tmux", args, {
-				stdio: "ignore",
+/**
+ * How long one tmux client call may take.
+ *
+ * A new-window or split-window answers as soon as the server has acted.
+ * One that has not answered in ten seconds is talking to a server that
+ * is wedged, and it would otherwise hold the quest call that asked, and
+ * every quest call queued behind it.
+ */
+export const TMUX_CLI_TIMEOUT_MS = 10_000;
+
+/** What a tmux driver can be built with. */
+export interface TmuxDriverOptions {
+	/** How long one client call may take. Defaults to TMUX_CLI_TIMEOUT_MS. */
+	readonly cliTimeoutMs?: number;
+}
+
+/** A tmux driver whose client calls end at the given clock. */
+export function createTmuxDriver(
+	options: TmuxDriverOptions = {},
+): TerminalDriver {
+	const timeout = options.cliTimeoutMs ?? TMUX_CLI_TIMEOUT_MS;
+	return {
+		id: "tmux",
+		async available() {
+			if (!process.env.TMUX) return false;
+			return tmuxOnPath();
+		},
+		async spawn(request) {
+			const args = buildArgs(request);
+			await new Promise<void>((resolve, reject) => {
+				const child = nodeSpawn("tmux", args, {
+					stdio: "ignore",
+					timeout,
+				});
+				child.on("error", reject);
+				child.on("exit", (code) => {
+					if (code === 0) resolve();
+					else if (code === null) {
+						reject(new Error(`tmux did not answer within ${timeout}ms`));
+					} else reject(new Error(`tmux exited with code ${code}`));
+				});
 			});
-			child.on("error", reject);
-			child.on("exit", (code) => {
-				if (code === 0) resolve();
-				else reject(new Error(`tmux exited with code ${code}`));
-			});
-		});
-	},
-};
+		},
+	};
+}
+
+/** The tmux driver, on the default client clock. */
+export const tmux = createTmuxDriver();
