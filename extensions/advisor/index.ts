@@ -226,17 +226,27 @@ export default function advisor(pi: ExtensionAPI) {
 		// review, which sees it in the accumulated delta.
 		if (!enabled || reviewing) return;
 		reviewing = true;
-		try {
-			await review(ctx);
-		} catch {
-			// The advisor is advisory: a failure in it must never
-			// disturb the turn it was watching.
-		} finally {
-			reviewing = false;
-		}
+		// The loop awaits this handler before its next model call, so
+		// the review runs beside the turns that follow rather than in
+		// front of them, which held each reviewed turn back for up to a
+		// minute. Its notes arrive as messages whenever it answers. The
+		// run's signal is read now, since the context answers with
+		// whichever run is current when asked.
+		const run = ctx.signal;
+		void review(ctx, run)
+			.catch(() => {
+				// The advisor is advisory: a failure in it must never
+				// disturb the turn it was watching.
+			})
+			.finally(() => {
+				reviewing = false;
+			});
 	});
 
-	async function review(ctx: ExtensionContext): Promise<void> {
+	async function review(
+		ctx: ExtensionContext,
+		run: AbortSignal | undefined,
+	): Promise<void> {
 		const entries = ctx.sessionManager.getEntries();
 		// Self-heal: a shorter transcript than last seen means it was
 		// rewritten, so the old cursor and context no longer apply.
@@ -269,7 +279,10 @@ export default function advisor(pi: ExtensionAPI) {
 		const startedAt = Date.now();
 		// Bound the whole review: without a signal a stalled model
 		// call or a wedged search tool would hang the review forever.
-		const signal = AbortSignal.timeout(REVIEW_TIMEOUT_MS);
+		// Stopping the run it watched stops it too, since a review of
+		// work the person just halted is not one they are waiting on.
+		const clock = AbortSignal.timeout(REVIEW_TIMEOUT_MS);
+		const signal = run ? AbortSignal.any([clock, run]) : clock;
 		const result = await runInvestigation(ctx.modelRegistry, {
 			systemPrompt: advisorCharter(),
 			messages,

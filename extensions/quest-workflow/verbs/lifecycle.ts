@@ -170,6 +170,7 @@ export async function create(
 	state: QuestState,
 	pi: ExtensionAPI,
 	params: QuestToolParams,
+	signal?: AbortSignal,
 ): Promise<QuestResult> {
 	const kind = (params.kind ?? "sidequest") as QuestKind;
 	if (!QUEST_KINDS_SET.has(kind)) {
@@ -202,7 +203,10 @@ export async function create(
 			);
 		}
 		seededAlias = { type: ref.type, value: ref.value };
-		const hints = await fetchUrlHints(ref);
+		// The call's signal goes to the fetch, so a person who stops a
+		// create waiting on gh stops gh too, and quest's next call is not
+		// left queued behind it.
+		const hints = await fetchUrlHints(ref, signal ? { signal } : {});
 		if (hints) {
 			if (!seededTitle && hints.title) seededTitle = hints.title;
 			seededExcerpt = hints.excerpt;

@@ -37,6 +37,7 @@ import {
 } from "../../lib/verification/index.ts";
 import {
 	createVerificationState,
+	FAST_LAYER_WALL_MS,
 	MAX_FIX_ATTEMPTS,
 	type VerificationState,
 } from "./state.ts";
@@ -93,7 +94,17 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 			return;
 		}
 
-		const { errors, failed } = await collectErrors(backend, files);
+		// Read the run now: the context answers with whichever run is
+		// current when asked.
+		const run = ctx.signal;
+		const { errors, failed } = await collectErrors(backend, files, run);
+		if (run?.aborted) {
+			// Stopped by the person, so nothing was checked and nobody
+			// wants the agent to carry on with a fix.
+			state.outcome = "deferred";
+			refreshStatus(ctx, state);
+			return;
+		}
 		const tddPhase =
 			getLastEntry<{ phase?: string }>(ctx, "tdd-workflow")?.phase ?? "idle";
 		const verdict = fastLayerVerdict({
@@ -186,20 +197,56 @@ interface DiagnosticsResult {
 	readonly failed: boolean;
 }
 
+/**
+ * The error-severity diagnostics on each file, within the fast layer's
+ * wall and until the run is stopped. A backend may ignore the signal
+ * it is handed, so each call is also raced against it.
+ */
 async function collectErrors(
-	backend: { diagnostics: (path: string) => Promise<readonly unknown[]> },
+	backend: {
+		diagnostics: (
+			path: string,
+			options?: { signal?: AbortSignal },
+		) => Promise<readonly unknown[]>;
+	},
 	files: readonly string[],
+	run: AbortSignal | undefined,
+): Promise<DiagnosticsResult> {
+	const outOfTime = new AbortController();
+	const clock = setTimeout(() => outOfTime.abort(), FAST_LAYER_WALL_MS);
+	const signal = run
+		? AbortSignal.any([outOfTime.signal, run])
+		: outOfTime.signal;
+	try {
+		return await collectWithin(backend, files, signal);
+	} finally {
+		clearTimeout(clock);
+	}
+}
+
+async function collectWithin(
+	backend: Parameters<typeof collectErrors>[0],
+	files: readonly string[],
+	signal: AbortSignal,
 ): Promise<DiagnosticsResult> {
 	const errors: FileError[] = [];
 	let failed = false;
 	for (const path of files) {
+		if (signal.aborted) {
+			// Out of time or stopped: the files left were never checked.
+			failed = true;
+			break;
+		}
 		let diagnostics: readonly unknown[];
 		try {
-			diagnostics = await backend.diagnostics(path);
+			diagnostics = await untilStopped(
+				backend.diagnostics(path, { signal }),
+				signal,
+			);
 		} catch {
-			// The server errored for a file it was expected to serve.
-			// Remember that so the caller does not report "clean" for a
-			// check that never actually ran.
+			// The server errored, ran out of time or was stopped for a
+			// file it was expected to serve. Remember that so the caller
+			// does not report "clean" for a check that never actually ran.
 			failed = true;
 			continue;
 		}
@@ -219,6 +266,17 @@ async function collectErrors(
 		}
 	}
 	return { errors, failed };
+}
+
+/** The work's answer, or a rejection as soon as the signal stops it. */
+function untilStopped<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+	return new Promise<T>((resolve, reject) => {
+		const stop = (): void => reject(new Error("stopped"));
+		signal.addEventListener("abort", stop, { once: true });
+		work.then(resolve, reject).finally(() => {
+			signal.removeEventListener("abort", stop);
+		});
+	});
 }
 
 function refreshStatus(ctx: ExtensionContext, state: VerificationState): void {

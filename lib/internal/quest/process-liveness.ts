@@ -71,10 +71,22 @@ export interface ProbeProcessDeps {
  * is gone; a missing `ps` or any other failure is unknown, so an
  * inability to probe never reads as death.
  */
+/**
+ * How long one `ps` or `sysctl` probe may take.
+ *
+ * These run synchronously, so while one waits nothing in pi renders or
+ * reads a key. Each answers in milliseconds; one silent at three
+ * seconds is not going to answer. A probe that runs out the clock has
+ * no exit status, which reads as unknown, so a slow machine can never
+ * declare a live session dead.
+ */
+export const PROBE_TIMEOUT_MS = 3000;
+
 function readStartToken(pid: number): ProcessInspection {
 	try {
 		const stdout = execFileSync("ps", ["-o", "lstart=", "-p", String(pid)], {
 			encoding: "utf8",
+			timeout: PROBE_TIMEOUT_MS,
 		});
 		return interpretPsLookup({
 			spawned: true,
@@ -225,6 +237,7 @@ function readBootToken(): string | undefined {
 		return nonEmpty(
 			execFileSync("sysctl", ["-n", "kern.bootsessionuuid"], {
 				encoding: "utf8",
+				timeout: PROBE_TIMEOUT_MS,
 			}),
 		);
 	} catch {

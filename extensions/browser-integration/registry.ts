@@ -15,6 +15,10 @@ import {
 	BrowserSession,
 	type SessionOptions,
 } from "@jitsusama/agentic-harness.core/web/session";
+import {
+	type AsyncMutex,
+	createMutex,
+} from "../../lib/internal/async-mutex.ts";
 import { dataDir } from "../../lib/internal/paths.ts";
 
 /**
@@ -79,14 +83,54 @@ export interface SessionRegistry {
 	 * it was opened with.
 	 */
 	acquire(name: string, options?: SessionOptions): Promise<BrowserSession>;
+	/**
+	 * Run one call's work on a session, in its turn.
+	 *
+	 * Calls on one session take turns, so two parallel calls never act
+	 * on the same page at once; calls on different sessions run side by
+	 * side. The signal stops the call: one still waiting leaves the
+	 * queue without running, and one already running is answered with
+	 * an `AbortError` at once, while the next call waits for the browser
+	 * to finish what the stopped one asked of it, since the browser's
+	 * operations cannot themselves be stopped part-way. A session is
+	 * never reaped while a call on it runs.
+	 */
+	use<T>(
+		name: string,
+		signal: AbortSignal | undefined,
+		work: () => Promise<T>,
+	): Promise<T>;
 	/** Close one session; false when none was open. */
 	close(name: string): Promise<boolean>;
 	/** Close every session and the shared browser. */
 	disposeAll(): Promise<void>;
 }
 
+/** What a registry is built over; the defaults are the real browser. */
+export interface RegistryOptions {
+	/** Open a session under a name. */
+	open?: (name: string, options?: SessionOptions) => Promise<BrowserSession>;
+	/** How long a session may sit unused before it is closed. */
+	idleTimeoutMs?: number;
+}
+
 /** Build a registry of idle-disposing named sessions. */
-export function createSessionRegistry(): SessionRegistry {
+export function createSessionRegistry(
+	config: RegistryOptions = {},
+): SessionRegistry {
+	const openSession =
+		config.open ??
+		((name: string, options?: SessionOptions) =>
+			BrowserSession.open(name, { dataRoot: DATA_ROOT, ...options }));
+	const idleTimeoutMs = config.idleTimeoutMs ?? IDLE_TIMEOUT_MS;
+	// Kept per name for the registry's life, closes included, so a call
+	// still finishing on a closed session is waited for by the first call
+	// on the session that replaces it.
+	const turns = new Map<string, AsyncMutex>();
+	// Calls running per name. The session itself only knows when it last
+	// did something, and a call parked in one long wait does nothing for
+	// as long as it waits.
+	const running = new Map<string, number>();
 	const sessions = new Map<string, Held>();
 	// Bounded, so a long conversation that opens many sessions does
 	// not accumulate names for ever.
@@ -113,8 +157,12 @@ export function createSessionRegistry(): SessionRegistry {
 			// masked whichever error actually happened.
 			void held.opening
 				.then(async (session) => {
+					if ((running.get(name) ?? 0) > 0) {
+						touch(name, held);
+						return;
+					}
 					const quietFor = Date.now() - session.lastUsedAt;
-					if (quietFor < IDLE_TIMEOUT_MS) {
+					if (quietFor < idleTimeoutMs) {
 						touch(name, held);
 						return;
 					}
@@ -127,7 +175,7 @@ export function createSessionRegistry(): SessionRegistry {
 					// either way there is nothing left to reap.
 					sessions.delete(name);
 				});
-		}, IDLE_TIMEOUT_MS);
+		}, idleTimeoutMs);
 		held.idle.unref?.();
 	};
 
@@ -151,10 +199,7 @@ export function createSessionRegistry(): SessionRegistry {
 				return existing.opening;
 			}
 			const held: Held = {
-				opening: BrowserSession.open(name, {
-					dataRoot: DATA_ROOT,
-					...options,
-				}),
+				opening: openSession(name, options),
 			};
 			departed.delete(name);
 			sessions.set(name, held);
@@ -167,6 +212,32 @@ export function createSessionRegistry(): SessionRegistry {
 				sessions.delete(name);
 				throw err;
 			}
+		},
+
+		use(name, signal, work) {
+			let turn = turns.get(name);
+			if (!turn) {
+				turn = createMutex();
+				turns.set(name, turn);
+			}
+			const call = turn.runExclusive(
+				async () => {
+					running.set(name, (running.get(name) ?? 0) + 1);
+					try {
+						return await work();
+					} finally {
+						const still = (running.get(name) ?? 1) - 1;
+						if (still > 0) running.set(name, still);
+						else running.delete(name);
+						// The idle stretch starts over from here, not from
+						// whenever the reaper last looked.
+						const held = sessions.get(name);
+						if (held) touch(name, held);
+					}
+				},
+				signal ? { signal } : {},
+			);
+			return signal ? answerStop(call, signal) : call;
 		},
 
 		async close(name) {
@@ -189,4 +260,39 @@ export function createSessionRegistry(): SessionRegistry {
 			await closeBrowser();
 		},
 	};
+}
+
+/**
+ * The call's outcome, or an `AbortError` the moment the signal stops,
+ * whether the call is still queued or already running. The turn goes
+ * on holding the session until the call's work settles.
+ */
+function answerStop<T>(call: Promise<T>, signal: AbortSignal): Promise<T> {
+	return new Promise<T>((resolve, reject) => {
+		const onAbort = (): void => {
+			// The turn still owns the call's outcome; this caller has left.
+			call.catch(() => undefined);
+			reject(stopped(signal));
+		};
+		signal.addEventListener("abort", onAbort, { once: true });
+		call.then(
+			(value) => {
+				signal.removeEventListener("abort", onAbort);
+				resolve(value);
+			},
+			(error: unknown) => {
+				signal.removeEventListener("abort", onAbort);
+				reject(error);
+			},
+		);
+	});
+}
+
+/** The error a stopped browser call answers with. */
+function stopped(signal: AbortSignal): Error {
+	const reason: unknown = signal.reason;
+	if (reason instanceof Error && reason.name === "AbortError") return reason;
+	const error = new Error("The browser call was stopped.");
+	error.name = "AbortError";
+	return error;
 }

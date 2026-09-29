@@ -8,6 +8,7 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { bounded as clocked } from "@jitsusama/agentic-harness.core/clock";
 import type {
 	ActionParams,
 	ToolResult,
@@ -17,6 +18,7 @@ import {
 	openSessionStore,
 } from "@jitsusama/agentic-harness.core/result";
 import type { OAuth2Client } from "google-auth-library";
+import { GOOGLE_READ_WALL_MS } from "./limits.ts";
 import {
 	handleCheckAvailability,
 	handleCreateEvent,
@@ -75,12 +77,37 @@ const ACTION_HANDLERS = new Map<string, ActionHandler>([
 	["list_shared_drives", (_params, auth) => handleListSharedDrives(auth)],
 ]);
 
-/** Route a tool action to the appropriate handler. */
+/**
+ * The actions that only read.
+ *
+ * A read is safe to walk away from, so it answers a stop at once and
+ * is held to a clock across all its requests. A write is not: a stop
+ * cannot say whether it landed, so it runs to Google's answer, which
+ * core's request clock bounds. Every confirmation gate sits on a write,
+ * so a gate is never left on screen by a read that was stopped.
+ */
+const READS = new Set([
+	"search_emails",
+	"get_email",
+	"get_thread",
+	"list_events",
+	"get_event",
+	"check_availability",
+	"list_files",
+	"get_file",
+	"list_shared_drives",
+]);
+
+/**
+ * Route a tool action to the appropriate handler. A read ends when the
+ * signal fires or its clock runs out; a write runs to its answer.
+ */
 export async function routeAction(
 	action: string,
 	params: ActionParams,
 	auth: OAuth2Client,
 	ctx: ExtensionContext,
+	signal?: AbortSignal,
 ): Promise<ToolResult> {
 	const handler = ACTION_HANDLERS.get(action);
 
@@ -95,7 +122,15 @@ export async function routeAction(
 	// calendar sweep or a Drive listing can each be thousands of
 	// records; a document body is one record and passes through
 	// untouched.
-	return bounded(await handler(params, auth, ctx));
+	const work = handler(params, auth, ctx);
+	const answer = READS.has(action)
+		? await clocked(work, {
+				...(signal ? { signal } : {}),
+				wallMs: GOOGLE_READ_WALL_MS,
+				what: `Google's answer to ${action}`,
+			})
+		: await work;
+	return bounded(answer);
 }
 
 /** How a caller asks Google Workspace for a smaller answer. */

@@ -73,6 +73,15 @@ const SUMMARY_SHARE_OF_RESERVE = 0.8;
  */
 const ASSUMED_RESERVE_TOKENS = 64_000;
 
+/**
+ * How long one summary may take to write. A summary written ahead runs
+ * where nobody sees it, so a model that stops answering would leave it
+ * writing for good, and any compaction that came to wait on it too.
+ * This sits a little past what the cap takes at about 80 tokens a
+ * second, so only a stalled call reaches it.
+ */
+export const SUMMARY_WALL_MS = 12 * 60_000;
+
 /** How long Anthropic keeps a cache entry under each retention pi asks for. */
 const CACHE_LIFETIME_MS = { long: 60 * 60_000, short: 5 * 60_000 } as const;
 
@@ -295,7 +304,7 @@ export function registerConversationSummary(
 					if (!result.ok) {
 						pi.appendEntry(AHEAD_UNUSED_ENTRY, { reason: result.reason });
 					} else {
-						for (const listener of readyListeners) listener(ctx);
+						for (const listener of readyListeners) tell(listener, ctx);
 					}
 					return result;
 				}),
@@ -347,8 +356,38 @@ function plan(ctx: ExtensionContext, sent: SentRequest | null): Planned {
 	return { ok: true, model, sent, tail: tail.messages };
 }
 
-/** Ask the cached conversation for its summary. */
+/**
+ * Ask the cached conversation for its summary, within the summary's
+ * clock. It answers with a failure rather than rejecting, since a
+ * summary written ahead is awaited by nobody until a compaction comes,
+ * and a rejection nobody handles ends pi.
+ */
 async function write(
+	ctx: ExtensionContext,
+	planned: Extract<Planned, { ok: true }>,
+	options: { instruction: string; maxTokens: number; signal: AbortSignal },
+): Promise<Written> {
+	const outOfTime = new AbortController();
+	const clock = setTimeout(() => outOfTime.abort(), SUMMARY_WALL_MS);
+	const signal = AbortSignal.any([options.signal, outOfTime.signal]);
+	let written: Written;
+	try {
+		written = await writeUntil(ctx, planned, { ...options, signal });
+	} catch (error) {
+		written = { ok: false, reason: describe(error) };
+	} finally {
+		clearTimeout(clock);
+	}
+	if (!written.ok && outOfTime.signal.aborted) {
+		return {
+			ok: false,
+			reason: `the summary was not written within ${SUMMARY_WALL_MS / 60_000} minutes`,
+		};
+	}
+	return written;
+}
+
+async function writeUntil(
 	ctx: ExtensionContext,
 	planned: Extract<Planned, { ok: true }>,
 	options: { instruction: string; maxTokens: number; signal: AbortSignal },
@@ -502,6 +541,23 @@ function checkpoint(
 			waitedMs: how.waitedMs,
 		},
 	};
+}
+
+/**
+ * Tell one listener a summary is ready. What it does with the news is
+ * its own business, so a listener that throws neither keeps the rest
+ * from hearing it nor rejects the write, which nobody awaits.
+ */
+function tell(
+	listener: (ctx: ExtensionContext) => void,
+	ctx: ExtensionContext,
+): void {
+	try {
+		listener(ctx);
+	} catch {
+		// Deliberately dropped: the summary is ready either way, and
+		// there is nobody to hand a listener's failure to.
+	}
 }
 
 /** The summary being written, or a failure once the compaction is cancelled. */

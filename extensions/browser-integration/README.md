@@ -101,7 +101,8 @@ The extension registers the tools; the skills teach the method.
 
 - `index.ts` registers the four tools and the session registry
 - `go.ts`, `see.ts`, `do.ts`, `check.ts`: one file per verb
-- `registry.ts`: named sessions and their lifetimes
+- `registry.ts`: named sessions, their turns and their lifetimes
+- `limits.ts`: how long a call may ask the page to keep at something
 - `result.ts`: the one answer shape all four return
 - `render.ts`: how calls and results read in the transcript
 
@@ -116,6 +117,18 @@ session bundle directory and the answer carries the paths, since
 a large image in a transcript costs more than it explains.
 `see status` lists everything written, because a file in an
 unnamed temporary directory is unopenable.
+
+Calls on one session take turns, so two parallel calls never act
+on the same page at once; calls on different sessions run side by
+side. Escape stops a call at once, whether it is waiting its turn
+or running. A running call's browser work cannot be stopped
+part-way, so the next call on that session waits for it to finish.
+That is why a wait, a long press and a profile are bounded at two
+minutes, two minutes and one minute, and a keyboard walk at 4000
+stops; an ask beyond a bound is refused rather than shortened.
+`browser_go close` takes no turn, so it can put down a session
+whose call is stuck. A session is never reaped while a call on it
+runs, and its idle clock starts over when the call finishes.
 
 Each session gets its own browser context. Anything context
 shaped, downloads and clipboard permissions among them, carries
