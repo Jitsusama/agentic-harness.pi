@@ -8,6 +8,7 @@
 
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { isAbort } from "@jitsusama/agentic-harness.core/clock";
 import {
 	clearAllConfig,
 	formatAuthError,
@@ -199,7 +200,7 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 			),
 		}),
 
-		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 			const { action, account: accountName } = params;
 
 			// Pi wants `details` present on every result; the router treats
@@ -208,9 +209,18 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 			// router's own return sites.
 			try {
 				const auth = await getClient(ctx, accountName as string | undefined);
-				const result = await routeAction(action as string, params, auth, ctx);
+				const result = await routeAction(
+					action as string,
+					params,
+					auth,
+					ctx,
+					signal,
+				);
 				return { content: result.content, details: result.details };
 			} catch (error) {
+				// A stop is not an API error to report: it throws, which is how
+				// pi marks a call that was stopped rather than one that answered.
+				if (isAbort(error)) throw error;
 				return {
 					content: [
 						{
