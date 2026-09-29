@@ -37,7 +37,7 @@ import {
 	type TUI,
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
-import { focusedIn, roomForDock } from "./pi-layout.ts";
+import { findEditor, focusedIn, roomForDock } from "./pi-layout.ts";
 
 /**
  * The chord that moves focus from the editor through every widget that
@@ -615,34 +615,6 @@ export function hopIntoDock(): void {
 /** Whether any widget that takes keys is docked, in any copy. */
 export function dockHasFocusable(): boolean {
 	return shared().entries.some((one) => one.focusable);
-}
-
-/** Pi's editor, found in the tree when focus never came from it. */
-export function findEditor(tui: TUI): Component | null {
-	const walk = (component: Component): Component | undefined => {
-		if (isEditor(component)) return component;
-		const children = Reflect.get(component, "children");
-		if (!Array.isArray(children)) return undefined;
-		for (const child of children) {
-			const found = walk(child);
-			if (found) return found;
-		}
-		return undefined;
-	};
-	for (const child of tui.children) {
-		const found = walk(child);
-		if (found) return found;
-	}
-	return null;
-}
-
-/** An editor, by the surface pi's editor slot requires. */
-export function isEditor(component: Component): boolean {
-	return (
-		typeof Reflect.get(component, "getText") === "function" &&
-		typeof Reflect.get(component, "setText") === "function" &&
-		typeof Reflect.get(component, "handleInput") === "function"
-	);
 }
 
 /**

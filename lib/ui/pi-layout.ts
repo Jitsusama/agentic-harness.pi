@@ -13,8 +13,9 @@
  * that can still change.
  *
  * Answering needs pi's component tree and two of its component classes,
- * none of which are pi's public API. The component holding focus is read
- * here too, for the same reason. They are read here and nowhere else,
+ * none of which are pi's public API. The component holding focus and
+ * where pi's editor sits in the tree are read here too, for the same
+ * reason. They are read here and nowhere else,
  * so a pi that moves them breaks one module, and
  * `tests/screen/pi-layout.test.ts` boots the real pi to say so before a
  * person sees a widget drawn at the wrong height. When the tree is not the
@@ -205,6 +206,38 @@ export function focusedIn(tui: TUI): Component | null {
 	if (typeof read !== "function") return null;
 	const focused: unknown = read.call(tui);
 	return isComponent(focused) ? focused : null;
+}
+
+/**
+ * Pi's editor, found in its component tree, for when focus never came
+ * from it and the keys still have to go back to it. Null when the tree
+ * holds no editor this recognises.
+ */
+export function findEditor(tui: TUI): Component | null {
+	const walk = (component: Component): Component | undefined => {
+		if (isEditor(component)) return component;
+		const children = Reflect.get(component, "children");
+		if (!Array.isArray(children)) return undefined;
+		for (const child of children) {
+			const found = walk(child);
+			if (found) return found;
+		}
+		return undefined;
+	};
+	for (const child of tui.children) {
+		const found = walk(child);
+		if (found) return found;
+	}
+	return null;
+}
+
+/** An editor, by the surface pi's editor slot requires. */
+export function isEditor(component: Component): boolean {
+	return (
+		typeof Reflect.get(component, "getText") === "function" &&
+		typeof Reflect.get(component, "setText") === "function" &&
+		typeof Reflect.get(component, "handleInput") === "function"
+	);
 }
 
 /**

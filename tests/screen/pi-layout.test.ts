@@ -15,6 +15,7 @@ import { type Component, Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+	findEditor,
 	focusedIn,
 	markSettling,
 	roomForDock,
@@ -90,6 +91,18 @@ describe("reading pi's screen", () => {
 		expect(focused).not.toBeNull();
 		expect(focused).toBe(pi.focused());
 		expect(pi.editorFocused()).toBe(true);
+	});
+
+	// Every way out of a widget hands the keys back to this, so a pi that
+	// moved its editor would strand them on nothing.
+	it("finds pi's editor in its tree while something else holds the keyboard", async () => {
+		pi = await bootPi({ cols: COLS, rows: ROWS, extensions: [holdingTool] });
+		const editor = pi.focused();
+		pi.tui.setFocus(new Text("elsewhere", 0, 0));
+
+		expect(pi.editorFocused()).toBe(false);
+		expect(findEditor(pi.tui)).not.toBeNull();
+		expect(findEditor(pi.tui)).toBe(editor);
 	});
 
 	it("finds it after a turn, and gives back what a finished turn held", async () => {
