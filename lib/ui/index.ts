@@ -102,6 +102,8 @@ export {
 	type ToggleRow,
 	type ToggleSection,
 } from "./prompt-toggle-list.ts";
+// ── Submit chord ────────────────────────────────────────────
+export { isSubmitKey, submitKeyLabel } from "./submit-key.ts";
 // ── Text layout ─────────────────────────────────────────────
 export { contentWrapWidth, wordWrap } from "./text-layout.ts";
 // ── Tool call lines ───────────────────────────────────

@@ -587,7 +587,7 @@ and apply across all panels and workspaces that use them.
 
 | Key | Component | Action |
 |---|---|---|
-| `Ctrl+Enter` | prompt-workspace | Submit workspace |
+| `Ctrl+Enter`, `Ctrl+S` | prompt-workspace, prompt-tabbed, prompt-toggle-list | Submit (Ctrl+S where the terminal sends Ctrl+Enter as Enter) |
 | `Shift+Escape` | prompt-workspace, prompt-single, action-bar | Redirect (open editor) |
 
 #### Tab Navigation (tab-strip)

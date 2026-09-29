@@ -36,6 +36,7 @@ import {
 	SCROLLBAR_GUTTER,
 	type ScrollState,
 } from "./scroll-region.ts";
+import { isSubmitKey } from "./submit-key.ts";
 import {
 	handleTabInput,
 	renderProgressBar,
@@ -442,7 +443,7 @@ function createTabbedController(
 			return;
 		}
 
-		if (matchesKey(data, Key.ctrl("enter"))) {
+		if (isSubmitKey(data)) {
 			done({ items: results, userItems });
 			return;
 		}

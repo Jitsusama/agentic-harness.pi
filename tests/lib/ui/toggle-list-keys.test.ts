@@ -6,9 +6,10 @@
  * backing out of a settings panel applied the changes it was meant to
  * throw away. It also disagreed with the panel's own stopped answer,
  * which is the values it opened with. Now it keeps the library's model:
- * Enter acts on the row, Ctrl+Enter submits, Escape cancels.
+ * Enter acts on the row, Ctrl+Enter or Ctrl+S submits, Escape cancels.
  */
 
+import { setKittyProtocolActive } from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { closeEveryPanel } from "../../../lib/ui/panel-registry.ts";
 import {
@@ -23,6 +24,8 @@ const ESCAPE = "\x1b";
 const ENTER = "\r";
 /** Ctrl+Enter as the kitty protocol sends it. */
 const CTRL_ENTER = "\x1b[13;5u";
+/** Ctrl+S, as any terminal sends it. */
+const CTRL_S = "\x13";
 
 const config = (): ToggleListConfig => ({
 	title: "SETTINGS",
@@ -110,13 +113,36 @@ describe("the toggle list's keys", () => {
 		expect(await answer).toEqual(OPENED);
 	});
 
+	it("submits on Ctrl+S, which every terminal can send", async () => {
+		const answer = promptToggleList(s.ctx(), config());
+		await s.settled();
+		s.terminal.press(ENTER);
+		await s.settled();
+		s.terminal.press(CTRL_S);
+		expect(await answersSoon(answer)).toEqual(CYCLED);
+	});
+
 	it("says in its footer how to submit and that Escape cancels", async () => {
 		const answer = promptToggleList(s.ctx(), config());
 		const screen = await s.settled();
 		expect(screen).toContain("Enter cycle");
-		expect(screen).toContain("Ctrl+Enter submit");
+		// No kitty protocol here, so nothing says Ctrl+Enter can be told
+		// from Enter.
+		expect(screen).toContain("Ctrl+S submit");
 		expect(screen).toContain("Esc cancel");
 		s.terminal.press(ESCAPE);
 		await answer;
+	});
+
+	it("names Ctrl+Enter in its footer once the kitty protocol is on", async () => {
+		setKittyProtocolActive(true);
+		try {
+			const answer = promptToggleList(s.ctx(), config());
+			expect(await s.settled()).toContain("Ctrl+Enter submit");
+			s.terminal.press(ESCAPE);
+			await answer;
+		} finally {
+			setKittyProtocolActive(false);
+		}
 	});
 });

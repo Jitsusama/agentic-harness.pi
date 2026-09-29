@@ -100,6 +100,9 @@ const LEGACY: Record<string, string> = {
 	backspace: "\x7f",
 	"ctrl+c": "\x03",
 	"ctrl+d": "\x04",
+	"ctrl+s": "\x13",
+	// What tmux and Terminal.app send for Ctrl+Enter: Enter.
+	"ctrl+enter": "\r",
 	"ctrl+alt+n": "\x1b\x0e",
 };
 
@@ -110,6 +113,7 @@ const LEGACY: Record<string, string> = {
  */
 const KITTY: Record<string, string[]> = {
 	enter: ["\r"],
+	"ctrl+enter": ["\x1b[13;5u", "\x1b[13;5:3u"],
 	tab: ["\t"],
 	backspace: ["\x7f"],
 	escape: ["\x1b[27u", "\x1b[27;1:3u"],
@@ -117,6 +121,7 @@ const KITTY: Record<string, string[]> = {
 	down: ["\x1b[B", "\x1b[1;1:3B"],
 	"ctrl+c": ["\x1b[99;5u", "\x1b[99;5:3u"],
 	"ctrl+d": ["\x1b[100;5u", "\x1b[100;5:3u"],
+	"ctrl+s": ["\x1b[115;5u", "\x1b[115;5:3u"],
 	"ctrl+alt+n": ["\x1b[110;7u", "\x1b[110;7:3u"],
 };
 
