@@ -12,6 +12,10 @@
  * session, the same tool routes to it with no change to how
  * it is called. No slash command: the agent calls the tool
  * when a task needs semantic understanding of the code.
+ *
+ * Every call takes the tool's signal and a clock of its own, so a
+ * server that stops answering ends the call rather than holding it,
+ * and a person who stops it stops the server's work as well.
  */
 
 import { readFileSync } from "node:fs";
@@ -20,6 +24,10 @@ import type {
 	AgentToolResult,
 	ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
+import {
+	bounded,
+	WallClockExceeded,
+} from "@jitsusama/agentic-harness.core/clock";
 import {
 	createStandaloneBackend,
 	formatCodeActions,
@@ -40,6 +48,7 @@ import {
 	openSessionStore,
 } from "@jitsusama/agentic-harness.core/result";
 import { Type } from "@sinclair/typebox";
+import { LSP_CALL_WALL_MS } from "./limits.ts";
 
 const STANDALONE = "standalone";
 /** The standalone backend registers here; a paired editor sits below it. */
@@ -178,6 +187,7 @@ export default function lspIntegration(pi: ExtensionAPI) {
 		async execute(
 			_toolCallId,
 			params,
+			signal,
 		): Promise<AgentToolResult<LspToolDetails>> {
 			const active = resolveLspBackend() ?? ensureBackend();
 			const op = params.operation;
@@ -219,18 +229,35 @@ export default function lspIntegration(pi: ExtensionAPI) {
 			});
 			const absolute = (p: string): string =>
 				isAbsolute(p) ? p : resolve(process.cwd(), p);
+			// The backend gets a signal that fires on either the caller
+			// stopping or the clock running out, so a backend that can tell
+			// its server to cancel does so on both.
+			const stop = new AbortController();
+			const options = { signal: stop.signal };
+			const ask = <T>(work: Promise<T>): Promise<T> =>
+				bounded(
+					work,
+					{
+						...(signal ? { signal } : {}),
+						wallMs: LSP_CALL_WALL_MS,
+						what: `The language server's ${op} answer`,
+					},
+					() => stop.abort(),
+				);
 
 			try {
 				if (op === "workspace_symbols") {
 					if (!params.query) return bad("workspace_symbols needs a query.");
-					const symbols = await active.workspaceSymbols(params.query);
+					const symbols = await ask(
+						active.workspaceSymbols(params.query, options),
+					);
 					return text(formatSymbols(symbols), symbols.length, symbols);
 				}
 				if (!params.path) return bad(`${op} needs a path.`);
 				const path = absolute(params.path);
 
 				if (op === "diagnostics") {
-					const diagnostics = await active.diagnostics(path);
+					const diagnostics = await ask(active.diagnostics(path, options));
 					return text(
 						formatDiagnostics(diagnostics),
 						diagnostics.length,
@@ -238,11 +265,13 @@ export default function lspIntegration(pi: ExtensionAPI) {
 					);
 				}
 				if (op === "document_symbols") {
-					const symbols = await active.documentSymbols(path);
+					const symbols = await ask(active.documentSymbols(path, options));
 					return text(formatSymbols(symbols), symbols.length, symbols);
 				}
 				if (op === "code_actions") {
-					const actions = await active.codeActions(path);
+					const actions = await ask(
+						active.codeActions(path, undefined, options),
+					);
 					return text(formatCodeActions(actions), actions.length);
 				}
 
@@ -261,21 +290,28 @@ export default function lspIntegration(pi: ExtensionAPI) {
 					},
 				};
 				if (op === "hover") {
-					const hover = await active.hover(target);
+					const hover = await ask(active.hover(target, options));
 					return text(hover ? formatHover(hover) : "No hover information.");
 				}
 				if (op === "rename") {
 					if (!params.newName) return bad("rename needs a newName.");
-					const edit = await active.rename(target, params.newName);
+					const edit = await ask(
+						active.rename(target, params.newName, options),
+					);
 					return text(formatWorkspaceEdit(edit), edit.changes.length);
 				}
 				const locations =
 					op === "definition"
-						? await active.definition(target)
-						: await active.references(target);
+						? await ask(active.definition(target, options))
+						: await ask(active.references(target, options));
 				return text(formatLocations(locations), locations.length, locations);
 			} catch (err) {
 				if (err instanceof MissingServerError) return bad(err.message);
+				// A server that ran out the clock is an answer the agent can act
+				// on: ask something narrower, or fall back to reading the code.
+				// A stop is not, so it still throws, which is how pi marks a
+				// call that was stopped.
+				if (err instanceof WallClockExceeded) return bad(err.message);
 				throw err;
 			}
 		},
