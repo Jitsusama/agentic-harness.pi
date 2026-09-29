@@ -20,11 +20,11 @@ import {
 	createGitHubProvider,
 	createGitProvider,
 	createReviewEngine,
-	type Exec,
 	type ReviewEngine,
 	registerReviewProvider,
 } from "@jitsusama/agentic-harness.core/review";
 import { stateDir } from "../../lib/internal/paths.ts";
+import { reviewExec } from "./commands.ts";
 import { loadReviewConfig } from "./config.ts";
 
 /** Where drafts live. */
@@ -246,18 +246,6 @@ export function personaDir(
 	return join(home, ".config", "pi", "personas");
 }
 
-/** Adapt pi's exec to the library's seam. */
-function execFor(pi: ExtensionAPI): Exec {
-	return async (command, args) => {
-		const result = await pi.exec(command, args);
-		return {
-			code: result.code,
-			stdout: result.stdout,
-			stderr: result.stderr,
-		};
-	};
-}
-
 /** What the session holds. */
 interface Session {
 	engine: ReviewEngine;
@@ -269,20 +257,24 @@ let session: Session | undefined;
 /**
  * Register the providers this package ships. Idempotent, since
  * the registry survives module reimport but not a reload.
+ *
+ * Their git and gh run unattended rather than through the host's exec,
+ * which shares pi's terminal: a credential prompt there is drawn over
+ * pi's interface and waits for keys that never reach it.
  */
-export function registerBuiltinReviewProviders(pi: ExtensionAPI): void {
-	const exec = execFor(pi);
+export function registerBuiltinReviewProviders(_pi: ExtensionAPI): void {
+	const exec = reviewExec;
 	registerReviewProvider(createGitHubProvider({ exec }));
 	registerReviewProvider(createGitProvider({ exec }));
 }
 
 /** The session's engine, built on first use. */
-export async function reviewEngine(pi: ExtensionAPI): Promise<Session> {
+export async function reviewEngine(_pi: ExtensionAPI): Promise<Session> {
 	if (session) return session;
 	const { config, problems } = await loadReviewConfig();
 	session = {
 		engine: createReviewEngine({
-			exec: execFor(pi),
+			exec: reviewExec,
 			store: createDraftStore(draftDir()),
 			...(Object.keys(config).length > 0 ? { config } : {}),
 		}),

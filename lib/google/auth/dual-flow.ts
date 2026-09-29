@@ -3,7 +3,8 @@
  * Supports both "TVs and Limited Input devices" and "Desktop app" credentials.
  */
 
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import { AUTH_MESSAGES } from "@jitsusama/agentic-harness.core/google";
 import { openInBrowser } from "@jitsusama/agentic-harness.core/google/auth/browser";
 import type { OAuth2Config } from "@jitsusama/agentic-harness.core/google/auth/oauth";
 import {
@@ -13,7 +14,7 @@ import {
 } from "@jitsusama/agentic-harness.core/google/auth/oauth";
 import { waitForOAuthCallback } from "@jitsusama/agentic-harness.core/google/auth/server";
 import type { Credentials } from "google-auth-library";
-import { view } from "../../ui/index.ts";
+import { viewWhile } from "../../ui/index.ts";
 
 /** Result of an OAuth flow. */
 export interface OAuthFlowResult {
@@ -23,6 +24,7 @@ export interface OAuthFlowResult {
 
 /**
  * Attempt authentication using device flow first, fall back to web redirect.
+ * Closing the waiting panel, or the signal firing, cancels the login.
  */
 export async function authenticateWithFallback(
 	config: OAuth2Config & { redirectUri?: string },
@@ -30,13 +32,28 @@ export async function authenticateWithFallback(
 	signal?: AbortSignal,
 ): Promise<OAuthFlowResult> {
 	try {
-		const deviceFlow = await initiateDeviceFlow(config);
-		const dismiss = new AbortController();
+		return await authenticate(config, ctx, signal);
+	} catch (error) {
+		if (error instanceof Error && error.name === "AbortError") {
+			throw new Error(AUTH_MESSAGES.cancelled);
+		}
+		throw error;
+	}
+}
 
-		// The device code panel stays up until auth completes or the user presses Escape.
-		view(ctx, {
-			signal: dismiss.signal,
-			content: (theme) => [
+async function authenticate(
+	config: OAuth2Config & { redirectUri?: string },
+	ctx: ExtensionContext,
+	signal: AbortSignal | undefined,
+): Promise<OAuthFlowResult> {
+	try {
+		const deviceFlow = await initiateDeviceFlow(config);
+
+		// The device code panel stays up until auth completes; closing it
+		// stops the poll.
+		const panel = {
+			signal,
+			content: (theme: Theme) => [
 				` ${theme.bold("📱 Device Flow Authentication")}`,
 				"",
 				" Visit this URL in any browser:",
@@ -47,21 +64,19 @@ export async function authenticateWithFallback(
 				"",
 				` ${theme.fg("dim", "Waiting for authorization...")}`,
 			],
-		});
+		};
 
 		openInBrowser(deviceFlow.verification_url);
 
-		try {
-			const credentials = await pollForDeviceAuthorization(
+		const credentials = await viewWhile(ctx, panel, (stop) =>
+			pollForDeviceAuthorization(
 				config,
 				deviceFlow.device_code,
 				deviceFlow.interval,
-				signal,
-			);
-			return { credentials, flowUsed: "device" };
-		} finally {
-			dismiss.abort();
-		}
+				stop,
+			),
+		);
+		return { credentials, flowUsed: "device" };
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 
@@ -69,7 +84,7 @@ export async function authenticateWithFallback(
 			message.includes("invalid_client") ||
 			message.includes("Invalid OAuth client type")
 		) {
-			return await authenticateWithWebRedirect(config, ctx);
+			return await authenticateWithWebRedirect(config, ctx, signal);
 		}
 
 		throw error;
@@ -82,6 +97,7 @@ export async function authenticateWithFallback(
 async function authenticateWithWebRedirect(
 	config: OAuth2Config & { redirectUri?: string },
 	ctx: ExtensionContext,
+	signal: AbortSignal | undefined,
 ): Promise<OAuthFlowResult> {
 	const { OAuth2Client } = await import("google-auth-library");
 
@@ -98,12 +114,11 @@ async function authenticateWithWebRedirect(
 		prompt: "consent",
 	});
 
-	const dismiss = new AbortController();
-
-	// The waiting panel stays up until the callback arrives or the user presses Escape.
-	view(ctx, {
-		signal: dismiss.signal,
-		content: (theme) => [
+	// The waiting panel stays up until the callback arrives; closing it
+	// frees the port.
+	const panel = {
+		signal,
+		content: (theme: Theme) => [
 			` ${theme.bold("🌐 Web Flow Authentication")}`,
 			"",
 			" Your browser should open automatically.",
@@ -112,13 +127,13 @@ async function authenticateWithWebRedirect(
 			"",
 			` ${theme.fg("dim", "Waiting for authorization...")}`,
 		],
-	});
+	};
 
 	openInBrowser(authUrl);
 
-	try {
+	return viewWhile(ctx, panel, async (stop) => {
 		const port = Number.parseInt(redirectUri.split(":")[2] || "8765", 10);
-		const result = await waitForOAuthCallback(port);
+		const result = await waitForOAuthCallback(port, { signal: stop });
 
 		if (result.error) {
 			throw new Error(`OAuth error: ${result.error}`);
@@ -131,8 +146,6 @@ async function authenticateWithWebRedirect(
 		const { tokens } = await client.getToken(result.code);
 		client.setCredentials(tokens);
 
-		return { credentials: tokens, flowUsed: "web" };
-	} finally {
-		dismiss.abort();
-	}
+		return { credentials: tokens, flowUsed: "web" as const };
+	});
 }

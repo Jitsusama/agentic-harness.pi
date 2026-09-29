@@ -10,6 +10,7 @@
  */
 
 import { vi } from "vitest";
+import { runCommandsWith } from "../../../extensions/review-integration/commands.ts";
 import reviewIntegration from "../../../extensions/review-integration/index.ts";
 
 /** A tool as the extension registered it, execute included. */
@@ -58,6 +59,7 @@ export function stubPi(answers: ExecAnswers = {}) {
 			code: found?.[1].code ?? 0,
 			stdout: found?.[1].stdout ?? "",
 			stderr: found?.[1].stderr ?? "",
+			killed: false,
 		};
 	});
 
@@ -136,6 +138,9 @@ export function activateWith(
 	answers: ExecAnswers = {},
 ) {
 	const stub = stubPi(answers);
+	// The review tools run their commands unattended rather than through
+	// the host, so the stub's answers reach them only by being put there.
+	runCommandsWith(stub.pi);
 	// The stub is structural: the extension only uses the parts modelled
 	// here, and a real ExtensionAPI is unavailable outside a session.
 	extension(stub.pi as never);

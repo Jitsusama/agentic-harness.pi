@@ -15,6 +15,7 @@ import {
 	isValidClientId,
 	isValidClientSecret,
 } from "@jitsusama/agentic-harness.core/google/auth/setup-instructions";
+import { holdScreen } from "../../ui/gate-queue.ts";
 import { promptSingle } from "../../ui/index.ts";
 
 /**
@@ -46,7 +47,9 @@ export async function ensureOAuthApp(
 		return null;
 	}
 
-	return await runSetupWizard(ctx);
+	// One gate for the whole wizard: its panel and pi's own dialogs take
+	// turns, and another tool's gate must not land between them.
+	return await holdScreen(ctx.signal, null, () => runSetupWizard(ctx));
 }
 
 /**

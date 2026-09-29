@@ -116,6 +116,52 @@ export async function view(
 	});
 }
 
+/**
+ * Show read-only content while some work runs, and stop the work when a
+ * person closes it. The panel comes down once the work settles, and the
+ * work's answer is returned; closed first, the work's signal fires with
+ * an AbortError, and so does the caller's own signal in the config.
+ * Without a screen nothing is shown, and only the caller's signal stops
+ * the work.
+ */
+export async function viewWhile<T>(
+	ctx: ExtensionContext,
+	config: ViewConfig,
+	work: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+	const closed = new AbortController();
+	const finished = new AbortController();
+	const signal = config.signal
+		? AbortSignal.any([closed.signal, config.signal])
+		: closed.signal;
+	const shown = ctx.hasUI
+		? view(ctx, {
+				...config,
+				signal: config.signal
+					? AbortSignal.any([finished.signal, config.signal])
+					: finished.signal,
+			}).then(
+				() => {
+					if (!finished.signal.aborted) closed.abort(panelClosed());
+				},
+				// A panel that could not be shown was not closed by anybody, so
+				// the work carries on under its own clocks.
+				() => undefined,
+			)
+		: Promise.resolve();
+	try {
+		return await work(signal);
+	} finally {
+		finished.abort();
+		await shown;
+	}
+}
+
+/** Why work shown in a panel stopped when a person closed the panel. */
+function panelClosed(): DOMException {
+	return new DOMException("The panel was closed.", "AbortError");
+}
+
 function viewPanel(config: ViewConfig): PanelFactory<void> {
 	return (tui, theme, _kb, done) => {
 		const scroll: ScrollState = { vOffset: 0, hOffset: 0 };

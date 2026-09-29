@@ -54,7 +54,12 @@ export {
 	hopLabel,
 } from "./dock.ts";
 // ── Gate serialization ──────────────────────────────────────
-export { type GateHold, type GateOptions, runGate } from "./gate-queue.ts";
+export {
+	type GateHold,
+	type GateOptions,
+	holdScreen,
+	runGate,
+} from "./gate-queue.ts";
 // ── Narration ───────────────────────────────────────────────
 export {
 	NARRATION_GLYPH,
@@ -81,6 +86,7 @@ export {
 	promptSingle,
 	promptTabbed,
 	view,
+	viewWhile,
 	workspace,
 } from "./panel.ts";
 // ── Paths ──────────────────────────────────────────

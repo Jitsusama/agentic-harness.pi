@@ -24,7 +24,7 @@ import {
 	exchangeCodeForToken,
 } from "@jitsusama/agentic-harness.core/slack/auth/oauth";
 import { waitForOAuthCallback } from "@jitsusama/agentic-harness.core/slack/auth/server";
-import { view } from "../../ui/index.ts";
+import { type ViewConfig, viewWhile } from "../../ui/index.ts";
 import { ensureSetup } from "./setup-wizard.ts";
 
 /**
@@ -79,7 +79,8 @@ function clientFromStoredToken(): SlackClient {
  *
  * Opens the browser to Slack's authorization page, starts a
  * local server to receive the callback, exchanges the code
- * for a token, verifies it, and stores it.
+ * for a token, verifies it, and stores it. Closing the waiting panel
+ * cancels it and frees the port.
  */
 async function runOAuthFlow(
 	ctx: ExtensionContext,
@@ -88,10 +89,7 @@ async function runOAuthFlow(
 	const state = generateState();
 	const authUrl = buildAuthUrl(oauthApp, state);
 
-	const dismiss = new AbortController();
-
-	view(ctx, {
-		signal: dismiss.signal,
+	const panel: ViewConfig = {
 		content: (theme) => [
 			` ${theme.bold("🌐 Slack Authorization")}`,
 			"",
@@ -101,38 +99,53 @@ async function runOAuthFlow(
 			"",
 			` ${theme.fg("dim", "Waiting for authorization...")}`,
 		],
-	});
+	};
 
 	openInBrowser(authUrl);
 
 	try {
-		const callback = await waitForOAuthCallback(CALLBACK_PORT);
-
-		if (callback.error) {
-			throw new Error(`Slack OAuth error: ${callback.error}`);
-		}
-		if (!callback.code) {
-			throw new Error("No authorization code received from Slack.");
-		}
-		if (callback.state !== state) {
-			throw new Error("OAuth state mismatch.");
-		}
-
-		const token = await exchangeCodeForToken(oauthApp, callback.code);
-		storeToken(token);
-
-		const client = new SlackClient(token.accessToken, token.cookie);
-		await client.call("auth.test");
-
-		ctx.ui.notify(
-			`✓ Authenticated with Slack${token.teamName ? ` (${token.teamName})` : ""}`,
-			"info",
+		return await viewWhile(ctx, panel, (stop) =>
+			authorize(ctx, oauthApp, state, stop),
 		);
-
-		return client;
-	} finally {
-		dismiss.abort();
+	} catch (error) {
+		if (error instanceof Error && error.name === "AbortError") {
+			throw new Error("Slack authorization was cancelled.");
+		}
+		throw error;
 	}
+}
+
+/** Waits for Slack's callback, then trades its code for a checked token. */
+async function authorize(
+	ctx: ExtensionContext,
+	oauthApp: OAuthApp,
+	state: string,
+	signal: AbortSignal,
+): Promise<SlackClient> {
+	const callback = await waitForOAuthCallback(CALLBACK_PORT, { signal });
+
+	if (callback.error) {
+		throw new Error(`Slack OAuth error: ${callback.error}`);
+	}
+	if (!callback.code) {
+		throw new Error("No authorization code received from Slack.");
+	}
+	if (callback.state !== state) {
+		throw new Error("OAuth state mismatch.");
+	}
+
+	const token = await exchangeCodeForToken(oauthApp, callback.code);
+	storeToken(token);
+
+	const client = new SlackClient(token.accessToken, token.cookie);
+	await client.call("auth.test");
+
+	ctx.ui.notify(
+		`✓ Authenticated with Slack${token.teamName ? ` (${token.teamName})` : ""}`,
+		"info",
+	);
+
+	return client;
 }
 
 /** Generate a random state parameter for CSRF protection. */

@@ -23,6 +23,7 @@ import {
 } from "@jitsusama/agentic-harness.core/slack";
 import { Type } from "@sinclair/typebox";
 import { sessionGateDeps } from "../../lib/internal/gate/session-deps.ts";
+import { singleFlight } from "../../lib/internal/single-flight.ts";
 import { getLastEntry } from "../../lib/internal/state.ts";
 import { ensureAuthenticated } from "../../lib/slack/auth/ensure-auth.ts";
 import { count } from "../../lib/ui/count.ts";
@@ -178,6 +179,8 @@ const SESSION_KEY = "slack-identity";
 export default function slackIntegration(pi: ExtensionAPI) {
 	/** Cached authenticated client. */
 	let cachedClient: SlackClient | null = null;
+	/** One login, however many calls find Slack signed out. */
+	const login = singleFlight<"slack", SlackClient>();
 
 	/** Session state: the authenticated user's identity. */
 	const session = createSessionState();
@@ -190,8 +193,10 @@ export default function slackIntegration(pi: ExtensionAPI) {
 		ctx: Parameters<typeof ensureAuthenticated>[0],
 	): Promise<SlackClient> {
 		if (cachedClient) return cachedClient;
-		cachedClient = await ensureAuthenticated(ctx, ENV_OAUTH_CONFIG);
-		return cachedClient;
+		return login("slack", async () => {
+			cachedClient = await ensureAuthenticated(ctx, ENV_OAUTH_CONFIG);
+			return cachedClient;
+		});
 	}
 
 	/**

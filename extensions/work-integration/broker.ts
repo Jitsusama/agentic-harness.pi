@@ -16,7 +16,6 @@
 
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { Exec } from "@jitsusama/agentic-harness.core/exec";
 import {
 	createGitTreeProvider,
 	createTreeBroker,
@@ -29,6 +28,7 @@ import {
 	WORK_PUBLISH_CHECK,
 } from "@jitsusama/agentic-harness.core/work";
 import { stateDir } from "../../lib/internal/paths.ts";
+import { unattendedExec } from "../../lib/internal/unattended-exec.ts";
 
 /** Where trees this package cuts are put. */
 export function treeDir(): string {
@@ -47,53 +47,16 @@ export function treeRecordDir(): string {
 }
 
 /**
- * Adapt pi's exec to the library's seam.
- *
- * Exported because the tool builds a history and an author of its
- * own, and three call sites reaching for the same six lines is
- * what a shared helper is for.
- */
-export function execFor(pi: ExtensionAPI, signal?: AbortSignal): Exec {
-	return async (command, args) => {
-		// The signal is the difference between a slow command and a wedged
-		// session. pi hands every tool one and this dropped it, so when a git
-		// call blocked waiting for a human there was nothing the human could
-		// press: the child outlived the request that started it and went on
-		// holding a repository mid-rebase.
-		//
-		// The timeout is a backstop for what a signal cannot reach, a signing
-		// key's passphrase prompt among them. Generous on purpose, because the
-		// slow things here are real: a fetch against a large remote, a replay
-		// over a long stack. It is there to end a wait that will never finish,
-		// not to put a budget on honest work.
-		const result = await pi.exec(command, args, {
-			...(signal ? { signal } : {}),
-			timeout: UNATTENDED_LIMIT_MS,
-		});
-		return {
-			code: result.code,
-			stdout: result.stdout,
-			stderr: result.stderr,
-		};
-	};
-}
-
-/**
- * How long a single git call may run before it is treated as stuck.
- *
- * Ten minutes, which is longer than any operation here has ever taken and
- * shorter than forever. A World fetch is minutes, so anything tighter would
- * start failing honest work on the repository that needs this most.
- */
-const UNATTENDED_LIMIT_MS = 10 * 60 * 1000;
-
-/**
  * Register the tree providers this package ships. Idempotent,
  * since the registry survives module reimport but not a reload.
+ *
+ * Their git runs unattended rather than through the host's exec, which
+ * shares pi's terminal: a passphrase or credential prompt there is drawn
+ * over pi's interface and waits for keys that never reach it.
  */
-export function registerBuiltinTreeProviders(pi: ExtensionAPI): void {
+export function registerBuiltinTreeProviders(_pi: ExtensionAPI): void {
 	registerTreeProvider(
-		createGitTreeProvider({ exec: execFor(pi), stateDir: treeDir() }),
+		createGitTreeProvider({ exec: unattendedExec(), stateDir: treeDir() }),
 	);
 }
 

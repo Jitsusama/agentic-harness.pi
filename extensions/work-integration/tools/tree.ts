@@ -48,8 +48,9 @@ import {
 import { Type } from "@sinclair/typebox";
 import { sessionGateDeps } from "../../../lib/internal/gate/session-deps.ts";
 import { gitTreeRootOf } from "../../../lib/internal/quest/git-signals.ts";
+import { unattendedExec } from "../../../lib/internal/unattended-exec.ts";
 import { count, displayPath } from "../../../lib/ui/index.ts";
-import { execFor, objectionsTo, treeBroker } from "../broker.ts";
+import { objectionsTo, treeBroker } from "../broker.ts";
 import { GLYPH, treeLine } from "../render.ts";
 import { candidatesFor, machineSeams, warmStart } from "../warm-start.ts";
 import {
@@ -492,8 +493,10 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 			// Built once per call and carrying the caller's signal, so pressing
 			// escape reaches the git child rather than only the promise waiting on
 			// it. Without it a blocked command outlives the request that started
-			// it, which is how a hung rebase became unstoppable.
-			const exec = execFor(pi, signal);
+			// it, which is how a hung rebase became unstoppable. Unattended, so
+			// a credential or passphrase prompt fails rather than being drawn
+			// over pi's interface.
+			const exec = unattendedExec(signal);
 
 			try {
 				if (action === "trees") {

@@ -78,6 +78,31 @@ export function runGate<T>(
 	return sharedQueue().run(fn, options);
 }
 
+/**
+ * Run a section of several prompts, such as a setup wizard, with the
+ * screen held from its first prompt to its last, so no other gate mounts
+ * between two of its steps or over a dialog pi draws itself. Its own
+ * prompts run at once inside the hold. Stopped while still waiting for
+ * the screen, it answers `stopped` without running.
+ */
+export async function holdScreen<T>(
+	signal: AbortSignal | undefined,
+	stopped: T,
+	section: () => Promise<T>,
+): Promise<T> {
+	try {
+		return await runGate(section, { signal });
+	} catch (error) {
+		if (
+			signal?.aborted &&
+			error instanceof Error &&
+			error.name === "AbortError"
+		)
+			return stopped;
+		throw error;
+	}
+}
+
 function sharedQueue(): GateQueueProtocol {
 	const g = globalThis as Record<symbol, unknown>;
 	const found = g[QUEUE_KEY];
