@@ -26,6 +26,13 @@ export interface VerificationState {
 /** The number of fix requests before the loop gives up and hands back. */
 export const MAX_FIX_ATTEMPTS = 3;
 
+/**
+ * How long the fast layer may hold the end of a turn, over every file
+ * it checks. The loop waits on it before handing the turn back, so a
+ * server that stops answering must cost this much and no more.
+ */
+export const FAST_LAYER_WALL_MS = 30_000;
+
 /** Create the initial verification state. */
 export function createVerificationState(): VerificationState {
 	return {
