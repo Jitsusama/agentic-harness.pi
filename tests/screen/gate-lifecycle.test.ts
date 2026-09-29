@@ -389,8 +389,14 @@ async function hopOut(session: PiSession, raiser: Raiser): Promise<void> {
  * in most runs and folds it into the next full redraw in others, so one
  * twin can come in under pi's own blank rows. Rerun only while ours shows
  * more: rows pi never leaves are rows no rerun can reach.
+ *
+ * Which way it goes is pi's render throttle against the replace's
+ * immediate redraw, so a busy machine folds more often. Measured on a new
+ * session from code, one try in ten folded when idle, and three tries
+ * all folded about once in five runs of the whole screen suite. Ten
+ * leaves that out of reach, and costs nothing when the first try paints.
  */
-const TWIN_TRIES = 3;
+const TWIN_TRIES = 10;
 
 /**
  * Runs `act` over `raiser` on `screen`, gives the session to `check` while
