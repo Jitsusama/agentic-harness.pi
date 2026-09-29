@@ -175,6 +175,14 @@ function twinTool(pi: ExtensionAPI): void {
 			return { content: [{ type: "text", text: "stopped" }], details: {} };
 		},
 	});
+	// Gone when the session ends, as ours is: the panel lifecycle closes every
+	// panel there. Left to its abort alone, the twin left a moment later, and
+	// in some runs that folded the frame between the two sessions into the
+	// new one's redraw, so the twin came in under what pi paints and ours,
+	// which paints it every time, read as worse.
+	pi.on("session_shutdown", (_event, ctx) => {
+		ctx.ui.setWidget("zz-twin", undefined);
+	});
 }
 
 function untilAborted(signal: AbortSignal | undefined): Promise<void> {
