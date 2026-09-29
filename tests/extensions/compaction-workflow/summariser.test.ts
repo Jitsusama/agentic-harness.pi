@@ -17,6 +17,7 @@ const {
 	AHEAD_UNUSED_ENTRY,
 	registerConversationSummary,
 	SUMMARY_FALLBACK_ENTRY,
+	SUMMARY_WALL_MS,
 } = await import("../../../extensions/compaction-workflow/summariser.ts");
 const { SUMMARY_CONTRIBUTIONS, SUMMARY_SPAN } = await import(
 	"../../../lib/compaction/index.ts"
@@ -582,6 +583,94 @@ describe("the conversation summariser", () => {
 				{ reason: "the summarised point is not on this branch" },
 			]);
 			expect(completeSimple).toHaveBeenCalledTimes(2);
+		});
+
+		it("records a summary whose credentials could not be read, rather than letting the failure escape", async () => {
+			const { summary, entries } = await writtenAhead();
+			const ctx = context([userEntry, replyEntry], "a1");
+			ctx.modelRegistry.getApiKeyAndHeaders = async () => {
+				throw new Error("the keychain is locked");
+			};
+			summary.prepare(asContext(ctx));
+			await settle();
+
+			expect(summary.state()).toBe("failed");
+			expect(entries).toEqual([
+				[AHEAD_UNUSED_ENTRY, { reason: "the keychain is locked" }],
+			]);
+		});
+
+		it("lets a compaction go on when the summary it waited for fails that way", async () => {
+			const { fire, summary } = await writtenAhead();
+			const ctx = context([userEntry, replyEntry], "a1");
+			let fail: (error: Error) => void = () => {};
+			ctx.modelRegistry.getApiKeyAndHeaders = () =>
+				new Promise<never>((_resolve, reject) => {
+					fail = reject;
+				});
+			summary.prepare(asContext(ctx));
+
+			let settled = false;
+			const compacting = Promise.resolve(
+				fire("session_before_compact", compactEvent(), ctx),
+			).finally(() => {
+				settled = true;
+			});
+			await settle();
+			fail(new Error("the keychain is locked"));
+			await settle();
+			fail(new Error("the keychain is locked"));
+			await settle();
+
+			expect(settled).toBe(true);
+			await compacting;
+		});
+
+		it("gives up on a summary the model never finishes, once its clock runs out", async () => {
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+			try {
+				const { summary, entries } = await writtenAhead();
+				let handed: AbortSignal | undefined;
+				// Like the real call, it ends only when its signal says so.
+				completeSimple.mockImplementation(
+					(_m, _c, options: { signal: AbortSignal }) =>
+						new Promise((resolve) => {
+							handed = options.signal;
+							options.signal.addEventListener("abort", () =>
+								resolve({ stopReason: "aborted", content: [], usage: {} }),
+							);
+						}),
+				);
+				summary.prepare(asContext(context([userEntry, replyEntry], "a1")));
+
+				await vi.advanceTimersByTimeAsync(SUMMARY_WALL_MS + 1000);
+
+				expect(handed?.aborted).toBe(true);
+				expect(summary.state()).toBe("failed");
+				expect(entries).toEqual([
+					[
+						AHEAD_UNUSED_ENTRY,
+						{ reason: "the summary was not written within 12 minutes" },
+					],
+				]);
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it("tells every listener a summary is ready, even after one of them throws", async () => {
+			const { summary } = await writtenAhead();
+			completeSimple.mockResolvedValue(reply("## Goal"));
+			const told: string[] = [];
+			summary.whenReady(() => {
+				throw new Error("a listener broke");
+			});
+			summary.whenReady(() => told.push("second"));
+			summary.prepare(asContext(context([userEntry, replyEntry], "a1")));
+			await settle();
+
+			expect(summary.state()).toBe("ready");
+			expect(told).toEqual(["second"]);
 		});
 
 		it("drops a summary being written when the session starts over", async () => {
