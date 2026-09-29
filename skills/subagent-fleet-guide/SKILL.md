@@ -220,6 +220,32 @@ If a fleet would dispatch more than ~5 jobs, ask first.
 "Want me to run security + performance + readability on
 this module, or scope it down?" gives the user an exit.
 
+## Running a Fleet in the Background
+
+Pass `background: true` when your next step does not need
+the fleet's answer. The call returns at once with a job
+id, the board stays above the editor, and the person can
+type while it runs. When the fleet ends, its summary
+arrives as a message of its own, opening with a line
+saying no human typed it.
+
+- **Do not poll.** Nothing needs checking; the result
+  comes to you. Carry on with other work, or end your
+  turn if there is none.
+- **Read the summary when it lands** the way you would a
+  foreground one: it names the run directory and each
+  subagent's result file.
+- **Tell the person how to stop it.** `/jobs` lists what
+  is running and stops one; Escape on the board still
+  cancels the fleet.
+- **Nothing survives the session.** A reload, a new
+  session or a quit stops the fleet. The transcripts it
+  wrote stay on disk.
+
+The tool refuses `background` when the job-workflow
+extension is not loaded, since nothing would say the
+result; run the fleet in the foreground then.
+
 ## Finding the results on disk
 
 Each fleet run is durable. The tool's text summary ends
