@@ -124,7 +124,13 @@ export default function resultStore(pi: ExtensionAPI) {
 		reapAbandonedResults({ root: RESULT_ROOT, isPidAlive });
 	});
 
-	pi.on("session_shutdown", async () => {
+	pi.on("session_shutdown", async (event) => {
+		// Only a quit ends this process. A reload, a new session, a
+		// resume and a fork all say shutdown too, and a reload leaves the
+		// conversation on screen citing handles that would otherwise
+		// answer as missing. The directory is named for this process, so
+		// whatever outlives a quit is still reaped once it has gone.
+		if (event.reason !== "quit") return;
 		cleanupSessionResults();
 	});
 }

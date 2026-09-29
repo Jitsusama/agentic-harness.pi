@@ -27,14 +27,19 @@ language and collides with names that already mean something else:
 
 ## Lifetime
 
-The store is a directory named for this process. A session that
-ends cleanly deletes its own; a session that is killed leaves one
-behind, and the next session to start reaps any directory whose
-process is gone. Keying on the process id means no bookkeeping has
-to survive a crash for the reaper to know what is abandoned.
+The store is a directory named for this process. A pi that quits
+deletes its own; one that is killed leaves it behind, and the next
+session to start reaps any directory whose process is gone. Keying
+on the process id means no bookkeeping has to survive a crash for
+the reaper to know what is abandoned.
 
-A handle is therefore good for the session that minted it and no
-longer. `result_query` says so plainly when a handle has expired
+Only a quit deletes it. pi also says shutdown for a reload, a new
+session, a resume and a fork, and none of those end the process; a
+reload leaves the conversation on screen citing the handles it was
+given, which would otherwise all answer as missing.
+
+A handle is therefore good for as long as the process that minted it
+and no longer. `result_query` says so plainly when a handle has expired
 rather than returning an empty answer that reads like "no data".
 
 ## Why `-workflow`
