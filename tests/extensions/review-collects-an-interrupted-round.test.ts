@@ -38,6 +38,7 @@ import {
 	archivedAnswer,
 	collectedRun,
 	heldByLiveSupervisor,
+	whyNotYet,
 } from "../../extensions/review-integration/reviewer.ts";
 import type { ProcessFacts } from "../../lib/subagent/index.ts";
 import {
@@ -499,6 +500,36 @@ describe("keeping a recovered reviewer's own words", () => {
 		});
 
 		expect(kept).toEqual({ failure: "died" });
+	});
+});
+
+describe("whyNotYet", () => {
+	const NOBODY: ProcessFacts = {
+		alive: () => false,
+		startedAt: async () => undefined,
+	};
+	const HELD = { id: RUN, participants: [{ id: "hawk" }] };
+
+	it("refuses while a reviewer is handed over and its supervisor has not begun", async () => {
+		// The moments after start, when each reviewer's directory is there
+		// and no supervisor has written its lease. Reading that as free let
+		// a collect file nothing and a stop close a round seconds from
+		// starting, and told a watching session the round was ready.
+		const store = new ReviewerArtifactsStore(root);
+		mkdirSync(store.paths(RUN, "hawk").reviewerDir, { recursive: true });
+
+		expect(await whyNotYet(store, HELD, NOBODY, Date.now())).toContain(
+			"has not begun",
+		);
+	});
+
+	it("releases a round whose reviewer was handed over long ago and never begun", async () => {
+		const store = new ReviewerArtifactsStore(root);
+		mkdirSync(store.paths(RUN, "hawk").reviewerDir, { recursive: true });
+
+		expect(
+			await whyNotYet(store, HELD, NOBODY, Date.now() + 60 * 60_000),
+		).toBeUndefined();
 	});
 });
 

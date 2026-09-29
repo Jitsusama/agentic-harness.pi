@@ -13,6 +13,7 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createEventBus } from "@earendil-works/pi-coding-agent";
 import type {
 	AskAnswer,
 	AskRun,
@@ -31,6 +32,8 @@ import {
 	reviewerStarter,
 	whyNotYet,
 } from "../../extensions/review-integration/reviewer.ts";
+import { watchStartedRound } from "../../extensions/review-integration/round-job.ts";
+import { announceJobHost, jobStopReason } from "../../lib/jobs/index.ts";
 import {
 	ReviewerArtifactsStore,
 	startReviewer,
@@ -200,8 +203,11 @@ describe("a round nobody waited for", () => {
 		// pids, real lease files, and the roster as the ledger has it
 		// rather than as this process happens to remember it.
 		const store = new ReviewerArtifactsStore(root);
+		// Held by a lease, specifically: the refusal before any lease is
+		// written says starting, and it is the lease this case is about.
 		await waitFor(
-			async () => (await whyNotYet(store, held)) !== undefined,
+			async () =>
+				(await whyNotYet(store, held))?.includes("is still being run") === true,
 			"a collect was never refused: no supervisor took a lease, or every reviewer finished before anything looked",
 		);
 		expect(await whyNotYet(store, held)).toContain("is still being run");
@@ -251,6 +257,81 @@ describe("a round nobody waited for", () => {
 		expect(after).toHaveLength(1);
 		expect(after[0]?.open).toBeUndefined();
 	}, 90_000);
+
+	it("tells a watching session to collect only once every reviewer is done", async () => {
+		// The watcher's first look lands before any supervisor has written
+		// a lease, and its last after the leases close. Only real
+		// supervisors make both windows, so the claim that the model is
+		// told neither early nor never is made against them.
+		const childPath = join(root, "child.mjs");
+		writeFileSync(childPath, child(1500));
+		const starter = reviewerStarter(
+			{ node: process.execPath, entry: childPath },
+			root,
+		);
+		const { run, started } = await startCouncil(
+			{
+				roster: { reviewers: [{ id: "hawk" }, { id: "owl" }] },
+				prompt: "read it",
+				seq: 1,
+			},
+			{
+				now: () => new Date(),
+				opened: async () => {},
+				async start(participant, prompt, runId) {
+					await startReviewer({
+						reviewer: { id: participant.id },
+						prompt,
+						cwd: root,
+						runId,
+						stateDir: root,
+						startPi: starter,
+						timeoutMs: 30_000,
+						idleTimeoutMs: 30_000,
+					});
+				},
+			},
+		);
+		spawned.push(run);
+		expect(started).toBe(2);
+
+		const bus = createEventBus();
+		const said: string[] = [];
+		const stopped = new AbortController();
+		const dispose = announceJobHost(bus, {
+			start: () => ({
+				id: "j1",
+				signal: stopped.signal,
+				finish: (outcome) => said.push(outcome.summary),
+				onDelivered: () => {},
+			}),
+		});
+		const store = new ReviewerArtifactsStore(root);
+		try {
+			watchStartedRound({
+				bus,
+				runId: run.id,
+				label: "council",
+				isRunning: async () => (await whyNotYet(store, run)) !== undefined,
+				stop: async () => {},
+				pollMs: 20,
+			});
+			await waitFor(
+				async () => said.length > 0,
+				"the watching session was never told the round was ready",
+			);
+			for (const participant of run.participants) {
+				const left = await answerLeftBehind(store, run.id, participant.id);
+				expect(left.kind).toBe("answer");
+			}
+			expect(said).toEqual([
+				expect.stringContaining(`review_ask collect run=${run.id}`),
+			]);
+		} finally {
+			stopped.abort(jobStopReason("session"));
+			dispose();
+		}
+	}, 60_000);
 
 	it("keeps the question, so an abandoned round can still be read", async () => {
 		const childPath = join(root, "child.mjs");

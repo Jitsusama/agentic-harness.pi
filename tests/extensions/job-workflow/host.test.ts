@@ -12,7 +12,11 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import jobWorkflow from "../../../extensions/job-workflow/index.ts";
-import { findJobHost, type JobHost } from "../../../lib/jobs/index.ts";
+import {
+	findJobHost,
+	type JobHost,
+	jobStopOf,
+} from "../../../lib/jobs/index.ts";
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
 
@@ -153,9 +157,19 @@ describe("when the session ends", () => {
 		const job = host.start({ kind: "subagent", label: "lanes" });
 		await fire("session_shutdown", { reason: "quit" });
 		expect(job.signal.aborted).toBe(true);
+		expect(jobStopOf(job.signal)).toBe("session");
 		job.finish({ summary: "too late" });
 		expect(said).toHaveLength(0);
 		expect(findJobHost(events)).toBeUndefined();
+	});
+});
+
+describe("a job started on a host whose session has ended", () => {
+	it("is stopped from the start, as the session's own were", async () => {
+		const { host, fire } = await started();
+		await fire("session_shutdown", { reason: "reload" });
+		const late = host.start({ kind: "subagent", label: "lanes" });
+		expect(jobStopOf(late.signal)).toBe("session");
 	});
 });
 
@@ -175,6 +189,7 @@ describe("the person stopping a job", () => {
 			options[0] === "Stop it" ? "Stop it" : options[0];
 		await jobs?.handler("", pi.ctx);
 		expect(job.signal.aborted).toBe(true);
+		expect(jobStopOf(job.signal)).toBe("person");
 		expect(pi.said).toHaveLength(1);
 		expect(pi.said[0]).toMatch(/stopped/i);
 		expect(pi.said[0]).toContain("three lanes");

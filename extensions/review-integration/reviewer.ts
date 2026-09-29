@@ -266,8 +266,28 @@ export async function whyNotYet(
 		facts,
 		now,
 	);
-	if (holder === undefined) return undefined;
-	return `${held.id} is still being run: ${holder.reviewerId} is held by a supervisor (pid ${holder.pid}) whose lease was renewed ${Math.round(holder.sinceMs / 1000)}s ago. Collecting now would file the findings of whoever has finished and then let that session file them again. Wait for it, or stop the round.`;
+	if (holder !== undefined) {
+		return `${held.id} is still being run: ${holder.reviewerId} is held by a supervisor (pid ${holder.pid}) whose lease was renewed ${Math.round(holder.sinceMs / 1000)}s ago. Collecting now would file the findings of whoever has finished and then let that session file them again. Wait for it, or stop the round.`;
+	}
+	// Handed over and not yet begun counts as held. It is the window
+	// straight after start, and reading it as free let a collect file
+	// nothing, a stop close a round seconds from running, and a watcher
+	// say a round was ready before anybody had looked at it.
+	for (const participant of held.participants) {
+		for (const id of everyRunOf(participant.id)) {
+			const standing = await supervisorStanding(
+				artifacts,
+				held.id,
+				id,
+				facts,
+				now,
+			);
+			if (standing.kind === "starting") {
+				return `${held.id} is still starting: ${id} has been handed to a supervisor that has not begun. Wait a few seconds, or stop the round.`;
+			}
+		}
+	}
+	return undefined;
 }
 
 export async function heldByLiveSupervisor(

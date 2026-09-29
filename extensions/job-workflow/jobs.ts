@@ -8,11 +8,12 @@
  * session stops everything it started.
  */
 
-import type {
-	Job,
-	JobHost,
-	JobOutcome,
-	JobSpec,
+import {
+	type Job,
+	type JobHost,
+	type JobOutcome,
+	type JobSpec,
+	jobStopReason,
 } from "../../lib/jobs/index.ts";
 import type { JobResult } from "./outbox.ts";
 
@@ -77,7 +78,7 @@ export function createJobs(
 			const id = `j${next++}`;
 			const controller = new AbortController();
 			const job: Held = { spec, controller, listeners: [], finished: false };
-			if (closed) controller.abort();
+			if (closed) controller.abort(jobStopReason("session"));
 			else held.set(id, job);
 			changed();
 			return {
@@ -99,7 +100,7 @@ export function createJobs(
 			const job = held.get(id);
 			if (!job || job.finished) return;
 			finish(id, { summary: "Stopped by the person before it finished." });
-			job.controller.abort();
+			job.controller.abort(jobStopReason("person"));
 		},
 		delivered(isWaiting) {
 			for (const [id, job] of held) {
@@ -111,7 +112,9 @@ export function createJobs(
 		},
 		close() {
 			closed = true;
-			for (const job of held.values()) job.controller.abort();
+			for (const job of held.values()) {
+				job.controller.abort(jobStopReason("session"));
+			}
 			held.clear();
 		},
 	};

@@ -17,4 +17,7 @@ export {
 	type JobHost,
 	type JobOutcome,
 	type JobSpec,
+	type JobStop,
+	jobStopOf,
+	jobStopReason,
 } from "./host.ts";

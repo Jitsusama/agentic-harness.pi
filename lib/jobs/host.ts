@@ -30,6 +30,29 @@ export interface Job {
 	onDelivered(listener: () => void): void;
 }
 
+/**
+ * Why a job's signal fired. The person stopping a job means stop the
+ * work; the session ending means the work has nobody to answer to,
+ * which some work (a round whose answer is on disk) survives.
+ */
+export type JobStop = "person" | "session";
+
+/** What a host aborts a job's signal with, so the producer can tell why. */
+export function jobStopReason(stop: JobStop): { readonly jobStop: JobStop } {
+	return { jobStop: stop };
+}
+
+/** Why this job's signal fired, if it has and a host said. */
+export function jobStopOf(signal: AbortSignal): JobStop | undefined {
+	if (!signal.aborted) return undefined;
+	const reason: unknown = signal.reason;
+	if (typeof reason !== "object" || reason === null) return undefined;
+	if (!("jobStop" in reason)) return undefined;
+	return reason.jobStop === "person" || reason.jobStop === "session"
+		? reason.jobStop
+		: undefined;
+}
+
 /** The host a producer hands its background work to. */
 export interface JobHost {
 	start(spec: JobSpec): Job;

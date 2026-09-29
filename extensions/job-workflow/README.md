@@ -59,10 +59,18 @@ producer finishes it.
 running one and confirm to stop it; the model is told it was stopped.
 The footer shows how many are running and waiting.
 
+A producer can tell why its job's signal fired: `jobStopOf(signal)`
+from `agentic-harness.pi/jobs` answers `person` for a stop from
+`/jobs` and `session` for the session ending. Most work stops either
+way. Work whose answer is on disk can outlive the session, and a
+started review round does: the session ending stops only the watching,
+and only the person stopping the job stops the round.
+
 ## Limits
 
 - **Nothing outlives the session.** A reload, a new session, a resume
-  and a quit all stop every job and drop whatever was waiting. A job's
+  and a quit all stop every job, with the reason `session`, and drop
+  whatever was waiting. A job's
   work should write its output somewhere durable if it matters beyond
   the session.
 - **A narrow race remains.** If you press Enter in the milliseconds
