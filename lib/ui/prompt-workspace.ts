@@ -9,7 +9,7 @@
  * Key differences from prompt-tabbed:
  *   - Per-view input handlers (get first crack at input)
  *   - External tab status via callback
- *   - No per-tab results: Ctrl+Enter submits, Escape cancels
+ *   - No per-tab results: Ctrl+Enter or Ctrl+S submits, Escape cancels
  *   - Content invalidation for in-place state mutation
  *   - View-specific actions
  */
@@ -37,6 +37,7 @@ import {
 	SCROLLBAR_GUTTER,
 	type ScrollState,
 } from "./scroll-region.ts";
+import { isSubmitKey } from "./submit-key.ts";
 import { handleTabInput, renderTabStrip } from "./tab-strip.ts";
 import {
 	GLYPH,
@@ -257,7 +258,7 @@ function createWorkspaceController(
 			return;
 		}
 
-		if (matchesKey(data, Key.ctrl("enter"))) {
+		if (isSubmitKey(data)) {
 			done({ type: "submit" });
 			return;
 		}

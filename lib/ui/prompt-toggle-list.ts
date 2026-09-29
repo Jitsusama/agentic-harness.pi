@@ -1,17 +1,20 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
-import { mountPanel, type PanelFactory } from "./mount.ts";
+import type { GateFactory } from "./gate-dock.ts";
+import { mountGate } from "./mount.ts";
 import {
 	type NavigableSection,
 	renderNavigableSections,
 } from "./navigable-list.ts";
-import { computeChromeLines } from "./panel-layout.ts";
+import { computeChromeLines, dockedFooter } from "./panel-layout.ts";
+import { panelRoom } from "./panel-room.ts";
 import {
 	contentBudget,
 	renderScrollRegion,
 	SCROLLBAR_GUTTER,
 	type ScrollState,
 } from "./scroll-region.ts";
+import { isSubmitKey, submitKeyLabel } from "./submit-key.ts";
 import { GLYPH } from "./types.ts";
 
 /** One toggleable row: a labelled setting that cycles through a fixed set of options. */
@@ -117,9 +120,14 @@ export function selectedValues(model: ToggleListModel): Record<string, string> {
 
 /**
  * Present a settings surface where up/down navigate, Enter cycles the selected
- * row's value, typing filters, Ctrl+Enter submits and Esc clears a non-empty
+ * row's value, typing filters, Ctrl+Enter or Ctrl+S submits (see
+ * `submit-key.ts`) and Esc clears a non-empty
  * filter or otherwise cancels. Returns each row's selected value on submit and
  * the config's initial values otherwise, as headless callers get them too.
+ *
+ * It is a question waiting on its person, so in a terminal it docks above
+ * the editor as a gate does (see `gate-dock.ts`) rather than covering the
+ * transcript, and settles into it as a record saying how many rows changed.
  */
 export async function promptToggleList(
 	ctx: ExtensionContext,
@@ -131,16 +139,30 @@ export async function promptToggleList(
 	// Cancelled, or stopped before or while it is up, the rows keep the
 	// values they came with, as they would for a caller with no screen:
 	// nothing a person had not submitted is applied.
-	return mountPanel(ctx, toggleListPanel(config, initial), {
-		cancelled: selectedValues(initial),
+	const before = selectedValues(initial);
+	return mountGate(ctx, toggleListPanel(config, initial), {
+		cancelled: before,
+		title: config.title,
+		verdict: (values) => verdictOf(before, values),
 	});
+}
+
+/** What the record says of an answer: how many rows it changed. */
+function verdictOf(
+	before: Record<string, string>,
+	after: Record<string, string>,
+): string {
+	const changes = Object.entries(after).filter(
+		([id, value]) => before[id] !== value,
+	).length;
+	return changes === 0 ? "\u2717 nothing changed" : `\u2713 ${changes} changed`;
 }
 
 function toggleListPanel(
 	config: ToggleListConfig,
 	initial: ToggleListModel,
-): PanelFactory<Record<string, string>> {
-	return (tui, theme, _kb, done) => {
+): GateFactory<Record<string, string>> {
+	return (tui, theme, done) => {
 		let model = initial;
 		const scroll: ScrollState = { vOffset: 0, hOffset: 0 };
 		const rerender = () => tui.requestRender();
@@ -148,8 +170,7 @@ function toggleListPanel(
 		function handleInput(data: string) {
 			if (matchesKey(data, Key.up)) model = moveSelection(model, -1);
 			else if (matchesKey(data, Key.down)) model = moveSelection(model, 1);
-			else if (matchesKey(data, Key.ctrl("enter")))
-				return done(selectedValues(model));
+			else if (isSubmitKey(data)) return done(selectedValues(model));
 			else if (matchesKey(data, Key.enter)) model = cycleSelected(model);
 			else if (matchesKey(data, Key.escape)) {
 				if (model.filter) model = setFilter(model, "");
@@ -199,12 +220,17 @@ function toggleListPanel(
 				// Submitting is the focal point once there is something to submit.
 				const submit = theme.fg(
 					changed(initial, model) ? "accent" : "dim",
-					"Ctrl+Enter submit",
+					`${submitKeyLabel()} submit`,
 				);
 				const sep = theme.fg("dim", " · ");
-				add(
-					`${theme.fg("dim", " ↑↓ select · type to filter · Enter cycle")}${sep}${submit}${sep}${theme.fg("dim", escLabel)}`,
-				);
+				// Docked, the way out to the editor leads, as on every gate.
+				const room = panelRoom();
+				const hop =
+					room?.hop === undefined
+						? ""
+						: `${theme.fg("dim", `${room.hop} ${room.hopTo ?? "editor"}`)}${sep}`;
+				const keys = `${theme.fg("dim", " ")}${hop}${theme.fg("dim", "↑↓ select · type to filter · Enter cycle")}${sep}${submit}${sep}${theme.fg("dim", escLabel)}`;
+				for (const line of dockedFooter([keys], theme, width)) add(line);
 				add(theme.fg("accent", GLYPH.hrule.repeat(width)));
 				return lines;
 			},

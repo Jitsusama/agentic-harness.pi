@@ -279,7 +279,7 @@ slack({ action: "edit_message", target: "https://...permalink...",
   fix it. Don't resend only the rejected one; the whole
   thread must be reviewed together.
 - Every message must be reviewed. If the user submits
-  early (Ctrl+Enter) without reviewing all tabs, the
+  early (Ctrl+Enter or Ctrl+S) without reviewing all tabs, the
   gate rejects with a note asking them to review
   everything.
 - The same `messages` array works on `reply_to_thread`

@@ -68,7 +68,7 @@ fleet", "Ctrl+Alt+N back to the editor"). Give `dock` a
 every draw rather than once, since focus moves between
 draws.
 
-A gate from `promptSingle` or `promptTabbed` docks there too
+A gate from `promptSingle`, `promptTabbed` or `promptToggleList` docks there too
 in a terminal, and does take the keyboard, since it is a
 question waiting on its person: once it has been painted and
 the editor has gone untouched for half a second, then deaf to
@@ -124,6 +124,15 @@ with a note. This is handled in `prompt-single.ts` and
 `Shift+Escape` is the universal redirect. It lets the user
 say "none of the above" and type guidance. The infrastructure
 handles this too.
+
+A panel holding several answers at once (a tabbed gate, the
+toggle list, the workspace) submits on Ctrl+Enter or Ctrl+S,
+through `isSubmitKey` in `submit-key.ts`. tmux as it comes and
+macOS Terminal send Ctrl+Enter as plain Enter, so Ctrl+Enter
+alone left such a gate cancellable and nothing else. The
+footer says `submitKeyLabel()`: Ctrl+Enter once the kitty
+protocol is confirmed, Ctrl+S otherwise. Never write the
+submit chord into a footer by hand.
 
 ## View Numbering
 

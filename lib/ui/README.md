@@ -50,9 +50,16 @@ even that will not fit. Answered, it settles into the
 transcript as a record the same height, its verdict on its
 last row, in the frame it leaves, then gives rows back as
 lines arrive below it. A gate closed by its session ending or
-by a session replace leaves no record. Views, the toggle list
-and the workspace are still overlays, and so is every gate on
-a host that cannot dock a widget.
+by a session replace leaves no record. The toggle list docks
+the same way, its record saying how many rows it changed.
+Views and the workspace are still overlays, and so is every
+gate on a host that cannot dock a widget.
+
+A panel holding several answers (a tabbed gate, the toggle
+list, the workspace) submits on Ctrl+Enter or Ctrl+S, since
+tmux as it comes and macOS Terminal send Ctrl+Enter as Enter.
+Its footer names Ctrl+Enter only once the kitty protocol is
+confirmed, and Ctrl+S otherwise: see `submit-key.ts`.
 
 Every prompt and view comes off the screen by its own overlay
 handle, never by hiding whatever overlay happens to be on top,

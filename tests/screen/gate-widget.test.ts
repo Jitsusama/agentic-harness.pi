@@ -52,6 +52,8 @@ function gateTool(api: ExtensionAPI): void {
 			second: Type.Optional(Type.Number()),
 			/** Rows of a progress widget docked before the gate, if any. */
 			progress: Type.Optional(Type.Number()),
+			/** A tabbed gate that waits to be submitted once every item is answered. */
+			manual: Type.Optional(Type.Boolean()),
 		}),
 		async execute(_id, params, _signal, _onUpdate, ctx) {
 			const progress = params.progress ?? 0;
@@ -97,7 +99,7 @@ function gateTool(api: ExtensionAPI): void {
 								},
 							],
 							actions: [{ key: "r", label: "Reject" }],
-							autoResolve: true,
+							autoResolve: params.manual !== true,
 						})
 					: await showSinglePrompt(ctx, {
 							title: `${TITLE}${params.tag ?? ""}`,
@@ -132,6 +134,9 @@ afterEach(async () => {
 });
 
 interface RaiseOptions {
+	readonly kitty?: boolean;
+	/** A tabbed gate that waits to be submitted. */
+	readonly manual?: boolean;
 	readonly cols?: number;
 	readonly rows?: number;
 	readonly history?: number;
@@ -150,6 +155,7 @@ async function raise(options: RaiseOptions = {}): Promise<PiSession> {
 	const session = await bootPi({
 		cols: options.cols ?? 100,
 		rows: options.rows ?? 30,
+		kitty: options.kitty ?? true,
 		extensions: [gateTool, panelLifecycle],
 	});
 	pi = session;
@@ -168,6 +174,7 @@ async function raise(options: RaiseOptions = {}): Promise<PiSession> {
 			tag: (options.gates ?? 1) > 1 ? String(i) : "",
 			second: options.second ?? options.lines ?? 4,
 			progress: options.progress ?? 0,
+			manual: options.manual ?? false,
 		}),
 	);
 	session.faux.setResponses([
@@ -498,6 +505,43 @@ describe("a tabbed gate", () => {
 		]);
 		expect(await session.inBuffer("✓ answered 2 of 2")).toBe(1);
 		await expectClean(session);
+	});
+
+	// tmux as it comes and Terminal.app send Ctrl+Enter as Enter, so a
+	// gate that waits to be submitted could only ever be cancelled there.
+	it("submits on Ctrl+S in a terminal that sends Ctrl+Enter as Enter", async () => {
+		const session = await raise({ kind: "tabbed", manual: true, kitty: false });
+		await armed(session);
+
+		await session.key("enter");
+		await session.key("enter");
+		expect(await session.onScreen("Ctrl+S submit")).toBe(true);
+		expect(await session.onScreen("Ctrl+Enter")).toBe(false);
+		await session.key("ctrl+s");
+		await turnEnds(session);
+
+		expect(answers).toEqual([
+			{
+				items: [
+					{ type: "action", key: "__enter__" },
+					{ type: "action", key: "__enter__" },
+				],
+			},
+		]);
+	});
+
+	it("submits on Ctrl+S under the kitty protocol too, saying Ctrl+Enter", async () => {
+		const session = await raise({ kind: "tabbed", manual: true });
+		await armed(session);
+
+		await session.key("enter");
+		await session.key("enter");
+		expect(await session.onScreen("Ctrl+Enter submit")).toBe(true);
+		await session.key("ctrl+s");
+		await turnEnds(session);
+
+		expect(answers).toHaveLength(1);
+		expect(answers[0]).not.toBeNull();
 	});
 });
 

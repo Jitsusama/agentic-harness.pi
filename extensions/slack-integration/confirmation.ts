@@ -468,7 +468,7 @@ export async function confirmSendThread(
 
 	if (!result) return null;
 
-	// Ctrl+Enter can submit before all tabs are reviewed.
+	// Ctrl+Enter or Ctrl+S can submit before all tabs are reviewed.
 	// Treat incomplete review as a cancellation so no
 	// unreviewed messages slip through.
 	if (result.items.size < messages.length) {

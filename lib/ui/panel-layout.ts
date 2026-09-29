@@ -8,6 +8,7 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { panelRoom } from "./panel-room.ts";
+import { submitKeyLabel } from "./submit-key.ts";
 import type { KeyAction, ListChoice, PromptView } from "./types.ts";
 
 /**
@@ -172,7 +173,7 @@ function renderControlRow(opts: FooterOptions): string {
 		rightParts.push(theme.fg("dim", "Enter approve"));
 	}
 	if (opts.hasTabs) {
-		const submit = "Ctrl+Enter submit";
+		const submit = `${submitKeyLabel()} submit`;
 		rightParts.push(
 			opts.allComplete ? theme.fg("accent", submit) : theme.fg("dim", submit),
 		);
