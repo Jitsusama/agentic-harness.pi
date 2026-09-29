@@ -103,7 +103,7 @@ async function subagentTool(host?: JobHost) {
 }
 
 /** Run one fleet in the background, as pi would call it. */
-async function inBackground(host?: JobHost) {
+async function inBackground(host?: JobHost, turn?: AbortSignal) {
 	const tool = await subagentTool(host);
 	return (await tool.execute(
 		"call-1",
@@ -112,7 +112,7 @@ async function inBackground(host?: JobHost) {
 			background: true,
 			jobs: [{ id: "one", cwd: root, userPrompt: "go" }],
 		},
-		undefined,
+		turn,
 		undefined,
 		{ hasUI: false },
 	)) as { content: { text: string }[] };
@@ -182,6 +182,31 @@ describe("a fleet in the background", () => {
 		stop.abort();
 		await until(() => stoppedFleet);
 		await until(() => outcomes.length === 1);
+	});
+
+	it("outlives an Escape on the turn that started it", async () => {
+		// The hazard other harnesses shipped: interrupting the model's turn
+		// killed every child it had put in the background, so the one
+		// thing background was for was undone by the most common key.
+		let release: (() => void) | undefined;
+		let interrupted = false;
+		answer = (input) =>
+			new Promise((resolve) => {
+				input.signal?.addEventListener("abort", () => {
+					interrupted = true;
+				});
+				release = () =>
+					resolve({ exitCode: 0, finalAssistantText: "done", warnings: [] });
+			});
+		const { host, outcomes } = recordingHost();
+		const turn = new AbortController();
+		await inBackground(host, turn.signal);
+		await until(() => release !== undefined);
+		turn.abort();
+		release?.();
+		await until(() => outcomes.length === 1);
+		expect(interrupted).toBe(false);
+		expect(outcomes[0]?.failed).toBeFalsy();
 	});
 
 	it("keeps its board up until the result is in the session", async () => {

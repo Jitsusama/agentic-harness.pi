@@ -164,6 +164,24 @@ describe("when the session ends", () => {
 	});
 });
 
+describe("a resumed session", () => {
+	it("starts no turn by itself for what the last one left waiting", async () => {
+		// Resuming is the person reading back, not asking for work, and a
+		// turn started on their behalf spends money they did not ask for.
+		const { host, said, session, fire } = await started();
+		session.busy = true;
+		host.start({ kind: "subagent", label: "lanes" }).finish({
+			summary: "left waiting",
+		});
+		await fire("session_shutdown", { reason: "resume" });
+		await fire("session_start", { reason: "resume" });
+		session.busy = false;
+		await fire("agent_settled");
+		await new Promise((resolve) => setTimeout(resolve, 1_100));
+		expect(said).toEqual([]);
+	});
+});
+
 describe("a job started on a host whose session has ended", () => {
 	it("is stopped from the start, as the session's own were", async () => {
 		const { host, fire } = await started();
