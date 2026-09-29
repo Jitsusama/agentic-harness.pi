@@ -45,13 +45,12 @@ import {
 	type Docked,
 	dock,
 	hopLabel,
-	isEditor,
 	lastKeyAt,
 	replacing,
 } from "./dock.ts";
 import { settleRecord } from "./gate-record.ts";
 import { type PanelRoom, withPanelRoom } from "./panel-room.ts";
-import { focusedIn, rowsUnderGate } from "./pi-layout.ts";
+import { focusedIn, isEditor, rowsUnderGate } from "./pi-layout.ts";
 import { GLYPH } from "./types.ts";
 
 /** How long the editor must go untouched before a gate takes the keyboard. */
