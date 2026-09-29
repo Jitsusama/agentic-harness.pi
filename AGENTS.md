@@ -32,6 +32,9 @@ The package manager is **pnpm**. `pnpm-lock.yaml` is canonical;
   - `lib/command/`: lossless, range-indexed command model:
     tokenize, the caller-spec flag layer, splice-by-range
     editing and the effective working directory (public)
+  - `lib/jobs/`: the seam between work that runs on after its
+    tool returns and the host that says its result, found over
+    the event bus so a producer never imports the host (public)
   - `lib/internal/`: not for external use
     - `git/`: process-global bypass state for git
       command interception
@@ -75,7 +78,15 @@ it does:
   `ask-workflow`, `git-bypass-workflow`,
   `guardian-status-workflow`, `result-store-workflow`,
   `cost-workflow`, `image-budget-workflow`,
-  `panel-lifecycle-workflow`.
+  `panel-lifecycle-workflow`, `job-workflow`.
+
+  `job-workflow` hosts background jobs. A tool that returns
+  before its work ends hands the work to it, and it says the
+  result to the model as a prompt of its own once no run,
+  compaction or submitted prompt is under way, since a message
+  queued behind a run is what Escape puts in the person's
+  editor. It is the only thing that starts a turn nobody
+  typed, so every producer goes through it.
 
   `image-budget-workflow` scales images down at the
   `tool_result` seam, on the one ground that makes a silent

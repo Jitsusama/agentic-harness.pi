@@ -24,6 +24,7 @@
 		"./prompt": "./lib/prompt/index.ts",
 		"./compaction": "./lib/compaction/index.ts",
 		"./mcp": "./lib/mcp/index.ts",
+		"./jobs": "./lib/jobs/index.ts",
 		"./ts-import-specifiers": "./scripts/ts-import-specifiers.ts"
 	},
 	"scripts": {

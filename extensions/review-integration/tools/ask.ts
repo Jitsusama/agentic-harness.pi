@@ -22,6 +22,7 @@ import { stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
+	EventBus,
 	ExtensionAPI,
 	ExtensionContext,
 	Theme,
@@ -120,6 +121,7 @@ import {
 	reviewerStarter,
 	whyNotYet,
 } from "../reviewer.ts";
+import { watchStartedRound } from "../round-job.ts";
 import { type ReadableTree, readFrom, treeForRound } from "../work.ts";
 import {
 	type Answer,
@@ -362,7 +364,7 @@ export function registerAskTool(pi: ExtensionAPI): void {
 						case "council":
 							return await askCouncil(bound, change, params, watch("council"));
 						case "start":
-							return await startRound(bound, change, params);
+							return await startRound(pi.events, bound, change, params);
 						case "stop":
 							return await stopRound(change, params);
 						case "judge":
@@ -700,6 +702,7 @@ async function askCouncil(
  * turns the directories back into findings whenever somebody asks.
  */
 async function startRound(
+	bus: EventBus,
 	bound: Awaited<ReturnType<typeof boundFor>>,
 	change: ChangeRef,
 	params: AskParams,
@@ -726,6 +729,7 @@ async function startRound(
 	const store = createRunStore(runDir());
 	const contract = contractSkill("council");
 
+	const artifacts = new ReviewerArtifactsStore(runArtifactDir());
 	const { run, warnings, started } = await startCouncil(
 		{
 			roster,
@@ -792,6 +796,25 @@ async function startRound(
 	// at directories that will always be empty.
 	const kept = await keptOnLedger(change, run);
 
+	// Held as a job where a host is loaded, so the model is told when
+	// the round is ready rather than polling for it. Only once something
+	// was started, since a round that started nobody is already settled.
+	const watched =
+		started === 0
+			? undefined
+			: watchStartedRound({
+					bus,
+					runId: run.id,
+					label: `council ${run.id} on ${change.label}`,
+					isRunning: async () =>
+						(await whyNotYet(artifacts, run)) !== undefined,
+					stop: () =>
+						artifacts.requestRunCancellation(
+							run.id,
+							`Stopped from the job list on ${new Date().toISOString()}.`,
+						),
+				});
+
 	// Through the same composition as every other answer. This built
 	// its own for as long as it existed, which is how it came to print
 	// the tree caveat last and bare while the other seven answers put
@@ -804,9 +827,13 @@ async function startRound(
 				: `Started ${run.id}: ${count(started, "reviewer")} running, nothing waiting for them.`,
 			...(started === 0
 				? []
-				: [
-						`Finish it with review_ask collect once they are done. Until then it reads as opened and never settled, which is what it is.`,
-					]),
+				: watched === undefined
+					? [
+							`Finish it with review_ask collect once they are done. Until then it reads as opened and never settled, which is what it is.`,
+						]
+					: [
+							`Held as job ${watched.id}: you will be told when no reviewer is left running, so do not poll. Collect it then. /jobs stops it.`,
+						]),
 			answerFor(run, [...warnings, ...kept], tree.caveat),
 		].join("\n"),
 		{ run, warnings },

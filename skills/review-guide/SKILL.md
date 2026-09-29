@@ -709,7 +709,19 @@ instead, which is how a round whose transcripts are long gone stops
 sitting in the listing; it is refused outright when anybody did leave
 something, so it cannot be used to throw findings away.
 What protects a started round instead is that each reviewer writes its
-findings down as it forms them. Prefer `council` when you are going to
+findings down as it forms them.
+
+When the job-workflow extension is loaded, a started round is also
+held as a background job. Its answer says so and names the job, and
+when no reviewer is left running you receive a message saying to run
+`review_ask collect` with the round's id. Do not poll in the meantime;
+get on with something else or end your turn. The message only tells
+you the round is ready: it does not collect, because a collect racing
+yours would file the same findings twice. Stopping the job from
+`/jobs` stops the round the way `review_ask stop` does. The session
+ending stops only the watching, since the round survives it.
+
+Prefer `council` when you are going to
 sit and read the answer anyway; prefer `start` when you would
 otherwise be waiting on it to get on with something else.
 

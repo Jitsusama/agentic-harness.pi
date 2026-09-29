@@ -67,6 +67,11 @@ import { THINKING_LEVELS } from "../../lib/thinking/index.ts";
 import { count } from "../../lib/ui/count.ts";
 import { drawInto } from "../../lib/ui/tool-call.ts";
 import {
+	finishInBackground,
+	startedAnswer,
+	startFleetJob,
+} from "./background.ts";
+import {
 	FleetCancellationRegistry,
 	formatFleetCancellation,
 } from "./cancellation.ts";
@@ -604,6 +609,12 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 						"Stable id for this fleet run. Used for durable supervisor artifacts, the ledger entry that keeps them, and progress correlation. Letters, digits, dot, underscore and dash, so it names exactly one run on disk. Auto-generated when omitted.",
 				}),
 			),
+			background: Type.Optional(
+				Type.Boolean({
+					description:
+						"When true, return at once and let the fleet run on. Its summary arrives later as a message of its own, so do not poll or wait for it; carry on with other work. The board stays above the editor meanwhile. Use for fleets you do not need the answer to before your next step. Defaults to false.",
+				}),
+			),
 		}),
 		// The fleet as its board looked when it ended, so the card that
 		// replaces the board opens with the same rows and is never shorter.
@@ -621,15 +632,33 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 				context?.isError ? theme.fg("error", text) : text,
 			);
 		},
-		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+		async execute(_toolCallId, params, toolSignal, _onUpdate, ctx) {
 			const runId = params.runId ?? `fleet-${randomUUID()}`;
 			const assignments: FleetAssignment[] = params.jobs.map(buildAssignment);
+			// In the background the fleet answers to its job, which the person
+			// stops from /jobs and the session stops as it ends, and not to the
+			// call, which returns at once.
+			const job =
+				params.background === true
+					? startFleetJob(pi.events, runId, assignments.length)
+					: undefined;
+			const signal = job?.signal ?? toolSignal;
 			const progress = createFleetProgressReporter(ctx, controls(runId), runId);
+			if (job !== undefined) {
+				finishInBackground(job, runFleet(), progress, runId);
+				return startedAnswer(job, runId, assignments.length);
+			}
 			// The board comes down as the tool returns, after the bookkeeping
 			// below, and not when the fleet finishes: pi draws the result card
 			// in the frame after the return, so the board leaving any earlier
 			// leaves its rows blank for as long as the bookkeeping takes.
 			try {
+				return await runFleet();
+			} finally {
+				progress.close();
+			}
+
+			async function runFleet() {
 				// Both up front, for the reason the sweep resolves its paths up
 				// front: these read the environment on every call, and a fleet
 				// can run for hours, so a lookup after the dispatch is a lookup
@@ -692,7 +721,9 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 					// details payload, not buried in the supervisor's state dir.
 					const located = locateArtifacts(runs, result);
 					return {
-						content: [{ type: "text", text: formatFleetSummary(located) }],
+						content: [
+							{ type: "text" as const, text: formatFleetSummary(located) },
+						],
 						details: { ok: true, ...located },
 					};
 				} finally {
@@ -727,8 +758,6 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 						);
 					}
 				}
-			} finally {
-				progress.close();
 			}
 		},
 	});
