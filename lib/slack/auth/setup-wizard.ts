@@ -24,7 +24,11 @@ import {
 } from "@jitsusama/agentic-harness.core/slack";
 import { extractFromBrowser } from "@jitsusama/agentic-harness.core/slack/auth/browser-extract";
 import { extractFromCurl } from "@jitsusama/agentic-harness.core/slack/auth/extract";
-import { promptSingle, view } from "../../ui/index.ts";
+import { holdScreen } from "../../ui/gate-queue.ts";
+import { promptSingle, type ViewConfig, viewWhile } from "../../ui/index.ts";
+
+/** Said whenever a person backs out of the wizard. */
+const SETUP_CANCELLED = "Setup cancelled. Run /slack-setup when ready.";
 
 /**
  * Ensure the user has valid Slack credentials.
@@ -74,7 +78,9 @@ export async function ensureSetup(
 		return null;
 	}
 
-	return await runSetupWizard(ctx);
+	// One gate for the whole wizard: its panels and pi's own dialogs take
+	// turns, and another tool's gate must not land between them.
+	return await holdScreen(ctx.signal, null, () => runSetupWizard(ctx));
 }
 
 /** Run the interactive setup wizard. */
@@ -123,7 +129,7 @@ async function runSetupWizard(
 		case "oauth":
 			return await setupViaOAuth(ctx);
 		default:
-			ctx.ui.notify("Setup cancelled. Run /slack-setup when ready.", "info");
+			ctx.ui.notify(SETUP_CANCELLED, "info");
 			return null;
 	}
 }
@@ -138,14 +144,16 @@ async function setupViaBrowser(
 		"Enter your Slack workspace URL (e.g. your-team.slack.com):",
 		"",
 	);
-	const slackUrl = urlInput?.trim()
+	// Escape, as opposed to an empty answer, which means Slack's own page.
+	if (urlInput === undefined) {
+		ctx.ui.notify(SETUP_CANCELLED, "info");
+		return null;
+	}
+	const slackUrl = urlInput.trim()
 		? normaliseSlackUrl(urlInput.trim())
 		: undefined;
 
-	const dismiss = new AbortController();
-
-	view(ctx, {
-		signal: dismiss.signal,
+	const panel: ViewConfig = {
 		content: (theme) => [
 			` ${theme.bold("🌐 Browser Credential Extraction")}`,
 			"",
@@ -155,14 +163,19 @@ async function setupViaBrowser(
 			"",
 			` ${theme.fg("dim", "Waiting for credentials (up to 5 minutes)...")}`,
 		],
-	});
+	};
 
 	try {
-		const creds = await extractFromBrowser(slackUrl);
-		dismiss.abort();
+		// Closing the panel closes Chrome.
+		const creds = await viewWhile(ctx, panel, (stop) =>
+			extractFromBrowser(slackUrl, undefined, undefined, { signal: stop }),
+		);
 		return await verifyAndStore(ctx, creds.token, creds.cookie);
 	} catch (error) {
-		dismiss.abort();
+		if (error instanceof Error && error.name === "AbortError") {
+			ctx.ui.notify(SETUP_CANCELLED, "info");
+			return null;
+		}
 		const msg = error instanceof Error ? error.message : String(error);
 		ctx.ui.notify(`Browser extraction failed: ${msg}`, "error");
 		return null;

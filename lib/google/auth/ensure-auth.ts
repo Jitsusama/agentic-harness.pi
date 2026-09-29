@@ -20,8 +20,9 @@ import {
 	setCredentials,
 } from "@jitsusama/agentic-harness.core/google/auth/oauth";
 import type { OAuth2Client } from "google-auth-library";
+import { holdScreen } from "../../ui/gate-queue.ts";
 import { promptSingle } from "../../ui/index.ts";
-import { authenticateWithFallback } from "./dual-flow.ts";
+import { authenticateWithFallback, type OAuthFlowResult } from "./dual-flow.ts";
 import { ensureOAuthApp } from "./setup-wizard.ts";
 
 /**
@@ -68,29 +69,12 @@ export async function ensureAuthenticated(
 		);
 	}
 
-	const result = await promptSingle(ctx, {
-		content: (theme) => [
-			` ${theme.bold("🔐 Authentication Required")}`,
-			"",
-			" You need to authenticate with your Google account",
-			" before using Google Workspace features.",
-			"",
-			" This is a one-time setup using device flow",
-			" (works everywhere: SSH, containers, etc.).",
-		],
-		options: [
-			{ label: "Authenticate now", value: "yes" },
-			{ label: "Cancel", value: "no" },
-		],
-	});
-	if (result?.type !== "option" || result.value !== "yes") {
-		throw new Error(AUTH_MESSAGES.cancelled);
-	}
-
-	const flowResult = await authenticateWithFallback(
-		{ ...oauthConfig, redirectUri: "http://localhost:8765" },
-		ctx,
+	// Held from the question to the login's last panel, so nothing lands
+	// while the device code is being fetched.
+	const flowResult = await holdScreen(ctx.signal, null, () =>
+		askAndAuthenticate(ctx, oauthConfig),
 	);
+	if (!flowResult) throw new Error(AUTH_MESSAGES.cancelled);
 
 	const client = createOAuth2Client(oauthConfig);
 	setCredentials(client, flowResult.credentials);
@@ -111,6 +95,34 @@ export async function ensureAuthenticated(
 	);
 
 	return client;
+}
+
+/** Asks whether to sign in now and, if so, runs the login. */
+async function askAndAuthenticate(
+	ctx: ExtensionContext,
+	oauthConfig: OAuthAppCredentials,
+): Promise<OAuthFlowResult | null> {
+	const result = await promptSingle(ctx, {
+		content: (theme) => [
+			` ${theme.bold("🔐 Authentication Required")}`,
+			"",
+			" You need to authenticate with your Google account",
+			" before using Google Workspace features.",
+			"",
+			" This is a one-time setup using device flow",
+			" (works everywhere: SSH, containers, etc.).",
+		],
+		options: [
+			{ label: "Authenticate now", value: "yes" },
+			{ label: "Cancel", value: "no" },
+		],
+	});
+	if (result?.type !== "option" || result.value !== "yes") return null;
+
+	return authenticateWithFallback(
+		{ ...oauthConfig, redirectUri: "http://localhost:8765" },
+		ctx,
+	);
 }
 
 /** Extract email from token info, returning undefined on failure. */

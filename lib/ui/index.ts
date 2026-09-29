@@ -81,6 +81,7 @@ export {
 	promptSingle,
 	promptTabbed,
 	view,
+	viewWhile,
 	workspace,
 } from "./panel.ts";
 // ── Paths ──────────────────────────────────────────

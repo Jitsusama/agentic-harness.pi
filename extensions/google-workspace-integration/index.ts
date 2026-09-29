@@ -16,6 +16,7 @@ import { Type } from "@sinclair/typebox";
 import type { OAuth2Client } from "google-auth-library";
 import { ensureAuthenticated } from "../../lib/google/auth/ensure-auth.ts";
 import { ensureOAuthApp } from "../../lib/google/auth/setup-wizard.ts";
+import { singleFlight } from "../../lib/internal/single-flight.ts";
 import { handleGoogleAuthCommand } from "./auth-command.ts";
 import { renderGoogleCall } from "./render-call.ts";
 import { renderGoogleResult } from "./render-result.ts";
@@ -30,6 +31,8 @@ const ENV_OAUTH_CONFIG = {
 export default function googleWorkspace(pi: ExtensionAPI) {
 	/** Cached OAuth clients keyed by account name. */
 	const clientCache = new Map<string, OAuth2Client>();
+	/** One login per account, however many calls find it signed out. */
+	const login = singleFlight<string, OAuth2Client>();
 
 	/**
 	 * Get an authenticated Google client, prompting for setup
@@ -43,9 +46,11 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 		const cached = clientCache.get(key);
 		if (cached) return cached;
 
-		const client = await ensureAuthenticated(ctx, ENV_OAUTH_CONFIG, account);
-		clientCache.set(key, client);
-		return client;
+		return login(key, async () => {
+			const client = await ensureAuthenticated(ctx, ENV_OAUTH_CONFIG, account);
+			clientCache.set(key, client);
+			return client;
+		});
 	}
 
 	pi.registerTool({
