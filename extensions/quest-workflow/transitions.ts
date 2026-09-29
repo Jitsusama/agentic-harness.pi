@@ -96,7 +96,7 @@ export function handle(
 	params: QuestToolParams,
 	signal?: AbortSignal,
 ): Promise<QuestResult> {
-	return turns.runExclusive(() => dispatch(state, pi, ctx, params), {
+	return turns.runExclusive(() => dispatch(state, pi, ctx, params, signal), {
 		signal,
 	});
 }
@@ -106,10 +106,11 @@ async function dispatch(
 	pi: ExtensionAPI,
 	ctx: ExtensionContext,
 	params: QuestToolParams,
+	signal?: AbortSignal,
 ): Promise<QuestResult> {
 	switch (params.action) {
 		case "create":
-			return create(state, pi, params);
+			return create(state, pi, params, signal);
 		case "load":
 			return load(state, pi, ctx, params);
 		case "unload":

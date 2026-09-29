@@ -11,19 +11,36 @@
  *
  * Fetchers must be non-interactive. They never open OAuth
  * flows or write to disk. When an integration is not
- * available, return `undefined`.
+ * available, return `undefined`. They are also bounded: quest
+ * takes its calls one at a time, so a fetch that hangs holds every
+ * later quest call behind it. A fetcher stops when the options it is
+ * handed say to, by signal or by clock.
  */
 
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import type { Ref } from "../../refs/index.ts";
+import { execUnattended } from "../unattended-exec.ts";
 import {
 	sanitizeExcerpt,
 	sanitizeHandle,
 	sanitizeSingleLine,
 } from "./sanitize.ts";
 
-const execFileAsync = promisify(execFile);
+/**
+ * How long a URL fetch may take when its caller names no clock.
+ *
+ * Seeding is a convenience: the quest is created without the hints
+ * when they do not arrive, so this is short. A gh answering from its
+ * cache takes well under a second and a cold one a few.
+ */
+export const URL_FETCH_TIMEOUT_MS = 20_000;
+
+/** How a fetch may be stopped. */
+export interface UrlFetchOptions {
+	/** The caller giving up; the fetch ends and seeds nothing. */
+	readonly signal?: AbortSignal;
+	/** The longest the fetch may take. Defaults to URL_FETCH_TIMEOUT_MS. */
+	readonly timeoutMs?: number;
+}
 
 /** Hints a fetcher returns to seed the new quest. */
 export interface SeedHints {
@@ -38,8 +55,8 @@ export interface SeedHints {
 export interface UrlFetcher {
 	/** Ref type this fetcher handles. */
 	type: string;
-	/** Fetch hints for one ref of this type. */
-	fetch(ref: Ref): Promise<SeedHints | undefined>;
+	/** Fetch hints for one ref of this type, stopping when told to. */
+	fetch(ref: Ref, options?: UrlFetchOptions): Promise<SeedHints | undefined>;
 }
 
 import { createGlobalSymbolRegistry } from "../registry/global-symbol-registry.ts";
@@ -68,11 +85,14 @@ export const getUrlFetcher = (type: string): UrlFetcher | undefined =>
 export const listUrlFetchers = (): UrlFetcher[] => registry.list();
 
 /** Fetch hints for a ref, or undefined when nothing handles it. */
-export async function fetchUrlHints(ref: Ref): Promise<SeedHints | undefined> {
+export async function fetchUrlHints(
+	ref: Ref,
+	options: UrlFetchOptions = {},
+): Promise<SeedHints | undefined> {
 	const fetcher = registry.get(ref.type);
 	if (!fetcher) return undefined;
 	try {
-		return await fetcher.fetch(ref);
+		return await fetcher.fetch(ref, options);
 	} catch {
 		// Fetcher failures are non-fatal; the caller falls back
 		// to alias-only seeding.
@@ -89,21 +109,33 @@ interface GhIssueOrPrJson {
 async function fetchGhJson(
 	subcommand: "issue" | "pr",
 	value: string,
+	options: UrlFetchOptions = {},
 ): Promise<SeedHints | undefined> {
 	// Ref value is `<owner>/<repo>#<number>`. Translate to gh
 	// CLI args.
 	const match = /^([^/]+)\/([^#]+)#(\d+)$/.exec(value);
 	if (!match) return undefined;
 	const [, owner, repo, number] = match;
-	const { stdout } = await execFileAsync("gh", [
-		subcommand,
-		"view",
-		number,
-		"--repo",
-		`${owner}/${repo}`,
-		"--json",
-		"title,body,author",
-	]);
+	// Unattended, so a gh that wants a login says so and exits rather
+	// than prompting on pi's terminal, and so the clock and the signal
+	// stop the process rather than only the wait on it.
+	const { stdout, code } = await execUnattended(
+		"gh",
+		[
+			subcommand,
+			"view",
+			number,
+			"--repo",
+			`${owner}/${repo}`,
+			"--json",
+			"title,body,author",
+		],
+		{
+			...(options.signal ? { signal: options.signal } : {}),
+			timeout: options.timeoutMs ?? URL_FETCH_TIMEOUT_MS,
+		},
+	);
+	if (code !== 0) return undefined;
 	const data = JSON.parse(stdout) as GhIssueOrPrJson;
 	const hints: SeedHints = {};
 	if (data.title) {
@@ -123,15 +155,15 @@ async function fetchGhJson(
 
 export const githubIssueFetcher: UrlFetcher = {
 	type: "github-issue",
-	async fetch(ref) {
-		return fetchGhJson("issue", ref.value);
+	async fetch(ref, options) {
+		return fetchGhJson("issue", ref.value, options);
 	},
 };
 
 export const githubPrFetcher: UrlFetcher = {
 	type: "github-pr",
-	async fetch(ref) {
-		return fetchGhJson("pr", ref.value);
+	async fetch(ref, options) {
+		return fetchGhJson("pr", ref.value, options);
 	},
 };
 

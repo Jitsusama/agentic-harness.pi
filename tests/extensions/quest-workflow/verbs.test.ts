@@ -523,6 +523,27 @@ describe("URL-seeded create", () => {
 		expect(text).toContain("@octocat");
 	});
 
+	it("hands the fetcher the call's signal, so stopping the call stops the fetch", async () => {
+		const state = buildState();
+		const handed: Array<AbortSignal | undefined> = [];
+		registerUrlFetcher({
+			type: "github-pr",
+			async fetch(_ref, options) {
+				handed.push(options?.signal);
+				return { title: "Seeded title" };
+			},
+		});
+		const controller = new AbortController();
+		await handle(
+			state,
+			fakePi(),
+			fakeCtx(tmpRoot),
+			{ action: "create", url: "https://github.com/shop/world/pull/55555" },
+			controller.signal,
+		);
+		expect(handed).toEqual([controller.signal]);
+	});
+
 	it("refuses with guidance when neither URL hint nor title is given", async () => {
 		const state = buildState();
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
