@@ -20,7 +20,7 @@
  * them in the lab this was moved from.
  */
 
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -38,6 +38,7 @@ import {
 	InteractiveMode,
 	initTheme,
 	SessionManager,
+	type TuiMode,
 } from "@earendil-works/pi-coding-agent";
 import {
 	StdinBuffer,
@@ -47,6 +48,7 @@ import {
 	visibleWidth,
 } from "@earendil-works/pi-tui";
 import xterm from "@xterm/headless";
+import { expect } from "vitest";
 
 /** Resolves after `ms`. */
 export const sleep = (ms: number): Promise<void> =>
@@ -202,7 +204,11 @@ class HeadlessTerminal implements Terminal {
 	setTitle(): void {}
 	setProgress(): void {}
 
+	/** Whether the terminal changed size after it was made. */
+	resized = false;
+
 	resize(cols: number, rows: number): void {
+		this.resized = true;
 		this.cols = cols;
 		this.lines = rows;
 		this.emulator.resize(cols, rows);
@@ -229,6 +235,39 @@ class HeadlessTerminal implements Terminal {
 		const { rows, baseY } = await this.buffer();
 		return rows.slice(baseY, baseY + this.lines);
 	}
+}
+
+/** How many sessions this process has dumped, to name each one's files. */
+let dumped = 0;
+
+/**
+ * With `PI_SCREEN_DUMP` naming a directory, write what a session sent the
+ * terminal and what the headless emulator made of it, for replaying into
+ * a real terminal. This is the driven pass: the same bytes in WezTerm,
+ * read back and compared with xterm's buffer, which is how a gap between
+ * the two emulators would show. A session that was resized is marked, since
+ * a replay into a pane of one size cannot reproduce it.
+ */
+async function dump(term: HeadlessTerminal): Promise<void> {
+	const dir = process.env.PI_SCREEN_DUMP;
+	if (!dir) return;
+	mkdirSync(dir, { recursive: true });
+	const { rows } = await term.buffer();
+	const name = join(dir, `${process.pid}-${++dumped}`);
+	writeFileSync(`${name}.bin`, term.writes.join(""));
+	writeFileSync(
+		`${name}.xterm.all.txt`,
+		`${rows.map((row) => row.trimEnd()).join("\n")}\n`,
+	);
+	writeFileSync(
+		`${name}.json`,
+		JSON.stringify({
+			test: expect.getState().currentTestName ?? "",
+			cols: term.columns,
+			rows: term.rows,
+			resized: term.writes.length > 0 && term.resized,
+		}),
+	);
 }
 
 /** One painted frame: what pi believed it drew and where in the bytes. */
@@ -351,6 +390,11 @@ export interface BootOptions {
 	readonly rows?: number;
 	/** Whether the terminal speaks the kitty keyboard protocol. */
 	readonly kitty?: boolean;
+	/**
+	 * Pi's renderer. The person runs regular; fullscreen has its own
+	 * viewport on the same component stack and gets a smoke run.
+	 */
+	readonly tuiMode?: TuiMode;
 	readonly extensions?: readonly InlineExtension[];
 }
 
@@ -420,7 +464,7 @@ export async function bootPi(options: BootOptions = {}): Promise<PiSession> {
 	const term = new HeadlessTerminal(cols, rows, kitty);
 	const mode = new InteractiveMode(runtime, {
 		terminal: term,
-		tuiMode: "regular",
+		tuiMode: options.tuiMode ?? "regular",
 	});
 
 	const realExit = process.exit;
@@ -437,28 +481,41 @@ export async function bootPi(options: BootOptions = {}): Promise<PiSession> {
 	await runtime.session.setModel(faux.getModel());
 
 	const tui: unknown = Reflect.get(mode, "ui");
-	if (!isPaintedTui(tui) || !isTui(tui))
+	// The regular renderer is measured frame by frame. Fullscreen draws
+	// through a renderer of its own that keeps none of this, so it is driven
+	// and read but not measured, and its verdict says so rather than
+	// reporting a clean run of nothing.
+	const measured = (options.tuiMode ?? "regular") === "regular";
+	if (
+		typeof tui !== "object" ||
+		tui === null ||
+		!isTui(tui) ||
+		(measured && !isPaintedTui(tui))
+	)
 		throw new Error("pi's TUI no longer exposes what the harness reads");
 	const frames: Frame[] = [];
 	const redrawsAt: string[] = [];
 	let label = "";
-	let redraws = tui.fullRedrawCount;
-	const paint = tui.doRender.bind(tui);
-	tui.doRender = () => {
-		paint();
-		if (tui.fullRedrawCount > redraws && frames.length > 0)
-			redrawsAt.push(`${label}#${frames.length}`);
-		redraws = tui.fullRedrawCount;
-		frames.push({
-			at: term.writes.length,
-			redraws,
-			top: tui.previousViewportTop ?? 0,
-			lines: tui.previousLines.slice(),
-			cols: term.columns,
-			rows: term.rows,
-			label,
-		});
-	};
+	if (isPaintedTui(tui)) {
+		let redraws = tui.fullRedrawCount;
+		const paint = tui.doRender.bind(tui);
+		tui.doRender = () => {
+			paint();
+			if (tui.fullRedrawCount > redraws && frames.length > 0)
+				redrawsAt.push(`${label}#${frames.length}`);
+			redraws = tui.fullRedrawCount;
+			frames.push({
+				at: term.writes.length,
+				redraws,
+				top: tui.previousViewportTop ?? 0,
+				lines: tui.previousLines.slice(),
+				cols: term.columns,
+				rows: term.rows,
+				label,
+			});
+		};
+	}
+	const focusedComponent = (): unknown => Reflect.get(tui, "focusedComponent");
 
 	const key = async (name: string): Promise<void> => {
 		for (const sequence of encode(name, kitty)) term.feed(sequence);
@@ -472,6 +529,8 @@ export async function bootPi(options: BootOptions = {}): Promise<PiSession> {
 	};
 
 	const verdict = async (): Promise<Verdict> => {
+		if (!measured)
+			throw new Error("only the regular renderer is measured frame by frame");
 		const first = frames[0];
 		const replay = new xterm.Terminal({
 			cols: first?.cols ?? cols,
@@ -572,8 +631,8 @@ export async function bootPi(options: BootOptions = {}): Promise<PiSession> {
 		answer: (...texts) =>
 			faux.setResponses(texts.map((text) => fauxAssistantMessage(text))),
 		editorText: () => editor().getText(),
-		editorFocused: () => tui.focusedComponent === editor(),
-		focused: () => tui.focusedComponent,
+		editorFocused: () => focusedComponent() === editor(),
+		focused: focusedComponent,
 		viewport: () => term.viewport(),
 		onScreen: async (text) =>
 			(await term.viewport()).some((row) => row.includes(text)),
@@ -582,6 +641,7 @@ export async function bootPi(options: BootOptions = {}): Promise<PiSession> {
 		verdict,
 		exits: () => exits,
 		stop: async () => {
+			await dump(term);
 			try {
 				mode.stop();
 				await runtime.dispose();
