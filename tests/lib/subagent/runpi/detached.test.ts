@@ -4,6 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ReviewerArtifactsStore } from "../../../../lib/subagent/artifacts.ts";
+import {
+	type LeaseRecord,
+	supervisorStanding,
+	systemFacts,
+} from "../../../../lib/subagent/lease.ts";
 import { createSupervisorStartPi } from "../../../../lib/subagent/runpi/supervisor.ts";
 
 // Real processes, so give the operating system room to schedule them
@@ -160,6 +165,49 @@ describe("starting a reviewer that outlives the session", () => {
 
 		expect(started.pid).toBeGreaterThan(0);
 		expect(result.finalAssistantText).toBe("nobody waited");
+	});
+
+	it("stamps its lease the way whoever checks it will read it", async () => {
+		// A lease names its processes by pid and start time, and a later
+		// reader asks ps when the pid it finds started. ps says whole
+		// seconds, and on Linux it builds them on a boot time that is
+		// whole seconds too, so a stamp taken from this process's own
+		// clock after node has booted can sit two seconds from what ps
+		// will say. Past the tolerance, a live supervisor reads as gone:
+		// a watcher tells the model to collect from under it and nothing
+		// refuses. Measured, on a Linux VM, idle: up to 1.36s already.
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "child.mjs");
+		await writeFile(
+			childPath,
+			`await new Promise((r) => setTimeout(r, 3000));\n` +
+				`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"done"}]}})+"\\n");`,
+		);
+		const startPi = createSupervisorStartPi({
+			piInstall: { node: process.execPath, entry: childPath },
+			stateDir,
+			idleTimeoutMs: 30_000,
+			timeoutMs: 30_000,
+		});
+		await startPi({ args: [], cwd: stateDir, runId: "run", reviewerId: "one" });
+
+		const store = new ReviewerArtifactsStore(stateDir);
+		const { leasePath, resultPath } = store.paths("run", "one");
+		const until = Date.now() + APPEARS_WITHIN_MS;
+		let lease = await appears<LeaseRecord>(leasePath);
+		while (lease.state !== "running" && Date.now() < until) {
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			lease = await appears<LeaseRecord>(leasePath);
+		}
+		// Read while it is alive, so the pid is still its own.
+		const seen = await systemFacts.startedAt(lease.supervisorPid ?? 0);
+		expect(await readFile(resultPath, "utf8").catch(() => "")).toBe("");
+		expect(seen).toBeDefined();
+		expect(lease.supervisorStartedAt).toBe(seen);
+		expect(
+			(await supervisorStanding(store, "run", "one", systemFacts)).kind,
+		).toBe("running");
+		await appears(resultPath);
 	});
 
 	it("reports a spawn that failed rather than throwing at the top level", async () => {
