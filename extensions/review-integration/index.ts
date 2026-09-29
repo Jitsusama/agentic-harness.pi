@@ -34,6 +34,7 @@ import {
 	recoverReviewerRuns,
 } from "../../lib/subagent/index.ts";
 import { count } from "../../lib/ui/index.ts";
+import { withToolCallSignals } from "./call-signal.ts";
 import {
 	attachmentDir,
 	forgetReviewEngine,
@@ -332,12 +333,13 @@ async function reapOrphanedReviewers(transcripts: string): Promise<void> {
 export default function reviewIntegration(pi: ExtensionAPI) {
 	registerBuiltinReviewProviders(pi);
 
-	registerReviewTool(pi);
-	registerSeeTool(pi);
-	registerSayTool(pi);
-	registerAskTool(pi);
-	registerDraftTool(pi);
-	registerOfferTool(pi);
+	const stoppable = withToolCallSignals(pi);
+	registerReviewTool(stoppable);
+	registerSeeTool(stoppable);
+	registerSayTool(stoppable);
+	registerAskTool(stoppable);
+	registerDraftTool(stoppable);
+	registerOfferTool(stoppable);
 
 	const api: ReviewSubstrateApi = {
 		registerProvider(provider: ReviewProvider) {
