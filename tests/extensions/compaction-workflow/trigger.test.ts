@@ -206,6 +206,63 @@ describe("the compaction trigger", () => {
 	});
 });
 
+/**
+ * A turn whose request failed or was stopped is where pi retries, or
+ * where somebody pressed Escape. Compacting there aborts the run pi was
+ * about to retry, so the trigger waits for a turn that completed.
+ */
+describe("a turn that did not complete", () => {
+	const failed = {
+		message: { stopReason: "error" },
+		toolResults: [],
+		outcome: "error",
+	};
+	const stopped = {
+		message: { stopReason: "aborted" },
+		toolResults: [],
+		outcome: "aborted",
+	};
+
+	it.each([
+		["failed", failed],
+		["was stopped", stopped],
+	])("never compacts on the spot on a turn that %s", async (_, turn) => {
+		const { fire, state, ctx } = await toTheEdge(false);
+		await fire("turn_end", turn, ctx);
+		expect(state.compactions).toHaveLength(0);
+
+		await fire("turn_end", ranTools, ctx);
+		expect(state.compactions).toHaveLength(1);
+	});
+
+	it("reads a failure from the stop reason where pi gives no outcome", async () => {
+		const { fire, state, ctx } = await toTheEdge(false);
+		await fire(
+			"turn_end",
+			{ message: { stopReason: "error" }, toolResults: [] },
+			ctx,
+		);
+		expect(state.compactions).toHaveLength(0);
+	});
+
+	it("holds a summary written ahead until the next turn that completes", async () => {
+		completeSimple.mockResolvedValue({
+			stopReason: "stop",
+			content: [{ type: "text", text: "## Goal" }],
+			usage: {},
+		});
+		const { fire, state, ctx } = await toTheEdge(true);
+		await fire("turn_end", ranTools, ctx);
+		await vi.waitFor(() => expect(completeSimple).toHaveBeenCalled());
+		await new Promise((r) => setTimeout(r, 0));
+
+		await fire("turn_end", failed, ctx);
+		expect(state.compactions).toHaveLength(0);
+		await fire("turn_end", ranTools, ctx);
+		expect(state.compactions).toHaveLength(1);
+	});
+});
+
 describe("compacting an idle session before its cache expires", () => {
 	const FIFTY_FOUR_MINUTES = 54 * 60_000;
 	const ONE_MINUTE = 60_000;
