@@ -78,7 +78,8 @@ it does:
   `ask-workflow`, `git-bypass-workflow`,
   `guardian-status-workflow`, `result-store-workflow`,
   `cost-workflow`, `image-budget-workflow`,
-  `panel-lifecycle-workflow`, `job-workflow`.
+  `panel-lifecycle-workflow`, `job-workflow`,
+  `session-recall-workflow`.
 
   `job-workflow` hosts background jobs. A tool that returns
   before its work ends hands the work to it, and it says the
