@@ -3,7 +3,8 @@
  * prices come from, how a summary is asked for, read and spliced onto
  * the cached conversation, where a summary written ahead keeps from,
  * what other extensions contribute to it, the back-off after a
- * compaction fails, and the guard that keeps a reserve setting from
+ * compaction fails, the messages that resume a run it stopped, and the
+ * guard that keeps a reserve setting from
  * breaking the decision.
  *
  * Pure and standalone. None of these touches pi's live compaction
@@ -26,6 +27,7 @@ export {
 export { type CompactionHistory, compactionHistory } from "./history.ts";
 export { type KeptBoundary, keptBoundary } from "./prepared.ts";
 export { clampReserveTokens } from "./reserve.ts";
+export { FAILED_RESUME_TEXT, isResumeText, RESUME_TEXT } from "./resume.ts";
 export {
 	extendSentPayload,
 	type FileOperations,

@@ -27,10 +27,15 @@ import type {
 	AgentToolResult,
 	ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
-import type { CostSlice } from "@jitsusama/agentic-harness.core/observability";
+import type {
+	CostSlice,
+	QueryAnswer,
+} from "@jitsusama/agentic-harness.core/observability";
 import {
 	type CostDimension,
+	type LedgerReader,
 	type LedgerTotal,
+	openLedgerReader,
 	openRunStore,
 	openTurnStore,
 	type RunStore,
@@ -51,6 +56,7 @@ import {
 	formatFanOut,
 	formatIndexOutcome,
 	formatPaybackReplay,
+	formatQueryAnswer,
 	formatRegret,
 	formatRepeats,
 	formatSlices,
@@ -58,6 +64,9 @@ import {
 	formatVerifierOutcomes,
 	type IndexOutcome,
 } from "./report.ts";
+
+/** Rows of a query answer shown before the rest is left to the store. */
+const QUERY_ROWS_SHOWN = 40;
 
 /** Dimensions the tool will group by, in the ledger's own vocabulary. */
 const DIMENSIONS: readonly CostDimension[] = [
@@ -80,6 +89,30 @@ const HEADINGS: Record<CostDimension, string> = {
 	kind: "Cost by kind",
 	thinking: "Cost by thinking level",
 };
+
+/**
+ * What `query` is told about the ledger, so a question can be asked of it
+ * without first asking what is in it. The views are defined in the
+ * ledger itself; this names them and what they are for.
+ */
+const QUERY_GUIDE =
+	"Run one read-only SQL SELECT against the ledger instead of a spend " +
+	"report, and answer with its rows. Views: turn_facts (one row per " +
+	"billed turn: timestamp, day, kind 'assistant' or 'compaction', model, " +
+	"thinking_level, context, tokens_* and cost_* columns, cost, " +
+	"preceded_by, gap_ms, new_tokens, stop_reason, thinking_chars, " +
+	"text_chars, run_id, run_turn, repo, quest); misses (turn_facts rows " +
+	"whose cache write ran past what was new, with excess_tokens, " +
+	"excess_cost and cause); cycles (one per compaction: turns, cost, " +
+	"context_start, context_end, closed); runs (one per typed message: " +
+	"turns, compactions, cost, started_at, ended_at); compaction_moments " +
+	"(written, summariser, summary_ms, waited_ms, summary_chars, " +
+	"aborted_request, resumed, since_typed_ms, turns_into_run, " +
+	"resume_ms). Tables: turns, tool_calls, dropped_calls, sessions. " +
+	"SELECT name, sql FROM sqlite_master shows every definition. " +
+	"Timestamps are ISO 8601 strings, so compare them as text. Costs are " +
+	"at the prices pi put on each request. A query past 5,000 rows is " +
+	"refused; aggregate it or add a LIMIT.";
 
 interface CostDetails {
 	readonly ok: boolean;
@@ -112,6 +145,8 @@ function assistantCost(message: { role: string }): number {
 
 export default function costWorkflow(pi: ExtensionAPI) {
 	let store: TurnStore | null = null;
+	let reader: LedgerReader | null = null;
+	let ledgerPath = "";
 	let watermarks = "";
 	let unregisterRuns: (() => void) | null = null;
 	const recentTurns: number[] = [];
@@ -151,8 +186,17 @@ export default function costWorkflow(pi: ExtensionAPI) {
 		const dir = packageStateDir("observability");
 		mkdirSync(dir, { recursive: true });
 		watermarks = join(dir, "ledger-watermarks.json");
-		store = await openTurnStore(join(dir, "ledger.db"));
+		ledgerPath = join(dir, "ledger.db");
+		store = await openTurnStore(ledgerPath);
 		return store;
+	};
+
+	// A second connection, opened read-only, so no query can write
+	// whatever it says. Opened after the store, which makes the views.
+	const openReader = async (): Promise<LedgerReader> => {
+		await open();
+		reader ??= await openLedgerReader(ledgerPath);
+		return reader;
 	};
 
 	pi.on("message_end", async (event) => {
@@ -187,6 +231,16 @@ export default function costWorkflow(pi: ExtensionAPI) {
 	pi.on("session_shutdown", async () => {
 		unregisterRuns?.();
 		unregisterRuns = null;
+		const closingReader = reader;
+		reader = null;
+		if (closingReader) {
+			try {
+				await closingReader.close();
+			} catch {
+				// A read-only connection holds nothing to lose; closing it is
+				// best-effort at shutdown like the store's.
+			}
+		}
 		const closing = store;
 		store = null;
 		if (closing) {
@@ -210,7 +264,10 @@ export default function costWorkflow(pi: ExtensionAPI) {
 			"incremental and runs automatically before a report; pass " +
 			"reindex to force a pass without reporting. Every answer states " +
 			"its coverage, including turns that carried no usage and spend " +
-			"whose session named no repo or quest.",
+			"whose session named no repo or quest. For any other question " +
+			"about spend, cache misses, compaction cycles, runs or the moment " +
+			"of a compaction, pass query with one SQL SELECT over the ledger's " +
+			"views.",
 		promptSnippet:
 			"When asked what something cost, what the spend is, or where the " +
 			"money went, read it from the ledger with the cost tool rather " +
@@ -227,9 +284,12 @@ export default function costWorkflow(pi: ExtensionAPI) {
 			),
 			limit: Type.Optional(
 				Type.Number({
-					description: "How many slices to show. Defaults to 12.",
+					description:
+						"How many slices, or query rows, to show. Defaults to 12, and " +
+						"to 40 for a query.",
 				}),
 			),
+			query: Type.Optional(Type.String({ description: QUERY_GUIDE })),
 			reindex: Type.Optional(
 				Type.Boolean({
 					description:
@@ -280,6 +340,38 @@ export default function costWorkflow(pi: ExtensionAPI) {
 			if (params.reindex) {
 				return {
 					content: [{ type: "text", text: formatIndexOutcome(index) }],
+					details: { ok: true, index },
+				};
+			}
+
+			if (params.query !== undefined) {
+				let answer: QueryAnswer;
+				try {
+					answer = await (await openReader()).query(params.query);
+				} catch (error) {
+					// A refused or malformed query is the caller's to fix, so it is
+					// answered with what SQLite or the guard said, not thrown.
+					const reason = error instanceof Error ? error.message : String(error);
+					return {
+						content: [{ type: "text", text: `Query refused: ${reason}` }],
+						details: { ok: false, index },
+					};
+				}
+				const limit = params.limit ?? QUERY_ROWS_SHOWN;
+				return {
+					content: [
+						{
+							type: "text",
+							text: citeListing(openSessionStore(), {
+								view: formatQueryAnswer(answer, limit),
+								records: answer.rows,
+								unit: "rows",
+								elided: answer.rows.length > limit,
+								narrowing:
+									"Query the stored rows, or aggregate in SQL and ask again.",
+							}),
+						},
+					],
 					details: { ok: true, index },
 				};
 			}

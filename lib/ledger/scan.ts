@@ -5,6 +5,7 @@ import type {
 	TurnKind,
 	TurnRecord,
 } from "@jitsusama/agentic-harness.core/observability";
+import { BranchWalk } from "./branch.ts";
 import { SessionCollector } from "./session.ts";
 import type { DroppedCallRecord, LedgerScan, ToolCallRecord } from "./types.ts";
 
@@ -22,8 +23,11 @@ const DIGEST_CHARS = 24;
  * 1: turns, sessions, tool calls, dropped calls, verifier kinds and the
  * model a compaction ran under.
  * 2: the thinking level each turn ran at.
+ * 3: what preceded each turn, its gap, estimated new tokens, stop
+ * reason, output sizes and run, and how each compaction was written and
+ * what surrounded it.
  */
-export const SCAN_VERSION = 2;
+export const SCAN_VERSION = 3;
 
 interface RawUsage {
 	input?: number;
@@ -81,6 +85,8 @@ export function readTurns(
 	// order would carry a level from an abandoned branch into its
 	// sibling; following parentId gives each turn its own branch's.
 	const levels = new Map<string, string | null>();
+	// What came before each turn on its own branch, for the same reason.
+	const branches = new BranchWalk();
 
 	for (const line of lines) {
 		count += 1;
@@ -105,6 +111,7 @@ export function readTurns(
 			entryOrder.set(entry.id, entryOrder.size);
 		}
 		const level = levelAt(levels, entry);
+		const step = branches.step(entry);
 
 		if (entry.type === "session") {
 			session.observeHeader(entry);
@@ -123,8 +130,9 @@ export function readTurns(
 			continue;
 		}
 
-		const turn = turnFrom(sessionId, entry, lastModel, level);
-		if (!turn) continue;
+		const read = turnFrom(sessionId, entry, lastModel, level);
+		if (!read) continue;
+		const turn: TurnRecord = { ...read, ...step };
 		if (turn.kind === "assistant" && turn.model) lastModel = turn.model;
 		session.observeTurn(turn.timestamp);
 		turns.push(turn);

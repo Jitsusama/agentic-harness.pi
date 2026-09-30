@@ -76,9 +76,11 @@ import {
 	compactionHistory,
 	compactionPays,
 	droppableRent,
+	FAILED_RESUME_TEXT,
 	FAILURE_ENTRY,
 	failureRecord,
 	idleCompactionPays,
+	RESUME_TEXT,
 	wasCancelled,
 } from "../../lib/compaction/index.ts";
 import { cachePrices } from "../../lib/internal/cache-prices.ts";
@@ -135,14 +137,6 @@ const IDLE_LEAD_MS = 5 * 60_000;
 
 /** One-hour cache lifetime, the only retention idle compaction runs under. */
 const LONG_CACHE_LIFETIME_MS = 60 * 60_000;
-
-const RESUME_TEXT =
-	"The context was compacted to keep this session affordable. Carry on " +
-	"with the task you were working on from where you left off.";
-
-const FAILED_RESUME_TEXT =
-	"Compacting the context failed, so it was left as it is. Carry on " +
-	"with the task you were working on from where you left off.";
 
 /**
  * Starts the interrupted run again with the same system prompt a typed
