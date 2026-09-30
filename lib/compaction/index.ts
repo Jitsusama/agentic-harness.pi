@@ -1,7 +1,8 @@
 /**
  * Compaction: when compacting pays for itself, the session history its
- * prices come from, how a summary is asked for, read and spliced onto
- * the cached conversation, where a summary written ahead keeps from,
+ * prices come from, the contract a summary provider implements and
+ * registers over the bus, how a summary is asked for, read and spliced
+ * onto the cached conversation, where a summary written ahead keeps from,
  * what other extensions contribute to it, the back-off after a
  * compaction fails, the messages that resume a run it stopped, and the
  * guard that keeps a reserve setting from
@@ -26,6 +27,23 @@ export {
 } from "./failure.ts";
 export { type CompactionHistory, compactionHistory } from "./history.ts";
 export { type KeptBoundary, keptBoundary } from "./prepared.ts";
+export {
+	COMPACTION_READY,
+	COMPACTION_REGISTER_PROVIDER,
+	COMPACTION_REQUEST,
+	type CompactionAssessment,
+	type CompactionFocus,
+	type CompactionHostApi,
+	type CompactionPreparation,
+	type CompactionProvider,
+	type CompactionReason,
+	type CompactionRequest,
+	type CompactionTiming,
+	type CompactionWritten,
+	combinedFocus,
+	isCompactionProvider,
+	registerCompactionProvider,
+} from "./provider.ts";
 export { clampReserveTokens } from "./reserve.ts";
 export { FAILED_RESUME_TEXT, isResumeText, RESUME_TEXT } from "./resume.ts";
 export {

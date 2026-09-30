@@ -1,7 +1,8 @@
 /**
- * The compaction summary is asked of the conversation the session
- * last sent, and anything that cannot be done cleanly goes back to
- * pi's own summariser with its reason recorded.
+ * The host with the conversation provider alone in its chain: the
+ * summary is asked of the conversation the session last sent, and
+ * anything that cannot be done cleanly goes back to pi's own
+ * summariser with its reason recorded.
  */
 
 import type {
@@ -15,10 +16,13 @@ vi.mock("@earendil-works/pi-ai/compat", () => ({ completeSimple }));
 
 const {
 	AHEAD_UNUSED_ENTRY,
-	registerConversationSummary,
+	registerCompactionHost,
 	SUMMARY_FALLBACK_ENTRY,
 	SUMMARY_WALL_MS,
-} = await import("../../../extensions/compaction-workflow/summariser.ts");
+} = await import("../../../extensions/compaction-workflow/host.ts");
+const { conversationProvider } = await import(
+	"../../../extensions/compaction-workflow/conversation.ts"
+);
 const { SUMMARY_CONTRIBUTIONS, SUMMARY_SPAN } = await import(
 	"../../../lib/compaction/index.ts"
 );
@@ -42,7 +46,15 @@ function activate() {
 			handlers.set(name, [...(handlers.get(name) ?? []), handler]),
 		appendEntry: (type: string, data: unknown) => entries.push([type, data]),
 	};
-	const summary = registerConversationSummary(pi as unknown as ExtensionAPI);
+	const api = pi as unknown as ExtensionAPI;
+	const host = registerCompactionHost(api, {
+		providers: [conversationProvider(api)],
+		expectedOutputTokens: () => 7_700,
+	});
+	const summary = {
+		...host,
+		prepare: (ctx: ExtensionContext) => host.prepare(ctx, 300_000),
+	};
 	const fire = async (name: string, event: unknown, ctx: unknown) => {
 		let result: unknown;
 		for (const h of handlers.get(name) ?? []) result = await h(event, ctx);
@@ -61,7 +73,21 @@ const model = {
 	api: "anthropic-messages",
 	provider: "anthropic",
 	maxTokens: 128_000,
+	cost: { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
 };
+
+/** The fallback entry for a compaction the conversation provider passed on. */
+function fellBack(outcome: "declined" | "failed", reason: string) {
+	return [
+		SUMMARY_FALLBACK_ENTRY,
+		{
+			reason,
+			attempts: [
+				{ provider: "conversation", timing: "on the spot", outcome, reason },
+			],
+		},
+	];
+}
 
 const userEntry = {
 	type: "message",
@@ -301,10 +327,7 @@ describe("the conversation summariser", () => {
 		await after.fire("session_before_compact", compactEvent(), other);
 
 		expect(after.entries).toEqual([
-			[
-				SUMMARY_FALLBACK_ENTRY,
-				{ reason: "nothing has been sent this session" },
-			],
+			fellBack("declined", "nothing has been sent this session"),
 		]);
 	});
 
@@ -324,10 +347,7 @@ describe("the conversation summariser", () => {
 		);
 		expect(result).toBeUndefined();
 		expect(entries).toEqual([
-			[
-				SUMMARY_FALLBACK_ENTRY,
-				{ reason: "the last request overflowed the context window" },
-			],
+			fellBack("declined", "the last request overflowed the context window"),
 		]);
 		expect(completeSimple).not.toHaveBeenCalled();
 	});
@@ -341,10 +361,7 @@ describe("the conversation summariser", () => {
 		);
 		expect(result).toBeUndefined();
 		expect(entries).toEqual([
-			[
-				SUMMARY_FALLBACK_ENTRY,
-				{ reason: "nothing has been sent this session" },
-			],
+			fellBack("declined", "nothing has been sent this session"),
 		]);
 		expect(completeSimple).not.toHaveBeenCalled();
 	});
@@ -356,7 +373,7 @@ describe("the conversation summariser", () => {
 		expect(
 			await fire("session_before_compact", compactEvent(), ctx),
 		).toBeUndefined();
-		expect(entries[0]?.[1]).toEqual({
+		expect(entries[0]?.[1]).toMatchObject({
 			reason: "the session moved on from the last request",
 		});
 	});
@@ -373,7 +390,9 @@ describe("the conversation summariser", () => {
 		expect(
 			await fire("session_before_compact", compactEvent(), ctx),
 		).toBeUndefined();
-		expect(entries[0]?.[1]).toEqual({ reason: "the summariser called a tool" });
+		expect(entries).toEqual([
+			fellBack("failed", "the summariser called a tool"),
+		]);
 	});
 
 	it.each([
@@ -390,7 +409,7 @@ describe("the conversation summariser", () => {
 			expect(
 				await fire("session_before_compact", compactEvent(), ctx),
 			).toBeUndefined();
-			expect(entries[0]?.[1]).toEqual({
+			expect(entries[0]?.[1]).toMatchObject({
 				reason: "the cached conversation may have expired",
 			});
 		} finally {
@@ -405,7 +424,7 @@ describe("the conversation summariser", () => {
 		await fire("before_provider_request", { payload: sentPayload }, ctx);
 		await fire("session_compact", {}, ctx);
 		await fire("session_before_compact", compactEvent(), ctx);
-		expect(entries[0]?.[1]).toEqual({
+		expect(entries[0]?.[1]).toMatchObject({
 			reason: "nothing has been sent this session",
 		});
 	});

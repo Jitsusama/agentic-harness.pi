@@ -124,13 +124,16 @@ it does:
   `content-viewer-widget`, `status-line-widget`,
   `panel-zoom-widget`
 
-- **Providers** (`*-provider`): contribute a `FrontEndProvider`
-  to an MCP host over the `pi.events` bus, decorating a subset
-  of a server's tools (shape, render or wrap) without importing
-  the host's registry. Distinct from a `*-widget`, which adds
-  standalone UI, and from an `*-integration`, which hosts a
-  service. The seam is the bus, so a provider can live in a
-  different package from its host.
+- **Providers** (`*-provider`): contribute an implementation to
+  a host over the `pi.events` bus without importing the host's
+  registry: a `FrontEndProvider` decorating a subset of an MCP
+  server's tools (shape, render or wrap), or a
+  `CompactionProvider` writing summaries for
+  `compaction-workflow`, which walks its providers as a chain.
+  Distinct from a `*-widget`, which adds standalone UI, and from
+  an `*-integration`, which hosts a service. The seam is the
+  bus, so a provider can live in a different package from its
+  host.
 
 - **Packs** (`packs/`): an extension loaded into a subagent
   with `pi --extension <path>` and never auto-discovered, so

@@ -42,7 +42,7 @@ function activate() {
 		for (const h of handlers.get(name) ?? []) result = await h(event, ctx);
 		return result;
 	};
-	return { fire, resumed };
+	return { fire, resumed, handlers };
 }
 
 const userEntry = {
@@ -116,6 +116,10 @@ const ranTools = { message: {}, toolResults: [{}] };
  * pays (300k - 90k kept) x $0.20/M = $0.042 in rent, against a cost of
  * $0.214 summary + $0.432 rewrite + $0.189 re-fetching = $0.835, so the
  * twentieth turn at 300k is the first the rent covers it.
+ *
+ * With nothing sent, the conversation provider declines and pi's
+ * summariser would write it, reading the context uncached: the summary
+ * is $1.20 + $0.154 and the whole $1.975, so it is the forty-eighth.
  */
 async function toTheEdge(withSentRequest: boolean) {
 	const { fire, resumed } = activate();
@@ -126,7 +130,9 @@ async function toTheEdge(withSentRequest: boolean) {
 	state.leaf = "a1";
 	await fire("turn_end", ranTools, ctx);
 	state.tokens = 300_000;
-	for (let turn = 0; turn < 19; turn++) await fire("turn_end", ranTools, ctx);
+	const short = withSentRequest ? 19 : 47;
+	for (let turn = 0; turn < short; turn++)
+		await fire("turn_end", ranTools, ctx);
 	return { fire, resumed, state, ctx };
 }
 
@@ -141,6 +147,11 @@ afterEach(() => {
 });
 
 describe("the compaction trigger", () => {
+	it("answers a compaction from one handler, whichever provider writes it", () => {
+		const { handlers } = activate();
+		expect(handlers.get("session_before_compact")).toHaveLength(1);
+	});
+
 	it("holds off until the rent paid reaches what compacting costs, then writes the summary in the background", async () => {
 		completeSimple.mockResolvedValue({
 			stopReason: "stop",

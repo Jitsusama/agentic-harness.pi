@@ -19,9 +19,17 @@
  * output of its last summary, what the first turn after it rewrote, and
  * what its turns cost beyond their reads. Until the session has
  * compacted once, the defaults below stand in, each from measurement.
+ * The summary itself is priced by the provider that would write it,
+ * since a summary from the cache and one from pi's uncached summariser
+ * differ several times over.
+ *
+ * Providers: the summary comes from a chain of them (`host.ts`), the
+ * `conversation` provider first, which writes from the cached
+ * conversation, and `pi` last, which is pi's own summariser. Other
+ * extensions add theirs over the bus; see `lib/compaction/provider.ts`.
  *
  * Written ahead: when the trigger fires, the summary is started in the
- * background (`ConversationSummary.prepare`) and work carries on. At
+ * background (`CompactionHost.prepare`) and work carries on. At
  * the first turn's end after it is ready, or at once when the session
  * is idle, the compaction applies it, which takes no time. Only when it
  * cannot be written from the cache does the session compact on the
@@ -84,13 +92,15 @@ import {
 	wasCancelled,
 } from "../../lib/compaction/index.ts";
 import { cachePrices } from "../../lib/internal/cache-prices.ts";
+import { conversationProvider } from "./conversation.ts";
+import { registerCompactionHost } from "./host.ts";
 import { idleTimer } from "./idle.ts";
 import {
 	compactionFailureNotice,
 	compactionNotice,
 	idleCompactionNotice,
 } from "./notice.ts";
-import { registerConversationSummary } from "./summariser.ts";
+import { piSummaryProvider } from "./pi-summary.ts";
 
 /** Modes whose runs continue after a compaction and can be resumed. */
 const RESUMABLE_MODES: ReadonlySet<string> = new Set(["tui", "rpc"]);
@@ -208,8 +218,6 @@ function cacheWriteOf(message: unknown): number | null {
 }
 
 export default function compactionWorkflow(pi: ExtensionAPI) {
-	const summary = registerConversationSummary(pi);
-
 	let firstTurnTokens: number | null = null;
 	let observedRetained: number | null = null;
 	let observedRewrite: number | null = null;
@@ -221,12 +229,22 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 	let failures = 0;
 	let holdTurns = 0;
 
+	const host = registerCompactionHost(pi, {
+		providers: [conversationProvider(pi), piSummaryProvider(pi)],
+		expectedOutputTokens: () => summaryOutput ?? DEFAULT_SUMMARY_OUTPUT_TOKENS,
+	});
+
 	const retained = () =>
 		observedRetained ?? (firstTurnTokens ?? 0) + KEPT_BEYOND_FLOOR;
 
 	/** What compacting a context of this size would cost now. */
-	const costAt = (tokens: number, prices: CompactionPrices): CompactionCost =>
+	const costAt = (
+		ctx: ExtensionContext,
+		tokens: number,
+		prices: CompactionPrices,
+	): CompactionCost =>
 		compactionCost({
+			summaryDollars: host.summaryDollars(ctx, tokens),
 			contextTokens: tokens,
 			summaryOutputTokens: summaryOutput ?? DEFAULT_SUMMARY_OUTPUT_TOKENS,
 			// Unmeasured, everything kept is assumed rewritten, which errs
@@ -272,7 +290,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 
 	// A summary finished while nobody is working is applied at once: a
 	// compaction between runs interrupts nothing.
-	summary.whenReady((ctx) => {
+	host.whenReady((ctx) => {
 		if (compacting || !ctx.isIdle()) return;
 		compactNow(ctx, ctx.getContextUsage()?.tokens ?? 0, false);
 	});
@@ -284,7 +302,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		const tokens = ctx.getContextUsage()?.tokens ?? null;
 		const prices = pricesOf(ctx);
 		if (tokens === null || !prices || tokens <= floorTokens()) return;
-		const cost = costAt(tokens, prices);
+		const cost = costAt(ctx, tokens, prices);
 		const input = {
 			contextTokens: tokens,
 			retainedTokens: retained(),
@@ -385,7 +403,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		}
 
 		const resume = event.toolResults.length > 0;
-		if (summary.state() === "ready") {
+		if (host.state() === "ready") {
 			compactNow(ctx, tokens, resume);
 			return;
 		}
@@ -393,16 +411,16 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		const decision = compactionPays({
 			contextTokens: tokens,
 			rentPaid,
-			cost: costAt(tokens, prices),
+			cost: costAt(ctx, tokens, prices),
 			floorTokens: floorTokens(),
 		});
 		if (!decision.fire) return;
 
-		const failed = summary.takeFailure();
-		if (summary.state() === "writing") return;
+		const failed = host.takeFailure();
+		if (host.state() === "writing") return;
 		const prepared =
 			failed === undefined
-				? summary.prepare(ctx)
+				? host.prepare(ctx, tokens)
 				: { ok: false as const, reason: failed };
 		if (ctx.hasUI) {
 			const timing = prepared.ok

@@ -151,7 +151,50 @@ far above where this policy compacts. A summary written ahead is capped
 against that same 64,000 reserve, since pi hands an extension its
 settings only with a compaction.
 
-## Writing the Summary
+## Summary Providers
+
+This extension is the only handler of pi's `session_before_compact`,
+but it does not write summaries itself. It asks a chain of providers
+(`host.ts`), each implementing the contract in
+`lib/compaction/provider.ts`:
+
+- `assess(request)` says, synchronously and for free, whether it can
+  write this summary and what that would cost;
+- `write(request, signal)` writes it, answering a failure rather than
+  rejecting.
+
+On the spot, the first provider whose assessment passes writes, and a
+failure passes the compaction to the next. Ahead, the first that
+passes writes, and a failure leaves the compaction to the walk on the
+spot. The host keeps everything around the summary: the clock on each
+write, the verbatim tail, the file lists, what other extensions
+contribute, and the record. The compaction entry's details name the
+provider that wrote it (`summariser`), anything it wanted kept
+(`provider`), and every provider that declined or failed before it
+(`attempts`). When none writes, pi's own summariser runs as it would
+with no extension, and a `compaction-summary-fallback` entry records
+the attempts.
+
+Two ship here. `conversation` (precedence 100) writes from the cached
+conversation, below. `pi` (precedence 1000) calls pi's own summariser,
+on the spot only, since it needs pi's preparation of the compaction.
+It differs from letting pi compact in that contributions are kept and
+the attempt is recorded. Another extension adds a provider by calling
+`registerCompactionProvider(pi.events, provider)` from
+`agentic-harness.pi/compaction`, whichever loads first; registering an
+id again replaces it.
+
+A focus typed with `/compact` skips a provider that cannot follow one
+(`followsFocus: false`), and discards a summary written ahead without
+it. A contributed focus skips nobody, and a summary from a provider
+that did not follow it records `focusFollowed: false`.
+
+The trigger prices the summary with the first provider that would
+write it, ahead where one can: a summary from the cache and one from
+pi's uncached summariser differ several times over, so a session that
+cannot use its cache compacts later.
+
+## The Conversation Provider
 
 pi writes a summary by serialising the conversation to text, cutting
 every tool result to 2,000 characters, and sending it to the model
@@ -160,7 +203,7 @@ sequential call. So pi pays full input price for a copy of the context
 that the session's cache already holds, and the model only sees a
 clipped copy.
 
-`summariser.ts` writes it from the cached conversation instead. It
+`conversation.ts` writes it from the cached conversation instead. It
 keeps the last request the session sent to the provider, byte for
 byte, and sends that request again with the reply that came back, any
 tool results since, and one closing instruction added. The closing
@@ -171,8 +214,7 @@ sees every token of the conversation, and it takes one call. The added
 messages carry no cache breakpoint, since nothing after the compaction
 starts with them. The kept request survives a `/reload`.
 
-It hands back to pi's summariser, and writes a
-`compaction-summary-fallback` entry saying why, when it cannot do this
+It declines or fails, with the reason, when it cannot do this
 cleanly: no request has been sent yet this session (a `/reload` keeps
 the last one, a restart does not), the model is not on
 the Anthropic messages API or changed since, there are no credentials,
@@ -210,12 +252,12 @@ Measured on pi 0.87.1:
   line saying it covers the messages that follow it. The replay cost
   $28.
 
-The trigger prices a summary as this one writes it: a cache read of
-the context plus the output. When pi's summariser runs instead, the
-real cost is higher than the trigger thought, which is a fallback
-rather than the rule.
+It prices a summary as it writes one: a cache read of the context
+plus the output.
 
-Another extension can add to the summary this writes through
+## Contributions
+
+Another extension can add to whichever summary is written through
 `SUMMARY_CONTRIBUTIONS` on `pi.events`, from `lib/compaction/`: it
 pushes a focus instruction or text to append onto the request emitted
 before each attempt, and reads `handled` afterwards to learn whether it
@@ -228,7 +270,11 @@ compaction applies it, for the appendix and `handled`.
 - `PI_COMPACTION_POLICY=off` turns it off.
 - `PI_COMPACTION_FLOOR_TOKENS` sets a size it never compacts at or
   below; there is none by default.
-- `PI_COMPACTION_SUMMARY=pi` leaves every summary to pi's summariser,
+- `PI_COMPACTION_PROVIDERS` names the chain, as comma-separated
+  provider ids asked in that order; an id nothing registered is
+  recorded in `attempts`. Unset, every registered provider is asked,
+  lowest precedence first.
+- `PI_COMPACTION_SUMMARY=pi` is shorthand for a chain of `pi` alone,
   which also means nothing is written ahead.
 - `PI_CACHE_RETENTION=long` is what compacting while idle runs under.
 
@@ -238,12 +284,17 @@ compaction applies it, for the appendix and `handled`.
   compaction.
 - `idle.ts`: the timer that waits out an idle session.
 - `notice.ts`: what the user is told when a compaction fires or fails.
-- `summariser.ts`: the summary written from the cached conversation,
-  ahead or on the spot.
+- `host.ts`: the provider chain, writing ahead, and the one answer to
+  a compaction.
+- `conversation.ts`: the `conversation` provider, the summary written
+  from the cached conversation.
+- `pi-summary.ts`: the `pi` provider, pi's own summariser.
 
 The decision is pure and tested in `lib/compaction/trigger.ts`, the
 prices it reads from the session in `lib/compaction/history.ts`, where
 a summary written ahead keeps from in `lib/compaction/prepared.ts`, the
+provider contract in `lib/compaction/provider.ts` and the chain's order
+in `lib/compaction/chain.ts`, the
 back-off in `lib/compaction/failure.ts`, and the summary's instruction,
 splice and reading in `lib/compaction/summary.ts`; cache prices under
 the retention in force come from `lib/internal/cache-prices.ts`.
