@@ -51,6 +51,11 @@ export interface CompactionCostInput {
 	/** What one of those turns costs, in dollars. */
 	readonly refetchTurnCost: number;
 	readonly prices: CompactionPrices;
+	/**
+	 * What the provider that would write the summary says it costs, in
+	 * place of pricing a read of the context and the output here.
+	 */
+	readonly summaryDollars?: number;
 }
 
 /** What a compaction costs, in dollars, by part. */
@@ -65,8 +70,9 @@ export interface CompactionCost {
 export function compactionCost(input: CompactionCostInput): CompactionCost {
 	const { prices } = input;
 	const summary =
+		input.summaryDollars ??
 		input.contextTokens * prices.readPrice +
-		input.summaryOutputTokens * prices.outputPrice;
+			input.summaryOutputTokens * prices.outputPrice;
 	// Without the compaction these tokens would have been read, not
 	// written, so only the difference is the compaction's.
 	const rewrite =

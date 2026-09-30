@@ -29,6 +29,7 @@ function activate(): { handlers: Map<string, Handler>; calls: Recorded } {
 	const handlers = new Map<string, Handler>();
 	const calls: Recorded = { sendMessage: [], sendUserMessage: [] };
 	const pi = {
+		events: { on: () => () => {}, emit: () => {} },
 		on: (name: string, handler: Handler) => handlers.set(name, handler),
 		appendEntry: () => {},
 		sendMessage: (...args: unknown[]) => calls.sendMessage.push(args),
@@ -56,7 +57,7 @@ function context(
 		},
 		hasPendingMessages: () => false,
 		compact: outcome,
-		sessionManager: { getBranch: () => [] },
+		sessionManager: { getBranch: () => [], getLeafId: () => null },
 	};
 }
 

@@ -102,10 +102,11 @@ behavioural contract.
 - **-widget**: adds UI elements to the interface. Visual
   components like content viewers, status indicators and
   panel controls.
-- **-provider**: contributes a `FrontEndProvider` to an MCP
-  host over the `pi.events` bus, decorating a subset of a
-  server's tools (shape, render or wrap) without importing the
-  host's registry. Distinct from a `-widget`, which adds
+- **-provider**: contributes an implementation to a host over
+  the `pi.events` bus without importing the host's registry: a
+  `FrontEndProvider` decorating a subset of an MCP server's
+  tools (shape, render or wrap), or a `CompactionProvider`
+  writing summaries for `compaction-workflow`. Distinct from a `-widget`, which adds
   standalone UI, and from an `-integration`, which hosts a
   service. Because the seam is the bus, a provider can live in
   a different package from its host.

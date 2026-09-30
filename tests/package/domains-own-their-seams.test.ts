@@ -74,6 +74,9 @@ describe("bus names are declared by a library, not an extension", () => {
 		// this file's own docstring describes, not a violation of what
 		// it checks.
 		expect([...names].sort()).toEqual([
+			"compaction:ready:v1",
+			"compaction:register-provider:v1",
+			"compaction:request:v1",
 			"jobs:ask:v1",
 			"subagent:ready:v1",
 			"subagent:register-default-extension:v1",
@@ -82,7 +85,7 @@ describe("bus names are declared by a library, not an extension", () => {
 	});
 
 	it("names a domain, then a topic, then a version", () => {
-		const domains = new Set(["jobs", "subagent"]);
+		const domains = new Set(["compaction", "jobs", "subagent"]);
 		for (const file of sourcesUnder(join(ROOT, "lib"))) {
 			for (const match of readFileSync(file, "utf8").matchAll(
 				/=\s*"([a-z][a-z-]*):[a-z][a-z-]*:v\d+"/g,
