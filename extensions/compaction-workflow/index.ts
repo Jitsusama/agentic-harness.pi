@@ -52,6 +52,12 @@
  * (`turnsBeforeRetry`). A cancelled compaction holds off the same way
  * but is not resumed, since somebody stopped it on purpose.
  *
+ * Completed turns only: a turn whose request failed is where pi
+ * retries, and compacting there aborts the run it was about to retry.
+ * One that was stopped is somebody pressing Escape. Neither triggers a
+ * compaction, applies one written ahead, or counts toward the rent;
+ * the next turn that completes does.
+ *
  * Interactive and RPC sessions only: a subagent runs pi in `--mode
  * json` and ends when its run does, so interrupting one is not
  * something to assume is safe. `PI_COMPACTION_POLICY=off` turns this
@@ -185,6 +191,20 @@ function overheadOf(message: unknown): number | null {
 		0,
 		cost.total - (typeof cost.cacheRead === "number" ? cost.cacheRead : 0),
 	);
+}
+
+/**
+ * Whether a turn ended without completing, by pi's outcome where it
+ * gives one and by the assistant message's stop reason where it does
+ * not.
+ */
+function didNotComplete(event: {
+	readonly message: unknown;
+	readonly outcome?: string;
+}): boolean {
+	if (event.outcome === "error" || event.outcome === "aborted") return true;
+	const stopReason = (event.message as { stopReason?: unknown })?.stopReason;
+	return stopReason === "error" || stopReason === "aborted";
 }
 
 function cacheWriteOf(message: unknown): number | null {
@@ -342,6 +362,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 
 	pi.on("turn_end", async (event, ctx) => {
 		if (!enabled() || !RESUMABLE_MODES.has(ctx.mode)) return;
+		if (didNotComplete(event)) return;
 		const tokens = ctx.getContextUsage()?.tokens ?? null;
 		if (tokens === null) return;
 		if (firstTurnTokens === null) firstTurnTokens = tokens;

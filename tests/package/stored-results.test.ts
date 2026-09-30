@@ -71,6 +71,8 @@ const MUST_BOUND = [
 	"quest-workflow",
 	"review-integration",
 	"result-store-workflow",
+	// A single entry of a session log can hold a whole tool output.
+	"session-recall-workflow",
 	"work-integration",
 ] as const;
 
