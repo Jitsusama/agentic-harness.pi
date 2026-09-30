@@ -2,6 +2,7 @@ import type {
 	CostSlice,
 	LedgerTotal,
 	PaybackReplay,
+	QueryAnswer,
 	RegretReport,
 	RepeatedCall,
 	VerifierOutcome,
@@ -303,6 +304,52 @@ export function formatPaybackReplay(replay: PaybackReplay): string {
 		);
 	}
 	return lines.join("\n");
+}
+
+/** Widest a text cell is printed before it is elided; the stored rows keep it whole. */
+const CELL_WIDTH = 60;
+
+/** Decimal places a fractional number is printed to. */
+const CELL_DECIMALS = 4;
+
+function cell(value: unknown): string {
+	if (value === null || value === undefined) return "null";
+	if (typeof value === "number") {
+		return Number.isInteger(value)
+			? String(value)
+			: String(Number(value.toFixed(CELL_DECIMALS)));
+	}
+	return elide(String(value), CELL_WIDTH).replace(/\s+/g, " ");
+}
+
+/**
+ * Lay a query's rows out as aligned columns, the first `limit` of them,
+ * saying how many there were in all. The numbers are printed as SQLite
+ * returned them, so a figure read here and one computed from the stored
+ * rows are the same figure.
+ */
+export function formatQueryAnswer(answer: QueryAnswer, limit: number): string {
+	const count = `${answer.rows.length.toLocaleString()} ${answer.rows.length === 1 ? "row" : "rows"}`;
+	if (answer.rows.length === 0) return "0 rows";
+	const shown = answer.rows.slice(0, limit);
+	const table = [
+		answer.columns,
+		...shown.map((row) => answer.columns.map((column) => cell(row[column]))),
+	];
+	const widths = answer.columns.map((_, i) =>
+		Math.max(...table.map((line) => line[i]?.length ?? 0)),
+	);
+	const lines = table.map((line) =>
+		line
+			.map((text, i) => text.padEnd(widths[i] ?? 0))
+			.join("  ")
+			.trimEnd(),
+	);
+	const heading =
+		shown.length < answer.rows.length
+			? `${count}, the first ${shown.length} shown`
+			: count;
+	return [heading, "", ...lines].join("\n");
 }
 
 /** Say what an index pass read and what it was able to skip. */

@@ -3,12 +3,46 @@ import { describe, expect, it } from "vitest";
 import {
 	formatIndexOutcome,
 	formatPaybackReplay,
+	formatQueryAnswer,
 	formatRegret,
 	formatRepeats,
 	formatSlices,
 	formatTotal,
 	formatVerifierOutcomes,
 } from "../../extensions/cost-workflow/report.ts";
+
+describe("formatQueryAnswer", () => {
+	const answer = {
+		columns: ["cause", "misses", "cost"],
+		rows: [
+			{ cause: "after compaction", misses: 527, cost: 231.4166666 },
+			{ cause: "prompt changed", misses: 41, cost: null },
+			{ cause: "idle over an hour", misses: 12, cost: 9 },
+		],
+	};
+
+	it("lines the columns up and prints numbers as the ledger holds them", () => {
+		expect(formatQueryAnswer(answer, 40).split("\n")).toEqual([
+			"3 rows",
+			"",
+			"cause              misses  cost",
+			"after compaction   527     231.4167",
+			"prompt changed     41      null",
+			"idle over an hour  12      9",
+		]);
+	});
+
+	it("says how many rows there were when it shows only some", () => {
+		const text = formatQueryAnswer(answer, 1);
+
+		expect(text).toMatch(/^3 rows, the first 1 shown/);
+		expect(text).not.toContain("prompt changed");
+	});
+
+	it("answers an empty result plainly", () => {
+		expect(formatQueryAnswer({ columns: ["x"], rows: [] }, 40)).toBe("0 rows");
+	});
+});
 
 describe("formatTotal", () => {
 	it("names unmetered turns rather than folding them in as free", () => {

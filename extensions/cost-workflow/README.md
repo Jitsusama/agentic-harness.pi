@@ -67,6 +67,36 @@ The ledger holds three other things past turns and their cost:
   time before that text is digested away, and how each kind fared.
   `cost --verify` reports pass rates worst first.
 
+## Asking the Ledger Directly
+
+The named reports answer the questions that recur. Anything else is
+one SQL `SELECT` passed as `cost --query`, over views the ledger
+defines for itself:
+
+- `turn_facts`: one row per billed turn, with its cost split by
+  channel, the context it ran at, what came before it on its branch
+  (a compaction, a model change, a tool change, a typed message,
+  results), the gap since the turn before, an estimate of what was new,
+  and the run it belongs to.
+- `misses`: the turns whose cache write ran past what was new, with
+  the excess and its likeliest cause.
+- `cycles`: the stretch from one compaction to the next, per session.
+- `runs`: everything one typed message set going, counted once however
+  many forks copied it.
+- `compaction_moments`: how each summary was written, whether a
+  request was stopped for it, whether the run resumed and how quickly.
+
+The query runs on a read-only connection, so it cannot change the
+ledger whatever it says. An answer past 5,000 rows is refused rather
+than cut, since a cut answer reads as a whole one; aggregate it or add
+a `LIMIT`. The first 40 rows are shown and the rest are stored behind a
+handle. The views are recreated each time the ledger opens, so their
+definitions always match the code reading them.
+
+For the week from 2026-09-24, these views gave the same turns, spend,
+compactions and aborted requests as the scripts they replaced, and
+misses within three percent.
+
 ## Retrospection Without a Second Store
 
 The ledger is a plain SQLite file of TEXT and INTEGER columns, nothing
@@ -80,6 +110,9 @@ ATTACH '~/.local/state/pi/agentic-harness.pi/observability/ledger.db'
   AS ledger (TYPE sqlite);
 SELECT * FROM ledger.tool_calls LIMIT 10;
 ```
+
+DuckDB does not see the views, since it reads the tables beneath them.
+`cost --query` is the way to use those.
 
 This is the retrospective leg the plan called a Parquet and DuckDB
 derivative. A Parquet export was tried first and dropped: the only pure
