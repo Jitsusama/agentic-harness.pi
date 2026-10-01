@@ -10,16 +10,14 @@
  * each still gets a careful reading.
  */
 
-import type { Usage } from "@earendil-works/pi-ai";
+import type {
+	ClassifierBoolQuestion,
+	ClassifierContext,
+	Usage,
+} from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import {
-	CLASSIFICATION_CONTRACT,
-	type ClassificationAnswers,
-	type ClassificationQuestion,
-	type ClassificationRequest,
-	type ClassificationUnit,
-} from "../../classifier/index.ts";
 import type { Candidate } from "./candidates.ts";
+import { aboutParagraph, classifierContext, type Passage } from "./classify.ts";
 import { KIND_DEFINITIONS } from "./kinds.ts";
 import { recentContext } from "./tagging.ts";
 import { estimatedTokens, type SelectionUnit } from "./units.ts";
@@ -79,8 +77,8 @@ export function holdsRequests(
 	/** Every paragraph on the branch, in order, for the later context. */
 	branchUnits: readonly SelectionUnit[],
 	batch = HOLDS_BATCH,
-): ClassificationRequest[] {
-	const requests: ClassificationRequest[] = [];
+): ClassifierContext[] {
+	const requests: ClassifierContext[] = [];
 	const position = new Map(branchUnits.map((unit, at) => [unit.hash, at]));
 	const recent = recentContext(branchUnits, RECENT_TOKENS);
 	const recentHashes = new Set(
@@ -99,23 +97,24 @@ export function holdsRequests(
 				),
 			LATER_USER_TOKENS,
 		);
-		const questions: Record<string, ClassificationQuestion> = {};
+		const questions: Record<string, ClassifierBoolQuestion> = {};
 		chunk.forEach((candidate, at) => {
-			questions[questionId(at)] = {
-				unit: unitId(at),
-				...KIND_DEFINITIONS[candidate.kind].holds,
-			};
+			questions[questionId(at)] = aboutParagraph(
+				unitId(at),
+				KIND_DEFINITIONS[candidate.kind].holds,
+			);
 		});
-		requests.push({
-			contract: CLASSIFICATION_CONTRACT,
-			context: [...laterUser, ...recent],
-			units: chunk.map((candidate, at) => ({
-				id: unitId(at),
-				text: candidate.unit.text,
-				speaker: candidate.unit.speaker,
-			})),
-			questions,
-		});
+		requests.push(
+			classifierContext(
+				[...laterUser, ...recent],
+				chunk.map((candidate, at) => ({
+					id: unitId(at),
+					text: candidate.unit.text,
+					speaker: candidate.unit.speaker,
+				})),
+				questions,
+			),
+		);
 	}
 	return requests;
 }
@@ -127,7 +126,7 @@ export function holdsRequests(
  */
 export function holdsFrom(
 	chunk: readonly Candidate[],
-	answers: ClassificationAnswers,
+	answers: Readonly<Record<string, number>>,
 ): Map<string, number> {
 	const verdicts = new Map<string, number>();
 	chunk.forEach((candidate, at) => {
@@ -140,8 +139,8 @@ export function holdsFrom(
 function latestFitting(
 	units: readonly SelectionUnit[],
 	tokens: number,
-): ClassificationUnit[] {
-	const kept: ClassificationUnit[] = [];
+): Passage[] {
+	const kept: Passage[] = [];
 	let spent = 0;
 	for (let at = units.length - 1; at >= 0; at--) {
 		const unit = units[at];

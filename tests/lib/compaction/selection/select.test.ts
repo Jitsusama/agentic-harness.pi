@@ -16,7 +16,14 @@ import {
 import { selectExcerpts } from "../../../../lib/compaction/selection/select.ts";
 import { readTags } from "../../../../lib/compaction/selection/tags.ts";
 import { unitsOfBranch } from "../../../../lib/compaction/selection/units.ts";
-import { assistant, compaction, judged, tagged, user } from "./fixtures.ts";
+import {
+	assistant,
+	compaction,
+	judged,
+	passages,
+	tagged,
+	user,
+} from "./fixtures.ts";
 
 function candidate(
 	kind: SelectionKind,
@@ -117,18 +124,19 @@ describe("holds", () => {
 		const candidates = candidatesBefore(branch, readTags(branch), undefined);
 
 		const [request] = holdsRequests(candidates, unitsOfBranch(branch));
-		expect(request?.units.map((u) => u.text)).toEqual(["Always sign commits."]);
-		expect(request?.context.map((u) => u.text)).toContain(
+		expect(passages(request, "paragraphs")).toEqual(["Always sign commits."]);
+		expect(passages(request, "context")).toContain(
 			"Forget what I said about signing.",
 		);
-		expect(Object.values(request?.questions ?? {})[0]?.ask).toContain(
-			"still in force",
-		);
+		const [question] = Object.values(request?.questions ?? {});
+		expect(question?.type).toBe("bool");
+		expect(question?.instructions).toContain("paragraph u0");
+		expect(question?.instructions).toContain("still in force");
 
 		const three = [1, 2, 3].map((n) => candidate("rule", n, `rule ${n}`));
-		expect(holdsRequests(three, [], 2).map((r) => r.units.length)).toEqual([
-			2, 1,
-		]);
+		expect(
+			holdsRequests(three, [], 2).map((r) => passages(r, "paragraphs").length),
+		).toEqual([2, 1]);
 		expect(holdsFrom(three.slice(0, 2), { "u1.holds": 0.2 })).toEqual(
 			new Map([["h2", 0.2]]),
 		);

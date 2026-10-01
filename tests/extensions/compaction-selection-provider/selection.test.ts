@@ -1,15 +1,15 @@
-import type { AssistantMessage, Context } from "@earendil-works/pi-ai";
+import type {
+	ClassifierContext,
+	ClassifierResult,
+} from "@earendil-works/pi-ai";
 import type {
 	ExtensionContext,
 	SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { resolveClassifier } from "../../../extensions/compaction-selection-provider/classifier.ts";
 import { selectionContributor } from "../../../extensions/compaction-selection-provider/contribution.ts";
 import { tagger } from "../../../extensions/compaction-selection-provider/tagger.ts";
-import {
-	ANSWER_TOOL_NAME,
-	requestFromContext,
-} from "../../../lib/classifier/index.ts";
 import { newContributions } from "../../../lib/compaction/index.ts";
 import { SELECTION_HOLDS_ENTRY } from "../../../lib/compaction/selection/holds.ts";
 import { EXCERPTS_HEADING } from "../../../lib/compaction/selection/render.ts";
@@ -37,55 +37,54 @@ const USAGE = {
 	},
 };
 
+type Answerer = (context: ClassifierContext) => ClassifierResult;
+
 /** Answers yes to every question whose id ends in one of these. */
-function answeringYesTo(...suffixes: string[]) {
-	return (context: Context): AssistantMessage => {
-		const request = requestFromContext(context);
-		const answers = Object.fromEntries(
-			Object.keys(request?.questions ?? {}).map((id) => [
+function answeringYesTo(...suffixes: string[]): Answerer {
+	return (context) => ({
+		api: "test-classifier",
+		provider: "local",
+		model: "tagger",
+		answers: Object.fromEntries(
+			Object.keys(context.questions).map((id) => [
 				id,
-				suffixes.some((s) => id.endsWith(s)) ? 0.9 : 0.05,
-			]),
-		);
-		return {
-			role: "assistant",
-			content: [
 				{
-					type: "toolCall",
-					id: "t",
-					name: ANSWER_TOOL_NAME,
-					arguments: { answers },
+					type: "bool",
+					probability: suffixes.some((s) => id.endsWith(s)) ? 0.9 : 0.05,
 				},
-			],
-			api: "openai-completions",
-			provider: "local",
-			model: "tagger",
-			usage: USAGE,
-			stopReason: "toolUse",
-			timestamp: 0,
-		};
-	};
+			]),
+		),
+		usage: USAGE,
+		stopReason: "stop",
+		timestamp: 0,
+	});
 }
+
+const CLASSIFIERS = [
+	{ provider: "local", id: "tagger", type: "classifier" },
+	{ provider: "typesafe", id: "jev-latest", type: "classifier" },
+];
 
 function session(
 	branch: SessionEntry[],
-	answer: (context: Context) => AssistantMessage,
+	answer: Answerer,
+	available: readonly { provider: string; id: string }[] = CLASSIFIERS,
 ) {
-	const sent: Context[] = [];
+	const sent: Array<{ model: string; context: ClassifierContext }> = [];
 	const ctx = {
 		sessionManager: {
 			getBranch: () => branch,
 			getSessionId: () => "s1",
 		},
 		modelRegistry: {
-			find: (provider: string, id: string) =>
-				provider === "local" && id === "tagger"
-					? { maxTokens: 4096 }
-					: undefined,
-			hasConfiguredAuth: () => true,
-			streamSimple: (_model: unknown, context: Context) => {
-				sent.push(context);
-				return { result: async () => answer(context) };
+			getAvailableOfType: async (type: string) =>
+				type === "classifier" ? available : [],
+			classify: async (
+				model: { provider: string; id: string },
+				context: ClassifierContext,
+			) => {
+				sent.push({ model: `${model.provider}/${model.id}`, context });
+				return answer(context);
 			},
 		},
 	} as unknown as ExtensionContext;
@@ -116,6 +115,40 @@ afterEach(() => {
 	process.env = saved;
 });
 
+describe("the classifier", () => {
+	it("is the one named, or Jev when none is, or none when it is off", async () => {
+		const { ctx } = session([], answeringYesTo());
+		const named = await resolveClassifier(ctx, {
+			PI_COMPACTION_CLASSIFIER: "local/tagger",
+		});
+		expect(named.ok && named.label).toBe("local/tagger");
+
+		const fallback = await resolveClassifier(ctx, {});
+		expect(fallback.ok && fallback.label).toBe("typesafe/jev-latest");
+
+		const off = await resolveClassifier(ctx, {
+			PI_COMPACTION_CLASSIFIER: "off",
+		});
+		expect(off.ok).toBe(false);
+
+		const missing = await resolveClassifier(ctx, {
+			PI_COMPACTION_CLASSIFIER: "local/other",
+		});
+		expect(missing).toEqual({
+			ok: false,
+			reason: "no classifier local/other has credentials",
+		});
+	});
+
+	it("is none on a pi without classifier models", async () => {
+		const ctx = { modelRegistry: {} } as unknown as ExtensionContext;
+		expect(await resolveClassifier(ctx, {})).toEqual({
+			ok: false,
+			reason: "this pi has no classifier models",
+		});
+	});
+});
+
 describe("tagging", () => {
 	it("tags each untagged message once and records what it cost", async () => {
 		const branch = [
@@ -135,6 +168,7 @@ describe("tagging", () => {
 		await tags.idle();
 
 		expect(sent).toHaveLength(2);
+		expect(sent[0]?.model).toBe("local/tagger");
 		expect(appended.map(([type]) => type)).toEqual([
 			SELECTION_TAGS_ENTRY,
 			SELECTION_TAGS_ENTRY,
@@ -147,11 +181,12 @@ describe("tagging", () => {
 		});
 	});
 
-	it("does nothing without a classifier configured", async () => {
+	it("does nothing when no classifier has credentials", async () => {
 		delete process.env.PI_COMPACTION_CLASSIFIER;
 		const { ctx, pi, sent } = session(
 			[user("u1", "Always sign every commit.")],
 			answeringYesTo(".rule"),
+			[{ provider: "local", id: "tagger" }],
 		);
 		const tags = tagger(pi);
 		tags.schedule(ctx);
@@ -162,10 +197,11 @@ describe("tagging", () => {
 	it("records a failure that cost something rather than paying twice", async () => {
 		const { ctx, pi, appended } = session(
 			[user("u1", "Always sign every commit.")],
-			() => ({
-				...answeringYesTo()({ messages: [] }),
-				content: [{ type: "text", text: "I think it is a rule." }],
-				stopReason: "stop",
+			(context) => ({
+				...answeringYesTo()(context),
+				answers: {},
+				stopReason: "error",
+				errorMessage: "the context is too long",
 			}),
 		);
 		const tags = tagger(pi);
@@ -174,7 +210,8 @@ describe("tagging", () => {
 		expect(appended[0]?.[1]).toMatchObject({
 			entryId: "u1",
 			units: [],
-			failed: "the reply did not call the answer tool",
+			model: "local/tagger",
+			failed: "the context is too long",
 			usage: USAGE,
 		});
 	});

@@ -35,10 +35,6 @@ The package manager is **pnpm**. `pnpm-lock.yaml` is canonical;
   - `lib/jobs/`: the seam between work that runs on after its
     tool returns and the host that says its result, found over
     the event bus so a producer never imports the host (public)
-  - `lib/classifier/`: yes-or-no questions about short units of
-    text, asked of any model as a chat request with one answer
-    tool, so the owner's model config decides what serves it
-    (public)
   - `lib/internal/`: not for external use
     - `git/`: process-global bypass state for git
       command interception

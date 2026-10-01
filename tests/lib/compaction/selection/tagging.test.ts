@@ -9,7 +9,7 @@ import {
 	untagged,
 } from "../../../../lib/compaction/selection/tags.ts";
 import { unitsOf } from "../../../../lib/compaction/selection/units.ts";
-import { assistant, compaction, tagged, user } from "./fixtures.ts";
+import { assistant, compaction, passages, tagged, user } from "./fixtures.ts";
 
 describe("taggingRequest", () => {
 	const said = user("u1", "Build the classifier.\n\nNever copy upstream code.");
@@ -33,9 +33,7 @@ describe("taggingRequest", () => {
 			user("u0", "First thing said.\n\nSecond thing said."),
 		);
 		const request = taggingRequest(unitsOf(reply), before, 5);
-		expect(request.context.map((unit) => unit.text)).toEqual([
-			"Second thing said.",
-		]);
+		expect(passages(request, "context")).toEqual(["Second thing said."]);
 		expect(recentContext(before, 1000).map((unit) => unit.text)).toEqual([
 			"First thing said.",
 			"Second thing said.",

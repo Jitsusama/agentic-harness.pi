@@ -18,12 +18,12 @@ import {
 	type ExtensionContext,
 	findCutPoint,
 } from "@earendil-works/pi-coding-agent";
-import { classify } from "../../lib/classifier/index.ts";
 import {
 	isSummaryContributions,
 	type SummaryContributions,
 } from "../../lib/compaction/index.ts";
 import { candidatesBefore } from "../../lib/compaction/selection/candidates.ts";
+import { classify } from "../../lib/compaction/selection/classify.ts";
 import {
 	HOLDS_BATCH,
 	holdsFrom,
@@ -101,8 +101,8 @@ export function selectionContributor(
 		budget: number,
 		signal: AbortSignal,
 	) => {
-		const classifier = resolveClassifier(ctx);
-		if (!classifier.ok) return;
+		const classifier = await resolveClassifier(ctx);
+		if (!classifier.ok || signal.aborted) return;
 		const branch = ctx.sessionManager.getBranch();
 		const holds = readHolds(branch);
 		const pending = selectExcerpts(
@@ -114,13 +114,13 @@ export function selectionContributor(
 		for (const [at, request] of requests.entries()) {
 			if (signal.aborted) return;
 			const chunk = pending.slice(at * HOLDS_BATCH, (at + 1) * HOLDS_BATCH);
-			const result = await classify(classifier.call, request, signal);
+			const result = await classify(classifier.classify, request, signal);
 			if (signal.aborted) return;
 			const recorded: SelectionHolds = result.ok
 				? {
 						holds: Object.fromEntries(holdsFrom(chunk, result.answers)),
 						model: result.model,
-						usage: result.usage,
+						...(result.usage ? { usage: result.usage } : {}),
 					}
 				: {
 						holds: {},
