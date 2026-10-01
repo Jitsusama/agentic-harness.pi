@@ -65,7 +65,32 @@ describe("summaryInstruction", () => {
 			expect(text).toContain(
 				"30,000 tokens of conversation, the earlier summary included.",
 			);
+		});
+
+		it("carries what the earlier summary held without compressing it again", () => {
+			const text = summaryInstruction({
+				hasPreviousSummary: true,
+				length: { replacedTokens: 30_000, maxOutputTokens: 51_200 },
+			});
+			expect(text).toContain("begins with a summary");
+			expect(text).toContain("without compressing it again");
+			expect(text).toContain("CARRY every specific that still holds");
+			expect(text).not.toContain("PRESERVE");
+		});
+
+		it("lets what a later message changed replace the earlier state", () => {
+			const text = summaryInstruction({
+				hasPreviousSummary: true,
+				length: { replacedTokens: 30_000, maxOutputTokens: 51_200 },
+			});
+			expect(text).toContain("not now");
+			expect(text).toContain("write only the latest state as current");
+		});
+
+		it("keeps pi's fold when nothing sizes the summary", () => {
+			const text = summaryInstruction({ hasPreviousSummary: true });
 			expect(text).toContain("PRESERVE");
+			expect(text).not.toContain("without compressing it again");
 		});
 
 		it("asks for the concise line when nothing sizes it", () => {
