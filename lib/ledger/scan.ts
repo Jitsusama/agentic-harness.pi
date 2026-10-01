@@ -44,9 +44,10 @@ interface RawUsage {
  *
  * Every line is offered to the parser and every outcome is counted, so a
  * malformed line costs one entry rather than the remainder of the file.
- * Both places a turn can carry usage are read: assistant turns hold it
- * under `message`, and compactions hold it at the top level beside
- * `type`.
+ * Every place a turn can carry usage is read: assistant turns hold it
+ * under `message`, compactions hold it at the top level beside `type`,
+ * and a side call an extension made records it under its custom
+ * entry's `data`.
  */
 export function readTurns(
 	sessionId: string,
@@ -211,16 +212,18 @@ function turnFrom(
 	const kind = kindOf(entry);
 	if (!kind) return null;
 	const message = asRecord(entry.message);
+	const data = asRecord(entry.data);
 	const usage = asRecord(
-		kind === "compaction" ? entry.usage : message?.usage,
+		kind === "compaction"
+			? entry.usage
+			: kind === "side"
+				? data?.usage
+				: message?.usage,
 	) as RawUsage | null;
 
 	const entryId = typeof entry.id === "string" ? entry.id : "";
 	const timestamp = typeof entry.timestamp === "string" ? entry.timestamp : "";
-	const model =
-		typeof message?.model === "string"
-			? (message.model as string)
-			: fallbackModel;
+	const model = modelOf(kind, message, data, fallbackModel);
 
 	return {
 		entryId,
@@ -269,15 +272,36 @@ function levelAt(
 
 /**
  * Which turns are billable at all. An assistant turn and a compaction
- * both cost money; a user message, a tool result and a state change do
- * not. Enumerated rather than filtered, so a new entry type is ignored
- * by omission instead of silently swept into a total.
+ * both cost money, and so does a side call: a custom entry an extension
+ * recorded a model call's usage on, cost included. A user message, a
+ * tool result and a state change do not. Enumerated rather than
+ * filtered, so a new entry type is ignored by omission instead of
+ * silently swept into a total.
  */
 function kindOf(entry: Record<string, unknown>): TurnKind | null {
 	if (entry.type === "compaction") return "compaction";
+	if (entry.type === "custom") {
+		const usage = asRecord(asRecord(entry.data)?.usage);
+		return asRecord(usage?.cost) ? "side" : null;
+	}
 	const message = asRecord(entry.message);
 	if (message?.role === "assistant") return "assistant";
 	return null;
+}
+
+/**
+ * The model a turn was billed on. A side call names its own, and never
+ * takes the session's, since it is usually a different and much
+ * cheaper model; a compaction names none and takes the last one seen.
+ */
+function modelOf(
+	kind: TurnKind,
+	message: Record<string, unknown> | null,
+	data: Record<string, unknown> | null,
+	fallbackModel: string,
+): string {
+	if (kind === "side") return typeof data?.model === "string" ? data.model : "";
+	return typeof message?.model === "string" ? message.model : fallbackModel;
 }
 
 function tokensFrom(usage: RawUsage | null): RunTokens {
