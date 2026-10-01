@@ -98,13 +98,14 @@ const HEADINGS: Record<CostDimension, string> = {
 const QUERY_GUIDE =
 	"Run one read-only SQL SELECT against the ledger instead of a spend " +
 	"report, and answer with its rows. Views: turn_facts (one row per " +
-	"billed turn: timestamp, day, kind 'assistant' or 'compaction', model, " +
+	"billed turn: timestamp, day, kind 'assistant', 'compaction' or 'side' " +
+	"(a model call an extension made off the agent's loop), model, " +
 	"thinking_level, context, tokens_* and cost_* columns, cost, " +
 	"preceded_by, gap_ms, new_tokens, stop_reason, thinking_chars, " +
 	"text_chars, run_id, run_turn, repo, quest); misses (turn_facts rows " +
 	"whose cache write ran past what was new, with excess_tokens, " +
 	"excess_cost and cause); cycles (one per compaction: turns, cost, " +
-	"context_start, context_end, closed); runs (one per typed message: " +
+	"side_cost, context_start, context_end, closed); runs (one per typed message: " +
 	"turns, compactions, cost, started_at, ended_at); compaction_moments " +
 	"(written, summariser, summary_ms, waited_ms, summary_chars, " +
 	"aborted_request, resumed, since_typed_ms, turns_into_run, " +

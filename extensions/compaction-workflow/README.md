@@ -264,6 +264,8 @@ before each attempt, and reads `handled` afterwards to learn whether it
 needs a summariser of its own for that compaction. A summary written
 ahead asks once when it starts, for the focus, and again when the
 compaction applies it, for the appendix and `handled`.
+`compaction-selection-provider` uses the first to start work of its
+own alongside the summary and the second to append what it found.
 
 ## Settings
 

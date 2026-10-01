@@ -16,9 +16,9 @@ They fall into six categories:
 - **Integrations** (`*-integration`) bridge to external
   services.
 - **Widgets** (`*-widget`) add UI elements to the interface.
-- **Providers** (`*-provider`) contribute to an MCP host over
-  the event bus, decorating another server's tools without
-  importing its registry.
+- **Providers** (`*-provider`) contribute to a host over the
+  event bus without importing its registry: decorating an MCP
+  server's tools, or writing or adding to compaction summaries.
 
 Packs are the category deliberately not here. A pack is an
 extension loaded into a subagent by path rather than discovered,

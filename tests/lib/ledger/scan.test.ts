@@ -77,6 +77,48 @@ describe("readTurns", () => {
 		expect(scan.turns[0].firstKeptEntryId).toBe("a9");
 	});
 
+	it("bills a side call an extension recorded on its own entry, on its own model", () => {
+		const side = (id: string, data: Record<string, unknown>) =>
+			JSON.stringify({
+				id,
+				type: "custom",
+				customType: "compaction-selection-tags",
+				timestamp: "2026-09-21T17:56:00.000Z",
+				data,
+			});
+		const usage = {
+			input: 900,
+			output: 40,
+			cacheRead: 0,
+			cacheWrite: 0,
+			totalTokens: 940,
+			cost: {
+				input: 0.0009,
+				output: 0.0002,
+				cacheRead: 0,
+				cacheWrite: 0,
+				total: 0.0011,
+			},
+		};
+		const scan = readTurns("s1", [
+			assistantLine("a1", 0.89),
+			side("t1", { entryId: "a1", model: "small-model", usage }),
+			side("t2", { entryId: "a1", usage }),
+			// Custom entries with no cost are state, not calls.
+			side("t3", { entryId: "a1", units: [] }),
+		]);
+
+		expect(
+			scan.turns.map((t) => [t.entryId, t.kind, t.model, t.cost?.total]),
+		).toEqual([
+			["a1", "assistant", "claude-opus-5", 0.89],
+			["t1", "side", "small-model", 0.0011],
+			// Unnamed is left empty, never priced as the session's model.
+			["t2", "side", "", 0.0011],
+		]);
+		expect(scan.turns[1]?.tokens.input).toBe(900);
+	});
+
 	it("reports an unmetered turn as unknown cost rather than zero", () => {
 		// A run that died before reporting usage costs an unknown amount.
 		// Recording it as 0 understates the total and cannot be told apart

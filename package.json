@@ -22,6 +22,7 @@
 		"./terminal": "./lib/terminal/index.ts",
 		"./quest": "./lib/quest/index.ts",
 		"./prompt": "./lib/prompt/index.ts",
+		"./classifier": "./lib/classifier/index.ts",
 		"./compaction": "./lib/compaction/index.ts",
 		"./mcp": "./lib/mcp/index.ts",
 		"./jobs": "./lib/jobs/index.ts",
@@ -54,7 +55,7 @@
 		]
 	},
 	"dependencies": {
-		"@jitsusama/agentic-harness.core": "^0.6.17",
+		"@jitsusama/agentic-harness.core": "^0.6.18",
 		"@modelcontextprotocol/sdk": "^1.29.0",
 		"google-auth-library": "^10.9.0",
 		"googleapis": "^173.0.0",

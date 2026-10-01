@@ -106,7 +106,8 @@ behavioural contract.
   the `pi.events` bus without importing the host's registry: a
   `FrontEndProvider` decorating a subset of an MCP server's
   tools (shape, render or wrap), or a `CompactionProvider`
-  writing summaries for `compaction-workflow`. Distinct from a `-widget`, which adds
+  writing summaries for `compaction-workflow` or contributions
+  appended to them. Distinct from a `-widget`, which adds
   standalone UI, and from an `-integration`, which hosts a
   service. Because the seam is the bus, a provider can live in
   a different package from its host.

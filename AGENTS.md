@@ -35,6 +35,10 @@ The package manager is **pnpm**. `pnpm-lock.yaml` is canonical;
   - `lib/jobs/`: the seam between work that runs on after its
     tool returns and the host that says its result, found over
     the event bus so a producer never imports the host (public)
+  - `lib/classifier/`: yes-or-no questions about short units of
+    text, asked of any model as a chat request with one answer
+    tool, so the owner's model config decides what serves it
+    (public)
   - `lib/internal/`: not for external use
     - `git/`: process-global bypass state for git
       command interception
@@ -129,8 +133,10 @@ it does:
   registry: a `FrontEndProvider` decorating a subset of an MCP
   server's tools (shape, render or wrap), or a
   `CompactionProvider` writing summaries for
-  `compaction-workflow`, which walks its providers as a chain.
-  Distinct from a `*-widget`, which adds standalone UI, and from
+  `compaction-workflow`, which walks its providers as a chain,
+  or summary contributions appended to what they write, as
+  `compaction-selection-provider` quotes the paragraphs a
+  compaction drops. Distinct from a `*-widget`, which adds standalone UI, and from
   an `*-integration`, which hosts a service. The seam is the
   bus, so a provider can live in a different package from its
   host.
