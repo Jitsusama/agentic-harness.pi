@@ -5,7 +5,8 @@
  * onto the cached conversation, where a summary written ahead keeps from
  * and why the kept tail never starts on a custom entry, what other
  * extensions contribute to it and record about it, the outcome said on
- * the bus for every compaction, the back-off after a compaction fails,
+ * the bus for every compaction, the status each extension that takes
+ * part reports when asked, the back-off after a compaction fails,
  * the messages that resume a run it stopped, and the guard that keeps a
  * reserve setting from breaking the decision.
  *
@@ -60,6 +61,16 @@ export {
 } from "./provider.ts";
 export { clampReserveTokens } from "./reserve.ts";
 export { FAILED_RESUME_TEXT, isResumeText, RESUME_TEXT } from "./resume.ts";
+export {
+	answerCompactionStatus,
+	askCompactionStatus,
+	type BranchCompaction,
+	COMPACTION_STATUS,
+	type CompactionStatusRequest,
+	compactionsOn,
+	isCompactionStatusRequest,
+	type StatusSection,
+} from "./status.ts";
 export {
 	extendSentPayload,
 	type FileOperations,

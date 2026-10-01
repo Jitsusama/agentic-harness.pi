@@ -15,7 +15,8 @@
  * A page is bounded, since recall lands in the room a compaction just
  * made. What the page leaves out is stored through the result store
  * and cited by handle, so a long entry or a long list of hits is never
- * silently cut.
+ * silently cut. `/compaction-status` says whether the tool is active,
+ * how many summaries mention it and how often it has been called.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -25,6 +26,7 @@ import {
 } from "@jitsusama/agentic-harness.core/result";
 import { Type } from "@sinclair/typebox";
 import {
+	answerCompactionStatus,
 	isSummaryContributions,
 	SUMMARY_CONTRIBUTIONS,
 } from "../../lib/compaction/index.ts";
@@ -34,6 +36,7 @@ import {
 	type Recalled,
 	recall,
 } from "../../lib/internal/recall/session.ts";
+import { recallSection } from "./status.ts";
 
 /** What every summary says about the tool, appended after its text. */
 export const RECALL_NOTE =
@@ -136,4 +139,18 @@ export default function sessionRecall(pi: ExtensionAPI) {
 		if (!isSummaryContributions(data)) return;
 		data.appendix.push(RECALL_NOTE);
 	});
+	answerCompactionStatus(pi.events, (branch) =>
+		recallSection(activeNow(pi), RECALL_NOTE, branch),
+	);
+}
+
+/** Whether the tool is active, or nothing on a pi that cannot say. */
+function activeNow(pi: ExtensionAPI): boolean | undefined {
+	if (typeof pi.getActiveTools !== "function") return undefined;
+	try {
+		return pi.getActiveTools().includes(RECALL_TOOL);
+	} catch {
+		// Asked outside a session, there is no tool list to read.
+		return undefined;
+	}
 }

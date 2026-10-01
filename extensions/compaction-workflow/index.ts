@@ -102,6 +102,7 @@ import {
 	idleCompactionNotice,
 } from "./notice.ts";
 import { piSummaryProvider } from "./pi-summary.ts";
+import { registerCompactionStatus } from "./status.ts";
 
 /** Modes whose runs continue after a compaction and can be resumed. */
 const RESUMABLE_MODES: ReadonlySet<string> = new Set(["tui", "rpc"]);
@@ -234,6 +235,14 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		providers: [conversationProvider(pi), piSummaryProvider(pi)],
 		expectedOutputTokens: () => summaryOutput ?? DEFAULT_SUMMARY_OUTPUT_TOKENS,
 	});
+
+	registerCompactionStatus(pi, () => ({
+		enabled: enabled(),
+		floorTokens: floorTokens(),
+		retention: process.env.PI_CACHE_RETENTION,
+		chain: host.chain(),
+		ahead: host.state(),
+	}));
 
 	const retained = () =>
 		observedRetained ?? (firstTurnTokens ?? 0) + KEPT_BEYOND_FLOOR;

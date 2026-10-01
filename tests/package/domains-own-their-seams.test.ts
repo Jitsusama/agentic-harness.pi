@@ -78,6 +78,7 @@ describe("bus names are declared by a library, not an extension", () => {
 			"compaction:ready:v1",
 			"compaction:register-provider:v1",
 			"compaction:request:v1",
+			"compaction:status:v1",
 			"jobs:ask:v1",
 			"subagent:ready:v1",
 			"subagent:register-default-extension:v1",

@@ -28,16 +28,22 @@
  * a host whose rebuilt sessions drop custom entries. Every compaction
  * records what the selection did under `details.contributions`, and
  * when the session recall tool is active each quote names its
- * paragraph, so the model can read it in place.
+ * paragraph, so the model can read it in place. `/compaction-status`
+ * shows the classifier, the budget, the tags so far and how many
+ * compactions on the branch quoted anything.
  */
 
 import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { SUMMARY_CONTRIBUTIONS } from "../../lib/compaction/index.ts";
+import {
+	answerCompactionStatus,
+	SUMMARY_CONTRIBUTIONS,
+} from "../../lib/compaction/index.ts";
 import { classifierStatus } from "./classifier.ts";
-import { selectionContributor } from "./contribution.ts";
+import { excerptTokens, selectionContributor } from "./contribution.ts";
+import { selectionSection } from "./status.ts";
 import { memoryStore, selectionStoreKind, sessionStore } from "./store.ts";
 import { tagger } from "./tagger.ts";
 
@@ -63,6 +69,17 @@ export default function compactionSelectionProvider(pi: ExtensionAPI) {
 	});
 
 	pi.events.on(SUMMARY_CONTRIBUTIONS, contributor.listener);
+	answerCompactionStatus(pi.events, (branch) =>
+		selectionSection(
+			{
+				classifier: status.current(),
+				store,
+				budget: excerptTokens(),
+				refs: recallIsActive(pi),
+			},
+			branch,
+		),
+	);
 
 	pi.on("session_start", async (_event, ctx) => {
 		tagging.stop();

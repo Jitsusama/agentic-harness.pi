@@ -32,6 +32,7 @@ function activate(): { handlers: Map<string, Handler>; calls: Recorded } {
 		events: { on: () => () => {}, emit: () => {} },
 		on: (name: string, handler: Handler) => handlers.set(name, handler),
 		appendEntry: () => {},
+		registerCommand: () => {},
 		sendMessage: (...args: unknown[]) => calls.sendMessage.push(args),
 		sendUserMessage: (...args: unknown[]) => calls.sendUserMessage.push(args),
 	};
