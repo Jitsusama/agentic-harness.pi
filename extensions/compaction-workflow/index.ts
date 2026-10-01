@@ -84,6 +84,7 @@ import {
 	compactionHistory,
 	compactionPays,
 	droppableRent,
+	emitOutcome,
 	FAILED_RESUME_TEXT,
 	FAILURE_ENTRY,
 	failureRecord,
@@ -274,6 +275,11 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 				const failure = failureRecord(tokens, error, failures);
 				holdTurns = failure.retryAfterTurns;
 				pi.appendEntry(FAILURE_ENTRY, failure);
+				emitOutcome(pi.events, {
+					kind: "failed",
+					sessionId: ctx.sessionManager.getSessionId(),
+					failure,
+				});
 				if (ctx.hasUI) {
 					ctx.ui.notify(
 						compactionFailureNotice(error, failure.retryAfterTurns),

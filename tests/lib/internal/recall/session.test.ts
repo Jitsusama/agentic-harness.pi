@@ -1,6 +1,10 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import {
+	paragraphRef,
+	unitsOf,
+} from "../../../../lib/compaction/selection/units.ts";
+import {
 	entryTexts,
 	PAGE_CHARS,
 	PAGE_HITS,
@@ -125,14 +129,44 @@ describe("searching the log", () => {
 });
 
 describe("a recall", () => {
-	it("reads one entry by id, whole", () => {
-		const answer = recall([user("u1", "hello"), said("a1", "the answer")], {
-			entryId: "a1",
-		});
-		expect(answer).toMatchObject({
+	it("reads one entry by id, whole, naming the entries either side", () => {
+		const log = [
+			user("u1", "hello"),
+			said("a1", "the answer"),
+			user("u2", "thanks"),
+		];
+		expect(recall(log, { entryId: "a1" })).toMatchObject({
 			kind: "entry",
-			view: "[a1] the answer",
+			view: "[a1] the answer\n\nBefore it: u1. After it: u2.",
 			cut: false,
+		});
+		expect(recall(log, { entryId: "u1" }).view).toBe(
+			"[u1] hello\n\nAfter it: a1.",
+		);
+	});
+
+	it("reads the latest entry saying a paragraph, by its reference", () => {
+		const rule = "Always sign every commit before pushing.";
+		const log = [
+			user("u1", rule),
+			said("a1", "Understood."),
+			user("u7", `As I said before.\n\n${rule}`),
+		];
+		const [unit] = unitsOf(log[0] as SessionEntry);
+		const ref = paragraphRef(unit?.hash ?? "");
+		const answer = recall(log, { entryId: ref });
+		expect(answer.kind).toBe("entry");
+		expect(answer.view.startsWith(`[u7] (${ref}) As I said before.`)).toBe(
+			true,
+		);
+	});
+
+	it("says plainly when no entry says the paragraph a reference names", () => {
+		expect(
+			recall([user("u1", "hello there friend")], { entryId: "p:0123456789" }),
+		).toMatchObject({
+			kind: "none",
+			view: expect.stringContaining("Search for its words"),
 		});
 	});
 
@@ -147,10 +181,10 @@ describe("a recall", () => {
 		expect(answer.entry.text).toHaveLength(PAGE_CHARS * 3);
 	});
 
-	it("says plainly when an id is not in the log", () => {
+	it("says plainly when an id is not in the log, and that the log may have been rebuilt", () => {
 		expect(recall([user("u1", "hi")], { entryId: "zz" })).toMatchObject({
 			kind: "none",
-			view: expect.stringContaining("zz"),
+			view: expect.stringMatching(/zz.*rebuilt.*search/s),
 		});
 	});
 

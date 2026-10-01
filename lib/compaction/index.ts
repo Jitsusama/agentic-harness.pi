@@ -2,11 +2,12 @@
  * Compaction: when compacting pays for itself, the session history its
  * prices come from, the contract a summary provider implements and
  * registers over the bus, how a summary is asked for, read and spliced
- * onto the cached conversation, where a summary written ahead keeps from,
- * what other extensions contribute to it, the back-off after a
- * compaction fails, the messages that resume a run it stopped, and the
- * guard that keeps a reserve setting from
- * breaking the decision.
+ * onto the cached conversation, where a summary written ahead keeps from
+ * and why the kept tail never starts on a custom entry, what other
+ * extensions contribute to it and record about it, the outcome said on
+ * the bus for every compaction, the back-off after a compaction fails,
+ * the messages that resume a run it stopped, and the guard that keeps a
+ * reserve setting from breaking the decision.
  *
  * Pure and standalone. None of these touches pi's live compaction
  * behaviour; `compaction-workflow` wires them into a running trigger.
@@ -15,6 +16,7 @@
 export {
 	isSummaryContributions,
 	newContributions,
+	recordContribution,
 	SUMMARY_CONTRIBUTIONS,
 	type SummaryContributions,
 } from "./contributions.ts";
@@ -26,12 +28,24 @@ export {
 	wasCancelled,
 } from "./failure.ts";
 export { type CompactionHistory, compactionHistory } from "./history.ts";
-export { type KeptBoundary, keptBoundary } from "./prepared.ts";
+export {
+	COMPACTION_OUTCOME,
+	type CompactionOutcome,
+	emitOutcome,
+	isCompactionOutcome,
+} from "./outcome.ts";
+export {
+	type BoundaryEntry,
+	type KeptBoundary,
+	keptBoundary,
+	pastCustomEntries,
+} from "./prepared.ts";
 export {
 	COMPACTION_READY,
 	COMPACTION_REGISTER_PROVIDER,
 	COMPACTION_REQUEST,
 	type CompactionAssessment,
+	type CompactionAttempt,
 	type CompactionFocus,
 	type CompactionHostApi,
 	type CompactionPreparation,

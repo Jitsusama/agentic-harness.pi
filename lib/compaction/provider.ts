@@ -103,7 +103,28 @@ export type CompactionWritten =
 			/** Anything the provider wants kept, under `details.provider`. */
 			readonly details?: Record<string, unknown>;
 	  }
-	| { readonly ok: false; readonly reason: string };
+	| {
+			readonly ok: false;
+			readonly reason: string;
+			/**
+			 * Whether the same call could succeed if made again: a dropped
+			 * stream, an overloaded or rate-limited provider. The host asks
+			 * once more before passing the compaction on.
+			 */
+			readonly retryable?: boolean;
+	  };
+
+/** One provider that did not write the summary, and why. */
+export interface CompactionAttempt {
+	readonly provider: string;
+	readonly timing: CompactionTiming;
+	/**
+	 * `retried` is a failure the host asked again after, so the next
+	 * attempt from the same provider is its second try.
+	 */
+	readonly outcome: "declined" | "failed" | "retried";
+	readonly reason: string;
+}
 
 /** Something that writes compaction summaries. */
 export interface CompactionProvider {

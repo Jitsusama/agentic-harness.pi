@@ -38,7 +38,8 @@ import {
 /** What every summary says about the tool, appended after its text. */
 export const RECALL_NOTE =
 	"\n\nThe complete session before this point is still on disk: " +
-	`${RECALL_TOOL} can search it, or read any entry of it by id.`;
+	`${RECALL_TOOL} can search it, or read any entry of it by id or by ` +
+	"a quote's p: reference.";
 
 /**
  * Room for a page as the recall shaped it. The page is already
@@ -109,7 +110,7 @@ export default function sessionRecall(pi: ExtensionAPI) {
 			entryId: Type.Optional(
 				Type.String({
 					description:
-						"Read one entry by id, as a search hit or a summary quotes it.",
+						"Read one entry by id, as a search hit names it, or by a quote's paragraph reference (p: and a hash), as a summary's excerpts name it.",
 				}),
 			),
 			page: Type.Optional(

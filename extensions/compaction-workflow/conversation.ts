@@ -13,7 +13,17 @@
  * token it summarises, and there is one call.
  *
  * Anything this cannot do cleanly it declines, with the reason, and
- * the host asks the next provider in its chain.
+ * the host asks the next provider in its chain. That includes a
+ * conversation so close to the window that the summary would have no
+ * room: the model accepts a request whose output allowance runs past
+ * the window and stops when it gets there, so the summary would come
+ * back cut off. A failure that a second call could get past (a dropped
+ * stream, an overloaded provider) is marked retryable, and the host
+ * asks once more.
+ *
+ * The last request survives a `/reload` in the process and a restart
+ * of pi on disk (see `kept-request.ts`), so the first compaction after
+ * either can still read the conversation back from cache.
  */
 
 import type {
@@ -22,6 +32,7 @@ import type {
 	Model,
 	Usage,
 } from "@earendil-works/pi-ai";
+import * as piAi from "@earendil-works/pi-ai";
 import { completeSimple } from "@earendil-works/pi-ai/compat";
 import {
 	convertToLlm,
@@ -41,6 +52,14 @@ import {
 } from "../../lib/compaction/index.ts";
 import { cachePrices } from "../../lib/internal/cache-prices.ts";
 import { processGlobal } from "../../lib/internal/process-global.ts";
+import {
+	keepingRequests,
+	keptRequestDir,
+	type SentRequest,
+	saveKeptRequest,
+	sweepKeptRequests,
+	takeKeptRequest,
+} from "./kept-request.ts";
 
 /** Marks a compaction entry's details as written by this provider. */
 export const CONVERSATION_PROVIDER_ID = "conversation";
@@ -57,12 +76,22 @@ const CACHE_EXPIRY_MARGIN_MS = 30_000;
 /** pi prices models in dollars per million tokens. */
 const TOKENS_PER_PRICE_UNIT = 1_000_000;
 
-interface SentRequest {
-	readonly payload: unknown;
-	readonly leafId: string | null;
-	readonly modelId: string | undefined;
-	readonly at: number;
-}
+/**
+ * Kept clear of the window beside the conversation, for the closing
+ * instruction and the messages since the last request was counted.
+ */
+const WINDOW_MARGIN_TOKENS = 4_000;
+
+/** No summary worth having is written in less room than this. */
+const MIN_SUMMARY_ROOM_TOKENS = 16_000;
+
+/**
+ * Errors pi-ai calls transient, for a pi from before it exported its
+ * own classifier: a dropped or reset stream, an overloaded or
+ * rate-limited provider, a server error.
+ */
+const TRANSIENT_ERROR =
+	/overloaded|rate.?limit|too many requests|\b429\b|\b5\d\d\b|stream ended|message_stop|econnreset|socket hang up|timed? ?out|network|fetch failed/i;
 
 type Planned =
 	| {
@@ -70,8 +99,18 @@ type Planned =
 			model: Model<Api>;
 			sent: SentRequest;
 			tail: ReturnType<typeof sessionEntryToContextMessages>;
+			/** Output the window leaves room for, when the model says its size. */
+			room?: number;
 	  }
 	| { ok: false; reason: string };
+
+/** Where the provider keeps a request across a restart, and whether. */
+export interface ConversationOptions {
+	/** The directory for kept requests; tests point it somewhere scratch. */
+	readonly keptDir?: string;
+	/** Whether to keep requests on disk; `PI_COMPACTION_KEEP_REQUEST`. */
+	readonly keep?: boolean;
+}
 
 /**
  * The last request, carried across a `/reload`. A reload loads this
@@ -87,21 +126,35 @@ const reloadHandoff = processGlobal<{
  * Remember the last request the session sent, and write summaries of
  * that same conversation when the host asks.
  */
-export function conversationProvider(pi: ExtensionAPI): CompactionProvider {
+export function conversationProvider(
+	pi: ExtensionAPI,
+	options: ConversationOptions = {},
+): CompactionProvider {
 	let sent: SentRequest | null = null;
+	const keptDir = options.keptDir ?? keptRequestDir();
+	const keep = options.keep ?? keepingRequests();
 
 	pi.on("session_start", async (event, ctx) => {
+		const sessionId = ctx.sessionManager.getSessionId();
 		const held = reloadHandoff.held;
 		reloadHandoff.held = undefined;
-		sent =
-			event.reason === "reload" &&
-			held?.sessionId === ctx.sessionManager.getSessionId()
-				? held.sent
-				: null;
+		if (event.reason === "reload") {
+			sent = held?.sessionId === sessionId ? held.sent : null;
+			return;
+		}
+		sent = null;
+		if (!keep) return;
+		sent = takeKeptRequest(keptDir, sessionId);
+		sweepKeptRequests(keptDir);
 	});
 	pi.on("session_shutdown", async (event, ctx) => {
-		if (event.reason !== "reload" || !sent) return;
-		reloadHandoff.held = { sessionId: ctx.sessionManager.getSessionId(), sent };
+		if (!sent) return;
+		const sessionId = ctx.sessionManager.getSessionId();
+		if (event.reason === "reload") {
+			reloadHandoff.held = { sessionId, sent };
+		} else if (keep) {
+			saveKeptRequest(keptDir, sessionId, sent);
+		}
 	});
 	pi.on("session_compact", async () => {
 		sent = null;
@@ -176,7 +229,55 @@ function plan(request: CompactionRequest, sent: SentRequest | null): Planned {
 	}
 	const tail = unsentMessages(request.branch, sent.leafId);
 	if (!tail.ok) return tail;
-	return { ok: true, model, sent, tail: tail.messages };
+	const room = windowRoom(request, model);
+	if (room !== undefined && room < neededRoom(request)) {
+		return {
+			ok: false,
+			reason: "too little of the window is left to write the summary",
+		};
+	}
+	return {
+		ok: true,
+		model,
+		sent,
+		tail: tail.messages,
+		...(room !== undefined ? { room } : {}),
+	};
+}
+
+/**
+ * The output the window leaves room for beside the conversation, or
+ * nothing when the model does not say how large its window is.
+ */
+function windowRoom(
+	request: CompactionRequest,
+	model: Model<Api>,
+): number | undefined {
+	const window = model.contextWindow;
+	if (!(typeof window === "number" && window > 0)) return undefined;
+	return window - request.contextTokens - WINDOW_MARGIN_TOKENS;
+}
+
+/**
+ * The least room worth writing a summary in: twice what one usually
+ * takes, thinking included, but never less than a floor nor more than
+ * the summary is allowed anyway.
+ */
+function neededRoom(request: CompactionRequest): number {
+	return Math.min(
+		request.maxSummaryTokens,
+		Math.max(MIN_SUMMARY_ROOM_TOKENS, 2 * request.expectedOutputTokens),
+	);
+}
+
+/** Whether a failed reply is one a second call could get past. */
+function retryable(reply: AssistantMessage): boolean {
+	const classify = (piAi as Record<string, unknown>).isRetryableAssistantError;
+	if (typeof classify === "function") return Boolean(classify(reply));
+	return (
+		reply.stopReason === "error" &&
+		TRANSIENT_ERROR.test(reply.errorMessage ?? "")
+	);
 }
 
 /** Reading the context back from cache, and writing the summary. */
@@ -201,7 +302,11 @@ async function writeFrom(
 ): Promise<CompactionWritten> {
 	const { ctx } = request;
 	const { model, sent } = planned;
-	const maxTokens = Math.min(request.maxSummaryTokens, model.maxTokens);
+	const maxTokens = Math.min(
+		request.maxSummaryTokens,
+		model.maxTokens,
+		planned.room ?? Number.POSITIVE_INFINITY,
+	);
 	const instruction = summaryInstruction({
 		hasPreviousSummary: request.hasPreviousSummary,
 		customInstructions: combinedFocus(request.focus),
@@ -243,7 +348,14 @@ async function writeFrom(
 		return { ok: false, reason: splice ?? describe(error) };
 	}
 	const read = readSummary(reply);
-	if (!read.ok) return { ok: false, reason: splice ?? read.reason };
+	if (!read.ok) {
+		if (splice) return { ok: false, reason: splice };
+		return {
+			ok: false,
+			reason: read.reason,
+			...(retryable(reply) ? { retryable: true } : {}),
+		};
+	}
 	const usage: Usage = reply.usage;
 	return { ok: true, text: `${SUMMARY_SPAN}\n\n${read.text}`, usage };
 }

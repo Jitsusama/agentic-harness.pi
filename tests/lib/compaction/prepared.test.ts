@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { keptBoundary } from "../../../lib/compaction/index.ts";
+import {
+	keptBoundary,
+	pastCustomEntries,
+} from "../../../lib/compaction/index.ts";
 
 const BRANCH = ["u1", "a1", "t1", "a2", "t2", "a3", "t3", "a4"];
 
@@ -34,5 +37,30 @@ describe("where the kept messages start for a summary written ahead", () => {
 			ok: false,
 			reason: "the summarised point is not on this branch",
 		});
+	});
+});
+
+describe("keeping the verbatim tail off custom entries", () => {
+	const branch = [
+		{ id: "u1", type: "message" },
+		{ id: "c1", type: "custom" },
+		{ id: "c2", type: "custom" },
+		{ id: "a1", type: "message" },
+		{ id: "m1", type: "model_change" },
+		{ id: "c3", type: "custom" },
+	];
+
+	it("starts at the next entry that is not a custom one", () => {
+		expect(pastCustomEntries(branch, "c1")).toBe("a1");
+	});
+
+	it("leaves a boundary that is not a custom entry where it is", () => {
+		expect(pastCustomEntries(branch, "u1")).toBe("u1");
+		expect(pastCustomEntries(branch, "m1")).toBe("m1");
+	});
+
+	it("leaves it where it is when only custom entries follow, or it is not on the branch", () => {
+		expect(pastCustomEntries(branch, "c3")).toBe("c3");
+		expect(pastCustomEntries(branch, "gone")).toBe("gone");
 	});
 });

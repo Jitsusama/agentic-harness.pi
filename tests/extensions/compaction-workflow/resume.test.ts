@@ -57,7 +57,11 @@ function context(
 		},
 		hasPendingMessages: () => false,
 		compact: outcome,
-		sessionManager: { getBranch: () => [], getLeafId: () => null },
+		sessionManager: {
+			getBranch: () => [],
+			getLeafId: () => null,
+			getSessionId: () => "s1",
+		},
 	};
 }
 

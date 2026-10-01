@@ -5,21 +5,29 @@
  * The host asks for contributions twice around a summary written
  * ahead: when it starts writing, and when the compaction applies it.
  * The first is when the still-applies check runs, in the background
- * alongside the summary, with its judgements recorded on the session.
- * The second is synchronous, so it quotes from what is recorded by
- * then: a candidate judged not to hold is left out, and one the check
- * never reached is quoted anyway. A compaction nobody wrote ahead gets
- * the second only.
+ * alongside the summary, with its judgements recorded. Before it
+ * judges, it lets the tagger catch up, so a backlog of untagged
+ * messages is tagged in time to be quoted. The second is synchronous,
+ * so it quotes from what is recorded by then: a candidate judged not
+ * to hold is left out, and one the check never reached is quoted
+ * anyway. A compaction nobody wrote ahead gets the second only.
+ *
+ * Each compaction is told what the selection did, through the host's
+ * contribution records, whether it quoted anything or not: which
+ * classifier it had or why it had none, the budget, how many
+ * candidates there were and how many it chose, how many were judged
+ * not to hold or never judged, how many messages it dropped untagged,
+ * and what tagging and judging cost since the last compaction.
  */
 
 import {
 	DEFAULT_COMPACTION_SETTINGS,
-	type ExtensionAPI,
 	type ExtensionContext,
 	findCutPoint,
 } from "@earendil-works/pi-coding-agent";
 import {
 	isSummaryContributions,
+	recordContribution,
 	type SummaryContributions,
 } from "../../lib/compaction/index.ts";
 import { candidatesBefore } from "../../lib/compaction/selection/candidates.ts";
@@ -28,21 +36,29 @@ import {
 	HOLDS_BATCH,
 	holdsFrom,
 	holdsRequests,
-	readHolds,
-	SELECTION_HOLDS_ENTRY,
 	type SelectionHolds,
 } from "../../lib/compaction/selection/holds.ts";
 import { renderExcerpts } from "../../lib/compaction/selection/render.ts";
-import { selectExcerpts } from "../../lib/compaction/selection/select.ts";
-import { readTags } from "../../lib/compaction/selection/tags.ts";
-import { unitsOfBranch } from "../../lib/compaction/selection/units.ts";
-import { resolveClassifier } from "./classifier.ts";
+import {
+	HOLDS_THRESHOLD,
+	selectExcerpts,
+} from "../../lib/compaction/selection/select.ts";
+import { untagged } from "../../lib/compaction/selection/tags.ts";
+import {
+	estimatedTokens,
+	unitsOfBranch,
+} from "../../lib/compaction/selection/units.ts";
+import { type ClassifierStatus, classifierStatus } from "./classifier.ts";
+import type { SelectionStore } from "./store.ts";
 
 /** The environment variable setting the excerpt budget in tokens; 0 turns it off. */
 export const EXCERPT_TOKENS_ENV = "PI_COMPACTION_EXCERPT_TOKENS";
 
 /** The excerpt budget when nothing sets one. */
 export const DEFAULT_EXCERPT_TOKENS = 3000;
+
+/** The id the selection's record is kept under on a compaction. */
+export const SELECTION_RECORD_ID = "selection";
 
 /**
  * How many times the budget the check looks at. Some candidates will
@@ -70,11 +86,24 @@ export interface SelectionContributor {
 	idle(): Promise<void>;
 }
 
+/** What the contributor reads and records through. */
+export interface ContributorOptions {
+	readonly store: SelectionStore;
+	/** Shared with the tagger, so both report the same classifier. */
+	readonly status?: ClassifierStatus;
+	/** Whether to name each quote's paragraph, for a recall tool. */
+	readonly refs?: () => boolean;
+	/** Let the tagger finish what it has, before the check judges. */
+	readonly caughtUp?: (ctx: ExtensionContext) => Promise<void>;
+}
+
 /** Contribute excerpts from the session `session` returns at the time. */
 export function selectionContributor(
-	pi: Pick<ExtensionAPI, "appendEntry">,
 	session: () => ExtensionContext | undefined,
+	options: ContributorOptions,
 ): SelectionContributor {
+	const { store } = options;
+	const status = options.status ?? classifierStatus();
 	let controller = new AbortController();
 	let checking: Promise<void> | null = null;
 
@@ -85,15 +114,32 @@ export function selectionContributor(
 		budget: number,
 	) => {
 		const branch = ctx.sessionManager.getBranch();
-		const candidates = candidatesBefore(
-			branch,
-			readTags(branch),
-			firstKeptEntryId,
-		);
-		const text = renderExcerpts(
-			selectExcerpts(candidates, budget, readHolds(branch)),
-		);
+		const tags = store.tags(branch);
+		const holds = store.holds(branch);
+		const candidates = candidatesBefore(branch, tags, firstKeptEntryId);
+		const chosen = selectExcerpts(candidates, budget, holds);
+		const refs = options.refs?.() ?? false;
+		const text = renderExcerpts(chosen, { refs });
 		if (text) contributions.appendix.push(text);
+		const dropped = new Set(droppedIds(branch, firstKeptEntryId));
+		recordContribution(contributions, SELECTION_RECORD_ID, {
+			...status.current(),
+			store: store.kind,
+			budget,
+			candidates: candidates.length,
+			chosen: chosen.length,
+			excerptTokens: chosen.reduce(
+				(sum, c) => sum + estimatedTokens(c.unit.text),
+				0,
+			),
+			notHolding: candidates.filter(
+				(c) => (holds.get(c.unit.hash) ?? 1) < HOLDS_THRESHOLD,
+			).length,
+			unchecked: chosen.filter((c) => !holds.has(c.unit.hash)).length,
+			untagged: untagged(branch, tags).filter((e) => dropped.has(e.id)).length,
+			refs,
+			spend: store.spend(branch),
+		});
 	};
 
 	const check = async (
@@ -101,12 +147,14 @@ export function selectionContributor(
 		budget: number,
 		signal: AbortSignal,
 	) => {
-		const classifier = await resolveClassifier(ctx);
+		await options.caughtUp?.(ctx);
+		if (signal.aborted) return;
+		const classifier = await status.resolve(ctx);
 		if (!classifier.ok || signal.aborted) return;
 		const branch = ctx.sessionManager.getBranch();
-		const holds = readHolds(branch);
+		const holds = store.holds(branch);
 		const pending = selectExcerpts(
-			candidatesBefore(branch, readTags(branch), estimatedFirstKept(branch)),
+			candidatesBefore(branch, store.tags(branch), estimatedFirstKept(branch)),
 			budget * CHECK_OVERSAMPLE,
 			holds,
 		).filter((candidate) => !holds.has(candidate.unit.hash));
@@ -128,9 +176,7 @@ export function selectionContributor(
 						...(result.usage ? { usage: result.usage } : {}),
 						failed: result.reason,
 					};
-			if (result.ok || result.usage) {
-				pi.appendEntry(SELECTION_HOLDS_ENTRY, recorded);
-			}
+			if (result.ok || result.usage) store.recordHolds(recorded);
 		}
 	};
 
@@ -138,10 +184,16 @@ export function selectionContributor(
 		listener(data) {
 			if (!isSummaryContributions(data)) return;
 			const ctx = session();
+			if (!ctx) return;
 			const budget = excerptTokens();
-			if (!ctx || budget === 0) return;
-			const firstKept = firstKeptOf(data.preparation);
+			const firstKept = data.firstKeptEntryId ?? firstKeptOf(data.preparation);
 			try {
+				if (budget === 0) {
+					if (firstKept) {
+						recordContribution(data, SELECTION_RECORD_ID, { budget });
+					}
+					return;
+				}
 				if (firstKept) {
 					excerpts(data, ctx, firstKept, budget);
 					return;
@@ -171,6 +223,15 @@ export function selectionContributor(
 			while (checking) await checking;
 		},
 	};
+}
+
+/** The ids of the entries a compaction keeping from `firstKeptEntryId` drops. */
+function droppedIds(
+	branch: ReturnType<ExtensionContext["sessionManager"]["getBranch"]>,
+	firstKeptEntryId: string,
+): string[] {
+	const at = branch.findIndex((entry) => entry.id === firstKeptEntryId);
+	return branch.slice(0, at < 0 ? branch.length : at).map((entry) => entry.id);
 }
 
 /**

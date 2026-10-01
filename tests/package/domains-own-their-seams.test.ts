@@ -74,6 +74,7 @@ describe("bus names are declared by a library, not an extension", () => {
 		// this file's own docstring describes, not a violation of what
 		// it checks.
 		expect([...names].sort()).toEqual([
+			"compaction:outcome:v1",
 			"compaction:ready:v1",
 			"compaction:register-provider:v1",
 			"compaction:request:v1",

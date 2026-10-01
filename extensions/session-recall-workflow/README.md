@@ -1,13 +1,14 @@
 # session-recall-workflow
 
 Registers `session_recall`, which searches the session's own log or
-reads one entry of it by id.
+reads one entry of it by id or by paragraph reference.
 
 A compaction keeps a summary and a recent tail in the context, and
 everything else leaves it while staying on disk. This tool is how the
 model gets that back. Replays of twenty real sessions scored better on
 questions about the earlier work with it than without, whatever summary
-the session had.
+the session had: on 27 of 133 exam questions the model chose to call
+it, and scored 0.26 higher on those.
 
 ## How It Answers
 
@@ -25,6 +26,14 @@ the session had.
   answer could put back enough to bring on the next one. What a page
   leaves out is stored through the result store and cited by handle,
   and the page names the ids it left for later.
+- **An entry read names its neighbours,** the entry before it and the
+  one after, so the model can step through what was said around it.
+- **A paragraph reference reads by words, not place.** The compaction's
+  excerpts name each quote as `p:` and a hash of its text, when this
+  tool is active. Passed as `entryId`, a reference reads the latest
+  entry saying that paragraph, so it still finds it after a host
+  rebuilt the log with new ids. An id that is not there says the log
+  may have been rebuilt, and to search instead.
 
 The branch is what it searches: the path from the root to where the
 session is now, which is the history the summary was written over.
@@ -32,8 +41,8 @@ session is now, which is the history the summary was written over.
 ## The Summary Note
 
 Every summary the harness writes ends with one line saying the log can
-still be searched, contributed through the compaction workflow's
-`SUMMARY_CONTRIBUTIONS`. A model that has just lost its history has no
+still be searched, and read by id or by a quote's reference,
+contributed through the compaction workflow's `SUMMARY_CONTRIBUTIONS`. A model that has just lost its history has no
 other reason to go looking for it. A summary pi writes itself, when
 the harness's summariser declines, carries no contributions and so no
 note; the tool is still registered and described.
