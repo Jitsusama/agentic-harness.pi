@@ -35,7 +35,12 @@ export type ResolvedClassifier =
 			/** The model as `provider/model`. */
 			readonly label: string;
 	  }
-	| { readonly ok: false; readonly reason: string };
+	| {
+			readonly ok: false;
+			readonly reason: string;
+			/** Switched off on purpose, so nobody needs telling. */
+			readonly off?: true;
+	  };
 
 /** The classifier to use, resolved through the session's registry. */
 export async function resolveClassifier(
@@ -51,7 +56,9 @@ export async function resolveClassifier(
 		return { ok: false, reason: "this pi has no classifier models" };
 	}
 	const named = env[CLASSIFIER_ENV]?.trim();
-	if (named === "off") return { ok: false, reason: `${CLASSIFIER_ENV} is off` };
+	if (named === "off") {
+		return { ok: false, reason: `${CLASSIFIER_ENV} is off`, off: true };
+	}
 	const wanted = named ? [named] : JEV_MODELS;
 	const available = await registry.getAvailableOfType("classifier");
 	const byLabel = new Map(available.map((model) => [labelOf(model), model]));
@@ -70,6 +77,57 @@ export async function resolveClassifier(
 		reason: named
 			? `no classifier ${named} has credentials`
 			: "no Jev classifier has credentials",
+	};
+}
+
+/** What the selection last found of its classifier, for its records. */
+export type ClassifierState =
+	| { readonly label: string }
+	| { readonly unavailable: string }
+	| { readonly unresolved: true };
+
+/**
+ * The classifier, resolved for whoever needs it, with the last answer
+ * kept for a reader that cannot wait for one. The first time in a
+ * session that there is none, and not because somebody turned it off,
+ * the person is told once: without one the selection quotes nothing,
+ * and nothing else would say so.
+ */
+export interface ClassifierStatus {
+	resolve(ctx: ExtensionContext): Promise<ResolvedClassifier>;
+	current(): ClassifierState;
+	/** A new session: forget the answer, and tell again if need be. */
+	reset(): void;
+}
+
+/** A shared status, resolving through {@link resolveClassifier}. */
+export function classifierStatus(
+	resolveWith: (
+		ctx: ExtensionContext,
+	) => Promise<ResolvedClassifier> = resolveClassifier,
+): ClassifierStatus {
+	let state: ClassifierState = { unresolved: true };
+	let told = false;
+	return {
+		async resolve(ctx) {
+			const resolved = await resolveWith(ctx);
+			state = resolved.ok
+				? { label: resolved.label }
+				: { unavailable: resolved.reason };
+			if (!resolved.ok && !resolved.off && !told && ctx.hasUI) {
+				told = true;
+				ctx.ui.notify(
+					`Compaction excerpts are off: ${resolved.reason}. Set ${CLASSIFIER_ENV} to a classifier model as provider/model, or to off to stop this notice.`,
+					"info",
+				);
+			}
+			return resolved;
+		},
+		current: () => state,
+		reset() {
+			state = { unresolved: true };
+			told = false;
+		},
 	};
 }
 

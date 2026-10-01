@@ -73,6 +73,25 @@ describe("untagged", () => {
 		(
 			entry as { data: { units: { kinds: string[] }[] } }
 		).data.units[0]?.kinds.push("nonsense");
-		expect(readTags([entry]).get("u1")?.units[0]?.kinds).toEqual(["rule"]);
+		const hash = unitsOf(said)[0]?.hash ?? "";
+		expect(readTags([entry]).kinds.get(hash)).toEqual(["rule"]);
+	});
+
+	it("knows a message by its paragraphs, whatever its id has become", () => {
+		const said = user("u1", "Always sign commits.");
+		const rebuilt = user("r9", "Always sign commits.");
+		const grown = user("r10", "Always sign commits.\n\nAnd test them first.");
+		const branch = [tagged(said, ["rule"]), rebuilt, grown];
+		expect(untagged(branch, readTags(branch)).map((e) => e.id)).toEqual([
+			"r10",
+		]);
+	});
+
+	it("does not ask again of a message whose failure was recorded by id alone", () => {
+		const said = user("u1", "Always sign commits.");
+		const failed = tagged(said);
+		(failed as { data: { units: unknown[] } }).data.units = [];
+		const branch = [said, failed];
+		expect(untagged(branch, readTags(branch))).toEqual([]);
 	});
 });

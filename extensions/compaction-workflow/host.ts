@@ -22,6 +22,15 @@
  * A focus somebody typed skips providers that cannot follow one, and
  * discards a summary written ahead without it. A contributed focus
  * skips nobody; a summary written without following it says so.
+ *
+ * A failure the provider calls retryable (a dropped stream, an
+ * overloaded provider) is asked once more after a short pause before
+ * the compaction moves on, since the next provider down is slower and
+ * dearer than a second try. The verbatim tail never starts on a custom
+ * entry, which a host that rebuilds sessions cannot resolve. Every
+ * outcome is said on the bus (`COMPACTION_OUTCOME`) as well as written
+ * to the session, for a host that keeps neither custom entries nor a
+ * screen anybody reads.
  */
 
 import type {
@@ -35,6 +44,7 @@ import {
 	COMPACTION_READY,
 	COMPACTION_REGISTER_PROVIDER,
 	COMPACTION_REQUEST,
+	type CompactionAttempt,
 	type CompactionFocus,
 	type CompactionHostApi,
 	type CompactionPreparation,
@@ -43,13 +53,17 @@ import {
 	type CompactionRequest,
 	type CompactionTiming,
 	type CompactionWritten,
+	emitOutcome,
 	isCompactionProvider,
 	keptBoundary,
 	newContributions,
+	pastCustomEntries,
 	SUMMARY_CONTRIBUTIONS,
 	type SummaryContributions,
 	withFileLists,
 } from "../../lib/compaction/index.ts";
+
+export type { CompactionAttempt } from "../../lib/compaction/index.ts";
 
 /** Custom entry recording a compaction the chain handed back to pi. */
 export const SUMMARY_FALLBACK_ENTRY = "compaction-summary-fallback";
@@ -66,6 +80,13 @@ export const AHEAD_UNUSED_ENTRY = "compaction-summary-ahead-unused";
  */
 export const SUMMARY_WALL_MS = 12 * 60_000;
 
+/**
+ * How long to wait before asking a provider again after a failure it
+ * called retryable. Long enough for a dropped connection to be
+ * re-established, short beside the minute or two a summary takes.
+ */
+export const RETRY_PAUSE_MS = 2_000;
+
 /** pi's own cap on a summary: this share of the reserve. */
 const SUMMARY_SHARE_OF_RESERVE = 0.8;
 
@@ -80,14 +101,6 @@ const ASSUMED_RESERVE_TOKENS = 64_000;
 /** The reason recorded against a configured id nothing registered. */
 const UNKNOWN_PROVIDER = "no provider is registered with this id";
 
-/** One provider that did not write the summary, and why. */
-export interface CompactionAttempt {
-	readonly provider: string;
-	readonly timing: CompactionTiming;
-	readonly outcome: "declined" | "failed";
-	readonly reason: string;
-}
-
 /** A write and how long it took. */
 interface Timed {
 	readonly written: CompactionWritten;
@@ -100,7 +113,8 @@ interface Ahead {
 	readonly request: CompactionRequest;
 	readonly controller: AbortController;
 	readonly done: Promise<Timed>;
-	readonly attempts: readonly CompactionAttempt[];
+	/** Grows while it is written, as a retry records the try before it. */
+	readonly attempts: CompactionAttempt[];
 	result?: Timed;
 }
 
@@ -138,6 +152,8 @@ export interface CompactionHostOptions {
 	readonly providers: readonly CompactionProvider[];
 	/** Output the next summary is expected to take, thinking included. */
 	readonly expectedOutputTokens: () => number;
+	/** The pause before a retry; {@link RETRY_PAUSE_MS} unless a test says. */
+	readonly retryPauseMs?: number;
 }
 
 /** A provider the chain will ask, with what it said it costs. */
@@ -157,6 +173,23 @@ export function registerCompactionHost(
 	const registry = new Map<string, CompactionProvider>();
 	for (const provider of options.providers) registry.set(provider.id, provider);
 	const chain = () => resolveChain(registry.values(), process.env);
+	const retryPauseMs = options.retryPauseMs ?? RETRY_PAUSE_MS;
+	const write = (
+		provider: CompactionProvider,
+		request: CompactionRequest,
+		signal: AbortSignal,
+		attempts: CompactionAttempt[],
+	) => writeRetrying(provider, request, signal, attempts, retryPauseMs);
+
+	/** Record a summary written ahead that will not be used, and say so. */
+	const unused = (ctx: ExtensionContext, reason: string) => {
+		pi.appendEntry(AHEAD_UNUSED_ENTRY, { reason });
+		emitOutcome(pi.events, {
+			kind: "ahead-unused",
+			sessionId: ctx.sessionManager.getSessionId(),
+			reason,
+		});
+	};
 
 	const api: CompactionHostApi = {
 		registerProvider(provider) {
@@ -184,7 +217,20 @@ export function registerCompactionHost(
 	};
 	pi.on("session_start", async () => drop());
 	pi.on("session_shutdown", async () => drop());
-	pi.on("session_compact", async () => drop());
+	pi.on("session_compact", async (event, ctx) => {
+		drop();
+		// Said once pi has applied it, not when a summary was handed over,
+		// so a compaction pi went on to fail is never reported as done.
+		const entry = event.compactionEntry;
+		if (!entry) return;
+		emitOutcome(pi.events, {
+			kind: "compacted",
+			sessionId: ctx.sessionManager.getSessionId(),
+			tokensBefore: entry.tokensBefore,
+			firstKeptEntryId: entry.firstKeptEntryId,
+			details: isRecord(entry.details) ? entry.details : {},
+		});
+	});
 
 	/**
 	 * The providers that would write this request, in chain order, each
@@ -254,30 +300,44 @@ export function registerCompactionHost(
 
 	pi.on("session_before_compact", async (event, ctx) => {
 		const started = Date.now();
-		// Asked for before anything can decline, so a contributor always
-		// holds this compaction's request and never a stale one; listeners
-		// fill it in synchronously, as pi.events calls them.
-		const contributions = newContributions(event.preparation);
-		pi.events.emit(SUMMARY_CONTRIBUTIONS, contributions);
 		const attempts: CompactionAttempt[] = [];
+		const branch = () => ctx.sessionManager.getBranch();
+		// Asked for once this compaction knows where its verbatim tail
+		// starts, and before anything is written on the spot, so a
+		// contributor always holds this compaction's request, never a stale
+		// one, and never quotes what stays in the context anyway. Listeners
+		// fill it in synchronously, as pi.events calls them.
+		const contribute = (firstKeptEntryId: string): SummaryContributions => {
+			const contributions = newContributions(
+				event.preparation,
+				firstKeptEntryId,
+			);
+			pi.events.emit(SUMMARY_CONTRIBUTIONS, contributions);
+			return contributions;
+		};
 
 		const taken = ahead;
 		ahead = null;
 		if (taken) {
-			attempts.push(...taken.attempts);
 			const used = await applicable(taken, event, ctx);
+			attempts.push(...taken.attempts);
 			if (event.signal.aborted) {
 				taken.controller.abort();
 				return;
 			}
 			if (used.ok) {
+				const firstKeptEntryId = pastCustomEntries(
+					branch(),
+					used.firstKeptEntryId,
+				);
+				const contributions = contribute(firstKeptEntryId);
 				contributions.handled = true;
 				return {
 					compaction: checkpoint(event, contributions, {
 						provider: taken.provider,
 						request: taken.request,
 						written: used.written,
-						firstKeptEntryId: used.firstKeptEntryId,
+						firstKeptEntryId,
 						summaryMs: used.ms,
 						waitedMs: Date.now() - started,
 						attempts,
@@ -291,11 +351,15 @@ export function registerCompactionHost(
 				reason: used.reason,
 			});
 			// A failure while writing was recorded when it happened.
-			if (used.unused)
-				pi.appendEntry(AHEAD_UNUSED_ENTRY, { reason: used.reason });
+			if (used.unused) unused(ctx, used.reason);
 		}
 
 		const { preparation } = event;
+		const firstKeptEntryId = pastCustomEntries(
+			branch(),
+			preparation.firstKeptEntryId,
+		);
+		const contributions = contribute(firstKeptEntryId);
 		const onTheSpot = request(ctx, "on the spot", event.reason, {
 			focus: {
 				requested: event.customInstructions,
@@ -307,7 +371,7 @@ export function registerCompactionHost(
 		});
 		if (onTheSpot) {
 			for (const { provider } of candidates(onTheSpot, attempts)) {
-				const timed = await writeWithin(provider, onTheSpot, event.signal);
+				const timed = await write(provider, onTheSpot, event.signal, attempts);
 				if (event.signal.aborted) return;
 				if (timed.written.ok) {
 					contributions.handled = true;
@@ -316,7 +380,7 @@ export function registerCompactionHost(
 							provider,
 							request: onTheSpot,
 							written: timed.written,
-							firstKeptEntryId: preparation.firstKeptEntryId,
+							firstKeptEntryId,
 							summaryMs: timed.ms,
 							waitedMs: Date.now() - started,
 							attempts,
@@ -335,6 +399,12 @@ export function registerCompactionHost(
 		const reason =
 			attempts.at(-1)?.reason ?? "no compaction provider is registered";
 		pi.appendEntry(SUMMARY_FALLBACK_ENTRY, { reason, attempts });
+		emitOutcome(pi.events, {
+			kind: "fallback",
+			sessionId: ctx.sessionManager.getSessionId(),
+			reason,
+			attempts,
+		});
 		if (ctx.hasUI) {
 			ctx.ui.notify(`Compacting with pi's summariser: ${reason}.`, "info");
 		}
@@ -400,14 +470,12 @@ export function registerCompactionHost(
 				request: writing,
 				controller,
 				attempts,
-				done: writeWithin(provider, writing, controller.signal).then(
+				done: write(provider, writing, controller.signal, attempts).then(
 					(timed) => {
 						if (ahead !== entry || controller.signal.aborted) return timed;
 						entry.result = timed;
 						if (!timed.written.ok) {
-							pi.appendEntry(AHEAD_UNUSED_ENTRY, {
-								reason: timed.written.reason,
-							});
+							unused(ctx, timed.written.reason);
 						} else {
 							for (const listener of readyListeners) tell(listener, ctx);
 						}
@@ -464,6 +532,49 @@ async function writeWithin(
 		};
 	}
 	return { written, ms: Date.now() - started };
+}
+
+/**
+ * Ask a provider for its summary, and once more after a pause when it
+ * fails in a way it calls retryable. The failed try is recorded as
+ * `retried`; the second try's outcome is the write's.
+ */
+async function writeRetrying(
+	provider: CompactionProvider,
+	request: CompactionRequest,
+	signal: AbortSignal,
+	attempts: CompactionAttempt[],
+	pauseMs: number,
+): Promise<Timed> {
+	const first = await writeWithin(provider, request, signal);
+	if (first.written.ok || !first.written.retryable || signal.aborted) {
+		return first;
+	}
+	attempts.push({
+		provider: provider.id,
+		timing: request.timing,
+		outcome: "retried",
+		reason: first.written.reason,
+	});
+	if (!(await paused(pauseMs, signal))) return first;
+	const second = await writeWithin(provider, request, signal);
+	return { written: second.written, ms: first.ms + pauseMs + second.ms };
+}
+
+/** Wait, or stop waiting when the signal aborts; whether the wait ran out. */
+function paused(ms: number, signal: AbortSignal): Promise<boolean> {
+	if (signal.aborted) return Promise.resolve(false);
+	return new Promise((resolve) => {
+		const onAbort = () => {
+			clearTimeout(timer);
+			resolve(false);
+		};
+		const timer = setTimeout(() => {
+			signal.removeEventListener("abort", onAbort);
+			resolve(true);
+		}, ms);
+		signal.addEventListener("abort", onAbort, { once: true });
+	});
 }
 
 type Applicable =
@@ -531,6 +642,7 @@ function checkpoint(
 	);
 	const unfollowed =
 		!how.provider.followsFocus && how.request.focus.contributed.length > 0;
+	const records = contributions.records ?? {};
 	return {
 		summary: `${summary}${contributions.appendix.join("")}`,
 		firstKeptEntryId: how.firstKeptEntryId,
@@ -546,8 +658,15 @@ function checkpoint(
 			attempts: how.attempts,
 			...(unfollowed ? { focusFollowed: false } : {}),
 			...(how.written.details ? { provider: how.written.details } : {}),
+			...(Object.keys(records).length > 0
+				? { contributions: { ...records } }
+				: {}),
 		},
 	};
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**

@@ -175,6 +175,15 @@ provider that wrote it (`summariser`), anything it wanted kept
 with no extension, and a `compaction-summary-fallback` entry records
 the attempts.
 
+A failure the provider marks `retryable` (a dropped stream, an
+overloaded or rate-limited provider, a server error) is asked once
+more, two seconds later, before the compaction moves on. The first try
+is recorded in `attempts` as `retried`. In one week before this, 14
+summaries written ahead were lost to "Anthropic stream ended before
+message_stop" alone, and each fell to a compaction on the spot that
+kept somebody waiting up to a minute; the provider next down is slower
+and dearer than a second try.
+
 Two ship here. `conversation` (precedence 100) writes from the cached
 conversation, below. `pi` (precedence 1000) calls pi's own summariser,
 on the spot only, since it needs pi's preparation of the compaction.
@@ -212,16 +221,32 @@ downstream reads an ordinary summary, and it tells the model to stop
 work and call no tool. The prefix is then read from cache, the model
 sees every token of the conversation, and it takes one call. The added
 messages carry no cache breakpoint, since nothing after the compaction
-starts with them. The kept request survives a `/reload`.
+starts with them.
+
+The kept request survives a `/reload` in the process, and a restart of
+pi on disk (`kept-request.ts`): a shutdown that is not a reload writes
+it, gzipped and readable only by its owner, under
+`$XDG_STATE_HOME/pi/agentic-harness.pi/compaction-workflow/requests/`,
+and the next start of the same session takes it back once. A file older
+than an hour, which no cache could still answer for, is swept when a
+session starts. `PI_COMPACTION_KEEP_REQUEST=off` keeps nothing on disk.
+
+It leaves the summary room. A model that accepts a request whose output
+allowance runs past its window stops writing when it reaches the window,
+so a summary of a conversation near the window would come back cut off.
+When the model says how large its window is, the output allowance is
+capped at what the window leaves beside the conversation, less 4k for
+the closing instruction, and the provider declines when that is under
+twice what a summary usually takes (16k at least, never more than the
+summary cap).
 
 It declines or fails, with the reason, when it cannot do this
-cleanly: no request has been sent yet this session (a `/reload` keeps
-the last one, a restart does not), the model is not on
+cleanly: no request has been sent yet this session, the model is not on
 the Anthropic messages API or changed since, there are no credentials,
-the cache may have expired, the last request overflowed the window, the
-conversation moved on in a way the kept request cannot be extended to,
-or the reply called a tool, hit the token cap, came back empty or
-failed.
+the cache may have expired, the last request overflowed the window, too
+little of the window is left to write the summary, the conversation
+moved on in a way the kept request cannot be extended to, or the reply
+called a tool, hit the token cap, came back empty or failed.
 
 Measured on pi 0.87.1:
 
@@ -234,8 +259,10 @@ Measured on pi 0.87.1:
   median context of 315k tokens, of which pi sent 146k after clipping,
   and wrote a median 12k tokens of output. Priced at Opus 5.5 list, a
   full cache read of each context plus pi's own output comes to $31
-  against pi's $115; the replay below wrote a median 7.7k tokens
-  rather than pi's 13k, so the real difference should be larger.
+  against pi's $115 over all 88, about $0.35 against $1.31 a
+  compaction. The replay below wrote a median 7.7k tokens of output
+  rather than pi's 13k, so the real difference should be larger. That
+  7.7k counts thinking: the summary text itself is about 3.6k.
 - **Quality:** ten of those compactions, sampled at random, were
   replayed through this summariser and judged against the summary pi
   wrote at the time, blind and in random order. The judge read the
@@ -264,8 +291,61 @@ before each attempt, and reads `handled` afterwards to learn whether it
 needs a summariser of its own for that compaction. A summary written
 ahead asks once when it starts, for the focus, and again when the
 compaction applies it, for the appendix and `handled`.
-`compaction-selection-provider` uses the first to start work of its
-own alongside the summary and the second to append what it found.
+
+The request emitted when a compaction applies names
+`firstKeptEntryId`, where its verbatim tail starts. With a summary
+written ahead that can be earlier than pi's own cut, and anything a
+contributor quotes from after it is in the context already. A
+contributor says what it did through `recordContribution(request, id,
+record)`, and the host keeps every record on the compaction entry as
+`details.contributions`, so one that added nothing can say why.
+
+Two use it here.
+[`compaction-selection-provider`](../compaction-selection-provider/README.md)
+starts its still-applies check alongside a summary written ahead, then
+appends the paragraphs whose exact words matter, and records what it
+found. [`session-recall-workflow`](../session-recall-workflow/README.md)
+appends a note saying the dropped conversation can still be searched.
+On a replayed exam of 133 questions about the dropped conversation,
+the summary with 3k tokens of excerpts scored 0.718 against 0.549 for
+the summary alone; recall was called on 27 of the questions and scored
+0.26 higher on those.
+
+## Outcomes
+
+Every compaction's outcome is said on `pi.events` as
+`COMPACTION_OUTCOME` (`compaction:outcome:v1`), as well as written to
+the session:
+
+- `compacted`, once pi has applied a compaction, with its
+  `details`; `details.summariser` is absent when pi's own summariser
+  wrote it;
+- `fallback`, when no provider wrote it, with the reason and the
+  attempts;
+- `ahead-unused`, when a summary written ahead could not be used;
+- `failed`, when the compaction itself failed.
+
+A host that runs headless shows no notice, and one that rebuilds
+sessions from a log of its own may drop the custom entries the
+workflow writes, so the event is how such a host tells the harness
+compacting apart from pi's summariser compacting, and why.
+
+## Running Under Another Host
+
+The workflow is written to survive a host that runs pi as a library
+and keeps sessions its own way:
+
+- The verbatim tail never starts on a custom entry. pi's cut can name
+  one, since it steps back over metadata to keep it with the message
+  it precedes; a host that drops custom entries cannot resolve that
+  boundary and the compaction fails. Starting at the next entry keeps
+  exactly the same conversation, since a custom entry sends nothing.
+- Outcomes are events as well as entries, above.
+- The kept request survives a restart, so a host that starts a fresh
+  process for each turn still summarises from cache.
+- The selection can keep its tags in the process
+  (`PI_COMPACTION_SELECTION_STORE=memory`), and knows a paragraph by
+  its words, so tags survive a rebuild that changes every id.
 
 ## Settings
 
@@ -279,6 +359,8 @@ own alongside the summary and the second to append what it found.
 - `PI_COMPACTION_SUMMARY=pi` is shorthand for a chain of `pi` alone,
   which also means nothing is written ahead.
 - `PI_CACHE_RETENTION=long` is what compacting while idle runs under.
+- `PI_COMPACTION_KEEP_REQUEST=off` keeps no request on disk across a
+  restart.
 
 ## Files
 
@@ -290,11 +372,13 @@ own alongside the summary and the second to append what it found.
   a compaction.
 - `conversation.ts`: the `conversation` provider, the summary written
   from the cached conversation.
+- `kept-request.ts`: the last request, kept on disk across a restart.
 - `pi-summary.ts`: the `pi` provider, pi's own summariser.
 
 The decision is pure and tested in `lib/compaction/trigger.ts`, the
 prices it reads from the session in `lib/compaction/history.ts`, where
 a summary written ahead keeps from in `lib/compaction/prepared.ts`, the
+outcome event in `lib/compaction/outcome.ts`, the
 provider contract in `lib/compaction/provider.ts` and the chain's order
 in `lib/compaction/chain.ts`, the
 back-off in `lib/compaction/failure.ts`, and the summary's instruction,

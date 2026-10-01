@@ -16,6 +16,38 @@
  * orphaned from its call.
  */
 
+/** The fields of a session entry the boundary reads. */
+export interface BoundaryEntry {
+	readonly id: string;
+	readonly type: string;
+}
+
+/**
+ * The first entry at or after `id` that is not a custom entry, or `id`
+ * itself when only custom entries follow it.
+ *
+ * pi's own cut steps back over metadata to keep it with the message it
+ * precedes, and the entry after a summarised point is often one an
+ * extension appended at the turn's end, so either can name a custom
+ * entry as the first one kept. pi resolves that fine. A host that
+ * rebuilds a session from its own log and drops custom entries cannot,
+ * and the compaction fails. A custom entry carries nothing into the
+ * context, so starting at the next entry keeps exactly the same
+ * conversation verbatim.
+ */
+export function pastCustomEntries(
+	branch: readonly BoundaryEntry[],
+	id: string,
+): string {
+	const at = branch.findIndex((entry) => entry.id === id);
+	if (at < 0) return id;
+	for (let i = at; i < branch.length; i++) {
+		const entry = branch[i];
+		if (entry && entry.type !== "custom") return entry.id;
+	}
+	return id;
+}
+
 export type KeptBoundary =
 	| { ok: true; firstKeptEntryId: string }
 	| { ok: false; reason: string };

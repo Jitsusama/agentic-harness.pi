@@ -22,6 +22,32 @@ export const MAX_UNIT_CHARS = 2000;
 
 const HASH_CHARS = 16;
 
+/** What a paragraph reference starts with, before its hash. */
+export const REF_PREFIX = "p:";
+
+/** How much of the hash a reference carries: enough, and short. */
+const REF_HASH_CHARS = 10;
+
+/** The fewest hash characters a reference is read back from. */
+const MIN_REF_HASH_CHARS = 6;
+
+const REF_PATTERN = new RegExp(
+	`^${REF_PREFIX}([0-9a-f]{${MIN_REF_HASH_CHARS},${HASH_CHARS}})$`,
+);
+
+/**
+ * A paragraph's reference, as an excerpt names it: by its text, so it
+ * finds the paragraph however the session was rebuilt.
+ */
+export function paragraphRef(hash: string): string {
+	return `${REF_PREFIX}${hash.slice(0, REF_HASH_CHARS)}`;
+}
+
+/** The hash prefix a paragraph reference names, or nothing if it is not one. */
+export function refHashPrefix(ref: string): string | undefined {
+	return REF_PATTERN.exec(ref.trim().toLowerCase())?.[1];
+}
+
 /** One paragraph of the session. */
 export interface SelectionUnit {
 	/** The entry the paragraph is in. */

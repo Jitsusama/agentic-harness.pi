@@ -18,9 +18,17 @@
  * A page is bounded because recall runs after a compaction, into the
  * room the compaction just made: an unbounded answer could put back
  * enough of the old session to trigger the next one.
+ *
+ * An entry is read by its id, or by a paragraph reference (`p:` and a
+ * hash, as the compaction's excerpts name their quotes), which finds
+ * the latest entry saying that paragraph. A reference is the words, not
+ * the place, so it still reads back after a host rebuilt the log with
+ * new ids. An entry read names the entries either side of it, so the
+ * model can step through what was said around it.
  */
 
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import { refHashPrefix, unitsOf } from "../../compaction/selection/units.ts";
 
 /** The tool's name, which the summary's note and the tool share. */
 export const RECALL_TOOL = "session_recall";
@@ -297,7 +305,11 @@ export function recall(
 ): Recalled {
 	const texts = entryTexts(entries);
 	const entryId = request.entryId?.trim();
-	if (entryId) return readOne(texts, entryId);
+	if (entryId) {
+		const prefix = refHashPrefix(entryId);
+		if (prefix) return readByRef(entries, texts, entryId, prefix);
+		return readOne(texts, entryId);
+	}
 
 	const query = request.query?.trim() ?? "";
 	if (query === "") {
@@ -343,19 +355,55 @@ export function recall(
 	};
 }
 
-function readOne(texts: readonly EntryText[], id: string): Recalled {
-	const entry = texts.find((t) => t.id === id);
+/** The latest entry saying the paragraph a reference names. */
+function readByRef(
+	entries: readonly SessionEntry[],
+	texts: readonly EntryText[],
+	ref: string,
+	prefix: string,
+): Recalled {
+	for (let at = entries.length - 1; at >= 0; at--) {
+		const entry = entries[at];
+		if (!entry) continue;
+		if (unitsOf(entry).some((unit) => unit.hash.startsWith(prefix))) {
+			return readOne(texts, entry.id, ref);
+		}
+	}
+	return {
+		kind: "none",
+		view:
+			`No entry in this session's log says the paragraph ${ref}. ` +
+			"Search for its words instead.",
+	};
+}
+
+function readOne(
+	texts: readonly EntryText[],
+	id: string,
+	ref?: string,
+): Recalled {
+	const at = texts.findIndex((t) => t.id === id);
+	const entry = texts[at];
 	if (!entry) {
 		return {
 			kind: "none",
-			view: `No entry in this session's log has id ${id}.`,
+			view:
+				`No entry in this session's log has id ${id}. ` +
+				"If the log was rebuilt since that id was given, the ids have " +
+				"changed: search for the words instead.",
 		};
 	}
 	const cut = entry.text.length > PAGE_CHARS;
 	const shown = cut ? entry.text.slice(0, PAGE_CHARS) : entry.text;
+	const before = texts[at - 1]?.id;
+	const after = texts[at + 1]?.id;
+	const around = [
+		...(before ? [`Before it: ${before}.`] : []),
+		...(after ? [`After it: ${after}.`] : []),
+	].join(" ");
 	return {
 		kind: "entry",
-		view: `[${entry.id}] ${shown}`,
+		view: `[${entry.id}]${ref ? ` (${ref})` : ""} ${shown}${around ? `\n\n${around}` : ""}`,
 		entry,
 		cut,
 	};

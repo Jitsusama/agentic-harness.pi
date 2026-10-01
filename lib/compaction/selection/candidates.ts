@@ -5,7 +5,7 @@
 
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { SELECTION_KINDS, type SelectionKind } from "./kinds.ts";
-import type { SelectionTags } from "./tags.ts";
+import type { TagIndex } from "./tags.ts";
 import { type SelectionUnit, unitsOf } from "./units.ts";
 
 /** A paragraph that could be quoted. */
@@ -25,19 +25,16 @@ export interface Candidate {
  */
 export function candidatesBefore(
 	branch: readonly SessionEntry[],
-	tags: ReadonlyMap<string, SelectionTags>,
+	tags: TagIndex,
 	firstKeptEntryId: string | undefined,
 ): Candidate[] {
 	const latest = new Map<string, Candidate>();
 	let order = 0;
 	for (const entry of branch) {
 		if (entry.id === firstKeptEntryId) break;
-		const tagged = tags.get(entry.id);
-		if (!tagged) continue;
-		const kinds = new Map(tagged.units.map((unit) => [unit.hash, unit.kinds]));
 		for (const unit of unitsOf(entry)) {
 			order += 1;
-			const kind = mostDurable(kinds.get(unit.hash));
+			const kind = mostDurable(tags.kinds.get(unit.hash));
 			if (!kind) continue;
 			latest.delete(unit.hash);
 			latest.set(unit.hash, { unit, kind, order });

@@ -5,6 +5,9 @@
  * summariser with its reason recorded.
  */
 
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
@@ -23,11 +26,17 @@ const {
 const { conversationProvider } = await import(
 	"../../../extensions/compaction-workflow/conversation.ts"
 );
-const { SUMMARY_CONTRIBUTIONS, SUMMARY_SPAN } = await import(
-	"../../../lib/compaction/index.ts"
-);
+const {
+	COMPACTION_OUTCOME,
+	recordContribution,
+	SUMMARY_CONTRIBUTIONS,
+	SUMMARY_SPAN,
+} = await import("../../../lib/compaction/index.ts");
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
+
+/** Where this file's sessions keep a request across a restart. */
+const keptDir = mkdtempSync(join(tmpdir(), "host-kept-"));
 
 function activate() {
 	const handlers = new Map<string, Handler[]>();
@@ -48,9 +57,12 @@ function activate() {
 	};
 	const api = pi as unknown as ExtensionAPI;
 	const host = registerCompactionHost(api, {
-		providers: [conversationProvider(api)],
+		providers: [conversationProvider(api, { keptDir })],
 		expectedOutputTokens: () => 7_700,
+		retryPauseMs: 0,
 	});
+	const outcomes: unknown[] = [];
+	events.on(COMPACTION_OUTCOME, (data) => outcomes.push(data));
 	const summary = {
 		...host,
 		prepare: (ctx: ExtensionContext) => host.prepare(ctx, 300_000),
@@ -60,7 +72,7 @@ function activate() {
 		for (const h of handlers.get(name) ?? []) result = await h(event, ctx);
 		return result;
 	};
-	return { fire, entries, events, summary };
+	return { fire, entries, events, summary, outcomes };
 }
 
 /** Let a summary being written in the background finish. */
@@ -429,6 +441,231 @@ describe("the conversation summariser", () => {
 		});
 	});
 
+	describe("asking again after a failure that could pass", () => {
+		const dropped = {
+			stopReason: "error",
+			errorMessage: "Anthropic stream ended before message_stop",
+			content: [],
+			usage: {},
+		};
+
+		it("writes the summary on the second try, recording the first", async () => {
+			const { fire, entries } = activate();
+			const ctx = context([userEntry, replyEntry]);
+			await fire("before_provider_request", { payload: sentPayload }, ctx);
+			completeSimple.mockResolvedValueOnce(dropped).mockResolvedValueOnce({
+				stopReason: "stop",
+				content: [{ type: "text", text: "## Goal" }],
+				usage: {},
+			});
+			const result = (await fire(
+				"session_before_compact",
+				compactEvent(),
+				ctx,
+			)) as { compaction: { details: Record<string, unknown> } };
+
+			expect(completeSimple).toHaveBeenCalledTimes(2);
+			expect(result.compaction.details.attempts).toEqual([
+				{
+					provider: "conversation",
+					timing: "on the spot",
+					outcome: "retried",
+					reason: dropped.errorMessage,
+				},
+			]);
+			expect(entries).toEqual([]);
+		});
+
+		it("asks only once more before handing back to pi", async () => {
+			const { fire, entries } = activate();
+			const ctx = context([userEntry, replyEntry]);
+			await fire("before_provider_request", { payload: sentPayload }, ctx);
+			completeSimple.mockResolvedValue(dropped);
+			await fire("session_before_compact", compactEvent(), ctx);
+
+			expect(completeSimple).toHaveBeenCalledTimes(2);
+			expect(entries[0]?.[1]).toMatchObject({
+				attempts: [{ outcome: "retried" }, { outcome: "failed" }],
+			});
+		});
+
+		it("does not ask again after a failure the same call would repeat", async () => {
+			const { fire } = activate();
+			const ctx = context([userEntry, replyEntry]);
+			await fire("before_provider_request", { payload: sentPayload }, ctx);
+			completeSimple.mockResolvedValue({
+				...dropped,
+				errorMessage: "invalid x-api-key",
+			});
+			await fire("session_before_compact", compactEvent(), ctx);
+			expect(completeSimple).toHaveBeenCalledTimes(1);
+		});
+	});
+
+	describe("leaving the summary room in the window", () => {
+		const windowed = (contextWindow: number) => {
+			const ctx = context([userEntry, replyEntry]);
+			return { ...ctx, model: { ...model, contextWindow } };
+		};
+
+		it("hands back to pi when too little of the window is left", async () => {
+			const { fire, entries } = activate();
+			const ctx = windowed(310_000);
+			await fire("before_provider_request", { payload: sentPayload }, ctx);
+			await fire("session_before_compact", compactEvent(), ctx);
+			expect(entries).toEqual([
+				fellBack(
+					"declined",
+					"too little of the window is left to write the summary",
+				),
+			]);
+			expect(completeSimple).not.toHaveBeenCalled();
+		});
+
+		it("asks for no more output than the window has room for", async () => {
+			const { fire } = activate();
+			const ctx = windowed(340_000);
+			await fire("before_provider_request", { payload: sentPayload }, ctx);
+			completeSimple.mockResolvedValue({
+				stopReason: "stop",
+				content: [{ type: "text", text: "## Goal" }],
+				usage: {},
+			});
+			await fire("session_before_compact", compactEvent(), ctx);
+			expect(completeSimple.mock.calls[0]?.[2]).toMatchObject({
+				maxTokens: 36_000,
+			});
+		});
+	});
+
+	it("keeps the last request across a restart of the same session", async () => {
+		const before = activate();
+		const ctx = context([userEntry, replyEntry]);
+		await before.fire("before_provider_request", { payload: sentPayload }, ctx);
+		await before.fire("session_shutdown", { reason: "quit" }, ctx);
+
+		const after = activate();
+		await after.fire("session_start", { reason: "resume" }, ctx);
+		completeSimple.mockResolvedValue({
+			stopReason: "stop",
+			content: [{ type: "text", text: "## Goal" }],
+			usage: {},
+		});
+		const result = await after.fire(
+			"session_before_compact",
+			compactEvent(),
+			ctx,
+		);
+		expect(result).toHaveProperty("compaction");
+
+		// Taken once: a second start of the session finds nothing kept.
+		const again = activate();
+		await again.fire("session_start", { reason: "resume" }, ctx);
+		await again.fire("session_before_compact", compactEvent(), ctx);
+		expect(again.entries[0]?.[1]).toMatchObject({
+			reason: "nothing has been sent this session",
+		});
+	});
+
+	describe("saying what became of the compaction", () => {
+		it("says a compaction was done once pi has applied it", async () => {
+			const { fire, outcomes } = activate();
+			const ctx = context([userEntry, replyEntry]);
+			const compactionEntry = {
+				tokensBefore: 300_000,
+				firstKeptEntryId: "u1",
+				details: { summariser: "conversation" },
+			};
+			await fire("session_compact", { compactionEntry }, ctx);
+			expect(outcomes).toEqual([
+				{
+					kind: "compacted",
+					sessionId: "s1",
+					tokensBefore: 300_000,
+					firstKeptEntryId: "u1",
+					details: { summariser: "conversation" },
+				},
+			]);
+		});
+
+		it("says why pi's summariser is writing it instead", async () => {
+			const { fire, outcomes } = activate();
+			await fire(
+				"session_before_compact",
+				compactEvent(),
+				context([userEntry, replyEntry]),
+			);
+			expect(outcomes).toEqual([
+				{
+					kind: "fallback",
+					sessionId: "s1",
+					reason: "nothing has been sent this session",
+					attempts: [
+						{
+							provider: "conversation",
+							timing: "on the spot",
+							outcome: "declined",
+							reason: "nothing has been sent this session",
+						},
+					],
+				},
+			]);
+		});
+
+		it("keeps what each contributor did on the compaction entry", async () => {
+			const { fire, events } = activate();
+			events.on(SUMMARY_CONTRIBUTIONS, (data) =>
+				recordContribution(
+					data as Parameters<typeof recordContribution>[0],
+					"selection",
+					{ chosen: 0, unavailable: "no classifier" },
+				),
+			);
+			const ctx = context([userEntry, replyEntry]);
+			await fire("before_provider_request", { payload: sentPayload }, ctx);
+			completeSimple.mockResolvedValue({
+				stopReason: "stop",
+				content: [{ type: "text", text: "## Goal" }],
+				usage: {},
+			});
+			const result = (await fire(
+				"session_before_compact",
+				compactEvent(),
+				ctx,
+			)) as { compaction: { details: Record<string, unknown> } };
+			expect(result.compaction.details.contributions).toEqual({
+				selection: { chosen: 0, unavailable: "no classifier" },
+			});
+		});
+	});
+
+	it("never starts the verbatim tail on a custom entry, and tells contributors where it starts", async () => {
+		const { fire, events } = activate();
+		const seen: Array<{ firstKeptEntryId?: string }> = [];
+		events.on(SUMMARY_CONTRIBUTIONS, (data) =>
+			seen.push(data as { firstKeptEntryId?: string }),
+		);
+		const tag = { type: "custom", id: "c1", customType: "tags", data: {} };
+		const ctx = context([tag, userEntry, replyEntry], "a1");
+		await fire(
+			"before_provider_request",
+			{ payload: sentPayload },
+			context([tag, userEntry], "u1"),
+		);
+		completeSimple.mockResolvedValue({
+			stopReason: "stop",
+			content: [{ type: "text", text: "## Goal" }],
+			usage: {},
+		});
+		const event = compactEvent();
+		event.preparation.firstKeptEntryId = "c1";
+		const result = (await fire("session_before_compact", event, ctx)) as {
+			compaction: { firstKeptEntryId: string };
+		};
+		expect(result.compaction.firstKeptEntryId).toBe("u1");
+		expect(seen.map((c) => c.firstKeptEntryId)).toEqual(["u1"]);
+	});
+
 	describe("writing the summary ahead of the compaction", () => {
 		const secondUser = {
 			type: "message",
@@ -522,7 +759,7 @@ describe("the conversation summariser", () => {
 		});
 
 		it("records a summary that could not be written ahead and hands the failure over once", async () => {
-			const { fire, summary, entries } = await writtenAhead();
+			const { fire, summary, entries, outcomes } = await writtenAhead();
 			completeSimple.mockResolvedValueOnce({
 				stopReason: "toolUse",
 				content: [{ type: "toolCall", name: "read" }],
@@ -536,6 +773,13 @@ describe("the conversation summariser", () => {
 			expect(summary.state()).toBe("none");
 			expect(entries).toEqual([
 				[AHEAD_UNUSED_ENTRY, { reason: "the summariser called a tool" }],
+			]);
+			expect(outcomes).toEqual([
+				{
+					kind: "ahead-unused",
+					sessionId: "s1",
+					reason: "the summariser called a tool",
+				},
 			]);
 
 			// The compaction that follows writes its own, on the spot.
