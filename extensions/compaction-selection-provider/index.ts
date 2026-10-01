@@ -7,7 +7,7 @@
  * A summary paraphrases, and a paraphrase is where a rule the user set
  * an hour ago loses the word that made it a rule.
  *
- * As the session runs, a small classifier model tags each message's
+ * As the session runs, one of pi's classifier models tags each message's
  * paragraphs by kind, in the background, and the tags are recorded on
  * the session. When a summary is written ahead, the paragraphs the
  * compaction would quote are checked against what came after them,
@@ -16,9 +16,11 @@
  * appended to the summary, through the compaction host's summary
  * contributions.
  *
- * It does nothing until `PI_COMPACTION_CLASSIFIER` names a model in
- * pi's model config, and `PI_COMPACTION_EXCERPT_TOKENS=0` turns the
- * excerpts off while leaving the tags to accumulate.
+ * The classifier is the one `PI_COMPACTION_CLASSIFIER` names, or the
+ * first Jev model in pi's catalog with credentials. It does nothing
+ * without one, or with the variable set to `off`, and
+ * `PI_COMPACTION_EXCERPT_TOKENS=0` turns the excerpts off while
+ * leaving the tags to accumulate.
  */
 
 import type {

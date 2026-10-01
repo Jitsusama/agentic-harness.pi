@@ -1,3 +1,4 @@
+import type { ClassifierContext } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { SELECTION_HOLDS_ENTRY } from "../../../../lib/compaction/selection/holds.ts";
 import type { SelectionKind } from "../../../../lib/compaction/selection/kinds.ts";
@@ -71,6 +72,20 @@ export function tagged(
 			})),
 		},
 	} as SessionEntry;
+}
+
+/** The texts a classifier request carries under one key of its state. */
+export function passages(
+	request: ClassifierContext | undefined,
+	key: "context" | "paragraphs",
+): string[] {
+	const listed = request?.state[key];
+	if (!Array.isArray(listed)) return [];
+	return listed.map((passage) =>
+		typeof passage === "object" && passage !== null && "text" in passage
+			? String(passage.text)
+			: "",
+	);
 }
 
 /** A judgements entry. */

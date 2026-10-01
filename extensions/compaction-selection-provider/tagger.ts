@@ -12,7 +12,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { classify } from "../../lib/classifier/index.ts";
+import { classify } from "../../lib/compaction/selection/classify.ts";
 import {
 	taggingRequest,
 	tagsFrom,
@@ -61,8 +61,8 @@ export function tagger(pi: Pick<ExtensionAPI, "appendEntry">): Tagger {
 		pi.appendEntry(SELECTION_TAGS_ENTRY, tags);
 
 	async function pass(ctx: ExtensionContext, signal: AbortSignal) {
-		const classifier = resolveClassifier(ctx);
-		if (!classifier.ok) return;
+		const classifier = await resolveClassifier(ctx);
+		if (!classifier.ok || signal.aborted) return;
 		const branch = ctx.sessionManager.getBranch();
 		const position = new Map(branch.map((entry, at) => [entry.id, at]));
 		for (const entry of untagged(branch, readTags(branch))) {
@@ -75,7 +75,7 @@ export function tagger(pi: Pick<ExtensionAPI, "appendEntry">): Tagger {
 				branch.slice(Math.max(0, at - CONTEXT_ENTRIES), at),
 			);
 			const result = await classify(
-				classifier.call,
+				classifier.classify,
 				taggingRequest(units, before),
 				signal,
 			);
@@ -85,7 +85,7 @@ export function tagger(pi: Pick<ExtensionAPI, "appendEntry">): Tagger {
 					entryId: entry.id,
 					units: tagsFrom(units, result.answers),
 					model: result.model,
-					usage: result.usage,
+					...(result.usage ? { usage: result.usage } : {}),
 				});
 				continue;
 			}

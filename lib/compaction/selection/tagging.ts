@@ -4,13 +4,11 @@
  * do that" can be read.
  */
 
-import {
-	CLASSIFICATION_CONTRACT,
-	type ClassificationAnswers,
-	type ClassificationQuestion,
-	type ClassificationRequest,
-	type ClassificationUnit,
-} from "../../classifier/index.ts";
+import type {
+	ClassifierBoolQuestion,
+	ClassifierContext,
+} from "@earendil-works/pi-ai";
+import { aboutParagraph, classifierContext, type Passage } from "./classify.ts";
 import { KIND_DEFINITIONS, kindsFor, type SelectionKind } from "./kinds.ts";
 import type { UnitTags } from "./tags.ts";
 import { estimatedTokens, type SelectionUnit } from "./units.ts";
@@ -29,32 +27,31 @@ export function taggingRequest(
 	units: readonly SelectionUnit[],
 	before: readonly SelectionUnit[],
 	contextTokens = TAGGING_CONTEXT_TOKENS,
-): ClassificationRequest {
-	const questions: Record<string, ClassificationQuestion> = {};
+): ClassifierContext {
+	const questions: Record<string, ClassifierBoolQuestion> = {};
 	units.forEach((unit, at) => {
 		for (const kind of kindsFor(unit.speaker)) {
-			questions[questionId(at, kind)] = {
-				unit: unitId(at),
-				...KIND_DEFINITIONS[kind].tag,
-			};
+			questions[questionId(at, kind)] = aboutParagraph(
+				unitId(at),
+				KIND_DEFINITIONS[kind].tag,
+			);
 		}
 	});
-	return {
-		contract: CLASSIFICATION_CONTRACT,
-		context: recentContext(before, contextTokens),
-		units: units.map((unit, at) => ({
+	return classifierContext(
+		recentContext(before, contextTokens),
+		units.map((unit, at) => ({
 			id: unitId(at),
 			text: unit.text,
 			speaker: unit.speaker,
 		})),
 		questions,
-	};
+	);
 }
 
 /** Each paragraph's kinds, read out of the answers to its request. */
 export function tagsFrom(
 	units: readonly SelectionUnit[],
-	answers: ClassificationAnswers,
+	answers: Readonly<Record<string, number>>,
 	threshold = TAG_THRESHOLD,
 ): UnitTags[] {
 	return units.map((unit, at) => ({
@@ -73,8 +70,8 @@ export function tagsFrom(
 export function recentContext(
 	before: readonly SelectionUnit[],
 	tokens: number,
-): ClassificationUnit[] {
-	const kept: ClassificationUnit[] = [];
+): Passage[] {
+	const kept: Passage[] = [];
 	let spent = 0;
 	for (let at = before.length - 1; at >= 0; at--) {
 		const unit = before[at];

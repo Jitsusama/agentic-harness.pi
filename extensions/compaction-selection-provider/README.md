@@ -43,18 +43,21 @@ old session is opened, so opening one does not tag its whole history.
 
 ## The Classifier
 
-`PI_COMPACTION_CLASSIFIER=provider/model` names a model in pi's model
-config, and nothing runs until it does. Every call goes through pi's
-model registry, so whatever the config puts behind that name answers:
-a small general model, or a provider serving a model built for
-classification.
+Tagging and checking use one of pi's classifier models: a model that
+reads JSON state and answers typed questions with probabilities,
+rather than writing text. It is found among the classifier models
+whose provider has credentials, and every call goes through pi's model
+registry, so the owner's model config decides where it is served from.
 
-The request is `lib/classifier/`'s contract: one user message holding
-a `classification/v1` JSON request (the units, some context, and a
-yes-or-no question per unit and kind), and one `answer` tool the model
-calls with the probability that each answer is yes. A provider serving
-a dedicated classifier reads the request back with
-`requestFromContext` and answers with that tool call.
+By default it is the first of TypeSafe's Jev models in pi's catalog
+that has credentials, which is the model the selection was tested
+with: `typesafe/jev-latest`, then Jev through OpenRouter, OpenCode,
+the Vercel AI Gateway and Cloudflare Workers AI. With none of them
+configured, nothing is tagged or checked.
+
+Each request puts the paragraphs asked about and some context in the
+state, each paragraph with an id, and asks one yes-or-no question per
+paragraph and kind. The answer read is the probability of yes.
 
 ## Cost
 
@@ -65,8 +68,8 @@ cycle's `side_cost`.
 
 ## Settings
 
-- `PI_COMPACTION_CLASSIFIER=provider/model`: the classifier; unset,
-  nothing is tagged or checked.
+- `PI_COMPACTION_CLASSIFIER=provider/model`: the classifier model, in
+  place of Jev; `off` tags and checks nothing.
 - `PI_COMPACTION_EXCERPT_TOKENS`: the excerpt budget, 3,000 by default;
   `0` turns the excerpts and the check off while tags still accumulate.
 
