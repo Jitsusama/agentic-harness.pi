@@ -337,30 +337,47 @@ describe("keeping tags in the process", () => {
 	});
 });
 
-describe("how long the classifier took", () => {
-	const taking = (ms: number) => ({ entryId: "u1", units: [], ms });
+describe("what the classifier's work took", () => {
+	const taking = (ms: number) => ({
+		entryId: "u1",
+		units: [],
+		usage: USAGE,
+		ms,
+	});
 
-	it("sums tagging and checking since the last compaction on the session", () => {
+	it("sums time and tokens since the last compaction on the session", () => {
 		const branch: SessionEntry[] = [];
 		const { store } = session(branch, answeringYesTo());
 		store.recordTags(taking(1_200));
 		branch.push(compaction("c1"));
 		store.recordTags(taking(300));
 		store.recordTags(taking(200));
-		store.recordHolds({ holds: {}, ms: 50 });
+		store.recordHolds({ holds: {}, usage: USAGE, ms: 50 });
 		store.recordHolds({ holds: {} });
 
-		expect(store.elapsed(branch)).toEqual({ taggingMs: 500, judgingMs: 50 });
+		expect(store.effort(branch)).toEqual({
+			taggingMs: 500,
+			judgingMs: 50,
+			tokens: 3 * USAGE.totalTokens,
+		});
 	});
 
 	it("sums them in the process and starts over at a compaction", () => {
 		const store = memoryStore();
 		store.recordTags(taking(300));
 		store.recordHolds({ holds: {}, ms: 50 });
-		expect(store.elapsed([])).toEqual({ taggingMs: 300, judgingMs: 50 });
+		expect(store.effort([])).toEqual({
+			taggingMs: 300,
+			judgingMs: 50,
+			tokens: USAGE.totalTokens,
+		});
 
 		store.compacted();
-		expect(store.elapsed([])).toEqual({ taggingMs: 0, judgingMs: 0 });
+		expect(store.effort([])).toEqual({
+			taggingMs: 0,
+			judgingMs: 0,
+			tokens: 0,
+		});
 	});
 });
 
@@ -432,6 +449,7 @@ describe("contributing excerpts", () => {
 			spend: 0,
 			taggingMs: 0,
 			judgingMs: 0,
+			tokens: 0,
 		});
 	});
 

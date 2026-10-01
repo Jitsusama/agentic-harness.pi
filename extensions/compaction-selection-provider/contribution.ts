@@ -17,8 +17,9 @@
  * classifier it had or why it had none, the budget, how many
  * candidates there were and how many it chose, how many were judged
  * not to hold or never judged, how many messages it dropped untagged,
- * what tagging and judging cost since the last compaction and how long
- * the classifier took over them, and, when it quoted nothing, why.
+ * what tagging and judging cost since the last compaction, how long the
+ * classifier took over them and how many tokens they used, and, when it
+ * quoted nothing, why.
  */
 
 import {
@@ -150,7 +151,7 @@ export function selectionContributor(
 			untagged: untaggedDropped,
 			refs,
 			spend: store.spend(branch),
-			...store.elapsed(branch),
+			...store.effort(branch),
 			...(chosen.length === 0
 				? {
 						nothingQuoted: whyNothingQuoted({

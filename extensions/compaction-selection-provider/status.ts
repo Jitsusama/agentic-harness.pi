@@ -60,7 +60,7 @@ function lastRecordLine(record: unknown): string {
 		typeof r.taggingMs === "number"
 			? `; tagging took ${seconds(r.taggingMs)}, checking ${seconds(
 					typeof r.judgingMs === "number" ? r.judgingMs : 0,
-				)} of model time`
+				)} of model time, ${typeof r.tokens === "number" ? r.tokens : "?"} tokens`
 			: "";
 	return `last compaction's record: ${by}; chose ${r.chosen ?? "?"} of ${
 		r.candidates ?? "?"

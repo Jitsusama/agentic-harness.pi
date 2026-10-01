@@ -84,12 +84,13 @@ describe("the selection's status", () => {
 			untagged: 3,
 			taggingMs: 12_340,
 			judgingMs: 0,
+			tokens: 41_000,
 			nothingQuoted: "untagged",
 		};
 
 		const section = selectionSection(facts, [compacted("c1", "s", record)]);
 		expect(section.lines.at(-1)).toBe(
-			"last compaction's record: local/tagger; chose 0 of 0 candidates (quoted nothing: untagged), 3 dropped messages untagged; tagging took 12.3s, checking 0.0s of model time",
+			"last compaction's record: local/tagger; chose 0 of 0 candidates (quoted nothing: untagged), 3 dropped messages untagged; tagging took 12.3s, checking 0.0s of model time, 41000 tokens",
 		);
 
 		const off = selectionSection(facts, [

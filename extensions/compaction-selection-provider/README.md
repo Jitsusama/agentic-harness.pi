@@ -76,6 +76,9 @@ Every compaction records what the selection did under
   summed over its calls. Tagging runs a few calls at once and nothing
   waits on it, so this is the model's time beside what it cost, not
   anybody's wait;
+- `tokens`, every token those calls used. pi's catalogue prices
+  `typesafe/jev-latest` at nothing, so with the default classifier
+  `spend` reads 0 and this is what says how much it did;
 - `nothingQuoted`, when it chose nothing, saying why:
   `nothing-dropped` (no dropped message had text to quote),
   `untagged` (none of the dropped messages had been tagged yet),
@@ -103,7 +106,7 @@ rather than writing text. It is found among the classifier models
 whose provider has credentials, and every call goes through pi's model
 registry, so the owner's model config decides where it is served from.
 
-By default it is the first of TypeSafe's Jev models in pi's catalog
+By default it is the first of TypeSafe's Jev models in pi's catalogue
 that has credentials, which is the model the selection was tested
 with: `typesafe/jev-latest`, then Jev through OpenRouter, OpenCode,
 the Vercel AI Gateway and Cloudflare Workers AI. With none of them
