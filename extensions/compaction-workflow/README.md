@@ -36,8 +36,9 @@ after its last compaction, and the mean cost of its recent turns beyond
 their reads. Until the session has compacted once, defaults stand in,
 each from measurement:
 
-- **7,700 output tokens** for a summary: the median of ten real
-  compactions replayed through the summariser below.
+- **12,600 output tokens** for a summary, thinking included: the
+  median of 36 real compactions replayed through the summariser below
+  with its summary sized to what it replaces.
 - **Everything kept, rewritten**: errs toward compacting later.
 - **Three turns** of re-fetching. Over 97 compactions from 2026-09-17,
   re-fetched tool output cost a median $0.19 and a mean $0.35 a
@@ -222,6 +223,28 @@ work and call no tool. The prefix is then read from cache, the model
 sees every token of the conversation, and it takes one call. The added
 messages carry no cache breakpoint, since nothing after the compaction
 starts with them.
+
+The instruction makes one change to pi's format: in place of "Keep
+each section concise", it asks for a summary about a tenth as long as
+what it replaces, at least 2,000 tokens and at most 40 percent of the
+output allowance, and says what to spend the length on (decisions with
+their reasons, changes of course, what finished and how, what is open,
+standing instructions, exact paths, commands and identifiers). What it
+replaces is pi's own estimate (`estimateTokens`) of the context's
+messages less the tail pi keeps verbatim, which is the measure the
+share was tested against; a real token count runs about twice as
+high. On a frozen exam of 134 questions about what 20 real sessions
+had decided, done, changed and left open, answered from the summary
+alone, the sized summary scored 0.640 against 0.556 for the concise
+one, and beside excerpts (see `compaction-selection-provider`) 0.711
+against 0.647, with fewer questions answered wrongly or not at all (25
+against 29). On 102 new questions about nine held-out sessions, beside
+excerpts, it scored 0.718 against 0.679 and answered 6.5 wrongly
+against 11.5; alone, its gain there was within the noise. A fifth
+instead of a tenth gained nothing more. The
+summary text nearly doubles, from a median of about 3.6k tokens to
+6.6k, and the output with its thinking from 5.6k to 12.6k, which is
+about $0.14 more a compaction at Opus 5.5 list.
 
 The kept request survives a `/reload` in the process, and a restart of
 pi on disk (`kept-request.ts`): a shutdown that is not a reload writes

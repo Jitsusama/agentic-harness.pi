@@ -116,10 +116,11 @@ const KEPT_BEYOND_FLOOR = 30_000;
 
 /**
  * Output of a summary written from the conversation, thinking included,
- * before the session has one of its own to go by: the median of ten
- * real compactions replayed through it (3,739 to 9,668).
+ * before the session has one of its own to go by: the median of 36
+ * real compactions replayed through it with the summary sized to what
+ * it replaces, which wrote 7,148 to 27,067.
  */
-const DEFAULT_SUMMARY_OUTPUT_TOKENS = 7_700;
+const DEFAULT_SUMMARY_OUTPUT_TOKENS = 12_600;
 
 /**
  * Turns spent fetching back what a compaction dropped. Over 97

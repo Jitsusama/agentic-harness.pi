@@ -260,6 +260,37 @@ describe("the conversation summariser", () => {
 		expect(seen[0]?.handled).toBe(true);
 	});
 
+	it("sizes the summary to pi's estimate of what it replaces", async () => {
+		const { fire } = activate();
+		// 400,000 characters is 100,000 tokens by pi's estimate; less the
+		// 20,000 pi keeps verbatim, the summary replaces about 80,000.
+		const long = "x".repeat(400_000);
+		const ctx = context([
+			{
+				...userEntry,
+				message: {
+					...userEntry.message,
+					content: [{ type: "text", text: long }],
+				},
+			},
+			replyEntry,
+		]);
+		await fire("before_provider_request", { payload: sentPayload }, ctx);
+		let closing = "";
+		completeSimple.mockImplementation(async (_m, c) => {
+			closing = JSON.stringify(c.messages.at(-1));
+			return {
+				stopReason: "stop",
+				content: [{ type: "text", text: "## Goal" }],
+				usage: {},
+			};
+		});
+		await fire("session_before_compact", compactEvent(), ctx);
+		expect(closing).toContain("replaces about 80,000 tokens of conversation");
+		expect(closing).toContain("Make it about 8,000 tokens long");
+		expect(closing).not.toContain("Keep each section concise");
+	});
+
 	it("says a focus once when it arrives both by hand and as a contribution", async () => {
 		const { fire, events } = activate();
 		events.on(SUMMARY_CONTRIBUTIONS, (data) =>

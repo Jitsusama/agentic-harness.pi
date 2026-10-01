@@ -85,6 +85,13 @@ export interface CompactionRequest {
 	readonly expectedOutputTokens: number;
 	/** The most the summary may take; a provider may cap it further. */
 	readonly maxSummaryTokens: number;
+	/**
+	 * pi's estimate (`estimateTokens`) of what the summary replaces: the
+	 * context's messages, an earlier summary included, less the tail
+	 * kept verbatim. A provider sizes its summary from it; absent, the
+	 * host could not say.
+	 */
+	readonly replacedTokens?: number;
 }
 
 /** Whether a provider can write a summary, and what it would cost. */
