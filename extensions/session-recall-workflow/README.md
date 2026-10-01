@@ -47,6 +47,10 @@ other reason to go looking for it. A summary pi writes itself, when
 the harness's summariser declines, carries no contributions and so no
 note; the tool is still registered and described.
 
+`/compaction-status` says whether the tool is active, how many of the
+branch's summaries mention it and how many times it has been called.
+A tool that is there and never called is the case worth seeing.
+
 ## Why `-workflow`
 
 It registers a tool over session-scoped data and contributes to the
@@ -58,5 +62,6 @@ compaction workflow, which is the same reading the result store took:
 | File | Holds |
 |---|---|
 | `index.ts` | Tool registration, bounding and the summary note |
+| `status.ts` | Recall's section of `/compaction-status` |
 
 The search itself is pure and lives in `lib/internal/recall/`.

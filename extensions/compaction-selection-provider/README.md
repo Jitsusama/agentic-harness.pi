@@ -78,6 +78,12 @@ classifier, and not because it was set to `off`, the person is told
 once a session that the excerpts are off and why, since otherwise the
 only sign is a summary with nothing after it.
 
+`/compaction-status` says the same things ahead of time: the
+classifier as last resolved, the budget, where tags are kept, whether
+quotes name their paragraph, how many paragraphs are tagged and how
+many messages wait to be, how many compactions on the branch quoted
+excerpts, and what the last one's record says.
+
 ## The Classifier
 
 Tagging and checking use one of pi's classifier models: a model that
@@ -137,6 +143,7 @@ compaction provider uses; it could live in another package.
 - `store.ts`: the session store and the memory store.
 - `tagger.ts`: tagging messages in the background.
 - `contribution.ts`: the check ahead and the excerpts on apply.
+- `status.ts`: the selection's section of `/compaction-status`.
 
 The pure parts, from splitting paragraphs to rendering the excerpts,
 live in `lib/compaction/selection/`.

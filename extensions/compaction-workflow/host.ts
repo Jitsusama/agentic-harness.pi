@@ -133,6 +133,11 @@ export interface CompactionHost {
 		contextTokens: number,
 	): { ok: true } | { ok: false; reason: string };
 	state(): AheadState;
+	/**
+	 * The providers the chain would ask, by id in order, and any id the
+	 * configuration names that nothing registered.
+	 */
+	chain(): { providers: readonly string[]; unknown: readonly string[] };
 	/** The reason a summary written ahead failed, once, clearing it. */
 	takeFailure(): string | undefined;
 	/** Called when a summary written ahead is ready to apply. */
@@ -418,6 +423,10 @@ export function registerCompactionHost(
 
 	return {
 		state,
+		chain() {
+			const { providers, unknown } = chain();
+			return { providers: providers.map((p) => p.id), unknown };
+		},
 		takeFailure() {
 			if (!ahead?.result || ahead.result.written.ok) return undefined;
 			const { reason } = ahead.result.written;

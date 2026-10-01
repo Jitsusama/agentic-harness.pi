@@ -330,6 +330,29 @@ sessions from a log of its own may drop the custom entries the
 workflow writes, so the event is how such a host tells the harness
 compacting apart from pi's summariser compacting, and why.
 
+## Status
+
+`/compaction-status` shows how compaction stands now, before the next
+compaction rather than after it. It asks on `pi.events` as
+`COMPACTION_STATUS` (`compaction:status:v1`), and each extension that
+takes part adds a section of its own, so a section missing means that
+extension is not loaded. The workflow's section says:
+
+- whether the trigger is on, and any floor;
+- the provider chain in the order it would be asked, and any
+  configured id nothing registered;
+- the cache retention the prices assume;
+- whether a summary is being written ahead;
+- the last outcome said on the bus since this code loaded;
+- how many compactions the branch carries, and who wrote the last one
+  and which contributions it recorded.
+
+The selection adds its classifier, budget and tags, and how many
+compactions quoted excerpts; recall adds whether its tool is active,
+how many summaries mention it and how often it was called. Another
+extension answers with `answerCompactionStatus` from
+`lib/compaction/status.ts`.
+
 ## Running Under Another Host
 
 The workflow is written to survive a host that runs pi as a library
@@ -368,6 +391,7 @@ and keeps sessions its own way:
   compaction.
 - `idle.ts`: the timer that waits out an idle session.
 - `notice.ts`: what the user is told when a compaction fires or fails.
+- `status.ts`: the workflow's status section and `/compaction-status`.
 - `host.ts`: the provider chain, writing ahead, and the one answer to
   a compaction.
 - `conversation.ts`: the `conversation` provider, the summary written

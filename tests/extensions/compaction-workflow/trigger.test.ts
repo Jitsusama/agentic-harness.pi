@@ -33,6 +33,7 @@ function activate() {
 		on: (name: string, handler: Handler) =>
 			handlers.set(name, [...(handlers.get(name) ?? []), handler]),
 		appendEntry: () => {},
+		registerCommand: () => {},
 		sendMessage: () => {},
 		sendUserMessage: (text: unknown) => resumed.push(text),
 	};
