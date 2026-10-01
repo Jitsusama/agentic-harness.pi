@@ -79,7 +79,13 @@ it does:
   `guardian-status-workflow`, `result-store-workflow`,
   `cost-workflow`, `image-budget-workflow`,
   `panel-lifecycle-workflow`, `job-workflow`,
-  `session-recall-workflow`.
+  `session-recall-workflow`, `install-check-workflow`.
+
+  `install-check-workflow` says when the code running is not
+  the code on disk: a dependency installed outside its range in
+  `package.json`, a checkout behind its upstream, or a HEAD that
+  moved since the code loaded. A pull is neither a reinstall
+  nor a reload, and both used to drift silently for days.
 
   `job-workflow` hosts background jobs. A tool that returns
   before its work ends hands the work to it, and it says the
