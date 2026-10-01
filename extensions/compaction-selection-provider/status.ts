@@ -49,9 +49,29 @@ function lastRecordLine(record: unknown): string {
 			: typeof r.unavailable === "string"
 				? `no classifier (${r.unavailable})`
 				: "classifier unresolved";
+	if (r.nothingQuoted === "off") {
+		return "last compaction's record: quoted nothing, excerpts were off";
+	}
+	const why =
+		typeof r.nothingQuoted === "string"
+			? ` (quoted nothing: ${r.nothingQuoted})`
+			: "";
+	const took =
+		typeof r.taggingMs === "number"
+			? `; tagging took ${seconds(r.taggingMs)}, checking ${seconds(
+					typeof r.judgingMs === "number" ? r.judgingMs : 0,
+				)} of model time, ${typeof r.tokens === "number" ? r.tokens : "?"} tokens`
+			: "";
 	return `last compaction's record: ${by}; chose ${r.chosen ?? "?"} of ${
 		r.candidates ?? "?"
-	} candidates, ${r.untagged ?? "?"} dropped messages untagged`;
+	} candidates${why}, ${r.untagged ?? "?"} dropped messages untagged${took}`;
+}
+
+const MS_PER_SECOND = 1000;
+
+/** Milliseconds as seconds, to one decimal place. */
+function seconds(ms: number): string {
+	return `${(ms / MS_PER_SECOND).toFixed(1)}s`;
 }
 
 /** The selection's section, from what it knows and the branch. */

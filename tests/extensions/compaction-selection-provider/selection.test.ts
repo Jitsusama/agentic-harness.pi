@@ -32,6 +32,7 @@ import {
 } from "../../../lib/compaction/selection/units.ts";
 import {
 	assistant,
+	compaction,
 	judged,
 	passages,
 	tagged,
@@ -226,6 +227,7 @@ describe("tagging", () => {
 				units: [expect.objectContaining({ kinds: ["rule"] })],
 				model: "tagger",
 				usage: USAGE,
+				ms: expect.any(Number),
 			}),
 		);
 	});
@@ -335,6 +337,50 @@ describe("keeping tags in the process", () => {
 	});
 });
 
+describe("what the classifier's work took", () => {
+	const taking = (ms: number) => ({
+		entryId: "u1",
+		units: [],
+		usage: USAGE,
+		ms,
+	});
+
+	it("sums time and tokens since the last compaction on the session", () => {
+		const branch: SessionEntry[] = [];
+		const { store } = session(branch, answeringYesTo());
+		store.recordTags(taking(1_200));
+		branch.push(compaction("c1"));
+		store.recordTags(taking(300));
+		store.recordTags(taking(200));
+		store.recordHolds({ holds: {}, usage: USAGE, ms: 50 });
+		store.recordHolds({ holds: {} });
+
+		expect(store.effort(branch)).toEqual({
+			taggingMs: 500,
+			judgingMs: 50,
+			tokens: 3 * USAGE.totalTokens,
+		});
+	});
+
+	it("sums them in the process and starts over at a compaction", () => {
+		const store = memoryStore();
+		store.recordTags(taking(300));
+		store.recordHolds({ holds: {}, ms: 50 });
+		expect(store.effort([])).toEqual({
+			taggingMs: 300,
+			judgingMs: 50,
+			tokens: USAGE.totalTokens,
+		});
+
+		store.compacted();
+		expect(store.effort([])).toEqual({
+			taggingMs: 0,
+			judgingMs: 0,
+			tokens: 0,
+		});
+	});
+});
+
 describe("contributing excerpts", () => {
 	const rule = user("u1", "Always sign every commit.");
 	const kept = user("u2", "Now write the tests.");
@@ -401,7 +447,29 @@ describe("contributing excerpts", () => {
 			untagged: 1,
 			refs: false,
 			spend: 0,
+			taggingMs: 0,
+			judgingMs: 0,
+			tokens: 0,
 		});
+	});
+
+	it("says why it quoted nothing", () => {
+		const reason = (branch: SessionEntry[], firstKeptEntryId: string) => {
+			const { ctx, store } = session(branch, answeringYesTo());
+			const contributions = newContributions({ firstKeptEntryId });
+			selectionContributor(() => ctx, { store }).listener(contributions);
+			return recordOf(contributions)?.nothingQuoted;
+		};
+
+		expect(reason([rule, tagged(rule, ["rule"]), kept], "u1")).toBe(
+			"nothing-dropped",
+		);
+		expect(reason([rule, kept], "u2")).toBe("untagged");
+		expect(reason([rule, tagged(rule, []), kept], "u2")).toBe("no-candidates");
+		process.env.PI_COMPACTION_EXCERPT_TOKENS = "1";
+		expect(reason([rule, tagged(rule, ["rule"]), kept], "u2")).toBe(
+			"over-budget",
+		);
 	});
 
 	it("leaves out one judged no longer to hold, and contributes nothing at a budget of 0", () => {
@@ -418,13 +486,17 @@ describe("contributing excerpts", () => {
 		const judgedOut = newContributions({ firstKeptEntryId: "u2" });
 		contributor.listener(judgedOut);
 		expect(judgedOut.appendix).toEqual([]);
-		expect(recordOf(judgedOut)).toMatchObject({ chosen: 0, notHolding: 1 });
+		expect(recordOf(judgedOut)).toMatchObject({
+			chosen: 0,
+			notHolding: 1,
+			nothingQuoted: "none-holding",
+		});
 
 		process.env.PI_COMPACTION_EXCERPT_TOKENS = "0";
 		const off = newContributions({ firstKeptEntryId: "u2" });
 		selectionContributor(() => ctx, { store }).listener(off);
 		expect(off.appendix).toEqual([]);
-		expect(recordOf(off)).toEqual({ budget: 0 });
+		expect(recordOf(off)).toEqual({ budget: 0, nothingQuoted: "off" });
 	});
 
 	it("checks ahead whether what it would quote still holds, and records it", async () => {
@@ -444,6 +516,7 @@ describe("contributing excerpts", () => {
 		expect(appended).toHaveLength(1);
 		const [type, data] = appended[0] ?? [];
 		expect(type).toBe(SELECTION_HOLDS_ENTRY);
+		expect(data).toMatchObject({ ms: expect.any(Number) });
 		expect(
 			Object.values((data as { holds: Record<string, number> }).holds),
 		).toEqual([0.9]);

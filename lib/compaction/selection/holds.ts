@@ -31,6 +31,8 @@ export interface SelectionHolds {
 	readonly holds: Readonly<Record<string, number>>;
 	readonly model?: string;
 	readonly usage?: Usage;
+	/** How long the classifier took to answer, in milliseconds. */
+	readonly ms?: number;
 	/** Why the batch failed, when it did. */
 	readonly failed?: string;
 }

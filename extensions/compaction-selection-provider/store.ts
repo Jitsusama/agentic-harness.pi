@@ -42,6 +42,21 @@ export function selectionStoreKind(
 		: "session";
 }
 
+/**
+ * What the classifier's work took since the last compaction, beside
+ * what it cost. The times are milliseconds summed over its calls.
+ * Tagging runs a few calls at once, so they are the model's time and
+ * not how long anybody waited: nothing waits on tagging. The tokens are
+ * there because a catalogue can price a classifier at nothing, and then
+ * the spend says nothing while the tokens still say how much it did.
+ */
+export interface SelectionEffort {
+	readonly taggingMs: number;
+	readonly judgingMs: number;
+	/** Every token the calls used, read and written. */
+	readonly tokens: number;
+}
+
 /** Tags and judgements, read and recorded. */
 export interface SelectionStore {
 	readonly kind: SelectionStoreKind;
@@ -51,6 +66,8 @@ export interface SelectionStore {
 	holds(branch: readonly SessionEntry[]): Map<string, number>;
 	/** What tagging and judging have cost since the last compaction, in dollars. */
 	spend(branch: readonly SessionEntry[]): number;
+	/** What tagging and judging have taken since the last compaction. */
+	effort(branch: readonly SessionEntry[]): SelectionEffort;
 	recordTags(tags: SelectionTags): void;
 	recordHolds(holds: SelectionHolds): void;
 	/** A compaction applied: judgements and spend start over. */
@@ -80,6 +97,21 @@ export function sessionStore(
 			}
 			return total;
 		},
+		effort(branch) {
+			let taggingMs = 0;
+			let judgingMs = 0;
+			let tokens = 0;
+			for (const entry of sinceLastCompaction(branch)) {
+				if (entry.type !== "custom") continue;
+				if (entry.customType === SELECTION_TAGS_ENTRY) {
+					taggingMs += msOf(entry.data);
+				} else if (entry.customType === SELECTION_HOLDS_ENTRY) {
+					judgingMs += msOf(entry.data);
+				} else continue;
+				tokens += tokensOf(entry.data);
+			}
+			return { taggingMs, judgingMs, tokens };
+		},
 		recordTags: (tags) => appendEntry(SELECTION_TAGS_ENTRY, tags),
 		recordHolds: (holds) => appendEntry(SELECTION_HOLDS_ENTRY, holds),
 		compacted() {
@@ -96,29 +128,40 @@ export function memoryStore(): SelectionStore {
 	let index = emptyTagIndex();
 	let holds = new Map<string, number>();
 	let spent = 0;
+	let taggingMs = 0;
+	let judgingMs = 0;
+	let tokens = 0;
+	const startOver = () => {
+		holds = new Map();
+		spent = 0;
+		taggingMs = 0;
+		judgingMs = 0;
+		tokens = 0;
+	};
 	return {
 		kind: "memory",
 		tags: () => index,
 		holds: () => new Map(holds),
 		spend: () => spent,
+		effort: () => ({ taggingMs, judgingMs, tokens }),
 		recordTags(tags) {
 			indexTags(index, tags);
 			spent += tags.usage?.cost.total ?? 0;
+			taggingMs += msOf(tags);
+			tokens += tokensOf(tags);
 		},
 		recordHolds(recorded) {
 			for (const [hash, value] of Object.entries(recorded.holds)) {
 				holds.set(hash, value);
 			}
 			spent += recorded.usage?.cost.total ?? 0;
+			judgingMs += msOf(recorded);
+			tokens += tokensOf(recorded);
 		},
-		compacted() {
-			holds = new Map();
-			spent = 0;
-		},
+		compacted: startOver,
 		reset() {
 			index = emptyTagIndex();
-			holds = new Map();
-			spent = 0;
+			startOver();
 		},
 	};
 }
@@ -131,6 +174,21 @@ function sinceLastCompaction(
 		if (entry.type === "compaction") start = at + 1;
 	});
 	return branch.slice(start);
+}
+
+function msOf(data: unknown): number {
+	if (typeof data !== "object" || data === null || !("ms" in data)) return 0;
+	const { ms } = data;
+	return typeof ms === "number" && Number.isFinite(ms) && ms > 0 ? ms : 0;
+}
+
+function tokensOf(data: unknown): number {
+	if (typeof data !== "object" || data === null) return 0;
+	const usage = (data as { usage?: { totalTokens?: unknown } }).usage;
+	const total = usage?.totalTokens;
+	return typeof total === "number" && Number.isFinite(total) && total > 0
+		? total
+		: 0;
 }
 
 function costOf(data: unknown): number {

@@ -76,11 +76,13 @@ export function tagger(
 			const before = unitsOfBranch(
 				branch.slice(Math.max(0, at - CONTEXT_ENTRIES), at),
 			);
+			const started = Date.now();
 			const result = await classify(
 				classifier.classify,
 				taggingRequest(units, before),
 				signal,
 			);
+			const ms = Date.now() - started;
 			if (signal.aborted) return;
 			if (result.ok) {
 				store.recordTags({
@@ -88,6 +90,7 @@ export function tagger(
 					units: tagsFrom(units, result.answers),
 					model: result.model,
 					...(result.usage ? { usage: result.usage } : {}),
+					ms,
 				});
 				return;
 			}
@@ -99,6 +102,7 @@ export function tagger(
 					units: units.map((unit) => ({ hash: unit.hash, kinds: [] })),
 					model: classifier.label,
 					...(result.usage ? { usage: result.usage } : {}),
+					ms,
 					failed: result.reason,
 				});
 			}
