@@ -13,10 +13,12 @@
  *
  * The checkpoint format is pi's, word for word where it can be, so a
  * summary written this way reads like any other to what comes after.
- * The one departure is its length: told how much it replaces, the
+ * The departures come with its length: told how much it replaces, the
  * summary is asked for about a tenth of that rather than to keep each
  * section concise, which answered more about the compacted part of a
- * session without answering more of it wrongly.
+ * session without answering more of it wrongly. A sized summary also
+ * folds the one before it by carrying what still holds rather than
+ * compressing it again, and by letting the latest state win.
  */
 
 /**
@@ -145,12 +147,33 @@ const FOLD_PREVIOUS = `The conversation above begins with a summary of earlier h
 - UPDATE "Next Steps" based on what was accomplished
 - If something is no longer relevant, you may remove it`;
 
+/**
+ * How a sized summary folds the one before it. pi's words let each fold
+ * compress what it carries again, so a specific kept twice is lost on
+ * the third. Asking to carry every specific in its own words lost them
+ * less, but carried superseded state forward as current too: an
+ * earlier blocker, an earlier stance, a list missing its newest item.
+ * So this dates the earlier summary and makes the latest state win
+ * everywhere a successor acts from. Over three folds in a row, beside
+ * excerpts, it answered 0.727 against 0.684 for pi's words with the
+ * same sizing, with 10 answers wrong against 17.5.
+ */
+const FOLD_CARRY = `The conversation above begins with a summary of earlier history. It describes the state at the point it was written, not now. Fold it into the new summary without compressing it again:
+- Check each item in it against the messages after it before carrying it.
+- CARRY every specific that still holds forward in its own words: file paths, commands, numbers, names, identifiers, decisions with their reasons, and standing instructions. Do not shorten or merge them; a later fold cannot recover what this one drops.
+- When the messages after it changed, corrected, replaced or reversed something, write only the latest state as current. Mention the earlier one, if at all, only as what it replaced. Never leave an earlier blocker, plan, stance or instruction standing in In Progress, Blocked, Next Steps or Critical Context once a later message superseded it.
+- When something it lists has since been finished, move it to Done and keep how it ended.
+- Remove only what is now clearly irrelevant to the work ahead.
+- ADD the new progress, decisions and context from the messages after it, and give the user's latest instructions in their own terms.`;
+
 /** The instruction that closes the conversation and asks for its summary. */
 export function summaryInstruction(options: SummaryInstructionOptions): string {
 	const parts = [
 		"[This message is from the harness, not the user.] The session is being compacted: the conversation above will be replaced by a summary you write now, and the most recent messages will be kept verbatim after it. Stop work on the task. Do not call any tool and do not continue the conversation. Write a structured context checkpoint summary that you will use to continue the work.",
 	];
-	if (options.hasPreviousSummary) parts.push(FOLD_PREVIOUS);
+	if (options.hasPreviousSummary) {
+		parts.push(options.length ? FOLD_CARRY : FOLD_PREVIOUS);
+	}
 	parts.push(
 		options.length
 			? FORMAT.replace(

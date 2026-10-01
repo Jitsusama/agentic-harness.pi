@@ -246,6 +246,23 @@ summary text nearly doubles, from a median of about 3.6k tokens to
 6.6k, and the output with its thinking from 5.6k to 12.6k, which is
 about $0.14 more a compaction at Opus 5.5 list.
 
+A sized summary also folds the summary before it differently. pi's
+words let each fold compress what it carries again, so a specific kept
+through two folds can be lost on the third. The sized fold says the
+earlier summary describes the state when it was written, not now, asks
+for each specific that still holds to be carried in its own words, and
+forbids leaving a superseded blocker, plan, stance or instruction
+standing as current. That last part matters: an earlier version that
+only asked to carry every specific answered more, but carried
+superseded state forward as current and gave more wrong answers beside
+excerpts. Measured by replaying three compactions in a row, each
+folding the one before, on 23 sessions and 186 questions, beside
+excerpts it scored 0.727 against 0.684 for pi's fold words with the
+same sizing (+0.043, 95% CI +0.012 to +0.074), with 10 answers wrong
+against 17.5; on the held-out sessions alone, 0.765 against 0.735,
+with 3.5 wrong against 8. Folded summaries come out about a tenth
+longer.
+
 The kept request survives a `/reload` in the process, and a restart of
 pi on disk (`kept-request.ts`): a shutdown that is not a reload writes
 it, gzipped and readable only by its owner, under
