@@ -42,6 +42,17 @@ export function selectionStoreKind(
 		: "session";
 }
 
+/**
+ * How long the classifier spent answering since the last compaction,
+ * in milliseconds, summed over its calls. Tagging runs a few calls at
+ * once, so this is the model's time, beside what it cost, and not how
+ * long anybody waited: nothing waits on tagging.
+ */
+export interface SelectionElapsed {
+	readonly taggingMs: number;
+	readonly judgingMs: number;
+}
+
 /** Tags and judgements, read and recorded. */
 export interface SelectionStore {
 	readonly kind: SelectionStoreKind;
@@ -51,6 +62,8 @@ export interface SelectionStore {
 	holds(branch: readonly SessionEntry[]): Map<string, number>;
 	/** What tagging and judging have cost since the last compaction, in dollars. */
 	spend(branch: readonly SessionEntry[]): number;
+	/** How long tagging and judging have taken since the last compaction. */
+	elapsed(branch: readonly SessionEntry[]): SelectionElapsed;
 	recordTags(tags: SelectionTags): void;
 	recordHolds(holds: SelectionHolds): void;
 	/** A compaction applied: judgements and spend start over. */
@@ -80,6 +93,19 @@ export function sessionStore(
 			}
 			return total;
 		},
+		elapsed(branch) {
+			let taggingMs = 0;
+			let judgingMs = 0;
+			for (const entry of sinceLastCompaction(branch)) {
+				if (entry.type !== "custom") continue;
+				if (entry.customType === SELECTION_TAGS_ENTRY) {
+					taggingMs += msOf(entry.data);
+				} else if (entry.customType === SELECTION_HOLDS_ENTRY) {
+					judgingMs += msOf(entry.data);
+				}
+			}
+			return { taggingMs, judgingMs };
+		},
 		recordTags: (tags) => appendEntry(SELECTION_TAGS_ENTRY, tags),
 		recordHolds: (holds) => appendEntry(SELECTION_HOLDS_ENTRY, holds),
 		compacted() {
@@ -96,29 +122,36 @@ export function memoryStore(): SelectionStore {
 	let index = emptyTagIndex();
 	let holds = new Map<string, number>();
 	let spent = 0;
+	let taggingMs = 0;
+	let judgingMs = 0;
+	const startOver = () => {
+		holds = new Map();
+		spent = 0;
+		taggingMs = 0;
+		judgingMs = 0;
+	};
 	return {
 		kind: "memory",
 		tags: () => index,
 		holds: () => new Map(holds),
 		spend: () => spent,
+		elapsed: () => ({ taggingMs, judgingMs }),
 		recordTags(tags) {
 			indexTags(index, tags);
 			spent += tags.usage?.cost.total ?? 0;
+			taggingMs += msOf(tags);
 		},
 		recordHolds(recorded) {
 			for (const [hash, value] of Object.entries(recorded.holds)) {
 				holds.set(hash, value);
 			}
 			spent += recorded.usage?.cost.total ?? 0;
+			judgingMs += msOf(recorded);
 		},
-		compacted() {
-			holds = new Map();
-			spent = 0;
-		},
+		compacted: startOver,
 		reset() {
 			index = emptyTagIndex();
-			holds = new Map();
-			spent = 0;
+			startOver();
 		},
 	};
 }
@@ -131,6 +164,12 @@ function sinceLastCompaction(
 		if (entry.type === "compaction") start = at + 1;
 	});
 	return branch.slice(start);
+}
+
+function msOf(data: unknown): number {
+	if (typeof data !== "object" || data === null || !("ms" in data)) return 0;
+	const { ms } = data;
+	return typeof ms === "number" && Number.isFinite(ms) && ms > 0 ? ms : 0;
 }
 
 function costOf(data: unknown): number {

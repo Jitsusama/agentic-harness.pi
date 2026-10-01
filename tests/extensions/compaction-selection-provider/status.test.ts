@@ -70,6 +70,36 @@ describe("the selection's status", () => {
 		);
 	});
 
+	it("says why the last compaction quoted nothing, and how long the classifier took", () => {
+		const facts = {
+			classifier: { label: "local/tagger" },
+			store,
+			budget: 3000,
+			refs: false,
+		} as const;
+		const record = {
+			label: "local/tagger",
+			candidates: 0,
+			chosen: 0,
+			untagged: 3,
+			taggingMs: 12_340,
+			judgingMs: 0,
+			nothingQuoted: "untagged",
+		};
+
+		const section = selectionSection(facts, [compacted("c1", "s", record)]);
+		expect(section.lines.at(-1)).toBe(
+			"last compaction's record: local/tagger; chose 0 of 0 candidates (quoted nothing: untagged), 3 dropped messages untagged; tagging took 12.3s, checking 0.0s of model time",
+		);
+
+		const off = selectionSection(facts, [
+			compacted("c1", "s", { budget: 0, nothingQuoted: "off" }),
+		]);
+		expect(off.lines.at(-1)).toBe(
+			"last compaction's record: quoted nothing, excerpts were off",
+		);
+	});
+
 	it("says when the last compaction left no record", () => {
 		const section = selectionSection(
 			{ classifier: { unresolved: true }, store, budget: 3000, refs: false },

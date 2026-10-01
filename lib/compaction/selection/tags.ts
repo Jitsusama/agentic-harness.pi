@@ -40,6 +40,8 @@ export interface SelectionTags {
 	/** The model that answered. */
 	readonly model?: string;
 	readonly usage?: Usage;
+	/** How long the classifier took to answer, in milliseconds. */
+	readonly ms?: number;
 	/** Why tagging failed, when it did; its paragraphs then have no kinds. */
 	readonly failed?: string;
 }

@@ -71,9 +71,20 @@ Every compaction records what the selection did under
 - `notHolding`, judged no longer to hold, and `unchecked`, chosen
   without a judgement;
 - `untagged`, messages the compaction dropped before they were tagged;
-- `spend`, what tagging and judging cost since the last compaction.
+- `spend`, what tagging and judging cost since the last compaction;
+- `taggingMs` and `judgingMs`, how long the classifier took over them,
+  summed over its calls. Tagging runs a few calls at once and nothing
+  waits on it, so this is the model's time beside what it cost, not
+  anybody's wait;
+- `nothingQuoted`, when it chose nothing, saying why:
+  `nothing-dropped` (no dropped message had text to quote),
+  `untagged` (none of the dropped messages had been tagged yet),
+  `no-candidates` (they had been, and held nothing worth quoting),
+  `none-holding` (every candidate was judged no longer to hold) or
+  `over-budget` (none fitted the budget).
 
-With the budget at 0 the record is `{ budget: 0 }`. Without a
+With the budget at 0 the record is
+`{ budget: 0, nothingQuoted: "off" }`. Without a
 classifier, and not because it was set to `off`, the person is told
 once a session that the excerpts are off and why, since otherwise the
 only sign is a summary with nothing after it.
@@ -105,7 +116,8 @@ paragraph and kind. The answer read is the probability of yes.
 ## Cost
 
 Each tagged message and each batch of twelve checks is one classifier
-call. Its usage is recorded on the entry it produced, and the cost
+call. Its usage and how long it took (`ms`) are recorded on the entry
+it produced, and the cost
 ledger bills such an entry as a side call: the `side` kind, and a
 cycle's `side_cost`.
 

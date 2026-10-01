@@ -13,7 +13,10 @@ import {
 	EXCERPTS_HEADING,
 	renderExcerpts,
 } from "../../../../lib/compaction/selection/render.ts";
-import { selectExcerpts } from "../../../../lib/compaction/selection/select.ts";
+import {
+	selectExcerpts,
+	whyNothingQuoted,
+} from "../../../../lib/compaction/selection/select.ts";
 import { readTags } from "../../../../lib/compaction/selection/tags.ts";
 import { unitsOfBranch } from "../../../../lib/compaction/selection/units.ts";
 import {
@@ -113,6 +116,47 @@ describe("selectExcerpts", () => {
 			10,
 		);
 		expect(chosen.map((c) => c.unit.text)).toEqual(["short"]);
+	});
+});
+
+describe("whyNothingQuoted", () => {
+	const none = {
+		candidates: [],
+		holds: new Map<string, number>(),
+		taggedDropped: 0,
+		untaggedDropped: 0,
+	};
+
+	it("says nothing was dropped, or that what was dropped was never tagged", () => {
+		expect(whyNothingQuoted(none)).toBe("nothing-dropped");
+		expect(whyNothingQuoted({ ...none, untaggedDropped: 2 })).toBe("untagged");
+	});
+
+	it("says tagged messages held nothing worth quoting, even beside untagged ones", () => {
+		expect(
+			whyNothingQuoted({ ...none, taggedDropped: 1, untaggedDropped: 2 }),
+		).toBe("no-candidates");
+	});
+
+	it("tells candidates that no longer hold from ones that did not fit", () => {
+		const candidates = [
+			candidate("rule", 1, "a"),
+			candidate("finding", 2, "b"),
+		];
+		const withdrawn = new Map([
+			["h1", 0.1],
+			["h2", 0.2],
+		]);
+		expect(whyNothingQuoted({ ...none, candidates, holds: withdrawn })).toBe(
+			"none-holding",
+		);
+		expect(
+			whyNothingQuoted({
+				...none,
+				candidates,
+				holds: new Map([["h1", 0.1]]),
+			}),
+		).toBe("over-budget");
 	});
 });
 

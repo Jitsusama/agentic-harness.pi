@@ -17,7 +17,8 @@
  * classifier it had or why it had none, the budget, how many
  * candidates there were and how many it chose, how many were judged
  * not to hold or never judged, how many messages it dropped untagged,
- * and what tagging and judging cost since the last compaction.
+ * what tagging and judging cost since the last compaction and how long
+ * the classifier took over them, and, when it quoted nothing, why.
  */
 
 import {
@@ -42,10 +43,12 @@ import { renderExcerpts } from "../../lib/compaction/selection/render.ts";
 import {
 	HOLDS_THRESHOLD,
 	selectExcerpts,
+	whyNothingQuoted,
 } from "../../lib/compaction/selection/select.ts";
 import { untagged } from "../../lib/compaction/selection/tags.ts";
 import {
 	estimatedTokens,
+	unitsOf,
 	unitsOfBranch,
 } from "../../lib/compaction/selection/units.ts";
 import { type ClassifierStatus, classifierStatus } from "./classifier.ts";
@@ -122,6 +125,14 @@ export function selectionContributor(
 		const text = renderExcerpts(chosen, { refs });
 		if (text) contributions.appendix.push(text);
 		const dropped = new Set(droppedIds(branch, firstKeptEntryId));
+		const waiting = new Set(untagged(branch, tags).map((e) => e.id));
+		const droppedWithText = sinceLastCompaction(branch).filter(
+			(e) => dropped.has(e.id) && unitsOf(e).length > 0,
+		);
+		const untaggedDropped = droppedWithText.filter((e) =>
+			waiting.has(e.id),
+		).length;
+		const taggedDropped = droppedWithText.length - untaggedDropped;
 		recordContribution(contributions, SELECTION_RECORD_ID, {
 			...status.current(),
 			store: store.kind,
@@ -136,9 +147,20 @@ export function selectionContributor(
 				(c) => (holds.get(c.unit.hash) ?? 1) < HOLDS_THRESHOLD,
 			).length,
 			unchecked: chosen.filter((c) => !holds.has(c.unit.hash)).length,
-			untagged: untagged(branch, tags).filter((e) => dropped.has(e.id)).length,
+			untagged: untaggedDropped,
 			refs,
 			spend: store.spend(branch),
+			...store.elapsed(branch),
+			...(chosen.length === 0
+				? {
+						nothingQuoted: whyNothingQuoted({
+							candidates,
+							holds,
+							taggedDropped,
+							untaggedDropped,
+						}),
+					}
+				: {}),
 		});
 	};
 
@@ -162,18 +184,22 @@ export function selectionContributor(
 		for (const [at, request] of requests.entries()) {
 			if (signal.aborted) return;
 			const chunk = pending.slice(at * HOLDS_BATCH, (at + 1) * HOLDS_BATCH);
+			const started = Date.now();
 			const result = await classify(classifier.classify, request, signal);
+			const ms = Date.now() - started;
 			if (signal.aborted) return;
 			const recorded: SelectionHolds = result.ok
 				? {
 						holds: Object.fromEntries(holdsFrom(chunk, result.answers)),
 						model: result.model,
 						...(result.usage ? { usage: result.usage } : {}),
+						ms,
 					}
 				: {
 						holds: {},
 						model: classifier.label,
 						...(result.usage ? { usage: result.usage } : {}),
+						ms,
 						failed: result.reason,
 					};
 			if (result.ok || result.usage) store.recordHolds(recorded);
@@ -190,7 +216,10 @@ export function selectionContributor(
 			try {
 				if (budget === 0) {
 					if (firstKept) {
-						recordContribution(data, SELECTION_RECORD_ID, { budget });
+						recordContribution(data, SELECTION_RECORD_ID, {
+							budget,
+							nothingQuoted: "off",
+						});
 					}
 					return;
 				}
@@ -223,6 +252,17 @@ export function selectionContributor(
 			while (checking) await checking;
 		},
 	};
+}
+
+/** The entries after the branch's last compaction, which `untagged` reads. */
+function sinceLastCompaction(
+	branch: ReturnType<ExtensionContext["sessionManager"]["getBranch"]>,
+): typeof branch {
+	let start = 0;
+	branch.forEach((entry, at) => {
+		if (entry.type === "compaction") start = at + 1;
+	});
+	return branch.slice(start);
 }
 
 /** The ids of the entries a compaction keeping from `firstKeptEntryId` drops. */
