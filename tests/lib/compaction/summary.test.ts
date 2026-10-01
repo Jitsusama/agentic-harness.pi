@@ -29,6 +29,51 @@ describe("summaryInstruction", () => {
 		});
 		expect(text).toContain("Additional focus: keep the mastery layer state");
 	});
+
+	describe("sized to what it replaces", () => {
+		const sized = (replacedTokens: number, maxOutputTokens = 51_200) =>
+			summaryInstruction({
+				hasPreviousSummary: false,
+				length: { replacedTokens, maxOutputTokens },
+			});
+
+		it("asks for a tenth of what it replaces in place of the concise line", () => {
+			const text = sized(69_322);
+			expect(text).toContain("replaces about 69,300 tokens of conversation.");
+			expect(text).toContain("Make it about 6,900 tokens long");
+			expect(text).toContain("roughly 5,200 words");
+			expect(text).not.toContain("Keep each section concise");
+			expect(text).toContain("## Critical Context");
+		});
+
+		it("never asks for less than the floor", () => {
+			expect(sized(4_000)).toContain("Make it about 2,000 tokens long");
+		});
+
+		it("leaves room under the output limit for thinking", () => {
+			expect(sized(450_000)).toContain("Make it about 20,400 tokens long");
+			expect(sized(450_000, 8_000)).toContain(
+				"Make it about 3,200 tokens long",
+			);
+		});
+
+		it("counts the earlier summary in what a fold replaces", () => {
+			const text = summaryInstruction({
+				hasPreviousSummary: true,
+				length: { replacedTokens: 30_000, maxOutputTokens: 51_200 },
+			});
+			expect(text).toContain(
+				"30,000 tokens of conversation, the earlier summary included.",
+			);
+			expect(text).toContain("PRESERVE");
+		});
+
+		it("asks for the concise line when nothing sizes it", () => {
+			expect(summaryInstruction({ hasPreviousSummary: false })).toContain(
+				"Keep each section concise",
+			);
+		});
+	});
 });
 
 describe("readSummary", () => {

@@ -1,8 +1,9 @@
 /**
  * Compaction: when compacting pays for itself, the session history its
  * prices come from, the contract a summary provider implements and
- * registers over the bus, how a summary is asked for, read and spliced
- * onto the cached conversation, where a summary written ahead keeps from
+ * registers over the bus, how a summary is asked for and sized, read
+ * and spliced onto the cached conversation, where a summary written
+ * ahead keeps from
  * and why the kept tail never starts on a custom entry, what other
  * extensions contribute to it and record about it, the outcome said on
  * the bus for every compaction, the status each extension that takes
@@ -78,6 +79,7 @@ export {
 	type SpliceOutcome,
 	SUMMARY_SPAN,
 	type SummaryInstructionOptions,
+	type SummaryLength,
 	type SummaryOutcome,
 	type SummaryReply,
 	summaryInstruction,

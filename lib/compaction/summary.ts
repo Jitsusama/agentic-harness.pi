@@ -13,9 +13,12 @@
  *
  * The checkpoint format is pi's, word for word where it can be, so a
  * summary written this way reads like any other to what comes after.
+ * The one departure is its length: told how much it replaces, the
+ * summary is asked for about a tenth of that rather than to keep each
+ * section concise, which answered more about the compacted part of a
+ * session without answering more of it wrongly.
  */
 
-/** Options that shape the closing instruction. */
 /**
  * The line a summary written from the whole conversation opens with.
  * It describes the state at the end, yet sits before the messages kept
@@ -25,12 +28,58 @@
 export const SUMMARY_SPAN =
 	"[This summary describes the state at the end of the conversation it replaces, so it already covers the most recent messages, which follow it verbatim.]";
 
+/** Options that shape the closing instruction. */
 export interface SummaryInstructionOptions {
 	/** Whether the conversation opens with an earlier compaction's summary. */
 	readonly hasPreviousSummary: boolean;
 	/** Extra focus from a manual /compact or another extension. */
 	readonly customInstructions?: string;
+	/**
+	 * What the summary replaces and may spend, which sizes it. Without
+	 * this the summary is asked to keep each section concise, as pi asks.
+	 */
+	readonly length?: SummaryLength;
 }
+
+/** What a summary's length is sized from. */
+export interface SummaryLength {
+	/**
+	 * pi's own estimate (`estimateTokens`, four characters a token) of
+	 * the messages the summary replaces, an earlier summary included.
+	 * The share below was measured against this estimate, which runs at
+	 * about half a real token count, so a real count would ask for twice
+	 * what was tested.
+	 */
+	readonly replacedTokens: number;
+	/** The most output the summary may take, thinking included. */
+	readonly maxOutputTokens: number;
+}
+
+/**
+ * The share of what it replaces a summary is asked to take. A tenth
+ * lifted continuation answers from 0.556 to 0.640 against the concise
+ * line, and from 0.647 to 0.711 beside excerpts, with fewer questions
+ * answered wrongly or not at all; a twentieth gained about two thirds
+ * of that.
+ */
+const SUMMARY_SHARE_OF_REPLACED = 0.1;
+
+/** The shortest summary asked for, however little it replaces. */
+const MIN_SUMMARY_TARGET_TOKENS = 2_000;
+
+/**
+ * The share of the output limit a summary may be asked to fill. The
+ * model thought for about as long as it wrote, so this leaves the rest
+ * of the limit for thinking rather than letting a long context ask for
+ * a summary the cap would cut off.
+ */
+const TARGET_SHARE_OF_OUTPUT = 0.4;
+
+/** Counts are said to the hundred, so the request reads as a size and not a quota. */
+const ROUNDING = 100;
+
+/** About how many words a token is in English prose. */
+const WORDS_PER_TOKEN = 0.75;
 
 /** What the model's reply has to show to become a checkpoint. */
 export interface SummaryReply {
@@ -53,6 +102,10 @@ export interface FileOperations {
 	readonly edited: ReadonlySet<string>;
 	readonly written: ReadonlySet<string>;
 }
+
+/** pi's closing line, which a sized summary replaces. */
+const CONCISE =
+	"Keep each section concise. Preserve exact file paths, function names, and error messages.";
 
 const FORMAT = `Use this EXACT format:
 
@@ -83,7 +136,7 @@ const FORMAT = `Use this EXACT format:
 - [Any data, examples, or references needed to continue]
 - [Or "(none)" if not applicable]
 
-Keep each section concise. Preserve exact file paths, function names, and error messages.`;
+${CONCISE}`;
 
 const FOLD_PREVIOUS = `The conversation above begins with a summary of earlier history. Fold it into the new summary:
 - PRESERVE all existing information from that summary that still matters
@@ -98,12 +151,47 @@ export function summaryInstruction(options: SummaryInstructionOptions): string {
 		"[This message is from the harness, not the user.] The session is being compacted: the conversation above will be replaced by a summary you write now, and the most recent messages will be kept verbatim after it. Stop work on the task. Do not call any tool and do not continue the conversation. Write a structured context checkpoint summary that you will use to continue the work.",
 	];
 	if (options.hasPreviousSummary) parts.push(FOLD_PREVIOUS);
-	parts.push(FORMAT);
+	parts.push(
+		options.length
+			? FORMAT.replace(
+					CONCISE,
+					lengthLine(options.length, options.hasPreviousSummary),
+				)
+			: FORMAT,
+	);
 	if (options.customInstructions) {
 		parts.push(`Additional focus: ${options.customInstructions}`);
 	}
 	parts.push("Reply with the summary only.");
 	return parts.join("\n\n");
+}
+
+/** The size a summary is asked for: a share of what it replaces, within the floor and the output limit. */
+function summaryTarget(length: SummaryLength): number {
+	const ceiling =
+		Math.floor((TARGET_SHARE_OF_OUTPUT * length.maxOutputTokens) / ROUNDING) *
+		ROUNDING;
+	const wanted = Math.max(
+		MIN_SUMMARY_TARGET_TOKENS,
+		roundToHundred(SUMMARY_SHARE_OF_REPLACED * length.replacedTokens),
+	);
+	return Math.max(ROUNDING, Math.min(ceiling, wanted));
+}
+
+function roundToHundred(n: number): number {
+	return Math.max(ROUNDING, Math.round(n / ROUNDING) * ROUNDING);
+}
+
+const count = (n: number) => n.toLocaleString("en-CA");
+
+/**
+ * The line that takes the concise one's place, worded as it was
+ * measured: the size, the reason for it, and what to spend it on.
+ */
+function lengthLine(length: SummaryLength, folding: boolean): string {
+	const target = summaryTarget(length);
+	const words = roundToHundred(target * WORDS_PER_TOKEN);
+	return `This summary replaces about ${count(roundToHundred(length.replacedTokens))} tokens of conversation${folding ? ", the earlier summary included" : ""}. Make it about ${count(target)} tokens long (roughly ${count(words)} words): its length should grow with what it replaces, so do not squeeze it onto a short page. Spend that length on what a successor needs to carry on without asking: each decision and its reason, each point where the plan changed course and what replaced it, what was finished and how it ended, what is still open, standing instructions in the user's own terms, and the exact file paths, commands, numbers, names, identifiers and error messages they depend on. Do not narrate how the session went.`;
 }
 
 /** Read a summary out of the model's reply, refusing one that cannot be persisted. */

@@ -115,12 +115,12 @@ const ranTools = { message: {}, toolResults: [{}] };
 /**
  * A session at 300k after a 60k first turn, short retention: each turn
  * pays (300k - 90k kept) x $0.20/M = $0.042 in rent, against a cost of
- * $0.214 summary + $0.432 rewrite + $0.189 re-fetching = $0.835, so the
- * twentieth turn at 300k is the first the rent covers it.
+ * $0.312 summary + $0.432 rewrite + $0.189 re-fetching = $0.933, so the
+ * twenty-third turn at 300k is the first the rent covers it.
  *
  * With nothing sent, the conversation provider declines and pi's
  * summariser would write it, reading the context uncached: the summary
- * is $1.20 + $0.154 and the whole $1.975, so it is the forty-eighth.
+ * is $1.20 + $0.252 and the whole $2.073, so it is the fiftieth.
  */
 async function toTheEdge(withSentRequest: boolean) {
 	const { fire, resumed } = activate();
@@ -131,7 +131,7 @@ async function toTheEdge(withSentRequest: boolean) {
 	state.leaf = "a1";
 	await fire("turn_end", ranTools, ctx);
 	state.tokens = 300_000;
-	const short = withSentRequest ? 19 : 47;
+	const short = withSentRequest ? 22 : 49;
 	for (let turn = 0; turn < short; turn++)
 		await fire("turn_end", ranTools, ctx);
 	return { fire, resumed, state, ctx };
@@ -285,6 +285,9 @@ describe("compacting an idle session before its cache expires", () => {
 		const { fire } = activate();
 		const { state, ctx } = session();
 		await fire("session_start", { reason: "startup" }, ctx);
+		await fire("before_provider_request", { payload }, ctx);
+		state.branch = [userEntry, replyEntry];
+		state.leaf = "a1";
 		await fire("turn_end", ranTools, ctx);
 		state.tokens = tokens;
 		await fire("turn_end", ranTools, ctx);
@@ -295,7 +298,8 @@ describe("compacting an idle session before its cache expires", () => {
 
 	it("compacts a large context five minutes before the hour is up", async () => {
 		// Back after the hour, 280k would be written at $8/M; compacted,
-		// only the 90k kept is. $1.52 avoided against about $0.40.
+		// only the 90k kept is. $1.52 avoided against about $0.50: the
+		// summary read from cache and written, and the re-fetching.
 		const { state } = await idleAt(280_000);
 		vi.advanceTimersByTime(FIFTY_FOUR_MINUTES);
 		expect(state.compactions).toHaveLength(0);

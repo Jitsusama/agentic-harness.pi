@@ -33,11 +33,15 @@
  * screen anybody reads.
  */
 
-import type {
-	CompactionResult,
-	ExtensionAPI,
-	ExtensionContext,
-	SessionBeforeCompactEvent,
+import {
+	buildSessionContext,
+	type CompactionResult,
+	DEFAULT_COMPACTION_SETTINGS,
+	type ExtensionAPI,
+	type ExtensionContext,
+	estimateTokens,
+	type SessionBeforeCompactEvent,
+	type SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 import { resolveChain } from "../../lib/compaction/chain.ts";
 import {
@@ -86,6 +90,21 @@ export const SUMMARY_WALL_MS = 12 * 60_000;
  * re-established, short beside the minute or two a summary takes.
  */
 export const RETRY_PAUSE_MS = 2_000;
+
+/**
+ * pi's estimate of what a summary covering the branch to `leafId`
+ * replaces: every message the context holds, an earlier summary
+ * included, less the tail pi keeps verbatim after it.
+ */
+function replacedTokens(
+	branch: readonly SessionEntry[],
+	leafId: string,
+	keepRecentTokens: number,
+): number {
+	const { messages } = buildSessionContext([...branch], leafId);
+	const total = messages.reduce((sum, m) => sum + estimateTokens(m), 0);
+	return Math.max(0, total - keepRecentTokens);
+}
 
 /** pi's own cap on a summary: this share of the reserve. */
 const SUMMARY_SHARE_OF_RESERVE = 0.8;
@@ -284,7 +303,17 @@ export function registerCompactionHost(
 		const coveredLeafId = ctx.sessionManager.getLeafId();
 		if (coveredLeafId === null) return undefined;
 		const branch = ctx.sessionManager.getBranch();
+		const keepRecentTokens =
+			details.preparation?.settings.keepRecentTokens ??
+			DEFAULT_COMPACTION_SETTINGS.keepRecentTokens;
+		let replaced: number | undefined;
 		return {
+			// Estimated on first read, since a request built only to price a
+			// summary never needs it and the estimate reads the whole branch.
+			get replacedTokens() {
+				replaced ??= replacedTokens(branch, coveredLeafId, keepRecentTokens);
+				return replaced;
+			},
 			timing,
 			reason,
 			ctx,

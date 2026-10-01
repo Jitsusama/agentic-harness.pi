@@ -307,9 +307,13 @@ async function writeFrom(
 		model.maxTokens,
 		planned.room ?? Number.POSITIVE_INFINITY,
 	);
+	const replacedTokens = request.replacedTokens;
 	const instruction = summaryInstruction({
 		hasPreviousSummary: request.hasPreviousSummary,
 		customInstructions: combinedFocus(request.focus),
+		...(replacedTokens !== undefined
+			? { length: { replacedTokens, maxOutputTokens: maxTokens } }
+			: {}),
 	});
 	const messages = convertToLlm([
 		...planned.tail,
