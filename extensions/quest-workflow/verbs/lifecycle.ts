@@ -65,6 +65,7 @@ import {
 	showLoaded,
 	showQuestById,
 } from "../lookup.ts";
+import { livePeers, peersSaid } from "../peers.ts";
 import { trackSession } from "../session-registry.ts";
 
 /**
@@ -422,6 +423,9 @@ export async function load(
 
 	const loaded = await showLoaded(state);
 	const priorSessions = loaded?.frontMatter.sessions ?? [];
+	// Read before this session attaches, since attaching writes this
+	// process's identity over the record it finds.
+	const peers = peersSaid(state.questId ?? "", livePeers(priorSessions));
 
 	const { sid, attached, reconciled } = moveSessionOnto(state, ctx, {
 		questId: priorQuestId,
@@ -452,6 +456,7 @@ export async function load(
 		message += `. Detached this session from ${count(reconciled.length, "other quest")}.`;
 	}
 	if (focused) message += ` ${focused}`;
+	if (peers) message += ` ${peers}`;
 
 	return ok(message, {
 		id: state.questId,

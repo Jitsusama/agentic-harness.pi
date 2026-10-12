@@ -70,6 +70,7 @@ import {
 	resolveStartup,
 } from "./lifecycle.ts";
 import { recentSessionHints, showLoaded } from "./lookup.ts";
+import { sayPeersOnStartup } from "./peers.ts";
 import { questsTouchedBy, RecordWatch } from "./record-watch.ts";
 import { formatQuestList, renderStatus, renderWidget } from "./render.ts";
 import {
@@ -673,6 +674,8 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			// load verb, so pruning only there would rarely fire. The
 			// no-op case is cheap (it skips the write).
 			prunePhantomSessionsOnLoaded(state);
+			// Before attaching, which writes this process over the record.
+			sayPeersOnStartup(state, pi, ctx);
 			const sid = currentSessionId(ctx, undefined);
 			attachCurrentSession(state, {
 				id: sid,
