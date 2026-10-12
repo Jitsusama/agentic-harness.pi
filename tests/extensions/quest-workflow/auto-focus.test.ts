@@ -120,7 +120,10 @@ describe("loading a quest", () => {
 		const { state, message } = await loadFresh(id);
 
 		expect(state.documentId).toBeNull();
-		expect(message).toContain(`2 active plans (${plans[1]}, ${plans[2]})`);
+		expect(message).toContain("2 active plans (");
+		expect(message).toContain(plans[1]);
+		expect(message).toContain(plans[2]);
+		expect(message).not.toContain(plans[0]);
 	});
 
 	it("focuses nothing when every plan is done", async () => {
