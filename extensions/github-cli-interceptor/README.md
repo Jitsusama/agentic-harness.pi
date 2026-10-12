@@ -5,6 +5,10 @@ rules. Blocks gh pr/issue commands that use the wrong body
 format or pack metadata into create commands, directing the
 LLM to read the convention skill and retry.
 
+These refusals belong to the `github-cli` guard, a redirect that
+blocks by default. See
+[guard-policy-workflow](../guard-policy-workflow/README.md).
+
 ## What It Catches
 
 - `gh pr/issue create/edit` with `--body` instead of

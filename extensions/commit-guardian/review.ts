@@ -1,7 +1,7 @@
 /**
  * Commit guardian review: presents the commit message for
- * approval with validation indicators and hold-to-reveal
- * annotations.
+ * approval with validation indicators, or in report mode puts the
+ * same message and marks in the transcript and lets it run.
  */
 
 import type {
@@ -20,8 +20,11 @@ import {
 	type CommandGuardian,
 	formatRedirectBlock,
 	type GuardianResult,
+	refusalUnder,
+	reportGuard,
 } from "../../lib/guardian/index.ts";
 import { sessionGateDeps } from "../../lib/internal/gate/session-deps.ts";
+import { GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { isVerificationFailing } from "../../lib/internal/verification/signal.ts";
 import { promptSingle } from "../../lib/ui/index.ts";
 import { extractMessage, isCommitCommand } from "./parse.ts";
@@ -61,27 +64,46 @@ export function createCommitGuardian(
 		async review(
 			parsed: CommitParsed,
 			ctx: ExtensionContext,
+			mode = "block",
 		): Promise<GuardianResult> {
 			// Refuse a commit while verification reports the code is
-			// failing. This guardian is skipped entirely when git
-			// interception is bypassed, so the bypass toggle is the
-			// escape hatch when the block is wrong or stale.
-			if (isVerificationFailing()) {
-				return {
-					block: true,
-					reason:
-						"Verification reports errors in files changed this run. " +
-						"Fix them before committing, or toggle the git bypass to " +
-						"commit anyway.",
-				};
-			}
+			// failing. The guard has its own name, so when the block is
+			// wrong or stale it can be switched without the commit panel.
+			const failing = refusalUnder(
+				GUARDS.commitVerification.name,
+				isVerificationFailing()
+					? {
+							block: true,
+							reason:
+								"Verification reports errors in files changed this run. " +
+								"Fix them before committing. If the report is wrong or " +
+								"stale, ask the user to run `/guards commit-verification report`.",
+						}
+					: undefined,
+				"Committed while verification reports errors",
+			);
+			if (failing) return failing;
 
-			// Block on detectable prose violations in the commit message
-			// body before the human gate; relent to human review on a
-			// repeat. prose-standard governs commit body tone, spelling
-			// and punctuation even though commit-format owns structure.
-			const proseBlock = runProseGate(sessionGateDeps(ctx, pi), parsed.message);
+			// Prose violations in the message body. prose-standard governs
+			// commit body tone, spelling and punctuation even though
+			// commit-format owns structure; the gate relents on a repeat.
+			const proseBlock = refusalUnder(
+				GUARDS.prose.name,
+				runProseGate(sessionGateDeps(ctx, pi), parsed.message),
+				"Commit message prose",
+			);
 			if (proseBlock) return proseBlock;
+
+			if (mode === "report") {
+				reportGuard({
+					guard: GUARDS.commit.name,
+					kind: "shown",
+					title: parsed.isAmend ? "Amend Commit" : "Commit",
+					body: commitReportBody(parsed.message, parsed.isAmend),
+					notes: validationMarks(validate(parsed.message)).map((m) => m.text),
+				});
+				return ALLOW;
+			}
 
 			// Without a UI the gate has done its job and there is no
 			// panel to show; allow rather than block so headless and
@@ -137,34 +159,49 @@ export function createCommitGuardian(
 	};
 }
 
-/** Render validation as a compact indicator line. */
-function renderValidation(v: CommitValidation, theme: Theme): string {
-	const parts: string[] = [];
-	const dot = theme.fg("dim", " · ");
+/** One validation mark: whether it passed and what it says. */
+interface ValidationMark {
+	ok: boolean;
+	text: string;
+}
 
-	parts.push(
+/** The validation results as marks, shared by the panel and the report. */
+export function validationMarks(v: CommitValidation): ValidationMark[] {
+	const marks: ValidationMark[] = [
 		v.subjectOk
-			? theme.fg("success", `✓ ${v.subjectLength} chars`)
-			: theme.fg("warning", `⚠ ${v.subjectLength} chars (limit: 50)`),
-	);
-
+			? { ok: true, text: `✓ ${v.subjectLength} chars` }
+			: { ok: false, text: `⚠ ${v.subjectLength} chars (limit: 50)` },
+	];
 	if (v.bodyLongestLine > 0) {
-		parts.push(
+		marks.push(
 			v.bodyWrapOk
-				? theme.fg("success", "✓ wrap")
-				: theme.fg(
-						"warning",
-						`⚠ line ${v.bodyLongestLineNum}: ${v.bodyLongestLine} chars`,
-					),
+				? { ok: true, text: "✓ wrap" }
+				: {
+						ok: false,
+						text: `⚠ line ${v.bodyLongestLineNum}: ${v.bodyLongestLine} chars`,
+					},
 		);
 	}
-
-	parts.push(
+	marks.push(
 		v.conventionalOk
-			? theme.fg("success", "✓ conventional")
-			: theme.fg("warning", "⚠ not conventional"),
+			? { ok: true, text: "✓ conventional" }
+			: { ok: false, text: "⚠ not conventional" },
 	);
+	return marks;
+}
 
+/** The commit message as report markdown, fenced so it reads verbatim. */
+export function commitReportBody(message: string, isAmend: boolean): string {
+	const fenced = `\`\`\`text\n${message.trimEnd()}\n\`\`\``;
+	return isAmend ? `${fenced}\n\nAmends the previous commit.` : fenced;
+}
+
+/** Render validation as a compact indicator line. */
+function renderValidation(v: CommitValidation, theme: Theme): string {
+	const dot = theme.fg("dim", " · ");
+	const parts = validationMarks(v).map((m) =>
+		theme.fg(m.ok ? "success" : "warning", m.text),
+	);
 	return ` ${parts.join(dot)}`;
 }
 

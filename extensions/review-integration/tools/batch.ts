@@ -22,6 +22,7 @@ import type {
 	Thread,
 } from "@jitsusama/agentic-harness.core/review";
 import { isReactableRefusal } from "@jitsusama/agentic-harness.core/review";
+import { GUARDS } from "../../../lib/internal/guardian/guards.ts";
 import { confirmBatch, type GateItem, REDIRECT_QUOTE_WIDTH } from "../gate.ts";
 import {
 	anchorLabel,
@@ -219,6 +220,7 @@ export async function runBatch(
 		ctx,
 		batchTitle(items, change.label),
 		gateItems,
+		GUARDS.reviewSay.name,
 	);
 	if (!decision.proceed) {
 		return decision.redirect

@@ -29,6 +29,7 @@ import {
 	type ReviewSubstrateApi,
 	registerReviewProvider,
 } from "@jitsusama/agentic-harness.core/review";
+import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import {
 	ReviewerArtifactsStore,
 	recoverReviewerRuns,
@@ -331,6 +332,7 @@ async function reapOrphanedReviewers(transcripts: string): Promise<void> {
 }
 
 export default function reviewIntegration(pi: ExtensionAPI) {
+	declareGuards(GUARDS.reviewOffer, GUARDS.reviewSay, GUARDS.reviewPublish);
 	registerBuiltinReviewProviders(pi);
 
 	const stoppable = withToolCallSignals(pi);

@@ -63,12 +63,16 @@ an edit lands,
 `verification-workflow` runs the right check and closes the
 trust gap, and `code-style-standard` keeps the code readable.
 
-**Keep history clean.** A family of guardians gates the
-irreversible moments for your review: `commit-guardian`,
-`pr-guardian`, `issue-guardian` and `history-guardian`.
-Interceptors quietly enforce convention as the agent types:
+**Keep history clean.** A family of guardians watches the
+moments worth reviewing: `commit-guardian`, `pr-guardian`,
+`issue-guardian` and `history-guardian`. Interceptors quietly
+enforce convention as the agent types:
 `attribution-interceptor`, `git-cli-interceptor` and
-`github-cli-interceptor`. The matching skills (`commit-format`,
+`github-cli-interceptor`. By default a guard reports what it saw
+in the transcript and lets the work go on, and blocks only where
+a mistake reaches somebody else, cannot be undone, or has a
+right form to retry with. `/guards` in `guard-policy-workflow`
+switches any of them to block, report or off. The matching skills (`commit-format`,
 `git-commit-convention`, the `github-*` conventions and more)
 teach the rules the gates hold.
 

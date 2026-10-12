@@ -17,6 +17,7 @@ import { Type } from "@sinclair/typebox";
 import type { OAuth2Client } from "google-auth-library";
 import { ensureAuthenticated } from "../../lib/google/auth/ensure-auth.ts";
 import { ensureOAuthApp } from "../../lib/google/auth/setup-wizard.ts";
+import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { singleFlight } from "../../lib/internal/single-flight.ts";
 import { handleGoogleAuthCommand } from "./auth-command.ts";
 import { renderGoogleCall } from "./render-call.ts";
@@ -30,6 +31,7 @@ const ENV_OAUTH_CONFIG = {
 };
 
 export default function googleWorkspace(pi: ExtensionAPI) {
+	declareGuards(GUARDS.google);
 	/** Cached OAuth clients keyed by account name. */
 	const clientCache = new Map<string, OAuth2Client>();
 	/** One login per account, however many calls find it signed out. */

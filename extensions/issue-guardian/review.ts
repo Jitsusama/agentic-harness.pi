@@ -12,11 +12,13 @@ import { runProseGate } from "@jitsusama/agentic-harness.core/guardian/prose-gat
 import { runSectionGate } from "@jitsusama/agentic-harness.core/guardian/section-gate";
 import { runTitleGate } from "@jitsusama/agentic-harness.core/guardian/title-gate";
 import { ISSUE_SECTIONS } from "@jitsusama/agentic-harness.core/sections";
+import { refusalUnder } from "../../lib/guardian/apply.ts";
 import type {
 	CommandGuardian,
 	GuardianResult,
 } from "../../lib/guardian/types.ts";
 import { sessionGateDeps } from "../../lib/internal/gate/session-deps.ts";
+import { GUARDS } from "../../lib/internal/guardian/guards.ts";
 import {
 	type EntityReviewConfig,
 	reviewMarkdownEntity,
@@ -42,6 +44,7 @@ const ISSUE_REVIEW_CONFIG: EntityReviewConfig = {
 	createTitle: "New Issue",
 	editTitle: "Issue Edit",
 	entityLabel: "issue",
+	guard: GUARDS.issue.name,
 };
 
 /**
@@ -66,6 +69,7 @@ export function createIssueGuardian(
 		async review(
 			parsed: IssueCommand,
 			ctx: ExtensionContext,
+			mode = "block",
 		): Promise<GuardianResult> {
 			const deps = sessionGateDeps(ctx, pi);
 
@@ -73,26 +77,34 @@ export function createIssueGuardian(
 			// missing section is a structural problem; there is no point
 			// polishing the words in a section that should not exist, so
 			// the section gate runs first.
-			const sectionBlock = runSectionGate(
-				deps,
-				parsed.body,
-				ISSUE_SECTION_CONFIG,
+			const sectionBlock = refusalUnder(
+				GUARDS.sections.name,
+				runSectionGate(deps, parsed.body, ISSUE_SECTION_CONFIG),
+				"Issue sections",
 			);
 			if (sectionBlock) return sectionBlock;
 
 			// The title carries its own convention (descriptive, not
 			// conventional commit). Gate it before the body prose so a
 			// wrong title is caught with the structure, not after.
-			const titleBlock = runTitleGate(deps, parsed.title, ISSUE_TITLE_CONFIG);
+			const titleBlock = refusalUnder(
+				GUARDS.titles.name,
+				runTitleGate(deps, parsed.title, ISSUE_TITLE_CONFIG),
+				"Issue title",
+			);
 			if (titleBlock) return titleBlock;
 
 			// Block on detectable prose violations before the human
 			// gate, so the user reviews a clean issue body. The gate
 			// relents to the human review on a repeat to avoid looping.
-			const proseBlock = runProseGate(deps, parsed.body);
+			const proseBlock = refusalUnder(
+				GUARDS.prose.name,
+				runProseGate(deps, parsed.body),
+				"Issue prose",
+			);
 			if (proseBlock) return proseBlock;
 
-			return reviewMarkdownEntity(ctx, parsed, ISSUE_REVIEW_CONFIG);
+			return reviewMarkdownEntity(ctx, parsed, ISSUE_REVIEW_CONFIG, mode);
 		},
 	};
 }

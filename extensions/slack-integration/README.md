@@ -82,5 +82,7 @@ slack-integration/
 - **OAuth2 flow**: user explicitly authorizes in their browser
 - **User tokens**: `xoxp-` tokens that act as the authenticated user
 - **Local storage**: tokens stored at `~/.pi/agent/slack.json`
-- **Confirmation gates**: write operations require approval
+- **Confirmation gates**: write operations require approval.
+  They are the `slack` guard, which blocks by default, since a
+  message reaches other people the moment it lands.
 - **CSRF protection**: OAuth state parameter prevents forgery

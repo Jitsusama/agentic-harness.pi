@@ -20,7 +20,10 @@
  * a satisfiable remedy.
  *
  * This blocks the agent, never the human. It returns an
- * agent-facing reason, never a prompt.
+ * agent-facing reason, never a prompt. Each verdict names the guard
+ * that gave it, and the caller asks the guard policy whether that
+ * guard blocks: an untracked tree is adopted rather than refused by
+ * default, so its verdict also carries the root to adopt.
  */
 
 import { existsSync } from "node:fs";
@@ -28,7 +31,6 @@ import { homedir, tmpdir } from "node:os";
 import * as path from "node:path";
 import type { ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import {
-	bashWriteTargets,
 	classifyBashWrite,
 	resolveBashWrites,
 } from "@jitsusama/agentic-harness.core/quest/bash-write";
@@ -41,6 +43,7 @@ import {
 	classifyWrite,
 	type WriteClassification,
 } from "@jitsusama/agentic-harness.core/quest/write-classifier";
+import { GUARDS } from "../../lib/internal/guardian/guards.ts";
 import {
 	canonicalPath,
 	gitTreeRootOf,
@@ -51,6 +54,14 @@ import {
 import { listTreesOnQuest } from "../../lib/internal/quest/trees.ts";
 import type { QuestState } from "./state.ts";
 import { defaultWorkspaceRoot, workspaceDirOf } from "./workspace.ts";
+
+/** A quest gate's verdict, naming the guard that gave it. */
+export type QuestVerdict = ToolCallEventResult & {
+	/** The guard whose mode decides whether this blocks. */
+	guard: string;
+	/** For a write into an untracked tree: the root to adopt instead. */
+	adopt?: string;
+};
 
 function isReadOnly(state: QuestState): boolean {
 	if (state.documentKind !== "plan") return false;
@@ -68,19 +79,26 @@ function isGateActive(state: QuestState): boolean {
 	return stage === "think" || stage === "draft" || stage === "build";
 }
 
-/** The destination paths a tool call writes to, resolved against cwd. */
+/**
+ * The destination paths a tool call writes to. Bash targets resolve
+ * the way the shell would: `~` is the home directory and a `cd` moves
+ * what a relative path means. A target whose place the command does
+ * not say is left out, as the record gate leaves it out.
+ */
 function writeTargetsOf(
 	toolName: string,
 	input: Record<string, unknown>,
 	cwd: string,
+	options: EnforceOptions,
 ): string[] {
 	if (toolName === "write" || toolName === "edit") {
 		return [path.resolve(cwd, String(input.path ?? ""))];
 	}
 	if (toolName === "bash") {
-		return bashWriteTargets(String(input.command ?? "")).map((t) =>
-			path.resolve(cwd, t),
-		);
+		return resolveBashWrites(String(input.command ?? ""), {
+			cwd,
+			home: options.home ?? homedir(),
+		}).paths;
 	}
 	return [];
 }
@@ -98,15 +116,16 @@ function systemTempFunnel(
 	input: Record<string, unknown>,
 	cwd: string,
 	options: EnforceOptions,
-): ToolCallEventResult | undefined {
+): QuestVerdict | undefined {
 	const root = options.workspaceRoot ?? defaultWorkspaceRoot();
 	if (!state.questDir || !workspaceDirOf(root, state.questId)) return;
-	const hitsTemp = writeTargetsOf(toolName, input, cwd).some(
+	const hitsTemp = writeTargetsOf(toolName, input, cwd, options).some(
 		(t) => classifyTarget(state, t, options).category === "system-temp",
 	);
 	if (!hitsTemp) return;
 	const dir = ensureQuestWorkspaceTmp(root, state.questId ?? "");
 	return {
+		guard: GUARDS.questTemp.name,
 		block: true,
 		reason: `Quest workflow: this writes to system temp, which is not tracked or reaped. Redirect into the tmp/ folder of this quest's workspace instead, which is cleared when the quest concludes: ${dir}`,
 	};
@@ -186,12 +205,13 @@ function enforcePhase(
 	input: Record<string, unknown>,
 	cwd: string,
 	options: EnforceOptions,
-): ToolCallEventResult | undefined {
+): QuestVerdict | undefined {
 	if (toolName === "write" || toolName === "edit") {
 		if (isFocusedDocWrite(toolName, input, state.documentPath, cwd)) return;
 		const target = path.resolve(cwd, String(input.path ?? ""));
 		if (classifyTarget(state, target, options).category === "tracked-code") {
 			return {
+				guard: GUARDS.questPlanStage.name,
 				block: true,
 				reason: `Quest workflow (plan ${state.documentStage}): this edits already-tracked code. Move to build to implement, or keep planning notes in the plan, the quest's attachments/ or its workspace.`,
 			};
@@ -204,18 +224,18 @@ function enforcePhase(
 		const kind = classifyBashWrite(command);
 		if (kind === "git-mutating") {
 			return {
+				guard: GUARDS.questPlanStage.name,
 				block: true,
 				reason: `Quest workflow (plan ${state.documentStage}): git-mutating command blocked. Move to build first.`,
 			};
 		}
 		if (kind === "bash-write") {
-			const lands = bashWriteTargets(command)
-				.map(
-					(t) => classifyTarget(state, path.resolve(cwd, t), options).category,
-				)
+			const lands = writeTargetsOf(toolName, input, cwd, options)
+				.map((t) => classifyTarget(state, t, options).category)
 				.some((category) => category === "tracked-code");
 			if (lands) {
 				return {
+					guard: GUARDS.questPlanStage.name,
 					block: true,
 					reason: `Quest workflow (plan ${state.documentStage}): this bash write targets already-tracked code. Move to build first, or redirect to a scratch path. Use the write/edit tools for normal edits.`,
 				};
@@ -230,9 +250,10 @@ function enforcePhase(
  * The build-phase home gate: a quest in build keeps its code in a
  * tree it accounts for. A write inside a tree the quest tracks is a
  * code home and flows. A write inside a git tree the quest does not
- * track is blocked with adoption guidance, so the quest comes to
- * account for every tree its code lives in; the remedy is one
- * satisfiable step (tree-adopt), never a dead end. A genuinely
+ * track names that tree for adoption, so the quest comes to account
+ * for every tree its code lives in: by default the caller adopts it,
+ * and in block mode the agent is told to. A write into any quest's
+ * record is the record gate's business, not this one's. A genuinely
  * homeless write -- outside every git tree, and not a device,
  * scratch or quest-internal -- is blocked with tree-add guidance.
  *
@@ -257,22 +278,28 @@ function enforceHome(
 	input: Record<string, unknown>,
 	cwd: string,
 	options: EnforceOptions,
-): ToolCallEventResult | undefined {
+): QuestVerdict | undefined {
 	if (!state.questDir || !state.questId) return;
 	if (state.documentKind !== "plan" || state.documentStage !== "build") return;
 	const tracked = trackedTreePaths(state);
-	const looseBlock = (): ToolCallEventResult => ({
+	const looseBlock = (): QuestVerdict => ({
+		guard: GUARDS.questHomeless.name,
 		block: true,
 		reason:
 			"Quest workflow: this quest is in build, but this write lands outside every git working tree. Run `tree-add` to scaffold one (pass cwd to choose the repo, no need to change your session's directory), or write inside a git tree this quest works in. Do not unload the quest to bypass this.",
 	});
-	const adoptBlock = (root: string): ToolCallEventResult => ({
+	const adoptBlock = (root: string): QuestVerdict => ({
+		guard: GUARDS.questUntrackedTree.name,
+		adopt: root,
 		block: true,
 		reason: `Quest workflow: this write lands in ${root}, a git tree this quest does not track yet. Register it so the quest accounts for it: run the quest tree-adopt action with cwd set to a path inside ${root}. You do not need to change your session's directory; the cwd parameter is the adoption target. Adopted trees are tracked and never auto-pruned. Do not unload the quest to bypass this.`,
 	});
 	// A write inside a tracked tree flows; one inside an untracked git
 	// tree gets adoption guidance; a homeless one gets tree-add.
-	const verdict = (target: string): ToolCallEventResult | undefined => {
+	const verdict = (target: string): QuestVerdict | undefined => {
+		// Every quest's folder holds its record, whichever quest is loaded,
+		// and the record gate has already judged the write.
+		if (isWithin(target, state.questsRoot)) return;
 		const classification = classifyTarget(state, target, options);
 		if (classification.category === "loose-file") return looseBlock();
 		const root = classification.treeRoot;
@@ -280,7 +307,7 @@ function enforceHome(
 		if (tracked.some((p) => isWithin(root, p))) return;
 		return adoptBlock(root);
 	};
-	for (const target of writeTargetsOf(toolName, input, cwd)) {
+	for (const target of writeTargetsOf(toolName, input, cwd, options)) {
 		const result = verdict(target);
 		if (result) return result;
 	}
@@ -337,7 +364,7 @@ function enforceRecord(
 	input: Record<string, unknown>,
 	cwd: string,
 	options: EnforceOptions,
-): ToolCallEventResult | undefined {
+): QuestVerdict | undefined {
 	const roots = {
 		questsRoot: state.questsRoot,
 		workspaceRoot: options.workspaceRoot ?? defaultWorkspaceRoot(),
@@ -350,26 +377,48 @@ function enforceRecord(
 	)) {
 		const refusal = judgeRecordWrite(write, roots);
 		if (refusal) {
-			return { block: true, reason: `Quest workflow: ${refusal.reason}` };
+			return {
+				guard: GUARDS.questRecord.name,
+				block: true,
+				reason: `Quest workflow: ${refusal.reason}`,
+			};
 		}
 	}
 	return;
 }
 
-/** Check a tool call against the record and the focused document's discipline. */
+/**
+ * Every gate's verdict on a tool call, in the order the gates run: the
+ * record, then system temp, then the plan stage or the build home. The
+ * caller applies each guard's mode, so a gate switched to report does
+ * not hide the ones after it.
+ */
+export function questVerdicts(
+	state: QuestState,
+	toolName: string,
+	input: Record<string, unknown>,
+	cwd: string,
+	options: EnforceOptions = {},
+): QuestVerdict[] {
+	const verdicts = [enforceRecord(state, toolName, input, cwd, options)];
+	if (isGateActive(state)) {
+		verdicts.push(systemTempFunnel(state, toolName, input, cwd, options));
+		verdicts.push(
+			isReadOnly(state)
+				? enforcePhase(state, toolName, input, cwd, options)
+				: enforceHome(state, toolName, input, cwd, options),
+		);
+	}
+	return verdicts.filter((v): v is QuestVerdict => v !== undefined);
+}
+
+/** The first gate's verdict on a tool call, as if every guard blocked. */
 export function enforceQuest(
 	state: QuestState,
 	toolName: string,
 	input: Record<string, unknown>,
 	cwd: string,
 	options: EnforceOptions = {},
-): ToolCallEventResult | undefined {
-	const record = enforceRecord(state, toolName, input, cwd, options);
-	if (record) return record;
-	if (!isGateActive(state)) return;
-	const funnel = systemTempFunnel(state, toolName, input, cwd, options);
-	if (funnel) return funnel;
-	if (isReadOnly(state))
-		return enforcePhase(state, toolName, input, cwd, options);
-	return enforceHome(state, toolName, input, cwd, options);
+): QuestVerdict | undefined {
+	return questVerdicts(state, toolName, input, cwd, options)[0];
 }

@@ -35,6 +35,12 @@ of slipping into the wild for someone to spot in a bad artifact.
 | ⚪ | **Skill-only.** Judgment-based rule, not mechanically detectable. Lives in the skill and the resident reminder. |
 | 🔴 | **Gap.** Gateable rule with no gate. Action item. |
 
+A 🟢 gate blocks in its default mode. Every gate is a guard
+under the guard policy (see
+`extensions/guard-policy-workflow/README.md`), so a person can
+switch one to report or off; the matrix records what ships, and
+a row whose gate reports by default says so.
+
 ## Open Gaps
 
 One closed by measurement rather than by a new gate. The tool path's
@@ -265,8 +271,8 @@ is what let a rule and its counterexample drift apart.
 | AI co-authorship on every gh pr/issue body | n/a (attribution) | 🔇 | `extensions/attribution-interceptor` splices the footer into the body in place; an unsupported command shape or an unquoted inline body is blocked so the command never runs un-attributed. |
 | Guardable command in a reviewable shape | n/a (enforcement) | 🟢 | `lib/guardian/enforce.ts` `blockIfUnsupported`, wired into the guardian pipeline, blocks a detected git commit (including `git -C dir commit` and other global-option forms) or gh pr/issue create/edit wrapped in command substitution, a subshell, a brace group or control flow, so it is reissued in a shape the gates can review. |
 | Quoted heredoc delimiter | Shell Quoting | 🟢 | Same `hasUnquotedHeredoc` check applies to commit heredocs through the guardian |
-| One concern per bash call | Getting the Message Into Git | 🟢 | `extensions/git-cli-interceptor/patterns.ts` `detectCompoundViolation` blocks two reviewable commands in one call, and a reviewable command chained with a state change (`push`, `checkout`, `switch`, `pull`, `merge`, `rebase`, `reset`, `stash`, `fetch`). Recorded as ⚪ judgment until an audit read the code. Staging alongside a commit stays allowed, which is the judgment the old note was reaching for: what counts as one concern is decided by the pattern list, not left open. |
-| Never `--amend` | Getting the Message Into Git | 🟢 | `extensions/git-cli-interceptor/patterns.ts` `detectAmendViolation` refuses it outright. Stated in `git-commit-convention` as well, and the retired `git-cli-convention` contradicted both with a worked example. |
+| One concern per bash call | Getting the Message Into Git | 🟢 | The `git-cli` guard, which follows the commit, pr and issue guards: it blocks while any of them blocks and reports while they all report, since the rule exists so each panel sees one command. Core's `detectCompoundViolation` blocks two reviewable commands in one call, and a reviewable command chained with a state change (`push`, `checkout`, `switch`, `pull`, `merge`, `rebase`, `reset`, `stash`, `fetch`). Recorded as ⚪ judgment until an audit read the code. Staging alongside a commit stays allowed, which is the judgment the old note was reaching for: what counts as one concern is decided by the pattern list, not left open. |
+| Never `--amend` | Getting the Message Into Git | 🟢 | Core's `detectAmendViolation`, run by the `commit-shape` guard, refuses it in block mode, the default. Stated in `git-commit-convention` as well, and the retired `git-cli-convention` contradicted both with a worked example. |
 
 ### quest-format
 

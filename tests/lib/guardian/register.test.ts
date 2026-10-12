@@ -4,6 +4,15 @@ import type {
 	GuardianResult,
 } from "../../../lib/guardian/index.ts";
 import { registerGuardian } from "../../../lib/guardian/index.ts";
+import {
+	restoreSessionModes,
+	setConfiguredModes,
+	setSessionMode,
+} from "../../../lib/guardian/policy.ts";
+import {
+	type GuardReport,
+	setGuardReportSink,
+} from "../../../lib/guardian/report.ts";
 import { clear, list } from "../../../lib/internal/guardian/registry.ts";
 
 // Derive the pi and result types from registerGuardian's own signature
@@ -59,7 +68,91 @@ function guardian(
 	};
 }
 
-beforeEach(() => clear());
+beforeEach(() => {
+	clear();
+	restoreSessionModes({});
+	setConfiguredModes({});
+	setGuardReportSink(undefined);
+});
+
+const declared = {
+	name: "t-reg",
+	class: "approval" as const,
+	description: "",
+	defaultMode: "report" as const,
+};
+
+describe("registerGuardian under the policy", () => {
+	it("skips a guard that is off without detecting", async () => {
+		const { pi, handler } = captureHandler();
+		let detected = false;
+		registerGuardian(
+			pi,
+			guardian({
+				detect: () => {
+					detected = true;
+					return true;
+				},
+			}),
+			{ declaration: declared },
+		);
+		setSessionMode("t-reg", "off");
+
+		const result = await handler()(bashEvent("git commit -m x"), ctx(true));
+
+		expect(result).toBeUndefined();
+		expect(detected).toBe(false);
+	});
+
+	it("hands review the guard's mode", async () => {
+		const { pi, handler } = captureHandler();
+		const modes: unknown[] = [];
+		registerGuardian(
+			pi,
+			guardian({
+				review: async (_p, _c, mode) => {
+					modes.push(mode);
+					return undefined;
+				},
+			}),
+			{ declaration: declared },
+		);
+
+		await handler()(bashEvent("git commit -m x"), ctx(true));
+		setSessionMode("t-reg", "block");
+		await handler()(bashEvent("git commit -m x"), ctx(true));
+
+		expect(modes).toEqual(["report", "block"]);
+	});
+
+	it("lets an unreadable shape through with a report when reporting", async () => {
+		const { pi, handler } = captureHandler();
+		const seen: GuardReport[] = [];
+		setGuardReportSink((r) => seen.push(r));
+		registerGuardian(pi, guardian({}), { declaration: declared });
+
+		const result = await handler()(
+			bashEvent("x=$(git commit -m y)"),
+			ctx(true),
+		);
+
+		expect(result).toBeUndefined();
+		expect(seen.map((r) => [r.guard, r.kind])).toEqual([["t-reg", "waved"]]);
+	});
+
+	it("refuses an unreadable shape when blocking", async () => {
+		const { pi, handler } = captureHandler();
+		registerGuardian(pi, guardian({}), { declaration: declared });
+		setConfiguredModes({ approval: "block" });
+
+		const result = await handler()(
+			bashEvent("x=$(git commit -m y)"),
+			ctx(true),
+		);
+
+		expect(result?.block).toBe(true);
+	});
+});
 
 describe("registerGuardian pipeline", () => {
 	it("applies a rewrite by mutating the command and allowing", async () => {

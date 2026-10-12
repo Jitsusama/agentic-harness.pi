@@ -13,11 +13,13 @@ import { runRedirectGate } from "@jitsusama/agentic-harness.core/guardian/redire
 import { runSectionGate } from "@jitsusama/agentic-harness.core/guardian/section-gate";
 import { runTitleGate } from "@jitsusama/agentic-harness.core/guardian/title-gate";
 import { PR_SECTIONS } from "@jitsusama/agentic-harness.core/sections";
+import { refusalUnder } from "../../lib/guardian/apply.ts";
 import type {
 	CommandGuardian,
 	GuardianResult,
 } from "../../lib/guardian/types.ts";
 import { sessionGateDeps } from "../../lib/internal/gate/session-deps.ts";
+import { GUARDS } from "../../lib/internal/guardian/guards.ts";
 import {
 	type EntityReviewConfig,
 	reviewMarkdownEntity,
@@ -39,6 +41,7 @@ const PR_REVIEW_CONFIG: EntityReviewConfig = {
 	createTitle: "New PR",
 	editTitle: "PR Edit",
 	entityLabel: "PR",
+	guard: GUARDS.pr.name,
 };
 
 /**
@@ -60,6 +63,7 @@ export function createPrGuardian(pi: ExtensionAPI): CommandGuardian<PrCommand> {
 		async review(
 			parsed: PrCommand,
 			ctx: ExtensionContext,
+			mode = "block",
 		): Promise<GuardianResult> {
 			const deps = sessionGateDeps(ctx, pi);
 
@@ -67,33 +71,49 @@ export function createPrGuardian(pi: ExtensionAPI): CommandGuardian<PrCommand> {
 			// be run here at all. Where something other than GitHub hosts this
 			// checkout, `gh pr create` opens a change on a mirror nothing
 			// reads, and every later `gh` call is blind to it.
-			const redirect = await runRedirectGate(deps, {
-				action: parsed.action,
-				cwd: ctx.cwd,
-				exec: pi.exec,
-			});
+			const redirect = refusalUnder(
+				GUARDS.host.name,
+				await runRedirectGate(deps, {
+					action: parsed.action,
+					cwd: ctx.cwd,
+					exec: pi.exec,
+				}),
+				"gh pr on a host gh cannot see",
+			);
 			if (redirect) return redirect;
 
 			// Get the skeleton right before the prose. An invented or
 			// missing section is a structural problem; there is no point
 			// polishing the words in a section that should not exist, so
 			// the section gate runs first.
-			const sectionBlock = runSectionGate(deps, parsed.body, PR_SECTION_CONFIG);
+			const sectionBlock = refusalUnder(
+				GUARDS.sections.name,
+				runSectionGate(deps, parsed.body, PR_SECTION_CONFIG),
+				"PR sections",
+			);
 			if (sectionBlock) return sectionBlock;
 
 			// The title carries its own convention (descriptive, not
 			// conventional commit). Gate it before the body prose so a
 			// wrong title is caught with the structure, not after.
-			const titleBlock = runTitleGate(deps, parsed.title, PR_TITLE_CONFIG);
+			const titleBlock = refusalUnder(
+				GUARDS.titles.name,
+				runTitleGate(deps, parsed.title, PR_TITLE_CONFIG),
+				"PR title",
+			);
 			if (titleBlock) return titleBlock;
 
 			// Block on detectable prose violations before the human
 			// gate, so the user reviews a clean PR body. The gate
 			// relents to the human review on a repeat to avoid looping.
-			const proseBlock = runProseGate(deps, parsed.body);
+			const proseBlock = refusalUnder(
+				GUARDS.prose.name,
+				runProseGate(deps, parsed.body),
+				"PR prose",
+			);
 			if (proseBlock) return proseBlock;
 
-			return reviewMarkdownEntity(ctx, parsed, PR_REVIEW_CONFIG);
+			return reviewMarkdownEntity(ctx, parsed, PR_REVIEW_CONFIG, mode);
 		},
 	};
 }

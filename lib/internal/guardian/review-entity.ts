@@ -13,6 +13,8 @@ import {
 	ALLOW,
 	formatRedirectBlock,
 	type GuardianResult,
+	type GuardMode,
+	reportGuard,
 } from "../../guardian/index.ts";
 import { promptSingle, renderMarkdown, wordWrap } from "../../ui/index.ts";
 
@@ -24,6 +26,8 @@ export interface EntityReviewConfig {
 	readonly editTitle: string;
 	/** Lowercase noun for context strings (e.g. "PR", "issue"). */
 	readonly entityLabel: string;
+	/** The guard a report is filed under. */
+	readonly guard: string;
 }
 
 /** The parsed fields that the review flow needs. */
@@ -83,15 +87,28 @@ export async function reviewMarkdownEntity(
 	ctx: ExtensionContext,
 	entity: ReviewableEntity,
 	config: EntityReviewConfig,
+	mode: Exclude<GuardMode, "off"> = "block",
 ): Promise<GuardianResult> {
+	const panelTitle =
+		entity.action === "edit" ? config.editTitle : config.createTitle;
+
+	// Report mode shows the same title and body in the transcript and
+	// lets the command run.
+	if (mode === "report") {
+		reportGuard({
+			guard: config.guard,
+			kind: "shown",
+			title: entity.title ? `${panelTitle}: ${entity.title}` : panelTitle,
+			...(entity.body ? { body: entity.body } : {}),
+		});
+		return ALLOW;
+	}
+
 	// The content gates have already run by the time we get here.
 	// Without a UI there is no panel to show and no human to be the
 	// backstop, so allow rather than block: the gate is the
 	// enforcement, the panel is only the human review on top of it.
 	if (!ctx.hasUI) return ALLOW;
-
-	const panelTitle =
-		entity.action === "edit" ? config.editTitle : config.createTitle;
 
 	const result = await promptSingle(ctx, {
 		title: panelTitle,
