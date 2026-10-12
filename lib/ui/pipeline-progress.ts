@@ -4,9 +4,8 @@
  * outcomes.
  *
  * Useful for any workflow that the user wants to watch progress
- * on at a glance: council pipelines, TDD red/green/refactor
- * cycles, quest-workflow think/draft/build stages, mastery
- * layer transitions.
+ * on at a glance: council pipelines, quest-workflow
+ * think/draft/build stages, mastery layer transitions.
  *
  * Single-line render of stages separated by a connector, each
  * stage themed by its outcome state. The current stage is

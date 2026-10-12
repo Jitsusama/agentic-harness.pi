@@ -6,20 +6,8 @@ const oneError = [
 ];
 
 describe("fastLayerVerdict", () => {
-	it("defers while a TDD loop is active", () => {
-		const v = fastLayerVerdict({
-			tddPhase: "red",
-			attempts: 0,
-			maxAttempts: 3,
-			errors: oneError,
-		});
-		expect(v.action).toBe("skip");
-		if (v.action === "skip") expect(v.reason).toMatch(/tdd/i);
-	});
-
 	it("passes when there are no errors", () => {
 		const v = fastLayerVerdict({
-			tddPhase: "idle",
 			attempts: 0,
 			maxAttempts: 3,
 			errors: [],
@@ -30,7 +18,6 @@ describe("fastLayerVerdict", () => {
 
 	it("injects a fix message while under the attempt cap", () => {
 		const v = fastLayerVerdict({
-			tddPhase: "idle",
 			attempts: 1,
 			maxAttempts: 3,
 			errors: oneError,
@@ -45,7 +32,6 @@ describe("fastLayerVerdict", () => {
 
 	it("gives up once the attempt cap is reached", () => {
 		const v = fastLayerVerdict({
-			tddPhase: "idle",
 			attempts: 3,
 			maxAttempts: 3,
 			errors: oneError,

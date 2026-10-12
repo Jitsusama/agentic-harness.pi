@@ -65,8 +65,8 @@ const MIN_GATE_WIDTH = 24;
  * things means neither. The harness runs these tools in one session, so the
  * allocation is package-wide rather than per-extension:
  *
- * - diamonds belong to quests, which are the spine everything else hangs off
- * - circle fills belong to the TDD phase, where the fill is a progression
+ * - diamonds belong to quests, which are the spine everything else hangs off,
+ *   and so do the circles a quest's status is drawn in
  * - squares belong to work, where a tree is a place
  * - triangles are review's, and they point, which is what a remark does
  *
@@ -83,9 +83,9 @@ export const GLYPH = {
 	finding: "\u25b8",
 	verdict: "\u25bd",
 
-	// What becomes of a remark. Not a fill progression: that is the TDD
-	// phase's, and borrowing it made landing and degrading look like two
-	// steps of one process rather than two different outcomes.
+	// What becomes of a remark. Not a fill progression: that made landing
+	// and degrading look like two steps of one process rather than two
+	// different outcomes.
 	lands: "\u2714",
 	// Accepted but not landed, and review's own, which it was not always: this
 	// used to be justified by the round panel drawing the same triangle for a

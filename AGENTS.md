@@ -73,8 +73,8 @@ it does:
 
 - **Workflows** (`*-workflow`): orchestrate a multi-step or
   session-wide process with state and stages. This covers
-  persistent session workflows such as planning and TDD.
-  `quest-workflow`, `tdd-workflow`,
+  persistent session workflows such as planning.
+  `quest-workflow`,
   `ask-workflow`, `git-bypass-workflow`,
   `guardian-status-workflow`, `result-store-workflow`,
   `cost-workflow`, `image-budget-workflow`,
@@ -681,8 +681,8 @@ jobs.
 - Do not merge PR and issue guardians into a shared factory.
   They are independently motivated.
 - Do not add a shared base type for workflows. Their runtime
-  contracts differ (plan-workflow intercepts writes,
-  tdd-workflow has a phase state machine). File naming
+  contracts differ (quest-workflow intercepts writes,
+  job-workflow hosts work that outlives its tool). File naming
   convention is the right level of shared structure.
 - Do not mutate `event.input.command` outside of the
   guardian registration helper or interceptor extensions.

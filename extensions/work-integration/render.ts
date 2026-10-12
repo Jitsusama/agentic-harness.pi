@@ -27,10 +27,9 @@ export const GLYPH = {
 	// must not be allowed to overlook.
 	//
 	// These were an open and a filled circle, which quests use for a
-	// status and the TDD phase uses for a progression. That made a filled
-	// circle mean a concluded quest, a passing test, and a tree with
-	// uncommitted work in it: two of those are good news and the third is
-	// the one thing here you must not miss.
+	// status. That made a filled circle mean both a concluded quest and a
+	// tree with uncommitted work in it: good news and the one thing here
+	// you must not miss, wearing the same face.
 	clean: "\u25ab",
 	dirty: "\u25aa",
 

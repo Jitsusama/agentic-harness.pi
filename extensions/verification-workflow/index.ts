@@ -8,9 +8,8 @@
  *   to yield, it asks the resident LSP backend for diagnostics
  *   on the files touched this run. New error-severity problems
  *   are enqueued as a follow-up so the agent continues and
- *   self-corrects before handing the turn to the user. It
- *   defers entirely while a TDD loop is active, and caps its
- *   fix requests so it never thrashes.
+ *   self-corrects before handing the turn to the user. It caps
+ *   its fix requests so it never thrashes.
  *
  *   Medium layer, on request. The no-command verify tool runs
  *   the project's resolved check command when the user asks
@@ -105,10 +104,7 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 			refreshStatus(ctx, state);
 			return;
 		}
-		const tddPhase =
-			getLastEntry<{ phase?: string }>(ctx, "tdd-workflow")?.phase ?? "idle";
 		const verdict = fastLayerVerdict({
-			tddPhase,
 			attempts: state.attempts,
 			maxAttempts: MAX_FIX_ATTEMPTS,
 			errors,
@@ -129,8 +125,6 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 			state.attempts = 0;
 			state.pending = [];
 			state.outcome = "failing";
-		} else if (verdict.reason.includes("TDD")) {
-			state.outcome = "deferred";
 		} else if (failed) {
 			// The server errored for the touched files, so "no errors"
 			// is not "checked clean": report deferred rather than lie
@@ -294,7 +288,7 @@ function refreshStatus(ctx: ExtensionContext, state: VerificationState): void {
 						`verify \u2717${state.attempts ? ` ${state.attempts}/${MAX_FIX_ATTEMPTS}` : ""}`,
 					)
 				: state.outcome === "deferred"
-					? theme.fg("muted", "verify (tdd)")
+					? theme.fg("muted", "verify (deferred)")
 					: undefined;
 	ctx.ui.setStatus(STATUS_KEY, label);
 }
