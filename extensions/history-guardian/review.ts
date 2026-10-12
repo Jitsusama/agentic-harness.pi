@@ -34,18 +34,12 @@ const DESTRUCTIVE_ACTIONS = [{ key: "r", label: "Reject" }];
 /** Where one shell command ends and the next begins. */
 const SEGMENT_BREAK = /&&|\|\||[;|\n]/;
 
-/** A match with the safe form core names for an irrecoverable command. */
-export type HistoryMatch = DestructiveMatch & {
-	remedy?: string;
-	rewrite?: string;
-};
-
 /** What the history guardians found in one command. */
 export interface HistoryFindings {
 	/** The command as it was given. */
 	readonly command: string;
 	/** One match per segment that matched, in order. */
-	readonly matches: readonly HistoryMatch[];
+	readonly matches: readonly DestructiveMatch[];
 }
 
 /**
@@ -53,11 +47,11 @@ export interface HistoryFindings {
  * on the command with quoted data and heredoc bodies stripped, so a
  * message that mentions a command is not mistaken for it.
  */
-export function findHistoryMatches(command: string): HistoryMatch[] {
+export function findHistoryMatches(command: string): DestructiveMatch[] {
 	const visible = stripShellData(stripHeredocBodies(command));
-	const matches: HistoryMatch[] = [];
+	const matches: DestructiveMatch[] = [];
 	for (const segment of visible.split(SEGMENT_BREAK)) {
-		const match: HistoryMatch | null = detectDestructiveCommand(segment.trim());
+		const match = detectDestructiveCommand(segment.trim());
 		if (match) matches.push(match);
 	}
 	return matches;
