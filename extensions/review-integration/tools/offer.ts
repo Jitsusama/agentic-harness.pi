@@ -38,10 +38,11 @@ import {
 	createGitStacks,
 } from "@jitsusama/agentic-harness.core/work";
 import { Type } from "@sinclair/typebox";
+import { GUARDS } from "../../../lib/internal/guardian/guards.ts";
 import { count } from "../../../lib/ui/index.ts";
 import { REVIEW_COMMANDS } from "../commands.ts";
 import { attachments } from "../engine.ts";
-import { confirmWrite } from "../gate.ts";
+import { confirmWrite as confirmUnder } from "../gate.ts";
 import { type GatePanel, GLYPH, proposalLine } from "../render.ts";
 import {
 	type Answer,
@@ -56,6 +57,15 @@ import {
 	renderInvocation,
 	say,
 } from "./shared.ts";
+
+/** Every write this tool makes is the review-offer guard's to ask about. */
+function confirmWrite(
+	ctx: Parameters<typeof confirmUnder>[0],
+	title: string,
+	body: string | GatePanel,
+) {
+	return confirmUnder(ctx, title, body, GUARDS.reviewOffer.name);
+}
 
 /** What the tool was asked to do. */
 interface OfferParams {

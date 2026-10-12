@@ -33,6 +33,7 @@ import {
 	getSection,
 	loadPackageConfig,
 } from "../../lib/internal/config/loader.ts";
+import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { dataDir } from "../../lib/internal/paths.ts";
 import { discoverQuests } from "../../lib/internal/quest/discovery.ts";
 import { formatRelativeAge } from "../../lib/internal/quest/session-liveness.ts";
@@ -53,7 +54,8 @@ import {
 	resolveQuestsRoot,
 } from "./config.ts";
 import { QUEST_CONTEXT, renderQuestContext } from "./context.ts";
-import { enforceQuest, isFocusedDocWrite } from "./enforce.ts";
+import { isFocusedDocWrite, questVerdicts } from "./enforce.ts";
+import { applyQuestGuards } from "./guard.ts";
 import {
 	attachCurrentSession,
 	captureSessionIdentity,
@@ -105,6 +107,13 @@ const DEFAULT_WIDTH = 80;
 const CALL_PREFIX_WIDTH = 14;
 
 export default async function questWorkflow(pi: ExtensionAPI) {
+	declareGuards(
+		GUARDS.questRecord,
+		GUARDS.questTemp,
+		GUARDS.questPlanStage,
+		GUARDS.questUntrackedTree,
+		GUARDS.questHomeless,
+	);
 	// Seed the pluggable registries with their built-in
 	// types on activate. Idempotent: re-registers cleanly.
 	registerBuiltinRefTypes();
@@ -527,13 +536,16 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		"tool_call",
 		async (event, ctx): Promise<ToolCallEventResult | undefined> => {
 			const input = event.input as Record<string, unknown>;
-			const verdict = enforceQuest(state, event.toolName, input, ctx.cwd);
-			if (verdict?.block) return verdict;
+			const refusal = applyQuestGuards(
+				state,
+				questVerdicts(state, event.toolName, input, ctx.cwd),
+			);
+			if (refusal) return refusal;
 			watch.before(
 				event.toolCallId,
 				questsTouchedBy(state, event.toolName, input, ctx.cwd, homedir()),
 			);
-			return verdict;
+			return undefined;
 		},
 	);
 

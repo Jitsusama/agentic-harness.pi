@@ -54,6 +54,6 @@ failing signal (a process-global mirror of its outcome). The
 commit guardian reads that signal and refuses a commit while
 checks are red, so the block lives in the single sanctioned
 commit-review site rather than a competing interceptor here.
-The guardian is skipped when git interception is bypassed, so
-the bypass toggle is the escape hatch when the block is wrong
-or stale.
+That refusal is the `commit-verification` guard, which blocks
+by default; `/guards commit-verification report` is the escape
+hatch when the block is wrong or stale.

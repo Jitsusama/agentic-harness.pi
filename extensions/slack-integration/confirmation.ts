@@ -4,12 +4,19 @@
  * Each gate shows the user what will happen and lets them
  * approve, reject, annotate or redirect, matching the
  * guardian pattern used elsewhere in the harness.
+ *
+ * Every gate belongs to the `slack` guard, which blocks by
+ * default: a message reaches other people the moment it lands.
+ * Switched to report, a gate approves and puts what it would
+ * have asked about in the transcript.
  */
 
 import type {
 	ExtensionContext,
 	ThemeColor,
 } from "@earendil-works/pi-coding-agent";
+import { asksUnder, fenced } from "../../lib/guardian/index.ts";
+import { GUARDS } from "../../lib/internal/guardian/guards.ts";
 import {
 	type KeyAction,
 	promptSingle,
@@ -40,6 +47,15 @@ export type ConfirmResult<T> =
 	| { approved: false; redirect: string }
 	| null;
 
+/** Whether the slack guard wants this asked, reporting it when not. */
+function asks(title: string, text?: string): boolean {
+	return asksUnder(
+		GUARDS.slack.name,
+		title,
+		text ? () => fenced(text) : undefined,
+	);
+}
+
 /** Shorthand for a redirect result. */
 function redirect(note: string, context: string): ConfirmResult<never> {
 	return { approved: false, redirect: formatRedirectReason(note, context) };
@@ -54,7 +70,8 @@ export async function confirmSendMessage(
 	text: string,
 	table?: TableParam,
 ): Promise<ConfirmResult<{ text: string }>> {
-	if (!ctx.hasUI) return { approved: true, data: { text } };
+	if (!ctx.hasUI || !asks(`Send message to ${conversationName}`, text))
+		return { approved: true, data: { text } };
 
 	const context = `Send message to ${conversationName}:\n${text.slice(0, 200)}`;
 
@@ -114,7 +131,8 @@ export async function confirmEditMessage(
 	text: string,
 	table?: TableParam,
 ): Promise<ConfirmResult<{ text: string }>> {
-	if (!ctx.hasUI) return { approved: true, data: { text } };
+	if (!ctx.hasUI || !asks(`Edit message ${ts} in ${conversationName}`, text))
+		return { approved: true, data: { text } };
 
 	const context = `Edit message ${ts} in ${conversationName}:\n${text.slice(0, 200)}`;
 
@@ -170,7 +188,11 @@ export async function confirmReply(
 	text: string,
 	table?: TableParam,
 ): Promise<ConfirmResult<{ text: string }>> {
-	if (!ctx.hasUI) return { approved: true, data: { text } };
+	if (
+		!ctx.hasUI ||
+		!asks(`Reply in ${conversationName} thread ${threadTs}`, text)
+	)
+		return { approved: true, data: { text } };
 
 	const context = `Reply in ${conversationName} thread ${threadTs}:\n${text.slice(0, 200)}`;
 
@@ -226,9 +248,8 @@ export async function confirmUploadFile(
 	text?: string,
 	threadTs?: string,
 ): Promise<ConfirmResult<true>> {
-	if (!ctx.hasUI) return { approved: true, data: true };
-
 	const context = `Upload ${files.length === 1 ? files[0].name : `${files.length} files`} to ${conversationName}`;
+	if (!ctx.hasUI || !asks(context, text)) return { approved: true, data: true };
 
 	const result = await promptSingle(ctx, {
 		content: (theme, width) => {
@@ -411,7 +432,14 @@ export async function confirmSendThread(
 	messages: ThreadMessage[],
 	parentTs?: string,
 ): Promise<ConfirmResult<true>> {
-	if (!ctx.hasUI) return { approved: true, data: true };
+	if (
+		!ctx.hasUI ||
+		!asks(
+			`Send a thread of ${messages.length} to ${conversationName}`,
+			messages.map((m) => m.text).join("\n\n"),
+		)
+	)
+		return { approved: true, data: true };
 
 	const isReplyMode = parentTs !== undefined;
 	const action = isReplyMode
@@ -506,10 +534,9 @@ export async function confirmReaction(
 	emoji: string,
 	action: "add" | "remove",
 ): Promise<ConfirmResult<true>> {
-	if (!ctx.hasUI) return { approved: true, data: true };
-
 	const verb = action === "add" ? "Add" : "Remove";
 	const context = `${verb} :${emoji}: reaction in ${conversationName}`;
+	if (!ctx.hasUI || !asks(context)) return { approved: true, data: true };
 
 	const result = await promptSingle(ctx, {
 		content: (theme) => [

@@ -2,15 +2,30 @@
  * Confirmation gates for sensitive Google Workspace operations.
  * Uses prompt() with actions for approve/cancel decisions.
  * Redirect annotations return feedback for the agent to adjust.
+ *
+ * Every gate belongs to the `google` guard, which blocks by default:
+ * mail and invitations reach other people. Switched to report, a gate
+ * approves and puts what it would have asked about in the transcript.
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { asksUnder, fenced } from "../../lib/guardian/index.ts";
+import { GUARDS } from "../../lib/internal/guardian/guards.ts";
 import {
 	type PromptResult,
 	promptSingle,
 	wordWrap,
 } from "../../lib/ui/index.ts";
 import { formatRedirectReason } from "../../lib/ui/redirect.ts";
+
+/** Whether the google guard wants this asked, reporting it when not. */
+function asks(title: string, text?: string): boolean {
+	return asksUnder(
+		GUARDS.google.name,
+		title,
+		text ? () => fenced(text) : undefined,
+	);
+}
 
 /** Email fields presented to the user for confirmation before sending. */
 export interface EmailData {
@@ -70,7 +85,16 @@ export async function confirmSendEmail(
 	email: EmailData,
 	isReply: boolean,
 ): Promise<ConfirmResult<EmailData>> {
-	if (!ctx.hasUI) return { approved: true, data: email };
+	const mail = [
+		`To: ${email.to.join(", ")}`,
+		...(email.cc?.length ? [`Cc: ${email.cc.join(", ")}`] : []),
+		...(email.bcc?.length ? [`Bcc: ${email.bcc.join(", ")}`] : []),
+		`Subject: ${email.subject}`,
+		"",
+		email.body,
+	].join("\n");
+	if (!ctx.hasUI || !asks(isReply ? "Send reply" : "Send email", mail))
+		return { approved: true, data: email };
 
 	const result = await promptSingle(ctx, {
 		content: (theme, width) => {
@@ -127,7 +151,8 @@ export async function confirmDeleteEmail(
 	messageId: string,
 	subject?: string,
 ): Promise<ConfirmResult<true>> {
-	if (!ctx.hasUI) return { approved: true, data: true };
+	if (!ctx.hasUI || !asks(`Delete email ${subject ?? messageId}`))
+		return { approved: true, data: true };
 
 	const result = await promptSingle(ctx, {
 		content: (theme) => {
@@ -170,6 +195,13 @@ export async function confirmCreateEvent(
 	if (!event.attendees || event.attendees.length === 0) {
 		return { approved: true, data: event };
 	}
+	if (
+		!asks(
+			`Create event ${event.summary}`,
+			`${event.start} to ${event.end}\nAttendees: ${event.attendees.join(", ")}`,
+		)
+	)
+		return { approved: true, data: event };
 
 	// Held in a const because the guard above narrows the parameter
 	// and a callback does not inherit that: inside the closure the
@@ -237,6 +269,13 @@ export async function confirmUpdateEvent(
 	if (!existingEvent.attendees || existingEvent.attendees.length === 0) {
 		return { approved: true, data: true };
 	}
+	if (
+		!asks(
+			`Update event ${existingEvent.summary}`,
+			JSON.stringify(updates, null, 2),
+		)
+	)
+		return { approved: true, data: true };
 
 	const changes: string[] = [];
 	if (updates.summary) changes.push(`Title: ${updates.summary}`);
@@ -305,6 +344,8 @@ export async function confirmDeleteEvent(
 ): Promise<ConfirmResult<true>> {
 	if (!ctx.hasUI) return { approved: true, data: true };
 	if (!hasAttendees) return { approved: true, data: true };
+	if (!asks(`Delete event ${summary} (${eventId})`))
+		return { approved: true, data: true };
 
 	const result = await promptSingle(ctx, {
 		content: (theme) => {

@@ -44,6 +44,14 @@ command line that has to be parsed back into intent.
 Without a UI the gate approves. A tool running inside a subagent
 has nobody to ask.
 
+Each gate belongs to a guard: `review-offer` for proposing,
+editing and merging a change, `review-say` for replies, comments
+and reactions, and `review-publish` for a drafted review. All
+three are approvals that report by default, so the write goes
+ahead and what the gate would have shown lands in the transcript.
+`/guards review block` makes every one of them ask again. See
+[guard-policy-workflow](../guard-policy-workflow/README.md).
+
 One renderer draws all of them, in four parts and a fixed order,
 so the shape is learned once: where this is going, what it is
 answering, what is being sent, and what follows. The payload is

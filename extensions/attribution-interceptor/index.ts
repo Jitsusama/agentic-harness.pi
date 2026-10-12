@@ -33,13 +33,16 @@ import {
 	type ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
 import { effectiveCwd, tokenize } from "../../lib/command/index.ts";
+import { refusalUnder } from "../../lib/guardian/apply.ts";
 import { ensureCommitHook } from "../../lib/internal/guardian/commit-hook.ts";
 import { coAuthorTrailer } from "../../lib/internal/guardian/commit-trailer.ts";
+import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { attributeGh } from "./attribution.ts";
 
 const GH_ENTITIES = ["pr", "issue"] as const;
 
 export default function attributionExtension(pi: ExtensionAPI) {
+	declareGuards(GUARDS.attribution);
 	// The prepare-commit-msg hook is how every commit path pi cannot
 	// intercept at the command (cherry-pick, revert, rebase, merge,
 	// editor) gets attributed. Install it once per repo the session
@@ -76,10 +79,14 @@ export default function attributionExtension(pi: ExtensionAPI) {
 					return;
 				}
 				if (result.kind === "blocked") {
-					return {
-						block: true,
-						reason: `Attribution cannot be applied to this gh ${entity} command: ${result.reason}. Reissue it in a simple form, without wrapping it in command substitution, a subshell or a pipe, so it can be reviewed and attributed.`,
-					};
+					return refusalUnder(
+						GUARDS.attribution.name,
+						{
+							block: true,
+							reason: `Attribution cannot be applied to this gh ${entity} command: ${result.reason}. Reissue it in a simple form, without wrapping it in command substitution, a subshell or a pipe, so it can be reviewed and attributed.`,
+						},
+						`Unattributed gh ${entity}`,
+					);
 				}
 			}
 		},

@@ -165,7 +165,8 @@ google-workspace/
 - **Device Flow** - User explicitly authorizes on Google's servers
 - **Local storage** - Tokens stored in Pi session (ephemeral)
 - **Confirmation gates** - Sensitive operations (send email, delete
-  event) require approval
+  event) require approval. They are the `google` guard, which
+  blocks by default, since mail and invitations reach other people
 - **Editable gates** - User can edit subject/body before sending
 
 ## Current Limitations

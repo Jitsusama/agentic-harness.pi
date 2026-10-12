@@ -10,6 +10,16 @@ end by naming a skill to read, which only helps while that
 skill is loaded; one of them named `git-cli-convention`,
 whose worked example the amend check blocked.
 
+The rules belong to two guards. `commit-shape` refuses an amend
+and an unquoted commit heredoc, and blocks by default: each has
+a right form to retry with. `git-cli` refuses the chains, and
+follows the guards the rule protects, `commit`, `pr` and
+`issue`: it blocks when any of them blocks and otherwise
+reports, since a chain only hides a command from a gate that
+would have stopped it. Its own setting, such as
+`/guards git-cli block`, wins over what it follows. See
+[guard-policy-workflow](../guard-policy-workflow/README.md).
+
 ## What It Catches
 
 - `git commit --amend`: amends rewrite history and are

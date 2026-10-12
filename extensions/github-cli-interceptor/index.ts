@@ -16,15 +16,22 @@ import {
 	type ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
 import { checkGithubCli } from "@jitsusama/agentic-harness.core/github-cli";
+import { refusalUnder } from "../../lib/guardian/apply.ts";
+import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 
 export default function githubCliInterceptor(pi: ExtensionAPI) {
+	declareGuards(GUARDS.githubCli);
 	pi.on(
 		"tool_call",
 		async (event): Promise<ToolCallEventResult | undefined> => {
 			if (!isToolCallEventType("bash", event)) return;
 
 			const reason = checkGithubCli(event.input.command);
-			if (reason) return { block: true, reason };
+			return refusalUnder(
+				GUARDS.githubCli.name,
+				reason ? { block: true, reason } : undefined,
+				"gh command shape",
+			);
 		},
 	);
 }

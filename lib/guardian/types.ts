@@ -9,6 +9,7 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { GuardMode } from "./policy.ts";
 
 /**
  * Result of a guardian review:
@@ -16,12 +17,9 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
  * - { block, reason }: block execution with a reason
  * - { rewrite }: allow execution with a rewritten command
  *
- * No guardian currently emits a rewrite: the guardians review and
- * block or allow, while the sanctioned rewrite paths are the
- * attribution splice and the interceptors. The rewrite variant is
- * retained as intentional contract surface so a future guardian can
- * opt in through the one sanctioned mutation site (register.ts)
- * rather than touching event.input.command directly.
+ * A rewrite is applied by register.ts, the one sanctioned mutation
+ * site for guardians; the history guardian uses it to lease a bare
+ * force push. A guardian never touches event.input.command directly.
  */
 export type GuardianResult = undefined | GuardianBlock | { rewrite: string };
 
@@ -48,6 +46,18 @@ export interface CommandGuardian<T> {
 	detect(command: string): boolean;
 	/** Parse the command into a structured form. Return null to skip. */
 	parse(command: string): T | null;
-	/** Review the parsed command. Shows UI, returns the decision. */
-	review(parsed: T, ctx: ExtensionContext): Promise<GuardianResult>;
+	/**
+	 * Review the parsed command and return the decision.
+	 *
+	 * The mode is the guard's own, never `off` (an off guard is not
+	 * reviewed). In `block` an approval shows its panel; in `report` it
+	 * reports what the panel would have shown and allows. A guardian
+	 * written before the policy ignores the argument and keeps its old
+	 * behaviour, which is what `block` means.
+	 */
+	review(
+		parsed: T,
+		ctx: ExtensionContext,
+		mode?: Exclude<GuardMode, "off">,
+	): Promise<GuardianResult>;
 }

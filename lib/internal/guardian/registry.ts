@@ -2,7 +2,7 @@
  * Guardian status registry: a process-global record of the
  * last outcome of each registered guardian.
  *
- * Diagnostic aid for the `/guardian-status` command. When a
+ * Diagnostic aid for the `/guards` command. When a
  * user reports that gates have stopped firing, the registry
  * answers "did the guardian even run for the last bash
  * command, and if so what did it decide?".
@@ -65,7 +65,7 @@ function getRegistry(): Registry {
 }
 
 /**
- * Seed an entry for `name` so it shows up in `/guardian-status`
+ * Seed an entry for `name` so it shows up in `/guards`
  * before any tool_call has fired. Idempotent: re-registering an
  * existing name is a no-op (preserves the previous outcome).
  */

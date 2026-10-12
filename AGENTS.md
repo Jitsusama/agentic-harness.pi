@@ -36,9 +36,8 @@ The package manager is **pnpm**. `pnpm-lock.yaml` is canonical;
     tool returns and the host that says its result, found over
     the event bus so a producer never imports the host (public)
   - `lib/internal/`: not for external use
-    - `git/`: process-global bypass state for git
-      command interception
-    - `guardian/`: commit-specific parsing and entity review
+    - `guardian/`: commit-specific parsing, entity review
+      and the catalogue every guard is declared from
     - `github/`: GitHub utilities (CLI parsing, diff,
       GraphQL, PR identity, review posting)
     - `state.ts`: session state helpers
@@ -61,8 +60,9 @@ Every extension has a contract suffix that identifies what
 it does:
 
 - **Guardians** (`*-guardian`): intercept shell commands and
-  present a human review gate. Implement `CommandGuardian<T>`
-  with detect → parse → review.
+  present them for human review, inline or in a gate as the
+  guard policy says. Implement `CommandGuardian<T>` with
+  detect → parse → review.
   `commit-guardian`, `pr-guardian`, `issue-guardian`,
   `history-guardian`
 
@@ -75,8 +75,8 @@ it does:
   session-wide process with state and stages. This covers
   persistent session workflows such as planning.
   `quest-workflow`,
-  `ask-workflow`, `git-bypass-workflow`,
-  `guardian-status-workflow`, `result-store-workflow`,
+  `ask-workflow`, `guard-policy-workflow`,
+  `result-store-workflow`,
   `cost-workflow`, `image-budget-workflow`,
   `panel-lifecycle-workflow`, `job-workflow`,
   `session-recall-workflow`, `install-check-workflow`.
@@ -278,6 +278,34 @@ registration helper; it never touches event wiring or command
 mutation directly. See `lib/guardian/` for the public contract
 (downstream packages import from `./guardian`).
 
+### Guard Policy
+
+Every guard in the package, guardian, interceptor, quest gate or
+tool confirmation, declares a class (approval, redirect or
+safety) and runs under a mode: off, report or block. Report is
+what makes most of them cheap. The action goes ahead, and what
+the guard would have shown is a session entry the person reads
+and the model never does. Block keeps the old behaviour: a panel
+for an approval, a refusal for a redirect.
+
+The defaults follow one rule: block only where a mistake
+reaches somebody else or cannot be undone, or where the refusal
+names the form to retry with. So the commit, PR, issue and
+review approvals report, Slack and Google block, redirects
+block, and safety blocks only the irrecoverable.
+
+Each extension declares its own guards when it loads, from the
+one catalogue in `lib/internal/guardian/guards.ts`, so the
+defaults hold whether or not `guard-policy-workflow` is
+loaded. A guard nobody declared resolves to block, which is
+what keeps a downstream guardian that predates the policy
+working as it did. A guardian opts in by passing `declaration`
+to `registerGuardian`, and its review receives the mode; a
+refusal goes through `refusalUnder` and a confirmation through
+`asksUnder`, both in `lib/guardian/apply.ts`. Never read a mode
+and branch on it by hand: those two are what keep a reporting
+guard's report and a blocking guard's refusal the same text.
+
 ### Workflow File Convention
 
 Each workflow extension uses these files:
@@ -444,7 +472,9 @@ changes) rather than inlining all logic.
 The guardian registration helper is the single place that
 mutates `event.input.command` for guardians. Individual
 guardians return a result (undefined, block, or rewrite);
-they never touch the event directly.
+they never touch the event directly. The history guardian's
+lease of a bare `git push --force` is a rewrite, and lands
+there like any other.
 
 Interceptors are the second sanctioned mutation site.
 They mutate `event.input.command` silently (no review

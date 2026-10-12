@@ -40,6 +40,7 @@ import {
 	type AsyncMutex,
 	createMutex,
 } from "../../../lib/internal/async-mutex.ts";
+import { GUARDS } from "../../../lib/internal/guardian/guards.ts";
 import { count, displayPath } from "../../../lib/ui/index.ts";
 import {
 	decisionDir,
@@ -519,6 +520,7 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 						ctx,
 						"Publish This Review",
 						tabs.map((tab) => tab.item),
+						GUARDS.reviewPublish.name,
 					);
 					if (!decision.proceed) {
 						return decision.redirect
@@ -755,6 +757,7 @@ async function publishStack(
 		ctx,
 		`Publish ${count(entries.length, "Review", "Reviews")} Across This Stack`,
 		grouped.map((one) => one.tab.item),
+		GUARDS.reviewPublish.name,
 	);
 	if (!decision.proceed) {
 		return decision.redirect

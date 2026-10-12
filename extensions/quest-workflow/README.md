@@ -73,11 +73,22 @@ while it waits its turn leaves without running.
   and bash redirect. While a focused plan is in `think` or
   `draft`, only edits to already-tracked code defer to
   build. In `build`, writes flow inside any tree the quest
-  tracks; a write inside an untracked git tree is refused
-  with `tree-adopt` guidance, and a homeless write with
-  `tree-add`. Across stages, `/dev` nodes always flow and
-  bare system temp is funnelled into a quest-owned managed
-  scratch directory that is reaped on conclude or retire.
+  tracks and into any quest's record; a write inside an
+  untracked git tree adopts that tree and goes ahead, and a
+  homeless write is refused with `tree-add`. Across stages,
+  `/dev` nodes always flow and bare system temp is funnelled
+  into a quest-owned managed scratch directory that is reaped
+  on conclude or retire. Bash targets resolve as the shell
+  would, so `~` is the home directory and a `cd` counts.
+- The gates are guards under the guard policy:
+  `quest-record`, `quest-temp`, `quest-plan-stage` and
+  `quest-homeless` are redirects that block, and
+  `quest-untracked-tree` reports by adopting the tree. A
+  main checkout cannot be adopted without force, so a write
+  into one goes ahead untracked, said once per session.
+  `/guards quest-untracked-tree block` restores the refusal
+  with `tree-adopt` guidance. See
+  [guard-policy-workflow](../guard-policy-workflow/README.md).
 - The status-bar widget showing the loaded quest, its kind,
   status, and the focused document's stage and progress.
 - Auto-load on session start when the cwd is inside a
