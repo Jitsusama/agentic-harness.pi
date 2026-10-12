@@ -79,7 +79,8 @@ it does:
   `result-store-workflow`,
   `cost-workflow`, `image-budget-workflow`,
   `panel-lifecycle-workflow`, `job-workflow`,
-  `session-recall-workflow`, `install-check-workflow`.
+  `session-recall-workflow`, `install-check-workflow`,
+  `shell-workflow`.
 
   `away-workflow` makes the person being away a mode rather than a
   convention the model has to remember: blocking approvals hold
@@ -103,6 +104,15 @@ it does:
   queued behind a run is what Escape puts in the person's
   editor. It is the only thing that starts a turn nobody
   typed, so every producer goes through it.
+
+  `shell-workflow` replaces pi's `bash` with pi's own definition,
+  rebuilt with the same settings, and adds two things: the
+  agent's commands get no editor or pager to wait on, and a
+  command still running after five minutes moves to a job
+  instead of holding the session. It hands off rather than
+  kills, because the session logs show short timeouts killing
+  real builds. A codemode script's calls never move, since the
+  script reads their structured result.
 
   `image-budget-workflow` scales images down at the
   `tool_result` seam, on the one ground that makes a silent

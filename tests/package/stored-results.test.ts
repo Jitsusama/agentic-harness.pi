@@ -88,6 +88,9 @@ const MUST_BOUND = [
 const ANSWER_WITH_PATHS = [
 	"web-search-integration",
 	"subagent-workflow",
+	// pi's bash keeps the end of the output and saves the rest to a file;
+	// a handed-off command's job names that file, or one of its own.
+	"shell-workflow",
 ] as const;
 
 /** Every TypeScript source file under a directory. */

@@ -25,6 +25,11 @@ The host is found over the event bus, so a producer never imports this
 extension. Stop the work when `job.signal` fires: the person stopped
 it, or the session ended.
 
+The producers in this package are subagent fan-outs, started review
+rounds, CI checks being watched, away mode's nudges and
+[shell-workflow](../shell-workflow/), which moves a bash command still
+running after five minutes into a job of kind `shell`.
+
 ## When a Result Is Said
 
 A result goes out as a prompt, through `pi.sendUserMessage`, and only
