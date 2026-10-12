@@ -80,13 +80,11 @@ import {
 } from "./render-rows.ts";
 import {
 	endReasonForShutdown,
-	followSessionForSignals,
 	lostSessionCount,
 	recordSessionEnd,
-	recordSessionOnQuest,
 	setSignalStampSession,
-	startHeartbeat,
 	stopHeartbeat,
+	trackSession,
 } from "./session-registry.ts";
 import { createQuestState, type QuestState } from "./state.ts";
 import { handle, type QuestToolParams } from "./transitions.ts";
@@ -680,28 +678,24 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			if (sid && isPersistedSession(ctx) && state.questId) {
 				reconcileSessionMembership(state, sid, state.questId);
 			}
-			// Record the session in its terminal workspace so a later
-			// restart can reconstruct what was open together. Only a
-			// persisted session is resumable, so an ephemeral fan-out
-			// session is never snapshotted. Best-effort.
-			if (sid && isPersistedSession(ctx) && state.questId) {
-				recordSessionOnQuest({
+		}
+		// Record every tab a person could want back, quest or not, so a
+		// later restart can reconstruct what was open together. Only a
+		// persisted interactive session is resumable: a fan-out runs
+		// without a session and a print run has no tab. The record is
+		// re-dated on a heartbeat and stamped by the signal that takes the
+		// tab away, since pi reports a closed tab as a quit. Best-effort.
+		const sid = currentSessionId(ctx, undefined);
+		if (sid && isPersistedSession(ctx) && ctx.hasUI) {
+			trackSession(
+				{
 					sessionId: sid,
 					cwd: ctx.cwd,
-					questId: state.questId,
+					...(state.questId ? { questId: state.questId } : {}),
 					...captureSessionIdentity(),
-				});
-				// Keep the record dated for as long as this tab lives, so a
-				// crash can be placed in time even if nobody types again.
-				startHeartbeat(sid);
-				// pi reports a closed tab as a quit, and whether even that
-				// lands is a race with the process exiting, so the signal
-				// itself is what stamps the record and releases the session
-				// on its quest.
-				followSessionForSignals(sid, () =>
-					releaseSessionOnShutdown(state, sid),
-				);
-			}
+				},
+				() => releaseSessionOnShutdown(state, sid),
+			);
 		}
 		updateScoreboard(state, ctx);
 		// A passive pointer, nothing more: list the few most recently

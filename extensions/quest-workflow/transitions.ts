@@ -110,7 +110,7 @@ async function dispatch(
 ): Promise<QuestResult> {
 	switch (params.action) {
 		case "create":
-			return create(state, pi, params, signal);
+			return create(state, pi, ctx, params, signal);
 		case "load":
 			return load(state, pi, ctx, params);
 		case "unload":

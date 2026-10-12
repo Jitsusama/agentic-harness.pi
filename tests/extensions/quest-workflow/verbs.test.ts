@@ -73,10 +73,20 @@ async function createQuest(
 	state: ReturnType<typeof buildState>,
 	title: string,
 ) {
-	const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
-		action: "create",
-		title,
-	});
+	// Created with no session of its own, so a fixture quest has no
+	// session cwd to steer the verbs under test.
+	const result = await handle(
+		state,
+		fakePi(),
+		{
+			cwd: tmpRoot,
+			sessionManager: {
+				getSessionId: () => undefined,
+				isPersisted: () => false,
+			},
+		} as unknown as Parameters<typeof handle>[2],
+		{ action: "create", title },
+	);
 	if (!result.ok) throw new Error(result.guidance);
 	return result.details as { id: string; path: string };
 }

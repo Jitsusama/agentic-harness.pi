@@ -33,11 +33,20 @@ function buildState() {
 	return createQuestState({ questsRoot: join(tmpRoot, "quests") });
 }
 async function createQuest(state: ReturnType<typeof buildState>) {
-	const r = await handle(state, fakePi(), fakeCtx(tmpRoot), {
-		action: "create",
-		kind: "quest",
-		title: "Identity",
-	});
+	// Created with no session of its own, so each test attaches the one
+	// it is about.
+	const r = await handle(
+		state,
+		fakePi(),
+		{
+			cwd: tmpRoot,
+			sessionManager: {
+				getSessionId: () => undefined,
+				isPersisted: () => false,
+			},
+		} as unknown as Parameters<typeof handle>[2],
+		{ action: "create", kind: "quest", title: "Identity" },
+	);
 	if (!r.ok) throw new Error("create failed");
 	return state.questDir as string;
 }
