@@ -1,14 +1,12 @@
 /**
  * Fast-layer decision logic: from the errors found on the
- * files touched this turn, the active TDD phase and how many
- * times we have already asked the agent to fix them, decide
- * whether to stay quiet, inject a fix request, or give up and
- * hand the failure back to the user.
+ * files touched this turn and how many times we have already
+ * asked the agent to fix them, decide whether to stay quiet,
+ * inject a fix request, or give up and hand the failure back to
+ * the user.
  *
- * The loop defers entirely while a TDD loop runs, since that
- * already governs verification for the code under test, and
- * caps its attempts so a run that cannot reach green does not
- * thrash.
+ * The attempts are capped so a run that cannot reach green does
+ * not thrash.
  */
 
 import { count } from "../ui/count.ts";
@@ -22,7 +20,6 @@ export interface FileError {
 }
 
 export interface FastLayerInput {
-	readonly tddPhase: string;
 	readonly attempts: number;
 	readonly maxAttempts: number;
 	readonly errors: readonly FileError[];
@@ -34,9 +31,6 @@ export type FastLayerVerdict =
 	| { action: "giveUp"; message: string };
 
 export function fastLayerVerdict(input: FastLayerInput): FastLayerVerdict {
-	if (input.tddPhase !== "idle") {
-		return { action: "skip", reason: "a TDD loop is active" };
-	}
 	if (input.errors.length === 0) {
 		return { action: "skip", reason: "no errors on touched files" };
 	}

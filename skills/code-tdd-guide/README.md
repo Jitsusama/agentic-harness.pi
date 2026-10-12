@@ -7,6 +7,6 @@ reasons and commit cadence.
 Activates when implementing features with tests or discussing
 testing.
 
-Pairs with the [tdd-workflow extension](../../extensions/tdd-workflow/),
-which tracks the loop and reminds the agent of each phase's
-discipline.
+It is guidance only. No tool tracks the loop: an earlier
+`tdd-workflow` extension did, and was removed once newer models
+proved to follow the method without it and to slow down with it.

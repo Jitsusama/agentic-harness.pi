@@ -33,8 +33,8 @@ writing voice, and how to drive each tool. They are guidance
 the agent follows when a task matches, and it can decline them.
 
 **[Extensions](extensions/)** enforce *guardrails* and add
-*capabilities*: they gate a commit for your review, hold the
-agent to the TDD phases, vet a PR comment before it posts, and
+*capabilities*: they gate a commit for your review, check the
+code after an edit, vet a PR comment before it posts, and
 hand the agent tools it would not otherwise have, like a real
 language server or a browser.
 
@@ -57,9 +57,9 @@ skill teaches the collaborative think-draft-build method behind
 it, and `ask-workflow` lets the agent ask you a structured
 question when it is genuinely blocked.
 
-**Build test-first.** The `tdd-workflow` extension tracks the
-red-green-refactor loop and reminds the agent where it is;
-`code-tdd-guide` teaches the method. When an edit lands,
+**Build test-first.** The `code-tdd-guide` skill teaches the
+red-green-refactor method, with no tool standing over it. When
+an edit lands,
 `verification-workflow` runs the right check and closes the
 trust gap, and `code-style-standard` keeps the code readable.
 
@@ -130,19 +130,19 @@ Every piece works independently. Mix and match:
 - **Skills only**: the agent follows guidance voluntarily.
 - **Extensions only**: enforcement and capability without any
   skills.
-- **Both together**: plan, TDD, review and commit flow
+- **Both together**: plan, build, review and commit flow
   seamlessly.
 
 Use [package filtering][filtering] to load only what you want. For
-example, to take just the TDD workflow:
+example, to take just the quest workflow:
 
 ```json
 {
   "packages": [
     {
       "source": "git:github.com/Jitsusama/agentic-harness.pi",
-      "extensions": ["extensions/tdd-workflow"],
-      "skills": ["skills/code-tdd-guide"]
+      "extensions": ["extensions/quest-workflow"],
+      "skills": ["skills/planning-guide", "skills/quest-convention", "skills/quest-format"]
     }
   ]
 }

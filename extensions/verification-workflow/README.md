@@ -32,10 +32,8 @@ still builds, without grinding an autonomous run to a halt.
 
 Nothing runs after every edit. The fast layer fires once at
 the turn boundary; the medium layer only when asked. The loop
-defers entirely while a TDD loop is active, since that already
-governs verification for the code under test, and caps its fix
-requests so a run that cannot reach green hands back to the
-user rather than thrashing.
+caps its fix requests so a run that cannot reach green hands
+back to the user rather than thrashing.
 
 ## Check-command resolution
 

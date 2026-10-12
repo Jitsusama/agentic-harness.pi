@@ -564,8 +564,7 @@ are active.
 
 Only panel height toggles remain as global shortcuts. All
 other features are accessed via slash commands (`/plan`,
-`/pr-review`, `/pr-reply`) or, for the TDD loop, the
-`tdd_loop` tool.
+`/pr-review`, `/pr-reply`).
 
 | Shortcut | Extension | Action |
 |---|---|---|
@@ -643,12 +642,6 @@ The plan workflow has no keybindings. The agent drives it through
 the `plan` tool, and the only human-facing surfaces are the
 passive scoreboard and the `/plan` and `/plan-attach` commands.
 There is no completion gate and no interview.
-
-#### TDD Mode
-
-The TDD workflow has no keybindings. The agent drives it through
-the `tdd_loop` tool, and the only human-facing surface is the
-passive glyph scoreboard on the status line.
 
 #### PR Annotate (Vet Workspace)
 

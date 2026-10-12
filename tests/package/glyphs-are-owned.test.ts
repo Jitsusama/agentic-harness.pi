@@ -9,12 +9,12 @@
  * uncommitted changes in it, which is the best and the worst news on screen
  * wearing the same face.
  *
- * The families are allocated by domain: diamonds to quests, circle fills to
- * the TDD phase, squares to work, triangles to review.
+ * The families are allocated by domain: diamonds and circle statuses to
+ * quests, squares to work, triangles to review.
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 /** A glyph, and the name some module knows it by. */
@@ -43,18 +43,6 @@ const OWNED_SURFACES = [
 ];
 
 /**
- * Surfaces whose glyph table now lives in agentic-harness.core, not
- * this repo. Their integrity is pinned by pnpm-lock.yaml (the
- * dependency version) rather than by `git ls-files`, since the file
- * itself is an installed artifact, not something this repo tracks.
- */
-const EXTERNAL_SURFACES = [
-	"node_modules/@jitsusama/agentic-harness.core/dist/tdd/presentation.js",
-];
-
-const SURFACES = [...OWNED_SURFACES, ...EXTERNAL_SURFACES];
-
-/**
  * Which surface a file belongs to, for saying who is arguing with whom.
  *
  * An extension is its directory, since a surface's marks are spread
@@ -64,7 +52,6 @@ const SURFACES = [...OWNED_SURFACES, ...EXTERNAL_SURFACES];
  * declares.
  */
 function domainOf(path: string): string {
-	if (EXTERNAL_SURFACES.includes(path)) return "tdd-workflow";
 	const parts = path.split("/");
 	if (parts[0] === "lib") return parts.at(-1)?.replace(/\.ts$/, "") ?? path;
 	return parts[1] ?? path;
@@ -81,15 +68,6 @@ function domainOf(path: string): string {
 const SHARED: Record<string, string> = {
 	"\u2298":
 		"a refusal: review refuses an action, work refuses a repoint, a quest is blocked. One mark for no.",
-	// Quest status and TDD phase are both a progress reading, and these two
-	// land on the same sentiment in each: an open circle is early and moving,
-	// a filled one is finished and good. Allowed deliberately rather than by
-	// the check being unable to tell them apart, which is how it was allowed
-	// before.
-	"\u25cb": "early and in progress: a quest is active, a TDD loop is planning.",
-	"\u25cf": "finished and good: a quest is concluded, a TDD loop is green.",
-	"\u25d0":
-		"half done: a quest is paused, and the TDD phases use the same fill series.",
 };
 
 /** A `\uXXXX` escape or a literal, as the character it means. */
@@ -142,7 +120,7 @@ function usesIn(path: string): Use[] {
 
 /** Every glyph the named surfaces declare. */
 function everyUse(): Use[] {
-	return SURFACES.flatMap(usesIn);
+	return OWNED_SURFACES.flatMap(usesIn);
 }
 
 describe("glyph ownership across the package", () => {
@@ -151,7 +129,7 @@ describe("glyph ownership across the package", () => {
 		const uses = everyUse();
 
 		expect(uses.length).toBeGreaterThan(30);
-		for (const surface of SURFACES) {
+		for (const surface of OWNED_SURFACES) {
 			expect(uses.some((use) => use.where === surface)).toBe(true);
 		}
 	});
@@ -194,9 +172,6 @@ describe("glyph ownership across the package", () => {
 			"work-integration": /[\u25a0-\u25af\u2298\u2026\u2261]/,
 			// Diamonds for kind, and the circle statuses a quest has always had.
 			"quest-workflow": /[\u25c0-\u25d5\u2297\u2298]/,
-			// The circle-fill progression, a phase getting fuller, ending on a
-			// centred circle for the refactor that follows green.
-			"tdd-workflow": /[\u25c9\u25cb-\u25d5\u25cc]/,
 			// Anything spawned, wherever it was spawned from. Marks rather
 			// than a shape family, because every geometric family is taken
 			// and the marks a terminal can be relied on to draw are few: the
@@ -263,14 +238,5 @@ describe("glyph ownership across the package", () => {
 			.filter((line) => line !== "");
 
 		expect(tracked.sort()).toEqual([...OWNED_SURFACES].sort());
-	});
-
-	it("is checking external files that actually exist", async () => {
-		// External surfaces are pinned by pnpm-lock.yaml, not git, so their
-		// integrity check is that the resolved path is present on disk
-		// rather than tracked by this repo.
-		for (const surface of EXTERNAL_SURFACES) {
-			expect(existsSync(surface), surface).toBe(true);
-		}
 	});
 });

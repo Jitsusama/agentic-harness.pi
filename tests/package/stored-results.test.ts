@@ -213,7 +213,6 @@ describe("tools that can answer big must bound their answers", () => {
 			"ask-workflow",
 			"correction-capture",
 			"mermaid-widget",
-			"tdd-workflow",
 			"verification-workflow",
 			"commit-guardian",
 			"pr-guardian",

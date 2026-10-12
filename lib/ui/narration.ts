@@ -10,7 +10,7 @@
  *
  *   ※ nvim: opened state.ts at line 160
  *   ※ review: promoted finding 3
- *   ※ tdd-workflow: tests green (12 pass, 0 fail)
+ *   ※ verify: tests green (12 pass, 0 fail)
  *
  * The glyph and dim styling give the user a consistent
  * visual cue that this line is automation narration, not

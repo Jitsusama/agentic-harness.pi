@@ -23,8 +23,7 @@ const ROOT = join(import.meta.dirname, "..", "..");
  *
  * Deliberately a list rather than a glob over `extensions`. A tool description may
  * legitimately point at a methodology skill, because reading it is the point there
- * and nothing is being refused; `tdd-workflow` and `browser-integration` both do, and
- * should. What must not defer is a message returned at the moment an action was
+ * and nothing is being refused; `browser-integration` does, and should. What must not defer is a message returned at the moment an action was
  * stopped.
  */
 const BLOCK_SOURCES = [

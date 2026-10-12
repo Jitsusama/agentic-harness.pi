@@ -3,8 +3,8 @@ name: code-tdd-guide
 description: >
   Test-driven development methodology. Red-green-refactor
   cycle, when to stub, how to validate failure reasons,
-  commit cadence. Use when implementing with TDD, writing
-  tests first or driving the tdd_loop tool.
+  commit cadence. Use when implementing with TDD or writing
+  tests first.
 ---
 
 # Test-Driven Development
@@ -132,65 +132,3 @@ Infer what counts as a test file from the project:
 - Follow whatever convention the project already uses.
 
 If you can't determine the convention, ask.
-
-## The tdd_loop Tool
-
-The `tdd_loop` tool tracks one red-green-refactor loop at a
-time. It is a tracker and a reminder, not a gate. It never
-interrupts the user and it never blocks your file writes. You
-drive it, and the human-facing surface stays passive: the status
-line shows a constant TDD label beside a glyph, and a widget
-alongside it shows the phase, the iteration and the behaviour
-under test.
-
-Run **one loop per increment**. Open a loop when you're ready
-for the next single behaviour, take it through to green and
-refactor, then close it before you open the next. Keep each loop
-to one behaviour rather than batching several together.
-
-Each transition carries a short justification: a phrase, an
-assertion line, a one-line reflection. The machine advances only
-when that justification is present and the move makes sense from
-where the loop is. Otherwise it hands back a line of guidance
-and changes nothing. There's no prompt to answer; read the
-guidance, do what it names and try the transition again.
-
-### The Transitions
-
-The classic three steps expand into the tool's transitions. Red
-becomes `plan`, `write` and `red`; the loop then closes with
-`done` after `refactor`. Every loop passes through `refactor` to
-reach `done`, even as a no-op when there's nothing to change.
-
-- **plan** (`behaviour`): what the code should do, in one
-  phrase, named after the symbol you wish existed. Opens the
-  loop into the `plan` phase.
-- **write** (`interface`): the exact exported surface the test
-  imports and calls. Bind the test to the public interface,
-  never the internals.
-- **red** (`failure`, `failureKind`): the failure you saw when
-  you ran the test. A compile or missing-symbol error is
-  `failureKind: "other"` and is not a real red, so stub a
-  minimal skeleton, re-run, and call `red` again with the
-  assertion failure (`failureKind: "assertion"`). Only a
-  verified assertion red clears the way to green.
-- **green** (`pass`): the passing result you saw. Write the
-  minimum code to pass. Do not touch the test to make it green.
-- **refactor**: no justification needed. Improve the design with
-  the tests staying green. Required on the way to `done`.
-- **done** (`reflection`): a one-line note on what you
-  reconsidered about the internal and external design. Closes
-  the loop and returns to rest.
-- **abandon** (`reason`): leave the loop early. Use this when
-  the user steers you elsewhere, or when a loop can't be
-  satisfied; don't leave one dangling silently.
-
-### Attest Red Honestly
-
-Attest red honestly. The whole value of red is proving the test
-fails for the reason you think. A `TypeError` or a missing
-symbol is not that proof; it is `failureKind: "other"`. When you
-hit one, stub just enough skeleton to get a real assertion
-failure, then attest the real red with `failureKind:
-"assertion"`. The tool records the kind you report; it never
-reads your test output, so report it straight.

@@ -127,7 +127,7 @@ and the screen neither jumps nor leaves blank rows.
   character bar. Composes inside summaries and status lines.
 - **`renderPipelineProgress`**: horizontal or vertical
   multi-stage indicator for any pipeline that marches through
-  named stages (council, TDD, quest-workflow, mastery).
+  named stages (council, quest-workflow, mastery).
 - **`renderNarrationLine`**: single-line transcript
   annotation (`※ <prefix>: <body>`) for side-effect actions
   and cross-surface coordination.
