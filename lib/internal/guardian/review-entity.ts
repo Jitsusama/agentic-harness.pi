@@ -11,6 +11,7 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import {
 	ALLOW,
+	approvalUnder,
 	formatRedirectBlock,
 	type GuardianResult,
 	type GuardMode,
@@ -103,6 +104,16 @@ export async function reviewMarkdownEntity(
 		});
 		return ALLOW;
 	}
+
+	// While the person is away the entity is held for their return
+	// rather than waiting on a panel. Nothing is created.
+	const approval = approvalUnder(
+		config.guard,
+		entity.title ? `${panelTitle}: ${entity.title}` : panelTitle,
+		entity.body ? () => entity.body ?? "" : undefined,
+	);
+	if (approval.kind === "go") return ALLOW;
+	if (approval.kind === "held") return { block: true, reason: approval.reason };
 
 	// The content gates have already run by the time we get here.
 	// Without a UI there is no panel to show and no human to be the

@@ -20,6 +20,7 @@ const KIND_VERB: Record<GuardReport["kind"], string> = {
 	shown: "reported",
 	waved: "let through",
 	fixed: "fixed",
+	held: "held for your return",
 };
 
 /**

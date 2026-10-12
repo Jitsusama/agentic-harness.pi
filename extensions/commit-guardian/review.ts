@@ -17,6 +17,7 @@ import {
 import { runProseGate } from "@jitsusama/agentic-harness.core/guardian/prose-gate";
 import {
 	ALLOW,
+	approvalUnder,
 	type CommandGuardian,
 	formatRedirectBlock,
 	type GuardianResult,
@@ -104,6 +105,17 @@ export function createCommitGuardian(
 				});
 				return ALLOW;
 			}
+
+			// While the person is away the commit is held for their return
+			// rather than waiting on a panel. Nothing is committed.
+			const approval = approvalUnder(
+				GUARDS.commit.name,
+				parsed.isAmend ? "Amend Commit" : "Commit",
+				() => commitReportBody(parsed.message, parsed.isAmend),
+			);
+			if (approval.kind === "go") return ALLOW;
+			if (approval.kind === "held")
+				return { block: true, reason: approval.reason };
 
 			// Without a UI the gate has done its job and there is no
 			// panel to show; allow rather than block so headless and

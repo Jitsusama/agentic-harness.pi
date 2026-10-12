@@ -28,6 +28,12 @@ export interface Job {
 	finish(outcome: JobOutcome): void;
 	/** Called once the result is in the session, so progress can go. */
 	onDelivered(listener: () => void): void;
+	/**
+	 * Take back a finished result that has not gone out yet, because what
+	 * it says stopped being true while it waited. True when it was taken
+	 * back; false when it has already been sent, or was never finished.
+	 */
+	withdraw(): boolean;
 }
 
 /**

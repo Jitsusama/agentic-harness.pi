@@ -51,6 +51,8 @@ export interface Outbox {
 	runSettled(): void;
 	/** A user message reached the session; any result it carries is said. */
 	seen(text: string): void;
+	/** Drop a result still queued. False once it has been sent. */
+	withdraw(jobId: string): boolean;
 	/** Something changed or time passed: send whatever can go. */
 	tick(): void;
 	/** Results not yet seen in the session, in the order they finished. */
@@ -67,7 +69,7 @@ export const PROMPT_WAIT_MS = 30_000;
 
 /** How the message opens, so the model and the person know nobody typed it. */
 export const OUTBOX_HEADER =
-	"[Automated message, no human input: background jobs you started have finished.]";
+	"[Automated message, no human input: background jobs are reporting.]";
 
 /** A job's tag in the message, which is how its landing is recognised. */
 const tag = (jobId: string) => `[job ${jobId}]`;
@@ -135,6 +137,12 @@ export function createOutbox(options: OutboxOptions): Outbox {
 				const result = queued[i];
 				if (result && said(result)) queued.splice(i, 1);
 			}
+		},
+		withdraw(jobId) {
+			const at = queued.findIndex((result) => result.jobId === jobId);
+			if (at < 0) return false;
+			queued.splice(at, 1);
+			return true;
 		},
 		tick() {
 			const now = options.now();

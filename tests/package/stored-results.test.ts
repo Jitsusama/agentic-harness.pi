@@ -211,6 +211,7 @@ describe("tools that can answer big must bound their answers", () => {
 		const small = new Set([
 			"advisor",
 			"ask-workflow",
+			"away-workflow",
 			"correction-capture",
 			"mermaid-widget",
 			"verification-workflow",

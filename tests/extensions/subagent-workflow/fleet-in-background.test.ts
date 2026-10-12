@@ -86,6 +86,7 @@ function recordingHost() {
 			signal: stop.signal,
 			finish: (outcome) => outcomes.push(outcome),
 			onDelivered: (listener) => delivered.push(listener),
+			withdraw: () => false,
 		}),
 	};
 	return { host, outcomes, stop, delivered };

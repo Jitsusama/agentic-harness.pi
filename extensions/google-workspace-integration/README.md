@@ -166,7 +166,9 @@ google-workspace/
 - **Local storage** - Tokens stored in Pi session (ephemeral)
 - **Confirmation gates** - Sensitive operations (send email, delete
   event) require approval. They are the `google` guard, which
-  blocks by default, since mail and invitations reach other people
+  blocks by default, since mail and invitations reach other people.
+  While you are away ([away-workflow](../away-workflow/)) they are
+  held, not sent, and listed for you when you are back
 - **Editable gates** - User can edit subject/body before sending
 
 ## Current Limitations

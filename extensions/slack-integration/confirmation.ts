@@ -15,7 +15,7 @@ import type {
 	ExtensionContext,
 	ThemeColor,
 } from "@earendil-works/pi-coding-agent";
-import { asksUnder, fenced } from "../../lib/guardian/index.ts";
+import { approvalUnder, fenced } from "../../lib/guardian/index.ts";
 import { GUARDS } from "../../lib/internal/guardian/guards.ts";
 import {
 	type KeyAction,
@@ -47,13 +47,28 @@ export type ConfirmResult<T> =
 	| { approved: false; redirect: string }
 	| null;
 
-/** Whether the slack guard wants this asked, reporting it when not. */
-function asks(title: string, text?: string): boolean {
-	return asksUnder(
+/**
+ * The gate's answer when it needs no panel, or undefined when it should
+ * ask. Without a UI it approves, as it always has. Otherwise the slack
+ * guard decides: approved without asking (reported when the guard
+ * reports), held while the person is away, or asked.
+ */
+function unasked<T>(
+	ctx: ExtensionContext,
+	data: T,
+	title: string,
+	text?: string,
+): ConfirmResult<T> | undefined {
+	if (!ctx.hasUI) return { approved: true, data };
+	const approval = approvalUnder(
 		GUARDS.slack.name,
 		title,
 		text ? () => fenced(text) : undefined,
 	);
+	if (approval.kind === "go") return { approved: true, data };
+	if (approval.kind === "held")
+		return { approved: false, redirect: approval.reason };
+	return undefined;
 }
 
 /** Shorthand for a redirect result. */
@@ -70,8 +85,13 @@ export async function confirmSendMessage(
 	text: string,
 	table?: TableParam,
 ): Promise<ConfirmResult<{ text: string }>> {
-	if (!ctx.hasUI || !asks(`Send message to ${conversationName}`, text))
-		return { approved: true, data: { text } };
+	const skip = unasked(
+		ctx,
+		{ text },
+		`Send message to ${conversationName}`,
+		text,
+	);
+	if (skip) return skip;
 
 	const context = `Send message to ${conversationName}:\n${text.slice(0, 200)}`;
 
@@ -131,8 +151,13 @@ export async function confirmEditMessage(
 	text: string,
 	table?: TableParam,
 ): Promise<ConfirmResult<{ text: string }>> {
-	if (!ctx.hasUI || !asks(`Edit message ${ts} in ${conversationName}`, text))
-		return { approved: true, data: { text } };
+	const skip = unasked(
+		ctx,
+		{ text },
+		`Edit message ${ts} in ${conversationName}`,
+		text,
+	);
+	if (skip) return skip;
 
 	const context = `Edit message ${ts} in ${conversationName}:\n${text.slice(0, 200)}`;
 
@@ -188,11 +213,13 @@ export async function confirmReply(
 	text: string,
 	table?: TableParam,
 ): Promise<ConfirmResult<{ text: string }>> {
-	if (
-		!ctx.hasUI ||
-		!asks(`Reply in ${conversationName} thread ${threadTs}`, text)
-	)
-		return { approved: true, data: { text } };
+	const skip = unasked(
+		ctx,
+		{ text },
+		`Reply in ${conversationName} thread ${threadTs}`,
+		text,
+	);
+	if (skip) return skip;
 
 	const context = `Reply in ${conversationName} thread ${threadTs}:\n${text.slice(0, 200)}`;
 
@@ -249,7 +276,8 @@ export async function confirmUploadFile(
 	threadTs?: string,
 ): Promise<ConfirmResult<true>> {
 	const context = `Upload ${files.length === 1 ? files[0].name : `${files.length} files`} to ${conversationName}`;
-	if (!ctx.hasUI || !asks(context, text)) return { approved: true, data: true };
+	const skip = unasked(ctx, true as const, context, text);
+	if (skip) return skip;
 
 	const result = await promptSingle(ctx, {
 		content: (theme, width) => {
@@ -432,14 +460,13 @@ export async function confirmSendThread(
 	messages: ThreadMessage[],
 	parentTs?: string,
 ): Promise<ConfirmResult<true>> {
-	if (
-		!ctx.hasUI ||
-		!asks(
-			`Send a thread of ${messages.length} to ${conversationName}`,
-			messages.map((m) => m.text).join("\n\n"),
-		)
-	)
-		return { approved: true, data: true };
+	const skip = unasked(
+		ctx,
+		true as const,
+		`Send a thread of ${messages.length} to ${conversationName}`,
+		messages.map((m) => m.text).join("\n\n"),
+	);
+	if (skip) return skip;
 
 	const isReplyMode = parentTs !== undefined;
 	const action = isReplyMode
@@ -536,7 +563,8 @@ export async function confirmReaction(
 ): Promise<ConfirmResult<true>> {
 	const verb = action === "add" ? "Add" : "Remove";
 	const context = `${verb} :${emoji}: reaction in ${conversationName}`;
-	if (!ctx.hasUI || !asks(context)) return { approved: true, data: true };
+	const skip = unasked(ctx, true as const, context);
+	if (skip) return skip;
 
 	const result = await promptSingle(ctx, {
 		content: (theme) => [

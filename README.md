@@ -55,7 +55,10 @@ sidequests, each with living plan, research and report
 documents that survive across sessions. The `planning-guide`
 skill teaches the collaborative think-draft-build method behind
 it, and `ask-workflow` lets the agent ask you a structured
-question when it is genuinely blocked.
+question when it is genuinely blocked. Tell the agent you are
+leaving and `away-workflow` keeps the run going until it is done
+or truly blocked, holding anything that needed you for your
+return rather than waiting on it.
 
 **Build test-first.** The `code-tdd-guide` skill teaches the
 red-green-refactor method, with no tool standing over it. When

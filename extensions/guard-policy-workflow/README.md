@@ -17,6 +17,12 @@ Every guard has one of three modes:
   approval opens its panel; a redirect refuses, naming the form
   to retry with.
 
+While you are away (see [away-workflow](../away-workflow/)), an
+approval that blocks holds its call instead of opening its panel:
+nothing is sent, the agent is told it is held, and the report says
+"held for your return". Nothing is approved by your coming back;
+a call still wanted is made again and asks as usual.
+
 ## Defaults
 
 The rule behind the defaults is that a guard blocks only where a

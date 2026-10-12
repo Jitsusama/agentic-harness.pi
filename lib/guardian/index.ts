@@ -7,7 +7,13 @@
  * so `/guards` can switch it, and to report what a guard saw.
  */
 
-export { asksUnder, fenced, refusalUnder } from "./apply.ts";
+export {
+	type Approval,
+	approvalUnder,
+	asksUnder,
+	fenced,
+	refusalUnder,
+} from "./apply.ts";
 export {
 	ALL_GUARDS,
 	declareGuard,

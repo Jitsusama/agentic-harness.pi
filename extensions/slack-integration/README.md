@@ -84,5 +84,7 @@ slack-integration/
 - **Local storage**: tokens stored at `~/.pi/agent/slack.json`
 - **Confirmation gates**: write operations require approval.
   They are the `slack` guard, which blocks by default, since a
-  message reaches other people the moment it lands.
+  message reaches other people the moment it lands. While you
+  are away ([away-workflow](../away-workflow/)) a send is held,
+  not sent, and listed for you when you are back.
 - **CSRF protection**: OAuth state parameter prevents forgery

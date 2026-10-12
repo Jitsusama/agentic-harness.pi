@@ -66,7 +66,11 @@ export function openSession(
 			// A stale context after a reload has no footer to update.
 		}
 	};
-	const jobs = createJobs((result) => outbox.post(result), show);
+	const jobs = createJobs(
+		(result) => outbox.post(result),
+		show,
+		(jobId) => outbox.withdraw(jobId),
+	);
 	const withdraw = announceJobHost(pi.events, jobs);
 	const timer = setInterval(() => outbox.tick(), TICK_MS);
 	timer.unref();
