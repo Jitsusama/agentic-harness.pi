@@ -26,7 +26,7 @@
  * default, so its verdict also carries the root to adopt.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import * as path from "node:path";
 import type { ToolCallEventResult } from "@earendil-works/pi-coding-agent";
@@ -51,6 +51,11 @@ import {
 	isTracked,
 	isWithin,
 } from "../../lib/internal/quest/git-signals.ts";
+import {
+	applyEdits,
+	ownedFieldChanges,
+	type QuestFileKind,
+} from "../../lib/internal/quest/owned-fields.ts";
 import { listTreesOnQuest } from "../../lib/internal/quest/trees.ts";
 import type { QuestState } from "./state.ts";
 import { defaultWorkspaceRoot, workspaceDirOf } from "./workspace.ts";
@@ -387,6 +392,105 @@ function enforceRecord(
 	return;
 }
 
+/** The folders documents live in, under a quest's directory. */
+const DOCUMENT_DIRS: ReadonlySet<string> = new Set([
+	"plans",
+	"research",
+	"briefs",
+	"reports",
+]);
+
+/** Whether a path is a quest's README or one of its documents. */
+function questFileKind(
+	questsRoot: string,
+	file: string,
+): QuestFileKind | undefined {
+	const rel = path.relative(canonicalPath(questsRoot), canonicalPath(file));
+	if (rel.startsWith("..") || path.isAbsolute(rel)) return undefined;
+	const parts = rel.split(path.sep);
+	if (parts.length === 2 && parts[1] === "README.md") return "readme";
+	if (
+		parts.length === 3 &&
+		DOCUMENT_DIRS.has(parts[1]) &&
+		parts[2].endsWith(".md")
+	) {
+		return "document";
+	}
+	return undefined;
+}
+
+/** A write or edit's path, with `~` read as the home directory. */
+function toolPath(
+	input: Record<string, unknown>,
+	cwd: string,
+	home: string,
+): string {
+	const raw = String(input.path ?? "");
+	const expanded =
+		raw === "~" || raw.startsWith("~/") ? path.join(home, raw.slice(1)) : raw;
+	return path.resolve(cwd, expanded);
+}
+
+/** The replacements an edit call carries, in either of its shapes. */
+function editsOf(
+	input: Record<string, unknown>,
+): { oldText: string; newText: string }[] {
+	const listed = Array.isArray(input.edits) ? input.edits : [input];
+	return listed.flatMap((edit: unknown) => {
+		if (typeof edit !== "object" || edit === null) return [];
+		const { oldText, newText } = edit as Record<string, unknown>;
+		return typeof oldText === "string" && typeof newText === "string"
+			? [{ oldText, newText }]
+			: [];
+	});
+}
+
+/**
+ * Refuse a write or edit that changes a field the workflow owns, such
+ * as a document's stage or a quest's status, and name the verb that
+ * changes it. Everything else in the file flows.
+ */
+function enforceOwnedFields(
+	state: QuestState,
+	toolName: string,
+	input: Record<string, unknown>,
+	cwd: string,
+	options: EnforceOptions,
+): QuestVerdict | undefined {
+	if (toolName !== "write" && toolName !== "edit") return;
+	const file = toolPath(input, cwd, options.home ?? homedir());
+	const kind = questFileKind(state.questsRoot, file);
+	if (!kind || !existsSync(file)) return;
+	let before: string;
+	try {
+		before = readFileSync(file, "utf8");
+	} catch {
+		// Unreadable here means unreadable to the tool too, which says so.
+		return;
+	}
+	// A write with no content is malformed, and the tool refuses it itself.
+	const after =
+		toolName === "write"
+			? typeof input.content === "string"
+				? input.content
+				: undefined
+			: applyEdits(before, editsOf(input));
+	if (after === undefined) return;
+	const changes = ownedFieldChanges(kind, before, after);
+	if (changes.length === 0) return;
+	const named = changes
+		.map(
+			(c) =>
+				`\`${c.field}\` (${c.from ?? "absent"} to ${c.to ?? "absent"}) is changed by ${c.verb}`,
+		)
+		.join("; ");
+	return {
+		guard: GUARDS.questOwnedFields.name,
+		block: true,
+		reason: `Quest workflow: ${named}. Leave the front matter as it is and use the quest tool for that; the rest of the file is yours to edit.`,
+	};
+}
+
 /**
  * Every gate's verdict on a tool call, in the order the gates run: the
  * record, then system temp, then the plan stage or the build home. The
@@ -400,7 +504,10 @@ export function questVerdicts(
 	cwd: string,
 	options: EnforceOptions = {},
 ): QuestVerdict[] {
-	const verdicts = [enforceRecord(state, toolName, input, cwd, options)];
+	const verdicts = [
+		enforceRecord(state, toolName, input, cwd, options),
+		enforceOwnedFields(state, toolName, input, cwd, options),
+	];
 	if (isGateActive(state)) {
 		verdicts.push(systemTempFunnel(state, toolName, input, cwd, options));
 		verdicts.push(

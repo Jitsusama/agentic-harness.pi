@@ -359,6 +359,26 @@ When it is not clear which was meant, unload: it can be
 undone by loading again, and a seal cannot be undone by
 anything as simple.
 
+## Editing a Quest's Documents
+
+The workflow rewrites a README or plan on its own, between
+the moment a hand edit reads it and the moment it writes,
+so routine edits go through verbs that hold the quest lock:
+
+- `journal` with `note` adds a dated Journey entry.
+- `tick` and `untick` with `query` set a checkbox item,
+  named by its text or a start only it has.
+- `section` with `title` and `body` replaces one `##`
+  section. Journey is never replaced, only added to.
+
+They act on the focused document, or the README when
+nothing is focused; `id` names another document, or the
+quest's id its README. Larger rewrites still use edit and
+write, but never change the fields the workflow owns: a
+document's `stage`, `id`, `kind` and `quest`, and a
+quest's `id`, `kind` and `status`. The gate refuses that
+and names the verb that does it.
+
 Sealing a quest cascades so it leaves nothing live behind:
 the priority drops to `someday` and every still-active
 document seals to the quest's terminal stage. You do not

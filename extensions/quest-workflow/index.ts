@@ -108,6 +108,7 @@ const CALL_PREFIX_WIDTH = 14;
 export default async function questWorkflow(pi: ExtensionAPI) {
 	declareGuards(
 		GUARDS.questRecord,
+		GUARDS.questOwnedFields,
 		GUARDS.questTemp,
 		GUARDS.questPlanStage,
 		GUARDS.questUntrackedTree,
@@ -155,6 +156,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			"convention skill for the README format.",
 		promptGuidelines: [
 			"Use action `create` to mint a new quest. Use action `load` to switch to an existing one. The status bar shows the loaded quest at all times.",
+			"Edit a quest document's body with `journal` (add a Journey entry), `tick`/`untick` (a checkbox item) and `section` (replace one `##` section), not with edit or write: the workflow rewrites these files between reads, and hand edits miss. They act on the focused document, or the README when nothing is focused; `id` names another document, or the quest's id its README. Stage changes go through think/draft/build/conclude/retire.",
 			"`unload` puts a quest down and changes nothing on disk. `conclude` seals one for good (status, priority, documents, trees) and needs its `id`; never conclude to put a quest down. When unsure which was meant, unload.",
 			"`focus` and `unfocus` set or clear the focused document. While a plan is focused in think or draft, edits to already-tracked code defer to build; the plan itself, attachments, the workspace and brand-new files still flow.",
 			"A quest folder holds only its README, its ID documents and attachments/ (cited charts, notes and summaries within the limits). Clones, raw data, labs, runs and builds go in the quest's workspace, ~/.cache/pi/agentic-harness.pi/quest-workspace/<ID>/, whose tmp/ is cleared at conclude. When a result says a call left a record out of shape, move the files where it says.",
@@ -169,7 +171,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			id: Type.Optional(
 				Type.String({
 					description:
-						"Target id. For load/focus: the quest or document id. For spawn-tab/pane/window: open the new terminal pointed at this quest without touching the caller's loaded state. For reparent: the quest id to move, comma-separated for a batch. For conclude/retire: the loaded quest's id seals it in full (trees pruned); other quest ids, or a comma-separated set, run a bulk, reversible status sweep (no tree pruning); a document id concludes that document. For locate: the needle to resolve to its owning quest (a quest id, document id, alias ref or session id). For ancestors: the quest whose parent chain to trace (defaults to the loaded quest). For restore: session ids or unique prefixes, comma-separated, picked from the lost or recently closed sessions restore lists; lists only those, or reopens exactly those with force. For create: ignored.",
+						"Target id. For load/focus: the quest or document id. For tick/untick/section: the document to edit, or the quest's id for its README (default: the focused document, else the README). For spawn-tab/pane/window: open the new terminal pointed at this quest without touching the caller's loaded state. For reparent: the quest id to move, comma-separated for a batch. For conclude/retire: the loaded quest's id seals it in full (trees pruned); other quest ids, or a comma-separated set, run a bulk, reversible status sweep (no tree pruning); a document id concludes that document. For locate: the needle to resolve to its owning quest (a quest id, document id, alias ref or session id). For ancestors: the quest whose parent chain to trace (defaults to the loaded quest). For restore: session ids or unique prefixes, comma-separated, picked from the lost or recently closed sessions restore lists; lists only those, or reopens exactly those with force. For create: ignored.",
 				}),
 			),
 			url: Type.Optional(
@@ -181,7 +183,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			title: Type.Optional(
 				Type.String({
 					description:
-						"create: the quest's human title (becomes the H1). draft: the document's title.",
+						"create: the quest's human title (becomes the H1). draft: the document's title. section: the heading of the section to replace, without its emoji (e.g. Purpose).",
 				}),
 			),
 			parent: Type.Optional(
@@ -199,7 +201,13 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			note: Type.Optional(
 				Type.String({
 					description:
-						"think: what this document is about, or what sent you back to thinking. create: optional Summary prose.",
+						"think: what this document is about, or what sent you back to thinking. create: optional Summary prose. journal: the Journey entry to add; the date is put in front of it.",
+				}),
+			),
+			body: Type.Optional(
+				Type.String({
+					description:
+						"section: the section's new text, without its heading. It may not hold a `## ` heading of its own.",
 				}),
 			),
 			reason: Type.Optional(
@@ -233,7 +241,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			query: Type.Optional(
 				Type.String({
 					description:
-						"find: free-text needle matched against title, id, body and alias values. locate: the needle to resolve when `id` is not given.",
+						"find: free-text needle matched against title, id, body and alias values. locate: the needle to resolve when `id` is not given. tick/untick: the checkbox item, by its text or the start of it.",
 				}),
 			),
 			since: Type.Optional(

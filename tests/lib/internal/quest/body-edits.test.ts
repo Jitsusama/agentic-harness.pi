@@ -1,0 +1,128 @@
+import { describe, expect, it } from "vitest";
+import {
+	replaceSection,
+	setCheckbox,
+	splitAtBody,
+} from "../../../../lib/internal/quest/body-edits";
+
+const PLAN = [
+	"# The Plan",
+	"",
+	"## Work",
+	"",
+	"- [ ] Core: prune fetch and content check",
+	"- [ ] Restore: one recording helper",
+	"- [x] Restore the docs",
+	"",
+	"```md",
+	"- [ ] not an item, an example",
+	"## Not a heading",
+	"```",
+	"",
+	"## 🎯 Purpose",
+	"",
+	"Old purpose.",
+	"",
+	"## 📜 Journey",
+	"",
+	"- an entry",
+	"",
+].join("\n");
+
+describe("splitting a document at its body", () => {
+	it("keeps the front matter exactly as written", () => {
+		const text = "---\nid: X\nstage:   build\n---\n# Title\n";
+		const { head, body } = splitAtBody(text);
+		expect(head).toBe("---\nid: X\nstage:   build\n---\n");
+		expect(body).toBe("# Title\n");
+		expect(head + body).toBe(text);
+	});
+
+	it("treats a document with no front matter as all body", () => {
+		expect(splitAtBody("# Title\n")).toEqual({ head: "", body: "# Title\n" });
+	});
+});
+
+describe("ticking a checkbox", () => {
+	it("ticks the item a unique prefix names", () => {
+		const result = setCheckbox(PLAN, "core:", true);
+		if (!result.ok) throw new Error(result.reason);
+		expect(result.changed).toBe(true);
+		expect(result.body).toContain("- [x] Core: prune fetch and content check");
+		expect(result.body).toContain("- [ ] Restore: one recording helper");
+	});
+
+	it("prefers an exact match over a longer item it prefixes", () => {
+		const body = "- [ ] Docs\n- [ ] Docs and skill\n";
+		const result = setCheckbox(body, "docs", true);
+		if (!result.ok) throw new Error(result.reason);
+		expect(result.body).toBe("- [x] Docs\n- [ ] Docs and skill\n");
+	});
+
+	it("refuses when several items fit, and names them", () => {
+		const result = setCheckbox(PLAN, "restore", true);
+		expect(result.ok).toBe(false);
+		if (result.ok) throw new Error("expected a refusal");
+		expect(result.reason).toContain("2 items fit");
+		expect(result.reason).toContain("- Restore the docs");
+	});
+
+	it("refuses an item nothing reads, listing what does", () => {
+		const result = setCheckbox(PLAN, "deploy", true);
+		if (result.ok) throw new Error("expected a refusal");
+		expect(result.reason).toContain("- Core: prune fetch and content check");
+	});
+
+	it("leaves code examples alone", () => {
+		const result = setCheckbox(PLAN, "not an item", true);
+		expect(result.ok).toBe(false);
+	});
+
+	it("unticks, and says when nothing needed changing", () => {
+		const unticked = setCheckbox(PLAN, "restore the docs", false);
+		if (!unticked.ok) throw new Error(unticked.reason);
+		expect(unticked.body).toContain("- [ ] Restore the docs");
+		const again = setCheckbox(unticked.body, "restore the docs", false);
+		if (!again.ok) throw new Error(again.reason);
+		expect(again.changed).toBe(false);
+	});
+});
+
+describe("replacing a section", () => {
+	it("replaces a section found by its words, emoji or not", () => {
+		const result = replaceSection(PLAN, "purpose", "New purpose.\n");
+		if (!result.ok) throw new Error(result.reason);
+		expect(result.body).toContain(
+			"## 🎯 Purpose\n\nNew purpose.\n\n## 📜 Journey",
+		);
+		expect(result.body).not.toContain("Old purpose.");
+	});
+
+	it("skips a heading inside fenced code", () => {
+		const result = replaceSection(PLAN, "not a heading", "x");
+		expect(result.ok).toBe(false);
+	});
+
+	it("keeps the final newline when the section is the last", () => {
+		const result = replaceSection("## A\n\nold\n", "A", "new");
+		if (!result.ok) throw new Error(result.reason);
+		expect(result.body).toBe("## A\n\nnew\n");
+	});
+
+	it("never rewrites Journey", () => {
+		const result = replaceSection(PLAN, "Journey", "- gone");
+		if (result.ok) throw new Error("expected a refusal");
+		expect(result.reason).toContain("journal");
+	});
+
+	it("refuses text that would split the section", () => {
+		const result = replaceSection(PLAN, "Purpose", "Text\n\n## Extra\n");
+		expect(result.ok).toBe(false);
+	});
+
+	it("names the sections there are when the one asked for is not", () => {
+		const result = replaceSection(PLAN, "Outcomes", "x");
+		if (result.ok) throw new Error("expected a refusal");
+		expect(result.reason).toContain("Work, 🎯 Purpose, 📜 Journey");
+	});
+});

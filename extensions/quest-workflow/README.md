@@ -80,9 +80,20 @@ while it waits its turn leaves without running.
   into a quest-owned managed scratch directory that is reaped
   on conclude or retire. Bash targets resolve as the shell
   would, so `~` is the home directory and a `cd` counts.
+- Edits to a document's body: `journal` adds a dated
+  Journey entry, `tick` and `untick` set a checkbox item by
+  its text or a unique start of it, and `section` replaces
+  one `##` section. Each reads and writes under the quest
+  lock and leaves the front matter byte for byte, since the
+  workflow rewrites these files between a hand edit's read
+  and its write. A hand edit that changes a field the
+  workflow owns (a document's `stage`, `id`, `kind` or
+  `quest`, a quest's `id`, `kind` or `status`) is refused
+  with the verb that changes it.
 - The gates are guards under the guard policy:
-  `quest-record`, `quest-temp`, `quest-plan-stage` and
-  `quest-homeless` are redirects that block, and
+  `quest-record`, `quest-owned-fields`, `quest-temp`,
+  `quest-plan-stage` and `quest-homeless` are redirects
+  that block, and
   `quest-untracked-tree` reports by adopting the tree. A
   main checkout cannot be adopted without force, so a write
   into one goes ahead untracked, said once per session.
