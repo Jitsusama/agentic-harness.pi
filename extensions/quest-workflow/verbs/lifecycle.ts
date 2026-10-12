@@ -43,6 +43,8 @@ import { displayPath } from "../../../lib/ui/path.ts";
 import {
 	appendJourneyEntry,
 	attachCurrentSession,
+	autoFocusPlan,
+	autoFocusSaid,
 	captureSessionIdentity,
 	detachSessionInQuestDir,
 	ensureQuestsRoot,
@@ -53,6 +55,7 @@ import {
 	reconcileSessionMembership,
 	releaseSessionOnShutdown,
 	setLoadedKind,
+	setUnfocusedOnPurpose,
 	unfocusDocument,
 	unloadQuest,
 } from "../lifecycle.ts";
@@ -410,6 +413,8 @@ export async function load(
 
 	const result = loadQuest(state, pi, targetId);
 	if (!result.ok) return refuse(result.guidance);
+	setUnfocusedOnPurpose(state, false);
+	const focused = autoFocusSaid(autoFocusPlan(state));
 
 	// Garbage-collect no-log phantoms left by pre-guard fan-outs so
 	// the prior-session list and frontmatter reflect real sessions.
@@ -446,6 +451,7 @@ export async function load(
 	if (reconciled.length > 0) {
 		message += `. Detached this session from ${count(reconciled.length, "other quest")}.`;
 	}
+	if (focused) message += ` ${focused}`;
 
 	return ok(message, {
 		id: state.questId,
@@ -676,6 +682,7 @@ export function focus(state: QuestState, params: QuestToolParams): QuestResult {
 	}
 	const result = focusDocument(state, path);
 	if (!result.ok) return refuse(result.guidance);
+	setUnfocusedOnPurpose(state, false);
 	return ok(`Focused ${state.documentId} (${state.documentKind}).`, {
 		path,
 	});
@@ -685,5 +692,7 @@ export function unfocus(state: QuestState): QuestResult {
 	if (!state.documentId) return refuse("No document focused.");
 	const prior = state.documentId;
 	unfocusDocument(state);
+	// Kept across a reload, so the plan is not focused again unasked.
+	setUnfocusedOnPurpose(state, true);
 	return ok(`Unfocused ${prior}.`);
 }
