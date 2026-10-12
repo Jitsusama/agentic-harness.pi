@@ -6,9 +6,22 @@ import {
 	riskyHistoryGuardian,
 } from "../../../extensions/history-guardian/review.ts";
 import {
+	restoreSessionModes,
+	setSessionMode,
+} from "../../../lib/guardian/policy.ts";
+import {
 	type GuardReport,
 	setGuardReportSink,
 } from "../../../lib/guardian/report.ts";
+import {
+	goAway,
+	heldCalls,
+	resetAway,
+} from "../../../lib/internal/away/state.ts";
+import {
+	declareGuards,
+	GUARDS,
+} from "../../../lib/internal/guardian/guards.ts";
 
 type Ctx = Parameters<typeof riskyHistoryGuardian.review>[1];
 const ctx = { hasUI: false } as unknown as Ctx;
@@ -64,6 +77,25 @@ describe("a risky command", () => {
 		expect(reports.map((r) => [r.guard, r.kind])).toEqual([
 			["history", "shown"],
 		]);
+	});
+
+	it("is held, not run, while the person is away and it blocks", async () => {
+		declareGuards(GUARDS.history);
+		setSessionMode(GUARDS.history.name, "block");
+		goAway("finish the plan");
+		try {
+			const result = await riskyHistoryGuardian.review(
+				parsedBy(riskyHistoryGuardian, "git rebase main"),
+				ctx,
+				"block",
+			);
+
+			expect(result).toMatchObject({ block: true });
+			expect(heldCalls().map((h) => h.guard)).toEqual(["history"]);
+		} finally {
+			resetAway();
+			restoreSessionModes({});
+		}
 	});
 });
 

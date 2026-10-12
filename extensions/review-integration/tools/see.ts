@@ -37,6 +37,7 @@ import {
 } from "@jitsusama/agentic-harness.core/review";
 import { Type } from "@sinclair/typebox";
 import { count } from "../../../lib/ui/index.ts";
+import { CHECKS_POLL_MS, unsettled, watchChecks } from "../checks-job.ts";
 import { REVIEW_COMMANDS } from "../commands.ts";
 import { decisionDir, findingDir, fixDir, visitDir } from "../engine.ts";
 import {
@@ -149,6 +150,12 @@ export function registerSeeTool(pi: ExtensionAPI): void {
 						"For reviews: only your own, which is how to check whether you have already given a verdict here. Needs the backend to say who you are, and is refused rather than guessed at where it will not.",
 				}),
 			),
+			watch: Type.Optional(
+				Type.Boolean({
+					description:
+						"For checks: when they have not settled, return at once and say the settled result later as a message of its own, instead of you polling or sleeping. Carry on with other work meanwhile.",
+				}),
+			),
 		}),
 
 		renderCall(args, theme, context) {
@@ -175,6 +182,8 @@ export function registerSeeTool(pi: ExtensionAPI): void {
 				if (params.action === "changes") return seeChanges(pi, params);
 
 				bound = await boundFor(pi, params, process.cwd());
+				if (params.action === "checks" && params.watch === true)
+					return await watchFor(pi, bound);
 				return await readFrom(
 					bound,
 					params.action as Exclude<SeeAction, "changes">,
@@ -281,6 +290,44 @@ async function seeChecks(bound: BoundTarget): Promise<Answer> {
 		);
 	}
 	return say(checksLines(checks), { ok: true, state: checks.state });
+}
+
+/**
+ * What CI says now, and when it has not settled, a job that says it
+ * once it has. Settled already, this answers as a plain read does.
+ */
+async function watchFor(pi: ExtensionAPI, bound: BoundTarget): Promise<Answer> {
+	const checks = await bound.checks();
+	if (!checks) {
+		return say(
+			`${GLYPH.checks} the ${bound.provider.id} provider reports no checks for this target, so there is nothing to watch.`,
+		);
+	}
+	const now = checksLines(checks);
+	if (!unsettled(checks)) return say(now, { ok: true, state: checks.state });
+
+	const label =
+		bound.target.kind === "proposal"
+			? bound.target.change.label
+			: `${bound.target.kind} in ${bound.repo.key}`;
+	const watched = watchChecks({
+		bus: pi.events,
+		key: `${bound.provider.id}:${label}`,
+		label,
+		read: () => bound.checks(),
+		render: checksLines,
+	});
+	const after =
+		watched === "no-host"
+			? "Nothing can watch them here, since no job host is loaded; read checks again later."
+			: watched === "already-watching"
+				? "They are already being watched; the settled result will arrive as its own message."
+				: `Watching: they are looked at every ${CHECKS_POLL_MS / 1000} seconds, for two hours at most, and the settled result will arrive as its own message. Carry on with other work; do not poll or sleep for them.`;
+	return say(`${now}\n${after}`, {
+		ok: true,
+		state: checks.state,
+		watching: typeof watched !== "string" || watched === "already-watching",
+	});
 }
 
 /** What the change sits on, and how much to trust the shape. */

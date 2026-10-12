@@ -26,7 +26,11 @@
  */
 
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { asksUnder, fenced } from "../../lib/guardian/index.ts";
+import {
+	type Approval,
+	approvalUnder,
+	fenced,
+} from "../../lib/guardian/index.ts";
 import { promptSingle, promptTabbed } from "../../lib/ui/panel.ts";
 import { formatRedirectReason } from "../../lib/ui/redirect.ts";
 import { wordWrap } from "../../lib/ui/text-layout.ts";
@@ -208,7 +212,10 @@ export async function confirmBatch(
 ): Promise<BatchDecision> {
 	const every = items.map((_, at) => at);
 	const all: BatchDecision = { proceed: true, accepted: every, rejected: [] };
-	if (!asks(guard, title, () => batchText(items))) return all;
+	const approval = approvalOf(guard, title, () => batchText(items));
+	if (approval.kind === "go") return all;
+	if (approval.kind === "held")
+		return { ...abandoned(), rejected: every, redirect: approval.reason };
 	if (!ctx.hasUI) return all;
 
 	if (items.length === 1) return await single(ctx, title, items[0]);
@@ -314,7 +321,10 @@ export async function confirmWrite(
 ): Promise<GateDecision> {
 	const plain = () =>
 		typeof body === "string" ? body : gateText(body, REDIRECT_QUOTE_WIDTH);
-	if (!asks(guard, title, plain)) return { approved: true };
+	const approval = approvalOf(guard, title, plain);
+	if (approval.kind === "go") return { approved: true };
+	if (approval.kind === "held")
+		return { approved: false, redirect: approval.reason };
 	if (!ctx.hasUI) return { approved: true };
 	const decision = decisionOf(
 		await promptSingle(ctx, {
@@ -336,16 +346,17 @@ export async function confirmWrite(
 /**
  * Whether the guard wants a person asked. When it does not, a guard in
  * report mode puts the panel's plain text in the transcript first, so
- * what went out can still be read. A gate that names no guard always
- * asks, as every gate did before the policy.
+ * what went out can still be read; while the person is away a blocking
+ * guard holds the write for their return. A gate that names no guard
+ * always asks, as every gate did before the policy.
  */
-function asks(
+function approvalOf(
 	guard: string | undefined,
 	title: string,
 	plain: () => string,
-): boolean {
-	if (!guard) return true;
-	return asksUnder(guard, title, () => fenced(plain()));
+): Approval {
+	if (!guard) return { kind: "ask" };
+	return approvalUnder(guard, title, () => fenced(plain()));
 }
 
 /** A batch as plain text, every item in order. */

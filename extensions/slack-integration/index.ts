@@ -22,6 +22,10 @@ import {
 	type SlackUser,
 } from "@jitsusama/agentic-harness.core/slack";
 import { Type } from "@sinclair/typebox";
+import {
+	signInFailure,
+	unattended,
+} from "../../lib/internal/away/unattended.ts";
 import { sessionGateDeps } from "../../lib/internal/gate/session-deps.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { singleFlight } from "../../lib/internal/single-flight.ts";
@@ -196,7 +200,14 @@ export default function slackIntegration(pi: ExtensionAPI) {
 	): Promise<SlackClient> {
 		if (cachedClient) return cachedClient;
 		return login("slack", async () => {
-			cachedClient = await ensureAuthenticated(ctx, ENV_OAUTH_CONFIG);
+			try {
+				cachedClient = await ensureAuthenticated(
+					unattended(ctx),
+					ENV_OAUTH_CONFIG,
+				);
+			} catch (error) {
+				throw signInFailure("Slack", GUARDS.slack.name, error);
+			}
 			return cachedClient;
 		});
 	}

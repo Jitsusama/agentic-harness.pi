@@ -44,6 +44,7 @@ function recordingHost() {
 				signal: controller.signal,
 				finish: (outcome) => outcomes.push(outcome),
 				onDelivered: () => {},
+				withdraw: () => false,
 			};
 		},
 	});

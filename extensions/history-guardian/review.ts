@@ -20,6 +20,7 @@ import {
 } from "@jitsusama/agentic-harness.core/guardian/history-gate";
 import {
 	ALLOW,
+	approvalUnder,
 	type CommandGuardian,
 	formatRedirectBlock,
 	type GuardianResult,
@@ -117,6 +118,13 @@ export const riskyHistoryGuardian: CommandGuardian<HistoryFindings> = {
 			});
 			return ALLOW;
 		}
+
+		// Switched to block and the person away: the command waits for
+		// their return rather than on a panel. Nothing runs.
+		const approval = approvalUnder(GUARDS.history.name, title, () => markdown);
+		if (approval.kind === "go") return ALLOW;
+		if (approval.kind === "held")
+			return { block: true, reason: approval.reason };
 
 		const result = await promptSingle(ctx, {
 			title,

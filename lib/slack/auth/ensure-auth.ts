@@ -62,6 +62,14 @@ export async function ensureAuthenticated(
 		}
 	}
 
+	// The flow waits on somebody authorizing in a browser; with nobody to
+	// show the panel to, it would wait on nobody.
+	if (!ctx.hasUI) {
+		throw new Error(
+			"Not signed in to Slack and no UI available to authorize in a browser.",
+		);
+	}
+
 	return await runOAuthFlow(ctx, setup.app);
 }
 

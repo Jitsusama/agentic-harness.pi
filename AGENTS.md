@@ -75,11 +75,20 @@ it does:
   session-wide process with state and stages. This covers
   persistent session workflows such as planning.
   `quest-workflow`,
-  `ask-workflow`, `guard-policy-workflow`,
+  `ask-workflow`, `away-workflow`, `guard-policy-workflow`,
   `result-store-workflow`,
   `cost-workflow`, `image-budget-workflow`,
   `panel-lifecycle-workflow`, `job-workflow`,
   `session-recall-workflow`, `install-check-workflow`.
+
+  `away-workflow` makes the person being away a mode rather than a
+  convention the model has to remember: blocking approvals hold
+  their call, `ask` takes its recommendation, and a run that ends
+  without `Done:` or `Blocked:` is sent back through job-workflow.
+  Its state is `lib/internal/away/`, read by the gates without
+  importing the extension. It errs towards stopping: nothing held
+  is ever approved on the person's behalf, and the nudging has
+  bounds of its own.
 
   `install-check-workflow` says when the code running is not
   the code on disk: a dependency installed outside its range in

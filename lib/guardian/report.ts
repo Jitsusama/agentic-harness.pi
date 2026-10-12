@@ -23,8 +23,11 @@ export const GUARD_REPORT_ENTRY = "guard-report";
  * - shown: an approval that would have asked, and went ahead.
  * - waved: a redirect that would have refused, and went ahead.
  * - fixed: the guard made the change itself and let it through.
+ * - held: an approval kept for the person's return, since they are away.
  */
-export type GuardReportKind = "shown" | "waved" | "fixed";
+export type GuardReportKind = "shown" | "waved" | "fixed" | "held";
+
+const REPORT_KINDS: readonly string[] = ["shown", "waved", "fixed", "held"];
 
 /** One guard's report, as stored. */
 export interface GuardReport {
@@ -63,8 +66,7 @@ export function isGuardReport(value: unknown): value is GuardReport {
 	return (
 		typeof record.guard === "string" &&
 		typeof record.title === "string" &&
-		(record.kind === "shown" ||
-			record.kind === "waved" ||
-			record.kind === "fixed")
+		typeof record.kind === "string" &&
+		REPORT_KINDS.includes(record.kind)
 	);
 }

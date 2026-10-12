@@ -17,6 +17,10 @@ import { Type } from "@sinclair/typebox";
 import type { OAuth2Client } from "google-auth-library";
 import { ensureAuthenticated } from "../../lib/google/auth/ensure-auth.ts";
 import { ensureOAuthApp } from "../../lib/google/auth/setup-wizard.ts";
+import {
+	signInFailure,
+	unattended,
+} from "../../lib/internal/away/unattended.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { singleFlight } from "../../lib/internal/single-flight.ts";
 import { handleGoogleAuthCommand } from "./auth-command.ts";
@@ -50,9 +54,17 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 		if (cached) return cached;
 
 		return login(key, async () => {
-			const client = await ensureAuthenticated(ctx, ENV_OAUTH_CONFIG, account);
-			clientCache.set(key, client);
-			return client;
+			try {
+				const client = await ensureAuthenticated(
+					unattended(ctx),
+					ENV_OAUTH_CONFIG,
+					account,
+				);
+				clientCache.set(key, client);
+				return client;
+			} catch (error) {
+				throw signInFailure("Google", GUARDS.google.name, error);
+			}
 		});
 	}
 

@@ -29,6 +29,7 @@ import {
 } from "@jitsusama/agentic-harness.core/result";
 import { registerBuiltinTreeProviders } from "@jitsusama/agentic-harness.core/tree";
 import { Type } from "@sinclair/typebox";
+import { setProgressSource } from "../../lib/internal/away/state.ts";
 import {
 	getSection,
 	loadPackageConfig,
@@ -598,6 +599,21 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		if (broke) {
 			return { content: [...event.content, { type: "text", text: broke }] };
 		}
+	});
+
+	// Where the focused plan stands, for away-workflow's nudge that keeps
+	// an unattended run going. Only a plan in build is work in progress.
+	setProgressSource(() => {
+		refreshProgress(state);
+		if (state.documentKind !== "plan" || state.documentStage !== "build")
+			return undefined;
+		if (!state.documentId || state.total === 0) return undefined;
+		return {
+			document: state.documentId,
+			done: state.done,
+			total: state.total,
+			...(state.currentItem ? { next: state.currentItem } : {}),
+		};
 	});
 
 	pi.on("turn_end", async (_event, ctx) => {

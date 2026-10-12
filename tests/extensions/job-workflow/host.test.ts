@@ -122,6 +122,34 @@ describe("a background job's result", () => {
 		expect(delivered).toBe(1);
 	});
 
+	it("can be taken back while it waits, and is then never said", async () => {
+		const { host, said, session, fire } = await started();
+		session.busy = true;
+		const job = host.start({ kind: "away", label: "keep going" });
+		let delivered = 0;
+		job.onDelivered(() => delivered++);
+		job.finish({ summary: "the user is away" });
+
+		expect(job.withdraw()).toBe(true);
+		session.busy = false;
+		await fire("agent_settled");
+
+		expect(said).toHaveLength(0);
+		expect(delivered).toBe(1);
+		expect(job.withdraw()).toBe(false);
+	});
+
+	it("cannot be taken back once it has been said, or before it finished", async () => {
+		const { host, said } = await started();
+		const running = host.start({ kind: "away", label: "keep going" });
+		expect(running.withdraw()).toBe(false);
+
+		running.finish({ summary: "carry on" });
+
+		expect(said).toHaveLength(1);
+		expect(running.withdraw()).toBe(false);
+	});
+
 	it("is said once, however often it is finished", async () => {
 		const { host, said, session, fire } = await started();
 		session.busy = true;

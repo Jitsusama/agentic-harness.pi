@@ -59,6 +59,7 @@ Start here. Find the row, make the call.
 | Know what this change is | `review_see change` |
 | Read the diff | `review_see diff` |
 | Know if CI is happy | `review_see checks` |
+| Wait for CI without polling or sleeping | `review_see checks watch:true`, then carry on; the settled result arrives as its own message |
 | See what it sits on | `review_see stack` |
 | Find other changes in the repo | `review_see changes state:open` |
 | Read what people said | `review_see threads` |

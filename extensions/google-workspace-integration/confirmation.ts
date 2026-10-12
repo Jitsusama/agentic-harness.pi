@@ -9,7 +9,7 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { asksUnder, fenced } from "../../lib/guardian/index.ts";
+import { approvalUnder, fenced } from "../../lib/guardian/index.ts";
 import { GUARDS } from "../../lib/internal/guardian/guards.ts";
 import {
 	type PromptResult,
@@ -18,13 +18,25 @@ import {
 } from "../../lib/ui/index.ts";
 import { formatRedirectReason } from "../../lib/ui/redirect.ts";
 
-/** Whether the google guard wants this asked, reporting it when not. */
-function asks(title: string, text?: string): boolean {
-	return asksUnder(
+/**
+ * The gate's answer when it needs no panel, or undefined when it should
+ * ask. The google guard decides: approved without asking (reported when
+ * the guard reports), held while the person is away, or asked.
+ */
+function unasked<T>(
+	data: T,
+	title: string,
+	text?: string,
+): ConfirmResult<T> | undefined {
+	const approval = approvalUnder(
 		GUARDS.google.name,
 		title,
 		text ? () => fenced(text) : undefined,
 	);
+	if (approval.kind === "go") return { approved: true, data };
+	if (approval.kind === "held")
+		return { approved: false, redirect: approval.reason };
+	return undefined;
 }
 
 /** Email fields presented to the user for confirmation before sending. */
@@ -93,8 +105,9 @@ export async function confirmSendEmail(
 		"",
 		email.body,
 	].join("\n");
-	if (!ctx.hasUI || !asks(isReply ? "Send reply" : "Send email", mail))
-		return { approved: true, data: email };
+	if (!ctx.hasUI) return { approved: true, data: email };
+	const skip = unasked(email, isReply ? "Send reply" : "Send email", mail);
+	if (skip) return skip;
 
 	const result = await promptSingle(ctx, {
 		content: (theme, width) => {
@@ -151,8 +164,9 @@ export async function confirmDeleteEmail(
 	messageId: string,
 	subject?: string,
 ): Promise<ConfirmResult<true>> {
-	if (!ctx.hasUI || !asks(`Delete email ${subject ?? messageId}`))
-		return { approved: true, data: true };
+	if (!ctx.hasUI) return { approved: true, data: true };
+	const skip = unasked(true as const, `Delete email ${subject ?? messageId}`);
+	if (skip) return skip;
 
 	const result = await promptSingle(ctx, {
 		content: (theme) => {
@@ -195,13 +209,12 @@ export async function confirmCreateEvent(
 	if (!event.attendees || event.attendees.length === 0) {
 		return { approved: true, data: event };
 	}
-	if (
-		!asks(
-			`Create event ${event.summary}`,
-			`${event.start} to ${event.end}\nAttendees: ${event.attendees.join(", ")}`,
-		)
-	)
-		return { approved: true, data: event };
+	const skip = unasked(
+		event,
+		`Create event ${event.summary}`,
+		`${event.start} to ${event.end}\nAttendees: ${event.attendees.join(", ")}`,
+	);
+	if (skip) return skip;
 
 	// Held in a const because the guard above narrows the parameter
 	// and a callback does not inherit that: inside the closure the
@@ -269,13 +282,12 @@ export async function confirmUpdateEvent(
 	if (!existingEvent.attendees || existingEvent.attendees.length === 0) {
 		return { approved: true, data: true };
 	}
-	if (
-		!asks(
-			`Update event ${existingEvent.summary}`,
-			JSON.stringify(updates, null, 2),
-		)
-	)
-		return { approved: true, data: true };
+	const skip = unasked(
+		true as const,
+		`Update event ${existingEvent.summary}`,
+		JSON.stringify(updates, null, 2),
+	);
+	if (skip) return skip;
 
 	const changes: string[] = [];
 	if (updates.summary) changes.push(`Title: ${updates.summary}`);
@@ -344,8 +356,8 @@ export async function confirmDeleteEvent(
 ): Promise<ConfirmResult<true>> {
 	if (!ctx.hasUI) return { approved: true, data: true };
 	if (!hasAttendees) return { approved: true, data: true };
-	if (!asks(`Delete event ${summary} (${eventId})`))
-		return { approved: true, data: true };
+	const skip = unasked(true as const, `Delete event ${summary} (${eventId})`);
+	if (skip) return skip;
 
 	const result = await promptSingle(ctx, {
 		content: (theme) => {

@@ -56,10 +56,14 @@ function bounded(outcome: JobOutcome): string {
 	return `${text.slice(0, MAX_SUMMARY_CHARS)}\n[cut at ${MAX_SUMMARY_CHARS} characters]`;
 }
 
-/** A registry whose finished jobs go to `post`, telling `changed` each time. */
+/**
+ * A registry whose finished jobs go to `post`, telling `changed` each
+ * time. `retract` takes a posted result back if it has not gone out.
+ */
 export function createJobs(
 	post: (result: JobResult) => void,
 	changed: () => void,
+	retract: (jobId: string) => boolean = () => false,
 ): Jobs {
 	const held = new Map<string, Held>();
 	let next = 1;
@@ -87,6 +91,14 @@ export function createJobs(
 				finish: (outcome) => finish(id, outcome),
 				onDelivered: (listener) => {
 					job.listeners.push(listener);
+				},
+				withdraw: () => {
+					if (!job.finished || !held.has(id) || !retract(id)) return false;
+					held.delete(id);
+					// Nothing will be said, so whatever showed it waiting can go.
+					for (const listener of job.listeners.splice(0)) listener();
+					changed();
+					return true;
 				},
 			};
 		},

@@ -304,6 +304,7 @@ describe("a round nobody waited for", () => {
 				signal: stopped.signal,
 				finish: (outcome) => said.push(outcome.summary),
 				onDelivered: () => {},
+				withdraw: () => false,
 			}),
 		});
 		const store = new ReviewerArtifactsStore(root);

@@ -9,11 +9,17 @@
  * Composes on prompt() for the UI. Single questions use
  * SinglePromptConfig with options. Multiple questions use
  * TabbedPromptConfig with items.
+ *
+ * A question can name the option the asker recommends. The person sees
+ * it marked; while they are away (see away-workflow) nothing is asked
+ * at all: the recommendation is taken, or the asker is told to decide
+ * from the evidence, and the decision waits for the person's return.
  */
 
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
+import { decide, isAway } from "../../lib/internal/away/state.ts";
 import { count } from "../../lib/ui/count.ts";
 import {
 	drawInto,
@@ -38,6 +44,7 @@ interface Question {
 	prompt: string;
 	options: QuestionOption[];
 	allowOther: boolean;
+	recommended?: string;
 }
 
 interface Answer {
@@ -80,6 +87,12 @@ const QuestionSchema = Type.Object({
 			description: "Allow 'Type something' option (default: true)",
 		}),
 	),
+	recommended: Type.Optional(
+		Type.String({
+			description:
+				"The value of the option you recommend, with the reason in the prompt. While the user is away this is the answer taken without asking.",
+		}),
+	),
 });
 
 const AskParams = Type.Object({
@@ -98,10 +111,44 @@ function errorResult(
 	};
 }
 
+/**
+ * Answer without asking, because the person is away: each question takes
+ * its recommendation, or is handed back to the asker to decide. Every
+ * answer is kept for the person to read on their return.
+ */
+export function answerWhileAway(questions: Question[]): string {
+	const lines = ["The user is away, so nothing was asked."];
+	for (const q of questions) {
+		const at = q.options.findIndex((o) => o.value === q.recommended);
+		const option = q.options[at];
+		if (option) {
+			decide({
+				question: q.prompt,
+				answer: option.label,
+				by: "recommendation",
+			});
+			lines.push(
+				`${q.label}: took your recommendation: ${at + 1}. ${option.label}`,
+			);
+		} else {
+			decide({
+				question: q.prompt,
+				answer: "left to the agent",
+				by: "model",
+			});
+			lines.push(
+				`${q.label}: no recommendation, so decide from the evidence, say what you chose and why, and carry on.`,
+			);
+		}
+	}
+	lines.push("They will see these decisions when they are back.");
+	return lines.join("\n");
+}
+
 /** Build options for a question, including the "Type something" option. */
 function buildOptions(q: Question): ListChoice[] {
 	const opts: ListChoice[] = q.options.map((o) => ({
-		label: o.label,
+		label: o.value === q.recommended ? `${o.label} (recommended)` : o.label,
 		value: o.value,
 		description: o.description,
 	}));
@@ -122,10 +169,21 @@ export default function ask(pi: ExtensionAPI) {
 		name: "ask",
 		label: "Ask",
 		description:
-			"Ask the user one or more questions. Use for clarifying requirements, getting preferences, or confirming decisions. For single questions, shows a simple option list. For multiple questions, shows a tab-based interface.",
+			"Ask the user one or more questions. Use for clarifying requirements, getting preferences, or confirming decisions. For single questions, shows a simple option list. For multiple questions, shows a tab-based interface. Give each question the context it needs to be answered cold and a recommended option; while the user is away the recommendation is taken without asking.",
 		parameters: AskParams,
 
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			if (isAway() && params.questions.length > 0) {
+				const questions: Question[] = params.questions.map((q, i) => ({
+					...q,
+					label: q.label || `Q${i + 1}`,
+					allowOther: q.allowOther !== false,
+				}));
+				return {
+					content: [{ type: "text", text: answerWhileAway(questions) }],
+					details: { questions, answers: [], cancelled: false },
+				};
+			}
 			if (!ctx.hasUI) {
 				return errorResult(
 					"Error: UI not available (running in non-interactive mode)",
@@ -282,6 +340,13 @@ export default function ask(pi: ExtensionAPI) {
 				return drawInto(
 					context?.lastComponent,
 					theme.fg("warning", "Cancelled"),
+				);
+			}
+			// Answered while the user was away: the text says how.
+			if (details.answers.length === 0) {
+				return drawInto(
+					context?.lastComponent,
+					theme.fg("muted", firstText(result)),
 				);
 			}
 			const lines = details.answers.map((a) => {

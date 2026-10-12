@@ -53,6 +53,14 @@ session, so a send that went nowhere is sent again at the next idle
 moment rather than lost, and a result is said once however often its
 producer finishes it.
 
+## Taking a Result Back
+
+A result that stopped being true while it waited can be taken back:
+`job.withdraw()` drops it if it has not gone out, and answers false
+once it has. Away mode uses this, so a "keep going while the user is
+away" message waiting for the session to go idle is never said after
+the person came back.
+
 ## Stopping a Job
 
 `/jobs` lists what is running and what is waiting to be said. Pick a
