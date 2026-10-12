@@ -79,7 +79,11 @@ to a commit and shared between readers rather than owned.
 After that the distinction stops mattering. `branch`, `record`,
 `push`, `rebase` and every stack verb work on a tree however it
 was cut, and quest has none of them. Quest gets you the tree;
-this moves the work along inside it.
+this moves the work along inside it. Name a quest's tree by its
+path, or any path inside it, as `tree:`; the work tool asks who
+holds it rather than keeping a record of its own. The one thing
+it will not do there is `release`: the quest gives its trees
+back with `quest tree-prune`.
 
 **Holding one tree means you can stop naming it.** Every action
 but `tree`, `snapshot` and `trees` works on a held tree, and

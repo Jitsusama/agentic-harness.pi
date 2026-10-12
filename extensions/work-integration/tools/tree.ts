@@ -12,7 +12,9 @@
  * a promise the surface cannot keep.
  */
 
-import { realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
+import { homedir } from "node:os";
+import { isAbsolute, join, sep } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Exec } from "@jitsusama/agentic-harness.core/exec";
 import { complaintsAbout } from "@jitsusama/agentic-harness.core/guardian/commit-format";
@@ -66,6 +68,37 @@ import { runStackAction } from "./stack.ts";
 /** Find a held tree by the key or path a caller named. */
 function heldByName(held: readonly HeldTree[], name: string) {
 	return held.find((h) => h.identity.key === name || h.path === name);
+}
+
+/** Who a tree another holder claims was cut by, as far as this tool knows. */
+const CLAIMED_PROVIDER = "claimed";
+
+/**
+ * A tree something else holds, such as a quest, found by a path inside
+ * it. This tool did not cut it and keeps no record of it, but its
+ * reads, commits and pushes work in it the same, so a tree a quest cut
+ * does not have to be driven with raw git. It is never released from
+ * here: the holder owns that.
+ */
+function claimedTree(pi: ExtensionAPI, name: string): HeldTree | undefined {
+	const expanded =
+		name === "~" || name.startsWith("~/")
+			? join(homedir(), name.slice(1))
+			: name;
+	if (!isAbsolute(expanded)) return undefined;
+	const claims: TreeClaims = { paths: [] };
+	pi.events.emit(WORK_TREE_CLAIMS, claims);
+	const asked = resolved(expanded);
+	const holder = claims.paths
+		.map(resolved)
+		.filter((p) => asked === p || asked.startsWith(`${p}${sep}`))
+		.sort((a, b) => b.length - a.length)[0];
+	if (holder === undefined || !existsSync(holder)) return undefined;
+	return {
+		identity: { key: holder, shareable: false },
+		path: holder,
+		providerId: CLAIMED_PROVIDER,
+	};
 }
 
 /**
@@ -388,7 +421,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 			tree: Type.Optional(
 				Type.String({
 					description:
-						"Which held tree to act on, by its key or its path. Every action but tree, snapshot and trees works on one: release, status, tidy, record, branch, push, rebase, resume, abandon and every stack verb. Leave it out when you hold exactly one and that one is used, said out loud; holding several makes it a question, since these actions commit and push and the wrong directory is not recoverable.",
+						"Which held tree to act on, by its key or its path. A path inside a tree a quest holds works too, for everything but release, which goes through quest tree-prune. Every action but tree, snapshot and trees works on one: release, status, tidy, record, branch, push, rebase, resume, abandon and every stack verb. Leave it out when you hold exactly one and that one is used, said out loud; holding several makes it a question, since these actions commit and push and the wrong directory is not recoverable.",
 				}),
 			),
 			subject: Type.Optional(
@@ -618,7 +651,8 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 				if ("candidates" in inPlay) {
 					return refuse(`${GLYPH.refused} ${chooseTree(inPlay.candidates)}`);
 				}
-				const found = heldByName(held, inPlay.key);
+				const found =
+					heldByName(held, inPlay.key) ?? claimedTree(pi, inPlay.key);
 				if (!found) {
 					// Naming what is held turns a typo into a correction
 					// rather than a second guess.
@@ -842,6 +876,14 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 							narrowing: "Query the stored result for the paths you need.",
 						}),
 						{ ok: true, clean: false, changed: state.changed.length },
+					);
+				}
+
+				// A tree a quest holds goes back through the quest, which
+				// keeps its record and knows what pruning it means.
+				if (found.providerId === CLAIMED_PROVIDER) {
+					return refuse(
+						`${GLYPH.refused} ${found.path} is held by a quest, not by this tool. Give it back with quest tree-prune, passing it as cwd.`,
 					);
 				}
 

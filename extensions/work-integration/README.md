@@ -78,6 +78,18 @@ answers `work:request:v1` for anything that loaded later, because
 the bus does not replay and load order between extensions is
 nobody's choice.
 
+## Trees It Did Not Cut
+
+A quest cuts its own trees and records them in its own front
+matter, and this broker never sees them. Naming one, by its path
+or a path inside it, used to answer that no such tree was held,
+so work in quest trees fell back to raw git. The tool now asks
+`work:tree-claims:v1` who holds the path, the same question `tidy`
+and `reclaim` ask, and acts on the deepest claimed tree that
+contains it. It keeps no record of such a tree, and `release`
+refuses it with `quest tree-prune` as the way back: one owner,
+one removal path.
+
 ## What It Will Not Do
 
 **It will not clone.** A repo known only by remote is refused,
