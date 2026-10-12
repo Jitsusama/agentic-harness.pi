@@ -547,7 +547,7 @@ export async function concludeOrRetire(
 		targetId === state.questId &&
 		declaredScope !== "document"
 	) {
-		return sealLoadedQuest(state, action, params, ctx, signal);
+		return sealLoadedQuest(state, action, params, signal);
 	}
 	if (targetId.length > 0) {
 		// A single document-kind id (PLAN/RSCH/BRIF/RPRT) concludes or
@@ -601,7 +601,6 @@ async function sealLoadedQuest(
 	state: QuestState,
 	action: "conclude" | "retire",
 	params: QuestToolParams,
-	ctx: ExtensionContext,
 	signal?: AbortSignal,
 ): Promise<QuestResult> {
 	if (!state.questDir) {
