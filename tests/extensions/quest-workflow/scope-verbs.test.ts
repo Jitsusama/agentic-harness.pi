@@ -205,7 +205,7 @@ describe("priority verbs", () => {
 });
 
 describe("conclude / retire scope", () => {
-	it("with no focused document, defaults to quest scope", async () => {
+	it("with nothing focused, refuses to guess the quest and names it", async () => {
 		const state = buildState();
 		const a = await createQuest(state, "Q");
 		await handle(state, fakePi(), fakeCtx(tmpRoot), {
@@ -215,9 +215,28 @@ describe("conclude / retire scope", () => {
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "conclude",
 		});
+		expect(result.ok).toBe(false);
+		if (result.ok) throw new Error("expected a refusal");
+		expect(result.guidance).toContain(`id: ${a.id}`);
+		expect(result.guidance).toContain("unload");
+		expect(readFileSync(a.path, "utf8")).toMatch(/status: active/);
+	});
+
+	it("concludes the loaded quest when named, and names it back", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Named Quest");
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: a.id,
+		});
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "conclude",
+			id: a.id,
+		});
 		expect(result.ok).toBe(true);
-		const text = readFileSync(a.path, "utf8");
-		expect(text).toMatch(/status: concluded/);
+		if (!result.ok) throw new Error("expected ok");
+		expect(result.message).toContain(`Concluded quest ${a.id} (Named Quest).`);
+		expect(readFileSync(a.path, "utf8")).toMatch(/status: concluded/);
 	});
 
 	it("cascades on conclude: resets priority to someday and seals documents", async () => {
@@ -243,7 +262,7 @@ describe("conclude / retire scope", () => {
 
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "conclude",
-			scope: "quest",
+			id: a.id,
 		});
 		expect(result.ok).toBe(true);
 
@@ -263,6 +282,7 @@ describe("conclude / retire scope", () => {
 		});
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "retire",
+			id: a.id,
 		});
 		expect(result.ok).toBe(false);
 	});
@@ -276,6 +296,7 @@ describe("conclude / retire scope", () => {
 		});
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "retire",
+			id: a.id,
 			reason: "no longer relevant",
 		});
 		expect(result.ok).toBe(true);
@@ -307,7 +328,7 @@ describe("conclude / retire scope", () => {
 		);
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "conclude",
-			scope: "quest",
+			id: a.id,
 		});
 		expect(result.ok).toBe(true);
 		if (!result.ok) throw new Error("expected ok");
@@ -340,7 +361,7 @@ describe("conclude / retire scope", () => {
 		);
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "conclude",
-			scope: "quest",
+			id: a.id,
 		});
 		expect(result.ok).toBe(true);
 		if (!result.ok) throw new Error("expected ok");

@@ -155,6 +155,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			"convention skill for the README format.",
 		promptGuidelines: [
 			"Use action `create` to mint a new quest. Use action `load` to switch to an existing one. The status bar shows the loaded quest at all times.",
+			"`unload` puts a quest down and changes nothing on disk. `conclude` seals one for good (status, priority, documents, trees) and needs its `id`; never conclude to put a quest down. When unsure which was meant, unload.",
 			"`focus` and `unfocus` set or clear the focused document. While a plan is focused in think or draft, edits to already-tracked code defer to build; the plan itself, attachments, the workspace and brand-new files still flow.",
 			"A quest folder holds only its README, its ID documents and attachments/ (cited charts, notes and summaries within the limits). Clones, raw data, labs, runs and builds go in the quest's workspace, ~/.cache/pi/agentic-harness.pi/quest-workspace/<ID>/, whose tmp/ is cleared at conclude. When a result says a call left a record out of shape, move the files where it says.",
 			"Stage transitions are think → draft → build → concluded (or retired). `think` accepts a kind on a fresh loop (default plan); `draft` scaffolds the document and mints its id; `build` lets you implement.",
@@ -168,7 +169,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			id: Type.Optional(
 				Type.String({
 					description:
-						"Target id. For load/focus: the quest or document id. For spawn-tab/pane/window: open the new terminal pointed at this quest without touching the caller's loaded state. For reparent: the quest id to move, comma-separated for a batch. For conclude/retire: a comma-separated id set triggers a bulk, reversible status sweep over those quests (no tree pruning), distinct from concluding the loaded quest. For locate: the needle to resolve to its owning quest (a quest id, document id, alias ref or session id). For ancestors: the quest whose parent chain to trace (defaults to the loaded quest). For restore: session ids or unique prefixes, comma-separated, picked from the lost or recently closed sessions restore lists; lists only those, or reopens exactly those with force. For create: ignored.",
+						"Target id. For load/focus: the quest or document id. For spawn-tab/pane/window: open the new terminal pointed at this quest without touching the caller's loaded state. For reparent: the quest id to move, comma-separated for a batch. For conclude/retire: the loaded quest's id seals it in full (trees pruned); other quest ids, or a comma-separated set, run a bulk, reversible status sweep (no tree pruning); a document id concludes that document. For locate: the needle to resolve to its owning quest (a quest id, document id, alias ref or session id). For ancestors: the quest whose parent chain to trace (defaults to the loaded quest). For restore: session ids or unique prefixes, comma-separated, picked from the lost or recently closed sessions restore lists; lists only those, or reopens exactly those with force. For create: ignored.",
 				}),
 			),
 			url: Type.Optional(
@@ -302,7 +303,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			scope: Type.Optional(
 				Type.String({
 					description:
-						"conclude/retire: 'quest' or 'document'. Declared scope wins over id-shape inference, so `id` plus scope:document concludes that document and scope:quest runs the quest sweep. Without scope, an explicit id infers scope from its shape (a document id concludes the document, a quest id sweeps the quest), and with no id it defaults to the focused document when one is set, otherwise the loaded quest.",
+						"conclude/retire: 'quest' or 'document'. Declared scope wins over id-shape inference, so `id` plus scope:document concludes that document and scope:quest runs the quest sweep. Without scope, an explicit id infers scope from its shape. With no id it acts on the focused document, and with nothing focused it refuses rather than seal the loaded quest unnamed.",
 				}),
 			),
 			force: Type.Optional(

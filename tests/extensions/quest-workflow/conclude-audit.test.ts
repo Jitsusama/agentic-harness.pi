@@ -57,7 +57,7 @@ async function loadedQuest() {
 	const conclude = () =>
 		handle(state, fakePi(), fakeCtx(root), {
 			action: "conclude",
-			scope: "quest",
+			id: state.questId ?? "",
 		});
 	return { state, put, cite, conclude };
 }

@@ -154,7 +154,7 @@ describe("tree-adopt", () => {
 		).toBe(true);
 		const concluded = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "conclude",
-			scope: "quest",
+			id: state.questId ?? "",
 		});
 		if (!concluded.ok) throw new Error(concluded.guidance);
 
@@ -252,7 +252,7 @@ describe("tree-adopt", () => {
 		expect(adopted.ok).toBe(true);
 		const retired = await handle(state, fakePi(), fakeCtx(repoRoot), {
 			action: "retire",
-			scope: "quest",
+			id: state.questId ?? "",
 			reason: "done",
 		});
 		expect(retired.ok).toBe(true);
@@ -287,7 +287,7 @@ describe("tree-adopt", () => {
 		expect(added.ok).toBe(true);
 		const retired = await handle(state, fakePi(), fakeCtx(repoRoot), {
 			action: "retire",
-			scope: "quest",
+			id: state.questId ?? "",
 			reason: "done",
 		});
 		expect(retired.ok).toBe(true);

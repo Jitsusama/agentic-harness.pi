@@ -264,7 +264,7 @@ describe("retire auto-prunes trees", () => {
 			.tree.path;
 		const retired = await handle(state, fakePi(), fakeCtx(repoRoot), {
 			action: "retire",
-			scope: "quest",
+			id: state.questId ?? "",
 			reason: "done with it",
 		});
 		expect(retired.ok).toBe(true);
@@ -292,7 +292,7 @@ describe("retire auto-prunes trees", () => {
 		writeFileSync(join(treePath, "dirt"), "x");
 		const retired = await handle(state, fakePi(), fakeCtx(repoRoot), {
 			action: "retire",
-			scope: "quest",
+			id: state.questId ?? "",
 			reason: "wrap up",
 		});
 		expect(retired.ok).toBe(true);
@@ -331,7 +331,7 @@ describe("retire auto-prunes trees", () => {
 		writeFileSync(join(path2, "dirt"), "x");
 		const retired = await handle(state, fakePi(), fakeCtx(repoRoot), {
 			action: "retire",
-			scope: "quest",
+			id: state.questId ?? "",
 			reason: "both still pending",
 		});
 		expect(retired.ok).toBe(true);
@@ -357,7 +357,7 @@ describe("retire auto-prunes trees", () => {
 		});
 		const retired = await handle(state, fakePi(), fakeCtx(repoRoot), {
 			action: "retire",
-			scope: "quest",
+			id: state.questId ?? "",
 			reason: "see you later",
 		});
 		expect(retired.ok).toBe(true);

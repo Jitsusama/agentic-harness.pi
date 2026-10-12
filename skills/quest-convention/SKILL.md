@@ -335,11 +335,29 @@ A retired quest can be resuscitated with `quest reopen`. A
 concluded quest can also be reopened, though usually a new
 quest is cleaner when the work re-opens with a new shape.
 
-Both `conclude` and `retire` accept a `scope` parameter:
-`document` acts on the focused document, `quest` acts on
-the loaded quest. With no scope, the tool defaults to the
-focused document when one is set, otherwise the loaded
-quest. Retiring a quest needs a `reason`.
+A quest is only ever sealed by name: pass its `id`. With
+no id, `conclude` and `retire` act on the focused
+document, and with nothing focused they refuse and say
+which id to pass. Naming the loaded quest seals it in
+full, pruning its trees and clearing its workspace's
+tmp/; naming quests that are not loaded runs the
+reversible status sweep. Retiring a quest needs a
+`reason`.
+
+## Unload vs Conclude
+
+- **Unload** puts a quest down: this session stops
+  working on it and nothing on disk changes. Use it to
+  switch away, to pause, or when asked to close a quest
+  without being told it is done.
+- **Conclude** seals a quest for good: its status,
+  priority, documents and trees all change. Use it only
+  when the work has landed and you were told to, or the
+  plan says so, and name the quest's id.
+
+When it is not clear which was meant, unload: it can be
+undone by loading again, and a seal cannot be undone by
+anything as simple.
 
 Sealing a quest cascades so it leaves nothing live behind:
 the priority drops to `someday` and every still-active
