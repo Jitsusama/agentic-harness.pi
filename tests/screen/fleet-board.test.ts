@@ -15,6 +15,9 @@
  * waits until the test releases it.
  */
 
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import panelLifecycle from "../../extensions/panel-lifecycle-workflow/index.ts";
@@ -62,8 +65,26 @@ interface Held {
 let held: Map<string, Held>;
 let runner: RunPi;
 let pi: PiSession | undefined;
+let config: string;
+
+/**
+ * Let a fleet run more subagents than the default cap, in a package
+ * config of the test's own: the fleet that overflows the screen is
+ * bigger than a fleet may be by default.
+ */
+function allowFleetsOf(maxJobs: number): void {
+	const dir = join(config, "pi", "agentic-harness.pi");
+	mkdirSync(dir, { recursive: true });
+	writeFileSync(
+		join(dir, "config.json"),
+		JSON.stringify({ version: 1, sections: { subagent: { maxJobs } } }),
+	);
+}
 
 beforeEach(() => {
+	// The person's own config is not this test's to read.
+	config = mkdtempSync(join(tmpdir(), "fleet-board-config-"));
+	vi.stubEnv("XDG_CONFIG_HOME", config);
 	held = new Map();
 	runner = (input) =>
 		new Promise((resolve) => {
@@ -86,6 +107,8 @@ afterEach(async () => {
 	await pi?.stop();
 	pi = undefined;
 	vi.restoreAllMocks();
+	vi.unstubAllEnvs();
+	rmSync(config, { recursive: true, force: true });
 });
 
 /** Boots pi with the fleet and the hop, and starts a fleet of `ids`. */
@@ -265,6 +288,7 @@ describe("when the fleet finishes", () => {
 describe("a board taller than the room", () => {
 	it("shrinks to fit rather than forcing pi to redraw the transcript", async () => {
 		const ids = Array.from({ length: 16 }, (_, i) => `job-${i}`);
+		allowFleetsOf(ids.length);
 		const session = await startFleet(ids, { rows: 20, history: 3 });
 
 		session.mark("ticking");

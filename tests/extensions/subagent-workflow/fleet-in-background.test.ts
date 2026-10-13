@@ -60,6 +60,8 @@ let root: string;
 beforeEach(() => {
 	root = mkdtempSync(join(tmpdir(), "fleet-background-"));
 	vi.stubEnv("XDG_STATE_HOME", root);
+	// The person's own config is not this test's to read.
+	vi.stubEnv("XDG_CONFIG_HOME", join(root, "config"));
 	vi.spyOn(console, "error").mockImplementation(() => {});
 	boardsClosed = 0;
 	answer = async () => ({

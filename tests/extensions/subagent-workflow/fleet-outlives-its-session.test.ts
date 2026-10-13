@@ -41,6 +41,8 @@ beforeEach(() => {
 	// The extension resolves its state directory from the environment
 	// on every call, which is what makes it redirectable at all.
 	vi.stubEnv("XDG_STATE_HOME", root);
+	// The person's own config is not this test's to read.
+	vi.stubEnv("XDG_CONFIG_HOME", join(root, "config"));
 	said = [];
 	vi.spyOn(console, "error").mockImplementation((line: unknown) => {
 		said.push(String(line));
