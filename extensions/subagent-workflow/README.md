@@ -101,6 +101,50 @@ working.
   lived siblings keep the tight defaults. The skill
   covers when to reach for them.
 
+## What a Job Runs On, and How Many
+
+A job that named no model used to run on pi's
+`defaultModel`, which is often not the session's model,
+and nothing said so. Each of `model`, `thinkingLevel`,
+`tools`, `timeoutMs` and `idleTimeoutMs` is now filled in
+layers, first match winning:
+
+1. the job itself;
+2. the run's `defaults` parameter;
+3. the loaded quest's entry under `subagent.quests`;
+4. the session checkout's entry under `subagent.projects`,
+   keyed the way `review.ask.projects` is;
+5. `subagent.defaults`;
+6. the session's own model, at `high` thinking.
+
+A fleet past `subagent.maxJobs` (8 unless set) is refused
+before anything starts, saying how to raise it. A section
+that is present but wrong is refused too, naming the field,
+rather than half-read. Every answer opens with one line
+saying what the jobs ran on and which layer chose it.
+
+```json
+{
+  "sections": {
+    "subagent": {
+      "maxJobs": 8,
+      "defaults": { "thinkingLevel": "high" },
+      "projects": {
+        "github:Shopify/world": { "model": "anthropic/claude-opus-5-5" }
+      },
+      "quests": {
+        "QEST-20261013-P276PH": { "thinkingLevel": "medium" }
+      }
+    }
+  }
+}
+```
+
+The file is `~/.config/pi/agentic-harness.pi/config.json`,
+the one `review.ask` lives in. `sizing.ts` holds the layers
+and the checks; `place.ts` works out the quest, project and
+session model; `fleet-settings.ts` runs the two over a call.
+
 ## Default extensions and skills
 
 Other pi extensions can register paths that should be
@@ -203,6 +247,9 @@ sessions skip the board and just return results.
   rather than a handler body because it is four policies
   in a row.
 
+- `sizing.ts`, `place.ts`, `fleet-settings.ts`: what
+  each job runs on and the fleet's cap (see
+  [What a Job Runs On](#what-a-job-runs-on-and-how-many)).
 - `run.ts`: orchestrator. Takes assignments, dispatches
   via the library's `runSubagent`, threads progress and
   cancellation, aggregates usage.

@@ -190,6 +190,36 @@ the summary (`✗ {id}: pi exited with code 1: ...`); if
 you see a credentials or configuration error there,
 registering the relevant extension as a default fixes it.
 
+## Sizing a Fleet
+
+One job per angle the others do not cover. Two jobs asking
+the same question in different words cost twice and agree
+with each other; three or four distinct lenses usually say
+everything a fleet of ten would. Before dispatching, name
+what each job sees that no other job does, and drop the ones
+with no answer.
+
+A fleet past `subagent.maxJobs` (8 unless the config says
+otherwise) is refused. Raise the cap in the config when a
+bigger fleet is genuinely meant; do not split one fleet into
+two calls to get under it.
+
+Leave `model` and `thinkingLevel` off a job unless that job
+needs something different from the rest. Each is filled in
+layers, first match winning:
+
+1. the job itself;
+2. the run's `defaults` parameter;
+3. `subagent.quests.<quest id>` for the loaded quest;
+4. `subagent.projects.<repo key>` for the session's checkout,
+   keyed as `review.ask.projects` is (`github:Owner/repo`);
+5. `subagent.defaults`;
+6. the session's own model, at high thinking.
+
+The answer opens by saying what the jobs ran on and which
+layer chose it. Pass that on when it is not what the person
+would expect.
+
 ## Cost and cancellation etiquette
 
 Fleet runs are expensive: N subprocesses, N context
@@ -214,11 +244,8 @@ windows, N model calls. Three habits keep this honest:
   Replayed on 22 real commits, Opus 5.5 at medium got
   every task right, as it did at high, for 7 percent less
   and 8 percent fewer turns. Investigation and review
-  keep the default: nothing has measured them at medium.
-
-If a fleet would dispatch more than ~5 jobs, ask first.
-"Want me to run security + performance + readability on
-this module, or scope it down?" gives the user an exit.
+  keep the default of high: nothing has measured them at
+  medium.
 
 ## Running a Fleet in the Background
 
