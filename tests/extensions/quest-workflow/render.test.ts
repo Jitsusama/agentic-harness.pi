@@ -75,16 +75,40 @@ describe("the widget's quest marks", () => {
 			taggingTheme,
 			200,
 		);
-		expect(line).toBe("<accent>\u25c7 <warning>\u25cb <muted>Quest title");
+		expect(
+			line?.startsWith("<accent>\u25c7 <warning>\u25cb <muted>Quest title "),
+		).toBe(true);
 	});
 
-	it("never carries the quest id, which lives in quest show", () => {
+	it("dims the id", () => {
+		// Real colour codes, which take no columns, so the padding is
+		// measured as it would be on screen.
+		const sgr: Record<string, number> = {
+			accent: 36,
+			warning: 33,
+			muted: 90,
+			dim: 2,
+		};
+		const colourTheme = {
+			fg: (token: string, text: string) => `\x1b[${sgr[token]}m${text}\x1b[0m`,
+		} as unknown as Parameters<typeof renderWidget>[1];
+		const [line] = renderWidget(
+			{ ...base, questKind: "quest", questStatus: "active" },
+			colourTheme,
+			80,
+		);
+		expect(line).toContain("\x1b[2mQEST-20260603-AAA111");
+		expect(visibleWidth(line ?? "")).toBe(79);
+	});
+
+	it("ends with the quest id, dimmed and right-aligned to the width", () => {
 		const [line] = renderWidget(
 			{ ...base, questKind: "quest", questStatus: "active" },
 			identityTheme,
-			200,
+			80,
 		);
-		expect(line).not.toContain("AAA111");
+		expect(line?.endsWith(" QEST-20260603-AAA111")).toBe(true);
+		expect(visibleWidth(line ?? "")).toBe(79);
 	});
 
 	it("uses one distinct status glyph per lifecycle state", () => {
@@ -122,6 +146,54 @@ describe("the widget's quest marks", () => {
 	});
 });
 
+describe("the widget short of room", () => {
+	const input = {
+		questId: "QEST-20261012-DGXMKM",
+		questTitle: "The Next Evolution",
+		documentKind: "plan" as const,
+		documentStage: "build" as const,
+		documentTitle: "Quiet Footer",
+		done: 1,
+		total: 5,
+		currentItem: "wire the widget",
+	};
+
+	function at(width: number): string {
+		const [line] = renderWidget(input, identityTheme, width);
+		expect(visibleWidth(line ?? "")).toBeLessThanOrEqual(width - 1);
+		expect(line?.endsWith(" QEST-20261012-DGXMKM")).toBe(true);
+		return (line ?? "").replace(/ +QEST-20261012-DGXMKM$/, "");
+	}
+
+	it("shows everything when it fits", () => {
+		expect(at(200)).toBe(
+			"The Next Evolution \u00b7 Building Plan: Quiet Footer \u00b7 2/5 \u2192 wire the widget",
+		);
+	});
+
+	it("gives up the next item first", () => {
+		expect(at(80)).toBe(
+			"The Next Evolution \u00b7 Building Plan: Quiet Footer \u00b7 2/5",
+		);
+	});
+
+	it("then the document, keeping the quest and its step", () => {
+		expect(at(60)).toBe("The Next Evolution \u00b7 2/5");
+	});
+
+	it("then shortens the quest title", () => {
+		const out = at(40);
+		expect(out.endsWith("\u2026 \u00b7 2/5")).toBe(true);
+		expect(out.startsWith("The Next")).toBe(true);
+		// Cut as plain text, so no reset lands inside the muted span.
+		expect(out).not.toContain("\x1b");
+	});
+
+	it("keeps the step and the id when nothing else fits", () => {
+		expect(at(30)).toBe("2/5");
+	});
+});
+
 describe("renderWidget", () => {
 	function widget(
 		overrides: Partial<Parameters<typeof renderWidget>[0]> = {},
@@ -141,7 +213,9 @@ describe("renderWidget", () => {
 			identityTheme,
 			200,
 		);
-		return lines[0] ?? "";
+		// The activity alone: the id and the padding before it are
+		// covered by the marks and collapse cases.
+		return (lines[0] ?? "").replace(/ +QEST-20260603-AAA111$/, "");
 	}
 
 	it("returns nothing when no quest is loaded", () => {
@@ -173,7 +247,7 @@ describe("renderWidget", () => {
 				currentItem: "Short next step.",
 			}),
 		).toBe(
-			"Drafting Plan: Quest Workflow UX Iteration \u00b7 5/33 \u2192 Short next step.",
+			"Quest title \u00b7 Drafting Plan: Quest Workflow UX Iteration \u00b7 5/33 \u2192 Short next step.",
 		);
 	});
 
@@ -292,7 +366,7 @@ describe("renderWidget", () => {
 			done: 0,
 			total: 0,
 		});
-		expect(out).toBe("Drafting Plan: Empty plan");
+		expect(out).toBe("Quest title \u00b7 Drafting Plan: Empty plan");
 	});
 
 	it("drops the arrow but keeps the count when every box is checked", () => {
@@ -303,7 +377,7 @@ describe("renderWidget", () => {
 			done: 5,
 			total: 5,
 		});
-		expect(out).toBe("Building Plan: Done plan \u00b7 5/5");
+		expect(out).toBe("Quest title \u00b7 Building Plan: Done plan \u00b7 5/5");
 	});
 
 	it("drops the {Stage-Verb} {Kind-Noun}: prefix when the doc is concluded", () => {
@@ -314,7 +388,7 @@ describe("renderWidget", () => {
 			done: 3,
 			total: 3,
 		});
-		expect(out).toBe("Wrapped plan \u00b7 3/3");
+		expect(out).toBe("Quest title \u00b7 Wrapped plan \u00b7 3/3");
 	});
 
 	it("falls back to the quest title when no document is focused", () => {
@@ -328,6 +402,20 @@ describe("renderWidget", () => {
 			currentItem: "Next thing",
 		});
 		expect(out).toBe("Open quest \u00b7 3/8 \u2192 Next thing");
+	});
+
+	it("names the quest ahead of the focused document", () => {
+		const out = widget({
+			questTitle: "The Next Evolution",
+			documentKind: "plan",
+			documentStage: "build",
+			documentTitle: "Quiet Footer",
+			done: 1,
+			total: 5,
+		});
+		expect(out).toBe(
+			"The Next Evolution \u00b7 Building Plan: Quiet Footer \u00b7 2/5",
+		);
 	});
 
 	it("emits no glyphs in widget output", () => {

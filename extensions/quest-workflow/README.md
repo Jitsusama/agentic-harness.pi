@@ -100,8 +100,12 @@ while it waits its turn leaves without running.
   `/guards quest-untracked-tree block` restores the refusal
   with `tree-adopt` guidance. See
   [guard-policy-workflow](../guard-policy-workflow/README.md).
-- The status-bar widget showing the loaded quest, its kind,
-  status, and the focused document's stage and progress.
+- The quest's one line above the editor: its kind and status
+  glyphs, its title, the focused document's stage, the step
+  count and the next item, with the quest id right-aligned and
+  dimmed. Short of room, the next item goes first, then the
+  document, then the title shortens; the glyphs, the step count
+  and the id always stay.
 - Auto-load on session start when the cwd is inside a
   quest's directory tree.
 - Telling the model which quest and document it is on. The
