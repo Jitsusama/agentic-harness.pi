@@ -27,7 +27,8 @@ vi.mock("@jitsusama/agentic-harness.core/web/browser", () => ({
 	killBrowserSync: vi.fn(),
 }));
 vi.mock("@jitsusama/agentic-harness.core/web/cookies", () => ({
-	isSetUp: () => false,
+	hasCachedKey: () => false,
+	KeyringSetupNeeded: class KeyringSetupNeeded extends Error {},
 	StaleKeyError: class StaleKeyError extends Error {},
 	setupChromeKey: vi.fn(),
 }));
