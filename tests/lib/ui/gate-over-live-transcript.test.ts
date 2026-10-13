@@ -76,6 +76,7 @@ class VirtualTerminal implements Terminal {
 		this.write("\x1b[2J\x1b[H");
 	}
 	setTitle(): void {}
+	setProgramStatus(): void {}
 	setProgress(): void {}
 
 	/** Every pending write applied, then the screen as a person sees it. */

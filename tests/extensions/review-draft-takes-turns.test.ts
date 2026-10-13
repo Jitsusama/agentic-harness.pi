@@ -8,6 +8,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { until } from "../support/until.ts";
 import { activate, HEADLESS, toolNamed } from "./support/review-extension.ts";
 
 /** One open change, so the draft has a hosted target to belong to. */
@@ -82,11 +83,13 @@ describe("calls on one draft at once", () => {
 		// A plan holds its turn while it fetches the diff, which is held
 		// here until the test lets it go.
 		let letGo: () => void = () => {};
+		let held = false;
 		const answered = stub.exec.getMockImplementation();
 		stub.exec.mockImplementation(async (file: string, args: string[] = []) => {
 			if (args.includes("diff")) {
 				await new Promise<void>((resolve) => {
 					letGo = resolve;
+					held = true;
 				});
 			}
 			return answered
@@ -100,6 +103,9 @@ describe("calls on one draft at once", () => {
 			undefined,
 			HEADLESS,
 		);
+		// The plan has its turn once its diff fetch is held. A fixed sleep
+		// here let a loaded machine start the finding first, which then ran.
+		await until("the plan holds its turn", () => held);
 		const stop = new AbortController();
 		const noting = draft.execute(
 			"finding",
@@ -108,12 +114,16 @@ describe("calls on one draft at once", () => {
 			undefined,
 			HEADLESS,
 		);
-		await new Promise((resolve) => setTimeout(resolve, 50));
 		stop.abort();
 
+		// A call that leaves does so at once; one that stays waits for the
+		// plan, which is held until after this, so a generous bound only
+		// separates the two and never decides a pass.
 		const settled = await Promise.race([
 			noting.then(() => "left"),
-			new Promise((resolve) => setTimeout(() => resolve("still waiting"), 200)),
+			new Promise((resolve) =>
+				setTimeout(() => resolve("still waiting"), 2_000),
+			),
 		]);
 		letGo();
 		await planning;

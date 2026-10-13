@@ -365,6 +365,15 @@ is followed by judgment, not by a regex.
   answer opens by saying it runs in the background, every answer
   names the layer that chose its roster, and the judge's answer
   ends with the check-and-group reminder.
+- **Project-local guides**: `extension-dev-guide`, under
+  `.pi/skills/`, for working on this package. Its rules for
+  trying a change live (reload onto the tree, end the turn, try
+  the change yourself rather than asking the person to reload)
+  are ⚪, since when to try a change is the agent's call. Their
+  mechanical halves are in `extensions/reload-workflow/`: a
+  tree that does not load is refused before the settings are
+  touched, the reload waits for the run to end, its answer says
+  to end the turn, and the landing names the code that runs.
 - **Style standards**: `code-style-standard`,
   `code-review-standard`. These describe how the agent should
   write and review code; the gates do not parse code semantics.

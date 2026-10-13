@@ -202,6 +202,7 @@ class HeadlessTerminal implements Terminal {
 		this.write("\x1b[2J\x1b[H");
 	}
 	setTitle(): void {}
+	setProgramStatus(): void {}
 	setProgress(): void {}
 
 	/** Whether the terminal changed size after it was made. */

@@ -34,6 +34,28 @@ Before building any UI, follow this sequence:
 5. **Browse Pi's examples** for working implementations.
    The examples directory is listed in the system prompt.
 
+## Trying a Change Live
+
+The session runs the code it loaded, not the tree you are
+editing, and a merge is not needed to try a change:
+
+1. Call `reload` with `onto` set to the worktree and a short
+   reason. It loads the tree in a pi of its own first and
+   refuses, naming what failed, when the tree does not load.
+2. End the turn with no further calls. The reload runs when
+   the run ends, and a message starts the next turn saying
+   which code now runs.
+3. Exercise the change yourself. Do not ask the person to
+   reload, and do not fire the changed code path before the
+   reload has landed.
+4. Once the change is merged and the install updated,
+   `reload` onto `installed`. Until then the footer shows
+   `⇄`, and `/harness` says what runs.
+
+A reload re-evaluates `.ts` files but not `.mjs` ones loaded
+from the same path; see AGENTS.md. A tree is a different path,
+so its `.mjs` files are read fresh.
+
 ## Architecture: Extensions vs Library
 
 Extensions and library code serve different roles. See
