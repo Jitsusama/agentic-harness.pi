@@ -17,10 +17,17 @@ still builds, without grinding an autonomous run to a halt.
   continues and self-corrects before handing the turn to the
   user. It runs in milliseconds against a warm server and skips
   entirely when no server resolves.
-- Medium layer, on request: the no-command verify tool runs
-  the project's resolved check command and reports whether
-  the code still builds and passes. The agent calls it when
-  asked whether something works, still builds, or is green.
+- Medium layer, on request: the verify tool runs the project's
+  resolved check command and reports whether the code still
+  builds and passes. The agent calls it when asked whether
+  something works, still builds, or is green. It runs in the
+  project holding the file edited most recently, or the one its
+  `path` names, and says which directory it checked. The
+  session's directory is only the last resort: a worktree sits
+  elsewhere, and the checkout it was cut from may have nothing
+  installed. A check that could not start (a command not found,
+  or no check command at all) reads as deferred, since it says
+  nothing about the code.
   The command runs detached in its own session with no
   controlling terminal and with plain, non-interactive output
   forced, so a noisy test runner cannot write over the TUI
@@ -49,11 +56,25 @@ rather than the whole repo's.
 
 ## Commit gate
 
-When a fast-layer pass finds errors, this workflow publishes a
-failing signal (a process-global mirror of its outcome). The
-commit guardian reads that signal and refuses a commit while
-checks are red, so the block lives in the single sanctioned
-commit-review site rather than a competing interceptor here.
-That refusal is the `commit-verification` guard, which blocks
-by default; `/guards commit-verification report` is the escape
-hatch when the block is wrong or stale.
+This workflow offers a check, process-global, that the commit
+guardian calls when a commit arrives, so the block lives in the
+single sanctioned commit-review site rather than a competing
+interceptor here. The answer is worked out when it is asked,
+never read from an earlier pass:
+
+- The files that last had errors are diagnosed again, and only
+  those in the repository the commit lands in, worked out from
+  its `cd` segments and `git -C`. A file the server does not
+  reach within ten seconds is not held against the commit.
+- A failed verify run counts while its tree is the one it
+  judged: the same HEAD, and the same size and modification
+  time on every changed file. Staging moves no file, so it does
+  not count as a change. Outside git, an edit under its project
+  retires it instead.
+
+It used to publish a flag that only the end of a turn refreshed,
+and a verify run in the wrong directory could set it, so a commit
+was refused for errors fixed minutes before. The refusal now
+names each problem it confirmed. It is the `commit-verification`
+guard, which blocks by default; `/guards commit-verification
+report` lets commits through and records what it would have said.

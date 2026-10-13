@@ -2,7 +2,7 @@
  * Verification Workflow extension.
  *
  * Closes the trust gap after an edit without stalling an
- * autonomous run. Two cadences:
+ * autonomous run. Three moments:
  *
  *   Fast layer, at the turn boundary. When the agent is about
  *   to yield, it asks the resident LSP backend for diagnostics
@@ -11,35 +11,50 @@
  *   self-corrects before handing the turn to the user. It caps
  *   its fix requests so it never thrashes.
  *
- *   Medium layer, on request. The no-command verify tool runs
- *   the project's resolved check command when the user asks
- *   whether the code still builds or passes.
+ *   Medium layer, on request. The verify tool runs the
+ *   project's resolved check command, in the project the work
+ *   is in, when the user asks whether the code still builds or
+ *   passes.
+ *
+ *   At a commit. The commit guardian asks whether anything is
+ *   failing, and the answer is checked then, in the repository
+ *   the commit lands in: the files that last had errors are
+ *   diagnosed again, and a failed check run counts only while
+ *   the tree is the one it judged. Nothing stored is trusted.
  *
  * No slash command and nothing runs after every edit: the
- * loop acts at the turn boundary and when the agent is asked.
+ * loop acts at the turn boundary, at a commit, and when the
+ * agent is asked.
  */
 
-import { isAbsolute, resolve } from "node:path";
+import { homedir } from "node:os";
+import { isAbsolute, join, resolve } from "node:path";
 import type {
 	AgentToolResult,
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { resolveLspBackend } from "@jitsusama/agentic-harness.core/lsp";
-import { runVerify } from "@jitsusama/agentic-harness.core/verify";
+import { findProject, runVerify } from "@jitsusama/agentic-harness.core/verify";
 import { Type } from "@sinclair/typebox";
 import { getLastEntry } from "../../lib/internal/state.ts";
-import { setVerificationFailing } from "../../lib/internal/verification/signal.ts";
 import {
-	type FileError,
+	provideVerificationCheck,
+	type VerificationCheck,
+} from "../../lib/internal/verification/signal.ts";
+import {
+	checkRunVerdict,
 	fastLayerVerdict,
 } from "../../lib/verification/index.ts";
+import { currentFailure, settle } from "./current.ts";
+import { collectErrors, rememberChecked } from "./diagnostics.ts";
 import {
 	createVerificationState,
 	FAST_LAYER_WALL_MS,
 	MAX_FIX_ATTEMPTS,
 	type VerificationState,
 } from "./state.ts";
+import { directoryOf, treeFingerprint, within } from "./tree.ts";
 
 const STATUS_KEY = "verification-workflow";
 /** Files the LSP fast layer can serve today. */
@@ -49,9 +64,24 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 	const state = createVerificationState();
 	let ctxRef: ExtensionContext | null = null;
 
+	// Answer the commit guardian's question freshly each time it asks.
+	const check: VerificationCheck = async (scope) => {
+		const failure = await currentFailure(state, scope, resolveLspBackend());
+		if (state.outcome === "failing" || failure) state.outcome = settle(state);
+		if (ctxRef) refreshStatus(ctxRef, state);
+		return failure;
+	};
+
 	pi.on("session_start", async (_event, ctx) => {
 		ctxRef = ctx;
+		provideVerificationCheck(check);
 		refreshStatus(ctx, state);
+	});
+
+	pi.on("session_shutdown", async () => {
+		// The next session offers its own; a stale one would answer for
+		// state nobody is keeping any more.
+		provideVerificationCheck(undefined);
 	});
 
 	// Collect the files pi changed this turn.
@@ -60,7 +90,14 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 		if (event.toolName !== "edit" && event.toolName !== "write") return;
 		const path = event.input.path;
 		if (typeof path !== "string") return;
-		state.touched.add(isAbsolute(path) ? path : resolve(process.cwd(), path));
+		const absolute = isAbsolute(path) ? path : resolve(process.cwd(), path);
+		state.touched.add(absolute);
+		state.lastEdited = absolute;
+		// An edit under a failed run's project means the run judged a
+		// tree that no longer exists.
+		if (state.failedRun && within(state.failedRun.root, absolute)) {
+			state.failedRun = undefined;
+		}
 	});
 
 	// Fast layer: when the agent is about to yield (a terminal
@@ -96,7 +133,8 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 		// Read the run now: the context answers with whichever run is
 		// current when asked.
 		const run = ctx.signal;
-		const { errors, failed } = await collectErrors(backend, files, run);
+		const result = await collectErrors(backend, files, run, FAST_LAYER_WALL_MS);
+		rememberChecked(state, result);
 		if (run?.aborted) {
 			// Stopped by the person, so nothing was checked and nobody
 			// wants the agent to carry on with a fix.
@@ -104,6 +142,7 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 			refreshStatus(ctx, state);
 			return;
 		}
+		const { errors, failed } = result;
 		const verdict = fastLayerVerdict({
 			attempts: state.attempts,
 			maxAttempts: MAX_FIX_ATTEMPTS,
@@ -119,23 +158,19 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 			pi.sendUserMessage(verdict.message, { deliverAs: "followUp" });
 			return;
 		}
+		state.attempts = 0;
+		state.pending = [];
 		if (verdict.action === "giveUp") {
 			// Stop nagging and let the run end so the user sees the
-			// agent's last word; the status line still shows failing.
-			state.attempts = 0;
-			state.pending = [];
+			// agent's last word; the status line still shows failing,
+			// and a commit still re-checks what it gave up on.
 			state.outcome = "failing";
-		} else if (failed) {
-			// The server errored for the touched files, so "no errors"
-			// is not "checked clean": report deferred rather than lie
-			// green and unblock a commit on unchecked code.
-			state.attempts = 0;
-			state.pending = [];
-			state.outcome = "deferred";
 		} else {
-			state.attempts = 0;
-			state.pending = [];
-			state.outcome = "clean";
+			// When the server errored for a touched file, "no errors" is
+			// not "checked clean", so it reads deferred unless something
+			// else is known to be failing.
+			const settled = settle(state);
+			state.outcome = failed && settled === "clean" ? "deferred" : settled;
 		}
 		refreshStatus(ctx, state);
 	});
@@ -145,34 +180,72 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 		label: "Verify",
 		description:
 			"Run the project's verification check command (lint, typecheck, " +
-			"test) and report whether the code still builds and passes. Use " +
-			"this when asked whether something works, still builds, or is green.",
+			"test) and report whether the code still builds and passes. It " +
+			"checks the project holding the file edited most recently, or the " +
+			"one `path` names. Use this when asked whether something works, " +
+			"still builds, or is green.",
 		promptSnippet:
 			"When asked whether the code still builds or passes, run the verify " +
 			"tool rather than guessing.",
-		parameters: Type.Object({}),
+		parameters: Type.Object({
+			path: Type.Optional(
+				Type.String({
+					description:
+						"A file or directory in the project to check. Defaults to the " +
+						"project holding the file edited most recently, else the " +
+						"session's directory.",
+				}),
+			),
+		}),
 		async execute(
 			_toolCallId,
-			_params,
+			params,
 			signal,
 		): Promise<AgentToolResult<VerifyDetails>> {
+			const dir = verifyDirectory(params.path, state.lastEdited);
+			const root = findProject(dir)?.dir ?? dir;
 			const questVerify = ctxRef
 				? (getLastEntry<{ verify?: string | null }>(ctxRef, "quest-workflow")
 						?.verify ?? undefined)
 				: undefined;
 			const result = await runVerify({
-				cwd: process.cwd(),
+				cwd: dir,
 				...(questVerify ? { questVerify } : {}),
 				...(signal ? { signal } : {}),
 			});
-			if (ctxRef) {
-				state.outcome = result.ok ? "clean" : "failing";
-				refreshStatus(ctxRef, state);
+			const verdict = checkRunVerdict(result);
+			if (verdict.outcome === "failing" && result.command) {
+				const fingerprint = treeFingerprint(root);
+				state.failedRun = {
+					root,
+					command: result.command,
+					...(fingerprint ? { fingerprint } : {}),
+				};
+			} else if (
+				verdict.outcome === "clean" &&
+				state.failedRun?.root === root
+			) {
+				state.failedRun = undefined;
 			}
+			// A check that could not start leaves what else is known as it
+			// was; with nothing else known it says nothing was checked.
+			const settled = settle(state);
+			state.outcome =
+				verdict.outcome === "deferred" && settled === "clean"
+					? "deferred"
+					: settled;
+			if (ctxRef) refreshStatus(ctxRef, state);
+			const said =
+				verdict.outcome === "deferred"
+					? `Checked nothing in ${root}: ${verdict.reason}. This says ` +
+						`nothing about the code.\n\n${result.output}`
+					: `In ${root}:\n${result.output}`;
 			return {
-				content: [{ type: "text", text: result.output }],
+				content: [{ type: "text", text: said }],
 				details: {
 					ok: result.ok,
+					outcome: verdict.outcome,
+					dir: root,
 					...(result.command ? { command: result.command } : {}),
 				},
 			};
@@ -182,102 +255,36 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 
 interface VerifyDetails {
 	readonly ok: boolean;
+	readonly outcome: "clean" | "failing" | "deferred";
+	readonly dir: string;
 	readonly command?: string;
 }
 
-interface DiagnosticsResult {
-	readonly errors: FileError[];
-	/** True when a diagnostics call threw, so "no errors" is not "checked clean". */
-	readonly failed: boolean;
-}
-
 /**
- * The error-severity diagnostics on each file, within the fast layer's
- * wall and until the run is stopped. A backend may ignore the signal
- * it is handed, so each call is also raced against it.
+ * Where verify runs: the path it was handed, else where the last edit
+ * landed, else the session's directory. The session's directory is the
+ * last resort because it is often not where the work is: a worktree
+ * sits elsewhere, and the checkout it was cut from may have no
+ * dependencies installed at all.
  */
-async function collectErrors(
-	backend: {
-		diagnostics: (
-			path: string,
-			options?: { signal?: AbortSignal },
-		) => Promise<readonly unknown[]>;
-	},
-	files: readonly string[],
-	run: AbortSignal | undefined,
-): Promise<DiagnosticsResult> {
-	const outOfTime = new AbortController();
-	const clock = setTimeout(() => outOfTime.abort(), FAST_LAYER_WALL_MS);
-	const signal = run
-		? AbortSignal.any([outOfTime.signal, run])
-		: outOfTime.signal;
-	try {
-		return await collectWithin(backend, files, signal);
-	} finally {
-		clearTimeout(clock);
+function verifyDirectory(
+	given: string | undefined,
+	lastEdited: string | undefined,
+): string {
+	if (given) {
+		const expanded =
+			given === "~"
+				? homedir()
+				: given.startsWith("~/")
+					? join(homedir(), given.slice(2))
+					: given;
+		return directoryOf(resolve(process.cwd(), expanded));
 	}
-}
-
-async function collectWithin(
-	backend: Parameters<typeof collectErrors>[0],
-	files: readonly string[],
-	signal: AbortSignal,
-): Promise<DiagnosticsResult> {
-	const errors: FileError[] = [];
-	let failed = false;
-	for (const path of files) {
-		if (signal.aborted) {
-			// Out of time or stopped: the files left were never checked.
-			failed = true;
-			break;
-		}
-		let diagnostics: readonly unknown[];
-		try {
-			diagnostics = await untilStopped(
-				backend.diagnostics(path, { signal }),
-				signal,
-			);
-		} catch {
-			// The server errored, ran out of time or was stopped for a
-			// file it was expected to serve. Remember that so the caller
-			// does not report "clean" for a check that never actually ran.
-			failed = true;
-			continue;
-		}
-		for (const raw of diagnostics) {
-			const d = raw as {
-				severity?: string;
-				message?: string;
-				range?: { start?: { line?: number; character?: number } };
-			};
-			if (d.severity !== "error") continue;
-			errors.push({
-				path,
-				line: d.range?.start?.line ?? 1,
-				character: d.range?.start?.character ?? 0,
-				message: d.message ?? "error",
-			});
-		}
-	}
-	return { errors, failed };
-}
-
-/** The work's answer, or a rejection as soon as the signal stops it. */
-function untilStopped<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
-	return new Promise<T>((resolve, reject) => {
-		const stop = (): void => reject(new Error("stopped"));
-		signal.addEventListener("abort", stop, { once: true });
-		work.then(resolve, reject).finally(() => {
-			signal.removeEventListener("abort", stop);
-		});
-	});
+	if (lastEdited) return directoryOf(lastEdited);
+	return process.cwd();
 }
 
 function refreshStatus(ctx: ExtensionContext, state: VerificationState): void {
-	// Publish the outcome so the commit guardian can refuse a
-	// commit while checks are red. Only a definite failing verdict
-	// blocks; deferred and unknown leave the signal clear.
-	setVerificationFailing(state.outcome === "failing");
 	const theme = ctx.ui.theme;
 	const label =
 		state.outcome === "clean"
