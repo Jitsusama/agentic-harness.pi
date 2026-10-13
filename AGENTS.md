@@ -80,7 +80,7 @@ it does:
   `cost-workflow`, `image-budget-workflow`,
   `panel-lifecycle-workflow`, `job-workflow`,
   `session-recall-workflow`, `install-check-workflow`,
-  `shell-workflow`.
+  `reload-workflow`, `shell-workflow`.
 
   `away-workflow` makes the person being away a mode rather than a
   convention the model has to remember: blocking approvals hold
@@ -96,6 +96,16 @@ it does:
   `package.json`, a checkout behind its upstream, or a HEAD that
   moved since the code loaded. A pull is neither a reinstall
   nor a reload, and both used to drift silently for days.
+
+  `reload-workflow` lets the agent reload its own session, onto
+  the worktree it is changing, and carry on when the reload
+  lands, so trying a change needs neither a merge nor a person.
+  The `reload` tool only asks: pi gives `reload()` to a
+  command's context alone, so the request is handed to
+  `/harness reload` once the run settles. A tree is loaded in a
+  pi of its own first, and the install's settings entry points
+  at it only for the reload itself, since a tree beside the
+  install would load twice.
 
   `job-workflow` hosts background jobs. A tool that returns
   before its work ends hands the work to it, and it says the
@@ -246,7 +256,12 @@ they all work independently.
     its own: pnpm installs peers by default and ignores
     the optional flag, but it finds these already
     satisfied. Consumers never receive them, since
-    `--omit=dev` skips the list entirely.
+    `--omit=dev` skips the list entirely. Pin them to the
+    pi version that runs, and pin the rest of the
+    `@earendil-works` family to it under `pnpm.overrides`:
+    pi's own manifest asks for its siblings with a caret,
+    so a newer sibling arrives beside an older pi, and
+    pi 1.1.0 would not import beside pi-codemode 1.2.0.
 
   Pi's loader also aliases the older `@mariozechner/*`
   spelling, which this repo imported until every site was
@@ -595,8 +610,10 @@ about the working tree, and the gap is invisible: the tool
 answers normally and answers the old way. This has already
 produced a confident bug report against behaviour that had
 been fixed hours earlier. Before treating a live tool run as
-evidence, `/reload`, or check the claim against the test
-suite, which always runs the tree.
+evidence, call the `reload` tool onto the tree you changed, or
+check the claim against the test suite, which always runs the
+tree. After `reload`, `/harness` says which code the session
+runs, and the footer shows `⇄` while it is a tree.
 
 **A reload re-evaluates a `.ts`, but not a `.mjs`.**
 Measured, not inferred: build a jiti the way pi builds one,
@@ -702,9 +719,13 @@ now are the supervisor and reviewer suites, not every test that
 shells out. It costs about 45 seconds, and `pnpm test` runs every
 project, this one included.
 
-CI runs `pnpm lint`, `pnpm typecheck` and `pnpm test` on every push
-and pull request via `.github/workflows/ci.yml`, as three parallel
-jobs.
+CI runs `pnpm lint`, `pnpm typecheck`, `pnpm test` and
+`pnpm load-check` on every pull request and every push to `main` via
+`.github/workflows/ci.yml`, as four parallel jobs. The load check
+installs a copy with production dependencies only, the way pi
+installs from git, and loads it through pi with nothing else
+loaded; it is the only check that sees a runtime dependency the
+install does not hold.
 
 ## What Not to Do
 

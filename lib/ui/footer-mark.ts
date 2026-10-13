@@ -33,6 +33,8 @@ export const FOOTER_GLYPH = {
 	// A check failed. The same cross, under the same name, that review
 	// and the spawned-agent marks use for a failed anything.
 	failed: "\u2715",
+	// The session runs a tree in place of the install pi's settings name.
+	swapped: "\u21c4",
 } as const;
 
 /** What a footer mark is called. */

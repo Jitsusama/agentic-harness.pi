@@ -223,6 +223,9 @@ describe("tools that can answer big must bound their answers", () => {
 			"issue-guardian",
 			"history-guardian",
 			"prompt-coordinator-workflow",
+			// Two sentences: what was queued, and what to do next. A tree that
+			// fails to load lists its failures, one line per extension.
+			"reload-workflow",
 		]);
 		const accounted = new Set<string>([
 			...MUST_BOUND,

@@ -31,6 +31,7 @@
 		"lint": "biome check .",
 		"lint:fix": "biome check --write .",
 		"typecheck": "tsc --noEmit",
+		"load-check": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/load-check.ts --production",
 		"test": "vitest run",
 		"test:unit": "vitest run --project unit",
 		"test:watch": "vitest",
@@ -42,6 +43,13 @@
 	},
 	"pnpm": {
 		"overrides": {
+			"@earendil-works/chord": "1.1.0",
+			"@earendil-works/pi-agent-core": "1.1.0",
+			"@earendil-works/pi-ai": "1.1.0",
+			"@earendil-works/pi-codemode": "1.1.0",
+			"@earendil-works/pi-mcp": "1.1.0",
+			"@earendil-works/pi-telemetry": "1.1.0",
+			"@earendil-works/pi-tui": "1.1.0",
 			"google-auth-library": "10.9.0"
 		}
 	},
@@ -85,9 +93,9 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.3",
-		"@earendil-works/pi-ai": "0.99.2",
-		"@earendil-works/pi-coding-agent": "0.99.2",
-		"@earendil-works/pi-tui": "0.99.2",
+		"@earendil-works/pi-ai": "1.1.0",
+		"@earendil-works/pi-coding-agent": "1.1.0",
+		"@earendil-works/pi-tui": "1.1.0",
 		"@types/node": "^26.1.1",
 		"@vitest/coverage-v8": "^4.1.10",
 		"@xterm/headless": "5.5.0",

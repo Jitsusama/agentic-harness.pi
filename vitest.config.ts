@@ -37,6 +37,7 @@ const PROCESS_TESTS = [
 	"tests/lib/subagent/runpi/parent-exit.test.ts",
 	"tests/extensions/review-starts-a-round-it-will-not-wait-for.test.ts",
 	"tests/extensions/subagent-workflow/fleet-outlives-its-session.test.ts",
+	"tests/lib/internal/reload/load-check.test.ts",
 ];
 
 // Pi's loader rewrites the @sinclair/typebox imports onto its

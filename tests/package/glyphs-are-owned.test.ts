@@ -184,7 +184,7 @@ describe("glyph ownership across the package", () => {
 			// The footer: marks outside every geometric family, since the
 			// footer sits beside all of them at once, plus the shared cross
 			// for a failed anything.
-			"footer-mark": /[\u2691\u263e\u29d7\u2715]/,
+			"footer-mark": /[\u2691\u263e\u29d7\u2715\u21c4]/,
 		};
 
 		const strays: string[] = [];

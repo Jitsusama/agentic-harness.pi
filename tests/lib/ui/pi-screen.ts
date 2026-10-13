@@ -70,6 +70,7 @@ export class VirtualTerminal implements Terminal {
 		this.write("\x1b[2J\x1b[H");
 	}
 	setTitle(): void {}
+	setProgramStatus(): void {}
 	setProgress(): void {}
 
 	/** Type as a person would: the bytes go in where the keyboard's do. */

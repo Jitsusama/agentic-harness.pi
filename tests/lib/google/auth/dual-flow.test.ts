@@ -9,6 +9,7 @@
 
 import { AUTH_MESSAGES } from "@jitsusama/agentic-harness.core/google";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { until } from "../../../support/until.ts";
 import { type PiScreen, pinStdout, piScreen } from "../../ui/pi-screen.ts";
 
 /** What each mocked wait was handed, so a test can see it stop. */
@@ -56,7 +57,12 @@ const { authenticateWithFallback } = await import(
 );
 
 const ESCAPE = "\x1b";
-const STILL_RUNNING_MS = 1000;
+// How long a run may take to come to something before it counts as
+// still going. A stopped login settles in milliseconds, but Escape first
+// waits out the terminal's pause for a key sequence, and on a loaded
+// machine a one-second bound failed runs that were stopping correctly.
+// A login that never stops fails here either way, only later.
+const STILL_RUNNING_MS = 5_000;
 const CONFIG = { clientId: "id", clientSecret: "secret" };
 
 /** A wait that lasts until its signal fires, as the real ones do. */
@@ -68,6 +74,22 @@ function untilStopped(signal: AbortSignal | undefined): Promise<never> {
 			{ once: true },
 		);
 	});
+}
+
+/**
+ * Wait for the screen to show `text`, or to stop showing it. A panel
+ * opens after the login's own awaits (the web flow only once the device
+ * flow has failed), so one settled frame can land in the gap.
+ */
+async function screenShows(
+	s: PiScreen,
+	text: string,
+	shown = true,
+): Promise<void> {
+	await until(
+		`the screen ${shown ? "shows" : "drops"} ${text}`,
+		async () => (await s.settled()).includes(text) === shown,
+	);
 }
 
 /** What a run came to, or that it is still going. */
@@ -102,7 +124,7 @@ describe("a Google login's waiting panel", () => {
 
 	it("stops the device poll when Escape closes it", async () => {
 		const run = authenticateWithFallback(CONFIG, s.ctx());
-		expect(await s.settled()).toContain("ABCD-EFGH");
+		await screenShows(s, "ABCD-EFGH");
 
 		s.terminal.press(ESCAPE);
 
@@ -110,26 +132,26 @@ describe("a Google login's waiting panel", () => {
 			message: AUTH_MESSAGES.cancelled,
 		});
 		expect(handed.poll?.aborted).toBe(true);
-		expect(await s.settled()).not.toContain("ABCD-EFGH");
+		await screenShows(s, "ABCD-EFGH", false);
 	});
 
 	it("stops the device poll when its caller's signal fires", async () => {
 		const turn = new AbortController();
 		const run = authenticateWithFallback(CONFIG, s.ctx(), turn.signal);
-		expect(await s.settled()).toContain("ABCD-EFGH");
+		await screenShows(s, "ABCD-EFGH");
 
 		turn.abort();
 
 		expect(await outcome(run)).toMatchObject({
 			message: AUTH_MESSAGES.cancelled,
 		});
-		expect(await s.settled()).not.toContain("ABCD-EFGH");
+		await screenShows(s, "ABCD-EFGH", false);
 	});
 
 	it("frees the callback port when Escape closes the web flow's panel", async () => {
 		device.fails = true;
 		const run = authenticateWithFallback(CONFIG, s.ctx());
-		expect(await s.settled()).toContain("Web Flow Authentication");
+		await screenShows(s, "Web Flow Authentication");
 
 		s.terminal.press(ESCAPE);
 
@@ -137,6 +159,6 @@ describe("a Google login's waiting panel", () => {
 			message: AUTH_MESSAGES.cancelled,
 		});
 		expect(handed.callback?.aborted).toBe(true);
-		expect(await s.settled()).not.toContain("Web Flow Authentication");
+		await screenShows(s, "Web Flow Authentication", false);
 	});
 });
