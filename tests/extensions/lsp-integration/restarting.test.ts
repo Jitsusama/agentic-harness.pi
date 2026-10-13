@@ -129,6 +129,7 @@ describe("what counts as a server that has gone", () => {
 	it.each([
 		["Connection is closed.", true],
 		["Connection is disposed.", true],
+		["Pending response rejected since connection got disposed", true],
 		["Connection refused", false],
 		["Request textDocument/hover failed", false],
 	])("%j is %s", (message, gone) => {

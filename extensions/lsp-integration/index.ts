@@ -55,15 +55,17 @@ const STANDALONE = "standalone";
 const STANDALONE_PRIORITY = 100;
 
 /**
- * Whether an error is vscode-jsonrpc saying its server has gone:
+ * What vscode-jsonrpc says when its server has gone:
  * "Connection is closed." once the process exits, "Connection is
- * disposed." once something tore it down.
+ * disposed." once something tore it down, and the rejection a request
+ * still waiting gets when the connection is disposed under it.
  */
+const GONE =
+	/^(?:Connection is (?:closed|disposed)\.?|Pending response rejected since connection got disposed)$/;
+
+/** Whether `err` says the server behind the connection has gone. */
 export function closedConnection(err: unknown): boolean {
-	return (
-		err instanceof Error &&
-		/^Connection is (?:closed|disposed)\.?$/.test(err.message)
-	);
+	return err instanceof Error && GONE.test(err.message);
 }
 
 /** File types the standalone backend can currently serve. */
