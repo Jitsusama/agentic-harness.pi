@@ -18,10 +18,12 @@ import {
 	setCheckbox,
 	splitAtBody,
 } from "../../../lib/internal/quest/body-edits.ts";
+import { discoverQuests } from "../../../lib/internal/quest/discovery.ts";
 import {
 	atomicWriteFile,
 	withQuestLock,
 } from "../../../lib/internal/quest/io.ts";
+import { mutateQuestFrontMatter } from "../../../lib/internal/quest/mutate.ts";
 import { displayPath } from "../../../lib/ui/path.ts";
 import { refreshProgress, stampQuestUpdated } from "../lifecycle.ts";
 import type { QuestState } from "../state.ts";
@@ -33,21 +35,55 @@ import {
 	refuse,
 } from "./shared.ts";
 
-/** Add a dated entry to the loaded quest's Journey. */
+/**
+ * Add a dated entry to a quest's Journey: the one `id` names, loaded
+ * or not, else the loaded quest's.
+ */
 export function journal(
 	state: QuestState,
 	params: QuestToolParams,
 ): QuestResult {
-	if (!state.questDir) return refuse("Load a quest before journaling.");
 	const entry = params.note?.trim();
 	if (!entry) return refuse("Pass the entry to add as `note`.");
-	if (!appendJourneyByPath(state.questDir, entry)) {
+	const target = journalTarget(state, params.id?.trim());
+	if ("refusal" in target) return target.refusal;
+	if (!appendJourneyByPath(target.dir, entry)) {
 		return refuse(
-			`Could not add to ${displayPath(join(state.questDir, "README.md"))}; check it exists and is readable.`,
+			`Could not add to ${displayPath(join(target.dir, "README.md"))}; check it exists and is readable.`,
 		);
 	}
-	stampQuestUpdated(state);
-	return ok(`Added to ${state.questId}'s Journey.`);
+	if (target.loaded) stampQuestUpdated(state);
+	// An identity transform: the write stamps `updated` and nothing else.
+	else mutateQuestFrontMatter(target.dir, (fm) => fm);
+	return ok(`Added to ${target.id}'s Journey.`);
+}
+
+/** The quest a Journey entry goes to, or why there is none. */
+function journalTarget(
+	state: QuestState,
+	id: string | undefined,
+):
+	| { readonly id: string; readonly dir: string; readonly loaded: boolean }
+	| { readonly refusal: QuestResult } {
+	if (!id || id === "readme" || id === state.questId) {
+		if (!state.questDir || !state.questId) {
+			return {
+				refusal: refuse(
+					"Load a quest before journaling, or name the quest as `id`.",
+				),
+			};
+		}
+		return { id: state.questId, dir: state.questDir, loaded: true };
+	}
+	const quest = discoverQuests(state.questsRoot).index.quests.get(id);
+	if (!quest) {
+		return {
+			refusal: refuse(
+				`${id} is not a quest. A Journey belongs to a quest's README, so name a quest's id.`,
+			),
+		};
+	}
+	return { id, dir: quest.dir, loaded: false };
 }
 
 /** Mark a checkbox item done (`tick`) or not done (`untick`). */

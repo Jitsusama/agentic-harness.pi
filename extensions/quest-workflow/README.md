@@ -81,7 +81,8 @@ while it waits its turn leaves without running.
   on conclude or retire. Bash targets resolve as the shell
   would, so `~` is the home directory and a `cd` counts.
 - Edits to a document's body: `journal` adds a dated
-  Journey entry, `tick` and `untick` set a checkbox item by
+  Journey entry, to the quest `id` names or else the loaded
+  one, `tick` and `untick` set a checkbox item by
   its text or a unique start of it, and `section` replaces
   one `##` section. Each reads and writes under the quest
   lock and leaves the front matter byte for byte, since the

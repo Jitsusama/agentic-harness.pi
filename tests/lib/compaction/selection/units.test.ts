@@ -61,4 +61,19 @@ describe("unitsOf", () => {
 		).toEqual([]);
 		expect(unitsOf(compaction("c1"))).toEqual([]);
 	});
+
+	it("never quotes a turn the harness started as something a person said", () => {
+		const report =
+			"[Automated message, no human input: background jobs are reporting.]\n\n" +
+			"[job j1] A paragraph long enough that it would otherwise be worth keeping.";
+		expect(unitsOf(user("u1", report))).toEqual([]);
+		expect(
+			unitsOf(
+				user(
+					"u2",
+					"Verification found 3 errors in files you changed this turn.\n\nA paragraph long enough to keep.",
+				),
+			),
+		).toEqual([]);
+	});
 });

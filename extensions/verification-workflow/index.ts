@@ -37,6 +37,7 @@ import type {
 import { resolveLspBackend } from "@jitsusama/agentic-harness.core/lsp";
 import { findProject, runVerify } from "@jitsusama/agentic-harness.core/verify";
 import { Type } from "@sinclair/typebox";
+import { questWorkspacesRoot } from "../../lib/internal/quest/workspace-root.ts";
 import { getLastEntry } from "../../lib/internal/state.ts";
 import {
 	provideVerificationCheck,
@@ -50,7 +51,14 @@ import {
 import { currentFailure, settle } from "./current.ts";
 import { collectErrors, rememberChecked } from "./diagnostics.ts";
 import {
+	isVerificationReport,
+	VERIFICATION_MESSAGE,
+	type VerificationReport,
+	verificationLines,
+} from "./render.ts";
+import {
 	createVerificationState,
+	errorSetKey,
 	FAST_LAYER_WALL_MS,
 	MAX_FIX_ATTEMPTS,
 	type VerificationState,
@@ -61,9 +69,30 @@ const STATUS_KEY = "verification-workflow";
 /** Files the LSP fast layer can serve today. */
 const SYNCABLE = /\.(ts|tsx|js|jsx|mjs|cjs)$/;
 
+/**
+ * Whether a file is the work rather than a quest workspace's scratch:
+ * clones, labs and evaluations that were never meant to typecheck.
+ */
+function isTheWork(path: string): boolean {
+	return SYNCABLE.test(path) && !within(questWorkspacesRoot(), path);
+}
+
 export default function verificationWorkflow(pi: ExtensionAPI) {
 	const state = createVerificationState();
 	let ctxRef: ExtensionContext | null = null;
+
+	pi.registerMessageRenderer<VerificationReport>(
+		VERIFICATION_MESSAGE,
+		(message, options, theme) => {
+			const report = message.details;
+			if (!isVerificationReport(report)) return undefined;
+			return {
+				render: (width: number) =>
+					verificationLines(report, theme, width, options.expanded),
+				invalidate: () => {},
+			};
+		},
+	);
 
 	// Answer the commit guardian's question freshly each time it asks.
 	const check: VerificationCheck = async (scope) => {
@@ -105,12 +134,14 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 	// turn that ran no tools, so the loop is about to stop), run
 	// the resident LSP over the files touched this run plus any
 	// still-outstanding ones. On new error-severity problems,
-	// enqueue the fix as a follow-up. pi.sendUserMessage with
-	// deliverAs "followUp" feeds the loop's follow-up queue, which
-	// it drains immediately after this event and before it ends
-	// the run (turn_end is emitted just ahead of the follow-up
-	// drain), so the agent continues and self-corrects before the
-	// turn returns to the user.
+	// enqueue the fix as a follow-up. A custom message with
+	// deliverAs "followUp" and no triggerTurn feeds the loop's
+	// follow-up queue, which it drains right after this event and
+	// before it ends the run, so the agent continues under the
+	// system prompt its run already has and self-corrects before
+	// the turn returns to the user. It is the harness speaking, so
+	// it is not a user message: the transcript, the cost ledger and
+	// the compaction quotes would all read one as the person.
 	pi.on("turn_end", async (event, ctx) => {
 		ctxRef = ctx;
 		// A turn that executed tools loops again on its own; only
@@ -123,7 +154,7 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 		const watched = new Set<string>(state.pending.map((e) => e.path));
 		for (const p of state.touched) watched.add(p);
 		state.touched.clear();
-		const files = [...watched].filter((p) => SYNCABLE.test(p));
+		const files = [...watched].filter(isTheWork);
 
 		const backend = resolveLspBackend();
 		if (!backend || files.length === 0) {
@@ -150,17 +181,40 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 			errors,
 		});
 
-		if (verdict.action === "inject") {
+		const key = errorSetKey(errors);
+		if (verdict.action === "inject" && key !== state.lastSaid) {
 			state.attempts = verdict.attempt;
 			state.pending = [...errors];
 			state.outcome = "failing";
+			state.lastSaid = key;
 			refreshStatus(ctx, state);
 			// Continue the run so the agent fixes this before yielding.
-			pi.sendUserMessage(verdict.message, { deliverAs: "followUp" });
+			const report: VerificationReport = { errors };
+			pi.sendMessage(
+				{
+					customType: VERIFICATION_MESSAGE,
+					content: verdict.message,
+					display: true,
+					details: report,
+				},
+				{ deliverAs: "followUp" },
+			);
+			return;
+		}
+		if (verdict.action === "inject") {
+			// The model was told exactly this and yielded anyway, so saying
+			// it again says nothing. The footer still shows it failing, and
+			// a commit still re-checks.
+			state.attempts = 0;
+			state.pending = [...errors];
+			state.outcome = "failing";
+			refreshStatus(ctx, state);
 			return;
 		}
 		state.attempts = 0;
 		state.pending = [];
+		// Clean: whatever comes next is new.
+		if (errors.length === 0) state.lastSaid = undefined;
 		if (verdict.action === "giveUp") {
 			// Stop nagging and let the run end so the user sees the
 			// agent's last word; the status line still shows failing,

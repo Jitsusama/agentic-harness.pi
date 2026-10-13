@@ -30,11 +30,12 @@ import { sessionGateDeps } from "../../lib/internal/gate/session-deps.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { singleFlight } from "../../lib/internal/single-flight.ts";
 import { getLastEntry } from "../../lib/internal/state.ts";
+import { registerStandingContext } from "../../lib/prompt/index.ts";
 import { ensureAuthenticated } from "../../lib/slack/auth/ensure-auth.ts";
 import { count } from "../../lib/ui/count.ts";
 import { drawInto } from "../../lib/ui/index.ts";
 import { handleSlackAuthCommand } from "./auth-command.ts";
-import { identityContext } from "./context.ts";
+import { IDENTITY_CONTEXT, identityText } from "./context.ts";
 import { routeAction } from "./router.ts";
 import { createSessionState, type SlackSessionState } from "./state.ts";
 
@@ -244,13 +245,9 @@ export default function slackIntegration(pi: ExtensionAPI) {
 		}
 	});
 
-	// Inject identity into agent context when known.
-	//
-	// Written against an older shape that took a list of content
-	// blocks. The hook now takes one custom message, which is what
-	// every other context injection in this package returns, so this
-	// says the same thing the way the rest of them do.
-	pi.on("before_agent_start", async () => identityContext(session));
+	// Who the model is on Slack, said once it is known and again only
+	// when it changes.
+	registerStandingContext(pi, IDENTITY_CONTEXT, () => identityText(session));
 
 	pi.registerTool({
 		name: "slack",

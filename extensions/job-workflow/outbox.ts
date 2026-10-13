@@ -24,6 +24,8 @@
  * a run that ended without it) is sent again rather than lost.
  */
 
+import { automatedHeader } from "../../lib/internal/automated.ts";
+
 /** A finished job's result, bounded, ready to say. */
 export interface JobResult {
 	readonly jobId: string;
@@ -68,8 +70,7 @@ export interface Outbox {
 export const PROMPT_WAIT_MS = 30_000;
 
 /** How the message opens, so the model and the person know nobody typed it. */
-export const OUTBOX_HEADER =
-	"[Automated message, no human input: background jobs are reporting.]";
+export const OUTBOX_HEADER = automatedHeader("background jobs are reporting");
 
 /** A job's tag in the message, which is how its landing is recognised. */
 const tag = (jobId: string) => `[job ${jobId}]`;

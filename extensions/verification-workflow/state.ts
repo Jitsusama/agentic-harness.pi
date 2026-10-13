@@ -47,6 +47,24 @@ export interface VerificationState {
 	lastEdited?: string;
 	/** Last outcome, for the status line. */
 	outcome: VerifyOutcome;
+	/**
+	 * The error set the fast layer last told the model about, as
+	 * {@link errorSetKey} spells it. The same set is not said twice:
+	 * the model has it already, and the footer still says it fails.
+	 */
+	lastSaid?: string;
+}
+
+/**
+ * An error set, said the same whatever order it arrived in and
+ * wherever its lines moved to, since an edit above an error moves it
+ * without changing it.
+ */
+export function errorSetKey(errors: readonly FileError[]): string {
+	return errors
+		.map((error) => `${error.path}\u0000${error.message}`)
+		.sort()
+		.join("\u0001");
 }
 
 /** The number of fix requests before the loop gives up and hands back. */

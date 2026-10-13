@@ -15,6 +15,9 @@ delivers findings by severity:
 - An aside is a quiet tail note.
 - A concern or blocker interrupts through the steer channel, so
   it can stop a wrong direction rather than only annotate it.
+  Both are `advisor-note` messages, never user messages: a steer
+  with no run under way waits for the next one rather than
+  starting a turn in your name.
 
 Every finding is framed as advice to weigh, not a command to
 obey, and carries the evidence that grounds it: a file and line,
