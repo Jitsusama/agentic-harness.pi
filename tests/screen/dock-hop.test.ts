@@ -65,6 +65,8 @@ function gateTool(api: ExtensionAPI): void {
 }
 
 beforeEach(() => {
+	// The person's own config is not this test's to read.
+	vi.stubEnv("XDG_CONFIG_HOME", "/nonexistent/fleet-dock-hop-config");
 	held = new Map();
 	answers = [];
 	runner = (input) =>
@@ -89,6 +91,7 @@ afterEach(async () => {
 	await pi?.stop();
 	pi = undefined;
 	vi.restoreAllMocks();
+	vi.unstubAllEnvs();
 });
 
 /** A fleet of `ids` under `runId`, as the model would ask for one. */

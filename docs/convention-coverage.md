@@ -365,6 +365,14 @@ is followed by judgment, not by a regex.
   answer opens by saying it runs in the background, every answer
   names the layer that chose its roster, and the judge's answer
   ends with the check-and-group reminder.
+
+  `subagent-fleet-guide`'s sizing rules split the same way. One
+  job per uncovered angle, and leaving `model` off a job that
+  needs nothing different, are ⚪. A fleet over
+  `subagent.maxJobs` and a malformed `subagent` section are
+  refused in `extensions/subagent-workflow/sizing.ts`, and every
+  answer opens by saying what the jobs ran on and which layer
+  chose it.
 - **Project-local guides**: `extension-dev-guide`, under
   `.pi/skills/`, for working on this package. Its rules for
   trying a change live (reload onto the tree, end the turn, try

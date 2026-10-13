@@ -36,6 +36,8 @@ let said: string[];
 beforeEach(() => {
 	root = mkdtempSync(join(tmpdir(), "fleet-written-"));
 	vi.stubEnv("XDG_STATE_HOME", root);
+	// The person's own config is not this test's to read.
+	vi.stubEnv("XDG_CONFIG_HOME", join(root, "config"));
 	said = [];
 	vi.spyOn(console, "error").mockImplementation((line: unknown) => {
 		said.push(String(line));

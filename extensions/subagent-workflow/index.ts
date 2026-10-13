@@ -76,6 +76,7 @@ import {
 	formatFleetCancellation,
 } from "./cancellation.ts";
 import { digestFleetRuns } from "./digests.ts";
+import { saidFirst, sizeFleet } from "./fleet-settings.ts";
 import {
 	createFleetProgressReporter,
 	fleetCardLines,
@@ -491,6 +492,10 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 			"Spawn parallel pi subagents for persona-driven, multi-angle " +
 			"or fan-out work. The skill teaches when to reach for it; this " +
 			"is the substrate.",
+		promptGuidelines: [
+			"Size a fleet to the angles it needs: one job per angle the others do not cover. A fleet past subagent.maxJobs (8 by default) is refused; do not split it into two calls to get under the cap.",
+			"Leave model and thinkingLevel off a job unless it needs something different from the rest. They are filled, first match winning, from the run's defaults, the loaded quest's and the project's subagent settings, subagent.defaults, then the session's own model at high thinking; the answer says what each job ran on.",
+		],
 		parameters: Type.Object({
 			jobs: Type.Array(
 				Type.Object({
@@ -502,7 +507,7 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 					model: Type.Optional(
 						Type.String({
 							description:
-								"Pi --model value: bare model id (claude-opus-4-7) or provider/model (anthropic/claude-opus-4-7). Omit to use pi's configured defaultModel from settings, which is not necessarily the model this session is running: the child is a fresh pi process and is not handed the parent's model.",
+								"Pi --model value: provider/model (anthropic/claude-opus-4-7) or a bare model id. Omit to take the run's defaults, then the loaded quest's, the project's or the config's subagent settings, and otherwise the session's own model.",
 						}),
 					),
 					thinkingLevel: Type.Optional(
@@ -512,7 +517,7 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 							THINKING_LEVELS,
 							{
 								description:
-									"Pi --thinking value. Omit to use pi's configured defaultThinkingLevel from settings, not this session's current level.",
+									"Pi --thinking value. Omit to take the same layers as model, and otherwise high.",
 							},
 						),
 					),
@@ -609,6 +614,21 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 						"Stable id for this fleet run. Used for durable supervisor artifacts, the ledger entry that keeps them, and progress correlation. Letters, digits, dot, underscore and dash, so it names exactly one run on disk. Auto-generated when omitted.",
 				}),
 			),
+			defaults: Type.Optional(
+				Type.Object(
+					{
+						model: Type.Optional(Type.String()),
+						thinkingLevel: Type.Optional(StringEnum(THINKING_LEVELS)),
+						tools: Type.Optional(Type.Array(Type.String())),
+						timeoutMs: Type.Optional(Type.Integer()),
+						idleTimeoutMs: Type.Optional(Type.Integer()),
+					},
+					{
+						description:
+							"Settings for every job in this run that does not set its own: model, thinkingLevel, tools and the two clocks. They come before the quest's, the project's and the config's subagent settings, and the session's model.",
+					},
+				),
+			),
 			background: Type.Optional(
 				Type.Boolean({
 					description:
@@ -634,7 +654,17 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 		},
 		async execute(_toolCallId, params, toolSignal, _onUpdate, ctx) {
 			const runId = params.runId ?? `fleet-${randomUUID()}`;
-			const assignments: FleetAssignment[] = params.jobs.map(buildAssignment);
+			const sized = await sizeFleet(ctx, params.jobs, params.defaults);
+			if ("refusal" in sized) {
+				return {
+					content: [{ type: "text" as const, text: sized.refusal }],
+					details: { ok: false },
+				};
+			}
+			const assignments: FleetAssignment[] = sized.jobs.map(buildAssignment);
+			// Held apart, since the fleet below runs in a function of its own,
+			// where the narrowing above does not reach.
+			const ranOn = sized.ranOn;
 			// In the background the fleet answers to its job, which the person
 			// stops from /jobs and the session stops as it ends, and not to the
 			// call, which returns at once.
@@ -646,7 +676,7 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 			const progress = createFleetProgressReporter(ctx, controls(runId), runId);
 			if (job !== undefined) {
 				finishInBackground(job, runFleet(), progress, runId);
-				return startedAnswer(job, runId, assignments.length);
+				return saidFirst(ranOn, startedAnswer(job, runId, assignments.length));
 			}
 			// The board comes down as the tool returns, after the bookkeeping
 			// below, and not when the fleet finishes: pi draws the result card
@@ -722,7 +752,10 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 					const located = locateArtifacts(runs, result);
 					return {
 						content: [
-							{ type: "text" as const, text: formatFleetSummary(located) },
+							{
+								type: "text" as const,
+								text: `${ranOn}\n\n${formatFleetSummary(located)}`,
+							},
 						],
 						details: { ok: true, ...located },
 					};
