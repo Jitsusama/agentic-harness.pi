@@ -4,17 +4,17 @@
  * `review_ask` reads its roster from the package config, and the
  * envelope keeps every extension's settings under `sections`. Reading
  * one level too high finds nothing for every well-formed config there
- * is, so the tool refuses with "no roster is configured" no matter
- * what the file says, and the refusal reads like a config problem
- * rather than a lookup bug. That is worth a test of its own because
- * the shape is invisible: `undefined` is exactly what an absent
- * section looks like.
+ * is, so the tool falls back to the built-in roster no matter what the
+ * file says, and the reviewers somebody configured are silently not
+ * asked. That is worth a test of its own because the shape is
+ * invisible: `undefined` is exactly what an absent section looks like.
  */
 
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { BUILT_IN_ROSTER } from "../../extensions/review-integration/roster.ts";
 import { rosterFromConfig } from "../../extensions/review-integration/tools/ask.ts";
 import { loadPackageConfig } from "../../lib/internal/config/loader.ts";
 
@@ -34,9 +34,13 @@ describe("finding the roster in the package config", () => {
 	it("reads a roster written under sections, where every section lives", async () => {
 		const path = await configHolding({ review: { ask: ONE_REVIEWER } });
 
-		const roster = await rosterFromConfig(await loadPackageConfig(path), path);
+		const { roster, source } = await rosterFromConfig(
+			await loadPackageConfig(path),
+			path,
+		);
 
 		expect(roster.reviewers.map((r) => r.id)).toEqual(["opus"]);
+		expect(source).toEqual({ kind: "config" });
 	});
 
 	it("applies what this one call asked for, over the file", async () => {
@@ -46,9 +50,11 @@ describe("finding the roster in the package config", () => {
 		// since it was written.
 		const path = await configHolding({ review: { ask: ONE_REVIEWER } });
 
-		const roster = await rosterFromConfig(await loadPackageConfig(path), path, {
-			opus: { thinkingLevel: "xhigh" },
-		});
+		const { roster } = await rosterFromConfig(
+			await loadPackageConfig(path),
+			path,
+			{ opus: { thinkingLevel: "xhigh" } },
+		);
 
 		expect(roster.reviewers[0]).toEqual({
 			id: "opus",
@@ -80,7 +86,10 @@ describe("finding the roster in the package config", () => {
 			},
 		});
 
-		const roster = await rosterFromConfig(await loadPackageConfig(path), path);
+		const { roster } = await rosterFromConfig(
+			await loadPackageConfig(path),
+			path,
+		);
 
 		expect(roster.judge?.id).toBe("judge");
 	});
@@ -100,17 +109,28 @@ describe("finding the roster in the package config", () => {
 			"utf8",
 		);
 
-		await expect(
-			rosterFromConfig(await loadPackageConfig(path), path),
-		).rejects.toThrow(/No roster is configured/);
+		const { roster, source } = await rosterFromConfig(
+			await loadPackageConfig(path),
+			path,
+		);
+
+		expect(source).toEqual({ kind: "built-in" });
+		expect(roster).toEqual(BUILT_IN_ROSTER);
 	});
 
-	it("says where to write the roster when there is none", async () => {
+	it("asks the built-in roster when nothing is configured", async () => {
+		// A council on a fresh machine used to be refused outright, which
+		// is how a review tool that was installed came to be unusable.
 		const path = await configHolding({});
 
-		await expect(
-			rosterFromConfig(await loadPackageConfig(path), path),
-		).rejects.toThrow(new RegExp(`review.ask section to ${path}`));
+		const { roster, source } = await rosterFromConfig(
+			await loadPackageConfig(path),
+			path,
+		);
+
+		expect(source).toEqual({ kind: "built-in" });
+		expect(roster.reviewers).toHaveLength(4);
+		expect(roster.judge?.id).toBe("judge");
 	});
 
 	it("passes a malformed roster's own refusal through", async () => {

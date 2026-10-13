@@ -156,6 +156,63 @@ URL or short form no provider recognizes. Neither is required,
 and nothing defaults: an unrecognized reference comes back as a
 refusal naming the knob that would fix it.
 
+### Who a Round Asks
+
+A round works with no `ask` subsection at all. It then asks the
+built-in roster: four reviewers, `correctness-and-tests`,
+`test-skeptic`, `security-attacker` and `operational-safety`, and
+a judge. Four lenses that each look for something different, and
+small on purpose: a bigger council is a choice somebody makes.
+
+Anything written under `ask` replaces it, and the roster is
+chosen in layers, first match winning:
+
+```jsonc
+{
+  "ask": {
+    "sets": {
+      "deep": {
+        "reviewers": [
+          { "persona": "correctness-and-tests" },
+          { "persona": "architecture-hawk" },
+          { "persona": "intent-fidelity" }
+        ],
+        "judge": { "id": "judge" }
+      }
+    },
+    "quests": { "QEST-20261012-9JKNEV": "deep" },
+    "projects": { "github:Jitsusama/agentic-harness.pi": "deep" },
+    "reviewers": [{ "persona": "correctness-and-tests" }],
+    "maxReviewers": 8
+  }
+}
+```
+
+| Layer | Chosen when |
+|---|---|
+| The round's `set` | The call names one; `built-in` names the package's own |
+| `quests` | The session has that quest loaded |
+| `projects` | The change belongs to that repository |
+| `reviewers` and `judge` | Written straight under `ask` |
+| Built-in | Nothing above applies |
+
+Every answer says which layer chose, and `review_ask roster`
+lists the choice, every set and its size. A project's set is
+named here, by repository, rather than in a file inside the
+repository: a file there is one the change under review could
+edit.
+
+A participant with no `model` runs on the session's model, written
+out at dispatch, so a reviewer never silently falls back to pi's
+`defaultModel`. One with no `thinkingLevel` thinks at `high`. A
+round that would ask more than `maxReviewers` reviewers, eight by
+default, is refused with the count and how to raise it.
+
+Persona charters are read from your persona directory first and
+then from `personas/` here, which ships seven: the four above,
+`architecture-hawk`, `clean-design` and `intent-fidelity`. A file
+of yours with a built-in's name replaces it.
+
 ### What Bounds a Reviewer
 
 The `ask` subsection holds three durations, in milliseconds, and

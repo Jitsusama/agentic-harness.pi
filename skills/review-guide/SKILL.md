@@ -198,7 +198,7 @@ A council does not post, and a draft does not run models.
 
 Three rounds, in order, each refusing to run ahead of the one before:
 
-- `review_ask council` asks every reviewer on the configured roster,
+- `review_ask council` asks every reviewer on the round's roster,
   independently and at once. This is the discovery pass.
 - `review_ask judge` consolidates what they found, merging the same
   observation stated three ways and recording who raised it.
@@ -210,6 +210,13 @@ findings, and a critique with nothing consolidated is refused the same
 way. Stopping after the council is perfectly reasonable; the later
 rounds cost real money and earn their keep on a change where the
 findings disagree with each other.
+
+**A judge's findings are claims, not facts.** It consolidates what
+the reviewers believed, and both can be wrong about the code. When a
+judge is done, check each finding against the source yourself before
+deciding it. Then group what holds up by root cause and fix the causes,
+not each symptom one at a time. The judge's answer ends with the same
+reminder.
 
 **A position is not a finding.** A critique tells you which findings
 survived scrutiny and which a reviewer thinks are wrong, and
@@ -456,7 +463,11 @@ reviewer asked six times.
 
 Charters are markdown files in `~/.config/pi/personas` (or
 `$XDG_CONFIG_HOME/pi/personas`, or wherever `REVIEW_PERSONAS_DIR`
-points). The file name is the persona id. Frontmatter carries `name`
+points), and the package ships seven of its own: `correctness-and-tests`,
+`test-skeptic`, `security-attacker`, `operational-safety`,
+`architecture-hawk`, `clean-design` and `intent-fidelity`. Your
+directory is read first, so a file of yours with a built-in's name
+replaces it. The file name is the persona id. Frontmatter carries `name`
 and `description` and **no mechanism**: which model a lens runs on, how
 hard it thinks and what tools it can reach live in the roster beside
 the other participants, so the same lens at two thinking levels is two
@@ -470,9 +481,28 @@ read them afterwards would weigh them as a specialist's.
 
 ## Who a Round Asks, and Changing It for One Round
 
-`review_ask roster` says who this repo's roster asks, what each of
-them is set to, and which personas exist on disk that nothing
-currently asks. Reach for it before overriding anything: the ids it
+A round's roster is chosen in layers, and the first that applies wins:
+
+1. The set the round names with `set`, from `review.ask.sets`, or
+   `built-in` for the package's own.
+2. The set `review.ask.quests` names for the loaded quest.
+3. The set `review.ask.projects` names for the change's repository,
+   keyed like `github:Jitsusama/agentic-harness.pi`.
+4. The roster written straight under `review.ask`.
+5. The built-in roster: `correctness-and-tests`, `test-skeptic`,
+   `security-attacker` and `operational-safety`, and a judge.
+
+Every answer says which layer chose. Name a `set` only when the person
+asked for one; otherwise the layers decide. A participant with no
+`model` runs on the session's model, and one with no `thinkingLevel`
+thinks at `high`. A round may ask at most eight reviewers unless
+`review.ask.maxReviewers` says otherwise, and a bigger one is refused
+rather than trimmed.
+
+`review_ask roster` says which layer a round here would ask, what
+each participant will actually run on, which sets exist and how big
+each is, and which personas exist on disk that nothing currently
+asks. Reach for it before overriding anything: the ids it
 prints are the only ids an override may name.
 
 `who` changes any of that for one round, without touching the file:
@@ -669,9 +699,12 @@ lying. The refusal names both ways out, and `review_ask release` is
 the second one: it frees the id at the cost of its existing findings
 no longer identifying who raised them.
 
-The roster lives in a `review.ask` section of the package config, not
-in the call, because who reviews is a standing choice. A malformed one
-is refused with the path inside it that is wrong.
+Rosters live in the `review.ask` section of the package config, not
+in the call, because who reviews is a standing choice. A project's set
+is named in your config by repository rather than in a file inside the
+repository, since a file there is one the change under review could
+edit. A malformed roster is refused with the path inside it that is
+wrong, and a set nobody defined is refused with the sets that exist.
 
 Participants read a snapshot pinned to the commit under review, so a
 change that is not checked out where you are is still reviewed against
@@ -722,9 +755,12 @@ yours would file the same findings twice. Stopping the job from
 `/jobs` stops the round the way `review_ask stop` does. The session
 ending stops only the watching, since the round survives it.
 
-Prefer `council` when you are going to
-sit and read the answer anyway; prefer `start` when you would
-otherwise be waiting on it to get on with something else.
+**Run `council` unless the person asked for a round in the
+background.** A council shows its progress and can be stopped with
+Escape; a started round does neither, and finding out afterwards that
+an expensive round ran out of sight is the surprise this rule exists to
+prevent. When you do `start` one, say that it is running in the
+background.
 
 A round survives its own session, too. It is written to the ledger
 before the first reviewer is dispatched, so a session that ends

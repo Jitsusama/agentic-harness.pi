@@ -85,6 +85,7 @@ import {
 	loadPackageConfig,
 } from "../../../lib/internal/config/loader.ts";
 import { packageConfigPath } from "../../../lib/internal/paths.ts";
+import { questLoadedIn } from "../../../lib/internal/quest/loaded.ts";
 import type { ReviewerThinkingLevel } from "../../../lib/subagent/index.ts";
 import {
 	getParentPiInstall,
@@ -121,6 +122,18 @@ import {
 	reviewerStarter,
 	whyNotYet,
 } from "../reviewer.ts";
+import {
+	asItRuns,
+	BUILT_IN_ROSTER,
+	builtInPersonaDir,
+	chooseRoster,
+	maxReviewers,
+	type RosterPlace,
+	type RosterSource,
+	setSizes,
+	sourceSentence,
+	tooMany,
+} from "../roster.ts";
 import { watchStartedRound } from "../round-job.ts";
 import { type ReadableTree, readFrom, treeForRound } from "../work.ts";
 import {
@@ -165,7 +178,38 @@ interface AskParams extends TargetParams {
 	intent?: string;
 	participant?: string;
 	run?: string;
+	set?: string;
 	who?: Record<string, ParticipantOverride>;
+}
+
+/**
+ * Where a round is asked from, for choosing its roster and filling in
+ * what its participants run on. Worked out once per call, so every
+ * round kind chooses the same way.
+ */
+interface RoundSeat {
+	readonly place: RosterPlace;
+	/** The session's model as `provider/id`, when the session has one. */
+	readonly sessionModel?: string;
+}
+
+/** Where this call is being asked from. */
+async function seatFor(
+	ctx: ExtensionContext,
+	params: AskParams,
+	change?: ChangeRef,
+): Promise<RoundSeat> {
+	const quest = await questLoadedIn(ctx.sessionManager.getSessionId());
+	return {
+		place: {
+			...(params.set === undefined ? {} : { set: params.set }),
+			...(quest === undefined ? {} : { quest }),
+			...(change === undefined ? {} : { project: change.repo.key }),
+		},
+		...(ctx.model === undefined
+			? {}
+			: { sessionModel: `${ctx.model.provider}/${ctx.model.id}` }),
+	};
 }
 
 /** Register the `review_ask` tool. */
@@ -178,7 +222,9 @@ export function registerAskTool(pi: ExtensionAPI): void {
 		promptSnippet:
 			"Ask other models about a change: a council, a judge over it, the rounds so far, or a retry of one participant.",
 		promptGuidelines: [
-			"The roster comes from config, not from the call. A refusal names the path in the config file that is wrong.",
+			"Run a council, which waits and shows its progress, unless the person asked for a round in the background; only then use start, and say that it is running in the background.",
+			"The roster is chosen, first match winning: the set this round names, the set the loaded quest names (review.ask.quests), the set the project names (review.ask.projects), the review.ask roster, then a built-in roster of four reviewers and a judge. Name a set only when the person asked for one; the answer says which layer chose. A participant with no model runs on the session's model, at high thinking unless it says otherwise.",
+			"When a judge is done, check each of its findings against the source yourself before deciding it, then group what holds up by root cause and fix causes rather than symptoms.",
 			"A council is the discovery pass and a judge consolidates it, so run a council first; a judge with no council to read is refused rather than asked to invent one.",
 			"An id that has raised findings is held to the model, thinking level, tools and persona it meant. Reconfiguring one is refused, and the refusal names both ways out: another id, or release this one and accept that its findings no longer identify who raised them.",
 			"A round reads a snapshot pinned to the commit under review. When it cannot but the tree is still a checkout of the right repo, the answer carries a caveat naming what was read instead: pass that on, because a round against the wrong commit still returns plausible findings. When it would have to read a different repository it is refused outright, since those findings are plausible too and about nothing.",
@@ -234,6 +280,12 @@ export function registerAskTool(pi: ExtensionAPI): void {
 				Type.String({
 					description:
 						"Which round to retry into. Defaults to the latest council.",
+				}),
+			),
+			set: Type.Optional(
+				Type.String({
+					description:
+						"A named roster from review.ask.sets to ask this round, or 'built-in' for the package's own. Only when the person asked for one: otherwise the quest's, the project's or the configured roster is chosen.",
 				}),
 			),
 			// Last, and deliberately after every other parameter: the gate
@@ -346,7 +398,9 @@ export function registerAskTool(pi: ExtensionAPI): void {
 					// listing refuse from exactly the position it exists to be
 					// reachable from: deciding who to ask, before attaching
 					// anything to ask them about.
-					if (action === "roster") return await reportRoster();
+					if (action === "roster") {
+						return await reportRoster(await seatFor(ctx, params));
+					}
 
 					const bound = await boundFor(pi, params, process.cwd());
 					const change = hostedChange(bound);
@@ -356,32 +410,58 @@ export function registerAskTool(pi: ExtensionAPI): void {
 						);
 					}
 
+					const seat = await seatFor(ctx, params, change);
 					switch (action) {
 						case "runs":
 							return await reportRuns(change);
 						case "collect":
 							return await collectOne(change, params);
 						case "council":
-							return await askCouncil(bound, change, params, watch("council"));
+							return await askCouncil(
+								bound,
+								change,
+								params,
+								seat,
+								watch("council"),
+							);
 						case "start":
-							return await startRound(pi.events, bound, change, params);
+							return await startRound(pi.events, bound, change, params, seat);
 						case "stop":
 							return await stopRound(change, params);
 						case "judge":
-							return await askJudge(bound, change, params, watch("judge"));
+							return await askJudge(
+								bound,
+								change,
+								params,
+								seat,
+								watch("judge"),
+							);
 						case "critique":
 							return await askCritique(
 								bound,
 								change,
 								params,
+								seat,
 								watch("critique"),
 							);
 						case "audit":
-							return await askAudit(bound, change, params, watch("audit"));
+							return await askAudit(
+								bound,
+								change,
+								params,
+								seat,
+								watch("audit"),
+							);
 						case "stack":
-							return await askStack(pi, bound, params, watch("stack"));
+							return await askStack(pi, bound, params, seat, watch("stack"));
 						case "retry":
-							return await retryOne(bound, change, params, watch("council"));
+							return await retryOne(
+								bound,
+								change,
+								params,
+								seat,
+								watch("council"),
+							);
 						case "release":
 							return releaseIdentity(params);
 					}
@@ -628,6 +708,7 @@ async function collectOne(
 				),
 				...kept,
 			]),
+			...judgeHandOff(run),
 		].join("\n"),
 		{ run, warnings },
 	);
@@ -638,9 +719,10 @@ async function askCouncil(
 	bound: Awaited<ReturnType<typeof boundFor>>,
 	change: ChangeRef,
 	params: AskParams,
+	seat: RoundSeat,
 	watch: RoundWatch,
 ): Promise<Answer> {
-	const roster = await rosterOrThrow(params, "reviewers");
+	const { roster, chosen } = await rosterOrThrow(params, "reviewers", seat);
 	await claimIdentities(change, "reviewer", roster.reviewers);
 	const { proposal, diff } = await material(bound);
 	const tree = await treeForRound(
@@ -681,10 +763,13 @@ async function askCouncil(
 	// and bare it would answer a finished council with a refusal about
 	// a ledger, throwing away every finding the round just paid for.
 	const kept = await keptOnLedger(change, run);
-	return say(answerFor(run, [...warnings, ...kept], tree.caveat), {
-		run,
-		warnings,
-	});
+	return say(
+		[
+			`Asked ${chosen}.`,
+			answerFor(run, [...warnings, ...kept], tree.caveat),
+		].join("\n"),
+		{ run, warnings },
+	);
 }
 
 /**
@@ -706,8 +791,9 @@ async function startRound(
 	bound: Awaited<ReturnType<typeof boundFor>>,
 	change: ChangeRef,
 	params: AskParams,
+	seat: RoundSeat,
 ): Promise<Answer> {
-	const roster = await rosterOrThrow(params, "reviewers");
+	const { roster, chosen } = await rosterOrThrow(params, "reviewers", seat);
 	await claimIdentities(change, "reviewer", roster.reviewers);
 	const { proposal, diff } = await material(bound);
 	const tree = await treeForRound(
@@ -824,7 +910,7 @@ async function startRound(
 		[
 			started === 0
 				? `Started nothing for ${run.id}, so there is nothing to collect.`
-				: `Started ${run.id}: ${count(started, "reviewer")} running, nothing waiting for them.`,
+				: `Started ${run.id} in the background: ${count(started, "reviewer")} running from ${chosen}, nothing waiting for them.`,
 			...(started === 0
 				? []
 				: watched === undefined
@@ -845,9 +931,10 @@ async function askJudge(
 	bound: Awaited<ReturnType<typeof boundFor>>,
 	change: ChangeRef,
 	params: AskParams,
+	seat: RoundSeat,
 	watch: RoundWatch,
 ): Promise<Answer> {
-	const roster = await rosterOrThrow(params, "judge");
+	const { roster } = await rosterOrThrow(params, "judge", seat);
 	if (roster.judge === undefined) {
 		return refuse(
 			"This roster names no judge, so there is nobody to consolidate with. Add a judge to the config, with an id of its own: a judge reads what the reviewers said, so it cannot share a reviewer's name.",
@@ -904,7 +991,31 @@ async function askJudge(
 	// nagging at every session start. A settle is the same round
 	// arriving in its finished state, which is what `keep` means.
 	await store.keep(change, run);
-	return say(answerFor(run, warnings, tree.caveat), { run, warnings });
+	return say(
+		[answerFor(run, warnings, tree.caveat), ...judgeHandOff(run)].join("\n"),
+		{ run, warnings },
+	);
+}
+
+/**
+ * What to do with what a judge concluded, said where it is concluded.
+ *
+ * A judge's findings read as settled, and they are not: a judge
+ * consolidates what reviewers believed, and both can be wrong about
+ * the code. Taking them at their word and fixing each in turn patches
+ * symptoms one by one. Said here because it had to be asked for after
+ * nearly every round, which is the sign it belongs in the answer.
+ */
+function judgeHandOff(run: AskRun): string[] {
+	const found = run.outcomes.reduce(
+		(sum, outcome) => sum + outcome.findingIds.length,
+		0,
+	);
+	if (run.round !== "judge" || found === 0) return [];
+	return [
+		"",
+		"Next: check each finding against the source yourself before deciding it, then group what holds up by root cause and fix the causes rather than each symptom.",
+	];
 }
 
 /**
@@ -918,9 +1029,10 @@ async function askCritique(
 	bound: Awaited<ReturnType<typeof boundFor>>,
 	change: ChangeRef,
 	params: AskParams,
+	seat: RoundSeat,
 	watch: RoundWatch,
 ): Promise<Answer> {
-	const roster = await rosterOrThrow(params, "reviewers");
+	const { roster } = await rosterOrThrow(params, "reviewers", seat);
 	await claimIdentities(change, "reviewer", roster.reviewers);
 
 	const store = createRunStore(runDir());
@@ -989,9 +1101,10 @@ async function askStack(
 	pi: ExtensionAPI,
 	bound: Awaited<ReturnType<typeof boundFor>>,
 	params: AskParams,
+	seat: RoundSeat,
 	watch: RoundWatch,
 ): Promise<Answer> {
-	const roster = await rosterOrThrow(params, "reviewers");
+	const { roster } = await rosterOrThrow(params, "reviewers", seat);
 
 	const stack = await bound.stack();
 	if (!stack) {
@@ -1132,9 +1245,10 @@ async function askAudit(
 	bound: Awaited<ReturnType<typeof boundFor>>,
 	change: ChangeRef,
 	params: AskParams,
+	seat: RoundSeat,
 	watch: RoundWatch,
 ): Promise<Answer> {
-	const roster = await rosterOrThrow(params, "judge");
+	const { roster } = await rosterOrThrow(params, "judge", seat);
 	// The judge audits, because weighing what exists against a change
 	// is the judging role and a roster should not need a fourth kind of
 	// participant to say so.
@@ -1266,6 +1380,7 @@ async function retryOne(
 	bound: Awaited<ReturnType<typeof boundFor>>,
 	change: ChangeRef,
 	params: AskParams,
+	seat: RoundSeat,
 	watch: RoundWatch,
 ): Promise<Answer> {
 	if (params.participant === undefined) {
@@ -1308,7 +1423,7 @@ async function retryOne(
 	const resettles = retryCannotResettle(params.who, held, asked.id);
 	if (resettles !== undefined) return refuse(resettles);
 
-	const roster = await rosterOrThrow(params, "everybody");
+	const { roster } = await rosterOrThrow(params, "everybody", seat);
 	const participant =
 		roster.reviewers.find((r) => r.id === asked.id) ??
 		(roster.judge?.id === asked.id ? roster.judge : undefined);
@@ -1504,20 +1619,41 @@ function asking(roster: Roster, asks: RoundAsks): Participant[] {
 	return [...roster.reviewers, ...judge];
 }
 
+/** A roster as a round will ask it, and which layer chose it. */
+interface ChosenRoster {
+	readonly roster: Roster;
+	/** Which layer chose it, as a phrase: "the deep set, which ...". */
+	readonly chosen: string;
+}
+
 async function rosterOrThrow(
 	params: AskParams,
 	asks: RoundAsks,
-): Promise<Roster> {
+	seat: RoundSeat,
+): Promise<ChosenRoster> {
 	const path = packageConfigPath();
 	// Params rather than nothing, and required rather than optional, so
 	// every round kind picks the override up and none is left honouring
 	// a config nobody asked for. The compiler named all seven sites.
-	return rosterFromConfig(
+	const { roster, source, max } = await rosterFromConfig(
 		await loadPackageConfig(path),
 		path,
 		params.who,
 		asks,
+		seat.place,
 	);
+	// Only for rounds that ask reviewers: a judge alone is one
+	// participant however large the roster it was read from.
+	if (asks !== "judge") {
+		const over = tooMany(roster.reviewers.length, max, path);
+		if (over !== undefined) throw new Error(over);
+	}
+	// Filled in before identities are claimed, so what a reviewer is held
+	// to is the model it actually ran on.
+	return {
+		roster: asItRuns(roster, seat.sessionModel),
+		chosen: sourceSentence(source, path),
+	};
 }
 
 /**
@@ -1566,19 +1702,32 @@ function clocksOf(one: Participant): string[] {
 	];
 }
 
-async function reportRoster(): Promise<Answer> {
+async function reportRoster(seat: RoundSeat): Promise<Answer> {
 	// What the file says, deliberately without this call's overrides.
 	// Applying them here would print them back as though somebody had
 	// committed them, and then invite the reader to override what they
-	// had just overridden.
+	// had just overridden. The layers are applied, though, as far as
+	// they can be with no change bound: a listing of a roster no round
+	// would ask is the surprise the layers exist to end.
 	const path = packageConfigPath();
-	const roster = await rosterFromConfig(await loadPackageConfig(path), path);
-	const charters = await chartersOnDisk(personaDir());
-	const lines: string[] = [];
+	const loaded = await loadPackageConfig(path);
+	const chosen = await rosterFromConfig(
+		loaded,
+		path,
+		undefined,
+		"everybody",
+		seat.place,
+	);
+	const roster = asItRuns(chosen.roster, seat.sessionModel);
+	const charters = await chartersOnDisk([personaDir(), builtInPersonaDir()]);
+	const lines: string[] = [
+		`A round here would ask ${sourceSentence(chosen.source, path)}. No project is known until a change is named, so a set review.ask.projects gives one is not reflected here.`,
+		"",
+	];
 
 	const describe = (one: Participant, role: string): void => {
 		const at = [
-			one.model ?? "the session's own model",
+			one.model ?? "pi's default model, since this session has none",
 			...(one.thinkingLevel === undefined
 				? []
 				: [`${one.thinkingLevel} thinking`]),
@@ -1596,6 +1745,16 @@ async function reportRoster(): Promise<Answer> {
 
 	for (const reviewer of roster.reviewers) describe(reviewer, "reviewer");
 	if (roster.judge !== undefined) describe(roster.judge, "judge");
+
+	const review = loaded.ok ? loaded.config.sections[REVIEW_SLUG] : undefined;
+	const sets = setSizes(isRecord(review) ? review.ask : undefined);
+	lines.push("");
+	lines.push(
+		`Sets a round can name with \`set\`: ${[
+			`built-in (${count(BUILT_IN_ROSTER.reviewers.length, "reviewer")})`,
+			...sets.map(({ name, size }) => `${name} (${count(size, "reviewer")})`),
+		].join(", ")}. A round may ask at most ${chosen.max}.`,
+	);
 
 	// Personas nobody is currently asking. These are the ones worth
 	// printing: a lens that exists and is not on the roster is exactly
@@ -1658,7 +1817,7 @@ async function reportRoster(): Promise<Answer> {
 
 	lines.push("");
 	lines.push(
-		"This is what the config says. Pass `who` to change model, " +
+		"Pass `who` to change model, " +
 			"thinkingLevel, tools, persona or any of the three clocks for " +
 			'one round, e.g. {"hawk": {"thinkingLevel": "xhigh"}} or ' +
 			'{"hawk": {"backstopMs": 5400000}}. It is refused rather than ' +
@@ -1732,14 +1891,22 @@ async function boundsForRound(): Promise<
 	return (participant) => boundsFor(participant, round);
 }
 
+/** The roster a config gives a round, what chose it, and the size cap. */
+export interface ConfiguredRoster {
+	readonly roster: Roster;
+	readonly source: RosterSource;
+	/** The most reviewers a round may ask. */
+	readonly max: number;
+}
+
 /**
- * The roster held in a loaded config, or a throw saying why not.
+ * The roster a loaded config gives a round, or a throw saying why not.
  *
  * Separated from the loading so the lookup can be tested against a
  * file on disk. It reads `sections.review.ask`, which is where every
  * extension's settings live: reading one level higher finds nothing
- * for every well-formed config there is, and the refusal that follows
- * blames the config rather than the lookup.
+ * for every well-formed config there is. With no roster anywhere, the
+ * round asks the built-in one rather than nobody.
  */
 export async function rosterFromConfig(
 	loaded: ConfigLoadResult,
@@ -1753,7 +1920,9 @@ export async function rosterFromConfig(
 	// silently dropped, which is the failure the unknown-name refusal
 	// exists to prevent, one level down.
 	asks: RoundAsks = "everybody",
-): Promise<Roster> {
+	// Where the round is asked from, which picks among the layers.
+	place: RosterPlace = {},
+): Promise<ConfiguredRoster> {
 	if (!loaded.ok) {
 		throw new Error(
 			`The config at ${loaded.path} could not be read, so there is no roster to ask: ${loaded.error}`,
@@ -1761,21 +1930,21 @@ export async function rosterFromConfig(
 	}
 	const review = loaded.config.sections[REVIEW_SLUG];
 	const section = isRecord(review) ? review.ask : undefined;
-	if (section === undefined) {
-		throw new Error(
-			`No roster is configured, so there is nobody to ask. Add a review.ask section to ${path} with a reviewers array, and optionally a judge with an id of its own.`,
-		);
-	}
-	const parsed = parseRoster(section);
+	const choice = chooseRoster(section, place, path);
+	if ("refusal" in choice) throw new Error(choice.refusal);
+	const parsed = parseRoster(choice.value);
 	if ("refusal" in parsed) throw new Error(parsed.refusal);
-	if (who === undefined) return parsed.roster;
+	const max = maxReviewers(section);
+	if (who === undefined) {
+		return { roster: parsed.roster, source: choice.source, max };
+	}
 	const applied = overrideRoster(
 		parsed.roster,
 		who,
 		asking(parsed.roster, asks),
 	);
 	if ("refusal" in applied) throw new Error(applied.refusal);
-	return applied.roster;
+	return { roster: applied.roster, source: choice.source, max };
 }
 
 /** Whether a value is an object we can read keys off. */
@@ -1868,12 +2037,15 @@ function chartersFor(
 	touched: DiffModel | { unknown: string },
 ): Promise<Map<string, string>> {
 	const judge = asks === "reviewers" ? undefined : roster.judge;
+	// Yours first, so a charter you wrote under a built-in's name
+	// replaces the one the package ships.
+	const dirs = [personaDir(), builtInPersonaDir()];
 	return lensesFor(
 		{
 			reviewers: asks === "judge" ? [] : roster.reviewers,
 			...(judge === undefined ? {} : { judge }),
 		},
-		personaDir(),
+		dirs,
 		"unknown" in touched ? touched : touchedBy(touched),
 		tree,
 	);

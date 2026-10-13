@@ -83,14 +83,15 @@ function leaveBehind(
 	store: ReviewerArtifactsStore,
 	reviewerId: string,
 	result: Record<string, unknown>,
+	runId: string = RUN,
 ): void {
-	const paths = store.paths(RUN, reviewerId);
+	const paths = store.paths(runId, reviewerId);
 	mkdirSync(paths.reviewerDir, { recursive: true });
 	writeFileSync(
 		paths.resultPath,
 		JSON.stringify({
 			schemaVersion: 1,
-			runId: RUN,
+			runId,
 			reviewerId,
 			state: "complete",
 			exitCode: 0,
@@ -160,6 +161,35 @@ async function collect(run: AskRun, store: ReviewerArtifactsStore) {
 }
 
 describe("collecting a round the session did not live to finish", () => {
+	it("finishes a judge the same way it finishes a council", async () => {
+		// A judge is written down before it is asked, exactly as a council
+		// is, so a session that dies while the judge consolidates leaves
+		// an open judge round on the ledger. Collecting it has to give back
+		// the judge's findings, or the consolidation a round paid for is
+		// lost with the session.
+		const store = new ReviewerArtifactsStore(root);
+		const judgeRun = "judge-20260806T130000000-000001";
+		leaveBehind(
+			store,
+			"judge",
+			{ finalAssistantText: said("merged") },
+			judgeRun,
+		);
+
+		const { run, kept } = await collect(
+			unsettled({
+				id: judgeRun,
+				round: "judge",
+				participants: [{ id: "judge", role: "judge" }],
+			}),
+			store,
+		);
+
+		expect(kept.map((f) => f.subject)).toEqual(["merged"]);
+		expect(run.outcomes.map((o) => o.findingIds)).toEqual([[1]]);
+		expect(run.open).toBeUndefined();
+	});
+
 	it("turns what the reviewers left on disk back into findings", async () => {
 		const store = new ReviewerArtifactsStore(root);
 		leaveBehind(store, "hawk", { finalAssistantText: said("a") });

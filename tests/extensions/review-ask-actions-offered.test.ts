@@ -134,7 +134,7 @@ describe("review_ask", () => {
 			const opens = body.indexOf("const charters");
 			if (opens === -1) return [`${round} reads no lenses at all`];
 			const call = body.slice(0, opens);
-			return call.includes(`rosterOrThrow(params, "${asks}")`)
+			return call.includes(`rosterOrThrow(params, "${asks}", seat)`)
 				? []
 				: [`${round} does not ask for "${asks}"`];
 		});

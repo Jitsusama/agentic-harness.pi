@@ -22,8 +22,8 @@ import {
 	utimesSync,
 } from "node:fs";
 import { join } from "node:path";
-import { stateDir } from "../../lib/internal/paths.ts";
 import { atomicWriteFile } from "../../lib/internal/quest/io.ts";
+import { sessionRegistryDir } from "../../lib/internal/quest/loaded.ts";
 import {
 	localProcessDeps,
 	probeProcess,
@@ -50,9 +50,7 @@ import {
 } from "../../lib/terminal/index.ts";
 
 /** Where the per-session records live. */
-export function sessionRegistryDir(): string {
-	return join(stateDir("quest-workflow"), "sessions");
-}
+export { sessionRegistryDir };
 
 /**
  * Session ids are uuids, so anything else is either corruption or an
