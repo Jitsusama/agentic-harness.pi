@@ -18,7 +18,8 @@ import {
 	killBrowserSync,
 } from "@jitsusama/agentic-harness.core/web/browser";
 import {
-	isSetUp,
+	hasCachedKey,
+	KeyringSetupNeeded,
 	StaleKeyError,
 	setupChromeKey,
 } from "@jitsusama/agentic-harness.core/web/cookies";
@@ -253,7 +254,11 @@ export default function webSearch(pi: ExtensionAPI) {
 				};
 			} catch (err: unknown) {
 				if (signal?.aborted) throw stopped(err);
-				if (err instanceof AuthSetupNeeded || err instanceof StaleKeyError) {
+				if (
+					err instanceof AuthSetupNeeded ||
+					err instanceof StaleKeyError ||
+					err instanceof KeyringSetupNeeded
+				) {
 					return {
 						content: [
 							{
@@ -281,11 +286,12 @@ export default function webSearch(pi: ExtensionAPI) {
 	pi.registerCommand("setup-chrome-cookies", {
 		description:
 			"Enable web_read access to authenticated pages by caching " +
-			"Chrome's cookie decryption key. Triggers a one-time macOS " +
-			"Keychain prompt.",
+			"Chrome's cookie decryption key. Reads it once from the macOS " +
+			"Keychain, or from the Linux keyring with secret-tool.",
 		handler: async (args, ctx) => {
 			const force = args?.trim() === "--force";
-			if (isSetUp() && !force) {
+			const mac = process.platform === "darwin";
+			if (hasCachedKey() && !force) {
 				ctx.ui.notify(
 					"Chrome cookie key is already set up. " +
 						"Run /setup-chrome-cookies --force to regenerate.",
@@ -296,8 +302,11 @@ export default function webSearch(pi: ExtensionAPI) {
 
 			ctx.ui.notify(
 				(force ? "Regenerating" : "Requesting") +
-					" Chrome Safe Storage key from macOS Keychain.\n" +
-					'Click "Always Allow" on the system dialog to avoid future prompts.',
+					(mac
+						? " Chrome Safe Storage key from macOS Keychain.\n" +
+							'Click "Always Allow" on the system dialog to avoid future prompts.'
+						: " Chrome Safe Storage key from the desktop keyring.\n" +
+							"Unlock the keyring if it asks."),
 				"info",
 			);
 
@@ -309,7 +318,10 @@ export default function webSearch(pi: ExtensionAPI) {
 				);
 			} else {
 				ctx.ui.notify(
-					"Failed to set up Chrome cookie key. Was the Keychain prompt denied?",
+					mac
+						? "Failed to set up Chrome cookie key. Was the Keychain prompt denied?"
+						: "Failed to set up Chrome cookie key. Is secret-tool (from " +
+								"libsecret) installed, and does the keyring hold Chrome Safe Storage?",
 					"warning",
 				);
 			}
