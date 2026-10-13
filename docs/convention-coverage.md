@@ -353,6 +353,18 @@ is followed by judgment, not by a regex.
   asking the agent to predict it. What is left in the skill is
   the judgment about how honestly to relay all that, which no
   regex reaches.
+
+  The round-shape rules follow the same split. Run `council`
+  unless a background round was asked for, name a `set` only
+  when one was asked for, and check a judge's findings against
+  the source before fixing them by root cause: each is ⚪, a
+  choice nothing can make for the agent. Their mechanical halves
+  are in code. A round over `review.ask.maxReviewers` and a set
+  nobody defined are refused in
+  `extensions/review-integration/roster.ts`, a started round's
+  answer opens by saying it runs in the background, every answer
+  names the layer that chose its roster, and the judge's answer
+  ends with the check-and-group reminder.
 - **Style standards**: `code-style-standard`,
   `code-review-standard`. These describe how the agent should
   write and review code; the gates do not parse code semantics.
