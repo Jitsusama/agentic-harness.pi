@@ -33,7 +33,10 @@ still builds, without grinding an autonomous run to a halt.
   forced, so a noisy test runner cannot write over the TUI
   while it runs; its captured output is stripped of ANSI and a
   passing run returns only its summary.
-- Surfaces the last outcome on the status line.
+- Marks the footer only while verification fails: `✕` in the
+  error colour, then the fix attempts spent, such as `✕ 2/3`.
+  Clean and deferred say nothing there, so a calm footer is the
+  good news.
 
 ## Restraint
 

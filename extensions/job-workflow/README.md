@@ -70,7 +70,10 @@ the person came back.
 
 `/jobs` lists what is running and what is waiting to be said. Pick a
 running one and confirm to stop it; the model is told it was stopped.
-The footer shows how many are running and waiting.
+While any job runs, the footer shows an hourglass, `⧗`, with a
+count once there is more than one. A finished job waiting to be said
+is left off it: it is said as soon as the session is idle, and `/jobs`
+lists it meanwhile.
 
 A producer can tell why its job's signal fired: `jobStopOf(signal)`
 from `agentic-harness.pi/jobs` answers `person` for a stop from

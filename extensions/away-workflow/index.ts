@@ -81,11 +81,7 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 
 	const showStatus = (ctx: ExtensionContext | undefined) => {
 		if (!ctx?.hasUI) return;
-		const text = statusText(snapshot());
-		ctx.ui.setStatus(
-			STATUS_KEY,
-			text ? ctx.ui.theme.fg("warning", text) : undefined,
-		);
+		ctx.ui.setStatus(STATUS_KEY, statusText(snapshot(), ctx.ui.theme));
 	};
 
 	const disposeListener = onAwayChange((now) => {

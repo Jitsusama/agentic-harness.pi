@@ -188,10 +188,11 @@ the result card arrives: the card opens with the same rows
 and adds where the full output lives, so it is never
 shorter than the board it replaces.
 
-The status line shows a one-glance summary
-(`fleet 2/3 done running=1`), keyed per run so two fleets
-do not overwrite each other. Headless sessions skip the
-board and just return results.
+Nothing goes on the footer: the board is up for exactly as
+long as a summary there would be, and its title already
+counts what is done. Each run's board has its own dock key,
+so two fleets do not overwrite each other. Headless
+sessions skip the board and just return results.
 
 ## Files
 

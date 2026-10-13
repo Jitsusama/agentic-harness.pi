@@ -42,6 +42,7 @@ import {
 	provideVerificationCheck,
 	type VerificationCheck,
 } from "../../lib/internal/verification/signal.ts";
+import { footerMark } from "../../lib/ui/footer-mark.ts";
 import {
 	checkRunVerdict,
 	fastLayerVerdict,
@@ -284,18 +285,24 @@ function verifyDirectory(
 	return process.cwd();
 }
 
+/**
+ * The footer says verification only while it fails: the cross in the
+ * error colour, then how many of its fix attempts it has spent.
+ *
+ * Clean says nothing, so a calm footer is the good news. Deferred says
+ * nothing either, because a check that could not start knows nothing
+ * about the code and the person would do nothing different for seeing
+ * it; the verify tool's own answer is where that is said.
+ */
 function refreshStatus(ctx: ExtensionContext, state: VerificationState): void {
+	if (state.outcome !== "failing") {
+		ctx.ui.setStatus(STATUS_KEY, undefined);
+		return;
+	}
 	const theme = ctx.ui.theme;
-	const label =
-		state.outcome === "clean"
-			? theme.fg("success", "verify \u2713")
-			: state.outcome === "failing"
-				? theme.fg(
-						"error",
-						`verify \u2717${state.attempts ? ` ${state.attempts}/${MAX_FIX_ATTEMPTS}` : ""}`,
-					)
-				: state.outcome === "deferred"
-					? theme.fg("muted", "verify (deferred)")
-					: undefined;
-	ctx.ui.setStatus(STATUS_KEY, label);
+	const mark = footerMark("failed", "error", theme);
+	const spent = state.attempts
+		? ` ${theme.fg("dim", `${state.attempts}/${MAX_FIX_ATTEMPTS}`)}`
+		: "";
+	ctx.ui.setStatus(STATUS_KEY, `${mark}${spent}`);
 }

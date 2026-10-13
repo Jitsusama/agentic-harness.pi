@@ -40,6 +40,9 @@ const OWNED_SURFACES = [
 	"lib/ui/agent-glyphs.ts",
 	"extensions/work-integration/render.ts",
 	"extensions/quest-workflow/render.ts",
+	// The footer's marks, for every extension that says something on the
+	// one line they all share.
+	"lib/ui/footer-mark.ts",
 ];
 
 /**
@@ -178,6 +181,10 @@ describe("glyph ownership across the package", () => {
 			// three monospace fonts macOS ships were read directly, and the
 			// hexagons this first used are in none of them.
 			"agent-glyphs": /[\u25e6\u2192\u2713\u2212\u2715]/,
+			// The footer: marks outside every geometric family, since the
+			// footer sits beside all of them at once, plus the shared cross
+			// for a failed anything.
+			"footer-mark": /[\u2691\u263e\u29d7\u2715]/,
 		};
 
 		const strays: string[] = [];

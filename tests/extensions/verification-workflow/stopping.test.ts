@@ -138,7 +138,9 @@ describe("the fast layer at the end of a turn", () => {
 
 		expect(turn.settled()).toBe(true);
 		expect(h.sendUserMessage).not.toHaveBeenCalled();
-		expect(h.statuses.at(-1)).toBe("muted:verify (deferred)");
+		// Deferred knows nothing about the code, so the footer says nothing.
+		expect(h.statuses.at(-1)).toBeUndefined();
+		expect(h.statuses.length).toBeGreaterThan(0);
 	});
 
 	it("stops asking the server when the run is stopped", async () => {

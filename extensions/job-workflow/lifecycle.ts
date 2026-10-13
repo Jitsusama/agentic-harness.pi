@@ -11,6 +11,7 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { announceJobHost } from "../../lib/jobs/index.ts";
+import { footerMark, type MarkTheme } from "../../lib/ui/footer-mark.ts";
 import { createJobs, type Jobs } from "./jobs.ts";
 import { createOutbox, type Outbox } from "./outbox.ts";
 
@@ -29,17 +30,21 @@ export interface JobSession {
 	close(): void;
 }
 
-/** The footer line for these jobs, or nothing when there are none. */
-function statusLine(jobs: Jobs): string | undefined {
-	const all = jobs.list();
-	if (all.length === 0) return undefined;
-	const running = all.filter((job) => job.state === "running").length;
-	const waiting = all.length - running;
-	const parts = [
-		running > 0 ? `${running} running` : "",
-		waiting > 0 ? `${waiting} waiting` : "",
-	];
-	return `jobs: ${parts.filter(Boolean).join(", ")}`;
+/**
+ * The footer mark for these jobs: the hourglass while any is running,
+ * with a count once there is more than one, and nothing otherwise.
+ *
+ * A finished job whose result is waiting to be said is left out. It is
+ * said as soon as the session is idle, so the person would do nothing
+ * for seeing it, and `/jobs` lists it for whoever wonders.
+ */
+export function statusLine(
+	jobs: Pick<Jobs, "list">,
+	theme: MarkTheme,
+): string | undefined {
+	const running = jobs.list().filter((job) => job.state === "running").length;
+	if (running === 0) return undefined;
+	return footerMark("background", "muted", theme, running);
 }
 
 /** Open a session's jobs and announce them as the host. */
@@ -61,7 +66,7 @@ export function openSession(
 	});
 	const show = () => {
 		try {
-			ctx.ui.setStatus(STATUS_KEY, statusLine(jobs));
+			ctx.ui.setStatus(STATUS_KEY, statusLine(jobs, ctx.ui.theme));
 		} catch {
 			// A stale context after a reload has no footer to update.
 		}

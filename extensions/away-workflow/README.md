@@ -8,8 +8,9 @@ you and without anything going out that you did not approve.
 Tell the agent, the way you would tell a person: "I'm going to bed,
 keep working through the subquests", "I'll be out this afternoon,
 finish the plan". The agent calls the `away` tool with your goal in
-your words. The footer then says `away`, or `away · 3 held` once
-something is waiting for you.
+your words. The footer then shows a quiet moon, `☾`, which turns the
+warning colour with a count beside it, `☾ 3`, once something is
+waiting for you.
 
 The harness never switches away mode on from a phrase alone, because
 pasted logs and quotes are full of them. When a message you typed

@@ -189,9 +189,12 @@ describe("a commit asking whether anything is failing", () => {
 			[`${file}:78:12 Property 'body' does not exist`],
 		);
 
+		expect(h.statuses.at(-1)).toMatch(/^error:\u2715/);
+
 		broken = false;
 		expect(await currentVerificationFailure({ dir: tree })).toBeUndefined();
-		expect(h.statuses.at(-1)).toBe("success:verify \u2713");
+		// Clean is a calm footer: nothing there at all.
+		expect(h.statuses.at(-1)).toBeUndefined();
 	});
 
 	it("judges only the repository the commit lands in", async () => {
@@ -257,7 +260,7 @@ describe("the verify tool", () => {
 			"This says nothing about the code",
 		);
 		expect(await currentVerificationFailure({ dir: tree })).toBeUndefined();
-		expect(h.statuses.at(-1)).toBe("muted:verify (deferred)");
+		expect(h.statuses.at(-1)).toBeUndefined();
 	});
 
 	it("holds back a commit on a failed run until the tree changes", async () => {
