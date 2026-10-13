@@ -75,12 +75,12 @@ export function section(
 ): QuestResult {
 	const heading = params.title?.trim();
 	if (!heading) return refuse("Pass the section's heading as `title`.");
-	if (params.body === undefined) {
+	const text = params.body;
+	if (text === undefined) {
 		return refuse(
 			"Pass the section's new text as `body`, without its heading.",
 		);
 	}
-	const text = params.body;
 	return editBody(
 		state,
 		params,

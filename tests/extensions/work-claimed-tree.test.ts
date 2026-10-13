@@ -41,8 +41,8 @@ afterEach(() => {
 });
 
 let repo: string | undefined;
-afterEach(async () => {
-	if (repo) await disposeRepo(repo);
+afterEach(() => {
+	disposeRepo(repo);
 	repo = undefined;
 });
 
