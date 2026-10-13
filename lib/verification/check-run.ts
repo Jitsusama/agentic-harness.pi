@@ -30,7 +30,12 @@ export type CheckRunVerdict =
  * it ahead of a check that then runs and fails on its merits.
  */
 const COULD_NOT_START: readonly RegExp[] = [
+	// Exit 127 is every POSIX shell's "no such command".
+	/^Failed \(exit 127\):/,
+	// bash, then dash, which is /bin/sh on Debian and Ubuntu. A package
+	// manager that wraps the shell exits 1, so the message is all there is.
 	/: command not found\b/,
+	/^\S+: \d+: [^:]+: not found$/,
 	/\bCommand "[^"]+" not found\b/,
 	/\bspawn \S+ ENOENT\b/,
 ];

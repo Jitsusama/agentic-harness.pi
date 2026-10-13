@@ -32,6 +32,27 @@ describe("what a check run says about the code", () => {
 		});
 	});
 
+	it("says nothing when dash could not find the command", () => {
+		expect(
+			checkRunVerdict({
+				ok: false,
+				command: "pnpm run lint",
+				output:
+					"Failed (exit 1): pnpm run lint\n\nsh: 1: biome: not found\n ELIFECYCLE  Command failed.",
+			}).outcome,
+		).toBe("deferred");
+	});
+
+	it("says nothing when the shell exits 127", () => {
+		expect(
+			checkRunVerdict({
+				ok: false,
+				command: "biome check .",
+				output: "Failed (exit 127): biome check .",
+			}).outcome,
+		).toBe("deferred");
+	});
+
 	it("says nothing when there was no command to run", () => {
 		expect(
 			checkRunVerdict({ ok: false, output: "No verification command found" }),
