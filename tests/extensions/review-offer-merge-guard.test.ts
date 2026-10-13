@@ -150,6 +150,35 @@ describe("merging behind a head guard", () => {
 		expect(merges).toHaveLength(1);
 	});
 
+	it("hands the backend the whole head a short prefix matched", async () => {
+		// GitHub refuses any `sha` but all forty characters, and a prefix the
+		// guard had accepted went through as it was 23 times.
+		const { provider, merges } = mergingProvider();
+		registerReviewProvider(provider);
+
+		await offer({
+			action: "merge",
+			change: "438",
+			expectedHead: AT.slice(0, 12),
+		});
+
+		expect(merges).toEqual([{ expectedHead: AT }]);
+	});
+
+	it("refuses a prefix too short to guard anything", async () => {
+		const { provider, merges } = mergingProvider();
+		registerReviewProvider(provider);
+
+		const answer = await offer({
+			action: "merge",
+			change: "438",
+			expectedHead: AT.slice(0, 4),
+		});
+
+		expect(JSON.stringify(answer)).toContain("too short to guard anything");
+		expect(merges).toEqual([]);
+	});
+
 	it("still merges when no expectation is given", async () => {
 		const { provider, merges } = mergingProvider();
 		registerReviewProvider(provider);

@@ -54,6 +54,20 @@ const STANDALONE = "standalone";
 /** The standalone backend registers here; a paired editor sits below it. */
 const STANDALONE_PRIORITY = 100;
 
+/**
+ * What vscode-jsonrpc says when its server has gone:
+ * "Connection is closed." once the process exits, "Connection is
+ * disposed." once something tore it down, and the rejection a request
+ * still waiting gets when the connection is disposed under it.
+ */
+const GONE =
+	/^(?:Connection is (?:closed|disposed)\.?|Pending response rejected since connection got disposed)$/;
+
+/** Whether `err` says the server behind the connection has gone. */
+export function closedConnection(err: unknown): boolean {
+	return err instanceof Error && GONE.test(err.message);
+}
+
 /** File types the standalone backend can currently serve. */
 const SYNCABLE = /\.(ts|tsx|js|jsx|mjs|cjs)$/;
 
@@ -79,6 +93,18 @@ export default function lspIntegration(pi: ExtensionAPI) {
 			});
 		}
 		return backend;
+	};
+
+	/** Throw the standalone servers away and start a backend afresh. */
+	const restartStandalone = async (): Promise<StandaloneBackend> => {
+		unregisterLspBackend(STANDALONE);
+		const dead = backend;
+		backend = null;
+		await dead?.dispose().catch(() => {
+			// Servers whose connections are gone may not shut down cleanly;
+			// their processes are killed either way.
+		});
+		return ensureBackend();
 	};
 
 	pi.on("session_start", async () => {
@@ -189,7 +215,7 @@ export default function lspIntegration(pi: ExtensionAPI) {
 			params,
 			signal,
 		): Promise<AgentToolResult<LspToolDetails>> {
-			const active = resolveLspBackend() ?? ensureBackend();
+			let active = resolveLspBackend() ?? ensureBackend();
 			const op = params.operation;
 			// A `records` argument rather than a details heuristic: these
 			// details carry a count, not the findings, and the count is
@@ -245,7 +271,7 @@ export default function lspIntegration(pi: ExtensionAPI) {
 					() => stop.abort(),
 				);
 
-			try {
+			const answer = async (): Promise<AgentToolResult<LspToolDetails>> => {
 				if (op === "workspace_symbols") {
 					if (!params.query) return bad("workspace_symbols needs a query.");
 					const symbols = await ask(
@@ -305,6 +331,21 @@ export default function lspIntegration(pi: ExtensionAPI) {
 						? await ask(active.definition(target, options))
 						: await ask(active.references(target, options));
 				return text(formatLocations(locations), locations.length, locations);
+			};
+
+			try {
+				try {
+					return await answer();
+				} catch (err) {
+					// A server that died leaves its connection closed, and the
+					// pool hands the same dead one to every later call: 11 of 93
+					// calls failed that way. Start the standalone servers afresh
+					// and ask once more. An editor's backend is the editor's to
+					// restart, so its failure is reported as it came.
+					if (!closedConnection(err) || active !== backend) throw err;
+					active = await restartStandalone();
+					return await answer();
+				}
 			} catch (err) {
 				if (err instanceof MissingServerError) return bad(err.message);
 				// A server that ran out the clock is an answer the agent can act
