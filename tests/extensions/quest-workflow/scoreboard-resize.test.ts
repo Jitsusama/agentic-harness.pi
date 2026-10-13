@@ -61,11 +61,11 @@ describe("updateScoreboard resize behaviour", () => {
 		const ansi = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 		const visible = (s: string) => s.replace(ansi, "").length;
 		const narrow = component.render(40);
-		const wide = component.render(120);
+		const wide = component.render(240);
 		// Each line honours its own width budget, so a resize reflows
 		// rather than freezing at the width it was first painted at.
 		expect(visible(narrow[0])).toBeLessThanOrEqual(40);
-		expect(visible(wide[0])).toBeLessThanOrEqual(120);
+		expect(visible(wide[0])).toBeLessThanOrEqual(240);
 		// The wide render reveals the trailing detail the narrow one had
 		// to truncate away: proof the width argument drives the output.
 		expect(wide[0]).toContain("wire the resize-aware widget callback");
@@ -76,13 +76,13 @@ describe("updateScoreboard resize behaviour", () => {
 		const ui = fakeUi();
 		updateScoreboard(loadedState(), { ui } as never);
 		// The quest has one line, above the editor. The footer is shared,
-		// and the id it used to carry there is read in `quest show`.
+		// and the id it used to carry there now ends the quest's line.
 		expect(ui.captured.status).toBeUndefined();
 		const widget = ui.captured.widget;
 		if (typeof widget !== "function") throw new Error("expected a callback");
 		const [line] = widget(null, theme).render(120);
 		expect(line?.startsWith("\u25c6 \u25cb ")).toBe(true);
-		expect(line).not.toContain("QEST-20260101-AAAAAA");
+		expect(line?.endsWith("QEST-20260101-AAAAAA")).toBe(true);
 	});
 
 	it("clears the status and widget when no quest is loaded", () => {

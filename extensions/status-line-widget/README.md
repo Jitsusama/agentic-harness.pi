@@ -40,7 +40,7 @@ never carries the colour.
 | `✕`, error, with attempts | verification fails | the verify tool |
 
 A quest says nothing here: its kind and status glyphs lead its own
-line above the editor. A subagent fleet says nothing here either,
+line above the editor, and its id ends that line. A subagent fleet says nothing here either,
 since its board is docked for as long as a summary would show.
 
 ## Degradation Order

@@ -8,21 +8,23 @@
  *   when longer. No id, no kind glyph. The terminal-tab
  *   label.
  * - Widget: the quest's one line. Kind glyph and status
- *   glyph, then the focused document's activity: stage
- *   verb, kind noun, doc title, step count and the prose
- *   of the next unchecked checkbox.
+ *   glyph, the quest title, the focused document's
+ *   activity (stage verb, kind noun, doc title), the step
+ *   count and the prose of the next unchecked checkbox,
+ *   with the quest id right-aligned and dimmed.
  *
  * Nothing goes on the shared footer. It used to carry the
  * two glyphs and the full quest id, which put the quest in
  * two places at once and spent twenty columns of a line
- * that never shortens an extension's status on an id the
- * person reads in `quest show` when they want it.
+ * that never shortens an extension's status. The id now
+ * sits on the quest's own line, which costs no row the
+ * screen did not already give the quest.
  *
  * All surfaces fall silent when no quest is loaded.
  */
 
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
 import type { QuestEntry } from "../../lib/internal/quest/discovery.ts";
 import type {
@@ -207,23 +209,37 @@ export interface WidgetInput {
 	currentItem?: string;
 }
 
+/** Columns always kept clear between the activity and the quest id. */
+const ID_GAP_COLS = 3;
+
+/**
+ * The narrowest a shortened quest title may get before it goes
+ * entirely: below this an ellipsis is most of what is left, which
+ * tells the reader nothing the id beside it does not.
+ */
+const MIN_TITLE_COLS = 8;
+
+/** Separates the line's activity pieces. */
+const PIECE_SEP = " \u00b7 ";
+
 /**
  * Widget line. Returns empty when no quest is loaded.
  *
- * It opens with the quest's kind and status glyphs, then one of
- * three layouts depending on what's focused:
+ * It reads, left to right: the quest's kind and status glyphs, the
+ * quest title, the focused document (`{Stage-Verb} {Kind-Noun}:
+ * {Doc Title}`, or the title alone once it is concluded or retired),
+ * the step count, and an arrow to the next unchecked item. The
+ * quest id sits right-aligned and dimmed, since it is how the quest
+ * is named everywhere else.
  *
- * 1. Focused document, mid-stage: `{Stage-Verb} {Kind-Noun}:
- *    {Doc Title} \u00b7 {step}/{total} \u2192 {next item}`
- * 2. Focused document, concluded/retired: drops the
- *    `{Stage-Verb} {Kind-Noun}:` prefix and shows just
- *    the doc title plus progress.
- * 3. No focused document: falls back to the quest title
- *    plus the quest README's own checkbox count.
+ * The step is the focused document's, or the quest README's when
+ * nothing is focused, and it is left out only when there are no
+ * checkboxes to count.
  *
- * When the underlying body has no checkboxes the count
- * segment and arrow drop entirely; the line reads as
- * prose with no trailing noise.
+ * When the line is short of room it gives way in this order: the
+ * next item goes first, then the document, then the quest title
+ * shortens and finally goes. The marks, the step count and the id
+ * stay, so the line always says which quest and how far along.
  */
 export function renderWidget(
 	input: WidgetInput,
@@ -231,35 +247,91 @@ export function renderWidget(
 	width: number,
 ): string[] {
 	if (!input.questId) return [];
-	const line = buildWidgetLine(input);
-	const marks = questMarks(input.questKind, input.questStatus, theme);
-	const coloured = `${marks}${theme.fg("muted", line)}`;
 	const budget = Math.max(0, width - WIDGET_INDENT_COLS);
-	return [truncateToWidth(coloured, budget)];
-}
-
-function buildWidgetLine(input: WidgetInput): string {
-	const counter = progressText(input.done, input.total);
-	const trailer = progressTrailer(input);
-	if (input.documentKind && input.documentTitle) {
-		const stageVerb = STAGE_VERB[input.documentStage];
-		const kindNoun = KIND_NOUN[input.documentKind];
-		const head =
-			stageVerb &&
-			input.documentStage !== "concluded" &&
-			input.documentStage !== "retired"
-				? `${stageVerb} ${kindNoun}: ${input.documentTitle}`
-				: input.documentTitle;
-		return `${head}${counter}${trailer}`;
-	}
+	const marks = questMarks(input.questKind, input.questStatus, theme);
+	const id = input.questId;
 	const title = input.questTitle ?? "(untitled quest)";
-	return `${title}${counter}${trailer}`;
+	const document = documentHead(input);
+	const step = stepText(input.done, input.total);
+	const next = progressTrailer(input);
+
+	// The marks, the gap and the id never give way, so the activity
+	// shares whatever they leave.
+	const room = budget - visibleWidth(marks) - ID_GAP_COLS - visibleWidth(id);
+	const layouts = [
+		activity([title, document], step, next),
+		activity([title, document], step, ""),
+		activity([title], step, ""),
+	];
+	let text = layouts.find((candidate) => visibleWidth(candidate) <= room);
+	if (text === undefined) {
+		const stepCols = step ? visibleWidth(PIECE_SEP) + visibleWidth(step) : 0;
+		const titleRoom = room - stepCols;
+		text =
+			titleRoom >= MIN_TITLE_COLS
+				? activity([shortenTo(title, titleRoom)], step, "")
+				: activity([], step, "");
+	}
+
+	const left = `${marks}${theme.fg("muted", text)}`;
+	const pad = Math.max(
+		ID_GAP_COLS,
+		budget - visibleWidth(left) - visibleWidth(id),
+	);
+	// Only a terminal too narrow for the marks, the step and the id
+	// reaches the cut, and there it is the safe thing rather than
+	// the designed one: a wrapped widget pushes the editor down.
+	return [
+		truncateToWidth(`${left}${" ".repeat(pad)}${theme.fg("dim", id)}`, budget),
+	];
 }
 
-function progressText(done: number, total: number): string {
+/**
+ * The activity text: the pieces present, joined, then the step count
+ * and the arrow to the next item.
+ */
+function activity(
+	pieces: readonly (string | undefined)[],
+	step: string,
+	next: string,
+): string {
+	const present = pieces.filter((piece): piece is string => Boolean(piece));
+	if (step) present.push(step);
+	return `${present.join(PIECE_SEP)}${next}`;
+}
+
+/**
+ * Plain text cut to `cols` visible columns, ending in one ellipsis.
+ * The text is still plain at this point, so cutting it here leaves
+ * no reset code in the middle of the muted span the way cutting a
+ * coloured line would.
+ */
+function shortenTo(text: string, cols: number): string {
+	if (visibleWidth(text) <= cols) return text;
+	let kept = "";
+	for (const { segment } of new Intl.Segmenter().segment(text)) {
+		if (visibleWidth(kept + segment) > cols - 1) break;
+		kept += segment;
+	}
+	return `${kept.trimEnd()}\u2026`;
+}
+
+/** The focused document's part of the line, or nothing when none is. */
+function documentHead(input: WidgetInput): string | undefined {
+	if (!input.documentKind || !input.documentTitle) return undefined;
+	const stageVerb = STAGE_VERB[input.documentStage];
+	const kindNoun = KIND_NOUN[input.documentKind];
+	return stageVerb &&
+		input.documentStage !== "concluded" &&
+		input.documentStage !== "retired"
+		? `${stageVerb} ${kindNoun}: ${input.documentTitle}`
+		: input.documentTitle;
+}
+
+function stepText(done: number, total: number): string {
 	if (total <= 0) return "";
 	const step = done >= total ? total : done + 1;
-	return ` \u00b7 ${step}/${total}`;
+	return `${step}/${total}`;
 }
 
 function progressTrailer(input: WidgetInput): string {
