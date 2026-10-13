@@ -25,6 +25,7 @@ import {
 	findQuestEntry,
 	focusDocument,
 	refreshProgress,
+	unfocusDocument,
 } from "@jitsusama/agentic-harness.core/quest/lifecycle";
 import { sessionsDir } from "../../lib/internal/paths.ts";
 import { discoverQuests } from "../../lib/internal/quest/discovery.ts";
@@ -170,6 +171,11 @@ interface PersistedState {
 	 * without parsing the quest.
 	 */
 	verify?: string | null;
+	/**
+	 * True when the person or the agent unfocused the plan on purpose,
+	 * so a reload does not focus it again behind their back.
+	 */
+	unfocused?: true;
 }
 
 function snapshot(state: QuestState, cwd: string | null): PersistedState {
@@ -178,7 +184,82 @@ function snapshot(state: QuestState, cwd: string | null): PersistedState {
 		documentPath: state.documentPath,
 		cwd,
 		verify: state.questVerify,
+		...(!state.documentPath && unfocusedOnPurpose.has(state)
+			? { unfocused: true as const }
+			: {}),
 	};
+}
+
+/** Sessions whose plan was unfocused deliberately rather than never focused. */
+const unfocusedOnPurpose = new WeakMap<QuestState, true>();
+
+/**
+ * Record whether the focused plan was put down on purpose. Set by
+ * `unfocus`; cleared by `focus` and by loading a quest.
+ */
+export function setUnfocusedOnPurpose(state: QuestState, on: boolean): void {
+	if (on) unfocusedOnPurpose.set(state, true);
+	else unfocusedOnPurpose.delete(state);
+}
+
+/** Stages in which a plan is still being worked. */
+const ACTIVE_STAGES: ReadonlySet<string> = new Set(["think", "draft", "build"]);
+
+/** What {@link autoFocusPlan} did. */
+export type AutoFocus =
+	| { kind: "focused"; id: string; stage: string }
+	| { kind: "choose"; ids: string[] }
+	| { kind: "none" };
+
+/**
+ * Focus the plan this quest is being worked through, when there is
+ * one to name: its primary plan while that is still active, otherwise
+ * its only active plan. Several active plans and no usable primary is
+ * a choice for whoever is working, so it is said rather than guessed.
+ *
+ * Work used to run with a quest loaded and no plan focused, because
+ * loading a quest always cleared the focus and nothing put it back.
+ */
+export function autoFocusPlan(state: QuestState): AutoFocus {
+	if (!state.questId || state.documentPath) return { kind: "none" };
+	const entry = findQuestEntry(state, state.questId);
+	if (!entry) return { kind: "none" };
+	const active = entry.documents.filter(
+		(d) =>
+			d.doc.frontMatter.kind === "plan" &&
+			ACTIVE_STAGES.has(d.doc.frontMatter.stage),
+	);
+	const primaryId = entry.doc.frontMatter.primaryPlanId;
+	const chosen =
+		active.find((d) => d.doc.frontMatter.id === primaryId) ??
+		(active.length === 1 ? active[0] : undefined);
+	if (chosen) {
+		if (!focusDocument(state, chosen.path).ok) return { kind: "none" };
+		return {
+			kind: "focused",
+			id: chosen.doc.frontMatter.id,
+			stage: chosen.doc.frontMatter.stage,
+		};
+	}
+	if (active.length > 1) {
+		return { kind: "choose", ids: active.map((d) => d.doc.frontMatter.id) };
+	}
+	return { kind: "none" };
+}
+
+/** One sentence saying what {@link autoFocusPlan} did, or nothing. */
+export function autoFocusSaid(focus: AutoFocus): string | undefined {
+	if (focus.kind === "focused") {
+		const next =
+			focus.stage === "build"
+				? ""
+				: `; it is in ${focus.stage}, so \`build\` before implementing`;
+		return `Focused plan ${focus.id}${next}.`;
+	}
+	if (focus.kind === "choose") {
+		return `${focus.ids.length} active plans (${focus.ids.join(", ")}); focus the one being worked.`;
+	}
+	return undefined;
 }
 
 /**
@@ -226,7 +307,7 @@ export function persist(
 }
 
 function snapshotKey(s: PersistedState): string {
-	return `${s.questId ?? ""}|${s.documentPath ?? ""}|${s.cwd ?? ""}|${s.verify ?? ""}`;
+	return `${s.questId ?? ""}|${s.documentPath ?? ""}|${s.cwd ?? ""}|${s.verify ?? ""}|${s.unfocused ? "u" : ""}`;
 }
 
 /**
@@ -264,8 +345,17 @@ export function restore(
 		// The quest is loaded; try to restore the focused
 		// document. A missing or unparsable document is not
 		// fatal: the quest stays loaded and the user re-focuses
-		// if they care to.
+		// if they care to. A plan concluded since is not worth
+		// focusing again; the active one is.
 		focusDocument(state, saved.documentPath);
+		if (state.documentPath && !ACTIVE_STAGES.has(state.documentStage)) {
+			unfocusDocument(state);
+		}
+	}
+	if (saved.unfocused && !state.documentPath) {
+		setUnfocusedOnPurpose(state, true);
+	} else {
+		autoFocusPlan(state);
 	}
 	return true;
 }
@@ -302,6 +392,7 @@ export function resolveStartup(
 	if (autoloadId) {
 		delete process.env.QUEST_WORKFLOW_AUTOLOAD_ID;
 		if (loadQuest(state, pi, autoloadId).ok) {
+			autoFocusPlan(state);
 			return { source: "explicit", questId: state.questId };
 		}
 	}
@@ -315,6 +406,7 @@ export function resolveStartup(
 	// quest's session list.
 	if (state.autoloadFromCwd) {
 		restoreFromCwd(state, pi, ctx);
+		autoFocusPlan(state);
 	}
 	return {
 		source: state.questId ? "cwd" : "none",

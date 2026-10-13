@@ -70,6 +70,7 @@ import {
 	resolveStartup,
 } from "./lifecycle.ts";
 import { recentSessionHints, showLoaded } from "./lookup.ts";
+import { sayPeersOnStartup } from "./peers.ts";
 import { questsTouchedBy, RecordWatch } from "./record-watch.ts";
 import { formatQuestList, renderStatus, renderWidget } from "./render.ts";
 import {
@@ -80,13 +81,11 @@ import {
 } from "./render-rows.ts";
 import {
 	endReasonForShutdown,
-	followSessionForSignals,
 	lostSessionCount,
 	recordSessionEnd,
-	recordSessionOnQuest,
 	setSignalStampSession,
-	startHeartbeat,
 	stopHeartbeat,
+	trackSession,
 } from "./session-registry.ts";
 import { createQuestState, type QuestState } from "./state.ts";
 import { handle, type QuestToolParams } from "./transitions.ts";
@@ -110,6 +109,7 @@ const CALL_PREFIX_WIDTH = 14;
 export default async function questWorkflow(pi: ExtensionAPI) {
 	declareGuards(
 		GUARDS.questRecord,
+		GUARDS.questOwnedFields,
 		GUARDS.questTemp,
 		GUARDS.questPlanStage,
 		GUARDS.questUntrackedTree,
@@ -157,6 +157,8 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			"convention skill for the README format.",
 		promptGuidelines: [
 			"Use action `create` to mint a new quest. Use action `load` to switch to an existing one. The status bar shows the loaded quest at all times.",
+			"Edit a quest document's body with `journal` (add a Journey entry), `tick`/`untick` (a checkbox item) and `section` (replace one `##` section), not with edit or write: the workflow rewrites these files between reads, and hand edits miss. They act on the focused document, or the README when nothing is focused; `id` names another document, or the quest's id its README. Stage changes go through think/draft/build/conclude/retire.",
+			"`unload` puts a quest down and changes nothing on disk. `conclude` seals one for good (status, priority, documents, trees) and needs its `id`; never conclude to put a quest down. When unsure which was meant, unload.",
 			"`focus` and `unfocus` set or clear the focused document. While a plan is focused in think or draft, edits to already-tracked code defer to build; the plan itself, attachments, the workspace and brand-new files still flow.",
 			"A quest folder holds only its README, its ID documents and attachments/ (cited charts, notes and summaries within the limits). Clones, raw data, labs, runs and builds go in the quest's workspace, ~/.cache/pi/agentic-harness.pi/quest-workspace/<ID>/, whose tmp/ is cleared at conclude. When a result says a call left a record out of shape, move the files where it says.",
 			"Stage transitions are think → draft → build → concluded (or retired). `think` accepts a kind on a fresh loop (default plan); `draft` scaffolds the document and mints its id; `build` lets you implement.",
@@ -170,7 +172,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			id: Type.Optional(
 				Type.String({
 					description:
-						"Target id. For load/focus: the quest or document id. For spawn-tab/pane/window: open the new terminal pointed at this quest without touching the caller's loaded state. For reparent: the quest id to move, comma-separated for a batch. For conclude/retire: a comma-separated id set triggers a bulk, reversible status sweep over those quests (no tree pruning), distinct from concluding the loaded quest. For locate: the needle to resolve to its owning quest (a quest id, document id, alias ref or session id). For ancestors: the quest whose parent chain to trace (defaults to the loaded quest). For restore: session ids or unique prefixes, comma-separated, picked from the lost or recently closed sessions restore lists; lists only those, or reopens exactly those with force. For create: ignored.",
+						"Target id. For load/focus: the quest or document id. For tick/untick/section: the document to edit, or the quest's id for its README (default: the focused document, else the README). For spawn-tab/pane/window: open the new terminal pointed at this quest without touching the caller's loaded state. For reparent: the quest id to move, comma-separated for a batch. For conclude/retire: the loaded quest's id seals it in full (trees pruned); other quest ids, or a comma-separated set, run a bulk, reversible status sweep (no tree pruning); a document id concludes that document. For locate: the needle to resolve to its owning quest (a quest id, document id, alias ref or session id). For ancestors: the quest whose parent chain to trace (defaults to the loaded quest). For restore: session ids or unique prefixes, comma-separated, picked from the lost or recently closed sessions restore lists; lists only those, or reopens exactly those with force. For create: ignored.",
 				}),
 			),
 			url: Type.Optional(
@@ -182,7 +184,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			title: Type.Optional(
 				Type.String({
 					description:
-						"create: the quest's human title (becomes the H1). draft: the document's title.",
+						"create: the quest's human title (becomes the H1). draft: the document's title. section: the heading of the section to replace, without its emoji (e.g. Purpose).",
 				}),
 			),
 			parent: Type.Optional(
@@ -200,7 +202,13 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			note: Type.Optional(
 				Type.String({
 					description:
-						"think: what this document is about, or what sent you back to thinking. create: optional Summary prose.",
+						"think: what this document is about, or what sent you back to thinking. create: optional Summary prose. journal: the Journey entry to add; the date is put in front of it.",
+				}),
+			),
+			body: Type.Optional(
+				Type.String({
+					description:
+						"section: the section's new text, without its heading. It may not hold a `## ` heading of its own.",
 				}),
 			),
 			reason: Type.Optional(
@@ -234,7 +242,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			query: Type.Optional(
 				Type.String({
 					description:
-						"find: free-text needle matched against title, id, body and alias values. locate: the needle to resolve when `id` is not given.",
+						"find: free-text needle matched against title, id, body and alias values. locate: the needle to resolve when `id` is not given. tick/untick: the checkbox item, by its text or the start of it.",
 				}),
 			),
 			since: Type.Optional(
@@ -304,7 +312,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			scope: Type.Optional(
 				Type.String({
 					description:
-						"conclude/retire: 'quest' or 'document'. Declared scope wins over id-shape inference, so `id` plus scope:document concludes that document and scope:quest runs the quest sweep. Without scope, an explicit id infers scope from its shape (a document id concludes the document, a quest id sweeps the quest), and with no id it defaults to the focused document when one is set, otherwise the loaded quest.",
+						"conclude/retire: 'quest' or 'document'. Declared scope wins over id-shape inference, so `id` plus scope:document concludes that document and scope:quest runs the quest sweep. Without scope, an explicit id infers scope from its shape. With no id it acts on the focused document, and with nothing focused it refuses rather than seal the loaded quest unnamed.",
 				}),
 			),
 			force: Type.Optional(
@@ -666,6 +674,8 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			// load verb, so pruning only there would rarely fire. The
 			// no-op case is cheap (it skips the write).
 			prunePhantomSessionsOnLoaded(state);
+			// Before attaching, which writes this process over the record.
+			sayPeersOnStartup(state, pi, ctx);
 			const sid = currentSessionId(ctx, undefined);
 			attachCurrentSession(state, {
 				id: sid,
@@ -680,28 +690,24 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			if (sid && isPersistedSession(ctx) && state.questId) {
 				reconcileSessionMembership(state, sid, state.questId);
 			}
-			// Record the session in its terminal workspace so a later
-			// restart can reconstruct what was open together. Only a
-			// persisted session is resumable, so an ephemeral fan-out
-			// session is never snapshotted. Best-effort.
-			if (sid && isPersistedSession(ctx) && state.questId) {
-				recordSessionOnQuest({
+		}
+		// Record every tab a person could want back, quest or not, so a
+		// later restart can reconstruct what was open together. Only a
+		// persisted interactive session is resumable: a fan-out runs
+		// without a session and a print run has no tab. The record is
+		// re-dated on a heartbeat and stamped by the signal that takes the
+		// tab away, since pi reports a closed tab as a quit. Best-effort.
+		const sid = currentSessionId(ctx, undefined);
+		if (sid && isPersistedSession(ctx) && ctx.hasUI) {
+			trackSession(
+				{
 					sessionId: sid,
 					cwd: ctx.cwd,
-					questId: state.questId,
+					...(state.questId ? { questId: state.questId } : {}),
 					...captureSessionIdentity(),
-				});
-				// Keep the record dated for as long as this tab lives, so a
-				// crash can be placed in time even if nobody types again.
-				startHeartbeat(sid);
-				// pi reports a closed tab as a quit, and whether even that
-				// lands is a race with the process exiting, so the signal
-				// itself is what stamps the record and releases the session
-				// on its quest.
-				followSessionForSignals(sid, () =>
-					releaseSessionOnShutdown(state, sid),
-				);
-			}
+				},
+				() => releaseSessionOnShutdown(state, sid),
+			);
 		}
 		updateScoreboard(state, ctx);
 		// A passive pointer, nothing more: list the few most recently

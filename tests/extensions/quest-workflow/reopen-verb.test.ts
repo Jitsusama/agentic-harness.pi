@@ -45,7 +45,10 @@ async function activeQuest() {
 describe("reopen", () => {
 	it("returns a concluded quest to active", async () => {
 		const { state, ctx } = await activeQuest();
-		await handle(state, fakePi(), ctx, { action: "conclude" });
+		await handle(state, fakePi(), ctx, {
+			action: "conclude",
+			id: state.questId ?? "",
+		});
 		const result = await handle(state, fakePi(), ctx, { action: "reopen" });
 		expect(result.ok).toBe(true);
 		const readme = readFileSync(

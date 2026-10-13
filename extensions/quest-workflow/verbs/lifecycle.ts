@@ -43,6 +43,8 @@ import { displayPath } from "../../../lib/ui/path.ts";
 import {
 	appendJourneyEntry,
 	attachCurrentSession,
+	autoFocusPlan,
+	autoFocusSaid,
 	captureSessionIdentity,
 	detachSessionInQuestDir,
 	ensureQuestsRoot,
@@ -53,6 +55,7 @@ import {
 	reconcileSessionMembership,
 	releaseSessionOnShutdown,
 	setLoadedKind,
+	setUnfocusedOnPurpose,
 	unfocusDocument,
 	unloadQuest,
 } from "../lifecycle.ts";
@@ -62,10 +65,8 @@ import {
 	showLoaded,
 	showQuestById,
 } from "../lookup.ts";
-import {
-	followSessionForSignals,
-	recordSessionOnQuest,
-} from "../session-registry.ts";
+import { livePeers, peersSaid } from "../peers.ts";
+import { trackSession } from "../session-registry.ts";
 
 /**
  * Priority ladder for sorting list output. Lower numbers
@@ -169,6 +170,7 @@ export function reclassify(
 export async function create(
 	state: QuestState,
 	pi: ExtensionAPI,
+	ctx: ExtensionContext,
 	params: QuestToolParams,
 	signal?: AbortSignal,
 ): Promise<QuestResult> {
@@ -298,8 +300,12 @@ export async function create(
 	}
 	mkdirSync(dir, { recursive: true });
 	atomicWriteFile(path, body);
+	const prior = { questId: state.questId, questDir: state.questDir };
 	const result = loadQuest(state, pi, id);
 	if (!result.ok) return refuse(result.guidance);
+	// A tab that starts with `create` is on the quest exactly as one that
+	// loads it is; leaving it unrecorded is how restore lost such tabs.
+	moveSessionOnto(state, ctx, prior);
 
 	if (seededAlias) {
 		const url = urlForRef(seededAlias) ?? params.url?.trim() ?? "";
@@ -316,6 +322,72 @@ export async function create(
 		path,
 		kind,
 	});
+}
+
+/**
+ * Put this session on the quest just loaded, wherever it was before:
+ * detached from the quest it is leaving, attached to this one, tracked
+ * in the registry restore reads and reconciled off any straggler, so
+ * it reads active on exactly one quest. `load` and `create` both end
+ * up on a quest, so both come through here.
+ */
+function moveSessionOnto(
+	state: QuestState,
+	ctx: ExtensionContext,
+	prior: { questId: string | null; questDir: string | null },
+): { sid: string | undefined; attached: boolean; reconciled: string[] } {
+	const sid = currentSessionId(ctx, undefined);
+	const persisted = isPersistedSession(ctx);
+	// One pi session that loads several quests over its life should
+	// read active on the one it is on, not on all of them.
+	if (
+		prior.questDir &&
+		prior.questId &&
+		prior.questId !== state.questId &&
+		sid &&
+		persisted
+	) {
+		detachSessionInQuestDir(prior.questDir, sid);
+	}
+	// Capture the session automatically rather than nudging anybody to
+	// attach it by hand: this is what keeps the sessions frontmatter
+	// honest so reopening can later resolve where work happened.
+	const attached = attachCurrentSession(state, {
+		id: sid,
+		cwd: ctx.cwd,
+		persisted,
+		...captureSessionIdentity(),
+	}).attached;
+	trackOnQuest(state, ctx, sid);
+	const reconciled =
+		sid && persisted && state.questId
+			? reconcileSessionMembership(state, sid, state.questId)
+			: [];
+	return { sid, attached, reconciled };
+}
+
+/**
+ * Record a session now on the loaded quest in the registry restore
+ * reads, with its heartbeat and signal stamp, when it is a tab that
+ * could be brought back.
+ */
+function trackOnQuest(
+	state: QuestState,
+	ctx: ExtensionContext,
+	sid: string | undefined,
+): void {
+	if (!sid || !isPersistedSession(ctx) || !ctx.hasUI || !state.questId) {
+		return;
+	}
+	trackSession(
+		{
+			sessionId: sid,
+			cwd: ctx.cwd,
+			questId: state.questId,
+			...captureSessionIdentity(),
+		},
+		() => releaseSessionOnShutdown(state, sid),
+	);
 }
 
 /** Load a quest by id (or via cwd lookup when no id given). */
@@ -342,22 +414,8 @@ export async function load(
 
 	const result = loadQuest(state, pi, targetId);
 	if (!result.ok) return refuse(result.guidance);
-
-	const sid = currentSessionId(ctx, undefined);
-
-	// On a switch, detach this session from the quest it is leaving:
-	// one pi session that loads several quests over its life should
-	// read active on the one it is on, not on all of them. Only for a
-	// persisted session, mirroring the attach guard.
-	if (
-		priorQuestDir &&
-		priorQuestId &&
-		priorQuestId !== state.questId &&
-		sid &&
-		isPersistedSession(ctx)
-	) {
-		detachSessionInQuestDir(priorQuestDir, sid);
-	}
+	setUnfocusedOnPurpose(state, false);
+	const focused = autoFocusSaid(autoFocusPlan(state));
 
 	// Garbage-collect no-log phantoms left by pre-guard fan-outs so
 	// the prior-session list and frontmatter reflect real sessions.
@@ -365,42 +423,14 @@ export async function load(
 
 	const loaded = await showLoaded(state);
 	const priorSessions = loaded?.frontMatter.sessions ?? [];
+	// Read before this session attaches, since attaching writes this
+	// process's identity over the record it finds.
+	const peers = peersSaid(state.questId ?? "", livePeers(priorSessions));
 
-	// Capture the current session automatically rather than
-	// nudging the user to run session-attach by hand: this is
-	// what keeps the sessions frontmatter honest so reopening
-	// can later resolve where work happened.
-	const attached = attachCurrentSession(state, {
-		id: sid,
-		cwd: ctx.cwd,
-		persisted: isPersistedSession(ctx),
-		...captureSessionIdentity(),
-	}).attached;
-
-	// Record this session in its terminal workspace so a later restart
-	// can reconstruct the set that was open together. Only a persisted
-	// session is resumable, so an ephemeral fan-out session is never
-	// snapshotted. A best-effort side write; it never blocks the load.
-	if (sid && isPersistedSession(ctx) && state.questId) {
-		recordSessionOnQuest({
-			sessionId: sid,
-			cwd: ctx.cwd,
-			questId: state.questId,
-			...captureSessionIdentity(),
-		});
-		// A closed tab reaches pi as a signal that pi then reports as a
-		// quit, so the record is stamped from a listener of our own,
-		// which releases the session on its quest in the same breath.
-		followSessionForSignals(sid, () => releaseSessionOnShutdown(state, sid));
-	}
-
-	// Reconcile membership so this session reads active on only the
-	// loaded quest, detaching it from any straggler quest an earlier
-	// run or a lost state left it attached to.
-	const reconciled =
-		sid && isPersistedSession(ctx) && state.questId
-			? reconcileSessionMembership(state, sid, state.questId)
-			: [];
+	const { sid, attached, reconciled } = moveSessionOnto(state, ctx, {
+		questId: priorQuestId,
+		questDir: priorQuestDir,
+	});
 
 	const resumable = priorSessions
 		.filter((s) => s.id !== sid)
@@ -425,6 +455,8 @@ export async function load(
 	if (reconciled.length > 0) {
 		message += `. Detached this session from ${count(reconciled.length, "other quest")}.`;
 	}
+	if (focused) message += ` ${focused}`;
+	if (peers) message += ` ${peers}`;
 
 	return ok(message, {
 		id: state.questId,
@@ -655,6 +687,7 @@ export function focus(state: QuestState, params: QuestToolParams): QuestResult {
 	}
 	const result = focusDocument(state, path);
 	if (!result.ok) return refuse(result.guidance);
+	setUnfocusedOnPurpose(state, false);
 	return ok(`Focused ${state.documentId} (${state.documentKind}).`, {
 		path,
 	});
@@ -664,5 +697,7 @@ export function unfocus(state: QuestState): QuestResult {
 	if (!state.documentId) return refuse("No document focused.");
 	const prior = state.documentId;
 	unfocusDocument(state);
+	// Kept across a reload, so the plan is not focused again unasked.
+	setUnfocusedOnPurpose(state, true);
 	return ok(`Unfocused ${prior}.`);
 }

@@ -24,17 +24,23 @@ import {
 	refusalUnder,
 	reportGuard,
 } from "../../lib/guardian/index.ts";
+import { guardMode } from "../../lib/guardian/policy.ts";
 import { sessionGateDeps } from "../../lib/internal/gate/session-deps.ts";
 import { GUARDS } from "../../lib/internal/guardian/guards.ts";
-import { isVerificationFailing } from "../../lib/internal/verification/signal.ts";
+import { currentVerificationFailure } from "../../lib/internal/verification/signal.ts";
 import { promptSingle } from "../../lib/ui/index.ts";
-import { extractMessage, isCommitCommand } from "./parse.ts";
+import { commitDirectory, extractMessage, isCommitCommand } from "./parse.ts";
 
 const COMMIT_ACTIONS = [{ key: "r", label: "Reject" }];
+
+/** How many problems a refusal lists before it counts the rest. */
+const PROBLEMS_SHOWN = 10;
 
 interface CommitParsed {
 	message: string;
 	isAmend: boolean;
+	/** Where the commit runs; absent when it cannot be told. */
+	dir?: string;
 }
 
 /**
@@ -59,7 +65,8 @@ export function createCommitGuardian(
 			if (!message) return null;
 
 			const isAmend = /--amend\b/.test(command);
-			return { message, isAmend };
+			const dir = commitDirectory(command);
+			return { message, isAmend, ...(dir ? { dir } : {}) };
 		},
 
 		async review(
@@ -67,20 +74,12 @@ export function createCommitGuardian(
 			ctx: ExtensionContext,
 			mode = "block",
 		): Promise<GuardianResult> {
-			// Refuse a commit while verification reports the code is
-			// failing. The guard has its own name, so when the block is
-			// wrong or stale it can be switched without the commit panel.
+			// Refuse a commit while the tree it lands from has errors,
+			// checked now rather than remembered. The guard has its own
+			// name, so it can be switched without the commit panel.
 			const failing = refusalUnder(
 				GUARDS.commitVerification.name,
-				isVerificationFailing()
-					? {
-							block: true,
-							reason:
-								"Verification reports errors in files changed this run. " +
-								"Fix them before committing. If the report is wrong or " +
-								"stale, ask the user to run `/guards commit-verification report`.",
-						}
-					: undefined,
+				await verificationRefusal(parsed.dir, ctx.signal),
 				"Committed while verification reports errors",
 			);
 			if (failing) return failing;
@@ -209,6 +208,35 @@ export function commitReportBody(message: string, isAmend: boolean): string {
 }
 
 /** Render validation as a compact indicator line. */
+/**
+ * The refusal for a commit landing from a tree verification finds
+ * failing when asked now, or undefined when nothing is. An off guard
+ * is not asked, so it costs nothing.
+ */
+async function verificationRefusal(
+	dir: string | undefined,
+	signal: AbortSignal | undefined,
+): Promise<GuardianResult> {
+	if (guardMode(GUARDS.commitVerification.name) === "off") return undefined;
+	const failure = await currentVerificationFailure({
+		...(dir ? { dir } : {}),
+		...(signal ? { signal } : {}),
+	});
+	if (!failure) return undefined;
+	const shown = failure.problems.slice(0, PROBLEMS_SHOWN);
+	const more = failure.problems.length - shown.length;
+	return {
+		block: true,
+		reason: [
+			`Verification finds errors in ${dir ?? "the trees this session changed"}, checked just now:`,
+			...shown.map((p) => `- ${p}`),
+			...(more > 0 ? [`- and ${more} more`] : []),
+			"Fix them, then commit again. If this is wrong, ask the user to run " +
+				"`/guards commit-verification report`.",
+		].join("\n"),
+	};
+}
+
 function renderValidation(v: CommitValidation, theme: Theme): string {
 	const dot = theme.fg("dim", " · ");
 	const parts = validationMarks(v).map((m) =>

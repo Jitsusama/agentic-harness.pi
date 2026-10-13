@@ -276,6 +276,27 @@ export function localProcessDeps(): ProbeProcessDeps {
 	};
 }
 
+/**
+ * How far apart two readings of one process's start may be.
+ *
+ * `ps` derives `lstart` from the boot time and the wall clock, so when
+ * the clock is corrected every running process appears to have started
+ * a few seconds earlier or later. Exact comparison read every long-lived
+ * tab as a pid reused by somebody else. Two minutes absorbs any clock
+ * correction, and a pid freed and taken again within two minutes of the
+ * first process starting is not a case that happens.
+ */
+const START_TOLERANCE_MS = 2 * 60 * 1000;
+
+/** Whether two start tokens describe the same process start. */
+export function sameStart(a: string, b: string): boolean {
+	if (a === b) return true;
+	const at = Date.parse(a);
+	const bt = Date.parse(b);
+	if (!Number.isFinite(at) || !Number.isFinite(bt)) return false;
+	return Math.abs(at - bt) <= START_TOLERANCE_MS;
+}
+
 export function probeProcess(
 	id: ProcessIdentity,
 	deps: ProbeProcessDeps,
@@ -292,6 +313,6 @@ export function probeProcess(
 		case "unknown":
 			return "unknown";
 		case "alive":
-			return found.startToken === id.startToken ? "matching" : "gone";
+			return sameStart(found.startToken, id.startToken) ? "matching" : "gone";
 	}
 }

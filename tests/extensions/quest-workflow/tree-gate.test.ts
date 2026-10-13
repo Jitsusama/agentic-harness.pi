@@ -363,7 +363,7 @@ describe("workspace funnel", () => {
 		writeFileSync(join(workspace, "lab", "results.csv"), "x\n");
 		const concluded = await handle(state, fakePi(), fakeCtx(repoRoot), {
 			action: "conclude",
-			scope: "quest",
+			id: state.questId ?? "",
 		});
 		expect(concluded.ok).toBe(true);
 		expect(existsSync(join(workspace, "tmp"))).toBe(false);
@@ -381,7 +381,7 @@ describe("workspace funnel", () => {
 		state.scratchDir = legacy;
 		const concluded = await handle(state, fakePi(), fakeCtx(repoRoot), {
 			action: "conclude",
-			scope: "quest",
+			id: state.questId ?? "",
 		});
 		expect(concluded.ok).toBe(true);
 		expect(existsSync(legacy)).toBe(false);

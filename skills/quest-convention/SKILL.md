@@ -335,11 +335,49 @@ A retired quest can be resuscitated with `quest reopen`. A
 concluded quest can also be reopened, though usually a new
 quest is cleaner when the work re-opens with a new shape.
 
-Both `conclude` and `retire` accept a `scope` parameter:
-`document` acts on the focused document, `quest` acts on
-the loaded quest. With no scope, the tool defaults to the
-focused document when one is set, otherwise the loaded
-quest. Retiring a quest needs a `reason`.
+A quest is only ever sealed by name: pass its `id`. With
+no id, `conclude` and `retire` act on the focused
+document, and with nothing focused they refuse and say
+which id to pass. Naming the loaded quest seals it in
+full, pruning its trees and clearing its workspace's
+tmp/; naming quests that are not loaded runs the
+reversible status sweep. Retiring a quest needs a
+`reason`.
+
+## Unload vs Conclude
+
+- **Unload** puts a quest down: this session stops
+  working on it and nothing on disk changes. Use it to
+  switch away, to pause, or when asked to close a quest
+  without being told it is done.
+- **Conclude** seals a quest for good: its status,
+  priority, documents and trees all change. Use it only
+  when the work has landed and you were told to, or the
+  plan says so, and name the quest's id.
+
+When it is not clear which was meant, unload: it can be
+undone by loading again, and a seal cannot be undone by
+anything as simple.
+
+## Editing a Quest's Documents
+
+The workflow rewrites a README or plan on its own, between
+the moment a hand edit reads it and the moment it writes,
+so routine edits go through verbs that hold the quest lock:
+
+- `journal` with `note` adds a dated Journey entry.
+- `tick` and `untick` with `query` set a checkbox item,
+  named by its text or a start only it has.
+- `section` with `title` and `body` replaces one `##`
+  section. Journey is never replaced, only added to.
+
+They act on the focused document, or the README when
+nothing is focused; `id` names another document, or the
+quest's id its README. Larger rewrites still use edit and
+write, but never change the fields the workflow owns: a
+document's `stage`, `id`, `kind` and `quest`, and a
+quest's `id`, `kind` and `status`. The gate refuses that
+and names the verb that does it.
 
 Sealing a quest cascades so it leaves nothing live behind:
 the priority drops to `someday` and every still-active

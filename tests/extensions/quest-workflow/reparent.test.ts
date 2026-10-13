@@ -311,6 +311,7 @@ describe("reparent verb", () => {
 
 		const concluded = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "conclude",
+			id: a.id,
 		});
 		expect(concluded.ok).toBe(true);
 		expect(statusOf(a.id)).toBe("concluded");
@@ -343,7 +344,10 @@ describe("reparent verb", () => {
 			action: "load",
 			id: second.id,
 		});
-		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "conclude" });
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "conclude",
+			id: second.id,
+		});
 		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "undo" });
 
 		expect(statusOf(second.id)).toBe("active");
@@ -371,6 +375,7 @@ describe("reparent verb", () => {
 
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "conclude",
+			id: parent.id,
 		});
 		expect(result.ok).toBe(true);
 		if (!result.ok) throw new Error("unreachable");

@@ -23,6 +23,8 @@ function fakePi() {
 function fakeCtx(sessionId: string) {
 	return {
 		cwd: tmpRoot,
+		// A tab: only an interactive session is recorded for restore.
+		hasUI: true,
 		sessionManager: { getSessionId: () => sessionId },
 	} as unknown as Parameters<typeof handle>[2];
 }
@@ -104,5 +106,40 @@ describe("the signal stamp after a quest load", () => {
 		const before = process.listenerCount("SIGHUP");
 		await loadQuest("sess-loaded");
 		expect(process.listenerCount("SIGHUP")).toBe(before + 1);
+	});
+});
+
+describe("a tab that starts by creating a quest", () => {
+	async function create(
+		state: ReturnType<typeof createQuestState>,
+		title: string,
+	) {
+		succeeded(
+			await handle(state, fakePi(), fakeCtx("sess-new"), {
+				action: "create",
+				title,
+			}),
+		);
+		return state.questDir as string;
+	}
+
+	it("is recorded for restore, and stamped when it hangs up", async () => {
+		installQuietly();
+		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
+		const questDir = await create(state, "Fresh Quest");
+
+		expect(readRecord("sess-new")?.quest).toBe(state.questId);
+		expect(readmeStatus(questDir, "sess-new")).toBe("active");
+		process.emit("SIGHUP");
+		expect(readRecord("sess-new")?.endReason).toBe("signalled");
+	});
+
+	it("leaves the quest it was on when it creates another", async () => {
+		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
+		const first = await create(state, "First Quest");
+		const second = await create(state, "Second Quest");
+
+		expect(readmeStatus(first, "sess-new")).toBe("detached");
+		expect(readmeStatus(second, "sess-new")).toBe("active");
 	});
 });

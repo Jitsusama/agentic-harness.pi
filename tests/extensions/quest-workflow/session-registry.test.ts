@@ -10,8 +10,8 @@ import {
 	lostSessionCount,
 	observeRecords,
 	readRecord,
+	recordSession,
 	recordSessionEnd,
-	recordSessionOnQuest,
 	restorableSessions,
 	saveRecord,
 	seedLiveSessions,
@@ -180,7 +180,7 @@ describe("the heartbeat", () => {
 
 describe("following a session onto its quests", () => {
 	const onQuest = (questId: string, now: Date) =>
-		recordSessionOnQuest(
+		recordSession(
 			{
 				sessionId: "sess-1",
 				cwd: "/work",
@@ -210,6 +210,22 @@ describe("following a session onto its quests", () => {
 			openedAt: NOW.toISOString(),
 			previousQuests: { "QEST-1": later.toISOString() },
 		});
+	});
+
+	it("records a tab with no quest, so restore can bring it back", () => {
+		recordSession(
+			{ sessionId: "sess-1", cwd: "/work", instanceId: "inst-1" },
+			NOW,
+		);
+		const record = readRecord("sess-1");
+		expect(record).toMatchObject({ cwd: "/work", openedAt: NOW.toISOString() });
+		expect(record?.quest).toBeUndefined();
+	});
+
+	it("keeps a session's quest when it is recorded again without one", () => {
+		onQuest("QEST-1", NOW);
+		recordSession({ sessionId: "sess-1", cwd: "/work", instanceId: "inst-1" });
+		expect(readRecord("sess-1")?.quest).toBe("QEST-1");
 	});
 });
 
@@ -388,7 +404,7 @@ describe("seeding tabs that predate the registry", () => {
 		// after it stopped being so.
 		seedLiveSessions([live]);
 		expect(readRecord("sess-old")?.adopted).toBe(true);
-		recordSessionOnQuest({
+		recordSession({
 			sessionId: "sess-old",
 			cwd: "/work",
 			questId: "QEST-1",

@@ -130,7 +130,7 @@ describe("the quest tool's signal reaching the tree provider", () => {
 			state,
 			fakePi(),
 			fakeCtx(tmpRoot),
-			{ action: "retire", reason: "no longer needed" },
+			{ action: "retire", id: state.questId ?? "", reason: "no longer needed" },
 			signal,
 		);
 
@@ -159,7 +159,7 @@ describe("the quest tool's signal reaching the tree provider", () => {
 			state,
 			fakePi(),
 			fakeCtx(tmpRoot),
-			{ action: "retire", reason: "no longer needed" },
+			{ action: "retire", id: state.questId ?? "", reason: "no longer needed" },
 			stop.signal,
 		);
 

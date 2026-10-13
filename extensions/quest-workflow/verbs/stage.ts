@@ -322,7 +322,7 @@ export function stageTransition(
 	}
 	if (state.questDir) stampQuestUpdated(state);
 	return ok(
-		`Now ${result.state.stage} on ${state.documentKind} ${state.documentId}.`,
+		`Now ${result.state.stage} on ${state.documentKind} ${state.documentId}${state.documentTitle ? ` (${state.documentTitle})` : ""}.`,
 		{ stage: result.state.stage },
 	);
 }
@@ -540,6 +540,15 @@ export async function concludeOrRetire(
 		params.scope === "quest" || params.scope === "document"
 			? params.scope
 			: undefined;
+	// Naming the loaded quest seals it in full: trees pruned, workspace
+	// cleared, documents sealed. The sweep is for quests not loaded here.
+	if (
+		targetId.length > 0 &&
+		targetId === state.questId &&
+		declaredScope !== "document"
+	) {
+		return sealLoadedQuest(state, action, params, signal);
+	}
 	if (targetId.length > 0) {
 		// A single document-kind id (PLAN/RSCH/BRIF/RPRT) concludes or
 		// retires that document under the loaded quest, with the same
@@ -578,6 +587,24 @@ export async function concludeOrRetire(
 				: "quest";
 	if (scope === "document") {
 		return stageTransition(state, action, params, ctx);
+	}
+	// Sealing a quest is final, prunes its trees and sets it to someday,
+	// so it is never inferred from what happens to be loaded. A quest was
+	// once concluded this way when the person meant to put it down.
+	return refuse(
+		`${action === "conclude" ? "Concluding" : "Retiring"} a quest seals it for good, so it needs the quest named: pass \`id: ${state.questId}\` (${state.questTitle ?? "the loaded quest"}) to ${action} it. To stop working on it without sealing it, use \`unload\`.`,
+	);
+}
+
+/** Conclude or retire the loaded quest, once it has been named. */
+async function sealLoadedQuest(
+	state: QuestState,
+	action: "conclude" | "retire",
+	params: QuestToolParams,
+	signal?: AbortSignal,
+): Promise<QuestResult> {
+	if (!state.questDir) {
+		return refuse("Load a quest before concluding or retiring anything.");
 	}
 	if (action === "retire" && !params.reason?.trim()) {
 		return refuse("Retire needs a `reason`: why is the quest being abandoned?");
@@ -676,10 +703,13 @@ export async function concludeOrRetire(
 	if (clearedTmp) {
 		appendJourneyEntry(state, "Cleared the workspace's tmp/ folder.");
 	}
+	const named = state.questTitle
+		? `${state.questId} (${state.questTitle})`
+		: state.questId;
 	let message =
 		action === "conclude"
-			? `Concluded quest ${state.questId}.`
-			: `Retired quest ${state.questId}.`;
+			? `Concluded quest ${named}.`
+			: `Retired quest ${named}.`;
 	if (sealedDocs > 0) {
 		appendJourneyEntry(
 			state,
@@ -721,7 +751,7 @@ export async function concludeOrRetire(
 				detectedAt,
 			});
 		}
-		message += ` ${count(blocked.length, "tree")} ${verb(blocked.length, "needs", "need")} manual resolution.`;
+		message += ` ${count(blocked.length, "tree")} ${verb(blocked.length, "needs", "need")} manual resolution: ${blocked.map((b) => `${b.path}: ${b.reason}`).join("; ")}. Run \`tree-prune\` with its cwd once that is settled.`;
 	}
 	return ok(message, {
 		scope: "quest",

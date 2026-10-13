@@ -164,6 +164,14 @@ export const GUARDS = {
 		defaultMode: "block",
 		groups: ["quest"],
 	}),
+	questOwnedFields: declare({
+		name: "quest-owned-fields",
+		class: "redirect",
+		description:
+			"Sends hand edits of a quest's stage, status, id or kind to the verb that owns them",
+		defaultMode: "block",
+		groups: ["quest"],
+	}),
 	questTemp: declare({
 		name: "quest-temp",
 		class: "redirect",

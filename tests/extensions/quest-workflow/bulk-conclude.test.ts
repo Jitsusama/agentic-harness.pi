@@ -133,7 +133,10 @@ describe("sweeping quests by id", () => {
 			"concluded",
 			"active",
 		]);
-		expect(result.message).toContain("Concluded 2 quests.");
+		// Named, so the person can see which two went.
+		expect(result.message).toMatch(
+			/Concluded 2 quests: QEST-\S+ \([^)]+\), QEST-\S+ \([^)]+\)\./,
+		);
 		expect(result.message).toContain("Skipped 2");
 		expect(result.message).toMatch(
 			/QEST-[^:]+:\n- lab is not part of the record/,

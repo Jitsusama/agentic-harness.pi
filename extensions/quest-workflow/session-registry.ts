@@ -602,30 +602,30 @@ export async function reopenLostSessions(
 	return outcome;
 }
 
-/** What the caller knows about the session loading a quest. */
+/** What the caller knows about a session it is recording. */
 export interface OnQuestInput {
 	sessionId: string;
 	cwd: string;
-	questId: string;
+	/** The quest it is on, absent for a tab with none loaded. */
+	questId?: string;
 	instanceId: string;
 	process?: SessionRecord["process"];
 	terminal?: SessionRecord["terminal"];
 }
 
 /**
- * Note that a session is now on a quest, opening its record the first
- * time and moving it thereafter.
+ * Note that a session is running, and on which quest if any, opening
+ * its record the first time and moving it thereafter.
  *
- * Registration is triggered by loading a quest rather than by
- * starting a session, so a tab that never loads one is never
- * recorded. A session that later unloads keeps its record: once a tab
- * is known it stays tracked until it ends, since dropping it would
+ * Every persisted interactive session is recorded, with or without a
+ * quest. Recording only on a quest load left out every tab that
+ * started with `quest create`, worked without a quest or had just been
+ * swapped in by `/new`, and restore then brought back a fraction of
+ * what was open. A session that later unloads keeps its record: once a
+ * tab is known it stays tracked until it ends, since dropping it would
  * make an open tab disappear from the open set.
  */
-export function recordSessionOnQuest(
-	input: OnQuestInput,
-	now = new Date(),
-): void {
+export function recordSession(input: OnQuestInput, now = new Date()): void {
 	const existing = readRecord(input.sessionId);
 	if (existing) {
 		// A closed record here means the session was resumed: this
@@ -644,7 +644,7 @@ export function recordSessionOnQuest(
 		// merely adopted. Leaving the flag on would keep treating its
 		// eventual close as unknowable long after it stopped being so.
 		const { adopted: _hadNoHook, ...owned } = live;
-		saveRecord(switchQuest(owned, input.questId, now));
+		saveRecord(input.questId ? switchQuest(owned, input.questId, now) : owned);
 		return;
 	}
 	saveRecord(
@@ -652,12 +652,25 @@ export function recordSessionOnQuest(
 			sessionId: input.sessionId,
 			instanceId: input.instanceId,
 			cwd: input.cwd,
-			questId: input.questId,
+			...(input.questId ? { questId: input.questId } : {}),
 			...(input.process ? { process: input.process } : {}),
 			...(input.terminal ? { terminal: input.terminal } : {}),
 			now,
 		}),
 	);
+}
+
+/**
+ * Record a session and keep its record honest for as long as it runs:
+ * open or move the record, re-date it on a heartbeat, and stamp it
+ * from the signal that takes the tab away. Every path that starts or
+ * switches a session goes through this, so none of them can record a
+ * session and forget the other two.
+ */
+export function trackSession(input: OnQuestInput, release?: () => void): void {
+	recordSession(input);
+	startHeartbeat(input.sessionId);
+	followSessionForSignals(input.sessionId, release);
 }
 
 /**

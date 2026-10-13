@@ -5,6 +5,7 @@ import {
 	type ProcessIdentity,
 	type ProcessInspection,
 	probeProcess,
+	sameStart,
 } from "../../../../lib/internal/quest/process-liveness";
 
 const LOCAL = "host-a";
@@ -94,6 +95,31 @@ describe("probeProcess", () => {
 			deps(() => ({ kind: "unknown" })),
 		);
 		expect(probe).toBe("unknown");
+	});
+});
+
+describe("a start reading moved by a clock correction", () => {
+	const recorded = "Sun Oct 11 20:36:26 2026";
+
+	it("still matches the process it was taken from", () => {
+		const probe = probeProcess(
+			id({ startToken: recorded }),
+			deps(() => ({ kind: "alive", startToken: "Sun Oct 11 20:36:30 2026" })),
+		);
+		expect(probe).toBe("matching");
+	});
+
+	it("does not match a process that started well after it", () => {
+		const probe = probeProcess(
+			id({ startToken: recorded }),
+			deps(() => ({ kind: "alive", startToken: "Sun Oct 11 20:45:00 2026" })),
+		);
+		expect(probe).toBe("gone");
+	});
+
+	it("reads tokens that are not times exactly", () => {
+		expect(sameStart("tok-1", "tok-1")).toBe(true);
+		expect(sameStart("tok-1", "tok-2")).toBe(false);
 	});
 });
 

@@ -25,6 +25,7 @@ import { suggestAction } from "./actions.ts";
 import type { QuestState } from "./state.ts";
 import { aliasAdd, aliasRemove } from "./verbs/alias.ts";
 import { configReport } from "./verbs/config.ts";
+import { journal, section, tick } from "./verbs/document.ts";
 import {
 	create,
 	focus,
@@ -110,7 +111,7 @@ async function dispatch(
 ): Promise<QuestResult> {
 	switch (params.action) {
 		case "create":
-			return create(state, pi, params, signal);
+			return create(state, pi, ctx, params, signal);
 		case "load":
 			return load(state, pi, ctx, params);
 		case "unload":
@@ -126,6 +127,14 @@ async function dispatch(
 			return focus(state, params);
 		case "unfocus":
 			return unfocus(state);
+		case "journal":
+			return journal(state, params);
+		case "tick":
+			return tick(state, params, true);
+		case "untick":
+			return tick(state, params, false);
+		case "section":
+			return section(state, params);
 		case "think":
 		case "draft":
 		case "build":

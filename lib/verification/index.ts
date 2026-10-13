@@ -14,6 +14,11 @@ export {
 	resolveCheckCommand,
 } from "@jitsusama/agentic-harness.core/verify";
 export {
+	type CheckRun,
+	type CheckRunVerdict,
+	checkRunVerdict,
+} from "./check-run.ts";
+export {
 	type FastLayerInput,
 	type FastLayerVerdict,
 	type FileError,

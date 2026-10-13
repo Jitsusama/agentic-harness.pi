@@ -31,6 +31,13 @@ function fakeCtx() {
 		sessionManager: { getSessionId: () => "sess-1" },
 	} as unknown as Parameters<typeof handle>[2];
 }
+/** A context with no persisted session, for building fixtures. */
+function sessionless() {
+	return {
+		cwd: tmpRoot,
+		sessionManager: { getSessionId: () => undefined, isPersisted: () => false },
+	} as unknown as Parameters<typeof handle>[2];
+}
 function buildState() {
 	return createQuestState({ questsRoot: join(tmpRoot, "quests") });
 }
@@ -39,7 +46,8 @@ async function createQuest(
 	state: ReturnType<typeof buildState>,
 	title: string,
 ): Promise<string> {
-	const result = await handle(state, fakePi(), fakeCtx(), {
+	// Created with no session of its own, so the fixture starts unworked.
+	const result = await handle(state, fakePi(), sessionless(), {
 		action: "create",
 		title,
 	});

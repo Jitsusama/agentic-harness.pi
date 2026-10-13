@@ -15,15 +15,25 @@
  * a hidden message appended to the conversation, which is new content
  * the cache never held. The caller words both. The ledger of what was
  * frozen and what was last said is persisted as a session entry, so a
- * reload renders the same bytes; a compaction, which summarises the
- * change messages away, sets what was said back to the frozen text so
- * a state that still differs from it is said again.
+ * reload renders the same bytes.
+ *
+ * A compaction can take the last change message away. When it does,
+ * the state is said again on the next prompt. When the message
+ * survives in the tail the compaction kept, or the summary carries it
+ * because this module contributed it, nothing is said: repeating it
+ * after every compaction once accounted for 1,206 of 1,406 quest
+ * messages over two months, all identical to the one before.
  */
 
 import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import {
+	isSummaryContributions,
+	recordContribution,
+	SUMMARY_CONTRIBUTIONS,
+} from "../compaction/contributions.ts";
 import { getLastEntry } from "../internal/state.ts";
 
 /**
@@ -83,12 +93,55 @@ export function standingContextTurn(
 	};
 }
 
-/** The ledger once a compaction has summarised earlier messages. */
+/**
+ * The ledger once a compaction has summarised earlier messages. When
+ * the model can still see what it was last told (`stillHeard`), the
+ * ledger stands; otherwise what was said goes back to the frozen text,
+ * so a state that still differs from it is said again.
+ */
 export function standingContextAfterCompaction(
 	ledger: StandingContextLedger,
+	stillHeard = false,
 ): StandingContextLedger {
-	if (ledger.frozen === undefined) return ledger;
+	if (ledger.frozen === undefined || stillHeard) return ledger;
 	return { frozen: ledger.frozen, delivered: ledger.frozen };
+}
+
+/** What this module records on a compaction it contributed to. */
+interface SaidInSummary {
+	said: string | null;
+}
+
+/** An entry on the session's branch, as far as this module reads one. */
+interface BranchEntry {
+	id?: string;
+	type?: string;
+	customType?: string;
+}
+
+/**
+ * Whether the model still hears the last change after a compaction:
+ * its message is in the kept tail, or the summary says it.
+ */
+function stillHeard(
+	customType: string,
+	delivered: string | null | undefined,
+	branch: readonly BranchEntry[],
+	compaction: { firstKeptEntryId?: string; details?: unknown },
+): boolean {
+	const said = (
+		compaction.details as
+			| { contributions?: Record<string, SaidInSummary | undefined> }
+			| undefined
+	)?.contributions?.[customType];
+	if (said && said.said === delivered) return true;
+	const kept = branch.findIndex((e) => e.id === compaction.firstKeptEntryId);
+	if (kept === -1) return false;
+	let last = -1;
+	for (const [i, e] of branch.entries()) {
+		if (e.type === "custom_message" && e.customType === customType) last = i;
+	}
+	return last >= kept;
 }
 
 /**
@@ -121,8 +174,30 @@ export function registerStandingContext(
 			: { systemPrompt: turn.systemPrompt };
 	});
 
-	pi.on("session_compact", async () => {
-		ledger = standingContextAfterCompaction(ledger);
+	// Offer the state to a summary the harness writes, so a compaction
+	// that drops the message does not drop what it said. Only a state
+	// that differs from the frozen text needs it: the frozen text is in
+	// the system prompt, which no compaction touches.
+	pi.events.on(SUMMARY_CONTRIBUTIONS, (data: unknown) => {
+		if (!isSummaryContributions(data)) return;
+		if (ledger.frozen === undefined) return;
+		if (ledger.delivered === undefined || ledger.delivered === ledger.frozen) {
+			return;
+		}
+		data.appendix.push(`\n\n${wording.changed(ledger.delivered)}`);
+		recordContribution(data, wording.customType, { said: ledger.delivered });
+	});
+
+	pi.on("session_compact", async (event, ctx: ExtensionContext) => {
+		const heard = stillHeard(
+			wording.customType,
+			ledger.delivered,
+			ctx.sessionManager.getBranch() as readonly BranchEntry[],
+			event.compactionEntry,
+		);
+		const next = standingContextAfterCompaction(ledger, heard);
+		if (sameLedger(next, ledger)) return;
+		ledger = next;
 		pi.appendEntry(entry, ledger);
 	});
 }
