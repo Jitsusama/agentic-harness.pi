@@ -720,7 +720,7 @@ shells out. It costs about 45 seconds, and `pnpm test` runs every
 project, this one included.
 
 CI runs `pnpm lint`, `pnpm typecheck`, `pnpm test` and
-`pnpm load-check` on every push and pull request via
+`pnpm load-check` on every pull request and every push to `main` via
 `.github/workflows/ci.yml`, as four parallel jobs. The load check
 installs a copy with production dependencies only, the way pi
 installs from git, and loads it through pi with nothing else
