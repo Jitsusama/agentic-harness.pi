@@ -17,6 +17,7 @@ import {
 	type HeldCall,
 	restore,
 } from "../../lib/internal/away/state.ts";
+import { footerMark, type MarkTheme } from "../../lib/ui/footer-mark.ts";
 
 /** The custom entry type an absence is stored under. */
 export const AWAY_ENTRY = "away-state";
@@ -96,9 +97,22 @@ export function saveAway(pi: ExtensionAPI, snapshot: AwaySnapshot): void {
 	pi.appendEntry<AwaySnapshot>(AWAY_ENTRY, snapshot);
 }
 
-/** The footer text for an absence, or undefined when present. */
-export function statusText(snapshot: AwaySnapshot): string | undefined {
+/**
+ * The footer mark for an absence, or undefined when present.
+ *
+ * A moon while the person is away, since a mode always shows that it
+ * is on. It stays muted while the session works on alone and takes the
+ * warning colour once something is held for their return, because
+ * that is the moment it wants them; the quiet number beside it is how
+ * many calls are held. What they are is listed when the person comes
+ * back, which is the only time they can be acted on.
+ */
+export function statusText(
+	snapshot: AwaySnapshot,
+	theme: MarkTheme,
+): string | undefined {
 	if (snapshot.since === undefined) return undefined;
 	const held = snapshot.held.length;
-	return held > 0 ? `away · ${held} held` : "away";
+	if (held === 0) return footerMark("away", "muted", theme);
+	return `${footerMark("away", "warning", theme)} ${theme.fg("dim", String(held))}`;
 }

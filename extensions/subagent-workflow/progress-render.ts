@@ -34,14 +34,16 @@ import {
 	reachBoard,
 } from "../../lib/ui/board.ts";
 import { type Docked, dock, type HopPlace } from "../../lib/ui/dock.ts";
-import type {
-	FleetProgress,
-	FleetProgressEntry,
-	FleetProgressState,
-} from "./progress.ts";
+import type { FleetProgress, FleetProgressEntry } from "./progress.ts";
 import type { FleetRunResult, FleetSubagentResult } from "./run.ts";
 
-const STATUS_KEY = "subagent-workflow:fleet";
+/**
+ * The prefix of each run's dock key. The fleet says nothing on the
+ * footer: its board, docked for exactly as long as a summary there
+ * would have shown, already counts what is done, so a footer copy
+ * would say the same thing twice on one screen.
+ */
+const DOCK_KEY = "subagent-workflow:fleet";
 
 /** What the board is called, on screen and on its card. */
 const TITLE = "Subagent Fleet";
@@ -73,7 +75,7 @@ export function createFleetProgressReporter(
 	controls?: FleetProgressControls,
 	runId = "fleet",
 ): FleetProgressReporter {
-	const statusKey = `${STATUS_KEY}:${runId}`;
+	const dockKey = `${DOCK_KEY}:${runId}`;
 	let entries: FleetProgressEntry[] = [];
 	let selected = 0;
 	let notice = "";
@@ -90,7 +92,6 @@ export function createFleetProgressReporter(
 
 	const render = (): void => {
 		if (!ctx.hasUI) return;
-		ctx.ui.setStatus(statusKey, renderFleetStatus(entries, ctx.ui.theme));
 		docked?.refresh();
 	};
 
@@ -131,7 +132,7 @@ export function createFleetProgressReporter(
 		const theme = ctx.ui.theme;
 		docked = dock(
 			ctx,
-			statusKey,
+			dockKey,
 			{
 				render: (width, focused) =>
 					boardLines(board(focused), theme, width, focused),
@@ -144,7 +145,6 @@ export function createFleetProgressReporter(
 	};
 
 	const close = (): void => {
-		if (ctx.hasUI) ctx.ui.setStatus(statusKey, undefined);
 		docked?.close();
 		docked = undefined;
 	};
@@ -328,27 +328,6 @@ function entryFromResult(result: FleetSubagentResult): FleetProgressEntry {
 	};
 }
 
-/** Render the fleet status line summary. Exported for tests. */
-export function renderFleetStatus(
-	entries: readonly FleetProgressEntry[],
-	theme: Theme,
-	label = "fleet",
-): string {
-	const counts = countStates(entries);
-	const total = entries.length;
-	if (total === 0) return "";
-	const summary = `${counts.complete}/${total} done`;
-	const detail: string[] = [];
-	if (counts.running > 0) detail.push(`running=${counts.running}`);
-	if (counts.pending > 0) detail.push(`pending=${counts.pending}`);
-	if (counts.cancelled > 0) detail.push(`cancelled=${counts.cancelled}`);
-	if (counts.failed > 0) {
-		detail.push(theme.fg("error", `failed=${counts.failed}`));
-	}
-	const tail = detail.length > 0 ? ` ${detail.join(" ")}` : "";
-	return `${theme.fg("accent", label)} ${summary}${tail}`;
-}
-
 /** One reason line per failure, since a reason is too long for its row. */
 function failureNotes(
 	rows: readonly { id: string; failed: boolean; reason: string }[],
@@ -388,22 +367,6 @@ function widgetSubtext(entry: FleetProgressEntry): string | undefined {
 	if (entry.state === "pending") return "queued";
 	if (entry.state === "cancelled") return "cancelled by user";
 	return undefined;
-}
-
-function countStates(
-	entries: readonly FleetProgressEntry[],
-): Record<FleetProgressState, number> {
-	const counts: Record<FleetProgressState, number> = {
-		pending: 0,
-		running: 0,
-		complete: 0,
-		cancelled: 0,
-		failed: 0,
-	};
-	for (const entry of entries) {
-		counts[entry.state] += 1;
-	}
-	return counts;
 }
 
 /**

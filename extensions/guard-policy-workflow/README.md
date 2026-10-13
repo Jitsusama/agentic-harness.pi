@@ -62,7 +62,10 @@ A mode can be set for a guard by name, for a group (`git`,
 ```
 
 A session setting is saved in the session and restored when it
-resumes. For a standing setting, put a `guards` section in the
+resumes. While any is in force, the footer shows a quiet flag,
+`⚑`, with a count once there is more than one; `/guards` says
+which, since each of its rows names where its mode came from.
+For a standing setting, put a `guards` section in the
 package config at `~/.config/pi/agentic-harness.pi/config.json`:
 
 ```json

@@ -9,6 +9,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import type { GuardReport, ResolvedGuard } from "../../lib/guardian/index.ts";
 import type { GuardianOutcome } from "../../lib/internal/guardian/registry.ts";
+import { footerMark, type MarkTheme } from "../../lib/ui/footer-mark.ts";
 import { renderMarkdown, renderNarrationLine } from "../../lib/ui/index.ts";
 
 /** Body lines a collapsed report shows before it says how many are left. */
@@ -85,6 +86,25 @@ function outcomeWord(outcome: GuardianOutcome | undefined): string {
 		case "skipped":
 			return `last: skipped (${outcome.why})`;
 	}
+}
+
+/**
+ * The footer's mark for this session's overrides, or undefined when
+ * there are none.
+ *
+ * It says only that overrides are in force: a flag, and a count once
+ * there is more than one. Which guards, and in what mode, is one step
+ * away in `/guards`, where every row already says it came from the
+ * session. The flag stays muted, since the person set these themselves
+ * and nothing here wants their attention.
+ */
+export function overridesMark(
+	modes: Readonly<Record<string, unknown>>,
+	theme: MarkTheme,
+): string | undefined {
+	const count = Object.keys(modes).length;
+	if (count === 0) return undefined;
+	return footerMark("overridden", "muted", theme, count);
 }
 
 const MODE_COLOUR = {

@@ -102,11 +102,16 @@ describe("keeping an absence across a restart", () => {
 		expect(savedSnapshotOf(branch)).toBeUndefined();
 	});
 
-	it("shows how much is held in the footer while away", () => {
-		expect(statusText({ since: "a", held: CALLS, decided: [] })).toBe(
-			"away · 2 held",
+	it("marks the footer while away, coloured once something is held", () => {
+		const theme = {
+			fg: (colour: string, text: string) => `<${colour}>${text}`,
+		};
+		expect(statusText({ since: "a", held: CALLS, decided: [] }, theme)).toBe(
+			"<warning>\u263e <dim>2",
 		);
-		expect(statusText({ since: "a", held: [], decided: [] })).toBe("away");
-		expect(statusText({ held: [], decided: [] })).toBeUndefined();
+		expect(statusText({ since: "a", held: [], decided: [] }, theme)).toBe(
+			"<muted>\u263e",
+		);
+		expect(statusText({ held: [], decided: [] }, theme)).toBeUndefined();
 	});
 });

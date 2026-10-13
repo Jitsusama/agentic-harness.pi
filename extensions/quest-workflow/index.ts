@@ -72,7 +72,7 @@ import {
 import { recentSessionHints, showLoaded } from "./lookup.ts";
 import { sayPeersOnStartup } from "./peers.ts";
 import { questsTouchedBy, RecordWatch } from "./record-watch.ts";
-import { formatQuestList, renderStatus, renderWidget } from "./render.ts";
+import { formatQuestList, renderWidget } from "./render.ts";
 import {
 	collapseListingPreview,
 	collapseText,
@@ -777,33 +777,23 @@ interface UiSink {
 }
 
 /**
- * Paint the loaded quest into the status line and the progress widget.
+ * Paint the loaded quest into its widget, the quest's one line.
  *
- * Both are registered so the TUI reflows them on resize rather than
- * freezing at the width they were computed at. The status is pushed
- * width-independent and the footer truncates it, so widening a
- * terminal reveals the id again instead of leaving the collapsed
- * label. The widget uses pi's callback form, whose `render(width)` the
- * TUI re-invokes on every paint, including a resize, with the live
- * width, so the progress line re-truncates to the new width.
+ * The widget uses pi's callback form, whose `render(width)` the TUI
+ * re-invokes on every paint, including a resize, with the live width,
+ * so the line re-truncates to the new width.
+ *
+ * The footer slot is cleared rather than left alone: a session that
+ * reloaded from a version which drew the quest there would otherwise
+ * keep the old text until it ended.
  */
 export function updateScoreboard(state: QuestState, ctx: { ui: UiSink }): void {
 	const live = state.questId !== null;
-	ctx.ui.setStatus(
-		"quest-workflow",
-		live
-			? renderStatus(
-					{
-						questId: state.questId,
-						questKind: state.questKind,
-						questStatus: state.questStatus,
-					},
-					ctx.ui.theme,
-				)
-			: undefined,
-	);
+	ctx.ui.setStatus("quest-workflow", undefined);
 	const widgetInput = {
 		questId: state.questId,
+		questKind: state.questKind,
+		questStatus: state.questStatus,
 		questTitle: state.questTitle,
 		documentKind: state.documentKind,
 		documentStage: state.documentStage,

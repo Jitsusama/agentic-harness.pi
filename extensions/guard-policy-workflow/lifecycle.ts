@@ -23,6 +23,7 @@ import {
 	getSection,
 	loadPackageConfig,
 } from "../../lib/internal/config/loader.ts";
+import { overridesMark } from "./render.ts";
 
 /** The custom entry type session overrides are saved under. */
 export const GUARD_MODES_ENTRY = "guard-modes";
@@ -89,14 +90,7 @@ export function saveModes(pi: ExtensionAPI, ctx: ExtensionContext): void {
 	showOverrides(ctx);
 }
 
-/** Say on the status line which overrides this session holds, if any. */
+/** Mark on the status line that this session holds overrides, if any. */
 function showOverrides(ctx: ExtensionContext): void {
-	const modes = Object.entries(sessionModes());
-	if (modes.length === 0) {
-		ctx.ui.setStatus(STATUS_KEY, undefined);
-		return;
-	}
-	const theme = ctx.ui.theme;
-	const said = modes.map(([key, mode]) => `${key} ${mode}`).join(", ");
-	ctx.ui.setStatus(STATUS_KEY, theme.fg("muted", `guards: ${said}`));
+	ctx.ui.setStatus(STATUS_KEY, overridesMark(sessionModes(), ctx.ui.theme));
 }

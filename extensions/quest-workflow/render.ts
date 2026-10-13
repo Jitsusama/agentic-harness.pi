@@ -7,13 +7,16 @@
  *   title, truncated to 20 characters with an ellipsis
  *   when longer. No id, no kind glyph. The terminal-tab
  *   label.
- * - Status line: the quest's identity. Kind glyph,
- *   status glyph and either the full quest id (when the
- *   width budget allows) or the literal word "Quest".
- * - Widget: the focused document's activity. Stage verb,
- *   kind noun, doc title, step count and the prose of
- *   the next unchecked checkbox. No glyphs; the status
- *   line owns the visual glyph footprint.
+ * - Widget: the quest's one line. Kind glyph and status
+ *   glyph, then the focused document's activity: stage
+ *   verb, kind noun, doc title, step count and the prose
+ *   of the next unchecked checkbox.
+ *
+ * Nothing goes on the shared footer. It used to carry the
+ * two glyphs and the full quest id, which put the quest in
+ * two places at once and spent twenty columns of a line
+ * that never shortens an extension's status on an id the
+ * person reads in `quest show` when they want it.
  *
  * All surfaces fall silent when no quest is loaded.
  */
@@ -72,7 +75,6 @@ const KIND_NOUN: Record<DocumentKind, string> = {
 };
 
 const SESSION_NAME_LIMIT = 20;
-const STATUS_NARROW_LABEL = "Quest";
 
 /**
  * Hard cap on visible characters in the widget's arrow
@@ -113,17 +115,6 @@ function truncateTrailer(source: string, limit: number): string {
 	// one character so the result is exactly `limit` wide.
 	return `${stripped.slice(0, limit - 1).trimEnd()}…`;
 }
-
-/**
- * Terminal width below which the status line collapses
- * the id to the literal `Quest` label. The status line
- * shares space with whatever other extensions paint, so
- * the threshold is set against the whole terminal width
- * rather than against the budget left after other
- * segments: any column count below this is the regime
- * where the id crowds out everything else anyway.
- */
-const STATUS_NARROW_THRESHOLD = 60;
 
 /**
  * Pi renders widget lines through `new Text(line, 1, 0)`,
@@ -184,34 +175,29 @@ function titleCase(text: string): string {
 }
 
 /**
- * Status-line render: kind glyph, status glyph, and the
- * quest id (when the width budget allows) or the literal
- * "Quest" label when it does not.
+ * The quest's two marks: its kind, and its status in the status's
+ * colour. Only the glyphs carry colour; the text beside them stays
+ * quiet.
  */
-export function renderStatus(
-	state: {
-		questId: string | null;
-		questKind: QuestKind | null;
-		questStatus: QuestStatus | null;
-	},
+function questMarks(
+	kind: QuestKind | null | undefined,
+	status: QuestStatus | null | undefined,
 	theme: Theme,
-	width?: number,
-): string | undefined {
-	if (!state.questId || !state.questKind || !state.questStatus)
-		return undefined;
-	const kindGlyph = theme.fg("accent", KIND_GLYPHS[state.questKind]);
-	const statusGlyph = STATUS_GLYPHS[state.questStatus];
-	const colouredStatus = theme.fg(statusGlyph.token, statusGlyph.char);
-	const tail =
-		width !== undefined && width < STATUS_NARROW_THRESHOLD
-			? STATUS_NARROW_LABEL
-			: state.questId;
-	return `${kindGlyph} ${colouredStatus} ${theme.fg("muted", tail)}`;
+): string {
+	const marks: string[] = [];
+	if (kind) marks.push(theme.fg("accent", KIND_GLYPHS[kind]));
+	if (status) {
+		const glyph = STATUS_GLYPHS[status];
+		marks.push(theme.fg(glyph.token, glyph.char));
+	}
+	return marks.length > 0 ? `${marks.join(" ")} ` : "";
 }
 
 /** Inputs the widget needs to paint a line. */
 export interface WidgetInput {
 	questId: string | null;
+	questKind?: QuestKind | null;
+	questStatus?: QuestStatus | null;
 	questTitle: string | null;
 	documentKind: DocumentKind | null;
 	documentStage: Stage;
@@ -224,7 +210,8 @@ export interface WidgetInput {
 /**
  * Widget line. Returns empty when no quest is loaded.
  *
- * Three layouts depending on what's focused:
+ * It opens with the quest's kind and status glyphs, then one of
+ * three layouts depending on what's focused:
  *
  * 1. Focused document, mid-stage: `{Stage-Verb} {Kind-Noun}:
  *    {Doc Title} \u00b7 {step}/{total} \u2192 {next item}`
@@ -245,7 +232,8 @@ export function renderWidget(
 ): string[] {
 	if (!input.questId) return [];
 	const line = buildWidgetLine(input);
-	const coloured = theme.fg("muted", line);
+	const marks = questMarks(input.questKind, input.questStatus, theme);
+	const coloured = `${marks}${theme.fg("muted", line)}`;
 	const budget = Math.max(0, width - WIDGET_INDENT_COLS);
 	return [truncateToWidth(coloured, budget)];
 }

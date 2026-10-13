@@ -50,6 +50,7 @@ function activate(options: { choices?: (string | undefined)[] } = {}) {
 		isIdle: () => !session.busy,
 		ui: {
 			setStatus: (_key: string, text: string | undefined) => status.push(text),
+			theme: { fg: (_colour: string, text: string) => text },
 			notify: () => {},
 			select: async (
 				_title: string,

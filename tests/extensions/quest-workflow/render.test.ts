@@ -1,14 +1,17 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import {
-	renderStatus,
 	renderWidget,
 	sessionNameFor,
 } from "../../../extensions/quest-workflow/render";
 
 const identityTheme = {
 	fg: (_token: string, text: string) => text,
-} as unknown as Parameters<typeof renderStatus>[1];
+} as unknown as Parameters<typeof renderWidget>[1];
+
+const taggingTheme = {
+	fg: (token: string, text: string) => `<${token}>${text}`,
+} as unknown as Parameters<typeof renderWidget>[1];
 
 describe("sessionNameFor", () => {
 	it("returns undefined when no title is supplied", () => {
@@ -55,43 +58,33 @@ describe("sessionNameFor", () => {
 	});
 });
 
-describe("renderStatus", () => {
-	it("returns undefined when no quest is loaded", () => {
-		expect(
-			renderStatus(
-				{ questId: null, questKind: null, questStatus: null },
-				identityTheme,
-			),
-		).toBeUndefined();
+describe("the widget's quest marks", () => {
+	const base = {
+		questId: "QEST-20260603-AAA111",
+		questTitle: "Quest title",
+		documentKind: null,
+		documentStage: "idle" as const,
+		documentTitle: null,
+		done: 0,
+		total: 0,
+	};
+
+	it("leads with the kind and status glyphs, coloured, and the text quiet", () => {
+		const [line] = renderWidget(
+			{ ...base, questKind: "sidequest", questStatus: "active" },
+			taggingTheme,
+			200,
+		);
+		expect(line).toBe("<accent>\u25c7 <warning>\u25cb <muted>Quest title");
 	});
 
-	it("shows the full id when the width budget allows", () => {
-		const out = renderStatus(
-			{
-				questId: "QEST-20260603-AAA111",
-				questKind: "quest",
-				questStatus: "active",
-			},
+	it("never carries the quest id, which lives in quest show", () => {
+		const [line] = renderWidget(
+			{ ...base, questKind: "quest", questStatus: "active" },
 			identityTheme,
-			80,
+			200,
 		);
-		expect(out).toContain("QEST-20260603-AAA111");
-		expect(out).toContain("\u25c6");
-		expect(out).toContain("\u25cb");
-	});
-
-	it("collapses to the Quest label when the width budget is tight", () => {
-		const out = renderStatus(
-			{
-				questId: "QEST-20260603-AAA111",
-				questKind: "quest",
-				questStatus: "active",
-			},
-			identityTheme,
-			10,
-		);
-		expect(out).toContain("Quest");
-		expect(out).not.toContain("AAA111");
+		expect(line).not.toContain("AAA111");
 	});
 
 	it("uses one distinct status glyph per lifecycle state", () => {
@@ -103,19 +96,29 @@ describe("renderStatus", () => {
 			"concluded",
 			"retired",
 		] as const) {
-			const out = renderStatus(
-				{
-					questId: "QEST-20260603-AAA111",
-					questKind: "quest",
-					questStatus: status,
-				},
+			const [line] = renderWidget(
+				{ ...base, questKind: "quest", questStatus: status },
 				identityTheme,
-				80,
-			) as string;
-			const glyph = out.split(" ")[1];
+				200,
+			);
+			const glyph = (line ?? "").split(" ")[1] ?? "";
 			expect(seen.has(glyph)).toBe(false);
 			seen.add(glyph);
 		}
+	});
+
+	it("keeps the line within the width, marks included", () => {
+		const [line] = renderWidget(
+			{
+				...base,
+				questKind: "quest",
+				questStatus: "active",
+				questTitle: "A title long enough to need cutting at forty columns",
+			},
+			identityTheme,
+			40,
+		);
+		expect(visibleWidth(line ?? "")).toBeLessThanOrEqual(39);
 	});
 });
 

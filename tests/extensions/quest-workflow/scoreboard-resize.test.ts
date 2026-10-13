@@ -72,12 +72,17 @@ describe("updateScoreboard resize behaviour", () => {
 		expect(narrow[0]).not.toContain("wire the resize-aware widget callback");
 	});
 
-	it("pushes a width-independent status so the footer can retruncate", () => {
+	it("leaves the footer alone and leads its own line with the quest's marks", () => {
 		const ui = fakeUi();
 		updateScoreboard(loadedState(), { ui } as never);
-		// The status carries the full id rather than a width-collapsed
-		// label, so widening the terminal reveals it again.
-		expect(ui.captured.status).toContain("QEST-20260101-AAAAAA");
+		// The quest has one line, above the editor. The footer is shared,
+		// and the id it used to carry there is read in `quest show`.
+		expect(ui.captured.status).toBeUndefined();
+		const widget = ui.captured.widget;
+		if (typeof widget !== "function") throw new Error("expected a callback");
+		const [line] = widget(null, theme).render(120);
+		expect(line?.startsWith("\u25c6 \u25cb ")).toBe(true);
+		expect(line).not.toContain("QEST-20260101-AAAAAA");
 	});
 
 	it("clears the status and widget when no quest is loaded", () => {
