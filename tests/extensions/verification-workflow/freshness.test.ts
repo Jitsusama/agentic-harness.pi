@@ -40,7 +40,7 @@ interface VerifyTool {
 
 interface Harness {
 	readonly handlers: Map<string, Handler>;
-	readonly sendUserMessage: ReturnType<typeof vi.fn>;
+	readonly sendMessage: ReturnType<typeof vi.fn>;
 	readonly statuses: Array<string | undefined>;
 	readonly verify: VerifyTool;
 	readonly ctx: unknown;
@@ -54,7 +54,7 @@ async function harness(): Promise<Harness> {
 	let verify: VerifyTool | undefined;
 	const h: Harness = {
 		handlers,
-		sendUserMessage: vi.fn(),
+		sendMessage: vi.fn(),
 		statuses: [],
 		get verify(): VerifyTool {
 			if (!verify) throw new Error("verify was not registered");
@@ -69,7 +69,8 @@ async function harness(): Promise<Harness> {
 		registerTool: (tool: VerifyTool) => {
 			verify = tool;
 		},
-		sendUserMessage: h.sendUserMessage,
+		registerMessageRenderer() {},
+		sendMessage: h.sendMessage,
 		events: { on() {}, emit() {} },
 	} as never);
 	await handlers.get("session_start")?.({}, h.ctx);
@@ -184,7 +185,7 @@ describe("a commit asking whether anything is failing", () => {
 
 		await edit(h, file);
 		await yieldTurn(h);
-		expect(h.sendUserMessage).toHaveBeenCalledTimes(1);
+		expect(h.sendMessage).toHaveBeenCalledTimes(1);
 		expect((await currentVerificationFailure({ dir: tree }))?.problems).toEqual(
 			[`${file}:78:12 Property 'body' does not exist`],
 		);
@@ -219,6 +220,77 @@ describe("a commit asking whether anything is failing", () => {
 
 		clearLspBackends();
 		expect(await currentVerificationFailure({ dir: tree })).toBeUndefined();
+	});
+});
+
+describe("the fast layer saying what it found", () => {
+	it("says an error set once, however many turns it lasts", async () => {
+		serve([], () => true);
+		const h = await harness();
+		const file = join(project("tree"), "a.ts");
+
+		await edit(h, file);
+		await yieldTurn(h);
+		await edit(h, file);
+		await yieldTurn(h);
+		await yieldTurn(h);
+
+		expect(h.sendMessage).toHaveBeenCalledTimes(1);
+		// Still failing, and the footer still says so.
+		expect(h.statuses.at(-1)).toMatch(/^error:\u2715/);
+	});
+
+	it("speaks again once the errors change, or come back after a clean pass", async () => {
+		const asked: string[] = [];
+		let broken = new Set<string>();
+		serve(asked, (path) => broken.has(path));
+		const h = await harness();
+		const tree = project("tree");
+		const a = join(tree, "a.ts");
+		const b = join(tree, "b.ts");
+
+		broken = new Set([a]);
+		await edit(h, a);
+		await yieldTurn(h);
+		broken = new Set([a, b]);
+		await edit(h, b);
+		await yieldTurn(h);
+		expect(h.sendMessage).toHaveBeenCalledTimes(2);
+
+		broken = new Set();
+		await yieldTurn(h);
+		broken = new Set([a]);
+		await edit(h, a);
+		await yieldTurn(h);
+		expect(h.sendMessage).toHaveBeenCalledTimes(3);
+	});
+
+	it("leaves a quest workspace's scratch files alone", async () => {
+		const asked: string[] = [];
+		serve(asked, () => true);
+		const cache = process.env.XDG_CACHE_HOME;
+		process.env.XDG_CACHE_HOME = join(root, "cache");
+		try {
+			const h = await harness();
+			const scratch = join(
+				root,
+				"cache",
+				"pi",
+				"agentic-harness.pi",
+				"quest-workspace",
+				"QEST-20261012-AAAAAA",
+				"lab",
+				"eval.ts",
+			);
+			await edit(h, scratch);
+			await yieldTurn(h);
+
+			expect(asked).toEqual([]);
+			expect(h.sendMessage).not.toHaveBeenCalled();
+		} finally {
+			if (cache === undefined) delete process.env.XDG_CACHE_HOME;
+			else process.env.XDG_CACHE_HOME = cache;
+		}
 	});
 });
 

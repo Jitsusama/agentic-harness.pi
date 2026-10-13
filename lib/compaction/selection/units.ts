@@ -11,7 +11,7 @@
 
 import { createHash } from "node:crypto";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import { isResumeText } from "../resume.ts";
+import { isAutomatedText } from "../../internal/automated.ts";
 import { paragraphsOf } from "./paragraphs.ts";
 
 /** Shorter than this and a paragraph says too little alone. */
@@ -108,7 +108,8 @@ function spokenText(
 				: message.content
 						.map((part) => (part.type === "text" ? part.text : ""))
 						.join("\n\n");
-		if (isResumeText(text)) return undefined;
+		// The harness's own turns are not what a person said.
+		if (isAutomatedText(text)) return undefined;
 		return { text, speaker: "user" };
 	}
 	if (message.role === "assistant") {

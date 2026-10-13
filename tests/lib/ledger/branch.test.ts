@@ -228,6 +228,40 @@ describe("runs", () => {
 		expect(turns.get("a4")?.facts?.runId).not.toBe(run);
 		expect(turns.get("a3")?.facts?.precededBy).toBe("compaction");
 	});
+
+	it("keeps a background job's report inside the run somebody typed", () => {
+		const log = new Log()
+			.typed("u1")
+			.turn("a1")
+			.typed(
+				"u2",
+				"[Automated message, no human input: background jobs are reporting.]\n\n[job j1] checks",
+			)
+			.turn("a2");
+
+		const turns = facts(log);
+		expect(turns.get("a2")?.facts).toMatchObject({
+			runId: turns.get("a1")?.facts?.runId,
+			runTurn: 2,
+			precededBy: "results",
+		});
+	});
+
+	it("still reads a resume written before the automated header", () => {
+		const log = new Log()
+			.typed("u1")
+			.turn("a1")
+			.add("c1", { type: "compaction", tokensBefore: 200_000, summary: "s" })
+			.typed(
+				"u2",
+				"The context was compacted to keep this session affordable. Carry on with the task you were working on from where you left off.",
+			)
+			.turn("a2");
+
+		const turns = facts(log);
+		expect(turns.get("a2")?.facts?.runId).toBe(turns.get("a1")?.facts?.runId);
+		expect(turns.get("c1")?.compaction?.resumed).toBe(true);
+	});
 });
 
 describe("what surrounded a compaction", () => {

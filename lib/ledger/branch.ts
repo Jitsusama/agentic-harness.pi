@@ -4,6 +4,7 @@ import type {
 	TurnPrecedent,
 } from "@jitsusama/agentic-harness.core/observability";
 import { isResumeText } from "../compaction/resume.ts";
+import { isAutomatedText } from "../internal/automated.ts";
 
 /**
  * The same rough ratio pi's own compaction estimates with. Good enough
@@ -224,6 +225,14 @@ function userSaid(
 				lastAborted: false,
 				awaiting: null,
 			},
+			step: {},
+		};
+	}
+	// Any other turn the harness started, a background job reporting, is
+	// that work's results arriving, inside the run somebody typed.
+	if (isAutomatedText(textOf(message.content))) {
+		return {
+			after: { ...noting(before, "results"), addedChars: added },
 			step: {},
 		};
 	}

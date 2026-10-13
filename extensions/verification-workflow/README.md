@@ -11,11 +11,18 @@ still builds, without grinding an autonomous run to a halt.
 - Fast layer, at the turn boundary: when the agent is about to
   yield, it asks the resident LSP backend for diagnostics on
   the files touched this run. New error-severity problems are
-  enqueued as a follow-up through `pi.sendUserMessage(...,
-  { deliverAs: "followUp" })`, which the agent loop drains just
+  enqueued as a custom `verification` message with
+  `deliverAs: "followUp"`, which the agent loop drains just
   after the turn ends and before it stops, so the agent
   continues and self-corrects before handing the turn to the
-  user. It runs in milliseconds against a warm server and skips
+  user. It is the harness speaking, not you: the transcript
+  draws it as one narration line, `※ verify: 3 errors in 2
+  files`, with the list behind the expand key, and the cost
+  ledger and compaction quotes never read it as something you
+  typed. An error set already said is not said again; the
+  footer's ✕ still shows it failing. Files under a quest's
+  workspace are scratch, not the work, and are not checked. It
+  runs in milliseconds against a warm server and skips
   entirely when no server resolves.
 - Medium layer, on request: the verify tool runs the project's
   resolved check command and reports whether the code still

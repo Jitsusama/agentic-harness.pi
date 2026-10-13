@@ -22,21 +22,22 @@ type Handler = (event: unknown, ctx: unknown) => Promise<unknown>;
 
 interface Harness {
 	readonly handlers: Map<string, Handler>;
-	readonly sendUserMessage: ReturnType<typeof vi.fn>;
+	readonly sendMessage: ReturnType<typeof vi.fn>;
 	readonly statuses: Array<string | undefined>;
 }
 
 /** The workflow's handlers and what it said, as a fake pi saw them. */
 function harness(): Harness {
 	const handlers = new Map<string, Handler>();
-	const sendUserMessage = vi.fn();
+	const sendMessage = vi.fn();
 	verificationWorkflow({
 		on: (name: string, handler: Handler) => handlers.set(name, handler),
 		registerTool() {},
-		sendUserMessage,
+		registerMessageRenderer() {},
+		sendMessage,
 		events: { on() {}, emit() {} },
 	} as never);
-	return { handlers, sendUserMessage, statuses: [] };
+	return { handlers, sendMessage, statuses: [] };
 }
 
 /** A turn's context, owned by a run that `run` can stop. */
@@ -137,7 +138,7 @@ describe("the fast layer at the end of a turn", () => {
 		await vi.advanceTimersByTimeAsync(FAST_LAYER_WALL_MS + 100);
 
 		expect(turn.settled()).toBe(true);
-		expect(h.sendUserMessage).not.toHaveBeenCalled();
+		expect(h.sendMessage).not.toHaveBeenCalled();
 		// Deferred knows nothing about the code, so the footer says nothing.
 		expect(h.statuses.at(-1)).toBeUndefined();
 		expect(h.statuses.length).toBeGreaterThan(0);
@@ -154,7 +155,7 @@ describe("the fast layer at the end of a turn", () => {
 
 		expect(turn.settled()).toBe(true);
 		expect(handed[0]?.aborted).toBe(true);
-		expect(h.sendUserMessage).not.toHaveBeenCalled();
+		expect(h.sendMessage).not.toHaveBeenCalled();
 	});
 
 	it("asks for no fix once the run is stopped, even with errors found", async () => {
@@ -172,7 +173,7 @@ describe("the fast layer at the end of a turn", () => {
 		run.abort();
 		await turn.done;
 
-		expect(h.sendUserMessage).not.toHaveBeenCalled();
+		expect(h.sendMessage).not.toHaveBeenCalled();
 	});
 
 	it("still asks for a fix when the server reports an error", async () => {
@@ -181,8 +182,10 @@ describe("the fast layer at the end of a turn", () => {
 		const turn = await endTurnAfterAnEdit(h, new AbortController());
 		await turn.done;
 
-		expect(h.sendUserMessage).toHaveBeenCalledWith(expect.any(String), {
-			deliverAs: "followUp",
-		});
+		// As the harness, inside the run, never starting one of its own.
+		expect(h.sendMessage).toHaveBeenCalledWith(
+			expect.objectContaining({ customType: "verification", display: true }),
+			{ deliverAs: "followUp" },
+		);
 	});
 });

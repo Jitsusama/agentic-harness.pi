@@ -57,16 +57,10 @@ import { drawInto } from "../../lib/ui/index.ts";
  */
 interface RuntimeContext {
 	readonly sessionId?: string;
-	sendUserMessage(
-		content: string,
-		options?: { deliverAs?: "steer" | "followUp" },
-	): void;
-	sendMessage(message: {
-		customType: string;
-		content: string;
-		display?: boolean;
-	}): void;
 }
+
+/** The custom message type the advisor's notes go out as. */
+const ADVISOR_NOTE = "advisor-note";
 
 /** View a context through its runtime-only fields. */
 function runtime(ctx: ExtensionContext): RuntimeContext {
@@ -301,19 +295,20 @@ export default function advisor(pi: ExtensionAPI) {
 
 		if (!result.ok) return;
 
-		const rt = runtime(ctx);
 		let firedInterrupt = false;
 		for (const finding of parseFindings(result.text)) {
-			const note = formatFinding(finding);
+			const message = {
+				customType: ADVISOR_NOTE,
+				content: formatFinding(finding),
+				display: true,
+			};
 			if (channelFor(finding.severity, immuneTurns) === "steer") {
-				rt.sendUserMessage(note, { deliverAs: "steer" });
+				// Steers the run under way. With none, it waits for the next
+				// one rather than starting a turn in the person's name.
+				pi.sendMessage(message, { deliverAs: "steer" });
 				firedInterrupt = true;
 			} else {
-				rt.sendMessage({
-					customType: "advisor-note",
-					content: note,
-					display: true,
-				});
+				pi.sendMessage(message);
 			}
 		}
 		immuneTurns = nextImmuneTurns(immuneTurns, firedInterrupt);

@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { questVerdicts } from "../../../extensions/quest-workflow/enforce";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
-import { createEnvGuard, succeeded } from "./_helpers";
+import { createEnvGuard, refused, succeeded } from "./_helpers";
 
 let tmpRoot: string;
 const envGuard = createEnvGuard();
@@ -127,6 +127,50 @@ describe("journal", () => {
 			"utf8",
 		);
 		expect(readme).toMatch(/- \*\*\d{4}-\d{2}-\d{2}\*\*: Landed the verbs\./);
+	});
+
+	it("writes to the quest `id` names, not the loaded one", async () => {
+		const { state, run } = await questWithPlan();
+		const loaded = state.questId ?? "";
+		const loadedDir = state.questDir ?? "";
+		succeeded(await run({ action: "create", title: "Other Quest" }));
+		const other = state.questId ?? "";
+		const otherDir = state.questDir ?? "";
+		succeeded(await run({ action: "load", id: loaded }));
+
+		const result = succeeded(
+			await run({ action: "journal", id: other, note: "Noted elsewhere." }),
+		);
+
+		expect(result.message).toBe(`Added to ${other}'s Journey.`);
+		expect(readFileSync(join(otherDir, "README.md"), "utf8")).toContain(
+			"Noted elsewhere.",
+		);
+		expect(readFileSync(join(loadedDir, "README.md"), "utf8")).not.toContain(
+			"Noted elsewhere.",
+		);
+		expect(state.questId).toBe(loaded);
+	});
+
+	it("refuses an id that is not a quest's", async () => {
+		const { state, run } = await questWithPlan();
+		const readmeBefore = readFileSync(
+			join(state.questDir ?? "", "README.md"),
+			"utf8",
+		);
+
+		const result = refused(
+			await run({
+				action: "journal",
+				id: "QEST-20000101-NOSUCH",
+				note: "Lost.",
+			}),
+		);
+
+		expect(result.guidance).toContain("is not a quest");
+		expect(readFileSync(join(state.questDir ?? "", "README.md"), "utf8")).toBe(
+			readmeBefore,
+		);
 	});
 });
 

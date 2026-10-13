@@ -107,7 +107,10 @@ mode: a run compacted between tool turns resumed and finished its task.
 A compaction applied while the session is idle interrupts nothing and
 resumes nothing.
 
-That message is sent as a user message, the way you would type it. pi
+That message is sent as a user message, opening with the header every
+turn the harness starts carries, `[Automated message, no human input:
+...]`, so neither the model nor the cost ledger nor a compaction's
+quotes take it for something you typed. pi
 starts a run from a custom message without running the
 `before_agent_start` hooks, so a resume sent that way went out on the
 base system prompt, without the captured conventions or the loaded
