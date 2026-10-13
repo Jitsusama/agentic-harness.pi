@@ -523,6 +523,57 @@ describe("whyNotYet", () => {
 		);
 	});
 
+	it("holds a reviewer whose supervisor begins while the round is being looked at", async () => {
+		// The race CI caught. Hawk has been handed over and has no lease;
+		// its supervisor writes one while owl, whose supervisor is gone,
+		// is being asked about. Judged in two passes, hawk read as starting
+		// when running was the question and as running when starting was,
+		// and the round was called free with both of them still at work.
+		const store = new ReviewerArtifactsStore(root);
+		const now = Date.now();
+		const LIVE = 4242;
+		const DEAD = 1111;
+		const born = now - 1_000;
+		mkdirSync(store.paths(RUN, "hawk").reviewerDir, { recursive: true });
+		const owl = store.paths(RUN, "owl");
+		mkdirSync(owl.reviewerDir, { recursive: true });
+		writeFileSync(
+			owl.leasePath,
+			JSON.stringify({
+				supervisorPid: DEAD,
+				supervisorStartedAt: born,
+				updatedAt: new Date(now).toISOString(),
+			}),
+			"utf8",
+		);
+		const hawkBegins: ProcessFacts = {
+			alive: (pid) => {
+				if (pid === DEAD) {
+					writeFileSync(
+						store.paths(RUN, "hawk").leasePath,
+						JSON.stringify({
+							supervisorPid: LIVE,
+							supervisorStartedAt: born,
+							updatedAt: new Date(now).toISOString(),
+						}),
+						"utf8",
+					);
+				}
+				return pid === LIVE;
+			},
+			startedAt: async (pid) => (pid === LIVE ? born : undefined),
+		};
+
+		expect(
+			await whyNotYet(
+				store,
+				{ id: RUN, participants: [{ id: "hawk" }, { id: "owl" }] },
+				hawkBegins,
+				now,
+			),
+		).toBeDefined();
+	});
+
 	it("releases a round whose reviewer was handed over long ago and never begun", async () => {
 		const store = new ReviewerArtifactsStore(root);
 		mkdirSync(store.paths(RUN, "hawk").reviewerDir, { recursive: true });

@@ -259,20 +259,11 @@ export async function whyNotYet(
 	facts: ProcessFacts = systemFacts,
 	now: number = Date.now(),
 ): Promise<string | undefined> {
-	const holder = await heldByLiveSupervisor(
-		artifacts,
-		held.id,
-		held.participants.map((participant) => participant.id),
-		facts,
-		now,
-	);
-	if (holder !== undefined) {
-		return `${held.id} is still being run: ${holder.reviewerId} is held by a supervisor (pid ${holder.pid}) whose lease was renewed ${Math.round(holder.sinceMs / 1000)}s ago. Collecting now would file the findings of whoever has finished and then let that session file them again. Wait for it, or stop the round.`;
-	}
-	// Handed over and not yet begun counts as held. It is the window
-	// straight after start, and reading it as free let a collect file
-	// nothing, a stop close a round seconds from running, and a watcher
-	// say a round was ready before anybody had looked at it.
+	// One look at each run, judged on both counts at once. This was two
+	// passes, one for running and one for starting, and a supervisor
+	// writing its first lease between them read as starting in the
+	// first and running in the second, so neither held it: a watcher
+	// told the model to collect from under two live reviewers.
 	for (const participant of held.participants) {
 		for (const id of everyRunOf(participant.id)) {
 			const standing = await supervisorStanding(
@@ -282,6 +273,13 @@ export async function whyNotYet(
 				facts,
 				now,
 			);
+			if (standing.kind === "running") {
+				return `${held.id} is still being run: ${id} is held by a supervisor (pid ${standing.pid}) whose lease was renewed ${Math.round(standing.sinceMs / 1000)}s ago. Collecting now would file the findings of whoever has finished and then let that session file them again. Wait for it, or stop the round.`;
+			}
+			// Handed over and not yet begun counts as held. It is the window
+			// straight after start, and reading it as free let a collect
+			// file nothing, a stop close a round seconds from running, and a
+			// watcher say a round was ready before anybody had looked at it.
 			if (standing.kind === "starting") {
 				return `${held.id} is still starting: ${id} has been handed to a supervisor that has not begun. Wait a few seconds, or stop the round.`;
 			}
