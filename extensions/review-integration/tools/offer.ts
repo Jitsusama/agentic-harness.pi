@@ -1266,33 +1266,49 @@ async function edit(
 	);
 }
 
+/** The shortest prefix of a head taken as an expectation, as git abbreviates. */
+const SHORTEST_HEAD_PREFIX = 7;
+
 /**
- * Why this merge should not happen, when the head is not what was expected.
+ * The head to hand the backend as the merge guard, or why this merge
+ * should not happen.
  *
- * Says both heads, because the useful fact is which one the change is at and
- * that is what the backend's own refusal leaves out. A prefix is accepted, so
- * the short form a commit prints is a valid expectation rather than a
- * guaranteed mismatch, but it has to be a prefix of the real head and not
- * merely look like one.
+ * A refusal says both heads, because the useful fact is which one the
+ * change is at and that is what the backend's own refusal leaves out. A
+ * prefix is accepted, so the short form a commit prints is a valid
+ * expectation rather than a guaranteed mismatch, but it has to be a prefix
+ * of the real head and not merely look like one, and the full head it
+ * matched is what travels on.
  *
- * Undefined when there is nothing to check: no expectation given, or a
- * provider that does not report where the head is, in which case the guard
- * still travels to the backend and this adds nothing.
+ * The head is undefined when nothing was expected, and the expectation as
+ * given when the provider does not report where the head is, in which case
+ * the guard still travels to the backend and this adds nothing.
  */
-async function headMismatch(
+async function headGuard(
 	bound: BoundTarget,
 	label: string,
 	expected: string | undefined,
-): Promise<string | undefined> {
-	if (!expected) return undefined;
+): Promise<{ refusal: string } | { head: string | undefined }> {
+	if (!expected) return { head: undefined };
+	if (expected.length < SHORTEST_HEAD_PREFIX) {
+		return {
+			refusal: `expectedHead ${expected} is too short to guard anything: give at least ${SHORTEST_HEAD_PREFIX} characters of the head, or all of it.`,
+		};
+	}
 	const at = (await bound.proposal())?.headCommit;
-	if (!at || at === expected || at.startsWith(expected)) return undefined;
-	return [
-		`${label} is at ${at}, not ${expected}, so it was not merged.`,
-		"That is the head guard doing its job, and it does not mean somebody pushed:",
-		"an expectation typed from memory or completed from a short prefix fails the",
-		"same way. Read the head, then merge with what it says.",
-	].join("\n");
+	// A prefix is how people read a commit, so one that matches is taken,
+	// and the head it matched is what goes to the backend: GitHub refuses
+	// anything but the whole sha, and 23 merges failed on that alone.
+	if (!at) return { head: expected };
+	if (at === expected || at.startsWith(expected)) return { head: at };
+	return {
+		refusal: [
+			`${label} is at ${at}, not ${expected}, so it was not merged.`,
+			"That is the head guard doing its job, and it does not mean somebody pushed:",
+			"an expectation typed from memory or completed from a short prefix fails the",
+			"same way. Read the head, then merge with what it says.",
+		].join("\n"),
+	};
 }
 
 /** Land the change. */
@@ -1310,8 +1326,9 @@ async function merge(
 	// the reader hunting a push nobody made. And not every backend enforces
 	// it at all, so a guard the caller asked for would otherwise be silently
 	// optional. The head this change is at is already in hand.
-	const mismatch = await headMismatch(bound, change.label, params.expectedHead);
-	if (mismatch) return refuse(mismatch);
+	const guard = await headGuard(bound, change.label, params.expectedHead);
+	if ("refusal" in guard) return refuse(guard.refusal);
+	const expectedHead = guard.head;
 
 	const decision = await confirmWrite(
 		ctx,
@@ -1319,8 +1336,8 @@ async function merge(
 		[
 			`${GLYPH.target} ${change.label}`,
 			params.method ? `   ${params.method}` : "   the repo's own merge policy",
-			params.expectedHead
-				? `   only if the head is still ${params.expectedHead}`
+			expectedHead
+				? `   only if the head is still ${expectedHead}`
 				: `   ${GLYPH.refused} unguarded: this merges whatever the head is now, including work pushed since you last looked`,
 		].join("\n"),
 	);
@@ -1328,9 +1345,7 @@ async function merge(
 
 	const outcome = await authoring.merge(change, {
 		...(params.method === undefined ? {} : { method: params.method }),
-		...(params.expectedHead === undefined
-			? {}
-			: { expectedHead: params.expectedHead }),
+		...(expectedHead === undefined ? {} : { expectedHead }),
 	});
 
 	// This used to say `merged` whatever came back, which is true on a backend

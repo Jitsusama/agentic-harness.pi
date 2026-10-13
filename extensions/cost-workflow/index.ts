@@ -182,14 +182,38 @@ export default function costWorkflow(pi: ExtensionAPI) {
 		return runs;
 	};
 
+	// The opening under way, shared for the same reason as a pass: two
+	// calls at once each found no store and opened a connection of their
+	// own, and the one overwritten was never closed.
+	let opening: Promise<TurnStore> | null = null;
 	const open = async (): Promise<TurnStore> => {
 		if (store) return store;
-		const dir = packageStateDir("observability");
-		mkdirSync(dir, { recursive: true });
-		watermarks = join(dir, "ledger-watermarks.json");
-		ledgerPath = join(dir, "ledger.db");
-		store = await openTurnStore(ledgerPath);
-		return store;
+		opening ??= (async () => {
+			const dir = packageStateDir("observability");
+			mkdirSync(dir, { recursive: true });
+			watermarks = join(dir, "ledger-watermarks.json");
+			ledgerPath = join(dir, "ledger.db");
+			store = await openTurnStore(ledgerPath);
+			return store;
+		})().finally(() => {
+			opening = null;
+		});
+		return opening;
+	};
+
+	// The pass under way, which a call arriving meanwhile shares. Every
+	// call indexes first, and two calls at once (parallel tool calls, a
+	// codemode script's Promise.all) ran two passes on one connection,
+	// where the second's BEGIN lands inside the first's transaction and
+	// SQLite refuses it.
+	let indexing: ReturnType<typeof indexSessionLogs> | null = null;
+	const indexOnce = (
+		opened: TurnStore,
+	): ReturnType<typeof indexSessionLogs> => {
+		indexing ??= indexSessionLogs(opened, watermarks).finally(() => {
+			indexing = null;
+		});
+		return indexing;
 	};
 
 	// A second connection, opened read-only, so no query can write
@@ -336,7 +360,7 @@ export default function costWorkflow(pi: ExtensionAPI) {
 		}),
 		async execute(_toolCallId, params): Promise<AgentToolResult<CostDetails>> {
 			const opened = await open();
-			const index = await indexSessionLogs(opened, watermarks);
+			const index = await indexOnce(opened);
 
 			if (params.reindex) {
 				return {
