@@ -47,6 +47,7 @@ import {
 	seedLiveSessions,
 } from "../session-registry.ts";
 import type { QuestState } from "../state.ts";
+import { type TerminalCall, terminalOptions } from "../terminal.ts";
 import {
 	ok,
 	type QuestResult,
@@ -310,9 +311,17 @@ function claimedSessions(state: QuestState) {
 	);
 }
 
+/** What restore is asked to do, and where its terminals open. */
+export interface RestoreOptions extends TerminalCall {
+	/** Reopen rather than list. */
+	readonly act?: boolean;
+	/** Session ids or unique prefixes to narrow to. */
+	readonly ids?: string;
+}
+
 export async function restore(
 	state: QuestState,
-	opts: { act?: boolean; ids?: string } = {},
+	opts: RestoreOptions = {},
 ): Promise<QuestResult> {
 	// Seed before asking, so tabs that were already open when the
 	// registry arrived are known to be open rather than absent, and
@@ -346,17 +355,42 @@ export async function restore(
 		(record) =>
 			`- ${record.quest ?? "(no quest)"} ${record.cwd} (session ${record.sessionId}, ${wasLost(record) ? "lost" : "closed"} ${record.closedAt})`,
 	);
-	if (!opts.act) {
+	const read = await terminalOptions(
+		{ ...opts, dryRun: opts.dryRun === true || !opts.act },
+		{
+			...(state.questId ? { questId: state.questId } : {}),
+			...(toRestore[0]?.cwd ? { cwd: toRestore[0].cwd } : {}),
+		},
+	);
+	if (!read.ok) return refuse(read.refusal);
+	const reopenWith = {
+		...read.options,
+		...(read.layout ? { layout: read.layout } : {}),
+	};
+	if (!opts.act || opts.dryRun) {
+		// Planning opens nothing, so the listing can say how force would
+		// open them, which is the question a person asks before passing it.
+		const planned = await reopenLostSessions(toRestore, reopenWith);
+		const how = planned.used
+			? [
+					"",
+					`force would open them through ${planned.used}.`,
+					...planned.notes.map((note) => `Note: ${note}.`),
+				]
+			: planned.failed.length > 0
+				? ["", `force could not open them: ${planned.failed[0]?.reason}.`]
+				: [];
 		const body = [
 			`${count(toRestore.length, "session")} to restore:`,
 			...rows,
+			...how,
 			"",
 			"Run to reopen them, or pass force to have restore do it:",
 			...recipe,
 			...closedSection,
 		].join("\n");
 		return ok(body, {
-			restore: { toRestore, recipe, recentlyClosed: closed },
+			restore: { toRestore, recipe, recentlyClosed: closed, planned },
 		});
 	}
 	if (toRestore.length > MAX_REOPEN_AT_ONCE) {
@@ -374,10 +408,18 @@ export async function restore(
 			{ restore: { toRestore, recipe, refused: "too-many" } },
 		);
 	}
-	const outcome = await reopenLostSessions(toRestore);
+	const outcome = await reopenLostSessions(toRestore, reopenWith);
 	const lines = [
-		`Reopened ${outcome.reopened.length} of ${count(toRestore.length, "session")}.`,
+		`Reopened ${outcome.reopened.length} of ${count(toRestore.length, "session")}${outcome.used ? `, through ${outcome.used}` : ""}.`,
+		...outcome.notes.map((note) => `Note: ${note}.`),
 	];
+	if (outcome.unconfirmed.length > 0) {
+		lines.push(
+			"",
+			`Opened but not yet seen running (${count(outcome.unconfirmed.length, "session")}); look at their terminals:`,
+			...outcome.unconfirmed.map((id) => `- ${id}`),
+		);
+	}
 	if (outcome.failed.length > 0) {
 		lines.push(
 			"",

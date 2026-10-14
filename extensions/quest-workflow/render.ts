@@ -132,7 +132,7 @@ const WIDGET_INDENT_COLS = 1;
  * The session-name label pi sets on the terminal tab when a quest
  * loads. When a quest id is supplied, the stable short id (the
  * trailing segment of `QEST-YYYYMMDD-XXXXXX`) leads so a person
- * reading wezterm can identify the quest without a query; the id is
+ * reading their terminal's tabs can identify the quest without a query; the id is
  * kept whole and only the Title Case title is truncated to fit
  * `SESSION_NAME_LIMIT`. With no id the title alone is used, and with
  * neither the result is `undefined`.

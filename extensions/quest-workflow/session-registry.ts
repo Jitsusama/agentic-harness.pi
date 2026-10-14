@@ -45,8 +45,10 @@ import {
 } from "../../lib/internal/quest/session-registry.ts";
 import type { QuestSession } from "../../lib/quest/index.ts";
 import {
-	getTypeProvider,
-	spawnTerminalSurface,
+	describePlan,
+	type OpenOptions,
+	openTerminals,
+	type TerminalLayout,
 } from "../../lib/terminal/index.ts";
 
 /** Where the per-session records live. */
@@ -537,67 +539,126 @@ export function lostSessionCount(): number {
 
 /** What happened when restore tried to reopen the lost sessions. */
 export interface ReopenOutcome {
+	/** Sessions seen running again: their record is back in the open set. */
 	reopened: string[];
+	/** Sessions whose terminal opened but which had not checked in yet. */
+	unconfirmed: string[];
 	failed: { sessionId: string; reason: string }[];
+	/** The line saying what the terminals were opened through. */
+	used?: string;
+	/** What the person should know, once each. */
+	notes: string[];
+	/** On a dry run, what would have been done, and nothing was. */
+	planned?: boolean;
 }
 
 /**
- * Reopen lost sessions by spawning a shell for each and typing the
- * resume line into it.
+ * How long restore waits for reopened sessions to say they are
+ * running. A pi starts in a few seconds, and a dozen starting at once
+ * on a loaded machine take longer, so the wait is generous; it is the
+ * difference between reporting a session back and reporting a command
+ * sent.
+ */
+export const REOPEN_CONFIRM_MS = 30_000;
+
+/** How often the records are read while waiting. */
+const REOPEN_POLL_MS = 250;
+
+/**
+ * Reopen lost sessions, one terminal surface each, and report which
+ * came back.
  *
- * The two steps are the point. Handing the resume line to the spawn
- * primitive runs it under a non-interactive shell, which skips the
- * startup files that put the right pi on PATH, so the command that
- * works when typed fails when spawned. That is exactly what made the
- * manual recovery take an hour. Spawning a bare login shell and
- * typing into it is what a person does, and it works for the same
- * reason.
+ * The terminal library runs each resume line under the person's own
+ * startup files: typed into a login shell where the terminal can be
+ * typed into, through `$SHELL -l -i -c` where it cannot. Handed to a
+ * terminal directly the line would run without them, which skips what
+ * puts the right pi on PATH; that is what made the first manual
+ * recovery take an hour. Tabs with no window to hold them are gathered
+ * into one new window.
  *
- * A driver that cannot type is refused rather than worked around.
- * The only fallback available is the broken one.
+ * A session counts as reopened only once its pi has started and put
+ * its record back in the open set. One whose terminal opened but which
+ * has not checked in by the end of the wait is reported as such, so a
+ * command sent is never reported as a session restored.
  */
 export async function reopenLostSessions(
 	records: readonly SessionRecord[],
+	options: OpenOptions & {
+		readonly layout?: TerminalLayout;
+		readonly confirmMs?: number;
+	} = {},
 ): Promise<ReopenOutcome> {
-	const outcome: ReopenOutcome = { reopened: [], failed: [] };
-	for (const record of records) {
-		try {
-			const { driver, handle } = await spawnTerminalSurface({
-				layout: "tab",
-				cwd: record.cwd,
-			});
-			if (!handle) {
-				outcome.failed.push({
-					sessionId: record.sessionId,
-					reason: `the ${driver.id} driver cannot say which surface it opened`,
-				});
-				continue;
-			}
-			const typist = getTypeProvider(driver.id);
-			if (!typist) {
-				outcome.failed.push({
-					sessionId: record.sessionId,
-					reason: `the ${driver.id} driver cannot type into a surface`,
-				});
-				continue;
-			}
+	const { layout, confirmMs = REOPEN_CONFIRM_MS, ...open } = options;
+	const outcomes = await openTerminals(
+		records.map((record) => ({
+			...(layout ? { layout } : {}),
+			cwd: record.cwd,
 			// Quoted even though the parser already refuses an id that is
 			// not an identifier. This text is executed in the user's own
 			// shell, so it should not be one validation away from running
 			// whatever a file on disk says.
-			await typist.typeInto(
-				handle,
-				`pi --session ${shellSingleQuote(record.sessionId)}\n`,
-			);
-			outcome.reopened.push(record.sessionId);
-		} catch (error) {
+			command: `pi --session ${shellSingleQuote(record.sessionId)}`,
+		})),
+		open,
+	);
+	const outcome: ReopenOutcome = {
+		reopened: [],
+		unconfirmed: [],
+		failed: [],
+		notes: [],
+	};
+	const opened: string[] = [];
+	outcomes.forEach((result, index) => {
+		const record = records[index];
+		if (!record) return;
+		if (!result.ok) {
 			outcome.failed.push({
 				sessionId: record.sessionId,
-				reason: error instanceof Error ? error.message : String(error),
+				reason: result.error,
 			});
+			return;
 		}
+		outcome.used ??= describePlan(result.plan);
+		for (const note of result.notes) {
+			if (!outcome.notes.includes(note)) outcome.notes.push(note);
+		}
+		if (result.how === "planned") outcome.planned = true;
+		else if (result.how === "printed") {
+			outcome.failed.push({
+				sessionId: record.sessionId,
+				reason: "no terminal could be opened",
+			});
+		} else opened.push(record.sessionId);
+	});
+	if (outcome.planned) return outcome;
+	const back = await awaitCheckIn(opened, confirmMs);
+	for (const id of opened) {
+		(back.has(id) ? outcome.reopened : outcome.unconfirmed).push(id);
 	}
 	return outcome;
+}
+
+/**
+ * Wait until each session's record is back in the open set, which the
+ * reopened pi does itself as it starts, or the wait runs out. Returns
+ * the ones that checked in.
+ */
+async function awaitCheckIn(
+	sessionIds: readonly string[],
+	waitMs: number,
+): Promise<Set<string>> {
+	const back = new Set<string>();
+	const deadline = Date.now() + waitMs;
+	while (back.size < sessionIds.length) {
+		for (const id of sessionIds) {
+			if (back.has(id)) continue;
+			const record = readRecord(id);
+			if (record && record.closedAt === undefined) back.add(id);
+		}
+		if (back.size === sessionIds.length || Date.now() >= deadline) break;
+		await new Promise((resolve) => setTimeout(resolve, REOPEN_POLL_MS));
+	}
+	return back;
 }
 
 /** What the caller knows about a session it is recording. */

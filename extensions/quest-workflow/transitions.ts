@@ -194,6 +194,7 @@ async function dispatch(
 			return sessionRename(state, ctx, params);
 		case "session-audit":
 			return sessionAudit(state, params);
+		case "spawn":
 		case "spawn-tab":
 		case "spawn-pane":
 		case "spawn-window":
@@ -220,6 +221,10 @@ async function dispatch(
 			return restore(state, {
 				act: params.force === true,
 				...(params.id !== undefined ? { ids: params.id } : {}),
+				...(params.layout !== undefined ? { layout: params.layout } : {}),
+				...(params.terminal !== undefined ? { terminal: params.terminal } : {}),
+				...(params.nesting !== undefined ? { nesting: params.nesting } : {}),
+				...(params.dryRun === true ? { dryRun: true } : {}),
 			});
 		default: {
 			const suggestion = suggestAction(params.action ?? "");

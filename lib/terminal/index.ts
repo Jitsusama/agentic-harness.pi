@@ -1,35 +1,11 @@
 /**
  * Public surface of the terminal library.
  *
- * Pluggable launchers for new tabs, panes and windows. The
- * quest extension uses it for `spawn-tab`/`spawn-pane`/
- * `spawn-window`; other extensions can pick the same
- * driver or register their own.
+ * Opens shells in a window, a tab or a pane of whatever terminal the
+ * person uses, types into them and asks whether they are still there.
+ * The implementation lives in agentic-harness.core, which is its one
+ * copy; this re-exports it so existing local imports keep working and
+ * `agentic-harness.pi/terminal` stays what consumers import.
  */
 
-export {
-	clearTerminalDrivers,
-	registerBuiltinTerminalDrivers,
-	registerTerminalDriver,
-	unregisterTerminalDriver,
-} from "./register.ts";
-export {
-	getLivenessProvider,
-	getTerminalDriver,
-	getTypeProvider,
-	identifyCurrentTerminal,
-	listTerminalDrivers,
-	resolveDriver,
-	spawnTerminal,
-	spawnTerminalSurface,
-} from "./resolve.ts";
-export type {
-	TerminalDriver,
-	TerminalLayout,
-	TerminalLivenessCapability,
-	TerminalProbe,
-	TerminalRequest,
-	TerminalSessionHandle,
-	TerminalTypeCapability,
-} from "./types.ts";
-export { terminalHandleKey } from "./types.ts";
+export * from "@jitsusama/agentic-harness.core/terminal";

@@ -2,12 +2,17 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { saveRecord } from "../../../extensions/quest-workflow/session-registry";
+import {
+	readRecord,
+	reopenLostSessions,
+	saveRecord,
+} from "../../../extensions/quest-workflow/session-registry";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
 import {
 	closeRecord,
 	openRecord,
+	reopenRecord,
 } from "../../../lib/internal/quest/session-registry";
 import {
 	clearTerminalDrivers,
@@ -77,18 +82,22 @@ afterEach(() => {
 	envGuard.leave();
 });
 
-/** A record for a session lost with the machine it ran on. */
+/**
+ * A record for a session lost with the machine it ran on, half an hour
+ * ago, which is well inside the retention restore prunes to.
+ */
 function lostSession(sessionId: string, questId: string) {
+	const at = new Date(Date.now() - 30 * 60_000);
 	return closeRecord(
 		openRecord({
 			sessionId,
 			instanceId: "inst-gone",
 			cwd: tmpRoot,
 			questId,
-			now: new Date("2026-07-28T18:00:00.000Z"),
+			now: new Date(at.getTime() - 30 * 60_000),
 		}),
 		"died",
-		new Date("2026-07-28T18:30:00.000Z"),
+		at,
 	);
 }
 
@@ -106,6 +115,17 @@ function quitSession(sessionId: string, questId: string, minutesAgo = 5) {
 		"quit",
 		at,
 	);
+}
+
+/**
+ * What a pi does when a resume line reaches a shell: start, and put its
+ * session's record back in the open set. Restore waits for exactly
+ * that before it calls a session reopened.
+ */
+function checkIn(line: string | undefined): void {
+	const id = /pi --session '([^']+)'/.exec(line ?? "")?.[1];
+	const record = id ? readRecord(id) : undefined;
+	if (record) saveRecord(reopenRecord(record, { instanceId: "inst-back" }));
 }
 
 /** A terminal driver that records what restore typed, and where. */
@@ -127,6 +147,7 @@ function recordingDriver(): { pane: string; text: string }[] {
 		},
 		async typeInto(handle: TerminalSessionHandle, text: string) {
 			typed.push({ pane: handle.value, text });
+			checkIn(text);
 		},
 	} as TerminalDriver & TerminalTypeCapability);
 	return typed;
@@ -196,6 +217,7 @@ describe("restore verb", () => {
 			},
 			async typeInto(handle: TerminalSessionHandle, text: string) {
 				typed.push({ pane: handle.value, text });
+				checkIn(text);
 			},
 		};
 		registerTerminalDriver(driver);
@@ -212,15 +234,18 @@ describe("restore verb", () => {
 		expect(result.message).toContain("Reopened 1 of 1");
 	});
 
-	it("refuses to act through a driver that cannot type, and says so", async () => {
-		// The only fallback is running the command without a login
-		// shell, which is the failure the capability exists to avoid, so
-		// the honest answer is to hand back the recipe.
+	it("hands the line to a driver that cannot type, and says what that costs", async () => {
+		// A driver that cannot type can still be handed the command; it
+		// runs without the person's startup files, and the answer says so
+		// rather than leaving them to find out.
+		const handed: (string | undefined)[] = [];
 		clearTerminalDrivers();
 		registerTerminalDriver({
 			id: "mute",
 			available: () => true,
-			async spawn() {
+			async spawn(request) {
+				handed.push(request.command);
+				checkIn(request.command);
 				return {
 					driverId: "mute",
 					kind: "pane",
@@ -237,8 +262,68 @@ describe("restore verb", () => {
 				force: true,
 			}),
 		);
-		expect(result.message).toContain("cannot type into a surface");
-		expect(result.message).toContain("pi --session 'sess-A'");
+		expect(handed).toEqual(["pi --session 'sess-A'"]);
+		expect(result.message).toContain("Reopened 1 of 1");
+		expect(result.message).toContain("without your startup files");
+	});
+
+	it("says which sessions opened but never checked in", async () => {
+		// A command sent is not a session restored: one whose pi has not
+		// started by the end of the wait is reported apart.
+		clearTerminalDrivers();
+		registerTerminalDriver({
+			id: "silent",
+			available: () => true,
+			async spawn() {
+				return { driverId: "silent", kind: "pane", hostId: "here", value: "1" };
+			},
+			async typeInto() {},
+		} as TerminalDriver & TerminalTypeCapability);
+		const record = lostSession("sess-A", "QEST-1");
+		saveRecord(record);
+		const outcome = await reopenLostSessions([record], { confirmMs: 300 });
+		expect(outcome.reopened).toEqual([]);
+		expect(outcome.unconfirmed).toEqual(["sess-A"]);
+	});
+
+	it("says how force would open the sessions when it only lists them", async () => {
+		recordingDriver();
+		saveRecord(lostSession("sess-A", "QEST-1"));
+		const { message } = await restoreNow();
+		expect(message).toContain(
+			"force would open them through recording, attached",
+		);
+	});
+
+	it("opens them in the layout the call names", async () => {
+		const layouts: string[] = [];
+		clearTerminalDrivers();
+		registerTerminalDriver({
+			id: "layouts",
+			available: () => true,
+			async spawn(request) {
+				layouts.push(request.layout);
+				return {
+					driverId: "layouts",
+					kind: "pane",
+					hostId: "here",
+					value: "1",
+				};
+			},
+			async typeInto(_handle: TerminalSessionHandle, text: string) {
+				checkIn(text);
+			},
+		} as TerminalDriver & TerminalTypeCapability);
+		saveRecord(lostSession("sess-A", "QEST-1"));
+		saveRecord(lostSession("sess-B", "QEST-2"));
+		succeeded(
+			await handle(buildState(), fakePi(), fakeCtx(), {
+				action: "restore",
+				force: true,
+				layout: "window",
+			}),
+		);
+		expect(layouts).toEqual(["window", "window"]);
 	});
 
 	it("refuses to open an unreasonable number of terminals at once", async () => {
@@ -411,9 +496,14 @@ describe("restore verb", () => {
 		saveRecord(lostSession("sess-A", quest));
 		expect((await restoreNow()).message).toContain("pi --session 'sess-A'");
 		// Resuming the session is what a user does with the recipe. The
-		// record rejoins the open set, and the offer has to stop.
+		// record rejoins the open set, and the offer has to stop. Only a
+		// tab a person sits in is tracked, so the context has a UI.
+		const resumed = {
+			...(fakeCtx("sess-A") as object),
+			hasUI: true,
+		} as unknown as Parameters<typeof handle>[2];
 		succeeded(
-			await handle(state, fakePi(), fakeCtx("sess-A"), {
+			await handle(state, fakePi(), resumed, {
 				action: "load",
 				id: quest,
 			}),
