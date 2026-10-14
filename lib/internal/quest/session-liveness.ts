@@ -22,7 +22,7 @@ import {
 	type TerminalProbe,
 	type TerminalSessionHandle,
 	terminalHandleKey,
-} from "../../terminal/types.ts";
+} from "../../terminal/index.ts";
 import type { ProcessIdentity, ProcessProbe } from "./process-liveness.ts";
 
 /**

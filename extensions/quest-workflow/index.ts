@@ -172,7 +172,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			id: Type.Optional(
 				Type.String({
 					description:
-						"Target id. For load/focus: the quest or document id. For tick/untick/section: the document to edit, or the quest's id for its README (default: the focused document, else the README). For spawn-tab/pane/window: open the new terminal pointed at this quest without touching the caller's loaded state. For reparent: the quest id to move, comma-separated for a batch. For conclude/retire: the loaded quest's id seals it in full (trees pruned); other quest ids, or a comma-separated set, run a bulk, reversible status sweep (no tree pruning); a document id concludes that document. For locate: the needle to resolve to its owning quest (a quest id, document id, alias ref or session id). For ancestors: the quest whose parent chain to trace (defaults to the loaded quest). For restore: session ids or unique prefixes, comma-separated, picked from the lost or recently closed sessions restore lists; lists only those, or reopens exactly those with force. For create: ignored.",
+						"Target id. For load/focus: the quest or document id. For tick/untick/section: the document to edit, or the quest's id for its README (default: the focused document, else the README). For spawn and spawn-tab/pane/window: open the new terminal pointed at this quest without touching the caller's loaded state. For reparent: the quest id to move, comma-separated for a batch. For conclude/retire: the loaded quest's id seals it in full (trees pruned); other quest ids, or a comma-separated set, run a bulk, reversible status sweep (no tree pruning); a document id concludes that document. For locate: the needle to resolve to its owning quest (a quest id, document id, alias ref or session id). For ancestors: the quest whose parent chain to trace (defaults to the loaded quest). For restore: session ids or unique prefixes, comma-separated, picked from the lost or recently closed sessions restore lists; lists only those, or reopens exactly those with force. For create: ignored.",
 				}),
 			),
 			url: Type.Optional(
@@ -271,7 +271,19 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			layout: Type.Optional(
 				Type.String({
 					description:
-						"spawn: explicit layout (tab, pane, window). Defaults to the action's suffix.",
+						"spawn and restore: where each new shell appears: window (a new desktop window), tab (a tab in an existing window) or pane (a split of the current tab). spawn-* takes its suffix; a bare spawn and restore take the person's terminal setting, else tab. A layout the terminal cannot open is refused when the call names it and gives way to the nearest when a setting does.",
+				}),
+			),
+			terminal: Type.Optional(
+				Type.String({
+					description:
+						"spawn and restore: the terminal to open in (kitty, wezterm, tmux, zellij, foot, alacritty, ghostty, or one the person configured). Leave it out to use the person's terminal setting, else the terminal the session sits in. One whose program is not installed is refused, naming those that are.",
+				}),
+			),
+			nesting: Type.Optional(
+				Type.String({
+					description:
+						"spawn and restore: innermost or outermost, for a session inside more than one terminal (pi in zellij in kitty): innermost, the default, opens tabs and panes in the terminal the person is looking at; outermost opens them in the one holding it.",
 				}),
 			),
 			command: Type.Optional(
@@ -324,7 +336,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			dryRun: Type.Optional(
 				Type.Boolean({
 					description:
-						"reparent and bulk conclude/retire: preview the planned changes and report exactly what would change without writing anything. Use undo to reverse the last applied structural edit.",
+						"reparent and bulk conclude/retire: preview the planned changes and report exactly what would change without writing anything. Use undo to reverse the last applied structural edit. spawn and restore: say which terminal, how and in which layout it would open, and which setting chose each, without opening anything.",
 				}),
 			),
 			limit: Type.Optional(

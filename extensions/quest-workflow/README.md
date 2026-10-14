@@ -40,8 +40,18 @@ shipped and tested.
   as a path inside the tree to act on; with several trees on the
   quest they refuse rather than pick one, and a path that names
   none of them is refused with the list.
-- **Terminal spawn**: `spawn-tab`, `spawn-pane`,
-  `spawn-window`.
+- **Terminal spawn**: `spawn`, `spawn-tab`, `spawn-pane`,
+  `spawn-window`, and `restore` with `force`. Each takes
+  `terminal`, `layout` and `nesting` for the call and
+  `dryRun` to see the decision without opening anything;
+  otherwise the person's `terminal` settings decide, by
+  quest, by project or by default, and the answer names the
+  layer that chose. The command is typed into a login shell
+  so the person's startup files put the right pi on PATH.
+  Restore gathers tabs with no window to hold them into one
+  new window, and counts a session reopened only once its pi
+  has started. See the terminal library's README for the
+  settings.
 - **Queries**: `find`, `who`, `links`, `locate` (the inverse
   index: resolve a document id, alias ref or session id to the
   quest that owns it), `ancestors` (trace a quest's parent chain

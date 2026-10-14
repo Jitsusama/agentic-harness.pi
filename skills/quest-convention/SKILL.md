@@ -284,7 +284,7 @@ mutates anything:
   rows and a crash shows beside its live sibling.
 - `quest restore` brings back the tabs something took away.
   A session records itself when it loads a quest, and a
-  crash, a closed tab, WezTerm dying or quitting, or a
+  crash, a closed tab, the terminal dying or quitting, or a
   shutdown all leave that record marked lost; a deliberate
   `/quit` does not. Restore lists the lost sessions with a
   `pi --session` recipe each, then the sessions closed on
@@ -293,13 +293,20 @@ mutates anything:
   unique prefixes, comma-separated) narrows it to named
   sessions from either list, which `force` then reopens.
   Confirm with the user before `force`, since it opens a
-  terminal per session.
+  terminal per session. The listing says which terminal and
+  layout `force` would use; pass `layout` (window, tab or
+  pane), `terminal` or `nesting` to change it for this call,
+  and leave them out to follow the person's settings.
+- `spawn` opens a terminal for a quest in the person's
+  default layout; `spawn-tab`, `spawn-pane` and
+  `spawn-window` name theirs. Pass `dryRun` to see where it
+  would open first.
 
 To resume a prior session, run `quest recent` and copy the
 resume command for the row you want, rather than reaching
 for a raw session id. A loaded quest also names its pi tab
-with its stable short id, so a person scanning wezterm can
-tell the panes apart without a query.
+with its stable short id, so a person scanning their
+terminal's tabs can tell them apart without a query.
 
 ## The Resuscitate Pattern
 

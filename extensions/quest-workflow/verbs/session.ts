@@ -16,8 +16,9 @@ import {
 } from "../../../lib/internal/quest/session-liveness.ts";
 import type { QuestSession } from "../../../lib/quest/index.ts";
 import {
-	resolveDriver,
-	type TerminalLayout,
+	describePlan,
+	type OpenedTerminal,
+	openTerminal,
 } from "../../../lib/terminal/index.ts";
 import { count } from "../../../lib/ui/count.ts";
 import {
@@ -36,6 +37,7 @@ import {
 	planSessionRepair,
 } from "../lookup.ts";
 import type { QuestState } from "../state.ts";
+import { terminalOptions } from "../terminal.ts";
 import {
 	currentSessionId,
 	ok,
@@ -264,19 +266,12 @@ export async function spawn(
 	ctx: ExtensionContext,
 	params: QuestToolParams,
 ): Promise<QuestResult> {
-	const layout = (params.layout ??
-		params.action.replace(/^spawn-/, "")) as TerminalLayout;
-	if (!(["tab", "pane", "window"] as TerminalLayout[]).includes(layout)) {
-		return refuse(
-			`Unknown layout "${layout}". Use spawn-tab, spawn-pane or spawn-window.`,
-		);
-	}
-	const driver = await resolveDriver();
-	if (!driver) {
-		return refuse(
-			"No terminal driver is available. Register one with `registerTerminalDriver` or seed the built-ins.",
-		);
-	}
+	// A suffixed verb names its layout; a bare spawn leaves it to the
+	// terminal settings unless the call gives one.
+	const suffix = params.action.startsWith("spawn-")
+		? params.action.slice("spawn-".length)
+		: undefined;
+	const asked = params.layout ?? suffix;
 	// An explicit `id:` lets the agent open a tab for
 	// another quest without touching its own loaded state.
 	// We resolve through discovery so a typo fails fast.
@@ -326,13 +321,40 @@ export async function spawn(
 	// loaded quest from history, but the env var is harmless
 	// and covers a fresh pi.
 	const env = { QUEST_WORKFLOW_AUTOLOAD_ID: questIdForSpawn };
+	const read = await terminalOptions(
+		{
+			...(params.terminal ? { terminal: params.terminal } : {}),
+			...(params.nesting ? { nesting: params.nesting } : {}),
+			...(asked ? { layout: asked } : {}),
+			...(params.dryRun ? { dryRun: true } : {}),
+		},
+		{ questId: questIdForSpawn, cwd },
+	);
+	if (!read.ok) return refuse(read.refusal);
+	// The command is typed into a login shell the terminal opens, so the
+	// person's startup files put the right pi on PATH; handed to the
+	// terminal directly it would run without them.
+	let opened: OpenedTerminal;
 	try {
-		await driver.spawn({ layout, command, cwd, env });
+		opened = await openTerminal(
+			{ ...(read.layout ? { layout: read.layout } : {}), command, cwd, env },
+			read.options,
+		);
 	} catch (err) {
-		return refuse(`Spawn failed via ${driver.id}: ${(err as Error).message}`);
+		return refuse(`Spawn failed: ${(err as Error).message}`);
+	}
+	const { plan } = opened;
+	const layout = plan.layout;
+	const used = describePlan(plan);
+	const noted = opened.notes.map((note) => ` Note: ${note}.`).join("");
+	if (opened.how === "planned") {
+		return ok(
+			`Would spawn a ${layout} in ${cwd} through ${used}, running: ${command}.${noted}`,
+			{ plan, cwd, command, autoloadQuestId: questIdForSpawn },
+		);
 	}
 
-	let message = `Spawned a ${layout} via ${driver.id} in ${cwd} (${resolved.source}).`;
+	let message = `Spawned a ${layout} in ${cwd} (${resolved.source}) through ${used}.${noted}`;
 	if (resolved.healed) {
 		message += ` A recorded path was missing; healed to this one.`;
 	}
@@ -354,7 +376,10 @@ export async function spawn(
 		message += ` The new session will load ${questIdForSpawn}; the spawn autoload wins over its own history.`;
 	}
 	return ok(message, {
-		driver: driver.id,
+		driver: plan.terminal,
+		tier: plan.tier,
+		how: opened.how,
+		...(opened.handle ? { handle: opened.handle } : {}),
 		layout,
 		cwd,
 		cwdSource: resolved.source,
