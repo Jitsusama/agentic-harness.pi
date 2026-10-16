@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import {
 	ISSUE_SECTIONS,
 	PR_SECTIONS,
+	PR_SHAPE,
 } from "@jitsusama/agentic-harness.core/sections";
 import { describe, expect, it } from "vitest";
 import { buildBindingRules } from "../../../extensions/convention-context/rules.ts";
@@ -59,7 +60,17 @@ describe("buildBindingRules", () => {
 
 	it("stays compact", () => {
 		// A resident block rides every prompt, so it must not balloon
-		// the default context. Cap it well under a screenful.
-		expect(rules.length).toBeLessThan(1200);
+		// the default context. Cap it well under a screenful. The PR shape
+		// line raised it from 1200: a model that knows the TL;DR has 40
+		// words writes it once, and one that learns it from a refusal
+		// writes it twice.
+		expect(rules.length).toBeLessThan(1400);
+	});
+
+	it("states the PR limits the gate holds a body to", () => {
+		for (const heading of PR_SECTIONS) {
+			const words = PR_SHAPE.sections[heading]?.words;
+			expect(rules).toContain(String(words));
+		}
 	});
 });

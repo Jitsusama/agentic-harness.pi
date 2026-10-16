@@ -44,8 +44,11 @@ describe("sanctioned sections match the format skills", () => {
 		]);
 	});
 
-	it("the two artifacts share a Situation section but differ after it", () => {
-		expect(PR_SECTIONS[0]).toBe(ISSUE_SECTIONS[0]);
-		expect(PR_SECTIONS[1]).not.toBe(ISSUE_SECTIONS[1]);
+	it("the PR opens with a TL;DR, which the issue does not yet have", () => {
+		// A PR is read by somebody deciding whether to trust a change they
+		// will not read, so it leads with the eight-second version. Issues
+		// keep their own set until they get one of their own.
+		expect(PR_SECTIONS[0]).toContain("TL;DR");
+		expect(ISSUE_SECTIONS).not.toContain(PR_SECTIONS[0]);
 	});
 });

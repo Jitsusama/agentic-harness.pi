@@ -12,7 +12,10 @@ import { runProseGate } from "@jitsusama/agentic-harness.core/guardian/prose-gat
 import { runRedirectGate } from "@jitsusama/agentic-harness.core/guardian/redirect-gate";
 import { runSectionGate } from "@jitsusama/agentic-harness.core/guardian/section-gate";
 import { runTitleGate } from "@jitsusama/agentic-harness.core/guardian/title-gate";
-import { PR_SECTIONS } from "@jitsusama/agentic-harness.core/sections";
+import {
+	PR_SECTIONS,
+	PR_SHAPE,
+} from "@jitsusama/agentic-harness.core/sections";
 import { refusalUnder } from "../../lib/guardian/apply.ts";
 import type {
 	CommandGuardian,
@@ -28,6 +31,7 @@ import { isPrCommand, type PrCommand, parsePrCommand } from "./parse.ts";
 
 const PR_SECTION_CONFIG = {
 	sanctioned: PR_SECTIONS,
+	shape: PR_SHAPE,
 	entityLabel: "PR",
 	skill: "github-pr-format",
 };

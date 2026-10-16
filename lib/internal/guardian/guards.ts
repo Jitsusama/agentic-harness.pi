@@ -111,7 +111,8 @@ export const GUARDS = {
 	sections: declare({
 		name: "sections",
 		class: "redirect",
-		description: "Refuses a PR or issue body without its sections",
+		description:
+			"Refuses a PR or issue body without its sections, or a PR section out of its shape",
 		defaultMode: "block",
 		groups: ["format"],
 	}),
