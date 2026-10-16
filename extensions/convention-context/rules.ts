@@ -40,10 +40,10 @@ function prShapeLine(): string {
 	);
 	return [
 		"- PR shape, for a reader who skips the diff; word ceilings, not targets:",
-		`TL;DR ${tldr?.words} in ${tldr?.sentences} sentences, opening with what changed, a count rather than all or most, no code or links;`,
-		`Problem ${problem?.words}, prose; Solution ${solution?.words}, behaviour and its reason;`,
-		`Validation ${validation?.words}, named checks and where they stop, no hedges.`,
+		`TL;DR ${tldr?.words} in ${tldr?.sentences} sentences, opening with what changed, no code or links;`,
+		`Problem ${problem?.words}, prose; Solution ${solution?.words}; Validation ${validation?.words}.`,
 		"review_offer takes problem, solution, validation, tldr.",
+		"Only counts are checked: before sending, check the Solution backs every TL;DR claim.",
 	].join(" ");
 }
 

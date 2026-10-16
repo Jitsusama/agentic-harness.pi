@@ -62,17 +62,24 @@ need well under half of them. Say what the reader needs and stop.
 
 ### 💡 TL;DR
 
-The eight-second version, at most 40 words in one or two
-sentences. The first sentence is a headline that stands on its
-own: it opens with the thing that changed (never "This PR" or
-"This change") and says what is different once this merges and
-for whom. The second sentence, if there is one, carries what the
+The eight-second version, at most 40 words in one or two sentences.
+The first sentence is a headline that stands on its own: it opens
+with the thing that changed (never "This PR" or "This change") and
+says what is different once this merges and for whom. Lead with what
+a person notices (a faster start, a refusal that no longer happens),
+then how. If the change does two independent things, the headline
+names both. The second sentence, if there is one, carries what the
 reader most needs next: the key decision, or a limit that changes
-how far the first sentence can be trusted. If the checks cover
-less than the headline claims, the TL;DR says how far they reach;
-a limit goes there only when it narrows the headline. No code spans, file
+how far the first sentence can be trusted. If the checks cover less
+than the headline claims, the TL;DR says how far they reach; a limit
+goes there only when it narrows the headline. No code spans, file
 names, links, bullets or bold. Write it last and lift it from the
-other three sections.
+other three sections. Every qualifier the Solution attaches to a
+claim travels with it ("where the provider honours the signal",
+"unless an undeclared guard"); if the qualifier will not fit, drop
+the claim from the TL;DR, never the qualifier. A number keeps its
+exact meaning and conditions: "offered back 29 of 29" is not
+"restored 29 of 29".
 
 ### 🧩 Problem
 
@@ -97,17 +104,36 @@ does and when.
 Where you made a real choice that a reviewer might question, state
 it as a contrast in prose: what you chose, what you turned down,
 and the one thing that decided it ("one retry rather than a loop,
-because a server that keeps dying should show as an error"). Do
-not invent an alternative where there was no real choice.
+because a server that keeps dying should show as an error"). When
+the choice gives something up that the change itself shows, say
+what ("so a second blip in a row still fails"); reviewers ask that
+first. Never invent a cost, and do not invent an alternative where
+there was no real choice.
 
 Then say what anybody will notice or has to do: a breaking change,
-a new or changed setting or default, a dependency, a migration.
-These are never the part you cut.
+something now refused or removed, a new or changed setting or
+default, a dependency, a migration. Name each one exactly as the
+reader will meet it: the full config key path and every key the
+section accepts, the command or script, the CI job, the new tool or
+extension and its parameters, every extension (by its directory
+name), command or export removed, a change to when or where
+something runs (a CI trigger, a hook), the dependency and its new
+range. Call a breaking change breaking. This is what code spans are
+for, and these are never the part you cut.
+
+Name the exceptions. For each behaviour you claim ("Escape now
+stops a tree cut", "each wait has a clock"), look in the diff for
+the path where it does not hold: a case left as before, a
+fallback, a provider that has to opt in, an input that is
+rewritten rather than refused. Say it in the same sentence ("stops
+a tree cut where the provider honours the signal, as built-in git
+does"). A claim with its exception is still short; a claim without
+it is false.
 
 Bullets are for parallel behaviours only, at most five, one
 behaviour each, opening with the words that tell them apart (not
 a column of "Adds..."). Never a list of artifacts: no "Docs:",
-"Tests:" or "Dependency:" entries. If the change has more
+"Tests:" or "Files:" entries. If the change has more
 independent parts than five bullets can hold, name the rest in one
 "Also:" sentence; a change that cannot be described this way
 should probably be split. At most 200 words.
@@ -116,28 +142,50 @@ should probably be split. At most 200 words.
 
 Three short moves, in this order:
 
-1. **Checked:** each claim about behaviour with the check that
-   shows it, named: a test, a command, a CI job, an environment,
-   and what it would have caught ("a new test reproduces the hang
-   and fails on the old code"). State results flatly. A bare
-   "tests pass" says only that nothing the suite covers broke.
+1. **Checked:** what ran and what it showed, for each claim about
+   behaviour: a test, a command, a live run, a CI job, and its
+   result ("a new test reproduces the hang, fails on the old code
+   and passes now"). Coverage is not a result: "the new tests cover
+   X" says only that tests exist, so say they ran and what they
+   showed. Name every check as the reader would rerun it: the
+   command (`pnpm lint`, `pnpm typecheck`), the test directories or
+   the named test, and the count when you know it ("the 813 tests in
+   tests/quest and tests/package pass"). A check the reader cannot
+   identify ("the touched tests", "the two flaky tests") proves
+   nothing to them. Say what each one showed, not what it covers.
 2. **Not covered:** where the checks above stop, stated as a fact
    about the checks rather than a claim about yourself: what a
    stand-in replaces, which case no test reaches, and what that
-   leaves open ("the tests replace the server with a stand-in, so
-   a real crash is not exercised"). Read it off the tests and the
+   leaves open ("the tests replace the server with a stand-in, so a
+   real crash is not exercised"). Read it off the tests and the
    commands that ran. Say you did not run something only when you
    know you did not; never guess, and never add a limit to look
-   careful. If the checks reach everything the Solution claims,
-   leave this move out.
-3. **Watch** (only when there is something to watch): the signal
-   after merge that would show the change is wrong.
+   careful. A limit inferred from evidence you cannot see ("a real
+   reload is not exercised", when you simply have no record of one)
+   is the commonest invented claim: if you do not know what was run,
+   say only what the tests in the change do and do not reach. Speak
+   about the checks you named, not the whole suite: "the two new
+   tests do not reach X", never "no test reaches X", since you have
+   not read every test. If the checks reach everything the Solution
+   claims, leave this move out.
+3. **Watch** (only when there is something to watch): an
+   observable signal after merge that would show the change is
+   wrong, such as an error message or a count, that the change
+   itself makes visible. Name the signal only; do not guess at what
+   would cause it, and leave Watch out rather than invent one.
+
+Add no fact the diff, the commits or what you ran do not show: no
+platform ("on Linux and
+macOS"), no cause, no proportion ("mostly"), and no stronger word
+for a weaker one ("billed" for "reported", "restored" for
+"offered"). A plausible detail you supplied is the error a careful
+reader finds first.
 
 Give counts with their denominator ("12 of 14 call sites") and
 before-and-after values rather than percentages alone. No hedges
-("should work", "likely", "seems") and no assurances
-("thoroughly tested", "robust"). At most 100 words and five bullets. Code spans, commands and short output excerpts belong
-here when they help.
+("should work", "likely", "seems") and no assurances ("thoroughly
+tested", "robust"). At most 100 words and five bullets. Code spans,
+commands and short output excerpts belong here when they help.
 
 ## Writing for a Person
 
@@ -190,6 +238,53 @@ present.
   rounds and commit mappings. When a PR grows, rewrite the
   description to fit the whole change.
 
+## Before You Submit
+
+The tool checks what can be counted: the headings, the lengths,
+no code in the TL;DR. It cannot check whether a sentence is true,
+and a description can pass every check while saying something
+false. So read the draft once more as the reviewer, and answer
+these before you send it. Each one is a mistake that passes the
+checks and costs the reader's trust.
+
+1. **Does the Solution back every claim in the TL;DR, with the
+   same reach?** Put the two side by side. If the Solution says
+   one path is refused and another only warned, the TL;DR cannot
+   say "refused". Summaries drift wider than what they summarise,
+   and the TL;DR is the part most readers read alone. Narrow the
+   TL;DR; never widen the Solution to match it.
+2. **Does every behaviour you claim hold on every path?** For each
+   "now does X", find the case in the diff where it does not: an
+   exception, a fallback, an opt-in, a rewrite. Name it or narrow
+   the claim. Then: is every "all", "every", "most", "always",
+   "never" and "only" literally true? Ask whether you could list the
+   set it covers. "After every test" is fine; "every guard" when two
+   are exempt is not. The same goes for claims with no such word: a
+   plain "X is refused" reads as always.
+3. **Is anything the reader must act on missing?** List them to
+   yourself: a breaking change, something that now fails or is
+   refused where it used to pass, something removed, a new or
+   changed setting or default, a new tool, command or CI job, a
+   dependency, a migration, a test seam others must now use. Each
+   one belongs in the Solution by the name the reader will type,
+   however short you are on words.
+4. **Does the key decision say what it cost, if the change shows a
+   cost?** Many choices give something up; some do not, and an
+   invented cost is still an invention. If the reader would weigh
+   the trade differently, they need to know what was traded: "one
+   retry rather than a loop, so a lasting failure shows as an error
+   instead of recovering".
+5. **Can the reader reach every piece of evidence?** Name the
+   test, command or CI job, or link the document a number comes
+   from. A figure from something only you can see is a claim the
+   reader has to take on faith.
+6. **Can you point at the line that shows each claim?** The diff,
+   a commit message or output you ran. If you cannot, cut the
+   claim. A plausible inference is still an invention.
+7. **What would the reviewer ask first?** If the answer is not in
+   the description, put it there, or cut something less useful
+   to make room.
+
 ## Issue and Stack Context
 
 When an issue tracks the work, add a line linking to it straight
@@ -235,13 +330,18 @@ keep, so give all four to replace it.
 
 The limits in this skill are checked wherever a description is
 written, and the tool refuses a description outside them whatever
-the guard settings say. So are the mechanical parts of the wording:
-a bare all, every or most in the TL;DR, a TL;DR opening with "This
-PR", a Solution with no reason in its prose, list items that open
-alike, hedges, assurances or a bare "tests pass" in Validation, and
-pointers at the session or selling words anywhere. The tool also
-joins hard-wrapped paragraphs, so wrapping costs nothing there. The refusal names every section and rule
-it broke, so fix them all in one revision.
+the guard settings say. Only what can be counted or matched
+exactly is checked: the sections, the word, sentence, bullet,
+code-span and link limits, a TL;DR opening with "This PR" or using
+bold, and Solution bullets labelled as artifacts. The refusal names
+every section and rule it broke, so fix them all in one revision.
+The tool also joins hard-wrapped paragraphs, so wrapping costs
+nothing there.
+
+Everything else in this skill is your judgement, and passing the
+checks says nothing about it. A description can keep every limit
+and still claim more than it shows, so ask the Before You Submit
+questions before every submission, not only after a refusal.
 
 ## URI Indexing
 
@@ -276,7 +376,7 @@ The retry is one attempt rather than a loop, because a server that keeps dying s
 
 ### 🔬 Validation
 
-Checked: each fix has a test that fails on the old code and passes now. A short id is expanded before it reaches GitHub and a six-character one is refused; a dead server is replaced and retried exactly once, and an editor's server is never touched; three simultaneous cost queries answer from one update.
+Checked: each fix has a test that fails on the old code and passes now, and `pnpm lint`, `pnpm typecheck` and `pnpm test` pass. A short id is expanded before it reaches GitHub and a six-character one is refused; a dead server is replaced and retried exactly once, and an editor's server is never touched; three simultaneous cost queries answer from one update.
 
 Not covered: the tests replace the language server and GitHub with stand-ins, so a real crash and a real merge are not exercised.
 
