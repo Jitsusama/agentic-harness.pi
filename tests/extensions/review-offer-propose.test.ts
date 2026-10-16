@@ -267,6 +267,35 @@ describe("proposing through the tool", () => {
 		expect(claims).toBe(0);
 	});
 
+	it("takes the head and base from a named checkout when the call leaves them out", async () => {
+		// The head and base are documented as defaulting to the branch checked
+		// out and the trunk. A propose naming only its repo used to be refused
+		// with "Name a change, or a base and head" before either default was
+		// read, because binding wanted both ends or an attachment.
+		const { provider, asked } = recordingProvider();
+		registerReviewProvider(provider);
+		const stub = activate({
+			"rev-parse --abbrev-ref HEAD": { stdout: "topic\n" },
+			"symbolic-ref --short refs/remotes/origin/HEAD": {
+				stdout: "origin/main\n",
+			},
+		});
+		const { base: _base, head: _head, ...unnamed } = proposal;
+
+		const answer = await toolNamed(stub, "review_offer").execute(
+			"1",
+			{ ...unnamed, repo: "/src/app" },
+			undefined,
+			undefined,
+			HEADLESS,
+		);
+
+		expect(JSON.stringify(answer)).not.toContain("Name a change");
+		expect(asked).toHaveLength(1);
+		expect(asked[0]?.head).toBe("topic");
+		expect(asked[0]?.base).toBe("main");
+	});
+
 	it("survives a refusal in between, which is when a retry happens", async () => {
 		// Nobody proposes the same change twice for fun. The retry that
 		// exposed this followed a convention gate refusing the title, so the

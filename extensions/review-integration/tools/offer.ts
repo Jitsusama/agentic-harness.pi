@@ -390,7 +390,11 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 					if (complaint) return refuse(complaint);
 				}
 
-				bound = await boundFor(pi, params, process.cwd());
+				bound = await boundFor(
+					pi,
+					params.action === "propose" ? await withCheckoutEnds(params) : params,
+					process.cwd(),
+				);
 				const authoring = bound.provider.authoring;
 
 				// Proposing takes its repo from the checkout whenever the call
@@ -710,6 +714,35 @@ async function checkoutFacts(
 		...(body === undefined ? {} : { bodyFromCommits: body }),
 		...(status === undefined ? {} : { dirty: true }),
 	};
+}
+
+/**
+ * A propose's target, with the head and base the checkout implies filled in.
+ *
+ * The head and base are documented as defaulting to the branch checked out
+ * and the branch it sits on, and `fillProposal` does default them, but only
+ * after binding. Binding needs both ends or an attachment, so a propose that
+ * named only its repo was refused with "Name a change, or a base and head"
+ * before the defaults were ever read. This fills them for binding alone; the
+ * proposal itself still takes them from `fillProposal`, which is what tells
+ * the gate they were guessed.
+ *
+ * An attachment still wins when no repo is named, since naming neither is
+ * how a caller proposes to the change already in play.
+ */
+async function withCheckoutEnds(params: OfferParams): Promise<OfferParams> {
+	if (params.change !== undefined) return params;
+	if (params.base !== undefined && params.head !== undefined) return params;
+	if (params.repo === undefined && (await attachments().list()).length > 0)
+		return params;
+	const facts = await checkoutFacts(
+		REVIEW_COMMANDS,
+		params.repo ?? process.cwd(),
+	);
+	const head = params.head ?? facts.branch;
+	const base = params.base ?? facts.parent ?? facts.trunk;
+	if (head === undefined || base === undefined) return params;
+	return { ...params, head, base };
 }
 
 /**
