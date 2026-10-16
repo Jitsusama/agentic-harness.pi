@@ -26,7 +26,26 @@
 import {
 	ISSUE_SECTIONS,
 	PR_SECTIONS,
+	PR_SHAPE,
 } from "@jitsusama/agentic-harness.core/sections";
+
+/**
+ * The PR shape in one line, from the same limits the gate holds a
+ * body to. A model that knows the TL;DR has 40 words writes 40; one
+ * that finds out from a refusal writes it twice.
+ */
+function prShapeLine(): string {
+	const [tldr, problem, solution, validation] = PR_SECTIONS.map(
+		(heading) => PR_SHAPE.sections[heading] ?? {},
+	);
+	return [
+		"- PR shape, for a reader who skips the diff; word ceilings, not targets:",
+		`TL;DR ${tldr?.words} in ${tldr?.sentences} sentences, opening with what changed, no code or links;`,
+		`Problem ${problem?.words}, prose; Solution ${solution?.words}; Validation ${validation?.words}.`,
+		"review_offer takes problem, solution, validation, tldr.",
+		"Only counts are checked: before sending, check the Solution backs every TL;DR claim.",
+	].join(" ");
+}
 
 /** Build the resident binding-rules block. */
 export function buildBindingRules(): string {
@@ -39,6 +58,7 @@ export function buildBindingRules(): string {
 		"",
 		`- Prose (prose-standard): Canadian spelling; never an emdash (or the \\u2014 escape), curly quotes or the Unicode ellipsis; no markdown emphasis or backticks in running prose.`,
 		`- PR body (github-pr-format): exactly these sections, verbatim, nothing else: ${PR_SECTIONS.join(", ")}.`,
+		prShapeLine(),
 		`- Issue body (github-issue-format): exactly these, verbatim, nothing else: ${ISSUE_SECTIONS.join(", ")}.`,
 		"- Commit (commit-format): conventional `type(scope): subject`; the body says why, not what.",
 		"- Slack (slack-guide): no markdown pipe tables (use the table parameter), no image embeds (upload instead), well-formed lists.",

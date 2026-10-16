@@ -21,6 +21,20 @@ The `sections`, `titles`, `prose` and `host` redirects refuse a
 body, title or host that breaks the convention, whatever mode
 `pr` is in. See
 [guard-policy-workflow](../guard-policy-workflow/README.md).
+The `sections` redirect holds a body to its headings and to its
+shape: the word, sentence, code-span and bullet limits the
+`github-pr-format` skill sets for each section.
+
+## The Audit After Publishing
+
+A redirect switched to report, or one that relents on a repeat,
+lets a description through that breaks its shape. So once a
+`gh pr create` or `gh pr edit` has run, the guardian reads the
+description it published and, when it is out of shape, tells the
+agent in the same run to fix it with `review_offer edit`. It never
+blocks, since the command has already run, which is why it works
+in every guard mode. Each description's problems are said once.
+`gh api` calls that write a body are not read.
 
 ## Supported Command Formats
 

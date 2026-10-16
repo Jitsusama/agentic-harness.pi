@@ -2,6 +2,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { composePrBody } from "@jitsusama/agentic-harness.core/sections";
 import { describe, expect, it } from "vitest";
 import type { PrCommand } from "../../../extensions/pr-guardian/parse.ts";
 import { createPrGuardian } from "../../../extensions/pr-guardian/review.ts";
@@ -24,16 +25,12 @@ function prCommand(body: string, title = "A Descriptive Title"): PrCommand {
 	return { action: "create", title, body, prNumber: null };
 }
 
-const cleanBody = [
-	"### 🌐 Situation",
-	"The thing was broken.",
-	"",
-	"### 🔧 Resolution",
-	"We fixed it.",
-	"",
-	"### 🔬 Validation",
-	"A test proves it.",
-].join("\n");
+const cleanBody = composePrBody({
+	tldr: "The thing works again.",
+	problem: "The thing was broken.",
+	solution: "We fixed it, so it works.",
+	validation: "A test proves it.",
+});
 
 describe("createPrGuardian review without a UI", () => {
 	it("blocks a body with an invented section even with no UI", async () => {

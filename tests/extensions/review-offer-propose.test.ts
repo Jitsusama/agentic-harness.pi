@@ -23,6 +23,7 @@ import {
 	type RepoLocator,
 	registerReviewProvider,
 } from "@jitsusama/agentic-harness.core/review";
+import { composePrBody } from "@jitsusama/agentic-harness.core/sections";
 import { afterEach, describe, expect, it } from "vitest";
 import { stubProvider } from "../support/stub-provider.ts";
 import { activate, HEADLESS, toolNamed } from "./support/review-extension.ts";
@@ -31,19 +32,12 @@ import { activate, HEADLESS, toolNamed } from "./support/review-extension.ts";
 const world: RepoLocator = { key: "meteorite:shop/world" };
 
 /** A body that satisfies the PR section conventions. */
-const BODY = [
-	"### 🌐 Situation",
-	"",
-	"The binding remembered too little.",
-	"",
-	"### 🔧 Resolution",
-	"",
-	"It remembers the whole resolution now.",
-	"",
-	"### 🔬 Validation",
-	"",
-	"This test.",
-].join("\n");
+const BODY = composePrBody({
+	tldr: "A bound target now keeps everything it was bound to.",
+	problem: "The binding remembered too little.",
+	solution: "It remembers the whole resolution now, so a retry finds it.",
+	validation: "This test.",
+});
 
 /**
  * A backend that can only open a change. Declared in full rather than
@@ -271,6 +265,35 @@ describe("proposing through the tool", () => {
 		await offer({ ...proposal, title: "fix(review): a commit subject" });
 
 		expect(claims).toBe(0);
+	});
+
+	it("takes the head and base from a named checkout when the call leaves them out", async () => {
+		// The head and base are documented as defaulting to the branch checked
+		// out and the trunk. A propose naming only its repo used to be refused
+		// with "Name a change, or a base and head" before either default was
+		// read, because binding wanted both ends or an attachment.
+		const { provider, asked } = recordingProvider();
+		registerReviewProvider(provider);
+		const stub = activate({
+			"rev-parse --abbrev-ref HEAD": { stdout: "topic\n" },
+			"symbolic-ref --short refs/remotes/origin/HEAD": {
+				stdout: "origin/main\n",
+			},
+		});
+		const { base: _base, head: _head, ...unnamed } = proposal;
+
+		const answer = await toolNamed(stub, "review_offer").execute(
+			"1",
+			{ ...unnamed, repo: "/src/app" },
+			undefined,
+			undefined,
+			HEADLESS,
+		);
+
+		expect(JSON.stringify(answer)).not.toContain("Name a change");
+		expect(asked).toHaveLength(1);
+		expect(asked[0]?.head).toBe("topic");
+		expect(asked[0]?.base).toBe("main");
 	});
 
 	it("survives a refusal in between, which is when a retry happens", async () => {

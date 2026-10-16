@@ -22,6 +22,7 @@ import {
 	type RepoLocator,
 	registerReviewProvider,
 } from "@jitsusama/agentic-harness.core/review";
+import { composePrBody } from "@jitsusama/agentic-harness.core/sections";
 import { afterEach, describe, expect, it } from "vitest";
 import { editPanel } from "../../extensions/review-integration/tools/offer.ts";
 import { stubProvider } from "../support/stub-provider.ts";
@@ -29,19 +30,12 @@ import { activate, HEADLESS, toolNamed } from "./support/review-extension.ts";
 
 const world: RepoLocator = { key: "meteorite:shop/world" };
 
-const BODY = [
-	"### 🌐 Situation",
-	"",
-	"Two branches in one session, and then the first one again.",
-	"",
-	"### 🔧 Resolution",
-	"",
-	"Each target keeps its own answer.",
-	"",
-	"### 🔬 Validation",
-	"",
-	"This test.",
-].join("\n");
+const BODY = composePrBody({
+	tldr: "Each target in a session keeps its own answer.",
+	problem: "Two branches in one session, and then the first one again.",
+	solution: "Each target keeps its own answer, so none stands in for another.",
+	validation: "This test.",
+});
 
 const CAN_PROPOSE: AuthoringCapabilities = {
 	propose: true,

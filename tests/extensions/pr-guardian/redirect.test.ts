@@ -20,21 +20,18 @@ import {
 	clearReviewProviders,
 	registerReviewProvider,
 } from "@jitsusama/agentic-harness.core/review";
+import { composePrBody } from "@jitsusama/agentic-harness.core/sections";
 import { afterEach, describe, expect, it } from "vitest";
 import type { PrCommand } from "../../../extensions/pr-guardian/parse.ts";
 import { createPrGuardian } from "../../../extensions/pr-guardian/review.ts";
 import { stubProvider } from "../../support/stub-provider.ts";
 
-const cleanBody = [
-	"### 🌐 Situation",
-	"The thing was broken.",
-	"",
-	"### 🔧 Resolution",
-	"We fixed it.",
-	"",
-	"### 🔬 Validation",
-	"A test proves it.",
-].join("\n");
+const cleanBody = composePrBody({
+	tldr: "The thing works again.",
+	problem: "The thing was broken.",
+	solution: "We fixed it, so it works.",
+	validation: "A test proves it.",
+});
 
 function prCommand(action: "create" | "edit" = "create"): PrCommand {
 	return {

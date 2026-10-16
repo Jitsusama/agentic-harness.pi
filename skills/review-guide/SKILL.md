@@ -103,8 +103,9 @@ Start here. Find the row, make the call.
 | Send the review | `review_draft publish` |
 | Send a review to every change in the stack | `review_draft publish-stack` |
 | Write it up when nothing hosts it | `review_draft render` |
-| Put a branch up for review | `review_offer propose draft:false` |
-| Put a whole stack up at once | `review_offer propose-stack heads:[a,b] draft:false` |
+| Put a branch up for review | `review_offer propose draft:false problem:... solution:... validation:... tldr:...` |
+| Put a whole stack up at once | `review_offer propose-stack heads:[a,b] draft:false sections:[...]` |
+| Rewrite one section of a description | `review_offer edit solution:...` |
 | Fix a title or description | `review_offer edit` |
 | Move it out of draft | `review_offer ready` |
 | Put it back into draft | `review_offer unready` |
@@ -230,6 +231,13 @@ so do not read an uncontested finding as a corroborated one.
 `review_offer propose draft:false` is usually the whole call: the head
 comes from the branch you are on, the base from the repo's trunk, and
 the title from the last commit's subject.
+
+**Give the description as its four sections**: `problem`,
+`solution`, `validation` and `tldr`, written in that order. The tool
+writes the headings and the order, and refuses a section outside the
+limits `github-pr-format` sets, whatever the guard settings say, so a
+description a person can read is not left to a mode. An edit may name
+only the sections it changes.
 
 If a stack says the branch sits on another branch, that becomes the
 base instead of the trunk, and the gate says which branch and why.

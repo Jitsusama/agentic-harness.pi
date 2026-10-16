@@ -33,6 +33,7 @@ import {
 	retargetPlan,
 	retargetRoute,
 } from "@jitsusama/agentic-harness.core/review";
+import { composePrBody } from "@jitsusama/agentic-harness.core/sections";
 import {
 	createGitRebaser,
 	createGitStacks,
@@ -44,6 +45,14 @@ import { REVIEW_COMMANDS } from "../commands.ts";
 import { attachments } from "../engine.ts";
 import { confirmWrite as confirmUnder } from "../gate.ts";
 import { type GatePanel, GLYPH, proposalLine } from "../render.ts";
+import {
+	revised,
+	type SectionFields,
+	sectionParameters,
+	sectionsOf,
+	stackSections,
+	withNote,
+} from "./sections.ts";
 import {
 	type Answer,
 	boundFor,
@@ -88,8 +97,13 @@ interface OfferParams {
 	head?: string;
 	heads?: string[];
 	title?: string;
+	tldr?: string;
+	problem?: string;
+	solution?: string;
+	validation?: string;
 	body?: string;
 	bodies?: string[];
+	sections?: Required<SectionFields>[];
 	draft?: boolean;
 	comment?: string;
 	method?: string;
@@ -244,7 +258,13 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 			bodies: Type.Optional(
 				Type.Array(Type.String(), {
 					description:
-						"For propose-stack: one body per branch, in the same order as heads. Held to the PR format, the same as a single propose. Omit to open the stack with empty bodies, and give as many as there are branches: a shorter list is refused rather than paired off against the branches it happens to reach.",
+						"For propose-stack: one body per branch, in the same order as heads, when not given as sections. Held to the PR format, the same as a single propose. Omit to open the stack with empty bodies, and give as many as there are branches: a shorter list is refused rather than paired off against the branches it happens to reach.",
+				}),
+			),
+			sections: Type.Optional(
+				Type.Array(Type.Object(stackSections()), {
+					description:
+						"For propose-stack: each branch's description as its four sections, in the same order as heads, held to the same contract as propose's problem, solution, validation and tldr. Preferred over bodies, since the tool writes the headings and puts each stack note after the TL;DR.",
 				}),
 			),
 			title: Type.Optional(
@@ -253,10 +273,11 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 						"For propose and edit: the title. On propose it defaults to the last commit's subject.",
 				}),
 			),
+			...sectionParameters(),
 			body: Type.Optional(
 				Type.String({
 					description:
-						"For propose and edit: the description. Held to the PR format and the prose standard, the same as the shell path is.",
+						"For propose and edit: the whole description, when it is not given as problem, solution, validation and tldr. Prefer those four: the tool writes the headings and order from them. Held to the PR format and the prose standard, the same as the shell path is.",
 				}),
 			),
 			draft: Type.Optional(
@@ -353,12 +374,27 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 				// resolved for the rest of the session, so a call that was never
 				// going to be sent has no business recording a decision, and a
 				// convention refusal now costs no backend round trip either.
+				//
+				// The four sections become the body here, so everything after
+				// this sees one description however it arrived. An edit naming
+				// only some sections has to read the change first, so its body is
+				// checked once the change is known.
+				let revising: SectionFields | undefined;
 				if (params.action === "propose" || params.action === "edit") {
+					const sections = sectionsOf(params.action, params);
+					if (sections.kind === "refuse") return refuse(sections.reason);
+					if (sections.kind === "body")
+						params = { ...params, body: sections.body };
+					if (sections.kind === "revise") revising = sections.fields;
 					const complaint = proposalComplaint(params.title, params.body);
 					if (complaint) return refuse(complaint);
 				}
 
-				bound = await boundFor(pi, params, process.cwd());
+				bound = await boundFor(
+					pi,
+					params.action === "propose" ? await withCheckoutEnds(params) : params,
+					process.cwd(),
+				);
 				const authoring = bound.provider.authoring;
 
 				// Proposing takes its repo from the checkout whenever the call
@@ -475,8 +511,28 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 				}
 
 				switch (params.action) {
-					case "edit":
-						return edit(ctx, change, authoring, params, caution);
+					case "edit": {
+						if (revising === undefined) {
+							return edit(ctx, change, authoring, params, caution);
+						}
+						const current = await bound.provider.proposals?.fetch(change);
+						if (current === undefined) {
+							return refuse(
+								`The ${bound.provider.id} provider cannot read this change's description, so there is nothing to keep the other sections from. Give all four sections to replace it.`,
+							);
+						}
+						const next = revised(current.body, revising);
+						if ("refusal" in next) return refuse(next.refusal);
+						const complaint = proposalComplaint(undefined, next.body);
+						if (complaint) return refuse(complaint);
+						return edit(
+							ctx,
+							change,
+							authoring,
+							{ ...params, body: next.body },
+							caution,
+						);
+					}
 					case "ready":
 					case "unready": {
 						const wanted = params.action === "unready";
@@ -661,6 +717,35 @@ async function checkoutFacts(
 }
 
 /**
+ * A propose's target, with the head and base the checkout implies filled in.
+ *
+ * The head and base are documented as defaulting to the branch checked out
+ * and the branch it sits on, and `fillProposal` does default them, but only
+ * after binding. Binding needs both ends or an attachment, so a propose that
+ * named only its repo was refused with "Name a change, or a base and head"
+ * before the defaults were ever read. This fills them for binding alone; the
+ * proposal itself still takes them from `fillProposal`, which is what tells
+ * the gate they were guessed.
+ *
+ * An attachment still wins when no repo is named, since naming neither is
+ * how a caller proposes to the change already in play.
+ */
+async function withCheckoutEnds(params: OfferParams): Promise<OfferParams> {
+	if (params.change !== undefined) return params;
+	if (params.base !== undefined && params.head !== undefined) return params;
+	if (params.repo === undefined && (await attachments().list()).length > 0)
+		return params;
+	const facts = await checkoutFacts(
+		REVIEW_COMMANDS,
+		params.repo ?? process.cwd(),
+	);
+	const head = params.head ?? facts.branch;
+	const base = params.base ?? facts.parent ?? facts.trunk;
+	if (head === undefined || base === undefined) return params;
+	return { ...params, head, base };
+}
+
+/**
  * A refusal when the repo being proposed to is not the one you are in.
  *
  * The repo comes from the attached change, and the branch comes from the
@@ -757,7 +842,13 @@ async function proposeStack(
 	// dependency order. A shorter list is refused rather than paired off
 	// against the branches it reaches: quietly leaving the last change empty
 	// puts a body somebody wrote on a change they did not mean.
-	const bodies = params.bodies;
+	if (params.bodies !== undefined && params.sections !== undefined) {
+		return refuse(
+			"Give the descriptions as sections or as bodies, not both. Sections are the better way: the tool writes the headings and puts each stack note after the TL;DR.",
+		);
+	}
+	const bodies =
+		params.sections?.map((one) => composePrBody(one)) ?? params.bodies;
 	if (bodies !== undefined && bodies.length !== heads.length) {
 		return refuse(
 			`This names ${count(heads.length, "branch", "branches")} and ${count(bodies.length, "body", "bodies")}. Give one body per branch, in the same order, or none at all.`,
@@ -885,7 +976,7 @@ async function annotateStack(
 }
 
 /**
- * A body with its stack note above it.
+ * A body with its stack note in it, straight after the TL;DR.
  *
  * The shape is the github-pr-format skill's: the change below, this one
  * in bold, the change above. The bottom of a stack has nothing below it
@@ -900,7 +991,10 @@ function withStackNote(body: string, made: Proposal[], at: number): string {
 		`\u{1F447} **${made[at]?.ref.label}**`,
 		...(above ? [`\u{1F449} ${above}`] : []),
 	];
-	return ["> [!NOTE]", `> ${segments.join(" \u00b7 ")}`, "", body].join("\n");
+	return withNote(
+		body,
+		["> [!NOTE]", `> ${segments.join(" \u00b7 ")}`].join("\n"),
+	);
 }
 
 /** Put a branch up as a change. */
