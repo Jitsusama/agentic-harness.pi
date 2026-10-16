@@ -50,18 +50,22 @@ Use `--body-file -` with a heredoc to pass multi-line bodies:
 gh pr create \
   --title "Add Token Refresh to Prevent Session Timeouts" \
   --body-file - <<'EOF'
-### 🌐 Situation
+### 💡 TL;DR
 
-Body content here. Backticks and special characters all
-work reliably without escaping.
+The eight-second version. Backticks and special characters
+all work reliably without escaping.
 
-### 🔧 Resolution
+### 🧩 Problem
+
+Why the change exists.
+
+### 🔧 Solution
 
 What the change does about it.
 
 ### 🔬 Validation
 
-How you know it worked.
+How you know it worked, and what is not proven.
 EOF
 ```
 
