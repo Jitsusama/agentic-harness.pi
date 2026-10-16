@@ -1,26 +1,38 @@
 # Keybinding Audit
 
-A complete inventory of every keybinding across all four layers
-of the input stack: macOS, WezTerm, Pi and this repository's
-extensions. The purpose is to identify conflicts, understand
-which keys are available and establish a consistent keybinding
-strategy for extensions in this repository.
+A complete inventory of every keybinding across the layers of
+the input stack on both kinds of machine: macOS and WezTerm on
+a Mac, niri and kitty on Linux, and Pi and this repository's
+extensions on both. The purpose is to identify conflicts,
+understand which keys are available and establish a consistent
+keybinding strategy for extensions in this repository.
 
-**Environment:** macOS with Colemak DH ANSI layout, WezTerm
-terminal, Pi coding agent.
+**Environment:** Colemak DH on both. A Mac runs macOS and the
+WezTerm terminal; a Linux machine runs the niri compositor and
+the kitty terminal, both configured by core.nix. Pi runs in
+either.
 
-**Custom overrides:** No custom `keybindings.json` for Pi, no
-custom WezTerm key bindings, no macOS `DefaultKeyBinding.dict`,
+**Custom overrides:** core.nix writes Pi's `keybindings.json`
+on both (section 5) and kitty's and niri's whole key sets on
+Linux. On the Mac there are no custom WezTerm key bindings, no
+macOS `DefaultKeyBinding.dict`,
 no `NSUserKeyEquivalents`, no Karabiner or BetterTouchTool.
 Three macOS symbolic hotkeys explicitly disabled (input source
 switching and Spotlight).
 
-**Key delivery chain:** macOS intercepts `Cmd` combos at the
-system/app level (WezTerm sees them as `Super`). WezTerm
-intercepts its own bindings before the terminal. Everything
-else reaches Pi. Pi's built-in bindings fire first, then
-extension `registerShortcut` bindings, then contextual panel
-and gate keys.
+**Key delivery chain on the Mac:** macOS intercepts `Cmd`
+combos at the system/app level (WezTerm sees them as `Super`).
+WezTerm intercepts its own bindings before the terminal.
+Everything else reaches Pi.
+
+**Key delivery chain on Linux:** niri takes every chord it
+binds before any window sees it. kitty takes its own next.
+Everything else reaches Pi, through the kitty keyboard
+protocol.
+
+**In Pi:** Pi's built-in bindings fire first, then extension
+`registerShortcut` bindings, then contextual panel and gate
+keys.
 
 ---
 
@@ -448,12 +460,99 @@ Active during `Super+F` or `Ctrl+Shift+F`.
 
 ---
 
-## 3. Pi Built-in Bindings
+## 3. niri Bindings (Linux)
 
-No custom `~/.pi/agent/keybindings.json` exists; all defaults
-are active.
+niri binds nothing it isn't told to: core.nix writes its whole
+`binds` block, so there are no defaults to inventory. Every
+chord it binds holds `Super`, apart from `Print` and the media,
+brightness and lock keys. The modifier says what a chord acts
+on, and the key says which way or which one.
 
-### 3.1 Editor: Cursor Movement
+| Chords | What they act on |
+|---|---|
+| `Super+<key>` (44) | Focus and open: windows, columns, workspaces, the launcher |
+| `Super+Shift+<key>` (30) | The thing at that level: move a column, a workspace |
+| `Super+Alt+<key>` (18) | Just the window |
+| `Super+Ctrl+<key>` (5) | Another screen |
+| `Super+Ctrl+Shift+<key>` (6) | A column or workspace, to another screen |
+| `Super+Ctrl+Alt+<key>` (4) | A window, to another screen |
+| `Print`, `Shift+Print`, `Alt+Print`, `Ctrl+Print` | Capture the screen, a window or a region; record |
+| `XF86Audio*`, `XF86MonBrightness*`, `XF86ScreenSaver`, `XF86DoNotDisturb` | Sound, brightness, the lock, holding notices |
+
+The full list, with what each chord does, is the machine's key
+map at `~/.config/jitsusama/keys.json`, which the launcher
+searches on `Super+Shift+/`.
+
+---
+
+## 4. kitty Bindings (Linux)
+
+kitty starts from `clear_all_shortcuts yes`, so only the
+chords core.nix maps are kitty's; every other key goes to the
+program inside. All but tab stepping and page scrolling hold
+`Ctrl+Shift`.
+
+#### Clipboard
+
+| Shortcut | Action |
+|---|---|
+| `Ctrl+Shift+C` | Copy |
+| `Ctrl+Shift+V` | Paste |
+| `Shift+Insert` | Paste the selection |
+
+#### Tabs and Windows
+
+| Shortcut | Action |
+|---|---|
+| `Ctrl+Shift+T` | Open a tab here |
+| `Ctrl+Shift+W` | Close the tab |
+| `Ctrl+Shift+N` | Open a window here |
+| `Ctrl+Tab`, `Ctrl+PageDown` | Next tab |
+| `Ctrl+Shift+Tab`, `Ctrl+PageUp` | Previous tab |
+| `Ctrl+Shift+PageDown` | Move the tab right |
+| `Ctrl+Shift+PageUp` | Move the tab left |
+| `Ctrl+Shift+1` through `Ctrl+Shift+9` | Go to tab N |
+
+#### Scrollback
+
+| Shortcut | Action |
+|---|---|
+| `Shift+PageUp` | Scroll up a page |
+| `Shift+PageDown` | Scroll down a page |
+| `Ctrl+Shift+Home` | Scroll to the top |
+| `Ctrl+Shift+End` | Scroll to the bottom |
+| `Ctrl+Shift+Space` | Search the scrollback |
+| `Ctrl+Shift+X` | Read the scrollback in a pager |
+| `Ctrl+Shift+Z` | Read the last command's output in a pager |
+
+#### Utilities
+
+| Shortcut | Action |
+|---|---|
+| `Ctrl+Shift+H` | Pick a word from the screen |
+| `Ctrl+Shift+E` | Open a link on the screen |
+| `Ctrl+Shift+/` | Find a terminal action |
+| `Ctrl+Shift+U` | Type a character by its name |
+| `Ctrl+Shift+R` | Read the configuration again |
+
+#### Font Size
+
+| Shortcut | Action |
+|---|---|
+| `Ctrl+Shift+=` | Make the text larger |
+| `Ctrl+Shift+-` | Make the text smaller |
+| `Ctrl+Shift+0` | Put the text back to its size |
+
+---
+
+## 5. Pi Built-in Bindings
+
+Pi 1.2.0's defaults, from its keybindings reference. On Joel's
+machines core.nix writes `~/.pi/agent/keybindings.json`, which
+keeps them but takes `Ctrl+PageUp` and `Ctrl+PageDown` off
+paging, since both terminals step tabs with them (section 7.3).
+
+### 5.1 Editor: Cursor Movement
 
 | Shortcut | Action |
 |---|---|
@@ -467,10 +566,10 @@ are active.
 | `End`, `Ctrl+E` | Line end |
 | `Ctrl+]` | Jump forward to character |
 | `Ctrl+Alt+]` | Jump backward to character |
-| `PageUp` | Page up |
-| `PageDown` | Page down |
+| `PageUp`, `Ctrl+PageUp` | Page up |
+| `PageDown`, `Ctrl+PageDown` | Page down |
 
-### 3.2 Editor: Deletion
+### 5.2 Editor: Deletion
 
 | Shortcut | Action |
 |---|---|
@@ -481,7 +580,7 @@ are active.
 | `Ctrl+U` | Delete to line start |
 | `Ctrl+K` | Delete to line end |
 
-### 3.3 Editor: Kill Ring and Undo
+### 5.3 Editor: Kill Ring and Undo
 
 | Shortcut | Action |
 |---|---|
@@ -489,15 +588,15 @@ are active.
 | `Alt+Y` | Yank pop (cycle kill ring) |
 | `Ctrl+-` | Undo |
 
-### 3.4 Input
+### 5.4 Input
 
 | Shortcut | Action |
 |---|---|
-| `Shift+Enter` | Insert new line |
+| `Shift+Enter`, `Ctrl+J` | Insert new line |
 | `Enter` | Submit input |
 | `Tab` | Tab / autocomplete |
 
-### 3.5 Clipboard and Selection
+### 5.5 Clipboard and Selection
 
 | Shortcut | Action |
 |---|---|
@@ -509,18 +608,18 @@ are active.
 | `Enter` | Confirm selection |
 | `Escape`, `Ctrl+C` | Cancel selection |
 
-### 3.6 Application
+### 5.6 Application
 
 | Shortcut | Action |
 |---|---|
 | `Escape` | Cancel / abort |
-| `Ctrl+C` | Clear editor |
+| `Ctrl+C` | Clear editor (first) / exit (second) |
 | `Ctrl+D` | Exit (when editor empty) |
 | `Ctrl+Z` | Suspend to background |
 | `Ctrl+G` | Open in external editor |
-| `Ctrl+V` | Paste image from clipboard |
+| `Ctrl+V` | Paste an image, or text, from the clipboard |
 
-### 3.7 Sessions (Session Picker Context)
+### 5.7 Sessions (Session Picker Context)
 
 | Shortcut | Action |
 |---|---|
@@ -531,7 +630,7 @@ are active.
 | `Ctrl+D` | Delete session |
 | `Ctrl+Backspace` | Delete session (when query empty) |
 
-### 3.8 Models and Thinking
+### 5.8 Models and Thinking
 
 | Shortcut | Action |
 |---|---|
@@ -540,38 +639,62 @@ are active.
 | `Shift+Ctrl+P` | Cycle to previous model |
 | `Shift+Tab` | Cycle thinking level |
 | `Ctrl+T` | Toggle thinking block display |
+| `Ctrl+S` | Save the chosen model or thinking level (in their selectors) |
 
-### 3.9 Display and Message Queue
+### 5.9 Display and Message Queue
 
 | Shortcut | Action |
 |---|---|
 | `Ctrl+O` | Toggle tool output display |
+| `Ctrl+X` | Copy the last answer, or the selected message in `/tree` |
 | `Alt+Enter` | Queue follow-up message |
 | `Alt+Up` | Restore queued messages to editor |
 
-### 3.10 Tree Navigation
+### 5.10 Fullscreen Transcript
+
+These act on the transcript while the panel is fullscreen, and
+take precedence over the editor's.
+
+| Shortcut | Action |
+|---|---|
+| `PageUp`, `PageDown` | Scroll by a page |
+| `Ctrl+Shift+Up` | Jump to the previous marked message |
+| `Ctrl+Shift+Down` | Jump to the next marked message |
+| `Ctrl+Shift+F` | Search the transcript |
+| `Enter`, `Ctrl+G` | Next match while searching |
+| `Shift+Enter`, `Ctrl+Shift+G` | Previous match while searching |
+| `Escape` | Close the search |
+| `Ctrl+Home` | Go to the start |
+| `Ctrl+End` | Go to the end, and follow new output |
+
+### 5.11 Tree Navigation
 
 | Shortcut | Action |
 |---|---|
 | `Ctrl+Left`, `Alt+Left` | Fold / jump to previous segment |
 | `Ctrl+Right`, `Alt+Right` | Unfold / jump to next segment |
+| `Shift+L` | Edit the selected node's label |
+| `Shift+T` | Show label timestamps, or hide them |
+| `Ctrl+D`, `Ctrl+T`, `Ctrl+U`, `Ctrl+L`, `Ctrl+A` | Filter: default, no tools, your messages, labelled, all |
+| `Ctrl+O`, `Ctrl+Shift+O` | Cycle the filter forward, or back |
 
 ---
 
-## 4. Repository Extension Bindings
+## 6. Repository Extension Bindings
 
-### 4.1 Global Shortcuts (`pi.registerShortcut`)
+### 6.1 Global and Panel-Wide Shortcuts
 
-Only panel height toggles remain as global shortcuts. All
-other features are accessed via slash commands (`/plan`,
-`/pr-review`, `/pr-reply`).
+One chord is registered with `pi.registerShortcut`; the panel
+height toggles are read by the panel itself. Everything else
+is reached through slash commands.
 
 | Shortcut | Extension | Action |
 |---|---|---|
-| `Ctrl+Alt+F` | panel-height | Toggle fullscreen panel height |
-| `Ctrl+Alt+M` | panel-height | Toggle minimised panel height |
+| `Ctrl+Alt+N` | panel-lifecycle-workflow | Move from the editor through the widgets above it |
+| `Ctrl+Alt+F` | panel-zoom-widget | Toggle fullscreen panel height |
+| `Ctrl+Alt+M` | panel-zoom-widget | Toggle minimised panel height |
 
-### 4.2 Shared UI Infrastructure
+### 6.2 Shared UI Infrastructure
 
 These are handled by library components in `lib/ui/`
 and apply across all panels and workspaces that use them.
@@ -614,7 +737,7 @@ and apply across all panels and workspaces that use them.
 | `Shift+Left` | Scroll left (when horizontal scroll enabled) |
 | `Shift+Right` | Scroll right (when horizontal scroll enabled) |
 
-### 4.3 Panel Action Keys (Contextual)
+### 6.3 Panel Action Keys (Contextual)
 
 These are single-letter action keys shown in the action bar at
 the bottom of panels. Only active when their specific panel is
@@ -789,9 +912,9 @@ Event update confirmation:
 
 ---
 
-## 5. Conflict Analysis
+## 7. Conflict Analysis
 
-### 5.1 Cross-Layer Conflicts
+### 7.1 Cross-Layer Conflicts on the Mac
 
 **`Alt+Enter`** is bound to both WezTerm (toggle fullscreen)
 and Pi (queue follow-up message). WezTerm intercepts it first,
@@ -813,14 +936,23 @@ tab-strip uses plain `Tab` and `Shift+Tab` (not `Ctrl+Tab`),
 so no actual conflict there.
 
 **`Ctrl+PageUp`** and **`Ctrl+PageDown`** are bound to WezTerm
-(tab navigation). Pi doesn't use these, so no conflict.
+(tab navigation). Pi 1.2.0 also pages the editor with them,
+which WezTerm's binding hides; plain `PageUp` and `PageDown`
+still page.
+
+**`Ctrl+Shift+F`**, **`Ctrl+Shift+P`**, **`Ctrl+Shift+Up`** and
+**`Ctrl+Shift+Down`** are WezTerm's search, command palette and
+pane focus, and Pi's transcript search, previous model and
+jumps between marked messages. WezTerm intercepts them first,
+so **none of the four reaches Pi on the Mac**. They do on
+Linux (section 7.3).
 
 **`Shift+PageUp`** and **`Shift+PageDown`** are bound to
 WezTerm (scroll). Pi doesn't use `Shift+Page` combos. The
 extension scroll region uses `Shift+Up`/`Shift+Down`, not
 `Shift+PageUp`/`Shift+PageDown`, so no conflict.
 
-### 5.2 WezTerm `Ctrl+Shift` Interceptions
+### 7.2 WezTerm `Ctrl+Shift` Interceptions
 
 WezTerm intercepts many `Ctrl+Shift+<letter>` combos before
 they reach the terminal. These are **not available** to Pi:
@@ -833,7 +965,26 @@ they reach the terminal. These are **not available** to Pi:
 
 Plus `Ctrl+Shift+1` through `Ctrl+Shift+9` (tab switching).
 
-### 5.3 Within-Pi Context Overlaps
+### 7.3 Cross-Layer Conflicts on Linux
+
+niri binds only chords holding `Super`, plus `Print` and the
+media keys, and Pi binds none of those, so nothing niri takes
+was meant for Pi or an extension.
+
+**`Ctrl+PageUp`** and **`Ctrl+PageDown`** are kitty's tab steps
+and Pi's editor paging. kitty takes them first, so core.nix's
+`keybindings.json` gives Pi's paging plain `PageUp` and
+`PageDown` alone, and the key map shows one meaning for each.
+
+Every other chord Pi or an extension binds reaches Pi. Pi's
+`Ctrl+Shift` chords (`F`, `G`, `O`, `P`, `Up`, `Down`) are ones
+kitty leaves alone, and kitty's own (`C`, `V`, `T`, `W`, `N`,
+the digits, `Home`, `End`, `Space`, `X`, `Z`, `H`, `E`, `/`,
+`U`, `R` and the font sizes) are ones Pi leaves alone. The kitty
+protocol keeps `Ctrl+1` through `Ctrl+9`, which the tab strip
+uses, apart from kitty's `Ctrl+Shift+1` through `Ctrl+Shift+9`.
+
+### 7.4 Within-Pi Context Overlaps
 
 These are not true conflicts because they operate in different
 Pi contexts (session picker vs main editor, etc.):
@@ -847,19 +998,27 @@ had `r` as both the References view key and the Review action
 key. Moving views to numbers (`1`, `2`, `3`) eliminated this
 class of collision entirely.
 
-### 5.4 Available Key Space
+### 7.5 Available Key Space
 
 **`Ctrl+Alt+<letter>`** is the namespace used by this repo's
-extensions for global shortcuts. After the keybinding overhaul,
-only panel height toggles remain in this space.
+extensions for global shortcuts. Neither terminal nor niri
+binds it.
 
-Currently used: `F`, `M`.
+Currently used: `F`, `M`, `N`.
 
 Available: all other letters.
 
 **`Ctrl+Shift+Alt+<letter>`** is also fully available. WezTerm
 only uses `Ctrl+Shift+Alt` with `"`, `%`, `'`, `5` and arrow
-keys.
+keys, and kitty and niri don't use it.
+
+**`Super`** is the desktop's on Linux and the system's on the
+Mac, so an extension never binds it.
+
+**On an ErgoDox** with home-row modifiers, `Ctrl+Alt` is two
+keys held by one hand while the other presses the letter;
+the modifiers sit on both halves, so any letter works that
+way.
 
 **Single letters** for panel action keys have no conflicts by
 design: they only activate when a panel is displayed and the
