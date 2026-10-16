@@ -21,6 +21,7 @@ import {
 	type RepoLocator,
 	registerReviewProvider,
 } from "@jitsusama/agentic-harness.core/review";
+import { composePrBody } from "@jitsusama/agentic-harness.core/sections";
 import { afterEach, describe, expect, it } from "vitest";
 import { stubProvider } from "../support/stub-provider.ts";
 import { activate, HEADLESS, toolNamed } from "./support/review-extension.ts";
@@ -45,19 +46,12 @@ const CAN_STACK: AuthoringCapabilities = {
 
 /** A body shaped the way the PR format requires. */
 function bodyFor(what: string): string {
-	return [
-		"### 🌐 Situation",
-		"",
-		`${what} was missing.`,
-		"",
-		"### 🔧 Resolution",
-		"",
-		`Added ${what}.`,
-		"",
-		"### 🔬 Validation",
-		"",
-		"A test.",
-	].join("\n");
+	return composePrBody({
+		tldr: `${what} is there now.`,
+		problem: `${what} was missing.`,
+		solution: `Added ${what}.`,
+		validation: "A test.",
+	});
 }
 
 const unused = (method: string) => async (): Promise<never> => {
@@ -198,6 +192,65 @@ describe("proposing a stack with bodies", () => {
 		expect(bottom).not.toContain("\ud83d\udc48");
 		expect(top).toContain("shop/world#1");
 		expect(top).not.toContain("\ud83d\udc49");
+	});
+
+	it("puts the stack note after the TL;DR, so previews open with the TL;DR", async () => {
+		const { provider, edits } = recordingProvider();
+		registerReviewProvider(provider);
+
+		await offer({
+			...stack,
+			bodies: [bodyFor("the first thing"), bodyFor("the second thing")],
+		});
+
+		const bottom = edits.find((one) => one.id === "1")?.body ?? "";
+		const tldr = bottom.indexOf("the first thing is there now.");
+		const note = bottom.indexOf("> [!NOTE]");
+		const problem = bottom.indexOf("Problem");
+		expect(bottom.startsWith("### ")).toBe(true);
+		expect(tldr).toBeLessThan(note);
+		expect(note).toBeLessThan(problem);
+	});
+
+	it("takes each description as its four sections", async () => {
+		const { provider, asked } = recordingProvider();
+		registerReviewProvider(provider);
+
+		const sectionsFor = (what: string) => ({
+			problem: `${what} was missing.`,
+			solution: `Added ${what}.`,
+			validation: "A test.",
+			tldr: `${what} is there now.`,
+		});
+		await offer({
+			...stack,
+			sections: [
+				sectionsFor("the first thing"),
+				sectionsFor("the second thing"),
+			],
+		});
+
+		expect(asked[0]?.map((one) => one.body)).toEqual([
+			bodyFor("the first thing"),
+			bodyFor("the second thing"),
+		]);
+	});
+
+	it("refuses sections and bodies together, since one would be lost", async () => {
+		const { provider, asked } = recordingProvider();
+		registerReviewProvider(provider);
+
+		const answer = await offer({
+			...stack,
+			bodies: [bodyFor("a"), bodyFor("b")],
+			sections: [
+				{ problem: "p", solution: "s", validation: "v", tldr: "t" },
+				{ problem: "p", solution: "s", validation: "v", tldr: "t" },
+			],
+		});
+
+		expect(JSON.stringify(answer)).toContain("not both");
+		expect(asked).toHaveLength(0);
 	});
 
 	it("keeps the changes when writing the notes fails", async () => {

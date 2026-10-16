@@ -23,6 +23,7 @@ import {
 	type RepoLocator,
 	registerReviewProvider,
 } from "@jitsusama/agentic-harness.core/review";
+import { composePrBody } from "@jitsusama/agentic-harness.core/sections";
 import { afterEach, describe, expect, it } from "vitest";
 import { stubProvider } from "../support/stub-provider.ts";
 import { activate, HEADLESS, toolNamed } from "./support/review-extension.ts";
@@ -31,19 +32,12 @@ import { activate, HEADLESS, toolNamed } from "./support/review-extension.ts";
 const world: RepoLocator = { key: "meteorite:shop/world" };
 
 /** A body that satisfies the PR section conventions. */
-const BODY = [
-	"### 🌐 Situation",
-	"",
-	"The binding remembered too little.",
-	"",
-	"### 🔧 Resolution",
-	"",
-	"It remembers the whole resolution now.",
-	"",
-	"### 🔬 Validation",
-	"",
-	"This test.",
-].join("\n");
+const BODY = composePrBody({
+	tldr: "A bound target now keeps everything it was bound to.",
+	problem: "The binding remembered too little.",
+	solution: "It remembers the whole resolution now.",
+	validation: "This test.",
+});
 
 /**
  * A backend that can only open a change. Declared in full rather than
