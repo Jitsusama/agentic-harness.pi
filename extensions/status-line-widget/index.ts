@@ -1,158 +1,74 @@
 /**
  * Status Line Widget Extension
  *
- * Single-line responsive footer showing directory, model, context
- * usage, thinking level, and extension statuses. Right-justified
- * status segments with left-side directory/model info that degrades
- * progressively as the terminal narrows.
+ * pi's one line along the bottom, in the language of the machine's prompt
+ * (`layout.ts` says what it holds and how it gives way). This file gathers
+ * the facts and paints the pieces.
  *
- * Context and money read as one segment, because they are one fact:
- * cost per turn is 97 percent explained by the context resident when
- * the turn runs. `cost-workflow` owns the figures and publishes them;
- * this line lays them out and decides what to drop. The brain does not
- * paint and the widget does not price.
+ * Context and money read as one field, because they are one fact: cost
+ * per turn is 97 percent explained by the context resident when the turn
+ * runs. `cost-workflow` owns the figures and publishes them; this line
+ * lays them out and decides what to drop. The brain does not paint and
+ * the widget does not price.
  *
- * Degradation order:
- *   1. Shrink directory (full path → basename)
- *   2. Remove the session total (the one figure nothing can act on)
- *   3. Context tokens → percentage
- *   4. Shrink model name
- *   5. Remove thinking glyph
- *   6. Remove branch
- *   (the marginal rate is never removed: it is the only reading here
- *   that changes what you do next)
+ * Git's state comes from the machine's engine when `where.json` names one,
+ * asked when something may have changed it: the session starting, a tool
+ * finishing, a shell command, the agent settling, pi seeing the branch
+ * move. Otherwise the branch is pi's own, with no marks.
  */
 
-import * as path from "node:path";
 import type { ExtensionAPI, ThemeColor } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth } from "@earendil-works/pi-tui";
 import {
 	type ContextGauge,
 	contextGauge,
-	GAP,
 	marginalText,
 	sessionText,
 } from "../../lib/internal/cost-meter/index.ts";
-import { getPanelHeightGlyph } from "../../lib/ui/panel-height.ts";
+import {
+	getPanelHeightGlyph,
+	getPanelHeightMode,
+} from "../../lib/ui/panel-height.ts";
+import { Engine, type GitState } from "./git.ts";
+import { type Facts, layout, type Piece, type Role, width } from "./layout.ts";
+import { told } from "./place.ts";
+import { readWhere } from "./where.ts";
 
-const THINKING_GLYPHS: Record<string, string> = {
-	off: "",
-	minimal: "🧠¹",
-	low: "🧠²",
-	medium: "🧠³",
-	high: "🧠⁴",
-	xhigh: "🧠⁵",
+/**
+ * The theme's colour for each role. pi names no strong colour of its own,
+ * so the strong word takes a tool's title, which a theme draws as the
+ * brightest text.
+ */
+const COLOUR: Record<Exclude<Role, "thinking" | "painted">, ThemeColor> = {
+	text: "text",
+	muted: "dim",
+	strong: "toolTitle",
+	alert: "error",
+	warning: "warning",
 };
 
-/** ANSI 256-color: muted blue-gray for the model name. */
-const MODEL_COLOR = "\x1b[38;5;103m";
-const ANSI_RESET = "\x1b[0m";
+/** Each thinking level's colour, which only its mark wears. */
+const THINKING: Record<string, ThemeColor> = {
+	minimal: "thinkingMinimal",
+	low: "thinkingLow",
+	medium: "thinkingMedium",
+	high: "thinkingHigh",
+	xhigh: "thinkingXhigh",
+	max: "thinkingMax",
+};
 
-/** Shorten a model ID: claude-sonnet-4-20250514 → sonnet-4 */
-function shortenModel(id: string): string {
-	return id.replace(/^claude-/, "").replace(/-\d{8}$/, "");
-}
+/** The meter's band names, as the theme's colours. */
+const BAND: Record<ContextGauge["token"], Role> = {
+	dim: "muted",
+	warning: "warning",
+	error: "alert",
+};
 
-/** Home-relative path: /Users/joel/src/foo → ~/src/foo */
-function homePath(dir: string): string {
-	const home = process.env.HOME || "";
-	return home && dir.startsWith(home) ? `~${dir.slice(home.length)}` : dir;
-}
-
-const SEP = " │ ";
-const SEP_W = 3;
-
-/** Measure the visible width of segments joined by separators. */
-function totalWidth(parts: string[]): number {
-	if (parts.length === 0) return 0;
-	let w = SEP_W * (parts.length - 1);
-	for (const p of parts) w += visibleWidth(p);
-	return w;
-}
-
-interface FooterData {
-	/** Full path with last component highlighted. */
-	fullDir: string;
-	/** Basename only, highlighted. */
-	shortDir: string;
-	branch: string | null;
-	fullModel: string;
-	shortModel: string;
-	contextTokens: string;
-	contextPct: string;
-	marginal: string | null;
-	sessionTotal: string | null;
-	thinkGlyph: string;
-	panelGlyph: string;
-	statuses: string[];
-}
-
-/**
- * Build a candidate line at a given degradation level.
- * Returns the joined segments for left and right, or null
- * if there are no segments on that side.
- */
-function buildCandidate(
-	d: FooterData,
-	level: number,
-	theme: { fg: (color: ThemeColor, text: string) => string },
-): { left: string[]; right: string[] } {
-	// Degradation flags
-	const useShortDir = level >= 1;
-	const hideSessionTotal = level >= 2;
-	const usePctContext = level >= 3;
-	const useShortModel = level >= 4;
-	const hideThinking = level >= 5;
-	const hideBranch = level >= 6;
-
-	const left: string[] = [];
-
-	const dir = useShortDir ? d.shortDir : d.fullDir;
-	if (!hideBranch && d.branch) {
-		left.push(`${dir} ${theme.fg("dim", "·")} ${theme.fg("dim", d.branch)}`);
-	} else {
-		left.push(dir);
-	}
-
-	left.push(useShortModel ? d.shortModel : d.fullModel);
-
-	const right: string[] = [];
-
-	for (const s of d.statuses) right.push(s);
-
-	if (d.panelGlyph) right.push(d.panelGlyph);
-
-	// Context, rate and total read as one segment rather than three,
-	// so the gauge emptying and the price falling are seen together.
-	const meter = [usePctContext ? d.contextPct : d.contextTokens];
-	if (d.marginal) meter.push(d.marginal);
-	if (!hideSessionTotal && d.sessionTotal) meter.push(d.sessionTotal);
-	right.push(meter.join(GAP));
-
-	if (!hideThinking && d.thinkGlyph) right.push(d.thinkGlyph);
-
-	return { left, right };
-}
-
-const MAX_LEVEL = 6;
-
-/**
- * Paint a gauge: the glyph carries the band colour and the number stays
- * quiet, separated by the same gap every marker gets.
- */
-function paintGauge(
-	theme: { fg: (color: ThemeColor, text: string) => string },
-	gauge: ContextGauge,
-): string {
-	return `${theme.fg(gauge.token, gauge.glyph)}${GAP}${theme.fg("dim", gauge.text)}`;
-}
-
-/** Dim a meter piece, or pass the absence through untouched. */
-function withColour(
-	theme: { fg: (color: ThemeColor, text: string) => string },
-	text: string | null,
-): string | null {
-	return text === null ? null : theme.fg("dim", text);
+function gaugePieces(gauge: ContextGauge): Piece[] {
+	return [
+		{ role: BAND[gauge.token], text: gauge.glyph },
+		{ role: "muted", text: ` ${gauge.text}` },
+	];
 }
 
 /** The latest figures cost-workflow published. */
@@ -181,6 +97,20 @@ export default function statusLine(pi: ExtensionAPI) {
 	// event happens to redraw the line.
 	let surface: { requestRender: () => void } | null = null;
 
+	const where = readWhere();
+	const answers = new Map<string, GitState | false>();
+	const engine = where.engine
+		? new Engine(where.engine, (dir, state) => {
+				answers.set(dir, state);
+				surface?.requestRender();
+			})
+		: null;
+	const ask = () => engine?.ask(process.cwd());
+
+	// Telling a folder looks at the disk, so it's kept until pi moves.
+	let toldFor: string | null = null;
+	let place = told("/", [], "");
+
 	pi.events.on("cost:reading", (data: unknown) => {
 		const next = toReading(data);
 		if (!next) return;
@@ -188,84 +118,74 @@ export default function statusLine(pi: ExtensionAPI) {
 		surface?.requestRender();
 	});
 
+	pi.on("tool_result", async () => ask());
+	pi.on("user_bash", async () => ask());
+	pi.on("agent_end", async () => ask());
+	pi.on("session_shutdown", async () => engine?.stop());
+
 	pi.on("session_start", async (_event, ctx) => {
+		ask();
 		ctx.ui.setFooter((tui, theme, footerData) => {
 			surface = tui;
-			const unsub = footerData.onBranchChange(() => tui.requestRender());
-			const sep = theme.fg("dim", SEP);
+			const unsub = footerData.onBranchChange(() => {
+				ask();
+				tui.requestRender();
+			});
+
+			const paint = (pieces: readonly Piece[], level: string) =>
+				pieces
+					.map((piece) => {
+						if (piece.role === "painted") return piece.text;
+						if (piece.role === "thinking") {
+							return theme.fg(THINKING[level] ?? "dim", piece.text);
+						}
+						return theme.fg(COLOUR[piece.role], piece.text);
+					})
+					.join("");
 
 			return {
 				dispose: unsub,
 				invalidate() {},
-				render(width: number): string[] {
-					const branch = footerData.getGitBranch();
-					const modelId = ctx.model?.id || "no-model";
-					const usage = ctx.getContextUsage();
-					const thinking = pi.getThinkingLevel();
-					const extStatuses = footerData.getExtensionStatuses();
-
+				render(columns: number): string[] {
 					const cwd = process.cwd();
+					if (toldFor !== cwd) {
+						toldFor = cwd;
+						place = told(cwd, where.roots, process.env.HOME ?? "");
+					}
+					const usage = ctx.getContextUsage();
 					const tokens = usage?.tokens ?? 0;
 					const window = usage?.contextWindow ?? 0;
+					const thinking = pi.getThinkingLevel();
+					const answer = answers.get(cwd);
+					const mode = getPanelHeightMode();
 
-					const gauge = contextGauge(tokens, window);
-					const narrowGauge = contextGauge(tokens, window, true);
-
-					// We highlight the last path component and dim the rest.
-					const homeCwd = homePath(cwd);
-					const base = path.basename(cwd);
-					const parent = homeCwd.slice(0, homeCwd.length - base.length);
-					const fullDir = `${theme.fg("dim", parent)}${MODEL_COLOR}${base}${ANSI_RESET}`;
-
-					const thinkGlyph = THINKING_GLYPHS[thinking] ?? "";
-
-					const d: FooterData = {
-						fullDir,
-						shortDir: `${MODEL_COLOR}${base}${ANSI_RESET}`,
-						branch,
-						fullModel: theme.fg("dim", modelId),
-						shortModel: theme.fg("dim", shortenModel(modelId)),
-						contextTokens: paintGauge(theme, gauge),
-						contextPct: paintGauge(theme, narrowGauge),
-						marginal: withColour(theme, marginalText(reading.marginal)),
-						sessionTotal: withColour(theme, sessionText(reading.session)),
-						thinkGlyph,
-						panelGlyph: theme.fg("dim", getPanelHeightGlyph()),
-						statuses: [],
+					const facts: Facts = {
+						place,
+						git: answer || null,
+						branch: answer === false ? null : footerData.getGitBranch(),
+						model: ctx.model?.id || "no-model",
+						thinking,
+						statuses: [...footerData.getExtensionStatuses().values()].filter(
+							(text) => text.length > 0,
+						),
+						panel:
+							mode === "normal" ? null : theme.fg("dim", getPanelHeightGlyph()),
+						context: gaugePieces(contextGauge(tokens, window)),
+						contextShare: gaugePieces(contextGauge(tokens, window, true)),
+						rate: marginalText(reading.marginal),
+						total: sessionText(reading.session),
+						marks: where.marks,
 					};
 
-					for (const [, text] of extStatuses) {
-						if (text) d.statuses.push(text);
+					const { left, right } = layout(facts, columns);
+					const leftText = paint(left, thinking);
+					if (right.length === 0) {
+						return [truncateToWidth(leftText, columns)];
 					}
-
-					for (let level = 0; level <= MAX_LEVEL; level++) {
-						const { left, right } = buildCandidate(d, level, theme);
-						const leftW = totalWidth(left);
-						const rightW = totalWidth(right);
-						const needed =
-							leftW + rightW + (leftW > 0 && rightW > 0 ? SEP_W : 0);
-
-						if (needed <= width) {
-							const leftText = left.join(sep);
-							const rightText = right.join(sep);
-
-							let line: string;
-							if (leftText && rightText) {
-								const gap = " ".repeat(Math.max(1, width - leftW - rightW));
-								line = leftText + gap + rightText;
-							} else if (rightText) {
-								const pad = " ".repeat(Math.max(0, width - rightW));
-								line = pad + rightText;
-							} else {
-								line = leftText;
-							}
-
-							return [truncateToWidth(line, width)];
-						}
-					}
-
-					// If everything else is stripped, we just show the basename.
-					return [truncateToWidth(d.shortDir, width)];
+					const room = columns - width(left) - width(right);
+					const line =
+						leftText + " ".repeat(Math.max(2, room)) + paint(right, thinking);
+					return [truncateToWidth(line, columns)];
 				},
 			};
 		});

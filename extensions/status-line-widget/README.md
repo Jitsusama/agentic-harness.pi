@@ -1,28 +1,72 @@
 # Status Line Extension
 
-A responsive single-line footer that adapts to terminal width.
+pi's one line along the bottom, in the language of a shell prompt: where
+pi is working, told from its root, and the branch at the right with its
+marks. Each field shows only while it's true, and they give way a step at a
+time as the terminal narrows.
 
 ## Layout
 
 ```
-~/src/project · main │ opus-5-5     ⚑ │ ⧗ 2 │ ◑ 45.2k/200k ∂ $0.04 Σ $1.23 │ 🧠³
-└───── left side ─────────────┘      └───────── right side (right-justified) ─────┘
+dotfiles/modules/neovim  rebase ◆◈◇  claude-opus-5-5 high     ⚑  ◑ 45.2k ∂ $0.04 Σ $1.23  main ●
+└──────────────────────── left ─────────────────────────┘     └──────────── right ─────────────┘
 ```
 
-**Right side** (right-justified):
-- Extension statuses, each a mark while its state holds
-- The panel height glyph
-- Context, marginal cost and session total, as one meter
-- Thinking level glyph (🧠¹ minimal → 🧠⁵ xhigh)
+Fields are two spaces apart and a mark sits one space from its words, so
+each reads with its own.
 
-**Left side:**
-- Directory (with git branch)
-- Model name
+**Left:**
+
+- Where pi is working, told from the nearest root: the root's name in
+  text, the folders between muted, the folder itself strong. Outside a
+  root it is told from home as `~`, and outside home from `/`, muted.
+- What git is in the middle of: a rebase drawn as its steps (a count past
+  eight), a merge, pick, revert or bisect by name, the step under way in
+  the warning colour, or the alert's while a conflict waits.
+- The model, muted, with how hard it thinks: the thinking mark in its
+  level's colour, then the level's word. Nothing while thinking is off.
+
+**Right:**
+
+- Each extension's status, whole.
+- The panel's height, only while it isn't the usual one.
+- Context, marginal cost and session total, as one meter.
+- The branch, muted, with a mark for unsaved work and one for unpushed.
+- The more mark, whenever something has given way.
+
+## Where It Learns the Folder and Git
+
+A machine whose prompt tells folders and git can write `where.json` into
+`~/.config/pi/agentic-harness.pi/status-line/` (under `XDG_CONFIG_HOME`
+when it is set), so the two agree:
+
+```json
+{
+  "engine": "/path/to/gitstatusd",
+  "roots": ["zone.nix", ".git"],
+  "marks": { "branch": "\uf418", "unsaved": "●", "unpushed": "\uf431" }
+}
+```
+
+- `engine` answers git's state in gitstatusd's protocol. It is started the
+  first time it's needed and kept, and asked again only when something may
+  have changed the answer: the session starting, a tool finishing, a shell
+  command, the agent settling, pi seeing the branch move. Nothing polls.
+  A program that can't start, or ends before it answers, isn't started
+  again.
+- `roots` are the files or folders that mark a root; the nearest folder
+  holding any of them names it.
+- `marks` are drawn by meaning: `branch`, `unsaved`, `unpushed`, `more`,
+  `complete`, `active`, `pending` and `thinking`. A mark left out takes the
+  package's own, and an empty one draws the words alone.
+
+Without the file a folder is told from the nearest `.git`, and the branch
+is pi's own, with no marks.
 
 ## What an Extension Puts Here
 
 The line never shortens an extension's status: it goes in whole, or
-the line falls back to the directory name. So each status costs the
+the line falls back to the folder's name. So each status costs the
 columns it asks for, on a line every extension shares.
 
 A status here is therefore a mark, from the one table in
@@ -45,15 +89,21 @@ since its board is docked for as long as a summary would show.
 
 ## Degradation Order
 
-As the terminal gets narrower, detail is removed in this order:
+As the terminal narrows, each step is taken in turn, keeping the ones
+before, until the line fits:
 
-1. Shrink directory (full path → basename)
-2. Remove the session total
-3. Context tokens → percentage (e.g., `45.2k/200k` → `23%`)
-4. Shrink model name (e.g., `claude-sonnet-4-20250514` →
-   `sonnet-4`)
-5. Remove thinking glyph
-6. Remove branch
+1. The session total goes.
+2. The branch keeps its start and end, the more mark between.
+3. The folders between the root and the folder become the more mark.
+4. Context in tokens becomes a share (`45.2k` to `23%`).
+5. The model takes its short name (`claude-sonnet-4-20250514` to
+   `sonnet-4`).
+6. How hard it thinks goes.
+7. The branch goes to its mark, keeping the marks after it.
+8. What git is in the middle of goes to its mark.
+9. The path goes to the folder's name.
+10. The model goes.
+11. The folder's name keeps its start and end.
 
-The marginal rate is never removed, and the directory basename is
-never removed.
+The rate is never given up: it is the one reading here that changes what
+to do next. When nothing else fits, the folder's name is all that's left.
