@@ -35,7 +35,7 @@ const world: RepoLocator = { key: "meteorite:shop/world" };
 const BODY = composePrBody({
 	tldr: "A bound target now keeps everything it was bound to.",
 	problem: "The binding remembered too little.",
-	solution: "It remembers the whole resolution now.",
+	solution: "It remembers the whole resolution now, so a retry finds it.",
 	validation: "This test.",
 });
 

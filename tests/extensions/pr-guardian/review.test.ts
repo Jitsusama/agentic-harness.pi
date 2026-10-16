@@ -28,7 +28,7 @@ function prCommand(body: string, title = "A Descriptive Title"): PrCommand {
 const cleanBody = composePrBody({
 	tldr: "The thing works again.",
 	problem: "The thing was broken.",
-	solution: "We fixed it.",
+	solution: "We fixed it, so it works.",
 	validation: "A test proves it.",
 });
 

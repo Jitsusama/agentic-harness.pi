@@ -5,7 +5,8 @@ import { auditPublished } from "../../../extensions/pr-guardian/audit.ts";
 const SECTIONS = {
 	tldr: "Merging with a short commit id now works the first time.",
 	problem: "Merging failed 23 times because GitHub wants the full id.",
-	solution: "Merge expands a short id before it asks GitHub.",
+	solution:
+		"Merge expands a short id before it asks GitHub, because GitHub wants the full one.",
 	validation: "A test sends a short id and checks the full one arrives.",
 };
 

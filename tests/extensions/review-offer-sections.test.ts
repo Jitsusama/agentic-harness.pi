@@ -47,7 +47,8 @@ const unused = (method: string) => async (): Promise<never> => {
 
 const SECTIONS = {
 	problem: "Merging failed 23 times in two months on a short commit id.",
-	solution: "Merge expands a short id to the full one before it asks.",
+	solution:
+		"Merge expands a short id to the full one before it asks, because GitHub wants the full one.",
 	validation: "A test sends a short id and checks the full one arrives.",
 	tldr: "Merging with a short commit id now works the first time.",
 };
@@ -178,12 +179,12 @@ describe("editing some sections", () => {
 		await offer({
 			action: "edit",
 			change: "7",
-			solution: "Merge now asks for the full id itself.",
+			solution: "Merge now asks for the full id itself, so a short one works.",
 		});
 
 		expect(readPrFields(edited[0] ?? "").fields).toEqual({
 			...SECTIONS,
-			solution: "Merge now asks for the full id itself.",
+			solution: "Merge now asks for the full id itself, so a short one works.",
 		});
 	});
 

@@ -33,7 +33,7 @@ const world: RepoLocator = { key: "meteorite:shop/world" };
 const BODY = composePrBody({
 	tldr: "Each target in a session keeps its own answer.",
 	problem: "Two branches in one session, and then the first one again.",
-	solution: "Each target keeps its own answer.",
+	solution: "Each target keeps its own answer, so none stands in for another.",
 	validation: "This test.",
 });
 

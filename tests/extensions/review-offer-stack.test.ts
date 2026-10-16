@@ -49,7 +49,7 @@ function bodyFor(what: string): string {
 	return composePrBody({
 		tldr: `${what} is there now.`,
 		problem: `${what} was missing.`,
-		solution: `Added ${what}.`,
+		solution: `Added ${what}, so it is there.`,
 		validation: "A test.",
 	});
 }
@@ -218,7 +218,7 @@ describe("proposing a stack with bodies", () => {
 
 		const sectionsFor = (what: string) => ({
 			problem: `${what} was missing.`,
-			solution: `Added ${what}.`,
+			solution: `Added ${what}, so it is there.`,
 			validation: "A test.",
 			tldr: `${what} is there now.`,
 		});

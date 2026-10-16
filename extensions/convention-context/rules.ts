@@ -39,10 +39,11 @@ function prShapeLine(): string {
 		(heading) => PR_SHAPE.sections[heading] ?? {},
 	);
 	return [
-		"- PR shape: for a reader who will not open the diff. Word ceilings, not targets:",
-		`TL;DR ${tldr?.words} (${tldr?.sentences} sentences, no code or links), Problem ${problem?.words} in prose,`,
-		`Solution ${solution?.words} as behaviour not files, Validation ${validation?.words} with what is unproven.`,
-		"review_offer takes them as problem, solution, validation, tldr.",
+		"- PR shape, for a reader who skips the diff; word ceilings, not targets:",
+		`TL;DR ${tldr?.words} in ${tldr?.sentences} sentences, opening with what changed, a count rather than all or most, no code or links;`,
+		`Problem ${problem?.words}, prose; Solution ${solution?.words}, behaviour and its reason;`,
+		`Validation ${validation?.words}, named checks and where they stop, no hedges.`,
+		"review_offer takes problem, solution, validation, tldr.",
 	].join(" ");
 }
 
