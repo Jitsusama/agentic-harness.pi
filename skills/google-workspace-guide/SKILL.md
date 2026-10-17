@@ -274,7 +274,7 @@ Use message IDs for follow-up actions (get_email, delete, reply).
 
 Response includes:
 - Events grouped by date
-- Status indicators: ✓ accepted, ✗ declined, ❓ tentative, ⏳ needs response
+- Status indicators: ✓ accepted, ~~declined~~, ❓ tentative, ⏳ needs response
 - `details.events[]` array with full metadata
 
 Use event IDs for follow-up actions (update, delete, respond).

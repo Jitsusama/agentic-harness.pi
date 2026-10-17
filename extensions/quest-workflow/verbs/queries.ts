@@ -17,6 +17,7 @@ import {
 	wasLost,
 } from "../../../lib/internal/quest/session-registry.ts";
 import { count } from "../../../lib/ui/count.ts";
+import { OUTCOME_GLYPH } from "../../../lib/ui/outcome-glyphs.ts";
 import {
 	ancestorsOf,
 	buildRowExpansion,
@@ -463,7 +464,9 @@ function workspaceMark(liveness: string): string {
 		case "idle":
 			return "\u25cb"; // hollow circle
 		case "dead":
-			return "\u2717"; // ballot x
+			// Its process went without concluding: the one cross for anything
+			// that ended badly.
+			return OUTCOME_GLYPH.failed;
 		case "conflicted":
 			return "\u26a0"; // warning sign
 		default:

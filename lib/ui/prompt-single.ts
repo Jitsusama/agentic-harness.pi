@@ -25,6 +25,7 @@ import {
 	optionValue,
 	renderOptionList,
 } from "./option-list.ts";
+import { OUTCOME_GLYPH } from "./outcome-glyphs.ts";
 import { computeChromeLines, renderFooter } from "./panel-layout.ts";
 import {
 	contentBudget,
@@ -350,19 +351,19 @@ function singleVerdict(
 	config: SinglePromptConfig,
 	result: PromptResult | null,
 ): string {
-	if (result === null) return "\u2717 cancelled";
+	if (result === null) return `${OUTCOME_GLYPH.cancelled} cancelled`;
 	const said = (() => {
 		if (result.type === "redirect") return "\u21aa redirected";
 		if (result.type === "option") {
 			const chosen = config.options?.find(
 				(option) => optionValue(option) === result.value,
 			);
-			return `\u2713 ${chosen?.label ?? result.value}`;
+			return `${OUTCOME_GLYPH.done} ${chosen?.label ?? result.value}`;
 		}
-		if (result.key === REJECT_KEY) return "\u2717 rejected";
-		if (result.key === ENTER_ACTION) return "\u2713 approved";
+		if (result.key === REJECT_KEY) return `${OUTCOME_GLYPH.failed} rejected`;
+		if (result.key === ENTER_ACTION) return `${OUTCOME_GLYPH.done} approved`;
 		const action = config.actions?.find((one) => one.key === result.key);
-		return `\u2713 ${(action?.label ?? result.key).toLowerCase()}`;
+		return `${OUTCOME_GLYPH.done} ${(action?.label ?? result.key).toLowerCase()}`;
 	})();
 	return result.note === undefined
 		? said

@@ -186,7 +186,7 @@ has the bits it actually needs.
 Symptom to recognise when the hook is missing: a fleet
 that all-fails on the first run with no obvious reason.
 From v2 onwards each failure surfaces a stderr tail in
-the summary (`✗ {id}: pi exited with code 1: ...`); if
+the summary (`✕ {id}: pi exited with code 1: ...`); if
 you see a credentials or configuration error there,
 registering the relevant extension as a default fixes it.
 
@@ -306,7 +306,7 @@ internally, a `gcloud` deploy that ssh-then-scps in
 in silence or a `git push` against a large mirror, stays
 invisible to the supervisor for the whole duration and
 gets a SIGTERM at the 5-minute mark. The symptom looks
-like `✗ {id}: pi exited with code 143` with a half-
+like `✕ {id}: pi exited with code 143` with a half-
 finished workflow on disk.
 
 Every job accepts optional per-call overrides:

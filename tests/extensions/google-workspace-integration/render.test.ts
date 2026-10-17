@@ -96,17 +96,18 @@ describe("rendering a Google result", () => {
 		expect(rendered).toContain("quota exceeded");
 	});
 
-	it("marks a cancelled action as a warning, not an error", () => {
+	it("draws a cancelled action dim, since it neither passed nor failed", () => {
 		const rendered = shown(
 			renderGoogleResult(
-				{ content: [{ type: "text", text: "✗ Event creation cancelled" }] },
+				{ content: [{ type: "text", text: "− Event creation cancelled" }] },
 				noOptions,
 				theme,
 			),
 		);
 
-		expect(rendered).toContain("<warning>");
+		expect(rendered).toContain("<dim>");
 		expect(rendered).not.toContain("<error>");
+		expect(rendered).not.toContain("<warning>");
 	});
 
 	it("reads a result whose first block carries no text", () => {

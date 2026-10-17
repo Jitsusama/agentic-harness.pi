@@ -23,6 +23,7 @@ import {
 	type ToolResult,
 } from "@jitsusama/agentic-harness.core/google/types";
 import type { OAuth2Client } from "google-auth-library";
+import { OUTCOME_GLYPH } from "../../../lib/ui/outcome-glyphs.ts";
 import {
 	confirmCreateEvent,
 	confirmDeleteEvent,
@@ -110,7 +111,12 @@ export async function handleCreateEvent(
 
 	if (!confirmResult) {
 		return {
-			content: [{ type: "text", text: "✗ Event creation cancelled" }],
+			content: [
+				{
+					type: "text",
+					text: `${OUTCOME_GLYPH.cancelled} Event creation cancelled`,
+				},
+			],
 		};
 	}
 	if (!confirmResult.approved) {
@@ -201,7 +207,12 @@ export async function handleUpdateEvent(
 
 		if (!confirmResult) {
 			return {
-				content: [{ type: "text", text: "✗ Event update cancelled" }],
+				content: [
+					{
+						type: "text",
+						text: `${OUTCOME_GLYPH.cancelled} Event update cancelled`,
+					},
+				],
 			};
 		}
 		if (!confirmResult.approved) {
@@ -259,7 +270,12 @@ export async function handleDeleteEvent(
 
 		if (!confirmResult) {
 			return {
-				content: [{ type: "text", text: "✗ Event deletion cancelled" }],
+				content: [
+					{
+						type: "text",
+						text: `${OUTCOME_GLYPH.cancelled} Event deletion cancelled`,
+					},
+				],
 			};
 		}
 		if (!confirmResult.approved) {

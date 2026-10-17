@@ -313,7 +313,7 @@ describe("a gate raised by a tool", () => {
 		await turnEnds(session);
 
 		expect(answers).toEqual([null]);
-		expect(await session.inBuffer("✗ cancelled")).toBe(1);
+		expect(await session.inBuffer("− cancelled")).toBe(1);
 		expect(session.editorFocused()).toBe(true);
 		await expectClean(session);
 	});
@@ -326,7 +326,7 @@ describe("a gate raised by a tool", () => {
 		await turnEnds(session);
 
 		expect(answers).toEqual([{ type: "action", key: "r" }]);
-		expect(await session.inBuffer("✗ rejected")).toBe(1);
+		expect(await session.inBuffer("✕ rejected")).toBe(1);
 	});
 });
 
@@ -474,7 +474,7 @@ describe("a gate closed from outside", () => {
 
 		expect(answers).toEqual([null]);
 		// Never written, not merely scrolled or cleared away.
-		expect(session.term.writes.join("")).not.toContain("✗ cancelled");
+		expect(session.term.writes.join("")).not.toContain("− cancelled");
 		await session.type("x");
 		expect(session.editorText()).toBe("x");
 	});
@@ -497,7 +497,7 @@ describe("gates one after another", () => {
 
 		expect(answers).toEqual([{ type: "action", key: "__enter__" }, null]);
 		expect(await session.inBuffer("✓ approved")).toBe(1);
-		expect(await session.inBuffer("✗ cancelled")).toBe(1);
+		expect(await session.inBuffer("− cancelled")).toBe(1);
 		await expectClean(session);
 	});
 });

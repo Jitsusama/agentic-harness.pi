@@ -40,12 +40,13 @@ import panelLifecycle from "../../extensions/panel-lifecycle-workflow/index.ts";
 import { ALLOW, registerGuardian } from "../../lib/guardian/index.ts";
 import { dock } from "../../lib/ui/dock.ts";
 import { GATE_ARM_MS } from "../../lib/ui/gate-dock.ts";
+import { OUTCOME_GLYPH } from "../../lib/ui/outcome-glyphs.ts";
 import { dockRows } from "../../lib/ui/pi-layout.ts";
 import { showSinglePrompt } from "../../lib/ui/prompt-single.ts";
 import { bootPi, type PiSession, sleep, waitFor } from "./pi-session.ts";
 
 const TITLE = "MARK-title Approve the thing?";
-const CANCELLED = "\u2717 cancelled";
+const CANCELLED = `${OUTCOME_GLYPH.cancelled} cancelled`;
 
 vi.setConfig({ testTimeout: 60_000 });
 

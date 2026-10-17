@@ -33,7 +33,7 @@ import { getLastEntry } from "../../lib/internal/state.ts";
 import { registerStandingContext } from "../../lib/prompt/index.ts";
 import { ensureAuthenticated } from "../../lib/slack/auth/ensure-auth.ts";
 import { count } from "../../lib/ui/count.ts";
-import { drawInto } from "../../lib/ui/index.ts";
+import { drawInto, OUTCOME_GLYPH } from "../../lib/ui/index.ts";
 import { handleSlackAuthCommand } from "./auth-command.ts";
 import { IDENTITY_CONTEXT, identityText } from "./context.ts";
 import { routeAction } from "./router.ts";
@@ -589,6 +589,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 			// Errors
 			if (
 				textContent.startsWith("Slack API error:") ||
+				textContent.startsWith(OUTCOME_GLYPH.failed) ||
 				textContent.startsWith("⚠️") ||
 				textContent.startsWith("Missing required")
 			) {
@@ -599,12 +600,9 @@ export default function slackIntegration(pi: ExtensionAPI) {
 				return drawInto(context?.lastComponent, theme.fg("error", preview));
 			}
 
-			// Cancellations
-			if (textContent.startsWith("✗")) {
-				return drawInto(
-					context?.lastComponent,
-					theme.fg("warning", textContent),
-				);
+			// Cancellations, which neither passed nor failed
+			if (textContent.startsWith(OUTCOME_GLYPH.cancelled)) {
+				return drawInto(context?.lastComponent, theme.fg("dim", textContent));
 			}
 
 			// Write successes

@@ -84,7 +84,7 @@ export type GateFactory<T> = (
 export interface GateDockOptions<T> {
 	/** The answer Escape gives, and every way of closing it from outside. */
 	readonly cancelled: T;
-	/** What the record says of an answer: "✓ approved", "✗ cancelled". */
+	/** What the record says of an answer: "✓ approved", "− cancelled". */
 	readonly verdict: (result: T) => string;
 	/** How the gate names itself in a one-row form. */
 	readonly title: string;
