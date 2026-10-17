@@ -16,7 +16,7 @@ import {
 } from "@jitsusama/agentic-harness.core/google/auth/oauth";
 import type { OAuth2Client } from "google-auth-library";
 import { authenticateWithFallback } from "../../lib/google/auth/dual-flow.ts";
-import { view } from "../../lib/ui/index.ts";
+import { frameTitle, view } from "../../lib/ui/index.ts";
 
 interface OAuthConfig {
 	clientId: string;
@@ -54,7 +54,7 @@ export async function handleGoogleAuthCommand(
 	if (!oauthConfig.clientId || !oauthConfig.clientSecret) {
 		await view(ctx, {
 			content: (theme) => [
-				` ${theme.bold("⚠ OAuth Credentials Missing")}`,
+				` ${theme.fg("warning", "⚠")} ${frameTitle(theme, "OAuth Credentials Missing")}`,
 				"",
 				" Set these environment variables:",
 				` ${theme.fg("accent", "GOOGLE_CLIENT_ID")}`,

@@ -16,7 +16,7 @@ import {
 	isValidClientSecret,
 } from "@jitsusama/agentic-harness.core/google/auth/setup-instructions";
 import { holdScreen } from "../../ui/gate-queue.ts";
-import { promptSingle } from "../../ui/index.ts";
+import { frameTitle, promptSingle } from "../../ui/index.ts";
 
 /**
  * Check if OAuth app is configured, and if not, run the setup wizard.
@@ -61,7 +61,7 @@ async function runSetupWizard(
 	// Step 1: Show instructions and ask to proceed
 	const proceed = await promptSingle(ctx, {
 		content: (theme) => [
-			` ${theme.bold("⚙️  Google Workspace Setup")}`,
+			` ${frameTitle(theme, "Google Workspace Setup")}`,
 			"",
 			" To use Google Workspace features, you need OAuth credentials.",
 			" This is a one-time setup that takes about 5 minutes.",

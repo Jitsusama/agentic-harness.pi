@@ -21,7 +21,7 @@ import {
 } from "@jitsusama/agentic-harness.core/google/auth/oauth";
 import type { OAuth2Client } from "google-auth-library";
 import { holdScreen } from "../../ui/gate-queue.ts";
-import { promptSingle } from "../../ui/index.ts";
+import { frameTitle, promptSingle } from "../../ui/index.ts";
 import { authenticateWithFallback, type OAuthFlowResult } from "./dual-flow.ts";
 import { ensureOAuthApp } from "./setup-wizard.ts";
 
@@ -104,7 +104,7 @@ async function askAndAuthenticate(
 ): Promise<OAuthFlowResult | null> {
 	const result = await promptSingle(ctx, {
 		content: (theme) => [
-			` ${theme.bold("🔐 Authentication Required")}`,
+			` ${frameTitle(theme, "Authentication Required")}`,
 			"",
 			" You need to authenticate with your Google account",
 			" before using Google Workspace features.",

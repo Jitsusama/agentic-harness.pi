@@ -24,7 +24,7 @@ import {
 	exchangeCodeForToken,
 } from "@jitsusama/agentic-harness.core/slack/auth/oauth";
 import { waitForOAuthCallback } from "@jitsusama/agentic-harness.core/slack/auth/server";
-import { type ViewConfig, viewWhile } from "../../ui/index.ts";
+import { frameTitle, type ViewConfig, viewWhile } from "../../ui/index.ts";
 import { ensureSetup } from "./setup-wizard.ts";
 
 /**
@@ -99,7 +99,7 @@ async function runOAuthFlow(
 
 	const panel: ViewConfig = {
 		content: (theme) => [
-			` ${theme.bold("🌐 Slack Authorization")}`,
+			` ${frameTitle(theme, "Slack Authorization")}`,
 			"",
 			" Your browser should open automatically.",
 			" If it doesn't, visit this URL:",
