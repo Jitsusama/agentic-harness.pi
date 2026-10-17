@@ -24,7 +24,8 @@
  *
  * Its height follows the dock's room (see `dock.ts`) and never leaves a
  * gap: it holds the rows it has, gives them back only as the room shrinks,
- * and fills whatever it is dealt, padding inside above its bottom rule.
+ * and fills whatever it is dealt, padding under its keys. It has no rule
+ * of its own under it: pi's editor border, which it sits on, is that rule.
  * Too short for its own layout, it asks the panel to lay itself out in
  * fewer rows, and failing that it shows one row that says it is waiting.
  * Answered, it settles into the transcript as its own record in the same
@@ -152,14 +153,21 @@ export function dockGate<T>(
 		};
 	};
 
-	/** The panel drawn at `width`, told it has `allot` rows and why. */
+	/**
+	 * The panel drawn at `width` in `allot` rows, told why.
+	 *
+	 * Docked, it sits on pi's editor, whose border is the rule under it, so
+	 * while it waits it leaves its own closing rule off rather than draw a
+	 * second hairline on the first, and is given that row back to use. Its
+	 * record keeps the rule, since its verdict takes that row.
+	 */
 	const draw = (at: number, allot: number, answered = false): string[] => {
 		const tui = docked?.tui;
 		if (tui === undefined) return [];
 		const focused = docked?.focused() ?? false;
 		const room: PanelRoom = {
 			rows: tui.terminal.rows,
-			allot,
+			allot: allot + 1,
 			answered,
 			...hop(focused),
 			focused,
@@ -167,8 +175,9 @@ export function dockGate<T>(
 		return withPanelRoom(room, () => {
 			inner ??= factory(tui, theme, (result) => answer(result, "key"));
 			const lines = inner.render(at);
-			if (!answered) editing = room.editing;
-			return lines;
+			if (answered) return lines;
+			editing = room.editing;
+			return lines.at(-1) === frameRule(theme, at) ? lines.slice(0, -1) : lines;
 		});
 	};
 
@@ -221,10 +230,12 @@ export function dockGate<T>(
 		focused: boolean,
 		answered = false,
 	): string[] => {
-		const out = as.oneRow
-			? small(at, as.floor, focused, answered)
-			: draw(at, as.ask, answered);
-		return padTo(out, as.floor);
+		if (as.oneRow)
+			return padTo(small(at, as.floor, focused, answered), as.floor);
+		const out = draw(at, as.ask, answered);
+		// Waiting, its last row is its keys, which stay against the editor;
+		// answered, its last row is the rule its verdict will take.
+		return answered ? padTo(out, as.floor) : padBelow(out, as.floor);
 	};
 
 	/**
@@ -401,6 +412,12 @@ function padTo(lines: string[], rows: number): string[] {
 	if (lines.length >= rows) return lines;
 	const blanks = Array.from({ length: rows - lines.length }, () => "");
 	return [...lines.slice(0, -1), ...blanks, ...lines.slice(-1)];
+}
+
+/** `lines` padded to `rows` with blank rows under them. */
+function padBelow(lines: string[], rows: number): string[] {
+	if (lines.length >= rows) return lines;
+	return [...lines, ...Array.from({ length: rows - lines.length }, () => "")];
 }
 
 /** `lines` made exactly `rows` tall, its last row kept. */
