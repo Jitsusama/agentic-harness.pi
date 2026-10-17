@@ -15,6 +15,7 @@
 
 import { describe, expect, it } from "vitest";
 import { renderFooter } from "../../../lib/ui/panel-layout.ts";
+import { withPanelRoom } from "../../../lib/ui/panel-room.ts";
 import { fakeTheme } from "./fake-theme.ts";
 
 /**
@@ -69,5 +70,36 @@ describe("saying that a panel scrolls", () => {
 		expect(footer({ needsVScroll: true, enterHint: "approve" })).toContain(
 			"Enter approve",
 		);
+	});
+});
+
+/**
+ * A docked panel while the editor holds the keys offers only the chord
+ * that reaches it. Its action row stood with its keys in the accent,
+ * which is where the keys go, beside the one chord that did reach it.
+ */
+describe("a docked panel without the keys", () => {
+	const drawn = (focused: boolean) =>
+		withPanelRoom(
+			{ rows: 40, allot: 20, hop: "Ctrl+Alt+N", hopTo: "editor", focused },
+			() =>
+				renderFooter({
+					theme: fakeTheme(),
+					width: 400,
+					actions: [{ key: "r", label: "Reject" }],
+				}),
+		);
+
+	it("draws only how to come back, in the accent, keeping its height", () => {
+		const away = drawn(false);
+		expect(away).toHaveLength(drawn(true).length);
+		expect(away.slice(0, -1).every((row) => row === "")).toBe(true);
+		const accents = away.join("\n").match(/<accent>[^<]*<\/accent>/g);
+		expect(accents).toEqual(["<accent>Ctrl+Alt+N</accent>"]);
+		expect(away.at(-1)).toContain("back to this");
+	});
+
+	it("offers its actions again once it has them", () => {
+		expect(drawn(true).join("\n")).toContain("eject");
 	});
 });
