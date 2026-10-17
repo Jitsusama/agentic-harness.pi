@@ -25,7 +25,12 @@ import {
 import { extractFromBrowser } from "@jitsusama/agentic-harness.core/slack/auth/browser-extract";
 import { extractFromCurl } from "@jitsusama/agentic-harness.core/slack/auth/extract";
 import { holdScreen } from "../../ui/gate-queue.ts";
-import { promptSingle, type ViewConfig, viewWhile } from "../../ui/index.ts";
+import {
+	frameTitle,
+	promptSingle,
+	type ViewConfig,
+	viewWhile,
+} from "../../ui/index.ts";
 
 /** Said whenever a person backs out of the wizard. */
 const SETUP_CANCELLED = "Setup cancelled. Run /slack-setup when ready.";
@@ -89,7 +94,7 @@ async function runSetupWizard(
 ): Promise<{ mode: "session" } | { mode: "oauth"; app: OAuthApp } | null> {
 	const choice = await promptSingle(ctx, {
 		content: (theme) => [
-			` ${theme.bold("⚙️  Slack Integration Setup")}`,
+			` ${frameTitle(theme, "Slack Integration Setup")}`,
 			"",
 			" Choose how to authenticate with Slack:",
 			"",
@@ -155,7 +160,7 @@ async function setupViaBrowser(
 
 	const panel: ViewConfig = {
 		content: (theme) => [
-			` ${theme.bold("🌐 Browser Credential Extraction")}`,
+			` ${frameTitle(theme, "Browser Credential Extraction")}`,
 			"",
 			` Chrome is launching and navigating to ${slackUrl ?? "Slack"}.`,
 			" If you're not logged in, log in now.",
@@ -189,7 +194,7 @@ async function setupViaCurl(
 ): Promise<{ mode: "session" } | null> {
 	const instructions = await promptSingle(ctx, {
 		content: (theme) => [
-			` ${theme.bold("📋 Curl Command Setup")}`,
+			` ${frameTitle(theme, "Curl Command Setup")}`,
 			"",
 			" 1. Open Slack in your browser (app.slack.com)",
 			" 2. Open DevTools (F12 or Cmd+Option+I)",
@@ -268,7 +273,7 @@ async function setupViaOAuth(
 ): Promise<{ mode: "oauth"; app: OAuthApp } | null> {
 	const proceed = await promptSingle(ctx, {
 		content: (theme) => [
-			` ${theme.bold("🔐 OAuth App Setup")}`,
+			` ${frameTitle(theme, "OAuth App Setup")}`,
 			"",
 			" This requires creating a Slack app (may need admin approval).",
 			"",

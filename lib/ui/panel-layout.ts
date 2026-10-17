@@ -78,7 +78,10 @@ export function renderFooter(opts: FooterOptions): string[] {
  * the same number of rows so the record stands exactly as tall as the
  * panel did, since no key reaches a record (its verdict goes on its last
  * row, see `gate-dock.ts`); and while the editor has the keyboard, how to
- * come back, in place of keys that would not reach it. An overlay's
+ * come back, in place of keys that would not reach it. Every row of them
+ * goes, not only the last: an action row left standing drew its keys in
+ * the accent, which is where the keys go, beside the one chord that does
+ * reach the panel. A board holds back its keys the same way. An overlay's
  * footer is returned as it was.
  */
 export function dockedFooter(
@@ -91,7 +94,7 @@ export function dockedFooter(
 	if (room.answered === true) return lines.map(() => "");
 	if (room.hop === undefined || room.focused !== false) return lines;
 	const back = ` ${chord(theme, room.hop, "back to this")}${theme.fg("dim", " · anything you send now arrives after you answer")}`;
-	return [...lines.slice(0, -1), truncateToWidth(back, width)];
+	return [...lines.slice(0, -1).map(() => ""), truncateToWidth(back, width)];
 }
 
 /** Row 1: actions (left) + modifiers (right). */

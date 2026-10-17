@@ -133,10 +133,16 @@ export function defaultResolved(opts: {
 	return {
 		shape: identityShape,
 		renderCall: (args, theme, context) =>
-			renderDefaultCall(context.tool, args, theme, {
-				multiServer: context.serverCount > 1,
-				serverLabel: context.tool.serverId,
-			}),
+			renderDefaultCall(
+				context.tool,
+				args,
+				theme,
+				{
+					multiServer: context.serverCount > 1,
+					serverLabel: context.tool.serverId,
+				},
+				context.lastComponent,
+			),
 		renderResult: (result, options, theme, context) =>
 			renderDefaultResult(result, options, theme, context),
 		wrap: makeDefaultWrap(opts),

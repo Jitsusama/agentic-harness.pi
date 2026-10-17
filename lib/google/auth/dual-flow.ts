@@ -14,7 +14,7 @@ import {
 } from "@jitsusama/agentic-harness.core/google/auth/oauth";
 import { waitForOAuthCallback } from "@jitsusama/agentic-harness.core/google/auth/server";
 import type { Credentials } from "google-auth-library";
-import { viewWhile } from "../../ui/index.ts";
+import { frameTitle, viewWhile } from "../../ui/index.ts";
 
 /** Result of an OAuth flow. */
 export interface OAuthFlowResult {
@@ -54,7 +54,7 @@ async function authenticate(
 		const panel = {
 			signal,
 			content: (theme: Theme) => [
-				` ${theme.bold("📱 Device Flow Authentication")}`,
+				` ${frameTitle(theme, "Device Flow Authentication")}`,
 				"",
 				" Visit this URL in any browser:",
 				` ${theme.fg("accent", deviceFlow.verification_url)}`,
@@ -119,7 +119,7 @@ async function authenticateWithWebRedirect(
 	const panel = {
 		signal,
 		content: (theme: Theme) => [
-			` ${theme.bold("🌐 Web Flow Authentication")}`,
+			` ${frameTitle(theme, "Web Flow Authentication")}`,
 			"",
 			" Your browser should open automatically.",
 			" If it doesn't, visit this URL:",

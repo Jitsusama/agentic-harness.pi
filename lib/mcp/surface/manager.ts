@@ -281,8 +281,14 @@ export function createSurfaceManager(deps: {
 					details: result.structuredContent,
 				};
 			},
-			renderCall: (args, theme) =>
-				renderDefaultCall(syntheticTool, args, theme, { multiServer: false }),
+			renderCall: (args, theme, context) =>
+				renderDefaultCall(
+					syntheticTool,
+					args,
+					theme,
+					{ multiServer: false },
+					context.lastComponent,
+				),
 			renderResult:
 				renderResult ??
 				((result, options, theme, context) =>
