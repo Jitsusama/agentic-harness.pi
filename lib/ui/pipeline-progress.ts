@@ -60,10 +60,14 @@ export interface PipelineProgressOptions {
  *
  * A skipped stage takes the cancelled mark. Both are the same fact,
  * that this one did not happen and nobody is waiting for it.
+ *
+ * A running stage is plain text, its label bold, as a board's running
+ * row is plain: the accent is where the keys go, and no key reaches a
+ * pipeline's stages. The arrow and the bold already say which is live.
  */
 const STATE_STYLE: Record<StageState, { glyph: string; color: ThemeColor }> = {
 	pending: { glyph: AGENT_GLYPH.pending, color: "muted" },
-	running: { glyph: AGENT_GLYPH.running, color: "accent" },
+	running: { glyph: AGENT_GLYPH.running, color: "text" },
 	complete: { glyph: AGENT_GLYPH.done, color: "success" },
 	skipped: { glyph: AGENT_GLYPH.cancelled, color: "dim" },
 	failed: { glyph: AGENT_GLYPH.failed, color: "error" },
@@ -91,7 +95,7 @@ export function renderPipelineProgress(
 		const glyph = theme.fg(style.color, style.glyph);
 		const label =
 			stage.state === "running"
-				? theme.fg("accent", theme.bold(stage.label))
+				? theme.fg("text", theme.bold(stage.label))
 				: stage.state === "skipped"
 					? theme.fg("dim", stage.label)
 					: theme.fg(style.color, stage.label);

@@ -18,7 +18,8 @@ describe("renderPipelineProgress", () => {
 		// One stage per state, horizontal mode, default
 		// connector. Stage glyph and label colour both come
 		// from the state. Running additionally bolds the
-		// label.
+		// label, and is plain text rather than the accent,
+		// which belongs to where the keys go.
 		const out = renderPipelineProgress(
 			stages(
 				{ label: "pending", state: "pending" },
@@ -32,7 +33,7 @@ describe("renderPipelineProgress", () => {
 		expect(out).toBe(
 			[
 				`<muted>${AGENT_GLYPH.pending}</muted> <muted>pending</muted>`,
-				`<accent>${AGENT_GLYPH.running}</accent> <accent><b>running</b></accent>`,
+				`<text>${AGENT_GLYPH.running}</text> <text><b>running</b></text>`,
 				`<success>${AGENT_GLYPH.done}</success> <success>complete</success>`,
 				`<dim>${AGENT_GLYPH.cancelled}</dim> <dim>skipped</dim>`,
 				`<error>${AGENT_GLYPH.failed}</error> <error>failed</error>`,
@@ -72,7 +73,7 @@ describe("renderPipelineProgress", () => {
 			theme,
 		);
 		expect(out).toBe(
-			`<accent>${AGENT_GLYPH.running}</accent> <accent><b>fanout</b></accent> <dim>(3/5)</dim>`,
+			`<text>${AGENT_GLYPH.running}</text> <text><b>fanout</b></text> <dim>(3/5)</dim>`,
 		);
 	});
 
