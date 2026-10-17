@@ -200,18 +200,21 @@ function renderItem(
 ): void {
 	const cursor = isSelected ? `${GLYPH.cursor} ` : "  ";
 	const glyph = item.glyph ? `${item.glyph} ` : "";
-	const line = `${PAD}${cursor}${glyph}${numberPrefix}${item.summary}`;
-	lines.push(isSelected ? theme.fg("accent", line) : line);
+	const text = `${numberPrefix}${item.summary}`;
+	// The cursor and the text each take the accent, around the glyph rather
+	// than over it: a glyph keeps its own colour, and its colour's end would
+	// end an accent laid over the whole row, leaving the text plain.
+	lines.push(
+		isSelected
+			? `${PAD}${theme.fg("accent", cursor)}${glyph}${theme.fg("accent", text)}`
+			: `${PAD}${cursor}${glyph}${text}`,
+	);
 
-	// Subtitle lines are shown for every item (dim).
+	// Subtitle lines are shown for every item, dim even under the cursor:
+	// the accent marks the row the keys act on, and once is enough.
 	if (item.subtitle) {
 		for (const sub of item.subtitle) {
-			const subLine = `${DETAIL_INDENT}${sub}`;
-			lines.push(
-				isSelected
-					? theme.fg("accent", theme.fg("dim", subLine))
-					: theme.fg("dim", subLine),
-			);
+			lines.push(theme.fg("dim", `${DETAIL_INDENT}${sub}`));
 		}
 	}
 
