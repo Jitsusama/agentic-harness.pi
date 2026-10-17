@@ -170,14 +170,19 @@ export function registerCompactionStatus(
 	});
 }
 
-/** Draw the gathered sections for a panel. */
+/**
+ * Draw the gathered sections for a panel.
+ *
+ * Headings are bold, as the panel's own title is, rather than the
+ * accent, which marks where the keys go.
+ */
 export function renderSections(
 	sections: readonly StatusSection[],
 	theme: Theme,
 ): string[] {
 	const lines: string[] = [""];
 	for (const section of sections) {
-		lines.push(`  ${theme.fg("accent", section.title)}`);
+		lines.push(`  ${theme.fg("toolTitle", theme.bold(section.title))}`);
 		for (const line of section.lines)
 			lines.push(`    ${theme.fg("text", line)}`);
 		lines.push("");

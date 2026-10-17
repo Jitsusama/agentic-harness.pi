@@ -347,12 +347,16 @@ function entryLine(
 	theme: Theme,
 	selected: boolean,
 ): string {
-	const cursor = selected ? "▸" : " ";
 	const activity = widgetSubtext(entry);
 	const model = entry.spec.model ? ` · ${entry.spec.model}` : "";
 	const suffix = activity ? ` · ${activity}` : "";
-	const line = `${cursor} ${entryStatus(entry, theme)} ${entry.spec.id}${model}${suffix}`;
-	return selected ? theme.fg("accent", line) : line;
+	const rest = `${entry.spec.id}${model}${suffix}`;
+	const status = entryStatus(entry, theme);
+	// The cursor and the row's text each in the accent, rather than one
+	// accent round the whole row: the status inside ends its own colour,
+	// which ended the row's with it and left only the cursor marked.
+	if (!selected) return `  ${status} ${rest}`;
+	return `${theme.fg("accent", "▸")} ${status} ${theme.fg("accent", rest)}`;
 }
 
 function widgetSubtext(entry: FleetProgressEntry): string | undefined {
@@ -373,6 +377,11 @@ function widgetSubtext(entry: FleetProgressEntry): string | undefined {
 /**
  * One row's mark and word, coloured by what it means.
  *
+ * Running is plain text, not the accent: the accent is the selected row,
+ * and with several running a selection drawn in the same colour was
+ * told apart only by its cursor. The running mark and its clock already
+ * say it's live.
+ *
  * The marks are the shared set's, not this file's. They used to be
  * spelled here, and two of them were quest's: a pending subagent drawn
  * as a sidequest and a running one as a subquest, which is the exact
@@ -384,7 +393,7 @@ function entryStatus(entry: FleetProgressEntry, theme: Theme): string {
 		case "pending":
 			return theme.fg("muted", `${AGENT_GLYPH.pending} pending`);
 		case "running":
-			return theme.fg("accent", `${AGENT_GLYPH.running} running`);
+			return theme.fg("text", `${AGENT_GLYPH.running} running`);
 		case "complete":
 			return theme.fg("success", `${AGENT_GLYPH.done} complete`);
 		case "cancelled":

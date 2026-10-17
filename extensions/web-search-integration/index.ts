@@ -32,7 +32,7 @@ import {
 import { webSearch as doSearch } from "@jitsusama/agentic-harness.core/web/search";
 import { Type } from "@sinclair/typebox";
 import { count } from "../../lib/ui/count.ts";
-import { drawInto } from "../../lib/ui/index.ts";
+import { asText, drawInto, renderToolCall } from "../../lib/ui/index.ts";
 import { formatManifest } from "./manifest.ts";
 
 /** Details returned by web_read on success. */
@@ -188,17 +188,19 @@ export default function webSearch(pi: ExtensionAPI) {
 		}),
 
 		renderCall(args, theme, context) {
-			const label = theme.fg("toolTitle", theme.bold("web_read "));
-			// We show just the domain and path, truncated for readability.
+			// Just the domain and path; the shared line clips what's left.
 			let display = args.url;
 			try {
 				const u = new URL(args.url);
 				display = u.hostname + u.pathname;
-				if (display.length > 60) display = `${display.slice(0, 57)}...`;
 			} catch {
 				// We use the raw URL as-is.
 			}
-			return drawInto(context?.lastComponent, label + theme.fg("dim", display));
+			return renderToolCall(
+				{ tool: "web_read", subject: display },
+				theme,
+				asText(context?.lastComponent),
+			);
 		},
 
 		renderResult(result, { expanded }, theme, context) {

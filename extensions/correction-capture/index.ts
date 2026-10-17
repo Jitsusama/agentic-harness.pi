@@ -34,7 +34,7 @@ import { dataDir } from "../../lib/internal/paths.ts";
 import { entriesToTurns } from "../../lib/internal/transcript.ts";
 import { registerPromptContributor } from "../../lib/prompt/index.ts";
 import { count } from "../../lib/ui/count.ts";
-import { drawInto } from "../../lib/ui/index.ts";
+import { asText, drawInto, renderToolCall } from "../../lib/ui/index.ts";
 
 /** Captured lessons sit just below the enforced conventions. */
 const GOVERNANCE_ORDER = 1;
@@ -110,7 +110,6 @@ export default function correctionCapture(pi: ExtensionAPI) {
 		}),
 
 		renderCall(args, theme, context) {
-			const label = theme.fg("toolTitle", theme.bold("capture_lesson "));
 			const mode = args.rules
 				? "file"
 				: args.list
@@ -118,7 +117,11 @@ export default function correctionCapture(pi: ExtensionAPI) {
 					: args.remove
 						? "remove"
 						: "draft";
-			return drawInto(context?.lastComponent, label + theme.fg("dim", mode));
+			return renderToolCall(
+				{ tool: "capture_lesson", action: mode },
+				theme,
+				asText(context?.lastComponent),
+			);
 		},
 
 		renderResult(result, _options, theme, context) {

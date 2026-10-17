@@ -17,18 +17,20 @@
  */
 
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { decide, isAway } from "../../lib/internal/away/state.ts";
 import { count } from "../../lib/ui/count.ts";
 import {
+	asText,
 	drawInto,
 	firstText,
 	type ListChoice,
+	OUTCOME_GLYPH,
 	type PromptItem,
 	promptSingle,
 	promptTabbed,
 	renderMarkdown,
+	renderToolCall,
 } from "../../lib/ui/index.ts";
 
 // Types
@@ -323,12 +325,15 @@ export default function ask(pi: ExtensionAPI) {
 		renderCall(args, theme, context) {
 			const qs = (args.questions as Question[]) || [];
 			const labels = qs.map((q) => q.label || q.id).join(", ");
-			let text = theme.fg("toolTitle", theme.bold("ask "));
-			text += theme.fg("muted", count(qs.length, "question"));
-			if (labels) {
-				text += theme.fg("dim", ` (${truncateToWidth(labels, 40)})`);
-			}
-			return drawInto(context?.lastComponent, text);
+			return renderToolCall(
+				{
+					tool: "ask",
+					action: count(qs.length, "question"),
+					subject: labels,
+				},
+				theme,
+				asText(context?.lastComponent),
+			);
 		},
 
 		renderResult(result, _options, theme, context) {
@@ -339,7 +344,7 @@ export default function ask(pi: ExtensionAPI) {
 			if (details.cancelled) {
 				return drawInto(
 					context?.lastComponent,
-					theme.fg("warning", "Cancelled"),
+					theme.fg("dim", `${OUTCOME_GLYPH.cancelled} cancelled`),
 				);
 			}
 			// Answered while the user was away: the text says how.
@@ -349,12 +354,16 @@ export default function ask(pi: ExtensionAPI) {
 					theme.fg("muted", firstText(result)),
 				);
 			}
+			// The question muted and the answer plain: the answer is what was
+			// said, and the accent is kept for where the keys go.
+			const done = theme.fg("success", `${OUTCOME_GLYPH.done} `);
 			const lines = details.answers.map((a) => {
+				const asked = theme.fg("muted", `${a.id}:`);
 				if (a.wasCustom) {
-					return `${theme.fg("success", "✓ ")}${theme.fg("accent", a.id)}: ${theme.fg("muted", "(wrote) ")}${a.label}`;
+					return `${done}${asked} ${theme.fg("muted", "(wrote) ")}${a.label}`;
 				}
 				const display = a.index ? `${a.index}. ${a.label}` : a.label;
-				return `${theme.fg("success", "✓ ")}${theme.fg("accent", a.id)}: ${display}`;
+				return `${done}${asked} ${display}`;
 			});
 			return drawInto(context?.lastComponent, lines.join("\n"));
 		},

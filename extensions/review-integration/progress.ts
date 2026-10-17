@@ -69,13 +69,19 @@ const GLYPH: Record<AskProgressEntry["state"], string> = {
 /** Between the parts of a title or a row. */
 const SEPARATOR = " \u00b7 ";
 
-/** The glyph and the word for it, coloured by what it means. */
+/**
+ * The glyph and the word for it, coloured by what it means.
+ *
+ * Running is plain text rather than the accent, which is the selected
+ * row's alone: with several reviewers running, a selection in the same
+ * colour was told apart only by its cursor.
+ */
 function status(entry: AskProgressEntry, theme: Theme): string {
 	switch (entry.state) {
 		case "pending":
 			return theme.fg("muted", `${GLYPH.pending} pending`);
 		case "running":
-			return theme.fg("accent", `${GLYPH.running} running`);
+			return theme.fg("text", `${GLYPH.running} running`);
 		case "answered":
 			return theme.fg("success", `${GLYPH.answered} answered`);
 		case "cancelled":
@@ -95,15 +101,18 @@ function participantLine(
 	shared: string | undefined,
 	now: number,
 ): string {
-	const cursor = selected ? "▸" : " ";
 	const model =
 		entry.model === undefined || entry.model === shared
 			? ""
 			: `${SEPARATOR}${entry.model}`;
 	const said = subtext(entry, now);
 	const tail = said === undefined ? "" : `${SEPARATOR}${said}`;
-	const line = `${cursor} ${status(entry, theme)} ${entry.participantId}${model}${tail}`;
-	return selected ? theme.fg("accent", line) : line;
+	const rest = `${entry.participantId}${model}${tail}`;
+	// The cursor and the row's text each in the accent, rather than one
+	// accent round the whole row: the status inside ends its own colour,
+	// which ended the row's with it and left only the cursor marked.
+	if (!selected) return `  ${status(entry, theme)} ${rest}`;
+	return `${theme.fg("accent", "▸")} ${status(entry, theme)} ${theme.fg("accent", rest)}`;
 }
 
 /** How often the elapsed clock on a running row is redrawn. */

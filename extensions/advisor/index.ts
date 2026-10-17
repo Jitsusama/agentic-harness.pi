@@ -48,7 +48,7 @@ import { Type } from "@sinclair/typebox";
 import { runInvestigation } from "../../lib/completion/index.ts";
 import { dataDir } from "../../lib/internal/paths.ts";
 import { entriesToTurns } from "../../lib/internal/transcript.ts";
-import { drawInto } from "../../lib/ui/index.ts";
+import { asText, renderToolCall } from "../../lib/ui/index.ts";
 
 /**
  * The runtime context fields the advisor uses that the older
@@ -180,9 +180,12 @@ export default function advisor(pi: ExtensionAPI) {
 			),
 		}),
 		renderCall(args, theme, context) {
-			const label = theme.fg("toolTitle", theme.bold("advisor "));
 			const action = typeof args.action === "string" ? args.action : "status";
-			return drawInto(context?.lastComponent, label + theme.fg("dim", action));
+			return renderToolCall(
+				{ tool: "advisor", action },
+				theme,
+				asText(context?.lastComponent),
+			);
 		},
 		async execute(_toolCallId, params) {
 			if (params.action === "status") {

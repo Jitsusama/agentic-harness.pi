@@ -1,21 +1,14 @@
 /**
  * Render tool call display for Google Workspace actions.
+ *
+ * The line is the package's one call line: the tool bold, the action
+ * plain, what it was pointed at dim. Only the subject is Google's own,
+ * worked out per action below.
  */
 
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { Text } from "@earendil-works/pi-tui";
-import { drawInto } from "../../lib/ui/index.ts";
-
-/**
- * Width to lay a call line out for.
- *
- * Pi passes a renderer the theme and its render context, and
- * neither carries a terminal width, so a call line that wants to
- * elide a long subject has to pick a figure. Eighty is the width
- * this code already fell back to whenever the old options argument
- * arrived without one, which was every time.
- */
-const ASSUMED_WIDTH = 80;
+import { asText, renderToolCall } from "../../lib/ui/index.ts";
 
 interface CallArgs {
 	action?: string;
@@ -38,160 +31,48 @@ export function renderGoogleCall(
 	reuse?: unknown,
 ): Text {
 	const a = args as CallArgs;
-	const action = a.action || "?";
-	let text = theme.fg("toolTitle", theme.bold("google "));
+	// Non-default accounts get a visible label so the user knows which
+	// one is active; the usual one is left unsaid, since a label on
+	// every line stops being a signal.
+	const notes =
+		a.account && a.account !== "work" ? [`[${a.account}]`] : undefined;
+	return renderToolCall(
+		{ tool: "google", action: a.action || "?", subject: subjectOf(a), notes },
+		theme,
+		asText(reuse),
+	);
+}
 
-	// Non-default accounts get a visible label so the user knows which one is active.
-	if (a.account && a.account !== "work") {
-		text += theme.fg("dim", `[${a.account}] `);
-	}
-
-	// Action-specific formatting
-	switch (action) {
-		case "search_emails":
-			text += "search_emails";
-			if (a.query) {
-				const preview =
-					a.query.length > 40 ? `${a.query.slice(0, 40)}...` : a.query;
-				text += theme.fg("dim", ` "${preview}"`);
-			}
-			break;
-
+/** What one action was pointed at, or nothing worth a glance. */
+function subjectOf(a: CallArgs): string | undefined {
+	switch (a.action) {
 		case "get_email":
-			text += "get_email";
-			if (a.id) {
-				const shortId = a.id.length > 12 ? `${a.id.slice(0, 12)}...` : a.id;
-				text += theme.fg("muted", ` ${shortId}`);
-			}
-			break;
-
-		case "get_thread":
-			text += "get_thread";
-			break;
-
-		case "send_email":
-			text += "send_email";
-			if (a.to && a.to.length > 0) {
-				const recipient = a.to[0];
-				text += theme.fg("dim", ` → ${recipient}`);
-				if (a.to.length > 1) {
-					text += theme.fg("muted", ` +${a.to.length - 1}`);
-				}
-			}
-			if (a.subject) {
-				const maxWidth = ASSUMED_WIDTH;
-				const prefixLen = 30; // Approximate length of "google send_email → user@example.com "
-				const availableWidth = maxWidth - prefixLen;
-				const subjectPreview =
-					a.subject.length > availableWidth
-						? `${a.subject.slice(0, availableWidth - 3)}...`
-						: a.subject;
-				text += theme.fg("dim", `: ${subjectPreview}`);
-			}
-			break;
-
+			return a.id;
+		case "send_email": {
+			const to = a.to ?? [];
+			const more = to.length > 1 ? ` +${to.length - 1}` : "";
+			const who = to.length > 0 ? `→ ${to[0]}${more}` : undefined;
+			if (!a.subject) return who;
+			return who ? `${who}: ${a.subject}` : a.subject;
+		}
 		case "create_draft":
-			text += "create_draft";
-			if (a.subject) {
-				const preview =
-					a.subject.length > 40 ? `${a.subject.slice(0, 40)}...` : a.subject;
-				text += theme.fg("dim", ` "${preview}"`);
-			}
-			break;
-
-		case "archive_email":
-			text += "archive_email";
-			break;
-
-		case "unarchive_email":
-			text += "unarchive_email";
-			break;
-
-		case "delete_email":
-			text += "delete_email";
-			break;
-
-		case "mark_read":
-			text += "mark_read";
-			break;
-
-		case "mark_unread":
-			text += "mark_unread";
-			break;
-
+			return a.subject ? `"${a.subject}"` : undefined;
 		case "list_events":
-			text += "list_events";
-			if (a.start) {
-				text += theme.fg("dim", ` from ${a.start}`);
-			}
-			break;
-
-		case "get_event":
-			text += "get_event";
-			break;
-
-		case "create_event":
-			text += "create_event";
-			if (a.summary) {
-				const preview =
-					a.summary.length > 40 ? `${a.summary.slice(0, 40)}...` : a.summary;
-				text += theme.fg("dim", ` "${preview}"`);
-			}
-			if (a.start) {
-				text += theme.fg("muted", ` @ ${a.start}`);
-			}
-			break;
-
-		case "update_event":
-			text += "update_event";
-			break;
-
-		case "delete_event":
-			text += "delete_event";
-			break;
-
-		case "respond_to_event":
-			text += "respond_to_event";
-			break;
-
-		case "check_availability":
-			text += "check_availability";
-			if (a.attendees && a.attendees.length > 0) {
-				const names = a.attendees.slice(0, 3).join(", ");
-				const more =
-					a.attendees.length > 3 ? ` +${a.attendees.length - 3} more` : "";
-				text += theme.fg("dim", ` ${names}${more}`);
-			}
-			if (a.start) {
-				text += theme.fg("muted", ` from ${a.start}`);
-			}
-			break;
-
-		case "list_files":
-			text += "list_files";
-			if (a.query) {
-				const preview =
-					a.query.length > 40 ? `${a.query.slice(0, 40)}...` : a.query;
-				text += theme.fg("dim", ` "${preview}"`);
-			}
-			break;
-
-		case "get_file":
-			text += "get_file";
-			break;
-
-		case "list_shared_drives":
-			text += "list_shared_drives";
-			break;
-
+			return a.start ? `from ${a.start}` : undefined;
+		case "create_event": {
+			const what = a.summary ? `"${a.summary}"` : "";
+			const when = a.start ? `@ ${a.start}` : "";
+			return [what, when].filter(Boolean).join(" ") || undefined;
+		}
+		case "check_availability": {
+			const people = a.attendees ?? [];
+			const names = people.slice(0, 3).join(", ");
+			const more = people.length > 3 ? ` +${people.length - 3} more` : "";
+			const who = names ? `${names}${more}` : "";
+			const when = a.start ? `from ${a.start}` : "";
+			return [who, when].filter(Boolean).join(" ") || undefined;
+		}
 		default:
-			text += action;
-			if (a.query) {
-				const preview =
-					a.query.length > 40 ? `${a.query.slice(0, 40)}...` : a.query;
-				text += theme.fg("dim", ` "${preview}"`);
-			}
+			return a.query ? `"${a.query}"` : undefined;
 	}
-
-	return drawInto(reuse, text);
 }
