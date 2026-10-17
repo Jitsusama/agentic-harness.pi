@@ -64,6 +64,7 @@ import { systemFacts } from "../../lib/subagent/lease.ts";
 import { recoverReviewerRuns } from "../../lib/subagent/recovery.ts";
 import { createSupervisorRunPi } from "../../lib/subagent/runpi/supervisor.ts";
 import { THINKING_LEVELS } from "../../lib/thinking/index.ts";
+import { type Aside, asideFor } from "../../lib/ui/aside.ts";
 import { count } from "../../lib/ui/count.ts";
 import { drawInto } from "../../lib/ui/tool-call.ts";
 import {
@@ -172,6 +173,7 @@ const MOST_WARNINGS = 5;
 async function recordOrSay(
 	work: () => Promise<void>,
 	cost: string,
+	say: Aside,
 ): Promise<void> {
 	try {
 		// Called here rather than taken as a started promise, so a
@@ -179,7 +181,7 @@ async function recordOrSay(
 		// meant for rather than escaping past it.
 		await work();
 	} catch (error) {
-		console.error(
+		say(
 			`[subagent-workflow] ${cost}: ${error instanceof Error ? error.message : String(error)}`,
 		);
 	}
@@ -231,7 +233,7 @@ async function exists(path: string): Promise<boolean> {
  * expensive model against a wall clock nothing is watching, and the
  * pid was only ever known to the process that died.
  */
-async function stopOrphanedSubagents(runs: string): Promise<void> {
+async function stopOrphanedSubagents(runs: string, say: Aside): Promise<void> {
 	try {
 		const { reaped, stale, warnings } = await recoverReviewerRuns(
 			new ReviewerArtifactsStore(runs),
@@ -252,7 +254,7 @@ async function stopOrphanedSubagents(runs: string): Promise<void> {
 		// nothing empties this population and the same line would
 		// otherwise be printed at every session start forever.
 		if (stale.length > 0) {
-			console.error(
+			say(
 				`[subagent-workflow] asked ${count(stale.length, "subagent")} whose supervisor had died to stop${reaped.length > 0 ? `, and killed ${count(reaped.length, "child", "children")} still holding on` : ""}: ${stale
 					.map((one) => `${one.runId}/${one.reviewerId}`)
 					.join(", ")}`,
@@ -261,12 +263,12 @@ async function stopOrphanedSubagents(runs: string): Promise<void> {
 		// Capped for the reason the sweep's are: what produces these is
 		// rarely one run.
 		for (const warning of warnings.slice(0, MOST_WARNINGS)) {
-			console.error(`[subagent-workflow] orphaned subagents: ${warning}`);
+			say(`[subagent-workflow] orphaned subagents: ${warning}`);
 		}
 	} catch (error) {
 		// Advisory, like the sweep beside it: a session that cannot
 		// check for orphans is still a session.
-		console.error(
+		say(
 			`[subagent-workflow] could not look for orphaned subagents: ${error instanceof Error ? error.message : String(error)}`,
 		);
 	}
@@ -279,7 +281,11 @@ async function stopOrphanedSubagents(runs: string): Promise<void> {
  * four policies in a row and a handler should say which ones rather
  * than be them.
  */
-async function sweepFleetRuns(runs: string, fleets: string): Promise<void> {
+async function sweepFleetRuns(
+	runs: string,
+	fleets: string,
+	say: Aside,
+): Promise<void> {
 	const transcripts = join(runs, "runs");
 	const ledger = createFleetLedger(fleets);
 	try {
@@ -298,7 +304,7 @@ async function sweepFleetRuns(runs: string, fleets: string): Promise<void> {
 			// not open: a fleet's transcripts are the only copy of what it
 			// said, so sweeping without knowing which are spoken for
 			// deletes exactly the work this protects.
-			console.error(
+			say(
 				`[subagent-workflow] fleet runs will not be swept while ${unreadable.join(", ")} cannot be read, because nothing can then say which fleets nobody has collected. Nothing repairs those files on their own, so this holds for every session until they are fixed or moved aside.`,
 			);
 			return;
@@ -313,7 +319,7 @@ async function sweepFleetRuns(runs: string, fleets: string): Promise<void> {
 		// still the only copy: nothing is swept that was not first captured.
 		const protect = new Set([...open, ...digested.failed]);
 		if (digested.failed.size > 0) {
-			console.error(
+			say(
 				`[subagent-workflow] kept ${count(digested.failed.size, "fleet")} back from the sweep because ${digested.failed.size === 1 ? "its stream" : "their streams"} could not be digested, and a stream is the only copy of what a subagent did: ${[...digested.failed].join(", ")}`,
 			);
 		}
@@ -355,7 +361,7 @@ async function sweepFleetRuns(runs: string, fleets: string): Promise<void> {
 			}
 			const one = worthReading.length === 1;
 			if (worthReading.length > 0) {
-				console.error(
+				say(
 					`[subagent-workflow] ${count(worthReading.length, "fleet")} of the ${swept.held} being held ${one ? "was" : "were"} dispatched by a session that never came back, so ${one ? "its transcripts under" : "their transcripts under"} ${transcripts} will never be reclaimed: ${worthReading.join(", ")}. Delete a fleet's file under ${fleets} to release the one it names.`,
 				);
 			}
@@ -364,10 +370,10 @@ async function sweepFleetRuns(runs: string, fleets: string): Promise<void> {
 		// permissions change lands on all of them at once, and the two
 		// lines above carry decisions somebody has to see.
 		for (const warning of swept.warnings.slice(0, MOST_WARNINGS)) {
-			console.error(`[subagent-workflow] fleet runs: ${warning}`);
+			say(`[subagent-workflow] fleet runs: ${warning}`);
 		}
 		if (swept.warnings.length > MOST_WARNINGS) {
-			console.error(
+			say(
 				`[subagent-workflow] and ${swept.warnings.length - MOST_WARNINGS} more like it, which together say ${transcripts} is not writable rather than that one fleet is stuck.`,
 			);
 		}
@@ -383,7 +389,7 @@ async function sweepFleetRuns(runs: string, fleets: string): Promise<void> {
 		// exists: this is the failure that reclaims nothing at all, so
 		// reporting the one that misses a single directory and hiding
 		// this one gets the priority backwards.
-		console.error(
+		say(
 			`[subagent-workflow] fleet runs were not swept: ${error instanceof Error ? error.message : String(error)}`,
 		);
 	}
@@ -407,7 +413,7 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 	// resolve against the environment each time they are called and
 	// this runs unawaited, so a lookup after the first await is a
 	// lookup against whatever the environment says by then.
-	pi.on("session_start", () => {
+	pi.on("session_start", (_event, ctx) => {
 		// Not returned. Nothing about reclaiming disk should delay a
 		// session, and the sibling extension does the same: a handler
 		// that awaits this makes every start wait on a directory walk.
@@ -417,9 +423,12 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 		// recreates as a stub the very directory that was just reclaimed.
 		const runs = stateDir();
 		const fleets = fleetDir();
+		// Through the session's screen, never straight to the terminal,
+		// which pi is drawing (lib/ui/aside.ts).
+		const say = asideFor(ctx);
 		void (async () => {
-			await sweepFleetRuns(runs, fleets);
-			await stopOrphanedSubagents(runs);
+			await sweepFleetRuns(runs, fleets, say);
+			await stopOrphanedSubagents(runs, say);
 		})();
 	});
 	let runPi: ReturnType<typeof createSupervisorRunPi> | null = null;
@@ -654,6 +663,7 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 		},
 		async execute(_toolCallId, params, toolSignal, _onUpdate, ctx) {
 			const runId = params.runId ?? `fleet-${randomUUID()}`;
+			const say = asideFor(ctx);
 			const sized = await sizeFleet(ctx, params.jobs, params.defaults);
 			if ("refusal" in sized) {
 				return {
@@ -703,18 +713,22 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 				// effort because bookkeeping must not cost a fleet: the cost
 				// of failing to write is that one fleet goes unprotected, and
 				// the cost of throwing is that it never runs at all.
-				await recordOrSay(async () => {
-					// Asked inside the guard, since it forks a subprocess and
-					// bookkeeping must not cost a fleet: outside it, a `ps`
-					// that hung or threw took the dispatch with it.
-					const owner = await ourOwner();
-					await ledger.open({
-						id: runId,
-						startedAt: new Date().toISOString(),
-						jobs: assignments.map((one) => one.spec.id),
-						...(owner ? { owner } : {}),
-					});
-				}, `could not write ${runId} down before dispatching it, so the sweep will not know to keep its transcripts`);
+				await recordOrSay(
+					async () => {
+						// Asked inside the guard, since it forks a subprocess and
+						// bookkeeping must not cost a fleet: outside it, a `ps`
+						// that hung or threw took the dispatch with it.
+						const owner = await ourOwner();
+						await ledger.open({
+							id: runId,
+							startedAt: new Date().toISOString(),
+							jobs: assignments.map((one) => one.spec.id),
+							...(owner ? { owner } : {}),
+						});
+					},
+					`could not write ${runId} down before dispatching it, so the sweep will not know to keep its transcripts`,
+					say,
+				);
 				// Once for the run, before any of its jobs are prepared. A run
 				// id comes round again whenever a caller supplies one, and the
 				// supervisor stops the moment it sees a cancellation, so a run
@@ -723,6 +737,7 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 				await recordOrSay(
 					() => new ReviewerArtifactsStore(runs).beginRun(runId),
 					`could not clear an earlier cancellation of ${runId}, so its jobs may stop the moment they start`,
+					say,
 				);
 				// What, if anything, was cut off before it could answer. Set
 				// inside the try and read in the finally, because the finally
@@ -781,13 +796,14 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 					// cancelled entries in it, so a guard reading the signal
 					// alone released every fleet a person actually stopped.
 					if (cutOff !== undefined) {
-						console.error(
+						say(
 							`[subagent-workflow] ${cutOff} in ${runId}, so its transcripts under ${join(runs, "runs")} are held rather than reclaimed. Delete ${join(fleets, `${safeSegment(runId)}.json`)} once you have read them or given up on them.`,
 						);
 					} else {
 						await recordOrSay(
 							() => ledger.settle(runId),
 							`could not settle ${runId}, so whatever transcripts it left are held until its file under ${fleets} is cleared`,
+							say,
 						);
 					}
 				}

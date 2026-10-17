@@ -35,6 +35,13 @@ import { activateWith } from "../support/review-extension.ts";
 
 let root: string;
 let said: string[];
+let behind: string[];
+
+/** A session with a screen, whose notices are what the person is told. */
+const screen = {
+	hasUI: true,
+	ui: { notify: (text: string) => said.push(text) },
+};
 
 beforeEach(() => {
 	root = mkdtempSync(join(tmpdir(), "fleet-sweep-"));
@@ -44,12 +51,17 @@ beforeEach(() => {
 	// The person's own config is not this test's to read.
 	vi.stubEnv("XDG_CONFIG_HOME", join(root, "config"));
 	said = [];
+	behind = [];
+	// Anything written to the terminal directly lands in pi's editor and
+	// throws its picture of the screen out (lib/ui/aside.ts), so it is
+	// kept apart from what the person is told, and must stay empty.
 	vi.spyOn(console, "error").mockImplementation((line: unknown) => {
-		said.push(String(line));
+		behind.push(String(line));
 	});
 });
 
 afterEach(() => {
+	expect(behind).toEqual([]);
 	vi.unstubAllEnvs();
 	vi.restoreAllMocks();
 	rmSync(root, { recursive: true, force: true });
@@ -115,7 +127,7 @@ async function startSession(): Promise<void> {
 	if (started === undefined) {
 		throw new Error("the extension registered no session_start on pi.on");
 	}
-	await started({ reason: "startup" }, {});
+	await started({ reason: "startup" }, screen);
 }
 
 describe("a fleet child whose supervisor died", () => {

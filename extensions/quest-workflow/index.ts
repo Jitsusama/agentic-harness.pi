@@ -46,6 +46,7 @@ import { registerStandingContext } from "../../lib/prompt/index.ts";
 import { registerBuiltinUrlFetchers } from "../../lib/quest/index.ts";
 import { registerBuiltinRefTypes } from "../../lib/refs/index.ts";
 import { registerBuiltinTerminalDrivers } from "../../lib/terminal/index.ts";
+import { asideFor } from "../../lib/ui/aside.ts";
 import { count, drawInto, firstText } from "../../lib/ui/index.ts";
 import { QUEST_ACTIONS } from "./actions.ts";
 import { answerTreeClaims } from "./claims.ts";
@@ -655,20 +656,19 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		// can run the migrator (or fix by hand) rather than
 		// noticing later that a quest "vanished."
 		const { errors } = discoverQuests(state.questsRoot);
+		// As one notice through the session's screen, never straight to
+		// the terminal, which pi is drawing (lib/ui/aside.ts).
 		if (errors.length > 0) {
 			const preview = errors.slice(0, 5);
-			console.error(
+			const lines = [
 				`[quest-workflow] discovery surfaced ${count(errors.length, "layout error")}:`,
-			);
-			for (const err of preview) {
-				console.error(`  ${err.path}: ${err.message}`);
-			}
-			if (errors.length > preview.length) {
-				console.error(`  ... and ${errors.length - preview.length} more`);
-			}
-			console.error(
+				...preview.map((err) => `  ${err.path}: ${err.message}`),
+				...(errors.length > preview.length
+					? [`  and ${errors.length - preview.length} more`]
+					: []),
 				"Run `scripts/migrate-quests-canonical.ts --dry-run` to inspect, then drop --dry-run to apply.",
-			);
+			];
+			asideFor(ctx)(lines.join("\n"));
 		}
 
 		// Resolve which quest to load through the one startup
