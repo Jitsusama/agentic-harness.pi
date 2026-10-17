@@ -50,8 +50,12 @@ export function renderMarkdown(
  * Render unified diff output with colouring.
  *
  * + lines → success (green), - lines → error (red),
- * @@ headers → accent, file headers → bold,
+ * @@ headers → dim, file headers → bold,
  * context → default text.
+ *
+ * A hunk's header is structure, as the `diff --git` line above it is, so
+ * it is dim too. It was in the accent, which is where the keys go, and a
+ * diff of five hunks drew five places to look that no key reaches.
  */
 export function renderDiff(
 	text: string,
@@ -68,7 +72,7 @@ export function renderDiff(
 		} else if (line.startsWith("--- ") || line.startsWith("+++ ")) {
 			themed = theme.bold(` ${line}`);
 		} else if (line.startsWith("@@")) {
-			themed = theme.fg("accent", ` ${line}`);
+			themed = theme.fg("dim", ` ${line}`);
 		} else if (line.startsWith("+")) {
 			themed = theme.fg("toolDiffAdded", ` ${line}`);
 		} else if (line.startsWith("-")) {
