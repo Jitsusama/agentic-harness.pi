@@ -27,6 +27,7 @@ import {
 	optionValue,
 	renderOptionList,
 } from "./option-list.ts";
+import { OUTCOME_GLYPH } from "./outcome-glyphs.ts";
 import { computeChromeLines, renderFooter } from "./panel-layout.ts";
 import {
 	contentBudget,
@@ -726,8 +727,8 @@ export async function showTabbedPrompt(
 			title: config.title ?? "A batch of decisions",
 			verdict: (result) =>
 				result === null
-					? "\u2717 cancelled"
-					: `\u2713 answered ${result.items.size} of ${config.items.length}`,
+					? `${OUTCOME_GLYPH.cancelled} cancelled`
+					: `${OUTCOME_GLYPH.done} answered ${result.items.size} of ${config.items.length}`,
 			onShow: () => report(renderProgressBar(0, config.items.length)),
 			onGone: () => report(undefined),
 		},

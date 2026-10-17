@@ -83,6 +83,8 @@ export {
 	renderNavigableList,
 	renderNavigableSections,
 } from "./navigable-list.ts";
+// ── Endings ────────────────────────────────────────────────
+export { OUTCOME_GLYPH, type Outcome } from "./outcome-glyphs.ts";
 // ── Panel interaction ───────────────────────────────────────
 export {
 	promptSingle,

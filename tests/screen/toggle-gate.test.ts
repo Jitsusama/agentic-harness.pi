@@ -195,7 +195,7 @@ describe("a toggle list raised by a tool", () => {
 		await turnEnds(session);
 
 		expect(answers).toEqual([opening(3)]);
-		expect(await session.inBuffer("✗ nothing changed")).toBe(1);
+		expect(await session.inBuffer("− nothing changed")).toBe(1);
 		expect(session.editorFocused()).toBe(true);
 		await expectClean(session);
 	});

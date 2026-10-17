@@ -32,6 +32,7 @@ import type {
 	SubagentUsage,
 } from "../../lib/subagent/subagent.ts";
 import { runSubagent } from "../../lib/subagent/subagent.ts";
+import { AGENT_GLYPH } from "../../lib/ui/agent-glyphs.ts";
 import { noun } from "../../lib/ui/count.ts";
 import {
 	type FleetCancellationRegistry,
@@ -507,7 +508,7 @@ export function formatFleetSummary(result: FleetRunResult): string {
 	const lines: string[] = [headerParts.join(" · ")];
 	for (const failure of failures) {
 		const reason = failure.error ?? "unknown failure";
-		lines.push(`  ✗ ${failure.id}: ${reason}`);
+		lines.push(`  ${AGENT_GLYPH.failed} ${failure.id}: ${reason}`);
 	}
 	// Surface where the full per-subagent output lives. Without this
 	// the summary reads as the whole result, when in fact each

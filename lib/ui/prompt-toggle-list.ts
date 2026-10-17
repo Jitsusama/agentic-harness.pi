@@ -7,6 +7,7 @@ import {
 	type NavigableSection,
 	renderNavigableSections,
 } from "./navigable-list.ts";
+import { OUTCOME_GLYPH } from "./outcome-glyphs.ts";
 import { computeChromeLines, dockedFooter } from "./panel-layout.ts";
 import { panelRoom } from "./panel-room.ts";
 import {
@@ -155,7 +156,9 @@ function verdictOf(
 	const changes = Object.entries(after).filter(
 		([id, value]) => before[id] !== value,
 	).length;
-	return changes === 0 ? "\u2717 nothing changed" : `\u2713 ${changes} changed`;
+	return changes === 0
+		? `${OUTCOME_GLYPH.cancelled} nothing changed`
+		: `${OUTCOME_GLYPH.done} ${changes} changed`;
 }
 
 function toggleListPanel(

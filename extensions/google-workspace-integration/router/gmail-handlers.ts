@@ -26,6 +26,7 @@ import {
 	type ToolResult,
 } from "@jitsusama/agentic-harness.core/google/types";
 import type { OAuth2Client } from "google-auth-library";
+import { OUTCOME_GLYPH } from "../../../lib/ui/outcome-glyphs.ts";
 import { confirmDeleteEmail, confirmSendEmail } from "../confirmation.ts";
 
 /** Search Gmail messages using a query string. */
@@ -130,7 +131,12 @@ export async function handleSendEmail(
 
 	if (!confirmResult) {
 		return {
-			content: [{ type: "text", text: "✗ Send email cancelled" }],
+			content: [
+				{
+					type: "text",
+					text: `${OUTCOME_GLYPH.cancelled} Send email cancelled`,
+				},
+			],
 		};
 	}
 	if (!confirmResult.approved) {
@@ -225,7 +231,9 @@ export async function handleDeleteEmail(
 	const confirmResult = await confirmDeleteEmail(ctx, id);
 	if (!confirmResult) {
 		return {
-			content: [{ type: "text", text: "✗ Delete cancelled" }],
+			content: [
+				{ type: "text", text: `${OUTCOME_GLYPH.cancelled} Delete cancelled` },
+			],
 		};
 	}
 	if (!confirmResult.approved) {

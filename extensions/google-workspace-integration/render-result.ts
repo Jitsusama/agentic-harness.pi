@@ -4,7 +4,12 @@
 
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { Text } from "@earendil-works/pi-tui";
-import { count, drawInto, firstText } from "../../lib/ui/index.ts";
+import {
+	count,
+	drawInto,
+	firstText,
+	OUTCOME_GLYPH,
+} from "../../lib/ui/index.ts";
 
 interface RenderOptions {
 	terminalWidth?: number;
@@ -93,13 +98,13 @@ function resultText(
 		return theme.fg("error", errorMsg);
 	}
 
-	// We check for cancellations.
+	// We check for cancellations, which neither passed nor failed.
 	if (
-		textContent.startsWith("✗") ||
+		textContent.startsWith(OUTCOME_GLYPH.cancelled) ||
 		textContent.includes("cancelled") ||
 		textContent.includes("canceled")
 	) {
-		return theme.fg("warning", textContent.split("\n")[0]);
+		return theme.fg("dim", textContent.split("\n")[0]);
 	}
 
 	// Gmail list results
@@ -344,7 +349,7 @@ function renderFreeBusyResult(
 				const busy = cal.busy?.length ?? 0;
 				const status =
 					cal.errors && cal.errors.length > 0
-						? "⚠️ error"
+						? `${OUTCOME_GLYPH.failed} error`
 						: busy === 0
 							? "free"
 							: `${busy} busy`;

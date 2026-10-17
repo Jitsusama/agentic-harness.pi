@@ -30,6 +30,8 @@
  * tick, a dash and a cross, because those are the marks that exist.
  */
 
+import { OUTCOME_GLYPH } from "./outcome-glyphs.ts";
+
 /** Where one spawned agent has got to. */
 export type AgentState =
 	| "pending"
@@ -39,22 +41,23 @@ export type AgentState =
 	| "failed";
 
 /**
- * The mark for each state, and the only place these five are spelled.
+ * The mark for each state, and the only place the two still under way
+ * are spelled.
  *
- * The cross is deliberately the one review already uses for a failed
- * anything, under that same name, because two marks for failure in one
- * session is the fault this set exists to end rather than a detail.
+ * How a run ended is how anything asked ended, so those three are the
+ * outcome marks, the cross the one review already uses for a failed
+ * anything, because two marks for failure in one session is the fault
+ * this set exists to end rather than a detail.
  */
 export const AGENT_GLYPH: Record<AgentState, string> = {
 	// Hollow and small: accepted, nothing spent on it yet.
 	pending: "\u25e6",
 	// Sent away, which is the whole of what a spawned agent is doing.
 	running: "\u2192",
-	done: "\u2713",
-	// Neither a tick nor a cross, because a run somebody stopped did not
-	// pass and did not fail. The fleet used a middle dot, which is the
-	// separator between every field on the same line, so the mark for a
-	// cancelled subagent and the punctuation beside it were one glyph.
-	cancelled: "\u2212",
-	failed: "\u2715",
+	done: OUTCOME_GLYPH.done,
+	// The fleet used a middle dot, which is the separator between every
+	// field on the same line, so the mark for a cancelled subagent and the
+	// punctuation beside it were one glyph.
+	cancelled: OUTCOME_GLYPH.cancelled,
+	failed: OUTCOME_GLYPH.failed,
 };

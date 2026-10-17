@@ -59,6 +59,7 @@ import {
 } from "@jitsusama/agentic-harness.core/slack/types";
 import type { GateDeps } from "../../lib/gate/index.ts";
 import { count, verb } from "../../lib/ui/count.ts";
+import { OUTCOME_GLYPH } from "../../lib/ui/outcome-glyphs.ts";
 import { boundedAnswer } from "./bounded.ts";
 import {
 	confirmEditMessage,
@@ -660,7 +661,8 @@ async function handleSendMessage(
 		effectiveText,
 		tableParam,
 	);
-	if (!confirmed) return text("✗ Send message cancelled.");
+	if (!confirmed)
+		return text(`${OUTCOME_GLYPH.cancelled} Send message cancelled.`);
 	if (!confirmed.approved) return text(confirmed.redirect);
 
 	const result = await sendMessage(
@@ -696,7 +698,7 @@ async function handleReplyToThread(
 	if (hasMessages) {
 		if (msgText || filePaths.length > 0 || tableParam) {
 			return text(
-				"\u2717 Cannot combine `messages` with `text`, file or table params. " +
+				`${OUTCOME_GLYPH.failed} Cannot combine \`messages\` with \`text\`, file or table params. ` +
 					"Use `messages` for queued replies, or the single-reply params for one reply.",
 			);
 		}
@@ -758,7 +760,7 @@ async function handleReplyToThread(
 		effectiveText,
 		tableParam,
 	);
-	if (!confirmed) return text("✗ Reply cancelled.");
+	if (!confirmed) return text(`${OUTCOME_GLYPH.cancelled} Reply cancelled.`);
 	if (!confirmed.approved) return text(confirmed.redirect);
 
 	const result = await replyToThread(
@@ -791,7 +793,7 @@ async function handleEditMessage(
 	// silently disappear from its plan.
 	if (collectFilePaths(params).length > 0) {
 		return text(
-			"✗ edit_message cannot change file attachments. " +
+			`${OUTCOME_GLYPH.failed} edit_message cannot change file attachments. ` +
 				"Slack's chat.update API only updates text and blocks. " +
 				"Delete the message and re-upload if attachments need to change.",
 		);
@@ -832,7 +834,7 @@ async function handleEditMessage(
 		effectiveText,
 		tableParam,
 	);
-	if (!confirmed) return text("✗ Edit cancelled.");
+	if (!confirmed) return text(`${OUTCOME_GLYPH.cancelled} Edit cancelled.`);
 	if (!confirmed.approved) return text(confirmed.redirect);
 
 	const result = await editMessage(
@@ -864,7 +866,7 @@ async function handleAddReaction(
 		emoji,
 		"add",
 	);
-	if (!confirmed) return text("✗ Reaction cancelled.");
+	if (!confirmed) return text(`${OUTCOME_GLYPH.cancelled} Reaction cancelled.`);
 	if (!confirmed.approved) return text(confirmed.redirect);
 
 	await addReaction(
@@ -895,7 +897,8 @@ async function handleRemoveReaction(
 		emoji,
 		"remove",
 	);
-	if (!confirmed) return text("✗ Reaction removal cancelled.");
+	if (!confirmed)
+		return text(`${OUTCOME_GLYPH.cancelled} Reaction removal cancelled.`);
 	if (!confirmed.approved) return text(confirmed.redirect);
 
 	await removeReaction(
@@ -1007,8 +1010,8 @@ async function dispatchThread(
 
 	const isReplyMode = existingParentTs !== undefined;
 	const cancelLabel = isReplyMode
-		? "\u2717 Queued replies cancelled."
-		: "\u2717 Send thread cancelled.";
+		? `${OUTCOME_GLYPH.cancelled} Queued replies cancelled.`
+		: `${OUTCOME_GLYPH.cancelled} Send thread cancelled.`;
 	const noun = isReplyMode ? "replies" : "thread";
 
 	const confirmed = await confirmSendThread(
@@ -1055,7 +1058,7 @@ async function dispatchThread(
 			} else {
 				if (!parentTs) {
 					return text(
-						`\u2717 ${noun} failed: missing parent thread timestamp. ` +
+						`${OUTCOME_GLYPH.failed} ${noun} failed: missing parent thread timestamp. ` +
 							`Sent ${sent} of ${parsed.length} messages.`,
 					);
 				}
@@ -1065,7 +1068,7 @@ async function dispatchThread(
 		} catch (error) {
 			const reason = error instanceof Error ? error.message : String(error);
 			return text(
-				`\u2717 ${noun} failed at message ${i + 1} of ${parsed.length}: ${reason}. ` +
+				`${OUTCOME_GLYPH.failed} ${noun} failed at message ${i + 1} of ${parsed.length}: ${reason}. ` +
 					`${count(sent, "message")} ${verb(sent, "was", "were")} already sent.`,
 			);
 		}
@@ -1237,7 +1240,7 @@ async function handleFileUpload(
 		initialComment,
 		threadTs,
 	);
-	if (!confirmed) return text("✗ Upload cancelled.");
+	if (!confirmed) return text(`${OUTCOME_GLYPH.cancelled} Upload cancelled.`);
 	if (!confirmed.approved) return text(confirmed.redirect);
 
 	const result = await uploadFiles(client, filePaths, {

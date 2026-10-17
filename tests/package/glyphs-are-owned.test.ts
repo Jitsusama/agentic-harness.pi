@@ -38,6 +38,9 @@ const OWNED_SURFACES = [
 	// drawing subagents in quest's diamonds without anything noticing:
 	// this list is what notices, and that file was never in it.
 	"lib/ui/agent-glyphs.ts",
+	// How anything asked ended, which the spawned-work marks take their
+	// three endings from.
+	"lib/ui/outcome-glyphs.ts",
 	"extensions/work-integration/render.ts",
 	"extensions/quest-workflow/render.ts",
 	// The footer's marks, for every extension that says something on the
