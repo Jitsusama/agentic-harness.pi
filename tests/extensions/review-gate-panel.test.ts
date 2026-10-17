@@ -199,6 +199,28 @@ describe("drawing a write gate", () => {
 		expect(plain).toBe(styled);
 	});
 
+	it("sets each speaker apart from what they said", () => {
+		// A thread is several voices, and the eye goes down it by name: the
+		// name in the text's colour, its words muted, and a wrapped remark's
+		// later lines muted throughout.
+		const panel: GatePanel = {
+			destination: "shop/world#2000980",
+			context: [
+				{ who: "C1 binks", body: longBody(12) },
+				{ who: "C2 joel", body: "agreed" },
+			],
+		};
+		const rows = gateLines(panel, fakeTheme(), 60);
+		const said = rows.filter((row) => row.includes("<text>"));
+		expect(said).toEqual([
+			expect.stringMatching(/^ <text> {3}C1 binks:<\/text><muted> /),
+			` <text>   C2 joel:</text><muted> agreed</muted>`,
+		]);
+		expect(
+			rows.filter((row) => row.includes("<muted>")).length,
+		).toBeGreaterThan(3);
+	});
+
 	it("breaks its lines where the screen did when quoted plain", () => {
 		// The screen lays out inside its margin, so the quote must too, or a
 		// row that wraps on screen arrives at the model whole, and the

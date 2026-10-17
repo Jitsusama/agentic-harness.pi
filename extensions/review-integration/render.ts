@@ -194,10 +194,14 @@ export function gateLines(
 			renderMarkdown(text, theme, room + 1).map((line) =>
 				line.startsWith(" ") ? line.slice(1) : line,
 			));
-	return laid(panel, width, body).map(
-		(row) =>
-			`${MARGIN}${row.muted && row.text ? theme.fg("muted", row.text) : row.text}`,
-	);
+	return laid(panel, width, body).map((row) => {
+		if (!row.muted || !row.text) return `${MARGIN}${row.text}`;
+		// Who said a remark in the text's colour, what they said muted, so
+		// each voice in a thread is found by its name.
+		const said = row.speaker ?? 0;
+		const lead = row.text.slice(0, said);
+		return `${MARGIN}${lead && theme.fg("text", lead)}${theme.fg("muted", row.text.slice(said))}`;
+	});
 }
 
 /**
@@ -244,10 +248,14 @@ function laid(
  */
 export type BodyRenderer = (body: string, width: number) => string[];
 
-/** One line of a gate, and whether it is chrome or the thing itself. */
+/**
+ * One line of a gate, whether it is chrome or the thing itself, and on a
+ * remark's first line, how far its speaker's name runs.
+ */
 interface GateRow {
 	text: string;
 	muted?: boolean;
+	speaker?: number;
 }
 
 /** The layout, once, before anything decides how to colour it. */
@@ -369,7 +377,11 @@ function quoted(quote: GateQuote, room: number): GateRow[] {
 	const wrapped = wordWrap(`${quote.who}: ${quote.body}`, room);
 	const kept = wrapped.slice(0, QUOTE_LINES);
 	if (wrapped.length > QUOTE_LINES) kept.push("\u2026");
-	return inset(kept).map((text) => ({ text, muted: true }));
+	return inset(kept).map((text, at) => ({
+		text,
+		muted: true,
+		...(at === 0 ? { speaker: INSET.length + quote.who.length + 1 } : {}),
+	}));
 }
 
 /** Hold lines off the margin, leaving blank ones blank. */
