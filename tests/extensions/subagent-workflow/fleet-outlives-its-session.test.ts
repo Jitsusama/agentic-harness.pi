@@ -121,6 +121,11 @@ async function age(path: string): Promise<void> {
 	await utimes(path, long, long);
 }
 
+/** Whether a line is the one naming fleets whose sessions ended. */
+function abandoned(line: string): boolean {
+	return line.includes("from sessions that ended");
+}
+
 /** Start the session the way pi starts one. */
 async function startSession(): Promise<void> {
 	const started = activateWith(subagentWorkflow).lifecycle.get("session_start");
@@ -407,9 +412,9 @@ describe("the fleet retention sweep", () => {
 		await startSession();
 
 		await vi.waitFor(() => {
-			const about = said.filter((line) => line.includes("never came back"));
+			const about = said.filter(abandoned);
 			expect(about).toHaveLength(1);
-			expect(about[0]).toContain("3 fleets of the 5");
+			expect(about[0]).toContain("3 fleets from sessions that ended");
 			// Named, so somebody can act on one rather than on the count.
 			// The two still running are not named, since the only lever
 			// offered here would unprotect them.
@@ -451,7 +456,49 @@ describe("the fleet retention sweep", () => {
 		await startSession();
 
 		await finished();
-		expect(said.filter((line) => line.includes("never came back"))).toEqual([]);
+		expect(said.filter(abandoned)).toEqual([]);
+	});
+
+	it("names abandoned fleets once, and again when another joins", async () => {
+		// Nothing empties this population but a person, so a line said
+		// at every session start is one nobody reads.
+		const ledger = createFleetLedger(stateDir("fleets"));
+		const dead = noSuchProcess();
+		const abandon = async (id: string) => {
+			await ledger.open({
+				id,
+				startedAt: new Date().toISOString(),
+				jobs: ["one"],
+				owner: { pid: dead, startedAt: 1_000 },
+			});
+			await age(staleFleet(id));
+		};
+		for (let n = 0; n < 5; n++) await abandon(`fleet-${n}`);
+		const store = new ReviewerArtifactsStore(stateDir());
+
+		await startSession();
+		await vi.waitFor(() => expect(said.filter(abandoned)).toHaveLength(1));
+
+		// The same five, a session later, are not said again. The orphan
+		// is announced after this decision, so it is what proves the
+		// decision was made.
+		said = [];
+		await alsoOrphaned(store);
+		await startSession();
+		await finished();
+		expect(said.filter(abandoned)).toEqual([]);
+
+		// A sixth joins, and all six are named.
+		said = [];
+		await abandon("fleet-5");
+		await startSession();
+		await vi.waitFor(() => {
+			const about = said.filter(abandoned);
+			expect(about).toHaveLength(1);
+			expect(about[0]).toContain("6 fleets");
+			expect(about[0]).toContain("fleet-0");
+			expect(about[0]).toContain("fleet-5");
+		});
 	});
 
 	it("says nothing about fleets the ledger holds but the disk does not", async () => {

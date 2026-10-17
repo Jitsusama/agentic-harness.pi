@@ -36,7 +36,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -152,6 +152,15 @@ const FLEET_RUNS_ABANDONED_AFTER_MS = 4 * FLEET_RUNS_MAX_AGE_MS;
  */
 const FLEETS_HELD_BEFORE_SAYING = 5;
 /**
+ * Where the abandoned fleets last named are noted, beside the
+ * transcripts they hold.
+ *
+ * Nothing empties that population but a person, so without a note the
+ * same line opens every session until somebody acts, and a line said at
+ * every start is one nobody reads. It is said again when a fleet joins.
+ */
+const ABANDONED_SAID = "abandoned-said.json";
+/**
  * How many sweep failures to print before summarizing the rest.
  *
  * These arrive per run directory, and what causes them is rarely one
@@ -204,6 +213,23 @@ async function ourOwner(): Promise<FleetRun["owner"]> {
 
 /** What {@link ourOwner} has settled on, once it has. */
 let waiting: FleetRun["owner"] | undefined;
+
+/**
+ * The abandoned fleets named last time, or none when the note is
+ * missing or will not read, which only costs saying them once more.
+ */
+async function namedBefore(path: string): Promise<Set<string>> {
+	try {
+		const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
+		return new Set(
+			Array.isArray(parsed)
+				? parsed.filter((id): id is string => typeof id === "string")
+				: [],
+		);
+	} catch {
+		return new Set();
+	}
+}
 
 /** Whether a path is there at all. */
 async function exists(path: string): Promise<boolean> {
@@ -359,10 +385,22 @@ async function sweepFleetRuns(
 					worthReading.push(run.id);
 				}
 			}
-			const one = worthReading.length === 1;
-			if (worthReading.length > 0) {
+			const note = join(runs, ABANDONED_SAID);
+			const before = await namedBefore(note);
+			const joined = worthReading.some((id) => !before.has(id));
+			if (joined) {
+				const one = worthReading.length === 1;
 				say(
-					`[subagent-workflow] ${count(worthReading.length, "fleet")} of the ${swept.held} being held ${one ? "was" : "were"} dispatched by a session that never came back, so ${one ? "its transcripts under" : "their transcripts under"} ${transcripts} will never be reclaimed: ${worthReading.join(", ")}. Delete a fleet's file under ${fleets} to release the one it names.`,
+					`[subagent-workflow] ${count(worthReading.length, "fleet")} from sessions that ended ${one ? "is" : "are"} kept under ${transcripts}: ${worthReading.join(", ")}. Delete a fleet's file under ${fleets} to let it go.`,
+				);
+			}
+			// Noted as what is held now rather than added to, so a fleet let
+			// go is forgotten here too. Written only when that changed.
+			if (joined || before.size !== worthReading.length) {
+				await recordOrSay(
+					() => store.writeJsonAtomic(note, worthReading),
+					"could not note which abandoned fleets were named, so they will be named again",
+					say,
 				);
 			}
 		}
