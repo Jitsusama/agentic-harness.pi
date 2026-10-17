@@ -42,7 +42,9 @@ const OWNED_SURFACES = [
 	// three endings from.
 	"lib/ui/outcome-glyphs.ts",
 	"extensions/work-integration/render.ts",
-	"extensions/quest-workflow/render.ts",
+	// A quest's kind and status, which the board and the table of
+	// contents both draw.
+	"lib/internal/quest/quest-marks.ts",
 	// The footer's marks, for every extension that says something on the
 	// one line they all share.
 	"lib/ui/footer-mark.ts",
@@ -177,7 +179,7 @@ describe("glyph ownership across the package", () => {
 			// of changes are one idea seen from two sides.
 			"work-integration": /[\u25a0-\u25af\u2298\u2026\u2261]/,
 			// Diamonds for kind, and the circle statuses a quest has always had.
-			"quest-workflow": /[\u25c0-\u25d5\u2297\u2298]/,
+			"quest-marks": /[\u25c0-\u25d5\u2297\u2298]/,
 			// Anything spawned, wherever it was spawned from. Marks rather
 			// than a shape family, because every geometric family is taken
 			// and the marks a terminal can be relied on to draw are few: the

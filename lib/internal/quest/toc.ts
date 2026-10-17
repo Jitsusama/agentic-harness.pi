@@ -11,8 +11,8 @@
  *
  *     ## 🚀 Driving
  *
- *     - ◆ QEST-... Title One [status]
- *     - ◇ QEST-... Title Two [status]
+ *     - ◆ ○ `QEST-...` Title One
+ *     - ◇ ◐ `QEST-...` Title Two
  *
  *     ## ⚡ Active
  *
@@ -24,12 +24,9 @@
  * trailing section so they don't crowd the live work.
  */
 
-import type {
-	QuestKind,
-	QuestPriority,
-	QuestStatus,
-} from "../../quest/types.ts";
+import type { QuestPriority } from "../../quest/types.ts";
 import type { QuestEntry, QuestIndex } from "./discovery.ts";
+import { QUEST_KIND_MARK, QUEST_STATUS_MARK } from "./quest-marks.ts";
 
 const PRIORITY_LABELS: Array<{ priority: QuestPriority; label: string }> = [
 	{ priority: "driving", label: "🚀 Driving" },
@@ -39,24 +36,10 @@ const PRIORITY_LABELS: Array<{ priority: QuestPriority; label: string }> = [
 	{ priority: "someday", label: "🌌 Someday" },
 ];
 
-const KIND_GLYPHS: Record<QuestKind, string> = {
-	quest: "◆",
-	subquest: "◈",
-	sidequest: "◇",
-};
-
-const PROGRESS_BAR: Record<QuestStatus, string> = {
-	active: "○",
-	paused: "◔",
-	blocked: "◑",
-	concluded: "●",
-	retired: "◕",
-};
-
 function questLine(entry: QuestEntry): string {
 	const fm = entry.doc.frontMatter;
-	const kindGlyph = KIND_GLYPHS[fm.kind] ?? "·";
-	const statusGlyph = PROGRESS_BAR[fm.status] ?? "·";
+	const kindGlyph = QUEST_KIND_MARK[fm.kind] ?? "·";
+	const statusGlyph = QUEST_STATUS_MARK[fm.status] ?? "·";
 	const title = entry.doc.title ?? "(untitled)";
 	return `- ${kindGlyph} ${statusGlyph} \`${fm.id}\` ${title}`;
 }

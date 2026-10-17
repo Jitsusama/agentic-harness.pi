@@ -27,6 +27,10 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
 import type { QuestEntry } from "../../lib/internal/quest/discovery.ts";
+import {
+	QUEST_KIND_MARK,
+	QUEST_STATUS_MARK,
+} from "../../lib/internal/quest/quest-marks.ts";
 import type {
 	DocumentKind,
 	QuestKind,
@@ -34,25 +38,13 @@ import type {
 } from "../../lib/quest/index.ts";
 import type { Stage } from "./machine.ts";
 
-const KIND_GLYPHS: Record<QuestKind, string> = {
-	quest: "\u25c6", // ◆
-	subquest: "\u25c8", // ◈
-	sidequest: "\u25c7", // ◇
-};
-
-type GlyphToken = "dim" | "warning" | "accent" | "success";
-
-interface Glyph {
-	char: string;
-	token: GlyphToken;
-}
-
-const STATUS_GLYPHS: Record<QuestStatus, Glyph> = {
-	active: { char: "\u25cb", token: "warning" }, // ○
-	paused: { char: "\u25d0", token: "dim" }, // ◐
-	blocked: { char: "\u2298", token: "warning" }, // ⊘
-	concluded: { char: "\u25cf", token: "success" }, // ●
-	retired: { char: "\u2297", token: "dim" }, // ⊗
+/** The colour each status's mark is drawn in; the marks are the quest's own. */
+const STATUS_COLOUR: Record<QuestStatus, "dim" | "warning" | "success"> = {
+	active: "warning",
+	paused: "dim",
+	blocked: "warning",
+	concluded: "success",
+	retired: "dim",
 };
 
 /**
@@ -187,10 +179,9 @@ function questMarks(
 	theme: Theme,
 ): string {
 	const marks: string[] = [];
-	if (kind) marks.push(theme.fg("accent", KIND_GLYPHS[kind]));
+	if (kind) marks.push(theme.fg("accent", QUEST_KIND_MARK[kind]));
 	if (status) {
-		const glyph = STATUS_GLYPHS[status];
-		marks.push(theme.fg(glyph.token, glyph.char));
+		marks.push(theme.fg(STATUS_COLOUR[status], QUEST_STATUS_MARK[status]));
 	}
 	return marks.length > 0 ? `${marks.join(" ")} ` : "";
 }

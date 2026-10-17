@@ -10,9 +10,10 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { discoverQuests } from "../../../lib/internal/quest/discovery";
 import { buildMentionIndex } from "../../../lib/internal/quest/mentions";
+import { QUEST_STATUS_MARK } from "../../../lib/internal/quest/quest-marks";
 import { scaffoldQuestReadme } from "../../../lib/internal/quest/scaffold";
 import { renderToc } from "../../../lib/internal/quest/toc";
-import type { QuestFrontMatter } from "../../../lib/quest/types";
+import type { QuestFrontMatter, QuestStatus } from "../../../lib/quest/types";
 import {
 	clearRefTypes,
 	registerBuiltinRefTypes,
@@ -282,6 +283,29 @@ describe("renderToc", () => {
 		const secondIdx = toc.indexOf("Driving second");
 		expect(firstIdx).toBeGreaterThan(-1);
 		expect(secondIdx).toBeGreaterThan(firstIdx);
+	});
+
+	it("marks each status as the quest board does", () => {
+		// The table once drew a filling pie, so a retired quest read three
+		// quarters done and a blocked one half done.
+		const statuses = Object.keys(QUEST_STATUS_MARK) as QuestStatus[];
+		for (const [n, status] of statuses.entries()) {
+			writeQuest({
+				id: `QEST-20260603-${String(n).repeat(6)}`,
+				parent: null,
+				status,
+				title: `Quest ${status}`,
+			});
+		}
+		const toc = renderToc(discoverQuests(root).index);
+
+		for (const status of statuses) {
+			expect(toc).toMatch(
+				new RegExp(
+					`\\u25c6 ${QUEST_STATUS_MARK[status]} \`[^\`]+\` Quest ${status}\n`,
+				),
+			);
+		}
 	});
 
 	it("collapses concluded and retired into a single trailing section", () => {
