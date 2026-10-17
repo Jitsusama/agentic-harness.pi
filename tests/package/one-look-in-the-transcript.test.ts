@@ -29,6 +29,7 @@ import { roundBoard } from "../../extensions/review-integration/progress.ts";
 import slack from "../../extensions/slack-integration/index.ts";
 import { fleetBoard } from "../../extensions/subagent-workflow/progress-render.ts";
 import web from "../../extensions/web-search-integration/index.ts";
+import { boardLines, fitBoard } from "../../lib/ui/board.ts";
 import { fakeTheme } from "../lib/ui/fake-theme.ts";
 
 const theme = fakeTheme();
@@ -236,5 +237,86 @@ describe("a board of spawned work", () => {
 		// own colour, and a wrap round the whole row ended with it.
 		expect(board.rows[0]).toContain("<accent>one");
 		expect(board.rows[1]).not.toContain("<accent>");
+	});
+
+	const entry = (id: string) => ({
+		spec: { id },
+		state: "running" as const,
+		warnings: [],
+		error: "",
+		activity: "",
+	});
+
+	it("holds no accent while the keys are in the editor", () => {
+		// With something on the rule's right and without, since the rule
+		// fills differently for each. Wide, since the fake theme's markers
+		// count as width and would crowd the right out at 80.
+		for (const notice of ["", "Ctrl+Alt+N to manage"]) {
+			const board = fleetBoard([entry("one"), entry("two")], theme, {
+				selected: -1,
+				notice,
+			});
+			const lines = boardLines(board, theme, 400, false);
+			expect(lines[0]).toContain(notice);
+			expect(lines.join("\n")).not.toContain("<accent>");
+			expect(fitBoard(board, theme, 400, false, 2).join("\n")).not.toContain(
+				"<accent>",
+			);
+		}
+	});
+
+	it("rules its title in the border colour, as a gate does, focused or not", () => {
+		const board = fleetBoard([entry("one")], theme, {
+			selected: 0,
+			notice: "",
+			hop: { presses: 0, next: undefined },
+		});
+		const [rule] = boardLines(board, theme, 400, true);
+		expect(rule).toMatch(/^<border>\u2500\u2500<\/border> /);
+		expect(rule).toMatch(/<border>\u2500+<\/border>$/);
+		expect(rule).not.toContain("<accent>");
+	});
+
+	it("runs its rule unbroken to the edge when nothing on its right is drawn", () => {
+		// Coloured as a terminal is, escapes with no width, since an empty
+		// aside coloured is the case: the markers would give it width.
+		const [red, green, plain, bold, unbold] = [
+			"\x1b[31m",
+			"\x1b[32m",
+			"\x1b[39m",
+			"\x1b[1m",
+			"\x1b[22m",
+		];
+		const ansi = {
+			fg: (colour: string, text: string) =>
+				`${colour === "accent" ? green : red}${text}${plain}`,
+			bold: (text: string) => `${bold}${text}${unbold}`,
+		} as unknown as Theme;
+		const unstyled = (row: string) =>
+			[red, green, plain, bold, unbold].reduce(
+				(text, code) => text.replaceAll(code, ""),
+				row,
+			);
+		const board = fleetBoard([entry("one")], ansi, {
+			selected: 0,
+			notice: "",
+			hop: { presses: 0, next: undefined },
+		});
+		const [drawn = ""] = boardLines(board, ansi, 60, true);
+		expect(drawn).not.toContain(green);
+		const rule = unstyled(drawn);
+		expect(rule).toMatch(/done \u2500+$/);
+		expect(rule).toHaveLength(60);
+
+		// Too narrow for what's on the right, the rule runs on without it,
+		// in the same colour.
+		const away = fleetBoard([entry("one")], ansi, {
+			selected: -1,
+			notice: "Ctrl+Alt+N to manage",
+		});
+		const [narrow = ""] = boardLines(away, ansi, 35, false);
+		expect(narrow).not.toContain(green);
+		expect(unstyled(narrow)).toMatch(/done \u2500+$/);
+		expect(unstyled(narrow)).toHaveLength(35);
 	});
 });

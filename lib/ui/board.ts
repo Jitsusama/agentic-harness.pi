@@ -64,20 +64,29 @@ export function hopOnward(place: HopPlace | undefined): string {
 /** The rows beyond participants and notes a board can take: title and keys. */
 export const BOARD_CHROME_ROWS = 2;
 
-/** The title rule: `── title ────── aside ──`, filled to `width`. */
+/**
+ * The title rule: `── title ────── aside ──`, filled to `width`.
+ *
+ * In the border colour, as a gate's rules are, focused or not. The accent
+ * is where the keys go: in the editor until the chord brings them here,
+ * and then on the selected row, which is the one thing they act on.
+ */
 function titleRule(
 	theme: Theme,
 	width: number,
 	title: string,
 	aside: string,
 ): string {
-	const left = `${theme.fg("accent", "──")} ${title} `;
-	const right = aside === "" ? "" : ` ${aside} ${theme.fg("accent", "──")}`;
+	const left = `${theme.fg("border", "──")} ${title} `;
+	// By width, not by text: an aside coloured but empty is still a string,
+	// and drew a gap and a stub at the rule's end.
+	const right =
+		visibleWidth(aside) === 0 ? "" : ` ${aside} ${theme.fg("border", "──")}`;
 	const fill = width - visibleWidth(left) - visibleWidth(right);
 	if (fill >= 1)
-		return `${left}${theme.fg("accent", "─".repeat(fill))}${right}`;
+		return `${left}${theme.fg("border", "─".repeat(fill))}${right}`;
 	const bare = width - visibleWidth(left);
-	if (bare >= 1) return `${left}${theme.fg("accent", "─".repeat(bare))}`;
+	if (bare >= 1) return `${left}${theme.fg("border", "─".repeat(bare))}`;
 	return truncateToWidth(left, width);
 }
 
