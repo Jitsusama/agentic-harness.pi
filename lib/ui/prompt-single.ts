@@ -17,6 +17,7 @@ import {
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
 import { type ActionBarResult, handleActionInput } from "./action-bar.ts";
+import { frameRule, frameTitle } from "./frame.ts";
 import { mountGate } from "./mount.ts";
 import { buildNoteEditorTheme, renderNoteEditor } from "./note-editor.ts";
 import {
@@ -34,7 +35,7 @@ import {
 	SCROLLBAR_GUTTER,
 	type ScrollState,
 } from "./scroll-region.ts";
-import { GLYPH, type PromptResult, type SinglePromptConfig } from "./types.ts";
+import type { PromptResult, SinglePromptConfig } from "./types.ts";
 
 /** What the note editor is being used for in a single prompt. */
 type EditorContext = {
@@ -235,10 +236,10 @@ function createSingleController(
 		const add = (s: string) => lines.push(truncateToWidth(s, width));
 		const titleLines = config.title ? 2 : 0;
 
-		add(theme.fg("accent", GLYPH.hrule.repeat(width)));
+		add(frameRule(theme, width));
 
 		if (config.title) {
-			add(` ${theme.fg("accent", theme.bold(config.title))}`);
+			add(` ${frameTitle(theme, config.title)}`);
 			add("");
 		}
 
@@ -309,7 +310,7 @@ function createSingleController(
 			}
 		}
 
-		add(theme.fg("accent", GLYPH.hrule.repeat(width)));
+		add(frameRule(theme, width));
 		return lines;
 	}
 

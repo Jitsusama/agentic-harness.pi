@@ -7,6 +7,7 @@
 
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { chord } from "./frame.ts";
 import { panelRoom } from "./panel-room.ts";
 import { submitKeyLabel } from "./submit-key.ts";
 import type { KeyAction, ListChoice, PromptView } from "./types.ts";
@@ -56,7 +57,9 @@ interface FooterOptions {
  * present, or a single row when they're not.
  *
  * Row 1 (actions): [A]pprove  [R]eject  [P]ass   ⇧+key annotate · ⇧+Esc redirect
- * Row 2 (controls): [1] Overview  [2] Source · Tab · C+#   Enter · C+Enter submit · Esc cancel
+ * Row 2 (controls): [1] Overview  [2] Source · Tab next · Ctrl+# go to   Enter approve · Ctrl+S submit · Esc cancel
+ *
+ * Every key is drawn by `chord`: the key in the accent, its word after.
  */
 export function renderFooter(opts: FooterOptions): string[] {
 	const { theme, width, actions } = opts;
@@ -87,10 +90,7 @@ export function dockedFooter(
 	if (room === undefined || lines.length === 0) return lines;
 	if (room.answered === true) return lines.map(() => "");
 	if (room.hop === undefined || room.focused !== false) return lines;
-	const back = theme.fg(
-		"dim",
-		` ${room.hop} back to this · anything you send now arrives after you answer`,
-	);
+	const back = ` ${chord(theme, room.hop, "back to this")}${theme.fg("dim", " · anything you send now arrives after you answer")}`;
 	return [...lines.slice(0, -1), truncateToWidth(back, width)];
 }
 
@@ -111,7 +111,10 @@ function renderActionRow(
 		return truncateToWidth(left, width);
 	}
 
-	const right = theme.fg("dim", "⇧+key annotate · ⇧+Esc redirect");
+	const right = [
+		chord(theme, "⇧+key", "annotate"),
+		chord(theme, "⇧+Esc", "redirect"),
+	].join(theme.fg("dim", " · "));
 	return padLeftRight(left, right, width);
 }
 
@@ -124,7 +127,7 @@ function renderControlRow(opts: FooterOptions): string {
 	// Left: the way out to the editor, for a docked panel holding the keys
 	const room = panelRoom();
 	if (room?.hop !== undefined)
-		leftParts.push(theme.fg("dim", `${room.hop} ${room.hopTo ?? "editor"}`));
+		leftParts.push(chord(theme, room.hop, room.hopTo ?? "editor"));
 
 	// Then view hints + tab hints
 	const views = opts.views ?? [];
@@ -141,24 +144,24 @@ function renderControlRow(opts: FooterOptions): string {
 	}
 
 	if (opts.hasTabs) {
-		leftParts.push(theme.fg("dim", "Tab"));
-		leftParts.push(theme.fg("dim", "Ctrl+#"));
+		leftParts.push(chord(theme, "Tab", "next"));
+		leftParts.push(chord(theme, "Ctrl+#", "go to"));
 	}
 
 	// Only when there is somewhere to go. A hint that is always on is
 	// chrome, and chrome is what people stop reading.
-	if (opts.needsVScroll) leftParts.push(theme.fg("dim", "⇧+↑↓ scroll"));
-	if (opts.needsHScroll) leftParts.push(theme.fg("dim", "⇧+←→ pan"));
+	if (opts.needsVScroll) leftParts.push(chord(theme, "⇧+↑↓", "scroll"));
+	if (opts.needsHScroll) leftParts.push(chord(theme, "⇧+←→", "pan"));
 
 	if (opts.isUserTab) {
-		leftParts.push(theme.fg("dim", "↑↓ select"));
+		leftParts.push(chord(theme, "↑↓", "select"));
 	} else if (
 		(!opts.actions || opts.actions.length === 0) &&
 		opts.options &&
 		opts.options.length > 0
 	) {
-		leftParts.push(theme.fg("dim", "↑↓ select"));
-		rightParts.push(theme.fg("dim", "Enter confirm"));
+		leftParts.push(chord(theme, "↑↓", "select"));
+		rightParts.push(chord(theme, "Enter", "confirm"));
 	}
 
 	// Right: decisions
@@ -168,17 +171,20 @@ function renderControlRow(opts: FooterOptions): string {
 	const hasActions = opts.actions && opts.actions.length > 0;
 	const hasOptions = opts.options && opts.options.length > 0;
 	if (opts.enterHint) {
-		rightParts.push(theme.fg("dim", `Enter ${opts.enterHint}`));
+		rightParts.push(chord(theme, "Enter", opts.enterHint));
 	} else if (!opts.hasTabs && (hasActions || !hasOptions)) {
-		rightParts.push(theme.fg("dim", "Enter approve"));
+		rightParts.push(chord(theme, "Enter", "approve"));
 	}
 	if (opts.hasTabs) {
-		const submit = `${submitKeyLabel()} submit`;
+		// Once every tab has its answer, submitting is what is left to do,
+		// so its word comes up to the text's weight.
 		rightParts.push(
-			opts.allComplete ? theme.fg("accent", submit) : theme.fg("dim", submit),
+			opts.allComplete
+				? `${theme.fg("accent", submitKeyLabel())} ${theme.fg("text", "submit")}`
+				: chord(theme, submitKeyLabel(), "submit"),
 		);
 	}
-	rightParts.push(theme.fg("dim", "Esc cancel"));
+	rightParts.push(chord(theme, "Esc", "cancel"));
 
 	const sep = theme.fg("dim", " · ");
 	const left = leftParts.length > 0 ? ` ${leftParts.join(sep)}` : "";
@@ -222,7 +228,8 @@ function formatActionLabel(action: KeyAction, theme: Theme): string {
 
 /**
  * Format a view key-hint: [K]eyword with the key letter highlighted.
- * Active view uses accent for the full label; inactive uses dim.
+ * The active view's word is in the text, the others dim; only the key
+ * letter takes the accent, as every key does.
  */
 function formatViewHint(
 	key: string,
@@ -232,7 +239,7 @@ function formatViewHint(
 ): string {
 	const upperKey = key.toUpperCase();
 	const idx = label.toUpperCase().indexOf(upperKey);
-	const color = isActive ? "accent" : "dim";
+	const color = isActive ? "text" : "dim";
 
 	if (idx >= 0) {
 		const before = label.slice(0, idx);

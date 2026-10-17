@@ -53,6 +53,8 @@ export {
 	type HopPlace,
 	hopLabel,
 } from "./dock.ts";
+// ── Frame ──────────────────────────────────────────
+export { chord, frameRule, frameTitle } from "./frame.ts";
 // ── Gate serialization ──────────────────────────────────────
 export {
 	type GateHold,

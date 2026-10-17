@@ -48,10 +48,10 @@ import {
 	lastKeyAt,
 	replacing,
 } from "./dock.ts";
+import { frameRule, chord as keyed } from "./frame.ts";
 import { settleRecord } from "./gate-record.ts";
 import { type PanelRoom, withPanelRoom } from "./panel-room.ts";
 import { focusedIn, isEditor, rowsUnderGate } from "./pi-layout.ts";
-import { GLYPH } from "./types.ts";
 
 /** How long the editor must go untouched before a gate takes the keyboard. */
 export const GATE_TYPING_IDLE_MS = 500;
@@ -178,10 +178,17 @@ export function dockGate<T>(
 	/** The keys the small form offers, the way out to the editor first. */
 	const hints = (focused: boolean): string => {
 		const { hop: chord, hopTo } = hop(focused);
-		if (!focused) return `${chord} to answer`;
-		if (editing !== undefined)
-			return `${chord} ${hopTo} · Enter submit · Esc back`;
-		return `${chord} ${hopTo} · Enter answer · Esc cancel`;
+		if (!focused) return keyed(theme, chord, "to answer");
+		const sep = theme.fg("dim", " · ");
+		return [
+			keyed(theme, chord, hopTo),
+			editing !== undefined
+				? keyed(theme, "Enter", "submit")
+				: keyed(theme, "Enter", "answer"),
+			editing !== undefined
+				? keyed(theme, "Esc", "back")
+				: keyed(theme, "Esc", "cancel"),
+		].join(sep);
 	};
 
 	/**
@@ -198,13 +205,13 @@ export function dockGate<T>(
 		const keys = answered ? "" : hints(focused);
 		const what = answered ? options.title : subject();
 		if (rows <= 1) {
-			const tail = keys === "" ? "" : ` · ${keys}`;
+			const tail = keys === "" ? "" : `${theme.fg("dim", " · ")}${keys}`;
 			const room = Math.max(1, at - visibleWidth(tail) - 1);
-			return [theme.fg("dim", ` ${truncateToWidth(what, room)}${tail}`)];
+			return [`${theme.fg("dim", ` ${truncateToWidth(what, room)}`)}${tail}`];
 		}
 		const out = [` ${truncateToWidth(what, Math.max(1, at - 1))}`];
-		if (rows >= 3) out.unshift(theme.fg("accent", GLYPH.hrule.repeat(at)));
-		return [...out, theme.fg("dim", ` ${keys}`)];
+		if (rows >= 3) out.unshift(frameRule(theme, at));
+		return [...out, ` ${keys}`];
 	};
 
 	/** The gate laid out as `shape`, drawn as its record once answered. */

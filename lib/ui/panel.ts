@@ -12,6 +12,7 @@
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
+import { chord, frameRule, frameTitle } from "./frame.ts";
 import { mountPanel, type PanelFactory } from "./mount.ts";
 import { showSinglePrompt } from "./prompt-single.ts";
 import { showTabbedPrompt } from "./prompt-tabbed.ts";
@@ -25,15 +26,14 @@ import {
 	SCROLLBAR_GUTTER,
 	type ScrollState,
 } from "./scroll-region.ts";
-import {
-	GLYPH,
-	type PromptResult,
-	type SinglePromptConfig,
-	type TabbedPromptConfig,
-	type TabbedResult,
-	type ViewConfig,
-	type WorkspacePromptConfig,
-	type WorkspaceResult,
+import type {
+	PromptResult,
+	SinglePromptConfig,
+	TabbedPromptConfig,
+	TabbedResult,
+	ViewConfig,
+	WorkspacePromptConfig,
+	WorkspaceResult,
 } from "./types.ts";
 
 /**
@@ -213,10 +213,10 @@ function viewPanel(config: ViewConfig): PanelFactory<void> {
 			const lines: string[] = [];
 			const add = (s: string) => lines.push(truncateToWidth(s, width));
 
-			add(theme.fg("accent", GLYPH.hrule.repeat(width)));
+			add(frameRule(theme, width));
 
 			if (config.title) {
-				add(` ${theme.fg("accent", theme.bold(config.title))}`);
+				add(` ${frameTitle(theme, config.title)}`);
 				add("");
 			}
 
@@ -245,12 +245,12 @@ function viewPanel(config: ViewConfig): PanelFactory<void> {
 			}
 
 			lines.push("");
-			const hints: string[] = ["Esc close"];
-			if (needsVScroll) hints.push("Shift+↑↓ scroll");
-			if (needsHScroll) hints.push("Shift+←→ pan");
-			add(theme.fg("dim", ` ${hints.join(" · ")}`));
+			const hints: string[] = [chord(theme, "Esc", "close")];
+			if (needsVScroll) hints.push(chord(theme, "⇧+↑↓", "scroll"));
+			if (needsHScroll) hints.push(chord(theme, "⇧+←→", "pan"));
+			add(` ${hints.join(theme.fg("dim", " · "))}`);
 
-			add(theme.fg("accent", GLYPH.hrule.repeat(width)));
+			add(frameRule(theme, width));
 			return lines;
 		}
 

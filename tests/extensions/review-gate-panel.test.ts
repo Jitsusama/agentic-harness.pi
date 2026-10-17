@@ -180,7 +180,10 @@ describe("drawing a write gate", () => {
 		// the quote is to be read as text by a model, so it carries the
 		// source rather than the escape codes that rendered it. One layout
 		// and one set of words is the invariant that was actually wanted;
-		// identical presentation was how it happened to be enforced.
+		// identical presentation was how it happened to be enforced. The
+		// screen also keeps the panel's one-column margin, which the quote
+		// leaves out, so the comparison takes it off each styled row; both
+		// lay out inside it, so the words still break in the same places.
 		const panel: GatePanel = {
 			destination: "shop/world#2000980",
 			context: [{ who: "binks", body: "unknown fields" }],
@@ -190,9 +193,30 @@ describe("drawing a write gate", () => {
 		const styled = gateLines(panel, fakeTheme(), WIDTH, (body) =>
 			body.split("\n"),
 		)
+			.map((line) => (line.startsWith(" ") ? line.slice(1) : line))
 			.join("\n")
 			.replaceAll(/<\/?[\w:]+>/g, "");
 		expect(plain).toBe(styled);
+	});
+
+	it("breaks its lines where the screen did when quoted plain", () => {
+		// The screen lays out inside its margin, so the quote must too, or a
+		// row that wraps on screen arrives at the model whole, and the
+		// redirect quotes a panel nobody saw. A header of short words, at
+		// every width across a range, puts a word boundary on the margin.
+		const panel: GatePanel = {
+			destination: "ab cd ef gh ij kl mn op qr st uv wx yz ".repeat(4).trim(),
+			payload: { body: "Fixed." },
+		};
+		for (let width = 30; width <= 60; width++) {
+			const styled = gateLines(panel, fakeTheme(), width, (body) =>
+				body.split("\n"),
+			)
+				.map((line) => (line.startsWith(" ") ? line.slice(1) : line))
+				.join("\n")
+				.replaceAll(/<\/?[\w:]+>/g, "");
+			expect(gateText(panel, width)).toBe(styled);
+		}
 	});
 
 	it("wraps to the width it is given rather than overflowing the panel", () => {

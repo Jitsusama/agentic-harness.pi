@@ -12,6 +12,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { approvalUnder, fenced } from "../../lib/guardian/index.ts";
 import { GUARDS } from "../../lib/internal/guardian/guards.ts";
 import {
+	frameTitle,
 	type PromptResult,
 	promptSingle,
 	wordWrap,
@@ -170,7 +171,7 @@ export async function confirmDeleteEmail(
 
 	const result = await promptSingle(ctx, {
 		content: (theme) => {
-			const lines = [theme.fg("accent", theme.bold(" Delete Email")), ""];
+			const lines = [` ${frameTitle(theme, "Delete Email")}`, ""];
 			if (subject) {
 				lines.push(` ${theme.fg("muted", "Subject:")} ${subject}`);
 			}
@@ -223,10 +224,7 @@ export async function confirmCreateEvent(
 
 	const result = await promptSingle(ctx, {
 		content: (theme, width) => {
-			const lines = [
-				theme.fg("accent", theme.bold(" Create Calendar Event")),
-				"",
-			];
+			const lines = [` ${frameTitle(theme, "Create Calendar Event")}`, ""];
 			lines.push(` ${theme.fg("muted", "Title:")} ${event.summary}`);
 			lines.push(
 				` ${theme.fg("muted", "When:")} ${event.start} – ${event.end}`,
@@ -298,10 +296,7 @@ export async function confirmUpdateEvent(
 		changes.push(`Attendees: ${updates.attendees.join(", ")}`);
 	const result = await promptSingle(ctx, {
 		content: (theme, width) => {
-			const lines = [
-				theme.fg("accent", theme.bold(" Update Calendar Event")),
-				"",
-			];
+			const lines = [` ${frameTitle(theme, "Update Calendar Event")}`, ""];
 			lines.push(` ${theme.fg("muted", "Event:")} ${existingEvent.summary}`);
 			lines.push(` ${theme.fg("muted", "ID:")} \`${eventId}\``);
 			if (changes.length > 0) {
@@ -361,10 +356,7 @@ export async function confirmDeleteEvent(
 
 	const result = await promptSingle(ctx, {
 		content: (theme) => {
-			const lines = [
-				theme.fg("accent", theme.bold(" Delete Calendar Event")),
-				"",
-			];
+			const lines = [` ${frameTitle(theme, "Delete Calendar Event")}`, ""];
 			lines.push(` ${theme.fg("muted", "Event:")} ${summary}`);
 			lines.push(` ${theme.fg("muted", "ID:")} \`${eventId}\``);
 			lines.push("");

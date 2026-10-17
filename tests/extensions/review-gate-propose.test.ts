@@ -71,15 +71,17 @@ describe("the propose gate", () => {
 	it("leaves the body flush at the margin, like the guardian gates", () => {
 		// The inset was tried here and read as a difference where none was
 		// meant: the guardian gate draws the same body flush, and side by
-		// side the reader preferred flush. The markdown renderer's own
-		// padding is its business; the gate adds nothing.
+		// side the reader preferred flush. Flush is the panel's one-column
+		// margin, which every row of the gate starts on, the body included;
+		// pi's markdown gives up its own padding for it.
 		const shown = drawn(proposePanel(proposal));
 		const line = shown
 			.split("\n")
 			.find((one) => one.includes("It builds a panel now."));
 
 		expect(line).toBeDefined();
-		expect(line?.startsWith("<md:")).toBe(true);
+		expect(line?.startsWith(" <md:")).toBe(true);
+		expect(shown.startsWith(" ")).toBe(true);
 	});
 
 	it("names where the change is going, since the checkout cannot say", () => {

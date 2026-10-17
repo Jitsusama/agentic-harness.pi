@@ -1,8 +1,10 @@
 /**
- * The payload sits flush against the left margin.
+ * The payload sits flush on the gate's margin.
  *
  * The body is the thing the gate exists to show, and it reads best the
  * way the guardian gates already show it: at the margin, at full width.
+ * The margin is the panel's one column, which its title, its footer and
+ * the gate's own rows keep, so the body starts where they do.
  * The inset stays on quoted context, where holding somebody else's words
  * off the margin is the point, and leaves the outgoing body, where it
  * only cost three columns and a visual difference from every
@@ -35,15 +37,17 @@ function lines(panel: GatePanel): string[] {
 }
 
 describe("the payload of a write gate", () => {
-	it("starts at column zero, not held off the margin", () => {
+	it("starts on the margin the gate's own rows keep, not held off it", () => {
 		const drawn = lines({
 			destination: "shop/world#2000980 · meteorite",
 			payload: { body: "Fixed in 0671cb0." },
 		});
 
 		const body = drawn.find((line) => line.includes("Fixed in 0671cb0."));
+		const destination = drawn.find((line) => line.includes("shop/world"));
 		expect(body).toBeDefined();
-		expect(body?.startsWith("Fixed")).toBe(true);
+		expect(body?.startsWith(" Fixed")).toBe(true);
+		expect(destination?.startsWith(" \u25b6")).toBe(true);
 	});
 
 	it("keeps quoted context inset, since quoting is the point there", () => {

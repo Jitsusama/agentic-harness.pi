@@ -183,11 +183,20 @@ export function gateLines(
 	// as and what every neighbouring gate shows. Injectable because
 	// rendering it reaches for pi's global theme, and a renderer that
 	// cannot be tested without booting a terminal stops being tested.
+	//
+	// Every row stands one column in, on the margin the panel's title and
+	// footer keep, so the glyphs line up with the words around them. pi's
+	// markdown keeps that margin itself, so its own is taken off here
+	// rather than doubled.
 	const body =
 		renderBody ??
-		((text: string, room: number) => renderMarkdown(text, theme, room));
-	return rowsOf(panel, width, body).map((row) =>
-		row.muted && row.text ? theme.fg("muted", row.text) : row.text,
+		((text: string, room: number) =>
+			renderMarkdown(text, theme, room + 1).map((line) =>
+				line.startsWith(" ") ? line.slice(1) : line,
+			));
+	return laid(panel, width, body).map(
+		(row) =>
+			`${MARGIN}${row.muted && row.text ? theme.fg("muted", row.text) : row.text}`,
 	);
 }
 
@@ -198,9 +207,31 @@ export function gateLines(
  * says was on screen drift from what was on screen.
  */
 export function gateText(panel: GatePanel, width: number): string {
-	return rowsOf(panel, width)
+	return laid(panel, width)
 		.map((row) => row.text)
 		.join("\n");
+}
+
+/**
+ * The panel's one-column margin, which its title and footer keep. On
+ * screen only: the quote is read by a model, to whom it is noise.
+ */
+const MARGIN = " ";
+
+/**
+ * The rows, laid out inside the margin. Both outputs lay out at this
+ * width, so the quote wraps exactly where the screen did.
+ */
+function laid(
+	panel: GatePanel,
+	width: number,
+	renderBody?: BodyRenderer,
+): GateRow[] {
+	return rowsOf(
+		panel,
+		Math.max(MIN_GATE_WIDTH, width - MARGIN.length),
+		renderBody,
+	);
 }
 
 /**

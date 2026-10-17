@@ -92,6 +92,21 @@ describe("a propose gate fits the panel it is drawn in", () => {
 		});
 	}
 
+	it("puts the markdown body on the gate's margin, not one past it", () => {
+		// pi's markdown pads its lines by a column of its own. The gate keeps
+		// the panel's one-column margin for every row, so it takes that
+		// padding off: left on, the body sat a column right of the glyphs,
+		// the title and the footer.
+		for (const width of WIDTHS) {
+			const rows = rowsAt(width).map(asDrawn);
+			const prose = rows.find((row) => row.includes("A gate opened"));
+			const header = rows.find((row) => row.includes("\u25b6"));
+
+			expect(prose?.indexOf("A gate")).toBe(1);
+			expect(header?.indexOf("\u25b6")).toBe(1);
+		}
+	});
+
 	it("wraps the header rather than letting the repo key fall off", () => {
 		// The regression this came from. At 60 columns the destination row is
 		// wider than the panel, so the end of it is what gets cut, and the end
