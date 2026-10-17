@@ -69,14 +69,16 @@ describe("the widget's quest marks", () => {
 		total: 0,
 	};
 
-	it("leads with the kind and status glyphs, coloured, and the text quiet", () => {
+	it("leads with the kind and status glyphs, the status coloured, and the text quiet", () => {
 		const [line] = renderWidget(
 			{ ...base, questKind: "sidequest", questStatus: "active" },
 			taggingTheme,
 			200,
 		);
+		// The kind is muted, not the accent: this line is on screen all
+		// session, and the accent is kept for where the keys go.
 		expect(
-			line?.startsWith("<accent>\u25c7 <warning>\u25cb <muted>Quest title "),
+			line?.startsWith("<muted>\u25c7 <warning>\u25cb <muted>Quest title "),
 		).toBe(true);
 	});
 

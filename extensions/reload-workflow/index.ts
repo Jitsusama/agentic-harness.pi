@@ -26,7 +26,12 @@ import {
 	type Loaded,
 } from "../../lib/internal/reload/loaded.ts";
 import { piPackageSettings } from "../../lib/internal/reload/settings.ts";
-import { drawInto, firstText } from "../../lib/ui/index.ts";
+import {
+	asText,
+	drawInto,
+	firstText,
+	renderToolCall,
+} from "../../lib/ui/index.ts";
 import {
 	PACKAGE_NAME,
 	PACKAGE_ROOT,
@@ -134,10 +139,11 @@ export default function reloadWorkflow(pi: ExtensionAPI) {
 			};
 		},
 		renderCall(args, theme, context) {
-			const onto = typeof args.onto === "string" ? ` ${args.onto}` : "";
-			return drawInto(
-				context?.lastComponent,
-				theme.fg("toolTitle", theme.bold("reload")) + theme.fg("muted", onto),
+			const onto = typeof args.onto === "string" ? args.onto : undefined;
+			return renderToolCall(
+				{ tool: "reload", subject: onto },
+				theme,
+				asText(context?.lastComponent),
 			);
 		},
 		renderResult(result, _options, theme, context) {

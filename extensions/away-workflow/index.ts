@@ -35,7 +35,12 @@ import {
 	snapshot,
 } from "../../lib/internal/away/state.ts";
 import { findJobHost, type Job } from "../../lib/jobs/index.ts";
-import { drawInto, firstText } from "../../lib/ui/index.ts";
+import {
+	asText,
+	drawInto,
+	firstText,
+	renderToolCall,
+} from "../../lib/ui/index.ts";
 import {
 	afterRun,
 	combine,
@@ -259,10 +264,11 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 			};
 		},
 		renderCall(args, theme, context) {
-			const goal = typeof args.goal === "string" ? ` ${args.goal}` : "";
-			return drawInto(
-				context?.lastComponent,
-				theme.fg("toolTitle", theme.bold("away")) + theme.fg("muted", goal),
+			const goal = typeof args.goal === "string" ? args.goal : undefined;
+			return renderToolCall(
+				{ tool: "away", subject: goal },
+				theme,
+				asText(context?.lastComponent),
 			);
 		},
 		renderResult(result, _options, theme, context) {

@@ -33,7 +33,12 @@ import { getLastEntry } from "../../lib/internal/state.ts";
 import { registerStandingContext } from "../../lib/prompt/index.ts";
 import { ensureAuthenticated } from "../../lib/slack/auth/ensure-auth.ts";
 import { count } from "../../lib/ui/count.ts";
-import { drawInto, OUTCOME_GLYPH } from "../../lib/ui/index.ts";
+import {
+	asText,
+	drawInto,
+	OUTCOME_GLYPH,
+	renderToolCall,
+} from "../../lib/ui/index.ts";
 import { handleSlackAuthCommand } from "./auth-command.ts";
 import { IDENTITY_CONTEXT, identityText } from "./context.ts";
 import { routeAction } from "./router.ts";
@@ -525,21 +530,22 @@ export default function slackIntegration(pi: ExtensionAPI) {
 				file_paths?: string[];
 				messages?: unknown[];
 			};
-			let label = theme.fg("toolTitle", theme.bold("slack "));
-			label += a.action ?? "?";
+			// What the action was pointed at, in order; the shared call line
+			// draws them dim after the action and clips them as one.
+			const parts: string[] = [];
 
 			// Search actions: show the assembled query (includes all params).
 			// Non-search actions: show individual params.
 			if (a.action?.startsWith("search")) {
 				const queryParts = assembleQueryPreview(a);
 				if (queryParts) {
-					label += theme.fg("dim", ` "${queryParts}"`);
+					parts.push(`"${queryParts}"`);
 				}
 			} else {
 				if (a.query) {
 					const preview =
 						a.query.length > 40 ? `${a.query.slice(0, 40)}…` : a.query;
-					label += theme.fg("dim", ` "${preview}"`);
+					parts.push(`"${preview}"`);
 				}
 				if (a.channel) {
 					const looksLikeId = /^[CDGW][A-Z0-9]+$/.test(a.channel);
@@ -548,34 +554,35 @@ export default function slackIntegration(pi: ExtensionAPI) {
 						: a.channel.startsWith("#")
 							? a.channel
 							: `#${a.channel}`;
-					label += theme.fg("dim", ` ${ch}`);
+					parts.push(ch);
 				}
 				if (a.user) {
 					const handle = a.user.startsWith("@") ? a.user : `@${a.user}`;
-					label += theme.fg("dim", ` ${handle}`);
+					parts.push(handle);
 				}
 				if (a.emoji) {
-					label += theme.fg("dim", ` :${a.emoji}:`);
+					parts.push(`:${a.emoji}:`);
 				}
 				if (a.target) {
 					const parsed = parseSlackUrl(a.target);
 					if (parsed) {
-						label += theme.fg("dim", ` ${parsed.channel} ${parsed.ts}`);
+						parts.push(`${parsed.channel} ${parsed.ts}`);
 					}
 				}
 				const fileCount = countFiles(a.file_path, a.file_paths);
 				if (fileCount > 0) {
-					const tag = fileCount === 1 ? "📄 1 file" : `📄 ${fileCount} files`;
-					label += theme.fg("dim", ` ${tag}`);
+					parts.push(count(fileCount, "file"));
 				}
 				if (a.messages?.length) {
-					const count = a.messages.length;
-					const noun = count === 1 ? "message" : "messages";
-					label += theme.fg("dim", ` (${count} ${noun})`);
+					parts.push(`(${count(a.messages.length, "message")})`);
 				}
 			}
 
-			return drawInto(context?.lastComponent, label);
+			return renderToolCall(
+				{ tool: "slack", action: a.action ?? "?", subject: parts.join(" ") },
+				theme,
+				asText(context?.lastComponent),
+			);
 		},
 
 		renderResult(result, options, theme, context) {

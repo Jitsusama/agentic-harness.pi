@@ -22,7 +22,6 @@ import type {
 	ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
 import { keyHint, SessionManager } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth } from "@earendil-works/pi-tui";
 import {
 	boundedByDetails,
 	openSessionStore,
@@ -47,7 +46,13 @@ import { registerBuiltinUrlFetchers } from "../../lib/quest/index.ts";
 import { registerBuiltinRefTypes } from "../../lib/refs/index.ts";
 import { registerBuiltinTerminalDrivers } from "../../lib/terminal/index.ts";
 import { asideFor } from "../../lib/ui/aside.ts";
-import { count, drawInto, firstText } from "../../lib/ui/index.ts";
+import {
+	asText,
+	count,
+	drawInto,
+	firstText,
+	renderToolCall,
+} from "../../lib/ui/index.ts";
 import { QUEST_ACTIONS } from "./actions.ts";
 import { answerTreeClaims } from "./claims.ts";
 import {
@@ -103,9 +108,6 @@ interface BeforeSettleResult {
 	}[];
 	continue?: boolean;
 }
-
-const DEFAULT_WIDTH = 80;
-const CALL_PREFIX_WIDTH = 14;
 
 export default async function questWorkflow(pi: ExtensionAPI) {
 	declareGuards(
@@ -397,20 +399,15 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 
 		renderCall(args, theme, context) {
 			const a = args as QuestToolParams;
-			const action = a.action ?? "";
-			let text = theme.fg("toolTitle", theme.bold("quest "));
-			text += theme.fg("text", action);
-			const note = a.title ?? a.id ?? a.note ?? a.url ?? a.reason;
-			if (note) {
-				const room = Math.max(
-					0,
-					(process.stdout.columns || DEFAULT_WIDTH) -
-						CALL_PREFIX_WIDTH -
-						action.length,
-				);
-				text += theme.fg("dim", `: ${truncateToWidth(note, room)}`);
-			}
-			return drawInto(context?.lastComponent, text);
+			return renderToolCall(
+				{
+					tool: "quest",
+					action: a.action,
+					subject: a.title ?? a.id ?? a.note ?? a.url ?? a.reason,
+				},
+				theme,
+				asText(context?.lastComponent),
+			);
 		},
 
 		renderResult(result, options, theme, context) {

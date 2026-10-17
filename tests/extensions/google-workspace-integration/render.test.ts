@@ -52,12 +52,12 @@ describe("rendering a Google call line", () => {
 			),
 		);
 
-		// Elided against an assumed terminal width, because pi hands a
-		// renderer the theme and no width. The assertion is that what
-		// comes out is shorter than what went in and says it was cut,
-		// not the exact figure, which is a presentation default.
+		// Elided by the shared call line, because pi hands a renderer the
+		// theme and no width. The assertion is that what comes out is
+		// shorter than what went in and says it was cut, not the exact
+		// figure, which is a presentation default.
 		expect(line).not.toContain(subject);
-		expect(line).toContain("...");
+		expect(line).toContain("\u2026");
 	});
 
 	it("counts the recipients it did not name", () => {

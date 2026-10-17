@@ -171,7 +171,8 @@ function titleCase(text: string): string {
 /**
  * The quest's two marks: its kind, and its status in the status's
  * colour. Only the glyphs carry colour; the text beside them stays
- * quiet.
+ * quiet. The kind is muted: the line sits above the editor all session,
+ * and the accent belongs where the keys go.
  */
 function questMarks(
 	kind: QuestKind | null | undefined,
@@ -179,7 +180,7 @@ function questMarks(
 	theme: Theme,
 ): string {
 	const marks: string[] = [];
-	if (kind) marks.push(theme.fg("accent", QUEST_KIND_MARK[kind]));
+	if (kind) marks.push(theme.fg("muted", QUEST_KIND_MARK[kind]));
 	if (status) {
 		marks.push(theme.fg(STATUS_COLOUR[status], QUEST_STATUS_MARK[status]));
 	}
