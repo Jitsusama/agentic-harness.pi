@@ -50,6 +50,11 @@ export interface FrontEndRenderContext {
 	toolCallId: string;
 	tool: McpTool;
 	serverCount: number;
+	/**
+	 * What this renderer returned on its last pass, as pi hands it over, so
+	 * a redraw can update it rather than strand it beside its replacement.
+	 */
+	lastComponent?: unknown;
 }
 
 /**

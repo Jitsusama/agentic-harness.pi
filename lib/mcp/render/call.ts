@@ -1,5 +1,7 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { type Component, Text } from "@earendil-works/pi-tui";
+import type { Component } from "@earendil-works/pi-tui";
+import { count } from "../../ui/count.ts";
+import { asText, renderToolCall } from "../../ui/tool-call.ts";
 import type { McpTool } from "../types.ts";
 
 /** The view-model for a default tool-call line, independent of styling. */
@@ -9,9 +11,6 @@ export interface CallView {
 	primaryArg?: { name: string; value: string };
 	extraArgCount: number;
 }
-
-/** Longest primary-argument value shown before it is ellipsised. */
-export const MAX_PRIMARY_VALUE = 40;
 
 /** Argument names that read as the subject of a call when no required string arg exists. */
 const CONVENTIONAL_ARGS = [
@@ -41,9 +40,7 @@ export function describeCall(
 	const keys = Object.keys(args);
 	const name = primaryArgName(tool, args);
 	const primaryArg =
-		name !== undefined
-			? { name, value: truncate(stringify(args[name]), MAX_PRIMARY_VALUE) }
-			: undefined;
+		name !== undefined ? { name, value: stringify(args[name]) } : undefined;
 
 	return {
 		toolTitle: tool.name,
@@ -55,26 +52,33 @@ export function describeCall(
 	};
 }
 
-/** Render the default call line as a single styled row. */
+/**
+ * Render the default call line as the harness's one call line: the tool
+ * bold, then its subject and notes dim, clipped where every other tool's
+ * is. It drew its own shape, a server in brackets ahead of the tool and
+ * a 40-column clip, so a gateway's tools read unlike the ones beside
+ * them; the server now follows as a note, since the tool is the anchor.
+ *
+ * Pass pi's previous component as `reuse`, so a redraw updates it rather
+ * than leaving it beside its replacement.
+ */
 export function renderDefaultCall(
 	tool: McpTool,
 	args: Record<string, unknown>,
 	theme: Theme,
 	opts: { multiServer?: boolean; serverLabel?: string } = {},
+	reuse?: unknown,
 ): Component {
 	const view = describeCall(tool, args, opts);
-	const prefix = view.serverPrefix
-		? theme.fg("muted", `[${view.serverPrefix}] `)
-		: "";
-	const title = theme.fg("toolTitle", theme.bold(view.toolTitle));
-	const primary = view.primaryArg
-		? ` ${theme.fg("dim", view.primaryArg.value)}`
-		: "";
-	const extra =
-		view.extraArgCount > 0
-			? theme.fg("muted", ` +${view.extraArgCount} args`)
-			: "";
-	return new Text(`${prefix}${title}${primary}${extra}`, 0, 0);
+	const notes = [
+		...(view.extraArgCount > 0 ? [`+${count(view.extraArgCount, "arg")}`] : []),
+		...(view.serverPrefix ? [`on ${view.serverPrefix}`] : []),
+	];
+	return renderToolCall(
+		{ tool: view.toolTitle, subject: view.primaryArg?.value, notes },
+		theme,
+		asText(reuse),
+	);
 }
 
 function primaryArgName(
@@ -102,8 +106,4 @@ function isStringProp(prop: unknown): boolean {
 
 function stringify(value: unknown): string {
 	return typeof value === "string" ? value : JSON.stringify(value);
-}
-
-function truncate(value: string, max: number): string {
-	return value.length > max ? `${value.slice(0, max - 1)}…` : value;
 }
