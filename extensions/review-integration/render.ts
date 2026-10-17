@@ -183,12 +183,25 @@ export function gateLines(
 	// as and what every neighbouring gate shows. Injectable because
 	// rendering it reaches for pi's global theme, and a renderer that
 	// cannot be tested without booting a terminal stops being tested.
+	//
+	// Every row stands one column in, on the margin the panel's title and
+	// footer keep, so the glyphs line up with the words around them. pi's
+	// markdown keeps that margin itself, so its own is taken off here
+	// rather than doubled.
 	const body =
 		renderBody ??
-		((text: string, room: number) => renderMarkdown(text, theme, room));
-	return rowsOf(panel, width, body).map((row) =>
-		row.muted && row.text ? theme.fg("muted", row.text) : row.text,
-	);
+		((text: string, room: number) =>
+			renderMarkdown(text, theme, room + 1).map((line) =>
+				line.startsWith(" ") ? line.slice(1) : line,
+			));
+	return laid(panel, width, body).map((row) => {
+		if (!row.muted || !row.text) return `${MARGIN}${row.text}`;
+		// Who said a remark in the text's colour, what they said muted, so
+		// each voice in a thread is found by its name.
+		const said = row.speaker ?? 0;
+		const lead = row.text.slice(0, said);
+		return `${MARGIN}${lead && theme.fg("text", lead)}${theme.fg("muted", row.text.slice(said))}`;
+	});
 }
 
 /**
@@ -198,9 +211,31 @@ export function gateLines(
  * says was on screen drift from what was on screen.
  */
 export function gateText(panel: GatePanel, width: number): string {
-	return rowsOf(panel, width)
+	return laid(panel, width)
 		.map((row) => row.text)
 		.join("\n");
+}
+
+/**
+ * The panel's one-column margin, which its title and footer keep. On
+ * screen only: the quote is read by a model, to whom it is noise.
+ */
+const MARGIN = " ";
+
+/**
+ * The rows, laid out inside the margin. Both outputs lay out at this
+ * width, so the quote wraps exactly where the screen did.
+ */
+function laid(
+	panel: GatePanel,
+	width: number,
+	renderBody?: BodyRenderer,
+): GateRow[] {
+	return rowsOf(
+		panel,
+		Math.max(MIN_GATE_WIDTH, width - MARGIN.length),
+		renderBody,
+	);
 }
 
 /**
@@ -213,10 +248,14 @@ export function gateText(panel: GatePanel, width: number): string {
  */
 export type BodyRenderer = (body: string, width: number) => string[];
 
-/** One line of a gate, and whether it is chrome or the thing itself. */
+/**
+ * One line of a gate, whether it is chrome or the thing itself, and on a
+ * remark's first line, how far its speaker's name runs.
+ */
 interface GateRow {
 	text: string;
 	muted?: boolean;
+	speaker?: number;
 }
 
 /** The layout, once, before anything decides how to colour it. */
@@ -338,7 +377,11 @@ function quoted(quote: GateQuote, room: number): GateRow[] {
 	const wrapped = wordWrap(`${quote.who}: ${quote.body}`, room);
 	const kept = wrapped.slice(0, QUOTE_LINES);
 	if (wrapped.length > QUOTE_LINES) kept.push("\u2026");
-	return inset(kept).map((text) => ({ text, muted: true }));
+	return inset(kept).map((text, at) => ({
+		text,
+		muted: true,
+		...(at === 0 ? { speaker: INSET.length + quote.who.length + 1 } : {}),
+	}));
 }
 
 /** Hold lines off the margin, leaving blank ones blank. */

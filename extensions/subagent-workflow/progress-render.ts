@@ -34,6 +34,7 @@ import {
 	reachBoard,
 } from "../../lib/ui/board.ts";
 import { type Docked, dock, type HopPlace } from "../../lib/ui/dock.ts";
+import { frameTitle } from "../../lib/ui/frame.ts";
 import type { FleetProgress, FleetProgressEntry } from "./progress.ts";
 import type { FleetRunResult, FleetSubagentResult } from "./run.ts";
 
@@ -222,7 +223,7 @@ export function fleetBoard(
 ): Board {
 	const done = entries.filter((one) => one.state === "complete").length;
 	return {
-		title: `${theme.fg("accent", theme.bold(TITLE))}${SEPARATOR}${done}/${entries.length} done`,
+		title: `${frameTitle(theme, TITLE)}${SEPARATOR}${done}/${entries.length} done`,
 		aside:
 			state.notice === ""
 				? theme.fg("dim", reachBoard(state.hop))
@@ -272,7 +273,7 @@ export function fleetCardLines(
 		);
 	}
 	const lines = [
-		[theme.fg("accent", theme.bold(TITLE)), ...tally].join(SEPARATOR),
+		[frameTitle(theme, TITLE), ...tally].join(SEPARATOR),
 		...entries.map((entry) => entryLine(entry, theme, false)),
 		...failureNotes(
 			result.results.map((one) => ({

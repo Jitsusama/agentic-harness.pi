@@ -44,6 +44,7 @@ import {
 	reachBoard,
 } from "../../lib/ui/board.ts";
 import { type Docked, dock, type HopPlace } from "../../lib/ui/dock.ts";
+import { frameTitle } from "../../lib/ui/frame.ts";
 import type { Answer } from "./tools/shared.ts";
 
 /**
@@ -180,7 +181,7 @@ function roundTitle(
 	const answered = entries.filter((one) => one.state === "answered").length;
 	const shared = sharedModel(entries);
 	const parts = [
-		theme.fg("accent", theme.bold(round)),
+		frameTitle(theme, round),
 		`${answered}/${entries.length} answered`,
 		...(shared === undefined ? [] : [shared]),
 	];

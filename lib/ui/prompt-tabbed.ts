@@ -19,6 +19,7 @@ import {
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
 import { type ActionBarResult, handleActionInput } from "./action-bar.ts";
+import { frameRule, frameTitle } from "./frame.ts";
 import { mountGate } from "./mount.ts";
 import { buildNoteEditorTheme, renderNoteEditor } from "./note-editor.ts";
 import {
@@ -571,10 +572,10 @@ function createTabbedController(
 		const viewIdx = getViewIndex(currentTab);
 		const views = currentViews();
 
-		add(theme.fg("accent", GLYPH.hrule.repeat(width)));
+		add(frameRule(theme, width));
 
 		if (config.title) {
-			add(` ${theme.fg("accent", theme.bold(config.title))}`);
+			add(` ${frameTitle(theme, config.title)}`);
 			add("");
 		}
 
@@ -691,7 +692,7 @@ function createTabbedController(
 			}
 		}
 
-		add(theme.fg("accent", GLYPH.hrule.repeat(width)));
+		add(frameRule(theme, width));
 		return lines;
 	}
 

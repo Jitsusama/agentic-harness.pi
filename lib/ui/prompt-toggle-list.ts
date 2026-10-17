@@ -1,5 +1,6 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
+import { chord, frameRule, frameTitle } from "./frame.ts";
 import type { GateFactory } from "./gate-dock.ts";
 import { mountGate } from "./mount.ts";
 import {
@@ -15,7 +16,6 @@ import {
 	type ScrollState,
 } from "./scroll-region.ts";
 import { isSubmitKey, submitKeyLabel } from "./submit-key.ts";
-import { GLYPH } from "./types.ts";
 
 /** One toggleable row: a labelled setting that cycles through a fixed set of options. */
 export interface ToggleRow {
@@ -190,8 +190,8 @@ function toggleListPanel(
 				const lines: string[] = [];
 				const add = (line: string) => lines.push(truncateToWidth(line, width));
 
-				add(theme.fg("accent", GLYPH.hrule.repeat(width)));
-				add(` ${theme.fg("accent", theme.bold(config.title))}`);
+				add(frameRule(theme, width));
+				add(` ${frameTitle(theme, config.title)}`);
 				add("");
 
 				const budget = contentBudget(
@@ -216,22 +216,32 @@ function toggleListPanel(
 
 				add("");
 				if (model.filter) add(theme.fg("dim", ` filter: ${model.filter}`));
-				const escLabel = model.filter ? "Esc clear filter" : "Esc cancel";
-				// Submitting is the focal point once there is something to submit.
-				const submit = theme.fg(
-					changed(initial, model) ? "accent" : "dim",
-					`${submitKeyLabel()} submit`,
+				const esc = chord(
+					theme,
+					"Esc",
+					model.filter ? "clear filter" : "cancel",
 				);
+				// Submitting is the focal point once there is something to
+				// submit, so its word comes up to the text's weight.
+				const submit = changed(initial, model)
+					? `${theme.fg("accent", submitKeyLabel())} ${theme.fg("text", "submit")}`
+					: chord(theme, submitKeyLabel(), "submit");
 				const sep = theme.fg("dim", " · ");
 				// Docked, the way out to the editor leads, as on every gate.
 				const room = panelRoom();
 				const hop =
 					room?.hop === undefined
 						? ""
-						: `${theme.fg("dim", `${room.hop} ${room.hopTo ?? "editor"}`)}${sep}`;
-				const keys = `${theme.fg("dim", " ")}${hop}${theme.fg("dim", "↑↓ select · type to filter · Enter cycle")}${sep}${submit}${sep}${theme.fg("dim", escLabel)}`;
+						: `${chord(theme, room.hop, room.hopTo ?? "editor")}${sep}`;
+				const keys = ` ${hop}${[
+					chord(theme, "↑↓", "select"),
+					theme.fg("dim", "type to filter"),
+					chord(theme, "Enter", "cycle"),
+					submit,
+					esc,
+				].join(sep)}`;
 				for (const line of dockedFooter([keys], theme, width)) add(line);
-				add(theme.fg("accent", GLYPH.hrule.repeat(width)));
+				add(frameRule(theme, width));
 				return lines;
 			},
 		};

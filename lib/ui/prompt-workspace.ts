@@ -25,6 +25,7 @@ import {
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
 import { handleActionInput, isShiftEscape } from "./action-bar.ts";
+import { frameRule } from "./frame.ts";
 import { mountPanel } from "./mount.ts";
 import { buildNoteEditorTheme, renderNoteEditor } from "./note-editor.ts";
 import { computeChromeLines, renderFooter } from "./panel-layout.ts";
@@ -360,7 +361,7 @@ function createWorkspaceController(
 		const viewIdx = getViewIndex(currentTab);
 		const views = currentViews();
 
-		add(theme.fg("accent", GLYPH.hrule.repeat(width)));
+		add(frameRule(theme, width));
 
 		const labels = config.items.map((it) => it.label);
 		add(renderTabStrip(labels, tabStatuses(), currentTab, width, theme));
@@ -432,7 +433,7 @@ function createWorkspaceController(
 			}
 		}
 
-		add(theme.fg("accent", GLYPH.hrule.repeat(width)));
+		add(frameRule(theme, width));
 		return lines;
 	}
 

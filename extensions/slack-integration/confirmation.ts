@@ -18,6 +18,7 @@ import type {
 import { approvalUnder, fenced } from "../../lib/guardian/index.ts";
 import { GUARDS } from "../../lib/internal/guardian/guards.ts";
 import {
+	frameTitle,
 	type KeyAction,
 	promptSingle,
 	promptTabbed,
@@ -98,7 +99,7 @@ export async function confirmSendMessage(
 	const result = await promptSingle(ctx, {
 		content: (theme, width) => {
 			const lines = [
-				theme.fg("accent", theme.bold(" Send Slack Message")),
+				` ${frameTitle(theme, "Send Slack Message")}`,
 				"",
 				` ${theme.fg("muted", "To:")} ${conversationName}`,
 				"",
@@ -164,7 +165,7 @@ export async function confirmEditMessage(
 	const result = await promptSingle(ctx, {
 		content: (theme, width) => {
 			const lines = [
-				theme.fg("accent", theme.bold(" Edit Slack Message")),
+				` ${frameTitle(theme, "Edit Slack Message")}`,
 				"",
 				` ${theme.fg("muted", "In:")} ${conversationName}`,
 				` ${theme.fg("muted", "Message:")} ${ts}`,
@@ -226,7 +227,7 @@ export async function confirmReply(
 	const result = await promptSingle(ctx, {
 		content: (theme, width) => {
 			const lines = [
-				theme.fg("accent", theme.bold(" Reply to Thread")),
+				` ${frameTitle(theme, "Reply to Thread")}`,
 				"",
 				` ${theme.fg("muted", "In:")} ${conversationName}`,
 				` ${theme.fg("muted", "Thread:")} ${threadTs}`,
@@ -282,7 +283,7 @@ export async function confirmUploadFile(
 	const result = await promptSingle(ctx, {
 		content: (theme, width) => {
 			const lines = [
-				theme.fg("accent", theme.bold(" Upload File")),
+				` ${frameTitle(theme, "Upload File")}`,
 				"",
 				` ${theme.fg("muted", "To:")} ${conversationName}`,
 			];
@@ -568,7 +569,7 @@ export async function confirmReaction(
 
 	const result = await promptSingle(ctx, {
 		content: (theme) => [
-			theme.fg("accent", theme.bold(` ${verb} Reaction`)),
+			` ${frameTitle(theme, `${verb} Reaction`)}`,
 			"",
 			` ${theme.fg("muted", "In:")} ${conversationName}`,
 			` ${theme.fg("muted", "Message:")} ${ts}`,

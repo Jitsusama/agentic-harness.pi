@@ -227,6 +227,22 @@ describe("a gate raised by a tool", () => {
 		expect(await session.onScreen("MARK-body-0")).toBe(true);
 	});
 
+	it("sits on the editor's border rather than drawing a second rule on it", async () => {
+		const session = await raise();
+		await waitFor(() => !session.editorFocused(), "the gate to take focus");
+
+		// A row that opens on hairlines, as the gate's rule and the editor's
+		// border (which says what pi is doing inside it) both do, with the
+		// row under it opening the same way: a rule laid on a rule.
+		const rule = (row: string): boolean => /^\s*\u2500\u2500/.test(row);
+		const rows = await session.viewport();
+		const stacked = rows.filter(
+			(row, at) => rule(row) && rule(rows[at + 1] ?? ""),
+		);
+		expect(stacked).toEqual([]);
+		expect(await session.onScreen("Ctrl+Alt+N")).toBe(true);
+	});
+
 	it("takes the keyboard once it is on screen", async () => {
 		const session = await raise();
 
@@ -562,6 +578,14 @@ describe("a gate that gets shorter", () => {
 		);
 		await sleep(50);
 		expect((await session.verdict()).blankMax).toBe(0);
+
+		// The rows it holds go under its keys, as they went under its own
+		// rule before it left that to the editor, so its two rows of keys
+		// stay together rather than split by them.
+		const rows = await session.viewport();
+		const actions = rows.findIndex((row) => row.includes("[R]eject"));
+		expect(actions).toBeGreaterThan(-1);
+		expect(rows[actions + 1]).toContain("Esc cancel");
 
 		await session.key("enter");
 		await turnEnds(session);

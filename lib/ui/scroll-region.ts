@@ -221,8 +221,8 @@ function buildScrollbar(
 		const isThumb = i >= thumbStart && i < thumbStart + thumbSize;
 		bar.push(
 			isThumb
-				? theme.fg("accent", GLYPH.scrollThumb)
-				: theme.fg("dim", GLYPH.scrollEmpty),
+				? theme.fg("scrollbarThumb", GLYPH.scrollThumb)
+				: theme.fg("scrollbarTrack", GLYPH.scrollEmpty),
 		);
 	}
 	return bar;
