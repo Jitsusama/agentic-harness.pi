@@ -32,6 +32,7 @@ vi.mock("../../../lib/subagent/runpi/supervisor.ts", () => ({
 
 let root: string;
 let said: string[];
+let behind: string[];
 
 beforeEach(() => {
 	root = mkdtempSync(join(tmpdir(), "fleet-written-"));
@@ -39,8 +40,16 @@ beforeEach(() => {
 	// The person's own config is not this test's to read.
 	vi.stubEnv("XDG_CONFIG_HOME", join(root, "config"));
 	said = [];
+	behind = [];
+	// These fleets run with no screen, as in print mode, where what is
+	// said goes to standard error. console.error is pi's to keep clear
+	// of (lib/ui/aside.ts), so it must stay empty.
+	vi.spyOn(process.stderr, "write").mockImplementation((chunk: unknown) => {
+		said.push(String(chunk));
+		return true;
+	});
 	vi.spyOn(console, "error").mockImplementation((line: unknown) => {
-		said.push(String(line));
+		behind.push(String(line));
 	});
 	answer = async () => ({
 		exitCode: 0,
@@ -50,6 +59,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	expect(behind).toEqual([]);
 	vi.unstubAllEnvs();
 	vi.restoreAllMocks();
 	rmSync(root, { recursive: true, force: true });

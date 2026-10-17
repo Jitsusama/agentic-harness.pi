@@ -34,6 +34,7 @@ import {
 	ReviewerArtifactsStore,
 	recoverReviewerRuns,
 } from "../../lib/subagent/index.ts";
+import { type Aside, asideFor } from "../../lib/ui/aside.ts";
 import { count } from "../../lib/ui/index.ts";
 import { withToolCallSignals } from "./call-signal.ts";
 import {
@@ -125,7 +126,7 @@ const ATTACHMENTS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
  * an answer somebody is waiting for, and advisory throughout: failing
  * to reclaim space is not a reason to fail a session.
  */
-async function reclaimRoundTranscripts(): Promise<void> {
+async function reclaimRoundTranscripts(say: Aside): Promise<void> {
 	// Every path up front, before anything is awaited. These resolve
 	// against the environment each time they are called, and this runs
 	// unawaited, so a second lookup after the first await is a lookup
@@ -146,7 +147,7 @@ async function reclaimRoundTranscripts(): Promise<void> {
 	// transcript sweep has to be a decision about the transcript sweep,
 	// and a bare return inside this one was twice a decision about
 	// everything below it.
-	await sweepTranscripts(transcripts, rounds);
+	await sweepTranscripts(transcripts, rounds, say);
 	try {
 		await pruneAttachments(attached, {
 			olderThanMs: ATTACHMENTS_MAX_AGE_MS,
@@ -156,7 +157,7 @@ async function reclaimRoundTranscripts(): Promise<void> {
 		// Advisory, for the same reason.
 	}
 	try {
-		await reapOrphanedReviewers(transcripts);
+		await reapOrphanedReviewers(transcripts, say);
 	} catch {
 		// Advisory, for the same reason.
 	}
@@ -173,6 +174,7 @@ async function reclaimRoundTranscripts(): Promise<void> {
 async function sweepTranscripts(
 	transcripts: string,
 	rounds: string,
+	say: Aside,
 ): Promise<void> {
 	try {
 		// Which rounds are still waiting to be collected. A detached
@@ -198,7 +200,7 @@ async function sweepTranscripts(
 			// Named, and named as something to go and fix, because nothing
 			// heals a torn file: this is not one session's sweep deferred,
 			// it is every sweep from here until somebody deals with it.
-			console.error(
+			say(
 				`[review-integration] round transcripts will not be swept while ${unreadable.join(", ")} cannot be read, since a round waiting to be collected cannot be told from one nobody needs. Nothing repairs that file on its own, so this holds for every session until it is fixed or moved aside.`,
 			);
 			return;
@@ -218,7 +220,7 @@ async function sweepTranscripts(
 		// attaches again appears in none of them. Protection is absolute,
 		// so this is the only population here that grows without a limit.
 		if (swept.held >= ROUNDS_HELD_BEFORE_SAYING) {
-			console.error(
+			say(
 				`[review-integration] ${swept.held} rounds are open and holding their reviewers' transcripts, which until a round is collected is the only copy of what its reviewers said, and is megabytes per reviewer. Attach the change a round was started on and collect it to file the findings, or stop it to close one that left nothing. Both need the change, so deal first with the changes you are about to stop thinking about.`,
 			);
 		}
@@ -233,10 +235,10 @@ async function sweepTranscripts(
 		// would otherwise print a hundred lines into somebody's session
 		// start and bury whatever else was said.
 		for (const warning of swept.warnings.slice(0, MOST_WARNINGS)) {
-			console.error(`[review-integration] round transcripts: ${warning}`);
+			say(`[review-integration] round transcripts: ${warning}`);
 		}
 		if (swept.warnings.length > MOST_WARNINGS) {
-			console.error(
+			say(
 				`[review-integration] and ${swept.warnings.length - MOST_WARNINGS} more like it, which together say the transcripts directory is not writable rather than that one round is stuck.`,
 			);
 		}
@@ -251,7 +253,7 @@ async function sweepTranscripts(
 		// is left is the store failing to list its own root, and a change
 		// ledger whose file is there and will not open, which the read
 		// refuses over rather than treating as a change with no history.
-		console.error(
+		say(
 			`[review-integration] round transcripts were not swept: ${error instanceof Error ? error.message : String(error)}`,
 		);
 	}
@@ -278,6 +280,7 @@ async function sweepTranscripts(
  */
 async function carryAttachmentsIntoAFork(
 	event: SessionStartEvent,
+	say: Aside,
 ): Promise<void> {
 	// Typed as pi types it, so a rename upstream is a compile error
 	// here rather than a condition that silently stops matching.
@@ -299,7 +302,7 @@ async function carryAttachmentsIntoAFork(
 		// but never silent. This catch swallowed a missing export the
 		// first time it ran, and a fork that quietly forgets what it
 		// was working on is the bug this function exists to fix.
-		console.warn(`Could not carry attachments into this fork: ${error}`);
+		say(`Could not carry attachments into this fork: ${error}`);
 	}
 }
 
@@ -317,14 +320,17 @@ async function carryAttachmentsIntoAFork(
  * reason: it is about the machine rather than about this session's
  * work, so it must not delay anything a person is waiting on.
  */
-async function reapOrphanedReviewers(transcripts: string): Promise<void> {
+async function reapOrphanedReviewers(
+	transcripts: string,
+	say: Aside,
+): Promise<void> {
 	const store = new ReviewerArtifactsStore(transcripts);
 	const { reaped } = await recoverReviewerRuns(store);
 	if (reaped.length === 0) return;
 	// Said out loud. A session that quietly kills processes it found
 	// running is worse than one that leaves them, and somebody paying
 	// for those tokens should be told they stopped.
-	console.warn(
+	say(
 		`Stopped ${count(reaped.length, "reviewer")} whose supervisor had died: ${reaped
 			.map((one) => `${one.runId}/${one.reviewerId}`)
 			.join(", ")}.`,
@@ -392,7 +398,10 @@ export default function reviewIntegration(pi: ExtensionAPI) {
 		// the sweep spares only the session asking: at a fork that is
 		// not the session being read from, so an idle parent is a
 		// candidate for deletion in the same tick as the copy.
-		await carryAttachmentsIntoAFork(event);
+		// Through the session's screen, never straight to the terminal,
+		// which pi is drawing (lib/ui/aside.ts).
+		const say = asideFor(ctx);
+		await carryAttachmentsIntoAFork(event, say);
 		// A new session must not inherit the last one's bindings, or
 		// a target could stay pinned to a provider the user has since
 		// reconfigured away from.
@@ -402,6 +411,6 @@ export default function reviewIntegration(pi: ExtensionAPI) {
 		// registry the new session has not rebuilt yet.
 		forgetWorkLayer();
 		watchForWorkLayer(pi);
-		void reclaimRoundTranscripts();
+		void reclaimRoundTranscripts(say);
 	});
 }

@@ -34,18 +34,26 @@ import { activate } from "./support/review-extension.ts";
 let root: string;
 let wasState: string | undefined;
 let said: string[];
+let behind: string[];
 
 beforeEach(() => {
 	root = mkdtempSync(join(tmpdir(), "review-housekeeping-"));
 	wasState = process.env.XDG_STATE_HOME;
 	process.env.XDG_STATE_HOME = root;
 	said = [];
-	vi.spyOn(console, "error").mockImplementation((...parts: unknown[]) => {
-		said.push(parts.map(String).join(" "));
-	});
+	behind = [];
+	// Anything written to the terminal directly lands in pi's editor and
+	// throws its picture of the screen out (lib/ui/aside.ts), so it is
+	// kept apart from what the person is told, and must stay empty.
+	for (const level of ["error", "warn"] as const) {
+		vi.spyOn(console, level).mockImplementation((...parts: unknown[]) => {
+			behind.push(parts.map(String).join(" "));
+		});
+	}
 });
 
 afterEach(() => {
+	expect(behind).toEqual([]);
 	vi.restoreAllMocks();
 	if (wasState === undefined) delete process.env.XDG_STATE_HOME;
 	else process.env.XDG_STATE_HOME = wasState;
@@ -120,7 +128,12 @@ async function startSession(): Promise<void> {
 	}
 	await started(
 		{ reason: "startup" },
-		{ sessionManager: { getSessionId: () => "this-session" } },
+		{
+			sessionManager: { getSessionId: () => "this-session" },
+			// A screen, whose notices are what the person is told.
+			hasUI: true,
+			ui: { notify: (text: string) => said.push(text) },
+		},
 	);
 }
 
