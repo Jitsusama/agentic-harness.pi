@@ -47,6 +47,14 @@ describe("a mailbox", () => {
 		).toEqual([]);
 	});
 
+	it("keeps two messages sent in the same millisecond", () => {
+		const box = createMailbox(dir);
+
+		for (let n = 0; n < 20; n++) box.send(mail({ text: `${n}` }));
+
+		expect(box.list()).toHaveLength(20);
+	});
+
 	it("passes over a file that is not a message", () => {
 		const box = createMailbox(dir);
 		writeFileSync(join(dir, "1-X-1.json"), '{"nope":1}', "utf8");

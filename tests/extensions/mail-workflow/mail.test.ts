@@ -16,10 +16,12 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	ADVISORY,
+	ASKS,
 	MAIL_MESSAGE,
 	type MailPaths,
 	mailWorkflow,
 } from "../../../extensions/mail-workflow/index.ts";
+import { createMemberships } from "../../../lib/mail/channels.ts";
 import { createMailbox, type Mail } from "../../../lib/mail/mailbox.ts";
 
 const session = "01a15f3a-2255-7463-9909-afa624b025fe";
@@ -120,7 +122,7 @@ describe("mail as context", () => {
 
 		await vi.waitFor(() => expect(sent).toHaveLength(1));
 		const content = sent[0]?.message.content ?? "";
-		expect(content).toContain("Mail from WCJQSG to ALL");
+		expect(content).toContain("Mail (fyi) from WCJQSG to ALL");
 		expect(content).toContain("hold heavy builds until I say done");
 		expect(content.endsWith(ADVISORY)).toBe(true);
 		expect(content).not.toMatch(/Answer, if it needs one/);
@@ -149,7 +151,7 @@ describe("mail as context", () => {
 		fromElsewhere({ to: ["OVAE1I"], text: "not for you" });
 		await tools
 			.get("mail_send")
-			?.execute("call-1", { to: "all", text: "from me" });
+			?.execute("call-1", { to: "all", kind: "fyi", text: "from me" });
 		fromElsewhere({ to: ["7M6JKG"], text: "for you" });
 
 		await vi.waitFor(() => expect(sent).toHaveLength(1));
@@ -164,7 +166,7 @@ describe("sending mail", () => {
 
 		const answer = await tools
 			.get("mail_send")
-			?.execute("call-1", { to: "p9r1ki, all", text: "hello" });
+			?.execute("call-1", { to: "p9r1ki, all", kind: "fyi", text: "hello" });
 
 		expect(answer?.content[0]?.text).toContain("Sent as 7M6JKG");
 		const box = createMailbox(paths.box);
@@ -173,7 +175,160 @@ describe("sending mail", () => {
 			from: "7M6JKG",
 			to: ["P9R1KI", "ALL"],
 			text: "hello",
+			kind: "fyi",
 			pid: process.pid,
 		});
 	});
+
+	it("says who it reaches, and which names nobody answers to", async () => {
+		// A typo used to send mail nowhere without a word.
+		other("session-p", ["P9R1KI"], []);
+		const { tools } = await startSession();
+
+		const answer = await send(tools, "p9r1ki, p9rlki", "question", "ready?");
+
+		expect(answer).toContain("It reaches P9R1KI.");
+		expect(answer).toContain("No session here goes by P9RLKI");
+	});
+
+	it("refuses a channel nobody else is on, and sends nothing", async () => {
+		const { tools } = await startSession();
+
+		const answer = await send(tools, "#skynet", "fyi", "site is up");
+
+		expect(answer).toContain("Not sent: no other session is on #skynet");
+		expect(createMailbox(paths.box).list()).toEqual([]);
+	});
 });
+
+describe("what each kind asks", () => {
+	it("says only what the kinds delivered ask", async () => {
+		// So a reader knows whether to answer, to note, or only to know,
+		// without guidance about kinds that are not in front of it.
+		const { sent } = await startSession();
+
+		fromElsewhere({ kind: "hold", text: "hold heavy builds" });
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		const content = sent[0]?.message.content ?? "";
+		expect(content).toContain("Mail (hold) from WCJQSG");
+		expect(content).toContain(ASKS.hold);
+		expect(content).not.toContain(ASKS.question);
+		expect(content).not.toContain(ASKS.fyi);
+	});
+
+	it("reads mail with no kind, or one it does not know, as an fyi", async () => {
+		const { sent } = await startSession();
+
+		fromElsewhere({ kind: "gossip" as never });
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.message.content).toContain(ASKS.fyi);
+	});
+});
+
+describe("channels", () => {
+	it("hears a channel it joined, and its parents, and no other", async () => {
+		const { sent, tools } = await startSession();
+		await tools
+			.get("mail_join")
+			?.execute("call-1", { channel: "#optimus/power" });
+
+		fromElsewhere({ to: ["#skynet"], text: "not yours" });
+		fromElsewhere({ to: ["#optimus"], text: "the parent" });
+		fromElsewhere({ to: ["#optimus/power"], text: "the channel" });
+
+		await vi.waitFor(() => expect(sent).toHaveLength(2));
+		const all = sent.map((one) => one.message.content).join("\n");
+		expect(all).toContain("the parent");
+		expect(all).toContain("the channel");
+		expect(all).not.toContain("not yours");
+	});
+
+	it("keeps what it joined across a reload", async () => {
+		const first = await startSession();
+		await first.tools
+			.get("mail_join")
+			?.execute("call-1", { channel: "harness" });
+
+		const again = await startSession();
+		fromElsewhere({ to: ["#harness"], text: "for the harness" });
+
+		await vi.waitFor(() =>
+			expect(
+				again.sent.some((one) =>
+					one.message.content.includes("for the harness"),
+				),
+			).toBe(true),
+		);
+	});
+
+	it("stops hearing a channel it left", async () => {
+		const { sent, tools } = await startSession();
+		await tools.get("mail_join")?.execute("call-1", { channel: "harness" });
+		await tools.get("mail_leave")?.execute("call-2", { channel: "#harness" });
+
+		fromElsewhere({ to: ["#harness"], text: "gone" });
+		fromElsewhere({ to: ["7M6JKG"], text: "still here" });
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.message.content).toContain("still here");
+	});
+
+	it("lists the channels and who is on them", async () => {
+		other("session-p", ["P9R1KI"], ["optimus/power"]);
+		const { tools } = await startSession();
+		await tools.get("mail_join")?.execute("call-1", { channel: "harness" });
+
+		const listed = await tools.get("mail_channels")?.execute("call-2", {});
+
+		const text = listed?.content[0]?.text ?? "";
+		expect(text).toContain("This session is on #harness, and global.");
+		expect(text).toContain("#harness: 7M6JKG");
+		expect(text).toContain("#optimus/power: P9R1KI");
+	});
+
+	it("refuses a name that is not a channel", async () => {
+		const { tools } = await startSession();
+
+		const answer = await tools
+			.get("mail_join")
+			?.execute("call-1", { channel: "#Not A Channel" });
+
+		expect(answer?.content[0]?.text).toContain("is not a channel name");
+	});
+
+	it("reads back only the mail this session hears", async () => {
+		const { tools } = await startSession();
+		fromElsewhere({ to: ["OVAE1I"], text: "someone else's" });
+		fromElsewhere({ text: "everyone's" });
+
+		const read = await tools.get("mail_read")?.execute("call-1", {});
+
+		const text = read?.content[0]?.text ?? "";
+		expect(text).toContain("everyone's");
+		expect(text).not.toContain("someone else's");
+	});
+});
+
+/** Another session's place in the networks, as it would have kept it. */
+function other(session: string, names: string[], channels: string[]) {
+	createMemberships(join(paths.box, ".members")).keep({
+		session,
+		names,
+		channels,
+	});
+}
+
+/** Send through the tool, and hand back what it answered. */
+async function send(
+	tools: Awaited<ReturnType<typeof startSession>>["tools"],
+	to: string,
+	kind: string,
+	text: string,
+): Promise<string> {
+	const answer = await tools
+		.get("mail_send")
+		?.execute("call-1", { to, kind, text });
+	return answer?.content[0]?.text ?? "";
+}

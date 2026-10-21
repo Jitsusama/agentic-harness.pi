@@ -11,6 +11,7 @@
  * each other's mail while sessions move from one to the other.
  */
 
+import { randomBytes } from "node:crypto";
 import {
 	mkdirSync,
 	readdirSync,
@@ -19,6 +20,22 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { channelName, hears } from "./channels.ts";
+
+/**
+ * What a message asks of the sessions it reaches.
+ *
+ * - hold: stop or put off something until the sender says it is over.
+ * - question: wants an answer.
+ * - finding: something learned about what another session owns.
+ * - fyi: context only.
+ *
+ * Only a hold and a question ask for a reply. A message from before
+ * kinds is an fyi.
+ */
+export const MAIL_KINDS = ["hold", "question", "finding", "fyi"] as const;
+
+export type MailKind = (typeof MAIL_KINDS)[number];
 
 /** One message, as it sits on disk. */
 export interface Mail {
@@ -26,9 +43,14 @@ export interface Mail {
 	readonly at: string;
 	/** The name the sender went by. */
 	readonly from: string;
-	/** Who it is for, upper-cased: session names, or ALL. */
+	/**
+	 * Who it is for: session names upper-cased, channels as `#name`, or
+	 * ALL for the global channel.
+	 */
 	readonly to: readonly string[];
 	readonly text: string;
+	/** What it asks of whoever it reaches; an fyi when missing. */
+	readonly kind?: MailKind;
 	/** The sending process, so a session never hands itself its own mail. */
 	readonly pid: number;
 }
@@ -64,20 +86,46 @@ export function isFor(
 	mail: Mail,
 	names: readonly string[],
 	pid: number,
+	channels: readonly string[] = [],
 ): boolean {
 	return (
 		mail.pid !== pid &&
 		!names.includes(mail.from) &&
-		mail.to.some((to) => to === "ALL" || names.includes(to))
+		mail.to.some(
+			(to) =>
+				to === "ALL" ||
+				names.includes(to) ||
+				(to.startsWith("#") && hears(channels, to.slice(1))),
+		)
 	);
 }
 
-/** Recipients as a person types them: comma-separated, any case. */
+/**
+ * What a message asks of the sessions it reaches. One without a kind,
+ * or with one this version does not know, asks nothing.
+ */
+export function kindOf(mail: Mail): MailKind {
+	return (MAIL_KINDS as readonly unknown[]).includes(mail.kind)
+		? (mail.kind as MailKind)
+		: "fyi";
+}
+
+/**
+ * Recipients as a person types them, comma-separated in any case:
+ * session names upper-cased, `#channels` made canonical, and `all` or
+ * `#global` as ALL. A `#` that names no channel is kept as written, so
+ * the sender can be told it reaches nobody.
+ */
 export function recipients(to: string): string[] {
-	return to
-		.split(",")
-		.map((one) => one.trim().toUpperCase())
-		.filter(Boolean);
+	const out: string[] = [];
+	for (const one of to.split(",").map((part) => part.trim())) {
+		if (one === "") continue;
+		const bare = one.replace(/^#/, "").toLowerCase();
+		if (bare === "all" || bare === "global") out.push("ALL");
+		else if (one.startsWith("#")) out.push(`#${channelName(one) ?? bare}`);
+		else out.push(one.toUpperCase());
+	}
+	return [...new Set(out)];
 }
 
 /** The time of day a message was sent, as HH:MM in local time. */
@@ -87,7 +135,7 @@ export function clock(at: string): string {
 
 /** A message on one line, for listings. */
 export function oneLine(mail: Mail): string {
-	return `${clock(mail.at)} ${mail.from} to ${mail.to.join(", ")}: ${mail.text}`;
+	return `${clock(mail.at)} ${kindOf(mail)} from ${mail.from} to ${mail.to.join(", ")}: ${mail.text}`;
 }
 
 /** The mailbox in this folder, made on first send. */
@@ -109,7 +157,10 @@ export function createMailbox(dir: string): Mailbox {
 		dir,
 		send(mail) {
 			mkdirSync(dir, { recursive: true });
-			const file = `${Date.now()}-${mail.from}-${mail.pid}.json`;
+			// The time first so a listing sorts in sending order, and a
+			// random tail so two sent in one millisecond do not share a name,
+			// where the second would replace the first.
+			const file = `${Date.now()}-${mail.from}-${mail.pid}-${randomBytes(4).toString("hex")}.json`;
 			const staged = join(dir, `.${file}`);
 			writeFileSync(staged, JSON.stringify(mail));
 			renameSync(staged, join(dir, file));
