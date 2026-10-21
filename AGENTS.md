@@ -80,7 +80,7 @@ it does:
   `cost-workflow`, `image-budget-workflow`,
   `panel-lifecycle-workflow`, `job-workflow`,
   `session-recall-workflow`, `install-check-workflow`,
-  `reload-workflow`, `shell-workflow`.
+  `reload-workflow`, `shell-workflow`, `mail-workflow`.
 
   `away-workflow` makes the person being away a mode rather than a
   convention the model has to remember: blocking approvals hold
