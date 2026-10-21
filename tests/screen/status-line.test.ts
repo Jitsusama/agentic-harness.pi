@@ -14,6 +14,17 @@ afterEach(async () => {
 	session = undefined;
 });
 
+/**
+ * The context gauge, in either of its forms.
+ *
+ * A share (`◔ 4%`) when the line has had to give way, a count (`◔ 3k`)
+ * when it fits, and which one depends on how long this checkout's path
+ * and branch are. A test that wanted the share passed only where the
+ * path happened to be long enough, and failed in CI from the day it
+ * landed.
+ */
+const GAUGE = /[\u25d4\u25d1\u25d5\u25cf] \d+(k|%)/;
+
 /** The last row on screen that holds anything: pi's footer. */
 async function bottom(of: PiSession): Promise<string> {
 	const rows = await of.viewport();
@@ -79,9 +90,8 @@ describe("the status line", () => {
 		live.answer(long);
 		await live.prompt("fill the screen");
 		await waitFor(() => live.onScreen("line 59"), "the answer", 3000);
-		// At this width the line keeps its gauge and lets the model go.
 		await waitFor(
-			async () => (await bottom(live)).includes("%"),
+			async () => GAUGE.test(await bottom(live)),
 			"the status line to show its gauge",
 			3000,
 		);
@@ -95,7 +105,7 @@ describe("the status line", () => {
 		await sleep(300);
 		const rows = await live.viewport();
 		expect(rows.filter((row) => row.includes("MARK-quest"))).toHaveLength(1);
-		expect(await bottom(live)).toContain("%");
+		expect(await bottom(live)).toMatch(GAUGE);
 		const verdict = await live.verdict();
 		expect(verdict.desync).toEqual([]);
 	});
