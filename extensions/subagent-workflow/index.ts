@@ -36,7 +36,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { readFile, stat } from "node:fs/promises";
+import { rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -47,7 +47,6 @@ import {
 	registerSubagentDefaultExtension,
 	registerSubagentDefaultSkill,
 } from "../../lib/subagent/defaults.ts";
-import { safeSegment } from "../../lib/subagent/errno.ts";
 import {
 	SUBAGENT_READY,
 	SUBAGENT_REGISTER_DEFAULT_EXTENSION,
@@ -56,7 +55,9 @@ import {
 import {
 	abandonedFleets,
 	createFleetLedger,
+	type FleetLedger,
 	type FleetRun,
+	stillHeld,
 	whoIsWaiting,
 } from "../../lib/subagent/fleet.ts";
 import { getParentPiInstall } from "../../lib/subagent/install.ts";
@@ -142,24 +143,30 @@ const FLEET_RUNS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 // the terminal-only sweep could never reclaim it and it lived forever.
 // Four times the normal window, because an unfinished run is kept for
 // recovery and the question is whether anybody could still resume it.
+// The same window keeps a cut-off fleet's transcripts, counted from
+// when it was cut off: long enough for its conversation to come back
+// and read them, and then it goes the way of any finished fleet.
 const FLEET_RUNS_ABANDONED_AFTER_MS = 4 * FLEET_RUNS_MAX_AGE_MS;
 /**
- * How many unread fleets to hold before saying so out loud.
+ * A note earlier versions kept of the abandoned fleets they had
+ * named, removed wherever it is found.
  *
- * Protection is absolute, so the population it holds is the one that
- * can grow without a limit, and nothing else would ever mention it: a
- * fleet nobody collected is by definition one nobody knows about.
+ * Rebuilt by every session start from what that session saw, so two
+ * sessions starting together each wrote their own reading and the last
+ * one won, which made a certain "gone" lose to an unsure one and the
+ * same fleets get named again. Whether a fleet has been told now lives
+ * on its own record.
  */
-const FLEETS_HELD_BEFORE_SAYING = 5;
+const ABANDONED_SAID_BEFORE = "abandoned-said.json";
 /**
- * Where the abandoned fleets last named are noted, beside the
- * transcripts they hold.
+ * What a restored conversation is told about its own cut-off fleets.
  *
- * Nothing empties that population but a person, so without a note the
- * same line opens every session until somebody acts, and a line said at
- * every start is one nobody reads. It is said again when a fleet joins.
+ * A message to the model rather than a notice to the screen. The
+ * conversation that dispatched a fleet is the one place knowing it was
+ * cut off is worth anything, since it knows what the fleet was for,
+ * and every other session has no use for it at all.
  */
-const ABANDONED_SAID = "abandoned-said.json";
+const FLEET_CUT_OFF_MESSAGE = "subagent-fleet-cut-off";
 /**
  * How many sweep failures to print before summarizing the rest.
  *
@@ -215,19 +222,62 @@ async function ourOwner(): Promise<FleetRun["owner"]> {
 let waiting: FleetRun["owner"] | undefined;
 
 /**
- * The abandoned fleets named last time, or none when the note is
- * missing or will not read, which only costs saying them once more.
+ * The pi session this context belongs to, when it says.
+ *
+ * Guarded, since a context built by something other than pi need not
+ * carry a session manager, and a fleet recorded without a session is
+ * still a fleet recorded.
  */
-async function namedBefore(path: string): Promise<Set<string>> {
+function sessionOf(ctx: { sessionManager?: unknown }): string | undefined {
 	try {
-		const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
-		return new Set(
-			Array.isArray(parsed)
-				? parsed.filter((id): id is string => typeof id === "string")
-				: [],
-		);
+		const manager = ctx.sessionManager as
+			| { getSessionId?: () => string | undefined }
+			| undefined;
+		return manager?.getSessionId?.() || undefined;
 	} catch {
-		return new Set();
+		return undefined;
+	}
+}
+
+/**
+ * Tell this conversation about the fleets it dispatched that were cut
+ * off when it last ended, once each.
+ *
+ * Only a conversation that has come back can match, since a fleet is
+ * cut off for its session ending, so in every other session this says
+ * nothing. Told before the record is marked, so a mark that fails costs
+ * telling it once more rather than never.
+ */
+async function tellOwnCutOffs(
+	held: readonly FleetRun[],
+	runs: string,
+	ledger: FleetLedger,
+	conversation: Conversation,
+	say: Aside,
+): Promise<void> {
+	const { session, tell } = conversation;
+	if (session === undefined) return;
+	const store = new ReviewerArtifactsStore(runs);
+	for (const run of held) {
+		const cut = run.cutOff;
+		if (run.session !== session || cut?.why !== "owner-gone" || cut.told) {
+			continue;
+		}
+		const dir = store.rootPaths(run.id).runDir;
+		const until = new Date(Date.parse(cut.at) + FLEET_RUNS_ABANDONED_AFTER_MS)
+			.toISOString()
+			.slice(0, 10);
+		const kept = (await exists(dir))
+			? `What its subagents wrote is under ${dir}, kept until ${until}.`
+			: "Nothing its subagents wrote was kept.";
+		tell(
+			`The subagent fleet ${run.id} (${run.jobs.join(", ")}), dispatched from this conversation at ${run.startedAt}, was cut off when this session last ended, so its answers never came back. ${kept} If its work still matters, read what it left or dispatch it again.`,
+		);
+		await recordOrSay(
+			() => ledger.told(run.id),
+			`could not note that ${run.id} was told, so it may be told again`,
+			say,
+		);
 	}
 }
 
@@ -300,6 +350,14 @@ async function stopOrphanedSubagents(runs: string, say: Aside): Promise<void> {
 	}
 }
 
+/** The conversation a session start belongs to, and how to tell it. */
+interface Conversation {
+	/** Its pi session id, when pi says. */
+	readonly session: string | undefined;
+	/** Tell the model in it something, out of the person's way. */
+	readonly tell: (content: string) => void;
+}
+
 /**
  * Give back the disk that finished fleets are still holding.
  *
@@ -311,19 +369,13 @@ async function sweepFleetRuns(
 	runs: string,
 	fleets: string,
 	say: Aside,
+	conversation: Conversation,
 ): Promise<void> {
 	const transcripts = join(runs, "runs");
 	const ledger = createFleetLedger(fleets);
 	try {
-		// One walk, answering both questions. Two reads of a directory
-		// inside one handler can disagree, and the pair that disagrees is
-		// a protect set that kept a run beside a listing that no longer
-		// mentions it: the sweep would keep the transcripts and the
-		// message would never mention them again.
-		const { runs: held, unreadable } = await ledger.everyFleet();
-		const open = new Set(
-			held.filter((run) => run.open === true).map((run) => run.id),
-		);
+		const before = await ledger.everyFleet();
+		const { unreadable } = before;
 		if (unreadable.length > 0) {
 			// Declined rather than swept with an empty protect set. An
 			// empty set is not the cautious reading of a ledger that will
@@ -335,6 +387,26 @@ async function sweepFleetRuns(
 			);
 			return;
 		}
+		// Cut off every open fleet whose session has provably gone, on its
+		// record, once. Only a decisive "gone" counts: a reading the
+		// machine would not settle changes nothing, so it can never undo
+		// what another session already proved.
+		for (const run of await abandonedFleets(before.runs, systemFacts)) {
+			await recordOrSay(
+				() => ledger.cutOff(run.id, "owner-gone"),
+				`could not record that ${run.id} was cut off when its session ended, so it stays held as open`,
+				say,
+			);
+		}
+		// One walk after those writes, answering every question below. Two
+		// reads inside one handler can disagree, and the pair that
+		// disagrees is a protect set that kept a run beside a listing that
+		// no longer mentions it.
+		const { runs: held } = await ledger.everyFleet();
+		const kept = stillHeld(
+			held,
+			new Date(Date.now() - FLEET_RUNS_ABANDONED_AFTER_MS),
+		);
 		// Digest before sweeping. The sweep is right that whole streams
 		// cost too much disk to keep, and wrong that they are only needed
 		// while a run is live: they are the only record of what fleet
@@ -343,7 +415,7 @@ async function sweepFleetRuns(
 		const digested = await digestFleetRuns(transcripts, join(runs, "digests"));
 		// A run that could not be digested is spared, since its stream is
 		// still the only copy: nothing is swept that was not first captured.
-		const protect = new Set([...open, ...digested.failed]);
+		const protect = new Set([...kept, ...digested.failed]);
 		if (digested.failed.size > 0) {
 			say(
 				`[subagent-workflow] kept ${count(digested.failed.size, "fleet")} back from the sweep because ${digested.failed.size === 1 ? "its stream" : "their streams"} could not be digested, and a stream is the only copy of what a subagent did: ${[...digested.failed].join(", ")}`,
@@ -355,58 +427,16 @@ async function sweepFleetRuns(
 			abandonedAfterMs: FLEET_RUNS_ABANDONED_AFTER_MS,
 			protect,
 		});
-		// What the sweep held, not what the ledger holds. They are
-		// different numbers: a fleet can be open on the ledger and have
-		// no transcripts at all, and announcing megabytes that are not
-		// there sends somebody looking for a directory that does not
-		// exist.
-		//
-		// Held is not the same question as abandoned, either. A fleet
-		// another session is running right now is held, and saying so
-		// invites somebody to delete the record protecting work that is
-		// still being paid for. Only the ones nobody is waiting for are
-		// worth a word, and they are the ones where the offer to delete
-		// is safe to make.
-		//
-		// Asked only once the sweep has held enough to be worth a word,
-		// since the question costs a subprocess per session owning one of
-		// these and the answer is thrown away below that line anyway.
-		if (swept.held >= FLEETS_HELD_BEFORE_SAYING) {
-			const store = new ReviewerArtifactsStore(runs);
-			const gone = await abandonedFleets(held, systemFacts);
-			// Down to the ones with something behind them, so the count and
-			// the directory it points at describe one population. A record
-			// whose dispatch never wrote anything is real and abandoned and
-			// still sends whoever reads this looking for a directory that
-			// is not there.
-			const worthReading: string[] = [];
-			for (const run of gone) {
-				if (await exists(store.rootPaths(run.id).runDir)) {
-					worthReading.push(run.id);
-				}
-			}
-			const note = join(runs, ABANDONED_SAID);
-			const before = await namedBefore(note);
-			const joined = worthReading.some((id) => !before.has(id));
-			if (joined) {
-				const one = worthReading.length === 1;
-				say(
-					`[subagent-workflow] ${count(worthReading.length, "fleet")} from sessions that ended ${one ? "is" : "are"} kept under ${transcripts}: ${worthReading.join(", ")}. Delete a fleet's file under ${fleets} to let it go.`,
-				);
-			}
-			// Noted as what is held now rather than added to, so a fleet let
-			// go is forgotten here too. Written only when that changed.
-			if (joined || before.size !== worthReading.length) {
-				await recordOrSay(
-					() => store.writeJsonAtomic(note, worthReading),
-					"could not note which abandoned fleets were named, so they will be named again",
-					say,
-				);
-			}
-		}
+		// Nobody else is told anything about held or cut-off fleets. A
+		// fleet another session is running is that session's business, and
+		// a cut-off one is worth a word only to the conversation that
+		// dispatched it, which hears below when it comes back.
+		await rm(join(runs, ABANDONED_SAID_BEFORE), { force: true }).catch(
+			() => undefined,
+		);
+		await tellOwnCutOffs(held, runs, ledger, conversation, say);
 		// Capped, because what produces these is rarely one run: a
-		// permissions change lands on all of them at once, and the two
-		// lines above carry decisions somebody has to see.
+		// permissions change lands on all of them at once.
 		for (const warning of swept.warnings.slice(0, MOST_WARNINGS)) {
 			say(`[subagent-workflow] fleet runs: ${warning}`);
 		}
@@ -464,8 +494,20 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 		// Through the session's screen, never straight to the terminal,
 		// which pi is drawing (lib/ui/aside.ts).
 		const say = asideFor(ctx);
+		// Read before anything is awaited, like the paths: it is this
+		// conversation's, and its own cut-off fleets are told to it.
+		const session = sessionOf(ctx);
 		void (async () => {
-			await sweepFleetRuns(runs, fleets, say);
+			await sweepFleetRuns(runs, fleets, say, {
+				session,
+				// With the next turn, whether or not one is running when the
+				// sweep gets here: it is context for the model, not a prompt.
+				tell: (content) =>
+					pi.sendMessage(
+						{ customType: FLEET_CUT_OFF_MESSAGE, content, display: false },
+						{ deliverAs: "nextTurn" },
+					),
+			});
 			await stopOrphanedSubagents(runs, say);
 		})();
 	});
@@ -702,6 +744,9 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 		async execute(_toolCallId, params, toolSignal, _onUpdate, ctx) {
 			const runId = params.runId ?? `fleet-${randomUUID()}`;
 			const say = asideFor(ctx);
+			// The conversation waiting on this fleet, so that if this process
+			// ends under it, the same conversation hears when it comes back.
+			const session = sessionOf(ctx);
 			const sized = await sizeFleet(ctx, params.jobs, params.defaults);
 			if ("refusal" in sized) {
 				return {
@@ -761,6 +806,7 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 							id: runId,
 							startedAt: new Date().toISOString(),
 							jobs: assignments.map((one) => one.spec.id),
+							...(session ? { session } : {}),
 							...(owner ? { owner } : {}),
 						});
 					},
@@ -777,11 +823,10 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 					`could not clear an earlier cancellation of ${runId}, so its jobs may stop the moment they start`,
 					say,
 				);
-				// What, if anything, was cut off before it could answer. Set
+				// Whether anything was cut off before it could answer. Set
 				// inside the try and read in the finally, because the finally
 				// is the only place that sees both endings.
-				let cutOff: string | undefined =
-					signal?.aborted === true ? "the call was cancelled" : undefined;
+				let cutOff = signal?.aborted === true;
 				try {
 					const result = await dispatchFleet({
 						runId,
@@ -794,11 +839,7 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 					const stopped = result.results.filter(
 						(one) => one.state === "cancelled",
 					);
-					if (stopped.length > 0) {
-						cutOff = `${count(stopped.length, "subagent")} was cancelled`;
-					} else if (signal?.aborted === true) {
-						cutOff = "the call was cancelled";
-					}
+					if (stopped.length > 0 || signal?.aborted === true) cutOff = true;
 					// Decorate the result with on-disk artifact paths so the full
 					// per-subagent output is discoverable from the summary and the
 					// details payload, not buried in the supervisor's state dir.
@@ -833,9 +874,16 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 					// leaves the signal untouched and hands back a result with
 					// cancelled entries in it, so a guard reading the signal
 					// alone released every fleet a person actually stopped.
-					if (cutOff !== undefined) {
-						say(
-							`[subagent-workflow] ${cutOff} in ${runId}, so its transcripts under ${join(runs, "runs")} are held rather than reclaimed. Delete ${join(fleets, `${safeSegment(runId)}.json`)} once you have read them or given up on them.`,
+					//
+					// Recorded on the fleet rather than said. Somebody stopped it
+					// in front of them, so there is nothing to tell, and the
+					// record keeps the transcripts for the cut-off window and
+					// then lets them go, with nobody asked to delete a file.
+					if (cutOff) {
+						await recordOrSay(
+							() => ledger.cutOff(runId, "cancelled"),
+							`could not record that ${runId} was cancelled, so its transcripts stay held as if it were still running`,
+							say,
 						);
 					} else {
 						await recordOrSay(

@@ -121,18 +121,36 @@ async function age(path: string): Promise<void> {
 	await utimes(path, long, long);
 }
 
-/** Whether a line is the one naming fleets whose sessions ended. */
-function abandoned(line: string): boolean {
-	return line.includes("from sessions that ended");
+/** Whether a line is about any of the fleets these tests hold. */
+function aboutFleets(line: string): boolean {
+	return /fleet-\d/.test(line) || line.includes("from sessions that ended");
 }
 
-/** Start the session the way pi starts one. */
-async function startSession(): Promise<void> {
-	const started = activateWith(subagentWorkflow).lifecycle.get("session_start");
+/**
+ * Start the session the way pi starts one, as this conversation, and
+ * hand back what it told the model.
+ */
+async function startSession(
+	session?: string,
+): Promise<{ customType: string; content: unknown }[]> {
+	const stub = activateWith(subagentWorkflow);
+	const started = stub.lifecycle.get("session_start");
 	if (started === undefined) {
 		throw new Error("the extension registered no session_start on pi.on");
 	}
-	await started({ reason: "startup" }, screen);
+	await started(
+		{ reason: "startup" },
+		session === undefined
+			? screen
+			: { ...screen, sessionManager: { getSessionId: () => session } },
+	);
+	return stub.sent;
+}
+
+/** A fleet record as it reads back now. */
+async function recordOf(id: string) {
+	const { runs } = await createFleetLedger(stateDir("fleets")).everyFleet();
+	return runs.find((run) => run.id === id);
 }
 
 describe("a fleet child whose supervisor died", () => {
@@ -376,22 +394,14 @@ describe("the fleet retention sweep", () => {
 		expect(existsSync(transcripts)).toBe(true);
 	});
 
-	it("says how many fleets are being held once there are enough to matter", async () => {
-		// Protection is absolute, so this is the population that can
-		// grow without a limit, and nothing else would ever mention it:
-		// a fleet nobody collected is by definition one nobody knows
-		// about.
-		//
-		// Counted from what the sweep held rather than from what the
-		// ledger says, so each of these has transcripts on disk. The two
-		// numbers are not the same: a fleet can be open on the ledger
-		// with nothing behind it at all, and a message announcing
-		// megabytes that are not there sends somebody looking for a
-		// directory that does not exist.
-		// Three abandoned among five held, so the two numbers differ.
-		// Five and five cannot tell them apart, and they are different
-		// populations: what the sweep held includes fleets another
-		// session is running right now, which must not be offered up.
+	it("cuts off the fleets whose session has gone, and says nothing", async () => {
+		// What 2026-10-21 needed: nine fleets from sessions killed by
+		// earlier reboots, warned about at every session start because a
+		// note rebuilt by each session kept losing them. Proven gone once,
+		// they are cut off on their own records, their transcripts are
+		// kept for whoever comes back for them, and nobody is told.
+		// Three gone among five, so a version that cut off every open
+		// fleet fails on the two still running.
 		const ledger = createFleetLedger(stateDir("fleets"));
 		const dead = noSuchProcess();
 		const mine = await systemFacts.startedAt(process.pid);
@@ -409,24 +419,149 @@ describe("the fleet retention sweep", () => {
 			await age(staleFleet(`fleet-${n}`));
 		}
 
+		await alsoOrphaned(new ReviewerArtifactsStore(stateDir()));
+		await startSession();
+		await finished();
+
+		for (let n = 0; n < 3; n++) {
+			const run = await recordOf(`fleet-${n}`);
+			expect(run?.open).toBeUndefined();
+			expect(run?.cutOff).toEqual({
+				at: expect.any(String),
+				why: "owner-gone",
+			});
+			// Aged past every ordinary window, and kept: what a cut-off
+			// fleet wrote is the only copy there is.
+			expect(existsSync(stateDir("runs", `fleet-${n}`))).toBe(true);
+		}
+		for (let n = 3; n < 5; n++) {
+			expect((await recordOf(`fleet-${n}`))?.open).toBe(true);
+		}
+		expect(said.filter(aboutFleets)).toEqual([]);
+	});
+
+	it("lets a cut-off fleet go once its window has passed", async () => {
+		// Kept for as long as its conversation might come back for it,
+		// and no longer, so nobody is ever asked to delete a file.
+		const record = stateDir("fleets", "fleet-0.json");
+		mkdirSync(stateDir("fleets"), { recursive: true });
+		writeFileSync(
+			record,
+			JSON.stringify({
+				id: "fleet-0",
+				startedAt: "2019-01-01T00:00:00.000Z",
+				jobs: ["one"],
+				settledAt: "2019-01-01T00:00:00.000Z",
+				cutOff: { at: "2019-01-01T00:00:00.000Z", why: "owner-gone" },
+			}),
+			"utf8",
+		);
+		const transcripts = staleFleet("fleet-0");
+		await age(transcripts);
+
 		await startSession();
 
-		await vi.waitFor(() => {
-			const about = said.filter(abandoned);
-			expect(about).toHaveLength(1);
-			expect(about[0]).toContain("3 fleets from sessions that ended");
-			// Named, so somebody can act on one rather than on the count.
-			// The two still running are not named, since the only lever
-			// offered here would unprotect them.
-			expect(about[0]).toContain("fleet-0, fleet-1, fleet-2");
-			expect(about[0]).not.toContain("fleet-3");
-			// Where they are, and how to let one go. Announcing an
-			// unbounded population that nothing in the product can
-			// release, without saying what releases it, is a nag with no
-			// answer.
-			expect(about[0]).toContain(stateDir("runs"));
-			expect(about[0]).toContain(stateDir("fleets"));
+		await vi.waitFor(() => expect(existsSync(transcripts)).toBe(false));
+		await vi.waitFor(() => expect(existsSync(record)).toBe(false));
+	});
+
+	it("tells the conversation that dispatched a cut-off fleet, once", async () => {
+		// A restored session is the same conversation under a new pid,
+		// and the one place knowing its fleet was cut off is worth
+		// anything. Told to the model, out of the person's way, and
+		// marked on the record so a second restore does not tell it again.
+		const ledger = createFleetLedger(stateDir("fleets"));
+		await ledger.open({
+			id: "fleet-0",
+			startedAt: new Date().toISOString(),
+			jobs: ["one", "two"],
+			session: "conversation-a",
+			owner: { pid: noSuchProcess(), startedAt: 1_000 },
 		});
+		const transcripts = staleFleet("fleet-0");
+
+		const first = await startSession("conversation-a");
+		await vi.waitFor(() => expect(first).toHaveLength(1));
+		expect(first[0]).toMatchObject({
+			customType: "subagent-fleet-cut-off",
+			display: false,
+		});
+		expect(first[0]?.content).toContain("fleet-0 (one, two)");
+		expect(first[0]?.content).toContain(transcripts);
+		await vi.waitFor(async () =>
+			expect((await recordOf("fleet-0"))?.cutOff?.told).toBe(true),
+		);
+		expect(said.filter(aboutFleets)).toEqual([]);
+
+		await alsoOrphaned(new ReviewerArtifactsStore(stateDir()));
+		const again = await startSession("conversation-a");
+		await finished();
+		expect(again).toEqual([]);
+	});
+
+	it("tells no other conversation, and none at all for an older record", async () => {
+		// Every other session has no use for it. A record from before
+		// sessions were kept names no conversation, so it is cut off and
+		// told to nobody.
+		const ledger = createFleetLedger(stateDir("fleets"));
+		await ledger.open({
+			id: "fleet-0",
+			startedAt: new Date().toISOString(),
+			jobs: ["one"],
+			session: "conversation-a",
+			owner: { pid: noSuchProcess(), startedAt: 1_000 },
+		});
+		await ledger.open({
+			id: "fleet-1",
+			startedAt: new Date().toISOString(),
+			jobs: ["one"],
+			owner: { pid: noSuchProcess(), startedAt: 1_000 },
+		});
+		await alsoOrphaned(new ReviewerArtifactsStore(stateDir()));
+
+		const told = await startSession("conversation-b");
+		await finished();
+
+		expect(told).toEqual([]);
+		expect((await recordOf("fleet-0"))?.cutOff?.why).toBe("owner-gone");
+		expect((await recordOf("fleet-1"))?.cutOff?.why).toBe("owner-gone");
+		expect(said.filter(aboutFleets)).toEqual([]);
+	});
+
+	it("agrees with itself when sessions start together", async () => {
+		// Several sessions at once after a reboot is the ordinary case.
+		// Each cuts off what it proves gone, and none can undo another:
+		// the record ends cut off whoever wrote last.
+		const ledger = createFleetLedger(stateDir("fleets"));
+		for (let n = 0; n < 3; n++) {
+			await ledger.open({
+				id: `fleet-${n}`,
+				startedAt: new Date().toISOString(),
+				jobs: ["one"],
+				owner: { pid: noSuchProcess(), startedAt: 1_000 },
+			});
+		}
+		await alsoOrphaned(new ReviewerArtifactsStore(stateDir()));
+
+		await Promise.all([startSession(), startSession(), startSession()]);
+		await finished();
+
+		for (let n = 0; n < 3; n++) {
+			const run = await recordOf(`fleet-${n}`);
+			expect(run?.open).toBeUndefined();
+			expect(run?.cutOff?.why).toBe("owner-gone");
+		}
+		expect(said.filter(aboutFleets)).toEqual([]);
+	});
+
+	it("removes the note earlier versions kept", async () => {
+		mkdirSync(stateDir(), { recursive: true });
+		const note = stateDir("abandoned-said.json");
+		writeFileSync(note, JSON.stringify(["fleet-0"]), "utf8");
+
+		await startSession();
+
+		await vi.waitFor(() => expect(existsSync(note)).toBe(false));
 	});
 
 	it("says nothing about a held fleet another session is running", async () => {
@@ -456,49 +591,11 @@ describe("the fleet retention sweep", () => {
 		await startSession();
 
 		await finished();
-		expect(said.filter(abandoned)).toEqual([]);
-	});
-
-	it("names abandoned fleets once, and again when another joins", async () => {
-		// Nothing empties this population but a person, so a line said
-		// at every session start is one nobody reads.
-		const ledger = createFleetLedger(stateDir("fleets"));
-		const dead = noSuchProcess();
-		const abandon = async (id: string) => {
-			await ledger.open({
-				id,
-				startedAt: new Date().toISOString(),
-				jobs: ["one"],
-				owner: { pid: dead, startedAt: 1_000 },
-			});
-			await age(staleFleet(id));
-		};
-		for (let n = 0; n < 5; n++) await abandon(`fleet-${n}`);
-		const store = new ReviewerArtifactsStore(stateDir());
-
-		await startSession();
-		await vi.waitFor(() => expect(said.filter(abandoned)).toHaveLength(1));
-
-		// The same five, a session later, are not said again. The orphan
-		// is announced after this decision, so it is what proves the
-		// decision was made.
-		said = [];
-		await alsoOrphaned(store);
-		await startSession();
-		await finished();
-		expect(said.filter(abandoned)).toEqual([]);
-
-		// A sixth joins, and all six are named.
-		said = [];
-		await abandon("fleet-5");
-		await startSession();
-		await vi.waitFor(() => {
-			const about = said.filter(abandoned);
-			expect(about).toHaveLength(1);
-			expect(about[0]).toContain("6 fleets");
-			expect(about[0]).toContain("fleet-0");
-			expect(about[0]).toContain("fleet-5");
-		});
+		expect(said.filter(aboutFleets)).toEqual([]);
+		// Nor cut off: work in flight is not lost.
+		for (let n = 0; n < 5; n++) {
+			expect((await recordOf(`fleet-${n}`))?.open).toBe(true);
+		}
 	});
 
 	it("says nothing about fleets the ledger holds but the disk does not", async () => {

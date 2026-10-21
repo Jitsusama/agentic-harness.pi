@@ -53,13 +53,30 @@ export interface FleetRun {
 	readonly open?: true;
 	readonly settledAt?: string;
 	/**
-	 * The session that dispatched this fleet and is waiting for it.
+	 * The conversation that dispatched this fleet, by pi session id.
 	 *
-	 * Optional because a record written before this existed cannot
-	 * have one, and absent has to keep meaning not told rather than
-	 * nobody: reading it as nobody would cancel every fleet on an
-	 * older ledger at the next session start.
+	 * Not the same thing as the owner below. The owner is a process,
+	 * and dies with it; the conversation is what wanted the answers,
+	 * and a restored session brings it back under another pid. This is
+	 * how a fleet cut off by the end of one process is told to the same
+	 * conversation when it comes back, rather than to whoever happens
+	 * to start first.
+	 *
+	 * Optional because records written before it was kept are still on
+	 * disk. Those are cut off like any other, and told to nobody.
 	 */
+	readonly session?: string;
+	/**
+	 * How this fleet ended without its answers being handed over, when
+	 * that is how it ended.
+	 *
+	 * Written once, on the record, by whoever first proves it. Not a
+	 * note rebuilt at every session start from what that session sees:
+	 * that note was rewritten by each session from its own momentary
+	 * reading, the last writer won, and one unsure reading undid a
+	 * certain one.
+	 */
+	readonly cutOff?: CutOff;
 	/**
 	 * A pid and when that process started, because a pid identifies
 	 * nothing on its own: the number comes round again, and a stranger
@@ -67,6 +84,50 @@ export interface FleetRun {
 	 * reading that leaves an orphan running.
 	 */
 	readonly owner?: Owner;
+}
+
+/** How a fleet ended without its answers reaching anybody. */
+export interface CutOff {
+	readonly at: string;
+	/**
+	 * Cancelled is somebody stopping it, in the session that was
+	 * watching. Owner gone is the session ending under it.
+	 */
+	readonly why: "cancelled" | "owner-gone";
+	/**
+	 * The conversation that dispatched it has heard about it.
+	 *
+	 * Set from the start for a cancellation, which happens in front of
+	 * the person who did it. Set for an owner gone once the restored
+	 * conversation has been told, so it is told once however many
+	 * times it comes back.
+	 */
+	readonly told?: true;
+}
+
+/**
+ * Which fleets the sweep must still keep the transcripts of.
+ *
+ * Open ones, because somebody is waiting on them, and ones cut off
+ * since `since`, because what their subagents wrote is the only copy
+ * there is and somebody may yet want it. Past that, a cut-off fleet
+ * goes the way of any finished one, and its record follows when the
+ * ledger forgets settled fleets on the same window.
+ */
+export function stillHeld(runs: readonly FleetRun[], since: Date): Set<string> {
+	const held = new Set<string>();
+	for (const run of runs) {
+		if (run.open === true) {
+			held.add(run.id);
+			continue;
+		}
+		if (run.cutOff === undefined) continue;
+		const at = Date.parse(run.cutOff.at);
+		// A date that will not read is kept rather than taken, for the
+		// reason the ledger keeps a settled time it cannot read.
+		if (Number.isNaN(at) || at >= since.getTime()) held.add(run.id);
+	}
+	return held;
 }
 
 /**
@@ -176,6 +237,18 @@ export interface FleetLedger {
 	/** Mark a fleet as one somebody has been handed. */
 	settle(id: string): Promise<void>;
 	/**
+	 * Mark an open fleet as one that ended before its answers were
+	 * handed over.
+	 *
+	 * Once, and only from open. A fleet already settled or already cut
+	 * off is left as it is, so sessions racing to record the same
+	 * ending cannot undo each other, and a fleet somebody was handed is
+	 * never reported as lost.
+	 */
+	cutOff(id: string, why: CutOff["why"]): Promise<void>;
+	/** Note that the conversation a cut-off fleet belongs to has heard. */
+	told(id: string): Promise<void>;
+	/**
 	 * Every fleet on the ledger, beside what would not read.
 	 *
 	 * The unreadable half is not optional and not separable. A listing
@@ -232,6 +305,46 @@ export function createFleetLedger(root: string): FleetLedger {
 		const pending = `${path}.${process.pid}.${Date.now()}.${staging}${STAGING_SUFFIX}`;
 		await writeFile(pending, JSON.stringify(run, null, 2), "utf8");
 		await rename(pending, path);
+	}
+
+	/**
+	 * One record, read to be rewritten, or nothing when there is none.
+	 *
+	 * Derived, and the one place that is right: this is where a record
+	 * is looked up by the id its writer used, so the derivation is the
+	 * lookup. `forgetSettledBefore` keeps the path it read instead,
+	 * because it starts from a listing and a record somebody put there
+	 * by hand names a different file than its own id derives.
+	 */
+	async function recordOf(
+		id: string,
+		verb: string,
+	): Promise<FleetRun | undefined> {
+		const path = pathFor(id);
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(await readFile(path, "utf8"));
+		} catch (error) {
+			// Nothing to rewrite. The open write is best effort, because
+			// bookkeeping must not cost a fleet, so this is reachable
+			// whenever that write failed. Writing a record here instead
+			// would put a fleet on the ledger that nothing protected while
+			// it ran, which reads afterwards as evidence that it was safe.
+			if (isNotFound(error)) return undefined;
+			// A record this cannot read is one it must not overwrite, and
+			// it is the same file the sweep declines over: one file, one
+			// answer. Named, because a parser's own complaint gives a
+			// character offset in a file nobody has been told about.
+			throw new Error(
+				`The fleet held at ${path} could not be read, so ${id} was not ${verb}: ${error instanceof Error ? error.message : String(error)}. Fix that file or move it aside.`,
+			);
+		}
+		if (!isFleetRun(parsed)) {
+			throw new Error(
+				`The file at ${path} is not a fleet record, so ${id} was not ${verb}. Move it aside: nothing here will overwrite it, and the sweep declines while it is there.`,
+			);
+		}
+		return parsed;
 	}
 
 	async function readAll(): Promise<{
@@ -300,39 +413,31 @@ export function createFleetLedger(root: string): FleetLedger {
 		},
 
 		async settle(id) {
-			// Derived, and the one place that is right: this is where a
-			// record is looked up by the id its writer used, so the
-			// derivation is the lookup. `forgetSettledBefore` keeps the
-			// path it read instead, because it starts from a listing and
-			// a record somebody put there by hand names a different file
-			// than its own id derives.
-			const path = pathFor(id);
-			let parsed: unknown;
-			try {
-				parsed = JSON.parse(await readFile(path, "utf8"));
-			} catch (error) {
-				// Nothing to settle. The open write is best effort, because
-				// bookkeeping must not cost a fleet, so this is reachable
-				// whenever that write failed. Writing a settled record here
-				// instead would put a fleet on the ledger that nothing
-				// protected while it ran, which reads afterwards as evidence
-				// that it was safe.
-				if (isNotFound(error)) return;
-				// A record this cannot read is one it must not overwrite, and
-				// it is the same file the sweep declines over: one file, one
-				// answer. Named, because a parser's own complaint gives a
-				// character offset in a file nobody has been told about.
-				throw new Error(
-					`The fleet held at ${path} could not be read, so ${id} was not settled: ${error instanceof Error ? error.message : String(error)}. Fix that file or move it aside.`,
-				);
-			}
-			if (!isFleetRun(parsed)) {
-				throw new Error(
-					`The file at ${path} is not a fleet record, so ${id} was not settled. Move it aside: nothing here will overwrite it, and the sweep declines while it is there.`,
-				);
-			}
-			const { open: _wasOpen, ...rest } = parsed;
+			const run = await recordOf(id, "settled");
+			if (run === undefined) return;
+			const { open: _wasOpen, ...rest } = run;
 			await put({ ...rest, settledAt: new Date().toISOString() });
+		},
+
+		async cutOff(id, why) {
+			const run = await recordOf(id, "cut off");
+			if (run === undefined || run.open !== true) return;
+			const { open: _wasOpen, ...rest } = run;
+			const at = new Date().toISOString();
+			// Settled as well, at the same moment, so the ledger forgets the
+			// record on the same window the sweep stops keeping what it
+			// points at.
+			await put({
+				...rest,
+				settledAt: at,
+				cutOff: { at, why, ...(why === "cancelled" ? { told: true } : {}) },
+			});
+		},
+
+		async told(id) {
+			const run = await recordOf(id, "marked as told");
+			if (run?.cutOff === undefined || run.cutOff.told === true) return;
+			await put({ ...run, cutOff: { ...run.cutOff, told: true } });
 		},
 
 		async everyFleet() {
@@ -445,7 +550,27 @@ function isFleetRun(value: unknown): value is FleetRun {
 		typeof run.id === "string" &&
 		typeof run.startedAt === "string" &&
 		Array.isArray(run.jobs) &&
+		(run.session === undefined || typeof run.session === "string") &&
+		cutOffIsWellFormed(run.cutOff) &&
 		ownerIsWellFormed(run.owner)
+	);
+}
+
+/**
+ * Whether a cut-off is one, or is absent.
+ *
+ * Checked for the reason the owner is: a half-written one decides
+ * how long transcripts are kept and whether a conversation is told,
+ * and a record that cannot be believed is better refused whole.
+ */
+function cutOffIsWellFormed(value: unknown): boolean {
+	if (value === undefined) return true;
+	if (typeof value !== "object" || value === null) return false;
+	const cut = value as Record<string, unknown>;
+	return (
+		typeof cut.at === "string" &&
+		(cut.why === "cancelled" || cut.why === "owner-gone") &&
+		(cut.told === undefined || cut.told === true)
 	);
 }
 
@@ -478,6 +603,7 @@ function ownerIsWellFormed(value: unknown): boolean {
 		// group or nothing at all, and it must not reach a comparison
 		// that concludes a session is still alive.
 		owner.pid > 0 &&
-		typeof owner.startedAt === "number"
+		typeof owner.startedAt === "number" &&
+		(owner.bootId === undefined || typeof owner.bootId === "string")
 	);
 }

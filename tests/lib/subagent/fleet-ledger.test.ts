@@ -25,7 +25,11 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ReviewerArtifactsStore } from "../../../lib/subagent/artifacts.ts";
-import { createFleetLedger } from "../../../lib/subagent/fleet.ts";
+import {
+	createFleetLedger,
+	type FleetRun,
+	stillHeld,
+} from "../../../lib/subagent/fleet.ts";
 
 let root: string;
 
@@ -525,5 +529,121 @@ describe("a fleet ledger", () => {
 		} finally {
 			chmodSync(shut, 0o700);
 		}
+	});
+});
+
+describe("a fleet cut off before its answers were handed over", () => {
+	it("ends open, settled at the moment it was cut off", async () => {
+		// Settled too, so the ledger forgets the record on the window the
+		// sweep stops keeping what it points at.
+		const ledger = createFleetLedger(root);
+		await ledger.open(fleet("fleet-a"));
+
+		await ledger.cutOff("fleet-a", "owner-gone");
+
+		const [run] = (await ledger.everyFleet()).runs;
+		expect(run?.open).toBeUndefined();
+		expect(run?.cutOff).toEqual({ at: expect.any(String), why: "owner-gone" });
+		expect(run?.settledAt).toBe(run?.cutOff?.at);
+	});
+
+	it("counts a cancellation as told, since somebody was watching", async () => {
+		const ledger = createFleetLedger(root);
+		await ledger.open(fleet("fleet-a"));
+
+		await ledger.cutOff("fleet-a", "cancelled");
+
+		expect((await ledger.everyFleet()).runs[0]?.cutOff).toEqual({
+			at: expect.any(String),
+			why: "cancelled",
+			told: true,
+		});
+	});
+
+	it("is recorded once, however many sessions prove it", async () => {
+		// The second write finds it no longer open and leaves it, so a
+		// later session cannot move the moment it was cut off, nor undo
+		// the telling.
+		const ledger = createFleetLedger(root);
+		await ledger.open(fleet("fleet-a"));
+		await ledger.cutOff("fleet-a", "owner-gone");
+		await ledger.told("fleet-a");
+		const first = (await ledger.everyFleet()).runs[0]?.cutOff;
+
+		await new Promise((wake) => setTimeout(wake, 5));
+		await ledger.cutOff("fleet-a", "owner-gone");
+
+		expect((await ledger.everyFleet()).runs[0]?.cutOff).toEqual(first);
+		expect(first?.told).toBe(true);
+	});
+
+	it("never reports a fleet somebody was handed as lost", async () => {
+		const ledger = createFleetLedger(root);
+		await ledger.open(fleet("fleet-a"));
+		await ledger.settle("fleet-a");
+
+		await ledger.cutOff("fleet-a", "owner-gone");
+
+		expect((await ledger.everyFleet()).runs[0]?.cutOff).toBeUndefined();
+	});
+
+	it("cuts off and tells nothing it has never heard of", async () => {
+		const ledger = createFleetLedger(root);
+
+		await ledger.cutOff("fleet-a", "owner-gone");
+		await ledger.told("fleet-a");
+
+		expect((await ledger.everyFleet()).runs).toEqual([]);
+	});
+
+	it("refuses a cut-off that is half written", async () => {
+		// It decides how long transcripts are kept and whether a
+		// conversation is told, so a record that cannot be believed is
+		// refused whole, which stops the sweep rather than guessing.
+		const ledger = createFleetLedger(root);
+		writeFileSync(
+			join(root, "fleet-a.json"),
+			JSON.stringify({ ...fleet("fleet-a"), cutOff: { why: "bored" } }),
+			"utf8",
+		);
+
+		expect((await ledger.everyFleet()).unreadable).toEqual([
+			join(root, "fleet-a.json"),
+		]);
+	});
+});
+
+describe("which fleets the sweep still keeps", () => {
+	const since = new Date("2026-10-01T00:00:00.000Z");
+	const run = (over: Partial<FleetRun>): FleetRun => ({
+		...fleet("fleet-a"),
+		...over,
+	});
+
+	it("keeps open fleets and recently cut-off ones", () => {
+		const held = stillHeld(
+			[
+				run({ id: "open", open: true }),
+				run({
+					id: "recent",
+					cutOff: { at: "2026-10-20T00:00:00.000Z", why: "owner-gone" },
+				}),
+				run({
+					id: "long-ago",
+					cutOff: { at: "2026-09-01T00:00:00.000Z", why: "cancelled" },
+				}),
+				run({ id: "handed-over", settledAt: "2026-10-20T00:00:00.000Z" }),
+			],
+			since,
+		);
+		expect([...held].sort()).toEqual(["open", "recent"]);
+	});
+
+	it("keeps a cut-off whose date will not read", () => {
+		const held = stillHeld(
+			[run({ cutOff: { at: "whenever", why: "owner-gone" } })],
+			since,
+		);
+		expect([...held]).toEqual(["fleet-a"]);
 	});
 });

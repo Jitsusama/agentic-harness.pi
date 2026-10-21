@@ -173,18 +173,18 @@ describe("dispatching a fleet", () => {
 
 		await dispatchWith("fleet-cut", stop.signal).catch(() => undefined);
 
+		// Held as cut off, for the cut-off window rather than forever,
+		// and without a word: the person who stopped it was watching, and
+		// nobody should be asked to delete a file.
 		const { runs } = await createFleetLedger(fleetDir()).everyFleet();
 		expect(runs).toEqual([
-			expect.objectContaining({ id: "fleet-cut", open: true }),
+			expect.objectContaining({
+				id: "fleet-cut",
+				cutOff: { at: expect.any(String), why: "cancelled", told: true },
+			}),
 		]);
-		// And says so, with the two paths a person needs: where the work
-		// is, and what to delete once they have read it. Holding
-		// something forever without saying so is a disk nobody can
-		// account for.
-		const about = said.filter((line) => line.includes("fleet-cut"));
-		expect(about).toHaveLength(1);
-		expect(about[0]).toContain("was cancelled");
-		expect(about[0]).toContain("fleet-cut.json");
+		expect(runs[0]?.open).toBeUndefined();
+		expect(said.filter((line) => line.includes("fleet-cut"))).toEqual([]);
 	});
 
 	it("holds a fleet somebody stopped from the panel", async () => {
@@ -202,11 +202,40 @@ describe("dispatching a fleet", () => {
 
 		const { runs } = await createFleetLedger(fleetDir()).everyFleet();
 		expect(runs).toEqual([
-			expect.objectContaining({ id: "fleet-stopped", open: true }),
+			expect.objectContaining({
+				id: "fleet-stopped",
+				cutOff: expect.objectContaining({ why: "cancelled" }),
+			}),
 		]);
-		const about = said.filter((line) => line.includes("fleet-stopped"));
-		expect(about).toHaveLength(1);
-		expect(about[0]).toContain("1 subagent was cancelled");
+		expect(said.filter((line) => line.includes("fleet-stopped"))).toEqual([]);
+	});
+
+	it("records the conversation that dispatched it", async () => {
+		// So that if this process ends under the fleet, the same
+		// conversation can be told when it is restored under another pid.
+		let duringRun: FleetRun["session"];
+		answer = async () => {
+			const { runs } = await createFleetLedger(fleetDir()).everyFleet();
+			duringRun = runs[0]?.session;
+			return { exitCode: 0, finalAssistantText: "done", warnings: [] };
+		};
+		const tool = activateWith(
+			(await import("../../../extensions/subagent-workflow/index.ts")).default,
+		).definitions.get("subagent");
+		await tool?.execute(
+			"call-1",
+			{
+				runId: "fleet-session",
+				jobs: [{ id: "one", cwd: root, userPrompt: "go" }],
+			},
+			undefined,
+			undefined,
+			{
+				hasUI: false,
+				sessionManager: { getSessionId: () => "conversation-a" },
+			},
+		);
+		expect(duringRun).toBe("conversation-a");
 	});
 
 	it("releases a fleet whose subagents all failed", async () => {

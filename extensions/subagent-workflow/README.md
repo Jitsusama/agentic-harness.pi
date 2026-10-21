@@ -272,32 +272,34 @@ work that has been paid for.
 
 So a fleet is written down before it is dispatched, in a
 ledger under `fleets/` beside the run directories, and
-released when it is handed back. An unreleased fleet is
-protected absolutely: no window takes it, because what
-protection asserts is that this run holds the only copy
-of something, and a clock does not make that untrue.
+released when it is handed back. An open fleet is
+protected absolutely: no window takes it, because
+somebody is still waiting on it.
 
-Cancellation counts as unreleased, both kinds. The
-signal is pi tearing the call away; the board is somebody
-pressing a key, which is the only cancellation this
-extension documents to anybody, and it leaves the signal
-untouched and hands back a result with cancelled entries
-in it. Either way an answer did not arrive, and what
-that subagent wrote is on disk and nowhere else.
+A fleet can also end without its answers being handed
+over, and the record says so once, as cut off. That
+happens two ways:
 
-That leaves one population that grows without a bound,
-and two things follow from it. The sweep says how many
-such fleets it held once there are enough to matter, and
-names both the directory holding the transcripts and the
-file to delete to let one go. It says it only of the ones
-nobody is waiting for, which is why a record carries the
-pid and birthday of the session that dispatched it: a
-fleet another session is running right now is held too,
-and the only lever the message offers would unprotect
-work still being paid for. Deleting that file is the
-only release there is, and it is deliberate rather than
-automatic: nothing can tell whether somebody has read a
-transcript.
+- **Cancelled:** pi tears the call away, or somebody
+  presses a key on the board. The board's cancellation
+  leaves the signal untouched and hands back a result
+  with cancelled entries in it, so both are checked.
+- **Owner gone:** a session start proves that the
+  process which dispatched an open fleet has gone. A
+  record carries that process's pid, start time and boot
+  for this, so a fleet another session is running right
+  now is never mistaken for one, and a reading the
+  machine will not settle changes nothing.
+
+A cut-off fleet's transcripts are kept for the long
+window, counted from when it was cut off, and then go
+the way of any finished fleet. Nobody is asked to delete
+anything, and nothing is said at session start. The one
+conversation that cares is the one that dispatched the
+fleet: a record carries its pi session id, and when that
+conversation is restored it is told, as a hidden message
+to the model, which fleet was cut off and where its
+transcripts are. It is told once; the record notes it.
 
 The ledger has a window of its own, over settled records
 older than the longest window their transcripts get, or

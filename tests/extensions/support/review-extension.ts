@@ -48,6 +48,9 @@ export function stubPi(answers: ExecAnswers = {}) {
 	const lifecycle = new Map<string, (event: unknown, ctx: unknown) => void>();
 	const emitted: { event: string; data: unknown }[] = [];
 	const commands: string[][] = [];
+	// What the extension told the model, through pi.sendMessage.
+	const sent: { customType: string; content: unknown; display?: boolean }[] =
+		[];
 
 	const exec = vi.fn(async (file: string, args: string[] = []) => {
 		commands.push([file, ...args]);
@@ -75,6 +78,13 @@ export function stubPi(answers: ExecAnswers = {}) {
 			lifecycle.set(event, handler);
 		},
 		exec,
+		sendMessage(message: {
+			customType: string;
+			content: unknown;
+			display?: boolean;
+		}) {
+			sent.push(message);
+		},
 		events: {
 			// Returns the unsubscribe pi's bus returns. Without it, a
 			// subscription that stacks on every session start looks
@@ -106,6 +116,7 @@ export function stubPi(answers: ExecAnswers = {}) {
 		emitted,
 		exec,
 		commands,
+		sent,
 		/** Deliver an event to everything listening, as the bus would. */
 		fire(event: string, data: unknown) {
 			for (const handler of [...(handlers.get(event) ?? [])]) handler(data);
