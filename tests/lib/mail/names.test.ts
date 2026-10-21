@@ -48,7 +48,7 @@ describe("a session's names", () => {
 		expect(namesFor(session, paths())).toEqual([
 			"7M6JKG",
 			"AF7P9P",
-			"01A15F3A",
+			"24B025FE",
 		]);
 	});
 
@@ -56,10 +56,10 @@ describe("a session's names", () => {
 		quest("QEST-20261021-AF7P9P", `- ${session}`);
 		quest("QEST-20261021-ZZZZZZ", "- someone-else");
 
-		expect(namesFor(session, paths())).toEqual(["AF7P9P", "01A15F3A"]);
+		expect(namesFor(session, paths())).toEqual(["AF7P9P", "24B025FE"]);
 	});
 
 	it("is its session id alone with no quest store", () => {
-		expect(namesFor(session, paths())).toEqual(["01A15F3A"]);
+		expect(namesFor(session, paths())).toEqual(["24B025FE"]);
 	});
 });

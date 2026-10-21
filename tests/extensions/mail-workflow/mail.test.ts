@@ -56,7 +56,7 @@ type Sent = {
 };
 
 /** Start a session on the extension, with just enough of pi to run it. */
-async function startSession() {
+async function startSession(env: NodeJS.ProcessEnv = {}) {
 	const sent: Sent[] = [];
 	const lifecycle = new Map<
 		string,
@@ -76,7 +76,7 @@ async function startSession() {
 		sendMessage: (message: Sent["message"], options?: unknown) =>
 			sent.push({ message, options }),
 	};
-	mailWorkflow(paths)(pi as never);
+	mailWorkflow(paths, env)(pi as never);
 	await lifecycle.get("session_start")?.(
 		{ reason: "startup" },
 		{ hasUI: false, sessionManager: { getSessionId: () => session } },
@@ -198,6 +198,22 @@ describe("sending mail", () => {
 
 		expect(answer).toContain("Not sent: no other session is on #skynet");
 		expect(createMailbox(paths.box).list()).toEqual([]);
+	});
+});
+
+describe("a fleet's subagent", () => {
+	it("stays off the mailbox entirely", async () => {
+		// It works inside another session's turn and answers to it alone.
+		const { sent, tools } = await startSession({
+			SUBAGENT_SUPERVISOR: "1",
+			SUBAGENT_RUN_ID: "run-1",
+		});
+		fromElsewhere({ text: "for everyone" });
+
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		expect(sent).toEqual([]);
+		expect(tools.size).toBe(0);
+		expect(createMemberships(join(paths.box, ".members")).all()).toEqual([]);
 	});
 });
 
