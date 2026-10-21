@@ -17,7 +17,11 @@
  * move. Otherwise the branch is pi's own, with no marks.
  */
 
-import type { ExtensionAPI, ThemeColor } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+	ThemeColor,
+} from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import {
 	type ContextGauge,
@@ -32,6 +36,7 @@ import {
 import { Engine, type GitState } from "./git.ts";
 import { type Facts, layout, type Piece, type Role, width } from "./layout.ts";
 import { told } from "./place.ts";
+import { type UsageReader, usageReader } from "./usage.ts";
 import { readWhere } from "./where.ts";
 
 /**
@@ -118,6 +123,20 @@ export default function statusLine(pi: ExtensionAPI) {
 		surface?.requestRender();
 	});
 
+	// The context's usage, held between the events that change it, since
+	// reading it in every frame cost a long session half a core.
+	let usage: UsageReader<
+		ReturnType<ExtensionContext["getContextUsage"]>
+	> | null = null;
+	const changed = async () => usage?.stale();
+	pi.on("message_end", changed);
+	pi.on("turn_end", changed);
+	pi.on("agent_end", changed);
+	pi.on("tool_result", changed);
+	pi.on("session_compact", changed);
+	pi.on("session_tree", changed);
+	pi.on("model_select", changed);
+
 	pi.on("tool_result", async () => ask());
 	pi.on("user_bash", async () => ask());
 	pi.on("agent_end", async () => ask());
@@ -125,6 +144,8 @@ export default function statusLine(pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		ask();
+		usage = usageReader(() => ctx.getContextUsage());
+		const reader = usage;
 		ctx.ui.setFooter((tui, theme, footerData) => {
 			surface = tui;
 			const unsub = footerData.onBranchChange(() => {
@@ -152,9 +173,9 @@ export default function statusLine(pi: ExtensionAPI) {
 						toldFor = cwd;
 						place = told(cwd, where.roots, process.env.HOME ?? "");
 					}
-					const usage = ctx.getContextUsage();
-					const tokens = usage?.tokens ?? 0;
-					const window = usage?.contextWindow ?? 0;
+					const now = reader.get();
+					const tokens = now?.tokens ?? 0;
+					const window = now?.contextWindow ?? 0;
 					const thinking = pi.getThinkingLevel();
 					const answer = answers.get(cwd);
 					const mode = getPanelHeightMode();
