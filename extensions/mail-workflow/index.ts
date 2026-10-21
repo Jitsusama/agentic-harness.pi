@@ -160,9 +160,27 @@ function reach(
 		.map((one) => one.names[0] as string);
 }
 
+/**
+ * Whether this pi is a fleet's subagent, which the supervisor marks in
+ * the environment it starts the child with.
+ *
+ * A subagent is a worker inside another session's turn, answering to
+ * that session alone: on the mailbox it would be handed the machine's
+ * coordination in the middle of its one job, and would show up as a
+ * session other senders reach.
+ */
+export function isSubagent(env: NodeJS.ProcessEnv = process.env): boolean {
+	return env.SUBAGENT_SUPERVISOR === "1" || Boolean(env.SUBAGENT_RUN_ID);
+}
+
 /** The extension, reading and writing mail at these paths. */
-export function mailWorkflow(paths: MailPaths = machinePaths()) {
+export function mailWorkflow(
+	paths: MailPaths = machinePaths(),
+	env: NodeJS.ProcessEnv = process.env,
+) {
 	return (pi: ExtensionAPI) => {
+		// Not on the mailbox at all: see isSubagent.
+		if (isSubagent(env)) return;
 		const mailbox: Mailbox = createMailbox(paths.box);
 		const memberships = createMemberships(join(paths.box, ".members"));
 		let ctx: ExtensionContext | undefined;

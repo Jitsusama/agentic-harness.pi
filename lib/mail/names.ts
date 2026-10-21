@@ -5,9 +5,11 @@
  * the quest id (P9R1KI), so that is its name. A session can have been on
  * several quests, so the one it has loaded comes first and is what it
  * signs with; any other quest whose README lists it is an alias, so mail
- * sent under an older name still arrives. The first eight characters of
+ * sent under an older name still arrives. The last eight characters of
  * its session id always name it too, which is all a session on no quest
- * has.
+ * has: the last rather than the first, because a pi session id begins
+ * with its start time, and sessions started in the same minute shared a
+ * first eight.
  */
 
 import { readdirSync, readFileSync } from "node:fs";
@@ -28,7 +30,7 @@ export function questName(questId: string): string {
 
 /** Every name this session answers to, the one it signs with first. */
 export function namesFor(sessionId: string, paths: NamingPaths): string[] {
-	const own = sessionId.slice(0, 8).toUpperCase();
+	const own = sessionId.replace(/-/g, "").slice(-8).toUpperCase();
 	const loaded = loadedQuest(sessionId, paths.sessions);
 	const listed: string[] = [];
 	let quests: string[] = [];
