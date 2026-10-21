@@ -142,7 +142,9 @@ describe("dispatching a fleet", () => {
 		//
 		// The birthday is the part that matters. A pid on its own
 		// identifies nothing, since the number comes round again and a
-		// stranger wearing it reads as this session still being here.
+		// stranger wearing it reads as this session still being here. The
+		// boot it was written on settles a record from before a reboot
+		// without asking anything.
 		let duringRun: FleetRun["owner"];
 		answer = async () => {
 			const { runs } = await createFleetLedger(fleetDir()).everyFleet();
@@ -152,9 +154,11 @@ describe("dispatching a fleet", () => {
 
 		await dispatch("fleet-owned");
 
+		const bootId = systemFacts.bootId?.();
 		expect(duringRun).toEqual({
 			pid: process.pid,
 			startedAt: await systemFacts.startedAt(process.pid),
+			...(bootId ? { bootId } : {}),
 		});
 	});
 
