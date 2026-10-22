@@ -122,7 +122,7 @@ export function registerSayTool(pi: ExtensionAPI): void {
 					],
 					{
 						description:
-							"For reply: what to do with the thread once the reply lands, so answering and closing cost one call rather than two. Defaults to leaving it as it is, since resolving closes somebody else's conversation.",
+							"For reply: what to do with the thread once the reply lands. Defaults to leave, since resolving closes somebody else's conversation.",
 					},
 				),
 			),
@@ -142,7 +142,7 @@ export function registerSayTool(pi: ExtensionAPI): void {
 					}),
 					{
 						description:
-							"Several things to say at once, each shaped like the singular parameters and each naming its own action. One gate covers them all, a tab each. Do not pass the singular parameters alongside it.",
+							"Several things to say at once behind one gate, each shaped like the singular parameters with its own action. Not alongside the singular ones.",
 					},
 				),
 			),

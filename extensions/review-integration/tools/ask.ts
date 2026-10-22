@@ -251,7 +251,7 @@ export function registerAskTool(pi: ExtensionAPI): void {
 					],
 					{
 						description:
-							"What to do. council: ask every reviewer on the roster at once and wait for all of them. start: the same round, left running in the background; finish it later with collect. stop: end a started round early, keeping what its reviewers wrote; on a round nothing runs, it closes it. judge: consolidate the latest council. critique: have the roster push back on the judge, as positions. audit: judge each unresolved inbound thread against the change. stack: put the whole stack to the roster together. runs: the rounds asked about this change. collect: finish a round whose session ended first, from what its reviewers left on disk. retry: ask one participant again in place. release: free a participant id to mean a different model. Defaults to runs, which changes nothing.",
+							"What to do. council: ask the whole roster and wait; start: the same in the background, finished with collect; stop: end a started round, keeping what was written. judge: consolidate the latest council; critique: the roster pushes back on the judge. audit: judge each unresolved inbound thread. stack: the whole stack at once. runs (the default): the rounds so far. collect: finish a round from what its reviewers left on disk. retry: ask one participant again. release: free an id to mean another model.",
 					},
 				),
 			),
