@@ -595,6 +595,40 @@ describe("a glance", () => {
 		await vi.waitFor(() => expect(sent).toHaveLength(1));
 		expect(calls).toEqual([]);
 	});
+
+	it("shows the classifier what this peer is changing now, and asks about it", async () => {
+		const calls: unknown[] = [];
+		const { sent, entries } = await startSession({}, judging(notYours, calls));
+		leased(session, { subject: "agentic-harness.pi:lib/mesh/attention.ts" });
+
+		fromElsewhere({ text: "merging core #366 to main now. Shell only." });
+
+		await vi.waitFor(() => expect(calls).toHaveLength(1));
+		const asked = calls[0] as {
+			state: { receiver: { changing_now?: string[] } };
+			questions: { about: { instructions: string } };
+		};
+		expect(asked.state.receiver.changing_now).toEqual([
+			"agentic-harness.pi:lib/mesh/attention.ts",
+		]);
+		expect(asked.questions.about.instructions).toContain("changing now");
+		await vi.waitFor(() => expect(entries[0]?.type).toBe(GLANCE));
+		expect(sent).toEqual([]);
+	});
+
+	it("takes a message naming a file this peer changes as its own, unasked", async () => {
+		const calls: unknown[] = [];
+		const { sent } = await startSession({}, judging(notYours, calls));
+		leased(session, { subject: "agentic-harness.pi:lib/mesh/attention.ts" });
+
+		fromElsewhere({ text: "lib/mesh/attention.ts glances at my holds" });
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(calls).toEqual([]);
+		expect(JSON.stringify(sent[0]?.message)).toContain(
+			"about this peer's work",
+		);
+	});
 });
 
 describe("a wake", () => {
@@ -1495,6 +1529,20 @@ describe("groups", () => {
 
 		const text = listed?.content[0]?.text ?? "";
 		expect(text).not.toContain("#optimus/power: P9R1KI");
+		expect(text).toContain("Ended, so left out until restored: P9R1KI.");
+	});
+
+	it("lists an ended address once, and not while a live session answers to it", async () => {
+		peer("session-x-old", ["X7FXPL"], ["#optimus"], true);
+		peer("session-x-new", ["X7FXPL"], ["#optimus"]);
+		peer("session-p-one", ["P9R1KI"], ["#optimus/power"], true);
+		peer("session-p-two", ["P9R1KI"], ["#optimus/power"], true);
+		const { tools } = await startSession();
+
+		const listed = await tools.get("mesh_groups")?.execute("call-1", {});
+
+		const text = listed?.content[0]?.text ?? "";
+		expect(text).toContain("#optimus: X7FXPL");
 		expect(text).toContain("Ended, so left out until restored: P9R1KI.");
 	});
 

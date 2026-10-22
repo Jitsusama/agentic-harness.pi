@@ -43,9 +43,16 @@
  * Whether a message concerns a peer is a judgement, which a classifier
  * makes well when there is one (see {@link concernQuestion}). Without
  * one the answer falls back to what the words show: a message naming
- * this peer or something it owns concerns it, and anything else is
- * noted, because noting what did not matter costs a little context and
- * glancing past what did costs the work it was about.
+ * this peer, something it owns or a file it is changing concerns it, and
+ * anything else is noted, because noting what did not matter costs a
+ * little context and glancing past what did costs the work it was about.
+ *
+ * What a peer is changing now is what most tells its business from
+ * another's. Asked without it, Jev put four of four "merging core #366"
+ * fyis at 0.50 to 0.56 "not yours", too unsure to glance on, so every
+ * peer on #optimus took each in full; shown it, the same four came back
+ * at 0.73 to 0.81, and two messages about files the peer was changing
+ * at 0.93 and 0.94 its own (see {@link concernQuestionFor}).
  */
 
 import type { ClassifierContext } from "@earendil-works/pi-ai";
@@ -60,7 +67,10 @@ export type Attention = "glance" | "note" | "act" | "wake";
 export type Concern = "receiver" | "machine" | "other";
 
 /** What the receiver is, for judging what concerns it. */
-export type Receiver = Pick<Presence, "addresses" | "worksOn" | "owns">;
+export type Receiver = Pick<Presence, "addresses" | "worksOn" | "owns"> & {
+	/** What it is changing now, as its change leases name it (`repo:path`). */
+	readonly changing?: readonly string[];
+};
 
 /** Where the receiving peer stands when a message arrives. */
 export interface Standing {
@@ -155,24 +165,30 @@ export function attend(message: Message, at: Standing): Heed {
 }
 
 /**
- * Whether the message names this peer or something it owns, which is
- * what can be told without a classifier. Addresses are matched as words
- * and owned things as written, ignoring case, and anything shorter than
- * four letters is too common a word to count.
+ * Whether the message names this peer, something it owns or a file it is
+ * changing, which is what can be told without a classifier. Addresses are
+ * matched as words, owned things as written and files by their path,
+ * ignoring case. Anything shorter than four letters is too common a word
+ * to count, and so is a file at a checkout's top (`flake.nix`,
+ * `README.md`), which every repository has.
  */
 export function mentions(
 	message: Pick<Message, "text">,
-	receiver: Pick<Receiver, "addresses" | "owns">,
+	receiver: Pick<Receiver, "addresses" | "owns" | "changing">,
 ): boolean {
 	const text = message.text.toLowerCase();
 	const named = receiver.addresses.some((address) =>
 		new RegExp(`\\b${escapeRegExp(address.toLowerCase())}\\b`).test(text),
 	);
+	const paths = (receiver.changing ?? []).map((subject) =>
+		subject.slice(subject.indexOf(":") + 1).toLowerCase(),
+	);
 	return (
 		named ||
 		receiver.owns.some(
 			(owned) => owned.length >= 4 && text.includes(owned.toLowerCase()),
-		)
+		) ||
+		paths.some((path) => path.includes("/") && text.includes(path))
 	);
 }
 
@@ -204,6 +220,37 @@ export const concernQuestion = {
 	},
 };
 
+/**
+ * The question asked of a peer that is changing something: the same
+ * three answers, with what it changes now beside what it works on.
+ */
+export const concernQuestionNow = {
+	about: {
+		type: "choice" as const,
+		instructions:
+			"Whose work is this message about, compared with what the receiving session works on, owns and is changing now?",
+		criteria: {
+			...concernQuestion.about.criteria,
+			receiver:
+				"It is about what the receiving session works on, owns or is changing now, or it names the receiving session",
+		},
+	},
+};
+
+/**
+ * The question for this receiver. Only one changing something is asked
+ * about what it changes: asked of a peer changing nothing, that question
+ * put a message about the peer's own code at 0.69 "not yours", which the
+ * plain question kept at 0.58 and so noted.
+ */
+export function concernQuestionFor(
+	receiver: Pick<Receiver, "changing">,
+): typeof concernQuestion {
+	return (receiver.changing ?? []).length > 0
+		? concernQuestionNow
+		: concernQuestion;
+}
+
 /** What the classifier is shown: the receiver, and the message. */
 export function concernState(
 	message: Message,
@@ -214,6 +261,9 @@ export function concernState(
 			name: receiver.addresses[0] ?? "",
 			works_on: receiver.worksOn,
 			owns: [...receiver.owns],
+			...((receiver.changing ?? []).length > 0
+				? { changing_now: [...(receiver.changing ?? [])] }
+				: {}),
 		},
 		message: {
 			from: message.from,

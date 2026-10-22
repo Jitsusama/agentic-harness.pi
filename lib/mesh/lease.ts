@@ -252,6 +252,28 @@ export function isCurrent(lease: Lease, now: number): boolean {
 	return Date.parse(lease.until) > now;
 }
 
+/**
+ * The most changes a receiver shows its classifier. A session in the
+ * middle of a change holds three to fifteen files; past this many, the
+ * latest say what it works on as well as all of them would.
+ */
+export const MOST_CHANGES_SHOWN = 12;
+
+/** What a peer is changing now, latest first: its standing change leases. */
+export function changesOf(
+	leases: readonly Lease[],
+	now: number = Date.now(),
+): string[] {
+	return [
+		...new Set(
+			leases
+				.filter((lease) => lease.kind === "change" && isCurrent(lease, now))
+				.sort((one, other) => Date.parse(other.since) - Date.parse(one.since))
+				.map((lease) => lease.subject),
+		),
+	].slice(0, MOST_CHANGES_SHOWN);
+}
+
 /** The board: every peer's leases, one file each. */
 export interface Board {
 	of(session: string): Holding | undefined;
