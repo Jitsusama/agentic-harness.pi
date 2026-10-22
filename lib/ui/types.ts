@@ -163,6 +163,18 @@ export interface SinglePromptConfig {
 	redirectHint?: string;
 	/** Enable horizontal scrolling (Shift+←→) for code content. Default: false. */
 	allowHScroll?: boolean;
+	/**
+	 * What a panel left unanswered says the session wants of its person.
+	 * Default: an approval, said by the title.
+	 */
+	want?: PromptWant;
+}
+
+/** What an unanswered prompt is waiting for, and the line saying it. */
+export interface PromptWant {
+	readonly kind: "question" | "approval";
+	/** One short line. Default: the title. */
+	readonly said?: string;
 }
 
 /**
@@ -188,6 +200,8 @@ export interface TabbedPromptConfig {
 	redirectHint?: string;
 	/** Enable horizontal scrolling (Shift+←→) for code content. Default: false. */
 	allowHScroll?: boolean;
+	/** As for a single prompt. Default: an approval, said by the title. */
+	want?: PromptWant;
 }
 
 /** Configuration for a read-only content view (no actions or options). */

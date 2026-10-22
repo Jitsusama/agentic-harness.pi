@@ -12,6 +12,7 @@
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
+import { waitedOn } from "../internal/session/wants.ts";
 import { chord, frameRule, frameTitle } from "./frame.ts";
 import { mountPanel, type PanelFactory } from "./mount.ts";
 import { showSinglePrompt } from "./prompt-single.ts";
@@ -36,28 +37,40 @@ import type {
 	WorkspaceResult,
 } from "./types.ts";
 
+/** The line a prompt with no title is waited on with. */
+const UNTITLED_WANT = "Waiting for your answer";
+
 /**
  * Show a single interactive prompt. Returns the user's decision
- * or null on cancel (Escape).
+ * or null on cancel (Escape). Left unanswered a while, it says the
+ * session wants its person (see `lib/internal/session/wants.ts`).
  */
 export async function promptSingle(
 	ctx: ExtensionContext,
 	config: SinglePromptConfig,
 ): Promise<PromptResult | null> {
 	if (!ctx.hasUI) return null;
-	return showSinglePrompt(ctx, config);
+	return waitedOn(
+		config.want?.kind ?? "approval",
+		config.want?.said ?? config.title ?? UNTITLED_WANT,
+		showSinglePrompt(ctx, config),
+	);
 }
 
 /**
  * Show a tabbed interactive prompt. Returns all decisions
- * or null on cancel (Escape).
+ * or null on cancel (Escape). Waited on as `promptSingle` is.
  */
 export async function promptTabbed(
 	ctx: ExtensionContext,
 	config: TabbedPromptConfig,
 ): Promise<TabbedResult | null> {
 	if (!ctx.hasUI) return null;
-	return showTabbedPrompt(ctx, config);
+	return waitedOn(
+		config.want?.kind ?? "approval",
+		config.want?.said ?? config.title ?? UNTITLED_WANT,
+		showTabbedPrompt(ctx, config),
+	);
 }
 
 /**
@@ -79,12 +92,10 @@ export async function prompt(
 	ctx: ExtensionContext,
 	config: SinglePromptConfig | TabbedPromptConfig,
 ): Promise<PromptResult | TabbedResult | null> {
-	if (!ctx.hasUI) return null;
-
 	if ("items" in config) {
-		return showTabbedPrompt(ctx, config as TabbedPromptConfig);
+		return promptTabbed(ctx, config as TabbedPromptConfig);
 	}
-	return showSinglePrompt(ctx, config as SinglePromptConfig);
+	return promptSingle(ctx, config as SinglePromptConfig);
 }
 
 /**

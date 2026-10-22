@@ -58,6 +58,14 @@ carries on with what does not need you. This uses `notify-send` on
 Linux and `osascript` on macOS, and does nothing where neither is
 there.
 
+Each session also says what it is waiting on you for, so a launcher
+can mark it: calls held, a run ended `Blocked:`, a run that ended
+asking you something, or a panel left unanswered for five seconds.
+They are said on the bus as `session:wants:v1`
+(`lib/internal/session/wants.ts`), and the mesh writes the one
+waiting longest into the session's presence file. Each ends when you
+answer, type or come back.
+
 ## When You Just Stop Answering
 
 You don't have to say you are leaving for work to carry on. When a

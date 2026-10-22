@@ -46,14 +46,18 @@ export function freshCarryOn(): CarryOnMemory {
 	return { carried: 0, askedSaid: false };
 }
 
-/** Whether a reply ends by asking the person something. */
-export function endsAsking(text: string): boolean {
-	const last = text
+/** A reply's last line with anything on it, trimmed. */
+export function lastLine(text: string): string | undefined {
+	return text
 		.split("\n")
 		.map((line) => line.trim())
 		.filter((line) => line.length > 0)
 		.at(-1);
-	return last?.endsWith("?") ?? false;
+}
+
+/** Whether a reply ends by asking the person something. */
+export function endsAsking(text: string): boolean {
+	return lastLine(text)?.endsWith("?") ?? false;
 }
 
 /**
@@ -100,11 +104,7 @@ export function askedNotice(
 ): Notice | undefined {
 	if (memory.askedSaid) return undefined;
 	memory.askedSaid = true;
-	const question = lastText
-		.split("\n")
-		.map((line) => line.trim())
-		.filter((line) => line.length > 0)
-		.at(-1);
+	const question = lastLine(lastText);
 	return {
 		title: `${where} asked you something`,
 		body: `${(question ?? "").slice(0, 240)} It carries on with the rest meanwhile.`,

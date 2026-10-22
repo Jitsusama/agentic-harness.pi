@@ -23,6 +23,11 @@ import {
 	setProgressSource,
 } from "../../../lib/internal/away/state.ts";
 import type { Notice } from "../../../lib/internal/notify.ts";
+import {
+	forgetWants,
+	onWants,
+	type WantEvent,
+} from "../../../lib/internal/session/wants.ts";
 import { announceJobHost, type Job } from "../../../lib/jobs/index.ts";
 
 /** What would have reached the desktop. */
@@ -67,6 +72,8 @@ function activate({ hasUI = true } = {}) {
 	const jobs: FakeJob[] = [];
 	const notices: string[] = [];
 	const session = { busy: false };
+	const wants: WantEvent[] = [];
+	disposers.push(onWants(events, (want) => wants.push(want)));
 	let tool: Tool | undefined;
 
 	disposers.push(
@@ -141,11 +148,22 @@ function activate({ hasUI = true } = {}) {
 		});
 		await fire("agent_settled", {});
 	};
-	return { fire, said, entries, jobs, notices, session, goAway, runEnds };
+	return {
+		fire,
+		said,
+		entries,
+		jobs,
+		notices,
+		session,
+		goAway,
+		runEnds,
+		wants,
+	};
 }
 
 beforeEach(async () => {
 	desktop.splice(0);
+	forgetWants();
 	resetAway();
 	rmSync(machineAwayPath(), { force: true });
 });
@@ -273,6 +291,65 @@ describe("reaching the person", () => {
 		await pi.runEnds("Blocked: needs you.");
 
 		expect(desktop).toEqual([]);
+	});
+});
+
+describe("saying what it wants of the person", () => {
+	const saidOf = (wants: WantEvent[]) => wants.map((w) => [w.kind, w.said]);
+
+	it("says the calls held, latest last, until the person is back", async () => {
+		const pi = activate();
+		await pi.fire("session_start");
+		await pi.goAway();
+
+		hold({ guard: "pr", title: "Open PR #1" });
+		hold({ guard: "pr", title: "Open PR #2" });
+		await pi.fire("input", { text: "morning", source: "interactive" });
+
+		expect(saidOf(pi.wants)).toEqual([
+			["approval", "Holds a call for you: Open PR #1"],
+			["approval", "Holds 2 calls for you, the latest: Open PR #2"],
+			["approval", null],
+		]);
+		const since = pi.wants.map((w) => ("since" in w ? w.since : null));
+		expect(since[0]).toBe(since[1]);
+	});
+
+	it("says what a Blocked run needs until the person types", async () => {
+		const pi = activate();
+		await pi.fire("session_start");
+		await pi.goAway();
+
+		await pi.runEnds("Built it.\n\nBlocked: needs your npm one-time password.");
+		expect(saidOf(pi.wants)).toEqual([
+			["blocked", "needs your npm one-time password."],
+		]);
+
+		await pi.fire("input", { text: "123456", source: "interactive" });
+		expect(saidOf(pi.wants).at(-1)).toEqual(["blocked", null]);
+	});
+
+	it("says the question a run ended on, with the person here, until they answer", async () => {
+		const pi = activate();
+		await pi.fire("session_start");
+
+		await pi.runEnds("Two ways on.\n\nShall I take the first?");
+		await pi.runEnds("Here's what I found.");
+		expect(saidOf(pi.wants)).toEqual([["question", "Shall I take the first?"]]);
+
+		await pi.fire("input", { text: "yes", source: "interactive" });
+		expect(saidOf(pi.wants).at(-1)).toEqual(["question", null]);
+	});
+
+	it("says nothing from a session nobody is at", async () => {
+		const pi = activate({ hasUI: false });
+		await pi.fire("session_start");
+		await pi.goAway();
+
+		hold({ guard: "pr", title: "Open PR #1" });
+		await pi.runEnds("Blocked: needs you.");
+
+		expect(pi.wants).toEqual([]);
 	});
 });
 

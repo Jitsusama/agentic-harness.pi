@@ -137,6 +137,7 @@ export type {
 	PromptItem,
 	PromptResult,
 	PromptView,
+	PromptWant,
 	SinglePromptConfig,
 	TabbedPromptConfig,
 	TabbedResult,

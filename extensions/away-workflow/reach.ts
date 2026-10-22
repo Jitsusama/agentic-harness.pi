@@ -18,6 +18,7 @@
  */
 
 import type { Notice } from "../../lib/internal/notify.ts";
+import { count } from "../../lib/ui/count.ts";
 import { endingOf } from "./keep-going.ts";
 
 /** What has already reached the person in this absence. */
@@ -64,6 +65,20 @@ export function heldNotice(
 		body: "A gate held a call for your approval. The session carries on with the rest, and lists what was held when you are back.",
 		urgency: "normal",
 	};
+}
+
+/**
+ * What the session's want says of the calls held in this absence, or
+ * nothing when none is. Unlike the notice, said again as calls are held,
+ * since a launcher shows the latest line rather than interrupting.
+ */
+export function heldWant(
+	held: readonly { readonly title: string }[],
+): string | undefined {
+	const latest = held.at(-1);
+	if (!latest) return undefined;
+	if (held.length === 1) return `Holds a call for you: ${latest.title}`;
+	return `Holds ${count(held.length, "call")} for you, the latest: ${latest.title}`;
 }
 
 /** The `Blocked:` line a run ended with, without its label. */
