@@ -51,7 +51,11 @@ import {
 	LEASE_EVENT,
 	type Lease,
 } from "../../../lib/mesh/lease.ts";
-import type { Draft, Message } from "../../../lib/mesh/message.ts";
+import {
+	type Draft,
+	type Message,
+	shortId,
+} from "../../../lib/mesh/message.ts";
 import { createPresences } from "../../../lib/mesh/presence.ts";
 import {
 	SUBAGENT_READY,
@@ -1176,6 +1180,57 @@ describe("sending", () => {
 			"Nobody else is in #skynet yet; mesh_read shows it to whoever joins",
 		);
 		expect(folderTransport(join(paths.mesh, "messages")).ids()).toHaveLength(1);
+	});
+
+	it("sends a message opening with peers' names to them alone, not the group", async () => {
+		// Seen live: questions for P9R1KI alone went to #optimus/work, and
+		// three other sessions read each of them.
+		peer("session-p", ["P9R1KI"], ["#optimus/work"]);
+		peer("session-w", ["WCJQSG"], ["#optimus/work"]);
+		const { tools } = await startSession();
+
+		const answer = await send(
+			tools,
+			"#optimus/work",
+			"question",
+			"P9R1KI: may I write the queue?",
+		);
+		const unaddressed = await send(tools, "", "fyi", "@WCJQSG schema is in");
+
+		expect(answer).toContain(
+			"It opens by naming P9R1KI, so it goes to that peer alone rather than #optimus/work;",
+		);
+		expect(unaddressed).toContain(
+			"It opens by naming WCJQSG, so it goes to that peer alone;",
+		);
+		const messages = folderTransport(join(paths.mesh, "messages"));
+		expect(messages.ids().map((id) => messages.read(id)?.to)).toEqual([
+			["@P9R1KI"],
+			["@WCJQSG"],
+		]);
+	});
+
+	it("leaves an answer naming its asker where it was sent, for the group to see", async () => {
+		peer("session-w", ["WCJQSG"], ["#optimus/work"]);
+		const asked = fromElsewhere({
+			intent: "question",
+			to: ["#optimus/work"],
+			text: "which file?",
+		});
+		const { tools } = await startSession();
+
+		await tools.get("mesh_send")?.execute("call-1", {
+			to: "#optimus/work",
+			intent: "fyi",
+			text: "WCJQSG: queue.json",
+			re: shortId(asked),
+		});
+
+		const messages = folderTransport(join(paths.mesh, "messages"));
+		const sent = messages.ids().filter((id) => id !== asked.id);
+		expect(sent.map((id) => messages.read(id)?.to)).toEqual([
+			["#optimus/work"],
+		]);
 	});
 
 	it("reads the latest it hears, oldest first, as many as asked", async () => {
