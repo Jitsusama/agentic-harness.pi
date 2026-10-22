@@ -25,6 +25,7 @@ import {
 	type MeshPaths,
 	meshWorkflow,
 } from "../../../extensions/mesh-workflow/index.ts";
+import { MOST_TURNS_FROM_ONE } from "../../../lib/mesh/damping.ts";
 import { ALL } from "../../../lib/mesh/group.ts";
 import type { Draft, Message } from "../../../lib/mesh/message.ts";
 import { createPresences } from "../../../lib/mesh/presence.ts";
@@ -73,6 +74,7 @@ async function startSession(
 	env: NodeJS.ProcessEnv = {},
 	ctx: Record<string, unknown> = {},
 	branch: unknown[] = [],
+	settling = { settleMs: 40, spreadMs: 0 },
 ) {
 	const sent: Sent[] = [];
 	const entries: { type: string; data: unknown }[] = [];
@@ -92,7 +94,7 @@ async function startSession(
 		appendEntry: (type: string, data: unknown) => entries.push({ type, data }),
 		registerEntryRenderer: () => {},
 	};
-	meshWorkflow(paths, env)(pi as never);
+	meshWorkflow(paths, env, settling)(pi as never);
 	await lifecycle.get("session_start")?.(
 		{ reason: "startup" },
 		{
@@ -206,7 +208,9 @@ describe("a message as context", () => {
 
 		await vi.waitFor(() => expect(sent).toHaveLength(1));
 		const content = sent[0]?.message.content ?? "";
-		expect(content).toContain("Mesh message (fyi) from WCJQSG to #all");
+		expect(content).toMatch(
+			/Mesh message \[[0-9a-f]{8}\] \(fyi\) from WCJQSG to #all at \d\d:\d\d:/,
+		);
 		expect(content).toContain("hold heavy builds until I say done");
 		expect(content.endsWith(ADVISORY)).toBe(true);
 	});
@@ -304,7 +308,7 @@ describe("a glance", () => {
 		const lines = sent[0]?.message.content.split("\n") ?? [];
 		expect(lines).toHaveLength(2);
 		expect(lines[1]).toMatch(
-			/^- \d\d:\d\d fyi from WCJQSG to #all: merging core\.nix#330 now$/,
+			/^- \d\d:\d\d \[[0-9a-f]{8}\] fyi from WCJQSG to #all: merging core\.nix#330 now$/,
 		);
 
 		// Handed over once.
@@ -419,14 +423,14 @@ describe("a glance", () => {
 });
 
 describe("a wake", () => {
-	it("starts a turn for a question to an idle peer, and only then", async () => {
+	it("starts a turn at once for a question to an idle peer, and for nothing that asks nothing", async () => {
 		const { sent } = await startSession({}, { isIdle: () => true });
 
 		fromElsewhere({ intent: "question", to: ["@7M6JKG"], text: "why?" });
 		await vi.waitFor(() => expect(sent).toHaveLength(1));
 		expect(sent[0]?.options).toEqual({ triggerTurn: true });
 
-		fromElsewhere({ intent: "finding", to: ["@7M6JKG"], text: "your bug" });
+		fromElsewhere({ intent: "fyi", to: ["@7M6JKG"], text: "done here" });
 		await vi.waitFor(() => expect(sent).toHaveLength(2));
 		expect(sent[1]?.options).toEqual({ triggerTurn: false });
 	});
@@ -438,6 +442,220 @@ describe("a wake", () => {
 
 		await vi.waitFor(() => expect(sent).toHaveLength(1));
 		expect(sent[0]?.options).toEqual({ triggerTurn: false });
+	});
+});
+
+describe("an act", () => {
+	it("starts one turn for findings to an idle peer once the mesh settles", async () => {
+		const { sent } = await startSession({}, { isIdle: () => true });
+
+		fromElsewhere({ intent: "finding", to: ["@7M6JKG"], text: "your bug" });
+		fromElsewhere({ intent: "finding", to: ["@7M6JKG"], text: "and another" });
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.options).toEqual({ triggerTurn: true });
+		expect(sent[0]?.message.content).toContain("your bug");
+		expect(sent[0]?.message.content).toContain("and another");
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(sent).toHaveLength(1);
+	});
+
+	it("goes with a run something else starts first, and starts none", async () => {
+		const { sent, fire } = await startSession({}, { isIdle: () => true }, [], {
+			settleMs: 400,
+			spreadMs: 0,
+		});
+
+		fromElsewhere({ intent: "finding", to: ["@7M6JKG"], text: "your bug" });
+		// Long enough to be waiting, well short of the turn it waits for.
+		await new Promise((resolve) => setTimeout(resolve, 150));
+		const opened = (await fire("before_agent_start")) as
+			| { message?: Sent["message"] }
+			| undefined;
+
+		expect(opened?.message?.customType).toBe(NOTED);
+		expect(opened?.message?.content).toContain("your bug");
+		await new Promise((resolve) => setTimeout(resolve, 400));
+		expect(sent).toEqual([]);
+	});
+
+	it("starts no turn for a group's question another peer answered meanwhile", async () => {
+		const { sent } = await startSession({}, { isIdle: () => true });
+
+		const asked = fromElsewhere({
+			intent: "question",
+			text: "who can look at 7M6JKG's tests?",
+		});
+		fromElsewhere({
+			from: "P9R1KI",
+			to: ["@WCJQSG"],
+			re: asked.id,
+			text: "on it",
+		});
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.options).toEqual({ triggerTurn: false });
+		expect(sent[0]?.message.details).toMatchObject({
+			why: ["about this peer's work, answered already"],
+		});
+	});
+
+	it("asks no classifier about what names this peer", async () => {
+		const calls: unknown[] = [];
+		const { sent } = await startSession({}, judging(notYours, calls));
+
+		fromElsewhere({ text: "7M6JKG: your reload broke mine" });
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.message.customType).toBe(NOTED);
+		expect(calls).toEqual([]);
+	});
+});
+
+describe("an answer", () => {
+	it("to this peer's own message wakes it, wherever it went", async () => {
+		const { sent, tools } = await startSession({}, { isIdle: () => true });
+		peer("session-w", ["WCJQSG"], []);
+		await send(tools, "all", "question", "who has qemu?");
+		const [asked = ""] = folderTransport(join(paths.mesh, "messages")).ids();
+
+		fromElsewhere({ intent: "question", re: asked, text: "which version?" });
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.options).toEqual({ triggerTurn: true });
+		expect(sent[0]?.message.content).toMatch(/answering \[[0-9a-f]{8}\]/);
+	});
+
+	it("is refused when the message it answers is not there", async () => {
+		const { tools } = await startSession();
+		peer("session-w", ["WCJQSG"], []);
+
+		const answer = await tools.get("mesh_send")?.execute("call-1", {
+			to: "WCJQSG",
+			intent: "fyi",
+			text: "x",
+			re: "ffffffff",
+		});
+
+		expect(answer?.content[0]?.text).toBe(
+			"Not sent: no message has the id ffffffff, so it answers nothing. mesh_read shows each message's id in brackets.",
+		);
+		expect(folderTransport(join(paths.mesh, "messages")).ids()).toEqual([]);
+	});
+});
+
+describe("a withdrawal", () => {
+	it("goes wherever what it replaces went, and only from its sender", async () => {
+		const { tools } = await startSession();
+		peer("session-w", ["WCJQSG"], ["#optimus"]);
+		await send(tools, "#optimus", "finding", "the cache is poisoned");
+		const transport = folderTransport(join(paths.mesh, "messages"));
+		const [said = ""] = transport.ids();
+
+		await tools.get("mesh_send")?.execute("call-2", {
+			to: "WCJQSG",
+			intent: "finding",
+			text: "the cache is fine; it was my disk",
+			supersedes: said.slice(-8),
+		});
+		const others = fromElsewhere({ to: ["#optimus"], text: "mine" });
+		const refused = await tools.get("mesh_send")?.execute("call-3", {
+			to: "#optimus",
+			intent: "fyi",
+			text: "not yours",
+			supersedes: others.id,
+		});
+
+		expect(transport.read(transport.ids()[1] ?? "")).toMatchObject({
+			to: ["#optimus", "@WCJQSG"],
+			supersedes: said,
+		});
+		expect(refused?.content[0]?.text).toContain(
+			"was sent by WCJQSG, and only a message's sender may replace it",
+		);
+		const read = await tools.get("mesh_read")?.execute("call-4", {});
+		expect(read?.content[0]?.text).toMatch(
+			/the cache is poisoned\n {2}withdrawn: replaced by \[[0-9a-f]{8}\], so go by that instead/,
+		);
+	});
+
+	it("takes back a glance not yet handed over, and is noted by whoever heard it", async () => {
+		const { sent, fire } = await startSession({}, judging(notYours));
+
+		const said = fromElsewhere({ text: "merging core.nix#330 now" });
+		await vi.waitFor(() =>
+			expect(
+				folderTransport(join(paths.mesh, "messages")).lastRead(["7M6JKG"]),
+			).toBe(said.id),
+		);
+		fromElsewhere({ text: "not merging after all", supersedes: said.id });
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.message.customType).toBe(NOTED);
+		expect(sent[0]?.message.content).toContain("which its sender withdraws");
+		expect(sent[0]?.message.details).toMatchObject({ glanced: [] });
+		await fire("turn_end");
+		expect(sent).toHaveLength(1);
+	});
+});
+
+describe("damping", () => {
+	it("starts no more turns for one sender past its share of the hour", async () => {
+		const { sent } = await startSession({}, { isIdle: () => true });
+
+		for (let one = 1; one <= MOST_TURNS_FROM_ONE + 1; one += 1) {
+			fromElsewhere({
+				intent: "question",
+				to: ["@7M6JKG"],
+				text: `why ${one}?`,
+			});
+			await vi.waitFor(() => expect(sent).toHaveLength(one));
+		}
+
+		expect(sent.map((one) => one.options)).toEqual([
+			...Array.from({ length: MOST_TURNS_FROM_ONE }, () => ({
+				triggerTurn: true,
+			})),
+			{ triggerTurn: false },
+		]);
+		expect(sent.at(-1)?.message.content).not.toContain("spent");
+	});
+
+	it("remembers the hour's turns across a reload", async () => {
+		const turns = Array.from({ length: MOST_TURNS_FROM_ONE }, (_, one) => ({
+			type: "custom_message",
+			customType: NOTED,
+			details: {
+				messages: [fromElsewhere({ intent: "question", text: `why ${one}?` })],
+				glanced: [],
+				at: Date.now(),
+				turn: true,
+			},
+		}));
+		writeFileSync(
+			join(paths.mesh, "messages", ".read-7M6JKG"),
+			folderTransport(join(paths.mesh, "messages")).ids().at(-1) ?? "",
+		);
+		const { sent } = await startSession({}, { isIdle: () => true }, turns);
+
+		fromElsewhere({ intent: "question", to: ["@7M6JKG"], text: "and now?" });
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.options).toEqual({ triggerTurn: false });
+	});
+
+	it("glances at what a sender said already", async () => {
+		const { sent, entries } = await startSession();
+
+		fromElsewhere({ to: ["@7M6JKG"], text: "rebooting at 01:00" });
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		fromElsewhere({ to: ["@7M6JKG"], text: "Rebooting at 01:00" });
+
+		await vi.waitFor(() => expect(entries).toHaveLength(1));
+		expect(entries[0]).toMatchObject({
+			type: GLANCE,
+			data: { why: "sent to this peer, said already" },
+		});
 	});
 });
 

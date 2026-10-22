@@ -16,15 +16,17 @@
  * session is idle. Delivered as a prompt instead, it stopped every
  * session it reached: an idle one started a turn about it, a busy one
  * picked it up as a new task at the moment it would have finished, and
- * each answered messages that needed no answer. The one exception is a
- * question this peer is the one to answer while it is idle, which starts
- * a turn, since nothing else would get it read.
+ * each answered messages that needed no answer. The exceptions are what
+ * an idle peer has to do something about: a question it is the one to
+ * answer wakes it, and a finding sent to it, or a question to a group
+ * about its work, starts a turn once the mesh settles (see acts.ts).
  *
- * At the attention it bears, never none (lib/mesh/attention.ts). What
- * concerns this peer or the whole machine is noted in full. Another
- * peer's own business is a glance: shown on screen at once, and handed
- * to the model as one line with its next turn, whether that is the end
- * of the current step or the start of the next run.
+ * At the attention it bears, never none (lib/mesh/attention.ts), held
+ * to what the peer can afford (lib/mesh/damping.ts). What concerns this
+ * peer or the whole machine is noted in full. Another peer's own
+ * business is a glance: shown on screen at once, and handed to the
+ * model as one line with its next turn, whether that is the end of the
+ * current step or the start of the next run.
  *
  * Every message goes to a group (lib/mesh/group.ts), never to a peer
  * alone, so what is said stays in a potentially shared space.
@@ -51,8 +53,10 @@ import {
 	concernQuestion,
 	concernState,
 	type Heed,
+	mentions,
 	type Receiver,
 } from "../../lib/mesh/attention.ts";
+import { createDamper } from "../../lib/mesh/damping.ts";
 import { groupNamed, isJoinable } from "../../lib/mesh/group.ts";
 import {
 	bridgePresences,
@@ -68,7 +72,15 @@ import {
 } from "../../lib/mesh/message.ts";
 import { localPeer, type Peer } from "../../lib/mesh/peer.ts";
 import { createPresences } from "../../lib/mesh/presence.ts";
+import {
+	answers,
+	depthOf,
+	mayReplace,
+	type Self,
+	sentBy,
+} from "../../lib/mesh/thread.ts";
 import { folderTransport, type Transport } from "../../lib/mesh/transport.ts";
+import { type Acts, createActs, SETTLING, type Settling } from "./acts.ts";
 import {
 	type Delivered,
 	digest,
@@ -77,7 +89,7 @@ import {
 	NOTED,
 	noted,
 } from "./delivery.ts";
-import { createGlances, type Entry } from "./glances.ts";
+import { countedIn, createGlances, type Entry } from "./glances.ts";
 import { type Local, registerTools } from "./tools.ts";
 
 /**
@@ -155,6 +167,7 @@ export function isEphemeral(
 export function meshWorkflow(
 	paths: MeshPaths = machinePaths(),
 	env: NodeJS.ProcessEnv = process.env,
+	settling: Settling = SETTLING,
 ) {
 	return (pi: ExtensionAPI) => {
 		// Not on the mesh at all: see isSubagent.
@@ -168,6 +181,11 @@ export function meshWorkflow(
 			paths.legacy,
 		);
 		const glances = createGlances();
+		const damper = createDamper();
+		let acts: Acts<Heeded> | undefined;
+		// Messages other peers have answered, so a question to a group that
+		// one peer took up starts no turn of the rest.
+		const answered = new Set<string>();
 		let ctx: ExtensionContext | undefined;
 		let peer: Peer | undefined;
 		let classifier: Promise<FoundClassifier> | undefined;
@@ -185,6 +203,9 @@ export function meshWorkflow(
 			// What is sent to this peer is noted whatever it says, so asking
 			// about it would spend a call on an answer nothing reads.
 			if (isHomeTo(message, receiver.addresses)) return undefined;
+			// What the words already show needs no classifier: naming this peer
+			// or what it owns is about its work.
+			if (mentions(message, receiver)) return "receiver";
 			try {
 				const found = await classifier;
 				if (!found?.ok) return undefined;
@@ -209,44 +230,130 @@ export function meshWorkflow(
 			if (messages.length === 0 || !ctx || !peer) return;
 			peer.refresh();
 			const receiver = peer.receiver;
+			const self: Self = { addresses: peer.addresses, pid: process.pid };
+			const listener = peer.listener;
+			const read = (id: string) => transport.read(id);
+			const answering = messages.map((message) => answers(message, read, self));
 			const concerns = await Promise.all(
-				messages.map((message) => judge(message, receiver)),
+				messages.map((message, at) =>
+					answeringAt(answering, at) ? undefined : judge(message, receiver),
+				),
 			);
 			// Never while starting: the first prompt is about to run, and pi
 			// refuses a second turn asked for beside it.
 			const idle = mayWake && (ctx.isIdle?.() ?? false);
-			const heeded: [Message, Heed][] = messages.map((message, at) => [
-				message,
-				attend(message, {
+			const damped: string[] = [];
+			const heeded: Heeded[] = messages.map((message, at) => {
+				const worth = attend(message, {
 					receiver,
 					idle,
+					answers: answeringAt(answering, at),
 					...(concerns[at] ? { concern: concerns[at] } : {}),
-				}),
-			]);
-			for (const [message, heed] of heeded) {
-				if (heed.attention !== "glance") continue;
-				pi.appendEntry(GLANCE, { message, why: heed.why });
-				glances.add(message);
+				});
+				const replaced = replacedBy(message);
+				// A withdrawal reaches in full everyone who heard what it
+				// withdraws, and what it withdraws is never handed over after it.
+				const heard =
+					replaced !== undefined && reaches(replaced, listener, process.pid);
+				if (replaced) {
+					glances.drop(replaced.id);
+					acts?.drop((one) => one.message.id === replaced.id);
+				}
+				const raised: Heed =
+					heard && worth.attention === "glance"
+						? { attention: "note", why: "replacing what this peer heard" }
+						: worth;
+				const heed = damper.damp(message, raised, depthOf(message, read));
+				if (heed.attention !== raised.attention) damped.push(heed.why);
+				return { message, heed };
+			});
+			say(damped);
+			for (const { message, heed } of heeded) {
+				if (heed.attention === "glance") {
+					pi.appendEntry(GLANCE, { message, why: heed.why });
+					glances.add(message);
+				}
+				if (heed.attention === "act") acts?.add({ message, heed });
 			}
-			const kept = heeded.filter(([, heed]) => heed.attention !== "glance");
+			const now = heeded.filter(
+				({ heed }) => heed.attention === "note" || heed.attention === "wake",
+			);
 			note(
-				kept.map(([message]) => message),
-				kept.some(([, heed]) => heed.attention === "wake"),
+				now,
+				now.some(({ heed }) => heed.attention === "wake"),
 			);
 		};
 
-		/** Messages in full, carrying whatever glances are waiting. */
-		const note = (messages: readonly Message[], wake: boolean) => {
-			if (messages.length === 0) return;
+		/** The earlier message this one validly replaces, if any. */
+		const replacedBy = (message: Message): Message | undefined => {
+			if (message.supersedes === undefined) return undefined;
+			const original = transport.read(message.supersedes);
+			return original && mayReplace(message, original) ? original : undefined;
+		};
+
+		/** Damping said on screen, where the person sees it and the model not. */
+		const say = (damped: readonly string[]) => {
+			if (damped.length === 0 || !ctx?.hasUI) return;
+			ctx.ui.notify(`Mesh: held back (${damped.join("; ")})`, "info");
+		};
+
+		/**
+		 * Messages in full, carrying whatever glances are waiting. A wake
+		 * takes whatever waits to act with it, since it starts the turn they
+		 * were waiting for.
+		 */
+		const note = (heeded: readonly Heeded[], wake: boolean) => {
+			const all = wake ? [...heeded, ...(acts?.take() ?? [])] : heeded;
+			if (all.length === 0) return;
+			const messages = all.map(({ message }) => message);
 			const carried = glances.take();
 			pi.sendMessage(
 				{
 					customType: NOTED,
 					content: noted(messages, carried),
 					display: true,
-					details: delivered(messages, carried),
+					details: delivered(messages, carried, {
+						turn: wake,
+						why: all.map(({ heed }) => heed.why),
+					}),
 				},
 				{ triggerTurn: wake },
+			);
+			damper.handed(messages);
+			if (wake) damper.started(messages.map((one) => one.from));
+		};
+
+		/**
+		 * What waited to act, once the mesh has settled: a turn for what is
+		 * still worth one and affordable, and a note for the rest, such as a
+		 * group's question another peer has answered meanwhile.
+		 */
+		const settled = (waiting: Heeded[]) => {
+			if (!ctx || !peer) return;
+			const read = (id: string) => transport.read(id);
+			const idle = ctx.isIdle?.() ?? false;
+			const damped: string[] = [];
+			const now = waiting.map(({ message, heed }): Heeded => {
+				if (answered.has(message.id) && message.intent === "question") {
+					return {
+						message,
+						heed: { attention: "note", why: `${heed.why}, answered already` },
+					};
+				}
+				if (!idle)
+					return { message, heed: { attention: "note", why: heed.why } };
+				const held = damper.damp(message, heed, depthOf(message, read));
+				if (held.attention !== heed.attention) damped.push(held.why);
+				return { message, heed: held };
+			});
+			say(damped);
+			const turn = now.some(({ heed }) => heed.attention === "act");
+			note(
+				now.map(({ message, heed }) => ({
+					message,
+					heed: turn ? heed : { ...heed, attention: "note" },
+				})),
+				turn,
 			);
 		};
 
@@ -268,6 +375,14 @@ export function meshWorkflow(
 			if (seen.has(id) || !peer) return undefined;
 			seen.add(id);
 			const message = transport.read(id);
+			// Answers are counted wherever they went, so a question to a group
+			// one peer took up is known as answered by every other.
+			if (
+				message?.re !== undefined &&
+				!sentBy(message, { addresses: peer.addresses, pid: process.pid })
+			) {
+				answered.add(message.re);
+			}
 			if (!message || !reaches(message, peer.listener, process.pid)) {
 				return undefined;
 			}
@@ -310,9 +425,13 @@ export function meshWorkflow(
 				presences,
 				...(owner ? { owner } : {}),
 			});
-			glances.recover(
-				(started.sessionManager.getBranch?.() ?? []) as readonly Entry[],
-			);
+			const branch = (started.sessionManager.getBranch?.() ??
+				[]) as readonly Entry[];
+			glances.recover(branch);
+			const counted = countedIn(branch);
+			damper.recover(counted.turns, counted.said);
+			acts?.stop();
+			acts = createActs(peer.session, settling, settled);
 			// Looked for once a session, not once a message, and not waited
 			// on: a message judged before it is found waits for it, briefly.
 			classifier = findClassifier(
@@ -372,9 +491,27 @@ export function meshWorkflow(
 			const message = glanceDigest();
 			if (message) pi.sendMessage(message, { triggerTurn: false });
 		});
+		// A run started by something else takes what was waiting to act
+		// with it, in full, and the turn it waited for is never started.
 		pi.on("before_agent_start", async () => {
-			const message = glanceDigest();
-			return message ? { message } : undefined;
+			const waiting = acts?.take() ?? [];
+			if (waiting.length === 0) {
+				const message = glanceDigest();
+				return message ? { message } : undefined;
+			}
+			const messages = waiting.map(({ message }) => message);
+			const carried = glances.take();
+			damper.handed(messages);
+			return {
+				message: {
+					customType: NOTED,
+					content: noted(messages, carried),
+					display: true,
+					details: delivered(messages, carried, {
+						why: waiting.map(({ heed }) => heed.why),
+					}),
+				},
+			};
 		});
 
 		// Whether a peer is mid-run is part of what others see of it.
@@ -386,6 +523,7 @@ export function meshWorkflow(
 		});
 
 		pi.on("session_shutdown", async () => {
+			acts?.stop();
 			stopWatching?.();
 			stopWatching = undefined;
 		});
@@ -403,11 +541,27 @@ export function meshWorkflow(
 	};
 }
 
+/** A message with the attention it gets here. */
+interface Heeded {
+	readonly message: Message;
+	readonly heed: Heed;
+}
+
+function answeringAt(answering: readonly boolean[], at: number): boolean {
+	return answering[at] ?? false;
+}
+
 function delivered(
 	messages: readonly Message[],
 	glanced: readonly Message[],
+	more: Pick<Delivered, "turn" | "why"> = {},
 ): Delivered {
-	return { messages, glanced: glanced.map((one) => one.id) };
+	return {
+		messages,
+		glanced: glanced.map((one) => one.id),
+		at: Date.now(),
+		...more,
+	};
 }
 
 /** A glance on screen: one dim line, cut to the terminal's width. */

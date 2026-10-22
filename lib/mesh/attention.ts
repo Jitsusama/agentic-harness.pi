@@ -12,15 +12,27 @@
  * twenty-two minutes later). And a message kept out of a peer entirely
  * is one it cannot know it missed.
  *
- * So a message gets one of three levels:
+ * So a message gets one of four levels:
  *
  * - glance: another peer's own business. One line of it reaches the
  *   model with its next turn, beside any others, and mesh_read has the
  *   rest.
  * - note: in full, kept in mind, for what is sent to this peer, what
- *   concerns its work and what touches the whole machine.
- * - wake: in full and with a turn, for a question this peer is the one
- *   to answer while it is idle, since nothing else would get it read.
+ *   concerns its work and what touches the whole machine. A peer mid-run
+ *   reads it before its next step; an idle one with its next turn.
+ * - act: in full, and a turn of its own once the mesh has settled, for
+ *   what an idle peer should act on but need not drop everything for: a
+ *   finding sent to it, or a question to a group about its work, which
+ *   whichever peer answers first settles for the rest.
+ * - wake: in full and a turn at once, for a question sent to this idle
+ *   peer, or answering one it asked, since someone is waiting on it.
+ *
+ * A message answering one this peer sent is taken as sent to it, since
+ * it is, wherever it went. An fyi or a hold never takes a turn: neither
+ * asks for anything an idle peer has to do.
+ *
+ * What a message is worth is held to what the peer can afford by
+ * damping (see damping.ts), which this module knows nothing of.
  *
  * Whether a message concerns a peer is a judgement, which a classifier
  * makes well when there is one (see {@link concernQuestion}). Without
@@ -35,7 +47,7 @@ import { isHomeTo, type Message } from "./message.ts";
 import type { Presence } from "./presence.ts";
 
 /** How much of a peer a message gets. */
-export type Attention = "glance" | "note" | "wake";
+export type Attention = "glance" | "note" | "act" | "wake";
 
 /** Whose business a message is, from where its receiver stands. */
 export type Concern = "receiver" | "machine" | "other";
@@ -50,6 +62,8 @@ export interface Standing {
 	readonly idle: boolean;
 	/** The classifier's judgement, when one could be had. */
 	readonly concern?: Concern;
+	/** The message answers one this peer sent (see thread.ts). */
+	readonly answers?: boolean;
 }
 
 /** The attention a message gets, and why, for the screen and the tests. */
@@ -67,12 +81,12 @@ export const OTHER_AT_LEAST = 0.6;
 
 /** The attention one message gets from a peer standing like this. */
 export function attend(message: Message, at: Standing): Heed {
-	const asked = at.idle && message.intent === "question";
-	if (isHomeTo(message, at.receiver.addresses)) {
-		return {
-			attention: asked ? "wake" : "note",
-			why: "sent to this peer",
-		};
+	if (at.answers || isHomeTo(message, at.receiver.addresses)) {
+		const why = at.answers ? "answering this peer" : "sent to this peer";
+		if (!at.idle) return { attention: "note", why };
+		if (message.intent === "question") return { attention: "wake", why };
+		if (message.intent === "finding") return { attention: "act", why };
+		return { attention: "note", why };
 	}
 	const concern =
 		at.concern ?? (mentions(message, at.receiver) ? "receiver" : undefined);
@@ -82,8 +96,12 @@ export function attend(message: Message, at: Standing): Heed {
 	if (concern === "other" && message.intent !== "hold") {
 		return { attention: "glance", why: "about another peer's own work" };
 	}
+	const acts =
+		at.idle &&
+		concern === "receiver" &&
+		(message.intent === "question" || message.intent === "finding");
 	return {
-		attention: asked && concern === "receiver" ? "wake" : "note",
+		attention: acts ? "act" : "note",
 		why:
 			concern === "receiver"
 				? "about this peer's work"

@@ -9,6 +9,7 @@ import {
 	type Intent,
 	line,
 	type Message,
+	shortId,
 } from "../../lib/mesh/message.ts";
 
 /** The customType of messages delivered in full. */
@@ -44,17 +45,26 @@ export const ADVISORY =
 export const ASKS: Readonly<Record<Intent, string>> = {
 	hold: "A hold: do not start what it names until its sender says the hold is over. Reply with mesh_send only if you are already in the middle of it or cannot hold.",
 	question:
-		"A question: answer its sender with mesh_send, briefly, then carry on with what you were doing, or stop there if you were doing nothing.",
+		"A question: answer its sender with mesh_send, briefly, with re set to the question's id, then carry on with what you were doing, or stop there if you were doing nothing.",
 	finding:
 		"A finding: if you own what it is about, note it in your plan or journal and act on it in its turn; if you do not, let it go. No reply.",
 	fyi: "An fyi: context only. No reply and no action.",
 };
 
-/** What a delivery records, so a reload knows which glances it carried. */
+/**
+ * What a delivery records, so a reload knows which glances it carried
+ * and what the peer's limits had counted (see lib/mesh/damping.ts).
+ */
 export interface Delivered {
 	readonly messages: readonly Message[];
 	/** The ids of the glances it carried. */
 	readonly glanced: readonly string[];
+	/** When it was handed over, in milliseconds. */
+	readonly at?: number;
+	/** Whether it started a turn, which counts against the peer's hour. */
+	readonly turn?: boolean;
+	/** Why each message got the attention it did, for the screen. */
+	readonly why?: readonly string[];
 }
 
 /** Messages in full, with any glances waiting carried along. */
@@ -62,10 +72,16 @@ export function noted(
 	messages: readonly Message[],
 	glances: readonly Message[] = [],
 ): string {
-	const each = messages.map(
-		(message) =>
-			`Mesh message (${message.intent}) from ${message.from} to ${message.to.join(", ")} at ${clock(message)}:\n\n${message.text}`,
-	);
+	const each = messages.map((message) => {
+		const threads = [
+			message.re ? `answering [${shortId({ id: message.re })}]` : "",
+			message.supersedes
+				? `replacing [${shortId({ id: message.supersedes })}], which its sender withdraws: go by this one instead`
+				: "",
+		].filter(Boolean);
+		const thread = threads.length > 0 ? `, ${threads.join(", ")}` : "";
+		return `Mesh message [${shortId(message)}] (${message.intent}) from ${message.from} to ${message.to.join(", ")} at ${clock(message)}${thread}:\n\n${message.text}`;
+	});
 	const asks = INTENTS.filter((intent) =>
 		messages.some((message) => message.intent === intent),
 	).map((intent) => ASKS[intent]);

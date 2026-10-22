@@ -8,6 +8,7 @@
  * waiting in its own entries, and none is lost or handed over twice.
  */
 
+import type { Said, Turn } from "../../lib/mesh/damping.ts";
 import { type Message, messageFrom } from "../../lib/mesh/message.ts";
 import { type Delivered, GLANCE, GLANCES, NOTED } from "./delivery.ts";
 
@@ -24,6 +25,8 @@ export interface Glances {
 	add(message: Message): void;
 	/** Everything waiting, which is then no longer waiting. */
 	take(): Message[];
+	/** Stop waiting on one, as when its sender replaces it. */
+	drop(id: string): void;
 	/** What was still waiting when these entries were written. */
 	recover(entries: readonly Entry[]): void;
 }
@@ -41,6 +44,9 @@ export function createGlances(): Glances {
 			waiting = [];
 			return taken;
 		},
+		drop(id) {
+			waiting = waiting.filter((one) => one.id !== id);
+		},
 		recover(entries) {
 			const carried = new Set(entries.flatMap(glancedBy));
 			waiting = entries
@@ -55,6 +61,35 @@ export function createGlances(): Glances {
 function glanceIn(entry: Entry): Message | undefined {
 	if (entry.type !== "custom" || entry.customType !== GLANCE) return undefined;
 	return messageFrom((entry.data as { message?: unknown } | null)?.message);
+}
+
+/**
+ * What deliveries in these entries counted against the peer's limits:
+ * the turns they started, and the messages they handed over in full.
+ */
+export function countedIn(entries: readonly Entry[]): {
+	turns: Turn[];
+	said: Said[];
+} {
+	const turns: Turn[] = [];
+	const said: Said[] = [];
+	for (const entry of entries) {
+		if (entry.type !== "custom_message" || entry.customType !== NOTED) {
+			continue;
+		}
+		const details = entry.details as Partial<Delivered> | null;
+		if (typeof details?.at !== "number") continue;
+		const messages = (Array.isArray(details.messages) ? details.messages : [])
+			.map(messageFrom)
+			.filter((one): one is Message => one !== undefined);
+		if (details.turn === true) {
+			turns.push({ at: details.at, from: messages.map((one) => one.from) });
+		}
+		for (const one of messages) {
+			said.push({ at: details.at, from: one.from, text: one.text });
+		}
+	}
+	return { turns, said };
 }
 
 /** The ids of the glances a delivery carried, if it is one. */

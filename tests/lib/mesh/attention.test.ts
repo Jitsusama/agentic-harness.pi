@@ -1,6 +1,6 @@
 /**
  * The attention a message gets from the peer it reaches: a glance, a
- * note, or a wake, and never none.
+ * note, an act or a wake, and never none.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -62,7 +62,7 @@ describe("attention", () => {
 		);
 	});
 
-	it("wakes an idle peer for a question it is the one to answer", () => {
+	it("wakes an idle peer for a question sent to it, and acts on one to a group about its work", () => {
 		const asked = message({
 			intent: "question",
 			to: ["@5GV2AH"],
@@ -80,12 +80,32 @@ describe("attention", () => {
 		expect(
 			attend(broadcast, { ...standing, idle: true, concern: "receiver" })
 				.attention,
-		).toBe("wake");
+		).toBe("act");
 	});
 
-	it("never wakes for anything but a question", () => {
-		const finding = message({ intent: "finding", to: ["@5GV2AH"] });
-		expect(attend(finding, { ...standing, idle: true }).attention).toBe("note");
+	it("starts a turn only for questions and findings", () => {
+		const idle = { ...standing, idle: true };
+		const to = ["@5GV2AH"];
+		expect(attend(message({ intent: "finding", to }), idle).attention).toBe(
+			"act",
+		);
+		expect(attend(message({ intent: "hold", to }), idle).attention).toBe(
+			"note",
+		);
+		expect(attend(message({ intent: "fyi", to }), idle).attention).toBe("note");
+		expect(attend(message({ intent: "finding", to }), standing).attention).toBe(
+			"note",
+		);
+	});
+
+	it("takes an answer to this peer's own message as sent to it", () => {
+		const answer = message({ intent: "question", re: "0-5GV2AH-1-bbbb" });
+		const answering = { ...standing, answers: true, concern: "other" as const };
+		expect(attend(answer, { ...answering, idle: true })).toEqual({
+			attention: "wake",
+			why: "answering this peer",
+		});
+		expect(attend(answer, answering).attention).toBe("note");
 	});
 
 	it("reads a mention of the peer or what it owns as concerning it", () => {
@@ -95,7 +115,7 @@ describe("attention", () => {
 			text: "is that refusal from the Harness?",
 		});
 		expect(mentions(asked, standing.receiver)).toBe(true);
-		expect(attend(asked, { ...standing, idle: true }).attention).toBe("wake");
+		expect(attend(asked, { ...standing, idle: true }).attention).toBe("act");
 		expect(
 			mentions(message({ text: "a 5gv2ah-ish word" }), standing.receiver),
 		).toBe(true);

@@ -48,12 +48,19 @@ export interface Message {
 	 * read the text, which says the same.
 	 */
 	readonly invite?: string;
+	/** The id of the message this one answers (see thread.ts). */
+	readonly re?: string;
+	/**
+	 * The id of a message its sender sent earlier that this one replaces,
+	 * reaching everyone who heard that one (see thread.ts).
+	 */
+	readonly supersedes?: string;
 }
 
 /** What a sender says; the mesh adds the rest. */
 export type Draft = Pick<
 	Message,
-	"from" | "to" | "intent" | "text" | "pid" | "invite"
+	"from" | "to" | "intent" | "text" | "pid" | "invite" | "re" | "supersedes"
 >;
 
 /** Who a message could be for: a peer's addresses and groups. */
@@ -89,7 +96,19 @@ export function messageFrom(value: unknown): Message | undefined {
 		text: one.text as string,
 		pid: one.pid as number,
 		...(typeof one.invite === "string" ? { invite: one.invite } : {}),
+		...(typeof one.re === "string" ? { re: one.re } : {}),
+		...(typeof one.supersedes === "string"
+			? { supersedes: one.supersedes }
+			: {}),
 	};
+}
+
+/**
+ * The short form of a message's id, its last part, which a peer may
+ * write instead of the whole id when it answers or replaces one.
+ */
+export function shortId(message: Pick<Message, "id">): string {
+	return message.id.slice(message.id.lastIndexOf("-") + 1);
 }
 
 /** An intent as written, or an fyi when it is none this version knows. */
@@ -132,5 +151,5 @@ export function clock(message: Pick<Message, "at">): string {
 
 /** A message on one line, for listings and glances. */
 export function line(message: Message): string {
-	return `${clock(message)} ${message.intent} from ${message.from} to ${message.to.join(", ")}: ${message.text}`;
+	return `${clock(message)} [${shortId(message)}] ${message.intent} from ${message.from} to ${message.to.join(", ")}: ${message.text}`;
 }
