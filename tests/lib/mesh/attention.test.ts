@@ -1,0 +1,121 @@
+/**
+ * The attention a message gets from the peer it reaches: a glance, a
+ * note, or a wake, and never none.
+ */
+import { describe, expect, it } from "vitest";
+import {
+	attend,
+	concernFrom,
+	mentions,
+	type Standing,
+} from "../../../lib/mesh/attention.ts";
+import { ALL } from "../../../lib/mesh/group.ts";
+import type { Message } from "../../../lib/mesh/message.ts";
+
+function message(over: Partial<Message> = {}): Message {
+	return {
+		v: 1,
+		id: "1-2HN63P-1-aaaa",
+		at: "2026-10-22T02:22:00.000Z",
+		from: "2HN63P",
+		to: [ALL],
+		text: "merging core.nix#330 now (modules/guide only)",
+		intent: "fyi",
+		pid: 1,
+		...over,
+	};
+}
+
+const standing: Standing = {
+	receiver: {
+		addresses: ["5GV2AH", "24B025FE"],
+		worksOn: "Protections That Lead to Good Outcomes",
+		owns: ["agentic-harness.pi", "harness", "QEST-20261021-5GV2AH"],
+	},
+	idle: false,
+};
+
+describe("attention", () => {
+	it("glances at another peer's own business, never passing it by", () => {
+		const heed = attend(message(), { ...standing, concern: "other" });
+		expect(heed.attention).toBe("glance");
+	});
+
+	it("notes a hold whatever it is judged, since missing one costs someone", () => {
+		const hold = message({ intent: "hold", text: "hold heavy builds 4 min" });
+		expect(attend(hold, { ...standing, concern: "other" }).attention).toBe(
+			"note",
+		);
+	});
+
+	it("notes what it cannot judge", () => {
+		expect(attend(message(), standing)).toEqual({
+			attention: "note",
+			why: "not judged, so noted",
+		});
+	});
+
+	it("notes what is sent to this peer whatever it is judged", () => {
+		const home = message({ to: ["@5GV2AH"] });
+		expect(attend(home, { ...standing, concern: "other" }).attention).toBe(
+			"note",
+		);
+	});
+
+	it("wakes an idle peer for a question it is the one to answer", () => {
+		const asked = message({
+			intent: "question",
+			to: ["@5GV2AH"],
+			text: "why?",
+		});
+		expect(attend(asked, { ...standing, idle: true }).attention).toBe("wake");
+		expect(attend(asked, standing).attention).toBe("note");
+		const broadcast = message({
+			intent: "question",
+			text: "who has a build up?",
+		});
+		expect(attend(broadcast, { ...standing, idle: true }).attention).toBe(
+			"note",
+		);
+		expect(
+			attend(broadcast, { ...standing, idle: true, concern: "receiver" })
+				.attention,
+		).toBe("wake");
+	});
+
+	it("never wakes for anything but a question", () => {
+		const finding = message({ intent: "finding", to: ["@5GV2AH"] });
+		expect(attend(finding, { ...standing, idle: true }).attention).toBe("note");
+	});
+
+	it("reads a mention of the peer or what it owns as concerning it", () => {
+		// Without a classifier, so a question about the harness still wakes.
+		const asked = message({
+			intent: "question",
+			text: "is that refusal from the Harness?",
+		});
+		expect(mentions(asked, standing.receiver)).toBe(true);
+		expect(attend(asked, { ...standing, idle: true }).attention).toBe("wake");
+		expect(
+			mentions(message({ text: "a 5gv2ah-ish word" }), standing.receiver),
+		).toBe(true);
+		expect(mentions(message(), standing.receiver)).toBe(false);
+	});
+});
+
+describe("a classifier's concern", () => {
+	it("trusts a sure 'not yours' and nothing less", () => {
+		const other = (p: number) => ({
+			type: "choice",
+			choice: "other",
+			probabilities: { other: p, receiver: 1 - p, machine: 0 },
+		});
+		expect(concernFrom(other(0.93))).toBe("other");
+		expect(concernFrom(other(0.55))).toBeUndefined();
+		expect(concernFrom({ type: "choice", choice: "receiver" })).toBe(
+			"receiver",
+		);
+		expect(concernFrom({ type: "choice", choice: "nonsense" })).toBeUndefined();
+		expect(concernFrom(undefined)).toBeUndefined();
+	});
+});
