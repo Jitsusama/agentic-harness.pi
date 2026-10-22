@@ -72,6 +72,23 @@ describe("the index of tools that load on demand", () => {
 		expect(index).toContain("tool_search");
 	});
 
+	it("says a large namespace as a count and its areas, not every name", () => {
+		const gateway = { name: "mcp__gw" };
+		const many: LoadableTool[] = Array.from({ length: 30 }, (_, i) => ({
+			name: `mcp__gw__${i % 2 ? "github" : "vault"}_tool_${i}`,
+			description: "A tool.",
+			exposure: "deferred",
+			namespace: gateway,
+		}));
+
+		const index = loadableIndex(many);
+
+		expect(index).toContain(
+			"- mcp__gw: 30 tools, covering vault, github. Find one with `tool_search`.",
+		);
+		expect(index).not.toContain("mcp__gw__vault_tool_0");
+	});
+
 	it("says nothing when nothing is deferred", () => {
 		expect(loadableIndex([])).toBeUndefined();
 	});

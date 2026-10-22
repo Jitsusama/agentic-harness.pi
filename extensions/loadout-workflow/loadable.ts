@@ -12,6 +12,26 @@ export interface LoadableTool {
 	readonly namespace?: { readonly name: string; readonly description?: string };
 }
 
+/** The most tools of one namespace the index names one by one. */
+const MOST_NAMED = 24;
+
+/**
+ * The areas a large namespace's tools cover: the first word of each
+ * name once the namespace's own prefix is taken off, in the order
+ * they first appear.
+ */
+function areasOf(space: string, members: readonly LoadableTool[]): string[] {
+	const areas = new Set<string>();
+	for (const tool of members) {
+		const bare = tool.name.startsWith(`${space}__`)
+			? tool.name.slice(space.length + 2)
+			: tool.name;
+		const area = bare.split("_")[0];
+		if (area) areas.add(area);
+	}
+	return [...areas];
+}
+
 /** The longest a tool's purpose runs in the index. */
 const PURPOSE_CHARS = 72;
 
@@ -38,6 +58,11 @@ export function loadable(
  * The index the model reads, so a tool that is not declared is not
  * forgotten: a namespace on one line with its tools, any other tool on
  * a line of its own. Nothing when there is nothing to load.
+ *
+ * A namespace of more than `MOST_NAMED` tools is said as a count and
+ * the areas its names cover, since `tool_search` finds the one wanted.
+ * Naming every tool of the Tool Gateway's MCP server, 306 of them, ran
+ * to 17,430 characters on every turn.
  */
 export function loadableIndex(
 	tools: readonly LoadableTool[],
@@ -52,8 +77,16 @@ export function loadableIndex(
 	}
 	for (const [space, members] of grouped) {
 		const about = members[0]?.namespace?.description;
-		const names = members.map((tool) => tool.name).join(", ");
-		lines.push(`- ${space}${about ? ` (${purposeOf(about)})` : ""}: ${names}`);
+		const head = `- ${space}${about ? ` (${purposeOf(about)})` : ""}`;
+		if (members.length <= MOST_NAMED) {
+			const names = members.map((tool) => tool.name).join(", ");
+			lines.push(`${head}: ${names}`);
+			continue;
+		}
+		const areas = areasOf(space, members).join(", ");
+		lines.push(
+			`${head}: ${members.length} tools, covering ${areas}. Find one with \`tool_search\`.`,
+		);
 	}
 	for (const tool of tools) {
 		if (tool.namespace !== undefined) continue;
