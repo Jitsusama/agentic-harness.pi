@@ -155,16 +155,40 @@ export async function startRuntime(
 		slot.request = undefined;
 		slot.dispatched = false;
 	}
-	slot.landed = (landed) => {
-		void whatRuns(settings).then((loaded) => {
-			onLoaded(loaded);
-			showMark(ctx, loaded);
-			sayLanded(pi, landed, loaded);
-		});
+	// Git can take seconds to say what runs, and the session can be
+	// replaced meanwhile: on 22 October a rollover switched the session
+	// four seconds into that wait, the captured pi went stale, and the
+	// throw escaped this promise and took pi down. So a runtime that is no
+	// longer the newest hands the landing on, and one that cannot speak
+	// leaves it for the next to start. Nothing here may throw.
+	const speak = (landed: ReloadLanded): void => {
+		void whatRuns(settings)
+			.then((loaded) => {
+				const newest = reloadSlot().landed;
+				if (newest !== speak) {
+					if (newest) newest(landed);
+					else reloadSlot().unsaid = landed;
+					return;
+				}
+				onLoaded(loaded);
+				showMark(ctx, loaded);
+				sayLanded(pi, landed, loaded);
+			})
+			.catch(() => {
+				reloadSlot().unsaid = landed;
+			});
 	};
+	slot.landed = speak;
 	const loaded = await whatRuns(settings);
 	onLoaded(loaded);
 	showMark(ctx, loaded);
+	// A landing the runtime before this one could not say.
+	const unsaid = slot.unsaid;
+	if (unsaid !== undefined) {
+		slot.unsaid = undefined;
+		sayLanded(pi, unsaid, loaded);
+		return;
+	}
 	if (reason === "reload" && !askedThroughHarness) {
 		pi.sendMessage({
 			customType: LOADED_MESSAGE,
