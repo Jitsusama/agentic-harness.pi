@@ -16,7 +16,7 @@ import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, sep } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { Exec } from "@jitsusama/agentic-harness.core/exec";
+import { type Exec, spawnExec } from "@jitsusama/agentic-harness.core/exec";
 import { complaintsAbout } from "@jitsusama/agentic-harness.core/guardian/commit-format";
 import { runProseGate } from "@jitsusama/agentic-harness.core/guardian/prose-gate";
 import {
@@ -60,6 +60,7 @@ import { gitTreeRootOf } from "../../../lib/internal/quest/git-signals.ts";
 import { unattendedExec } from "../../../lib/internal/unattended-exec.ts";
 import { count, displayPath } from "../../../lib/ui/index.ts";
 import { objectionsTo, treeBroker } from "../broker.ts";
+import { FETCH_MS, refreshStart } from "../fresh-start.ts";
 import { GLYPH, treeLine } from "../render.ts";
 import { candidatesFor, machineSeams, warmStart } from "../warm-start.ts";
 import { recordMessage } from "./message.ts";
@@ -468,7 +469,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 			from: Type.Optional(
 				Type.String({
 					description:
-						"For branch: where the new branch starts. Defaults to where the tree already points.",
+						"For branch: where the new branch starts. Defaults to where the tree already points. A remote's branch, such as origin/main, is fetched first, so there is no need to fetch beforehand.",
 				}),
 			),
 			onto: Type.Optional(
@@ -773,11 +774,28 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 						return refuse(`${GLYPH.refused} Name the branch to make.`);
 					}
 					const author = createGitAuthor({ exec });
+					// A remote's branch is wanted as the remote holds it, not as the
+					// last fetch left it; on a shorter clock than the call's, since
+					// the branch can still be made from what is here.
+					const stale = args.from
+						? await refreshStart(
+								spawnExec({
+									...(signal ? { signal } : {}),
+									timeoutMs: FETCH_MS,
+								}),
+								found.path,
+								args.from,
+							)
+						: undefined;
 					await author.branch(
 						found.path,
 						args.name,
 						args.from ? { from: args.from } : undefined,
 					);
+					// Named, so a branch cut from the wrong base shows at once
+					// rather than after the work on it is built.
+					const head = await createGitHistory({ exec }).head(found.path);
+					const start = `${head.commit.slice(0, 12)}${args.from ? ` from ${args.from}` : ""}`;
 					// Said after the branch exists, because the name is workable
 					// and the convention is a preference rather than a rule git
 					// enforces. Refusing here would make a repo with its own
@@ -785,12 +803,13 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 					const naming = namingComplaints(args.name);
 					return say(
 						[
-							`${GLYPH.tree} ${found.identity.key} is on ${args.name}.`,
+							`${GLYPH.tree} ${found.identity.key} is on ${args.name}, at ${start}.`,
+							...(stale ? [`   ${stale}`] : []),
 							...(naming.length === 0
 								? []
 								: [`   Against the convention: ${naming.join("; ")}.`]),
 						].join("\n"),
-						{ ok: true, branch: args.name },
+						{ ok: true, branch: args.name, commit: head.commit },
 					);
 				}
 
