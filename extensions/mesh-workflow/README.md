@@ -139,7 +139,10 @@ and its groups.
 An fyi or a hold never starts a turn; neither asks an idle
 peer to do anything. The one exception is an answer to a
 question this peer asked, which it is waiting on however the
-answer was sent. A withdrawal is noted by every peer that
+answer was sent. Any other fyi more than an hour old when it
+reaches a peer, as after a reload, is a glance wherever it
+went, since what it told has moved on (Skynet's register gives
+an fyi an hour). A withdrawal is noted by every peer that
 heard what it withdraws, and a glance of that not yet handed
 over is taken back.
 
@@ -341,7 +344,9 @@ turn (as it starts, and as a run ends), lets go of:
   thread a peer would still answer into;
 - read markers whose peer has read nothing for that week;
 - an ended peer's presence a day after it last changed, so
-  senders are told it ended for a day and then forget it;
+  senders are told it ended for a day and then forget it, or a
+  week after when it stopped another peer, so a session
+  restored within the week comes back with its stops;
 - a peer's lease file once none of its leases stands;
 - files a writer staged and never renamed into place.
 

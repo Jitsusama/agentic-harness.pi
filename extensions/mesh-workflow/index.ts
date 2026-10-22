@@ -342,6 +342,7 @@ export function meshWorkflow(
 					idle,
 					answers: answeringAt(answering, at),
 					asked: answeringAt(asked, at),
+					now: Date.now(),
 					...(concerns[at] ? { concern: concerns[at] } : {}),
 				});
 				const replaced = replacedBy(message);

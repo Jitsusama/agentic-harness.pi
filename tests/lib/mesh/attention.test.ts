@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
 	attend,
 	concernFrom,
+	FYI_MS,
 	mentions,
 	type Standing,
 } from "../../../lib/mesh/attention.ts";
@@ -125,6 +126,27 @@ describe("attention", () => {
 			attention: "note",
 			why: "answering this peer's question",
 		});
+	});
+
+	it("glances at an fyi past its hour, wherever it went", () => {
+		const sent = Date.parse("2026-10-22T04:00:00.000Z");
+		const told = message({
+			intent: "fyi",
+			to: ["@5GV2AH"],
+			at: "2026-10-22T04:00:00.000Z",
+		});
+		const held = message({ intent: "hold", at: "2026-10-22T04:00:00.000Z" });
+
+		expect(attend(told, { ...standing, now: sent + FYI_MS + 1 })).toEqual({
+			attention: "glance",
+			why: "an fyi past its hour",
+		});
+		expect(attend(told, { ...standing, now: sent + FYI_MS }).attention).toBe(
+			"note",
+		);
+		expect(
+			attend(held, { ...standing, now: sent + 2 * FYI_MS }).attention,
+		).toBe("note");
 	});
 
 	it("reads a mention of the peer or what it owns as concerning it", () => {

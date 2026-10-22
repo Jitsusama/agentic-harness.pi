@@ -265,6 +265,36 @@ describe("a message as context", () => {
 		expect(again.sent).toEqual([]);
 	});
 
+	it("glances at an fyi it catches up on past its hour", async () => {
+		const hour = 60 * 60 * 1000;
+		const dir = join(paths.mesh, "messages");
+		const sent = Date.now() - 2 * hour;
+		const id = `${sent}-WCJQSG-7-aaaaaaaa`;
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(
+			join(dir, `${id}.json`),
+			JSON.stringify({
+				v: 1,
+				id,
+				at: new Date(sent).toISOString(),
+				from: "WCJQSG",
+				to: ["@7M6JKG"],
+				intent: "fyi",
+				text: "the stick is free",
+				pid: 7,
+			}),
+		);
+		writeFileSync(join(dir, ".read-7M6JKG"), `${sent - hour}-X-1-bbbbbbbb`);
+
+		const { entries } = await startSession();
+
+		await vi.waitFor(() => expect(entries).toHaveLength(1));
+		expect(entries[0]).toMatchObject({
+			type: GLANCE,
+			data: { why: "an fyi past its hour" },
+		});
+	});
+
 	it("hands over nothing meant for another group, and none of its own", async () => {
 		const { sent, tools } = await startSession();
 
