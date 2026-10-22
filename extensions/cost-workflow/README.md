@@ -24,6 +24,21 @@ its cost per turn, which is the figure worth watching: cost per turn is
 97 percent explained by the context resident when a turn runs, and it
 varies more than fivefold between subjects.
 
+## Disk Is a Cost Too
+
+`cost` with `disk` reports what each quest holds on disk, heaviest
+first: its workspace and the trees it scaffolded, never its record. A
+finished quest's workspace is counted as able to go now. Trees a
+finished quest left behind are named apart, since their prune was
+refused for work not yet safe, and only a prune may take them. Trees
+quests adopted are your own checkouts, so they are measured once each
+and never counted as any quest's to free.
+
+It walks directories with `du` at the lowest priority, one path at a
+time, under one 60-second deadline; a figure the deadline cut short is
+said as "at least". It reads no ledger, since disk is a standing amount
+rather than a flow of turns.
+
 ## Coverage Is Part of Every Answer
 
 An aggregate that cannot say what it missed is not evidence, so:
@@ -127,6 +142,8 @@ dependency, and it is DuckDB doing the retrospecting either way.
 - `index.ts`: registration, store lifecycle and the `cost` tool.
 - `indexer.ts`: walking pi's session directories incrementally.
 - `report.ts`: pure formatting, tested without loading pi.
+- `disk.ts`: the disk report, over `lib/internal/quest/footprint.ts`,
+  which measures and decides what could go.
 
 The store, the turn and session types live in `agentic-harness.core`'s
 `observability` module, since a billable turn is not a pi-specific idea.
