@@ -44,6 +44,8 @@ const SECONDS_PER_MINUTE = 60;
 /** What running one bash call needs. */
 export interface Call<T> {
 	readonly command: string;
+	/** The call being run, named on its job if it is handed off. */
+	readonly toolCallId?: string;
 	/** True to hand off at once, false never to; unset, after a while. */
 	readonly background?: boolean;
 	/** Made by a codemode script, which needs the real result. */
@@ -181,7 +183,11 @@ export async function runOrHandOff<T>(
 	handedOff = true;
 	call.signal?.removeEventListener("abort", followCall);
 	const label = labelOf(call.command);
-	const job = host.start({ kind: "shell", label });
+	const job = host.start({
+		kind: "shell",
+		label,
+		...(call.toolCallId !== undefined ? { toolCallId: call.toolCallId } : {}),
+	});
 	if (job.signal.aborted) owned.abort(job.signal.reason);
 	else {
 		job.signal.addEventListener("abort", () => owned.abort(job.signal.reason), {

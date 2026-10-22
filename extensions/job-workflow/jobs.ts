@@ -10,6 +10,7 @@
 
 import {
 	type Job,
+	type JobFinished,
 	type JobHost,
 	type JobOutcome,
 	type JobSpec,
@@ -59,21 +60,34 @@ function bounded(outcome: JobOutcome): string {
 /**
  * A registry whose finished jobs go to `post`, telling `changed` each
  * time. `retract` takes a posted result back if it has not gone out.
+ * `ended` hears each job's work end, once, including the jobs a closing
+ * session stops, whose results nobody will say.
  */
 export function createJobs(
 	post: (result: JobResult) => void,
 	changed: () => void,
 	retract: (jobId: string) => boolean = () => false,
+	ended: (finished: JobFinished) => void = () => {},
 ): Jobs {
 	const held = new Map<string, Held>();
 	let next = 1;
 	let closed = false;
+
+	const end = (id: string, spec: JobSpec, failed: boolean) => {
+		ended({
+			jobId: id,
+			kind: spec.kind,
+			...(spec.toolCallId !== undefined ? { toolCallId: spec.toolCallId } : {}),
+			failed,
+		});
+	};
 
 	const finish = (id: string, outcome: JobOutcome) => {
 		const job = held.get(id);
 		if (!job || job.finished || closed) return;
 		job.finished = true;
 		post({ jobId: id, label: job.spec.label, text: bounded(outcome) });
+		end(id, job.spec, outcome.failed === true);
 		changed();
 	};
 
@@ -126,8 +140,10 @@ export function createJobs(
 		},
 		close() {
 			closed = true;
-			for (const job of held.values()) {
+			for (const [id, job] of held) {
 				job.controller.abort(jobStopReason("session"));
+				// Stopped now, and its answer will be ignored, so this is its end.
+				if (!job.finished) end(id, job.spec, true);
 			}
 			held.clear();
 		},
