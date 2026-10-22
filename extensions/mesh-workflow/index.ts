@@ -86,6 +86,7 @@ import {
 import { localPeer, type Peer } from "../../lib/mesh/peer.ts";
 import { createPresences } from "../../lib/mesh/presence.ts";
 import { sweeper } from "../../lib/mesh/retention.ts";
+import type { Judge } from "../../lib/mesh/routing.ts";
 import { isStopped } from "../../lib/mesh/stop.ts";
 import {
 	answers,
@@ -279,6 +280,20 @@ export function meshWorkflow(
 				// An unjudged message is noted, which is never wrong for long.
 				return undefined;
 			}
+		};
+
+		/**
+		 * The classifier's pick of a group for a message its sender named
+		 * none for, or nothing, in which case it is routed by rule.
+		 */
+		const routing: Judge = async (context) => {
+			const found = await classifier;
+			if (!found?.ok) return undefined;
+			const result = await found.classify(
+				context,
+				AbortSignal.timeout(JUDGE_MS),
+			);
+			return result.stopReason === "stop" ? result.answers.to : undefined;
 		};
 
 		/** The attention each message gets here, judged together. */
@@ -797,6 +812,7 @@ export function meshWorkflow(
 						transport,
 						presences,
 						board,
+						route: routing,
 						sent: (message) => {
 							seen.add(message.id);
 							leasing.sent(message);

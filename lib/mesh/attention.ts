@@ -118,7 +118,7 @@ export function attend(message: Message, at: Standing): Heed {
  * four letters is too common a word to count.
  */
 export function mentions(
-	message: Message,
+	message: Pick<Message, "text">,
 	receiver: Pick<Receiver, "addresses" | "owns">,
 ): boolean {
 	const text = message.text.toLowerCase();

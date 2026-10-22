@@ -26,6 +26,7 @@ import {
 } from "../../lib/mesh/message.ts";
 import type { Peer } from "../../lib/mesh/peer.ts";
 import type { Presence, Presences } from "../../lib/mesh/presence.ts";
+import { type Judge, type Route, routeOf } from "../../lib/mesh/routing.ts";
 import { stoppedBy } from "../../lib/mesh/stop.ts";
 import { idNamed, mayReplace, sentBy } from "../../lib/mesh/thread.ts";
 import type { Transport } from "../../lib/mesh/transport.ts";
@@ -44,6 +45,8 @@ export interface Local {
 	readonly presences: Presences;
 	/** The leases every peer holds (see lib/mesh/lease.ts). */
 	readonly board: Board;
+	/** The classifier, for routing a message that names no group. */
+	readonly route?: Judge;
 	/** Note a message this peer sent, so it is never handed back to it. */
 	sent(message: Message): void;
 }
@@ -51,8 +54,10 @@ export interface Local {
 /** What mesh_send hands back beside its words. */
 export interface SendDetails {
 	readonly sent: boolean;
-	/** What it refused, when it sent nothing. */
+	/** The homes it was not written to, of peers that stopped this one. */
 	readonly refused?: readonly string[];
+	/** Where the mesh sent it, and why, when the sender named no group. */
+	readonly routed?: Route;
 	readonly message?: Message;
 	/** The peers it goes to, by the address each signs with. */
 	readonly reached?: readonly string[];
@@ -81,12 +86,14 @@ export function registerTools(
 		name: "mesh_send",
 		label: "Mesh",
 		description:
-			"Send a message to other pi sessions (peers) on this machine without interrupting them: it joins their conversation as context, at the attention each gives it. Send only what changes what another peer should do (a hold before a reboot, a switch, a merge or a heavy build; a question only it can answer) or what concerns something it owns (a finding). Never send progress, acknowledgements or thanks. Every message goes to a group: a peer's home group by its address (5GV2AH); a group a peer's work puts it in, its quest's (#quest/5gv2ah, which reaches the quests under it too) or its repository's (#repo/agentic-harness-pi); a group by name (#harness); or #all, which is only for what touches every peer on the machine. Pick the narrowest that reaches everyone affected. Sending to a named group joins it, so this peer hears the answers. mesh_groups lists the groups and who is in them.",
+			"Send a message to other pi sessions (peers) on this machine without interrupting them: it joins their conversation as context, at the attention each gives it. Send only what changes what another peer should do (a hold before a reboot, a switch, a merge or a heavy build; a question only it can answer) or what concerns something it owns (a finding). Never send progress, acknowledgements or thanks. Every message goes to a group: a peer's home group by its address (5GV2AH); a group a peer's work puts it in, its quest's (#quest/5gv2ah, which reaches the quests under it too) or its repository's (#repo/agentic-harness-pi); a group by name (#harness); or #all, which is only for what touches every peer on the machine. Pick the narrowest that reaches everyone affected, or leave `to` out and the mesh picks from what the message names and who works on it. Sending to a named group joins it, so this peer hears the answers. mesh_groups lists the groups and who is in them.",
 		parameters: Type.Object({
-			to: Type.String({
-				description:
-					"Comma-separated groups: peer addresses such as P9R1KI, groups such as #harness, or all",
-			}),
+			to: Type.Optional(
+				Type.String({
+					description:
+						"Comma-separated groups: peer addresses such as P9R1KI, groups such as #harness, or all. Leave it out and the mesh picks, saying where and why",
+				}),
+			),
 			intent: StringEnum(INTENTS, {
 				description:
 					"hold: put off something until you say it is over; question: wants an answer; finding: for whoever owns what it is about; fyi: context only",
@@ -215,7 +222,7 @@ function peers(at: Local): Promise<Census> {
 async function send(
 	at: Local,
 	params: {
-		to: string;
+		to?: string;
 		intent: Message["intent"];
 		text: string;
 		re?: string;
@@ -229,53 +236,88 @@ async function send(
 		: undefined;
 	const replaced = supersedes ? at.transport.read(supersedes) : undefined;
 	const self = { addresses: at.peer.addresses, pid: process.pid };
-	const unthreaded = [
+	// A send is never refused for how it was written: what does not hold
+	// is left out and said, and the message goes on without it.
+	const ownReplaced = replaced && sentBy(replaced, self) ? replaced : undefined;
+	const named = groupsNamed(params.to ?? "");
+	const unnamed = named.filter((group) => groupNamed(group) === undefined);
+	const said = [
 		params.re && !re
 			? `no message has the id ${params.re}, so it answers nothing`
 			: "",
 		params.supersedes && !replaced
 			? `no message has the id ${params.supersedes}, so it replaces nothing`
 			: "",
-		replaced && !sentBy(replaced, self)
-			? `${params.supersedes} was sent by ${replaced.from}, and only a message's sender may replace it`
+		replaced && !ownReplaced
+			? `${params.supersedes} was sent by ${replaced.from}, and only a message's sender may replace it, so it replaces nothing`
+			: "",
+		unnamed.length > 0
+			? `${unnamed.join(", ")} cannot be a group, so it was left out`
 			: "",
 	].filter(Boolean);
-	if (unthreaded.length > 0) {
-		return answer(
-			`Not sent: ${unthreaded.join("; ")}. mesh_read shows each message's id in brackets.`,
-			{ sent: false, refused: [] } satisfies SendDetails,
-		);
-	}
-	// A replacement goes wherever what it replaces went, so it reaches
-	// everyone who heard that, beside whoever it is now sent to.
-	const to = [...new Set([...(replaced?.to ?? []), ...groupsNamed(params.to)])];
+	const notes: string[] =
+		said.length > 0
+			? [
+					`${capitalized(said.join("; "))}. mesh_read shows each message's id in brackets.`,
+				]
+			: [];
 	const standing = await peers(at);
 	const everyone = standing.present;
-	const refused = to.filter(
-		// Only peers still there count as in a group: a group whose every
-		// other member has ended is one nobody would hear this in.
-		(group) =>
-			groupNamed(group) === undefined ||
-			(group.startsWith("#") &&
-				group !== ALL &&
-				!anyoneElseIn(group, everyone, at.peer)),
-	);
-	if (refused.length > 0) {
-		return answer(
-			`Not sent: nobody else is in ${refused.join(", ")}. ${groupsText(standing, at.peer)}`,
-			{ sent: false, refused } satisfies SendDetails,
+	// A replacement goes wherever what it replaces went, so it reaches
+	// everyone who heard that, beside whoever it is now sent to.
+	const chosen = [
+		...new Set([
+			...(ownReplaced?.to ?? []),
+			...named.filter((group) => !unnamed.includes(group)),
+		]),
+	];
+	const routed =
+		chosen.length > 0
+			? undefined
+			: await routeOf(
+					{ intent: params.intent, text: params.text },
+					at.peer,
+					everyone,
+					at.route,
+				);
+	if (routed) {
+		notes.push(
+			`It named no group, so it goes to ${routed.to.join(", ")}: ${routed.why}. Name the groups with to to send elsewhere.`,
 		);
 	}
 	// A stop is absolute: a peer that stopped this one is not written to
-	// at its home, however the send was meant.
+	// at its home, however the send was meant. It is the one send the
+	// mesh refuses, since it is the receiver's to make.
 	const stops = stoppedBy(at.peer, everyone);
-	const barred = to.filter((group) =>
-		stops.some(({ stopper }) => stopper.addresses.map(homeOf).includes(group)),
-	);
+	const stoppedAt = (group: string) =>
+		stops.filter(({ stopper }) =>
+			stopper.addresses.map(homeOf).includes(group),
+		);
+	const wanted = routed?.to ?? chosen;
+	const barred = wanted.filter((group) => stoppedAt(group).length > 0);
+	const to = wanted.filter((group) => !barred.includes(group));
+	const barredText = () =>
+		`${stopsText(stops.filter(({ stopper }) => barred.some((group) => stopper.addresses.map(homeOf).includes(group))))} Only it can lift that; until it does, leave it be.`;
+	if (to.length === 0) {
+		return answer(`Not sent: ${barredText()}`, {
+			sent: false,
+			refused: barred,
+		} satisfies SendDetails);
+	}
 	if (barred.length > 0) {
-		return answer(
-			`Not sent: ${stopsText(stops.filter(({ stopper }) => barred.some((group) => stopper.addresses.map(homeOf).includes(group))))} Only it can lift that; until it does, leave it be.`,
-			{ sent: false, refused: barred } satisfies SendDetails,
+		notes.push(`Not written to ${barred.join(", ")}: ${barredText()}`);
+	}
+	// Only peers still there count as in a group: one whose every other
+	// member has ended is one nobody hears this in until someone joins.
+	const empty = to.filter(
+		(group) =>
+			group.startsWith("#") &&
+			group !== ALL &&
+			!anyoneElseIn(group, everyone, at.peer),
+	);
+	if (empty.length > 0) {
+		notes.push(
+			`Nobody else is in ${empty.join(", ")} yet; mesh_read shows it to whoever joins within the week it is kept.`,
 		);
 	}
 	const message = at.transport.send({
@@ -297,7 +339,12 @@ async function send(
 			!hears(at.peer.groups, group) &&
 			at.peer.join(group),
 	);
-	const { notes, reached, gone } = reach(message, standing, at.peer);
+	const {
+		notes: reachNotes,
+		reached,
+		gone,
+	} = reach(message, standing, at.peer);
+	notes.unshift(...reachNotes);
 	const glancing = stops
 		.filter(({ stopper }) => reaches(message, stopper, -1))
 		.map(({ stopper }) => stopper.addresses[0]);
@@ -327,7 +374,14 @@ async function send(
 	}
 	return answer(
 		`Sent as ${message.from}: ${line(message)}\n${notes.join(" ")}`,
-		{ sent: true, message, reached, gone } satisfies SendDetails,
+		{
+			sent: true,
+			message,
+			reached,
+			gone,
+			...(routed ? { routed } : {}),
+			...(barred.length > 0 ? { refused: barred } : {}),
+		} satisfies SendDetails,
 	);
 }
 
@@ -578,6 +632,10 @@ function anyoneElseIn(
  * Every joined group with who is in it among the peers still there,
  * where this peer stands, and who joined groups but has since ended.
  */
+function capitalized(text: string): string {
+	return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 function groupsText(standing: Census, peer: Peer): string {
 	const members = new Map<string, string[]>();
 	for (const one of standing.present) {

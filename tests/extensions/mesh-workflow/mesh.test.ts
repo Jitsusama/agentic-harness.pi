@@ -137,8 +137,11 @@ async function startSession(
 	return { sent, tools, entries, fire, emit: pi.events.emit };
 }
 
-/** A model registry holding one classifier that answers `about` so. */
-function judging(about: unknown, calls: unknown[] = []) {
+/**
+ * A model registry holding one classifier that answers `about` so, and
+ * a routing question's `to` so when given.
+ */
+function judging(about: unknown, calls: unknown[] = [], to?: unknown) {
 	return {
 		modelRegistry: {
 			getAvailableOfType: async () => [
@@ -147,7 +150,10 @@ function judging(about: unknown, calls: unknown[] = []) {
 			classify: async (_model: unknown, context: unknown) => {
 				calls.push(context);
 				if (about instanceof Error) throw about;
-				return { stopReason: "stop", answers: { about } };
+				return {
+					stopReason: "stop",
+					answers: { about, ...(to === undefined ? {} : { to }) },
+				};
 			},
 		},
 	};
@@ -548,7 +554,7 @@ describe("an answer", () => {
 		expect(sent[0]?.message.content).toMatch(/answering \[[0-9a-f]{8}\]/);
 	});
 
-	it("is refused when the message it answers is not there", async () => {
+	it("goes without its reply when the message it answers is not there", async () => {
 		const { tools } = await startSession();
 		peer("session-w", ["WCJQSG"], []);
 
@@ -559,10 +565,13 @@ describe("an answer", () => {
 			re: "ffffffff",
 		});
 
-		expect(answer?.content[0]?.text).toBe(
-			"Not sent: no message has the id ffffffff, so it answers nothing. mesh_read shows each message's id in brackets.",
+		expect(answer?.content[0]?.text).toContain(
+			"No message has the id ffffffff, so it answers nothing. mesh_read shows each message's id in brackets.",
 		);
-		expect(folderTransport(join(paths.mesh, "messages")).ids()).toEqual([]);
+		const [id] = folderTransport(join(paths.mesh, "messages")).ids();
+		expect(
+			folderTransport(join(paths.mesh, "messages")).read(id as string),
+		).not.toHaveProperty("re");
 	});
 });
 
@@ -732,16 +741,19 @@ describe("sending", () => {
 		expect(answer).toContain("No peer on the mesh is reached by it yet.");
 		expect(answer).not.toContain("No peer goes by");
 		const group = await send(tools, "#optimus", "hold", "hold builds");
-		expect(group).toContain("Not sent: nobody else is in #optimus");
+		expect(group).toContain("Nobody else is in #optimus yet");
 	});
 
-	it("refuses a group nobody else is in, and sends nothing", async () => {
+	it("sends to a group nobody else is in, saying so", async () => {
 		const { tools } = await startSession();
 
 		const answer = await send(tools, "#skynet", "fyi", "site is up");
 
-		expect(answer).toContain("Not sent: nobody else is in #skynet");
-		expect(folderTransport(join(paths.mesh, "messages")).ids()).toEqual([]);
+		expect(answer).toContain("Sent as");
+		expect(answer).toContain(
+			"Nobody else is in #skynet yet; mesh_read shows it to whoever joins",
+		);
+		expect(folderTransport(join(paths.mesh, "messages")).ids()).toHaveLength(1);
 	});
 
 	it("reaches a session still on the old mailbox", async () => {
@@ -902,20 +914,20 @@ describe("groups", () => {
 	});
 });
 
-describe("scopes", () => {
-	/** The fixture's quest, under 5GV2AH, with this worktree's checkout. */
-	function onQuest() {
-		const readme = (id: string, parent: string) =>
-			`---\nid: ${id}\nkind: quest\nparent: ${parent}\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\n---\n# ${id}\n`;
-		for (const [id, parent] of [
-			["QEST-20261021-7M6JKG", "QEST-20261021-5GV2AH"],
-			["QEST-20261021-5GV2AH", "null"],
-		] as const) {
-			mkdirSync(join(paths.quests, id), { recursive: true });
-			writeFileSync(join(paths.quests, id, "README.md"), readme(id, parent));
-		}
+/** The fixture's quest, under 5GV2AH, with this worktree's checkout. */
+function onQuest() {
+	const readme = (id: string, parent: string) =>
+		`---\nid: ${id}\nkind: quest\nparent: ${parent}\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\n---\n# ${id}\n`;
+	for (const [id, parent] of [
+		["QEST-20261021-7M6JKG", "QEST-20261021-5GV2AH"],
+		["QEST-20261021-5GV2AH", "null"],
+	] as const) {
+		mkdirSync(join(paths.quests, id), { recursive: true });
+		writeFileSync(join(paths.quests, id, "README.md"), readme(id, parent));
 	}
+}
 
+describe("scopes", () => {
 	it("hear what is sent to the quest above this peer's", async () => {
 		onQuest();
 		const { sent } = await startSession();
@@ -1038,6 +1050,106 @@ function stopper(address: string, why?: string) {
 		at: new Date().toISOString(),
 	});
 }
+
+describe("a message that names no group", () => {
+	const unaddressed = async (
+		tools: Awaited<ReturnType<typeof startSession>>["tools"],
+		intent: string,
+		text: string,
+		to?: string,
+	) => {
+		const answer = await tools
+			.get("mesh_send")
+			?.execute("call-1", { intent, text, ...(to ? { to } : {}) });
+		const messages = folderTransport(join(paths.mesh, "messages"));
+		const [id] = messages.ids();
+		return {
+			text: answer?.content[0]?.text ?? "",
+			to: id ? messages.read(id)?.to : undefined,
+		};
+	};
+	const picking = (choice: string, sure: number) => ({
+		type: "choice",
+		choice,
+		probabilities: { [choice]: sure },
+	});
+
+	it("goes where its words point", async () => {
+		peer("session-s", ["2HN63P"], ["#stick", "#repo/core-nix"]);
+		const { tools } = await startSession();
+
+		const sent = await unaddressed(
+			tools,
+			"finding",
+			"The stick's VM test leaves a qemu process behind.",
+		);
+
+		expect(sent.to).toEqual(["#stick"]);
+		expect(sent.text).toContain(
+			"It named no group, so it goes to #stick: it names #stick.",
+		);
+	});
+
+	it("goes where the classifier is sure it belongs", async () => {
+		peer("session-w", ["WCJQSG"], ["#optimus"]);
+		const { tools } = await startSession(
+			{},
+			judging(undefined, [], picking("g1", 0.95)),
+		);
+
+		const sent = await unaddressed(tools, "question", "Is it throttled?");
+
+		expect(sent.to).toEqual(["#optimus"]);
+		expect(sent.text).toContain("judged to be about the work there");
+	});
+
+	it("goes by rule when the classifier is unsure", async () => {
+		peer("session-w", ["WCJQSG"], ["#optimus"]);
+		const { tools } = await startSession(
+			{},
+			judging(undefined, [], picking("g1", 0.5)),
+		);
+
+		const sent = await unaddressed(tools, "fyi", "Going to lunch.");
+
+		expect(sent.to).toEqual([ALL]);
+		expect(sent.text).toContain("no other peer is on this peer's work");
+	});
+
+	it("holds the whole machine when it is a hold, and its work's groups otherwise", async () => {
+		// Another peer on this peer's quest, so anything but a hold stays there.
+		onQuest();
+		peer("session-q", ["5GV2AH"], ["#quest/5gv2ah/7m6jkg"]);
+		const { tools } = await startSession();
+
+		const held = await unaddressed(tools, "hold", "Rebooting in ten minutes.");
+		expect(held.to).toEqual([ALL]);
+
+		const said = await tools
+			.get("mesh_send")
+			?.execute("call-2", { intent: "fyi", text: "Going to lunch." });
+		expect(said?.content[0]?.text).toContain(
+			"It named no group, so it goes to #quest/5gv2ah/7m6jkg:",
+		);
+	});
+
+	it("leaves out what cannot be a group, and goes on without it", async () => {
+		peer("session-s", ["2HN63P"], ["#stick"]);
+		const { tools } = await startSession();
+
+		const sent = await unaddressed(
+			tools,
+			"finding",
+			"The stick boots.",
+			"#not a group",
+		);
+
+		expect(sent.text).toContain(
+			"#not a group cannot be a group, so it was left out",
+		);
+		expect(sent.to).toEqual(["#stick"]);
+	});
+});
 
 describe("a stop", () => {
 	it("leaves a stopped peer's question a glance, starting no turn", async () => {
@@ -1189,6 +1301,19 @@ describe("a stop", () => {
 			"Not sent: P9R1KI stopped this peer reaching it (too much): it sees what this peer sends as one line only. Only it can lift that; until it does, leave it be.",
 		);
 		expect(folderTransport(join(paths.mesh, "messages")).ids()).toEqual([]);
+	});
+
+	it("leaves a stopper's home out of a send that names others too", async () => {
+		stopper("P9R1KI");
+		peer("session-w", ["WCJQSG"], []);
+		const { tools } = await startSession();
+
+		const answer = await send(tools, "P9R1KI, WCJQSG", "fyi", "done here");
+
+		expect(answer).toContain("It goes to WCJQSG;");
+		expect(answer).toContain("Not written to @P9R1KI: P9R1KI stopped");
+		const messages = folderTransport(join(paths.mesh, "messages"));
+		expect(messages.read(messages.ids()[0] as string)?.to).toEqual(["@WCJQSG"]);
 	});
 
 	it("says so when a send to a shared group reaches a peer that stopped this one", async () => {
