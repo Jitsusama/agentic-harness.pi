@@ -18,6 +18,8 @@
  *   peers, so mesh senders reach them.
  * - How far a peer had read the old folder carries over, so nothing is
  *   handed over twice when a session first reloads onto the mesh.
+ * - An old membership counts while it moved in the last day. It names
+ *   no process to ask, so that is the only sign its session is there.
  *
  * Delete this module once no legacy membership has moved for a day.
  */
@@ -28,11 +30,20 @@ import { ALL, isJoinable } from "./group.ts";
 import { ENVELOPE, intentOf, type Message } from "./message.ts";
 import type { Presence, Presences } from "./presence.ts";
 import {
+	expireFolder,
 	idOf,
 	isMessageFile,
+	removeQuietly,
 	type Transport,
+	touchedAt,
 	writeAtomically,
 } from "./transport.ts";
+
+/**
+ * How long an old membership counts with nothing moving it: a legacy
+ * session writes it as it starts, joins and sends.
+ */
+export const LEGACY_MS = 24 * 60 * 60 * 1000;
 
 /** The customType old sessions recorded a passed-by message under. */
 export const LEGACY_GLANCE = "mailbox-passed";
@@ -76,6 +87,10 @@ export function bridgeTransport(mesh: Transport, dir: string): Transport {
 				return closeMesh;
 			}
 		},
+		expire(before) {
+			mesh.expire(before);
+			expireFolder(dir, before);
+		},
 	};
 }
 
@@ -103,6 +118,17 @@ export function bridgePresences(mesh: Presences, dir: string): Presences {
 				(one) => !known.has(one.session),
 			);
 			return [...current, ...legacy];
+		},
+		forget(session) {
+			mesh.forget(session);
+			removeQuietly(join(members, `${fileSafe(session)}.json`));
+		},
+		expire(before) {
+			mesh.expire(before);
+			for (const file of memberFiles(members)) {
+				const path = join(members, file);
+				if (touchedAt(path) < before) removeQuietly(path);
+			}
 		},
 	};
 }
@@ -190,19 +216,16 @@ function membershipOf(presence: Presence) {
 }
 
 function legacyMember(dir: string, session: string): Presence | undefined {
-	const text = readText(join(dir, `${fileSafe(session)}.json`));
+	const path = join(dir, `${fileSafe(session)}.json`);
+	const text = moved(path) ? readText(path) : undefined;
 	return text === undefined ? undefined : presenceOfMember(text);
 }
 
 function legacyMembers(dir: string): Presence[] {
-	let files: string[] = [];
-	try {
-		files = readdirSync(dir).filter((file) => file.endsWith(".json"));
-	} catch {
-		return [];
-	}
-	return files
-		.map((file) => readText(join(dir, file)))
+	return memberFiles(dir)
+		.map((file) => join(dir, file))
+		.filter(moved)
+		.map((path) => readText(path))
 		.filter((text): text is string => text !== undefined)
 		.map(presenceOfMember)
 		.filter((one): one is Presence => one !== undefined);
@@ -234,6 +257,19 @@ function presenceOfMember(text: string): Presence | undefined {
 	} catch {
 		return undefined;
 	}
+}
+
+function memberFiles(dir: string): string[] {
+	try {
+		return readdirSync(dir).filter((file) => file.endsWith(".json"));
+	} catch {
+		return [];
+	}
+}
+
+/** Whether an old membership moved recently enough to count. */
+function moved(path: string): boolean {
+	return touchedAt(path) >= Date.now() - LEGACY_MS;
 }
 
 function fileSafe(session: string): string {

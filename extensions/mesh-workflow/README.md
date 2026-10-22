@@ -55,6 +55,8 @@ and can answer a question or a gate left open on screen.
   it runs. Presence first, never a lock.
 - **Board:** where every peer's leases are kept, for every
   peer to read.
+- **Retention:** how long the mesh keeps what it holds before
+  it lets go.
 - **Transport:** where messages travel and rest.
 
 ## Tools
@@ -225,8 +227,8 @@ doing only when it is the easy thing:
   claims that kind of work until the call answers (only where
   the shell runs it: named in quotes or a heredoc, as a grep or
   a commit message does, it claims nothing); one handed
-  to a job runs on past its answer, so its lease stands until
-  its clock. Any extension can claim heavy work too, by
+  to a job runs on past its answer, until the job says it has
+  ended (`jobs:finished:v1`). Any extension can claim heavy work too, by
   emitting `mesh:lease:v1` on pi's bus with
   `{ take: { subject, why?, ms? } }` or `{ release: subject }`;
   the subject names the kind of work. It lasts an hour unless
@@ -275,6 +277,24 @@ Under `$XDG_STATE_HOME/pi/agentic-harness.pi/mesh-workflow/`:
   rewritten when a lease is taken, given up, or renewed by a
   minute or more, and taken away when the peer holds none.
 
+## Retention
+
+Nothing on the mesh is a record anyone is owed, and kept for
+ever every listing grows with the machine's history rather
+than its present. So any peer, at most once an hour and off its
+turn (as it starts, and as a run ends), lets go of:
+
+- messages a week after they were sent, in `messages/` and the
+  legacy mailbox alike, which outlives any hold, catch-up or
+  thread a peer would still answer into;
+- read markers whose peer has read nothing for that week;
+- an ended peer's presence a day after it last changed, so
+  senders are told it ended for a day and then forget it;
+- a peer's lease file once none of its leases stands;
+- files a writer staged and never renamed into place.
+
+`mesh_read` reads only the newest messages it shows.
+
 ## Who Is Still There
 
 A presence names the process holding it (pid, start time and
@@ -286,11 +306,12 @@ becomes pressure to post, and one died unnoticed for an hour
 and forty-six minutes. A pi holds one session at a time, so of
 the presences one process holds, only its latest is there. A
 presence naming no process (an old membership) cannot be
-judged and counts as there, since telling a sender a peer is
-gone when it is not costs the message, and the reverse a line.
-Ended peers are left out of `mesh_groups` and of who a message
-goes to, and named when addressed; their presence is kept, so a
-restored session is back in its groups.
+judged and counts as there while it moved in the last day,
+since telling a sender a peer is gone when it is not costs the
+message, and the reverse a line. Ended peers are left out of
+`mesh_groups` and of who a message goes to, and named when
+addressed; their presence is kept for a day (see Retention), so
+a session restored by then is back in its groups.
 
 A peer has a message once its read marker passes it, which is
 when it is handed to the peer's model, at whatever attention.
@@ -305,22 +326,15 @@ so for a while some still speak the mailbox this replaced, in
 two at the edge: every message is mirrored there in the old
 shape under the same id, old mail is read as messages, each
 peer's presence is kept there as an old membership, and old
-memberships count as peers. A peer's first start takes the
+memberships count as peers while they moved in the last day.
+A peer's first start takes the
 channels its old membership listed as its groups, and the old
 read markers, so nothing is handed over twice. It is deleted
 once no session is left on the old harness.
 
 ## Not Yet
 
-- Messages, markers and presence are never expired, nor the
-  lease files of peers that ended holding a hold or a wait;
-  their leases lapse by the clock all the same.
-- Nothing says when a job ends, so heavy work handed to a job
-  stays claimed for its hour, however soon it finishes.
 - A change lease covers files, not a pull request in progress.
-- An old membership names no process, so a session that ended
-  on the old harness still counts as there until legacy.ts
-  goes.
 - A stop is set with `mesh_stop`, not yet read from plain
   words such as "please stop".
 - Damping has no floor: nothing wakes a peer that rests too

@@ -47,6 +47,7 @@ import {
 	findClassifier,
 } from "../../lib/classifier/jev.ts";
 import { dataDir, stateDir } from "../../lib/internal/paths.ts";
+import { onJobFinished } from "../../lib/jobs/index.ts";
 import type { QuestRecords } from "../../lib/mesh/address.ts";
 import {
 	attend,
@@ -84,6 +85,7 @@ import {
 } from "../../lib/mesh/message.ts";
 import { localPeer, type Peer } from "../../lib/mesh/peer.ts";
 import { createPresences } from "../../lib/mesh/presence.ts";
+import { sweeper } from "../../lib/mesh/retention.ts";
 import { isStopped } from "../../lib/mesh/stop.ts";
 import {
 	answers,
@@ -221,6 +223,8 @@ export function meshWorkflow(
 		const glances = createGlances();
 		const damper = createDamper();
 		const board = createBoard(join(paths.mesh, "leases"));
+		// Lets go of what is past its time, at most hourly, off the turn.
+		const tidy = sweeper({ transport, presences, board });
 		let own: OwnLeases | undefined;
 		const leasing = createLeasing({
 			board,
@@ -615,6 +619,7 @@ export function meshWorkflow(
 				if (message) missed.push(message);
 			}
 			void route(missed, false);
+			tidy();
 			stopWatching?.();
 			stopWatching = undefined;
 			try {
@@ -678,6 +683,7 @@ export function meshWorkflow(
 			peer?.setBusy(true);
 		});
 		pi.on("agent_end", async () => {
+			tidy();
 			peer?.setBusy(false);
 			// What a run claimed is claimed only while it runs.
 			own?.releaseAll(RUN_KINDS);
@@ -752,21 +758,31 @@ export function meshWorkflow(
 			},
 		);
 
+		/** A heavy command has ended: its work is given up with its last. */
+		const ended = (toolCallId: string) => {
+			const subject = heavyCalls.get(toolCallId);
+			if (subject === undefined) return;
+			heavyCalls.delete(toolCallId);
+			if (![...heavyCalls.values()].includes(subject)) {
+				heavy({ release: subject });
+			}
+		};
+
 		// A heavy command's work is over when its call answers, unless the
-		// call handed it to a job, which runs on past the answer: nothing
-		// says yet when a job ends, so its lease stands until its clock.
+		// call handed it to a job, which runs on past the answer until the
+		// job says it has ended.
 		pi.on("tool_result", async (event) => {
-			const subject = heavyCalls.get(event.toolCallId);
-			if (subject === undefined) return undefined;
-			heavyCalls.delete(event.toolCallId);
 			const handedOff = event.content.some(
 				(part) => part.type === "text" && HANDED_OFF.test(part.text),
 			);
-			if (!handedOff && ![...heavyCalls.values()].includes(subject)) {
-				heavy({ release: subject });
-			}
+			if (!handedOff) ended(event.toolCallId);
 			return undefined;
 		});
+		if (pi.events) {
+			onJobFinished(pi.events, ({ toolCallId }) => {
+				if (toolCallId !== undefined) ended(toolCallId);
+			});
+		}
 
 		// Heavy work is claimed by whatever places it, over pi's bus.
 		pi.events?.on(LEASE_EVENT, (data: unknown) => {
