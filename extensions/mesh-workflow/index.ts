@@ -40,7 +40,6 @@ import {
 	isToolCallEventType,
 	type ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth } from "@earendil-works/pi-tui";
 import { ownerNow } from "@jitsusama/agentic-harness.core/process";
 import {
 	type FoundClassifier,
@@ -83,12 +82,7 @@ import {
 	RUN_KINDS,
 } from "../../lib/mesh/lease.ts";
 import { census } from "../../lib/mesh/liveness.ts";
-import {
-	isHomeTo,
-	line,
-	type Message,
-	reaches,
-} from "../../lib/mesh/message.ts";
+import { isHomeTo, type Message, reaches } from "../../lib/mesh/message.ts";
 import { localPeer, type Peer } from "../../lib/mesh/peer.ts";
 import { createPresences } from "../../lib/mesh/presence.ts";
 import { createReadFront } from "../../lib/mesh/reading.ts";
@@ -132,6 +126,7 @@ import {
 	type HoldEnd,
 	queueKept,
 } from "./leases.ts";
+import { meshLines, type Shown } from "./render.ts";
 import { type Local, registerTools } from "./tools.ts";
 
 /**
@@ -702,10 +697,19 @@ export function meshWorkflow(
 			if (missed.length > 0) void route(missed);
 		};
 
-		pi.registerEntryRenderer?.<{ message: Message }>(
-			GLANCE,
-			(entry, _options, theme) => glanceView(entry.data?.message, theme),
-		);
+		// A glance is the model's: on screen it is nothing (see render.ts).
+		pi.registerEntryRenderer?.(GLANCE, () => NOTHING_SHOWN);
+		pi.registerMessageRenderer?.<Shown>(NOTED, (message, options, theme) => ({
+			render: (width: number) =>
+				meshLines(
+					textOf(message.content),
+					message.details,
+					theme,
+					width,
+					options.expanded,
+				),
+			invalidate: () => {},
+		}));
 
 		/**
 		 * Holds this peer waited on that are over: a turn to carry on while
@@ -1080,16 +1084,20 @@ function delivered(
 }
 
 /** A glance on screen: one dim line, cut to the terminal's width. */
-function glanceView(
-	message: Message | undefined,
-	theme: { fg: (role: "dim", text: string) => string },
-) {
-	if (!message) return undefined;
-	const text = `Mesh glance: ${line(message)}`;
-	return {
-		render: (width: number) => [theme.fg("dim", truncateToWidth(text, width))],
-		invalidate: () => {},
-	};
+/** What the screen draws for a thing that is the model's alone. */
+const NOTHING_SHOWN = { render: () => [], invalidate: () => {} };
+
+/** A message's content as text, whichever shape it was sent in. */
+function textOf(content: unknown): string {
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	return content
+		.map((part) =>
+			part && typeof part === "object" && "text" in part
+				? String((part as { text: unknown }).text)
+				: "",
+		)
+		.join("\n");
 }
 
 export default meshWorkflow();
