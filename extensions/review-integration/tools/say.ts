@@ -45,11 +45,9 @@ export function registerSayTool(pi: ExtensionAPI): void {
 		promptGuidelines: [
 			"Read the threads with review_see first, and refer to a thread by the [T#] index that listing shows. Never invent or guess a thread id.",
 			"React by the address a listing prints: [C#] for a remark inside a thread, [M#] for a top-level message. A bare number is refused, since it does not say which of the two.",
-			"Leave the change out to speak on whatever is attached.",
 			"Answering several threads is one call: put them in items, which opens one gate with a tab each rather than one gate per reply.",
 			"Set settleThread to resolve when the reply answers what the thread asked for, so answering and closing cost one call rather than two. The gate prints the decision either way, so say it rather than leaving it to be guessed.",
 			"Use this to answer remarks. To compose several remarks and a verdict as one review, use review_draft.",
-			"Every action here opens a confirmation gate, so describe what you are about to post before calling it.",
 		],
 		parameters: Type.Object({
 			action: Type.Optional(
