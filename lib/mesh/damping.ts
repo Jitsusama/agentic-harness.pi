@@ -20,7 +20,9 @@
  * - Depth: an answer more than {@link MOST_REPLY_DEPTH} deep never
  *   starts a turn, which ends two peers answering each other's answers.
  * - Repeats: what a sender already said, word for word, within the
- *   hour, is a glance, since the peer has it.
+ *   hour, is a glance, since the peer has it. The same message handed
+ *   again is no repeat: it comes back because it needs more than it
+ *   had, such as a question the peer answering it let go.
  *
  * A damped message is never dropped. One that would have started a
  * turn is noted instead, in full, with the next turn there is; a
@@ -55,6 +57,8 @@ export interface Said {
 	readonly at: number;
 	readonly from: string;
 	readonly text: string;
+	/** The message it was, so that message handed again is told apart. */
+	readonly id?: string;
 }
 
 /** What damping knows of a peer's last hour. */
@@ -84,7 +88,10 @@ export function createDamper(): Damper {
 			if (
 				heed.attention !== "glance" &&
 				said.some(
-					(one) => one.from === message.from && same(one.text, message.text),
+					(one) =>
+						one.id !== message.id &&
+						one.from === message.from &&
+						same(one.text, message.text),
 				)
 			) {
 				return { attention: "glance", why: `${heed.why}, said already` };
@@ -108,7 +115,12 @@ export function createDamper(): Damper {
 		},
 		handed(messages, now = Date.now()) {
 			for (const message of messages) {
-				said.push({ at: now, from: message.from, text: message.text });
+				said.push({
+					at: now,
+					from: message.from,
+					text: message.text,
+					id: message.id,
+				});
 			}
 		},
 		recover(before, saidBefore) {

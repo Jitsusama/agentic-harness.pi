@@ -78,7 +78,13 @@ and can answer a question or a gate left open on screen.
   reads what it writes to: sending to a named group it does
   not hear joins it, so the answers reach it. `re` names the
   message it answers and `supersedes` one of this peer's own
-  it replaces, each by its id or short id. A send is never
+  it replaces, each by its id or short id. With `re` left out,
+  a message other than a hold answers the one question this
+  peer's run took up that was asked by a peer it goes to, or
+  in a group it goes to, and says so; with two such questions
+  it answers neither. An answer that names nothing reads to
+  every other peer as no answer, so each goes on to answer the
+  question too. A send is never
   refused for how it was written: an id nobody has, another
   peer's message to replace, or what cannot be a group is left
   out and said. The one send refused is to the home of a peer
@@ -87,7 +93,9 @@ and can answer a question or a gate left open on screen.
   it sent, for catching up after a reload or a compaction, or
   for reading a glance in full. Under each message it sent, it
   says which peers have it and which not yet, and under each
-  one withdrawn, what replaced it.
+  one withdrawn, what replaced it. Under each question it
+  asked, it says who answered and in which message, who is
+  answering, or for how long it has gone unanswered.
 - `mesh_join`, `mesh_leave` and `mesh_groups`: the groups this
   peer is in, and who is in each. `mesh_groups` also lists the
   leases of the peers still there. A bare name joins a peer's
@@ -137,7 +145,11 @@ and its groups.
   the extra different for each session so peers hearing one
   message do not start at once, and what arrives meanwhile
   goes in the same turn. A group's question another peer has
-  answered by then is noted instead. A run that starts first,
+  answered by then is noted instead, and so is one another
+  peer is answering, until that peer lets it go. When its run
+  ends, or it does, with no answer sent, the question waits to
+  act here after all, up to an hour after it was asked. A run
+  that starts first,
   from the person or a wake, takes it along.
 - **Wake:** a note that starts a turn at once, for a question
   sent to this idle peer or answering one it sent, and for any
@@ -176,7 +188,8 @@ afford, so no sender and no conversation wears it out:
 - **Depth:** an answer more than 4 deep in its thread never
   starts a turn.
 - **Repeats:** what a sender already said, word for word,
-  within the hour, is a glance.
+  within the hour, is a glance. The same message handed again,
+  as a question let go comes back, is no repeat.
 - **Awaited:** an answer to a question the peer asked starts
   its turn whatever the hour has spent, and the turn still
   counts. Depth and repeats still hold it back, so two peers
@@ -242,7 +255,9 @@ doing only when it is the easy thing:
   lapses when the run ends, or ten minutes after the last edit.
 - **answer:** a turn claims the questions it carries, so a
   group's question another peer has a turn for is only noted,
-  "being answered by" that peer. It lapses with the run.
+  "being answered by" that peer. Each turn's end renews it, so
+  a long answer is not taken for one let go. It lapses with
+  the run.
 - **hold:** a hold sent claims what it holds, until its sender
   answers (`re`) or replaces (`supersedes`) it, or for two
   hours at most.

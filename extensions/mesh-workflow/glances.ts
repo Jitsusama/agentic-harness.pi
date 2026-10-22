@@ -108,7 +108,7 @@ export function countedIn(entries: readonly Entry[]): {
 			turns.push({ at: details.at, from: messages.map((one) => one.from) });
 		}
 		for (const one of messages) {
-			said.push({ at: details.at, from: one.from, text: one.text });
+			said.push({ at: details.at, from: one.from, text: one.text, id: one.id });
 		}
 	}
 	return { turns, said };

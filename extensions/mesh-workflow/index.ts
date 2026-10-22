@@ -60,6 +60,7 @@ import {
 	concernFrom,
 	concernQuestion,
 	concernState,
+	FYI_MS,
 	type Heed,
 	mentions,
 	type Receiver,
@@ -155,6 +156,13 @@ export const WAIT_CHECK_MS = 60 * 1000;
  */
 export const LOOK_AGAIN_MS = 60 * 1000;
 
+/**
+ * How long a question left to the peer answering it is watched for that
+ * peer letting it go. A question unanswered past an hour is news nobody
+ * is waiting on any more, as an fyi is (see attention.ts).
+ */
+export const LEFT_MS = FYI_MS;
+
 /** Why a stopped peer's message is a glance, whatever it was. */
 const STOPPED = "from a peer this one stopped";
 
@@ -244,6 +252,9 @@ export function meshWorkflow(
 		// Messages other peers have answered, so a question to a group that
 		// one peer took up starts no turn of the rest.
 		const answered = new Set<string>();
+		// Questions this peer left to the peer answering them, by id, kept
+		// until answered so one let go reaches this peer after all.
+		const left = new Map<string, Left>();
 		let ctx: ExtensionContext | undefined;
 		let peer: Peer | undefined;
 		const wanting = new Map<WantKind, Want>();
@@ -472,6 +483,7 @@ export function meshWorkflow(
 				}
 				const answerer = answerers[at];
 				if (answerer !== undefined) {
+					left.set(message.id, { message, heed, by: answerer });
 					return {
 						message,
 						heed: {
@@ -548,9 +560,35 @@ export function meshWorkflow(
 			return message;
 		};
 
+		/**
+		 * Questions left to a peer that took them up, waiting to act here
+		 * after all once it lets one go unanswered: its run ended, or it did,
+		 * with no answer sent. Every other peer had stood aside, so a question
+		 * one took up and dropped was otherwise answered by nobody.
+		 */
+		const reconsider = async () => {
+			const now = Date.now();
+			for (const [id, one] of [...left]) {
+				if (answered.has(id) || now - Date.parse(one.message.at) > LEFT_MS) {
+					left.delete(id);
+					continue;
+				}
+				const still = await leasing.answeredBy(one.message).catch(() => one.by);
+				if (still !== undefined || !left.delete(id) || !acts) continue;
+				acts.add({
+					message: one.message,
+					heed: {
+						...one.heed,
+						why: `${one.heed.why}, let go unanswered by ${one.by}`,
+					},
+				});
+			}
+		};
+
 		/** Messages the watcher never reported, taken as it would have. */
 		const lookAgain = () => {
 			if (!peer) return;
+			if (left.size > 0) void reconsider();
 			const missed = transport
 				.ids()
 				.filter((id) => !seen.has(id))
@@ -660,6 +698,7 @@ export function meshWorkflow(
 			// A peer reads afresh: what another session took is not this one's,
 			// and what this one handed over before a reload its entries say.
 			seen.clear();
+			left.clear();
 			for (const id of handedIn(branch)) seen.add(id);
 			front = createReadFront();
 			// Watching before looking, so what lands between the two is heard
@@ -712,6 +751,7 @@ export function meshWorkflow(
 		// step while a run goes on, where pi appends it after the step's
 		// tool results, or with the start of the next run while idle.
 		pi.on("turn_end", async () => {
+			leasing.stillAnswering();
 			const message = glanceDigest();
 			if (message) pi.sendMessage(message, { triggerTurn: false });
 		});
@@ -896,6 +936,11 @@ function previousSession(carried: unknown): string | undefined {
 interface Heeded {
 	readonly message: Message;
 	readonly heed: Heed;
+}
+
+/** A question left to another peer, and which peer had it. */
+interface Left extends Heeded {
+	readonly by: string;
 }
 
 function answeringAt(answering: readonly boolean[], at: number): boolean {

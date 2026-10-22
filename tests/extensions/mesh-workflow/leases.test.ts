@@ -14,6 +14,7 @@ import {
 	MOST_HOLD_MS,
 	type OwnLeases,
 	ownLeases,
+	RUN_LEASE_MS,
 } from "../../../lib/mesh/lease.ts";
 import type { Draft } from "../../../lib/mesh/message.ts";
 import type { Peer } from "../../../lib/mesh/peer.ts";
@@ -124,6 +125,28 @@ describe("a wait on a hold", () => {
 		at.sent(mine({ re: hold.id, text: "still holding" }));
 
 		expect(own.leases.map(({ kind }) => kind)).toEqual([]);
+	});
+});
+
+describe("a question taken up", () => {
+	it("stays claimed while the run answering it goes on, and only that", () => {
+		const { at, own, from } = leasing();
+		const now = Date.now();
+		const going = from({ intent: "question", text: "who has qemu?" });
+		const dropped = from({ intent: "question", text: "who has nix?" });
+		own.take("answer", going.id, RUN_LEASE_MS, "who has qemu?", now - 540_000);
+		own.take("answer", dropped.id, RUN_LEASE_MS, "who has nix?", now - 660_000);
+		own.take("change", "a.ts", RUN_LEASE_MS, undefined, now - 540_000);
+
+		at.stillAnswering();
+
+		const until = (subject: string) =>
+			Date.parse(
+				own.leases.find((lease) => lease.subject === subject)?.until ?? "",
+			);
+		expect(until(going.id)).toBeGreaterThanOrEqual(now + RUN_LEASE_MS);
+		expect(until(dropped.id)).toBeLessThan(now);
+		expect(until("a.ts")).toBeLessThan(now + RUN_LEASE_MS);
 	});
 });
 
