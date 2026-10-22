@@ -11,8 +11,8 @@
  * timer that "turned a timer into pressure to post", and one that died
  * unnoticed for an hour and forty-six minutes.
  *
- * A presence with no process on it (one from an older harness, or a
- * session still on the legacy mailbox) cannot be judged, and is taken
+ * A presence with no process on it (the machine would not say which
+ * holds it, or an older harness wrote it) cannot be judged, and is taken
  * as there: telling a sender a peer is gone when it is not costs the
  * message, and the reverse costs a line.
  */

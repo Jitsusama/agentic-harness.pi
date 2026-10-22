@@ -71,12 +71,12 @@ export function stampedAt(id: string): number | undefined {
 }
 
 /** Whether a file in a transport folder holds a message. */
-export function isMessageFile(file: string): boolean {
+function isMessageFile(file: string): boolean {
 	return file.endsWith(".json") && !file.startsWith(".");
 }
 
 /** The id a message file holds. */
-export function idOf(file: string): string {
+function idOf(file: string): string {
 	return file.slice(0, -".json".length);
 }
 
@@ -141,7 +141,7 @@ export function folderTransport(dir: string): Transport {
  * writer staged and never renamed into place. A file that names no
  * time is left alone.
  */
-export function expireFolder(dir: string, before: number): void {
+function expireFolder(dir: string, before: number): void {
 	let files: string[] = [];
 	try {
 		files = readdirSync(dir);

@@ -343,9 +343,8 @@ ever every listing grows with the machine's history rather
 than its present. So any peer, at most once an hour and off its
 turn (as it starts, and as a run ends), lets go of:
 
-- messages a week after they were sent, in `messages/` and the
-  legacy mailbox alike, which outlives any hold, catch-up or
-  thread a peer would still answer into;
+- messages a week after they were sent, which outlives any
+  hold, catch-up or thread a peer would still answer into;
 - read markers whose peer has read nothing for that week;
 - an ended peer's presence a day after it last changed, so
   senders are told it ended for a day and then forget it, or a
@@ -366,9 +365,9 @@ leases give too. There is no heartbeat: Skynet's showed a timer
 becomes pressure to post, and one died unnoticed for an hour
 and forty-six minutes. A pi holds one session at a time, so of
 the presences one process holds, only its latest is there. A
-presence naming no process (an old membership) cannot be
-judged and counts as there while it moved in the last day,
-since telling a sender a peer is gone when it is not costs the
+presence naming no process, when the machine would not say
+which holds it, cannot be judged and counts as there, since
+telling a sender a peer is gone when it is not costs the
 message, and the reverse a line. Ended peers are left out of
 `mesh_groups` and of who a message goes to, and named when
 addressed; their presence is kept for a day (see Retention), so
@@ -418,20 +417,6 @@ the process that raised it, so a session restarted waits on
 nothing. The mesh listens from the moment it loads and holds
 what it heard until its peer is made, since a reload with a
 panel still open says its wants again as the session starts.
-
-## The Legacy Mailbox
-
-Sessions keep the harness they started with until they reload,
-so for a while some still speak the mailbox this replaced, in
-`~/.local/state/pi-mailbox`. `lib/mesh/legacy.ts` bridges the
-two at the edge: every message is mirrored there in the old
-shape under the same id, old mail is read as messages, each
-peer's presence is kept there as an old membership, and old
-memberships count as peers while they moved in the last day.
-A peer's first start takes the
-channels its old membership listed as its groups, and the old
-read markers, so nothing is handed over twice. It is deleted
-once no session is left on the old harness.
 
 ## Not Yet
 
