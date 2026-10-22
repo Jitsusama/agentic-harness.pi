@@ -32,7 +32,8 @@
  * asks for anything an idle peer has to do. The exception is an answer
  * to a question this peer asked, which wakes it however it was sent,
  * since the peer is waiting on it: an answer sent as an fyi would
- * otherwise sit until something else started a turn.
+ * otherwise sit until something else started a turn. Any other fyi more
+ * than {@link FYI_MS} old when it reaches the peer is a glance.
  *
  * What a message is worth is held to what the peer can afford by
  * damping (see damping.ts), which this module knows nothing of.
@@ -69,6 +70,8 @@ export interface Standing {
 	readonly answers?: boolean;
 	/** The message answers a question this peer asked (see thread.ts). */
 	readonly asked?: boolean;
+	/** The time it is handed over, for judging an fyi past its hour. */
+	readonly now?: number;
 }
 
 /** The attention a message gets, and why, for the screen and the tests. */
@@ -89,6 +92,13 @@ export interface Heed {
  */
 export const OTHER_AT_LEAST = 0.6;
 
+/**
+ * How long an fyi is news. Past it, one reaching a peer (after a
+ * reload, mostly, or a long run) is a glance wherever it went, since
+ * what it told has moved on; Skynet's register gives fyis an hour.
+ */
+export const FYI_MS = 60 * 60 * 1000;
+
 /** The attention one message gets from a peer standing like this. */
 export function attend(message: Message, at: Standing): Heed {
 	if (at.asked) {
@@ -96,6 +106,13 @@ export function attend(message: Message, at: Standing): Heed {
 		return at.idle
 			? { attention: "wake", why, awaited: true }
 			: { attention: "note", why };
+	}
+	if (
+		message.intent === "fyi" &&
+		at.now !== undefined &&
+		at.now - Date.parse(message.at) > FYI_MS
+	) {
+		return { attention: "glance", why: "an fyi past its hour" };
 	}
 	if (at.answers || isHomeTo(message, at.receiver.addresses)) {
 		const why = at.answers ? "answering this peer" : "sent to this peer";

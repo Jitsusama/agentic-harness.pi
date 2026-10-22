@@ -14,7 +14,10 @@
  * - a read marker, once its peer has read nothing for that week, so a
  *   peer that ended is not remembered for ever;
  * - an ended peer's presence, a day after it last changed, so senders
- *   are told it has ended for a day and then forget it;
+ *   are told it has ended for a day and then forget it; or a week, when
+ *   it stopped another peer, since the stop lives in its presence and a
+ *   session restored within the week would otherwise come back without
+ *   it, while what the stopped peer sent is still there to reach it;
  * - a peer's leases, once none of them stands.
  *
  * Any peer sweeps, at most once an hour, off its own turn: each removal
@@ -58,7 +61,8 @@ export async function sweep(
 	const { gone } = await ended(kept.presences.all());
 	for (const one of gone) {
 		const at = Date.parse(one.at);
-		if (Number.isFinite(at) && at < now - ENDED_MS) {
+		const lasts = (one.stops?.length ?? 0) > 0 ? KEEP_MS : ENDED_MS;
+		if (Number.isFinite(at) && at < now - lasts) {
 			kept.presences.forget(one.session);
 		}
 	}

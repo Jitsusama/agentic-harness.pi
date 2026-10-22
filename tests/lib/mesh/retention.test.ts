@@ -170,6 +170,25 @@ describe("the sweep", () => {
 		expect(at.transport.ids()).not.toContain(old);
 	});
 
+	it("keeps an ended peer that stopped another for the week it keeps messages", async () => {
+		const at = kept();
+		const stopping = (session: string, ago: number): Presence => ({
+			...presence(session, now - ago),
+			stops: [{ address: "WCJQSG", at: new Date(now - ago).toISOString() }],
+		});
+		at.presences.publish(stopping("stopped-lately", ENDED_MS + 1000));
+		at.presences.publish(stopping("stopped-long", KEEP_MS + 1000));
+
+		await sweep(at, now, async (everyone) => ({
+			present: [],
+			gone: [...everyone],
+		}));
+
+		expect(at.presences.all().map((one) => one.session)).toEqual([
+			"stopped-lately",
+		]);
+	});
+
 	it("runs at most once an hour in a process", async () => {
 		const at = kept();
 		let clock = now;
