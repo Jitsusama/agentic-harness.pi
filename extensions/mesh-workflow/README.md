@@ -39,7 +39,11 @@ and can answer a question or a gate left open on screen.
 - **Joined:** the groups a peer chose, kept across a reload.
 - **Presence:** what a peer publishes about itself: its
   addresses, its groups, what it works on and what it owns,
-  whether it is mid-run, and the process holding it.
+  whether it is mid-run, what it waits on its person for, and
+  the process holding it.
+- **Want:** what a peer waits on its person for: a question
+  it asked, an approval it is held at, or an unattended run
+  that ended blocked.
 - **Liveness:** whether a peer is still there, asked of the
   machine through the process its presence names.
 - **Attention:** what a message gets from the peer it reaches,
@@ -384,6 +388,28 @@ A peer has a message once its read marker passes it, which is
 when it is handed to the peer's model, at whatever attention.
 A pi that keeps no session, such as a reload's load check,
 stays off the mesh.
+
+## What a Peer Waits On
+
+A peer that has asked its person something, is held at an
+approval, or ended an unattended run blocked can do nothing
+until he answers, and its presence would say only that it is
+idle. So while it waits, its presence carries `wants`:
+
+```json
+{ "kind": "question", "since": "2026-10-22T08:00:00.000Z", "said": "Which launcher?" }
+```
+
+`kind` is `question`, `approval` or `blocked`; `since` is when
+it began waiting; `said` is what it asked or said, on one line
+of at most 160 characters. Each kind stands until it is
+settled, and while more than one stands, presence holds the
+one that has stood longest. The field is absent when nothing
+waits, and never survives a start, since what asked belonged
+to the process that ended. The desktop reads it to mark a
+session that wants Joel; a peer can read it so as not to wait
+on one that is itself waiting. The ask and away workflows
+say when a want begins and ends, over the bus.
 
 ## The Legacy Mailbox
 

@@ -934,6 +934,35 @@ describe("groups", () => {
 		expect(text).toContain("#optimus/power: P9R1KI");
 	});
 
+	it("says which peers are waiting on their person, and for what", async () => {
+		const since = "2026-10-22T08:00:00.000Z";
+		const presences = createPresences(join(paths.mesh, "presence"));
+		const waiting = (session: string, address: string, ended: boolean) =>
+			presences.publish({
+				session,
+				addresses: [address],
+				groups: ["#optimus"],
+				worksOn: "",
+				owns: [],
+				busy: false,
+				wants: { kind: "approval", since, said: "Push to main?" },
+				...(ended ? { owner: { pid: process.pid, startedAt: 1 } } : {}),
+				at: new Date().toISOString(),
+			});
+		waiting("session-w", "WCJQSG", false);
+		waiting("session-p", "P9R1KI", true);
+		const { tools } = await startSession();
+
+		const listed = await tools.get("mesh_groups")?.execute("call-1", {});
+
+		const text = listed?.content[0]?.text ?? "";
+		const at = new Date(since).toTimeString().slice(0, 5);
+		expect(text).toContain(
+			`Waiting on their person:\nWCJQSG: held at an approval since ${at}: Push to main?`,
+		);
+		expect(text).not.toContain("P9R1KI: held");
+	});
+
 	it("leaves out a peer whose session has ended, and says so", async () => {
 		peer("session-p", ["P9R1KI"], ["#optimus/power"], true);
 		const { tools } = await startSession();

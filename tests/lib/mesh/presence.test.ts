@@ -237,4 +237,43 @@ describe("this session's peer", () => {
 		expect(localPeer(surroundings()).stops).toEqual([]);
 		expect(surroundings().presences.of(session)?.stops).toBeUndefined();
 	});
+
+	it("says what it waits on its person for, longest first, until each is settled", () => {
+		const peer = localPeer(surroundings());
+		const asked = {
+			kind: "question" as const,
+			since: "2026-10-22T08:00:00.000Z",
+			said: "Which launcher?",
+		};
+		const held = {
+			kind: "approval" as const,
+			since: "2026-10-22T07:50:00.000Z",
+			said: "Push to main?",
+		};
+		const kept = () => surroundings().presences.of(session)?.wants;
+
+		peer.want(asked);
+		expect(kept()).toEqual(asked);
+		peer.want(held);
+		expect(kept()).toEqual(held);
+		expect(peer.settle("approval")).toBe(true);
+		expect(kept()).toEqual(asked);
+		expect(peer.settle("approval")).toBe(false);
+		expect(peer.settle("question")).toBe(true);
+		expect(kept()).toBeUndefined();
+	});
+
+	it("waits on nothing after a start, whatever its presence said", () => {
+		const peer = localPeer(surroundings());
+		peer.want({
+			kind: "blocked",
+			since: "2026-10-22T08:00:00.000Z",
+			said: "Blocked: needs Joel's say on the launcher",
+		});
+
+		const again = localPeer(surroundings());
+
+		expect(again.wants).toBeUndefined();
+		expect(surroundings().presences.of(session)?.wants).toBeUndefined();
+	});
 });

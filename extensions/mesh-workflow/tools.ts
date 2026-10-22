@@ -18,6 +18,7 @@ import {
 import type { Board } from "../../lib/mesh/lease.ts";
 import { type Census, census } from "../../lib/mesh/liveness.ts";
 import {
+	clock,
 	INTENTS,
 	line,
 	type Message,
@@ -30,6 +31,7 @@ import { type Judge, type Route, routeOf } from "../../lib/mesh/routing.ts";
 import { stoppedBy } from "../../lib/mesh/stop.ts";
 import { idNamed, mayReplace, sentBy } from "../../lib/mesh/thread.ts";
 import type { Transport } from "../../lib/mesh/transport.ts";
+import type { WantKind } from "../../lib/mesh/want.ts";
 import { leasesText } from "./leases.ts";
 
 /**
@@ -671,11 +673,36 @@ function groupsText(standing: Census, peer: Peer): string {
 			: "";
 	const stops = stoppedBy(peer, standing.present);
 	const stoppedHere = stops.length > 0 ? `\n${stopsText(stops)}` : "";
-	const more = `${gone}${stopping}${stoppedHere}`;
+	const waiting = wantsText(standing.present);
+	const more = `${gone}${stopping}${stoppedHere}${waiting}`;
 	return lines.length > 0
 		? `${own}\nGroups:\n${lines.join("\n")}${more}`
 		: `${own} No other groups yet.${more}`;
 }
+
+/**
+ * The peers waiting on their person, so none is waited on as though it
+ * were free to answer (see want.ts).
+ */
+function wantsText(present: readonly Presence[]): string {
+	const lines = present.flatMap((one) =>
+		one.wants && one.addresses[0]
+			? [
+					`${one.addresses[0]}: ${WANTING[one.wants.kind]} since ${clock({ at: one.wants.since })}: ${one.wants.said}`,
+				]
+			: [],
+	);
+	return lines.length > 0
+		? `\nWaiting on their person:\n${lines.join("\n")}`
+		: "";
+}
+
+/** A want's kind, as mesh_groups says it. */
+const WANTING: Record<WantKind, string> = {
+	question: "asked",
+	approval: "held at an approval",
+	blocked: "blocked",
+};
 
 /** The stops on this peer, said to it. */
 function stopsText(stops: ReturnType<typeof stoppedBy>): string {
