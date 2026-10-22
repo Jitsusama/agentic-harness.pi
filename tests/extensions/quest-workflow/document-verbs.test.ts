@@ -100,6 +100,34 @@ describe("section", () => {
 		expect(text).not.toContain("Old notes.");
 	});
 
+	it("adds a section a plan does not have yet, at its end", async () => {
+		const { run, planPath } = await questWithPlan();
+		const added = succeeded(
+			await run({
+				action: "section",
+				title: "Kept Outcomes",
+				body: "- The hold still holds.",
+			}),
+		);
+		expect(added.message).toContain("Added the Kept Outcomes section");
+		expect(readFileSync(planPath, "utf8")).toMatch(
+			/Old notes\.\n\n## Kept Outcomes\n\n- The hold still holds\.\n$/,
+		);
+	});
+
+	it("refuses a section the README's closed set does not name", async () => {
+		const { state, run } = await questWithPlan();
+		const result = await run({
+			action: "section",
+			id: state.questId ?? "",
+			title: "Kept Outcomes",
+			body: "x",
+		});
+		expect(result.ok === false && result.guidance).toContain(
+			"No section is headed",
+		);
+	});
+
 	it("edits the README when named by the quest's id", async () => {
 		const { state, run } = await questWithPlan();
 		succeeded(

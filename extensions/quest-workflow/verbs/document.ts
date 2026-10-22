@@ -104,7 +104,10 @@ export function tick(
 	});
 }
 
-/** Replace the body of one `##` section. */
+/**
+ * Replace the body of one `##` section, or add it at the end of a
+ * document other than the README, whose sections are a closed set.
+ */
 export function section(
 	state: QuestState,
 	params: QuestToolParams,
@@ -120,9 +123,10 @@ export function section(
 	return editBody(
 		state,
 		params,
-		(body) => replaceSection(body, heading, text),
+		(body, readme) => replaceSection(body, heading, text, !readme),
 		{
-			changed: (path) => `Replaced the ${heading} section of ${path}.`,
+			changed: (path, _line, added) =>
+				`${added ? "Added" : "Replaced"} the ${heading} section ${added ? "at the end of" : "of"} ${path}.`,
 			unchanged: (path) =>
 				`The ${heading} section of ${path} already reads that way.`,
 		},
@@ -131,8 +135,15 @@ export function section(
 
 type BodyEdit = (
 	body: string,
+	readme: boolean,
 ) =>
-	| { ok: true; body: string; changed: boolean; line?: string }
+	| {
+			ok: true;
+			body: string;
+			changed: boolean;
+			line?: string;
+			added?: boolean;
+	  }
 	| { ok: false; reason: string };
 
 /**
@@ -144,7 +155,7 @@ function editBody(
 	params: QuestToolParams,
 	edit: BodyEdit,
 	say: {
-		changed: (path: string, line?: string) => string;
+		changed: (path: string, line?: string, added?: boolean) => string;
 		unchanged: (path: string, line?: string) => string;
 	},
 ): QuestResult {
@@ -164,7 +175,7 @@ function editBody(
 			};
 		}
 		const { head, body } = splitAtBody(text);
-		const result = edit(body);
+		const result = edit(body, target.path === join(questDir, "README.md"));
 		if (!result.ok || !result.changed) return result;
 		atomicWriteFile(target.path, head + result.body);
 		return result;
@@ -173,7 +184,9 @@ function editBody(
 	if (!outcome.changed) return ok(say.unchanged(shown, outcome.line));
 	refreshProgress(state);
 	stampQuestUpdated(state);
-	return ok(say.changed(shown, outcome.line), { path: target.path });
+	return ok(say.changed(shown, outcome.line, outcome.added), {
+		path: target.path,
+	});
 }
 
 /**

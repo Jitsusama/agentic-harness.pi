@@ -47,6 +47,8 @@ export interface EditApplied {
 	changed: boolean;
 	/** The line the edit touched, as it now reads. */
 	line?: string;
+	/** The section was not there and has been added at the end. */
+	added?: boolean;
 }
 
 const CHECKBOX = /^(\s*[-*+]\s+\[)([ xX])(\]\s+)(.*)$/;
@@ -116,11 +118,19 @@ const PROTECTED_SECTIONS: ReadonlySet<string> = new Set(["journey"]);
  * a heading of its own level, which would split the section in two
  * and leave the document with a shape nobody asked for. Journey is
  * append-only, and has `journal` for that.
+ *
+ * A heading the document does not have is added at its end when
+ * `addMissing` is set. A README's sections are a closed set the
+ * quest format names, so it refuses there; a plan or research
+ * document grows the sections its work needs ("Kept Outcomes",
+ * "People Waiting on Us"), and refusing those sent agents to hand
+ * edits the lock exists to replace.
  */
 export function replaceSection(
 	body: string,
 	heading: string,
 	text: string,
+	addMissing = false,
 ): EditApplied | EditRefused {
 	const wanted = headingWords(heading);
 	if (!wanted) return { ok: false, reason: "Name the section to replace." };
@@ -141,6 +151,13 @@ export function replaceSection(
 	const lines = body.split("\n");
 	const headings = secondLevelHeadings(lines);
 	const at = headings.findIndex((h) => headingWords(h.text) === wanted);
+	if (at === -1 && addMissing) {
+		const kept = body.replace(/\s*$/, "");
+		const title = heading.trim().replace(/^#+\s*/, "");
+		const section = trimBlankEdges(text.split("\n")).join("\n");
+		const result = `${kept}${kept ? "\n\n" : ""}## ${title}\n\n${section}\n`;
+		return { ok: true, body: result, changed: true, added: true };
+	}
 	if (at === -1) {
 		const known = headings.map((h) => h.text).join(", ");
 		return {
