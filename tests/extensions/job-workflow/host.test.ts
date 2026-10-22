@@ -14,8 +14,10 @@ import { describe, expect, it } from "vitest";
 import jobWorkflow from "../../../extensions/job-workflow/index.ts";
 import {
 	findJobHost,
+	type JobFinished,
 	type JobHost,
 	jobStopOf,
+	onJobFinished,
 } from "../../../lib/jobs/index.ts";
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
@@ -190,6 +192,48 @@ describe("when the session ends", () => {
 		job.finish({ summary: "too late" });
 		expect(said).toHaveLength(0);
 		expect(findJobHost(events)).toBeUndefined();
+	});
+});
+
+describe("the end of a job's work", () => {
+	// Whoever tied something to the call a job carries on for (the mesh's
+	// heavy-work lease) hears exactly when that work ends.
+	async function listening() {
+		const pi = await started();
+		const heard: JobFinished[] = [];
+		onJobFinished(pi.events, (finished) => heard.push(finished));
+		return { ...pi, heard };
+	}
+
+	it("is said on the bus once, naming the call it carried on for", async () => {
+		const { host, heard } = await listening();
+		const job = host.start({
+			kind: "shell",
+			label: "nix build",
+			toolCallId: "call-7",
+		});
+		expect(heard).toEqual([]);
+		job.finish({ summary: "exited 1", failed: true });
+		job.finish({ summary: "again" });
+		expect(heard).toEqual([
+			{ jobId: job.id, kind: "shell", toolCallId: "call-7", failed: true },
+		]);
+	});
+
+	it("is said for a job its closing session stops, and not again for one already done", async () => {
+		const { host, heard, fire } = await listening();
+		const done = host.start({ kind: "subagent", label: "lanes" });
+		done.finish({ summary: "agreed" });
+		const running = host.start({
+			kind: "shell",
+			label: "cargo build",
+			toolCallId: "call-9",
+		});
+		await fire("session_shutdown", { reason: "quit" });
+		expect(heard).toEqual([
+			{ jobId: done.id, kind: "subagent", failed: false },
+			{ jobId: running.id, kind: "shell", toolCallId: "call-9", failed: true },
+		]);
 	});
 });
 

@@ -82,6 +82,17 @@ way. Work whose answer is on disk can outlive the session, and a
 started review round does: the session ending stops only the watching,
 and only the person stopping the job stops the round.
 
+## Hearing a Job End
+
+When a job's work ends, however it ends, the host says so on pi's bus
+as `jobs:finished:v1`, carrying the job's id, its kind, whether it
+failed, and the `toolCallId` of the call it carries on for when a call
+handed itself off. A job its closing session stops is said as failed;
+one already finished is not said again. `onJobFinished(bus, listener)`
+from `agentic-harness.pi/jobs` hears it. The mesh uses it to release
+the heavy-work lease a bash call took, the moment the command handed
+to a job ends rather than when the lease runs out.
+
 ## Limits
 
 - **Nothing outlives the session.** A reload, a new session, a resume

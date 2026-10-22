@@ -305,6 +305,24 @@ describe("a command still running when the time comes", () => {
 	});
 });
 
+describe("a command's job", () => {
+	it("names the call it carries on for", async () => {
+		const { bus, specs } = recordingHost();
+		await runOrHandOff({
+			command: "nix build",
+			toolCallId: "call-3",
+			background: true,
+			nested: false,
+			signal: undefined,
+			onUpdate: undefined,
+			bus,
+			run: controllable().run,
+		});
+
+		expect(specs[0]?.toolCallId).toBe("call-3");
+	});
+});
+
 describe("what decides whether a command moves", () => {
 	it("moves at once when asked to run in the background", async () => {
 		const { bus, specs } = recordingHost();

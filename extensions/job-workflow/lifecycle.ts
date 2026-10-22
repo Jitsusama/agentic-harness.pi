@@ -10,7 +10,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { announceJobHost } from "../../lib/jobs/index.ts";
+import { announceJobHost, JOBS_FINISHED } from "../../lib/jobs/index.ts";
 import { footerMark, type MarkTheme } from "../../lib/ui/footer-mark.ts";
 import { createJobs, type Jobs } from "./jobs.ts";
 import { createOutbox, type Outbox } from "./outbox.ts";
@@ -75,6 +75,7 @@ export function openSession(
 		(result) => outbox.post(result),
 		show,
 		(jobId) => outbox.withdraw(jobId),
+		(finished) => pi.events.emit(JOBS_FINISHED, finished),
 	);
 	const withdraw = announceJobHost(pi.events, jobs);
 	const timer = setInterval(() => outbox.tick(), TICK_MS);

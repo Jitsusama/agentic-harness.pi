@@ -11,6 +11,12 @@ export interface JobSpec {
 	readonly kind: string;
 	/** One line saying what it is doing. */
 	readonly label: string;
+	/**
+	 * The tool call whose work this job carries on with, when a call
+	 * handed itself off, so whoever tied something to that call (a
+	 * lease, a row) can tell when the work behind it ends.
+	 */
+	readonly toolCallId?: string;
 }
 
 /** How a job ended, bounded, with the path or handle for the rest. */
@@ -76,6 +82,44 @@ export interface JobHost {
  * the producer knows at once whether anybody is there.
  */
 export const JOBS_ASK = "jobs:ask:v1";
+
+/**
+ * Said on the bus when a job's work ends, however it ends: finished,
+ * stopped by the person, or stopped because its session ended. Its
+ * answer may still be waiting to be said; this is about the work.
+ */
+export const JOBS_FINISHED = "jobs:finished:v1";
+
+/** What `JOBS_FINISHED` carries. */
+export interface JobFinished {
+	readonly jobId: string;
+	readonly kind: string;
+	/** The call it carried on for, when it was handed off by one. */
+	readonly toolCallId?: string;
+	readonly failed: boolean;
+}
+
+/** Whether a payload is a job's end, as this version says one. */
+function isFinished(data: unknown): data is JobFinished {
+	if (typeof data !== "object" || data === null) return false;
+	const { jobId, kind, toolCallId, failed } = data as Record<string, unknown>;
+	return (
+		typeof jobId === "string" &&
+		typeof kind === "string" &&
+		(toolCallId === undefined || typeof toolCallId === "string") &&
+		typeof failed === "boolean"
+	);
+}
+
+/** Hear every job's end. Returns a disposer. */
+export function onJobFinished(
+	bus: EventBus,
+	listener: (finished: JobFinished) => void,
+): () => void {
+	return bus.on(JOBS_FINISHED, (data) => {
+		if (isFinished(data)) listener(data);
+	});
+}
 
 /** Whether a payload is a callback to answer into. */
 function isAnswer(data: unknown): data is (host: JobHost) => void {

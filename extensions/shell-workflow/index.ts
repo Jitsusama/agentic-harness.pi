@@ -96,6 +96,7 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 			const definition = bashFor(ctx);
 			return await runOrHandOff({
 				command: params.command,
+				toolCallId,
 				...(params.background !== undefined
 					? { background: params.background }
 					: {}),
