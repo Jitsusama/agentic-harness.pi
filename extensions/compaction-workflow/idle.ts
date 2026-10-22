@@ -33,7 +33,13 @@ export function idleTimer(
 			cancel();
 			pending = setTimeout(() => {
 				pending = undefined;
-				onIdle(ctx);
+				// A throw from a timer is uncaught and takes pi down, and a
+				// context the session replaced throws on first use.
+				try {
+					onIdle(ctx);
+				} catch {
+					// Its successor starts a wait of its own.
+				}
 			}, delayMs);
 			pending.unref?.();
 		},

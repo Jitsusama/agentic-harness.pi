@@ -45,6 +45,8 @@ async function session({
 	hasUI = true,
 	swapped = false,
 	pending = 0,
+	// The session was replaced: pi refuses this runtime's pi.
+	stale = false,
 } = {}) {
 	const install = await freshRepo("install");
 	repos.push(install);
@@ -59,7 +61,10 @@ async function session({
 	stops.push(announceJobHost(events, host));
 	const pi = {
 		events,
-		sendUserMessage: (text: string) => prompted.push(text),
+		sendUserMessage: (text: string) => {
+			if (stale) throw new Error("This extension ctx is stale.");
+			prompted.push(text);
+		},
 	};
 	let busy = !idle;
 	const follower = await follow(
@@ -88,6 +93,18 @@ async function land(dir: string, message: string): Promise<void> {
 	await git(dir, "add", "-A");
 	await git(dir, "commit", "-qm", message);
 }
+
+describe("following the install from a runtime the session replaced", () => {
+	it("takes its request back rather than throwing", async () => {
+		const { install } = await session({ stale: true });
+
+		await land(install, "feat: something to try");
+		await until("the request is taken back", () => {
+			const slot = reloadSlot();
+			return slot.dispatched === false && slot.request === undefined;
+		});
+	});
+});
 
 describe("following the install", () => {
 	it("reloads an idle session itself, saying what came in", async () => {

@@ -114,13 +114,26 @@ export async function follow(
 		slot.request = { ...slot.request, reason };
 	};
 
+	// Asking git for the reason can take seconds, and the session can be
+	// replaced meanwhile (a rollover, a reload), leaving this pi stale. A
+	// stale pi throws, and a throw from this unwatched promise takes pi
+	// down, as one from a reload's landing did on 22 October. So the send
+	// is guarded, and a request it could not send is taken back for the
+	// runtime that replaced this one to make.
 	const dispatch = async () => {
+		const reason = await reasonNow().catch(() => "the install moved");
 		const slot = reloadSlot();
-		slot.request = { reason: await reasonNow(), by: "self" };
+		if (slot.request !== undefined) return;
+		slot.request = { reason, by: "self" };
 		slot.dispatched = true;
-		pi.sendUserMessage(`/${COMMAND} ${RELOAD_ARG}`, {
-			expandPromptTemplates: true,
-		});
+		try {
+			pi.sendUserMessage(`/${COMMAND} ${RELOAD_ARG}`, {
+				expandPromptTemplates: true,
+			});
+		} catch {
+			slot.request = undefined;
+			slot.dispatched = false;
+		}
 	};
 
 	const consider = (settled = false) => {

@@ -43,9 +43,11 @@ loads the install and the install is `main`.
   - Every reload, whoever asked, waits until the session has been
     idle for a second with nothing queued, since a run a compaction
     cut short is resumed just after it ends.
-  - Afterwards one line, shown and in the model's context, says it
+  - Afterwards one line in the model's context, not shown, says it
     reloaded and everything that came in by then: a merged pull
     request by its number and title, anything else by its subject.
+    The person sees which code runs in the status bar; shown, one
+    notice per install filled idle sessions with eight in an hour.
     It never starts a turn.
   - A session running a tree is never moved, and only a session
     somebody sits at follows: not a subagent, nor a print-mode run.
