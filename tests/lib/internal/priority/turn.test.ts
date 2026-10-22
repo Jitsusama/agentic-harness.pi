@@ -22,6 +22,7 @@ import {
 const ROOMY: Reading = {
 	availableGib: 40,
 	memoryPressure: 0,
+	vms: 0,
 	cores: 16,
 	pressure: { cpu: 0, memory: 0, io: 0 },
 };
@@ -116,6 +117,20 @@ describe("heavy work waiting for its turn", () => {
 		expect(out).toMatch(
 			/^Waited [1-9]\d*s for its turn in the machine queue\.\nran \n$/,
 		);
+	});
+
+	it("says the room left as work that ran long ends, keeping its code", async () => {
+		writeFileSync(join(dir, "room"), "2 more VM tests and 8 more builds");
+		const said = await run(`${waitsForTurn(dir, 5, 0)?.("gone")}\nexit 7`);
+		expect(said).toEqual({
+			out: "The machine has room for 2 more VM tests and 8 more builds right now. Builds and tests independent of each other can run at once, each as its own bash call with background: true, and each takes its own turn.\n",
+			code: 7,
+		});
+		const quick = await run(`${waitsForTurn(dir, 5, 60)?.("gone")}\nexit 7`);
+		expect(quick).toEqual({ out: "", code: 7 });
+		writeFileSync(join(dir, "room"), "");
+		const full = await run(`${waitsForTurn(dir, 5, 0)?.("gone")}\ntrue`);
+		expect(full).toEqual({ out: "", code: 0 });
 	});
 
 	it("gives way when its job is given up or nobody keeps the queue", () => {

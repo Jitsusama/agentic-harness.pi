@@ -73,4 +73,19 @@ describe("the machine's room", () => {
 		expect(reading.pressure).toEqual({ cpu: 1.5, memory: 4, io: 0.25 });
 		expect(reading.cores).toBe(2);
 	});
+
+	it("counts the VMs running, by their processes' names", () => {
+		const dir = proc(40);
+		for (const [pid, name] of [
+			["845775", "qemu-system-x86"],
+			["848288", "qemu-kvm"],
+			["845929", "kvm-pit/45"],
+			["12", "nix-daemon"],
+		]) {
+			mkdirSync(join(dir, pid));
+			writeFileSync(join(dir, pid, "comm"), `${name}\n`);
+		}
+		mkdirSync(join(dir, "qemu-system-x86"));
+		expect(readRoom([], { proc: dir, cgroups: root }).vms).toBe(2);
+	});
 });

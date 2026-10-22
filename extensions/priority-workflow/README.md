@@ -62,12 +62,21 @@ never waits.
 
 - **A turn** comes when the memory left past the floors core.nix keeps
   for the person's programs covers the job's need, memory pressure is
-  under 10%, and fewer than two VMs run. Timed work goes first, then the
-  oldest; a job memory holds back holds everyone behind it.
+  under 10%, and fewer than two VMs run. The VMs are counted from the
+  machine's processes as well as the queue, so a check picked from a
+  variable, or a VM a session runs outside the queue, still counts.
+  Timed work goes first, then the oldest; a job memory holds back holds
+  everyone behind it.
+- **Only work is read:** a quoted single word, such as a quoted flake
+  reference, counts as part of the command. A step that only looks for
+  something, such as `pgrep`, `ps`, `grep`, `systemctl` or `echo`,
+  counts as no work, however its words read.
 - **Builds wait for VM checks** while there is no timed cgroup: the
   queue gates memory, not CPU, and a VM check runs in the daemon beside
   any build that starts, which is how a kernel build broke a camera
-  subtest's timing. A VM check still starts beside builds.
+  subtest's timing. A VM check still starts beside builds, but not past
+  a build that waits, so a build waits only for the checks already
+  running rather than every check queued after it.
 - **One at a time:** turns are given at least 3 seconds apart, and a job
   just started counts its need as taken for a minute while it grows.
 - **Timed work** then runs in the cgroup `TIMED_CGROUP` names, or in
@@ -84,3 +93,11 @@ never waits.
   every 30 seconds, with a `heartbeat` in epoch seconds. The launcher
   reads that file, and it counts the minutes a job waited today while
   the memory it needed stood free.
+- **The room left** is in `queue.json` as `room` (how many more VMs and
+  builds would start now) and, as words, in `room`. When a call's heavy
+  work has run a minute or more, its shell says that room as it ends,
+  and that work independent of each other can run at once, each as its
+  own background bash call. The queue only fills the machine with work
+  somebody starts: on 22 October, 35 of the 43 minutes the CPU was
+  under half busy had no VM running, while agents ran tests one after
+  another.

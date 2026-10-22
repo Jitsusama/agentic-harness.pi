@@ -14,6 +14,9 @@
  *   the mesh. Each write replaces it whole, so a watch on the folder
  *   hears every change, and it carries a heartbeat in epoch seconds, so
  *   a reader can tell a queue nobody keeps any more.
+ * - `room`: the room left, as words ("2 VM tests and 8 builds more"),
+ *   or nothing, written with queue.json, which a shell says when its
+ *   work ends.
  *
  * Keeping the queue is done under a lock any session may take, so two
  * sessions never give one turn twice. A lock older than a few seconds
@@ -37,8 +40,11 @@ import {
 	type Job,
 	NEEDS_GIB,
 	nextTurn,
+	type RoomLeft,
 	RULES,
 	type Rules,
+	roomLeft,
+	roomSaid,
 	waitingInOrder,
 	waitsWithRoom,
 } from "./queue.ts";
@@ -83,7 +89,10 @@ export interface QueueRecord {
 		readonly cores: number;
 		readonly availableGib: number;
 		readonly pressure: Reading["pressure"];
+		readonly vms: number;
 	};
+	/** How many more VMs and builds would get their turns now. */
+	readonly room: RoomLeft;
 	readonly quiet: null;
 	readonly jobs: readonly {
 		readonly id: string;
@@ -259,10 +268,12 @@ export function queueFolder(
 					before,
 					processes,
 					shellOf,
+					rules(),
 				);
 				const shape = JSON.stringify({ ...record, at: "", heartbeat: 0 });
 				const due = !before || now - before.heartbeat * 1000 >= HEARTBEAT_MS;
 				if (shape !== written || due) {
+					replace(join(dir, "room"), roomSaid(record.room));
 					replace(join(dir, "queue.json"), `${JSON.stringify(record)}\n`);
 					written = shape;
 				}
@@ -279,6 +290,7 @@ export function queueRecord(
 	before: QueueRecord | undefined,
 	processes: Pick<Processes, "cgroupOf">,
 	shellOf: (id: string) => number | undefined = () => undefined,
+	rules: Rules = RULES,
 ): QueueRecord {
 	const at = new Date(now).toISOString();
 	const day = at.slice(0, 10);
@@ -298,7 +310,9 @@ export function queueRecord(
 			cores: reading.cores,
 			availableGib: Math.round(reading.availableGib * 10) / 10,
 			pressure: reading.pressure,
+			vms: reading.vms,
 		},
+		room: roomLeft(jobs, reading, now, rules),
 		quiet: null,
 		jobs: [...jobs.filter((job) => job.started !== undefined), ...waiting].map(
 			(job) => {

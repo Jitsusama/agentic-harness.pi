@@ -12,6 +12,11 @@
  * little safe. Only the innermost floors count, since an outer
  * one (user.slice's 15%) holds the inner ones (app.slice's 13%) and the
  * work itself. They are read from the cgroups, not worked out again.
+ *
+ * VMs are counted by their processes' names, whoever runs them: the
+ * Nix daemon's build users run a VM check's qemu, and the name is all
+ * that another user's process shows. A whole reading took 3.9 ms over
+ * 767 processes on optimus, every 2 seconds while jobs stand.
  */
 
 import { readdirSync, readFileSync } from "node:fs";
@@ -77,6 +82,7 @@ export function readRoom(
 	return {
 		availableGib: Math.max(0, available - kept) / GIB,
 		memoryPressure: memory,
+		vms: vmsIn(kernel.proc),
 		cores: cores(kernel.proc),
 		pressure: {
 			cpu: pressure(kernel.proc, "cpu"),
@@ -125,6 +131,27 @@ function memAvailable(proc: string): number {
 function pressure(proc: string, kind: string): number {
 	const some = /^some avg10=([\d.]+)/m.exec(text(join(proc, "pressure", kind)));
 	return some ? Number(some[1]) : 0;
+}
+
+/** A VM's process name, cut to the kernel's 15 characters. */
+const VM_PROCESS = /^qemu-(?:system-|kvm)/;
+
+/** How many VMs run on the machine, by their processes' names. */
+function vmsIn(proc: string): number {
+	let count = 0;
+	for (const entry of names(proc)) {
+		if (!/^\d+$/.test(entry)) continue;
+		if (VM_PROCESS.test(text(join(proc, entry, "comm")))) count += 1;
+	}
+	return count;
+}
+
+function names(dir: string): string[] {
+	try {
+		return readdirSync(dir);
+	} catch {
+		return [];
+	}
 }
 
 function cores(proc: string): number {

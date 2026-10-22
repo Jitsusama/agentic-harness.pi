@@ -17,7 +17,10 @@
  *   the memory left past the floors core.nix keeps for Joel's programs
  *   covers what its kind needs, and pressure is under a set point.
  * - **Kinds held to a number at once**: VMs, whose tests time out when
- *   they share the CPU with too much else.
+ *   they share the CPU with too much else. The VMs running are counted
+ *   on the machine as well as in the queue, since a command can pick
+ *   its check from a variable the queue can't read, and a session on
+ *   older code runs its VMs outside the queue.
  * - **Order**: timed work before bulk, then the oldest first. A job its
  *   limit holds back lets the next one past; a job memory holds back
  *   holds everyone behind it, so a big job is never starved by small
@@ -27,7 +30,14 @@
  *   makes a group overshoot and swing back, so turns are given out one
  *   at a time, a few seconds apart, with what was just started counted
  *   as taken until it has had time to grow.
+ *
+ * The room left over is said too ({@link roomLeft}): the queue only
+ * fills the machine with work somebody starts, and most of the idle
+ * minutes measured on 22 October (35 of 43 under half busy) had no VM
+ * running at all, while agents ran their tests one after another.
  */
+
+import { noun } from "../../ui/count.ts";
 
 /** What a command does, as the harness reads it. */
 export type Kind = "vm-test" | "vm-check" | "benchmark" | "build";
@@ -97,6 +107,8 @@ export interface Room {
 	readonly availableGib: number;
 	/** Memory pressure, avg10, in percent. */
 	readonly memoryPressure: number;
+	/** VMs running on the machine, queued or not. */
+	readonly vms: number;
 }
 
 const VMS: ReadonlySet<Kind> = new Set(["vm-test", "vm-check"]);
@@ -130,7 +142,11 @@ export interface Rules {
 	 * not CPU, and a VM check is the daemon's, in build.slice, so a build
 	 * started beside it shares its CPU: a kernel build beside a running
 	 * camera subtest is what broke its timing. A VM check still starts
-	 * beside builds. Off once VM tests run timed, from their drivers.
+	 * beside builds, but not past one waiting for its turn, so a build
+	 * waits only for the checks already running: skipping it instead let
+	 * a stream of 15-minute checks hold a 1-minute build at place 5 for as
+	 * long as they kept coming. Off once VM tests run timed, from their
+	 * drivers.
 	 */
 	readonly buildsWaitForVmChecks: boolean;
 }
@@ -155,20 +171,78 @@ export function nextTurn(
 	);
 	if (now - last < SPREAD_MS) return undefined;
 	if (room.memoryPressure >= MOST_MEMORY_PRESSURE) return undefined;
-	const growing = running
-		.filter((job) => now - Date.parse(job.started as string) < RAMP_MS)
-		.reduce((sum, job) => sum + NEEDS_GIB[job.kind], 0);
-	const vms = running.filter(isVm).length;
-	const checking =
-		rules.buildsWaitForVmChecks &&
-		running.some((job) => job.kind === "vm-check");
+	const { growing, vms, checking } = standing(jobs, room, now, rules);
 	for (const job of waitingInOrder(jobs)) {
 		if (isVm(job) && vms >= MOST_VMS) continue;
-		if (checking && job.kind === "build") continue;
+		// Only bulk work is behind a build, and it all waits with it.
+		if (checking && job.kind === "build") return undefined;
 		if (room.availableGib - growing < NEEDS_GIB[job.kind]) return undefined;
 		return job;
 	}
 	return undefined;
+}
+
+/** What running work holds: memory still growing, VMs, a VM check. */
+function standing(
+	jobs: readonly Job[],
+	room: Room,
+	now: number,
+	rules: Rules,
+): { growing: number; vms: number; checking: boolean } {
+	const running = jobs.filter((job) => job.started !== undefined);
+	const growing = running
+		.filter((job) => now - Date.parse(job.started as string) < RAMP_MS)
+		.reduce((sum, job) => sum + NEEDS_GIB[job.kind], 0);
+	// A VM just given its turn may not have started its qemu yet, and one
+	// the machine shows may be outside the queue: the larger count holds.
+	const vms = Math.max(running.filter(isVm).length, room.vms);
+	const tests = running.filter((job) => job.kind === "vm-test").length;
+	const checking =
+		rules.buildsWaitForVmChecks &&
+		(running.some((job) => job.kind === "vm-check") || room.vms > tests);
+	return { growing, vms, checking };
+}
+
+/** How many more VMs and builds could start now. */
+export interface RoomLeft {
+	readonly vms: number;
+	readonly builds: number;
+}
+
+/**
+ * How many more VMs and builds would get their turns now, beside what
+ * runs and behind what waits: the room nobody is using.
+ */
+export function roomLeft(
+	jobs: readonly Job[],
+	room: Room,
+	now: number,
+	rules: Rules = RULES,
+): RoomLeft {
+	if (room.memoryPressure >= MOST_MEMORY_PRESSURE) return { vms: 0, builds: 0 };
+	const { growing, vms, checking } = standing(jobs, room, now, rules);
+	const waiting = waitingInOrder(jobs);
+	const free =
+		room.availableGib -
+		growing -
+		waiting.reduce((sum, job) => sum + NEEDS_GIB[job.kind], 0);
+	const fits = (kind: Kind) => Math.max(0, Math.floor(free / NEEDS_GIB[kind]));
+	const slots = Math.max(0, MOST_VMS - vms - waiting.filter(isVm).length);
+	// A build waiting is held by memory or the rule, and so is the next.
+	const buildWaits = waiting.some((job) => job.kind === "build");
+	return {
+		vms: checking && buildWaits ? 0 : Math.min(fits("vm-test"), slots),
+		builds: checking || buildWaits ? 0 : fits("build"),
+	};
+}
+
+/** The room left as words, such as "2 more VM tests and 8 more builds". */
+export function roomSaid(left: RoomLeft): string {
+	const more = (n: number, what: string) =>
+		n > 0 ? `${n} more ${noun(n, what)}` : "";
+	return [more(left.vms, "VM test"), more(left.builds, "build")]
+		.filter((part) => part !== "")
+		.join(" and ");
 }
 
 /**
@@ -218,12 +292,31 @@ const KINDS: readonly (readonly [RegExp, Kind])[] = [
 /**
  * The kind of heavy work a command runs, read only where the shell runs
  * it: text in quotes or a heredoc names work rather than running it.
- * Nothing for a command that runs none.
+ * A quoted single word is an argument, as a quoted flake reference
+ * such as `"path:$W#checks.x86_64-linux.vm-desktop-works"` is, so it
+ * is read; quoted words with spaces between them are prose. A step that
+ * only looks, as `pgrep -x qemu-system-x86` does, names work without
+ * running it: read as a VM, it waited 30 seconds for a turn and timed
+ * out. Nothing for a command that runs none.
  */
 export function kindOf(command: string): Kind | undefined {
-	const runs = command.replace(HEREDOC, "\n").replace(QUOTED, "''");
+	const runs = command
+		.replace(HEREDOC, "\n")
+		.replace(QUOTED, (quoted) =>
+			/\s/.test(quoted) ? "''" : quoted.slice(1, -1),
+		)
+		.split(SEGMENTS)
+		.filter((step) => !LOOKS.test(step.replace(ASSIGNMENTS, "")))
+		.join("\n");
 	return KINDS.find(([pattern]) => pattern.test(runs))?.[1];
 }
+
+/** Where a command's steps and the parts of its pipes end. */
+const SEGMENTS = /\n|;|&&|\|\|?/;
+
+/** A step whose command finds processes or text, or reports on them. */
+const LOOKS =
+	/^\s*(?:sudo\s+)?(?:pgrep|pkill|pidof|ps|kill|killall|grep|egrep|fgrep|rg|systemctl|journalctl|echo|printf|which)\b/;
 
 /** Variables set at the start of a step, as `A=1 B="two" cmd` sets two. */
 const ASSIGNMENTS =
