@@ -11,7 +11,6 @@ import {
 	dependenciesReady,
 	headOf,
 	type Moved,
-	untilCheap,
 	watchHeads,
 	whenToReload,
 } from "../../../../lib/internal/reload/follow.ts";
@@ -39,13 +38,7 @@ async function commit(dir: string, message: string): Promise<void> {
 }
 
 describe("whenToReload", () => {
-	const still = {
-		swapped: false,
-		idle: true,
-		pendingJobs: 0,
-		ready: true,
-		cheap: true,
-	};
+	const still = { swapped: false, idle: true, pendingJobs: 0, ready: true };
 
 	it("reloads an idle session at once, and a busy one after its run", () => {
 		expect(whenToReload(still)).toBe("now");
@@ -59,31 +52,6 @@ describe("whenToReload", () => {
 
 	it("never moves a session running a tree on purpose", () => {
 		expect(whenToReload({ ...still, swapped: true })).toBe("never");
-	});
-
-	it("waits while losing the cache would cost a rewrite", () => {
-		expect(whenToReload({ ...still, cheap: false })).toBe("wait");
-		expect(whenToReload({ ...still, idle: false, cheap: false })).toBe("wait");
-	});
-});
-
-describe("untilCheap", () => {
-	const clock = {
-		movedAt: 1_000,
-		lastTurnAt: 1_000,
-		now: 1_000,
-		lifetimeMs: 100,
-		ceilingMs: 500,
-	};
-
-	it("waits for the cache to expire after the last turn", () => {
-		expect(untilCheap(clock)).toBe(100);
-		expect(untilCheap({ ...clock, now: 1_100 })).toBe(0);
-	});
-
-	it("waits no longer than the ceiling after the move", () => {
-		expect(untilCheap({ ...clock, lastTurnAt: 1_450, now: 1_450 })).toBe(50);
-		expect(untilCheap({ ...clock, lastTurnAt: 1_500, now: 1_500 })).toBe(0);
 	});
 });
 

@@ -125,11 +125,6 @@ export function sayLanded(
 		content: text,
 		display: landed.by === "self",
 	});
-	// The reload took a compaction's moment, so it carries on the run
-	// that compaction interrupted, as the compaction would have.
-	if (landed.resume !== undefined) {
-		pi.sendUserMessage(landed.resume, { deliverAs: "followUp" });
-	}
 }
 
 /**

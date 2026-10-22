@@ -280,23 +280,6 @@ describe("the agent asking for a reload", () => {
 		expect(next.hidden).toEqual([]);
 	});
 
-	it("carries on the run a compaction interrupted once its reload lands", async () => {
-		runningTheInstall();
-		const now = runtime();
-		await now.start("startup");
-		const slot = reloadSlot();
-		slot.request = { reason: "feat: x", by: "self", resume: "carry on" };
-		slot.dispatched = true;
-
-		const next = runtime();
-		await now.command("reload", next);
-		await until("the run is resumed", () => next.sentToPrompt.length > 0);
-
-		expect(next.sentToPrompt).toEqual([
-			{ text: "carry on", options: { deliverAs: "followUp" } },
-		]);
-	});
-
 	it("refuses a directory that is not this package", async () => {
 		runningTheInstall();
 		const now = runtime();
