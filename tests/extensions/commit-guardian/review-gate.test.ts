@@ -64,7 +64,9 @@ afterEach(() => {
 });
 
 describe("commit guardian review gate", () => {
-	it("blocks with the guard to switch when verification is failing, even headless", async () => {
+	it("blocks with the problems when verification is failing, even headless, and never sends the agent to the person", async () => {
+		// Asking Joel to clear a guard by slash command once stopped him
+		// in the middle of a publish; the way on is the guard mode's to say.
 		failingWith(["/repo/a.ts:3:1 Cannot find name 'x'."]);
 
 		const result = await review("feat: x\n\nbody", fakeCtx(false));
@@ -72,7 +74,7 @@ describe("commit guardian review gate", () => {
 		expect(result).toMatchObject({ block: true });
 		const reason = (result as { reason: string }).reason;
 		expect(reason).toContain("- /repo/a.ts:3:1 Cannot find name 'x'.");
-		expect(reason).toContain("/guards commit-verification off");
+		expect(reason).not.toMatch(/ask the user|\/guards/);
 	});
 
 	it("asks about the tree the commit lands in", async () => {
@@ -116,6 +118,7 @@ describe("commit guardian review gate", () => {
 		const again = await review(message, fakeCtx(false));
 
 		expect(first).toMatchObject({ block: true });
+		expect((first as { reason: string }).reason).toMatch(/same call again/);
 		expect(again).toBeUndefined();
 		expect(
 			seen.filter((r) => r.guard === "commit-verification").map((r) => r.kind),

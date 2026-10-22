@@ -168,6 +168,18 @@ export function reclassify(
 	});
 }
 
+/**
+ * The URL a create was given, or nothing. A caller filling every field
+ * from a template passes the word "null" for no URL, and refusing that
+ * as a URL nothing recognises sent two overseer-driven sessions round
+ * again for nothing.
+ */
+function givenUrl(url: string | undefined): string | undefined {
+	const trimmed = url?.trim();
+	if (!trimmed || trimmed === "null" || trimmed === "undefined") return;
+	return trimmed;
+}
+
 export async function create(
 	state: QuestState,
 	pi: ExtensionAPI,
@@ -185,8 +197,9 @@ export async function create(
 	let seededTitle: string | undefined = params.title?.trim() || undefined;
 	let seededExcerpt: string | undefined;
 	let seededOriginator: { type: string; value: string } | undefined;
-	if (params.url?.trim()) {
-		const ref = parseRef(params.url.trim());
+	const url = givenUrl(params.url);
+	if (url) {
+		const ref = parseRef(url);
 		if (!ref) {
 			return refuse(
 				`URL "${params.url}" did not match any registered ref type. Pass a title and create without --url, or register a ref type for this URL shape.`,
@@ -302,12 +315,12 @@ export async function create(
 	mkdirSync(dir, { recursive: true });
 	atomicWriteFile(path, body);
 	if (seededAlias) {
-		const url = urlForRef(seededAlias) ?? params.url?.trim() ?? "";
+		const seededUrl = urlForRef(seededAlias) ?? url ?? "";
 		appendJourneyByPath(
 			dir,
 			seededOriginator
-				? `Created from ${url} by @${seededOriginator.value}.`
-				: `Created from ${url}.`,
+				? `Created from ${seededUrl} by @${seededOriginator.value}.`
+				: `Created from ${seededUrl}.`,
 		);
 	}
 	const made = `Created ${kind} ${id} at ${displayPath(path)}`;

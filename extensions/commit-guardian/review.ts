@@ -233,8 +233,10 @@ async function verificationRefusal(
 			`Verification finds errors in ${dir ?? "the trees this session changed"}, checked just now:`,
 			...shown.map((p) => `- ${p}`),
 			...(more > 0 ? [`- and ${more} more`] : []),
-			"Fix them, then commit again. If this is wrong, ask the user to run " +
-				"`/guards commit-verification off`.",
+			// The way on past a report the agent judges wrong is the guard
+			// mode's to say, not a slash command for the person: asking Joel
+			// to clear a guard once cost him a stop in the middle of a publish.
+			"Fix them, then commit again.",
 		].join("\n"),
 	};
 }

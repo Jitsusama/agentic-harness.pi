@@ -554,6 +554,20 @@ describe("URL-seeded create", () => {
 		expect(handed).toEqual([controller.signal]);
 	});
 
+	it("reads the word null as no URL, and creates from the title", async () => {
+		// A caller filling every field from a template passes "null" for
+		// the field it has nothing for; nothing would ever register it.
+		const state = buildState();
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "create",
+			title: "From a Template",
+			url: "null",
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		const path = (result.details as { path: string }).path;
+		expect(readFileSync(path, "utf8")).toContain("# From a Template");
+	});
+
 	it("refuses with guidance when neither URL hint nor title is given", async () => {
 		const state = buildState();
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
