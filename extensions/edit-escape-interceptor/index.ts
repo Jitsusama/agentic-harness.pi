@@ -20,9 +20,14 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import {
 	type ExtensionAPI,
+	isEditToolResult,
 	isToolCallEventType,
 } from "@earendil-works/pi-coding-agent";
 import { hasEscapes, type Replacement, readEscapes } from "./escapes.ts";
+import { missedEditHint } from "./missed.ts";
+
+/** pi's words for an old text it could not find, and which edit it was. */
+const MISSED = /Could not find (?:the exact text|edits\[(\d+)\])/;
 
 /** Where an edit's path points, as pi's edit tool reads it. */
 function editedPath(path: string, cwd: string): string {
@@ -59,5 +64,32 @@ export default function editEscapeInterceptor(pi: ExtensionAPI) {
 			return;
 		}
 		readEscapes(content, edits);
+	});
+
+	// A missed edit is told what the file holds, so the retry can be right
+	// without a read in between (see `missed.ts`).
+	pi.on("tool_result", async (event, ctx) => {
+		if (!isEditToolResult(event) || !event.isError) return undefined;
+		const text = event.content
+			.map((part) => (part.type === "text" ? part.text : ""))
+			.join("\n");
+		const missed = text.match(MISSED);
+		if (!missed) return undefined;
+		const index = missed[1] === undefined ? 0 : Number(missed[1]);
+		const edit = replacementsOf(event.input)?.[index];
+		const path = event.input.path;
+		if (!edit || typeof path !== "string") return undefined;
+		let content: string;
+		try {
+			content = readFileSync(editedPath(path, ctx.cwd), "utf8");
+		} catch {
+			return undefined;
+		}
+		const label = missed[1] === undefined ? "the edit" : `edits[${index}]`;
+		const hint = missedEditHint(content, edit.oldText, edit.newText, label);
+		if (!hint) return undefined;
+		return {
+			content: [...event.content, { type: "text", text: `\n${hint}` }],
+		};
 	});
 }
