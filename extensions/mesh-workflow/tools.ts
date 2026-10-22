@@ -193,12 +193,12 @@ export function registerTools(
 		name: "mesh_groups",
 		label: "Mesh",
 		description:
-			"List the mesh groups, who is in each, and which this peer is in, and the leases peers hold: what each is changing, answering, holding, waiting on or running.",
+			"List the peers on the mesh and what each works on, the groups, who is in each, and which this peer is in, and the leases peers hold: what each is changing, answering, holding, waiting on or running.",
 		parameters: Type.Object({}),
 		execute: using(async (at) => {
 			const standing = await peers(at);
 			return answer(
-				`${groupsText(standing, at.peer)}${leasesText(at.board.all(), standing.present)}`,
+				`${groupsText(standing, at.peer)}${peersText(standing.present, at.peer)}${leasesText(at.board.all(), standing.present)}`,
 				{ groups: at.peer.groups },
 			);
 		}),
@@ -442,6 +442,17 @@ function reach(
 	const unknown = addressed
 		.filter((group) => !there.has(group) && !ended.has(group))
 		.map((group) => group.slice(1));
+	// Waited on as though it were free to answer, it would hold its asker up.
+	const waiting = everyone.flatMap((one) =>
+		one.session !== peer.session &&
+		one.wants &&
+		one.addresses[0] &&
+		one.addresses.some((address) => addressed.includes(homeOf(address)))
+			? [
+					`${one.addresses[0]} (${WANTING[one.wants.kind]} since ${clock({ at: one.wants.since })})`,
+				]
+			: [],
+	);
 	const notes = [
 		reached.length > 0
 			? `It goes to ${reached.join(", ")}; mesh_read says when each has it.`
@@ -451,6 +462,9 @@ function reach(
 			: "",
 		unknown.length > 0
 			? `No peer goes by ${unknown.join(", ")}; one never will if the address is wrong.`
+			: "",
+		waiting.length > 0
+			? `${waiting.join(" and ")} ${waiting.length === 1 ? "is waiting on its person, so it" : "are waiting on their people, so they"} may be slow to take this up.`
 			: "",
 	].filter(Boolean);
 	return { notes, reached, gone };
@@ -790,6 +804,25 @@ function groupsText(standing: Census, peer: Peer): string {
 	return lines.length > 0
 		? `${own}\nGroups:\n${lines.join("\n")}${more}`
 		: `${own} No other groups yet.${more}`;
+}
+
+/** How much of what a peer works on mesh_groups says, to name it. */
+const WORK_CHARS = 100;
+
+/**
+ * Every other peer still there, one line each: whether it is in a run,
+ * and what it works on, so a peer can tell whom to ask without asking.
+ */
+function peersText(present: readonly Presence[], peer: Peer): string {
+	const lines = present.flatMap((one) => {
+		const address = one.addresses[0];
+		if (one.session === peer.session || !address) return [];
+		const work = one.worksOn.replace(/\s+/g, " ").trim();
+		const cut =
+			work.length > WORK_CHARS ? `${work.slice(0, WORK_CHARS - 3)}...` : work;
+		return [`${address}, ${one.busy ? "busy" : "idle"}: ${cut}`];
+	});
+	return lines.length > 0 ? `\nPeers:\n${lines.join("\n")}` : "";
 }
 
 /**

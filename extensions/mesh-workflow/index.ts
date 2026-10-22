@@ -840,7 +840,8 @@ export function meshWorkflow(
 		const heavyCalls = createHeavyCalls(heavy);
 
 		// A change claims its file, and a peer reaching for a file another is
-		// changing is told who, once, before it goes ahead beside them. A heavy
+		// changing is told who, once, before it goes ahead beside them. A git
+		// command that rewrites a checkout claims it the same way, and a heavy
 		// command claims its kind of work. Never throws: pi blocks a tool
 		// whose handler fails.
 		pi.on(
@@ -848,9 +849,16 @@ export function meshWorkflow(
 			async (event, called): Promise<ToolCallEventResult | undefined> => {
 				try {
 					if (isToolCallEventType("bash", event)) {
-						if (own && peer) {
-							heavyCalls.called(event.toolCallId, event.input.command);
-						}
+						const command = event.input.command;
+						const why =
+							typeof command === "string"
+								? await leasing.rewrite(
+										command,
+										called?.cwd ?? ctx?.cwd ?? process.cwd(),
+									)
+								: undefined;
+						if (why) return { block: true, reason: why };
+						if (own && peer) heavyCalls.called(event.toolCallId, command);
 						return undefined;
 					}
 					const path =

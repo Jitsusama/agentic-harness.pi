@@ -13,7 +13,11 @@
  * - **change:** a file this peer is editing, named by repository and
  *   path so two worktrees of one repository overlap. Taken by the
  *   harness on each edit; lapses with the run, or ten minutes after the
- *   last edit.
+ *   last edit. A git command that rewrites a checkout's files (a
+ *   branch switched, a hard reset, a stash) changes every file in it,
+ *   so it claims the whole checkout, named by its path: two worktrees
+ *   are two checkouts, and only peers in the one rewritten are touched.
+ *   Each change lease says which checkout it is in.
  * - **answer:** a question this peer has a turn for, so the rest of a
  *   group leave it to it. Lapses with the run.
  * - **hold:** a hold this peer sent, until it answers or replaces it,
@@ -33,6 +37,7 @@
  */
 
 import { readdirSync, readFileSync, rmSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { checkoutOf, repositoryName } from "./presence.ts";
 import {
@@ -64,6 +69,13 @@ export interface Lease {
 	readonly until: string;
 	/** What it is for, in a phrase. */
 	readonly why?: string;
+	/** The checkout a change is in, by its path, when it is in one. */
+	readonly checkout?: string;
+}
+
+/** Whether a change lease claims its whole checkout, not one file. */
+export function claimsCheckout(lease: Lease): boolean {
+	return lease.kind === "change" && lease.subject === lease.checkout;
 }
 
 /** One peer's leases, as the board keeps them. */
@@ -142,7 +154,11 @@ const HEAVY_WORK: readonly (readonly [RegExp, string])[] = [
 	[/\bnix\s+build\b|\bnix-build\b/, "nix build"],
 	[/\bnixos-rebuild\b/, "nixos-rebuild"],
 	[/\bqemu(?:-system-[\w-]+)?\b/, "qemu"],
-	[/\bcargo\s+build\b/, "cargo build"],
+	// Each of these compiles the crate and what it depends on.
+	[
+		/\bcargo\s+(?:build|check|clippy|test|nextest|bench|run|install)\b/,
+		"cargo",
+	],
 ];
 
 /** A heredoc's body, from the line after `<<WORD` to WORD alone. */
@@ -160,6 +176,92 @@ const QUOTED = /'[^']*'|"(?:[^"\\]|\\.)*"/g;
 export function heavyWorkIn(command: string): string | undefined {
 	const runs = command.replace(HEREDOC, "\n").replace(QUOTED, "''");
 	return HEAVY_WORK.find(([pattern]) => pattern.test(runs))?.[1];
+}
+
+/** A git command that rewrites a checkout's files, and the checkout. */
+export interface Rewrite {
+	/** The checkout's path. */
+	readonly checkout: string;
+	/** The git command, as it was written. */
+	readonly command: string;
+}
+
+/** Where a shell command's parts end, so each is read on its own. */
+const PARTS = /&&|\|\||[;|\n]/;
+
+/** What stash does that leaves the files alone. */
+const STASH_READS = new Set(["list", "show", "drop", "clear", "create"]);
+
+/**
+ * The first git command in a shell command that rewrites a checkout's
+ * files, read where the shell runs it as for heavy work: switching a
+ * branch, a hard reset, a stash, a rebase, a merge or a pull, a
+ * restore, a forced clean, a cherry-pick, a revert or an am. It runs in
+ * the checkout `-C` names, else the last `cd` before it, else `cwd`.
+ * A new branch made where the checkout stands rewrites nothing. A
+ * directory in quotes is missed, which claims too little, never too
+ * much.
+ */
+export function rewriteIn(command: string, cwd: string): Rewrite | undefined {
+	const runs = command.replace(HEREDOC, "\n").replace(QUOTED, "''");
+	let dir = cwd;
+	for (const part of runs.split(PARTS)) {
+		const words = part.trim().split(/\s+/);
+		if (words[0] === "cd" && words.length === 2 && words[1]) {
+			dir = resolve(dir, expandHome(words[1]));
+			continue;
+		}
+		let at = words.findIndex((word) => !/^\w+=/.test(word));
+		if (words[at] !== "git") continue;
+		let runsIn = dir;
+		for (at += 1; words[at]?.startsWith("-"); at += 1) {
+			if (words[at] === "-C" || words[at] === "-c") {
+				if (words[at] === "-C" && words[at + 1]) {
+					runsIn = resolve(runsIn, expandHome(words[at + 1] ?? ""));
+				}
+				at += 1;
+			}
+		}
+		if (!rewrites(words[at] ?? "", words.slice(at + 1))) continue;
+		const checkout = checkoutOf(runsIn);
+		if (checkout) return { checkout, command: part.trim() };
+	}
+	return undefined;
+}
+
+/** Whether this git subcommand, with these arguments, rewrites files. */
+function rewrites(verb: string, args: readonly string[]): boolean {
+	switch (verb) {
+		case "checkout":
+			return !(/^-[bB]$|^--orphan$/.test(args[0] ?? "") && args.length <= 2);
+		case "switch":
+			return !(/^-[cC]$|^--create$/.test(args[0] ?? "") && args.length <= 2);
+		case "reset":
+			return args.some((arg) => /^--(?:hard|merge|keep)$/.test(arg));
+		case "stash":
+			return !STASH_READS.has(args[0] ?? "");
+		case "clean":
+			return (
+				args.some((arg) => /^-\w*f|^--force$/.test(arg)) &&
+				!args.some((arg) => /^-\w*n|^--dry-run$/.test(arg))
+			);
+		case "restore":
+		case "rebase":
+		case "merge":
+		case "pull":
+		case "cherry-pick":
+		case "revert":
+		case "am":
+			return true;
+		default:
+			return false;
+	}
+}
+
+function expandHome(path: string): string {
+	return path === "~" || path.startsWith("~/")
+		? join(homedir(), path.slice(1))
+		: path;
 }
 
 /** Whether a lease still stands by its clock. */
@@ -273,6 +375,9 @@ function leaseFrom(value: unknown): Lease[] {
 			since: one.since,
 			until: one.until,
 			...(typeof one.why === "string" ? { why: one.why } : {}),
+			...(typeof one.checkout === "string" && one.checkout !== ""
+				? { checkout: one.checkout }
+				: {}),
 		},
 	];
 }
@@ -310,16 +415,53 @@ export function othersOn(
 }
 
 /**
+ * Other peers' current change leases in this checkout, of files or of
+ * the whole of it, as a peer about to rewrite it or change a file in
+ * it needs to know. A peer's own hands are not others, as for
+ * {@link othersOn}.
+ */
+export function othersIn(
+	board: readonly Holding[],
+	session: string,
+	checkout: string,
+	now: number,
+): Held[] {
+	return board.flatMap((holding) =>
+		holding.session === session || ownerOf(holding) === session
+			? []
+			: holding.leases
+					.filter(
+						(lease) =>
+							lease.kind === "change" &&
+							lease.checkout === checkout &&
+							isCurrent(lease, now),
+					)
+					.map((lease) => ({ session: ownerOf(holding), lease })),
+	);
+}
+
+/**
  * What a change to this file is called on the board: the repository and
  * the path inside it when the file is in a checkout, so two worktrees of
  * one repository name it alike, and the absolute path otherwise.
  */
 export function changeSubject(path: string, cwd: string): string {
+	return changeOf(path, cwd).subject;
+}
+
+/** A change to this file as the board names it, and its checkout. */
+export function changeOf(
+	path: string,
+	cwd: string,
+): { readonly subject: string; readonly checkout?: string } {
 	const absolute = resolve(cwd, path);
 	const checkout = checkoutOf(dirname(absolute));
 	return checkout
-		? `${repositoryName(checkout)}:${relative(checkout, absolute)}`
-		: absolute;
+		? {
+				subject: `${repositoryName(checkout)}:${relative(checkout, absolute)}`,
+				checkout,
+			}
+		: { subject: absolute };
 }
 
 /** This peer's own leases, kept on the board as they change. */
@@ -327,13 +469,17 @@ export interface OwnLeases {
 	readonly leases: readonly Lease[];
 	/** The current lease of this kind on this subject, if this peer holds one. */
 	held(kind: LeaseKind, subject: string, now?: number): Lease | undefined;
-	/** Take a lease, or renew the one held, for this long from now. */
+	/**
+	 * Take a lease, or renew the one held, for this long from now; a
+	 * change says the checkout it is in.
+	 */
 	take(
 		kind: LeaseKind,
 		subject: string,
 		ms: number,
 		why?: string,
 		now?: number,
+		checkout?: string,
 	): Lease;
 	/** Give up a lease; answers the one given up, if there was one. */
 	release(kind: LeaseKind, subject: string): Lease | undefined;
@@ -388,7 +534,7 @@ export function ownLeases(
 			const lease = find(kind, subject);
 			return lease && isCurrent(lease, at) ? lease : undefined;
 		},
-		take(kind, subject, ms, why, at = Date.now()) {
+		take(kind, subject, ms, why, at = Date.now(), checkout) {
 			const until = new Date(at + ms).toISOString();
 			const old = find(kind, subject);
 			if (old && isCurrent(old, at)) {
@@ -411,6 +557,7 @@ export function ownLeases(
 				since: new Date(at).toISOString(),
 				until,
 				...(why !== undefined ? { why } : {}),
+				...(checkout !== undefined ? { checkout } : {}),
 			};
 			leases = [...leases.filter((one) => one !== old), lease];
 			write();

@@ -3,7 +3,7 @@
  * and changes is claimed as the parent's, the holds reaching the parent
  * reach it before it starts what they name, and nothing else does.
  */
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -198,6 +198,27 @@ describe("a peer's hand", () => {
 		board().hold({ session: "other", leases: [] });
 		await fire("turn_end");
 		expect(said).toEqual([`The mesh hold [${shortId(hold)}] is over.`]);
+	});
+
+	it("is held back once from rewriting a checkout another peer changes files in", async () => {
+		mkdirSync(join(root, ".git"));
+		board().hold({
+			session: "other",
+			leases: [{ ...othersLease("change", "x:a.ts"), checkout: root }],
+		});
+		const { fire } = await startHand();
+		const stash = () =>
+			fire(
+				"tool_call",
+				{ toolName: "bash", toolCallId: "s", input: { command: "git stash" } },
+				{ cwd: root },
+			);
+
+		expect(await stash()).toMatchObject({ block: true });
+		expect(await stash()).toBeUndefined();
+		expect(handLeases()?.leases).toMatchObject([
+			{ kind: "change", subject: root },
+		]);
 	});
 
 	it("is held back once from a file another peer is changing, then claims it", async () => {

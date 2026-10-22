@@ -73,7 +73,8 @@ and can answer a question or a gate left open on screen.
 - `mesh_send`: send a message with an intent to the groups
   named in `to`, or, with `to` left out, to those routing
   picks (see Routing). It says which peers the message goes
-  to, which addressed peers have ended, which addresses nobody
+  to, which addressed peers have ended or wait on their
+  person, which addresses nobody
   goes by and which named groups nobody else is in yet. A peer
   reads what it writes to: sending to a named group it does
   not hear joins it, so the answers reach it. `re` names the
@@ -97,8 +98,10 @@ and can answer a question or a gate left open on screen.
   asked, it says who answered and in which message, who is
   answering, or for how long it has gone unanswered.
 - `mesh_join`, `mesh_leave` and `mesh_groups`: the groups this
-  peer is in, and who is in each. `mesh_groups` also lists the
-  leases of the peers still there. A bare name joins a peer's
+  peer is in, and who is in each. `mesh_groups` also lists
+  each other peer still there, one line each, saying whether
+  it is busy or idle and what it works on, and the leases of
+  the peers still there. A bare name joins a peer's
   home group when some peer goes by it, and a named group
   otherwise; joining a group nobody is in makes it.
   `mesh_join` with `invite` brings other peers in without
@@ -253,6 +256,18 @@ doing only when it is the easy thing:
   work, and the holder is sent an fyi; reaching again goes
   ahead beside them. The holder itself is never stopped. It
   lapses when the run ends, or ten minutes after the last edit.
+  A `bash` call running git that rewrites a checkout's files
+  (`checkout` or `switch` to another commit, `reset --hard`,
+  `stash`, `rebase`, `merge`, `pull`, `restore`, `clean -f`,
+  `cherry-pick`, `revert`, `am`) claims the whole checkout, by
+  its path, so two worktrees are two checkouts. While another
+  peer still there is changing files in that checkout, it is
+  stopped once with who and what, and each such peer is sent
+  an fyi; running it again goes ahead. An edit in a checkout
+  another peer rewrote in its run is stopped once the same
+  way, since the files may not be what the editor read. One
+  shared checkout is where a hard reset or a stash takes
+  another peer's edits with it.
 - **answer:** a turn claims the questions it carries, so a
   group's question another peer has a turn for is only noted,
   "being answered by" that peer. Each turn's end renews it, so
@@ -271,7 +286,9 @@ doing only when it is the easy thing:
   Only while it waits does a peer check, once a minute, that
   the holder is still there.
 - **heavy:** a `bash` call running heavy work (`nix flake
-  check`, `nix build`, `nixos-rebuild`, `qemu`, `cargo build`)
+  check`, `nix build`, `nixos-rebuild`, `qemu`, and `cargo`
+  building, checking, linting, testing, benching, running or
+  installing, which each compile the crate)
   claims that kind of work until the call answers (only where
   the shell runs it: named in quotes or a heredoc, as a grep or
   a commit message does, it claims nothing); one handed
@@ -300,8 +317,8 @@ cores. So a subagent is its parent's hands:
 
 - **No address of its own:** it has no presence, no tools, and
   nothing is sent to it or by it.
-- **Its claims are its parent's:** its file changes and heavy
-  work are leased under the parent, marked "by a subagent",
+- **Its claims are its parent's:** its file changes, checkout
+  rewrites and heavy work are leased under the parent, marked "by a subagent",
   so others are told of an overlap and `mesh_groups` lists the
   claim beside the parent's own. A parent's hands never
   overlap with it or with each other.

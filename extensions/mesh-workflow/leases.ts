@@ -5,7 +5,8 @@
  *
  * The harness takes most leases itself, since agents tell others what
  * they are doing only when it is the easy thing (the swarm's posts went
- * 92% through the root): an edit claims its file, a turn claims the
+ * 92% through the root): an edit claims its file, a git command that
+ * rewrites a checkout's files claims the checkout, a turn claims the
  * questions it carries, a hold sent claims what it holds, and answering
  * another's hold says this peer waits on it.
  */
@@ -14,7 +15,8 @@ import { answeringTo } from "../../lib/mesh/address.ts";
 import { homeOf } from "../../lib/mesh/group.ts";
 import {
 	type Board,
-	changeSubject,
+	changeOf,
+	claimsCheckout,
 	HEAVY_MS,
 	type Held,
 	type Holding,
@@ -24,9 +26,11 @@ import {
 	type LeaseEvent,
 	MOST_HOLD_MS,
 	type OwnLeases,
+	othersIn,
 	othersOn,
 	ownerOf,
 	RUN_LEASE_MS,
+	rewriteIn,
 } from "../../lib/mesh/lease.ts";
 import { census } from "../../lib/mesh/liveness.ts";
 import { clock, type Message, shortId } from "../../lib/mesh/message.ts";
@@ -74,6 +78,12 @@ export interface Leasing {
 	 * yet, once, when another peer is changing it.
 	 */
 	reach(path: string, cwd: string): Promise<string | undefined>;
+	/**
+	 * Before this peer runs a shell command: nothing when it may, or why
+	 * not yet, once, when it rewrites the files of a checkout another
+	 * peer is changing files in.
+	 */
+	rewrite(command: string, cwd: string): Promise<string | undefined>;
 	/** Claim the questions a turn of this peer's carries. */
 	answering(messages: readonly Message[]): void;
 	/**
@@ -147,23 +157,85 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 			const peer = at.peer();
 			if (!own || !peer) return undefined;
 			const now = Date.now();
-			const subject = changeSubject(path, cwd);
+			const { subject, checkout } = changeOf(path, cwd);
 			if (!own.held("change", subject, now)) {
-				const overlapping = await untold(
-					othersOn(at.board.all(), peer.session, "change", subject, now),
-				);
+				const board = at.board.all();
+				const overlapping = await untold([
+					...othersOn(board, peer.session, "change", subject, now),
+					...(checkout
+						? othersIn(board, peer.session, checkout, now).filter(({ lease }) =>
+								claimsCheckout(lease),
+							)
+						: []),
+				]);
 				if (overlapping.length > 0) {
 					for (const one of overlapping) {
 						told.add(key(one));
 						tell(
 							one.holder,
-							`${peer.signature} reached for ${subject}, which this peer is changing. It was told who is, and may go ahead beside this peer.`,
+							claimsCheckout(one.lease)
+								? `${peer.signature} reached for ${subject}, in the checkout this peer rewrote. It was told who did, and may go ahead beside this peer.`
+								: `${peer.signature} reached for ${subject}, which this peer is changing. It was told who is, and may go ahead beside this peer.`,
 						);
 					}
-					return `Not changed yet: ${holders(overlapping)} changing ${subject}. Two peers changing one file risk a conflict, so look at what is there first, or ${asking}. Reaching for it again goes ahead beside them; they have been told.`;
+					const rewrote = overlapping.filter(({ lease }) =>
+						claimsCheckout(lease),
+					);
+					const changing = overlapping.filter(
+						({ lease }) => !claimsCheckout(lease),
+					);
+					const said = [
+						changing.length > 0
+							? `${holders(changing)} changing ${subject}. Two peers changing one file risk a conflict, so look at what is there first, or ${asking}.`
+							: "",
+						...rewrote.map(
+							(one) =>
+								`${holders([one])} ${changingText([one.lease])} in ${one.lease.subject}, so what is there may not be what this peer read: look at it first, or ${asking}.`,
+						),
+					].filter(Boolean);
+					return `Not changed yet: ${said.join(" ")} Reaching for it again goes ahead beside them; they have been told.`;
 				}
 			}
-			own.take("change", subject, RUN_LEASE_MS, undefined, now);
+			own.take("change", subject, RUN_LEASE_MS, undefined, now, checkout);
+			return undefined;
+		},
+
+		async rewrite(command, cwd) {
+			const own = at.own();
+			const peer = at.peer();
+			if (!own || !peer) return undefined;
+			const found = rewriteIn(command, cwd);
+			if (!found) return undefined;
+			const now = Date.now();
+			const { checkout } = found;
+			const run = cut(found.command);
+			// Asked every time, not only before the first: what another peer
+			// changed since this peer last rewrote it is what a rewrite loses.
+			const overlapping = await untold(
+				othersIn(at.board.all(), peer.session, checkout, now),
+			);
+			if (overlapping.length > 0) {
+				const byHolder = new Map<string, typeof overlapping>();
+				for (const one of overlapping) {
+					told.add(key(one));
+					byHolder.set(one.session, [
+						...(byHolder.get(one.session) ?? []),
+						one,
+					]);
+				}
+				const each = [...byHolder.values()].map((held) => {
+					const [first] = held;
+					if (first) {
+						tell(
+							first.holder,
+							`${peer.signature} is about to run \`${run}\` in ${checkout}, which rewrites its files while this peer is ${changingText(held.map(({ lease }) => lease))}. It was told, and running it again goes ahead.`,
+						);
+					}
+					return `${holders(held.slice(0, 1))} ${changingText(held.map(({ lease }) => lease))}`;
+				});
+				return `Not run yet: \`${run}\` rewrites the files of ${checkout}, where ${each.join("; and ")}. What they changed could be lost or switched out from under them, so look first, or ${asking}. Running it again goes ahead; they have been told.`;
+			}
+			own.take("change", checkout, RUN_LEASE_MS, run, now, checkout);
 			return undefined;
 		},
 
@@ -344,6 +416,27 @@ function holders(held: readonly (Held & { holder: Presence })[]): string {
 	return `${each.join(" and ")} ${each.length === 1 ? "is" : "are"}`;
 }
 
+/** What a peer's changes in one checkout are, to follow "is". */
+function changingText(leases: readonly Lease[]): string {
+	const files = leases.filter((lease) => !claimsCheckout(lease));
+	const shown = files.slice(0, 3).map((lease) => lease.subject);
+	const more = files.length - shown.length;
+	return [
+		files.length > 0
+			? `changing ${shown.join(", ")}${more > 0 ? ` and ${more} more` : ""}`
+			: "",
+		...leases
+			.filter(claimsCheckout)
+			.map((lease) =>
+				lease.why
+					? `working on what \`${lease.why}\` left`
+					: "working on all of them",
+			),
+	]
+		.filter(Boolean)
+		.join(", and ");
+}
+
 /** The leases of the peers still there, as mesh_groups lists them. */
 export function leasesText(
 	board: readonly Holding[],
@@ -365,13 +458,22 @@ export function leasesText(
 
 /** A peer's leases in a phrase, its changes counted past the first few. */
 function describeAll(leases: readonly Lease[]): string {
-	const changes = leases.filter((lease) => lease.kind === "change");
+	const changes = leases.filter(
+		(lease) => lease.kind === "change" && !claimsCheckout(lease),
+	);
 	const shown = changes.slice(0, 3).map((lease) => lease.subject);
 	const more = changes.length - shown.length;
-	const changing =
-		changes.length > 0
+	const changing = [
+		...leases
+			.filter(claimsCheckout)
+			.map(
+				(lease) =>
+					`rewrote the files of ${lease.subject}${lease.why ? ` (${lease.why})` : ""}`,
+			),
+		...(changes.length > 0
 			? [`changing ${shown.join(", ")}${more > 0 ? ` and ${more} more` : ""}`]
-			: [];
+			: []),
+	];
 	const rest = leases
 		.filter((lease) => lease.kind !== "change")
 		.map((lease) => {

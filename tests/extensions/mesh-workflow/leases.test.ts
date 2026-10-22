@@ -194,6 +194,37 @@ describe("leases as listed", () => {
 		expect(leasesText([], [present("w", "WCJQSG")], now)).toBe("");
 	});
 
+	it("say a checkout rewritten as what left its files as they are", () => {
+		const now = Date.now();
+		const until = new Date(now + 60_000).toISOString();
+		const board = [
+			{
+				session: "w",
+				leases: [
+					{
+						kind: "change" as const,
+						subject: "w:a",
+						since: "",
+						until,
+						checkout: "/w",
+					},
+					{
+						kind: "change" as const,
+						subject: "/w",
+						since: "",
+						until,
+						checkout: "/w",
+						why: "git switch fix",
+					},
+				],
+			},
+		];
+
+		expect(leasesText(board, [present("w", "WCJQSG")], now)).toBe(
+			"\nLeases:\nWCJQSG: rewrote the files of /w (git switch fix); changing w:a",
+		);
+	});
+
 	it("put a hand's leases under the peer it works for", () => {
 		const now = Date.now();
 		const heavy = {
