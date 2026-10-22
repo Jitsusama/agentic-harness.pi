@@ -6,6 +6,7 @@
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import type { QueueRecord } from "../../lib/internal/priority/folder.ts";
 import { answeringTo, namedAtStart } from "../../lib/mesh/address.ts";
 import {
 	ALL,
@@ -49,6 +50,8 @@ export interface Local {
 	readonly board: Board;
 	/** The classifier, for routing a message that names no group. */
 	readonly route?: Judge;
+	/** The machine queue's jobs, while some session keeps it. */
+	readonly queue?: () => QueueRecord["jobs"] | undefined;
 	/** Note a message this peer sent, so it is never handed back to it. */
 	sent(message: Message): void;
 }
@@ -198,12 +201,12 @@ export function registerTools(
 		name: "mesh_groups",
 		label: "Mesh",
 		description:
-			"List the peers on the mesh and what each works on, the groups, who is in each, and which this peer is in, and the leases peers hold: what each is changing, answering, holding, waiting on or running.",
+			"List the peers on the mesh and what each works on, the groups, who is in each, and which this peer is in, and the leases peers hold: what each is changing, answering, holding or waiting on, and the heavy work it runs or waits its turn for in the machine's queue.",
 		parameters: Type.Object({}),
 		execute: using(async (at) => {
 			const standing = await peers(at);
 			return answer(
-				`${groupsText(standing, at.peer)}${peersText(standing.present, at.peer)}${leasesText(at.board.all(), standing.present)}`,
+				`${groupsText(standing, at.peer)}${peersText(standing.present, at.peer)}${leasesText(at.board.all(), standing.present, Date.now(), at.queue?.())}`,
 				{ groups: at.peer.groups },
 			);
 		}),

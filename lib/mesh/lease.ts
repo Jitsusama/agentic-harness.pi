@@ -147,40 +147,11 @@ export function leaseEventFrom(value: unknown): LeaseEvent | undefined {
 	};
 }
 
-/**
- * The heavy work a shell command runs, named as two peers' heavy work
- * overlaps on, or nothing for a command that is not heavy. A short list
- * of what loads this machine for minutes, first match winning, so a
- * flake check is not also read as a build.
- */
-const HEAVY_WORK: readonly (readonly [RegExp, string])[] = [
-	[/\bnix\s+flake\s+check\b/, "nix flake check"],
-	[/\bnix\s+build\b|\bnix-build\b/, "nix build"],
-	[/\bnixos-rebuild\b/, "nixos-rebuild"],
-	[/\bqemu(?:-system-[\w-]+)?\b/, "qemu"],
-	// Each of these compiles the crate and what it depends on.
-	[
-		/\bcargo\s+(?:build|check|clippy|test|nextest|bench|run|install)\b/,
-		"cargo",
-	],
-];
-
 /** A heredoc's body, from the line after `<<WORD` to WORD alone. */
 const HEREDOC = /<<-?\s*(['"]?)(\w+)\1[^\n]*\n[\s\S]*?\n\s*\2[ \t]*(?=\n|$)/g;
 
 /** A quoted string: single quotes, or double with its escapes. */
 const QUOTED = /'[^']*'|"(?:[^"\\]|\\.)*"/g;
-
-/**
- * The work a command runs, read only where the shell runs it: text in
- * quotes or a heredoc names the work (a grep, a commit message, a PR
- * body) rather than running it. A command run through `sh -c '...'` is
- * missed, which claims too little, never too much.
- */
-export function heavyWorkIn(command: string): string | undefined {
-	const runs = command.replace(HEREDOC, "\n").replace(QUOTED, "''");
-	return HEAVY_WORK.find(([pattern]) => pattern.test(runs))?.[1];
-}
 
 /** A git command that rewrites a checkout's files, and the checkout. */
 export interface Rewrite {

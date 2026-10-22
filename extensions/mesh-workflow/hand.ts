@@ -16,6 +16,7 @@ import {
 	isToolCallEventType,
 	type ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
+import { kindOf, whatOf } from "../../lib/internal/priority/queue.ts";
 import { onJobFinished } from "../../lib/jobs/index.ts";
 import {
 	handIn,
@@ -24,7 +25,6 @@ import {
 } from "../../lib/mesh/hand.ts";
 import {
 	createBoard,
-	heavyWorkIn,
 	LEASE_KINDS,
 	type OwnLeases,
 	ownLeases,
@@ -36,9 +36,9 @@ import { folderTransport } from "../../lib/mesh/transport.ts";
 import { NOTED } from "./delivery.ts";
 import { type MeshPaths, machinePaths, registerHands } from "./index.ts";
 import {
-	commandLine,
 	createHeavyCalls,
 	createLeasing,
+	heavySaid,
 	type Leaser,
 	queueKept,
 } from "./leases.ts";
@@ -98,7 +98,7 @@ export function meshHand(
 						if (said) say(said);
 					})
 					.catch(() => {}),
-			(command) => `${commandLine(command)}, by a subagent`,
+			(command) => `${whatOf(command)}, by a subagent`,
 		);
 
 		// The holds this hand was told of, and those a heavy command was
@@ -172,7 +172,7 @@ export function meshHand(
 					if (isToolCallEventType("bash", event)) {
 						const command = event.input.command;
 						const work =
-							typeof command === "string" ? heavyWorkIn(command) : undefined;
+							typeof command === "string" ? kindOf(command) : undefined;
 						const unheard = holds.filter(
 							({ hold }) => !stoppedFor.has(hold.id),
 						);
@@ -237,7 +237,7 @@ function heldBack(holds: readonly StandingHold[], work: string): string {
 		({ hold, lease }) =>
 			`${hold.from} holds [${shortId(hold)}] since ${clock(hold)}, until ${clock({ at: lease.until })} at the latest: "${hold.text}"`,
 	);
-	return `Not run yet: this runs heavy work on ${work}, and ${each.join("; and ")}. If a hold names this, leave it and say in your answer that it waits on the hold. Running it again goes ahead anyway.`;
+	return `Not run yet: this runs ${heavySaid(work)}, and ${each.join("; and ")}. If a hold names this, leave it and say in your answer that it waits on the hold. Running it again goes ahead anyway.`;
 }
 
 export default meshHand();

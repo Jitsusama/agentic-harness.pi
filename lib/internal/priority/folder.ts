@@ -93,6 +93,20 @@ export function isKept(dir: string, now: number = Date.now()): boolean {
 	}
 }
 
+/**
+ * The queue as queue.json last said it, while some session keeps it:
+ * nothing once nobody has written it for {@link UNKEPT_MS}, since a
+ * record nobody keeps says what ran before, not what runs now.
+ */
+export function readQueue(
+	dir: string,
+	now: number = Date.now(),
+): QueueRecord | undefined {
+	if (!isKept(dir, now)) return undefined;
+	const record = parsed<QueueRecord>(join(dir, "queue.json"));
+	return record?.v === 1 && Array.isArray(record.jobs) ? record : undefined;
+}
+
 /** The whole queue, as queue.json holds it. */
 export interface QueueRecord {
 	readonly v: 1;

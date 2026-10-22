@@ -125,6 +125,7 @@ import {
 	createHeavyCalls,
 	createLeasing,
 	type HoldEnd,
+	queueJobs,
 	queueKept,
 } from "./leases.ts";
 import { meshLines, type Shown } from "./render.ts";
@@ -1036,6 +1037,7 @@ export function meshWorkflow(
 						presences,
 						board,
 						route: routing,
+						queue: () => queueJobs(env),
 						sent: (message) => {
 							seen.add(message.id);
 							leasing.sent(message);

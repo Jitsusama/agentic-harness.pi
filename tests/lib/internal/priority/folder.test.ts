@@ -18,6 +18,7 @@ import {
 	PID_MS,
 	type QueueRecord,
 	queueFolder,
+	readQueue,
 } from "../../../../lib/internal/priority/folder.ts";
 import {
 	keepOutcome,
@@ -224,6 +225,22 @@ describe("the machine's queue folder", () => {
 		const written = statSync(join(dir, "queue.json")).mtimeMs;
 		expect(isKept(dir, written + 119_999)).toBe(true);
 		expect(isKept(dir, written + 120_000)).toBe(false);
+	});
+
+	it("is read back only while it is kept, and only in a shape it knows", () => {
+		expect(readQueue(dir)).toBeUndefined();
+		const queue = folder();
+		queue.ask(job("waiting"));
+		queue.keep(ROOMY, NOW, () => undefined);
+		const written = statSync(join(dir, "queue.json")).mtimeMs;
+
+		expect(readQueue(dir, written)?.jobs.map(({ id }) => id)).toEqual([
+			"waiting",
+		]);
+		// What nobody keeps says what ran before, not what runs now.
+		expect(readQueue(dir, written + 120_000)).toBeUndefined();
+		writeFileSync(join(dir, "queue.json"), '{"v":2,"jobs":[]}\n');
+		expect(readQueue(dir)).toBeUndefined();
 	});
 
 	it("writes queue.json when it changes or its heartbeat is due", () => {
