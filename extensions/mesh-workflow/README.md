@@ -308,6 +308,16 @@ doing only when it is the easy thing:
   do, so peers held by one hold do not all carry on at once.
   Only while it waits does a peer check, once a minute, that
   the holder is still there.
+  This is how a machine-wide pause, a reboot included, hands
+  work back: the holder asks each peer to answer its hold once
+  parked, and answers the hold itself when work may resume.
+  Waits are kept on disk under the session's id and an end is
+  known by the holder's address, so a session restored after a
+  reboot is handed its turn, and one that ended while it was
+  down is found as it starts. A peer back before its holder
+  finds the holder ended, and carries on checking first. A
+  question or an fyi hands nothing back, so a pause sent as one
+  leaves sessions parked.
 - **heavy:** a `bash` call running heavy work (`nix flake
   check`, `nix build`, `nixos-rebuild`, `qemu`, and `cargo`
   building, checking, linting, testing, benching, running or
