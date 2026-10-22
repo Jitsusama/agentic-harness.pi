@@ -28,6 +28,7 @@ import {
 	NOTED,
 } from "../../../extensions/mesh-workflow/delivery.ts";
 import {
+	HAND_EXTENSION,
 	type MeshPaths,
 	meshWorkflow,
 } from "../../../extensions/mesh-workflow/index.ts";
@@ -39,6 +40,7 @@ import { SESSION_WANTS } from "../../../lib/internal/session/wants.ts";
 import { JOBS_FINISHED } from "../../../lib/jobs/index.ts";
 import { MOST_TURNS_FROM_ONE } from "../../../lib/mesh/damping.ts";
 import { ALL } from "../../../lib/mesh/group.ts";
+import { MESH_SESSION_ENV } from "../../../lib/mesh/hand.ts";
 import {
 	createBoard,
 	LEASE_EVENT,
@@ -46,6 +48,10 @@ import {
 } from "../../../lib/mesh/lease.ts";
 import type { Draft, Message } from "../../../lib/mesh/message.ts";
 import { createPresences } from "../../../lib/mesh/presence.ts";
+import {
+	SUBAGENT_READY,
+	SUBAGENT_REGISTER_DEFAULT_EXTENSION,
+} from "../../../lib/subagent/events.ts";
 
 // The folder's watcher, as a test can have it: deaf, as one is when the
 // kernel drops its events, and with a message landing as it is armed.
@@ -117,6 +123,7 @@ async function startSession(
 	lookAgainMs = 60_000,
 ) {
 	const sent: Sent[] = [];
+	const emitted: [string, unknown][] = [];
 	const bus = new Map<string, ((data: unknown) => void)[]>();
 	const entries: { type: string; data: unknown }[] = [];
 	const lifecycle = new Map<string, Handler>();
@@ -138,6 +145,7 @@ async function startSession(
 			on: (channel: string, handler: (data: unknown) => void) =>
 				bus.set(channel, [...(bus.get(channel) ?? []), handler]),
 			emit: (channel: string, data: unknown) => {
+				emitted.push([channel, data]);
 				for (const handler of bus.get(channel) ?? []) handler(data);
 			},
 		},
@@ -162,7 +170,7 @@ async function startSession(
 	});
 	const fire = (event: string, payload: unknown = {}, at: unknown = {}) =>
 		lifecycle.get(event)?.(payload, at);
-	return { sent, tools, entries, fire, emit: pi.events.emit };
+	return { sent, tools, entries, fire, emit: pi.events.emit, emitted };
 }
 
 /**
@@ -1984,7 +1992,30 @@ describe("a pi that keeps no session", () => {
 });
 
 describe("a fleet's subagent", () => {
-	it("stays off the mesh entirely", async () => {
+	it("works as the hands of the peer that starts it", async () => {
+		const env: NodeJS.ProcessEnv = {};
+		const { emitted } = await startSession(env);
+
+		expect(emitted).toContainEqual([
+			SUBAGENT_REGISTER_DEFAULT_EXTENSION,
+			HAND_EXTENSION,
+		]);
+		// Named to what it starts, so a subagent knows whose hands it is.
+		expect(env[MESH_SESSION_ENV]).toBe(session);
+	});
+
+	it("gets its hands from a fleet that says it is ready after the mesh loaded", async () => {
+		const registered: unknown[] = [];
+		await startSession({}, {}, [], undefined, undefined, (emit) =>
+			emit(SUBAGENT_READY, {
+				registerDefaultExtension: (path: unknown) => registered.push(path),
+			}),
+		);
+
+		expect(registered).toEqual([HAND_EXTENSION]);
+	});
+
+	it("is not a peer of its own", async () => {
 		// It works inside another session's turn and answers to it alone.
 		const { sent, tools } = await startSession({
 			SUBAGENT_SUPERVISOR: "1",
