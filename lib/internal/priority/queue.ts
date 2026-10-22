@@ -78,8 +78,21 @@ export const NEEDS_GIB: Readonly<Record<Kind, number>> = {
  * How many VMs run at once. 2HN63P's run 1 to 4 vCPUs each and kvm
  * takes several together; they ran one at a time across the machine
  * only because their timeouts flaked beside each other and big builds.
+ *
+ * Two held work back with the CPU free: after the 22 October reboot it
+ * was under half busy in 35 of 47 minutes, a VM ran in 30 of those, and
+ * three VM checks waited 98 to 551 s at the limit. Of the 22 daemon VM
+ * checks with an exit by then, 21 passed, 18 with builds beside them and
+ * two of those with three VMs running at CPU pressure up to 50; the one
+ * that failed ended in 11 s, no timeout. Since core #381, too, daemon-run
+ * qemu runs at nice -10, ahead of the builds beside it. So three run at
+ * once, and {@link FEWER_VMS} while the outcomes say three is too many
+ * (see vmsFor in outcome.ts).
  */
-export const MOST_VMS = 2;
+export const MOST_VMS = 3;
+
+/** How many VMs run at once for a day after one failed at {@link MOST_VMS}. */
+export const FEWER_VMS = 2;
 
 /** Memory pressure (avg10, percent) past which no job starts. */
 export const MOST_MEMORY_PRESSURE = 10;
@@ -181,6 +194,8 @@ export interface Rules {
 	 * run timed, from their drivers.
 	 */
 	readonly buildsWaitForVmChecks: boolean;
+	/** How many VMs run at once, when not {@link MOST_VMS}. */
+	readonly mostVms?: number;
 }
 
 /** How many builds run beside a VM check at once. */
@@ -222,7 +237,7 @@ export function nextTurn(
 	if (room.memoryPressure >= MOST_MEMORY_PRESSURE) return undefined;
 	const { growing, vms, builds } = standing(jobs, room, now, rules);
 	for (const job of waitingInOrder(jobs, awaited)) {
-		if (isVm(job) && vms >= MOST_VMS) continue;
+		if (isVm(job) && vms >= (rules.mostVms ?? MOST_VMS)) continue;
 		// Only bulk work is behind a build, and it all waits with it.
 		if (job.kind === "build" && builds < 1) return undefined;
 		if (job.kind === "build" && Number.isFinite(builds) && !job.cappable) {
@@ -290,7 +305,10 @@ export function roomLeft(
 		growing -
 		waiting.reduce((sum, job) => sum + NEEDS_GIB[job.kind], 0);
 	const fits = (kind: Kind) => Math.max(0, Math.floor(free / NEEDS_GIB[kind]));
-	const slots = Math.max(0, MOST_VMS - vms - waiting.filter(isVm).length);
+	const slots = Math.max(
+		0,
+		(rules.mostVms ?? MOST_VMS) - vms - waiting.filter(isVm).length,
+	);
 	// A build waiting is held by memory or the rule, and so is the next.
 	const buildWaits = waiting.some((job) => job.kind === "build");
 	return {

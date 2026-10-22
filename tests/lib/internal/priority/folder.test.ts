@@ -23,9 +23,10 @@ import {
 } from "../../../../lib/internal/priority/folder.ts";
 import {
 	keepOutcome,
+	NOTHING_BESIDE,
 	outcomeOf,
 } from "../../../../lib/internal/priority/outcome.ts";
-import type { Job } from "../../../../lib/internal/priority/queue.ts";
+import { type Job, MOST_VMS } from "../../../../lib/internal/priority/queue.ts";
 import type { Reading } from "../../../../lib/internal/priority/room.ts";
 
 const NOW = Date.parse("2026-10-22T16:00:30Z");
@@ -94,8 +95,8 @@ describe("the machine's queue folder", () => {
 			vms: 0,
 		});
 		// The VM started holds 6 GiB while it grows; the build waits.
-		expect(shown.room).toEqual({ vms: 1, builds: 0 });
-		expect(readFileSync(join(dir, "room"), "utf8")).toBe("1 more VM test");
+		expect(shown.room).toEqual({ vms: 2, builds: 0 });
+		expect(readFileSync(join(dir, "room"), "utf8")).toBe("2 more VM tests");
 		expect(shown.jobs).toEqual([
 			{
 				id: "first",
@@ -215,14 +216,16 @@ describe("the machine's queue folder", () => {
 
 	it("counts each minute a job waited with its memory free, once", () => {
 		const queue = folder();
-		// Two VMs run, so a third waits on the limit with its memory free.
+		// Three VMs run, so a fourth waits on the limit with its memory free.
 		const ran = new Date(NOW - 120_000).toISOString();
 		queue.ask(job("vm1", { kind: "vm-check", started: ran }));
 		queue.ask(job("vm2", { kind: "vm-check", started: ran }));
+		queue.ask(job("vm3", { kind: "vm-check", started: ran }));
 		queue.ask(job("held", { kind: "vm-test" }));
 		for (const [id, pid] of [
 			["vm1", 401],
 			["vm2", 402],
+			["vm3", 404],
 			["held", 403],
 		] as const) {
 			shellSays(id, pid);
@@ -349,5 +352,45 @@ describe("the machine's queue folder", () => {
 		expect(readFileSync(join(dir, "capped.conf"), "utf8")).toBe(
 			"max-jobs = 2\ncores = 2\n",
 		);
+	});
+
+	it("runs fewer VMs while the outcomes say the most was too many", () => {
+		const file = join(dir, "..", "state", "outcomes.jsonl");
+		const check = (id: string, exit: number, vms: number) => ({
+			...outcomeOf(
+				job(id, { kind: "vm-check", started: new Date(NOW).toISOString() }),
+				NOW + 60_000,
+				exit,
+			),
+			beside: { ...NOTHING_BESIDE, vms },
+		});
+		keepOutcome(file, check("passed", 0, MOST_VMS - 1));
+		keepOutcome(file, check("failed", 1, MOST_VMS));
+		const queue = queueFolder(
+			dir,
+			{ isRunning: (pid) => running.has(pid), cgroupOf: () => undefined },
+			undefined,
+			file,
+		);
+		const ran = new Date(NOW - 120_000).toISOString();
+		const vms = Array.from({ length: MOST_VMS - 1 }, (_, at) => `vm${at}`);
+		for (const [at, id] of vms.entries()) {
+			queue.ask(job(id, { kind: "vm-check", started: ran }));
+			shellSays(id, 700 + at);
+		}
+		const machine = { ...ROOMY, vms: MOST_VMS - 1 };
+		queue.keep(machine, NOW + 110_000, () => undefined);
+		expect(record().room.vms).toBe(0);
+		queue.ask(job("last", { kind: "vm-check" }));
+		shellSays("last", 799);
+		queue.keep(machine, NOW + 120_000, () => undefined);
+		expect(queue.hasTurn("last")).toBe(false);
+		// The failure is read out of the file again once it has changed.
+		writeFileSync(
+			file,
+			`${JSON.stringify(check("passed", 0, MOST_VMS - 1))}\n`,
+		);
+		queue.keep(machine, NOW + 130_000, () => undefined);
+		expect(queue.hasTurn("last")).toBe(true);
 	});
 });

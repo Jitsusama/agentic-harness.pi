@@ -62,7 +62,8 @@ never waits.
 
 - **A turn** comes when the memory left past the floors core.nix keeps
   for the person's programs covers the job's need, memory pressure is
-  under 10%, and fewer than two VMs run. The VMs are counted from the
+  under 10%, and fewer than three VMs run, or two for a day after a VM
+  that passed with fewer failed beside two others. The VMs are counted from the
   machine's processes as well as the queue, so a check picked from a
   variable, or a VM a session runs outside the queue, still counts.
   Timed work goes first, then within each class the work of a session

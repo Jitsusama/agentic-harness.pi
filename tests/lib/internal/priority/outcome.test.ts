@@ -12,8 +12,13 @@ import {
 	type Outcome,
 	outcomeOf,
 	outcomesIn,
+	vmsFor,
 } from "../../../../lib/internal/priority/outcome.ts";
-import type { Job } from "../../../../lib/internal/priority/queue.ts";
+import {
+	FEWER_VMS,
+	type Job,
+	MOST_VMS,
+} from "../../../../lib/internal/priority/queue.ts";
 
 const NOW = Date.parse("2026-10-22T18:00:00Z");
 
@@ -95,6 +100,32 @@ describe("how heavy work ended", () => {
 				maxJobs: 2,
 				cores: 4,
 			});
+		}
+	});
+
+	it("runs fewer VMs for a day after one that passed with fewer fails at the most", () => {
+		const fewer = { ...NOTHING_BESIDE, vms: MOST_VMS - 1 };
+		const most = { ...NOTHING_BESIDE, vms: MOST_VMS };
+		const passedWithFewer = outcome({ id: "p", exit: 0, beside: fewer });
+		const failedAtMost = outcome({ beside: most });
+		expect(vmsFor([], NOW)).toBe(MOST_VMS);
+		expect(vmsFor([passedWithFewer, failedAtMost], NOW)).toBe(FEWER_VMS);
+		// A break copy fails however few run, so it says nothing of the limit.
+		expect(vmsFor([failedAtMost], NOW)).toBe(MOST_VMS);
+		const elsewhere = { ...passedWithFewer, what: "nix build .#checks.other" };
+		const passedAtMost = outcome({ exit: 0, beside: most });
+		for (const pass of [elsewhere, passedAtMost]) {
+			expect(vmsFor([pass, failedAtMost], NOW)).toBe(MOST_VMS);
+		}
+		const stopped = outcome({ exit: 130, beside: most });
+		const withFewer = outcome({ beside: fewer });
+		const build = outcome({ kind: "build", beside: most });
+		const old = outcome({
+			beside: most,
+			ended: new Date(NOW - FAILURES_COUNT_FOR_MS - 1).toISOString(),
+		});
+		for (const one of [passedAtMost, stopped, withFewer, build, old]) {
+			expect(vmsFor([passedWithFewer, one], NOW)).toBe(MOST_VMS);
 		}
 	});
 

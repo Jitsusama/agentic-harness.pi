@@ -233,7 +233,7 @@ describe("the room left", () => {
 		expect(roomLeft([], ROOMY, NOW)).toEqual({ vms: MOST_VMS, builds: 10 });
 		const running = job("vm", { kind: "vm-test", started: startedAgo(1) });
 		expect(roomLeft([running, job("next")], ROOMY, NOW)).toEqual({
-			vms: 1,
+			vms: MOST_VMS - 1,
 			builds: 0,
 		});
 		expect(roomLeft([], { ...ROOMY, availableGib: 9, vms: 1 }, NOW)).toEqual({
@@ -256,8 +256,14 @@ describe("the room left", () => {
 			kind: "vm-check",
 			started: startedAgo(RAMP_MS),
 		});
-		expect(roomLeft([check], ROOMY, NOW)).toEqual({ vms: 1, builds: 1 });
-		expect(roomLeft([check], BUSY, NOW)).toEqual({ vms: 1, builds: 0 });
+		expect(roomLeft([check], ROOMY, NOW)).toEqual({
+			vms: MOST_VMS - 1,
+			builds: 1,
+		});
+		expect(roomLeft([check], BUSY, NOW)).toEqual({
+			vms: MOST_VMS - 1,
+			builds: 0,
+		});
 		expect(roomLeft([check, job("build")], BUSY, NOW)).toEqual({
 			vms: 0,
 			builds: 0,

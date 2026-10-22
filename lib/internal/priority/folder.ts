@@ -46,8 +46,10 @@ import {
 	keepOutcome,
 	mostBeside,
 	NOTHING_BESIDE,
+	type Outcome,
 	outcomeOf,
 	outcomesIn,
+	vmsFor,
 } from "./outcome.ts";
 import {
 	CLASS_OF,
@@ -201,6 +203,25 @@ export function queueFolder(
 		return Number.isInteger(pid) && pid > 0 ? pid : undefined;
 	};
 
+	// The queue is kept every two seconds and the file is up to 2 MiB, so
+	// it is read again only once it has changed.
+	let read: { readonly stamp: string; readonly outcomes: Outcome[] } = {
+		stamp: "",
+		outcomes: [],
+	};
+	const recorded = (): Outcome[] => {
+		if (!outcomes) return [];
+		let stamp = "";
+		try {
+			const { mtimeMs, size } = statSync(outcomes);
+			stamp = `${mtimeMs}|${size}`;
+		} catch {
+			return [];
+		}
+		if (stamp !== read.stamp) read = { stamp, outcomes: outcomesIn(outcomes) };
+		return read.outcomes;
+	};
+
 	const drop = (id: string) => {
 		for (const ending of ["job", "pid", "turn", "capped", "end"]) {
 			rmSync(path(id, ending), { force: true });
@@ -324,7 +345,12 @@ export function queueFolder(
 				const awaited = standing.some((job) => job.started === undefined)
 					? awaitedNow()
 					: NOBODY;
-				const next = nextTurn(standing, reading, now, rules(), awaited);
+				const given = rules();
+				const ruled = {
+					...given,
+					mostVms: given.mostVms ?? vmsFor(recorded(), now),
+				};
+				const next = nextTurn(standing, reading, now, ruled, awaited);
 				const queue = next
 					? standing.map((job) =>
 							job.id === next.id
@@ -333,17 +359,17 @@ export function queueFolder(
 						)
 					: standing;
 				if (next) {
-					const given = queue.find((job) => job.id === next.id) as Job;
-					replace(path(next.id, "job"), `${JSON.stringify(given)}\n`);
-					if (given.capped) {
-						const cap = capFor(outcomes ? outcomesIn(outcomes) : [], now);
+					const turn = queue.find((job) => job.id === next.id) as Job;
+					replace(path(next.id, "job"), `${JSON.stringify(turn)}\n`);
+					if (turn.capped) {
+						const cap = capFor(recorded(), now);
 						replace(
 							join(dir, "capped.conf"),
 							`max-jobs = ${cap.maxJobs}\ncores = ${cap.cores}\n`,
 						);
 						replace(path(next.id, "capped"), "");
 					}
-					replace(path(next.id, "turn"), cgroupFor(given) ?? "");
+					replace(path(next.id, "turn"), cgroupFor(turn) ?? "");
 				}
 				const before = parsed<QueueRecord>(join(dir, "queue.json"));
 				const record = queueRecord(
@@ -353,7 +379,7 @@ export function queueFolder(
 					before,
 					processes,
 					shellOf,
-					rules(),
+					ruled,
 					awaited,
 				);
 				const shape = JSON.stringify({ ...record, at: "", heartbeat: 0 });
