@@ -33,7 +33,9 @@
  * to a question this peer asked, which wakes it however it was sent,
  * since the peer is waiting on it: an answer sent as an fyi would
  * otherwise sit until something else started a turn. Any other fyi more
- * than {@link FYI_MS} old when it reaches the peer is a glance.
+ * than {@link FYI_MS} old when it reaches the peer is a glance, and so is
+ * a hold older than the longest a hold stands ({@link MOST_HOLD_MS}),
+ * which no longer holds anything.
  *
  * What a message is worth is held to what the peer can afford by
  * damping (see damping.ts), which this module knows nothing of.
@@ -47,6 +49,7 @@
  */
 
 import type { ClassifierContext } from "@earendil-works/pi-ai";
+import { MOST_HOLD_MS } from "./lease.ts";
 import { isHomeTo, type Message } from "./message.ts";
 import type { Presence } from "./presence.ts";
 
@@ -70,7 +73,7 @@ export interface Standing {
 	readonly answers?: boolean;
 	/** The message answers a question this peer asked (see thread.ts). */
 	readonly asked?: boolean;
-	/** The time it is handed over, for judging an fyi past its hour. */
+	/** The time it is handed over, for judging an fyi or a hold past its time. */
 	readonly now?: number;
 }
 
@@ -113,6 +116,13 @@ export function attend(message: Message, at: Standing): Heed {
 		at.now - Date.parse(message.at) > FYI_MS
 	) {
 		return { attention: "glance", why: "an fyi past its hour" };
+	}
+	if (
+		message.intent === "hold" &&
+		at.now !== undefined &&
+		at.now - Date.parse(message.at) > MOST_HOLD_MS
+	) {
+		return { attention: "glance", why: "a hold past the longest one stands" };
 	}
 	if (at.answers || isHomeTo(message, at.receiver.addresses)) {
 		const why = at.answers ? "answering this peer" : "sent to this peer";

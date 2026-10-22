@@ -11,6 +11,7 @@ import {
 	type Standing,
 } from "../../../lib/mesh/attention.ts";
 import { ALL } from "../../../lib/mesh/group.ts";
+import { MOST_HOLD_MS } from "../../../lib/mesh/lease.ts";
 import type { Message } from "../../../lib/mesh/message.ts";
 
 function message(over: Partial<Message> = {}): Message {
@@ -146,6 +147,22 @@ describe("attention", () => {
 		);
 		expect(
 			attend(held, { ...standing, now: sent + 2 * FYI_MS }).attention,
+		).toBe("note");
+	});
+
+	it("glances at a hold older than the longest a hold stands", () => {
+		const sent = Date.parse("2026-10-22T04:00:00.000Z");
+		const held = message({
+			intent: "hold",
+			to: ["@5GV2AH"],
+			at: "2026-10-22T04:00:00.000Z",
+		});
+
+		expect(attend(held, { ...standing, now: sent + MOST_HOLD_MS + 1 })).toEqual(
+			{ attention: "glance", why: "a hold past the longest one stands" },
+		);
+		expect(
+			attend(held, { ...standing, now: sent + MOST_HOLD_MS }).attention,
 		).toBe("note");
 	});
 

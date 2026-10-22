@@ -146,7 +146,10 @@ question this peer asked, which it is waiting on however the
 answer was sent. Any other fyi more than an hour old when it
 reaches a peer, as after a reload, is a glance wherever it
 went, since what it told has moved on (Skynet's register gives
-an fyi an hour). A withdrawal is noted by every peer that
+an fyi an hour). So is a hold more than two hours old, the
+longest a hold stands, since it no longer holds anything. A
+message from before today says the date it was sent beside
+the time. A withdrawal is noted by every peer that
 heard what it withdraws, and a glance of that not yet handed
 over is taken back.
 
@@ -326,7 +329,11 @@ Under `$XDG_STATE_HOME/pi/agentic-harness.pi/mesh-workflow/`:
   fields it does not know. A `.read-<address>` marker
   per peer records the last message it was handed, so a reload
   catches up on what arrived while it was away; a peer that
-  has never read catches up on the last hour.
+  has never read catches up on the last hour. A peer watches
+  before it catches up, so what lands between the two is not
+  missed, and looks in the folder again once a minute and as
+  each run ends for anything its watcher never reported, since
+  the kernel drops watch events when its queue fills.
 - `presence/`: one file per peer, by session id, so its groups
   survive a reload and a restore. It is written when something
   in it changes (the quest, the groups, a run starting or
@@ -385,6 +392,10 @@ hold nobody has let go of does not read as its holder ending.
 
 A peer has a message once its read marker passes it, which is
 when it is handed to the peer's model, at whatever attention.
+The marker never passes one still waiting to act, so a reload
+in that minute hands it over at the next start instead of
+losing it; what the session's own entries show it handed over
+beside it is not handed over again.
 A pi that keeps no session, such as a reload's load check,
 stays off the mesh.
 

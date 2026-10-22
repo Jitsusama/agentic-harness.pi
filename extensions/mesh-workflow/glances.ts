@@ -64,6 +64,28 @@ function glanceIn(entry: Entry): Message | undefined {
 }
 
 /**
+ * Every message these entries show handed over, in full or as a glance.
+ * The read marker never passes one still waiting, so a start can catch
+ * up on some it handed over beside it; these it leaves be.
+ */
+export function handedIn(entries: readonly Entry[]): Set<string> {
+	const ids = new Set<string>();
+	for (const entry of entries) {
+		const glanced = glanceIn(entry);
+		if (glanced) ids.add(glanced.id);
+		if (entry.type !== "custom_message" || entry.customType !== NOTED) {
+			continue;
+		}
+		const messages = (entry.details as Partial<Delivered> | null)?.messages;
+		for (const one of Array.isArray(messages) ? messages : []) {
+			const message = messageFrom(one);
+			if (message) ids.add(message.id);
+		}
+	}
+	return ids;
+}
+
+/**
  * What deliveries in these entries counted against the peer's limits:
  * the turns they started, and the messages they handed over in full.
  */

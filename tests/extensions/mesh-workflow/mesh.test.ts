@@ -46,6 +46,24 @@ import {
 } from "../../../lib/mesh/lease.ts";
 import type { Draft, Message } from "../../../lib/mesh/message.ts";
 import { createPresences } from "../../../lib/mesh/presence.ts";
+
+// The folder's watcher, as a test can have it: deaf, as one is when the
+// kernel drops its events, and with a message landing as it is armed.
+const watching = vi.hoisted(() => ({
+	deaf: false,
+	armed: undefined as (() => void) | undefined,
+}));
+vi.mock("node:fs", async (importOriginal) => {
+	const fs = await importOriginal<typeof import("node:fs")>();
+	return {
+		...fs,
+		watch: ((...args: Parameters<typeof fs.watch>) => {
+			watching.armed?.();
+			return watching.deaf ? { close() {} } : fs.watch(...args);
+		}) as typeof fs.watch,
+	};
+});
+
 import { folderTransport } from "../../../lib/mesh/transport.ts";
 
 const session = "01a15f3a-2255-7463-9909-afa624b025fe";
@@ -67,6 +85,8 @@ beforeEach(() => {
 		"utf8",
 	);
 	stops = [];
+	watching.deaf = false;
+	watching.armed = undefined;
 });
 
 afterEach(async () => {
@@ -94,6 +114,7 @@ async function startSession(
 	waitCheckMs = 60_000,
 	// Said on the bus once the extension loads, before the session starts.
 	early: (emit: (channel: string, data: unknown) => void) => void = () => {},
+	lookAgainMs = 60_000,
 ) {
 	const sent: Sent[] = [];
 	const bus = new Map<string, ((data: unknown) => void)[]>();
@@ -121,7 +142,7 @@ async function startSession(
 			},
 		},
 	};
-	meshWorkflow(paths, env, settling, waitCheckMs)(pi as never);
+	meshWorkflow(paths, env, settling, waitCheckMs, lookAgainMs)(pi as never);
 	early(pi.events.emit);
 	await lifecycle.get("session_start")?.(
 		{ reason: "startup" },
@@ -574,6 +595,109 @@ describe("an act", () => {
 		await vi.waitFor(() => expect(sent).toHaveLength(1));
 		expect(sent[0]?.message.customType).toBe(NOTED);
 		expect(calls).toEqual([]);
+	});
+});
+
+describe("a message never lost", () => {
+	const slow = { settleMs: 400, spreadMs: 0 };
+
+	it("is handed over at the next start when it was waiting to act as the session went", async () => {
+		// Marked read as it arrived, it was lost with the process that held it.
+		const first = await startSession({}, { isIdle: () => true }, [], slow);
+		fromElsewhere({ intent: "finding", to: ["@7M6JKG"], text: "your bug" });
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		await first.fire("session_shutdown");
+		expect(first.sent).toEqual([]);
+
+		const again = await startSession();
+
+		await vi.waitFor(() => expect(again.sent).toHaveLength(1));
+		expect(again.sent[0]?.message.content).toContain("your bug");
+	});
+
+	it("is handed over once, even when it was handed over while another waited", async () => {
+		const first = await startSession({}, { isIdle: () => true }, [], slow);
+		fromElsewhere({ intent: "finding", to: ["@7M6JKG"], text: "your bug" });
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		fromElsewhere({ to: ["@7M6JKG"], text: "done here" });
+		await vi.waitFor(() => expect(first.sent).toHaveLength(1));
+		await first.fire("session_shutdown");
+		const branch = first.sent.map(({ message }) => ({
+			type: "custom_message",
+			...message,
+		}));
+
+		const again = await startSession({}, {}, branch);
+
+		await vi.waitFor(() => expect(again.sent).toHaveLength(1));
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(again.sent).toHaveLength(1);
+		expect(again.sent[0]?.message.content).toContain("your bug");
+		expect(again.sent[0]?.message.content).not.toContain("done here");
+	});
+
+	it("is read once glanced at, or taken by a run something else started", async () => {
+		const first = await startSession(
+			{},
+			{ ...judging(notYours), isIdle: () => true },
+			[],
+			slow,
+		);
+		fromElsewhere({ text: "merging core.nix#330 now" });
+		await vi.waitFor(() => expect(first.entries).toHaveLength(1));
+		fromElsewhere({ intent: "finding", to: ["@7M6JKG"], text: "your bug" });
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		await first.fire("before_agent_start");
+		await first.fire("session_shutdown");
+
+		const again = await startSession();
+
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(again.sent).toEqual([]);
+		expect(again.entries).toEqual([]);
+	});
+
+	it("is heard when it lands as the peer starts watching", async () => {
+		// Watching only after the catch-up lost what landed between the two.
+		watching.deaf = true;
+		watching.armed = () => {
+			watching.armed = undefined;
+			fromElsewhere({ to: ["@7M6JKG"], text: "just in time" });
+		};
+
+		const { sent } = await startSession();
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.message.content).toContain("just in time");
+	});
+
+	it("is looked for again when the watcher never reports it", async () => {
+		watching.deaf = true;
+		const { sent } = await startSession(
+			{},
+			{},
+			[],
+			undefined,
+			undefined,
+			undefined,
+			20,
+		);
+
+		fromElsewhere({ to: ["@7M6JKG"], text: "dropped by the kernel" });
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.message.content).toContain("dropped by the kernel");
+	});
+
+	it("is looked for again as a run ends", async () => {
+		watching.deaf = true;
+		const { sent, fire } = await startSession();
+		fromElsewhere({ to: ["@7M6JKG"], text: "dropped by the kernel" });
+
+		await fire("agent_end");
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.message.content).toContain("dropped by the kernel");
 	});
 });
 

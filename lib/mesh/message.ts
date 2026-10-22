@@ -144,9 +144,20 @@ export function isHomeTo(
 	return addresses.some((address) => message.to.includes(homeOf(address)));
 }
 
-/** The time of day a message was sent, as HH:MM in local time. */
-export function clock(message: Pick<Message, "at">): string {
-	return new Date(message.at).toTimeString().slice(0, 5);
+/**
+ * When a message was sent, as HH:MM in local time, with the date before
+ * it when that was not today, so what a peer catches up on after a night
+ * is not read as this morning's.
+ */
+export function clock(
+	message: Pick<Message, "at">,
+	now: Date = new Date(),
+): string {
+	const at = new Date(message.at);
+	const time = at.toTimeString().slice(0, 5);
+	if (at.toDateString() === now.toDateString()) return time;
+	const two = (n: number) => String(n).padStart(2, "0");
+	return `${at.getFullYear()}-${two(at.getMonth() + 1)}-${two(at.getDate())} ${time}`;
 }
 
 /** A message on one line, for listings and glances. */
