@@ -32,6 +32,10 @@ What it adds:
   editor nobody will close. Only the agent's commands get these: pi's
   own editor and your shell are untouched, and a command that sets one
   itself still wins.
+- **Behind what you use.** Where `priority-workflow` is putting what
+  pi starts into the machine's cgroup for work, the shell moves itself
+  there before it runs the command, so nothing the command forks is
+  left behind at pi's priority.
 - **Guidance.** The tool tells the agent not to pipe output through
   `tail` or `head` (pi already keeps the end and saves the rest), and
   not to sleep to wait for something.

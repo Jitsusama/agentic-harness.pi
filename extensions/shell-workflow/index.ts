@@ -22,6 +22,7 @@ import {
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { placedCommand } from "../../lib/internal/priority/place.ts";
 import { withoutInteraction } from "./environment.ts";
 import { HAND_OFF_MS, runOrHandOff, spoken } from "./hand-off.ts";
 
@@ -54,7 +55,13 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 	const bashFor = (ctx: ExtensionContext): BashDefinition => {
 		bash ??= createBashToolDefinition(ctx.cwd, {
 			...shellSettings(ctx),
-			spawnHook: withoutInteraction,
+			// The shell moves itself into jobs before it runs anything, where
+			// priority-workflow is placing what pi starts there.
+			spawnHook: (context) =>
+				withoutInteraction({
+					...context,
+					command: placedCommand(context.command),
+				}),
 		});
 		return bash;
 	};
