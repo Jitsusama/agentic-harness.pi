@@ -42,13 +42,16 @@ afterEach(() => {
 });
 
 /** A loaded quest with a plan in build, focused, holding two items. */
-async function questWithPlan() {
-	const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
+async function questWithPlan(
+	questsRoot = join(tmpRoot, "quests"),
+	name = "Verb",
+) {
+	const state = createQuestState({ questsRoot });
 	const run = (params: Parameters<typeof handle>[3]) =>
 		handle(state, fakePi(), fakeCtx(), params);
-	succeeded(await run({ action: "create", title: "Verb Quest" }));
+	succeeded(await run({ action: "create", title: `${name} Quest` }));
 	succeeded(await run({ action: "think", kind: "plan", note: "verbs" }));
-	succeeded(await run({ action: "draft", title: "Verb Plan" }));
+	succeeded(await run({ action: "draft", title: `${name} Plan` }));
 	const planPath = state.documentPath ?? "";
 	const text = readFileSync(planPath, "utf8");
 	const head = text.slice(0, text.indexOf("\n---\n") + 5);
@@ -161,10 +164,11 @@ describe("journal", () => {
 		const { state, run } = await questWithPlan();
 		const loaded = state.questId ?? "";
 		const loadedDir = state.questDir ?? "";
-		succeeded(await run({ action: "create", title: "Other Quest" }));
-		const other = state.questId ?? "";
-		const otherDir = state.questDir ?? "";
-		succeeded(await run({ action: "load", id: loaded }));
+		const made = succeeded(
+			await run({ action: "create", title: "Other Quest" }),
+		);
+		const other = String(made.details?.id);
+		const otherDir = join(state.questsRoot, other);
 
 		const result = succeeded(
 			await run({ action: "journal", id: other, note: "Noted elsewhere." }),
@@ -195,10 +199,107 @@ describe("journal", () => {
 			}),
 		);
 
-		expect(result.guidance).toContain("is not a quest");
+		expect(result.guidance).toContain("No quest or document has the id");
 		expect(readFileSync(join(state.questDir ?? "", "README.md"), "utf8")).toBe(
 			readmeBefore,
 		);
+	});
+
+	it("takes a document's id as its quest's", async () => {
+		const { state, run } = await questWithPlan();
+		const other = await anotherQuestWithPlan(state.questsRoot);
+
+		succeeded(
+			await run({ action: "journal", id: other.planId, note: "Via plan." }),
+		);
+
+		expect(readFileSync(join(other.dir, "README.md"), "utf8")).toContain(
+			"Via plan.",
+		);
+		expect(
+			readFileSync(join(state.questDir ?? "", "README.md"), "utf8"),
+		).not.toContain("Via plan.");
+	});
+});
+
+/**
+ * A second quest with a plan in build, made by a session of its own,
+ * so the session under test never had it loaded.
+ */
+async function anotherQuestWithPlan(questsRoot: string) {
+	const { state, planPath } = await questWithPlan(questsRoot, "Other");
+	return {
+		id: state.questId ?? "",
+		dir: state.questDir ?? "",
+		planId: state.documentId ?? "",
+		planPath,
+	};
+}
+
+describe("documents of a quest this session has not loaded", () => {
+	it("ticks another quest's plan and leaves this session where it is", async () => {
+		const { state, run, planPath } = await questWithPlan();
+		const other = await anotherQuestWithPlan(state.questsRoot);
+		const here = { id: state.questId, doc: state.documentPath };
+
+		succeeded(await run({ action: "tick", id: other.planId, query: "first" }));
+
+		expect(readFileSync(other.planPath, "utf8")).toContain("- [x] First item");
+		expect(readFileSync(planPath, "utf8")).toContain("- [ ] First item");
+		expect({ id: state.questId, doc: state.documentPath }).toEqual(here);
+	});
+
+	it("edits a quest's section from a session with none loaded", async () => {
+		const other = await anotherQuestWithPlan(join(tmpRoot, "quests"));
+		const bare = createQuestState({ questsRoot: join(tmpRoot, "quests") });
+
+		succeeded(
+			await handle(bare, fakePi(), fakeCtx(), {
+				action: "section",
+				id: other.id,
+				title: "Purpose",
+				body: "Written from afar.",
+			}),
+		);
+
+		expect(readFileSync(join(other.dir, "README.md"), "utf8")).toMatch(
+			/## .*Purpose\n\nWritten from afar\.\n/,
+		);
+		expect(bare.questId).toBeNull();
+	});
+
+	it("concludes another quest's plan and journals it there", async () => {
+		const { state, run } = await questWithPlan();
+		const other = await anotherQuestWithPlan(state.questsRoot);
+		const here = { id: state.questId, doc: state.documentPath };
+		const ownReadme = readFileSync(
+			join(state.questDir ?? "", "README.md"),
+			"utf8",
+		);
+
+		const result = succeeded(
+			await run({ action: "conclude", id: other.planId }),
+		);
+
+		expect(result.message).toContain(`It belongs to ${other.id}`);
+		expect(readFileSync(other.planPath, "utf8")).toMatch(/stage: concluded/);
+		expect(readFileSync(join(other.dir, "README.md"), "utf8")).toContain(
+			`Concluded plan ${other.planId}.`,
+		);
+		expect(readFileSync(join(state.questDir ?? "", "README.md"), "utf8")).toBe(
+			ownReadme,
+		);
+		expect({ id: state.questId, doc: state.documentPath }).toEqual(here);
+	});
+
+	it("still runs the stage machine on the file's own stage", async () => {
+		const { run } = await questWithPlan();
+		const other = await anotherQuestWithPlan(join(tmpRoot, "quests"));
+		succeeded(await run({ action: "conclude", id: other.planId }));
+
+		const again = refused(await run({ action: "conclude", id: other.planId }));
+
+		expect(again.guidance).not.toContain("not found");
 	});
 });
 

@@ -119,6 +119,12 @@ When the URL fetch fails, the tool falls back to seeding
 only the URL as an alias and prompts for the title and
 Summary.
 
+A session with no quest loaded is put on the quest it
+creates. A session already on one stays there, since it is
+usually filing a follow-up or a subquest for later or for
+another session: `load` the new quest to work on it here,
+or `spawn` it a session of its own.
+
 ## When to Scaffold a Document
 
 Plans, research, briefs and reports live as documents
@@ -391,8 +397,13 @@ so routine edits go through verbs that hold the quest lock:
   is never replaced, only added to.
 
 They act on the focused document, or the README when
-nothing is focused; `id` names another document, or the
-quest's id its README. Larger rewrites still use edit and
+nothing is focused. `id` names any document or any quest
+(for its README), loaded or not, so a note for another
+quest never needs a `load`; `journal` given a document's id
+writes to that document's quest. `conclude` and `retire`
+take any document's id the same way, and a document of
+another quest is finished where it lies, with the Journey
+entry in its own quest. Larger rewrites still use edit and
 write, but never change the fields the workflow owns: a
 document's `stage`, `id`, `kind` and `quest`, and a
 quest's `id`, `kind` and `status`. The gate refuses that

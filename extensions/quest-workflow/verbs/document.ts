@@ -8,9 +8,12 @@
  * edit reads the file and the moment it writes, and the edit then
  * fails on text that has moved. A verb reads and writes inside one
  * lock, and never touches the front matter.
+ *
+ * Each takes any quest's id or any document's id, loaded or not, since
+ * writing a file is no reason to move the session off its own work.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { appendJourneyByPath } from "../../../lib/internal/quest/append-journey.ts";
 import {
@@ -18,7 +21,6 @@ import {
 	setCheckbox,
 	splitAtBody,
 } from "../../../lib/internal/quest/body-edits.ts";
-import { discoverQuests } from "../../../lib/internal/quest/discovery.ts";
 import {
 	atomicWriteFile,
 	withQuestLock,
@@ -27,7 +29,7 @@ import { mutateQuestFrontMatter } from "../../../lib/internal/quest/mutate.ts";
 import { displayPath } from "../../../lib/ui/path.ts";
 import { refreshProgress, stampQuestUpdated } from "../lifecycle.ts";
 import type { QuestState } from "../state.ts";
-import { subdirForDocumentId } from "./queries.ts";
+import { type Address, addressOf } from "./address.ts";
 import {
 	ok,
 	type QuestResult,
@@ -36,8 +38,10 @@ import {
 } from "./shared.ts";
 
 /**
- * Add a dated entry to a quest's Journey: the one `id` names, loaded
- * or not, else the loaded quest's.
+ * Add a dated entry to a quest's Journey: the quest `id` names, or
+ * the quest owning the document it names, loaded or not; else the
+ * loaded quest's. A Journey lives in the README, so a document's id
+ * stands for its quest.
  */
 export function journal(
 	state: QuestState,
@@ -45,45 +49,30 @@ export function journal(
 ): QuestResult {
 	const entry = params.note?.trim();
 	if (!entry) return refuse("Pass the entry to add as `note`.");
-	const target = journalTarget(state, params.id?.trim());
-	if ("refusal" in target) return target.refusal;
-	if (!appendJourneyByPath(target.dir, entry)) {
+	const target = addressOf(state, params.id, { focused: false });
+	if ("refusal" in target) return refuse(target.refusal);
+	if (!appendJourneyByPath(target.questDir, entry)) {
 		return refuse(
-			`Could not add to ${displayPath(join(target.dir, "README.md"))}; check it exists and is readable.`,
+			`Could not add to ${displayPath(join(target.questDir, "README.md"))}; check it exists and is readable.`,
 		);
 	}
-	if (target.loaded) stampQuestUpdated(state);
-	// An identity transform: the write stamps `updated` and nothing else.
-	else mutateQuestFrontMatter(target.dir, (fm) => fm);
-	return ok(`Added to ${target.id}'s Journey.`);
+	stamp(state, target);
+	return ok(`Added to ${target.questId}'s Journey.`);
 }
 
-/** The quest a Journey entry goes to, or why there is none. */
-function journalTarget(
-	state: QuestState,
-	id: string | undefined,
-):
-	| { readonly id: string; readonly dir: string; readonly loaded: boolean }
-	| { readonly refusal: QuestResult } {
-	if (!id || id === "readme" || id === state.questId) {
-		if (!state.questDir || !state.questId) {
-			return {
-				refusal: refuse(
-					"Load a quest before journaling, or name the quest as `id`.",
-				),
-			};
-		}
-		return { id: state.questId, dir: state.questDir, loaded: true };
+/**
+ * Mark the quest written to as updated today. The loaded quest also
+ * recounts its progress, which the footer shows; another quest has
+ * nothing in memory to refresh.
+ */
+function stamp(state: QuestState, target: Address): void {
+	if (target.loaded) {
+		refreshProgress(state);
+		stampQuestUpdated(state);
+		return;
 	}
-	const quest = discoverQuests(state.questsRoot).index.quests.get(id);
-	if (!quest) {
-		return {
-			refusal: refuse(
-				`${id} is not a quest. A Journey belongs to a quest's README, so name a quest's id.`,
-			),
-		};
-	}
-	return { id, dir: quest.dir, loaded: false };
+	// An identity transform: the write stamps `updated` and nothing else.
+	mutateQuestFrontMatter(target.questDir, (fm) => fm);
 }
 
 /** Mark a checkbox item done (`tick`) or not done (`untick`). */
@@ -159,12 +148,11 @@ function editBody(
 		unchanged: (path: string, line?: string) => string;
 	},
 ): QuestResult {
-	const questDir = state.questDir;
-	if (!questDir) return refuse("Load a quest first.");
-	const target = documentTarget(state, params.id);
-	if (!target.ok) return refuse(target.reason);
+	const target = addressOf(state, params.id, { focused: true });
+	if ("refusal" in target) return refuse(target.refusal);
 	const shown = displayPath(target.path);
-	const outcome = withQuestLock(questDir, () => {
+	const readme = target.documentId === undefined;
+	const outcome = withQuestLock(target.questDir, () => {
 		let text: string;
 		try {
 			text = readFileSync(target.path, "utf8");
@@ -175,49 +163,15 @@ function editBody(
 			};
 		}
 		const { head, body } = splitAtBody(text);
-		const result = edit(body, target.path === join(questDir, "README.md"));
+		const result = edit(body, readme);
 		if (!result.ok || !result.changed) return result;
 		atomicWriteFile(target.path, head + result.body);
 		return result;
 	});
 	if (!outcome.ok) return refuse(outcome.reason);
 	if (!outcome.changed) return ok(say.unchanged(shown, outcome.line));
-	refreshProgress(state);
-	stampQuestUpdated(state);
+	stamp(state, target);
 	return ok(say.changed(shown, outcome.line, outcome.added), {
 		path: target.path,
 	});
-}
-
-/**
- * The file a body verb edits: the document `id` names, the README
- * when it names the quest, otherwise the focused document, otherwise
- * the README.
- */
-function documentTarget(
-	state: QuestState,
-	id: string | undefined,
-): { ok: true; path: string } | { ok: false; reason: string } {
-	const questDir = state.questDir ?? "";
-	const readme = join(questDir, "README.md");
-	const named = id?.trim();
-	if (!named) return { ok: true, path: state.documentPath ?? readme };
-	if (named === state.questId || named.toLowerCase() === "readme") {
-		return { ok: true, path: readme };
-	}
-	const subdir = subdirForDocumentId(named);
-	if (!subdir) {
-		return {
-			ok: false,
-			reason: `"${named}" is neither a document id nor the loaded quest's id.`,
-		};
-	}
-	const path = join(questDir, subdir, `${named}.md`);
-	if (!existsSync(path)) {
-		return {
-			ok: false,
-			reason: `No document ${named} in ${state.questId}; expected it at ${displayPath(path)}.`,
-		};
-	}
-	return { ok: true, path };
 }

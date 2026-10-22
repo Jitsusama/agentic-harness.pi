@@ -52,7 +52,15 @@ async function createQuest(
 		title,
 	});
 	if (!r.ok) throw new Error("create failed");
-	return state.questId as string;
+	// A session already on a quest stays there when it creates one, so
+	// these tests, which create one quest after another, load each.
+	const id = String(r.details?.id);
+	const loaded = await handle(state, fakePi(), fakeCtx(), {
+		action: "load",
+		id,
+	});
+	if (!loaded.ok) throw new Error("load failed");
+	return id;
 }
 function makeActive(dir: string, sessionId: string): void {
 	const path = join(dir, "README.md");
