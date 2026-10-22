@@ -80,8 +80,8 @@ it does:
   `cost-workflow`, `image-budget-workflow`,
   `panel-lifecycle-workflow`, `job-workflow`,
   `session-recall-workflow`, `install-check-workflow`,
-  `reload-workflow`, `shell-workflow`, `mesh-workflow`,
-  `priority-workflow`.
+  `reload-workflow`, `rollover-workflow`, `shell-workflow`,
+  `mesh-workflow`, `priority-workflow`.
 
   `priority-workflow` keeps pi ahead of the work it starts: where
   the machine names an idle cgroup for work in `JOBS_CGROUP`, every
@@ -112,6 +112,14 @@ it does:
   pi of its own first, and the install's settings entry points
   at it only for the reload itself, since a tree beside the
   install would load twice.
+
+  `rollover-workflow` moves a session whose log has passed 64 MB
+  into a fresh log at the first still moment after a compaction,
+  keeping what the model sees and every extension's state, with
+  the old log as its parent: pi holds a whole log in memory for
+  the life of a session. `session_recall` reads the parents back
+  from disk. Like reload, the switch is a command's alone, so it
+  goes through `/rollover`.
 
   `job-workflow` hosts background jobs. A tool that returns
   before its work ends hands the work to it, and it says the

@@ -82,6 +82,7 @@ describe("bus names are declared by a library, not an extension", () => {
 			"jobs:ask:v1",
 			"jobs:finished:v1",
 			"mesh:lease:v1",
+			"session:rollover-carry:v1",
 			"subagent:ready:v1",
 			"subagent:register-default-extension:v1",
 			"subagent:register-default-skill:v1",
@@ -89,7 +90,13 @@ describe("bus names are declared by a library, not an extension", () => {
 	});
 
 	it("names a domain, then a topic, then a version", () => {
-		const domains = new Set(["compaction", "jobs", "mesh", "subagent"]);
+		const domains = new Set([
+			"compaction",
+			"jobs",
+			"mesh",
+			"session",
+			"subagent",
+		]);
 		for (const file of sourcesUnder(join(ROOT, "lib"))) {
 			for (const match of readFileSync(file, "utf8").matchAll(
 				/=\s*"([a-z][a-z-]*):[a-z][a-z-]*:v\d+"/g,

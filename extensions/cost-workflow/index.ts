@@ -57,6 +57,12 @@ import { packageStateDir } from "../../lib/internal/package-state-dir.ts";
 import { dataDir } from "../../lib/internal/paths.ts";
 import { duMeasure } from "../../lib/internal/quest/footprint.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace-root.ts";
+import {
+	type Carry,
+	carriedBy,
+	ROLLOVER_CARRY,
+	recordIndex,
+} from "../../lib/internal/session/rollover.ts";
 import { LEDGER_SCOPE } from "../../lib/ledger/index.ts";
 import { formatHoldings, measureQuests } from "./disk.ts";
 import { fanOutView, summarizeFanOut } from "./fanout.ts";
@@ -156,6 +162,9 @@ export const COST_READING = "cost:reading";
  * does.
  */
 const MARGINAL_WINDOW = 20;
+
+/** The name this extension carries its spend under when a log rolls over. */
+const CARRY_NAME = "cost-workflow";
 
 /** Cost of an assistant turn, or zero for anything else. */
 function assistantCost(message: { role: string }): number {
@@ -271,8 +280,22 @@ export default function costWorkflow(pi: ExtensionAPI) {
 		// to nothing is worse than no total: it reads as a cheap session.
 		sessionSpend = 0;
 		recentTurns.length = 0;
-		for (const entry of ctx.sessionManager.getBranch()) {
+		const branch = ctx.sessionManager.getBranch();
+		for (const entry of branch) {
 			if (entry.type === "message") observeTurn(assistantCost(entry.message));
+		}
+		// A log rolled over from a larger one starts with the spend it
+		// carried, which already holds every turn up to its record.
+		const carried = carriedBy(branch, CARRY_NAME) as
+			| { spend?: unknown }
+			| undefined;
+		if (typeof carried?.spend === "number") {
+			sessionSpend = carried.spend;
+			for (const entry of branch.slice(recordIndex(branch) + 1)) {
+				if (entry.type === "message") {
+					sessionSpend += Math.max(0, assistantCost(entry.message));
+				}
+			}
 		}
 		if (!unregisterRuns) {
 			// Fan-out lands in the session total but never in the rate: a
@@ -287,6 +310,12 @@ export default function costWorkflow(pi: ExtensionAPI) {
 			});
 		}
 		publish();
+	});
+
+	pi.events.on(ROLLOVER_CARRY, (data) => {
+		const carry = data as Partial<Carry> | undefined;
+		if (typeof carry?.carried !== "object" || carry.carried === null) return;
+		carry.carried[CARRY_NAME] = { spend: sessionSpend };
 	});
 
 	pi.on("session_shutdown", async () => {
