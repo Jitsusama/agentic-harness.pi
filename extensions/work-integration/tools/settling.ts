@@ -10,18 +10,13 @@
  * rewritten mid-replay, so those are named as the one thing left to do.
  */
 
-import type {
-	SettledFile,
-	StaleCitation,
-} from "@jitsusama/agentic-harness.core/work";
+import type { Settling } from "@jitsusama/agentic-harness.core/work";
 import { count } from "../../../lib/ui/count.ts";
 import { GLYPH } from "../render.ts";
 
 /** Lines saying what a replay settled and what still cites a moved number. */
-export function settlingLines(
-	settled: readonly SettledFile[] = [],
-	stale: readonly StaleCitation[] = [],
-): string[] {
+export function settlingLines(said: Settling = {}): string[] {
+	const { settled = [], recited = [], stale = [] } = said;
 	const lines: string[] = [];
 	for (const file of settled) {
 		lines.push(
@@ -35,6 +30,11 @@ export function settlingLines(
 		if (file.cited.length > 0) {
 			lines.push(`     Citations rewritten in ${file.cited.join(", ")} too.`);
 		}
+	}
+	if (recited.length > 0) {
+		lines.push(
+			`   ${GLYPH.clean} ${recited.join(", ")}: citations of a number moved earlier in this replay, rewritten to match.`,
+		);
 	}
 	if (stale.length > 0) {
 		lines.push(

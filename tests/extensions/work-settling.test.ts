@@ -28,14 +28,16 @@ import {
 
 describe("the lines a replay's settling is said in", () => {
 	it("names each file, how many places, and every number moved", () => {
-		const lines = settlingLines([
-			{
-				path: "docs/HISTORY.md",
-				hunks: 1,
-				renumbered: [{ from: "HISTORY §2", to: "HISTORY §3" }],
-				cited: ["AGENTS.md"],
-			},
-		]);
+		const lines = settlingLines({
+			settled: [
+				{
+					path: "docs/HISTORY.md",
+					hunks: 1,
+					renumbered: [{ from: "HISTORY §2", to: "HISTORY §3" }],
+					cited: ["AGENTS.md"],
+				},
+			],
+		});
 
 		expect(lines.join("\n")).toContain(
 			"docs/HISTORY.md: both sides only added, at 1 place",
@@ -47,10 +49,9 @@ describe("the lines a replay's settling is said in", () => {
 	});
 
 	it("names each stale citation by file and line, to fix in a commit", () => {
-		const said = settlingLines(
-			[],
-			[{ path: "AGENTS.md", line: 3, cites: "HISTORY §2" }],
-		).join("\n");
+		const said = settlingLines({
+			stale: [{ path: "AGENTS.md", line: 3, cites: "HISTORY §2" }],
+		}).join("\n");
 
 		expect(said).toContain("Fix them in a commit of their own");
 		expect(said).toContain("AGENTS.md:3 cites HISTORY §2");
@@ -131,5 +132,45 @@ describe("a rebase through a log both sides appended to", () => {
 		expect(await git(repo, "show", "HEAD:HISTORY.md")).toContain(
 			"## 3. Mine\n\nAs §3 says.",
 		);
-	});
+		// A real replay runs dozens of git commands, past vitest's 5 s on a
+		// machine busy with a build.
+	}, 20_000);
+
+	it("names a later commit's file rewritten for a number moved earlier", async () => {
+		// The case found live on 22 October: the second commit's change sits
+		// beside the citation the first commit's settling rewrote.
+		const base = "# History\n\n## 1. First\n\nOne.\n";
+		await commit("HISTORY.md", base, "docs: start the history");
+		await commit("AGENTS.md", "# Agents\n", "docs: start the agents");
+		await git(repo, "checkout", "-qb", "topic");
+		// The entry and its first citation in one commit, as found live.
+		writeFileSync(join(repo, "AGENTS.md"), "# Agents\n\nSee HISTORY §2.\n");
+		await git(repo, "add", "AGENTS.md");
+		await commit("HISTORY.md", `${base}\n## 2. Mine\n`, "docs: add mine");
+		await commit(
+			"AGENTS.md",
+			"# Agents\n\nSee HISTORY §2.\n\nAlso HISTORY §2.\n",
+			"docs: cite again",
+		);
+		await git(repo, "checkout", "-q", "main");
+		await commit("HISTORY.md", `${base}\n## 2. Landed\n`, "docs: add landed");
+		await git(repo, "checkout", "-q", "topic");
+
+		const answer = await workTool()({
+			action: "rebase",
+			tree: repo,
+			onto: "main",
+		});
+		const said = answer.content[0]?.text ?? "";
+
+		expect(answer.details?.ok).toBe(true);
+		expect(said).toContain("replayed onto main, 2 commits.");
+		expect(said).not.toContain("still cite");
+		expect(said).toContain(
+			"AGENTS.md: citations of a number moved earlier in this replay",
+		);
+		expect(await git(repo, "show", "HEAD:AGENTS.md")).toBe(
+			"# Agents\n\nSee HISTORY §3.\n\nAlso HISTORY §3.",
+		);
+	}, 20_000);
 });
