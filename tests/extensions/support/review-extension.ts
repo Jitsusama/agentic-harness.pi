@@ -16,6 +16,8 @@ import reviewIntegration from "../../../extensions/review-integration/index.ts";
 /** A tool as the extension registered it, execute included. */
 export type RegisteredTool = {
 	name: string;
+	/** The schema the model reads, descriptions and all. */
+	parameters?: unknown;
 	execute: (
 		id: string,
 		params: unknown,

@@ -14,11 +14,14 @@
 import {
 	composePrBody,
 	PR_FIELDS,
+	PR_SECTIONS,
+	PR_SHAPE,
 	type PrFields,
 	readPrFields,
 	reviseFields,
 } from "@jitsusama/agentic-harness.core/sections";
 import { Type } from "@sinclair/typebox";
+import { count } from "../../../lib/ui/count.ts";
 
 /** The four section fields, as a call may carry any of them. */
 export type SectionFields = Partial<PrFields>;
@@ -38,6 +41,38 @@ const LABEL: Record<(typeof PR_FIELDS)[number], string> = {
 	validation: "validation",
 };
 
+const [TLDR, PROBLEM, SOLUTION, VALIDATION] = PR_SECTIONS.map(
+	(section) => PR_SHAPE.sections[section] ?? {},
+);
+
+/**
+ * A word count to aim for, three quarters of the ceiling, to the five
+ * below.
+ *
+ * A ceiling stated alone is written to, and a count made by feel lands
+ * either side of it. Of 219 TL;DRs proposed on 21 and 22 October, 127
+ * ran 35 to 39 words and 61 ran 40 or more, against a ceiling of 40;
+ * 33 were refused, 19 of them for one or two words. Each refusal costs
+ * a whole turn. Aiming lower keeps the ceiling where it is and gives
+ * the guess room to be wrong.
+ */
+function aim(ceiling: number): number {
+	return Math.floor((ceiling * 3) / 4 / 5) * 5;
+}
+
+/** "Aim for about A words; at most C", and the code spans it may hold. */
+function limits(rules: { words?: number; codeSpans?: number }): string {
+	const { words, codeSpans } = rules;
+	if (words === undefined) return "";
+	const spans = codeSpans ? ` and ${codeSpans} code spans` : "";
+	return `Aim for about ${aim(words)} words; at most ${words}${spans}.`;
+}
+
+/** The ceiling every sentence in every section is held to. */
+const SENTENCE = PR_SHAPE.sentenceWords
+	? ` In every section, no sentence may pass ${PR_SHAPE.sentenceWords} words; keep each under about ${aim(PR_SHAPE.sentenceWords)}.`
+	: "";
+
 /**
  * The per-section contract, said where the author writes each one.
  *
@@ -45,15 +80,18 @@ const LABEL: Record<(typeof PR_FIELDS)[number], string> = {
  * validation, then the TL;DR. The TL;DR is written last because it
  * summarizes the rest, and rendered first because it is what a reader
  * sees in the time they have.
+ *
+ * Every number comes from the shape the gate enforces, so the contract
+ * an author reads cannot fall behind the one that refuses them. The
+ * sentence ceiling and the Solution's code spans went unsaid while the
+ * numbers were typed out here, and of the reasons refusals gave on 21
+ * and 22 October, 30 were a long sentence and 7 the Solution's spans.
  */
 export const SECTION_DESCRIPTIONS = {
-	problem:
-		"For propose and edit: the limits on every section are ceilings, not targets, and most changes need well under half. The reader knows the product, has not seen this change, was not in the session and will not open the diff. Why the change exists: what was wrong compared with what they know, who it hurt, and how we know (a count, an incident, an error a person saw). No tour of the subsystem. If they would assume the wrong cause, say 'it looks like X; it is actually Y, because Z'. Prose only, at most 120 words and 3 code spans. Never the fix.",
-	solution:
-		"For propose and edit: what the change does, as behaviour and the mechanism behind it. Open with a sentence of prose saying when what happens, what now follows, and why that fixes the problem. For each behaviour claimed, name the path where it does not hold (an exception, a fallback, an opt-in) in the same sentence. State a real choice as a contrast: X rather than Y, because Z, with what it gives up only when the change shows a cost; never invent either. Always keep what a reader must act on, named as they will type it: something breaking, refused or removed (by its name), a config key and every key it accepts, a command, a CI job or trigger, a dependency and its range, a migration. Add no fact the diff, the commits or what you ran do not show. Bullets only for parallel behaviours, at most 5, each opening with what tells it apart, never a list of artifacts such as Docs:, Tests: or Files:. At most 200 words.",
-	validation:
-		"For propose and edit: Checked: what ran and what it showed, for each claim, named so the reader could rerun it (the command, the test directory or test, the count); coverage is not a result, and never a bare 'tests pass'. Not covered: where those checks stop, as a fact about them ('the tests use a stand-in for the server, so a real crash is not exercised'), never a guess about what was not run. Watch: an observable signal after merge that would show it is wrong, only if the change makes one visible; never a guessed cause. No hedges (should work, likely) or assurances (thoroughly tested, robust). At most 100 words and 5 bullets.",
-	tldr: "For propose and edit: the eight-second version, written last and shown first; most readers read only this. At most 40 words in two sentences. The first opens with the thing that changed (never 'This PR') and says what is different and for whom; the second carries the key decision, or how far the checks reach when that narrows the first. Every claim carries the Solution's qualifiers; if one will not fit, drop the claim, not the qualifier. A number keeps its exact meaning. Give the count or name the set, never a bare all, every or most. No code, file names, links, bullets or bold. A tracking-issue line such as 'Part of #482' may follow as its own paragraph and does not count.",
+	problem: `For propose and edit: the limits on every section are ceilings, not targets, and most changes need well under half.${SENTENCE} The reader knows the product, has not seen this change, was not in the session and will not open the diff. Why the change exists: what was wrong compared with what they know, who it hurt, and how we know (a count, an incident, an error a person saw). No tour of the subsystem. If they would assume the wrong cause, say 'it looks like X; it is actually Y, because Z'. Prose only. ${limits(PROBLEM)} Never the fix.`,
+	solution: `For propose and edit: what the change does, as behaviour and the mechanism behind it. Open with a sentence of prose saying when what happens, what now follows, and why that fixes the problem. For each behaviour claimed, name the path where it does not hold (an exception, a fallback, an opt-in) in the same sentence. State a real choice as a contrast: X rather than Y, because Z, with what it gives up only when the change shows a cost; never invent either. Always keep what a reader must act on, named as they will type it: something breaking, refused or removed (by its name), a config key and every key it accepts, a command, a CI job or trigger, a dependency and its range, a migration. Add no fact the diff, the commits or what you ran do not show. Bullets only for parallel behaviours, at most ${SOLUTION.bullets}, each opening with what tells it apart, never a list of artifacts such as Docs:, Tests: or Files:. ${limits(SOLUTION)}`,
+	validation: `For propose and edit: Checked: what ran and what it showed, for each claim, named so the reader could rerun it (the command, the test directory or test, the count); coverage is not a result, and never a bare 'tests pass'. Not covered: where those checks stop, as a fact about them ('the tests use a stand-in for the server, so a real crash is not exercised'), never a guess about what was not run. Watch: an observable signal after merge that would show it is wrong, only if the change makes one visible; never a guessed cause. No hedges (should work, likely) or assurances (thoroughly tested, robust). ${limits(VALIDATION)} At most ${VALIDATION.bullets} bullets.`,
+	tldr: `For propose and edit: the eight-second version, written last and shown first; most readers read only this. ${limits(TLDR)} At most ${count(TLDR.sentences ?? 2, "sentence")}. The first opens with the thing that changed (never 'This PR') and says what is different and for whom; the second carries the key decision, or how far the checks reach when that narrows the first. Every claim carries the Solution's qualifiers; if one will not fit, drop the claim, not the qualifier. A number keeps its exact meaning. Give the count or name the set, never a bare all, every or most. No code, file names, links, bullets or bold. A tracking-issue line such as 'Part of #482' may follow as its own paragraph and does not count.`,
 } as const;
 
 /** The schema entries for the four fields, in the order they should be written. */

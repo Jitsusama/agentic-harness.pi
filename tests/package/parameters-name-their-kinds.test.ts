@@ -99,8 +99,11 @@ function parametersOf(source: string): { name: string; description: string }[] {
 			sibling === null
 				? source.slice(next)
 				: source.slice(next, next + sibling.index);
-		const described = /description:\s*\n?\s*"((?:[^"\\]|\\.)*)"/.exec(block);
-		found.push({ name, description: described?.[1] ?? "" });
+		// A template literal counts too: a description that states a limit
+		// reads the number from the constant the check enforces.
+		const described =
+			/description:\s*\n?\s*(["`])((?:(?!\1)[^\\]|\\.)*)\1/.exec(block);
+		found.push({ name, description: described?.[2] ?? "" });
 	}
 	return found;
 }
