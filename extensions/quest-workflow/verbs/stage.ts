@@ -64,6 +64,7 @@ import {
 	writeDocumentStage,
 } from "../lifecycle.ts";
 import { type TransitionAction, transition } from "../machine.ts";
+import { outsideWritesSaid, readOutsideWrites } from "../outside-writes.ts";
 import { recordBreakage } from "../record-watch.ts";
 import type { QuestState } from "../state.ts";
 import { defaultWorkspaceRoot, workspaceDirOf } from "../workspace.ts";
@@ -865,6 +866,12 @@ async function sealLoadedQuest(
 	if (clearedTmp) {
 		appendJourneyEntry(state, "Cleared the workspace's tmp/ folder.");
 	}
+	// What the gates let through outside every tree, said once at the
+	// end, so the record shows everything the quest touched.
+	const outside = outsideWritesSaid(
+		readOutsideWrites(defaultWorkspaceRoot(), state.questId),
+	);
+	if (outside) appendJourneyEntry(state, outside);
 	const named = state.questTitle
 		? `${state.questId} (${state.questTitle})`
 		: state.questId;
@@ -915,6 +922,7 @@ async function sealLoadedQuest(
 		}
 		message += ` ${count(blocked.length, "tree")} ${verb(blocked.length, "needs", "need")} manual resolution: ${blocked.map((b) => `${b.path}: ${b.reason}`).join("; ")}. Run \`tree-prune\` with its cwd once that is settled.`;
 	}
+	if (outside) message += ` ${outside}`;
 	const kept = await workspaceKept(state.questId, signal);
 	if (kept) message += ` ${kept}`;
 	return ok(message, {

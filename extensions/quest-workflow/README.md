@@ -109,7 +109,11 @@ while it waits its turn leaves without running.
   `quest-plan-stage` block. `quest-temp` and
   `quest-homeless` redirect: the agent hears the refusal
   and its remedy, and the same write made again goes
-  through as an override you see. `quest-untracked-tree`
+  through as an override you see. Each path those let
+  through, outside every tree, is noted in the quest's
+  workspace (`outside-writes.jsonl`), and `conclude` names
+  them in its message and Journey, so a quest accounts for
+  everything it touched. `quest-untracked-tree`
   redirects by adopting the tree. A
   main checkout cannot be adopted without force, so a write
   into one goes ahead untracked, said once per session.

@@ -247,6 +247,45 @@ describe("the quest gates under the policy", () => {
 		expect(questVerdicts(state, "write", write, linked, noScratch)).toEqual([]);
 	});
 
+	it("notes what it lets through outside every tree, and nothing it refused", async () => {
+		const state = await questInBuild();
+		const noted: string[][] = [];
+		const note = (_s: unknown, paths: string[]) => noted.push(paths);
+		const homeless: QuestVerdict = {
+			guard: "quest-homeless",
+			block: true,
+			reason: "outside every git tree",
+			outside: ["/home/me/.config/x", "/home/me/.config/x"],
+		};
+		const write = () => 'write {"path":"/home/me/.config/x"}';
+
+		applyQuestGuards(state, [homeless], undefined, write, note);
+		expect(noted).toEqual([]);
+
+		applyQuestGuards(state, [homeless], undefined, write, note);
+		expect(noted).toEqual([["/home/me/.config/x"]]);
+	});
+
+	it("names each homeless target of a bash write for the note", async () => {
+		const state = await questInBuild();
+		const loose = join(tmpRoot, "loose");
+
+		const verdicts = questVerdicts(
+			state,
+			"bash",
+			{ command: `echo a > ${loose}/a.txt && echo b > ${loose}/b.txt` },
+			tmpRoot,
+			noScratch,
+		);
+
+		expect(verdicts).toMatchObject([
+			{
+				guard: "quest-homeless",
+				outside: [join(loose, "a.txt"), join(loose, "b.txt")],
+			},
+		]);
+	});
+
 	it("lets a write into a main checkout through, untracked", async () => {
 		const state = await questInBuild();
 		const write = { path: join(repoRoot, "src/foo.ts") };
