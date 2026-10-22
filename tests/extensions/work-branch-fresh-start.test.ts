@@ -90,12 +90,42 @@ describe("the remote branch a start point names", () => {
 		).toEqual({ remote: "origin/mirror", branch: "main" });
 	});
 
+	it("reads the full spellings of a remote's branch the same way", () => {
+		const main = { remote: "origin", branch: "main" };
+		expect(remoteBranchOf("refs/remotes/origin/main", ["origin"])).toEqual(
+			main,
+		);
+		expect(remoteBranchOf("remotes/origin/main", ["origin"])).toEqual(main);
+		expect(remoteBranchOf(" origin/main ", ["origin"])).toEqual(main);
+	});
+
 	it("is nothing for a local branch or a commit", () => {
 		expect(remoteBranchOf("main", ["origin"])).toBeUndefined();
 		expect(remoteBranchOf("0f34b0ba", ["origin"])).toBeUndefined();
 		expect(remoteBranchOf("origin/", ["origin"])).toBeUndefined();
 	});
+
+	it("is nothing for a start point the branch call will refuse, so it costs no fetch", () => {
+		// `origin/*` would otherwise have become a forced fetch of every branch.
+		expect(remoteBranchOf("origin/*", ["origin"])).toBeUndefined();
+		expect(remoteBranchOf("origin/main~1", ["origin"])).toBeUndefined();
+		expect(remoteBranchOf("origin/a:b", ["origin"])).toBeUndefined();
+	});
 });
+
+/** The work tool, holding the behind clone as a quest's tree. */
+function workTool() {
+	const stub = activateWith(workIntegration);
+	stub.pi.events.on(WORK_TREE_CLAIMS, (data) => {
+		(data as TreeClaims).paths.push(behind);
+	});
+	const work = toolNamed(stub, "work");
+	return (args: Record<string, unknown>) =>
+		work.execute("call", args, undefined, undefined, HEADLESS) as Promise<{
+			content: { text: string }[];
+			details?: { ok?: boolean; fresh?: boolean };
+		}>;
+}
 
 describe("refreshing a start point before branching", () => {
 	it("brings a remote's branch up to where the remote has it now", async () => {
@@ -104,8 +134,17 @@ describe("refreshing a start point before branching", () => {
 
 		const said = await refreshStart(spawnExec(), behind, "origin/main");
 
-		expect(said).toBeUndefined();
+		expect(said).toEqual({ start: "refs/remotes/origin/main" });
 		expect(await git(behind, "rev-parse", "origin/main")).toBe(now);
+	});
+
+	it("does not fetch the remote's default pointer, and says to name the branch", async () => {
+		await git(behind, "remote", "set-head", "origin", "main");
+
+		const said = await refreshStart(spawnExec(), behind, "origin/HEAD");
+
+		expect(said.start).toBe("refs/remotes/origin/HEAD");
+		expect(said.stale).toMatch(/name the branch itself/);
 	});
 
 	it("brings it up even where the checkout's configured fetch leaves that branch out", async () => {
@@ -125,28 +164,68 @@ describe("refreshing a start point before branching", () => {
 
 	it("is what work branch does, naming the commit the branch starts at", async () => {
 		const now = await moveOriginOn();
-		const stub = activateWith(workIntegration);
-		stub.pi.events.on(WORK_TREE_CLAIMS, (data) => {
-			(data as TreeClaims).paths.push(behind);
-		});
-		const work = toolNamed(stub, "work");
 
-		const answer = (await work.execute(
-			"call",
-			{
-				action: "branch",
-				tree: behind,
-				name: "jg/topic",
-				from: "origin/main",
-			},
-			undefined,
-			undefined,
-			HEADLESS,
-		)) as { content: { text: string }[] };
+		const answer = await workTool()({
+			action: "branch",
+			tree: behind,
+			name: "jg/topic",
+			from: "origin/main",
+		});
 
 		expect(await git(behind, "rev-parse", "jg/topic")).toBe(now);
 		expect(answer.content[0]?.text).toContain(
 			`is on jg/topic, at ${now.slice(0, 12)} from origin/main.`,
+		);
+		expect(answer.details?.fresh).toBe(true);
+		expect(
+			await git(behind, "rev-parse", "--abbrev-ref", "jg/topic@{upstream}"),
+		).toBe("origin/main");
+	});
+
+	it("starts from the remote's branch even when a local branch shares its short name", async () => {
+		// A local branch called origin/main makes the short name ambiguous.
+		await git(behind, "branch", "origin/main", "HEAD");
+		const now = await moveOriginOn();
+
+		await workTool()({
+			action: "branch",
+			tree: behind,
+			name: "jg/topic",
+			from: "origin/main",
+		});
+
+		expect(await git(behind, "rev-parse", "jg/topic")).toBe(now);
+	});
+
+	it("still makes the branch when the fetch fails, and says it is from the last fetch", async () => {
+		const before = await git(behind, "rev-parse", "origin/main");
+		await git(behind, "remote", "set-url", "origin", join(place, "gone.git"));
+
+		const answer = await workTool()({
+			action: "branch",
+			tree: behind,
+			name: "jg/topic",
+			from: "origin/main",
+		});
+
+		expect(await git(behind, "rev-parse", "jg/topic")).toBe(before);
+		expect(answer.content[0]?.text).toMatch(/Could not fetch origin\/main/);
+		expect(answer.details?.fresh).toBe(false);
+	});
+
+	it("keeps the fetch's reason when there was no earlier fetch to fall back on", async () => {
+		await git(behind, "remote", "set-url", "origin", join(place, "gone.git"));
+
+		const answer = await workTool()({
+			action: "branch",
+			tree: behind,
+			name: "jg/topic",
+			from: "origin/never-fetched",
+		});
+
+		expect(answer.details?.ok).not.toBe(true);
+		expect(answer.content[0]?.text).toMatch(
+			/Could not fetch origin\/never-fetched/,
 		);
 	});
 
@@ -156,7 +235,7 @@ describe("refreshing a start point before branching", () => {
 
 		const said = await refreshStart(spawnExec(), behind, "main");
 
-		expect(said).toBeUndefined();
+		expect(said).toEqual({ start: "main" });
 		expect(await git(behind, "rev-parse", "origin/main")).toBe(before);
 		expect(before).not.toBe(now);
 	});
@@ -167,7 +246,7 @@ describe("refreshing a start point before branching", () => {
 
 		const said = await refreshStart(spawnExec(), behind, "origin/main");
 
-		expect(said).toMatch(
+		expect(said.stale).toMatch(
 			/^Could not fetch origin\/main just now \(.+\), so it starts where origin\/main stood at the last fetch\.$/,
 		);
 		expect(await git(behind, "rev-parse", "origin/main")).toBe(before);

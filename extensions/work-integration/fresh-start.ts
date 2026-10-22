@@ -12,52 +12,103 @@
  * Asking for a remote's branch is asking for that branch as the remote
  * holds it, so the one branch named is fetched first. Only that branch,
  * which keeps this cheap in a monorepo whose full fetch costs minutes. A
- * fetch that fails leaves the start point as it was and says so, since
+ * fetch that fails leaves the start point as it was and says why, since
  * offline work is still work; and the answer names the commit the branch
  * starts at either way, so a stale base can be seen rather than inferred.
+ *
+ * Refreshing the tracking ref does not weaken a later `push replace`: its
+ * lease compares against the tracking ref of the branch being pushed, and
+ * where that is the branch fetched here, the new branch starts at exactly
+ * the commit the lease then holds, which is the work it was built on.
  */
 
-import type { Exec } from "@jitsusama/agentic-harness.core/exec";
+import {
+	EXIT_ABORTED,
+	EXIT_TIMED_OUT,
+	type Exec,
+} from "@jitsusama/agentic-harness.core/exec";
+import { safeBranchName } from "@jitsusama/agentic-harness.core/work";
 
 /**
  * How long fetching one branch may take before the branch is made from
  * what is already here. A narrow fetch of one branch normally answers in
- * a second or two; a minute is a network that is not answering.
+ * a second or two; three minutes leaves room for a big repository far
+ * behind, and past it the network is not answering.
  */
-export const FETCH_MS = 60_000;
+export const FETCH_MS = 3 * 60_000;
 
-/** The remote and branch a start point names, when it names one. */
-export function remoteBranchOf(
-	from: string,
-	remotes: readonly string[],
-): { remote: string; branch: string } | undefined {
-	// The longest remote first, so a remote named `origin/mirror` is not
-	// mistaken for `origin` with a branch called `mirror/...`.
-	const byLength = [...remotes].sort((a, b) => b.length - a.length);
-	const remote = byLength.find((name) => from.startsWith(`${name}/`));
-	if (remote === undefined) return undefined;
-	const branch = from.slice(remote.length + 1);
-	return branch === "" ? undefined : { remote, branch };
+/** How much of git's own reason is passed on, since a remote writes it. */
+const REASON_CHARS = 200;
+
+/** A remote's branch, as a start point names one. */
+export interface RemoteBranch {
+	remote: string;
+	branch: string;
 }
 
 /**
- * Fetch the remote branch a start point names, if it names one. Answers
- * a sentence to pass on when the fetch could not be made, and nothing
- * when it was, or when the start point is local and there was nothing to
- * fetch.
+ * The remote and branch a start point names, when it names one. The
+ * short form `origin/main` and the full `refs/remotes/origin/main` (or
+ * `remotes/origin/main`) name the same thing. A start point core would
+ * refuse names nothing, so a call that will be refused fetches nothing.
+ */
+export function remoteBranchOf(
+	from: string,
+	remotes: readonly string[],
+): RemoteBranch | undefined {
+	const safe = safeBranchName(from);
+	if (safe === undefined) return undefined;
+	const bare = safe.replace(/^(refs\/)?remotes\//, "");
+	// The longest remote first, so a remote named `origin/mirror` is not
+	// mistaken for `origin` with a branch called `mirror/...`.
+	const byLength = [...remotes].sort((a, b) => b.length - a.length);
+	const remote = byLength.find((name) => bare.startsWith(`${name}/`));
+	if (remote === undefined) return undefined;
+	const branch = bare.slice(remote.length + 1);
+	return branch === "" ? undefined : { remote, branch };
+}
+
+/** What making a branch from a start point should be handed. */
+export interface FreshStart {
+	/**
+	 * The start point to give git. A remote's branch is spelled out in
+	 * full, since a local branch or tag called `origin/main` makes the
+	 * short name ambiguous and git refuses it.
+	 */
+	start: string;
+	/** A sentence to pass on when the start could not be refreshed. */
+	stale?: string;
+}
+
+/**
+ * Fetch the remote branch a start point names, if it names one, and say
+ * what to start from. Throws only when the call was stopped, since a
+ * branch made after somebody pressed escape is not what they asked for.
  */
 export async function refreshStart(
 	exec: Exec,
 	treePath: string,
 	from: string,
-): Promise<string | undefined> {
+	signal?: AbortSignal,
+): Promise<FreshStart> {
 	const listed = await exec("git", ["-C", treePath, "remote"]);
-	if (listed.code !== 0) return undefined;
-	const named = remoteBranchOf(
-		from,
-		listed.stdout.split("\n").filter((line) => line.trim() !== ""),
-	);
-	if (named === undefined) return undefined;
+	const named =
+		listed.code === 0
+			? remoteBranchOf(
+					from,
+					listed.stdout.split("\n").filter((line) => line.trim() !== ""),
+				)
+			: undefined;
+	if (named === undefined) return { start: from };
+	const tracking = `refs/remotes/${named.remote}/${named.branch}`;
+	if (named.branch === "HEAD") {
+		// The remote's default branch as recorded here, which is a pointer
+		// to another tracking ref rather than a branch the remote can send.
+		return {
+			start: tracking,
+			stale: `${from} is the remote's default branch as recorded at the last fetch, so it was not fetched now; name the branch itself to have it fetched first.`,
+		};
+	}
 	// The refspec is spelled out, so the tracking ref is written even in a
 	// checkout whose configured fetch is narrower than this branch.
 	const fetched = await exec("git", [
@@ -66,9 +117,29 @@ export async function refreshStart(
 		"fetch",
 		"-q",
 		named.remote,
-		`+refs/heads/${named.branch}:refs/remotes/${named.remote}/${named.branch}`,
+		`+refs/heads/${named.branch}:${tracking}`,
 	]);
-	if (fetched.code === 0) return undefined;
-	const why = fetched.stderr.trim().split("\n")[0] || `exit ${fetched.code}`;
+	if (fetched.code === EXIT_ABORTED || signal?.aborted) {
+		throw new Error(`Stopped while fetching ${from}; no branch was made.`);
+	}
+	if (fetched.code === 0) return { start: tracking };
+	return { start: tracking, stale: fetchFailure(from, fetched) };
+}
+
+/** Why a fetch could not be made, said so the next step is plain. */
+function fetchFailure(
+	from: string,
+	fetched: { code: number; stderr: string },
+): string {
+	if (fetched.code === EXIT_TIMED_OUT) {
+		return `Fetching ${from} took longer than ${FETCH_MS / 60_000} minutes, so it starts where ${from} stood at the last fetch. Fetch it on its own, in the background, then branch again.`;
+	}
+	const said = fetched.stderr.trim().split("\n")[0]?.trim() ?? "";
+	const why =
+		said === ""
+			? `exit ${fetched.code}`
+			: said.length > REASON_CHARS
+				? `${said.slice(0, REASON_CHARS)}…`
+				: said;
 	return `Could not fetch ${from} just now (${why}), so it starts where ${from} stood at the last fetch.`;
 }
