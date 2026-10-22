@@ -32,6 +32,9 @@ export function settlingLines(
 				`     ${move.from} is now ${move.to}, and so are its citations.`,
 			);
 		}
+		if (file.cited.length > 0) {
+			lines.push(`     Citations rewritten in ${file.cited.join(", ")} too.`);
+		}
 	}
 	if (stale.length > 0) {
 		lines.push(

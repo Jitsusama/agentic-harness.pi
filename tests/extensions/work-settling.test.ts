@@ -33,7 +33,7 @@ describe("the lines a replay's settling is said in", () => {
 				path: "docs/HISTORY.md",
 				hunks: 1,
 				renumbered: [{ from: "HISTORY §2", to: "HISTORY §3" }],
-				cited: 2,
+				cited: ["AGENTS.md"],
 			},
 		]);
 
@@ -43,6 +43,7 @@ describe("the lines a replay's settling is said in", () => {
 		expect(lines.join("\n")).toContain(
 			"HISTORY §2 is now HISTORY §3, and so are its citations.",
 		);
+		expect(lines.join("\n")).toContain("Citations rewritten in AGENTS.md too.");
 	});
 
 	it("names each stale citation by file and line, to fix in a commit", () => {
