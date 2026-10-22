@@ -55,6 +55,7 @@ import { count, displayPath } from "../../../lib/ui/index.ts";
 import { objectionsTo, treeBroker } from "../broker.ts";
 import { GLYPH, treeLine } from "../render.ts";
 import { candidatesFor, machineSeams, warmStart } from "../warm-start.ts";
+import { recordMessage } from "./message.ts";
 import {
 	type Answer,
 	messageOf,
@@ -683,9 +684,11 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 					// Only the gate is shared, not the review panel. Approving a message
 					// is what a human does to a command they did not write; here the
 					// subject and body are arguments in a tool call they can already see.
-					const proposed = [args.subject, args.body]
-						.filter((part) => part !== undefined && part !== "")
-						.join("\n\n");
+					//
+					// The body is wrapped to 72 before either gate reads it, so a line
+					// that is merely too wide is fixed rather than refused.
+					const message = recordMessage(args.subject, args.body);
+					const proposed = message.proposed;
 					// A guardian result may also ask for a rewrite, which is a shell
 					// concept: there is no command here to substitute. Narrowed by asking
 					// what the value has rather than asserting what it is, so a third arm
@@ -724,11 +727,14 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 					);
 					await author.commit(found.path, {
 						subject: args.subject,
-						...(args.body ? { body: args.body } : {}),
+						...(message.body ? { body: message.body } : {}),
 					});
 					const head = await history.head(found.path);
+					const rewrapped = message.wrapped
+						? " The body ran past 72 columns, so it was wrapped to fit."
+						: "";
 					return say(
-						`${GLYPH.clean} Recorded ${before.changed.length} paths in ${found.identity.key} at ${head.commit.slice(0, 12)}.`,
+						`${GLYPH.clean} Recorded ${before.changed.length} paths in ${found.identity.key} at ${head.commit.slice(0, 12)}.${rewrapped}`,
 						{
 							ok: true,
 							commit: head.commit,
