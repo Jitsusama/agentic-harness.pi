@@ -223,15 +223,44 @@ interface CacheSlot {
 	result: DiscoveryResult;
 }
 
-const discoveryCache = new Map<string, CacheSlot>();
-
 /** A file's content hash, and the stat it was taken under. */
 interface Stamp {
 	stat: string;
 	hash: string;
 }
 
-const stamps = new Map<string, Stamp>();
+/** What discovery remembers between calls, for the whole process. */
+interface Memo {
+	cache: Map<string, CacheSlot>;
+	stamps: Map<string, Stamp>;
+}
+
+/**
+ * Where the memo lives: on `globalThis`, never in this module's scope.
+ *
+ * pi loads each extension through its own module graph and never
+ * unloads one, so every extension that imports this file has a copy of
+ * it, and every reload adds another set. Kept in module scope, each
+ * copy built its own index of every quest and document (72 MB here),
+ * and a copy from before a reload kept its index for the life of the
+ * process: seven of them, 505 MB, in one session after a night of
+ * merges. One slot means one index however many copies there are, and
+ * a copy that no longer runs holds nothing.
+ */
+const MEMO = Symbol.for("agentic-harness.quest-discovery");
+
+type GlobalMemo = Record<symbol, Memo | undefined>;
+
+/** The process's memo, made on first use. Read afresh on every call. */
+function memo(): Memo {
+	const global = globalThis as GlobalMemo;
+	let found = global[MEMO];
+	if (!found) {
+		found = { cache: new Map(), stamps: new Map() };
+		global[MEMO] = found;
+	}
+	return found;
+}
 
 /**
  * How long a file must have sat unwritten before its stat is trusted to
@@ -245,11 +274,12 @@ const SETTLED_NS = 2_000_000_000n;
 /**
  * Drop the discovery memo. Tests call this between runs; write
  * paths do not need it because the signature catches their
- * changes on the next read.
+ * changes on the next read. A reload must call it, since the
+ * memo outlives the code that built it: the next code may shape
+ * an index differently, and must not be handed the old one.
  */
 export function clearDiscoveryCache(): void {
-	discoveryCache.clear();
-	stamps.clear();
+	delete (globalThis as GlobalMemo)[MEMO];
 }
 
 /**
@@ -265,10 +295,11 @@ export function clearDiscoveryCache(): void {
 export function discoverQuests(questsRoot: string): DiscoveryResult {
 	const pass = newPass();
 	const signature = discoverySignature(questsRoot, pass);
-	const cached = discoveryCache.get(questsRoot);
+	const { cache } = memo();
+	const cached = cache.get(questsRoot);
 	if (cached && cached.signature === signature) return cached.result;
 	const result = discoverQuestsUncached(questsRoot, pass);
-	discoveryCache.set(questsRoot, { signature, result });
+	cache.set(questsRoot, { signature, result });
 	return result;
 }
 
@@ -327,6 +358,7 @@ function discoverySignature(questsRoot: string, pass: Pass): string {
 function contentHash(path: string, pass: Pass): string {
 	const st = statSync(path, { bigint: true });
 	const stat = `${st.size}:${st.mtimeNs}:${st.ctimeNs}:${st.ino}`;
+	const { stamps } = memo();
 	const known = stamps.get(path);
 	if (known && known.stat === stat) return known.hash;
 	const bytes = readFileSync(path);

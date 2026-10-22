@@ -150,3 +150,33 @@ describe("discovery reads", () => {
 		expect(readsOf(readmePath)).toBe(1);
 	});
 });
+
+describe("one index for the whole process", () => {
+	// pi loads each extension through its own module graph and never
+	// unloads one, so several copies of discovery run in one process.
+	async function anotherCopy(): Promise<typeof discoverQuests> {
+		vi.resetModules();
+		const copy = await import("../../../../lib/internal/quest/discovery.ts");
+		expect(copy.discoverQuests).not.toBe(discoverQuests);
+		return copy.discoverQuests;
+	}
+
+	it("is shared by every copy of the module, so a second copy reads nothing", async () => {
+		const first = discoverQuests(root);
+		const discoverAgain = await anotherCopy();
+		reads.mockClear();
+
+		expect(discoverAgain(root)).toBe(first);
+		expect(readsOf(readmePath)).toBe(0);
+	});
+
+	it("is let go entirely when cleared, so no copy keeps it", () => {
+		discoverQuests(root);
+		clearDiscoveryCache();
+		expect(
+			(globalThis as Record<symbol, unknown>)[
+				Symbol.for("agentic-harness.quest-discovery")
+			],
+		).toBeUndefined();
+	});
+});

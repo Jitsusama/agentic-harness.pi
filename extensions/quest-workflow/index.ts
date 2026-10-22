@@ -35,7 +35,10 @@ import {
 } from "../../lib/internal/config/loader.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { dataDir } from "../../lib/internal/paths.ts";
-import { discoverQuests } from "../../lib/internal/quest/discovery.ts";
+import {
+	clearDiscoveryCache,
+	discoverQuests,
+} from "../../lib/internal/quest/discovery.ts";
 import { formatRelativeAge } from "../../lib/internal/quest/session-liveness.ts";
 import { offerShellEnvironment } from "../../lib/internal/shell/environment.ts";
 import {
@@ -765,6 +768,10 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		// something ended, for the same reason as the record: a reload
 		// keeps the session running in this process.
 		if (sid && ended) releaseSessionOnShutdown(state, sid);
+		// The discovery memo is the process's and outlives this code. The
+		// code a reload brings may shape the index differently, so it
+		// starts from an empty memo rather than reading this one.
+		if (event.reason === "reload") clearDiscoveryCache();
 	});
 
 	// Tell the model which quest the conversation is on, which document
