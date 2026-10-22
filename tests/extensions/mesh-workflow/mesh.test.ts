@@ -2142,6 +2142,27 @@ describe("a lease", () => {
 		expect(sentOut()).toEqual([]);
 	});
 
+	it("claims no checkout for a pull, which only brings its branch up to date", async () => {
+		// Seen live: two sessions installing one checkout by a pull stopped
+		// each other for ten minutes after, with nothing there to lose.
+		mkdirSync(join(root, ".git"));
+		const { fire } = await startSession();
+
+		const pulled = await fire(
+			"tool_call",
+			{
+				type: "tool_call",
+				toolName: "bash",
+				toolCallId: "b",
+				input: { command: "git pull -q --ff-only origin main" },
+			},
+			{ cwd: root },
+		);
+
+		expect(pulled).toBeUndefined();
+		expect(ownBoard()).toEqual([]);
+	});
+
 	it("stops an edit once in a checkout another peer rewrote", async () => {
 		mkdirSync(join(root, ".git"));
 		peer("session-w", ["WCJQSG"], []);

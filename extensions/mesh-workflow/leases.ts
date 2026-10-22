@@ -240,7 +240,9 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 				});
 				return `Not run yet: \`${run}\` rewrites the files of ${checkout}, where ${each.join("; and ")}. What they changed could be lost or switched out from under them, so look first, or ${asking}. Running it again goes ahead; they have been told.`;
 			}
-			own.take("change", checkout, RUN_LEASE_MS, run, now, checkout);
+			if (!found.catchesUp) {
+				own.take("change", checkout, RUN_LEASE_MS, run, now, checkout);
+			}
 			return undefined;
 		},
 
