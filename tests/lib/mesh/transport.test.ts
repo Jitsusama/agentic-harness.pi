@@ -54,6 +54,16 @@ describe("the folder transport", () => {
 		expect(transport.ids()).toHaveLength(20);
 	});
 
+	it("gives what one process sends ids that rise, within a millisecond too", () => {
+		const transport = folderTransport(dir);
+
+		const sent = Array.from({ length: 20 }, (_, n) =>
+			transport.send(draft({ text: `${n}` })),
+		);
+
+		expect(transport.ids()).toEqual(sent.map(({ id }) => id));
+	});
+
 	it("passes over a file that is not a message", () => {
 		const transport = folderTransport(dir);
 		writeFileSync(join(dir, "1-X-1.json"), '{"nope":1}', "utf8");

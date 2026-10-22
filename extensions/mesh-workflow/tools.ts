@@ -15,6 +15,7 @@ import {
 	homeOf,
 	isJoinable,
 } from "../../lib/mesh/group.ts";
+import type { Board } from "../../lib/mesh/lease.ts";
 import { type Census, census } from "../../lib/mesh/liveness.ts";
 import {
 	INTENTS,
@@ -28,6 +29,7 @@ import type { Presence, Presences } from "../../lib/mesh/presence.ts";
 import { stoppedBy } from "../../lib/mesh/stop.ts";
 import { idNamed, mayReplace, sentBy } from "../../lib/mesh/thread.ts";
 import type { Transport } from "../../lib/mesh/transport.ts";
+import { leasesText } from "./leases.ts";
 
 /**
  * The most messages one mesh_read hands back. Messages are short by
@@ -40,6 +42,8 @@ export interface Local {
 	readonly peer: Peer;
 	readonly transport: Transport;
 	readonly presences: Presences;
+	/** The leases every peer holds (see lib/mesh/lease.ts). */
+	readonly board: Board;
 	/** Note a message this peer sent, so it is never handed back to it. */
 	sent(message: Message): void;
 }
@@ -180,13 +184,15 @@ export function registerTools(
 		name: "mesh_groups",
 		label: "Mesh",
 		description:
-			"List the mesh groups, who is in each, and which this peer is in.",
+			"List the mesh groups, who is in each, and which this peer is in, and the leases peers hold: what each is changing, answering, holding, waiting on or running.",
 		parameters: Type.Object({}),
-		execute: using(async (at) =>
-			answer(groupsText(await peers(at), at.peer), {
-				groups: at.peer.groups,
-			}),
-		),
+		execute: using(async (at) => {
+			const standing = await peers(at);
+			return answer(
+				`${groupsText(standing, at.peer)}${leasesText(at.board.all(), standing.present)}`,
+				{ groups: at.peer.groups },
+			);
+		}),
 	});
 }
 
@@ -303,6 +309,20 @@ async function send(
 	if (reading.length > 0) {
 		notes.push(
 			`This peer is in ${reading.join(", ")} now, so it hears the answers.`,
+		);
+	}
+	if (message.intent === "hold") {
+		notes.push(
+			`It holds for two hours at most: answer or replace [${shortId(message)}] when it is over, so whoever waits on it carries on.`,
+		);
+	}
+	const answered = re ? at.transport.read(re) : undefined;
+	if (
+		answered?.intent === "hold" &&
+		!sentBy(answered, { addresses: at.peer.addresses, pid: process.pid })
+	) {
+		notes.push(
+			`This peer waits on [${shortId(answered)}] now, and gets a turn to carry on when it ends.`,
 		);
 	}
 	return answer(

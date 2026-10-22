@@ -27,6 +27,11 @@ import {
 } from "../../../extensions/mesh-workflow/index.ts";
 import { MOST_TURNS_FROM_ONE } from "../../../lib/mesh/damping.ts";
 import { ALL } from "../../../lib/mesh/group.ts";
+import {
+	createBoard,
+	LEASE_EVENT,
+	type Lease,
+} from "../../../lib/mesh/lease.ts";
 import type { Draft, Message } from "../../../lib/mesh/message.ts";
 import { createPresences } from "../../../lib/mesh/presence.ts";
 import { folderTransport } from "../../../lib/mesh/transport.ts";
@@ -75,8 +80,10 @@ async function startSession(
 	ctx: Record<string, unknown> = {},
 	branch: unknown[] = [],
 	settling = { settleMs: 40, spreadMs: 0 },
+	waitCheckMs = 60_000,
 ) {
 	const sent: Sent[] = [];
+	const bus = new Map<string, ((data: unknown) => void)[]>();
 	const entries: { type: string; data: unknown }[] = [];
 	const lifecycle = new Map<string, Handler>();
 	const tools = new Map<
@@ -93,8 +100,15 @@ async function startSession(
 			sent.push({ message, options }),
 		appendEntry: (type: string, data: unknown) => entries.push({ type, data }),
 		registerEntryRenderer: () => {},
+		events: {
+			on: (channel: string, handler: (data: unknown) => void) =>
+				bus.set(channel, [...(bus.get(channel) ?? []), handler]),
+			emit: (channel: string, data: unknown) => {
+				for (const handler of bus.get(channel) ?? []) handler(data);
+			},
+		},
 	};
-	meshWorkflow(paths, env, settling)(pi as never);
+	meshWorkflow(paths, env, settling, waitCheckMs)(pi as never);
 	await lifecycle.get("session_start")?.(
 		{ reason: "startup" },
 		{
@@ -111,8 +125,9 @@ async function startSession(
 	stops.push(async () => {
 		await lifecycle.get("session_shutdown")?.({}, {});
 	});
-	const fire = (event: string) => lifecycle.get(event)?.({}, {});
-	return { sent, tools, entries, fire };
+	const fire = (event: string, payload: unknown = {}, at: unknown = {}) =>
+		lifecycle.get(event)?.(payload, at);
+	return { sent, tools, entries, fire, emit: pi.events.emit };
 }
 
 /** A model registry holding one classifier that answers `about` so. */
@@ -1179,6 +1194,251 @@ describe("a stop", () => {
 		expect(text).toContain(
 			"P9R1KI stopped this peer reaching it (too much): it sees what this peer sends as one line only.",
 		);
+	});
+});
+
+/** Another peer's lease, written to the board as that peer would. */
+function leased(owner: string, over: Partial<Lease>) {
+	const now = Date.now();
+	createBoard(join(paths.mesh, "leases")).hold({
+		session: owner,
+		leases: [
+			{
+				kind: "change",
+				subject: join(root, "a.ts"),
+				since: new Date(now - 60_000).toISOString(),
+				until: new Date(now + 600_000).toISOString(),
+				...over,
+			},
+		],
+	});
+}
+
+/** This peer's leases on the board. */
+function ownBoard(): readonly Lease[] {
+	return createBoard(join(paths.mesh, "leases")).of(session)?.leases ?? [];
+}
+
+/** An edit as pi asks the mesh about it before running it. */
+const editing = (path: string) =>
+	[
+		"tool_call",
+		{ type: "tool_call", toolName: "edit", toolCallId: "t1", input: { path } },
+		{ cwd: root },
+	] as const;
+
+/** What the mesh sent other peers, as they would read it. */
+function sentOut(): Message[] {
+	const transport = folderTransport(join(paths.mesh, "messages"));
+	return transport
+		.ids()
+		.map((id) => transport.read(id))
+		.filter((one): one is Message => one?.pid === process.pid);
+}
+
+describe("a lease", () => {
+	it("stops an edit once when another peer is changing the file, and tells it", async () => {
+		peer("session-w", ["WCJQSG"], []);
+		leased("session-w", {});
+		const { fire } = await startSession();
+
+		const first = (await fire(...editing("a.ts"))) as {
+			block?: boolean;
+			reason?: string;
+		};
+		const again = await fire(...editing("a.ts"));
+
+		expect(first.block).toBe(true);
+		expect(first.reason).toMatch(
+			/^Not changed yet: WCJQSG \(since \d\d:\d\d\) is changing .*a\.ts\./,
+		);
+		expect(again).toBeUndefined();
+		expect(ownBoard().map(({ kind }) => kind)).toEqual(["change"]);
+		const told = sentOut();
+		expect(told).toHaveLength(1);
+		expect(told[0]).toMatchObject({ to: ["@WCJQSG"], intent: "fyi" });
+		expect(told[0]?.text).toContain("reached for");
+	});
+
+	it("never stops the peer changing the file, and lapses when its run ends", async () => {
+		peer("session-w", ["WCJQSG"], []);
+		const { fire } = await startSession();
+
+		expect(await fire(...editing("a.ts"))).toBeUndefined();
+		expect(await fire(...editing("a.ts"))).toBeUndefined();
+		expect(ownBoard()).toMatchObject([
+			{ kind: "change", subject: join(root, "a.ts") },
+		]);
+		await fire("agent_end");
+		expect(ownBoard()).toEqual([]);
+	});
+
+	it("lets an edit by a peer that has ended go ahead", async () => {
+		peer("session-w", ["WCJQSG"], [], true);
+		leased("session-w", {});
+		const { fire } = await startSession();
+
+		expect(await fire(...editing("a.ts"))).toBeUndefined();
+		expect(sentOut()).toEqual([]);
+	});
+
+	it("leaves a group's question another peer is answering to it", async () => {
+		peer("session-p", ["P9R1KI"], []);
+		const { sent } = await startSession({}, { isIdle: () => true });
+
+		const asked = fromElsewhere({
+			intent: "question",
+			text: "who can look at 7M6JKG's tests?",
+		});
+		leased("session-p", { kind: "answer", subject: asked.id });
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.options).toEqual({ triggerTurn: false });
+		expect(sent[0]?.message.details).toMatchObject({
+			why: ["about this peer's work, being answered by P9R1KI"],
+		});
+	});
+
+	it("claims the questions a turn of this peer's answers", async () => {
+		const { sent, fire } = await startSession({}, { isIdle: () => true });
+
+		const asked = fromElsewhere({
+			intent: "question",
+			to: ["@7M6JKG"],
+			text: "why?",
+		});
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.options).toEqual({ triggerTurn: true });
+		expect(ownBoard()).toMatchObject([
+			{ kind: "answer", subject: asked.id, why: "why?" },
+		]);
+		await fire("agent_end");
+		expect(ownBoard()).toEqual([]);
+	});
+
+	it("holds what this peer holds until it answers its own hold", async () => {
+		peer("session-w", ["WCJQSG"], []);
+		const { tools } = await startSession();
+
+		const said = await send(tools, "all", "hold", "hold heavy builds");
+		const [hold = ""] = folderTransport(join(paths.mesh, "messages")).ids();
+
+		expect(said).toContain("It holds for two hours at most");
+		expect(ownBoard()).toMatchObject([{ kind: "hold", subject: hold }]);
+		await tools.get("mesh_send")?.execute("call-2", {
+			to: "all",
+			intent: "fyi",
+			text: "builds may run again",
+			re: hold,
+		});
+		expect(ownBoard()).toEqual([]);
+	});
+
+	it("waits on another's hold it answers, and carries on with a turn when it ends", async () => {
+		peer("session-w", ["WCJQSG"], []);
+		const { sent, tools } = await startSession({}, { isIdle: () => true });
+		const hold = fromElsewhere({ intent: "hold", text: "hold qemu" });
+
+		const said = await tools.get("mesh_send")?.execute("call-2", {
+			to: "WCJQSG",
+			intent: "fyi",
+			text: "my vm test waits on this",
+			re: hold.id,
+		});
+		expect(said?.content[0]?.text).toContain(
+			`This peer waits on [${hold.id.slice(-8)}] now`,
+		);
+		expect(ownBoard()).toMatchObject([{ kind: "wait", subject: hold.id }]);
+
+		// The holder's word can go where this peer does not listen.
+		fromElsewhere({
+			to: ["#optimus"],
+			re: hold.id,
+			text: "qemu is free",
+		});
+
+		const over = ({ message }: Sent) =>
+			message.content.startsWith("The hold [");
+		await vi.waitFor(() => expect(sent.find(over)).toBeDefined());
+		const resumed = sent.find(over);
+		expect(resumed?.options).toEqual({ triggerTurn: true });
+		expect(resumed?.message.content).toContain(
+			'is over: its holder said "qemu is free". This peer had said: "my vm test waits on this".',
+		);
+		expect(resumed?.message.content).toContain("Carry on with what it held up");
+		expect(ownBoard()).toEqual([]);
+	});
+
+	it("carries on when the peer holding it has ended", async () => {
+		peer("session-w", ["WCJQSG"], []);
+		const { sent, tools } = await startSession(
+			{},
+			{ isIdle: () => false },
+			[],
+			undefined,
+			30,
+		);
+		const hold = fromElsewhere({ intent: "hold", text: "hold qemu" });
+		await tools.get("mesh_send")?.execute("call-2", {
+			to: "WCJQSG",
+			intent: "fyi",
+			text: "waiting",
+			re: hold.id,
+		});
+
+		peer("session-w", ["WCJQSG"], [], true);
+
+		await vi.waitFor(() =>
+			expect(
+				sent.find(({ message }) =>
+					message.content.includes("is over: its holder has ended"),
+				)?.options,
+			).toEqual({ triggerTurn: false }),
+		);
+		expect(ownBoard()).toEqual([]);
+	});
+
+	it("tells both sides, once, when heavy work overlaps", async () => {
+		peer("session-w", ["WCJQSG"], []);
+		leased("session-w", { kind: "heavy", subject: "qemu", why: "vm test" });
+		const { sent, emit } = await startSession();
+
+		emit(LEASE_EVENT, { take: { subject: "qemu", why: "flake check" } });
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.options).toEqual({ triggerTurn: false });
+		expect(sent[0]?.message.content).toMatch(
+			/^Heavy work on qemu: WCJQSG \(since \d\d:\d\d\) is running it already/,
+		);
+		expect(sentOut()).toMatchObject([
+			{
+				to: ["@WCJQSG"],
+				text: expect.stringContaining("too (flake check)"),
+			},
+		]);
+		expect(ownBoard()).toMatchObject([{ kind: "heavy", subject: "qemu" }]);
+
+		emit(LEASE_EVENT, { take: { subject: "qemu", why: "flake check" } });
+		emit(LEASE_EVENT, { release: "qemu" });
+		await vi.waitFor(() => expect(ownBoard()).toEqual([]));
+		expect(sent).toHaveLength(1);
+		expect(sentOut()).toHaveLength(1);
+	});
+
+	it("lists what the peers still there hold", async () => {
+		peer("session-w", ["WCJQSG"], []);
+		leased("session-w", { why: "a fix" });
+		peer("session-x", ["ENDED1"], [], true);
+		leased("session-x", { kind: "hold", subject: "0123456789abcdef" });
+		const { tools } = await startSession();
+
+		const listed = await tools.get("mesh_groups")?.execute("call-g", {});
+
+		expect(listed?.content[0]?.text).toContain(
+			`\nLeases:\nWCJQSG: changing ${join(root, "a.ts")}`,
+		);
+		expect(listed?.content[0]?.text).not.toContain("ENDED1:");
 	});
 });
 

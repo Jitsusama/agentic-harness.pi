@@ -49,6 +49,12 @@ and can answer a question or a gate left open on screen.
   the mesh rather than asked of senders.
 - **Stop:** a peer telling another to stop reaching it, which
   only it can lift and which is absolute while it stands.
+- **Lease:** an expiring claim a peer holds on what it is in
+  the middle of: a file it is changing, a question it is
+  answering, a hold it sent, a hold it waits on, or heavy work
+  it runs. Presence first, never a lock.
+- **Board:** where every peer's leases are kept, for every
+  peer to read.
 - **Transport:** where messages travel and rest.
 
 ## Tools
@@ -69,7 +75,8 @@ and can answer a question or a gate left open on screen.
   says which peers have it and which not yet, and under each
   one withdrawn, what replaced it.
 - `mesh_join`, `mesh_leave` and `mesh_groups`: the groups this
-  peer is in, and who is in each. A bare name joins a peer's
+  peer is in, and who is in each. `mesh_groups` also lists the
+  leases of the peers still there. A bare name joins a peer's
   home group when some peer goes by it, and a named group
   otherwise; joining a group nobody is in makes it.
   `mesh_join` with `invite` brings other peers in without
@@ -179,11 +186,56 @@ Unlike damping, the stop is said to both models: it is the
 receiver's own choice, and the sender has to change what it
 does.
 
+## Leases
+
+The swarm's holds mattered "as presence more than as a gate":
+a peer reaching for what another held was told who, since
+when and what, once, and went ahead beside it if it reached
+again, while the holder heard. Skynet's bots, racing on one
+question, found the same cause at twice the cost. So a lease
+says what a peer is doing, the mesh tells those involved when
+two overlap, and nothing waits to be granted one. The harness
+takes most of them itself, since agents say what they are
+doing only when it is the easy thing:
+
+- **change:** each `edit` and `write` claims its file, named
+  by repository and path, so two worktrees of one repository
+  overlap. A peer reaching for a file another peer still there
+  is changing is stopped once, with who, since when and their
+  work, and the holder is sent an fyi; reaching again goes
+  ahead beside them. The holder itself is never stopped. It
+  lapses when the run ends, or ten minutes after the last edit.
+- **answer:** a turn claims the questions it carries, so a
+  group's question another peer has a turn for is only noted,
+  "being answered by" that peer. It lapses with the run.
+- **hold:** a hold sent claims what it holds, until its sender
+  answers (`re`) or replaces (`supersedes`) it, or for two
+  hours at most.
+- **wait:** answering another peer's hold says this peer waits
+  on it, so the holder sees what waits. When the holder answers
+  or replaces it (a hold replacing it moves the wait to the new
+  one), when the holder has ended, or when it has stood two
+  hours, the waiting peer is handed the hold back with how it
+  ended: a turn when idle, a note mid-run. Ends settle as acts
+  do, so peers held by one hold do not all carry on at once.
+  Only while it waits does a peer check, once a minute, that
+  the holder is still there.
+- **heavy:** any extension claims heavy work for this peer by
+  emitting `mesh:lease:v1` on pi's bus, with
+  `{ take: { subject, why?, ms? } }` or `{ release: subject }`;
+  the subject names the kind of work. It lasts an hour unless
+  `ms` says otherwise, and two hours at most. Starting heavy
+  work others still there are running tells both sides, once.
+
+Every lease also lapses when its holder is gone, which is asked
+of the machine (see Who Is Still There). Holds and waits
+outlive a reload; what a run claimed does not.
+
 ## Intents
 
 - **hold:** do not start what it names until its sender says
-  the hold is over. Reply only if already in the middle of it
-  or unable to hold.
+  the hold is over. If it holds up work of this peer's, or this
+  peer cannot hold, answer it, saying what; otherwise no reply.
 - **question:** answer its sender, briefly.
 - **finding:** for whoever owns what it is about, to note in
   their plan or journal. No reply.
@@ -211,6 +263,10 @@ Under `$XDG_STATE_HOME/pi/agentic-harness.pi/mesh-workflow/`:
   survive a reload and a restore. It is written when something
   in it changes (the quest, the groups, a run starting or
   ending), never on a clock.
+- `leases/`: one file per peer, by session id, holding its
+  current leases, so each peer writes only its own. It is
+  rewritten when a lease is taken, given up, or renewed by a
+  minute or more, and taken away when the peer holds none.
 
 ## Who Is Still There
 
@@ -249,7 +305,12 @@ once no session is left on the old harness.
 
 ## Not Yet
 
-- Messages, markers and presence are never expired.
+- Messages, markers and presence are never expired, nor the
+  lease files of peers that ended holding a hold or a wait;
+  their leases lapse by the clock all the same.
+- Heavy work is leased only where something emits the lease
+  event; nothing on the machine does yet.
+- A change lease covers files, not a pull request in progress.
 - An old membership names no process, so a session that ended
   on the old harness still counts as there until legacy.ts
   goes.

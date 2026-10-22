@@ -11,6 +11,7 @@ import {
 	type Message,
 	shortId,
 } from "../../lib/mesh/message.ts";
+import type { HoldEnd } from "./leases.ts";
 
 /** The customType of messages delivered in full. */
 export const NOTED = "mesh";
@@ -43,7 +44,7 @@ export const ADVISORY =
 
 /** What each intent asks of its reader, said only for those present. */
 export const ASKS: Readonly<Record<Intent, string>> = {
-	hold: "A hold: do not start what it names until its sender says the hold is over. Reply with mesh_send only if you are already in the middle of it or cannot hold.",
+	hold: "A hold: do not start what it names until its sender says the hold is over. If it holds up work of yours, or you cannot hold, answer it with mesh_send, re set to its id, saying what: its holder sees what waits on it, and you get a turn to carry on when it ends. Otherwise no reply.",
 	question:
 		"A question: answer its sender with mesh_send, briefly, with re set to the question's id, then carry on with what you were doing, or stop there if you were doing nothing.",
 	finding:
@@ -90,6 +91,25 @@ export function noted(
 		asks.join(" "),
 		...(glances.length > 0 ? [digest(glances)] : []),
 		ADVISORY,
+	].join("\n\n");
+}
+
+/**
+ * Holds this peer waited on that are over, in full, carrying whatever
+ * glances wait. Unlike a message, it asks something: carry on.
+ */
+export function holdsOver(
+	ends: readonly HoldEnd[],
+	glances: readonly Message[] = [],
+): string {
+	const each = ends.map(
+		({ hold, how, why }) =>
+			`The hold [${shortId(hold)}] from ${hold.from} at ${clock(hold)} is over: ${how}.${why ? ` This peer had said: "${why}".` : ""}\n\n${hold.text}`,
+	);
+	return [
+		...each,
+		"Carry on with what it held up, unless something since says otherwise.",
+		...(glances.length > 0 ? [digest(glances)] : []),
 	].join("\n\n");
 }
 
