@@ -232,6 +232,8 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 
 	pi.registerTool({
 		name: "verify",
+		// Called once in 77 sessions from 8 October: loaded on demand.
+		exposure: "deferred",
 		label: "Verify",
 		description:
 			"Run the project's verification check command (lint, typecheck, " +

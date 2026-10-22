@@ -74,6 +74,8 @@ export default function correctionCapture(pi: ExtensionAPI) {
 
 	pi.registerTool({
 		name: "capture_lesson",
+		// Called in 9 of 77 sessions from 8 October: loaded on demand.
+		exposure: "deferred",
 		label: "Capture Lesson",
 		description:
 			"Capture behavioural lessons from this session as durable rules. " +

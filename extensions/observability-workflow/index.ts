@@ -110,6 +110,8 @@ export default function observabilityWorkflow(pi: ExtensionAPI) {
 
 	pi.registerTool({
 		name: "observe_runs",
+		// Called in 7 of 77 sessions from 8 October: loaded on demand.
+		exposure: "deferred",
 		label: "Observe Runs",
 		description:
 			"Query subagent and council run telemetry: how a fan-out did " +

@@ -161,6 +161,8 @@ export default function advisor(pi: ExtensionAPI) {
 
 	pi.registerTool({
 		name: "advisor",
+		// Not called once in 77 sessions from 8 October: loaded on demand.
+		exposure: "deferred",
 		label: "Advisor",
 		description:
 			"Turn the background advisor on or off, or check its status. " +
