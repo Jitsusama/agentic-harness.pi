@@ -56,7 +56,9 @@ const dollars = (value: number) =>
 const home = homedir();
 /** A working directory under the home directory, said from `~`. */
 const shown = (repo: string) =>
-	repo.startsWith(`${home}/`) ? `~${repo.slice(home.length)}` : repo;
+	repo === home || repo.startsWith(`${home}/`)
+		? `~${repo.slice(home.length)}`
+		: repo;
 const thousands = (value: number) =>
 	value >= 10_000 ? `${Math.round(value / 1000)}k` : String(value);
 

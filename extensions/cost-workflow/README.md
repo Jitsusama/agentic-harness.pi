@@ -33,8 +33,9 @@ fixing" in one call, held against the week before:
   writes and output.
 - **Cache rewrites:** the `misses` view by cause, with what each cost.
 - **Always-on context:** what every turn reads before the
-  conversation, by repository and piece by piece (tools, rules,
-  skills, project instructions), read from each session log's first
+  conversation, by repository and piece by piece (tool
+  `declarations`, then each prompt section, such as `rules`, `skills`
+  and `project_context`), read from each session log's first
   system message, since the ledger counts tokens but not what they
   were. A repository's weekly cost is its median session's size at
   about 2.8 characters a token, times its turns, at its own read

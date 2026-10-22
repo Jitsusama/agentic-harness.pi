@@ -24,7 +24,11 @@ const SYSTEM = {
 	type: "message",
 	message: {
 		role: "system",
-		sections: { rules: "r".repeat(30), project_context: "p".repeat(400) },
+		sections: {
+			tools: "- read",
+			rules: "r".repeat(30),
+			project_context: "p".repeat(400),
+		},
 		toolsAdded: [{ name: "read" }, { name: "bash" }],
 	},
 };
@@ -43,7 +47,8 @@ describe("the always-on context of a session", () => {
 			repo: "/home/me/src/walgit-rs",
 			tools: 2,
 			pieces: {
-				tools: JSON.stringify(SYSTEM.message.toolsAdded).length,
+				declarations: JSON.stringify(SYSTEM.message.toolsAdded).length,
+				tools: 6,
 				rules: 30,
 				project_context: 400,
 			},

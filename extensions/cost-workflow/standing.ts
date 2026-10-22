@@ -25,7 +25,11 @@ export interface StandingPrompt {
 	 */
 	readonly repo: string | null;
 	readonly tools: number;
-	/** Characters per piece: `tools` for the declarations, then each section. */
+	/**
+	 * Characters per piece: `declarations` for the tools' schemas, then
+	 * each section by its name (pi's own `tools` section is the short list
+	 * of tool names, not the declarations).
+	 */
 	readonly pieces: Readonly<Record<string, number>>;
 }
 
@@ -73,7 +77,7 @@ export async function standingOf(
 			if (line.message?.role !== "system") continue;
 			const pieces: Record<string, number> = {};
 			const tools = line.message.toolsAdded ?? [];
-			pieces.tools = JSON.stringify(tools).length;
+			pieces.declarations = JSON.stringify(tools).length;
 			for (const [name, value] of Object.entries(line.message.sections ?? {})) {
 				if (typeof value === "string") pieces[name] = value.length;
 			}
