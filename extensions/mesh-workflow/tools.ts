@@ -5,6 +5,7 @@
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { answeringTo } from "../../lib/mesh/address.ts";
 import {
 	ALL,
 	groupNamed,
@@ -145,9 +146,18 @@ export function registerTools(
 
 type Answer = ReturnType<typeof answer>;
 
-/** Every peer, sorted by whether it is still on the mesh. */
+/**
+ * Every peer, answering only to its own addresses, sorted by whether
+ * it is still on the mesh.
+ */
 function peers(at: Local): Promise<Census> {
-	return census(at.presences.all());
+	const everyone = at.presences.all();
+	return census(
+		everyone.map((one) => ({
+			...one,
+			addresses: answeringTo(one, everyone),
+		})),
+	);
 }
 
 async function send(

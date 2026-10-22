@@ -14,7 +14,12 @@
 
 import type { Owner } from "@jitsusama/agentic-harness.core/process";
 
-import { addressesOf, type QuestRecords } from "./address.ts";
+import {
+	addressesOf,
+	olderAddresses,
+	type QuestRecords,
+	signaturesOfOthers,
+} from "./address.ts";
 import type { Receiver } from "./attention.ts";
 import type { Listener } from "./message.ts";
 import { type Presence, type Presences, workOf } from "./presence.ts";
@@ -57,6 +62,9 @@ export interface Surroundings {
 export function localPeer(at: Surroundings): Peer {
 	let groups = [...(at.presences.of(at.session)?.groups ?? [])].sort();
 	let addresses: string[] = [];
+	// Found once a start: reading every README on each refresh would
+	// cost a few hundred file reads per message.
+	const older = olderAddresses(at.session, at.records);
 	let receiver: Receiver = { addresses, worksOn: "", owns: [] };
 	let busy = false;
 	// What was last published, less its time, so an unchanged presence is
@@ -83,7 +91,12 @@ export function localPeer(at: Surroundings): Peer {
 		}
 	};
 	const refresh = () => {
-		addresses = addressesOf(at.session, at.records);
+		addresses = addressesOf(
+			at.session,
+			at.records,
+			older,
+			signaturesOfOthers(at.session, at.presences.all()),
+		);
 		receiver = {
 			addresses,
 			...workOf(at.session, groups, at.cwd, at.records),

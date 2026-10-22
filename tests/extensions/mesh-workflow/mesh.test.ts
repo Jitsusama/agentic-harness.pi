@@ -241,6 +241,25 @@ describe("a message as context", () => {
 		expect(sent[0]?.message.content).not.toContain("not for you");
 	});
 
+	it("hears the peer that took over a quest it once held, and not what is sent to it", async () => {
+		// Seen live: the session that spawned LUQ49E still answered to it,
+		// so it took LUQ49E's messages for its own and dropped them.
+		mkdirSync(join(paths.quests, "QEST-20261021-LUQ49E"), { recursive: true });
+		writeFileSync(
+			join(paths.quests, "QEST-20261021-LUQ49E", "README.md"),
+			`sessions:\n  - id: ${session}\n`,
+		);
+		peer("session-l", ["LUQ49E"], []);
+		const { sent } = await startSession();
+
+		fromElsewhere({ from: "LUQ49E", to: ["@LUQ49E"], text: "to LUQ49E" });
+		fromElsewhere({ from: "LUQ49E", text: "from LUQ49E" });
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.message.content).toContain("from LUQ49E");
+		expect(sent[0]?.message.content).not.toContain("to LUQ49E");
+	});
+
 	it("says only what the intents delivered ask", async () => {
 		const { sent } = await startSession();
 
@@ -450,6 +469,16 @@ describe("sending", () => {
 
 		expect(answer).toContain("It goes to P9R1KI;");
 		expect(answer).toContain("No peer goes by P9RLKI");
+	});
+
+	it("reaches a peer that once held this peer's quest", async () => {
+		// Its presence still lists the address this peer signs with.
+		peer("session-s", ["5GV2AH", "7M6JKG"], []);
+		const { tools } = await startSession();
+
+		const answer = await send(tools, "all", "finding", "installed");
+
+		expect(answer).toContain("It goes to 5GV2AH;");
 	});
 
 	it("says when a peer it was addressed to has ended, and reaches no one there", async () => {
