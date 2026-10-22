@@ -743,6 +743,79 @@ describe("an answer", () => {
 		expect(sent.at(-1)?.options).toEqual({ triggerTurn: true });
 	});
 
+	it("names the question this peer took up when its answer names none", async () => {
+		peer("session-w", ["WCJQSG"], []);
+		const { sent, tools } = await startSession({}, { isIdle: () => true });
+		const asked = fromElsewhere({
+			intent: "question",
+			to: ["@7M6JKG"],
+			text: "which qemu?",
+		});
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+
+		const said = await send(tools, "WCJQSG", "fyi", "9.1, from nixpkgs");
+
+		const answer = sentOut().at(-1);
+		expect(answer?.re).toBe(asked.id);
+		expect(said).toContain(
+			`It answers [${asked.id.slice(-8)}], the question this peer took up; name re to say it answers another.`,
+		);
+	});
+
+	it("names no question for an answer elsewhere, a hold, or one of two", async () => {
+		peer("session-w", ["WCJQSG"], []);
+		const { sent, tools } = await startSession({}, { isIdle: () => true });
+		fromElsewhere({
+			intent: "question",
+			to: ["@7M6JKG"],
+			text: "which qemu?",
+		});
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+
+		await send(tools, "#harness", "fyi", "qemu 9.1 is in");
+		await send(tools, "WCJQSG", "hold", "hold qemu while I test");
+		fromElsewhere({
+			intent: "question",
+			to: ["@7M6JKG"],
+			text: "and which nix?",
+		});
+		await vi.waitFor(() =>
+			expect(ownBoard().filter(({ kind }) => kind === "answer")).toHaveLength(
+				2,
+			),
+		);
+		await send(tools, "WCJQSG", "fyi", "9.1, and 2.31");
+
+		expect(sentOut().map(({ re }) => re)).toEqual([
+			undefined,
+			undefined,
+			undefined,
+		]);
+	});
+
+	it("stands under this peer's question as it is read back", async () => {
+		peer("session-p", ["P9R1KI"], []);
+		const { tools } = await startSession();
+		await send(tools, "all", "question", "who has qemu?");
+		const [asked = ""] = folderTransport(join(paths.mesh, "messages")).ids();
+		const readBack = async () =>
+			(await tools.get("mesh_read")?.execute("call-2", {}))?.content[0]?.text ??
+			"";
+
+		expect(await readBack()).toContain("\n  unanswered after 0 min");
+		leased("session-p", { kind: "answer", subject: asked });
+		expect(await readBack()).toContain("\n  being answered by P9R1KI");
+		const answer = fromElsewhere({
+			from: "P9R1KI",
+			to: ["@WCJQSG"],
+			re: asked,
+			text: "I do",
+		});
+		expect(await readBack()).toContain(
+			`\n  answered by P9R1KI, last in [${answer.id.slice(-8)}]`,
+		);
+	});
+
 	it("goes without its reply when the message it answers is not there", async () => {
 		const { tools } = await startSession();
 		peer("session-w", ["WCJQSG"], []);
@@ -1733,6 +1806,74 @@ describe("a lease", () => {
 		});
 	});
 
+	it("takes up a group's question after all once the peer answering it lets it go", async () => {
+		peer("session-p", ["P9R1KI"], []);
+		const { sent } = await startSession(
+			{},
+			{ isIdle: () => true },
+			[],
+			undefined,
+			undefined,
+			undefined,
+			20,
+		);
+		const asked = fromElsewhere({
+			intent: "question",
+			text: "who can look at 7M6JKG's tests?",
+		});
+		leased("session-p", { kind: "answer", subject: asked.id });
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		// Looked at again many times, it stays P9R1KI's while P9R1KI has it.
+		await new Promise((resolve) => setTimeout(resolve, 150));
+		expect(sent).toHaveLength(1);
+
+		// Its run ended with no answer sent.
+		createBoard(join(paths.mesh, "leases")).hold({
+			session: "session-p",
+			leases: [],
+		});
+
+		await vi.waitFor(() => expect(sent).toHaveLength(2));
+		expect(sent[1]?.options).toEqual({ triggerTurn: true });
+		expect(sent[1]?.message.details).toMatchObject({
+			why: ["about this peer's work, let go unanswered by P9R1KI"],
+		});
+	});
+
+	it("leaves a question let go be once another peer answered it", async () => {
+		peer("session-p", ["P9R1KI"], []);
+		const { sent } = await startSession(
+			{},
+			{ isIdle: () => true },
+			[],
+			undefined,
+			undefined,
+			undefined,
+			20,
+		);
+		const asked = fromElsewhere({
+			intent: "question",
+			text: "who can look at 7M6JKG's tests?",
+		});
+		leased("session-p", { kind: "answer", subject: asked.id });
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+
+		fromElsewhere({
+			from: "P9R1KI",
+			to: ["@WCJQSG"],
+			re: asked.id,
+			text: "done",
+		});
+		await new Promise((resolve) => setTimeout(resolve, 60));
+		createBoard(join(paths.mesh, "leases")).hold({
+			session: "session-p",
+			leases: [],
+		});
+
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		expect(sent).toHaveLength(1);
+	});
+
 	it("claims the questions a turn of this peer's answers", async () => {
 		const { sent, fire } = await startSession({}, { isIdle: () => true });
 
@@ -1749,6 +1890,24 @@ describe("a lease", () => {
 		]);
 		await fire("agent_end");
 		expect(ownBoard()).toEqual([]);
+	});
+
+	it("keeps a question claimed as each turn of the run answering it ends", async () => {
+		const { sent, fire } = await startSession({}, { isIdle: () => true });
+		fromElsewhere({ intent: "question", to: ["@7M6JKG"], text: "why?" });
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		const before = Date.parse(ownBoard()[0]?.until ?? "");
+
+		const later = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 540_000);
+		try {
+			await fire("turn_end");
+		} finally {
+			later.mockRestore();
+		}
+
+		expect(Date.parse(ownBoard()[0]?.until ?? "")).toBeGreaterThan(
+			before + 500_000,
+		);
 	});
 
 	it("holds what this peer holds until it answers its own hold", async () => {

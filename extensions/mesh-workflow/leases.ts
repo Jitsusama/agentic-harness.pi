@@ -76,6 +76,11 @@ export interface Leasing {
 	reach(path: string, cwd: string): Promise<string | undefined>;
 	/** Claim the questions a turn of this peer's carries. */
 	answering(messages: readonly Message[]): void;
+	/**
+	 * Keep claimed what the run still answers, as each turn ends, so a
+	 * long answer is not read by the peers that left it as one let go.
+	 */
+	stillAnswering(): void;
 	/** The peer answering this question, when another is. */
 	answeredBy(message: Message): Promise<string | undefined>;
 	/** What a message this peer sent claims, or ends. */
@@ -170,6 +175,17 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 			for (const message of messages) {
 				if (message.intent === "question" && !sentBy(message, self)) {
 					own.take("answer", message.id, RUN_LEASE_MS, cut(message.text));
+				}
+			}
+		},
+
+		stillAnswering() {
+			const own = at.own();
+			if (!own) return;
+			const now = Date.now();
+			for (const lease of own.leases) {
+				if (lease.kind === "answer" && isCurrent(lease, now)) {
+					own.take("answer", lease.subject, RUN_LEASE_MS, lease.why, now);
 				}
 			}
 		},

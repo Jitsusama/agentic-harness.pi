@@ -57,7 +57,8 @@ describe("a peer's turns", () => {
 			damper.damp(message(), awaited, MOST_REPLY_DEPTH + 1, at).attention,
 		).toBe("note");
 		damper.handed([message()], at);
-		expect(damper.damp(message(), awaited, 1, at).attention).toBe("glance");
+		const said = message({ id: "2-WCJQSG-7-bbbbbbbb" });
+		expect(damper.damp(said, awaited, 1, at).attention).toBe("glance");
 	});
 
 	it("stop being started by anyone past the hour's", () => {
@@ -118,6 +119,16 @@ describe("a repeat", () => {
 		});
 		expect(damper.damp(message({ from: "P9R1KI" }), wake, 0, at)).toEqual(wake);
 		expect(damper.damp(again, wake, 0, at + HOUR_MS)).toEqual(wake);
+	});
+
+	it("is not the same message handed again, as one let go comes back", () => {
+		const damper = createDamper();
+		damper.recover([], [{ at, from: "P9R1KI", text: "why?", id: "3-P9R1KI" }]);
+		damper.handed([message()], at);
+
+		expect(damper.damp(message(), act, 0, at)).toEqual(act);
+		const back = message({ id: "3-P9R1KI", from: "P9R1KI", text: "why?" });
+		expect(damper.damp(back, act, 0, at)).toEqual(act);
 	});
 });
 

@@ -15,7 +15,7 @@ import {
 	homeOf,
 	isJoinable,
 } from "../../lib/mesh/group.ts";
-import type { Board } from "../../lib/mesh/lease.ts";
+import { type Board, isCurrent, othersOn } from "../../lib/mesh/lease.ts";
 import { type Census, census } from "../../lib/mesh/liveness.ts";
 import {
 	clock,
@@ -232,7 +232,7 @@ async function send(
 	},
 ): Promise<Answer> {
 	const ids = at.transport.ids();
-	const re = params.re ? idNamed(params.re, ids) : undefined;
+	const answersNamed = params.re ? idNamed(params.re, ids) : undefined;
 	const supersedes = params.supersedes
 		? idNamed(params.supersedes, ids)
 		: undefined;
@@ -244,7 +244,7 @@ async function send(
 	const named = groupsNamed(params.to ?? "");
 	const unnamed = named.filter((group) => groupNamed(group) === undefined);
 	const said = [
-		params.re && !re
+		params.re && !answersNamed
 			? `no message has the id ${params.re}, so it answers nothing`
 			: "",
 		params.supersedes && !replaced
@@ -322,6 +322,18 @@ async function send(
 			`Nobody else is in ${empty.join(", ")} yet; mesh_read shows it to whoever joins within the week it is kept.`,
 		);
 	}
+	const taken =
+		params.re === undefined &&
+		supersedes === undefined &&
+		params.intent !== "hold"
+			? questionTaken(at, to)
+			: undefined;
+	const re = answersNamed ?? taken?.id;
+	if (taken) {
+		notes.push(
+			`It answers [${shortId(taken)}], the question this peer took up; name re to say it answers another.`,
+		);
+	}
 	const message = at.transport.send({
 		from: at.peer.signature,
 		to,
@@ -387,6 +399,27 @@ async function send(
 	);
 }
 
+/**
+ * The question a message answers when its sender did not say: the one
+ * question this peer took up in a turn that was asked by a peer it goes
+ * to, or in a group it goes to. An answer that names nothing reads to
+ * the asker as news, and to every other peer as no answer at all, so
+ * each of them goes on to answer it too.
+ */
+function questionTaken(at: Local, to: readonly string[]): Message | undefined {
+	const now = Date.now();
+	const meant = (at.board.of(at.peer.session)?.leases ?? [])
+		.filter((lease) => lease.kind === "answer" && isCurrent(lease, now))
+		.map((lease) => at.transport.read(lease.subject))
+		.filter(
+			(asked): asked is Message =>
+				asked !== undefined &&
+				(to.includes(homeOf(asked.from)) ||
+					asked.to.some((group) => to.includes(group))),
+		);
+	return meant.length === 1 ? meant[0] : undefined;
+}
+
 /** Who a message just sent goes to, and which addressed peers it misses. */
 function reach(
 	message: Message,
@@ -444,19 +477,98 @@ async function read(at: Local, params: { count?: number }): Promise<Answer> {
 			latest.unshift(message);
 		}
 	}
-	const receipt = receipts(at, (await peers(at)).present);
+	const present = (await peers(at)).present;
+	const receipt = receipts(at, present);
 	const withdrawn = withdrawals(latest);
+	const state = questionStates(at, latest, ids, present, withdrawn);
 	const text =
 		latest.length > 0
 			? latest
 					.map((message) =>
-						[line(message), withdrawn.get(message.id) ?? "", receipt(message)]
+						[
+							line(message),
+							withdrawn.get(message.id) ?? "",
+							receipt(message),
+							state.get(message.id) ?? "",
+						]
 							.filter(Boolean)
 							.join("\n  "),
 					)
 					.join("\n")
 			: "Nothing on the mesh yet.";
 	return answer(`This peer is ${at.peer.addresses.join(" or ")}.\n${text}`);
+}
+
+/**
+ * Where each of this peer's own questions among these stands: answered,
+ * and by whom; being answered, by a peer that took it up; or unanswered,
+ * and for how long. A question nobody answers otherwise reads the same
+ * as one answered in a group the asker never looked at.
+ */
+function questionStates(
+	at: Local,
+	shown: readonly Message[],
+	ids: readonly string[],
+	present: readonly Presence[],
+	withdrawn: ReadonlyMap<string, string>,
+): Map<string, string> {
+	const self = { addresses: at.peer.addresses, pid: process.pid };
+	const asked = shown.filter(
+		(message) =>
+			message.intent === "question" &&
+			sentBy(message, self) &&
+			!withdrawn.has(message.id),
+	);
+	const states = new Map<string, string>();
+	const first = asked[0]?.id;
+	if (first === undefined) return states;
+	// Only what came after the oldest question can answer one.
+	const answers = new Map<string, Message[]>();
+	for (const id of ids) {
+		if (id <= first) continue;
+		const one = at.transport.read(id);
+		if (one?.re === undefined || sentBy(one, self)) continue;
+		answers.set(one.re, [...(answers.get(one.re) ?? []), one]);
+	}
+	const now = Date.now();
+	const board = at.board.all();
+	for (const question of asked) {
+		const given = answers.get(question.id) ?? [];
+		if (given.length > 0) {
+			const by = [...new Set(given.map((one) => one.from))].join(", ");
+			const last = given.at(-1) as Message;
+			states.set(question.id, `answered by ${by}, last in [${shortId(last)}]`);
+			continue;
+		}
+		const answering = othersOn(
+			board,
+			at.peer.session,
+			"answer",
+			question.id,
+			now,
+		)
+			.map(
+				(held) =>
+					present.find((one) => one.session === held.session)?.addresses[0],
+			)
+			.filter((address): address is string => address !== undefined);
+		states.set(
+			question.id,
+			answering.length > 0
+				? `being answered by ${answering.join(", ")}`
+				: `unanswered after ${since(question, now)}`,
+		);
+	}
+	return states;
+}
+
+/** How long ago a message was sent, in minutes, or hours past two. */
+function since(message: Message, now: number): string {
+	const minutes = Math.max(
+		0,
+		Math.floor((now - Date.parse(message.at)) / 60_000),
+	);
+	return minutes < 120 ? `${minutes} min` : `${Math.floor(minutes / 60)} h`;
 }
 
 /**
