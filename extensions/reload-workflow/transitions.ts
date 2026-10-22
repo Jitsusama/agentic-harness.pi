@@ -183,6 +183,8 @@ export async function performReload(
 		underWay: () => boolean;
 		/** Told when pi said still while a run was under way. */
 		overruled: (times: number) => void;
+		/** Resumes a run a compaction interrupted when no new runtime can. */
+		resume?: (text: string) => void;
 	} = { underWay: () => false, overruled: () => {} },
 ): Promise<void> {
 	const slot = reloadSlot();
@@ -233,6 +235,16 @@ export async function performReload(
 		const landed = reloadSlot().landed;
 		slot.request = undefined;
 		slot.dispatched = false;
-		landed?.({ ...request, ...(restored === undefined ? {} : { restored }) });
+		if (landed) {
+			landed({ ...request, ...(restored === undefined ? {} : { restored }) });
+		} else if (request.resume !== undefined) {
+			// No new runtime came up to resume the run, so the old one does,
+			// if it still can.
+			try {
+				run.resume?.(request.resume);
+			} catch {
+				// A stale runtime cannot send; the person's next message goes on.
+			}
+		}
 	}
 }

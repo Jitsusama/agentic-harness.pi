@@ -21,6 +21,12 @@ export interface ReloadRequest {
 	 * or the session itself because its install moved.
 	 */
 	readonly by: "agent" | "person" | "self";
+	/**
+	 * The message that resumes a run a compaction interrupted, sent once
+	 * the reload has landed, since the reload took the compaction's
+	 * moment to happen in.
+	 */
+	readonly resume?: string;
 }
 
 /** How a reload went, for whoever says it landed. */
@@ -43,6 +49,14 @@ export interface ReloadSlot {
 	reloading?: boolean;
 	/** Left by the newest runtime: say that a reload landed. */
 	landed?: (landed: ReloadLanded) => void;
+	/**
+	 * Left by the follower while the session's own reload waits for the
+	 * cache to be cheap to lose. A compaction that has just landed calls
+	 * it, since the next request rewrites the cache anyway, with the
+	 * message that resumes the run it interrupted, if any. Answers true
+	 * when the reload goes ahead and takes the resume with it.
+	 */
+	compacted?: (resume?: string) => boolean;
 }
 
 const SLOT_KEY = Symbol.for("agentic-harness.reload.slot");

@@ -85,17 +85,27 @@ export default function reloadWorkflow(pi: ExtensionAPI) {
 	pi.on("agent_start", started);
 	pi.on("turn_start", started);
 	pi.on("tool_execution_start", started);
+	// When the model last answered, so the follower can tell when the
+	// cache has expired and a reload costs nothing.
+	let lastTurnAt = Date.now();
+	pi.on("turn_end", () => {
+		lastTurnAt = Date.now();
+	});
 	const run = {
 		underWay: () => underWay,
 		overruled: (times: number) =>
 			pi.appendEntry(OVERRULED_ENTRY, { times, at: new Date().toISOString() }),
+		resume: (text: string) =>
+			pi.sendUserMessage(text, { deliverAs: "followUp" }),
 	};
 
 	pi.on("session_start", async (event, ctx) => {
 		await startRuntime(pi, ctx, event.reason, settings, (loaded) => {
 			running = loaded;
 		});
-		follower = await follow(pi, ctx, settings, () => running);
+		follower = await follow(pi, ctx, settings, () => running, {
+			lastTurnAt: () => lastTurnAt,
+		});
 	});
 
 	// The run that asked has ended: hand the request to the command,
