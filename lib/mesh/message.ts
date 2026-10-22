@@ -42,10 +42,19 @@ export interface Message {
 	readonly text: string;
 	/** The sending process, so a peer never hands itself its own. */
 	readonly pid: number;
+	/**
+	 * A named group the sender brings the peers it is sent to into, which
+	 * each joins on receipt and may leave. Older readers ignore it and
+	 * read the text, which says the same.
+	 */
+	readonly invite?: string;
 }
 
 /** What a sender says; the mesh adds the rest. */
-export type Draft = Pick<Message, "from" | "to" | "intent" | "text" | "pid">;
+export type Draft = Pick<
+	Message,
+	"from" | "to" | "intent" | "text" | "pid" | "invite"
+>;
 
 /** Who a message could be for: a peer's addresses and groups. */
 export interface Listener {
@@ -79,6 +88,7 @@ export function messageFrom(value: unknown): Message | undefined {
 		intent: intentOf(one.intent),
 		text: one.text as string,
 		pid: one.pid as number,
+		...(typeof one.invite === "string" ? { invite: one.invite } : {}),
 	};
 }
 

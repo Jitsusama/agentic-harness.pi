@@ -4,7 +4,9 @@
  *
  * A peer's addresses follow the quest it has loaded, so they are looked
  * up again whenever they might have changed, and each time its presence
- * is published afresh. Its groups are its own to change and survive a
+ * is published afresh. It is in two kinds of group: those its work puts
+ * it in (its scopes, see scope.ts), which are worked out again with its
+ * work, and those it joined, which are its own to change and survive a
  * reload, because they are kept with its presence.
  *
  * Presence is published when something in it changes (its addresses,
@@ -30,8 +32,12 @@ export interface Peer {
 	readonly addresses: readonly string[];
 	/** The address it signs with. */
 	readonly signature: string;
-	/** The groups it joined, canonical and sorted. */
+	/** Every group it is in, its scopes and those it joined, sorted. */
 	readonly groups: readonly string[];
+	/** The groups its work puts it in, sorted. */
+	readonly scopes: readonly string[];
+	/** The groups it joined itself, sorted. */
+	readonly joined: readonly string[];
 	/** Who messages reach, as `reaches` asks. */
 	readonly listener: Listener;
 	/** What it works on and owns, as attention asks. */
@@ -44,7 +50,10 @@ export interface Peer {
 	setBusy(busy: boolean): void;
 	/** Join a canonical group; answers whether it was new. */
 	join(group: string): boolean;
-	/** Leave a canonical group; answers whether it had been in it. */
+	/**
+	 * Leave a canonical group it joined; answers whether it had. A scope
+	 * is not left this way: it follows the work.
+	 */
 	leave(group: string): boolean;
 }
 
@@ -58,15 +67,18 @@ export interface Surroundings {
 	readonly owner?: Owner;
 }
 
-/** This session's peer, with the groups it was last in. */
+/** This session's peer, with the groups it last joined. */
 export function localPeer(at: Surroundings): Peer {
-	let groups = [...(at.presences.of(at.session)?.groups ?? [])].sort();
+	const before = at.presences.of(at.session);
+	let joined = [...(before?.joined ?? before?.groups ?? [])].sort();
+	let scopes: string[] = [];
 	let addresses: string[] = [];
 	// Found once a start: reading every README on each refresh would
 	// cost a few hundred file reads per message.
 	const older = olderAddresses(at.session, at.records);
 	let receiver: Receiver = { addresses, worksOn: "", owns: [] };
 	let busy = false;
+	const groups = () => [...new Set([...scopes, ...joined])].sort();
 	// What was last published, less its time, so an unchanged presence is
 	// not written again.
 	let published: string | undefined;
@@ -74,7 +86,8 @@ export function localPeer(at: Surroundings): Peer {
 		const said: Omit<Presence, "at"> = {
 			session: at.session,
 			addresses,
-			groups,
+			groups: groups(),
+			joined,
 			worksOn: receiver.worksOn,
 			owns: receiver.owns,
 			busy,
@@ -97,10 +110,9 @@ export function localPeer(at: Surroundings): Peer {
 			older,
 			signaturesOfOthers(at.session, at.presences.all()),
 		);
-		receiver = {
-			addresses,
-			...workOf(at.session, groups, at.cwd, at.records),
-		};
+		const work = workOf(at.session, joined, at.cwd, at.records);
+		scopes = [...work.scopes];
+		receiver = { addresses, worksOn: work.worksOn, owns: work.owns };
 		publish();
 	};
 	refresh();
@@ -113,10 +125,16 @@ export function localPeer(at: Surroundings): Peer {
 			return addresses[0] ?? at.session;
 		},
 		get groups() {
-			return groups;
+			return groups();
+		},
+		get scopes() {
+			return scopes;
+		},
+		get joined() {
+			return joined;
 		},
 		get listener() {
-			return { addresses, groups };
+			return { addresses, groups: groups() };
 		},
 		get receiver() {
 			return receiver;
@@ -130,14 +148,14 @@ export function localPeer(at: Surroundings): Peer {
 			publish();
 		},
 		join(group) {
-			if (groups.includes(group)) return false;
-			groups = [...groups, group].sort();
+			if (joined.includes(group)) return false;
+			joined = [...joined, group].sort();
 			refresh();
 			return true;
 		},
 		leave(group) {
-			if (!groups.includes(group)) return false;
-			groups = groups.filter((one) => one !== group);
+			if (!joined.includes(group)) return false;
+			joined = joined.filter((one) => one !== group);
 			refresh();
 			return true;
 		},

@@ -19,9 +19,16 @@ and can answer a question or a gate left open on screen.
   messages: a peer is reached through its home group, written
   as its address (`P9R1KI`, or `@P9R1KI`), which anyone may
   join to follow it. `#all` is the machine's group. Named
-  groups (`#harness`, `#optimus/power`) are joined for the
-  work a peer does, and nest: a member of `#optimus/power`
-  also hears `#optimus`.
+  groups (`#harness`, `#optimus/power`) nest: a member of
+  `#optimus/power` also hears `#optimus`.
+- **Scope:** a group a peer is in because of its work rather
+  than because it joined: its quest's, named down the parent
+  chain from the root (`#quest/5gv2ah/luq49e`), and each
+  repository's its work is in (`#repo/agentic-harness-pi`).
+  A message to `#quest/5gv2ah` reaches every peer on that
+  quest or under it. Scopes follow the work and are not left
+  while it is there.
+- **Joined:** the groups a peer chose, kept across a reload.
 - **Presence:** what a peer publishes about itself: its
   addresses, its groups, what it works on and what it owns,
   whether it is mid-run, and the process holding it.
@@ -38,6 +45,8 @@ and can answer a question or a gate left open on screen.
   groups. It says which peers the message goes to, which
   addressed peers have ended and which addresses nobody goes
   by, and refuses a named group nobody else still there is in.
+  A peer reads what it writes to: sending to a named group it
+  does not hear joins it, so the answers reach it.
 - `mesh_read`: the latest messages this peer hears, and what
   it sent, for catching up after a reload or a compaction, or
   for reading a glance in full. Under each message it sent, it
@@ -45,7 +54,10 @@ and can answer a question or a gate left open on screen.
 - `mesh_join`, `mesh_leave` and `mesh_groups`: the groups this
   peer is in, and who is in each. A bare name joins a peer's
   home group when some peer goes by it, and a named group
-  otherwise.
+  otherwise; joining a group nobody is in makes it.
+  `mesh_join` with `invite` brings other peers in without
+  asking: each is sent a message to its home group carrying
+  the group, joins on receipt, and may leave.
 
 ## Context, Not a Prompt
 
