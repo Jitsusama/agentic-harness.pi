@@ -181,13 +181,12 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		],
 		parameters: Type.Object({
 			action: StringEnum([...QUEST_ACTIONS], {
-				description:
-					"The action to perform. `status` is an alias for `show`. The dispatcher's refusal path Levenshtein-suggests the nearest action when an agent calls past the schema's enum (e.g. through a custom client that bypasses validation).",
+				description: "The action to perform. `status` is an alias for `show`.",
 			}),
 			id: Type.Optional(
 				Type.String({
 					description:
-						"Target id. For load/focus: the quest or document id. For journal/tick/untick/section: any document's id, or any quest's id for its README, loaded or not (default: the focused document, else the README; journal goes to the README of the quest named or owning the document named). For spawn and spawn-tab/pane/window: open the new terminal pointed at this quest without touching the caller's loaded state. For reparent: the quest id to move, comma-separated for a batch. For conclude/retire: the loaded quest's id seals it in full (trees pruned); other quest ids, or a comma-separated set, run a bulk, reversible status sweep (no tree pruning); a document id concludes that document, in any quest, without loading it. For locate: the needle to resolve to its owning quest (a quest id, document id, alias ref or session id). For ancestors: the quest whose parent chain to trace (defaults to the loaded quest). For restore: session ids or unique prefixes, comma-separated, picked from the lost or recently closed sessions restore lists; lists only those, or reopens exactly those with force. For create: ignored.",
+						"Target id: the quest or document acted on, loaded or not (default: the focused document, else the README). For reparent, conclude, retire and restore: comma-separated for several. For conclude/retire: the loaded quest's id seals it in full, trees pruned; other quest ids run a reversible status sweep; a document id concludes just that document. For locate: any quest, document, alias or session id.",
 				}),
 			),
 			url: Type.Optional(
@@ -310,7 +309,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			cwd: Type.Optional(
 				Type.String({
 					description:
-						"Working directory. For spawn: where the new terminal starts. For session-attach: the directory recorded on the attached session. For tree-add: the repo to scaffold a tree from. For tree-adopt: a path inside the existing git tree to register (you do not need to change your session's directory to adopt a tree). For tree-prune and tree-expand: a path inside the quest's tree to act on, required when the quest has more than one; a path that names none of its trees is refused. Defaults to the loaded quest's directory or the pi cwd.",
+						"Working directory: where spawn starts, the repo tree-add cuts from, a path inside the tree tree-adopt registers, or which tree tree-prune and tree-expand act on when the quest has several. Defaults to the loaded quest's directory or the pi cwd.",
 				}),
 			),
 			sessionId: Type.Optional(

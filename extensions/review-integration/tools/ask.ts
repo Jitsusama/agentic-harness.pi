@@ -251,7 +251,7 @@ export function registerAskTool(pi: ExtensionAPI): void {
 					],
 					{
 						description:
-							"What to do. council: ask every reviewer on the roster, independently and at once, waiting for all of them. start: the same round, dispatched and left running, so the session is free straight away; nothing is watching it, so there is no progress, no wrap-up and no retry, and you finish it later with collect. stop: ask every reviewer in a started round to stop, which is the only way to end one early since nothing is holding it; what they wrote down is kept and collect still works. Stopping a round nothing is running closes it instead, which is how a round whose transcripts are gone stops sitting in the listing, and is refused when anybody left something worth collecting. judge: ask the roster's judge to consolidate the latest council, collecting first any started round whose reviewers have all finished. critique: ask the roster to push back on what the judge concluded, recording positions rather than findings. audit: judge each unresolved inbound thread against the change, so a reply is informed rather than guessed. stack: put every change in the stack to the roster together, so a finding that only exists between changes can be seen. runs: what rounds have been asked about this change. collect: finish a round whose session ended before it could, reading what its reviewers left on disk, which is what an unsettled round in the listing is telling you to do. retry: ask one participant again and substitute their outcome in place. release: free a participant id so it can mean a different model, which is the way out the identity refusal names. Defaults to runs, which changes nothing.",
+							"What to do. council: ask every reviewer on the roster at once and wait for all of them. start: the same round, left running in the background; finish it later with collect. stop: end a started round early, keeping what its reviewers wrote; on a round nothing runs, it closes it. judge: consolidate the latest council. critique: have the roster push back on the judge, as positions. audit: judge each unresolved inbound thread against the change. stack: put the whole stack to the roster together. runs: the rounds asked about this change. collect: finish a round whose session ended first, from what its reviewers left on disk. retry: ask one participant again in place. release: free a participant id to mean a different model. Defaults to runs, which changes nothing.",
 					},
 				),
 			),
@@ -310,7 +310,7 @@ export function registerAskTool(pi: ExtensionAPI): void {
 						model: Type.Optional(
 							Type.String({
 								description:
-									"The model this one answers on, e.g. anthropic/claude-opus-5. Write it with a slash: a colon reads as pi's thinking-level separator and is refused.",
+									"The model, written with a slash, e.g. anthropic/claude-opus-5.",
 							}),
 						),
 						thinkingLevel: Type.Optional(
@@ -329,31 +329,31 @@ export function registerAskTool(pi: ExtensionAPI): void {
 						persona: Type.Optional(
 							Type.String({
 								description:
-									"The lens to read through, by id. A `repo:` id is one the repo under review defined for itself, which action roster lists; anything else is one of your own personas.",
+									"The lens to read through, by id; action roster lists them.",
 							}),
 						),
 						backstopMs: Type.Optional(
 							Type.Number({
 								description:
-									"How long this one may run before something stops it regardless, in milliseconds. The round's applies to everybody who does not say, and a round's has to be sized for its slowest member, so this is what gives one reviewer the wall it needs without holding the rest to it.",
+									"Wall clock for this one, in milliseconds, so a slow reviewer gets longer without the rest.",
 							}),
 						),
 						idleMs: Type.Optional(
 							Type.Number({
 								description:
-									"How long this one may say nothing at all before it counts as wedged, in milliseconds. A different question from the wall clock: it fires on silence rather than on effort.",
+									"How long this one may be silent before it counts as wedged, in milliseconds.",
 							}),
 						),
 						answerMs: Type.Optional(
 							Type.Number({
 								description:
-									"How much of this one's wall is kept back to ask it for what it has, in milliseconds. Zero switches that off, so it runs to the wall instead of being asked early.",
+									"How much of its wall is kept back to ask it for what it has, in milliseconds; zero runs it to the wall.",
 							}),
 						),
 					}),
 					{
 						description:
-							"Settings for this round only, by participant id, overriding the configured roster: model, thinkingLevel, tools, persona and the three clocks. Ask with action roster to see who this roster has and what each is set to. A name this round will not ask is refused rather than ignored, since a round that silently skipped the setting still costs what a round costs, and a council does not ask the judge. An id that has raised findings in this session is held to what it meant, so overriding one is refused as reconfiguring it in the file would be; across sessions that ledger is rebuilt and the findings carry their own run. Not accepted on a retry, which substitutes its answer into a round that already recorded what it asked under.",
+							"Settings for this round only, by participant id, overriding the roster; action roster shows who it has. Not accepted on a retry.",
 					},
 				),
 			),
