@@ -19,7 +19,15 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { dirname } from "node:path";
-import { CAPPED_NIX, CLASS_OF, type Class, isVm, type Job } from "./queue.ts";
+import {
+	CAPPED_NIX,
+	CLASS_OF,
+	type Class,
+	FEWER_VMS,
+	isVm,
+	type Job,
+	MOST_VMS,
+} from "./queue.ts";
 
 /** What ran beside a job, the most at once while it ran. */
 export interface Beside {
@@ -175,6 +183,33 @@ export function capFor(
 	return failedBesideCap
 		? { ...CAPPED_NIX, cores: CAPPED_CORES_AFTER_FAILURE }
 		: CAPPED_NIX;
+}
+
+/**
+ * How many VMs run at once: {@link MOST_VMS}, or {@link FEWER_VMS}
+ * while, in the last day, a VM failed with that many running that has
+ * passed with fewer. As for {@link capFor}, a failure alone says too
+ * little, since a break copy fails however few run beside it.
+ */
+export function vmsFor(outcomes: readonly Outcome[], now: number): number {
+	const since = now - FAILURES_COUNT_FOR_MS;
+	const passedWithFewer = new Set(
+		outcomes
+			.filter(
+				(outcome) =>
+					isVm(outcome) && outcome.exit === 0 && outcome.beside.vms < MOST_VMS,
+			)
+			.map((outcome) => outcome.what),
+	);
+	const failedAtMost = outcomes.some(
+		(outcome) =>
+			isVm(outcome) &&
+			outcome.beside.vms >= MOST_VMS &&
+			failed(outcome.exit) &&
+			passedWithFewer.has(outcome.what) &&
+			Date.parse(outcome.ended) >= since,
+	);
+	return failedAtMost ? FEWER_VMS : MOST_VMS;
 }
 
 /** Adds one outcome to the file, keeping its newer half once it is full. */
