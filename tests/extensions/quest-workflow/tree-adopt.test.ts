@@ -118,6 +118,10 @@ describe("tree-adopt", () => {
 			title: "Second Owner",
 		});
 		if (!second.ok) throw new Error(second.guidance);
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: String(second.details?.id),
+		});
 		const blocked = await handle(state, fakePi(), fakeCtx(wt), {
 			action: "tree-adopt",
 			cwd: wt,
@@ -193,6 +197,10 @@ describe("tree-adopt", () => {
 			title: "Other Live Quest",
 		});
 		if (!second.ok) throw new Error(second.guidance);
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: String(second.details?.id),
+		});
 
 		const blocked = await handle(state, fakePi(), fakeCtx(wt), {
 			action: "tree-adopt",

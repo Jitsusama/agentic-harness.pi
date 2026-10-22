@@ -82,7 +82,14 @@ async function createQuest(
 		kind: "quest",
 		title,
 	});
-	expect(r.ok).toBe(true);
+	if (!r.ok) throw new Error(r.guidance);
+	// A session already on a quest stays there when it creates one, so
+	// these tests, which create one quest after another, load each.
+	const loaded = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		action: "load",
+		id: String(r.details?.id),
+	});
+	expect(loaded.ok).toBe(true);
 	return {
 		id: state.questId as string,
 		dir: state.questDir as string,

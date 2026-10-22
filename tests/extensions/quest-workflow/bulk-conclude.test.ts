@@ -51,7 +51,7 @@ async function twoQuests() {
 			title,
 		});
 		if (!created.ok) throw new Error(created.guidance);
-		ids.push(state.questId ?? "");
+		ids.push(String(created.details?.id));
 	}
 	const workspace = (id: string, rel: string) =>
 		join(defaultWorkspaceRoot(), id, rel);
@@ -79,7 +79,7 @@ async function batch(size: number) {
 			title: `Batch Quest ${n}`,
 		});
 		if (!created.ok) throw new Error(created.guidance);
-		ids.push(state.questId ?? "");
+		ids.push(String(created.details?.id));
 	}
 	const dir = (n: number) => join(state.questsRoot, ids[n] ?? "");
 	const put = (n: number, rel: string) => {

@@ -16,6 +16,7 @@ import {
 	buildAliasIndex,
 	lookupAliasDetail,
 } from "../../../lib/internal/quest/alias-index.ts";
+import { appendJourneyByPath } from "../../../lib/internal/quest/append-journey.ts";
 import { nowYmd } from "../../../lib/internal/quest/dates.ts";
 import {
 	discoverQuests,
@@ -300,28 +301,34 @@ export async function create(
 	}
 	mkdirSync(dir, { recursive: true });
 	atomicWriteFile(path, body);
-	const prior = { questId: state.questId, questDir: state.questDir };
-	const result = loadQuest(state, pi, id);
-	if (!result.ok) return refuse(result.guidance);
-	// A tab that starts with `create` is on the quest exactly as one that
-	// loads it is; leaving it unrecorded is how restore lost such tabs.
-	moveSessionOnto(state, ctx, prior);
-
 	if (seededAlias) {
 		const url = urlForRef(seededAlias) ?? params.url?.trim() ?? "";
-		appendJourneyEntry(
-			state,
+		appendJourneyByPath(
+			dir,
 			seededOriginator
 				? `Created from ${url} by @${seededOriginator.value}.`
 				: `Created from ${url}.`,
 		);
 	}
-
-	return ok(`Created ${kind} ${id} at ${displayPath(path)}`, {
-		id,
-		path,
-		kind,
-	});
+	const made = `Created ${kind} ${id} at ${displayPath(path)}`;
+	const details = { id, path, kind };
+	// A session already on a quest is usually filing a follow-up or a
+	// subquest for later, or for another session, so it stays on its
+	// own work. Loading it moved the session off its quest and recorded
+	// it on one it never worked on, which every such session undid by
+	// hand.
+	if (state.questId) {
+		return ok(
+			`${made}. This session stays on ${state.questId}: \`quest load ${id}\` to work on it here, or \`quest spawn id: ${id}\` to give it a session of its own.`,
+			details,
+		);
+	}
+	const result = loadQuest(state, pi, id);
+	if (!result.ok) return refuse(result.guidance);
+	// A tab that starts with `create` is on the quest exactly as one that
+	// loads it is; leaving it unrecorded is how restore lost such tabs.
+	moveSessionOnto(state, ctx, { questId: null, questDir: null });
+	return ok(made, details);
 }
 
 /**

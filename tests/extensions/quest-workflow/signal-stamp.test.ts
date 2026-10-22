@@ -134,12 +134,23 @@ describe("a tab that starts by creating a quest", () => {
 		expect(readRecord("sess-new")?.endReason).toBe("signalled");
 	});
 
-	it("leaves the quest it was on when it creates another", async () => {
+	it("stays on the quest it was on when it creates another", async () => {
+		// A session on a quest that creates one is filing it for later or
+		// for another session; moving it there took it off its own work.
 		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
 		const first = await create(state, "First Quest");
-		const second = await create(state, "Second Quest");
+		const made = succeeded(
+			await handle(state, fakePi(), fakeCtx("sess-new"), {
+				action: "create",
+				title: "Second Quest",
+			}),
+		);
+		const second = join(state.questsRoot, String(made.details?.id));
 
-		expect(readmeStatus(first, "sess-new")).toBe("detached");
-		expect(readmeStatus(second, "sess-new")).toBe("active");
+		expect(state.questDir).toBe(first);
+		expect(made.message).toContain("This session stays on");
+		expect(readmeStatus(first, "sess-new")).toBe("active");
+		expect(readmeStatus(second, "sess-new")).toBeUndefined();
+		expect(readRecord("sess-new")?.quest).toBe(state.questId);
 	});
 });
