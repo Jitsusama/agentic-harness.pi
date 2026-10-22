@@ -12,6 +12,29 @@ export interface LoadableTool {
 	readonly namespace?: { readonly name: string; readonly description?: string };
 }
 
+/**
+ * What tells a model when to reach for a tool: pi's one-line snippet for
+ * it, and its rules. A tool that is not declared loses both from the
+ * prompt, so the index carries them. Hiding them with the tool was the
+ * fault: asked to "remember this lesson", a session with capture_lesson
+ * deferred used memory_retain, because the rule saying when to call
+ * capture_lesson had gone with it.
+ */
+export interface WhenToUse {
+	readonly snippets: Readonly<Record<string, string | undefined>>;
+	readonly guidelines: Readonly<Record<string, readonly string[] | undefined>>;
+}
+
+/**
+ * A tool's rules that say when to reach for it, as opposed to how to
+ * call it: those opening "When", or "Use" followed by the tool's name.
+ */
+function triggers(name: string, guidelines: readonly string[]): string[] {
+	return guidelines.filter(
+		(rule) => rule.startsWith("When ") || rule.startsWith(`Use ${name} `),
+	);
+}
+
 /** The most tools of one namespace the index names one by one. */
 const MOST_NAMED = 24;
 
@@ -66,6 +89,7 @@ export function loadable(
  */
 export function loadableIndex(
 	tools: readonly LoadableTool[],
+	when: WhenToUse = { snippets: {}, guidelines: {} },
 ): string | undefined {
 	if (tools.length === 0) return undefined;
 	const grouped = new Map<string, LoadableTool[]>();
@@ -90,7 +114,12 @@ export function loadableIndex(
 	}
 	for (const tool of tools) {
 		if (tool.namespace !== undefined) continue;
-		lines.push(`- ${tool.name}: ${purposeOf(tool.description)}`);
+		const snippet = when.snippets[tool.name]?.trim();
+		const said = [
+			snippet || purposeOf(tool.description),
+			...triggers(tool.name, when.guidelines[tool.name] ?? []),
+		];
+		lines.push(`- ${tool.name}: ${said.join(" ")}`);
 	}
 	return [
 		"## Tools That Load on Demand",
