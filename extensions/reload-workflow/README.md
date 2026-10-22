@@ -37,22 +37,16 @@ loads the install and the install is `main`.
     background job is running or holds a result not yet said, and
     once `pnpm install` has followed a move that changed the
     lockfile.
-  - It also waits for the cache to be cheap to lose, since a reload
-    that changes any tool's declaration makes the next request
-    rewrite the whole context (40 times on 22 October, about $78).
-    That is right after a compaction lands, when the next request
-    rewrites the cache anyway, or once no turn has run for longer
-    than the cache is kept (an hour under long retention). It waits
-    at most an hour from the move. When it takes a compaction's
-    moment, it carries the message that resumes the interrupted run
-    across the reload, and the new code sends it.
+  - It does not wait for the cache: pi sends tool and section
+    changes without rewriting it, now that no hook forces the system
+    prompt (agentic-harness.pi#641).
   - Every reload, whoever asked, waits until the session has been
     idle for a second with nothing queued, since a run a compaction
     cut short is resumed just after it ends.
   - Afterwards one line, shown and in the model's context, says it
     reloaded and everything that came in by then: a merged pull
     request by its number and title, anything else by its subject.
-    It never starts a turn of its own; only a resumed run carries on.
+    It never starts a turn.
   - A session running a tree is never moved, and only a session
     somebody sits at follows: not a subagent, nor a print-mode run.
     `PI_FOLLOW_INSTALL=off` turns it off.

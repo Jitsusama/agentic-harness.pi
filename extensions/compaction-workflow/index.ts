@@ -93,7 +93,6 @@ import {
 	wasCancelled,
 } from "../../lib/compaction/index.ts";
 import { cachePrices } from "../../lib/internal/cache-prices.ts";
-import { reloadSlot } from "../../lib/internal/reload/slot.ts";
 import { conversationProvider } from "./conversation.ts";
 import { registerCompactionHost } from "./host.ts";
 import { idleTimer } from "./idle.ts";
@@ -277,12 +276,8 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		compacting = true;
 		ctx.compact({
 			onComplete: () => {
-				// The next request rewrites the whole cache anyway, so a reload
-				// the session is waiting to do costs nothing now; it takes the
-				// resume with it.
-				const carry = resume && !ctx.hasPendingMessages();
-				if (reloadSlot().compacted?.(carry ? RESUME_TEXT : undefined)) return;
-				if (carry) resumeRun(pi, RESUME_TEXT);
+				if (!resume || ctx.hasPendingMessages()) return;
+				resumeRun(pi, RESUME_TEXT);
 			},
 			onError: (error) => {
 				compacting = false;
