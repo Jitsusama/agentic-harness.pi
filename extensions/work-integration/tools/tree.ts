@@ -1128,6 +1128,6 @@ function haltLines(conflicted: readonly string[], what?: string): string {
 		`${GLYPH.refused} ${head}`,
 		...paths,
 		"",
-		"Settle these, then resume. Or abandon, and the tree goes back to where it started.",
+		"Settle these, then resume: a text file edited clean of its markers is staged by the resume itself. Or abandon, and the tree goes back to where it started.",
 	].join("\n");
 }

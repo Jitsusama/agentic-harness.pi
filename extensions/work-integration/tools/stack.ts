@@ -278,7 +278,7 @@ export async function runStackAction(
 				"",
 				...outcome.conflicted.map((path) => `   ${GLYPH.dirty} ${path}`),
 				"",
-				"Settle those, then resume, and restack again to carry on up the stack. Or abandon, and nothing above this moves.",
+				"Settle those, then resume: a text file edited clean of its markers is staged by the resume itself. Restack again to carry on up the stack. Or abandon, and nothing above this moves.",
 			].join("\n"),
 		);
 	}
