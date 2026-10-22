@@ -112,6 +112,37 @@ describe("the audit digest", () => {
 		expect(text).toContain("- edit: 3 of 100 (3%)");
 	});
 
+	it("says how hidden tools were found and used, and which are worth declaring", () => {
+		const text = formatAudit(
+			{
+				week,
+				spend: { now: {}, before: {} },
+				rewrites: [],
+				reads: [],
+				errors: [],
+				standing: [],
+				unread: 0,
+				loading: {
+					sessions: 40,
+					searches: { calls: 9, sessions: 6, empty: 2 },
+					hidden: [
+						{ name: "browser_go", calls: 30, sessions: 12 },
+						{ name: "cost", calls: 3, sessions: 2 },
+					],
+				},
+			},
+			12,
+		);
+
+		expect(text).toContain(
+			"- tool_search: 9 calls in 6 sessions; 2 found nothing.",
+		);
+		expect(text).toContain(
+			"- Used: browser_go in 12 of 40 (30 calls); cost in 2 of 40 (3 calls).",
+		);
+		expect(text).toContain("cheaper declared on every turn: browser_go.");
+	});
+
 	it("prices a repository's always-on context at what its reads cost", () => {
 		const text = formatAudit(
 			{
