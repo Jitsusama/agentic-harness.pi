@@ -21,6 +21,7 @@ import {
 	findReactable,
 	type Reactable,
 	type ReactableRefusal,
+	type ReviewTarget,
 	reactables,
 	repoElsewhere,
 	type Thread,
@@ -216,6 +217,38 @@ export interface TargetParams {
 	refs?: string[];
 	/** The branches of a stack being proposed, in dependency order. */
 	heads?: string[];
+}
+
+/** Whether the caller named a target on this call, rather than leaning on one. */
+export function namesTarget(params: TargetParams): boolean {
+	return (
+		params.change !== undefined ||
+		(params.base !== undefined && params.head !== undefined) ||
+		(params.refs?.length ?? 0) > 0 ||
+		(params.heads?.length ?? 0) > 0
+	);
+}
+
+/**
+ * Bind a target kept from an earlier call, such as the one a draft was
+ * opened against, so a draft's id can stand for its change.
+ *
+ * A hosted change is bound from the reference kept, without asking any
+ * host. A range or a stack is bound from the checkout it was read in;
+ * one kept with no checkout, or whose checkout is gone, cannot be bound
+ * again, and the caller has to name it.
+ */
+export async function boundForTarget(
+	pi: ExtensionAPI,
+	target: ReviewTarget,
+): Promise<BoundTarget | undefined> {
+	const { engine } = await reviewEngine(pi);
+	if (target.kind === "proposal") return engine.bound(target.change);
+	const root = target.repo.localPath;
+	if (root === undefined) return undefined;
+	return target.kind === "range"
+		? engine.fromLocal(root, { base: target.base, head: target.head })
+		: engine.fromLocal(root, { refs: target.refs });
 }
 
 /**
