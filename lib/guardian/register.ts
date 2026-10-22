@@ -23,10 +23,11 @@ import type { CommandGuardian } from "./types.ts";
 export interface RegisterGuardianOptions {
 	/**
 	 * The guard as the policy knows it. When given, it is declared and
-	 * its resolved mode governs the pipeline: `off` skips the guardian,
-	 * `report` lets an unreviewable shape through with a report, and the
-	 * mode is handed to review. Without one the guardian behaves as it
-	 * did before the policy, which is `block`.
+	 * its resolved mode governs the pipeline: outside `block` an
+	 * unreviewable shape goes through with a report, and the mode is
+	 * handed to review, which reports rather than refuses under `off`.
+	 * Without one the guardian behaves as it did before the policy,
+	 * which is `block`.
 	 */
 	declaration?: GuardDeclaration;
 	/**
@@ -82,8 +83,10 @@ export function registerGuardian<T>(
 				if (trackedName) record(trackedName, { kind: "skipped", why: "no-ui" });
 				return;
 			}
+			// An off guard still runs, so the person sees what it saw; only a
+			// bypass, which predates the policy, skips it outright.
 			const mode = modeNow();
-			if (mode === "off" || options?.bypass?.()) {
+			if (options?.bypass?.()) {
 				if (trackedName)
 					record(trackedName, { kind: "skipped", why: "bypassed" });
 				return;
@@ -98,8 +101,8 @@ export function registerGuardian<T>(
 
 			// A detected guardable command in a shape the gate cannot fully
 			// parse. A blocking guard fails closed, since passing it would
-			// skip the review it promised. A reporting guard promised only to
-			// show what it saw, so it says it could not and lets it run.
+			// skip the review it promised. Any other promised only to show
+			// what it saw, so it says it could not and lets it run.
 			const unsupported = blockIfUnsupported(command);
 			if (unsupported) {
 				if (mode === "block") {

@@ -86,5 +86,6 @@ It used to publish a flag that only the end of a turn refreshed,
 and a verify run in the wrong directory could set it, so a commit
 was refused for errors fixed minutes before. The refusal now
 names each problem it confirmed. It is the `commit-verification`
-guard, which blocks by default; `/guards commit-verification
-report` lets commits through and records what it would have said.
+guard, which redirects by default: the agent hears each problem,
+and the same commit made again goes through as an override you
+see. `/guards commit-verification off` stops it checking at all.

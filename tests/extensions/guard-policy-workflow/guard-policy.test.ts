@@ -41,19 +41,27 @@ describe("/guards arguments", () => {
 	it("refuses a mode that is not one", () => {
 		const parsed = parseGuardsCommand("git loud", KEYS);
 		expect(parsed.kind === "error" && parsed.message).toContain(
-			"off, report, block",
+			"off, redirect, block",
 		);
 	});
 
 	it("completes whole argument strings, since a completion replaces them", () => {
 		expect(guardsCompletions("", KEYS)).toContain("reset");
 		expect(guardsCompletions("gi", KEYS)).toEqual(["git"]);
-		expect(guardsCompletions("git r", KEYS)).toEqual(["git report"]);
+		expect(guardsCompletions("git r", KEYS)).toEqual(["git redirect"]);
 		expect(guardsCompletions("git ", KEYS)).toEqual([
 			"git off",
-			"git report",
+			"git redirect",
 			"git block",
 		]);
+	});
+
+	it("reads the old report mode as off", () => {
+		expect(parseGuardsCommand("git report", KEYS)).toEqual({
+			kind: "set",
+			key: "git",
+			mode: "off",
+		});
 	});
 });
 
@@ -151,7 +159,7 @@ describe("the guard table", () => {
 			name,
 			class: "approval",
 			description: `What ${name} asks about.`,
-			defaultMode: "report",
+			defaultMode: "redirect",
 		},
 		mode,
 		source: "default",
@@ -159,13 +167,13 @@ describe("the guard table", () => {
 
 	it("draws a row per guard with its mode, source and last outcome", () => {
 		const lines = guardTableLines(
-			[guard("commit", "report"), guard("slack", "block")],
+			[guard("commit", "redirect"), guard("slack", "block")],
 			new Map([["commit", { kind: "allowed" as const }]]),
 			theme,
 			100,
 		);
 		const commit = lines.find((l) => l.trimStart().startsWith("commit"));
-		expect(commit).toMatch(/approval\s+report\s+default\s+last: allowed/);
+		expect(commit).toMatch(/approval\s+redirect\s+default\s+last: allowed/);
 		expect(lines.join("\n")).toContain("What slack asks about.");
 		expect(lines.join("\n")).toContain("/guards reset");
 	});
@@ -178,7 +186,7 @@ describe("the guard table", () => {
 
 	it("never draws past the width", () => {
 		const lines = guardTableLines(
-			[guard("quest-untracked-tree", "report")],
+			[guard("quest-untracked-tree", "redirect")],
 			new Map(),
 			theme,
 			30,

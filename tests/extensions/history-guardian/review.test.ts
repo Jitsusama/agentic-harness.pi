@@ -66,11 +66,11 @@ describe("finding history commands", () => {
 });
 
 describe("a risky command", () => {
-	it("is reported and runs in report mode", async () => {
+	it("is reported and runs outside block", async () => {
 		const result = await riskyHistoryGuardian.review(
 			parsedBy(riskyHistoryGuardian, "git rebase main"),
 			ctx,
-			"report",
+			"redirect",
 		);
 
 		expect(result).toBeUndefined();
@@ -111,15 +111,15 @@ describe("an irrecoverable command", () => {
 			/git stash push --include-untracked/,
 		);
 		expect(result && "reason" in result && result.reason).toMatch(
-			/\/guards history-destructive report/,
+			/\/guards history-destructive off/,
 		);
 	});
 
-	it("is reported and runs in report mode", async () => {
+	it("is reported and runs when its guard is off", async () => {
 		const result = await destructiveHistoryGuardian.review(
 			parsedBy(destructiveHistoryGuardian, "git branch -D old"),
 			ctx,
-			"report",
+			"off",
 		);
 
 		expect(result).toBeUndefined();

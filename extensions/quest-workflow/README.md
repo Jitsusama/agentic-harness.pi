@@ -102,10 +102,12 @@ while it waits its turn leaves without running.
   `quest`, a quest's `id`, `kind` or `status`) is refused
   with the verb that changes it.
 - The gates are guards under the guard policy:
-  `quest-record`, `quest-owned-fields`, `quest-temp`,
-  `quest-plan-stage` and `quest-homeless` are redirects
-  that block, and
-  `quest-untracked-tree` reports by adopting the tree. A
+  `quest-record`, `quest-owned-fields` and
+  `quest-plan-stage` block. `quest-temp` and
+  `quest-homeless` redirect: the agent hears the refusal
+  and its remedy, and the same write made again goes
+  through as an override you see. `quest-untracked-tree`
+  redirects by adopting the tree. A
   main checkout cannot be adopted without force, so a write
   into one goes ahead untracked, said once per session.
   `/guards quest-untracked-tree block` restores the refusal

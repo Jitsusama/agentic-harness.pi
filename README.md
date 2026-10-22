@@ -73,11 +73,13 @@ moments worth reviewing: `commit-guardian`, `pr-guardian`,
 `issue-guardian` and `history-guardian`. Interceptors quietly
 enforce convention as the agent types:
 `attribution-interceptor`, `git-cli-interceptor` and
-`github-cli-interceptor`. By default a guard reports what it saw
-in the transcript and lets the work go on, and blocks only where
-a mistake reaches somebody else, cannot be undone, or has a
-right form to retry with. `/guards` in `guard-policy-workflow`
-switches any of them to block, report or off. The matching skills (`commit-format`,
+`github-cli-interceptor`. By default a guard blocks only where
+a mistake reaches somebody else, cannot be undone, or has one
+right form to retry with. Elsewhere it redirects: the agent
+hears what is wrong and how to fix it, and can make the same
+call again to go ahead, which the transcript shows you.
+`/guards` in `guard-policy-workflow` switches any of them to
+block, redirect or off. The matching skills (`commit-format`,
 `git-commit-convention`, the `github-*` conventions and more)
 teach the rules the gates hold.
 

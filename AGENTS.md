@@ -321,18 +321,26 @@ mutation directly. See `lib/guardian/` for the public contract
 ### Guard Policy
 
 Every guard in the package, guardian, interceptor, quest gate or
-tool confirmation, declares a class (approval, redirect or
-safety) and runs under a mode: off, report or block. Report is
-what makes most of them cheap. The action goes ahead, and what
-the guard would have shown is a session entry the person reads
-and the model never does. Block keeps the old behaviour: a panel
-for an approval, a refusal for a redirect.
+tool confirmation, declares a class (approval, form or safety)
+and runs under a mode: off, redirect or block. Block is a panel
+for an approval and a refusal, every time, for anything else.
+Redirect is what makes most of them cheap without teaching
+nothing: a refusal reaches the agent in its own tool result with
+its remedy, and the same call made again unchanged goes through
+as an override the person sees, so a wrong guard cannot corner
+the agent. An approval under redirect goes ahead and shows the
+person what it would have asked. Off lets everything through and
+shows the person what the guard saw; nothing a guard sees is
+silent. The former `report` mode, which let a refusal through
+and told only the person, is read as off: the agent never heard
+it and so repeated the mistake.
 
-The defaults follow one rule: block only where a mistake
-reaches somebody else or cannot be undone, or where the refusal
-names the form to retry with. So the commit, PR, issue and
-review approvals report, Slack and Google block, redirects
-block, and safety blocks only the irrecoverable.
+The defaults follow one rule: block where a mistake reaches
+somebody else, cannot be undone, or has one right form, and
+redirect everywhere else. So the commit, PR, issue and review
+approvals redirect, Slack and Google block, the PR, issue and
+commit form guards block, the quest's write gates redirect, and
+safety blocks only the irrecoverable.
 
 Each extension declares its own guards when it loads, from the
 one catalogue in `lib/internal/guardian/guards.ts`, so the
@@ -343,8 +351,9 @@ working as it did. A guardian opts in by passing `declaration`
 to `registerGuardian`, and its review receives the mode; a
 refusal goes through `refusalUnder` and a confirmation through
 `asksUnder`, both in `lib/guardian/apply.ts`. Never read a mode
-and branch on it by hand: those two are what keep a reporting
-guard's report and a blocking guard's refusal the same text.
+and branch on it by hand: those two are what keep an off guard's
+report, a redirect and a blocking guard's refusal the same text,
+and what remember a redirect for its override.
 
 ### Workflow File Convention
 

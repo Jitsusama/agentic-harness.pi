@@ -8,7 +8,7 @@ before execution.
 
 When the agent runs a `gh issue create` or `gh issue edit
 --body` command, Issue Guardian intercepts it. The `issue` guard
-reports by default: the command runs and the title and body
+redirects by default: the command runs and the title and body
 appear in the transcript. Switched to block
 (`/guards issue block`), it presents the content in a review
 gate with four options:

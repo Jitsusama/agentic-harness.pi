@@ -1,13 +1,16 @@
 /**
- * Guard reports: what a guard would have shown or said, put in the
- * transcript instead of in the way.
+ * Guard reports: what a guard saw, put in the transcript for the person.
  *
- * A guard in report mode lets the action through and hands over a
- * report. The report travels as plain data, because it is stored as a
- * session entry and drawn later by whatever renderer the session has,
- * so it holds markdown rather than a render closure. Entries never
- * reach the model's context, so a report costs no tokens and leaves
- * the prompt prefix alone.
+ * A guard that lets an action through, because it is off, because the
+ * agent overrode a redirect, or because it fixed the action itself,
+ * hands over a report. The report travels as plain data, because it is
+ * stored as a session entry and drawn later by whatever renderer the
+ * session has, so it holds markdown rather than a render closure.
+ *
+ * Entries never reach the model's context, so a report costs no tokens
+ * and leaves the prompt prefix alone. That is also why a report alone
+ * teaches the agent nothing: what the agent must learn from reaches it
+ * as a refusal in its own tool result, under `redirect` or `block`.
  *
  * Reports go to a sink the policy workflow installs. With no sink
  * installed they are dropped, which is also what an uninstalled
@@ -21,13 +24,25 @@ export const GUARD_REPORT_ENTRY = "guard-report";
  * What became of the action the guard looked at.
  *
  * - shown: an approval that would have asked, and went ahead.
- * - waved: a redirect that would have refused, and went ahead.
+ * - waved: a refusal from a guard that is off, and the action went ahead.
+ * - overridden: a redirect the agent made again unchanged, so it went ahead.
  * - fixed: the guard made the change itself and let it through.
  * - held: an approval kept for the person's return, since they are away.
  */
-export type GuardReportKind = "shown" | "waved" | "fixed" | "held";
+export type GuardReportKind =
+	| "shown"
+	| "waved"
+	| "overridden"
+	| "fixed"
+	| "held";
 
-const REPORT_KINDS: readonly string[] = ["shown", "waved", "fixed", "held"];
+const REPORT_KINDS: readonly string[] = [
+	"shown",
+	"waved",
+	"overridden",
+	"fixed",
+	"held",
+];
 
 /** One guard's report, as stored. */
 export interface GuardReport {

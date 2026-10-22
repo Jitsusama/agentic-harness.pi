@@ -5,7 +5,7 @@
 import {
 	GUARD_MODES,
 	type GuardMode,
-	isGuardMode,
+	readGuardMode,
 } from "../../lib/guardian/index.ts";
 
 /** A parsed `/guards` invocation. */
@@ -33,8 +33,7 @@ export function parseGuardsCommand(
 	if (words.length !== 2) {
 		return {
 			kind: "error",
-			message:
-				"Usage: /guards, /guards reset, or /guards <name|group|class|all> <off|report|block>",
+			message: `Usage: /guards, /guards reset, or /guards <name|group|class|all> <${GUARD_MODES.join("|")}>`,
 		};
 	}
 	const [key, mode] = words;
@@ -44,13 +43,16 @@ export function parseGuardsCommand(
 			message: `No guard, group or class is called ${key}. Known: ${knownKeys.join(", ")}`,
 		};
 	}
-	if (!isGuardMode(mode)) {
+	// The former `report` is read as `off`, which does what it did, so
+	// fingers that learned it still get what they meant.
+	const read = readGuardMode(mode);
+	if (!read) {
 		return {
 			kind: "error",
 			message: `${mode} is not a mode. Use one of ${GUARD_MODES.join(", ")}.`,
 		};
 	}
-	return { kind: "set", key, mode };
+	return { kind: "set", key, mode: read };
 }
 
 /**

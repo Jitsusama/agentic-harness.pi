@@ -10,25 +10,41 @@
  *
  * A guard can follow others instead of having a default of its own.
  * The rules that split chained git commands exist so a panel can
- * review one command at a time, so with every panel they serve in
- * report they have nothing to protect and report too.
+ * review one command at a time, so while none of the panels they serve
+ * asks a person they have nothing to protect and only report.
  *
  * State lives on `globalThis` under a `Symbol.for` key, so
  * independently loaded extensions (and downstream packages loading
  * their own copy of this module) all read the same policy.
  */
 
-/** What a guard does when it fires. */
-export type GuardMode = "off" | "report" | "block";
+/**
+ * What a guard does when it fires.
+ *
+ * - block: a refusal refuses every time, and an approval asks a person.
+ * - redirect: a refusal refuses with its remedy, and the same call made
+ *   again unchanged goes through as a recorded override; an approval
+ *   goes ahead and shows the person what it saw. The agent hears the
+ *   refusal in its own tool result, which is how it learns, and a guard
+ *   that is wrong cannot corner it.
+ * - off: the call goes ahead and the person is shown what the guard
+ *   saw. Nothing a guard sees is ever silent.
+ *
+ * There was a `report` mode, which let a refusal through and told only
+ * the person. The agent never heard it, so it made the same mistake on
+ * the next call; `redirect` replaced it as the default, and `report` is
+ * read as `off`, which does what report did.
+ */
+export type GuardMode = "off" | "redirect" | "block";
 
 /**
  * What a guard is for.
  *
  * - approval: shows content a person may want to read before it lands.
- * - redirect: refuses with a way to try again.
+ * - form: refuses what has one right form, saying what that form is.
  * - safety: protects something that cannot be brought back.
  */
-export type GuardClass = "approval" | "redirect" | "safety";
+export type GuardClass = "approval" | "form" | "safety";
 
 /** Where a resolved mode came from. */
 export type ModeSource = "session" | "config" | "default" | "follows";
@@ -46,7 +62,8 @@ export interface GuardDeclaration {
 	readonly groups?: readonly string[];
 	/**
 	 * Guards this one exists to serve. With no setting of its own it
-	 * blocks when any of them blocks and reports otherwise.
+	 * blocks when any of them blocks and is off, so only reports,
+	 * otherwise.
 	 */
 	readonly follows?: readonly string[];
 }
@@ -62,7 +79,10 @@ export interface ResolvedGuard {
 export type ModeSettings = Readonly<Record<string, GuardMode>>;
 
 /** Every mode, in order of how much a guard intervenes. */
-export const GUARD_MODES: readonly GuardMode[] = ["off", "report", "block"];
+export const GUARD_MODES: readonly GuardMode[] = ["off", "redirect", "block"];
+
+/** Modes a saved setting may still name, and what each now means. */
+const FORMER_MODES: Readonly<Record<string, GuardMode>> = { report: "off" };
 
 /** The key that selects every guard. */
 export const ALL_GUARDS = "all";
@@ -93,6 +113,16 @@ export function isGuardMode(value: unknown): value is GuardMode {
 }
 
 /**
+ * A mode as a saved setting names it, read as today's mode, or
+ * undefined when it names none. A session saved before `report` went
+ * keeps doing what its owner asked for.
+ */
+export function readGuardMode(value: unknown): GuardMode | undefined {
+	if (isGuardMode(value)) return value;
+	return typeof value === "string" ? FORMER_MODES[value] : undefined;
+}
+
+/**
  * Declare a guard. Declaring the same name again replaces the
  * declaration, so a reloaded extension does not leave a stale one.
  */
@@ -119,7 +149,7 @@ export function guardMode(name: string): GuardMode {
 
 /** Every key a setting may use: names, groups, classes and `all`. */
 export function selectorKeys(): string[] {
-	const keys = new Set<string>([ALL_GUARDS, "approval", "redirect", "safety"]);
+	const keys = new Set<string>([ALL_GUARDS, "approval", "form", "safety"]);
 	for (const guard of policy().guards.values()) {
 		keys.add(guard.name);
 		for (const group of guard.groups ?? []) keys.add(group);
@@ -139,7 +169,19 @@ export function sessionModes(): ModeSettings {
 
 /** Replace the session's overrides, as when restoring a saved session. */
 export function restoreSessionModes(modes: ModeSettings): void {
-	policy().session = { ...modes };
+	policy().session = readModes(modes);
+}
+
+/** Settings with every mode read as today's, dropping any that name none. */
+function readModes(
+	modes: Readonly<Record<string, unknown>>,
+): Record<string, GuardMode> {
+	const read: Record<string, GuardMode> = {};
+	for (const [key, value] of Object.entries(modes)) {
+		const mode = readGuardMode(value);
+		if (mode) read[key] = mode;
+	}
+	return read;
 }
 
 /** Replace the modes the package config sets. */
@@ -150,7 +192,7 @@ export function setConfiguredModes(modes: ModeSettings): void {
 function resolveName(name: string, seen: Set<string>): ResolvedGuard {
 	const declaration = policy().guards.get(name) ?? {
 		name,
-		class: "redirect",
+		class: "form",
 		description: "",
 		defaultMode: "block",
 	};
@@ -180,7 +222,7 @@ function resolve(
 		);
 		return {
 			declaration,
-			mode: blocks ? "block" : "report",
+			mode: blocks ? "block" : "off",
 			source: "follows",
 		};
 	}
@@ -202,7 +244,8 @@ function keysOf(declaration: GuardDeclaration): string[] {
  *
  * Shaped for `getSection`: `undefined` means no section and parses to
  * no settings. A mode that is not one of the three is refused rather
- * than ignored, so a typo does not quietly leave a guard blocking.
+ * than ignored, so a typo does not quietly leave a guard blocking; the
+ * former `report` is read as `off`, which does what it did.
  */
 export function parseGuardSection(
 	value: unknown,
@@ -214,13 +257,14 @@ export function parseGuardSection(
 	if (!isRecord(modes)) return { ok: false, error: "modes must be an object" };
 	const parsed: Record<string, GuardMode> = {};
 	for (const [key, mode] of Object.entries(modes)) {
-		if (!isGuardMode(mode)) {
+		const read = readGuardMode(mode);
+		if (!read) {
 			return {
 				ok: false,
 				error: `modes.${key} must be one of ${GUARD_MODES.join(", ")}`,
 			};
 		}
-		parsed[key] = mode;
+		parsed[key] = read;
 	}
 	return { ok: true, value: parsed };
 }

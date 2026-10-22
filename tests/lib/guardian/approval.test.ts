@@ -40,18 +40,19 @@ describe("an approval gate while the person is here", () => {
 		expect(approvalUnder(GUARD, "Send", () => "hi").kind).toBe("ask");
 	});
 
-	it("goes ahead and reports when its guard reports", () => {
-		setSessionMode(GUARD, "report");
+	it("goes ahead and reports when its guard redirects", () => {
+		setSessionMode(GUARD, "redirect");
 
 		expect(approvalUnder(GUARD, "Send", () => "hi").kind).toBe("go");
 		expect(reports.map((r) => r.kind)).toEqual(["shown"]);
 	});
 
-	it("goes ahead silently when its guard is off", () => {
+	it("goes ahead and still reports when its guard is off", () => {
+		// Off keeps a guard out of the way, not out of sight.
 		setSessionMode(GUARD, "off");
 
 		expect(approvalUnder(GUARD, "Send", () => "hi").kind).toBe("go");
-		expect(reports).toEqual([]);
+		expect(reports.map((r) => r.kind)).toEqual(["shown"]);
 	});
 });
 
@@ -80,8 +81,8 @@ describe("an approval gate while the person is away", () => {
 		expect(heldCalls()).toHaveLength(1);
 	});
 
-	it("still goes ahead when its guard only reports", () => {
-		setSessionMode(GUARD, "report");
+	it("still goes ahead when its guard redirects", () => {
+		setSessionMode(GUARD, "redirect");
 
 		expect(approvalUnder(GUARD, "Send", () => "hi").kind).toBe("go");
 		expect(heldCalls()).toEqual([]);

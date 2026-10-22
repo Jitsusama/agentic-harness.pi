@@ -45,7 +45,7 @@ beforeEach(() => {
 		name: GUARD,
 		class: "approval",
 		description: "Replies on a change.",
-		defaultMode: "report",
+		defaultMode: "redirect",
 	});
 	restoreSessionModes({});
 	reports = [];

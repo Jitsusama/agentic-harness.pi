@@ -79,11 +79,34 @@ const declared = {
 	name: "t-reg",
 	class: "approval" as const,
 	description: "",
-	defaultMode: "report" as const,
+	defaultMode: "redirect" as const,
 };
 
 describe("registerGuardian under the policy", () => {
-	it("skips a guard that is off without detecting", async () => {
+	it("still reviews a guard that is off, telling it so, so it can report", async () => {
+		// Off was silent once, so a person who switched a guard off never
+		// saw what it would have said. Now it only steps out of the way.
+		const { pi, handler } = captureHandler();
+		const modes: unknown[] = [];
+		registerGuardian(
+			pi,
+			guardian({
+				review: async (_p, _c, mode) => {
+					modes.push(mode);
+					return undefined;
+				},
+			}),
+			{ declaration: declared },
+		);
+		setSessionMode("t-reg", "off");
+
+		const result = await handler()(bashEvent("git commit -m x"), ctx(true));
+
+		expect(result).toBeUndefined();
+		expect(modes).toEqual(["off"]);
+	});
+
+	it("skips a bypassed guard without detecting", async () => {
 		const { pi, handler } = captureHandler();
 		let detected = false;
 		registerGuardian(
@@ -94,9 +117,8 @@ describe("registerGuardian under the policy", () => {
 					return true;
 				},
 			}),
-			{ declaration: declared },
+			{ declaration: declared, bypass: () => true },
 		);
-		setSessionMode("t-reg", "off");
 
 		const result = await handler()(bashEvent("git commit -m x"), ctx(true));
 
@@ -122,10 +144,10 @@ describe("registerGuardian under the policy", () => {
 		setSessionMode("t-reg", "block");
 		await handler()(bashEvent("git commit -m x"), ctx(true));
 
-		expect(modes).toEqual(["report", "block"]);
+		expect(modes).toEqual(["redirect", "block"]);
 	});
 
-	it("lets an unreadable shape through with a report when reporting", async () => {
+	it("lets an unreadable shape through with a report outside block", async () => {
 		const { pi, handler } = captureHandler();
 		const seen: GuardReport[] = [];
 		setGuardReportSink((r) => seen.push(r));

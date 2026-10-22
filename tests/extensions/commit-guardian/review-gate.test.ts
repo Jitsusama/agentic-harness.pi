@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { createCommitGuardian } from "../../../extensions/commit-guardian/review.ts";
+import { forgetRedirects } from "../../../lib/guardian/apply.ts";
 import {
 	restoreSessionModes,
 	setSessionMode,
@@ -8,6 +9,10 @@ import {
 	type GuardReport,
 	setGuardReportSink,
 } from "../../../lib/guardian/report.ts";
+import {
+	declareGuards,
+	GUARDS,
+} from "../../../lib/internal/guardian/guards.ts";
 import {
 	provideVerificationCheck,
 	type VerificationScope,
@@ -44,7 +49,7 @@ function fakeCtx(hasUI: boolean): Ctx {
 async function review(
 	message: string,
 	ctx: Ctx,
-	mode: "report" | "block" = "block",
+	mode: "redirect" | "block" = "block",
 ) {
 	const guardian = createCommitGuardian(fakePi());
 	if (!guardian.review) throw new Error("guardian has no review step");
@@ -55,6 +60,7 @@ afterEach(() => {
 	provideVerificationCheck(undefined);
 	restoreSessionModes({});
 	setGuardReportSink(undefined);
+	forgetRedirects();
 });
 
 describe("commit guardian review gate", () => {
@@ -66,7 +72,7 @@ describe("commit guardian review gate", () => {
 		expect(result).toMatchObject({ block: true });
 		const reason = (result as { reason: string }).reason;
 		expect(reason).toContain("- /repo/a.ts:3:1 Cannot find name 'x'.");
-		expect(reason).toContain("/guards commit-verification report");
+		expect(reason).toContain("/guards commit-verification off");
 	});
 
 	it("asks about the tree the commit lands in", async () => {
@@ -81,7 +87,7 @@ describe("commit guardian review gate", () => {
 		);
 		if (!parsed) throw new Error("not parsed");
 
-		const result = await guardian.review(parsed, fakeCtx(false), "report");
+		const result = await guardian.review(parsed, fakeCtx(false), "redirect");
 
 		expect(result).toBeUndefined();
 		expect(asked.map((s) => s.dir)).toEqual(["/work/tree"]);
@@ -91,35 +97,39 @@ describe("commit guardian review gate", () => {
 		const asked = failingWith(["/repo/a.ts:1:0 broken"]);
 		setSessionMode("commit-verification", "off");
 
-		const result = await review("feat: x\n\nbody", fakeCtx(false), "report");
+		const result = await review("feat: x\n\nbody", fakeCtx(false), "redirect");
 
 		expect(result).toBeUndefined();
 		expect(asked).toEqual([]);
 	});
 
-	it("lets a failing verification through with a report once its guard reports", async () => {
+	it("lets a failing verification through when the same commit comes back unchanged", async () => {
+		// The errors it names are sometimes stale. The agent has heard them;
+		// making the same commit again is it saying so, and the person sees.
+		declareGuards(GUARDS.commitVerification);
 		failingWith(["/repo/a.ts:1:0 broken"]);
-		setSessionMode("commit-verification", "report");
 		const seen: GuardReport[] = [];
 		setGuardReportSink((r) => seen.push(r));
+		const message = "docs: clarify setup\n\nThis explains the steps.";
 
-		const result = await review(
-			"docs: clarify setup\n\nThis explains the steps.",
-			fakeCtx(false),
-		);
+		const first = await review(message, fakeCtx(false));
+		const again = await review(message, fakeCtx(false));
 
-		expect(result).toBeUndefined();
-		expect(seen.map((r) => r.guard)).toEqual(["commit-verification"]);
+		expect(first).toMatchObject({ block: true });
+		expect(again).toBeUndefined();
+		expect(
+			seen.filter((r) => r.guard === "commit-verification").map((r) => r.kind),
+		).toEqual(["overridden"]);
 	});
 
-	it("reports the message and its marks in report mode", async () => {
+	it("reports the message and its marks outside block", async () => {
 		const seen: GuardReport[] = [];
 		setGuardReportSink((r) => seen.push(r));
 
 		const result = await review(
 			"docs: clarify setup\n\nThis explains the steps.",
 			fakeCtx(true),
-			"report",
+			"redirect",
 		);
 
 		expect(result).toBeUndefined();

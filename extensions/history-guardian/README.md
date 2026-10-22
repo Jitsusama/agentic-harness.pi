@@ -21,5 +21,5 @@ message, say) is never mistaken for a command.
 
 When the user wants an irrecoverable command run as written,
 they can run it themselves, or let it through with
-`/guards history-destructive report`. See
+`/guards history-destructive off`. See
 [guard-policy-workflow](../guard-policy-workflow/README.md).
