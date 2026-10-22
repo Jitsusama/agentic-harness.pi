@@ -102,6 +102,8 @@ export function createJobs(
 				},
 			};
 		},
+		// Held covers both: a job leaves only once its result is said.
+		pending: () => held.size,
 		list: () =>
 			[...held].map(([id, job]) => ({
 				id,

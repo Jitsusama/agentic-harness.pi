@@ -13,6 +13,10 @@
  *
  * While the session runs code other than the install, the footer shows
  * `⇄`, and `/harness` says what runs.
+ *
+ * A session that runs the install follows it (follow.ts): when it
+ * moves, the session reloads itself once nothing would be lost, and
+ * says what came in, so nobody has to tell it to.
  */
 
 import { homedir } from "node:os";
@@ -26,12 +30,14 @@ import {
 	type Loaded,
 } from "../../lib/internal/reload/loaded.ts";
 import { piPackageSettings } from "../../lib/internal/reload/settings.ts";
+import { reloadSlot } from "../../lib/internal/reload/slot.ts";
 import {
 	asText,
 	drawInto,
 	firstText,
 	renderToolCall,
 } from "../../lib/ui/index.ts";
+import { type Follower, follow } from "./follow.ts";
 import {
 	PACKAGE_NAME,
 	PACKAGE_ROOT,
@@ -62,16 +68,24 @@ function settledAborted(event: unknown): boolean {
 export default function reloadWorkflow(pi: ExtensionAPI) {
 	const settings = piPackageSettings();
 	let running: Loaded = { root: PACKAGE_ROOT };
+	let follower: Follower | undefined;
 
 	pi.on("session_start", async (event, ctx) => {
 		await startRuntime(pi, ctx, event.reason, settings, (loaded) => {
 			running = loaded;
 		});
+		follower = await follow(pi, ctx, settings, () => running);
 	});
 
 	// The run that asked has ended: hand the request to the command,
 	// through pi's prompt path, which is what gives it `reload()`.
 	pi.on("agent_settled", async (event, ctx: ExtensionContext) => {
+		// The session's own reload waits for a settle, whoever stopped the
+		// run, and for anything else it is waiting on.
+		if (reloadSlot().request === undefined) {
+			follower?.consider(true);
+			return;
+		}
 		if (settledAborted(event)) {
 			if (callOff()) {
 				ctx.ui.notify("Reload called off: you stopped the run.", "info");

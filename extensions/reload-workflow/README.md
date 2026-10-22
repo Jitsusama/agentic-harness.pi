@@ -29,6 +29,22 @@ loads the install and the install is `main`.
   model a hidden note saying which code now runs, so the agent knows
   the code changed under it. Nothing is shown to the person, who did
   the reload.
+- **Following the install.** A session that runs the install of a
+  package its settings name reloads itself when that install's HEAD
+  moves, so nobody has to mail every session to reload.
+  - It waits for a moment that loses nothing: an idle session at
+    once, a busy one when its run ends, and either only once no
+    background job is running or holds a result not yet said, and
+    once `pnpm install` has followed a move that changed the
+    lockfile.
+  - Afterwards one line, shown and in the model's context, says it
+    reloaded and what came in: a merged pull request by its number
+    and title, anything else by its subject. It never starts a turn.
+  - A session running a tree is never moved, and only a session
+    somebody sits at follows: not a subagent, nor a print-mode run.
+    `PI_FOLLOW_INSTALL=off` turns it off.
+  - One `fs.watch` per install's git directory, read once the
+    checkout has been still for three seconds. Nothing is polled.
 - **`⇄` on the footer** while the session runs code other than the
   install pi's settings name, muted, and only then.
 - **`/harness`** says what runs, from where, at which commit, and
