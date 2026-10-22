@@ -10,7 +10,9 @@ import type { Return } from "../../lib/internal/away/state.ts";
 /** What the model is told when an absence starts. */
 export function awayNow(goal: string | undefined, already: boolean): string {
 	return [
-		already ? "Away mode was already on." : "Away mode is on.",
+		already
+			? "Away mode was already on."
+			: "Away mode is on, for every session on this machine.",
 		goal ? `Goal: ${goal}` : "",
 		"Until the user is back, nothing waits on them: a blocking approval is held for their return instead of opening a panel (nothing is sent), and ask takes your recommendation.",
 		"Keep working towards the goal. End a run only with a last line starting `Done:` when it is met, or `Blocked:` naming what needs the user when nothing within your reach is left; any other ending is sent back to you.",
@@ -23,11 +25,20 @@ export function awayNow(goal: string | undefined, already: boolean): string {
 /**
  * What the model is told once the person is back: what was held and
  * what was decided for them. Undefined when nothing waited.
+ *
+ * `elsewhere` is for a session that learns of the return because the
+ * person typed in another window: they said nothing here, so there is
+ * nothing of theirs to deal with first.
  */
-export function returnMessage(back: Return): string | undefined {
+export function returnMessage(
+	back: Return,
+	elsewhere = false,
+): string | undefined {
 	if (back.held.length === 0 && back.decided.length === 0) return undefined;
 	const lines = [
-		`The user is back; away mode has ended (it began ${back.since}). Deal with what they said first.`,
+		elsewhere
+			? `The user is back at the machine (they typed in another window); away mode has ended here too (it began ${back.since}).`
+			: `The user is back; away mode has ended (it began ${back.since}). Deal with what they said first.`,
 	];
 	if (back.held.length > 0) {
 		lines.push(

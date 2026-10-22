@@ -18,6 +18,13 @@
  *
  * The state is `lib/internal/away/`, shared through `globalThis`, so the
  * gates, `ask` and quest-workflow read it without importing this.
+ *
+ * The absence is the machine's, not the window's: leaving in one
+ * interactive session puts every interactive session on the machine
+ * away, and typing or pressing Escape in any of them brings them all
+ * back (`lib/internal/away/machine.ts`). Sessions without a UI, such as
+ * subagents and print-mode runs, neither follow nor publish it, since
+ * nobody is at them to leave or come back.
  */
 
 import type {
@@ -25,6 +32,13 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import {
+	agree,
+	type MachineWord,
+	publishMachineWord,
+	readMachineWord,
+	watchMachineWord,
+} from "../../lib/internal/away/machine.ts";
 import {
 	comeBack,
 	goAway,
@@ -82,6 +96,7 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 	let restoring = false;
 	let run = NOTHING_RUN;
 	let pendingNudge: Job | undefined;
+	let stopWatching: () => void = () => {};
 	const memory = freshMemory();
 
 	const showStatus = (ctx: ExtensionContext | undefined) => {
@@ -111,15 +126,53 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 		);
 	};
 
-	/** The person is here: end the absence and say what waited. */
-	const endAway = (ctx: ExtensionContext) => {
+	/**
+	 * The person is here: end the absence and say what waited.
+	 * `elsewhere` when they came back in another window.
+	 */
+	const endAway = (ctx: ExtensionContext, elsewhere = false) => {
 		// A nudge not yet said would tell the model they are still away.
 		pendingNudge?.withdraw();
 		pendingNudge = undefined;
 		const back = comeBack();
 		if (!back) return;
-		const text = returnMessage(back);
+		const text = returnMessage(back, elsewhere);
 		if (text) sayWithTurn(ctx, RETURN_MESSAGE, text);
+	};
+
+	/** Tell every session on the machine the person is away. */
+	const publishAway = (ctx: ExtensionContext) => {
+		if (!ctx.hasUI) return;
+		const now = snapshot();
+		if (now.since === undefined) return;
+		publishMachineWord({
+			since: now.since,
+			...(now.goal !== undefined ? { goal: now.goal } : {}),
+		});
+	};
+
+	/**
+	 * Tell every session on the machine the person is here, unless the
+	 * machine already says so: that word needs no rewrite, and every
+	 * rewrite wakes every watching session. No word at all is written
+	 * over too, since sessions can be away from before the word was
+	 * shared, and they come back only on hearing it.
+	 */
+	const publishHere = (ctx: ExtensionContext) => {
+		if (!ctx.hasUI) return;
+		const word = readMachineWord();
+		if (!word || word.away) publishMachineWord(undefined);
+	};
+
+	/** Do what this session must to agree with the machine's word. */
+	const follow = (ctx: ExtensionContext, word: MachineWord | undefined) => {
+		const agreement = agree(word, snapshot());
+		if (agreement.kind === "go-away") {
+			goAway(agreement.goal, new Date(agreement.since));
+		} else if (agreement.kind === "come-back") {
+			endAway(ctx, true);
+			ctx.ui.notify("Away mode ended: you are back at the machine.", "info");
+		}
 	};
 
 	/** A run settled while away: send it back to work, or let it rest. */
@@ -172,10 +225,25 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 		} finally {
 			restoring = false;
 		}
+		if (ctx.hasUI) {
+			follow(ctx, readMachineWord());
+			stopWatching();
+			stopWatching = watchMachineWord((word) => {
+				if (!latest) return;
+				try {
+					follow(latest, word);
+				} catch {
+					// A context a reload replaced throws; the live copy's own
+					// watch follows the same word.
+				}
+			});
+		}
 		showStatus(ctx);
 	});
 
 	pi.on("session_shutdown", async () => {
+		stopWatching();
+		stopWatching = () => {};
 		disposeListener();
 		pendingNudge = undefined;
 	});
@@ -187,6 +255,7 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 		latest = ctx;
 		if (event.source !== "interactive") return;
 		if (isAway()) endAway(ctx);
+		publishHere(ctx);
 		if (readsLikeDeparture(event.text)) {
 			sayWithTurn(ctx, HINT_MESSAGE, DEPARTURE_HINT);
 		}
@@ -206,6 +275,7 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 		if (settledAborted(event) || finished.aborted) {
 			// Escape is the person, here, saying stop.
 			endAway(ctx);
+			publishHere(ctx);
 			ctx.ui.notify("Away mode ended: you stopped the run.", "info");
 			return;
 		}
@@ -219,10 +289,12 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 			latest = ctx;
 			if (isAway()) {
 				endAway(ctx);
+				publishHere(ctx);
 				ctx.ui.notify("Away mode ended. Welcome back.", "info");
 				return;
 			}
 			goAway(args.trim() || undefined);
+			publishAway(ctx);
 			ctx.ui.notify(
 				"Away mode on: approvals are held and the run keeps going.",
 				"info",
@@ -234,7 +306,7 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 		name: "away",
 		label: "Away",
 		description:
-			"Switch on away mode when the user says they are leaving or asks you to work unattended. Until they are back, blocking approvals are held instead of waiting on them (nothing is sent), ask takes your recommendation, and a run that does not end with a `Done:` or `Blocked:` line is sent back to work. Only the user ends it, by typing.",
+			"Switch on away mode when the user says they are leaving or asks you to work unattended. Until they are back, blocking approvals are held instead of waiting on them (nothing is sent), ask takes your recommendation, and a run that does not end with a `Done:` or `Blocked:` line is sent back to work. It covers every interactive session on the machine, so call it once; only the user ends it, by typing in any of them.",
 		promptSnippet:
 			"Switch on away mode when the user says they are leaving now or wants unattended work.",
 		promptGuidelines: [
@@ -253,6 +325,7 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			latest = ctx;
 			const started = goAway(params.goal);
+			publishAway(ctx);
 			return {
 				content: [
 					{

@@ -17,6 +17,12 @@ pasted logs and quotes are full of them. When a message you typed
 reads like a departure, it adds a one-line hint to the turn, and the
 agent decides in context. `/away` exists as a fallback.
 
+You are away from the machine, not from one window, so saying it
+once is enough: every interactive pi session on the machine goes
+away with the same goal, including ones started while you are gone.
+Each keeps its own held calls and decisions, since only that session
+can make them again.
+
 ## While You Are Away
 
 - **Approvals that block are held.** A Slack message, an email, or
@@ -52,12 +58,17 @@ back: the agent deals with what you said, then makes again any held
 call still wanted, and you are asked in its own panel. Stopping a run
 with Escape also ends away mode.
 
+Coming back in any window brings every session back. One you did not
+type in is told you are back only when something waited there, and
+is not told to deal with what you said, since you said nothing to it.
+
 A "keep going" message not yet sent when you come back is withdrawn,
 so the agent is never told you are away after you returned.
 
 ## Limits
 
-- Away mode is per session. Other pi sessions are not affected.
+- Sessions nobody sits at, such as subagents and print-mode runs,
+  neither follow the machine's absence nor start one.
 - A panel left open with nobody answering is not yet taken as a sign
   you have gone; say you are leaving.
 - A restart while away comes back away, with what was held, and the
@@ -69,4 +80,6 @@ The state is in `lib/internal/away/`, shared through `globalThis`, so
 the Slack, Google and review gates, the commit, PR and issue
 guardians, `ask` and quest-workflow read it without importing this
 extension. Quest-workflow registers the focused plan's progress with
-it. The "keep going" message is a job, said through job-workflow.
+it. Whether you are away is shared between sessions through one file,
+`~/.local/state/pi/agentic-harness.pi/away-workflow/machine.json`,
+which each session watches and follows. The "keep going" message is a job, said through job-workflow.
