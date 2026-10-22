@@ -402,14 +402,22 @@ idle. So while it waits, its presence carries `wants`:
 
 `kind` is `question`, `approval` or `blocked`; `since` is when
 it began waiting; `said` is what it asked or said, on one line
-of at most 160 characters. Each kind stands until it is
+of at most 120 characters. Each kind stands until it is
 settled, and while more than one stands, presence holds the
 one that has stood longest. The field is absent when nothing
-waits, and never survives a start, since what asked belonged
-to the process that ended. The desktop reads it to mark a
-session that wants Joel; a peer can read it so as not to wait
-on one that is itself waiting. The ask and away workflows
-say when a want begins and ends, over the bus.
+waits. The desktop reads it to mark a session that wants Joel;
+a peer can read it, and `mesh_groups` lists it, so none is
+waited on as though it were free.
+
+The session says each want as it starts and ends, over the bus
+(`session:wants:v1`, see `lib/internal/session/wants.ts`): a
+panel left unanswered for five seconds, calls held while away,
+an away run ended blocked, or a run ending on a question. A
+want is never read back from a presence file, only heard from
+the process that raised it, so a session restarted waits on
+nothing. The mesh listens from the moment it loads and holds
+what it heard until its peer is made, since a reload with a
+panel still open says its wants again as the session starts.
 
 ## The Legacy Mailbox
 

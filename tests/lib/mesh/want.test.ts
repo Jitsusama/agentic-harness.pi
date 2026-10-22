@@ -3,11 +3,8 @@
  * told longest first.
  */
 import { describe, expect, it } from "vitest";
-import {
-	longestStanding,
-	MOST_SAID_CHARS,
-	wantFrom,
-} from "../../../lib/mesh/want.ts";
+import { SAID_CHARS } from "../../../lib/internal/session/wants.ts";
+import { longestStanding, wantFrom } from "../../../lib/mesh/want.ts";
 
 describe("a want", () => {
 	it("reads from outside as one line no longer than it keeps", () => {
@@ -25,10 +22,10 @@ describe("a want", () => {
 		const long = wantFrom({
 			kind: "blocked",
 			since: "2026-10-22T08:00:00Z",
-			said: "x".repeat(MOST_SAID_CHARS + 1),
+			said: "x".repeat(SAID_CHARS + 1),
 		});
-		expect(long?.said).toHaveLength(MOST_SAID_CHARS);
-		expect(long?.said.endsWith("...")).toBe(true);
+		expect(long?.said).toHaveLength(SAID_CHARS);
+		expect(long?.said.endsWith("\u2026")).toBe(true);
 	});
 
 	it("is nothing without a kind it knows, a time, or what was said", () => {

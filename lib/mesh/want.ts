@@ -14,12 +14,22 @@
  * an approval is held), so each kind stands until it is settled, and
  * presence shows the one standing longest, which is the one he has
  * kept waiting most.
+ *
+ * The session says each want as it starts and ends, over the bus (see
+ * lib/internal/session/wants.ts); this is the same want as presence
+ * keeps it, in the same kinds and on the same one line.
  */
 
-/** What a peer can be waiting on its person for. */
-export const WANT_KINDS = ["question", "approval", "blocked"] as const;
+import { oneLine, type WantKind } from "../internal/session/wants.ts";
 
-export type WantKind = (typeof WANT_KINDS)[number];
+export type { WantKind };
+
+/** What a peer can be waiting on its person for. */
+export const WANT_KINDS: readonly WantKind[] = [
+	"question",
+	"approval",
+	"blocked",
+];
 
 /** One thing a peer is waiting on its person for. */
 export interface Want {
@@ -29,9 +39,6 @@ export interface Want {
 	/** What it asked or said, in one short line. */
 	readonly said: string;
 }
-
-/** How much of what was said a want keeps, which is enough to name it. */
-export const MOST_SAID_CHARS = 160;
 
 /** A want read from outside, or nothing when it is not one. */
 export function wantFrom(value: unknown): Want | undefined {
@@ -60,12 +67,4 @@ export function longestStanding(wants: Iterable<Want>): Want | undefined {
 		}
 	}
 	return longest;
-}
-
-/** Text on one line and no longer than a want keeps. */
-function oneLine(text: string): string {
-	const line = text.replace(/\s+/g, " ").trim();
-	return line.length > MOST_SAID_CHARS
-		? `${line.slice(0, MOST_SAID_CHARS - 3)}...`
-		: line;
 }
