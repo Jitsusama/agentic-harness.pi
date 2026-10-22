@@ -70,6 +70,7 @@ import {
 	refuseFailure,
 	renderAnswer,
 	renderInvocation,
+	reviewedChange,
 	say,
 	threadsOf,
 } from "./shared.ts";
@@ -339,7 +340,7 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 						params.action === "fixes" ||
 						params.action === "take-threads"
 					) {
-						const change = bound && hostedChange(bound);
+						const change = bound && reviewedChange(bound);
 						if (!bound || !change) {
 							return refuse(
 								"The fix queue belongs to a change, so name the change rather than a draft id.",
@@ -931,6 +932,11 @@ async function walkFixes(
 		// The morning-after journey, in one call. Sweeping every
 		// unresolved thread onto the worklist is what a person does by
 		// hand otherwise, and doing it by hand is how one gets missed.
+		if (!hostedChange(bound)) {
+			return refuse(
+				`Nothing hosts ${change.label}, so there are no threads on it to take.`,
+			);
+		}
 		const threads = await bound.provider.conversation?.threads(change);
 		if (threads === undefined) {
 			return refuse(
@@ -1067,7 +1073,7 @@ async function decideFinding(
 			"A resumed draft does not know which change its findings were raised against. Name the change on this call.",
 		);
 	}
-	const change = hostedChange(bound);
+	const change = reviewedChange(bound);
 	if (!change) {
 		return refuse(
 			`A ${bound.target.kind} in ${bound.repo.key} holds no findings, since there is no change to hold them on.`,

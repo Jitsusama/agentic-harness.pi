@@ -29,6 +29,7 @@ import { firstText, renderToolCall } from "../../../lib/ui/index.ts";
 import { attachments, reviewEngine } from "../engine.ts";
 import type { GateRefusal } from "../gate.ts";
 import { boardsOf, roundCardLines } from "../progress.ts";
+import { rangeChange } from "../range.ts";
 import { GLYPH } from "../render.ts";
 
 /** What a tool answers with. */
@@ -348,6 +349,15 @@ export async function checkoutElsewhere(
 /** The hosted change behind a bound target, when there is one. */
 export function hostedChange(bound: BoundTarget): ChangeRef | undefined {
 	return bound.target.kind === "proposal" ? bound.target.change : undefined;
+}
+
+/**
+ * The change rounds and findings are held against: the hosted one, or a
+ * local range under its own name. Only for what this harness keeps; a
+ * host is only ever handed {@link hostedChange}.
+ */
+export function reviewedChange(bound: BoundTarget): ChangeRef | undefined {
+	return hostedChange(bound) ?? rangeChange(bound);
 }
 
 /** The threads on a bound target, or a reason there are none. */

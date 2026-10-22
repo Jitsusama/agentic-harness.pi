@@ -110,6 +110,7 @@ import {
 	runDir,
 } from "../engine.ts";
 import { answerWatching, type RoundWatch } from "../progress.ts";
+import { rangeProposal } from "../range.ts";
 import { GLYPH } from "../render.ts";
 import {
 	answerFromReviewer,
@@ -144,6 +145,7 @@ import {
 	refuse,
 	renderAnswer,
 	renderInvocation,
+	reviewedChange,
 	say,
 	type TargetParams,
 } from "./shared.ts";
@@ -258,6 +260,15 @@ export function registerAskTool(pi: ExtensionAPI): void {
 					description:
 						"Reference to a hosted change: URL, short form or number. Omit to use the attached change.",
 				}),
+			),
+			base: Type.Optional(
+				Type.String({
+					description:
+						"Base ref, with head, to ask about a local range nobody has proposed. Its rounds and findings are held under base..head, so name it the same way each time.",
+				}),
+			),
+			head: Type.Optional(
+				Type.String({ description: "Head ref, with base, for a local range." }),
 			),
 			repo: Type.Optional(
 				Type.String({
@@ -403,10 +414,10 @@ export function registerAskTool(pi: ExtensionAPI): void {
 					}
 
 					const bound = await boundFor(pi, params, process.cwd());
-					const change = hostedChange(bound);
+					const change = reviewedChange(bound);
 					if (change === undefined) {
 						return refuse(
-							"Nothing hosts this target, so there is no change to ask about. Asking models to review a local range is worth doing and is not wired yet.",
+							"A list of refs is put to the roster all together with action stack. Every other round takes a hosted change, or a local range as base and head.",
 						);
 					}
 
@@ -1310,7 +1321,9 @@ async function askAudit(
 	}
 	await claimIdentities(change, "judge", [auditor]);
 
-	if (!bound.conversation) {
+	// A range's change is this harness's name for it, which a host's
+	// conversation would read as one of its own changes.
+	if (!bound.conversation || !hostedChange(bound)) {
 		return refuse(
 			"Nothing hosts this target, so it carries no threads to audit.",
 		);
@@ -2125,13 +2138,17 @@ function chartersFor(
  */
 const ISOLATED = true;
 
-/** The change and its diff, which every round needs. */
+/**
+ * The change and its diff, which every round needs. A local range has no
+ * proposal of its own to read, so its commits stand in for one.
+ */
 async function material(bound: Awaited<ReturnType<typeof boundFor>>) {
-	const [proposal, diff] = await Promise.all([
+	const [hosted, diff] = await Promise.all([
 		bound.proposal(),
 		bound.diffModel(),
 	]);
-	if (proposal === null) {
+	const proposal = hosted ?? (await rangeProposal(bound));
+	if (!proposal) {
 		throw new Error(
 			"This provider cannot read the change itself, so there is nothing to put to a reviewer.",
 		);
