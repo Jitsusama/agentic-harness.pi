@@ -26,7 +26,10 @@
  *
  * Every lease also lapses when its holder is gone, which is asked of the
  * machine (see liveness.ts), never of a heartbeat. Each peer writes only
- * its own leases, one file per session, so no two writers meet.
+ * its own leases, one file per session, so no two writers meet. A
+ * subagent claims as its parent's hand (see hand.ts) in a file of its
+ * own that names the peer it works for, and the board counts those
+ * leases as that peer's.
  */
 
 import { readdirSync, readFileSync, rmSync } from "node:fs";
@@ -67,6 +70,13 @@ export interface Lease {
 export interface Holding {
 	readonly session: string;
 	readonly leases: readonly Lease[];
+	/** The peer whose hand claimed these, when a subagent did. */
+	readonly handOf?: string;
+}
+
+/** The peer a holding's leases are claimed for. */
+export function ownerOf(holding: Holding): string {
+	return holding.handOf ?? holding.session;
 }
 
 /** How long a lease taken in a run lasts without being renewed. */
@@ -236,7 +246,13 @@ export function holdingFrom(value: unknown): Holding | undefined {
 	if (typeof one.session !== "string" || !Array.isArray(one.leases)) {
 		return undefined;
 	}
-	return { session: one.session, leases: one.leases.flatMap(leaseFrom) };
+	return {
+		session: one.session,
+		leases: one.leases.flatMap(leaseFrom),
+		...(typeof one.handOf === "string" && one.handOf !== ""
+			? { handOf: one.handOf }
+			: {}),
+	};
 }
 
 function leaseFrom(value: unknown): Lease[] {
@@ -263,11 +279,15 @@ function leaseFrom(value: unknown): Lease[] {
 
 /** A lease another peer holds, with whose it is. */
 export interface Held {
+	/** The peer it is claimed for, whether it or one of its hands took it. */
 	readonly session: string;
 	readonly lease: Lease;
 }
 
-/** Other peers' current leases of this kind on this subject. */
+/**
+ * Other peers' current leases of this kind on this subject. A peer's
+ * own hands are not others, nor is the peer a hand works for.
+ */
 export function othersOn(
 	board: readonly Holding[],
 	session: string,
@@ -276,7 +296,7 @@ export function othersOn(
 	now: number,
 ): Held[] {
 	return board.flatMap((holding) =>
-		holding.session === session
+		holding.session === session || ownerOf(holding) === session
 			? []
 			: holding.leases
 					.filter(
@@ -285,7 +305,7 @@ export function othersOn(
 							lease.subject === subject &&
 							isCurrent(lease, now),
 					)
-					.map((lease) => ({ session: holding.session, lease })),
+					.map((lease) => ({ session: ownerOf(holding), lease })),
 	);
 }
 
@@ -345,12 +365,18 @@ export function ownLeases(
 	board: Board,
 	session: string,
 	now: number = Date.now(),
+	handOf?: string,
 ): OwnLeases {
 	const before = board.of(session)?.leases ?? [];
 	let leases = before.filter(
 		(lease) => !RUN_KINDS.has(lease.kind) && isCurrent(lease, now),
 	);
-	const write = () => board.hold({ session, leases });
+	const write = () =>
+		board.hold({
+			session,
+			leases,
+			...(handOf !== undefined ? { handOf } : {}),
+		});
 	if (leases.length !== before.length) write();
 	const find = (kind: LeaseKind, subject: string) =>
 		leases.find((lease) => lease.kind === kind && lease.subject === subject);

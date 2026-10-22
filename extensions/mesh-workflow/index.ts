@@ -33,6 +33,7 @@
  */
 
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
 	type ExtensionAPI,
 	type ExtensionContext,
@@ -65,10 +66,10 @@ import {
 } from "../../lib/mesh/attention.ts";
 import { createDamper } from "../../lib/mesh/damping.ts";
 import { groupNamed, isJoinable } from "../../lib/mesh/group.ts";
+import { isSubagent, MESH_SESSION_ENV } from "../../lib/mesh/hand.ts";
 import {
 	carryLeases,
 	createBoard,
-	heavyWorkIn,
 	LEASE_EVENT,
 	type LeaseEvent,
 	leaseEventFrom,
@@ -98,6 +99,10 @@ import {
 } from "../../lib/mesh/thread.ts";
 import { folderTransport, type Transport } from "../../lib/mesh/transport.ts";
 import { type Want, type WantKind, wantFrom } from "../../lib/mesh/want.ts";
+import {
+	SUBAGENT_READY,
+	SUBAGENT_REGISTER_DEFAULT_EXTENSION,
+} from "../../lib/subagent/events.ts";
 import { type Acts, createActs, SETTLING, type Settling } from "./acts.ts";
 import {
 	type Delivered,
@@ -109,7 +114,7 @@ import {
 	noted,
 } from "./delivery.ts";
 import { countedIn, createGlances, type Entry, handedIn } from "./glances.ts";
-import { createLeasing, type HoldEnd } from "./leases.ts";
+import { createHeavyCalls, createLeasing, type HoldEnd } from "./leases.ts";
 import { type Local, registerTools } from "./tools.ts";
 
 /**
@@ -150,18 +155,6 @@ export const WAIT_CHECK_MS = 60 * 1000;
  */
 export const LOOK_AGAIN_MS = 60 * 1000;
 
-/**
- * How the shell tool answers a call it handed to a job (see
- * shell-workflow's hand-off), whose command runs on past its answer.
- */
-const HANDED_OFF = /in the background as job \S+/;
-
-/** A command's first line, as a lease says what it is for. */
-function commandLine(command: string): string {
-	const first = command.trim().split("\n")[0] ?? "";
-	return first.length > 120 ? `${first.slice(0, 117)}...` : first;
-}
-
 /** Why a stopped peer's message is a glance, whatever it was. */
 const STOPPED = "from a peer this one stopped";
 
@@ -180,17 +173,25 @@ export function machinePaths(): MeshPaths {
 	};
 }
 
+/** The extension every subagent loads, as its parent's hands. */
+export const HAND_EXTENSION = fileURLToPath(
+	new URL("./hand.ts", import.meta.url),
+);
+
 /**
- * Whether this pi is a fleet's subagent, which the supervisor marks in
- * the environment it starts the child with.
- *
- * A subagent is a worker inside another session's turn, answering to
- * that session alone: on the mesh it would be handed the machine's
- * coordination in the middle of its one job, and would show up as a
- * peer other senders reach.
+ * Have every subagent this pi starts load its hands, isolated ones
+ * included. The fleet keeps the list, and either may load first: one
+ * that loads after this hears the registration, and one that loaded
+ * before it says it is ready.
  */
-export function isSubagent(env: NodeJS.ProcessEnv = process.env): boolean {
-	return env.SUBAGENT_SUPERVISOR === "1" || Boolean(env.SUBAGENT_RUN_ID);
+export function registerHands(events: ExtensionAPI["events"] | undefined) {
+	if (!events) return;
+	events.emit(SUBAGENT_REGISTER_DEFAULT_EXTENSION, HAND_EXTENSION);
+	events.on(SUBAGENT_READY, (api) => {
+		const register = (api as { registerDefaultExtension?: unknown } | null)
+			?.registerDefaultExtension;
+		if (typeof register === "function") register(HAND_EXTENSION);
+	});
 }
 
 /**
@@ -216,8 +217,9 @@ export function meshWorkflow(
 	lookAgainMs: number = LOOK_AGAIN_MS,
 ) {
 	return (pi: ExtensionAPI) => {
-		// Not on the mesh at all: see isSubagent.
+		// Not a peer: a subagent is its parent's hands (see hand.ts).
 		if (isSubagent(env)) return;
+		registerHands(pi.events);
 		const transport: Transport = folderTransport(join(paths.mesh, "messages"));
 		const presences = createPresences(join(paths.mesh, "presence"));
 		const glances = createGlances();
@@ -626,6 +628,9 @@ export function meshWorkflow(
 				...(previous ? { previous } : {}),
 			});
 			for (const want of wanting.values()) peer.want(want);
+			// Named to whatever this process starts, so a subagent knows whose
+			// hands it is.
+			env[MESH_SESSION_ENV] = peer.session;
 			glances.recover(branch);
 			const counted = countedIn(branch);
 			damper.recover(counted.turns, counted.said);
@@ -792,9 +797,7 @@ export function meshWorkflow(
 				})
 				.catch(() => {});
 
-		// The heavy shell commands running, by call, so work two calls share
-		// is given up only when the last of them ends.
-		const heavyCalls = new Map<string, string>();
+		const heavyCalls = createHeavyCalls(heavy);
 
 		// A change claims its file, and a peer reaching for a file another is
 		// changing is told who, once, before it goes ahead beside them. A heavy
@@ -805,12 +808,8 @@ export function meshWorkflow(
 			async (event, called): Promise<ToolCallEventResult | undefined> => {
 				try {
 					if (isToolCallEventType("bash", event)) {
-						const command = event.input.command;
-						const subject =
-							typeof command === "string" ? heavyWorkIn(command) : undefined;
-						if (subject && own && peer) {
-							heavyCalls.set(event.toolCallId, subject);
-							heavy({ take: { subject, why: commandLine(command) } });
+						if (own && peer) {
+							heavyCalls.called(event.toolCallId, event.input.command);
 						}
 						return undefined;
 					}
@@ -831,29 +830,13 @@ export function meshWorkflow(
 			},
 		);
 
-		/** A heavy command has ended: its work is given up with its last. */
-		const ended = (toolCallId: string) => {
-			const subject = heavyCalls.get(toolCallId);
-			if (subject === undefined) return;
-			heavyCalls.delete(toolCallId);
-			if (![...heavyCalls.values()].includes(subject)) {
-				heavy({ release: subject });
-			}
-		};
-
-		// A heavy command's work is over when its call answers, unless the
-		// call handed it to a job, which runs on past the answer until the
-		// job says it has ended.
 		pi.on("tool_result", async (event) => {
-			const handedOff = event.content.some(
-				(part) => part.type === "text" && HANDED_OFF.test(part.text),
-			);
-			if (!handedOff) ended(event.toolCallId);
+			heavyCalls.answered(event.toolCallId, event.content);
 			return undefined;
 		});
 		if (pi.events) {
 			onJobFinished(pi.events, ({ toolCallId }) => {
-				if (toolCallId !== undefined) ended(toolCallId);
+				if (toolCallId !== undefined) heavyCalls.finished(toolCallId);
 			});
 		}
 

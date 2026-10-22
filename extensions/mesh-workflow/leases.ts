@@ -18,12 +18,14 @@ import {
 	HEAVY_MS,
 	type Held,
 	type Holding,
+	heavyWorkIn,
 	isCurrent,
 	type Lease,
 	type LeaseEvent,
 	MOST_HOLD_MS,
 	type OwnLeases,
 	othersOn,
+	ownerOf,
 	RUN_LEASE_MS,
 } from "../../lib/mesh/lease.ts";
 import { census } from "../../lib/mesh/liveness.ts";
@@ -44,15 +46,26 @@ export interface HoldEnd {
 	readonly why?: string;
 }
 
+/**
+ * Who leases, as leasing knows it: a peer, or a hand standing in for
+ * the peer it works for (see lib/mesh/hand.ts).
+ */
+export type Leaser = Pick<Peer, "session" | "signature" | "addresses">;
+
 /** What leasing needs of the session around it. */
 export interface LeaseSurroundings {
 	readonly board: Board;
 	readonly presences: Presences;
 	readonly transport: Transport;
 	own(): OwnLeases | undefined;
-	peer(): Peer | undefined;
+	peer(): Leaser | undefined;
 	/** Note a message the mesh sent for this peer, so it is never handed back. */
 	sent(message: Message): void;
+	/**
+	 * How the leaser can ask the peers it overlaps, in a phrase: a peer
+	 * asks with mesh_send, and a hand through the session that started it.
+	 */
+	readonly asking?: string;
 }
 
 export interface Leasing {
@@ -76,6 +89,7 @@ export interface Leasing {
 }
 
 export function createLeasing(at: LeaseSurroundings): Leasing {
+	const asking = at.asking ?? "ask with mesh_send";
 	// Each overlap is told once: a lease another peer took is known by its
 	// holder and when it was taken, so a new run's claim is told again.
 	const told = new Set<string>();
@@ -141,7 +155,7 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 							`${peer.signature} reached for ${subject}, which this peer is changing. It was told who is, and may go ahead beside this peer.`,
 						);
 					}
-					return `Not changed yet: ${holders(overlapping)} changing ${subject}. Two peers changing one file risk a conflict, so look at what is there first, or ask with mesh_send. Reaching for it again goes ahead beside them; they have been told.`;
+					return `Not changed yet: ${holders(overlapping)} changing ${subject}. Two peers changing one file risk a conflict, so look at what is there first, or ${asking}. Reaching for it again goes ahead beside them; they have been told.`;
 				}
 			}
 			own.take("change", subject, RUN_LEASE_MS, undefined, now);
@@ -283,7 +297,7 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 					`${peer.signature} started heavy work on ${subject} too${why ? ` (${why})` : ""}, beside this peer's.`,
 				);
 			}
-			return `Heavy work on ${subject}: ${holders(overlapping)} running it already, so both now run on this machine at once. If that is too much for it, hold yours or ask with mesh_send; they have been told.`;
+			return `Heavy work on ${subject}: ${holders(overlapping)} running it already, so both now run on this machine at once. If that is too much for it, hold yours or ${asking}; they have been told.`;
 		},
 	};
 }
@@ -321,10 +335,11 @@ export function leasesText(
 	now: number = Date.now(),
 ): string {
 	const lines = present.flatMap((one) => {
-		const leases =
-			board
-				.find((holding) => holding.session === one.session)
-				?.leases.filter((lease) => isCurrent(lease, now)) ?? [];
+		// Its hands' leases are its own, as they were claimed.
+		const leases = board
+			.filter((holding) => ownerOf(holding) === one.session)
+			.flatMap((holding) => holding.leases)
+			.filter((lease) => isCurrent(lease, now));
 		return leases.length > 0 && one.addresses[0]
 			? [`${one.addresses[0]}: ${describeAll(leases)}`]
 			: [];
@@ -358,6 +373,69 @@ function describeAll(leases: readonly Lease[]): string {
 			}
 		});
 	return [...changing, ...rest].join("; ");
+}
+
+/** How a bash call says it handed its command to a job. */
+const HANDED_OFF = /in the background as job \S+/;
+
+/** A command's first line, as a lease says what it is for. */
+export function commandLine(command: string): string {
+	const first = command.trim().split("\n")[0] ?? "";
+	return first.length > 120 ? `${first.slice(0, 117)}...` : first;
+}
+
+/**
+ * The heavy shell commands running, by call, so work two calls share is
+ * given up only when the last of them ends. A call's work is over when
+ * it answers, unless it handed its command to a job, which runs on past
+ * the answer until the job says it has ended.
+ */
+export interface HeavyCalls {
+	/** A bash call is starting: the heavy work it runs, if any. */
+	called(toolCallId: string, command: unknown): string | undefined;
+	/** A call answered, with these parts. */
+	answered(toolCallId: string, content: readonly unknown[]): void;
+	/** A job a call handed off has ended. */
+	finished(toolCallId: string): void;
+	/** Forget every call, as a session ending does. */
+	clear(): void;
+}
+
+export function createHeavyCalls(
+	heavy: (event: LeaseEvent) => void,
+	why: (command: string) => string = commandLine,
+): HeavyCalls {
+	const calls = new Map<string, string>();
+	const ended = (toolCallId: string) => {
+		const subject = calls.get(toolCallId);
+		if (subject === undefined) return;
+		calls.delete(toolCallId);
+		if (![...calls.values()].includes(subject)) heavy({ release: subject });
+	};
+	return {
+		called(toolCallId, command) {
+			const subject =
+				typeof command === "string" ? heavyWorkIn(command) : undefined;
+			if (subject === undefined || typeof command !== "string") {
+				return undefined;
+			}
+			calls.set(toolCallId, subject);
+			heavy({ take: { subject, why: why(command) } });
+			return subject;
+		},
+		answered(toolCallId, content) {
+			const handedOff = content.some(
+				(part) =>
+					typeof part === "object" &&
+					part !== null &&
+					(part as { type?: unknown }).type === "text" &&
+					HANDED_OFF.test(String((part as { text?: unknown }).text)),
+			);
+			if (!handedOff) ended(toolCallId);
+		},
+		finished: ended,
+		clear: () => calls.clear(),
+	};
 }
 
 /** A message's words, cut to what a lease keeps. */

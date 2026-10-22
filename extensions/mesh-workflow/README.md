@@ -59,6 +59,9 @@ and can answer a question or a gate left open on screen.
   it runs. Presence first, never a lock.
 - **Board:** where every peer's leases are kept, for every
   peer to read.
+- **Hand:** a fleet's subagent, on the mesh only as the hands
+  of the peer that started it: what it claims is that peer's,
+  and it hears only the holds that reach that peer.
 - **Retention:** how long the mesh keeps what it holds before
   it lets go.
 - **Routing:** the groups the mesh picks for a message whose
@@ -269,6 +272,40 @@ doing only when it is the easy thing:
 Every lease also lapses when its holder is gone, which is asked
 of the machine (see Who Is Still There). Holds and waits
 outlive a reload; what a run claimed does not.
+
+## A Session's Hands
+
+A subagent is a worker with one job, answering to the session
+that started it. As a peer of its own it would be handed the
+machine's chatter mid-job and reached by senders who should
+reach its parent. Kept off the mesh, it could not hear a hold,
+and its builds and edits were nobody's on the board. Skynet's
+parallel cargo builds took its laptop to a load of 192 on 16
+cores. So a subagent is its parent's hands:
+
+- **No address of its own:** it has no presence, no tools, and
+  nothing is sent to it or by it.
+- **Its claims are its parent's:** its file changes and heavy
+  work are leased under the parent, marked "by a subagent",
+  so others are told of an overlap and `mesh_groups` lists the
+  claim beside the parent's own. A parent's hands never
+  overlap with it or with each other.
+- **Holds reach it:** a subagent starts with the holds standing
+  that reach its parent, hears as each begins and ends, and is
+  stopped once before heavy work while one stands, with who
+  holds it and until when. Running the command again goes
+  ahead.
+- **It speaks through its parent:** anything for other peers
+  goes in its answer, and the parent decides what to send.
+
+A peer names its session in its environment
+(`PI_MESH_SESSION`), which the fleet passes to every subagent,
+nested ones included. The mesh registers `hand.ts` with the
+fleet (`subagent:register-default-extension:v1`, or through
+`subagent:ready:v1` when the fleet loaded first), so isolated
+subagents load it too. A subagent's claims are not tied to a
+process the machine can be asked about, so one killed mid-build
+leaves its heavy claim standing until the claim's hour is up.
 
 ## Routing
 

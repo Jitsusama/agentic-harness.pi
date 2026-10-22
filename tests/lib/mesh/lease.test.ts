@@ -94,6 +94,15 @@ describe("a holding as read", () => {
 		).toEqual({ session: "one", leases: [lease({ why: "a test" })] });
 	});
 
+	it("keeps the peer a hand claimed it for", () => {
+		expect(
+			holdingFrom({ session: "me.hand.1", leases: [], handOf: "me" }),
+		).toEqual({ session: "me.hand.1", leases: [], handOf: "me" });
+		expect(
+			holdingFrom({ session: "me.hand.1", leases: [], handOf: "" }),
+		).toEqual({ session: "me.hand.1", leases: [] });
+	});
+
 	it("is nothing without a session and its leases", () => {
 		expect(holdingFrom({ leases: [] })).toBeUndefined();
 		expect(holdingFrom({ session: "one" })).toBeUndefined();
@@ -121,6 +130,23 @@ describe("others on a subject", () => {
 
 		expect(othersOn(board, "me", "change", "widget:src/a.ts", at)).toEqual([
 			{ session: "them", lease: lease() },
+		]);
+	});
+
+	it("count a hand's leases as its peer's, and never a peer's own hands or the peer a hand works for", () => {
+		const board = [
+			{ session: "me", leases: [lease()] },
+			{ session: "me.hand.1", handOf: "me", leases: [lease()] },
+			{ session: "them.hand.2", handOf: "them", leases: [lease()] },
+		];
+
+		expect(othersOn(board, "me", "change", "widget:src/a.ts", at)).toEqual([
+			{ session: "them", lease: lease() },
+		]);
+		// A hand leases as its peer, so neither its peer nor itself is other.
+		expect(othersOn(board, "them", "change", "widget:src/a.ts", at)).toEqual([
+			{ session: "me", lease: lease() },
+			{ session: "me", lease: lease() },
 		]);
 	});
 });
@@ -218,6 +244,15 @@ describe("a peer's own leases", () => {
 		own.releaseAll(RUN_KINDS);
 		expect(own.leases).toEqual([]);
 		expect(board.of("me")).toBeUndefined();
+	});
+
+	it("name the peer a hand takes them for", () => {
+		const dir = join(root, "leases");
+		const own = ownLeases(createBoard(dir), "me.hand.1", at, "me");
+
+		own.take("heavy", "nix", minutes(10), undefined, at);
+
+		expect(createBoard(dir).of("me.hand.1")?.handOf).toBe("me");
 	});
 
 	it("are not held past their end", () => {

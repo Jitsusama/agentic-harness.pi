@@ -3,12 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	createHeavyCalls,
 	createLeasing,
 	leasesText,
 } from "../../../extensions/mesh-workflow/leases.ts";
 import { ALL } from "../../../lib/mesh/group.ts";
 import {
 	createBoard,
+	type LeaseEvent,
 	MOST_HOLD_MS,
 	type OwnLeases,
 	ownLeases,
@@ -167,5 +169,74 @@ describe("leases as listed", () => {
 			"\nLeases:\nWCJQSG: changing a, b, c and 2 more; waiting on [aaaaaaaa] (my test); running heavy work on qemu (vm test)",
 		);
 		expect(leasesText([], [present("w", "WCJQSG")], now)).toBe("");
+	});
+
+	it("put a hand's leases under the peer it works for", () => {
+		const now = Date.now();
+		const heavy = {
+			kind: "heavy" as const,
+			subject: "nix build",
+			since: "",
+			until: new Date(now + 60_000).toISOString(),
+			why: "nix build, by a subagent",
+		};
+		const board = [
+			{ session: "w.hand.run.lens", handOf: "w", leases: [heavy] },
+		];
+
+		expect(leasesText(board, [present("w", "WCJQSG")], now)).toBe(
+			"\nLeases:\nWCJQSG: running heavy work on nix build (nix build, by a subagent)",
+		);
+	});
+});
+
+describe("heavy shell calls", () => {
+	const text = (words: string) => [{ type: "text", text: words }];
+	const tracked = () => {
+		const events: LeaseEvent[] = [];
+		const calls = createHeavyCalls(
+			(event) => events.push(event),
+			(command) => `why: ${command}`,
+		);
+		return { events, calls };
+	};
+
+	it("claim the heavy work a command runs, and nothing for one that runs none", () => {
+		const { events, calls } = tracked();
+
+		expect(calls.called("1", "nix build .#x")).toBe("nix build");
+		expect(calls.called("2", "ls -la")).toBeUndefined();
+		expect(calls.called("3", 42)).toBeUndefined();
+
+		expect(events).toEqual([
+			{ take: { subject: "nix build", why: "why: nix build .#x" } },
+		]);
+	});
+
+	it("give the work up as the last call running it answers", () => {
+		const { events, calls } = tracked();
+		calls.called("1", "nix build .#a");
+		calls.called("2", "nix build .#b");
+
+		calls.answered("1", text("done"));
+		expect(events.filter((event) => "release" in event)).toEqual([]);
+		calls.answered("2", text("done"));
+
+		expect(events.filter((event) => "release" in event)).toEqual([
+			{ release: "nix build" },
+		]);
+	});
+
+	it("keep the work of a call handed to a job until the job ends", () => {
+		const { events, calls } = tracked();
+		calls.called("1", "nix build .#a");
+
+		calls.answered("1", text("Running in the background as job 3f2a."));
+		expect(events.filter((event) => "release" in event)).toEqual([]);
+		calls.finished("1");
+
+		expect(events.filter((event) => "release" in event)).toEqual([
+			{ release: "nix build" },
+		]);
 	});
 });
