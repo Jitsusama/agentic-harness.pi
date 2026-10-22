@@ -47,7 +47,7 @@ has nobody to ask.
 Each gate belongs to a guard: `review-offer` for proposing,
 editing and merging a change, `review-say` for replies, comments
 and reactions, and `review-publish` for a drafted review. All
-three are approvals that report by default, so the write goes
+three are approvals that redirect by default, so the write goes
 ahead and what the gate would have shown lands in the transcript.
 `/guards review block` makes every one of them ask again. See
 [guard-policy-workflow](../guard-policy-workflow/README.md).

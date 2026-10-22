@@ -12,9 +12,9 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import {
-	isGuardMode,
 	type ModeSettings,
 	parseGuardSection,
+	readGuardMode,
 	restoreSessionModes,
 	sessionModes,
 	setConfiguredModes,
@@ -42,8 +42,10 @@ function modesIn(data: unknown): [string, unknown][] {
 }
 
 /**
- * The overrides in a branch's newest saved entry. Unknown modes are
- * dropped: they can only come from a hand-edited session file.
+ * The overrides in a branch's newest saved entry. A former mode is read
+ * as today's, so a session saved before `report` went keeps doing what
+ * was asked. Unknown modes are dropped: they can only come from a
+ * hand-edited session file.
  */
 export function savedModesOf(
 	entries: readonly { type: string; customType?: string; data?: unknown }[],
@@ -55,7 +57,8 @@ export function savedModesOf(
 		}
 		const modes: Record<string, ModeSettings[string]> = {};
 		for (const [key, mode] of modesIn(entry.data)) {
-			if (isGuardMode(mode)) modes[key] = mode;
+			const read = readGuardMode(mode);
+			if (read) modes[key] = read;
 		}
 		return modes;
 	}

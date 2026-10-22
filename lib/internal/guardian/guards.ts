@@ -7,11 +7,20 @@
  * two extensions sharing a guard (the prose gate, say) declare the same
  * thing, and `/guards` lists one entry for it.
  *
- * Defaults follow one rule. An approval that only lands on this machine
- * or on a change the owner controls reports. An approval that reaches
- * other people directly (Slack, mail, calendar) blocks. A redirect blocks,
- * since a refusal that says how to try again costs one turn. A safety
- * guard blocks only what cannot be brought back.
+ * Defaults follow one rule: a guard blocks where a mistake reaches other
+ * people, cannot be undone, or has one right form, and redirects
+ * everywhere else. So an approval that only lands on this machine or on
+ * a change the owner controls redirects, going ahead and showing the
+ * person what it would have asked; one that reaches other people
+ * directly (Slack, mail, calendar) blocks. A form guard blocks, since a
+ * PR, issue or commit is read by others and its refusal says exactly how
+ * to retry. A safety guard blocks only what cannot be brought back.
+ *
+ * The rest redirect: the agent hears the refusal and its remedy in its
+ * own tool result, and a call made again unchanged goes through as an
+ * override, so a guard that is wrong about a write cannot corner it.
+ * That is where the quest's write gates sit, since most of what they
+ * refused since June was work that was fine.
  */
 
 import { declareGuard, type GuardDeclaration } from "../../guardian/policy.ts";
@@ -24,21 +33,24 @@ export const GUARDS = {
 		name: "commit",
 		class: "approval",
 		description: "Shows a commit message before git commit runs",
-		defaultMode: "report",
+		defaultMode: "redirect",
 		groups: ["git"],
 	}),
 	commitVerification: declare({
 		name: "commit-verification",
-		class: "redirect",
+		class: "form",
 		description: "Refuses a commit while verification reports errors",
-		defaultMode: "block",
+		// A commit stays on this machine and is amended in a moment, and
+		// the errors it names are sometimes stale, so the agent hears them
+		// and may go ahead rather than being stopped outright.
+		defaultMode: "redirect",
 		groups: ["git"],
 	}),
 	history: declare({
 		name: "history",
 		class: "safety",
 		description: "Shows a rebase, stash drop or leased force push",
-		defaultMode: "report",
+		defaultMode: "redirect",
 		groups: ["git"],
 	}),
 	historyDestructive: declare({
@@ -51,7 +63,7 @@ export const GUARDS = {
 	}),
 	commitShape: declare({
 		name: "commit-shape",
-		class: "redirect",
+		class: "form",
 		description:
 			"Refuses an amend and an unquoted commit heredoc, naming the form to retry",
 		defaultMode: "block",
@@ -59,7 +71,7 @@ export const GUARDS = {
 	}),
 	gitCli: declare({
 		name: "git-cli",
-		class: "redirect",
+		class: "form",
 		description:
 			"Splits a chained commit, gh pr or gh issue so each panel shows one",
 		defaultMode: "block",
@@ -70,47 +82,47 @@ export const GUARDS = {
 		name: "pr",
 		class: "approval",
 		description: "Shows a pull request's title and body before gh pr runs",
-		defaultMode: "report",
+		defaultMode: "redirect",
 		groups: ["github"],
 	}),
 	issue: declare({
 		name: "issue",
 		class: "approval",
 		description: "Shows an issue's title and body before gh issue runs",
-		defaultMode: "report",
+		defaultMode: "redirect",
 		groups: ["github"],
 	}),
 	host: declare({
 		name: "host",
-		class: "redirect",
+		class: "form",
 		description: "Sends a change on a host gh cannot see to the review tools",
 		defaultMode: "block",
 		groups: ["github"],
 	}),
 	githubCli: declare({
 		name: "github-cli",
-		class: "redirect",
+		class: "form",
 		description: "Holds gh bodies to the shapes the guardians can read",
 		defaultMode: "block",
 		groups: ["github"],
 	}),
 	attribution: declare({
 		name: "attribution",
-		class: "redirect",
+		class: "form",
 		description: "Refuses a gh command it cannot attribute",
 		defaultMode: "block",
 		groups: ["github"],
 	}),
 	prose: declare({
 		name: "prose",
-		class: "redirect",
+		class: "form",
 		description: "Refuses authored text that breaks the prose standard",
 		defaultMode: "block",
 		groups: ["format"],
 	}),
 	sections: declare({
 		name: "sections",
-		class: "redirect",
+		class: "form",
 		description:
 			"Refuses a PR or issue body without its sections, or a PR section out of its shape",
 		defaultMode: "block",
@@ -118,7 +130,7 @@ export const GUARDS = {
 	}),
 	titles: declare({
 		name: "titles",
-		class: "redirect",
+		class: "form",
 		description: "Refuses a PR or issue title out of its convention",
 		defaultMode: "block",
 		groups: ["format"],
@@ -127,21 +139,21 @@ export const GUARDS = {
 		name: "review-offer",
 		class: "approval",
 		description: "Shows what review_offer is about to do to a change",
-		defaultMode: "report",
+		defaultMode: "redirect",
 		groups: ["review"],
 	}),
 	reviewSay: declare({
 		name: "review-say",
 		class: "approval",
 		description: "Shows a reply, comment or resolution before it posts",
-		defaultMode: "report",
+		defaultMode: "redirect",
 		groups: ["review"],
 	}),
 	reviewPublish: declare({
 		name: "review-publish",
 		class: "approval",
 		description: "Shows a drafted review before it publishes",
-		defaultMode: "report",
+		defaultMode: "redirect",
 		groups: ["review"],
 	}),
 	slack: declare({
@@ -160,14 +172,14 @@ export const GUARDS = {
 	}),
 	questRecord: declare({
 		name: "quest-record",
-		class: "redirect",
+		class: "form",
 		description: "Keeps quest folders to their record's shape",
 		defaultMode: "block",
 		groups: ["quest"],
 	}),
 	questOwnedFields: declare({
 		name: "quest-owned-fields",
-		class: "redirect",
+		class: "form",
 		description:
 			"Sends hand edits of a quest's stage, status, id or kind to the verb that owns them",
 		defaultMode: "block",
@@ -175,14 +187,14 @@ export const GUARDS = {
 	}),
 	questTemp: declare({
 		name: "quest-temp",
-		class: "redirect",
+		class: "form",
 		description: "Sends system temp writes to the quest's workspace",
-		defaultMode: "block",
+		defaultMode: "redirect",
 		groups: ["quest"],
 	}),
 	questPlanStage: declare({
 		name: "quest-plan-stage",
-		class: "redirect",
+		class: "form",
 		description:
 			"Defers edits to tracked code while a plan is in think or draft",
 		defaultMode: "block",
@@ -190,17 +202,17 @@ export const GUARDS = {
 	}),
 	questUntrackedTree: declare({
 		name: "quest-untracked-tree",
-		class: "redirect",
+		class: "form",
 		description:
 			"Adopts a git tree a quest in build writes into; block refuses instead",
-		defaultMode: "report",
+		defaultMode: "redirect",
 		groups: ["quest"],
 	}),
 	questHomeless: declare({
 		name: "quest-homeless",
-		class: "redirect",
+		class: "form",
 		description: "Refuses a build write outside every git tree",
-		defaultMode: "block",
+		defaultMode: "redirect",
 		groups: ["quest"],
 	}),
 } as const;

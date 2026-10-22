@@ -23,8 +23,8 @@ agent decides in context. `/away` exists as a fallback.
   any approval you switched to block with `/guards` is not sent and
   opens no panel. The agent is told it is held as `#N`, to carry on
   with other work, and not to look for a way round the gate.
-  Approvals that report (commits, PRs, the review tools by default)
-  go ahead as they always do.
+  Approvals that redirect (commits, PRs, the review tools by
+  default) go ahead as they always do.
 - **Sign-ins are held too.** If Slack or Google needs signing in,
   no sign-in panel or browser opens; the call fails, saying so,
   and the sign-in is listed for you.

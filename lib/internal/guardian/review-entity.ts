@@ -88,14 +88,15 @@ export async function reviewMarkdownEntity(
 	ctx: ExtensionContext,
 	entity: ReviewableEntity,
 	config: EntityReviewConfig,
-	mode: Exclude<GuardMode, "off"> = "block",
+	mode: GuardMode = "block",
 ): Promise<GuardianResult> {
 	const panelTitle =
 		entity.action === "edit" ? config.editTitle : config.createTitle;
 
-	// Report mode shows the same title and body in the transcript and
-	// lets the command run.
-	if (mode === "report") {
+	// Outside block the same title and body go to the transcript and the
+	// command runs: the agent wrote them, so the panel has nothing to
+	// teach it, and the content gates have already had their say.
+	if (mode !== "block") {
 		reportGuard({
 			guard: config.guard,
 			kind: "shown",

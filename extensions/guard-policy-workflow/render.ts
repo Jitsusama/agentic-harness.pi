@@ -20,6 +20,7 @@ const INDENT = "  ";
 const KIND_VERB: Record<GuardReport["kind"], string> = {
 	shown: "reported",
 	waved: "let through",
+	overridden: "overridden by the agent",
 	fixed: "fixed",
 	held: "held for your return",
 };
@@ -39,7 +40,12 @@ export function guardReportLines(
 		`${report.guard} guard`,
 		`${KIND_VERB[report.kind]}: ${report.title}`,
 		theme,
-		{ level: report.kind === "waved" ? "warn" : "info" },
+		{
+			level:
+				report.kind === "waved" || report.kind === "overridden"
+					? "warn"
+					: "info",
+		},
 	);
 	const lines = [truncateToWidth(header, width)];
 	const inner = Math.max(1, width - INDENT.length);
@@ -109,7 +115,7 @@ export function overridesMark(
 
 const MODE_COLOUR = {
 	off: "muted",
-	report: "success",
+	redirect: "success",
 	block: "warning",
 } as const;
 
@@ -131,7 +137,7 @@ export function guardTableLines(
 	const lines = [""];
 	for (const guard of guards) {
 		const { name, description } = guard.declaration;
-		const mode = theme.fg(MODE_COLOUR[guard.mode], guard.mode.padEnd(6));
+		const mode = theme.fg(MODE_COLOUR[guard.mode], guard.mode.padEnd(8));
 		const source = theme.fg("dim", guard.source.padEnd(7));
 		const outcome = outcomeWord(outcomes.get(name));
 		lines.push(
@@ -154,7 +160,7 @@ export function guardTableLines(
 		truncateToWidth(
 			theme.fg(
 				"dim",
-				"  /guards <name|group|class|all> <off|report|block> sets this session; /guards reset clears it.",
+				"  /guards <name|group|class|all> <off|redirect|block> sets this session; /guards reset clears it.",
 			),
 			width,
 		),

@@ -12,6 +12,7 @@ export {
 	approvalUnder,
 	asksUnder,
 	fenced,
+	forgetRedirects,
 	refusalUnder,
 } from "./apply.ts";
 export {
@@ -26,6 +27,7 @@ export {
 	listGuards,
 	type ModeSource,
 	type ResolvedGuard,
+	readGuardMode,
 } from "./policy.ts";
 export { formatRedirectBlock } from "./redirect.ts";
 export {

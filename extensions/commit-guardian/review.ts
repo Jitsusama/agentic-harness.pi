@@ -94,7 +94,7 @@ export function createCommitGuardian(
 			);
 			if (proseBlock) return proseBlock;
 
-			if (mode === "report") {
+			if (mode !== "block") {
 				reportGuard({
 					guard: GUARDS.commit.name,
 					kind: "shown",
@@ -207,7 +207,6 @@ export function commitReportBody(message: string, isAmend: boolean): string {
 	return isAmend ? `${fenced}\n\nAmends the previous commit.` : fenced;
 }
 
-/** Render validation as a compact indicator line. */
 /**
  * The refusal for a commit landing from a tree verification finds
  * failing when asked now, or undefined when nothing is. An off guard
@@ -217,6 +216,9 @@ async function verificationRefusal(
 	dir: string | undefined,
 	signal: AbortSignal | undefined,
 ): Promise<GuardianResult> {
+	// The one guard that does not run when off: its check runs the
+	// project's checker, and off is the person saying stop paying for it,
+	// so there is nothing seen to report.
 	if (guardMode(GUARDS.commitVerification.name) === "off") return undefined;
 	const failure = await currentVerificationFailure({
 		...(dir ? { dir } : {}),
@@ -232,7 +234,7 @@ async function verificationRefusal(
 			...shown.map((p) => `- ${p}`),
 			...(more > 0 ? [`- and ${more} more`] : []),
 			"Fix them, then commit again. If this is wrong, ask the user to run " +
-				"`/guards commit-verification report`.",
+				"`/guards commit-verification off`.",
 		].join("\n"),
 	};
 }

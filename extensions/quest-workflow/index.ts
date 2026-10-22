@@ -62,7 +62,7 @@ import {
 } from "./config.ts";
 import { QUEST_CONTEXT, renderQuestContext } from "./context.ts";
 import { isFocusedDocWrite, questVerdicts } from "./enforce.ts";
-import { applyQuestGuards } from "./guard.ts";
+import { adoptTree, applyQuestGuards } from "./guard.ts";
 import {
 	attachCurrentSession,
 	captureSessionIdentity,
@@ -558,6 +558,8 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			const refusal = applyQuestGuards(
 				state,
 				questVerdicts(state, event.toolName, input, ctx.cwd),
+				adoptTree,
+				() => `${event.toolName} ${JSON.stringify(input)}`,
 			);
 			if (refusal) return refusal;
 			watch.before(

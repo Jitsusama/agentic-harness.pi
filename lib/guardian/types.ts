@@ -49,15 +49,18 @@ export interface CommandGuardian<T> {
 	/**
 	 * Review the parsed command and return the decision.
 	 *
-	 * The mode is the guard's own, never `off` (an off guard is not
-	 * reviewed). In `block` an approval shows its panel; in `report` it
-	 * reports what the panel would have shown and allows. A guardian
-	 * written before the policy ignores the argument and keeps its old
-	 * behaviour, which is what `block` means.
+	 * The mode is the guard's own. In `block` an approval shows its
+	 * panel; in any other it reports what the panel would have shown and
+	 * allows. An off guard is still reviewed, because off means the
+	 * person is shown what the guard saw rather than nothing at all; a
+	 * refusal a review makes goes through `refusalUnder`, which lets it
+	 * through under off. A guardian written before the policy ignores
+	 * the argument and keeps its old behaviour, which is what `block`
+	 * means.
 	 */
 	review(
 		parsed: T,
 		ctx: ExtensionContext,
-		mode?: Exclude<GuardMode, "off">,
+		mode?: GuardMode,
 	): Promise<GuardianResult>;
 }

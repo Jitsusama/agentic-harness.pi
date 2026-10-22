@@ -24,6 +24,7 @@ import {
 	type CommandGuardian,
 	formatRedirectBlock,
 	type GuardianResult,
+	refusalUnder,
 	reportGuard,
 } from "../../lib/guardian/index.ts";
 import { GUARDS } from "../../lib/internal/guardian/guards.ts";
@@ -109,7 +110,7 @@ export const riskyHistoryGuardian: CommandGuardian<HistoryFindings> = {
 	): Promise<GuardianResult> {
 		const title = "Risky Command";
 		const markdown = explain(parsed, title);
-		if (mode === "report") {
+		if (mode !== "block") {
 			reportGuard({
 				guard: GUARDS.history.name,
 				kind: "shown",
@@ -165,7 +166,7 @@ export const destructiveHistoryGuardian: CommandGuardian<HistoryFindings> = {
 		mode = "block",
 	): Promise<GuardianResult> {
 		const guard = GUARDS.historyDestructive.name;
-		if (mode === "report") {
+		if (mode === "off") {
 			reportGuard({
 				guard,
 				kind: "waved",
@@ -189,13 +190,18 @@ export const destructiveHistoryGuardian: CommandGuardian<HistoryFindings> = {
 		const reasons = parsed.matches.map(
 			(m) => `${m.command}: ${m.description}${m.remedy ? ` ${m.remedy}` : ""}`,
 		);
-		return {
-			block: true,
-			reason: [
-				"History guard: this cannot be undone once it runs.",
-				...reasons,
-				"If the user wants it run as it is, they can run it themselves or switch the guard with `/guards history-destructive report`.",
-			].join("\n"),
-		};
+		return refusalUnder(
+			guard,
+			{
+				block: true,
+				reason: [
+					"History guard: this cannot be undone once it runs.",
+					...reasons,
+					"If the user wants it run as it is, they can run it themselves or switch the guard with `/guards history-destructive off`.",
+				].join("\n"),
+			},
+			"Destructive Command",
+			parsed.command,
+		);
 	},
 };

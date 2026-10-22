@@ -13,6 +13,7 @@ import {
 import { applyQuestGuards } from "../../../extensions/quest-workflow/guard";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
+import { forgetRedirects } from "../../../lib/guardian/apply.ts";
 import {
 	restoreSessionModes,
 	setSessionMode,
@@ -75,6 +76,7 @@ beforeEach(async () => {
 		GUARDS.questHomeless,
 	);
 	restoreSessionModes({});
+	forgetRedirects();
 	reports = [];
 	setGuardReportSink((r) => reports.push(r));
 });
@@ -181,9 +183,10 @@ describe("the quest gates under the policy", () => {
 		expect(result).toEqual({ block: true, reason: "adopt it" });
 	});
 
-	it("does not let a reporting gate hide a blocking one after it", async () => {
+	it("does not let a gate that is off hide a blocking one after it", async () => {
 		const state = await questInBuild();
-		setSessionMode("quest-temp", "report");
+		setSessionMode("quest-temp", "off");
+		setSessionMode("quest-homeless", "block");
 
 		const result = applyQuestGuards(state, [
 			{ guard: "quest-temp", block: true, reason: "temp" },
@@ -192,6 +195,43 @@ describe("the quest gates under the policy", () => {
 
 		expect(result).toEqual({ block: true, reason: "homeless" });
 		expect(reports.map((r) => r.guard)).toEqual(["quest-temp"]);
+	});
+
+	it("refuses a homeless write with its remedy, then lets the same write through", async () => {
+		// Most of what this gate refused since June was work that was fine,
+		// and the agent could only hunt for a way round it. Now it hears why,
+		// and making the same write again goes through, shown to the person.
+		const state = await questInBuild();
+		const homeless: QuestVerdict = {
+			guard: "quest-homeless",
+			block: true,
+			reason: "outside every git tree",
+		};
+		const write = () => 'write {"path":"/home/me/.config/x"}';
+
+		const first = applyQuestGuards(state, [homeless], undefined, write);
+		const again = applyQuestGuards(state, [homeless], undefined, write);
+
+		expect(first?.reason).toMatch(
+			/outside every git tree\n\n.*same call again/s,
+		);
+		expect(again).toBeUndefined();
+		expect(reports.map((r) => r.kind)).toEqual(["overridden"]);
+	});
+
+	it("refuses a different write afresh", async () => {
+		const state = await questInBuild();
+		const homeless: QuestVerdict = {
+			guard: "quest-homeless",
+			block: true,
+			reason: "outside every git tree",
+		};
+
+		applyQuestGuards(state, [homeless], undefined, () => "write a");
+
+		expect(
+			applyQuestGuards(state, [homeless], undefined, () => "write b"),
+		).toMatchObject({ block: true });
 	});
 
 	it("adopts a linked worktree through the quest's own verb", async () => {

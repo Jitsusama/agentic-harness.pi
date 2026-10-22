@@ -7,7 +7,7 @@ execution.
 ## What It Does
 
 When the agent runs a `gh pr create` or `gh pr edit --body`
-command, PR Guardian intercepts it. The `pr` guard reports by
+command, PR Guardian intercepts it. The `pr` guard redirects by
 default: the command runs and the title and body appear in the
 transcript. Switched to block (`/guards pr block`), it presents
 the content in a review gate with four options:
@@ -17,18 +17,18 @@ the content in a review gate with four options:
 - **Steer**: provide feedback and send the agent back to revise.
 - **Reject**: block execution entirely.
 
-The `sections`, `titles`, `prose` and `host` redirects refuse a
+The `sections`, `titles`, `prose` and `host` form guards refuse a
 body, title or host that breaks the convention, whatever mode
 `pr` is in. See
 [guard-policy-workflow](../guard-policy-workflow/README.md).
-The `sections` redirect holds a body to its headings and to its
+The `sections` guard holds a body to its headings and to its
 shape: the word, sentence, code-span and bullet limits the
 `github-pr-format` skill sets for each section.
 
 ## The Audit After Publishing
 
-A redirect switched to report, or one that relents on a repeat,
-lets a description through that breaks its shape. So once a
+A form guard switched to off or redirect, or one that relents on
+a repeat, lets a description through that breaks its shape. So once a
 `gh pr create` or `gh pr edit` has run, the guardian reads the
 description it published and, when it is out of shape, tells the
 agent in the same run to fix it with `review_offer edit`. It never

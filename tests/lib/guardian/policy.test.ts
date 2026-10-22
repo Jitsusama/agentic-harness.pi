@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { refusalUnder } from "../../../lib/guardian/apply.ts";
+import { forgetRedirects, refusalUnder } from "../../../lib/guardian/apply.ts";
 import {
 	declareGuard,
 	guardMode,
@@ -21,6 +21,7 @@ beforeEach(() => {
 	restoreSessionModes({});
 	setConfiguredModes({});
 	setGuardReportSink(undefined);
+	forgetRedirects();
 });
 
 describe("resolving a guard's mode", () => {
@@ -29,10 +30,10 @@ describe("resolving a guard's mode", () => {
 			name: "t-commit",
 			class: "approval",
 			description: "",
-			defaultMode: "report",
+			defaultMode: "redirect",
 		});
 
-		expect(guardMode("t-commit")).toBe("report");
+		expect(guardMode("t-commit")).toBe("redirect");
 	});
 
 	it("lets config beat the default and a session override beat config", () => {
@@ -40,7 +41,7 @@ describe("resolving a guard's mode", () => {
 			name: "t-pr",
 			class: "approval",
 			description: "",
-			defaultMode: "report",
+			defaultMode: "redirect",
 		});
 
 		setConfiguredModes({ "t-pr": "block" });
@@ -55,15 +56,15 @@ describe("resolving a guard's mode", () => {
 			name: "t-history",
 			class: "safety",
 			description: "",
-			defaultMode: "report",
+			defaultMode: "redirect",
 			groups: ["t-git"],
 		});
 
-		setConfiguredModes({ all: "off", safety: "report", "t-git": "block" });
+		setConfiguredModes({ all: "off", safety: "redirect", "t-git": "block" });
 		expect(guardMode("t-history")).toBe("block");
 
-		setConfiguredModes({ all: "off", safety: "report" });
-		expect(guardMode("t-history")).toBe("report");
+		setConfiguredModes({ all: "off", safety: "redirect" });
+		expect(guardMode("t-history")).toBe("redirect");
 
 		setConfiguredModes({ all: "off" });
 		expect(guardMode("t-history")).toBe("off");
@@ -76,12 +77,12 @@ describe("resolving a guard's mode", () => {
 			name: "t-issue",
 			class: "approval",
 			description: "",
-			defaultMode: "report",
+			defaultMode: "redirect",
 		});
 		setConfiguredModes({ "t-issue": "block" });
-		setSessionMode("all", "report");
+		setSessionMode("all", "off");
 
-		expect(guardMode("t-issue")).toBe("report");
+		expect(guardMode("t-issue")).toBe("off");
 	});
 
 	it("keeps a guard nobody declared blocking, as it did before the policy", () => {
@@ -93,7 +94,7 @@ describe("resolving a guard's mode", () => {
 			name: "t-say",
 			class: "approval",
 			description: "",
-			defaultMode: "report",
+			defaultMode: "redirect",
 		});
 		setSessionMode("t-say", "block");
 
@@ -108,25 +109,28 @@ describe("a guard that follows others", () => {
 			name: "t-panel-a",
 			class: "approval",
 			description: "",
-			defaultMode: "report",
+			defaultMode: "redirect",
 		});
 		declareGuard({
 			name: "t-panel-b",
 			class: "approval",
 			description: "",
-			defaultMode: "report",
+			defaultMode: "redirect",
 		});
 		declareGuard({
 			name: "t-chain",
-			class: "redirect",
+			class: "form",
 			description: "",
 			defaultMode: "block",
 			follows: ["t-panel-a", "t-panel-b"],
 		});
 	});
 
-	it("reports while everything it serves reports", () => {
-		expect(guardMode("t-chain")).toBe("report");
+	it("stays out of the way while nothing it serves asks a person", () => {
+		// It splits chained commands so a panel can read one at a time.
+		// With no panel asking there is nothing for it to protect, so it
+		// only reports, rather than refusing a chain nobody will review.
+		expect(guardMode("t-chain")).toBe("off");
 	});
 
 	it("blocks once anything it serves blocks", () => {
@@ -145,20 +149,20 @@ describe("a guard that follows others", () => {
 	it("does not loop when two guards follow each other", () => {
 		declareGuard({
 			name: "t-loop-a",
-			class: "redirect",
+			class: "form",
 			description: "",
 			defaultMode: "block",
 			follows: ["t-loop-b"],
 		});
 		declareGuard({
 			name: "t-loop-b",
-			class: "redirect",
+			class: "form",
 			description: "",
 			defaultMode: "block",
 			follows: ["t-loop-a"],
 		});
 
-		expect(["block", "report"]).toContain(guardMode("t-loop-a"));
+		expect(["block", "off"]).toContain(guardMode("t-loop-a"));
 	});
 });
 
@@ -166,14 +170,14 @@ describe("the keys a setting may use", () => {
 	it("offers names, groups, classes and all", () => {
 		declareGuard({
 			name: "t-keyed",
-			class: "redirect",
+			class: "form",
 			description: "",
 			defaultMode: "block",
 			groups: ["t-keygroup"],
 		});
 
 		const keys = selectorKeys();
-		for (const key of ["t-keyed", "t-keygroup", "redirect", "all"]) {
+		for (const key of ["t-keyed", "t-keygroup", "form", "all"]) {
 			expect(keys).toContain(key);
 		}
 	});
@@ -186,8 +190,30 @@ describe("the guards section of the package config", () => {
 
 	it("reads modes by key", () => {
 		expect(
-			parseGuardSection({ modes: { commit: "block", approval: "report" } }),
-		).toEqual({ ok: true, value: { commit: "block", approval: "report" } });
+			parseGuardSection({ modes: { commit: "block", approval: "redirect" } }),
+		).toEqual({ ok: true, value: { commit: "block", approval: "redirect" } });
+	});
+
+	it("reads the old report mode as off, which does what report did", () => {
+		// Report let the call through and showed the person what it saw.
+		// Off now does exactly that, so a config written for report keeps
+		// behaving as its author meant.
+		expect(parseGuardSection({ modes: { commit: "report" } })).toEqual({
+			ok: true,
+			value: { commit: "off" },
+		});
+	});
+
+	it("reads the old report mode as off in a restored session", () => {
+		declareGuard({
+			name: "t-restored",
+			class: "approval",
+			description: "",
+			defaultMode: "block",
+		});
+		restoreSessionModes({ "t-restored": "report" } as never);
+
+		expect(guardMode("t-restored")).toBe("off");
 	});
 
 	it("refuses a mode it does not know rather than ignoring it", () => {
@@ -204,7 +230,7 @@ describe("a refusal under the policy", () => {
 	beforeEach(() => {
 		declareGuard({
 			name: "t-prose",
-			class: "redirect",
+			class: "form",
 			description: "",
 			defaultMode: "block",
 		});
@@ -214,10 +240,71 @@ describe("a refusal under the policy", () => {
 		expect(refusalUnder("t-prose", refusal, "Prose")).toEqual(refusal);
 	});
 
-	it("reports the reason and lets it through when the guard reports", () => {
+	it("refuses the first time under redirect, saying how to go ahead anyway", () => {
+		// A call waved through unseen taught the agent nothing, so it made
+		// the same mistake again. The refusal is what it learns from.
+		setSessionMode("t-prose", "redirect");
+
+		const first = refusalUnder("t-prose", refusal, "Prose");
+
+		expect(first && "block" in first && first.reason).toMatch(
+			/^say it plainer\n\n.*same call again, unchanged/s,
+		);
+	});
+
+	it("lets the same call through when it comes back unchanged, as an override", () => {
+		// A guard can be wrong. Making the same call again is the agent
+		// saying it is sure, so a wrong guard cannot corner it, and the
+		// report shows the person each time that happened.
 		const seen: GuardReport[] = [];
 		setGuardReportSink((report) => seen.push(report));
-		setSessionMode("t-prose", "report");
+		setSessionMode("t-prose", "redirect");
+
+		refusalUnder("t-prose", refusal, "Prose", "git commit -m x");
+		const again = refusalUnder("t-prose", refusal, "Prose", "git commit -m x");
+
+		expect(again).toBeUndefined();
+		expect(seen).toEqual([
+			{
+				guard: "t-prose",
+				kind: "overridden",
+				title: "Prose",
+				body: "say it plainer",
+			},
+		]);
+	});
+
+	it("refuses a changed call afresh", () => {
+		setSessionMode("t-prose", "redirect");
+
+		refusalUnder("t-prose", refusal, "Prose", "git commit -m x");
+
+		expect(
+			refusalUnder("t-prose", refusal, "Prose", "git commit -m y"),
+		).toBeDefined();
+	});
+
+	it("spends an override once, so the mistake made later is said again", () => {
+		setSessionMode("t-prose", "redirect");
+
+		refusalUnder("t-prose", refusal, "Prose", "same");
+		refusalUnder("t-prose", refusal, "Prose", "same");
+
+		expect(refusalUnder("t-prose", refusal, "Prose", "same")).toBeDefined();
+	});
+
+	it("never lets a blocking guard's refusal through on a retry", () => {
+		refusalUnder("t-prose", refusal, "Prose", "same");
+
+		expect(refusalUnder("t-prose", refusal, "Prose", "same")).toEqual(refusal);
+	});
+
+	it("reports the reason and lets it through when the guard is off", () => {
+		// Off is the person saying stay out of the way, not stay silent:
+		// what the guard saw still reaches the transcript.
+		const seen: GuardReport[] = [];
+		setGuardReportSink((report) => seen.push(report));
+		setSessionMode("t-prose", "off");
 
 		expect(refusalUnder("t-prose", refusal, "Prose")).toBeUndefined();
 		expect(seen).toEqual([
@@ -228,15 +315,6 @@ describe("a refusal under the policy", () => {
 				body: "say it plainer",
 			},
 		]);
-	});
-
-	it("says nothing when the guard is off", () => {
-		const seen: GuardReport[] = [];
-		setGuardReportSink((report) => seen.push(report));
-		setSessionMode("t-prose", "off");
-
-		expect(refusalUnder("t-prose", refusal, "Prose")).toBeUndefined();
-		expect(seen).toEqual([]);
 	});
 });
 
@@ -251,6 +329,9 @@ describe("reports", () => {
 		expect(isGuardReport({ guard: "commit", kind: "shown", title: "x" })).toBe(
 			true,
 		);
+		expect(
+			isGuardReport({ guard: "commit", kind: "overridden", title: "x" }),
+		).toBe(true);
 		expect(isGuardReport({ guard: "commit", kind: "maybe", title: "x" })).toBe(
 			false,
 		);

@@ -2,14 +2,15 @@
  * Guard Policy Workflow Extension
  *
  * One place to see and switch every guard. Each guard declares a
- * class and a default mode (off, report or block) with the policy in
+ * class and a default mode (off, redirect or block) with the policy in
  * `lib/guardian/policy.ts`; this extension reads the package config's
  * `guards` section, keeps the session's overrides, draws reports in the
  * transcript and registers `/guards`.
  *
  * Without it every guard keeps its declared default, and reports have
- * nowhere to go, so a guard in report mode lets the action through
- * silently.
+ * nowhere to go, so a guard that is off lets the action through
+ * unseen. A redirect still reaches the agent, since its refusal is the
+ * tool result.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -49,7 +50,7 @@ export default function guardPolicyWorkflow(pi: ExtensionAPI) {
 
 	pi.registerCommand("guards", {
 		description:
-			"List every guard and its mode, or set one for this session: /guards <name|group|class|all> <off|report|block>, /guards reset",
+			"List every guard and its mode, or set one for this session: /guards <name|group|class|all> <off|redirect|block>, /guards reset",
 		getArgumentCompletions: (argumentText) =>
 			guardsCompletions(argumentText, selectorKeys()).map((value) => ({
 				value,
