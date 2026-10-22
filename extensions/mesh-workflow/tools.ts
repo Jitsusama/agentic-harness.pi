@@ -372,17 +372,22 @@ async function read(at: Local, params: { count?: number }): Promise<Answer> {
 		MOST_READ,
 		Math.max(1, Math.floor(params.count ?? 15)),
 	);
-	const latest = at.transport
-		.ids()
-		.map((id) => at.transport.read(id))
-		.filter((message): message is Message => message !== undefined)
-		.filter(
-			(message) =>
-				message.pid === process.pid ||
+	// Newest first, reading only until enough are found: what is shown,
+	// not the mesh's whole week.
+	const ids = at.transport.ids();
+	const latest: Message[] = [];
+	for (let index = ids.length - 1; index >= 0; index--) {
+		if (latest.length >= wanted) break;
+		const message = at.transport.read(ids[index] as string);
+		if (
+			message &&
+			(message.pid === process.pid ||
 				at.peer.addresses.includes(message.from) ||
-				reaches(message, at.peer.listener, -1),
-		)
-		.slice(-wanted);
+				reaches(message, at.peer.listener, -1))
+		) {
+			latest.unshift(message);
+		}
+	}
 	const receipt = receipts(at, (await peers(at)).present);
 	const withdrawn = withdrawals(latest);
 	const text =

@@ -32,7 +32,12 @@
 import { readdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { checkoutOf, repositoryName } from "./presence.ts";
-import { writeAtomically } from "./transport.ts";
+import {
+	removeQuietly,
+	removeStaged,
+	touchedAt,
+	writeAtomically,
+} from "./transport.ts";
 
 /** What a lease claims. */
 export type LeaseKind = "change" | "answer" | "hold" | "wait" | "heavy";
@@ -158,6 +163,11 @@ export interface Board {
 	/** Write a peer's leases, or take its file away when it has none. */
 	hold(holding: Holding): void;
 	all(): Holding[];
+	/**
+	 * Take away the files of peers none of whose leases stand any more,
+	 * as an ended peer leaves them.
+	 */
+	expire(now: number): void;
 }
 
 /** The board kept in this folder. */
@@ -185,6 +195,28 @@ export function createBoard(dir: string): Board {
 			return files
 				.map((name) => readHolding(join(dir, name)))
 				.filter((one): one is Holding => one !== undefined);
+		},
+		expire(now) {
+			let files: string[] = [];
+			try {
+				files = readdirSync(dir).filter(
+					(name) => name.endsWith(".json") && !name.startsWith("."),
+				);
+			} catch {
+				return;
+			}
+			for (const name of files) {
+				const path = join(dir, name);
+				const touched = touchedAt(path);
+				const holding = readHolding(path);
+				const lapsed =
+					holding !== undefined &&
+					!holding.leases.some((lease) => isCurrent(lease, now));
+				// Its peer may have taken a lease since it was read: only the
+				// file as judged is taken away.
+				if (lapsed && touchedAt(path) === touched) removeQuietly(path);
+			}
+			removeStaged(dir, now - HEAVY_MS);
 		},
 	};
 }

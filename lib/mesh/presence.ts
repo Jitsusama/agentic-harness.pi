@@ -30,6 +30,7 @@ import { parseQuestFrontMatter } from "../internal/quest/frontmatter.ts";
 import { loadedQuest, type QuestRecords } from "./address.ts";
 import { scopesOf } from "./scope.ts";
 import { type Stop, stopsFrom } from "./stop.ts";
+import { removeQuietly, removeStaged } from "./transport.ts";
 
 /** One peer, as it is seen on the mesh. */
 export interface Presence {
@@ -70,6 +71,10 @@ export interface Presences {
 	publish(presence: Presence): void;
 	/** Every peer's presence. */
 	all(): Presence[];
+	/** Let go of a peer's presence, once it has ended. */
+	forget(session: string): void;
+	/** Let go of what nothing has touched since this time. */
+	expire(before: number): void;
 }
 
 /** How much of the summary is said, which is enough to name the work. */
@@ -252,6 +257,10 @@ export function createPresences(dir: string): Presences {
 				.map((name) => read(join(dir, name)))
 				.filter((one): one is Presence => one !== undefined);
 		},
+		forget: (session) => removeQuietly(file(session)),
+		// A presence is current while its peer is, so only what a publish
+		// staged and never renamed is old here; ended peers are forgotten.
+		expire: (before) => removeStaged(dir, before),
 	};
 }
 

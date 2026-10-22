@@ -17,6 +17,8 @@ import {
 	readdirSync,
 	readFileSync,
 	renameSync,
+	rmSync,
+	statSync,
 	watch,
 	writeFileSync,
 } from "node:fs";
@@ -40,6 +42,11 @@ export interface Transport {
 	 * called. Throws when arrivals cannot be watched at all.
 	 */
 	watch(arrived: (id: string) => void): () => void;
+	/**
+	 * Let go of what was stamped before this time: messages, and the read
+	 * markers of peers that have read nothing since.
+	 */
+	expire(before: number): void;
 }
 
 /** A fresh id, sorting after every one stamped before it. */
@@ -53,6 +60,15 @@ export function stampId(draft: Pick<Draft, "from" | "pid">): string {
 
 /** The time the last id this process stamped carries. */
 let lastStamp = 0;
+
+/**
+ * The time an id was stamped at, from the number it begins with, or
+ * nothing for one that does not, which no expiry then touches.
+ */
+export function stampedAt(id: string): number | undefined {
+	const at = Number(id.split("-")[0]);
+	return Number.isFinite(at) && at > 0 ? at : undefined;
+}
 
 /** Whether a file in a transport folder holds a message. */
 export function isMessageFile(file: string): boolean {
@@ -115,7 +131,69 @@ export function folderTransport(dir: string): Transport {
 			});
 			return () => watcher.close();
 		},
+		expire: (before) => expireFolder(dir, before),
 	};
+}
+
+/**
+ * Take out of a folder of messages what was stamped before this time:
+ * message files, read markers whose last id is older, and files a
+ * writer staged and never renamed into place. A file that names no
+ * time is left alone.
+ */
+export function expireFolder(dir: string, before: number): void {
+	let files: string[] = [];
+	try {
+		files = readdirSync(dir);
+	} catch {
+		return;
+	}
+	for (const file of files) {
+		const path = join(dir, file);
+		const stamp = isMessageFile(file)
+			? stampedAt(idOf(file))
+			: file.startsWith(".read-")
+				? stampedAt(readMarker(path) ?? "")
+				: undefined;
+		if (stamp !== undefined && stamp < before) removeQuietly(path);
+	}
+	removeStaged(dir, before);
+}
+
+/**
+ * Take away files staged for an atomic write (ending `.tmp`) and last
+ * touched before this time: a writer that died between writing and
+ * renaming leaves one, and nothing else ever would.
+ */
+export function removeStaged(dir: string, before: number): void {
+	let files: string[] = [];
+	try {
+		files = readdirSync(dir).filter((file) => file.endsWith(".tmp"));
+	} catch {
+		return;
+	}
+	for (const file of files) {
+		const path = join(dir, file);
+		if (touchedAt(path) < before) removeQuietly(path);
+	}
+}
+
+/** When a file last changed, or never (infinitely late) when unreadable. */
+export function touchedAt(path: string): number {
+	try {
+		return statSync(path).mtimeMs;
+	} catch {
+		return Number.POSITIVE_INFINITY;
+	}
+}
+
+/** Remove a file, saying nothing if another peer already has. */
+export function removeQuietly(path: string): void {
+	try {
+		rmSync(path, { force: true });
+	} catch {
+		// Left for the next sweep.
+	}
 }
 
 /** Write a file whole, through a dot-file renamed into place. */

@@ -9,7 +9,13 @@
  * step's tool results are in, one sent while idle is appended with no
  * turn, and one returned from before_agent_start opens the next run.
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -25,6 +31,7 @@ import {
 	type MeshPaths,
 	meshWorkflow,
 } from "../../../extensions/mesh-workflow/index.ts";
+import { JOBS_FINISHED } from "../../../lib/jobs/index.ts";
 import { MOST_TURNS_FROM_ONE } from "../../../lib/mesh/damping.ts";
 import { ALL } from "../../../lib/mesh/group.ts";
 import {
@@ -755,6 +762,22 @@ describe("sending", () => {
 		expect(answer).toContain("It goes to WCJQSG;");
 	});
 
+	it("reads the latest it hears, oldest first, as many as asked", async () => {
+		const { tools } = await startSession();
+		fromElsewhere({ text: "first" });
+		fromElsewhere({ text: "second" });
+		fromElsewhere({ text: "third" });
+		fromElsewhere({ text: "not ours", to: ["#optimus"] });
+
+		const read = await tools.get("mesh_read")?.execute("call-1", { count: 2 });
+		const text = read?.content[0]?.text ?? "";
+
+		expect(text).not.toContain("first");
+		expect(text).not.toContain("not ours");
+		expect(text.indexOf("second")).toBeGreaterThan(-1);
+		expect(text.indexOf("third")).toBeGreaterThan(text.indexOf("second"));
+	});
+
 	it("reads back who has a message it sent, and who not yet", async () => {
 		peer("session-p", ["P9R1KI"], ["#harness"]);
 		peer("session-o", ["OVAE1I"], ["#harness"]);
@@ -1427,7 +1450,7 @@ describe("a lease", () => {
 	});
 
 	it("claims a heavy shell command's work until its call answers", async () => {
-		const { fire } = await startSession();
+		const { fire, emit } = await startSession();
 		const running = (id: string, command: string) =>
 			fire("tool_call", {
 				type: "tool_call",
@@ -1466,6 +1489,20 @@ describe("a lease", () => {
 			"Still running after 5 minutes, so it now runs in the background as job 4.",
 		);
 		expect(ownBoard()).toMatchObject([{ kind: "heavy", subject: "qemu" }]);
+		// Until its job says it has ended; another job's end is not its.
+		const finished = (toolCallId: string) =>
+			emit(JOBS_FINISHED, {
+				jobId: "4",
+				kind: "shell",
+				toolCallId,
+				failed: false,
+			});
+		finished("other");
+		await new Promise((done) => setTimeout(done, 10));
+		expect(ownBoard()).toHaveLength(1);
+		finished("b3");
+		await new Promise((done) => setTimeout(done, 10));
+		expect(ownBoard()).toEqual([]);
 	});
 
 	it("lists what the peers still there hold", async () => {
@@ -1503,6 +1540,20 @@ describe("presence", () => {
 		expect(own()).toBe(true);
 		await fire("agent_end");
 		expect(own()).toBe(false);
+	});
+});
+
+describe("retention", () => {
+	it("lets go of what is past its time as a session starts", async () => {
+		const dir = join(paths.mesh, "messages");
+		mkdirSync(dir, { recursive: true });
+		const old = `${Date.now() - 8 * 24 * 60 * 60 * 1000}-WCJQSG-1-aaaa`;
+		writeFileSync(join(dir, `${old}.json`), "{}");
+
+		await startSession();
+		await new Promise((done) => setTimeout(done, 20));
+
+		expect(existsSync(join(dir, `${old}.json`))).toBe(false);
 	});
 });
 
