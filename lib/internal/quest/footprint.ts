@@ -150,6 +150,34 @@ export function duMeasure(
 	};
 }
 
+/** A size as a person reads it: GB past a gigabyte, MB below. */
+export function formatSize(size: Size): string {
+	if (!size.complete && size.bytes === 0) return "not measured in time";
+	const figure =
+		size.bytes >= 1e9
+			? `${(size.bytes / 1e9).toFixed(1)} GB`
+			: size.bytes >= 1e6
+				? `${Math.round(size.bytes / 1e6)} MB`
+				: "under 1 MB";
+	return size.complete ? figure : `at least ${figure}`;
+}
+
+/**
+ * Each path's size, one after another so only one walk runs at a
+ * time. A path that is not there is left out rather than sized at 0.
+ */
+export async function measureEach(
+	paths: readonly string[],
+	measure: Measure,
+): Promise<Map<string, Size>> {
+	const sizes = new Map<string, Size>();
+	for (const path of paths) {
+		const size = await measure(path);
+		if (size) sizes.set(path, size);
+	}
+	return sizes;
+}
+
 /** Add sizes, staying a lower bound when any part is one. */
 export function sum(sizes: readonly (Size | undefined)[]): Size {
 	let bytes = 0;

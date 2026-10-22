@@ -7,6 +7,7 @@ import {
 	duMeasure,
 	leftBehindOf,
 	type Measure,
+	measureEach,
 	measureHoldings,
 	ownOf,
 	readDu,
@@ -100,6 +101,17 @@ describe("duMeasure", () => {
 		stop.abort();
 		const size = await duMeasure({ signal: stop.signal })(dir("ws"));
 		expect(size).toEqual({ bytes: 0, complete: false });
+	});
+});
+
+describe("measureEach", () => {
+	it("sizes each path one at a time and leaves out the missing", async () => {
+		const here = dir("here");
+		const { measure, asked } = fixed({ [here]: 4 });
+		const gone = join(root, "gone");
+		const sizes = await measureEach([here, gone], measure);
+		expect(asked).toEqual([here, gone]);
+		expect([...sizes]).toEqual([[here, { bytes: 4, complete: true }]]);
 	});
 });
 

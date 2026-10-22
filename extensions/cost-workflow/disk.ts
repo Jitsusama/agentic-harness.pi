@@ -10,6 +10,7 @@
 
 import { discoverQuests } from "../../lib/internal/quest/discovery.ts";
 import {
+	formatSize,
 	type Holdings,
 	leftBehindOf,
 	MEASURE_DEADLINE_MS,
@@ -19,7 +20,6 @@ import {
 	type QuestHolding,
 	type QuestOnDisk,
 	reclaimableOf,
-	type Size,
 	sum,
 } from "../../lib/internal/quest/footprint.ts";
 
@@ -44,18 +44,6 @@ export function measureQuests(
 	measure: Measure,
 ): Promise<Holdings> {
 	return measureHoldings(questsOnDisk(questsRoot), workspaceRoot, measure);
-}
-
-/** A size as a person reads it: GB past a gigabyte, MB below. */
-export function formatSize(size: Size): string {
-	if (!size.complete && size.bytes === 0) return "not measured in time";
-	const figure =
-		size.bytes >= 1e9
-			? `${(size.bytes / 1e9).toFixed(1)} GB`
-			: size.bytes >= 1e6
-				? `${Math.round(size.bytes / 1e6)} MB`
-				: "under 1 MB";
-	return size.complete ? figure : `at least ${figure}`;
 }
 
 function holdingLine(holding: QuestHolding): string {
