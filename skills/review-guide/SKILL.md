@@ -987,7 +987,9 @@ prevent.
 
 Build a review up in a draft rather than posting remark by
 remark. A draft persists, so a review can span a session and
-be picked back up by id.
+be picked back up by id. The id stands for the change the draft
+was opened on, so a call naming the draft needs nothing else;
+naming a different change beside it is refused.
 
 1. `review_draft open` on the change.
 2. `finding` for each remark, `reply` into existing threads,

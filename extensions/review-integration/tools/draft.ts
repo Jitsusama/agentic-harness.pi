@@ -64,8 +64,10 @@ import type { Settle } from "./settle.ts";
 import {
 	type Answer,
 	boundFor,
+	boundForTarget,
 	findReactableOn,
 	hostedChange,
+	namesTarget,
 	refuse,
 	refuseFailure,
 	renderAnswer,
@@ -74,6 +76,13 @@ import {
 	say,
 	threadsOf,
 } from "./shared.ts";
+
+/** A target as a person names it. */
+function targetLabel(target: ReviewTarget): string {
+	if (target.kind === "proposal") return target.change.label;
+	if (target.kind === "range") return `${target.base}..${target.head}`;
+	return target.refs.join(", ");
+}
 
 /** The draft's contents, listed for a person. */
 function draftLines(draft: ReviewDraft): string {
@@ -298,6 +307,20 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 						return refuse(`There is no draft called ${params.draft}.`);
 					}
 					target = found.state.target;
+					// A draft is opened against a change and keeps it, so its id
+					// stands for that change. Without this every action that reads
+					// the conversation refused a draft id, and naming the change as
+					// well, as the refusal said, was ignored and refused again.
+					if (namesTarget(params)) {
+						bound = await boundFor(pi, params, process.cwd());
+						if (targetKey(bound.target) !== targetKey(target)) {
+							return refuse(
+								`Draft ${params.draft} is for ${targetLabel(target)}, not ${targetLabel(bound.target)}. Name one or the other.`,
+							);
+						}
+					} else {
+						bound = await boundForTarget(pi, target).catch(() => undefined);
+					}
 				} else {
 					bound = await boundFor(pi, params, process.cwd());
 					target = bound.target;
@@ -343,7 +366,7 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 						const change = bound && reviewedChange(bound);
 						if (!bound || !change) {
 							return refuse(
-								"The fix queue belongs to a change, so name the change rather than a draft id.",
+								"The fix queue belongs to a change, and this draft's could not be found again. Name the change on this call.",
 							);
 						}
 						return walkFixes(bound, change, params);
@@ -352,7 +375,7 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 					if (params.action === "publish-stack") {
 						if (!bound) {
 							return refuse(
-								"Publishing a stack needs the target, so the stack can be read. Name a change in it rather than a draft id.",
+								"Publishing a stack needs the stack read, and this draft's could not be found again. Name a change in it on this call.",
 							);
 						}
 						return publishStack(pi, bound, store, ctx, signal);
@@ -409,7 +432,7 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 						// which conversation.
 						if (!bound) {
 							return refuse(
-								"Reacting needs the change itself, so the comment can be found. Name the change rather than a draft id.",
+								"Reacting needs the change itself, so the comment can be found, and this draft's could not be found again. Name the change on this call.",
 							);
 						}
 						const found = await findReactableOn(bound, params.comment);
@@ -439,7 +462,7 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 					) {
 						if (!bound) {
 							return refuse(
-								"Replying, resolving or reopening needs the change itself, so its threads can be read. Name the change rather than a draft id.",
+								"Replying, resolving or reopening needs the change's threads, and this draft's change could not be found again. Name the change on this call.",
 							);
 						}
 						const threads = await threadsOf(bound);
@@ -486,7 +509,7 @@ export function registerDraftTool(pi: ExtensionAPI): void {
 					// capabilities, and the diff to judge anchors against.
 					if (!bound) {
 						return refuse(
-							"Planning needs the target, so its provider's capabilities can be read. Name the change rather than a draft id.",
+							"Planning needs the target's provider, and this draft's target could not be found again. Name the change on this call.",
 						);
 					}
 					const diff = await bound.diffModel().catch(() => undefined);
@@ -1070,7 +1093,7 @@ async function decideFinding(
 	}
 	if (!bound) {
 		return refuse(
-			"A resumed draft does not know which change its findings were raised against. Name the change on this call.",
+			"This draft's change could not be found again, so its findings cannot be read. Name the change on this call.",
 		);
 	}
 	const change = reviewedChange(bound);
