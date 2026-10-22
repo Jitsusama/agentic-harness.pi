@@ -154,9 +154,10 @@ which is also how to commit such files on purpose.
 `push` publishes, and two rules are built in rather than
 offered:
 
-- **The first push sets upstream.** A branch without one has
-  to be told its own name every time and is eventually told
-  the wrong one.
+- **The first push sets upstream to the branch's own name.**
+  A branch without one has to be told its own name every time
+  and is eventually told the wrong one, and one cut from
+  `origin/main` would otherwise go on tracking main.
 - **A replacing push is always a lease.** Pass `replace:true`
   after a rebase and it is refused if the remote moved since
   this tree last fetched, rather than overwriting whatever
@@ -194,8 +195,18 @@ work resume tree:…    # once the conflicts are resolved
 work abandon tree:…   # put the tree back where it started
 ```
 
-`resume` refuses while anything is still unmerged, so resolve
-first. Starting a second replay over a halted one is refused
+Resolving a text file is editing it until no conflict marker
+is left: `resume` stages each such file itself, so there is no
+`git add` to run. A binary file, or one deleted on one side,
+has no marker to read that from, so settle it with `git add`
+or `git rm`, in a call of its own before the resume. `resume`
+refuses while anything is still unmerged.
+
+A resume that halts again names the commit it stopped on; a
+new commit is a fresh conflict, not the old one coming back.
+It names the base it replays onto as it was given, such as
+`origin/main`, with the commit beside it once that ref has
+moved. Starting a second replay over a halted one is refused
 by name rather than making the state worse.
 
 ## Keeping a Stack
@@ -266,7 +277,8 @@ it every branch is handed copies of everything below it, and
 that is the mess that makes people abandon stacks.
 
 It **stops at the first halt** and says what it never reached.
-Settle the halt, resume, then restack again to carry on up.
+Settle the halt (edit each text file clean), resume, then
+restack again to carry on up.
 It also puts you back on the branch you started on.
 
 Running it twice is a no-op. If a second run replays anything,
