@@ -17,6 +17,11 @@
  * and cited by handle, so a long entry or a long list of hits is never
  * silently cut. `/compaction-status` says whether the tool is active,
  * how many summaries mention it and how often it has been called.
+ *
+ * A session rolled over into a fresh log (rollover-workflow) left its
+ * history in the logs before it; recall reads those from disk for each
+ * call, oldest first, so the session's whole history stays one call
+ * away.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -36,6 +41,7 @@ import {
 	type Recalled,
 	recall,
 } from "../../lib/internal/recall/session.ts";
+import { ancestry } from "../../lib/internal/session/rollover.ts";
 import { recallSection } from "./status.ts";
 
 /** What every summary says about the tool, appended after its text. */
@@ -124,7 +130,11 @@ export default function sessionRecall(pi: ExtensionAPI) {
 			),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const recalled = recall(ctx.sessionManager.getBranch(), params);
+			const branch = ctx.sessionManager.getBranch();
+			const recalled = recall(
+				[...(ancestry(branch) as unknown as typeof branch), ...branch],
+				params,
+			);
 			return {
 				content: [{ type: "text", text: answerOf(recalled) }],
 				details: {
