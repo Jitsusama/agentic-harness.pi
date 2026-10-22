@@ -61,9 +61,16 @@ const writePid: Write = (path, pid) => writeFileSync(path, `${pid}\n`);
 interface Placement {
 	path: string;
 	write: Write;
-	/** Set once a write fails for a reason other than a child that left. */
+	/** Set once the cgroup refuses a write, rather than missing it. */
 	broken: boolean;
 }
+
+/**
+ * Failures that pass: a child that left before it could move, and a
+ * cgroup that is gone for the moment, as jobs is while systemd starts it
+ * again after systemd-oomd ends it. That child stays where pi is.
+ */
+const PASSING = new Set(["ESRCH", "ENOENT", "ENODEV"]);
 
 const PLACEMENT = Symbol.for("agentic-harness.priority.placement");
 const ORIGINAL = Symbol.for("agentic-harness.priority.original-spawn");
@@ -123,8 +130,8 @@ export function placeChildren(
 				try {
 					placement.write(placement.path, this.pid);
 				} catch (error) {
-					// A child that has already exited leaves nothing to move.
-					if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
+					const code = (error as NodeJS.ErrnoException).code;
+					if (!code || !PASSING.has(code)) {
 						placement.broken = true;
 					}
 				}

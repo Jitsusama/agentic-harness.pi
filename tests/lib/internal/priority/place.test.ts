@@ -100,6 +100,20 @@ describe("placeChildren", () => {
 		expect(calls).toBe(2);
 	});
 
+	it("keeps placing after the cgroup was gone while it came back", async () => {
+		const written: number[] = [];
+		let gone = true;
+		undo = placeChildren("/jobs", (_path, pid) => {
+			if (gone) throw Object.assign(new Error("missing"), { code: "ENOENT" });
+			written.push(pid);
+		});
+		await spawned();
+		gone = false;
+		const pid = await spawned();
+		expect(written).toEqual([pid]);
+		expect(placedCommand("make")).not.toBe("make");
+	});
+
 	it("stops trying once the cgroup refuses, and the spawn still works", async () => {
 		let calls = 0;
 		undo = placeChildren("/jobs", () => {

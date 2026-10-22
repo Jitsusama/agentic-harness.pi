@@ -32,7 +32,8 @@ is born there. pi itself stays where it was started.
 - **Nothing to set up elsewhere.** Without `JOBS_CGROUP`, off Linux, or
   outside a user manager, nothing changes. A setting naming a cgroup that
   isn't there is said once, at session start. A child that exits before
-  it can move is skipped; a cgroup that refuses a write is not written to
-  again in that process.
+  it can move is skipped, and so is one spawned while the cgroup is gone
+  for a moment, as it is while systemd starts it again; a cgroup that
+  refuses a write is not written to again in that process.
 
 core.nix's slices module makes the cgroup and sets the variable.
