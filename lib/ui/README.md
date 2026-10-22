@@ -131,6 +131,11 @@ and the screen neither jumps nor leaves blank rows.
 - **`renderNarrationLine`**: single-line transcript
   annotation (`※ <prefix>: <body>`) for side-effect actions
   and cross-surface coordination.
+- **`expandable`**: a message or entry renderer's lines as a
+  component that a left click opens and closes, the way pi's
+  own tool results do, while pi's expand key still sets them
+  all. Every collapsed transcript entry uses it, so a click
+  works the same on each.
 
 ### What the panels tell you about themselves
 

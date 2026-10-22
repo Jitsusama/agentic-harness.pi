@@ -26,6 +26,7 @@ import {
 	setGuardReportSink,
 } from "../../lib/guardian/report.ts";
 import { list } from "../../lib/internal/guardian/registry.ts";
+import { expandable } from "../../lib/ui/expandable.ts";
 import { view } from "../../lib/ui/index.ts";
 import { guardsCompletions, parseGuardsCommand } from "./command.ts";
 import { loadModes, saveModes } from "./lifecycle.ts";
@@ -37,11 +38,9 @@ export default function guardPolicyWorkflow(pi: ExtensionAPI) {
 	pi.registerEntryRenderer(GUARD_REPORT_ENTRY, (entry, options, theme) => {
 		const report = entry.data;
 		if (!isGuardReport(report)) return undefined;
-		return {
-			render: (width: number) =>
-				guardReportLines(report, theme, width, options.expanded),
-			invalidate: () => {},
-		};
+		return expandable(entry, options.expanded, (width, expanded) =>
+			guardReportLines(report, theme, width, expanded),
+		);
 	});
 
 	pi.on("session_start", async (_event, ctx) => {

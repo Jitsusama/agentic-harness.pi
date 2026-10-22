@@ -103,6 +103,7 @@ import {
 	SUBAGENT_READY,
 	SUBAGENT_REGISTER_DEFAULT_EXTENSION,
 } from "../../lib/subagent/events.ts";
+import { expandable } from "../../lib/ui/expandable.ts";
 import { type Acts, createActs, SETTLING, type Settling } from "./acts.ts";
 import {
 	type Delivered,
@@ -699,17 +700,17 @@ export function meshWorkflow(
 
 		// A glance is the model's: on screen it is nothing (see render.ts).
 		pi.registerEntryRenderer?.(GLANCE, () => NOTHING_SHOWN);
-		pi.registerMessageRenderer?.<Shown>(NOTED, (message, options, theme) => ({
-			render: (width: number) =>
+		pi.registerMessageRenderer?.<Shown>(NOTED, (message, options, theme) =>
+			expandable(message, options.expanded, (width, expanded) =>
 				meshLines(
 					textOf(message.content),
 					message.details,
 					theme,
 					width,
-					options.expanded,
+					expanded,
 				),
-			invalidate: () => {},
-		}));
+			),
+		);
 
 		/**
 		 * Holds this peer waited on that are over: a turn to carry on while
