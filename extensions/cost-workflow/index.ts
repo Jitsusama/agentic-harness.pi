@@ -18,6 +18,11 @@
  * counted but not priced, and spend whose session named no repo or quest
  * stays a visible slice, because a share computed against a total that
  * quietly excluded it is worse than no share at all.
+ *
+ * Money is not the only cost. `disk` reports what each quest holds on
+ * disk and what of it could go now (`disk.ts`), measured on asking and
+ * never from the ledger, since disk is a standing amount rather than a
+ * flow of turns.
  */
 
 import { mkdirSync } from "node:fs";
@@ -49,7 +54,11 @@ import {
 import { Type } from "@sinclair/typebox";
 import { medianOf } from "../../lib/internal/cost-meter/index.ts";
 import { packageStateDir } from "../../lib/internal/package-state-dir.ts";
+import { dataDir } from "../../lib/internal/paths.ts";
+import { duMeasure } from "../../lib/internal/quest/footprint.ts";
+import { questWorkspacesRoot } from "../../lib/internal/quest/workspace-root.ts";
 import { LEDGER_SCOPE } from "../../lib/ledger/index.ts";
+import { formatHoldings, measureQuests } from "./disk.ts";
 import { fanOutView, summarizeFanOut } from "./fanout.ts";
 import { indexSessionLogs } from "./indexer.ts";
 import {
@@ -349,6 +358,15 @@ export default function costWorkflow(pi: ExtensionAPI) {
 						"pass rate first, instead of a spend report.",
 				}),
 			),
+			disk: Type.Optional(
+				Type.Boolean({
+					description:
+						"Report what each quest holds on disk (its workspace and the " +
+						"trees it made) and how much could go now, heaviest first, " +
+						"instead of a spend report. It walks directories at low " +
+						"priority, so it can take up to a minute.",
+				}),
+			),
 			payback: Type.Optional(
 				Type.Boolean({
 					description:
@@ -358,7 +376,32 @@ export default function costWorkflow(pi: ExtensionAPI) {
 				}),
 			),
 		}),
-		async execute(_toolCallId, params): Promise<AgentToolResult<CostDetails>> {
+		async execute(
+			_toolCallId,
+			params,
+			signal,
+		): Promise<AgentToolResult<CostDetails>> {
+			if (params.disk) {
+				const holdings = await measureQuests(
+					join(dataDir("quest-workflow"), "quests"),
+					questWorkspacesRoot(),
+					duMeasure(signal ? { signal } : {}),
+				);
+				return {
+					content: [
+						{
+							type: "text",
+							text: citeListing(openSessionStore(), {
+								view: formatHoldings(holdings, params.limit ?? 12),
+								records: holdings.quests,
+								unit: "quests",
+								narrowing: "Ask for a larger limit to see more.",
+							}),
+						},
+					],
+					details: { ok: true },
+				};
+			}
 			const opened = await open();
 			const index = await indexOnce(opened);
 
