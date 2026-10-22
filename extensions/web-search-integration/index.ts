@@ -81,9 +81,7 @@ export default function webSearch(pi: ExtensionAPI) {
 		promptSnippet:
 			"Search the web for information. Returns titles, URLs and snippets.",
 		promptGuidelines: [
-			"Use web_search to find current information, best practices, documentation and API references.",
-			"After searching, use web_read to load promising results for full content.",
-			"Prefer specific, targeted queries over broad ones.",
+			"Search with specific, targeted queries, then web_read the promising results for their full content.",
 		],
 		parameters: Type.Object({
 			query: Type.String({ description: "Search query" }),
@@ -180,7 +178,6 @@ export default function webSearch(pi: ExtensionAPI) {
 		promptSnippet:
 			"Fetch a URL and extract readable content (article text, docs, etc.).",
 		promptGuidelines: [
-			"Use web_read to get full content from URLs found via web_search.",
 			"web_read captures the page as a bundle on disk (article markdown, inner text, DOM and screenshot tiles) and returns a manifest of file paths. Open the representation you need with the read tool: read the article or inner text for prose, grep the DOM for structure, or view a screenshot tile as an image. You do not have to open all of them.",
 		],
 		parameters: Type.Object({

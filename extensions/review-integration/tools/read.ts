@@ -66,9 +66,12 @@ export function registerReviewTool(pi: ExtensionAPI): void {
 			"Say what you are working on: attach, detach, next, prev, capabilities.",
 		promptGuidelines: [
 			"Attach a change once and every later call can leave it out. Use review_see to read, review_say to answer a remark, review_draft to compose a whole review.",
-			"A change can be a URL, an owner/repo#number short form or a bare number.",
-			"Never assume GitHub. The provider is resolved from config, then provider claims, then the user's reference shapes.",
-			"When a capability is missing, say which provider was asked rather than reporting a generic failure.",
+			// Said once here for every review tool, rather than once on each:
+			// every tool's rules are read on every turn.
+			"A change can be a URL, an owner/repo#number short form or a bare number; or pass base and head, or refs, for something nobody has proposed. Leave it out to use the attached change.",
+			"Never assume GitHub. The provider is resolved from config, then provider claims, then the reference's shape.",
+			"When a stack or a capability is missing, say which provider was asked rather than reporting a generic failure.",
+			"review_say and review_offer open a confirmation gate for every action, so describe what you are about to do before calling them.",
 		],
 		parameters: Type.Object({
 			action: Type.Optional(

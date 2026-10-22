@@ -208,7 +208,6 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 			"Proposing takes the head, base, title and body from the checkout when you do not name them, and the gate names everything it took. Read that line back rather than approving past it.",
 			"When an action is refused, pass on what it says to do instead rather than reporting a generic failure. The refusal names the door that is open.",
 			"Never retarget, ready or draft a change that is queued to merge without saying what that costs: on a queue-backed backend it ejects the change and everything batched with it.",
-			"Every action here opens a confirmation gate, so describe what you are about to do before calling it.",
 		],
 		parameters: Type.Object({
 			action: Type.Union(

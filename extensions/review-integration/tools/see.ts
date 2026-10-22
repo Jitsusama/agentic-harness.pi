@@ -86,12 +86,8 @@ export function registerSeeTool(pi: ExtensionAPI): void {
 		promptSnippet:
 			"Read a change under review: the change, its diff, checks, stack, sibling changes, and its conversation.",
 		promptGuidelines: [
-			"Leave the change out to read whatever is attached. Name one to read something else without disturbing the attachment.",
-			"A change can be a URL, an owner/repo#number short form or a bare number; or pass base and head, or refs, to read something nobody has proposed.",
-			"Never assume GitHub. The provider is resolved from config, then provider claims, then the reference's shape.",
+			"Name a change to read it without disturbing the attachment.",
 			"A derived stack can be wrong at the edges: a merged parent or a renamed branch ends the chain early. Pass that caveat on when it matters.",
-			"When a stack or a capability is missing, say which provider was asked rather than reporting a generic failure.",
-			"Refer to a thread by the [T#] index the threads listing shows. Never invent or guess one.",
 		],
 		parameters: Type.Object({
 			action: Type.Union(
