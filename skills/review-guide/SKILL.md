@@ -716,11 +716,13 @@ wrong, and a set nobody defined is refused with the sets that exist.
 
 Participants read a snapshot pinned to the commit under review, so a
 change that is not checked out where you are is still reviewed against
-its own code. When no working layer is loaded, or the provider cannot
-say which commit is under review, the round runs against your own tree
-and says so in its answer. **Pass that caveat on.** A round that read
-the wrong tree still returns plausible findings, and the caveat is the
-only thing that distinguishes them.
+its own code. When no snapshot can be cut, the round reads your
+checkout only if it already has that commit checked out, and is
+otherwise refused with what to fetch or name instead. Only when the
+provider cannot say which commit is under review does the round run
+against your own tree and say so in its answer. **Pass that caveat
+on.** A round that read the wrong tree still returns plausible
+findings, and the caveat is the only thing that distinguishes them.
 
 A round also survives its participants failing. `review_ask runs`
 reports how many of them answered, so read that rather than assuming

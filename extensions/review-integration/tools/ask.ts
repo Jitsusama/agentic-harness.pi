@@ -227,7 +227,7 @@ export function registerAskTool(pi: ExtensionAPI): void {
 			"When a judge is done, check each of its findings against the source yourself before deciding it, then group what holds up by root cause and fix causes rather than symptoms.",
 			"A council is the discovery pass and a judge consolidates it, so run a council first; a judge with no council to read is refused rather than asked to invent one.",
 			"An id that has raised findings is held to the model, thinking level, tools and persona it meant. Reconfiguring one is refused, and the refusal names both ways out: another id, or release this one and accept that its findings no longer identify who raised them.",
-			"A round reads a snapshot pinned to the commit under review. When it cannot but the tree is still a checkout of the right repo, the answer carries a caveat naming what was read instead: pass that on, because a round against the wrong commit still returns plausible findings. When it would have to read a different repository it is refused outright, since those findings are plausible too and about nothing.",
+			"A round reads a snapshot pinned to the commit under review. When none can be cut it reads the checkout only if that checkout is at the commit, and otherwise refuses, naming what to fetch or which checkout to pass as repo: a round against the wrong commit or the wrong repository returns findings that read plausibly and are about other code. Only when the provider reports no commit does the answer carry a caveat naming what was read instead: pass that on.",
 			"Reading findings is review_see findings and deciding them is review_draft decide. This tool only produces them.",
 		],
 		parameters: Type.Object({
@@ -249,7 +249,7 @@ export function registerAskTool(pi: ExtensionAPI): void {
 					],
 					{
 						description:
-							"What to do. council: ask every reviewer on the roster, independently and at once, waiting for all of them. start: the same round, dispatched and left running, so the session is free straight away; nothing is watching it, so there is no progress, no wrap-up and no retry, and you finish it later with collect. stop: ask every reviewer in a started round to stop, which is the only way to end one early since nothing is holding it; what they wrote down is kept and collect still works. Stopping a round nothing is running closes it instead, which is how a round whose transcripts are gone stops sitting in the listing, and is refused when anybody left something worth collecting. judge: ask the roster's judge to consolidate the latest council. critique: ask the roster to push back on what the judge concluded, recording positions rather than findings. audit: judge each unresolved inbound thread against the change, so a reply is informed rather than guessed. stack: put every change in the stack to the roster together, so a finding that only exists between changes can be seen. runs: what rounds have been asked about this change. collect: finish a round whose session ended before it could, reading what its reviewers left on disk, which is what an unsettled round in the listing is telling you to do. retry: ask one participant again and substitute their outcome in place. release: free a participant id so it can mean a different model, which is the way out the identity refusal names. Defaults to runs, which changes nothing.",
+							"What to do. council: ask every reviewer on the roster, independently and at once, waiting for all of them. start: the same round, dispatched and left running, so the session is free straight away; nothing is watching it, so there is no progress, no wrap-up and no retry, and you finish it later with collect. stop: ask every reviewer in a started round to stop, which is the only way to end one early since nothing is holding it; what they wrote down is kept and collect still works. Stopping a round nothing is running closes it instead, which is how a round whose transcripts are gone stops sitting in the listing, and is refused when anybody left something worth collecting. judge: ask the roster's judge to consolidate the latest council, collecting first any started round whose reviewers have all finished. critique: ask the roster to push back on what the judge concluded, recording positions rather than findings. audit: judge each unresolved inbound thread against the change, so a reply is informed rather than guessed. stack: put every change in the stack to the roster together, so a finding that only exists between changes can be seen. runs: what rounds have been asked about this change. collect: finish a round whose session ended before it could, reading what its reviewers left on disk, which is what an unsettled round in the listing is telling you to do. retry: ask one participant again and substitute their outcome in place. release: free a participant id so it can mean a different model, which is the way out the identity refusal names. Defaults to runs, which changes nothing.",
 					},
 				),
 			),
@@ -661,7 +661,18 @@ async function collectOne(
 	const artifacts = new ReviewerArtifactsStore(runArtifactDir());
 	const alive = await whyNotYet(artifacts, held);
 	if (alive !== undefined) return refuse(alive);
+	return collectHeld(change, held, artifacts);
+}
 
+/**
+ * Settle one round nothing is running any more, from what its
+ * reviewers left on disk. The caller has checked it is finished.
+ */
+async function collectHeld(
+	change: ChangeRef,
+	held: AskRun,
+	artifacts: ReviewerArtifactsStore,
+): Promise<Answer> {
 	const answers = new Map<string, AskAnswer>();
 	const unreadable: string[] = [];
 	for (const participant of held.participants) {
@@ -942,17 +953,17 @@ async function askJudge(
 	}
 
 	const store = createRunStore(runDir());
+	const collected = await collectFinished(change);
 	const council = await store.latest(change, "council");
 	if (council === undefined) {
 		// A started round is on the ledger and unfinished, and `latest`
 		// only returns finished ones, so without this the answer to "a
 		// council is running, judge it" is "run a council": the one
 		// instruction that costs another roster and still will not work.
-		const open = (await store.list(change)).filter((run) => run.open === true);
 		return refuse(
-			open.length === 0
+			collected.running.length === 0
 				? `No council has been asked about ${change.label}, so there is nothing to consolidate. Run a council first.`
-				: `${count(open.length, "round")} on ${change.label} has been started and not collected, so there is nothing consolidated to judge yet: ${open.map((run) => run.id).join(", ")}. Collect it first.`,
+				: `A council on ${change.label} is still running, so there is nothing consolidated to judge yet. ${collected.running.join(" ")}`,
 		);
 	}
 
@@ -992,9 +1003,48 @@ async function askJudge(
 	// arriving in its finished state, which is what `keep` means.
 	await store.keep(change, run);
 	return say(
-		[answerFor(run, warnings, tree.caveat), ...judgeHandOff(run)].join("\n"),
+		[
+			...collected.said,
+			answerFor(run, warnings, tree.caveat),
+			...judgeHandOff(run),
+		].join("\n"),
 		{ run, warnings },
 	);
+}
+
+/**
+ * Collect every started round on a change whose reviewers have all
+ * finished, before a judge reads the latest council.
+ *
+ * A judge asked about a started round used to be refused with "collect
+ * it first", eleven times in a week, and the agent's next call was
+ * always the collect. Collecting asks nobody and spends nothing, so the
+ * judge does it. A round still running is left alone and named, since
+ * judging half a council would consolidate findings not yet made.
+ */
+export async function collectFinished(
+	change: ChangeRef,
+	now: number = Date.now(),
+): Promise<{ said: string[]; running: string[] }> {
+	const store = createRunStore(runDir());
+	const artifacts = new ReviewerArtifactsStore(runArtifactDir());
+	const said: string[] = [];
+	const running: string[] = [];
+	for (const held of await store.list(change)) {
+		if (held.open !== true) continue;
+		const alive = await whyNotYet(artifacts, held, undefined, now);
+		if (alive !== undefined) {
+			running.push(alive);
+			continue;
+		}
+		const answer = await collectHeld(change, held, artifacts);
+		said.push(
+			answer.content
+				.map((part) => (part.type === "text" ? part.text : ""))
+				.join(""),
+		);
+	}
+	return { said, running };
 }
 
 /**
