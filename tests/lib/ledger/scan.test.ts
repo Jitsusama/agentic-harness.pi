@@ -257,15 +257,9 @@ describe("booking a turn to its quest", () => {
 		});
 	}
 
-	/** What each turn was booked to, read without core's newer type. */
+	/** What each turn was booked to. */
 	function booked(scan: ReturnType<typeof readTurns>) {
-		return scan.turns.map((t) => {
-			const { entryId, quest, document } = t as typeof t & {
-				quest?: string | null;
-				document?: string | null;
-			};
-			return [entryId, quest, document];
-		});
+		return scan.turns.map((t) => [t.entryId, t.quest, t.document]);
 	}
 
 	it("books each turn to the quest and document in force at it", () => {

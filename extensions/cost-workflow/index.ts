@@ -7,8 +7,8 @@
  * can be rebuilt from scratch whenever its shape changes.
  *
  * The `cost` tool indexes those logs into a content-addressed store and
- * answers what was spent, grouped by repo, quest, model, day, session,
- * kind or thinking level. Fan-out is read from the run store beside it,
+ * answers what was spent, grouped by repo, quest, document, model, day,
+ * session, kind or thinking level. Fan-out is read from the run store beside it,
  * since subagents write no session log for the ledger to index.
  * Indexing is incremental: an append-only log that has not grown is not
  * read again, so a routine pass costs seconds rather than the minute a
@@ -99,6 +99,7 @@ const QUERY_ROWS_SHOWN = 40;
 const DIMENSIONS: readonly CostDimension[] = [
 	"repo",
 	"quest",
+	"document",
 	"model",
 	"day",
 	"session",
@@ -110,6 +111,7 @@ const DIMENSIONS: readonly CostDimension[] = [
 const HEADINGS: Record<CostDimension, string> = {
 	repo: "Cost by repo",
 	quest: "Cost by quest",
+	document: "Cost by document",
 	model: "Cost by model",
 	day: "Cost by day",
 	session: "Cost by session",
@@ -129,7 +131,7 @@ const QUERY_GUIDE =
 	"(a model call an extension made off the agent's loop), model, " +
 	"thinking_level, context, tokens_* and cost_* columns, cost, " +
 	"preceded_by, gap_ms, new_tokens, stop_reason, thinking_chars, " +
-	"text_chars, run_id, run_turn, repo, quest); misses (turn_facts rows " +
+	"text_chars, run_id, run_turn, repo, quest, document); misses (turn_facts rows " +
 	"whose cache write ran past what was new, with excess_tokens, " +
 	"excess_cost and cause); cycles (one per compaction: turns, cost, " +
 	"side_cost, context_start, context_end, closed); runs (one per typed message: " +
@@ -349,8 +351,8 @@ export default function costWorkflow(pi: ExtensionAPI) {
 		description:
 			"Report what pi has actually cost, from the session logs it " +
 			"already writes, with subagent fan-out from the run store beside " +
-			"it. Group by repo, quest, model, day, session, kind or thinking " +
-			"level, or omit a dimension for the overall total. Indexing is " +
+			"it. Group by repo, quest, document, model, day, session, kind or " +
+			"thinking level, or omit a dimension for the overall total. Indexing is " +
 			"incremental and runs automatically before a report; pass " +
 			"reindex to force a pass without reporting. Every answer states " +
 			"its coverage, including turns that carried no usage and spend " +
