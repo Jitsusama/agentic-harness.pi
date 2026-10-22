@@ -100,6 +100,7 @@ async function startSession(
 			cwd: root,
 			sessionManager: {
 				getSessionId: () => session,
+				getSessionFile: () => join(root, `${session}.jsonl`),
 				getBranch: () => branch,
 			},
 			...ctx,
@@ -561,6 +562,29 @@ describe("groups", () => {
 		const text = read?.content[0]?.text ?? "";
 		expect(text).toContain("everyone's");
 		expect(text).not.toContain("someone else's");
+	});
+});
+
+describe("a pi that keeps no session", () => {
+	it("stays off the mesh, as a reload's load check does", async () => {
+		// Seen live: every reload's load check showed up as a peer named for
+		// its session id, working on a temporary folder.
+		const { sent, tools } = await startSession(
+			{},
+			{
+				sessionManager: {
+					getSessionId: () => session,
+					getSessionFile: () => undefined,
+				},
+			},
+		);
+		fromElsewhere({ text: "for everyone" });
+
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		expect(sent).toEqual([]);
+		expect(createPresences(join(paths.mesh, "presence")).all()).toEqual([]);
+		const answer = await send(tools, "all", "fyi", "hello");
+		expect(answer).toContain("not on the mesh");
 	});
 });
 

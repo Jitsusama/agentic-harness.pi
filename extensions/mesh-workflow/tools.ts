@@ -56,7 +56,11 @@ export function registerTools(
 		<P>(act: (at: Local, params: P) => Answer) =>
 		async (_id: string, params: P) => {
 			const at = local();
-			if (!at) return answer("The mesh has not started in this session yet.");
+			if (!at) {
+				return answer(
+					"This pi is not on the mesh: it keeps no session, or has not started one yet.",
+				);
+			}
 			at.peer.refresh();
 			return act(at, params);
 		};

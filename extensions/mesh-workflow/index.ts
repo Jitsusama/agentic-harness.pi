@@ -135,6 +135,20 @@ export function isSubagent(env: NodeJS.ProcessEnv = process.env): boolean {
 	return env.SUBAGENT_SUPERVISOR === "1" || Boolean(env.SUBAGENT_RUN_ID);
 }
 
+/**
+ * Whether this pi keeps no session, as a load check or a `--no-session`
+ * run does. It is gone when it exits and nobody can reach it again, so
+ * on the mesh it would only be a peer that never answers.
+ */
+export function isEphemeral(
+	sessions: Pick<ExtensionContext["sessionManager"], "getSessionFile">,
+): boolean {
+	return (
+		typeof sessions.getSessionFile === "function" &&
+		sessions.getSessionFile() === undefined
+	);
+}
+
 /** The extension, on the mesh at these paths. */
 export function meshWorkflow(
 	paths: MeshPaths = machinePaths(),
@@ -269,6 +283,7 @@ export function meshWorkflow(
 		);
 
 		pi.on("session_start", async (_event, started) => {
+			if (isEphemeral(started.sessionManager)) return;
 			ctx = started;
 			peer = localPeer({
 				session: started.sessionManager.getSessionId(),
