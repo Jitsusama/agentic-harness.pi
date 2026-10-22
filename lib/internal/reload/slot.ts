@@ -16,8 +16,11 @@ export interface ReloadRequest {
 	readonly reason: string;
 	/** The tree to load in place of the install; absent for the install. */
 	readonly tree?: string;
-	/** The agent asked through the tool, or the person through the command. */
-	readonly by: "agent" | "person";
+	/**
+	 * The agent asked through the tool, the person through the command,
+	 * or the session itself because its install moved.
+	 */
+	readonly by: "agent" | "person" | "self";
 }
 
 /** How a reload went, for whoever says it landed. */

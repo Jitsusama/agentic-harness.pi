@@ -62,6 +62,12 @@ export function jobStopOf(signal: AbortSignal): JobStop | undefined {
 /** The host a producer hands its background work to. */
 export interface JobHost {
 	start(spec: JobSpec): Job;
+	/**
+	 * How many jobs are running, or finished with results not yet said:
+	 * what a reload would lose. Optional, so a host from before it reads
+	 * as having none to say.
+	 */
+	pending?(): number;
 }
 
 /**

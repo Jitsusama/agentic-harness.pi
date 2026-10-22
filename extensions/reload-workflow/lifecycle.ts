@@ -84,7 +84,9 @@ export function showMark(ctx: ExtensionContext, loaded: Loaded): void {
 export function landedText(landed: ReloadLanded, loaded: Loaded): string {
 	const onto = landed.tree ? ` onto ${homely(landed.tree)}` : "";
 	const lines = [
-		`Reloaded${onto}, as asked: ${landed.reason}.`,
+		landed.by === "self"
+			? `Reloaded between runs, because the install moved: ${landed.reason}.`
+			: `Reloaded${onto}, as asked: ${landed.reason}.`,
 		describeLoaded(PACKAGE_NAME, loaded),
 	];
 	if (landed.restored === false) {
@@ -100,7 +102,8 @@ export function landedText(landed: ReloadLanded, loaded: Loaded): string {
  * Say that a reload landed. The agent asked, so the agent carries on:
  * that is a turn nobody typed, which only the job host starts. The
  * person asked, so the model is told quietly and the person, who did
- * it, is not told again.
+ * it, is not told again. The session did it itself, so both are told,
+ * and nothing carries on that was not already going to.
  */
 export function sayLanded(
 	pi: ExtensionAPI,
@@ -115,7 +118,13 @@ export function sayLanded(
 			.finish({ summary: text });
 		return;
 	}
-	pi.sendMessage({ customType: LOADED_MESSAGE, content: text, display: false });
+	// Nobody asked for a reload of its own, so the person is shown it
+	// too; it never starts a turn.
+	pi.sendMessage({
+		customType: LOADED_MESSAGE,
+		content: text,
+		display: landed.by === "self",
+	});
 }
 
 /**
