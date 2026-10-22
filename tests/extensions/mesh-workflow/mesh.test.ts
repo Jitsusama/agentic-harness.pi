@@ -874,6 +874,18 @@ describe("an answer", () => {
 		]);
 	});
 
+	it("names every mesh tool in the line the prompt always shows", async () => {
+		const { tools } = await startSession();
+		const snippet =
+			(tools.get("mesh_send") as { promptSnippet?: string } | undefined)
+				?.promptSnippet ?? "";
+		const names = [...tools.keys()].filter((name) => name.startsWith("mesh_"));
+		expect(names.length).toBeGreaterThan(1);
+		for (const name of names.filter((name) => name !== "mesh_send")) {
+			expect(snippet).toContain(name);
+		}
+	});
+
 	it("stands under this peer's question as it is read back", async () => {
 		peer("session-p", ["P9R1KI"], []);
 		const { tools } = await startSession();
@@ -2361,6 +2373,33 @@ describe("a lease", () => {
 			'is over: its holder said "qemu is free". This peer had said: "my vm test waits on this".',
 		);
 		expect(resumed?.message.content).toContain("Carry on with what it held up");
+		expect(ownBoard()).toEqual([]);
+	});
+
+	it("carries on with a turn when a hold it parked for ends after a reboot", async () => {
+		peer("session-w", ["WCJQSG"], []);
+		const before = await startSession({}, { isIdle: () => true });
+		const hold = fromElsewhere({ intent: "hold", text: "rebooting" });
+		await before.tools.get("mesh_send")?.execute("call-2", {
+			to: "WCJQSG",
+			intent: "fyi",
+			text: "parked",
+			re: hold.id,
+		});
+		await before.fire("session_shutdown");
+
+		// Both come back after the reboot: this session restored, and its
+		// holder under the same address with another pid.
+		const { sent } = await startSession({}, { isIdle: () => true });
+		fromElsewhere({ re: hold.id, text: "reboot done", pid: process.pid + 2 });
+
+		await vi.waitFor(() =>
+			expect(
+				sent.find(({ message }) =>
+					message.content.includes('its holder said "reboot done"'),
+				)?.options,
+			).toEqual({ triggerTurn: true }),
+		);
 		expect(ownBoard()).toEqual([]);
 	});
 
