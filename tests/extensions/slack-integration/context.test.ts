@@ -42,8 +42,8 @@ describe("telling the model who it is on Slack", () => {
 		let ledger = {};
 		const said: string[] = [];
 		for (let prompt = 0; prompt < 5; prompt++) {
-			const turn = standingContextTurn(IDENTITY_CONTEXT, ledger, who, "base");
-			expect(turn.systemPrompt).toBe(`base\n\n${who}`);
+			const turn = standingContextTurn(IDENTITY_CONTEXT, ledger, who);
+			expect(turn.section).toBe(who);
 			if (turn.message) said.push(turn.message.content);
 			ledger = turn.ledger;
 		}
@@ -51,20 +51,10 @@ describe("telling the model who it is on Slack", () => {
 	});
 
 	it("says it when sign-in comes after the session started", () => {
-		const first = standingContextTurn(IDENTITY_CONTEXT, {}, null, "base");
+		const first = standingContextTurn(IDENTITY_CONTEXT, {}, null);
 		const who = identityText({ userHandle: "joel.gerber" });
-		const second = standingContextTurn(
-			IDENTITY_CONTEXT,
-			first.ledger,
-			who,
-			"base",
-		);
-		const third = standingContextTurn(
-			IDENTITY_CONTEXT,
-			second.ledger,
-			who,
-			"base",
-		);
+		const second = standingContextTurn(IDENTITY_CONTEXT, first.ledger, who);
+		const third = standingContextTurn(IDENTITY_CONTEXT, second.ledger, who);
 
 		expect(second.message?.content).toBe(who);
 		expect(second.message?.display).toBe(false);

@@ -5,8 +5,7 @@ import {
 	standingContextAfterCompaction,
 	standingContextTurn,
 } from "../../../lib/prompt/index.ts";
-
-const BASE = "You are pi.";
+import { sectionName } from "../../../lib/prompt/standing.ts";
 
 const WORDING: StandingContextWording = {
 	customType: "probe-context",
@@ -16,20 +15,20 @@ const WORDING: StandingContextWording = {
 };
 
 function turn(ledger: StandingContextLedger, current: string | null) {
-	return standingContextTurn(WORDING, ledger, current, BASE);
+	return standingContextTurn(WORDING, ledger, current);
 }
 
 describe("standingContextTurn", () => {
-	it("puts the context in the system prompt on the first turn", () => {
+	it("puts the context in its prompt section on the first turn", () => {
 		const first = turn({}, "Quest QEST-1 loaded.");
-		expect(first.systemPrompt).toBe(`${BASE}\n\n[Probe] Quest QEST-1 loaded.`);
+		expect(first.section).toBe("[Probe] Quest QEST-1 loaded.");
 		expect(first.message).toBeUndefined();
 	});
 
-	it("keeps the system prompt byte-identical when the state changes", () => {
+	it("keeps the section byte-identical when the state changes", () => {
 		const first = turn({}, "Quest QEST-1 loaded.");
 		const later = turn(first.ledger, "Quest QEST-1 loaded. Focused: PLAN-1.");
-		expect(later.systemPrompt).toBe(first.systemPrompt);
+		expect(later.section).toBe(first.section);
 	});
 
 	it("says what changed once, in a hidden message worded by the caller", () => {
@@ -47,15 +46,15 @@ describe("standingContextTurn", () => {
 	it("says so when the state is cleared, keeping the frozen text", () => {
 		const first = turn({}, "Quest QEST-1 loaded.");
 		const later = turn(first.ledger, null);
-		expect(later.systemPrompt).toBe(first.systemPrompt);
+		expect(later.section).toBe(first.section);
 		expect(later.message?.content).toContain("nothing is loaded.");
 	});
 
 	it("leaves the prompt alone and sends a message for state that arrives mid-session", () => {
 		const first = turn({}, null);
-		expect(first.systemPrompt).toBe(BASE);
+		expect(first.section).toBeUndefined();
 		const later = turn(first.ledger, "Quest QEST-1 loaded.");
-		expect(later.systemPrompt).toBe(BASE);
+		expect(later.section).toBeUndefined();
 		expect(later.message?.content).toContain("Quest QEST-1 loaded.");
 	});
 
@@ -64,7 +63,7 @@ describe("standingContextTurn", () => {
 		const current = "Quest QEST-1 loaded. Focused: PLAN-1.";
 		const told = turn(first.ledger, current);
 		const after = turn(standingContextAfterCompaction(told.ledger), current);
-		expect(after.systemPrompt).toBe(first.systemPrompt);
+		expect(after.section).toBe(first.section);
 		expect(after.message?.content).toContain(current);
 	});
 
@@ -75,5 +74,13 @@ describe("standingContextTurn", () => {
 			"Quest QEST-1 loaded.",
 		);
 		expect(after.message).toBeUndefined();
+	});
+});
+
+describe("sectionName", () => {
+	it("names a section in the characters pi allows", () => {
+		expect(sectionName("quest-context")).toBe("quest-context");
+		expect(sectionName("Slack Identity")).toBe("slack_identity");
+		expect(sectionName("1st")).toBe("standing_1st");
 	});
 });

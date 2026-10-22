@@ -62,10 +62,10 @@ function harness(state: { current: string | null }) {
 		/** Run a prompt, recording any message it sends, as pi would. */
 		async prompt(): Promise<string | undefined> {
 			const turn = (await handlers.get("before_agent_start")?.(
-				{ systemPrompt: "base" },
+				{ systemPrompt: "base", systemPromptOptions: { sections: {} } },
 				ctx,
-			)) as { message?: { customType: string; content: string } };
-			if (turn.message) {
+			)) as { message?: { customType: string; content: string } } | undefined;
+			if (turn?.message) {
 				add({ type: "custom_message", customType: turn.message.customType });
 				return turn.message.content;
 			}

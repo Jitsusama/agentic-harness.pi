@@ -23,6 +23,14 @@
  * because this module contributed it, nothing is said: repeating it
  * after every compaction once accounted for 1,206 of 1,406 quest
  * messages over two months, all identical to the one before.
+ *
+ * The frozen text is a prompt section of its own, not text returned as
+ * the whole system prompt. pi treats a returned prompt as forced: every
+ * request then opens with that text and the tools as they are now, so
+ * any change to a tool or a section rewrites the whole cache. Measured
+ * on 22 October, a tool removed mid-run made the next request read 0
+ * of 76,202 cached tokens. As a section, a change is sent as an
+ * addition after the conversation, and tools change inline.
  */
 
 import type {
@@ -59,31 +67,31 @@ export interface StandingContextWording {
 	changed(text: string | null): string;
 }
 
-/** One turn's contribution: the prompt, any message, the new ledger. */
+/** One turn's contribution: the section, any message, the new ledger. */
 export interface StandingContextTurn {
-	readonly systemPrompt: string;
+	/** The section's text, or nothing when there was no state at the freeze. */
+	readonly section?: string;
 	readonly message?: { customType: string; content: string; display: boolean };
 	readonly ledger: StandingContextLedger;
 }
 
 /**
- * The system prompt and any message for this turn, given what the
- * model has been told and the context as it stands.
+ * The section and any message for this turn, given what the model has
+ * been told and the context as it stands.
  */
 export function standingContextTurn(
 	wording: StandingContextWording,
 	ledger: StandingContextLedger,
 	current: string | null,
-	systemPrompt: string,
 ): StandingContextTurn {
 	const frozen = ledger.frozen === undefined ? current : ledger.frozen;
 	const delivered = ledger.delivered === undefined ? frozen : ledger.delivered;
-	const prompt =
-		frozen === null ? systemPrompt : systemPrompt + wording.inPrompt(frozen);
+	const section = frozen === null ? undefined : wording.inPrompt(frozen).trim();
 	const next = { frozen, delivered: current };
-	if (current === delivered) return { systemPrompt: prompt, ledger: next };
+	const said = section === undefined ? {} : { section };
+	if (current === delivered) return { ...said, ledger: next };
 	return {
-		systemPrompt: prompt,
+		...said,
 		ledger: next,
 		message: {
 			customType: wording.customType,
@@ -160,18 +168,15 @@ export function registerStandingContext(
 		ledger = getLastEntry<StandingContextLedger>(ctx, entry) ?? {};
 	});
 
+	const section = sectionName(wording.customType);
 	pi.on("before_agent_start", async (event) => {
-		const turn = standingContextTurn(
-			wording,
-			ledger,
-			current(),
-			event.systemPrompt,
-		);
+		const turn = standingContextTurn(wording, ledger, current());
 		if (!sameLedger(turn.ledger, ledger)) pi.appendEntry(entry, turn.ledger);
 		ledger = turn.ledger;
-		return turn.message
-			? { systemPrompt: turn.systemPrompt, message: turn.message }
-			: { systemPrompt: turn.systemPrompt };
+		if (turn.section !== undefined) {
+			event.systemPromptOptions.sections[section] = turn.section;
+		}
+		return turn.message ? { message: turn.message } : undefined;
 	});
 
 	// Offer the state to a summary the harness writes, so a compaction
@@ -200,6 +205,15 @@ export function registerStandingContext(
 		ledger = next;
 		pi.appendEntry(entry, ledger);
 	});
+}
+
+/**
+ * The prompt section a standing context is frozen into, named after its
+ * message type in the lowercase letters, digits, `_` and `-` pi allows.
+ */
+export function sectionName(customType: string): string {
+	const name = customType.toLowerCase().replace(/[^a-z0-9_-]+/g, "_");
+	return /^[a-z]/.test(name) ? name : `standing_${name}`;
 }
 
 function sameLedger(a: StandingContextLedger, b: StandingContextLedger) {

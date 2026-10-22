@@ -14,7 +14,9 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
-import promptCoordinator from "../../../extensions/prompt-coordinator-workflow/index.ts";
+import promptCoordinator, {
+	RESIDENT_SECTION,
+} from "../../../extensions/prompt-coordinator-workflow/index.ts";
 import {
 	clearPromptContributors,
 	registerPromptContributor,
@@ -35,13 +37,17 @@ function activate() {
 	const ctx = { cwd: "/work", sessionManager: { getEntries: () => entries } };
 	const fire = (name: string, event: unknown) =>
 		handlers.get(name)?.(event, ctx);
-	const prompt = async () =>
-		(
-			(await fire("before_agent_start", { systemPrompt: "BASE" })) as {
-				systemPrompt: string;
-			}
-		).systemPrompt;
-	return { fire, prompt, entries };
+	/** The resident section a prompt renders, and what the hook returned. */
+	const run = async () => {
+		const sections: Record<string, string> = {};
+		const returned = await fire("before_agent_start", {
+			systemPrompt: "BASE",
+			systemPromptOptions: { sections },
+		});
+		return { section: sections[RESIDENT_SECTION], returned };
+	};
+	const prompt = async () => (await run()).section;
+	return { fire, prompt, run, entries };
 }
 
 afterEach(() => clearPromptContributors());
@@ -95,6 +101,23 @@ describe("the resident block across a reload", () => {
 		const second = activate();
 		await second.fire("session_start", { reason: "new" });
 
-		expect(await second.prompt()).toBe("BASE\n\n- new");
+		expect(await second.prompt()).toBe("- new");
+	});
+
+	it("never hands pi a whole prompt, which would force every request's prefix", async () => {
+		// A returned prompt opens every request with that text and the
+		// tools as they are now, so any change rewrote the whole cache.
+		registerPromptContributor({
+			id: "memory",
+			order: 10,
+			contribute: () => "- fact",
+		});
+		const { fire, run } = activate();
+		await fire("session_start", { reason: "startup" });
+
+		const { section, returned } = await run();
+
+		expect(section).toBe("- fact");
+		expect(returned).toBeUndefined();
 	});
 });

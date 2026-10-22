@@ -20,6 +20,15 @@
  * themselves migrate onto this coordinator as contributors,
  * so there is one assembly point rather than several racing
  * appends.
+ *
+ * The block is a prompt section of its own rather than a whole
+ * system prompt returned from the hook. pi treats a returned prompt
+ * as forced, and a forced prompt opens every request with that text
+ * and the tools as they are now, so a tool added, removed or
+ * reworded, or any section changing, rewrote the whole cache: on 22
+ * October, 40 times across sessions following a deploy, about $78. A
+ * section lets pi send a change after the conversation and tools
+ * inline, so the cache holds.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -31,6 +40,9 @@ import {
 
 /** Custom entry holding the session's frozen resident block. */
 const FROZEN_ENTRY = "prompt-coordinator-frozen";
+
+/** The prompt section the block is rendered into. */
+export const RESIDENT_SECTION = "resident";
 
 interface FrozenRecord {
 	readonly block: string;
@@ -63,7 +75,7 @@ export default function promptCoordinator(pi: ExtensionAPI) {
 			pi.appendEntry(FROZEN_ENTRY, { block } satisfies FrozenRecord);
 			recorded = true;
 		}
-		if (!block) return undefined;
-		return { systemPrompt: `${event.systemPrompt}\n\n${block}` };
+		if (block) event.systemPromptOptions.sections[RESIDENT_SECTION] = block;
+		return undefined;
 	});
 }
