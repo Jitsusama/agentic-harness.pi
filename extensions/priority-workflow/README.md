@@ -83,7 +83,9 @@ never waits.
   person's nix.conf still holds and an inline `NIX_CONFIG` can't drop
   it; the daemon honours it since the account is a trusted user. The
   call's output says it ran capped, and `queue.json` marks the job
-  `capped`, so a VM failing beside one can be traced to it. Other builds
+  `capped`, so a VM failing beside one can be traced to it. A build
+  from a session on an older harness, whose shell can't read the cap,
+  waits for the check instead of running on every core. Other builds
   wait, and a VM check starts beside builds but not past one waiting,
   so a build waits only for the checks already running.
 - **One at a time:** turns are given at least 3 seconds apart, and a job

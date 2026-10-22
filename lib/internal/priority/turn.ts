@@ -96,6 +96,7 @@ export function queuedCommand(command: string): string {
 		what: whatOf(command),
 		owner: { session: queueing.session, pid: queueing.pid },
 		since: new Date(now).toISOString(),
+		cappable: true,
 	};
 	try {
 		queueing.folder.ask(job);

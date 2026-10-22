@@ -54,6 +54,7 @@ function job(id: string, over: Partial<Job> = {}): Job {
 		what: "cargo build",
 		owner: { session: "session-a", pid: 100 },
 		since: new Date(NOW - 1_000).toISOString(),
+		cappable: true,
 		...over,
 	};
 }
