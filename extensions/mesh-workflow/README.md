@@ -12,7 +12,15 @@ and can answer a question or a gate left open on screen.
   reloads. It also answers to older quests that list it and to
   the last eight characters of its session id.
 - **Message:** what a peer sends, signed with its address and
-  stamped by the mesh with an id and a time.
+  stamped by the mesh with an id and a time. Its short id is
+  the id's last part, shown in brackets (`[2f95756a]`).
+- **Reply:** a message that answers another (`re`). An answer
+  to a peer's own message is taken as sent to it, wherever it
+  went, and its depth is how many answers down the thread it
+  is.
+- **Supersede:** a message that replaces one its sender sent
+  earlier, to withdraw or correct it. It goes wherever that
+  one went, so everyone who heard it hears this.
 - **Intent:** what a message asks of whoever it reaches: hold,
   question, finding or fyi.
 - **Group:** where every message goes. There are no direct
@@ -35,8 +43,10 @@ and can answer a question or a gate left open on screen.
 - **Liveness:** whether a peer is still there, asked of the
   machine through the process its presence names.
 - **Attention:** what a message gets from the peer it reaches,
-  decided by that peer and never none: a glance, a note or a
-  wake.
+  decided by that peer and never none: a glance, a note, an
+  act or a wake.
+- **Damping:** the peer's limits on that attention, enforced by
+  the mesh rather than asked of senders.
 - **Transport:** where messages travel and rest.
 
 ## Tools
@@ -46,11 +56,16 @@ and can answer a question or a gate left open on screen.
   addressed peers have ended and which addresses nobody goes
   by, and refuses a named group nobody else still there is in.
   A peer reads what it writes to: sending to a named group it
-  does not hear joins it, so the answers reach it.
+  does not hear joins it, so the answers reach it. `re` names
+  the message it answers and `supersedes` one of this peer's
+  own it replaces, each by its id or short id; a send naming
+  an id nobody has, or another peer's message to replace, is
+  refused.
 - `mesh_read`: the latest messages this peer hears, and what
   it sent, for catching up after a reload or a compaction, or
   for reading a glance in full. Under each message it sent, it
-  says which peers have it and which not yet.
+  says which peers have it and which not yet, and under each
+  one withdrawn, what replaced it.
 - `mesh_join`, `mesh_leave` and `mesh_groups`: the groups this
   peer is in, and who is in each. A bare name joins a peer's
   home group when some peer goes by it, and a named group
@@ -62,9 +77,9 @@ and can answer a question or a gate left open on screen.
 ## Context, Not a Prompt
 
 A message never keeps a finished run going, and starts a turn
-only for a question this peer is the one to answer while it is
-idle, since otherwise its sender waits until the person next
-speaks. While the agent works, pi holds what arrives and
+only for what an idle peer has to do something about (see
+Act and Wake below), since otherwise its sender waits until
+the person next speaks. While the agent works, pi holds what arrives and
 appends it once the current step's tool results are in, so the
 model reads it at its next call and carries on. While the
 session is idle, it is appended with no turn, and the model
@@ -91,8 +106,21 @@ and its groups.
   out six and counts the rest, each cut to 160 characters.
   Glances survive a reload: each delivery records which it
   carried.
-- **Wake:** a note that starts a turn, for a question this
-  peer is the one to answer while it is idle.
+- **Act:** a note that starts a turn once the mesh settles,
+  for an idle peer: a finding sent to it, or a question to a
+  group about its work. It waits 30 seconds and up to 30 more,
+  the extra different for each session so peers hearing one
+  message do not start at once, and what arrives meanwhile
+  goes in the same turn. A group's question another peer has
+  answered by then is noted instead. A run that starts first,
+  from the person or a wake, takes it along.
+- **Wake:** a note that starts a turn at once, for a question
+  sent to this idle peer or answering one it sent.
+
+An fyi or a hold never starts a turn; neither asks an idle
+peer to do anything. A withdrawal is noted by every peer that
+heard what it withdraws, and a glance of that not yet handed
+over is taken back.
 
 The judging is done by a classifier model when one is to hand:
 the first of TypeSafe's Jev models with credentials, or the one
@@ -100,8 +128,26 @@ the first of TypeSafe's Jev models with credentials, or the one
 under a second, and only a judgement of "another peer's" at 0.6
 or more makes a glance. With no classifier,
 `PI_MESH_CLASSIFIER=off`, a failed call or one slower than
-2.5 s, a message is noted, and a question that names this peer
-or something it owns still wakes it while it is idle.
+2.5 s, a message is noted. A message that names this peer or
+something it owns is about its work without asking the
+classifier at all.
+
+## Damping
+
+What a message is worth is held to what the receiving peer can
+afford, so no sender and no conversation wears it out:
+
+- **Turns:** the mesh starts at most 12 turns of a peer an
+  hour, and at most 6 for any one sender.
+- **Depth:** an answer more than 4 deep in its thread never
+  starts a turn.
+- **Repeats:** what a sender already said, word for word,
+  within the hour, is a glance.
+
+A damped message is never dropped: one that would have started
+a turn is noted instead. The model is never told; the screen
+says what was held back. The hour survives a reload, read back
+from the session's own deliveries.
 
 ## Intents
 
@@ -176,4 +222,6 @@ once no session is left on the old harness.
 - An old membership names no process, so a session that ended
   on the old harness still counts as there until legacy.ts
   goes.
-- There is no reply threading.
+- A receiver cannot yet stop a sender reaching it.
+- Damping has no floor: nothing wakes a peer that rests too
+  early.

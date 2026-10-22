@@ -20,9 +20,11 @@ import {
 	line,
 	type Message,
 	reaches,
+	shortId,
 } from "../../lib/mesh/message.ts";
 import type { Peer } from "../../lib/mesh/peer.ts";
 import type { Presence, Presences } from "../../lib/mesh/presence.ts";
+import { idNamed, mayReplace, sentBy } from "../../lib/mesh/thread.ts";
 import type { Transport } from "../../lib/mesh/transport.ts";
 
 /**
@@ -86,6 +88,18 @@ export function registerTools(
 			text: Type.String({
 				description: "The message, plain and short, standing on its own",
 			}),
+			re: Type.Optional(
+				Type.String({
+					description:
+						"The id of the message this answers, as shown in brackets beside it, such as 2f95756a",
+				}),
+			),
+			supersedes: Type.Optional(
+				Type.String({
+					description:
+						"The id of a message this peer sent earlier that this one replaces, to withdraw or correct it; it also goes wherever that one went, so everyone who heard it hears this",
+				}),
+			),
 		}),
 		execute: using(send),
 	});
@@ -173,9 +187,41 @@ function peers(at: Local): Promise<Census> {
 
 async function send(
 	at: Local,
-	params: { to: string; intent: Message["intent"]; text: string },
+	params: {
+		to: string;
+		intent: Message["intent"];
+		text: string;
+		re?: string;
+		supersedes?: string;
+	},
 ): Promise<Answer> {
-	const to = groupsNamed(params.to);
+	const ids = at.transport.ids();
+	const re = params.re ? idNamed(params.re, ids) : undefined;
+	const supersedes = params.supersedes
+		? idNamed(params.supersedes, ids)
+		: undefined;
+	const replaced = supersedes ? at.transport.read(supersedes) : undefined;
+	const self = { addresses: at.peer.addresses, pid: process.pid };
+	const unthreaded = [
+		params.re && !re
+			? `no message has the id ${params.re}, so it answers nothing`
+			: "",
+		params.supersedes && !replaced
+			? `no message has the id ${params.supersedes}, so it replaces nothing`
+			: "",
+		replaced && !sentBy(replaced, self)
+			? `${params.supersedes} was sent by ${replaced.from}, and only a message's sender may replace it`
+			: "",
+	].filter(Boolean);
+	if (unthreaded.length > 0) {
+		return answer(
+			`Not sent: ${unthreaded.join("; ")}. mesh_read shows each message's id in brackets.`,
+			{ sent: false, refused: [] } satisfies SendDetails,
+		);
+	}
+	// A replacement goes wherever what it replaces went, so it reaches
+	// everyone who heard that, beside whoever it is now sent to.
+	const to = [...new Set([...(replaced?.to ?? []), ...groupsNamed(params.to)])];
 	const standing = await peers(at);
 	const everyone = standing.present;
 	const refused = to.filter(
@@ -199,6 +245,8 @@ async function send(
 		intent: params.intent,
 		text: params.text,
 		pid: process.pid,
+		...(re ? { re } : {}),
+		...(supersedes ? { supersedes } : {}),
 	});
 	at.sent(message);
 	// A peer reads what it writes to: Skynet's annals found peers posting
@@ -275,15 +323,37 @@ async function read(at: Local, params: { count?: number }): Promise<Answer> {
 		)
 		.slice(-wanted);
 	const receipt = receipts(at, (await peers(at)).present);
+	const withdrawn = withdrawals(latest);
 	const text =
 		latest.length > 0
 			? latest
 					.map((message) =>
-						[line(message), receipt(message)].filter(Boolean).join("\n  "),
+						[line(message), withdrawn.get(message.id) ?? "", receipt(message)]
+							.filter(Boolean)
+							.join("\n  "),
 					)
 					.join("\n")
 			: "Nothing on the mesh yet.";
 	return answer(`This peer is ${at.peer.addresses.join(" or ")}.\n${text}`);
+}
+
+/**
+ * The messages among these that a later one replaced, each with the
+ * line that says so, so a withdrawn message is never read as standing.
+ */
+function withdrawals(messages: readonly Message[]): Map<string, string> {
+	const byId = new Map(messages.map((one) => [one.id, one]));
+	const withdrawn = new Map<string, string>();
+	for (const one of messages) {
+		const original = one.supersedes ? byId.get(one.supersedes) : undefined;
+		if (original && mayReplace(one, original)) {
+			withdrawn.set(
+				original.id,
+				`withdrawn: replaced by [${shortId(one)}], so go by that instead`,
+			);
+		}
+	}
+	return withdrawn;
 }
 
 /**

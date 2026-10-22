@@ -28,8 +28,20 @@ describe("an envelope", () => {
 	});
 
 	it("ignores what it does not know, so a newer peer's message still reads", () => {
-		const newer = { ...message(), v: 2, re: "0-X-1-bbbb", mood: "calm" };
+		const newer = { ...message(), v: 2, mood: "calm", thread: { x: 1 } };
 		expect(messageFrom(newer)).toEqual({ ...message(), v: 2 });
+	});
+
+	it("keeps the message it answers and the one it replaces", () => {
+		const threaded = {
+			...message(),
+			re: "0-X-1-bbbb",
+			supersedes: "0-X-1-cccc",
+		};
+		expect(messageFrom(threaded)).toEqual(threaded);
+		expect(messageFrom({ ...message(), re: 7, supersedes: null })).toEqual(
+			message(),
+		);
 	});
 
 	it("reads an intent it does not know as an fyi", () => {
