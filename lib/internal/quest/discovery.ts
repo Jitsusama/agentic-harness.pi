@@ -50,6 +50,7 @@ import type { QuestDoc, QuestDocumentDoc } from "../../quest/types.ts";
 import {
 	explainDocumentFrontMatter,
 	parseDocumentFrontMatter,
+	splitFrontMatter,
 } from "./frontmatter.ts";
 import { isId, prefixOf } from "./id.ts";
 import { extractTitle, parseQuestDoc } from "./quest-doc.ts";
@@ -199,6 +200,43 @@ function parseDocumentFile(text: string): QuestDocumentDoc | undefined {
 		body: parsed.body,
 		title: extractTitle(parsed.body),
 	};
+}
+
+/**
+ * A parsed record as the index keeps it: its front matter and title
+ * copied out of the file's text, and its body read from the file each
+ * time it is asked for.
+ *
+ * Holding every body kept 45 million characters of quest prose in
+ * every pi process, 73 MB of a 73 MB index, and a title or field that
+ * V8 had cut out of a file's text kept the whole text alive besides.
+ * Only lookups, `find`, `links` and `show` read bodies, never a
+ * per-turn path, and reading all 733 READMEs' bodies takes 11 ms, so
+ * the index keeps what every call asks for (20 MB, from 73) and leaves
+ * prose on disk.
+ * A body read later can be newer than the front matter beside it,
+ * which the next walk's signature catches.
+ */
+function kept<D extends QuestDoc | QuestDocumentDoc>(doc: D, path: string): D {
+	const copied = structuredClone({
+		frontMatter: doc.frontMatter,
+		title: doc.title,
+	});
+	const lean = { frontMatter: copied.frontMatter, title: copied.title };
+	Object.defineProperty(lean, "body", {
+		enumerable: true,
+		get: () => {
+			try {
+				// Both parsers take the body as the split leaves it, so the
+				// front matter need not be parsed again to find it.
+				return splitFrontMatter(readFileSync(path, "utf8"))?.body ?? "";
+			} catch {
+				// Gone since the walk: the next walk drops the record too.
+				return "";
+			}
+		},
+	});
+	return lean as D;
 }
 
 /**
@@ -416,7 +454,10 @@ function discoverQuestsUncached(
 				if (!docText) continue;
 				const docDoc = parseDocumentFile(docText);
 				if (docDoc) {
-					documents.push({ path: childPath, doc: docDoc });
+					documents.push({
+						path: childPath,
+						doc: kept(docDoc, childPath),
+					});
 					continue;
 				}
 				// Surfaced rather than skipped. A file named like a document,
@@ -478,7 +519,11 @@ function discoverQuestsUncached(
 			});
 		}
 		const documents = scanDocuments(full);
-		quests.set(doc.frontMatter.id, { dir: full, doc, documents });
+		quests.set(doc.frontMatter.id, {
+			dir: full,
+			doc: kept(doc, readmePath),
+			documents,
+		});
 		const parentKey = doc.frontMatter.parent ?? "";
 		const list = children.get(parentKey) ?? [];
 		list.push(doc.frontMatter.id);

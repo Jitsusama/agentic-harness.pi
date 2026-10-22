@@ -111,15 +111,17 @@ export interface QuestRowExpansion {
 
 /** Build the expansion block for a single quest entry. */
 export function buildRowExpansion(entry: QuestEntry): QuestRowExpansion {
-	const cast = extractCast(entry.doc.body)
+	// Read once: the index reads a body from disk each time it is asked.
+	const body = entry.doc.body;
+	const cast = extractCast(body)
 		.slice(0, 5)
 		.map((c) => ({ role: c.role, subject: c.subject }));
 	const documents = entry.documents.map((d) => ({
 		id: d.doc.frontMatter.id,
 		stage: d.doc.frontMatter.stage,
 	}));
-	const recentJourney = extractJourneyEntries(entry.doc.body, 3);
-	const summary = firstSummaryLine(entry.doc.body);
+	const recentJourney = extractJourneyEntries(body, 3);
+	const summary = firstSummaryLine(body);
 	return summary
 		? { summary, cast, documents, recentJourney }
 		: { cast, documents, recentJourney };
