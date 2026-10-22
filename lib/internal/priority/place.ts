@@ -23,6 +23,7 @@
 import { ChildProcess } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { queuedCommand } from "./turn.ts";
 
 const CGROUPS = "/sys/fs/cgroup";
 
@@ -102,11 +103,15 @@ export function shellMovesItself(path: string): string | undefined {
 	return `printf '%s\\n' "$$" 2>/dev/null > '${path}' || :`;
 }
 
-/** `command`, moving its shell into jobs first while children go there. */
+/**
+ * `command`, moving its shell into jobs first while children go there,
+ * and waiting for its turn in the machine's queue when it is heavy work.
+ */
 export function placedCommand(command: string): string {
 	const target = placementTarget();
 	const move = target ? shellMovesItself(target) : undefined;
-	return move ? `${move}\n${command}` : command;
+	const queued = queuedCommand(command);
+	return move ? `${move}\n${queued}` : queued;
 }
 
 /**
