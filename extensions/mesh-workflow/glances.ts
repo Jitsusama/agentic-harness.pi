@@ -85,6 +85,19 @@ export function handedIn(entries: readonly Entry[]): Set<string> {
 	return ids;
 }
 
+/** The session these entries last said this peer left its quest to. */
+export function leftToIn(entries: readonly Entry[]): string | undefined {
+	let leftTo: string | undefined;
+	for (const entry of entries) {
+		if (entry.type !== "custom_message" || entry.customType !== NOTED) {
+			continue;
+		}
+		const said = (entry.details as Partial<Delivered> | null)?.leftTo;
+		if (typeof said === "string") leftTo = said;
+	}
+	return leftTo;
+}
+
 /**
  * What deliveries in these entries counted against the peer's limits:
  * the turns they started, and the messages they handed over in full.

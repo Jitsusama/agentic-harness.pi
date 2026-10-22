@@ -22,9 +22,11 @@ import type { Owner } from "@jitsusama/agentic-harness.core/process";
 
 import {
 	addressesOf,
+	loadedAddress,
 	olderAddresses,
 	type QuestRecords,
 	signaturesOfOthers,
+	yieldsTo,
 } from "./address.ts";
 import type { Receiver } from "./attention.ts";
 import type { Listener } from "./message.ts";
@@ -54,6 +56,11 @@ export interface Peer {
 	readonly busy: boolean;
 	/** What it waits on its person for, standing longest (see want.ts). */
 	readonly wants: Want | undefined;
+	/**
+	 * The live peer it left its quest's address to, since that peer
+	 * already signed with it (see address.ts).
+	 */
+	readonly yieldedTo: Presence | undefined;
 	/** Say it waits on its person for this, in place of any of its kind. */
 	want(want: Want): void;
 	/** Say it no longer waits for this kind; answers whether it did. */
@@ -88,6 +95,11 @@ export interface Surroundings {
 	 * into a fresh one: the same peer under a new session id.
 	 */
 	readonly previous?: string;
+	/**
+	 * The sessions last counted still there (see liveness.ts), or nothing
+	 * before any count, when every presence is taken as there.
+	 */
+	readonly live?: () => ReadonlySet<string> | undefined;
 }
 
 /** This session's peer, with the groups it last joined. */
@@ -143,12 +155,26 @@ export function localPeer(at: Surroundings): Peer {
 			// it is only other senders who cannot see it there.
 		}
 	};
+	let yieldedTo: Presence | undefined;
 	const refresh = () => {
+		const everyone = at.presences.all();
+		const counted = at.live?.();
+		const live = counted
+			? everyone.filter((one) => counted.has(one.session))
+			: everyone;
+		const signing = loadedAddress(at.session, at.records);
+		yieldedTo = yieldsTo(
+			at.session,
+			signing,
+			signing !== undefined && addresses[0] === signing,
+			live,
+		);
 		addresses = addressesOf(
 			at.session,
 			at.records,
 			older,
-			signaturesOfOthers(at.session, at.presences.all()),
+			signaturesOfOthers(at.session, everyone),
+			yieldedTo !== undefined,
 		);
 		const work = workOf(at.session, joined, at.cwd, at.records);
 		scopes = [...work.scopes];
@@ -187,6 +213,9 @@ export function localPeer(at: Surroundings): Peer {
 		},
 		get wants() {
 			return longestStanding(wanting.values());
+		},
+		get yieldedTo() {
+			return yieldedTo;
 		},
 		want(want) {
 			wanting.set(want.kind, want);

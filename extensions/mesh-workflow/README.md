@@ -11,6 +11,10 @@ and can answer a question or a gate left open on screen.
   the quest it has loaded (`P9R1KI`), so its address survives
   reloads. It also answers to older quests that list it and to
   the last eight characters of its session id.
+- **Yield:** a peer leaving its quest's address to another live
+  peer that already signs with it, and signing with its session
+  id's eight characters until that peer ends (see Who Is Still
+  There).
 - **Message:** what a peer sends, signed with its address and
   stamped by the mesh with an id and a time. Its short id is
   the id's last part, shown in brackets (`[2f95756a]`).
@@ -477,6 +481,23 @@ characters, the groups it joined, the stops it set, and the
 holds and waits it stood on. The old presence is then
 forgotten, so nobody else signs with those addresses and a
 hold nobody has let go of does not read as its holder ending.
+
+Two sessions can have one quest loaded at once, which happens
+often, as when a second session is opened on it.
+Both signing with its address, each took the other's messages
+for its own and heard none, and one read marker served both.
+So the address is one live peer's. A peer starting while
+another live peer signs with it yields: it signs with its
+session id's eight characters, and keeps its own read marker.
+Two that took it at once settle by session id, the lower
+keeping it, so neither flips back and forth. The holder is
+told on the mesh and the one yielding is told in its session,
+each asked to agree which part of the quest it takes, since two
+sessions on one quest are how work gets done twice. Both still
+hear the quest's group; its address reaches only the holder.
+Who is still there is counted at start and once a minute, so a
+peer takes the address back within a minute of its holder
+ending, and a holder that ended never keeps it from anyone.
 
 A peer has a message once its read marker passes it, which is
 when it is handed to the peer's model, at whatever attention.

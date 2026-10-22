@@ -1048,6 +1048,89 @@ describe("sending", () => {
 		});
 	});
 
+	it("signs as its session while another live peer has its quest, and both are told", async () => {
+		// Two sessions on one quest both signed with its address, so each
+		// took the other's messages for its own and heard none of them.
+		peer("session-x", ["7M6JKG"], []);
+		const { sent, tools } = await startSession();
+
+		expect(await send(tools, "p9r1ki", "fyi", "hello")).toContain(
+			"Sent as 24B025FE",
+		);
+		const transport = folderTransport(join(paths.mesh, "messages"));
+		const told = transport
+			.ids()
+			.map((id) => transport.read(id))
+			.find((one) => one?.to.includes("@7M6JKG"));
+		expect(told).toMatchObject({ from: "24B025FE", intent: "fyi" });
+		expect(told?.text).toContain("has quest 7M6JKG loaded too");
+		expect(
+			sent.some(({ message }) =>
+				message.content.startsWith("Another live session, 7M6JKG"),
+			),
+		).toBe(true);
+
+		fromElsewhere({ from: "7M6JKG", to: ["@24B025FE"], text: "which part?" });
+		await vi.waitFor(() =>
+			expect(
+				sent.some(({ message }) => message.content.includes("which part?")),
+			).toBe(true),
+		);
+	});
+
+	it("does not tell the peer holding its quest again after a reload", async () => {
+		peer("session-x", ["7M6JKG"], []);
+		const said = {
+			type: "custom_message",
+			customType: NOTED,
+			details: { messages: [], glanced: [], leftTo: "session-x" },
+		};
+		const { sent } = await startSession({}, {}, [said]);
+
+		const transport = folderTransport(join(paths.mesh, "messages"));
+		expect(transport.ids()).toHaveLength(0);
+		expect(
+			sent.some(({ message }) =>
+				message.content.startsWith("Another live session"),
+			),
+		).toBe(false);
+	});
+
+	it("keeps its quest's address from a peer that held it and ended", async () => {
+		peer("session-x", ["7M6JKG"], [], true);
+		const { tools } = await startSession();
+
+		expect(await send(tools, "p9r1ki", "fyi", "hello")).toContain(
+			"Sent as 7M6JKG",
+		);
+		const transport = folderTransport(join(paths.mesh, "messages"));
+		expect(transport.ids()).toHaveLength(1);
+	});
+
+	it("takes its quest's address back once the peer holding it ends", async () => {
+		peer("session-x", ["7M6JKG"], []);
+		const { tools } = await startSession(
+			{},
+			{},
+			[],
+			undefined,
+			undefined,
+			undefined,
+			20,
+		);
+		expect(await send(tools, "p9r1ki", "fyi", "one")).toContain(
+			"Sent as 24B025FE",
+		);
+
+		peer("session-x", ["7M6JKG"], [], true);
+
+		// Taken back while idle, with nothing sent or heard to look again.
+		const presences = createPresences(join(paths.mesh, "presence"));
+		await vi.waitFor(() =>
+			expect(presences.of(session)?.addresses[0]).toBe("7M6JKG"),
+		);
+	});
+
 	it("says who it reaches, and which addresses nobody goes by", async () => {
 		// A typo once sent a message nowhere without a word.
 		peer("session-p", ["P9R1KI"], []);

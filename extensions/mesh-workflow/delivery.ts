@@ -66,6 +66,11 @@ export interface Delivered {
 	readonly turn?: boolean;
 	/** Why each message got the attention it did, for the screen. */
 	readonly why?: readonly string[];
+	/**
+	 * The session this peer said it left its quest's address to, so a
+	 * reload does not say it again (see address.ts).
+	 */
+	readonly leftTo?: string;
 }
 
 /** Messages in full, with any glances waiting carried along. */
