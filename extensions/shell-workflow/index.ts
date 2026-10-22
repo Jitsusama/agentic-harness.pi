@@ -2,8 +2,10 @@
  * Shell Workflow Extension
  *
  * Registers `bash` as pi's own bash tool, built with the same settings,
- * with two changes. The agent's commands run with no interactive editor
- * or pager, since nobody is at the keyboard to leave one. And a command
+ * with three changes. The agent's commands run with no interactive editor
+ * or pager, since nobody is at the keyboard to leave one. Each command is
+ * kept off its shell's command line, so `pkill -f` with a pattern from it
+ * kills what it names rather than the shell running it. And a command
  * still running after five minutes is handed to job-workflow rather than
  * holding the session silently: the call returns saying so, and the job
  * says how the command ended. A model expecting a long run passes
@@ -23,6 +25,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { placedCommand } from "../../lib/internal/priority/place.ts";
+import { offCommandLine } from "./command-line.ts";
 import { withoutInteraction } from "./environment.ts";
 import { HAND_OFF_MS, runOrHandOff, spoken } from "./hand-off.ts";
 
@@ -56,12 +59,16 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 		bash ??= createBashToolDefinition(ctx.cwd, {
 			...shellSettings(ctx),
 			// The shell moves itself into jobs before it runs anything, where
-			// priority-workflow is placing what pi starts there.
+			// priority-workflow is placing what pi starts there. The command,
+			// that move included, then leaves the shell's command line last,
+			// so `pkill -f` cannot match the shell running it.
 			spawnHook: (context) =>
-				withoutInteraction({
-					...context,
-					command: placedCommand(context.command),
-				}),
+				offCommandLine(
+					withoutInteraction({
+						...context,
+						command: placedCommand(context.command),
+					}),
+				),
 		});
 		return bash;
 	};
