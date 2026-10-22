@@ -218,6 +218,8 @@ describe("thinking level", () => {
 	});
 
 	it("does not change a turn's address, so a rescan fills the level in place", () => {
+		// A booking is added the same way, after the digest, so the same
+		// holds for the quest each turn is booked to.
 		const before = readTurns("s1", [assistantLine("a1", 1)]);
 		const after = readTurns("s1", [
 			levelLine("t1", null, "high"),
@@ -225,5 +227,79 @@ describe("thinking level", () => {
 		]);
 
 		expect(after.turns[0].digest).toBe(before.turns[0].digest);
+	});
+});
+
+describe("booking a turn to its quest", () => {
+	function under(parentId: string | null, line: string): string {
+		return JSON.stringify({ ...JSON.parse(line), parentId });
+	}
+
+	function questLine(
+		id: string,
+		parentId: string | null,
+		questId: string | null,
+		document?: string,
+	): string {
+		return JSON.stringify({
+			type: "custom",
+			customType: "quest-workflow",
+			id,
+			parentId,
+			timestamp: "2026-09-21T17:55:00.000Z",
+			data: {
+				questId,
+				documentPath: document
+					? `/quests/${questId}/plans/${document}.md`
+					: null,
+				cwd: "/home/j",
+			},
+		});
+	}
+
+	/** What each turn was booked to, read without core's newer type. */
+	function booked(scan: ReturnType<typeof readTurns>) {
+		return scan.turns.map((t) => {
+			const { entryId, quest, document } = t as typeof t & {
+				quest?: string | null;
+				document?: string | null;
+			};
+			return [entryId, quest, document];
+		});
+	}
+
+	it("books each turn to the quest and document in force at it", () => {
+		const scan = readTurns("s1", [
+			under(null, assistantLine("a0", 1)),
+			questLine("q1", "a0", "QEST-A", "PLAN-1"),
+			under("q1", assistantLine("a1", 1)),
+			questLine("q2", "a1", "QEST-B"),
+			under("q2", assistantLine("a2", 1)),
+			questLine("q3", "a2", null),
+			under("q3", assistantLine("a3", 1)),
+		]);
+
+		expect(booked(scan)).toEqual([
+			["a0", null, null],
+			["a1", "QEST-A", "PLAN-1"],
+			["a2", "QEST-B", null],
+			["a3", null, null],
+		]);
+	});
+
+	it("keeps a quest loaded on one branch out of its sibling", () => {
+		const scan = readTurns("s1", [
+			questLine("q1", null, "QEST-A"),
+			under("q1", assistantLine("a1", 1)),
+			questLine("q2", "a1", "QEST-B"),
+			under("q2", assistantLine("a2", 1)),
+			under("a1", assistantLine("a3", 1)),
+		]);
+
+		expect(booked(scan).map(([id, quest]) => [id, quest])).toEqual([
+			["a1", "QEST-A"],
+			["a2", "QEST-B"],
+			["a3", "QEST-A"],
+		]);
 	});
 });

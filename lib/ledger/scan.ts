@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { basename } from "node:path";
 import type {
 	RunCost,
 	RunTokens,
@@ -26,8 +27,10 @@ const DIGEST_CHARS = 24;
  * 3: what preceded each turn, its gap, estimated new tokens, stop
  * reason, output sizes and run, and how each compaction was written and
  * what surrounded it.
+ * 4: the quest and document in force at each turn, so spend is booked
+ * to the work it was spent on rather than to the session's last quest.
  */
-export const SCAN_VERSION = 3;
+export const SCAN_VERSION = 4;
 
 interface RawUsage {
 	input?: number;
@@ -86,6 +89,10 @@ export function readTurns(
 	// order would carry a level from an abandoned branch into its
 	// sibling; following parentId gives each turn its own branch's.
 	const levels = new Map<string, string | null>();
+	// The quest and document in force at each entry, inherited the same
+	// way, so a turn is booked to the work it was done for rather than to
+	// whichever quest its session named last.
+	const bookings = new Map<string, Booking>();
 	// What came before each turn on its own branch, for the same reason.
 	const branches = new BranchWalk();
 
@@ -112,6 +119,7 @@ export function readTurns(
 			entryOrder.set(entry.id, entryOrder.size);
 		}
 		const level = levelAt(levels, entry);
+		const booking = bookingAt(bookings, entry);
 		const step = branches.step(entry);
 
 		if (entry.type === "session") {
@@ -133,7 +141,7 @@ export function readTurns(
 
 		const read = turnFrom(sessionId, entry, lastModel, level);
 		if (!read) continue;
-		const turn: TurnRecord = { ...read, ...step };
+		const turn: TurnRecord = { ...read, ...step, ...booking };
 		if (turn.kind === "assistant" && turn.model) lastModel = turn.model;
 		session.observeTurn(turn.timestamp);
 		turns.push(turn);
@@ -268,6 +276,52 @@ function levelAt(
 			: inherited;
 	if (typeof entry.id === "string") levels.set(entry.id, level);
 	return level;
+}
+
+/** The quest and document a turn is booked to; null is none loaded. */
+interface Booking {
+	readonly quest: string | null;
+	readonly document: string | null;
+}
+
+/**
+ * Before its branch says otherwise, a turn had nothing loaded. That is
+ * also what the session-wide answer gives a log with no quest entry,
+ * since quest-workflow is the only thing that names one.
+ */
+const NOTHING_LOADED: Booking = { quest: null, document: null };
+
+/**
+ * The booking in force at an entry: the one a quest-workflow entry
+ * states, or its parent's. An unload is stated as a null quest, and it
+ * ends the booking there rather than being skipped.
+ */
+function bookingAt(
+	bookings: Map<string, Booking>,
+	entry: Record<string, unknown>,
+): Booking {
+	const inherited =
+		typeof entry.parentId === "string"
+			? (bookings.get(entry.parentId) ?? NOTHING_LOADED)
+			: NOTHING_LOADED;
+	const stated =
+		entry.customType === "quest-workflow"
+			? statedBooking(asRecord(entry.data))
+			: undefined;
+	const booking = stated ?? inherited;
+	if (typeof entry.id === "string") bookings.set(entry.id, booking);
+	return booking;
+}
+
+/** What a quest-workflow entry says is loaded, or nothing if it says not. */
+function statedBooking(
+	data: Record<string, unknown> | null,
+): Booking | undefined {
+	if (!data || !("questId" in data)) return undefined;
+	const quest = typeof data.questId === "string" ? data.questId : null;
+	const path =
+		quest && typeof data.documentPath === "string" ? data.documentPath : null;
+	return { quest, document: path ? basename(path, ".md") : null };
 }
 
 /**
