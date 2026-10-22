@@ -113,6 +113,26 @@ describe("whose turn it is", () => {
 		expect(nextTurn(jobs, ROOMY, NOW)?.id).toBe("timed");
 	});
 
+	it("starts the work a session waits on first within its class", () => {
+		const awaited = new Set(["held-on"]);
+		const jobs = [
+			job("old"),
+			job("waited", {
+				since: startedAgo(10_000),
+				owner: { session: "held-on", pid: 2 },
+			}),
+			job("timed", { kind: "benchmark", since: startedAgo(5_000) }),
+		];
+		expect(waitingInOrder(jobs, awaited).map((one) => one.id)).toEqual([
+			"timed",
+			"waited",
+			"old",
+		]);
+		const bulk = jobs.filter((one) => one.id !== "timed");
+		expect(nextTurn(bulk, ROOMY, NOW, undefined, awaited)?.id).toBe("waited");
+		expect(nextTurn(bulk, ROOMY, NOW)?.id).toBe("old");
+	});
+
 	it("gives no turn within a spread of the last, nor under pressure", () => {
 		const running = job("running", { started: startedAgo(SPREAD_MS - 1) });
 		expect(nextTurn([running, job("next")], ROOMY, NOW)).toBeUndefined();

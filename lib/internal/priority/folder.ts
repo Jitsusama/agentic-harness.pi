@@ -39,6 +39,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { awaitedNow, NOBODY } from "./awaited.ts";
 import {
 	besideNow,
 	capFor,
@@ -138,6 +139,8 @@ export interface QueueRecord {
 		readonly slice?: string;
 		/** Started beside a VM check, with its Nix builds capped. */
 		readonly capped?: true;
+		/** Waiting, and another session waits on its owner, so it goes first. */
+		readonly awaited?: true;
 	}[];
 	/** Minutes some job waited today though the memory it needed was free. */
 	readonly wasted: {
@@ -318,7 +321,10 @@ export function queueFolder(
 					}),
 					reading,
 				);
-				const next = nextTurn(standing, reading, now, rules());
+				const awaited = standing.some((job) => job.started === undefined)
+					? awaitedNow()
+					: NOBODY;
+				const next = nextTurn(standing, reading, now, rules(), awaited);
 				const queue = next
 					? standing.map((job) =>
 							job.id === next.id
@@ -348,6 +354,7 @@ export function queueFolder(
 					processes,
 					shellOf,
 					rules(),
+					awaited,
 				);
 				const shape = JSON.stringify({ ...record, at: "", heartbeat: 0 });
 				const due = !before || now - before.heartbeat * 1000 >= HEARTBEAT_MS;
@@ -370,6 +377,7 @@ export function queueRecord(
 	processes: Pick<Processes, "cgroupOf">,
 	shellOf: (id: string) => number | undefined = () => undefined,
 	rules: Rules = RULES,
+	awaited: ReadonlySet<string> = NOBODY,
 ): QueueRecord {
 	const at = new Date(now).toISOString();
 	const day = at.slice(0, 10);
@@ -380,7 +388,7 @@ export function queueRecord(
 		waitsWithRoom(jobs, reading) && carried.minute !== minute
 			? { today: carried.today + 1, day, minute }
 			: carried;
-	const waiting = waitingInOrder(jobs);
+	const waiting = waitingInOrder(jobs, awaited);
 	return {
 		v: 1,
 		at,
@@ -411,6 +419,9 @@ export function queueRecord(
 					since: job.started ?? job.since,
 					...(job.started === undefined
 						? { place: waiting.indexOf(job) + 1 }
+						: {}),
+					...(job.started === undefined && awaited.has(job.owner.session)
+						? { awaited: true as const }
 						: {}),
 					...(slice !== undefined ? { slice } : {}),
 					...(job.capped ? { capped: true as const } : {}),

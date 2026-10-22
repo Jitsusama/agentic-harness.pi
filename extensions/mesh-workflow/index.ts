@@ -46,6 +46,7 @@ import {
 	findClassifier,
 } from "../../lib/classifier/jev.ts";
 import { dataDir, stateDir } from "../../lib/internal/paths.ts";
+import { tellAwaited } from "../../lib/internal/priority/awaited.ts";
 import {
 	carriedBy,
 	ROLLOVER_CARRY,
@@ -72,6 +73,7 @@ import {
 import { groupNamed, homeOf, isJoinable } from "../../lib/mesh/group.ts";
 import { isSubagent, MESH_SESSION_ENV } from "../../lib/mesh/hand.ts";
 import {
+	awaitedSessions,
 	carryLeases,
 	changesOf,
 	createBoard,
@@ -270,6 +272,22 @@ export function meshWorkflow(
 				// Uncounted, the last count stands.
 			}
 		};
+		/**
+		 * Who the live peers are parked on, for the machine queue to give
+		 * their heavy work its turn first (see lib/internal/priority/awaited.ts).
+		 */
+		const awaited = () =>
+			awaitedSessions(
+				board.all(),
+				// This peer is there whether or not it was counted yet.
+				presences
+					.all()
+					.filter(
+						(one) =>
+							one.session === peer?.session || (live?.has(one.session) ?? true),
+					),
+			);
+		let untellAwaited: (() => void) | undefined;
 		// Whose quest address this peer was told it left, and what it last
 		// signed as, so each is said once.
 		let leftTo: string | undefined;
@@ -774,6 +792,8 @@ export function meshWorkflow(
 			const previous = previousSession(carriedBy(branch, CARRY_NAME));
 			if (previous) carryLeases(board, previous, session);
 			await countLive();
+			untellAwaited?.();
+			untellAwaited = tellAwaited(awaited);
 			// Said already before a reload is not said again.
 			leftTo = leftToIn(branch);
 			signed = undefined;
@@ -939,6 +959,8 @@ export function meshWorkflow(
 			heavyCalls.clear();
 			stopWatching?.();
 			stopWatching = undefined;
+			untellAwaited?.();
+			untellAwaited = undefined;
 		});
 
 		/** Claim or give up heavy work, saying so when it overlaps another's. */

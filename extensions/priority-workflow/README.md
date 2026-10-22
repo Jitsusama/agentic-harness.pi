@@ -65,8 +65,9 @@ never waits.
   under 10%, and fewer than two VMs run. The VMs are counted from the
   machine's processes as well as the queue, so a check picked from a
   variable, or a VM a session runs outside the queue, still counts.
-  Timed work goes first, then the oldest; a job memory holds back holds
-  everyone behind it.
+  Timed work goes first, then within each class the work of a session
+  another is parked on (the mesh says whose, from its wait leases),
+  then the oldest; a job memory holds back holds everyone behind it.
 - **Only work is read:** a quoted single word, such as a quoted flake
   reference, counts as part of the command. A step that only looks for
   something, such as `pgrep`, `ps`, `grep`, `systemctl` or `echo`,

@@ -21,7 +21,8 @@
  *   on the machine as well as in the queue, since a command can pick
  *   its check from a variable the queue can't read, and a session on
  *   older code runs its VMs outside the queue.
- * - **Order**: timed work before bulk, then the oldest first. A job its
+ * - **Order**: timed work before bulk, then work another session waits
+ *   on (see awaited.ts), then the oldest first. A job its
  *   limit holds back lets the next one past; a job memory holds back
  *   holds everyone behind it, so a big job is never starved by small
  *   ones slipping in.
@@ -38,6 +39,7 @@
  */
 
 import { noun } from "../../ui/count.ts";
+import { NOBODY } from "./awaited.ts";
 import type { Beside } from "./outcome.ts";
 
 /** What a command does, as the harness reads it. */
@@ -131,13 +133,22 @@ export function isVm(job: Pick<Job, "kind">): boolean {
 	return VMS.has(job.kind);
 }
 
-/** The jobs waiting, in the order they get their turns. */
-export function waitingInOrder(jobs: readonly Job[]): Job[] {
+/**
+ * The jobs waiting, in the order they get their turns: within each
+ * class, those of the sessions `awaited` names first. Never ahead of
+ * its class, so only bulk work is ever behind a build.
+ */
+export function waitingInOrder(
+	jobs: readonly Job[],
+	awaited: ReadonlySet<string> = NOBODY,
+): Job[] {
+	const waitedOn = (job: Job) => (awaited.has(job.owner.session) ? 0 : 1);
 	return jobs
 		.filter((job) => job.started === undefined)
 		.sort(
 			(one, other) =>
 				rank(one) - rank(other) ||
+				waitedOn(one) - waitedOn(other) ||
 				Date.parse(one.since) - Date.parse(other.since) ||
 				one.id.localeCompare(other.id),
 		);
@@ -200,6 +211,7 @@ export function nextTurn(
 	room: Room,
 	now: number,
 	rules: Rules = RULES,
+	awaited: ReadonlySet<string> = NOBODY,
 ): Job | undefined {
 	const running = jobs.filter((job) => job.started !== undefined);
 	const last = Math.max(
@@ -209,7 +221,7 @@ export function nextTurn(
 	if (now - last < SPREAD_MS) return undefined;
 	if (room.memoryPressure >= MOST_MEMORY_PRESSURE) return undefined;
 	const { growing, vms, builds } = standing(jobs, room, now, rules);
-	for (const job of waitingInOrder(jobs)) {
+	for (const job of waitingInOrder(jobs, awaited)) {
 		if (isVm(job) && vms >= MOST_VMS) continue;
 		// Only bulk work is behind a build, and it all waits with it.
 		if (job.kind === "build" && builds < 1) return undefined;

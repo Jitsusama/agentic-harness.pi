@@ -33,6 +33,7 @@ import {
 	type MeshPaths,
 	meshWorkflow,
 } from "../../../extensions/mesh-workflow/index.ts";
+import { awaitedNow } from "../../../lib/internal/priority/awaited.ts";
 import {
 	ROLLOVER_CARRY,
 	ROLLOVER_RECORD,
@@ -2449,6 +2450,23 @@ describe("a lease", () => {
 			).toEqual({ triggerTurn: true }),
 		);
 		expect(ownBoard()).toEqual([]);
+	});
+
+	it("tells the machine queue whose work this peer is parked on", async () => {
+		peer("session-w", ["WCJQSG"], []);
+		const { tools, fire } = await startSession();
+		expect(awaitedNow()).toEqual(new Set());
+		const hold = fromElsewhere({ intent: "hold", text: "kernel build first" });
+		await tools.get("mesh_send")?.execute("call-2", {
+			to: "WCJQSG",
+			intent: "fyi",
+			text: "parked",
+			re: hold.id,
+		});
+
+		expect(awaitedNow()).toEqual(new Set(["session-w"]));
+		await fire("session_shutdown");
+		expect(awaitedNow()).toEqual(new Set());
 	});
 
 	it("ends unsaid when the peer holding it has ended, so is no go-ahead", async () => {
