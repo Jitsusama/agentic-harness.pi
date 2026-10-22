@@ -53,6 +53,20 @@ export function answers(message: Message, read: Reader, self: Self): boolean {
 	return answered !== undefined && sentBy(answered, self);
 }
 
+/**
+ * Whether this message answers a question this peer asked, which the
+ * peer is waiting on whatever intent the answer was sent with.
+ */
+export function answersQuestion(
+	message: Message,
+	read: Reader,
+	self: Self,
+): boolean {
+	if (message.re === undefined) return false;
+	const asked = read(message.re);
+	return asked?.intent === "question" && sentBy(asked, self);
+}
+
 /** Whether this peer sent the message, by address or by process. */
 export function sentBy(message: Message, self: Self): boolean {
 	return message.pid === self.pid || self.addresses.includes(message.from);

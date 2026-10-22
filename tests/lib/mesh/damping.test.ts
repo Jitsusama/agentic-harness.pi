@@ -45,6 +45,21 @@ describe("a peer's turns", () => {
 		expect(damper.damp(message({ from: "P9R1KI" }), act, 0, at)).toEqual(act);
 	});
 
+	it("are started for an awaited answer whatever the hour has spent", () => {
+		const damper = createDamper();
+		for (let one = 0; one < MOST_TURNS_AN_HOUR; one += 1) {
+			damper.started(["WCJQSG"], at);
+		}
+		const awaited: Heed = { ...wake, awaited: true };
+
+		expect(damper.damp(message(), awaited, 1, at)).toEqual(awaited);
+		expect(
+			damper.damp(message(), awaited, MOST_REPLY_DEPTH + 1, at).attention,
+		).toBe("note");
+		damper.handed([message()], at);
+		expect(damper.damp(message(), awaited, 1, at).attention).toBe("glance");
+	});
+
 	it("stop being started by anyone past the hour's", () => {
 		const damper = createDamper();
 		for (let one = 0; one < MOST_TURNS_AN_HOUR; one += 1) {

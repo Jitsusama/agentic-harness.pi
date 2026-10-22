@@ -29,7 +29,10 @@
  *
  * A message answering one this peer sent is taken as sent to it, since
  * it is, wherever it went. An fyi or a hold never takes a turn: neither
- * asks for anything an idle peer has to do.
+ * asks for anything an idle peer has to do. The exception is an answer
+ * to a question this peer asked, which wakes it however it was sent,
+ * since the peer is waiting on it: an answer sent as an fyi would
+ * otherwise sit until something else started a turn.
  *
  * What a message is worth is held to what the peer can afford by
  * damping (see damping.ts), which this module knows nothing of.
@@ -64,12 +67,19 @@ export interface Standing {
 	readonly concern?: Concern;
 	/** The message answers one this peer sent (see thread.ts). */
 	readonly answers?: boolean;
+	/** The message answers a question this peer asked (see thread.ts). */
+	readonly asked?: boolean;
 }
 
 /** The attention a message gets, and why, for the screen and the tests. */
 export interface Heed {
 	readonly attention: Attention;
 	readonly why: string;
+	/**
+	 * The peer is waiting on it, as on an answer to its own question, so
+	 * damping does not hold it to the hour's turns.
+	 */
+	readonly awaited?: boolean;
 }
 
 /**
@@ -81,6 +91,12 @@ export const OTHER_AT_LEAST = 0.6;
 
 /** The attention one message gets from a peer standing like this. */
 export function attend(message: Message, at: Standing): Heed {
+	if (at.asked) {
+		const why = "answering this peer's question";
+		return at.idle
+			? { attention: "wake", why, awaited: true }
+			: { attention: "note", why };
+	}
 	if (at.answers || isHomeTo(message, at.receiver.addresses)) {
 		const why = at.answers ? "answering this peer" : "sent to this peer";
 		if (!at.idle) return { attention: "note", why };
