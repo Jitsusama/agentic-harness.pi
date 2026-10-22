@@ -177,7 +177,23 @@ export function replaceSection(
 
 /** Lowercase and collapse space, so a match ignores how it was typed. */
 function normalise(text: string): string {
-	return text.trim().replace(/\s+/g, " ").toLowerCase();
+	return plain(text).trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+/**
+ * Text as it reads, without the markdown that dresses it: a link's
+ * words without its target, and no bold, strike or code marks. Plans
+ * lead items with a bold label (`**R5. m569: restart leafd.**`), and
+ * agents name the item by the words they see, so matching on the
+ * marks refused them. Both sides go through this, so a `*` in a glob
+ * or a `__` in a name still compares equal to itself.
+ */
+function plain(text: string): string {
+	return text
+		.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+		.replace(/\*\*|__|~~|`/g, "")
+		.replace(/(^|\s)\*(\S)/g, "$1$2")
+		.replace(/(\S)\*(?=\s|$)/g, "$1");
 }
 
 /** A heading's words, without the emoji the quest format puts first. */
