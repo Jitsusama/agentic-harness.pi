@@ -188,6 +188,19 @@ A conflict is a **halt**, not a failure. The tree is neither
 where it was nor where it was going, and the answer names the
 commit it stopped on and the paths that disagree.
 
+One kind of conflict never halts: a Markdown file where both
+sides only added, at the same place, such as two entries
+appended to a history or decision log. The replay keeps both,
+what had landed first, and carries on. Where both claimed the
+same number (`## 127.`, `D186`), the replayed entry moves to
+the next free one, and so do its citations in the commit
+being replayed. The answer names each file it settled and
+every number it moved. Lines the branch's other commits added
+that still cite an old number are named when the replay ends:
+fix those in a commit of their own. A conflict that changes a
+line already there, or a file already edited by hand, halts
+as below.
+
 Two ways out, and no third:
 
 ```
