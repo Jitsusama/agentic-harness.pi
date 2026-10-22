@@ -38,6 +38,33 @@ import { canonical, PACKAGE_NAME } from "./lifecycle.ts";
 /** What `onto` says to mean the install pi's settings name. */
 export const INSTALLED = "installed";
 
+/** How long the session must stay idle, with nothing queued, to reload. */
+export const STILL_MS = 1_000;
+
+/**
+ * Wait until the session is idle and stays so with nothing queued.
+ *
+ * `waitForIdle` resolves the moment a run ends, and a run often does
+ * not stay ended: a compaction that cut it short finishes and sends
+ * the message that resumes it tens of milliseconds later. Reloading in
+ * that gap pulled the tools out from under the resumed run's first
+ * call. So the session has to be still for a moment, and is looked at
+ * again after every wait.
+ */
+export async function untilStill(
+	ctx: Pick<
+		ExtensionCommandContext,
+		"waitForIdle" | "isIdle" | "hasPendingMessages"
+	>,
+	stillMs: number = STILL_MS,
+): Promise<void> {
+	for (;;) {
+		await ctx.waitForIdle();
+		await new Promise((done) => setTimeout(done, stillMs));
+		if (ctx.isIdle() && !ctx.hasPendingMessages()) return;
+	}
+}
+
 /** The command the request is handed to, and its argument for a reload. */
 export const COMMAND = "harness";
 export const RELOAD_ARG = "reload";
@@ -140,15 +167,17 @@ export async function performReload(
 ): Promise<void> {
 	const slot = reloadSlot();
 	const tree = isSwapped(running) ? running.root : undefined;
-	const request: ReloadRequest = slot.request ?? {
+	// Set before the wait, so the new runtime knows this one will say
+	// how it went and does not say it twice.
+	slot.request ??= {
 		reason: "you asked with /harness reload",
 		by: "person",
 		...(tree ? { tree } : {}),
 	};
-	// Set before the reload, so the new runtime knows this one will say
-	// how it went and does not say it twice.
-	slot.request = request;
-	await ctx.waitForIdle();
+	await untilStill(ctx);
+	// Read after the wait: the session's own request says what came in,
+	// and more can come in while it waits.
+	const request: ReloadRequest = slot.request;
 	let restore: Restore | undefined;
 	if (request.tree !== undefined) {
 		try {

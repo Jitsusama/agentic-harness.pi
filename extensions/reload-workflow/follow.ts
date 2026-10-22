@@ -90,22 +90,33 @@ export async function follow(
 	}
 
 	// The first HEAD seen of each root that moved, so a second move
-	// before the reload says everything since the code that runs.
+	// before the reload says everything since the code that runs. Kept
+	// after dispatch, since a reload waits for the session to be still
+	// and more can land meanwhile; the next runtime starts with none.
 	const moved = new Map<string, Moved>();
 	let recheck: NodeJS.Timeout | undefined;
 
-	const dispatch = async () => {
-		const slot = reloadSlot();
+	const reasonNow = async () => {
 		const named = (
 			await Promise.all(
 				[...moved.values()].map((one) => cameIn(one.root, one.from, one.to)),
 			)
 		).flat();
-		moved.clear();
-		slot.request = {
-			reason: named.length > 0 ? named.join("; ") : "the install moved",
-			by: "self",
-		};
+		return named.length > 0 ? named.join("; ") : "the install moved";
+	};
+
+	/** A dispatched reload of our own, not yet under way, says what came in since. */
+	const retell = async () => {
+		const slot = reloadSlot();
+		if (slot.request?.by !== "self" || slot.reloading) return;
+		const reason = await reasonNow();
+		if (slot.request?.by !== "self" || slot.reloading) return;
+		slot.request = { ...slot.request, reason };
+	};
+
+	const dispatch = async () => {
+		const slot = reloadSlot();
+		slot.request = { reason: await reasonNow(), by: "self" };
 		slot.dispatched = true;
 		pi.sendUserMessage(`/${COMMAND} ${RELOAD_ARG}`, {
 			expandPromptTemplates: true,
@@ -151,7 +162,8 @@ export async function follow(
 		(one) => {
 			const earlier = moved.get(one.root);
 			moved.set(one.root, earlier ? { ...one, from: earlier.from } : one);
-			consider();
+			if (reloadSlot().request?.by === "self") void retell();
+			else consider();
 		},
 		quietMs,
 	);

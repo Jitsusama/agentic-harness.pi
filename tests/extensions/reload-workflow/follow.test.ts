@@ -103,6 +103,22 @@ describe("following the install", () => {
 		});
 	});
 
+	it("names what lands while its reload waits for the session", async () => {
+		const { install, prompted } = await session();
+
+		await land(install, "feat: the first thing");
+		await until("the reload is asked for", () => prompted.length > 0);
+		await land(install, "feat: the second thing");
+
+		await until("the reason names both", () =>
+			String(reloadSlot().request?.reason).includes("second"),
+		);
+		expect(reloadSlot().request?.reason).toBe(
+			"feat: the second thing; feat: the first thing",
+		);
+		expect(prompted).toEqual(["/harness reload"]);
+	});
+
 	it("waits for a busy session's run to end", async () => {
 		const { install, prompted, settle } = await session({ idle: false });
 
