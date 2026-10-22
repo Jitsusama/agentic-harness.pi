@@ -21,7 +21,20 @@ explicit.
   `contribute(ctx)`) through `lib/prompt`.
 - On `before_agent_start`, the coordinator assembles the
   contributors in ascending order, joins their non-empty text,
-  and appends the result to the system prompt.
+  and puts the result in the `resident` prompt section.
+
+## Why a Section, Not a Returned Prompt
+
+pi treats a system prompt returned from `before_agent_start` as
+forced: every request then opens with that text and the tools as
+they stand now. So a tool added, removed or reworded, or any prompt
+section changing, rewrote the whole cache, which every deploy did
+to every session that reloaded onto it. As a section, pi sends a
+change after the conversation and a tool change inline, and the
+cache holds. Measured on 22 October with `pi -p`: a tool removed
+between two turns made the next request read 0 cached tokens and
+write 58,904 with the old hook, and read 60,357 and write 127 with
+the section.
 - The block is frozen on first assembly, so every turn in a
   session gets byte-identical output even if a contributor's
   text later changes. A new session gets a fresh freeze.
