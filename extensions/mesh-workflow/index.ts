@@ -95,6 +95,7 @@ import type { Judge } from "../../lib/mesh/routing.ts";
 import { isStopped } from "../../lib/mesh/stop.ts";
 import {
 	answers,
+	answersQuestion,
 	depthOf,
 	mayReplace,
 	type Self,
@@ -314,6 +315,9 @@ export function meshWorkflow(
 				isStopped(message, peer?.stops ?? [], everyone),
 			);
 			const answering = messages.map((message) => answers(message, read, self));
+			const asked = messages.map((message) =>
+				answersQuestion(message, read, self),
+			);
 			const concerns = await Promise.all(
 				messages.map((message, at) =>
 					stopped[at] || answeringAt(answering, at)
@@ -337,6 +341,7 @@ export function meshWorkflow(
 					receiver,
 					idle,
 					answers: answeringAt(answering, at),
+					asked: answeringAt(asked, at),
 					...(concerns[at] ? { concern: concerns[at] } : {}),
 				});
 				const replaced = replacedBy(message);

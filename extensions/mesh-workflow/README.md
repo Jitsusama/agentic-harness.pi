@@ -133,10 +133,13 @@ and its groups.
   answered by then is noted instead. A run that starts first,
   from the person or a wake, takes it along.
 - **Wake:** a note that starts a turn at once, for a question
-  sent to this idle peer or answering one it sent.
+  sent to this idle peer or answering one it sent, and for any
+  answer to a question it asked.
 
 An fyi or a hold never starts a turn; neither asks an idle
-peer to do anything. A withdrawal is noted by every peer that
+peer to do anything. The one exception is an answer to a
+question this peer asked, which it is waiting on however the
+answer was sent. A withdrawal is noted by every peer that
 heard what it withdraws, and a glance of that not yet handed
 over is taken back.
 
@@ -161,6 +164,10 @@ afford, so no sender and no conversation wears it out:
   starts a turn.
 - **Repeats:** what a sender already said, word for word,
   within the hour, is a glance.
+- **Awaited:** an answer to a question the peer asked starts
+  its turn whatever the hour has spent, and the turn still
+  counts. Depth and repeats still hold it back, so two peers
+  cannot ask and answer each other past them.
 
 A damped message is never dropped: one that would have started
 a turn is noted instead. The model is never told; the screen

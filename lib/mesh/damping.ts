@@ -12,6 +12,11 @@
  * - Turns: the mesh starts at most {@link MOST_TURNS_AN_HOUR} turns of
  *   a peer an hour, and at most {@link MOST_TURNS_FROM_ONE} for any
  *   one sender, so one chatty peer cannot spend another's hour.
+ * - Awaited: an answer to a question the peer asked starts its turn
+ *   whatever the hour has spent, though the turn still counts, since
+ *   the peer is waiting on it and is the one that asked. Depth and
+ *   repeats still hold it back, so two peers cannot ask and answer
+ *   each other past them.
  * - Depth: an answer more than {@link MOST_REPLY_DEPTH} deep never
  *   starts a turn, which ends two peers answering each other's answers.
  * - Repeats: what a sender already said, word for word, within the
@@ -88,12 +93,14 @@ export function createDamper(): Damper {
 			const why =
 				depth > MOST_REPLY_DEPTH
 					? "an answer too deep in its thread"
-					: turns.length >= MOST_TURNS_AN_HOUR
-						? "the hour's turns spent"
-						: turns.filter((one) => one.from.includes(message.from)).length >=
-								MOST_TURNS_FROM_ONE
-							? `the hour's turns for ${message.from} spent`
-							: undefined;
+					: heed.awaited
+						? undefined
+						: turns.length >= MOST_TURNS_AN_HOUR
+							? "the hour's turns spent"
+							: turns.filter((one) => one.from.includes(message.from)).length >=
+									MOST_TURNS_FROM_ONE
+								? `the hour's turns for ${message.from} spent`
+								: undefined;
 			return why ? { attention: "note", why: `${heed.why}, ${why}` } : heed;
 		},
 		started(from, now = Date.now()) {

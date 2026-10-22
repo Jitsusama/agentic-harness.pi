@@ -108,6 +108,25 @@ describe("attention", () => {
 		expect(attend(answer, answering).attention).toBe("note");
 	});
 
+	it("wakes an idle peer for an answer to its question, however it was sent", () => {
+		const answer = message({ intent: "fyi", re: "0-5GV2AH-1-bbbb" });
+		const asked = {
+			...standing,
+			answers: true,
+			asked: true,
+			concern: "other" as const,
+		};
+		expect(attend(answer, { ...asked, idle: true })).toEqual({
+			attention: "wake",
+			why: "answering this peer's question",
+			awaited: true,
+		});
+		expect(attend(answer, asked)).toEqual({
+			attention: "note",
+			why: "answering this peer's question",
+		});
+	});
+
 	it("reads a mention of the peer or what it owns as concerning it", () => {
 		// Without a classifier, so a question about the harness still wakes.
 		const asked = message({

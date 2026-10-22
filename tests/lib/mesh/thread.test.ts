@@ -6,6 +6,7 @@ import { ALL } from "../../../lib/mesh/group.ts";
 import type { Message } from "../../../lib/mesh/message.ts";
 import {
 	answers,
+	answersQuestion,
 	depthOf,
 	idNamed,
 	mayReplace,
@@ -65,6 +66,29 @@ describe("an answer", () => {
 			false,
 		);
 		expect(answers(asked, read, { addresses: ["LUQ49E"], pid: 8 })).toBe(false);
+	});
+
+	it("answers this peer's question only when what it answers asked one", () => {
+		const self = { addresses: ["LUQ49E"], pid: 1 };
+		const asked = message("1-LUQ49E-8-aaaaaaaa", { from: "LUQ49E", pid: 8 });
+		const told = message("2-LUQ49E-8-cccccccc", {
+			from: "LUQ49E",
+			pid: 8,
+			intent: "finding",
+		});
+		const answer = message("3-WCJQSG-7-bbbbbbbb", {
+			re: asked.id,
+			intent: "fyi",
+		});
+		const thanks = message("4-WCJQSG-7-dddddddd", { re: told.id });
+		const read = holding(asked, told, answer, thanks);
+
+		expect(answersQuestion(answer, read, self)).toBe(true);
+		expect(answersQuestion(thanks, read, self)).toBe(false);
+		expect(
+			answersQuestion(answer, read, { addresses: ["P9R1KI"], pid: 1 }),
+		).toBe(false);
+		expect(answersQuestion(asked, read, self)).toBe(false);
 	});
 });
 

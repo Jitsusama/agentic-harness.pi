@@ -558,6 +558,26 @@ describe("an answer", () => {
 		expect(sent[0]?.message.content).toMatch(/answering \[[0-9a-f]{8}\]/);
 	});
 
+	it("to this peer's question wakes it however it was sent, whatever the hour spent", async () => {
+		const { sent, tools } = await startSession({}, { isIdle: () => true });
+		peer("session-w", ["WCJQSG"], []);
+		await send(tools, "all", "question", "who has qemu?");
+		const [asked = ""] = folderTransport(join(paths.mesh, "messages")).ids();
+		for (let one = 1; one <= MOST_TURNS_FROM_ONE; one += 1) {
+			fromElsewhere({
+				intent: "question",
+				to: ["@7M6JKG"],
+				text: `why ${one}?`,
+			});
+			await vi.waitFor(() => expect(sent).toHaveLength(one));
+		}
+
+		fromElsewhere({ intent: "fyi", re: asked, text: "I do, until 03:00." });
+
+		await vi.waitFor(() => expect(sent).toHaveLength(MOST_TURNS_FROM_ONE + 1));
+		expect(sent.at(-1)?.options).toEqual({ triggerTurn: true });
+	});
+
 	it("goes without its reply when the message it answers is not there", async () => {
 		const { tools } = await startSession();
 		peer("session-w", ["WCJQSG"], []);
