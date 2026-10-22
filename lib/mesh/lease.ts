@@ -322,6 +322,21 @@ export interface OwnLeases {
 }
 
 /**
+ * Move a peer's leases from the session it carried on from to its new
+ * one, as a log rolling over leaves it the same peer under a new id:
+ * left behind, its holds would read as a gone holder's, and every peer
+ * waiting on one would be told it had ended.
+ */
+export function carryLeases(board: Board, from: string, to: string): void {
+	if (from === to) return;
+	const before = board.of(from);
+	if (!before) return;
+	const kept = board.of(to)?.leases ?? [];
+	board.hold({ session: to, leases: [...kept, ...before.leases] });
+	board.hold({ session: from, leases: [] });
+}
+
+/**
  * This session's leases. What the board already holds for it is kept,
  * less what lapsed and what a run took, since a peer starting again is
  * in no run: its holds and waits outlive a reload, its changes do not.

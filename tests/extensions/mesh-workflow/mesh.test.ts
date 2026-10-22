@@ -31,6 +31,10 @@ import {
 	type MeshPaths,
 	meshWorkflow,
 } from "../../../extensions/mesh-workflow/index.ts";
+import {
+	ROLLOVER_CARRY,
+	ROLLOVER_RECORD,
+} from "../../../lib/internal/session/rollover.ts";
 import { JOBS_FINISHED } from "../../../lib/jobs/index.ts";
 import { MOST_TURNS_FROM_ONE } from "../../../lib/mesh/damping.ts";
 import { ALL } from "../../../lib/mesh/group.ts";
@@ -1050,6 +1054,58 @@ function stopper(address: string, why?: string) {
 		at: new Date().toISOString(),
 	});
 }
+
+describe("a rollover", () => {
+	it("carries the peer on into the fresh session, the same peer", async () => {
+		peer("session-w", ["WCJQSG"], ["#optimus"]);
+		const first = await startSession();
+		await first.tools.get("mesh_join")?.execute("call-1", { group: "#skynet" });
+		await first.tools.get("mesh_stop")?.execute("call-2", { peer: "WCJQSG" });
+		await send(first.tools, "all", "hold", "Hold builds.");
+		const carry = { carried: {} as Record<string, unknown> };
+		first.emit(ROLLOVER_CARRY, carry);
+		expect(carry.carried.mesh).toEqual({ session });
+		await first.fire("session_shutdown");
+
+		// The fresh log's quest record may not be written yet.
+		const fresh = "01a20000-0000-7000-8000-00000000f2e5";
+		await startSession(
+			{},
+			{
+				sessionManager: {
+					getSessionId: () => fresh,
+					getSessionFile: () => join(root, `${fresh}.jsonl`),
+					getBranch: () => [
+						{
+							type: "custom",
+							id: "r1",
+							parentId: null,
+							customType: ROLLOVER_RECORD,
+							data: {
+								parentSession: join(root, `${session}.jsonl`),
+								parentLeaf: "a1",
+								dropped: 3,
+								carried: carry.carried,
+							},
+						},
+					],
+				},
+			},
+		);
+
+		const presences = createPresences(join(paths.mesh, "presence"));
+		const now = presences.of(fresh);
+		expect(now?.addresses[0]).toBe("7M6JKG");
+		expect(now?.joined).toContain("#skynet");
+		expect(now?.stops?.map((stop) => stop.address)).toEqual(["WCJQSG"]);
+		expect(presences.of(session)).toBeUndefined();
+		const board = createBoard(join(paths.mesh, "leases"));
+		expect(board.of(fresh)?.leases.map((lease) => lease.kind)).toEqual([
+			"hold",
+		]);
+		expect(board.of(session)).toBeUndefined();
+	});
+});
 
 describe("a message that names no group", () => {
 	const unaddressed = async (

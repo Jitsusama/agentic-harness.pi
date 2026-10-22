@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	carryLeases,
 	changeSubject,
 	createBoard,
 	heavyWorkIn,
@@ -56,6 +57,21 @@ describe("the board", () => {
 		board.hold({ session: "one", leases: [] });
 		expect(existsSync(join(root, "leases", "one.json"))).toBe(false);
 		expect(board.all().map(({ session }) => session)).toEqual(["two/x"]);
+	});
+
+	it("carries a peer's leases to the session it carries on in", () => {
+		const board = createBoard(join(root, "leases"));
+		const held = lease({ kind: "hold", subject: "1-a" });
+		const waited = lease({ kind: "wait", subject: "2-b" });
+		board.hold({ session: "old", leases: [held] });
+		board.hold({ session: "new", leases: [waited] });
+
+		carryLeases(board, "old", "new");
+
+		expect(board.of("new")?.leases).toEqual([waited, held]);
+		expect(board.of("old")).toBeUndefined();
+		carryLeases(board, "new", "new");
+		expect(board.of("new")?.leases).toEqual([waited, held]);
 	});
 
 	it("reads as empty before any peer has written to it", () => {

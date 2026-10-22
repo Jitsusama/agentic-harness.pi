@@ -72,18 +72,36 @@ export interface Surroundings {
 	readonly presences: Presences;
 	/** The process holding this session, when the machine would say. */
 	readonly owner?: Owner;
+	/**
+	 * The session this one carries on from, when pi rolled its log over
+	 * into a fresh one: the same peer under a new session id.
+	 */
+	readonly previous?: string;
 }
 
 /** This session's peer, with the groups it last joined. */
 export function localPeer(at: Surroundings): Peer {
-	const before = at.presences.of(at.session);
+	// A peer carried on from an earlier session is the same peer: it takes
+	// that session's presence as its own, and the presence is forgotten,
+	// so nobody signs with its addresses and this peer keeps them.
+	const carried =
+		at.previous !== undefined && at.previous !== at.session
+			? at.presences.of(at.previous)
+			: undefined;
+	if (carried) at.presences.forget(carried.session);
+	const before = at.presences.of(at.session) ?? carried;
 	let joined = [...(before?.joined ?? before?.groups ?? [])].sort();
 	let stops: Stop[] = [...(before?.stops ?? [])];
 	let scopes: string[] = [];
 	let addresses: string[] = [];
 	// Found once a start: reading every README on each refresh would
 	// cost a few hundred file reads per message.
-	const older = olderAddresses(at.session, at.records);
+	const older = [
+		...new Set([
+			...olderAddresses(at.session, at.records),
+			...(carried?.addresses ?? []),
+		]),
+	];
 	let receiver: Receiver = { addresses, worksOn: "", owns: [] };
 	let busy = false;
 	const groups = () => [...new Set([...scopes, ...joined])].sort();
