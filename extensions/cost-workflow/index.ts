@@ -73,6 +73,18 @@ import {
 	formatVerifierOutcomes,
 	type IndexOutcome,
 } from "./report.ts";
+import {
+	earliest,
+	formatUse,
+	type QuestChange,
+	questChangesQuery,
+	readSamples,
+	recordTurn,
+	useByQuest,
+} from "./resources.ts";
+
+/** Where each session's per-turn resource figures are kept. */
+const resourcesDir = () => join(packageStateDir("observability"), "resources");
 
 /** Rows of a query answer shown before the rest is left to the store. */
 const QUERY_ROWS_SHOWN = 40;
@@ -238,6 +250,21 @@ export default function costWorkflow(pi: ExtensionAPI) {
 		publish();
 	});
 
+	// What the machine did for each turn, which no log records. Only a
+	// session with a person at it, since a subagent's use already lands
+	// in the session that started it; never one pi keeps no log for.
+	pi.on("turn_end", (_event, ctx) => {
+		if (!ctx.hasUI) return;
+		const log = ctx.sessionManager.getSessionFile();
+		if (!log) return;
+		try {
+			recordTurn(log, { dir: resourcesDir() });
+		} catch {
+			// A full disk or a read-only state directory costs this turn's
+			// figure, never the turn.
+		}
+	});
+
 	pi.on("session_start", async (_event, ctx) => {
 		// Replay the branch rather than starting from zero. A reload or a
 		// resumed session has already spent money, and a total that resets
@@ -367,6 +394,15 @@ export default function costWorkflow(pi: ExtensionAPI) {
 						"priority, so it can take up to a minute.",
 				}),
 			),
+			resources: Type.Optional(
+				Type.Boolean({
+					description:
+						"Report the CPU time, disk reads and writes and peak memory " +
+						"each quest's sessions used, heaviest CPU first, instead of a " +
+						"spend report. Counted from the kernel at the end of every " +
+						"turn, including the commands and subagents a session ran.",
+				}),
+			),
 			payback: Type.Optional(
 				Type.Boolean({
 					description:
@@ -408,6 +444,38 @@ export default function costWorkflow(pi: ExtensionAPI) {
 			if (params.reindex) {
 				return {
 					content: [{ type: "text", text: formatIndexOutcome(index) }],
+					details: { ok: true, index },
+				};
+			}
+
+			if (params.resources) {
+				const samples = readSamples(resourcesDir());
+				const changes: QuestChange[] = [];
+				if (samples.size > 0) {
+					const answer = await (await openReader()).query(
+						questChangesQuery([...samples.keys()]),
+					);
+					for (const row of answer.rows) {
+						changes.push({
+							session: String(row.session_id),
+							at: String(row.timestamp),
+							quest: typeof row.quest === "string" ? row.quest : null,
+						});
+					}
+				}
+				const uses = useByQuest(samples, changes);
+				return {
+					content: [
+						{
+							type: "text",
+							text: citeListing(openSessionStore(), {
+								view: formatUse(uses, earliest(samples), params.limit ?? 12),
+								records: uses,
+								unit: "quests",
+								narrowing: "Ask for a larger limit to see more.",
+							}),
+						},
+					],
 					details: { ok: true, index },
 				};
 			}
