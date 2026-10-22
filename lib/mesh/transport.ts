@@ -44,10 +44,15 @@ export interface Transport {
 
 /** A fresh id, sorting after every one stamped before it. */
 export function stampId(draft: Pick<Draft, "from" | "pid">): string {
-	// A random tail, so two sent in one millisecond do not share an id,
-	// where the second would replace the first.
-	return `${Date.now()}-${draft.from}-${draft.pid}-${randomBytes(4).toString("hex")}`;
+	// One process's ids always rise, even within a millisecond, since a
+	// later id is how a reply or a replacement is known to come after
+	// what it names. A random tail keeps two processes' ids apart.
+	lastStamp = Math.max(Date.now(), lastStamp + 1);
+	return `${lastStamp}-${draft.from}-${draft.pid}-${randomBytes(4).toString("hex")}`;
 }
+
+/** The time the last id this process stamped carries. */
+let lastStamp = 0;
 
 /** Whether a file in a transport folder holds a message. */
 export function isMessageFile(file: string): boolean {

@@ -34,9 +34,11 @@
 
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type {
-	ExtensionAPI,
-	ExtensionContext,
+import {
+	type ExtensionAPI,
+	type ExtensionContext,
+	isToolCallEventType,
+	type ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import { ownerNow } from "@jitsusama/agentic-harness.core/process";
@@ -58,6 +60,14 @@ import {
 } from "../../lib/mesh/attention.ts";
 import { createDamper } from "../../lib/mesh/damping.ts";
 import { groupNamed, isJoinable } from "../../lib/mesh/group.ts";
+import {
+	createBoard,
+	LEASE_EVENT,
+	leaseEventFrom,
+	type OwnLeases,
+	ownLeases,
+	RUN_KINDS,
+} from "../../lib/mesh/lease.ts";
 import {
 	bridgePresences,
 	bridgeTransport,
@@ -87,10 +97,12 @@ import {
 	digest,
 	GLANCE,
 	GLANCES,
+	holdsOver,
 	NOTED,
 	noted,
 } from "./delivery.ts";
 import { countedIn, createGlances, type Entry } from "./glances.ts";
+import { createLeasing, type HoldEnd } from "./leases.ts";
 import { type Local, registerTools } from "./tools.ts";
 
 /**
@@ -114,6 +126,13 @@ const JUDGE_MS = 2500;
  * coordination has nothing to do with it but read it.
  */
 const FIRST_CATCH_UP_MS = 60 * 60 * 1000;
+
+/**
+ * How often a peer waiting on another's hold asks whether its holder is
+ * still there, or the hold has run out. Only while it waits: a peer
+ * waiting on nothing keeps no clock.
+ */
+export const WAIT_CHECK_MS = 60 * 1000;
 
 /** Why a stopped peer's message is a glance, whatever it was. */
 const STOPPED = "from a peer this one stopped";
@@ -172,6 +191,7 @@ export function meshWorkflow(
 	paths: MeshPaths = machinePaths(),
 	env: NodeJS.ProcessEnv = process.env,
 	settling: Settling = SETTLING,
+	waitCheckMs: number = WAIT_CHECK_MS,
 ) {
 	return (pi: ExtensionAPI) => {
 		// Not on the mesh at all: see isSubagent.
@@ -186,6 +206,20 @@ export function meshWorkflow(
 		);
 		const glances = createGlances();
 		const damper = createDamper();
+		const board = createBoard(join(paths.mesh, "leases"));
+		let own: OwnLeases | undefined;
+		const leasing = createLeasing({
+			board,
+			presences,
+			transport,
+			own: () => own,
+			peer: () => peer,
+			sent: (message) => seen.add(message.id),
+		});
+		// Holds this peer waited on that are over, waiting to settle as acts
+		// do, so peers held by one hold do not all carry on at once.
+		let resumes: Acts<HoldEnd> | undefined;
+		let waitClock: ReturnType<typeof setInterval> | undefined;
 		let acts: Acts<Heeded> | undefined;
 		// Messages other peers have answered, so a question to a group that
 		// one peer took up starts no turn of the rest.
@@ -339,6 +373,7 @@ export function meshWorkflow(
 			const all = wake ? [...heeded, ...unstopped(acts?.take() ?? [])] : heeded;
 			if (all.length === 0) return;
 			const messages = all.map(({ message }) => message);
+			if (wake) leasing.answering(messages);
 			const carried = glances.take();
 			pi.sendMessage(
 				{
@@ -361,17 +396,36 @@ export function meshWorkflow(
 		 * still worth one and affordable, and a note for the rest, such as a
 		 * group's question another peer has answered meanwhile.
 		 */
-		const settled = (arrived: Heeded[]) => {
+		const settled = async (arrived: Heeded[]) => {
 			if (!ctx || !peer) return;
 			const waiting = unstopped(arrived);
+			// A question another peer has a turn for is left to it.
+			const answerers = await Promise.all(
+				waiting.map(({ message }) =>
+					message.intent === "question"
+						? leasing.answeredBy(message).catch(() => undefined)
+						: undefined,
+				),
+			);
+			if (!ctx || !peer) return;
 			const read = (id: string) => transport.read(id);
 			const idle = ctx.isIdle?.() ?? false;
 			const damped: string[] = [];
-			const now = waiting.map(({ message, heed }): Heeded => {
+			const now = waiting.map(({ message, heed }, at): Heeded => {
 				if (answered.has(message.id) && message.intent === "question") {
 					return {
 						message,
 						heed: { attention: "note", why: `${heed.why}, answered already` },
+					};
+				}
+				const answerer = answerers[at];
+				if (answerer !== undefined) {
+					return {
+						message,
+						heed: {
+							attention: "note",
+							why: `${heed.why}, being answered by ${answerer}`,
+						},
 					};
 				}
 				if (!idle)
@@ -409,6 +463,10 @@ export function meshWorkflow(
 			if (seen.has(id) || !peer) return undefined;
 			seen.add(id);
 			const message = transport.read(id);
+			// A hold this peer waits on can end in a message to a group it does
+			// not hear, so ends are looked for before what reaches it.
+			const end = message ? leasing.ended(message) : undefined;
+			if (end) resumes?.add(end);
 			// Answers are counted wherever they went, so a question to a group
 			// one peer took up is known as answered by every other.
 			if (
@@ -446,6 +504,48 @@ export function meshWorkflow(
 			glanceView(legacyGlance(entry.data), theme),
 		);
 
+		/**
+		 * Holds this peer waited on that are over: a turn to carry on while
+		 * idle, and a note mid-run. It is this peer's own work resuming, not
+		 * another's interruption, so damping leaves it be; it still counts
+		 * toward the hour.
+		 */
+		const resumed = (ends: HoldEnd[]) => {
+			if (!ctx || ends.length === 0) return;
+			const turn = ctx.isIdle?.() ?? false;
+			const carried = glances.take();
+			pi.sendMessage(
+				{
+					customType: NOTED,
+					content: holdsOver(ends, carried),
+					display: true,
+					details: delivered([], carried, {
+						turn,
+						why: ends.map(({ how }) => `a hold this peer waited on, ${how}`),
+					}),
+				},
+				{ triggerTurn: turn },
+			);
+			if (turn) damper.started(ends.map(({ hold }) => hold.from));
+		};
+
+		/** Whether the holds waited on still stand, asked while any is. */
+		const checkWaits = async () => {
+			const ends = await leasing.lapsed().catch(() => []);
+			for (const end of ends) resumes?.add(end);
+			if (!own?.leases.some((lease) => lease.kind === "wait")) {
+				clearInterval(waitClock);
+				waitClock = undefined;
+			}
+		};
+		const watchWaits = () => {
+			if (waitClock || !own?.leases.some((lease) => lease.kind === "wait")) {
+				return;
+			}
+			waitClock = setInterval(() => void checkWaits(), waitCheckMs);
+			waitClock.unref?.();
+		};
+
 		pi.on("session_start", async (_event, started) => {
 			if (isEphemeral(started.sessionManager)) return;
 			ctx = started;
@@ -466,7 +566,16 @@ export function meshWorkflow(
 			const counted = countedIn(branch);
 			damper.recover(counted.turns, counted.said);
 			acts?.stop();
-			acts = createActs(peer.session, settling, settled);
+			acts = createActs(peer.session, settling, (waiting) => {
+				void settled(waiting);
+			});
+			resumes?.stop();
+			resumes = createActs(peer.session, settling, resumed);
+			// Its holds and waits outlive a reload; what a run claimed does not.
+			own = ownLeases(board, peer.session);
+			clearInterval(waitClock);
+			waitClock = undefined;
+			watchWaits();
 			// Looked for once a session, not once a message, and not waited
 			// on: a message judged before it is found waits for it, briefly.
 			classifier = findClassifier(
@@ -535,6 +644,7 @@ export function meshWorkflow(
 				return message ? { message } : undefined;
 			}
 			const messages = waiting.map(({ message }) => message);
+			leasing.answering(messages);
 			const carried = glances.take();
 			damper.handed(messages);
 			return {
@@ -555,12 +665,63 @@ export function meshWorkflow(
 		});
 		pi.on("agent_end", async () => {
 			peer?.setBusy(false);
+			// What a run claimed is claimed only while it runs.
+			own?.releaseAll(RUN_KINDS);
 		});
 
 		pi.on("session_shutdown", async () => {
 			acts?.stop();
+			resumes?.stop();
+			clearInterval(waitClock);
+			waitClock = undefined;
+			own?.releaseAll(RUN_KINDS);
 			stopWatching?.();
 			stopWatching = undefined;
+		});
+
+		// A change claims its file, and a peer reaching for a file another is
+		// changing is told who, once, before it goes ahead beside them. Never
+		// throws: pi blocks a tool whose handler fails.
+		pi.on(
+			"tool_call",
+			async (event, called): Promise<ToolCallEventResult | undefined> => {
+				try {
+					const path =
+						isToolCallEventType("edit", event) ||
+						isToolCallEventType("write", event)
+							? event.input.path
+							: undefined;
+					if (typeof path !== "string" || path === "") return undefined;
+					const why = await leasing.reach(
+						path,
+						called?.cwd ?? ctx?.cwd ?? process.cwd(),
+					);
+					return why ? { block: true, reason: why } : undefined;
+				} catch {
+					return undefined;
+				}
+			},
+		);
+
+		// Heavy work is claimed by whatever places it, over pi's bus.
+		pi.events?.on(LEASE_EVENT, (data: unknown) => {
+			const event = leaseEventFrom(data);
+			if (!event) return;
+			void leasing
+				.heavy(event)
+				.then((said) => {
+					if (!said) return;
+					pi.sendMessage(
+						{
+							customType: NOTED,
+							content: said,
+							display: true,
+							details: delivered([], []),
+						},
+						{ triggerTurn: false },
+					);
+				})
+				.catch(() => {});
 		});
 
 		registerTools(pi, (): Local | undefined =>
@@ -569,7 +730,12 @@ export function meshWorkflow(
 						peer,
 						transport,
 						presences,
-						sent: (message) => seen.add(message.id),
+						board,
+						sent: (message) => {
+							seen.add(message.id);
+							leasing.sent(message);
+							watchWaits();
+						},
 					}
 				: undefined,
 		);

@@ -1,0 +1,329 @@
+/**
+ * Leases: expiring claims a peer holds on what it is in the middle of,
+ * kept on a board every peer can read.
+ *
+ * The swarm's holds "mattered as presence more than as a gate": a peer
+ * reaching for what another held was stopped once, told who, since
+ * when and what, and went ahead beside it if it reached again, while
+ * the holder heard. So a lease is presence first. It says what a peer
+ * is changing, answering, holding off or running, and the mesh tells
+ * those involved when two overlap, once. Nothing waits on a lease to
+ * be granted, and none outlives what it claims:
+ *
+ * - **change:** a file this peer is editing, named by repository and
+ *   path so two worktrees of one repository overlap. Taken by the
+ *   harness on each edit; lapses with the run, or ten minutes after the
+ *   last edit.
+ * - **answer:** a question this peer has a turn for, so the rest of a
+ *   group leave it to it. Lapses with the run.
+ * - **hold:** a hold this peer sent, until it answers or replaces it,
+ *   or for two hours at most.
+ * - **wait:** a hold another peer sent that holds up this peer's work,
+ *   so the holder sees what waits on it, and this peer is given a turn
+ *   to carry on when the hold ends.
+ * - **heavy:** heavy work this peer runs on the machine, as whatever
+ *   places it says through the lease event.
+ *
+ * Every lease also lapses when its holder is gone, which is asked of the
+ * machine (see liveness.ts), never of a heartbeat. Each peer writes only
+ * its own leases, one file per session, so no two writers meet.
+ */
+
+import { readdirSync, readFileSync, rmSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
+import { checkoutOf, repositoryName } from "./presence.ts";
+import { writeAtomically } from "./transport.ts";
+
+/** What a lease claims. */
+export type LeaseKind = "change" | "answer" | "hold" | "wait" | "heavy";
+
+export const LEASE_KINDS: readonly LeaseKind[] = [
+	"change",
+	"answer",
+	"hold",
+	"wait",
+	"heavy",
+];
+
+/** One claim on the board. */
+export interface Lease {
+	readonly kind: LeaseKind;
+	/** What it claims: a file, a message's id, or a kind of heavy work. */
+	readonly subject: string;
+	/** When it was taken, as an ISO time. */
+	readonly since: string;
+	/** When it lapses unless renewed, as an ISO time. */
+	readonly until: string;
+	/** What it is for, in a phrase. */
+	readonly why?: string;
+}
+
+/** One peer's leases, as the board keeps them. */
+export interface Holding {
+	readonly session: string;
+	readonly leases: readonly Lease[];
+}
+
+/** How long a lease taken in a run lasts without being renewed. */
+export const RUN_LEASE_MS = 10 * 60 * 1000;
+
+/** The longest a hold stands, and so a wait on it. */
+export const MOST_HOLD_MS = 2 * 60 * 60 * 1000;
+
+/** How long heavy work is claimed for when whoever places it says not. */
+export const HEAVY_MS = 60 * 60 * 1000;
+
+/** The kinds that lapse when the run that took them ends. */
+export const RUN_KINDS: ReadonlySet<LeaseKind> = new Set(["change", "answer"]);
+
+/**
+ * A lease is written again only when renewing moves its end this far,
+ * so a run of edits to one file is one write, not one each.
+ */
+const RENEWAL_MS = 60 * 1000;
+
+/**
+ * The event any extension emits on pi's bus to say this peer is running
+ * heavy work, or has stopped: `{ take: { subject, why?, ms? } }` or
+ * `{ release: subject }`. The subject names the kind of work (`qemu`,
+ * `nix build`), which is what two peers' heavy work overlaps on.
+ */
+export const LEASE_EVENT = "mesh:lease:v1";
+
+/** What the lease event carries. */
+export type LeaseEvent =
+	| { readonly take: { subject: string; why?: string; ms?: number } }
+	| { readonly release: string };
+
+/** The lease event as read from the bus, or nothing when it is not one. */
+export function leaseEventFrom(value: unknown): LeaseEvent | undefined {
+	if (typeof value !== "object" || value === null) return undefined;
+	const event = value as Record<string, unknown>;
+	if (typeof event.release === "string" && event.release.trim() !== "") {
+		return { release: event.release.trim() };
+	}
+	if (typeof event.take !== "object" || event.take === null) return undefined;
+	const take = event.take as Record<string, unknown>;
+	if (typeof take.subject !== "string" || take.subject.trim() === "") {
+		return undefined;
+	}
+	return {
+		take: {
+			subject: take.subject.trim(),
+			...(typeof take.why === "string" ? { why: take.why } : {}),
+			...(typeof take.ms === "number" && take.ms > 0 ? { ms: take.ms } : {}),
+		},
+	};
+}
+
+/** Whether a lease still stands by its clock. */
+export function isCurrent(lease: Lease, now: number): boolean {
+	return Date.parse(lease.until) > now;
+}
+
+/** The board: every peer's leases, one file each. */
+export interface Board {
+	of(session: string): Holding | undefined;
+	/** Write a peer's leases, or take its file away when it has none. */
+	hold(holding: Holding): void;
+	all(): Holding[];
+}
+
+/** The board kept in this folder. */
+export function createBoard(dir: string): Board {
+	const file = (session: string) =>
+		`${session.replace(/[^A-Za-z0-9-]/g, "_")}.json`;
+	return {
+		of: (session) => readHolding(join(dir, file(session))),
+		hold(holding) {
+			if (holding.leases.length === 0) {
+				rmSync(join(dir, file(holding.session)), { force: true });
+				return;
+			}
+			writeAtomically(dir, file(holding.session), JSON.stringify(holding));
+		},
+		all() {
+			let files: string[] = [];
+			try {
+				files = readdirSync(dir).filter(
+					(name) => name.endsWith(".json") && !name.startsWith("."),
+				);
+			} catch {
+				return [];
+			}
+			return files
+				.map((name) => readHolding(join(dir, name)))
+				.filter((one): one is Holding => one !== undefined);
+		},
+	};
+}
+
+function readHolding(path: string): Holding | undefined {
+	try {
+		return holdingFrom(JSON.parse(readFileSync(path, "utf8")));
+	} catch {
+		return undefined;
+	}
+}
+
+/** A holding as read from outside, keeping the leases that read. */
+export function holdingFrom(value: unknown): Holding | undefined {
+	if (typeof value !== "object" || value === null) return undefined;
+	const one = value as Record<string, unknown>;
+	if (typeof one.session !== "string" || !Array.isArray(one.leases)) {
+		return undefined;
+	}
+	return { session: one.session, leases: one.leases.flatMap(leaseFrom) };
+}
+
+function leaseFrom(value: unknown): Lease[] {
+	if (typeof value !== "object" || value === null) return [];
+	const one = value as Record<string, unknown>;
+	if (
+		!LEASE_KINDS.includes(one.kind as LeaseKind) ||
+		typeof one.subject !== "string" ||
+		typeof one.since !== "string" ||
+		typeof one.until !== "string"
+	) {
+		return [];
+	}
+	return [
+		{
+			kind: one.kind as LeaseKind,
+			subject: one.subject,
+			since: one.since,
+			until: one.until,
+			...(typeof one.why === "string" ? { why: one.why } : {}),
+		},
+	];
+}
+
+/** A lease another peer holds, with whose it is. */
+export interface Held {
+	readonly session: string;
+	readonly lease: Lease;
+}
+
+/** Other peers' current leases of this kind on this subject. */
+export function othersOn(
+	board: readonly Holding[],
+	session: string,
+	kind: LeaseKind,
+	subject: string,
+	now: number,
+): Held[] {
+	return board.flatMap((holding) =>
+		holding.session === session
+			? []
+			: holding.leases
+					.filter(
+						(lease) =>
+							lease.kind === kind &&
+							lease.subject === subject &&
+							isCurrent(lease, now),
+					)
+					.map((lease) => ({ session: holding.session, lease })),
+	);
+}
+
+/**
+ * What a change to this file is called on the board: the repository and
+ * the path inside it when the file is in a checkout, so two worktrees of
+ * one repository name it alike, and the absolute path otherwise.
+ */
+export function changeSubject(path: string, cwd: string): string {
+	const absolute = resolve(cwd, path);
+	const checkout = checkoutOf(dirname(absolute));
+	return checkout
+		? `${repositoryName(checkout)}:${relative(checkout, absolute)}`
+		: absolute;
+}
+
+/** This peer's own leases, kept on the board as they change. */
+export interface OwnLeases {
+	readonly leases: readonly Lease[];
+	/** The current lease of this kind on this subject, if this peer holds one. */
+	held(kind: LeaseKind, subject: string, now?: number): Lease | undefined;
+	/** Take a lease, or renew the one held, for this long from now. */
+	take(
+		kind: LeaseKind,
+		subject: string,
+		ms: number,
+		why?: string,
+		now?: number,
+	): Lease;
+	/** Give up a lease; answers the one given up, if there was one. */
+	release(kind: LeaseKind, subject: string): Lease | undefined;
+	/** Give up every lease of these kinds, as a run ending does. */
+	releaseAll(kinds: ReadonlySet<LeaseKind>): void;
+}
+
+/**
+ * This session's leases. What the board already holds for it is kept,
+ * less what lapsed and what a run took, since a peer starting again is
+ * in no run: its holds and waits outlive a reload, its changes do not.
+ */
+export function ownLeases(
+	board: Board,
+	session: string,
+	now: number = Date.now(),
+): OwnLeases {
+	const before = board.of(session)?.leases ?? [];
+	let leases = before.filter(
+		(lease) => !RUN_KINDS.has(lease.kind) && isCurrent(lease, now),
+	);
+	const write = () => board.hold({ session, leases });
+	if (leases.length !== before.length) write();
+	const find = (kind: LeaseKind, subject: string) =>
+		leases.find((lease) => lease.kind === kind && lease.subject === subject);
+	return {
+		get leases() {
+			return leases;
+		},
+		held(kind, subject, at = Date.now()) {
+			const lease = find(kind, subject);
+			return lease && isCurrent(lease, at) ? lease : undefined;
+		},
+		take(kind, subject, ms, why, at = Date.now()) {
+			const until = new Date(at + ms).toISOString();
+			const old = find(kind, subject);
+			if (old && isCurrent(old, at)) {
+				const moved = Date.parse(until) - Date.parse(old.until);
+				if (moved < RENEWAL_MS && (why === undefined || why === old.why)) {
+					return old;
+				}
+				const renewed: Lease = {
+					...old,
+					until: moved > 0 ? until : old.until,
+					...(why !== undefined ? { why } : {}),
+				};
+				leases = leases.map((one) => (one === old ? renewed : one));
+				write();
+				return renewed;
+			}
+			const lease: Lease = {
+				kind,
+				subject,
+				since: new Date(at).toISOString(),
+				until,
+				...(why !== undefined ? { why } : {}),
+			};
+			leases = [...leases.filter((one) => one !== old), lease];
+			write();
+			return lease;
+		},
+		release(kind, subject) {
+			const old = find(kind, subject);
+			if (!old) return undefined;
+			leases = leases.filter((one) => one !== old);
+			write();
+			return old;
+		},
+		releaseAll(kinds) {
+			const kept = leases.filter((lease) => !kinds.has(lease.kind));
+			if (kept.length === leases.length) return;
+			leases = kept;
+			write();
+		},
+	};
+}
