@@ -1426,6 +1426,48 @@ describe("a lease", () => {
 		expect(sentOut()).toHaveLength(1);
 	});
 
+	it("claims a heavy shell command's work until its call answers", async () => {
+		const { fire } = await startSession();
+		const running = (id: string, command: string) =>
+			fire("tool_call", {
+				type: "tool_call",
+				toolName: "bash",
+				toolCallId: id,
+				input: { command },
+			});
+		const answered = (id: string, text = "done") =>
+			fire("tool_result", {
+				type: "tool_result",
+				toolCallId: id,
+				content: [{ type: "text", text }],
+			});
+
+		expect(await running("b0", "ls")).toBeUndefined();
+		expect(ownBoard()).toEqual([]);
+		await running("b1", "nice -n 10 nix flake check\necho ok");
+		await running("b2", "nix flake check .#vm");
+		expect(ownBoard()).toMatchObject([
+			{
+				kind: "heavy",
+				subject: "nix flake check",
+				// Two calls on one kind of work: it says the latest, by its first line.
+				why: "nix flake check .#vm",
+			},
+		]);
+		await answered("b1");
+		expect(ownBoard()).toHaveLength(1);
+		await answered("b2");
+		expect(ownBoard()).toEqual([]);
+
+		// One handed to a job runs on past its answer.
+		await running("b3", "qemu-system-x86_64");
+		await answered(
+			"b3",
+			"Still running after 5 minutes, so it now runs in the background as job 4.",
+		);
+		expect(ownBoard()).toMatchObject([{ kind: "heavy", subject: "qemu" }]);
+	});
+
 	it("lists what the peers still there hold", async () => {
 		peer("session-w", ["WCJQSG"], []);
 		leased("session-w", { why: "a fix" });

@@ -116,6 +116,24 @@ export function leaseEventFrom(value: unknown): LeaseEvent | undefined {
 	};
 }
 
+/**
+ * The heavy work a shell command runs, named as two peers' heavy work
+ * overlaps on, or nothing for a command that is not heavy. A short list
+ * of what loads this machine for minutes, first match winning, so a
+ * flake check is not also read as a build.
+ */
+const HEAVY_WORK: readonly (readonly [RegExp, string])[] = [
+	[/\bnix\s+flake\s+check\b/, "nix flake check"],
+	[/\bnix\s+build\b|\bnix-build\b/, "nix build"],
+	[/\bnixos-rebuild\b/, "nixos-rebuild"],
+	[/\bqemu(?:-system-[\w-]+)?\b/, "qemu"],
+	[/\bcargo\s+build\b/, "cargo build"],
+];
+
+export function heavyWorkIn(command: string): string | undefined {
+	return HEAVY_WORK.find(([pattern]) => pattern.test(command))?.[1];
+}
+
 /** Whether a lease still stands by its clock. */
 export function isCurrent(lease: Lease, now: number): boolean {
 	return Date.parse(lease.until) > now;

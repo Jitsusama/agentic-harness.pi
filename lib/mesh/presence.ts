@@ -108,8 +108,16 @@ export function workOf(
 			scopes: scopesOf({ questChain: [], repositories: runsIn }),
 		};
 	}
-	const trees = (parsed.frontMatter.trees ?? []).map((tree) =>
-		repositoryName(tree.repoRoot ?? tree.path),
+	// Only a tree still checked out names its repository: one taken away
+	// since has no git config to read, and its folder's name is the
+	// broker's (worktree-github-...), which would make a group nobody
+	// else is in.
+	const trees = (parsed.frontMatter.trees ?? []).flatMap((tree) =>
+		[tree.repoRoot, tree.path]
+			.filter((at): at is string => at !== undefined)
+			.filter((at) => existsSync(join(at, ".git")))
+			.slice(0, 1)
+			.map(repositoryName),
 	);
 	const repositories = [...new Set([...trees, ...runsIn])];
 	return {

@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	changeSubject,
 	createBoard,
+	heavyWorkIn,
 	holdingFrom,
 	type Lease,
 	leaseEventFrom,
@@ -208,6 +209,27 @@ describe("a peer's own leases", () => {
 		own.take("hold", "h", minutes(1), undefined, at);
 
 		expect(own.held("hold", "h", at + minutes(1))).toBeUndefined();
+	});
+});
+
+describe("heavy work in a shell command", () => {
+	it("is named by what it runs, wherever in the command it is", () => {
+		expect(heavyWorkIn("cd x && nice -n 10 nix flake check -L")).toBe(
+			"nix flake check",
+		);
+		expect(heavyWorkIn("direnv exec . nix build .#checks.vm")).toBe(
+			"nix build",
+		);
+		expect(heavyWorkIn("nix-build -A vm")).toBe("nix build");
+		expect(heavyWorkIn("qemu-system-x86_64 -m 2G")).toBe("qemu");
+		expect(heavyWorkIn("sudo nixos-rebuild switch")).toBe("nixos-rebuild");
+		expect(heavyWorkIn("cargo build --release")).toBe("cargo build");
+	});
+
+	it("is nothing for a command that only looks at things", () => {
+		expect(heavyWorkIn("nix flake show")).toBeUndefined();
+		expect(heavyWorkIn("cargo fmt")).toBeUndefined();
+		expect(heavyWorkIn("git log --grep nixbuild")).toBeUndefined();
 	});
 });
 

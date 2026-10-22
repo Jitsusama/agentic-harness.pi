@@ -220,12 +220,17 @@ doing only when it is the easy thing:
   do, so peers held by one hold do not all carry on at once.
   Only while it waits does a peer check, once a minute, that
   the holder is still there.
-- **heavy:** any extension claims heavy work for this peer by
-  emitting `mesh:lease:v1` on pi's bus, with
+- **heavy:** a `bash` call running heavy work (`nix flake
+  check`, `nix build`, `nixos-rebuild`, `qemu`, `cargo build`)
+  claims that kind of work until the call answers; one handed
+  to a job runs on past its answer, so its lease stands until
+  its clock. Any extension can claim heavy work too, by
+  emitting `mesh:lease:v1` on pi's bus with
   `{ take: { subject, why?, ms? } }` or `{ release: subject }`;
   the subject names the kind of work. It lasts an hour unless
-  `ms` says otherwise, and two hours at most. Starting heavy
-  work others still there are running tells both sides, once.
+  `ms` says otherwise, and two hours at most, and ends with the
+  session. Starting heavy work others still there are running
+  tells both sides, once.
 
 Every lease also lapses when its holder is gone, which is asked
 of the machine (see Who Is Still There). Holds and waits
@@ -308,8 +313,8 @@ once no session is left on the old harness.
 - Messages, markers and presence are never expired, nor the
   lease files of peers that ended holding a hold or a wait;
   their leases lapse by the clock all the same.
-- Heavy work is leased only where something emits the lease
-  event; nothing on the machine does yet.
+- Nothing says when a job ends, so heavy work handed to a job
+  stays claimed for its hour, however soon it finishes.
 - A change lease covers files, not a pull request in progress.
 - An old membership names no process, so a session that ended
   on the old harness still counts as there until legacy.ts
