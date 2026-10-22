@@ -1,5 +1,6 @@
 /**
- * The mesh's tools: send, read back, and join, leave or list groups.
+ * The mesh's tools: send, read back, join, leave or list groups, and
+ * stop a peer reaching this one.
  */
 
 import { StringEnum } from "@earendil-works/pi-ai";
@@ -24,6 +25,7 @@ import {
 } from "../../lib/mesh/message.ts";
 import type { Peer } from "../../lib/mesh/peer.ts";
 import type { Presence, Presences } from "../../lib/mesh/presence.ts";
+import { stoppedBy } from "../../lib/mesh/stop.ts";
 import { idNamed, mayReplace, sentBy } from "../../lib/mesh/thread.ts";
 import type { Transport } from "../../lib/mesh/transport.ts";
 
@@ -156,6 +158,25 @@ export function registerTools(
 	});
 
 	pi.registerTool({
+		name: "mesh_stop",
+		label: "Mesh",
+		description:
+			"Stop a peer reaching this one, when what it sends keeps costing this peer more than it gives. Until this peer lifts it, the stopped peer's messages reach it only as one-line glances, never in full and never as a turn, and its sends to this peer's home group are refused. The stopped peer is told, with why. Only this peer can lift it.",
+		parameters: Type.Object({
+			peer: Type.String({ description: "The address of the peer to stop" }),
+			why: Type.Optional(
+				Type.String({ description: "Why, said to the stopped peer" }),
+			),
+			lift: Type.Optional(
+				Type.Boolean({
+					description: "Lift a stop this peer set instead of setting one",
+				}),
+			),
+		}),
+		execute: using(stop),
+	});
+
+	pi.registerTool({
 		name: "mesh_groups",
 		label: "Mesh",
 		description:
@@ -239,6 +260,18 @@ async function send(
 			{ sent: false, refused } satisfies SendDetails,
 		);
 	}
+	// A stop is absolute: a peer that stopped this one is not written to
+	// at its home, however the send was meant.
+	const stops = stoppedBy(at.peer, everyone);
+	const barred = to.filter((group) =>
+		stops.some(({ stopper }) => stopper.addresses.map(homeOf).includes(group)),
+	);
+	if (barred.length > 0) {
+		return answer(
+			`Not sent: ${stopsText(stops.filter(({ stopper }) => barred.some((group) => stopper.addresses.map(homeOf).includes(group))))} Only it can lift that; until it does, leave it be.`,
+			{ sent: false, refused: barred } satisfies SendDetails,
+		);
+	}
 	const message = at.transport.send({
 		from: at.peer.signature,
 		to,
@@ -259,6 +292,14 @@ async function send(
 			at.peer.join(group),
 	);
 	const { notes, reached, gone } = reach(message, standing, at.peer);
+	const glancing = stops
+		.filter(({ stopper }) => reaches(message, stopper, -1))
+		.map(({ stopper }) => stopper.addresses[0]);
+	if (glancing.length > 0) {
+		notes.push(
+			`${glancing.join(", ")} stopped this peer, so it sees this as one line and no more.`,
+		);
+	}
 	if (reading.length > 0) {
 		notes.push(
 			`This peer is in ${reading.join(", ")} now, so it hears the answers.`,
@@ -541,9 +582,88 @@ function groupsText(standing: Census, peer: Peer): string {
 		ended.length > 0
 			? `\nEnded, so left out until restored: ${ended.join(", ")}.`
 			: "";
+	const stopping =
+		peer.stops.length > 0
+			? `\nStopped by this peer: ${peer.stops.map((one) => one.address).join(", ")}.`
+			: "";
+	const stops = stoppedBy(peer, standing.present);
+	const stoppedHere = stops.length > 0 ? `\n${stopsText(stops)}` : "";
+	const more = `${gone}${stopping}${stoppedHere}`;
 	return lines.length > 0
-		? `${own}\nGroups:\n${lines.join("\n")}${gone}`
-		: `${own} No other groups yet.${gone}`;
+		? `${own}\nGroups:\n${lines.join("\n")}${more}`
+		: `${own} No other groups yet.${more}`;
+}
+
+/** The stops on this peer, said to it. */
+function stopsText(stops: ReturnType<typeof stoppedBy>): string {
+	return stops
+		.map(
+			({ stopper, stop }) =>
+				`${stopper.addresses[0]} stopped this peer reaching it${stop.why ? ` (${stop.why})` : ""}: it sees what this peer sends as one line only.`,
+		)
+		.join(" ");
+}
+
+async function stop(
+	at: Local,
+	params: { peer: string; why?: string; lift?: boolean },
+): Promise<Answer> {
+	const everyone = at.presences.all();
+	const home = groupNamed(params.peer);
+	const address = home?.startsWith("@") ? home.slice(1) : undefined;
+	if (!address || at.peer.addresses.includes(address)) {
+		return answer(
+			`${params.peer} is not another peer's address; give one as mesh_groups lists it, such as P9R1KI.`,
+		);
+	}
+	const why = params.why?.trim();
+	const stopped = everyone.find((one) => one.addresses.includes(address));
+	// Whichever of its addresses it is named by, a peer has one stop.
+	const standing = at.peer.stops.find(
+		(one) =>
+			one.address === address ||
+			(stopped !== undefined && one.session === stopped.session),
+	);
+	if (params.lift) {
+		if (!standing) {
+			return answer(`${address} is not stopped, so nothing changed.`);
+		}
+		at.peer.lift(standing.address);
+		tell(
+			at,
+			address,
+			`${at.peer.signature} has lifted its stop on this peer, which may reach it again as any peer does.`,
+		);
+		return answer(`Lifted the stop on ${address}; it is told.`);
+	}
+	if (standing) return answer(`${address} is stopped already.`);
+	const set = at.peer.stop({
+		address,
+		at: new Date().toISOString(),
+		...(stopped ? { session: stopped.session } : {}),
+		...(why ? { why } : {}),
+	});
+	if (!set) return answer(`${address} is stopped already.`);
+	tell(
+		at,
+		address,
+		`${at.peer.signature} has stopped this peer reaching it${why ? `: ${why}` : "."} Until it lifts the stop, it sees what this peer sends as one line only, and sends to its home group are refused. Do not work around it.`,
+	);
+	return answer(
+		`Stopped ${address}: what it sends reaches this peer as one line only, until mesh_stop with lift. It is told${why ? ", with why" : ""}.`,
+	);
+}
+
+/** Say something to one peer's home group, as the mesh itself would. */
+function tell(at: Local, address: string, text: string): void {
+	const message = at.transport.send({
+		from: at.peer.signature,
+		to: [homeOf(address)],
+		intent: "fyi",
+		text,
+		pid: process.pid,
+	});
+	at.sent(message);
 }
 
 function answer(text: string, details: unknown = {}) {
