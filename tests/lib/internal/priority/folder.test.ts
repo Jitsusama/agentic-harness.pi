@@ -19,6 +19,10 @@ import {
 	type QueueRecord,
 	queueFolder,
 } from "../../../../lib/internal/priority/folder.ts";
+import {
+	keepOutcome,
+	outcomeOf,
+} from "../../../../lib/internal/priority/outcome.ts";
 import type { Job } from "../../../../lib/internal/priority/queue.ts";
 import type { Reading } from "../../../../lib/internal/priority/room.ts";
 
@@ -244,6 +248,12 @@ describe("the machine's queue folder", () => {
 
 	it("keeps how each job ended and what ran beside it", () => {
 		const file = join(dir, "..", "state", "outcomes.jsonl");
+		// The check passed before, with no capped build beside it.
+		const before = new Date(NOW - 600_000).toISOString();
+		keepOutcome(
+			file,
+			outcomeOf(job("before", { kind: "vm-check", started: before }), NOW, 0),
+		);
 		const queue = queueFolder(
 			dir,
 			{ isRunning: (pid) => running.has(pid), cgroupOf: () => undefined },
@@ -273,7 +283,7 @@ describe("the machine's queue folder", () => {
 		queue.ask(job("next"));
 		shellSays("next", 603);
 		queue.keep(vm, NOW + 9_000, () => undefined);
-		const kept = readFileSync(file, "utf8")
+		const [, ...kept] = readFileSync(file, "utf8")
 			.trim()
 			.split("\n")
 			.map((line) => JSON.parse(line));

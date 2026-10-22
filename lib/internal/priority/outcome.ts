@@ -140,20 +140,36 @@ export function failed(exit: number | undefined): boolean {
 
 /**
  * The Nix settings a build beside a VM check gets: {@link CAPPED_NIX},
- * with its cores lowered to {@link CAPPED_CORES_AFTER_FAILURE} while a VM
- * failed beside a capped build in the last day, as P9R1KI asked for its
- * estimate.
+ * with its cores lowered to {@link CAPPED_CORES_AFTER_FAILURE} while, in
+ * the last day, a VM failed beside a capped build that passed with none,
+ * as P9R1KI asked for its estimate.
+ *
+ * A failure alone says too little: a break copy, a test with one feature
+ * broken on purpose, fails every time, and WCJQSG runs a dozen back to
+ * back. So only work, the same command as the queue names it, that has
+ * passed with no capped build beside it counts when it fails beside one.
  */
 export function capFor(
 	outcomes: readonly Outcome[],
 	now: number,
 ): { readonly maxJobs: number; readonly cores: number } {
 	const since = now - FAILURES_COUNT_FOR_MS;
+	const passedAlone = new Set(
+		outcomes
+			.filter(
+				(outcome) =>
+					isVm(outcome) &&
+					outcome.exit === 0 &&
+					outcome.beside.cappedBuilds === 0,
+			)
+			.map((outcome) => outcome.what),
+	);
 	const failedBesideCap = outcomes.some(
 		(outcome) =>
 			isVm(outcome) &&
 			outcome.beside.cappedBuilds > 0 &&
 			failed(outcome.exit) &&
+			passedAlone.has(outcome.what) &&
 			Date.parse(outcome.ended) >= since,
 	);
 	return failedBesideCap
