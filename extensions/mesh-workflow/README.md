@@ -222,7 +222,9 @@ doing only when it is the easy thing:
   the holder is still there.
 - **heavy:** a `bash` call running heavy work (`nix flake
   check`, `nix build`, `nixos-rebuild`, `qemu`, `cargo build`)
-  claims that kind of work until the call answers; one handed
+  claims that kind of work until the call answers (only where
+  the shell runs it: named in quotes or a heredoc, as a grep or
+  a commit message does, it claims nothing); one handed
   to a job runs on past its answer, so its lease stands until
   its clock. Any extension can claim heavy work too, by
   emitting `mesh:lease:v1` on pi's bus with

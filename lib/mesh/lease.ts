@@ -130,8 +130,21 @@ const HEAVY_WORK: readonly (readonly [RegExp, string])[] = [
 	[/\bcargo\s+build\b/, "cargo build"],
 ];
 
+/** A heredoc's body, from the line after `<<WORD` to WORD alone. */
+const HEREDOC = /<<-?\s*(['"]?)(\w+)\1[^\n]*\n[\s\S]*?\n\s*\2[ \t]*(?=\n|$)/g;
+
+/** A quoted string: single quotes, or double with its escapes. */
+const QUOTED = /'[^']*'|"(?:[^"\\]|\\.)*"/g;
+
+/**
+ * The work a command runs, read only where the shell runs it: text in
+ * quotes or a heredoc names the work (a grep, a commit message, a PR
+ * body) rather than running it. A command run through `sh -c '...'` is
+ * missed, which claims too little, never too much.
+ */
 export function heavyWorkIn(command: string): string | undefined {
-	return HEAVY_WORK.find(([pattern]) => pattern.test(command))?.[1];
+	const runs = command.replace(HEREDOC, "\n").replace(QUOTED, "''");
+	return HEAVY_WORK.find(([pattern]) => pattern.test(runs))?.[1];
 }
 
 /** Whether a lease still stands by its clock. */
