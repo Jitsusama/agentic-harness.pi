@@ -72,6 +72,7 @@ describe("the machine's room", () => {
 		expect(reading.memoryPressure).toBe(4);
 		expect(reading.pressure).toEqual({ cpu: 1.5, memory: 4, io: 0.25 });
 		expect(reading.cores).toBe(2);
+		expect(reading.cpuPressure).toBe(1.5);
 	});
 
 	it("counts the VMs running, by their processes' names", () => {

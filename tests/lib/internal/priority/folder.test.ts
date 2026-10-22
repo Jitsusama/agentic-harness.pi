@@ -27,6 +27,7 @@ const ROOMY: Reading = {
 	availableGib: 40,
 	memoryPressure: 0,
 	vms: 0,
+	cpuPressure: 1,
 	cores: 16,
 	pressure: { cpu: 1, memory: 0, io: 0 },
 };
@@ -124,15 +125,28 @@ describe("the machine's queue folder", () => {
 		};
 		const held = folder();
 		ask(held);
-		held.keep(ROOMY, NOW, () => undefined);
+		held.keep({ ...ROOMY, cpuPressure: 10 }, NOW, () => undefined);
 		expect(held.hasTurn("build")).toBe(false);
+		held.keep(ROOMY, NOW, () => undefined);
+		expect(held.hasTurn("build")).toBe(true);
+		expect(existsSync(join(dir, "build.capped"))).toBe(true);
+		expect(readFileSync(join(dir, "capped.conf"), "utf8")).toBe(
+			"max-jobs = 2\ncores = 4\n",
+		);
+		expect(record().jobs.find((one) => one.id === "build")?.capped).toBe(true);
 		const free = queueFolder(
 			dir,
 			{ isRunning: (pid) => running.has(pid), cgroupOf: () => undefined },
 			() => ({ buildsWaitForVmChecks: false }),
 		);
-		free.keep(ROOMY, NOW, () => undefined);
-		expect(free.hasTurn("build")).toBe(true);
+		free.ask(job("other"));
+		shellSays("other", 603);
+		free.keep(ROOMY, NOW + 3_000, () => undefined);
+		expect(free.hasTurn("other")).toBe(true);
+		expect(existsSync(join(dir, "other.capped"))).toBe(false);
+		running.delete(602);
+		free.keep(ROOMY, NOW + 6_000, () => undefined);
+		expect(existsSync(join(dir, "build.capped"))).toBe(false);
 	});
 
 	it("gives up jobs whose shell or session has ended", () => {

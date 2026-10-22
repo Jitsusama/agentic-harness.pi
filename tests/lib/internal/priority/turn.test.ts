@@ -23,6 +23,7 @@ const ROOMY: Reading = {
 	availableGib: 40,
 	memoryPressure: 0,
 	vms: 0,
+	cpuPressure: 0,
 	cores: 16,
 	pressure: { cpu: 0, memory: 0, io: 0 },
 };
@@ -131,6 +132,38 @@ describe("heavy work waiting for its turn", () => {
 		writeFileSync(join(dir, "room"), "");
 		const full = await run(`${waitsForTurn(dir, 5, 0)?.("gone")}\ntrue`);
 		expect(full).toEqual({ out: "", code: 0 });
+	});
+
+	it("caps the Nix builds of work given its turn beside a VM check", async () => {
+		const wait = waitsForTurn(dir);
+		for (const name of ["j3.job", "j3.turn", "j3.capped"]) {
+			writeFileSync(join(dir, name), "");
+		}
+		const show = 'echo "$NIX_USER_CONF_FILES"';
+		const env = {
+			...process.env,
+			XDG_CONFIG_HOME: "/home/a/.config",
+			XDG_CONFIG_DIRS: "/etc/xdg:/run/sw/etc/xdg",
+			NIX_USER_CONF_FILES: "",
+		};
+		const capped = spawnSync("bash", ["-c", `${wait?.("j3")}\n${show}`], {
+			env,
+		});
+		expect(capped.stdout.toString()).toBe(
+			`${dir}/capped.conf:/home/a/.config/nix/nix.conf:/etc/xdg/nix/nix.conf:/run/sw/etc/xdg/nix/nix.conf\n`,
+		);
+		expect(capped.stderr.toString()).toBe(
+			"Runs beside a VM check, so its Nix builds are held to 2 at once, of 4 cores each.\n",
+		);
+		const own = spawnSync("bash", ["-c", `${wait?.("j3")}\n${show}`], {
+			env: { ...env, NIX_USER_CONF_FILES: "/mine.conf" },
+		});
+		expect(own.stdout.toString()).toBe(`${dir}/capped.conf:/mine.conf\n`);
+		rmSync(join(dir, "j3.capped"));
+		const uncapped = spawnSync("bash", ["-c", `${wait?.("j3")}\n${show}`], {
+			env,
+		});
+		expect(uncapped.stdout.toString()).toBe("\n");
 	});
 
 	it("gives way when its job is given up or nobody keeps the queue", () => {

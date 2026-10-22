@@ -71,12 +71,21 @@ never waits.
   reference, counts as part of the command. A step that only looks for
   something, such as `pgrep`, `ps`, `grep`, `systemctl` or `echo`,
   counts as no work, however its words read.
-- **Builds wait for VM checks** while there is no timed cgroup: the
-  queue gates memory, not CPU, and a VM check runs in the daemon beside
-  any build that starts, which is how a kernel build broke a camera
-  subtest's timing. A VM check still starts beside builds, but not past
-  a build that waits, so a build waits only for the checks already
-  running rather than every check queued after it.
+- **One capped build beside a VM check** while there is no timed
+  cgroup: the queue gates memory, not CPU, and a VM check runs in the
+  daemon beside any build that starts, which is how an all-core kernel
+  build broke a camera subtest's timing. Holding every build instead
+  left five waiting up to 24 minutes with the CPU 72% idle. So one
+  build at a time starts beside a VM check, while CPU pressure is under
+  10%, and its Nix builds run at `max-jobs = 2` and `cores = 4`, at
+  most about 8 cores. The cap is a settings file put first in
+  `NIX_USER_CONF_FILES`, ahead of the files Nix reads anyway, so the
+  person's nix.conf still holds and an inline `NIX_CONFIG` can't drop
+  it; the daemon honours it since the account is a trusted user. The
+  call's output says it ran capped, and `queue.json` marks the job
+  `capped`, so a VM failing beside one can be traced to it. Other builds
+  wait, and a VM check starts beside builds but not past one waiting,
+  so a build waits only for the checks already running.
 - **One at a time:** turns are given at least 3 seconds apart, and a job
   just started counts its need as taken for a minute while it grows.
 - **Timed work** then runs in the cgroup `TIMED_CGROUP` names, or in

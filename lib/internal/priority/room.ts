@@ -79,13 +79,15 @@ export function readRoom(
 		0,
 	);
 	const memory = pressure(kernel.proc, "memory");
+	const cpu = pressure(kernel.proc, "cpu");
 	return {
 		availableGib: Math.max(0, available - kept) / GIB,
 		memoryPressure: memory,
 		vms: vmsIn(kernel.proc),
+		cpuPressure: cpu,
 		cores: cores(kernel.proc),
 		pressure: {
-			cpu: pressure(kernel.proc, "cpu"),
+			cpu,
 			memory,
 			io: pressure(kernel.proc, "io"),
 		},
