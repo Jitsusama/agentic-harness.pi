@@ -98,9 +98,7 @@ function replayLine(result: ReplayResult): string {
 function replayLines(result: ReplayResult): string[] {
 	return [
 		replayLine(result),
-		...settlingLines(result.settled, result.stale).map((line) =>
-			line === "" ? line : `   ${line}`,
-		),
+		...settlingLines(result).map((line) => (line === "" ? line : `   ${line}`)),
 	];
 }
 

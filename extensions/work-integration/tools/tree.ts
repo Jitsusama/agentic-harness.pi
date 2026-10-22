@@ -38,7 +38,7 @@ import {
 	orphanedTrees,
 	reclaimTrees,
 	refusalFrom,
-	type SettledFile,
+	type Settling,
 	surveyTarget,
 	type TreeBroker,
 	type TreeClaims,
@@ -1045,7 +1045,7 @@ async function replay(
 			// and the second one used to print no branch at all, which is the moment
 			// a reader most needs to know which branch they are being asked about.
 			return refuse(
-				haltLines(outcome.conflicted, subjectOfHalt(outcome), outcome.settled),
+				haltLines(outcome.conflicted, subjectOfHalt(outcome), outcome),
 			);
 		}
 		if (outcome.kind === "abandoned") {
@@ -1064,7 +1064,7 @@ async function replay(
 		return say(
 			[
 				`${GLYPH.tree} ${outcome.branch} replayed.`,
-				...settlingLines(outcome.settled, outcome.stale),
+				...settlingLines(outcome),
 			].join("\n"),
 			{ ok: true, branch: outcome.branch },
 		);
@@ -1091,14 +1091,14 @@ async function replay(
 			haltLines(
 				outcome.conflicted,
 				`${outcome.branch} onto ${outcome.onto}${outcome.at === undefined ? "" : `, at ${outcome.at}`}`,
-				outcome.settled,
+				outcome,
 			),
 		);
 	}
 	return say(
 		[
 			`${GLYPH.tree} ${outcome.branch} replayed onto ${outcome.onto}, ${outcome.commits} ${outcome.commits === 1 ? "commit" : "commits"}.`,
-			...settlingLines(outcome.settled, outcome.stale),
+			...settlingLines(outcome),
 		].join("\n"),
 		{ ok: true, branch: outcome.branch, replayed: outcome.commits },
 	);
@@ -1131,7 +1131,7 @@ function subjectOfHalt(halt: {
 function haltLines(
 	conflicted: readonly string[],
 	what?: string,
-	settled?: readonly SettledFile[],
+	settling?: Settling,
 ): string {
 	const head =
 		what === undefined ? "Replay halted." : `Replay halted: ${what}.`;
@@ -1139,7 +1139,7 @@ function haltLines(
 		conflicted.length === 0
 			? ["   nothing is unmerged, so something else stopped it"]
 			: conflicted.map((path) => `   ${GLYPH.dirty} ${path}`);
-	const before = settlingLines(settled);
+	const before = settlingLines(settling);
 	return [
 		`${GLYPH.refused} ${head}`,
 		...paths,
