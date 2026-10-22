@@ -124,12 +124,18 @@ deciding for you.
 
 ```
 work branch tree:… name:fix-410
-work branch tree:… name:fix-410 from:main
+work branch tree:… name:fix-410 from:origin/main
 ```
 
 Without `from`, it starts where the tree already points, which
 is usually what you want and occasionally not: check `status`
 first if you are not sure where that is.
+
+A remote's branch as `from` is fetched first, that one branch
+only, so it starts where the remote has it now. Don't fetch in
+the same batch as the branch: the two race, and the branch can
+land on the old commit. The answer names the commit the branch
+starts at, and says so when the fetch could not be made.
 
 ## Recording and Publishing
 
