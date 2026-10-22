@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -68,6 +68,72 @@ describe("document stage flow", () => {
 		expect(drafted.ok).toBe(true);
 		expect(state.documentKind).toBe("plan");
 		expect(state.documentId?.startsWith("PLAN-")).toBe(true);
+	});
+
+	it("thinks and drafts in one call when given a note and a title", async () => {
+		const state = buildState();
+		await handle(state, fakePi(), fakeCtx(), {
+			action: "create",
+			kind: "quest",
+			title: "One Call",
+		});
+
+		const bare = await handle(state, fakePi(), fakeCtx(), {
+			action: "draft",
+			title: "No Note",
+		});
+		expect(bare.ok === false && bare.guidance).toContain("`note`");
+		expect(state.documentStage).toBe("idle");
+
+		const drafted = await handle(state, fakePi(), fakeCtx(), {
+			action: "draft",
+			kind: "research",
+			note: "why it is slow",
+			title: "Why It Is Slow",
+		});
+		expect(drafted.ok).toBe(true);
+		expect(state.documentStage).toBe("draft");
+		expect(state.documentId?.startsWith("RSCH-")).toBe(true);
+	});
+
+	it("puts a concluded document down, and starts afresh beside it", async () => {
+		const state = buildState();
+		await handle(state, fakePi(), fakeCtx(), {
+			action: "create",
+			kind: "quest",
+			title: "Afresh",
+		});
+		await handle(state, fakePi(), fakeCtx(), {
+			action: "draft",
+			kind: "research",
+			note: "first question",
+			title: "First",
+		});
+		const first = state.documentPath as string;
+		const firstId = state.documentId;
+
+		const concluded = await handle(state, fakePi(), fakeCtx(), {
+			action: "conclude",
+		});
+		expect(concluded.ok).toBe(true);
+		expect(state.documentStage).toBe("idle");
+		expect(state.documentPath).toBeNull();
+		expect(readFileSync(first, "utf8")).toContain("stage: concluded");
+
+		// A finished document focused again is not reopened by think.
+		await handle(state, fakePi(), fakeCtx(), {
+			action: "focus",
+			id: firstId ?? "",
+		});
+		expect(state.documentStage).toBe("concluded");
+		const fresh = await handle(state, fakePi(), fakeCtx(), {
+			action: "think",
+			note: "the next question",
+		});
+		expect(fresh.ok && fresh.message).toContain("stays concluded");
+		expect(state.documentStage).toBe("think");
+		expect(state.documentId).toBeNull();
+		expect(readFileSync(first, "utf8")).toContain("stage: concluded");
 	});
 
 	it("does not advance the stage in memory when the disk write fails", async () => {

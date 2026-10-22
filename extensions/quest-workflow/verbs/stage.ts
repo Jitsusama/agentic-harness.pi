@@ -43,6 +43,8 @@ import { count, noun, verb } from "../../../lib/ui/count.ts";
 import { displayPath } from "../../../lib/ui/path.ts";
 import {
 	appendJourneyEntry,
+	autoFocusPlan,
+	autoFocusSaid,
 	createDocument,
 	focusDocument,
 	refreshProgress,
@@ -50,6 +52,7 @@ import {
 	setLoadedStatus,
 	setQuestPriorityByDir,
 	stampQuestUpdated,
+	unfocusDocument,
 	writeDocumentStage,
 } from "../lifecycle.ts";
 import { type TransitionAction, transition } from "../machine.ts";
@@ -183,17 +186,36 @@ function pinPrimaryPlanIfUnset(questDir: string, planId: string): void {
  * enforce.ts), not at the transition, so crossing into
  * build never refuses; first-draft document scaffolding is
  * handled inline.
+ *
+ * A finished document is never reopened by a stage verb, but
+ * it no longer stands in the way either. Concluding or
+ * retiring the focused document puts it down, and thinking or
+ * drafting while one is still focused starts a fresh loop
+ * beside it. Agents met "this document is terminal" and
+ * "draft from think" 45 times in a week, and the next call
+ * was `unfocus` nearly every time, so the verb does that step
+ * itself and says so.
  */
 export function stageTransition(
 	state: QuestState,
 	action: TransitionAction,
 	params: QuestToolParams,
-	_ctx: ExtensionContext,
+	ctx: ExtensionContext,
 ): QuestResult {
 	if (!state.questDir) {
 		return refuse(
 			"Load a quest before driving the document machine. Try `quest load <id>` first.",
 		);
+	}
+	const terminal =
+		state.documentStage === "concluded" || state.documentStage === "retired";
+	if (terminal && (action === "think" || action === "draft")) {
+		const left = `${state.documentKind} ${state.documentId} stays ${state.documentStage}, and this starts a fresh loop beside it.`;
+		unfocusDocument(state);
+		const result = stageTransition(state, action, params, ctx);
+		return result.ok
+			? { ...result, message: `${left} ${result.message}` }
+			: result;
 	}
 
 	if (action === "think" && state.documentStage === "idle") {
@@ -202,23 +224,32 @@ export function stageTransition(
 				"Say what this document is about in `note`: the problem you are investigating, the plan you are about to draft, or the brief you are scoping.",
 			);
 		}
-		const kind = (params.kind ?? "plan") as DocumentKind;
-		if (!DOCUMENT_KINDS_SET.has(kind)) {
+		const kind = beginLoop(state, params);
+		if (kind === undefined) {
 			return refuse(
 				`Unknown kind "${params.kind}". Use plan, research, brief or report.`,
 			);
 		}
-		state.documentKind = kind;
-		state.documentStage = "think";
-		state.documentId = null;
-		state.documentPath = null;
-		state.documentTitle = null;
-		state.done = 0;
-		state.total = 0;
 		return ok(
 			`Thinking about a ${kind} for ${state.questId}: ${params.note.trim()}. This loop has no document id yet; \`draft\` (with a title) mints it.`,
 			{ stage: "think", kind },
 		);
+	}
+
+	// Drafting with nothing in hand thinks and drafts in one call. The
+	// note is still required, since saying what a document is for is
+	// the whole of what think asks; only the extra round trip goes.
+	if (action === "draft" && state.documentStage === "idle") {
+		if (!params.note?.trim() || !params.title?.trim()) {
+			return refuse(
+				"Nothing is being thought about yet, so draft starts the loop as well. Give `note` (what this document is about) and `title` (its H1), and it thinks and drafts in one call.",
+			);
+		}
+		if (beginLoop(state, params) === undefined) {
+			return refuse(
+				`Unknown kind "${params.kind}". Use plan, research, brief or report.`,
+			);
+		}
 	}
 
 	const result = transition(
@@ -321,10 +352,38 @@ export function stageTransition(
 		);
 	}
 	if (state.questDir) stampQuestUpdated(state);
-	return ok(
-		`Now ${result.state.stage} on ${state.documentKind} ${state.documentId}${state.documentTitle ? ` (${state.documentTitle})` : ""}.`,
-		{ stage: result.state.stage },
-	);
+	const landed = `Now ${result.state.stage} on ${state.documentKind} ${state.documentId}${state.documentTitle ? ` (${state.documentTitle})` : ""}.`;
+	if (action !== "conclude" && action !== "retire") {
+		return ok(landed, { stage: result.state.stage });
+	}
+	// A finished document is put down, so the next think or draft is
+	// a fresh loop and the footer stops showing work that is over.
+	// The plan still being worked, if there is one, takes its place.
+	unfocusDocument(state);
+	const next = autoFocusSaid(autoFocusPlan(state));
+	return ok([landed, next ?? "Nothing is focused now."].join(" "), {
+		stage: result.state.stage,
+	});
+}
+
+/**
+ * Start a think loop with no document yet, of the kind asked for or
+ * a plan. Undefined when the kind is not one there is.
+ */
+function beginLoop(
+	state: QuestState,
+	params: QuestToolParams,
+): DocumentKind | undefined {
+	const kind = (params.kind ?? "plan") as DocumentKind;
+	if (!DOCUMENT_KINDS_SET.has(kind)) return undefined;
+	state.documentKind = kind;
+	state.documentStage = "think";
+	state.documentId = null;
+	state.documentPath = null;
+	state.documentTitle = null;
+	state.done = 0;
+	state.total = 0;
+	return kind;
 }
 
 /**

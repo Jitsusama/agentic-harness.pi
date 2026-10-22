@@ -52,13 +52,16 @@ You drive transitions with the `quest` tool's stage verbs:
   discovery sends you back to the drawing board (replan).
 - `quest({action: "draft", title})` moves think to draft and
   creates the document, with a title that becomes its H1.
+  From idle, `draft` with a `note` and a `title` thinks and
+  drafts in one call, for a plan already debated.
 - `quest({action: "build"})` moves draft to build once the
   document is written.
 - `quest({action: "conclude"})` closes a finished plan;
   `quest({action: "retire", reason})` abandons one with a
   reason. Both default to the focused document when one is
   set; pass `scope: "quest"` to act on the loaded quest
-  itself.
+  itself. Either puts the document down, so the next think
+  or draft is a fresh loop.
 - `quest({action: "focus", id})` switches the focused
   document, and `quest({action: "unfocus"})` clears it.
   Switching focus does not change the document's stage.
