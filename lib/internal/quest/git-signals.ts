@@ -123,6 +123,16 @@ export function isMainWorkingTree(absPath: string): boolean {
 	return canonicalPath(gitDir) === canonicalPath(commonDir);
 }
 
+/**
+ * Whether a repository has no commits yet, which only one just made
+ * with `git init` has: nobody else can share a checkout that new.
+ */
+export function hasNoCommits(absPath: string): boolean {
+	const { dir } = located(path.join(absPath, ".quest-tree-probe"));
+	if (!git(dir, ["rev-parse", "--git-dir"])) return false;
+	return git(dir, ["rev-parse", "--verify", "-q", "HEAD"]) === null;
+}
+
 /** Whether the target is gitignored at its destination. */
 export function isGitignored(absPath: string): boolean {
 	const { dir, target } = located(absPath);

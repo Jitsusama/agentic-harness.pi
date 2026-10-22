@@ -17,6 +17,7 @@ import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter.t
 import {
 	canonicalPath,
 	gitTreeRootOf,
+	hasNoCommits,
 	isMainWorkingTree,
 	isWithin,
 } from "../../../lib/internal/quest/git-signals.ts";
@@ -141,7 +142,9 @@ export function treeAdopt(
 	// that lets many quests bind to one checkout and magnetize a
 	// session ambiguously. Warn and require force rather than adopt
 	// silently; tree-adopt stays first-class, the guard just makes a
-	// shared bind a deliberate act.
+	// shared bind a deliberate act. A repository with no commits yet is
+	// one just made, by this quest, so nobody shares it and it is adopted
+	// as any tree is: one quest got Joel woken to run `git init`.
 	if (!params.force) {
 		const otherQuest = pathAdoptedByAnotherQuest(state, root);
 		if (otherQuest) {
@@ -149,7 +152,7 @@ export function treeAdopt(
 				`${root} is already tracked by ${otherQuest}. Adopting one checkout on several quests is what makes a fresh session resolve to an arbitrary quest. Pass force:true to adopt it here as well, or scaffold a private worktree with tree-add.`,
 			);
 		}
-		if (isMainWorkingTree(root)) {
+		if (isMainWorkingTree(root) && !hasNoCommits(root)) {
 			return refuse(
 				`${root} is a repository's main working tree, not a scaffolded worktree. Adopting a shared main checkout binds this quest to it. Pass force:true to confirm, or scaffold a private worktree with tree-add.`,
 			);

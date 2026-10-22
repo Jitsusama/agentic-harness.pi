@@ -92,6 +92,29 @@ describe("tree-adopt", () => {
 		expect(result.guidance).toMatch(/main working tree|force/i);
 	});
 
+	it("adopts a repository with no commits yet without force", async () => {
+		// One just made with git init: nobody else can share it.
+		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
+		const created = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "create",
+			title: "Start a Repository",
+		});
+		if (!created.ok) throw new Error(created.guidance);
+		const fresh = realpathSync(mkdtempSync(join(tmpRoot, "new-repo-")));
+		await execFileAsync("git", ["init", "-q"], { cwd: fresh });
+
+		const result = await handle(state, fakePi(), fakeCtx(fresh), {
+			action: "tree-adopt",
+			cwd: fresh,
+		});
+
+		if (!result.ok) throw new Error(result.guidance);
+		const fm = parseQuestFrontMatter(
+			readFileSync(join(state.questDir ?? "", "README.md"), "utf8"),
+		)?.frontMatter;
+		expect(fm?.trees?.[0]).toMatchObject({ origin: "adopted", path: fresh });
+	});
+
 	it("refuses a path another quest already tracks without force", async () => {
 		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
 		// A linked worktree the first quest adopts cleanly.
