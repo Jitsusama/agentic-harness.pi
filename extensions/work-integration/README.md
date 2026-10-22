@@ -28,6 +28,13 @@ that matches what you are about to do, and always say what it is
 for: the purpose names the tree, which is how it is recognised
 later and how a second caller avoids cutting a duplicate.
 
+The tool is marked sequential, so pi runs any batch holding a
+`work` call one call at a time, in the order written. Side by side,
+a resume once read the tree before the `git add` written ahead of
+it, and a branch before the `git revert --abort` ahead of it, and
+each reported a halt or failure that was gone by the time anyone
+looked. A batch with no `work` call in it still runs side by side.
+
 ## A Cargo Tree Starts Warm
 
 A fresh worktree of a Rust workspace has no `target/`, so its
