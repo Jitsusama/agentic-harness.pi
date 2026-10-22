@@ -103,7 +103,9 @@ and can answer a question or a gate left open on screen.
   it is busy or idle and what it works on, and the leases of
   the peers still there. A bare name joins a peer's
   home group when some peer goes by it, and a named group
-  otherwise; joining a group nobody is in makes it.
+  otherwise; joining a group nobody is in makes it. A join
+  answers with the group's last ten messages, a line each, so
+  a peer starts from where its talk stands.
   `mesh_join` with `invite` brings other peers in without
   asking: each is sent a message to its home group carrying
   the group, joins on receipt, and may leave.
@@ -193,10 +195,19 @@ afford, so no sender and no conversation wears it out:
 - **Repeats:** what a sender already said, word for word,
   within the hour, is a glance. The same message handed again,
   as a question let go comes back, is no repeat.
+- **News:** once a sender has had 10 of its messages handed
+  over in full within the hour, its next fyi is a glance,
+  since a note read mid-run costs as much reading as a turn.
+- **Catch-up:** a peer starting with more than 20 messages to
+  take in is handed in full only the newest 20, with whatever
+  is addressed to it, answers it or holds; the rest are
+  glances, so a session back from a night away does not start
+  under a night of other peers' news.
 - **Awaited:** an answer to a question the peer asked starts
   its turn whatever the hour has spent, and the turn still
   counts. Depth and repeats still hold it back, so two peers
-  cannot ask and answer each other past them.
+  cannot ask and answer each other past them. Nor is an
+  awaited fyi glanced for its sender's news.
 
 A damped message is never dropped: one that would have started
 a turn is noted instead. The model is never told; the screen
@@ -227,6 +238,8 @@ runs:
   group are refused (a send naming other groups too goes to
   those alone), routing never picks the stopper, and a send to
   a shared group says the stopper sees it as one line only.
+  The stopper is told its stop takes in the stopped peer's
+  answers to its own questions too.
 - **Kept:** a stop lives in the stopper's presence, so it
   survives a reload, and names the stopped peer's session, so
   it follows that peer to a new quest's address.
@@ -281,7 +294,10 @@ doing only when it is the easy thing:
   or replaces it (a hold replacing it moves the wait to the new
   one), when the holder has ended, or when it has stood two
   hours, the waiting peer is handed the hold back with how it
-  ended: a turn when idle, a note mid-run. Ends settle as acts
+  ended: a turn when idle, a note mid-run. Only a hold its
+  holder said was over comes with leave to carry on; one that
+  lapsed or lost its holder says nobody said so, and to check
+  that what it named is free first. Ends settle as acts
   do, so peers held by one hold do not all carry on at once.
   Only while it waits does a peer check, once a minute, that
   the holder is still there.
@@ -363,9 +379,11 @@ first of these that answers:
   came at two in three or less; it gave the whole machine 0.97
   and 1.0 for two reboots, but 0.92 for "going to lunch".
 - **a rule:** a hold holds the whole machine; anything else
-  goes to this peer's scopes that another peer is in, or to
-  `#all` when none is, since a message nobody hears is the one
-  outcome worse than a glance.
+  goes to this peer's scopes that another peer is in; failing
+  those, to the nearest quest above this peer's own that
+  another peer hears, since a subquest alone on its scope is
+  still its parent's work; or to `#all` when none is, since a
+  message nobody hears is the one outcome worse than a glance.
 
 A peer that stopped the sender is never routed to. The sender
 is told where the message went and why, so it can send again
@@ -377,8 +395,9 @@ naming the groups.
   the hold is over. If it holds up work of this peer's, or this
   peer cannot hold, answer it, saying what; otherwise no reply.
 - **question:** answer its sender, briefly.
-- **finding:** for whoever owns what it is about, to note in
-  their plan or journal. No reply.
+- **finding:** for whoever owns what it is about, saying what
+  the sender checked it against; the owner checks it against
+  the source, then notes it in their plan or journal. No reply.
 - **fyi:** context only. No reply and no action.
 
 A message with no intent, or one this version does not know,

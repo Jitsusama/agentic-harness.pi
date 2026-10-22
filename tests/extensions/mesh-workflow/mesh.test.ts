@@ -22,6 +22,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	ADVISORY,
 	ASKS,
+	type Delivered,
 	GLANCE,
 	GLANCES,
 	MOST_GLANCES,
@@ -38,7 +39,11 @@ import {
 } from "../../../lib/internal/session/rollover.ts";
 import { SESSION_WANTS } from "../../../lib/internal/session/wants.ts";
 import { JOBS_FINISHED } from "../../../lib/jobs/index.ts";
-import { MOST_TURNS_FROM_ONE } from "../../../lib/mesh/damping.ts";
+import {
+	MOST_CAUGHT_UP,
+	MOST_IN_FULL_FROM_ONE,
+	MOST_TURNS_FROM_ONE,
+} from "../../../lib/mesh/damping.ts";
 import { ALL } from "../../../lib/mesh/group.ts";
 import { MESH_SESSION_ENV } from "../../../lib/mesh/hand.ts";
 import {
@@ -295,6 +300,78 @@ describe("a message as context", () => {
 		const again = await startSession();
 		await new Promise((wake) => setTimeout(wake, 20));
 		expect(again.sent).toEqual([]);
+	});
+
+	it("hands over a long catch-up in full only for its newest and its own", async () => {
+		const dir = join(paths.mesh, "messages");
+		mkdirSync(dir, { recursive: true });
+		const senders = ["WCJQSG", "P9R1KI", "2HN63P", "OVAE1I", "CV3XVS"];
+		const count = MOST_CAUGHT_UP + 5;
+		const text = (n: number) => `news-${String(n).padStart(2, "0")}`;
+		for (let n = 0; n < count; n += 1) {
+			const sent = Date.now() - 60_000 + n * 100;
+			const from = senders[n % senders.length] as string;
+			const id = `${sent}-${from}-7-aaaaaaaa`;
+			writeFileSync(
+				join(dir, `${id}.json`),
+				JSON.stringify({
+					v: 1,
+					id,
+					at: new Date(sent).toISOString(),
+					from,
+					to: n === 0 ? ["@7M6JKG"] : [ALL],
+					intent: "fyi",
+					text: text(n),
+					pid: 7,
+				}),
+			);
+		}
+
+		const { sent, entries } = await startSession();
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		const details = sent[0]?.message.details as Delivered;
+		expect(details.messages.map((one) => one.text)).toEqual([
+			text(0),
+			...Array.from({ length: MOST_CAUGHT_UP }, (_, n) => text(n + 5)),
+		]);
+		expect(
+			entries
+				.filter((entry) => entry.type === GLANCE)
+				.map((entry) => (entry.data as { message: Message }).message.text),
+		).toEqual([text(1), text(2), text(3), text(4)]);
+	});
+
+	it("glances at a sender's fyi once it has had the hour's in full", async () => {
+		const { sent, entries } = await startSession({}, { isIdle: () => false });
+		for (let n = 0; n < MOST_IN_FULL_FROM_ONE; n += 1) {
+			fromElsewhere({ to: ["@7M6JKG"], text: `news ${n}` });
+			await vi.waitFor(() => expect(sent).toHaveLength(n + 1));
+		}
+
+		fromElsewhere({ to: ["@7M6JKG"], text: "one more" });
+		fromElsewhere({ to: ["@7M6JKG"], from: "P9R1KI", text: "from another" });
+
+		await vi.waitFor(() =>
+			expect(sent.at(-1)?.message.content).toContain("from another"),
+		);
+		expect(entries.find((entry) => entry.type === GLANCE)?.data).toMatchObject({
+			message: { text: "one more" },
+			why: expect.stringContaining("the hour's news from WCJQSG spent"),
+		});
+	});
+
+	it("counts a sender's news within what it catches up on at once", async () => {
+		for (let n = 0; n <= MOST_IN_FULL_FROM_ONE; n += 1) {
+			fromElsewhere({ to: ["@7M6JKG"], text: `news ${n}` });
+		}
+
+		const { sent, entries } = await startSession();
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		const details = sent[0]?.message.details as Delivered;
+		expect(details.messages).toHaveLength(MOST_IN_FULL_FROM_ONE);
+		expect(entries.filter((entry) => entry.type === GLANCE)).toHaveLength(1);
 	});
 
 	it("glances at an fyi it catches up on past its hour", async () => {
@@ -1087,6 +1164,29 @@ describe("groups", () => {
 		);
 	});
 
+	it("says on joining a group what was said there lately", async () => {
+		for (let n = 0; n < 12; n += 1) {
+			fromElsewhere({ to: ["#harness"], text: `harness ${n}` });
+		}
+		fromElsewhere({ to: ["#stick"], text: "elsewhere" });
+		const { tools } = await startSession();
+
+		const joined = await tools
+			.get("mesh_join")
+			?.execute("call-1", { group: "#harness" });
+		const again = await tools
+			.get("mesh_join")
+			?.execute("call-2", { group: "#harness" });
+
+		const text = joined?.content[0]?.text ?? "";
+		const lately = text.split("Said in #harness lately, oldest first")[1] ?? "";
+		const said = lately.split("\n").slice(1);
+		expect(said).toHaveLength(10);
+		expect(said.every((one) => one.includes("#harness"))).toBe(true);
+		expect(lately).not.toContain("elsewhere");
+		expect(again?.content[0]?.text ?? "").not.toContain("Said in");
+	});
+
 	it("stops hearing a group it left", async () => {
 		const { sent, tools } = await startSession();
 		await tools.get("mesh_join")?.execute("call-1", { group: "#harness" });
@@ -1653,7 +1753,7 @@ describe("a stop", () => {
 		expect(
 			await stopping(tools, { peer: "wcjqsg", why: "six in a minute" }),
 		).toBe(
-			"Stopped WCJQSG: what it sends reaches this peer as one line only, until mesh_stop with lift. It is told, with why.",
+			"Stopped WCJQSG: what it sends reaches this peer as one line only, its answers to this peer's questions included, until mesh_stop with lift. It is told, with why.",
 		);
 		expect(await stopping(tools, { peer: "WCJQSG" })).toBe(
 			"WCJQSG is stopped already.",
@@ -2105,7 +2205,7 @@ describe("a lease", () => {
 		expect(ownBoard()).toEqual([]);
 	});
 
-	it("carries on when the peer holding it has ended", async () => {
+	it("ends unsaid when the peer holding it has ended, so is no go-ahead", async () => {
 		peer("session-w", ["WCJQSG"], []);
 		const { sent, tools } = await startSession(
 			{},
@@ -2131,6 +2231,13 @@ describe("a lease", () => {
 				)?.options,
 			).toEqual({ triggerTurn: false }),
 		);
+		const over = sent.find(({ message }) =>
+			message.content.startsWith("The hold ["),
+		)?.message.content;
+		expect(over).toContain(
+			`Its holder never said [${hold.id.split("-").pop()}] was over, so what it named may still be in use`,
+		);
+		expect(over).not.toContain("Carry on with what it held up");
 		expect(ownBoard()).toEqual([]);
 	});
 

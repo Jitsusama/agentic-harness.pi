@@ -48,7 +48,7 @@ export const ASKS: Readonly<Record<Intent, string>> = {
 	question:
 		"A question: answer its sender with mesh_send, briefly, with re set to the question's id, then carry on with what you were doing, or stop there if you were doing nothing.",
 	finding:
-		"A finding: if you own what it is about, note it in your plan or journal and act on it in its turn; if you do not, let it go. No reply.",
+		"A finding: if you own what it is about, check it against the source before you act on it, then note it in your plan or journal and act on it in its turn; if you do not own it, let it go. No reply.",
 	fyi: "An fyi: context only. No reply and no action.",
 };
 
@@ -96,7 +96,10 @@ export function noted(
 
 /**
  * Holds this peer waited on that are over, in full, carrying whatever
- * glances wait. Unlike a message, it asks something: carry on.
+ * glances wait. Unlike a message, it asks something: carry on, once
+ * what the hold named is known to be free. A hold whose holder never
+ * said it was over is not permission: it lapsed or lost its holder,
+ * and what it named may be running still.
  */
 export function holdsOver(
 	ends: readonly HoldEnd[],
@@ -106,9 +109,12 @@ export function holdsOver(
 		({ hold, how, why }) =>
 			`The hold [${shortId(hold)}] from ${hold.from} at ${clock(hold)} is over: ${how}.${why ? ` This peer had said: "${why}".` : ""}\n\n${hold.text}`,
 	);
+	const unsaid = ends.filter(({ said }) => !said).map(({ hold }) => hold);
 	return [
 		...each,
-		"Carry on with what it held up, unless something since says otherwise.",
+		unsaid.length === 0
+			? "Carry on with what it held up, unless something since says otherwise."
+			: `Its holder never said ${unsaid.map((hold) => `[${shortId(hold)}]`).join(" or ")} was over, so what it named may still be in use: check that it is free (mesh_read, mesh_groups, or ask where the hold was sent) before carrying on with what it held up.`,
 		...(glances.length > 0 ? [digest(glances)] : []),
 	].join("\n\n");
 }
