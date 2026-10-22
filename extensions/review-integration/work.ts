@@ -388,16 +388,63 @@ async function isCheckoutOf(
 }
 
 /**
- * A tree to review a commit in, falling back to the caller's own.
+ * The commit a directory has checked out, or undefined when git will
+ * not say. Undefined is treated as not the commit, since a tree we
+ * cannot vouch for is the case a refusal is for.
+ */
+async function headOf(directory: string): Promise<string | undefined> {
+	if (host === undefined) return undefined;
+	try {
+		const said = await host.exec(
+			"git",
+			["-C", directory, "rev-parse", "HEAD"],
+			{
+				timeout: REMOTE_PROBE_MS,
+			},
+		);
+		return said.code === 0 ? said.stdout.trim() || undefined : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * Where a round goes when no tree could be cut at the commit: the
+ * fallback when it already has that commit checked out, and otherwise
+ * a refusal naming why and what to do.
  *
- * Every failure about the commit degrades rather than refusing, and
- * says so. A council is expensive and a checkout of the right repo is
- * usually close enough; what is not acceptable is reviewing the wrong
- * code silently.
+ * This used to read the fallback at whatever commit it stood on, with
+ * a caveat. Two councils did that and returned fifty-nine findings
+ * about a checkout that was not the change, and a caveat does not stop
+ * a finding being acted on. The usual cause, a commit nobody had
+ * fetched, went away when snapshots learned to fetch one, so what is
+ * left is rare and worth stopping for.
+ */
+async function fallbackAt(
+	fallback: string,
+	commit: string,
+	why: string,
+): Promise<RoundTree> {
+	const head = await headOf(fallback);
+	if (head?.startsWith(commit)) return { path: fallback };
+	const standing =
+		head === undefined ? "a commit git would not name" : head.slice(0, 12);
+	return {
+		refusal: `${why} The checkout left to read, ${fallback}, is at ${standing} rather than ${commit}, and findings about other code read as plausibly as real ones. Fetch ${commit} there or check it out, or name a checkout that has it as the repo parameter, then ask again.`,
+	};
+}
+
+/**
+ * A tree to review a commit in, or a refusal.
  *
- * Being in the wrong repository is not one of those failures. That is
- * settled first, and refused, because no caveat makes findings about
- * another project worth reading.
+ * A tree pinned to the commit is the aim. Where none can be cut, the
+ * caller's checkout is read only when it is at that commit already;
+ * otherwise the round is refused with the way to fix it. Where the
+ * provider names no commit at all there is nothing to compare, so the
+ * checkout is read with a caveat saying so.
+ *
+ * Being in the wrong repository is settled first, and refused, because
+ * no checkout of another project is worth reading.
  */
 export async function treeForRound(
 	repo: RepoLocator,
@@ -417,17 +464,18 @@ export async function treeForRound(
 	if ("refusal" in ground) return ground;
 	fallback = ground.path;
 
-	if (work === undefined) {
-		return {
-			path: fallback,
-			caveat: `No working layer is loaded, so reviewers read ${fallback} rather than a tree pinned to the commit under review. Load the work integration to have one cut.`,
-		};
-	}
 	if (commit === undefined) {
 		return {
 			path: fallback,
 			caveat: `This provider does not report the commit under review, so there is nothing to pin a tree to and reviewers read ${fallback} instead.`,
 		};
+	}
+	if (work === undefined) {
+		return fallbackAt(
+			fallback,
+			commit,
+			"No working layer is loaded to cut a tree at the commit under review; load the work integration to have one cut.",
+		);
 	}
 
 	const asked = treeRequestFrom({
@@ -449,20 +497,16 @@ export async function treeForRound(
 		purpose: "review",
 		commit,
 	});
-	if ("refusal" in asked) {
-		return {
-			path: fallback,
-			caveat: `${asked.refusal} Reviewers read ${fallback} instead.`,
-		};
-	}
+	if ("refusal" in asked) return fallbackAt(fallback, commit, asked.refusal);
 
 	try {
 		const held = await work.broker().ensure(asked.request);
 		return { path: held.path };
 	} catch (error) {
-		return {
-			path: fallback,
-			caveat: `${error instanceof Error ? error.message : String(error)} Reviewers read ${fallback} instead.`,
-		};
+		return fallbackAt(
+			fallback,
+			commit,
+			error instanceof Error ? error.message : String(error),
+		);
 	}
 }

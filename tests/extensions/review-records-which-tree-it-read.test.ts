@@ -44,6 +44,7 @@ import {
 	treeForRound,
 	watchForWorkLayer,
 } from "../../extensions/review-integration/work.ts";
+import { freshRepo } from "../support/git-fixture.ts";
 
 let home: string;
 
@@ -85,6 +86,17 @@ function checkoutOf(named: string): string {
 		`git@github.com:${named}.git`,
 	]);
 	return path;
+}
+
+/** A checkout of this repo with one commit, and that commit. */
+async function checkoutAt(
+	named = "Jitsusama/agentic-harness.pi",
+): Promise<{ path: string; head: string }> {
+	const path = await freshRepo("review-at");
+	const git = (...args: string[]) =>
+		execFileSync("git", ["-C", path, ...args], { encoding: "utf8" }).trim();
+	git("remote", "add", "origin", `git@github.com:${named}.git`);
+	return { path, head: git("rev-parse", "HEAD") };
 }
 
 /** Where the package config lives under the stubbed home. */
@@ -129,7 +141,7 @@ describe("what a round records about the tree it read", () => {
 		// silent version into a refusal, and a refusal is still a change
 		// nobody reviews. Nothing but a person can say where a repo
 		// lives on this machine, so a person says it once in the config.
-		const elsewhere = checkoutOf("elsewhere/other");
+		const { path: elsewhere, head } = await checkoutAt("elsewhere/other");
 		writeFileSync(
 			configPath(),
 			JSON.stringify({
@@ -146,7 +158,7 @@ describe("what a round records about the tree it read", () => {
 
 		const tree = await treeForRound(
 			{ key: "github:elsewhere/other" },
-			"d7205e3c",
+			head,
 			"/the/callers/checkout",
 		);
 
@@ -154,7 +166,6 @@ describe("what a round records about the tree it read", () => {
 		// than in whatever the caller was sitting in.
 		if ("refusal" in tree) throw new Error(tree.refusal);
 		expect(tree.path).toBe(elsewhere);
-		expect(tree.caveat).toContain("working layer");
 	});
 
 	it("refuses a configured path git will not vouch for", async () => {
@@ -188,43 +199,51 @@ describe("what a round records about the tree it read", () => {
 		expect(tree.refusal).toContain(notIt);
 	});
 
-	it("carries the caveat beside the commit, or neither", async () => {
-		// The real producer, in the state that produces a caveat with
-		// nothing stubbed: no working layer is loaded in a bare test
-		// process, so there is nobody to cut a snapshot. The repo has a
-		// local checkout, so the fallback is at worst the right repo at
-		// the wrong commit, which is what a caveat is for.
+	it("refuses a checkout that is not at the commit", async () => {
+		// The real producer with nothing stubbed: no working layer is
+		// loaded in a bare test process, so nobody can cut a snapshot.
+		// Reading the checkout anyway, with a caveat, is what two councils
+		// did for fifty-nine findings about code that was not the change,
+		// so a checkout at another commit is refused with the way out.
+		const checkout = await checkoutAt();
 		const tree = await treeForRound(
-			{
-				key: "github:Jitsusama/agentic-harness.pi",
-				localPath: "/the/callers/checkout",
-			},
+			{ key: "github:Jitsusama/agentic-harness.pi", localPath: checkout.path },
 			"d7205e3c",
 			"/the/callers/checkout",
 		);
 
-		// Narrowed rather than asserted around, so a refusal here fails
-		// as a refusal rather than as `false` not being a path.
+		if (!("refusal" in tree)) throw new Error(`read ${tree.path}`);
+		expect(tree.refusal).toContain(checkout.head.slice(0, 12));
+		expect(tree.refusal).toContain("Fetch d7205e3c");
+	});
+
+	it("reads a checkout that is at the commit, with nothing to caveat", async () => {
+		// The same state, with the checkout standing on the commit under
+		// review: that is the change, so there is nothing to warn about.
+		const checkout = await checkoutAt();
+		const tree = await treeForRound(
+			{ key: "github:Jitsusama/agentic-harness.pi", localPath: checkout.path },
+			checkout.head.slice(0, 8),
+			"/the/callers/checkout",
+		);
+
 		if ("refusal" in tree) throw new Error(`refused: ${tree.refusal}`);
-		expect(tree.path).toBe("/the/callers/checkout");
-		expect(readFrom(tree, "d7205e3c")).toEqual({
-			witness: "d7205e3c",
-			unpinned: expect.stringContaining("/the/callers/checkout"),
-		});
+		expect(tree).toEqual({ path: checkout.path });
 	});
 
 	it("reads the checkout it knows about, not the one it is sitting in", async () => {
 		// When a checkout of the right repo is known, that is where a
-		// degraded round belongs. It is the right repo by construction,
-		// and the caller's own directory is only ever right by luck.
+		// round without a snapshot belongs. It is the right repo by
+		// construction, and the caller's own directory only by luck.
+		const checkout = await checkoutAt();
 		const tree = await treeForRound(
-			{ key: "github:Jitsusama/agentic-harness.pi", localPath: "/the/repo" },
-			"d7205e3c",
+			{ key: "github:Jitsusama/agentic-harness.pi", localPath: checkout.path },
+			checkout.head,
 			"/somewhere/else/entirely",
 		);
 
 		if ("refusal" in tree) throw new Error(`refused: ${tree.refusal}`);
-		expect(tree.path).toBe("/the/repo");
+		expect(tree.path).toBe(checkout.path);
 	});
 
 	it("refuses a repo known only by a remote it cannot cut", async () => {
