@@ -46,6 +46,11 @@ const WHY_CHARS = 120;
 export interface HoldEnd {
 	readonly hold: Message;
 	readonly how: string;
+	/**
+	 * Whether its holder said it was over. One that lapsed, or whose
+	 * holder ended, may still hold what it named.
+	 */
+	readonly said: boolean;
 	/** What this peer said it had put off for it. */
 	readonly why?: string;
 }
@@ -322,6 +327,7 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 				return {
 					hold,
 					how: `its holder said "${cut(message.text)}"`,
+					said: true,
 					...(wait.why !== undefined ? { why: wait.why } : {}),
 				};
 			}
@@ -348,6 +354,7 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 					ends.push({
 						hold,
 						how,
+						said: false,
 						...(wait.why !== undefined ? { why: wait.why } : {}),
 					});
 				}

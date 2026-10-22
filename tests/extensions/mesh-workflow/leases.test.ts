@@ -76,6 +76,7 @@ describe("a wait on a hold", () => {
 			{
 				hold,
 				how: "it has stood two hours, as long as a hold lasts",
+				said: false,
 				why: "my test waits",
 			},
 		]);

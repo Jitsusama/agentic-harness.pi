@@ -15,8 +15,11 @@
  * - a rule: a hold goes to the whole machine, since what it holds is
  *   usually heavy work any peer may start; anything else to the
  *   sender's own scopes that another peer is in, where peers on its
- *   work hear it, and to the whole machine when none is, since a
- *   message nobody hears is the one outcome worse than a glance.
+ *   work hear it; failing those, to the nearest quest above its own
+ *   that another peer hears, since a subquest alone on its scope is
+ *   still its parent's work; and to the whole machine when none is,
+ *   since a message nobody hears is the one outcome worse than a
+ *   glance.
  *
  * The sender is told where it went and why, so it can say otherwise.
  * A peer that stopped the sender is never routed to.
@@ -271,10 +274,44 @@ export function routeByRule(
 			why: "it named nowhere, so it goes where other peers on this peer's work hear",
 		};
 	}
+	const above = [
+		...new Set(
+			sender.scopes.flatMap((scope) => {
+				const nearest = scopesAbove(scope).find((one) =>
+					everyone.some(
+						(other) =>
+							other.session !== sender.session && hears(other.groups, one),
+					),
+				);
+				return nearest ? [nearest] : [];
+			}),
+		),
+	];
+	if (above.length > 0) {
+		return {
+			to: above,
+			why: "it named nowhere and no other peer is on this peer's own quest, so it goes to the nearest quest above it that another peer hears",
+		};
+	}
 	return {
 		to: [ALL],
 		why: "it named nowhere and no other peer is on this peer's work, so the whole machine hears it, at the attention each gives it",
 	};
+}
+
+/**
+ * The quest groups above a scope, nearest first: #quest/a/b/c has
+ * #quest/a/b and then #quest/a. Only a quest's scope has any, since a
+ * repository's group names no parent.
+ */
+export function scopesAbove(scope: string): string[] {
+	if (!scope.startsWith("#quest/")) return [];
+	const parts = scope.split("/");
+	const above: string[] = [];
+	for (let end = parts.length - 1; end >= 2; end -= 1) {
+		above.push(parts.slice(0, end).join("/"));
+	}
+	return above;
 }
 
 /** Everyone but the peers that stopped the sender, who are not routed to. */

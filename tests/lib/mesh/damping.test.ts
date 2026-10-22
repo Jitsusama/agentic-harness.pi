@@ -4,8 +4,11 @@
 import { describe, expect, it } from "vitest";
 import type { Heed } from "../../../lib/mesh/attention.ts";
 import {
+	caughtUp,
 	createDamper,
 	HOUR_MS,
+	MOST_CAUGHT_UP,
+	MOST_IN_FULL_FROM_ONE,
 	MOST_REPLY_DEPTH,
 	MOST_TURNS_AN_HOUR,
 	MOST_TURNS_FROM_ONE,
@@ -129,6 +132,72 @@ describe("a repeat", () => {
 		expect(damper.damp(message(), act, 0, at)).toEqual(act);
 		const back = message({ id: "3-P9R1KI", from: "P9R1KI", text: "why?" });
 		expect(damper.damp(back, act, 0, at)).toEqual(act);
+	});
+});
+
+describe("a sender's news", () => {
+	const note: Heed = { attention: "note", why: "about this peer's work" };
+	const fyi = (over: Partial<Message> = {}) =>
+		message({ id: "9-WCJQSG-7-ffffffff", intent: "fyi", ...over });
+	const many = (from: string) =>
+		Array.from({ length: MOST_IN_FULL_FROM_ONE }, (_, one) =>
+			message({ id: `${one}-${from}-7-aaaaaaaa`, from, text: `n${one}` }),
+		);
+
+	it("is a glance once its sender has had the hour's in full", () => {
+		const damper = createDamper();
+		damper.handed(many("WCJQSG").slice(1), at);
+
+		expect(damper.damp(fyi(), note, 0, at)).toEqual(note);
+		damper.handed(many("WCJQSG").slice(0, 1), at);
+		expect(damper.damp(fyi(), note, 0, at)).toEqual({
+			attention: "glance",
+			why: "about this peer's work, the hour's news from WCJQSG spent",
+		});
+		expect(damper.damp(fyi({ from: "P9R1KI" }), note, 0, at)).toEqual(note);
+		expect(damper.damp(fyi({ intent: "question" }), note, 0, at)).toEqual(note);
+		const awaited: Heed = { ...note, awaited: true };
+		expect(damper.damp(fyi(), awaited, 0, at)).toEqual(awaited);
+		expect(damper.damp(fyi(), note, 0, at + HOUR_MS)).toEqual(note);
+	});
+
+	it("counts what came before it in the same arrival, and each message once", () => {
+		const damper = createDamper();
+		const once = many("WCJQSG")[0] as Message;
+		damper.handed(
+			Array.from({ length: MOST_IN_FULL_FROM_ONE }, () => once),
+			at,
+		);
+
+		expect(damper.damp(fyi(), note, 0, at)).toEqual(note);
+		expect(damper.damp(fyi(), note, 0, at, many("WCJQSG")).attention).toBe(
+			"glance",
+		);
+	});
+});
+
+describe("a long catch-up", () => {
+	it("hands over in full only its newest, and what is the peer's own", () => {
+		const note: Heed = { attention: "note", why: "about this peer's work" };
+		const glance: Heed = { attention: "glance", why: "an fyi past its hour" };
+		const caught = Array.from({ length: MOST_CAUGHT_UP + 5 }, (_, one) => ({
+			message: message({ id: `${one}-WCJQSG-7-aaaaaaaa` }),
+			heed: one === 1 ? glance : note,
+			own: one === 0,
+		}));
+
+		const older = {
+			attention: "glance",
+			why: `${note.why}, older in a long catch-up`,
+		};
+		expect(caughtUp(caught)).toEqual([
+			note,
+			glance,
+			older,
+			older,
+			older,
+			...Array.from({ length: MOST_CAUGHT_UP }, () => note),
+		]);
 	});
 });
 

@@ -98,7 +98,7 @@ export function registerTools(
 			),
 			intent: StringEnum(INTENTS, {
 				description:
-					"hold: put off something until you say it is over; question: wants an answer; finding: for whoever owns what it is about; fyi: context only",
+					"hold: put off something until you say it is over; question: wants an answer; finding: for whoever owns what it is about, saying what you checked it against; fyi: context only",
 			}),
 			text: Type.String({
 				description: "The message, plain and short, standing on its own",
@@ -664,14 +664,15 @@ async function join(
 	}
 	const already =
 		hears(at.peer.scopes, group) && !at.peer.joined.includes(group);
-	if (!already) at.peer.join(group);
+	const joinedNow = !already && at.peer.join(group);
 	const standing = await peers(at);
 	const said = already
 		? `Already in ${group} by this peer's work.`
 		: `In ${group}.`;
 	const invited = groupsNamed(params.invite ?? "");
+	const lately = joinedNow ? saidLately(at, group) : "";
 	if (invited.length === 0) {
-		return answer(`${said} ${groupsText(standing, at.peer)}`, {
+		return answer(`${said} ${groupsText(standing, at.peer)}${lately}`, {
 			groups: at.peer.groups,
 		});
 	}
@@ -708,9 +709,38 @@ async function join(
 			? ` Not invited, since they name no other peer: ${notHomes.join(", ")}.`
 			: "";
 	return answer(
-		`${said} Invited ${homes.map((one) => one.slice(1)).join(", ")}. ${notes.join(" ")}${skipped}`,
+		`${said} Invited ${homes.map((one) => one.slice(1)).join(", ")}. ${notes.join(" ")}${skipped}${lately}`,
 		{ groups: at.peer.groups, invited: homes, message },
 	);
+}
+
+/** How many of a group's latest messages joining it shows. */
+const LATELY = 10;
+
+/** How much of each of those it shows. */
+const LATELY_CHARS = 240;
+
+/**
+ * What was said in a group lately, oldest first, so a peer joining it
+ * starts from where its talk stands rather than from silence.
+ */
+function saidLately(at: Local, group: string): string {
+	const ids = at.transport.ids();
+	const latest: string[] = [];
+	for (let index = ids.length - 1; index >= 0; index--) {
+		if (latest.length >= LATELY) break;
+		const message = at.transport.read(ids[index] as string);
+		if (!message?.to.includes(group)) continue;
+		const whole = line(message).replace(/\s+/g, " ");
+		latest.unshift(
+			whole.length > LATELY_CHARS
+				? `${whole.slice(0, LATELY_CHARS - 3)}...`
+				: whole,
+		);
+	}
+	return latest.length > 0
+		? `\nSaid in ${group} lately, oldest first (mesh_read has each in full):\n${latest.join("\n")}`
+		: "";
 }
 
 async function leave(at: Local, params: { group: string }): Promise<Answer> {
@@ -905,7 +935,7 @@ async function stop(
 		`${at.peer.signature} has stopped this peer reaching it${why ? `: ${why}` : "."} Until it lifts the stop, it sees what this peer sends as one line only, and sends to its home group are refused. Do not work around it.`,
 	);
 	return answer(
-		`Stopped ${address}: what it sends reaches this peer as one line only, until mesh_stop with lift. It is told${why ? ", with why" : ""}.`,
+		`Stopped ${address}: what it sends reaches this peer as one line only, its answers to this peer's questions included, until mesh_stop with lift. It is told${why ? ", with why" : ""}.`,
 	);
 }
 

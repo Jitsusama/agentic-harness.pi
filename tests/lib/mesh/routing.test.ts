@@ -10,6 +10,7 @@ import {
 	routeFrom,
 	routeOf,
 	routeQuestion,
+	scopesAbove,
 } from "../../../lib/mesh/routing.ts";
 
 function presence(
@@ -156,6 +157,30 @@ describe("routeByRule", () => {
 
 	it("goes to the whole machine when no other peer is on the sender's work", () => {
 		expect(routeByRule("question", sender, everyone).to).toEqual([ALL]);
+	});
+
+	it("goes to the nearest quest above the sender's own that another peer hears", () => {
+		const parent = presence("s-p", ["5GV2AH"], ["#quest/5gv2ah"]);
+		const deeper = { ...sender, scopes: ["#quest/5gv2ah/luq49e/x"] };
+
+		expect(routeByRule("fyi", deeper, [...everyone, parent]).to).toEqual([
+			"#quest/5gv2ah",
+		]);
+		const nearer = presence("s-n", ["Q2Q2Q2"], ["#quest/5gv2ah/luq49e"]);
+		expect(
+			routeByRule("fyi", deeper, [...everyone, parent, nearer]).to,
+		).toEqual(["#quest/5gv2ah/luq49e"]);
+		expect(routeByRule("hold", deeper, [...everyone, parent]).to).toEqual([
+			ALL,
+		]);
+	});
+});
+
+describe("scopesAbove", () => {
+	it("is each quest above a quest's scope, nearest first, and none for a repository", () => {
+		expect(scopesAbove("#quest/a/b/c")).toEqual(["#quest/a/b", "#quest/a"]);
+		expect(scopesAbove("#quest/a")).toEqual([]);
+		expect(scopesAbove("#repo/agentic-harness-pi")).toEqual([]);
 	});
 });
 

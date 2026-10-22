@@ -65,8 +65,12 @@ import {
 	mentions,
 	type Receiver,
 } from "../../lib/mesh/attention.ts";
-import { createDamper } from "../../lib/mesh/damping.ts";
-import { groupNamed, isJoinable } from "../../lib/mesh/group.ts";
+import {
+	caughtUp,
+	createDamper,
+	MOST_CAUGHT_UP,
+} from "../../lib/mesh/damping.ts";
+import { groupNamed, homeOf, isJoinable } from "../../lib/mesh/group.ts";
 import { isSubagent, MESH_SESSION_ENV } from "../../lib/mesh/hand.ts";
 import {
 	carryLeases,
@@ -317,8 +321,12 @@ export function meshWorkflow(
 			return result.stopReason === "stop" ? result.answers.to : undefined;
 		};
 
-		/** The attention each message gets here, judged together. */
-		const route = async (messages: readonly Message[], mayWake = true) => {
+		/**
+		 * The attention each message gets here, judged together. Starting,
+		 * it is a catch-up: nothing wakes, and a long one is held to what
+		 * a peer starting can take in.
+		 */
+		const route = async (messages: readonly Message[], starting = false) => {
 			if (messages.length === 0 || !ctx || !peer) return;
 			peer.refresh();
 			const receiver = peer.receiver;
@@ -342,16 +350,10 @@ export function meshWorkflow(
 			);
 			// Never while starting: the first prompt is about to run, and pi
 			// refuses a second turn asked for beside it.
-			const idle = mayWake && (ctx.isIdle?.() ?? false);
-			const damped: string[] = [];
-			const heeded: Heeded[] = messages.map((message, at) => {
+			const idle = !starting && (ctx.isIdle?.() ?? false);
+			const raisedAll: Heed[] = messages.map((message, at) => {
 				// Stopped is absolute: a line, never more, whatever it is.
-				if (stopped[at]) {
-					return {
-						message,
-						heed: { attention: "glance", why: STOPPED },
-					};
-				}
+				if (stopped[at]) return { attention: "glance", why: STOPPED };
 				const worth = attend(message, {
 					receiver,
 					idle,
@@ -370,12 +372,38 @@ export function meshWorkflow(
 					acts?.drop((one) => one.message.id === replaced.id);
 					handedOver([replaced]);
 				}
-				const raised: Heed =
-					heard && worth.attention === "glance"
-						? { attention: "note", why: "replacing what this peer heard" }
-						: worth;
-				const heed = damper.damp(message, raised, depthOf(message, read));
+				return heard && worth.attention === "glance"
+					? { attention: "note", why: "replacing what this peer heard" }
+					: worth;
+			});
+			const homes = peer.addresses.map(homeOf);
+			const raisedEach =
+				starting && messages.length > MOST_CAUGHT_UP
+					? caughtUp(
+							messages.map((message, at) => ({
+								message,
+								heed: raisedAll[at] as Heed,
+								own:
+									message.intent === "hold" ||
+									answeringAt(answering, at) ||
+									answeringAt(asked, at) ||
+									message.to.some((group) => homes.includes(group)),
+							})),
+						)
+					: raisedAll;
+			const damped: string[] = [];
+			const inFull: Message[] = [];
+			const heeded: Heeded[] = messages.map((message, at) => {
+				const raised = raisedEach[at] as Heed;
+				const heed = damper.damp(
+					message,
+					raised,
+					depthOf(message, read),
+					Date.now(),
+					inFull,
+				);
 				if (heed.attention !== raised.attention) damped.push(heed.why);
+				if (heed.attention !== "glance") inFull.push(message);
 				return { message, heed };
 			});
 			say(damped);
@@ -402,7 +430,10 @@ export function meshWorkflow(
 		/** Damping said on screen, where the person sees it and the model not. */
 		const say = (damped: readonly string[]) => {
 			if (damped.length === 0 || !ctx?.hasUI) return;
-			ctx.ui.notify(`Mesh: held back (${damped.join("; ")})`, "info");
+			ctx.ui.notify(
+				`Mesh: held back (${[...new Set(damped)].join("; ")})`,
+				"info",
+			);
 		};
 
 		/** A line on screen now, and for the model with its next turn. */
@@ -499,9 +530,12 @@ export function meshWorkflow(
 				return { message, heed: held };
 			});
 			say(damped);
-			const turn = now.some(({ heed }) => heed.attention === "act");
+			const glanced = now.filter(({ heed }) => heed.attention === "glance");
+			for (const { message, heed } of glanced) glance(message, heed.why);
+			const full = now.filter(({ heed }) => heed.attention !== "glance");
+			const turn = full.some(({ heed }) => heed.attention === "act");
 			note(
-				now.map(({ message, heed }) => ({
+				full.map(({ message, heed }) => ({
 					message,
 					heed: turn ? heed : { ...heed, attention: "note" },
 				})),
@@ -735,7 +769,7 @@ export function meshWorkflow(
 				const message = take(id);
 				if (message) missed.push(message);
 			}
-			void route(missed, false);
+			void route(missed, true);
 			tidy();
 			if (started.hasUI) {
 				const groups =
