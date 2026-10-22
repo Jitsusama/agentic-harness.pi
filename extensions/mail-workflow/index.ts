@@ -25,6 +25,13 @@
  * a sender picks the narrowest audience that reaches everyone affected.
  * Each mail says what it asks of its readers, as a kind, so a reader
  * knows whether to answer, note it, or simply know it.
+ *
+ * And only into the conversations it bears on (lib/mail/triage.ts).
+ * Mail to everyone that is another session's own business is shown on
+ * screen and kept out of the model's context, judged by a classifier
+ * when one is to hand and delivered as before when not. A question this
+ * session is the one to answer starts a turn when it is idle, since
+ * otherwise it waits unread for the person.
  */
 
 import { type FSWatcher, mkdirSync, watch } from "node:fs";
@@ -35,7 +42,12 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
+import {
+	type FoundClassifier,
+	findClassifier,
+} from "../../lib/classifier/jev.ts";
 import { dataDir, stateDir } from "../../lib/internal/paths.ts";
 import {
 	channelName,
@@ -57,9 +69,35 @@ import {
 	recipients,
 } from "../../lib/mail/mailbox.ts";
 import { type NamingPaths, namesFor } from "../../lib/mail/names.ts";
+import { receiverFor } from "../../lib/mail/receiver.ts";
+import {
+	type Concern,
+	concernFrom,
+	concernQuestion,
+	concernState,
+	type Receiver,
+	triage,
+	type Verdict,
+} from "../../lib/mail/triage.ts";
 
 /** The customType mail is put into a conversation under. */
 export const MAIL_MESSAGE = "mailbox";
+
+/** The customType of mail shown on screen and kept out of context. */
+export const MAIL_PASSED = "mailbox-passed";
+
+/**
+ * The environment variable naming the classifier that judges mail as
+ * `provider/model`, or `off` to deliver everything as before.
+ */
+export const MAIL_CLASSIFIER_ENV = "PI_MAIL_CLASSIFIER";
+
+/**
+ * How long a classifier may take over one mail before it is delivered
+ * unjudged. Jev answers in well under half a second; this is for the
+ * network having gone, which must not leave mail undelivered.
+ */
+const JUDGE_MS = 2500;
 
 /**
  * How far back a session that has never read anything catches up.
@@ -84,7 +122,7 @@ export const ADVISORY =
 export const ASKS: Readonly<Record<MailKind, string>> = {
 	hold: "A hold: do not start what it names until its sender says the hold is over. Reply with mail_send only if you are already in the middle of it or cannot hold.",
 	question:
-		"A question: answer its sender with mail_send, briefly, then carry on.",
+		"A question: answer its sender with mail_send, briefly, then carry on with what you were doing, or stop there if you were doing nothing.",
 	finding:
 		"A finding: if you own what it is about, note it in your plan or journal and act on it in its turn; if you do not, let it go. No reply.",
 	fyi: "An fyi: context only. No reply and no action.",
@@ -209,10 +247,78 @@ export function mailWorkflow(
 			}
 		};
 
-		const hand = (mails: readonly Mail[]) => {
+		let classifier: Promise<FoundClassifier> | undefined;
+
+		/** Whose business a mail is, by the classifier, or nothing. */
+		const judge = async (
+			mail: Mail,
+			receiver: Receiver,
+		): Promise<Concern | undefined> => {
+			// Addressed mail is delivered whatever it says, so asking about
+			// it would spend a call on an answer nothing reads.
+			if (mail.to.some((to) => names.includes(to))) return undefined;
+			try {
+				const found = await classifier;
+				if (!found?.ok) return undefined;
+				const result = await found.classify(
+					{
+						state: concernState(mail, receiver),
+						questions: concernQuestion,
+					},
+					AbortSignal.timeout(JUDGE_MS),
+				);
+				return result.stopReason === "stop"
+					? concernFrom(result.answers.about)
+					: undefined;
+			} catch {
+				// Unjudged mail is delivered, which is what it always was.
+				return undefined;
+			}
+		};
+
+		/** What each mail should do here, judged together. */
+		const route = async (mails: readonly Mail[], mayWake = true) => {
+			if (mails.length === 0 || !ctx) return;
+			const receiver = receiverFor(
+				session,
+				names[0] ?? session,
+				channels,
+				ctx.cwd ?? process.cwd(),
+				paths,
+			);
+			const concerns = await Promise.all(
+				mails.map((mail) => judge(mail, receiver)),
+			);
+			// Never while starting: the first prompt is about to run, and pi
+			// refuses a second turn asked for beside it.
+			const idle = mayWake && (ctx.isIdle?.() ?? false);
+			const verdicts: [Mail, Verdict][] = mails.map((mail, at) => [
+				mail,
+				triage(mail, {
+					names,
+					receiver,
+					idle,
+					...(concerns[at] ? { concern: concerns[at] } : {}),
+				}),
+			]);
+			for (const [mail, verdict] of verdicts) {
+				if (verdict.into === "screen") {
+					pi.appendEntry(MAIL_PASSED, { mail, why: verdict.why });
+				}
+			}
+			const kept = verdicts.filter(([, v]) => v.into === "context");
+			hand(
+				kept.map(([mail]) => mail),
+				kept.some(([, v]) => v.wake),
+			);
+		};
+
+		const hand = (mails: readonly Mail[], wake = false) => {
 			if (mails.length === 0) return;
-			// Never a turn: see the header. pi appends it after the current
-			// step while the agent runs, and at once while it is idle.
+			// No turn unless triage asked for one, which it does only for a
+			// question to an idle session: see the header. pi appends it
+			// after the current step while the agent runs, and at once while
+			// it is idle.
 			pi.sendMessage(
 				{
 					customType: MAIL_MESSAGE,
@@ -220,9 +326,24 @@ export function mailWorkflow(
 					display: true,
 					details: mails,
 				},
-				{ triggerTurn: false },
+				{ triggerTurn: wake },
 			);
 		};
+
+		pi.registerEntryRenderer?.<{ mail: Mail; why: string }>(
+			MAIL_PASSED,
+			(entry, _options, theme) => {
+				const passed = entry.data;
+				if (!passed?.mail) return undefined;
+				const line = `Mail passed by (${passed.why}): ${oneLine(passed.mail)}`;
+				return {
+					render: (width: number) => [
+						theme.fg("dim", truncateToWidth(line, width)),
+					],
+					invalidate: () => {},
+				};
+			},
+		);
 
 		const take = (file: string): Mail | undefined => {
 			if (seen.has(file)) return undefined;
@@ -239,6 +360,18 @@ export function mailWorkflow(
 		pi.on("session_start", async (_event, started) => {
 			ctx = started;
 			rename();
+			// Looked for once a session, not once a mail, and not waited on:
+			// mail judged before it is found waits for it, briefly.
+			classifier = findClassifier(
+				started,
+				env[MAIL_CLASSIFIER_ENV],
+				MAIL_CLASSIFIER_ENV,
+			).catch(
+				(error): FoundClassifier => ({
+					ok: false,
+					reason: error instanceof Error ? error.message : String(error),
+				}),
+			);
 			const since =
 				mailbox.lastRead(names) ?? `${Date.now() - FIRST_CATCH_UP_MS}`;
 			const missed: Mail[] = [];
@@ -250,7 +383,7 @@ export function mailWorkflow(
 				const mail = take(file);
 				if (mail) missed.push(mail);
 			}
-			hand(missed);
+			void route(missed, false);
 			watcher?.close();
 			watcher = undefined;
 			try {
@@ -258,7 +391,7 @@ export function mailWorkflow(
 				watcher = watch(paths.box, (_kind, file) => {
 					if (file && isMailFile(file)) {
 						const mail = take(file);
-						if (mail) hand([mail]);
+						if (mail) void route([mail]);
 					}
 				});
 			} catch (error) {

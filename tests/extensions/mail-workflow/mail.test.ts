@@ -18,6 +18,7 @@ import {
 	ADVISORY,
 	ASKS,
 	MAIL_MESSAGE,
+	MAIL_PASSED,
 	type MailPaths,
 	mailWorkflow,
 } from "../../../extensions/mail-workflow/index.ts";
@@ -56,8 +57,12 @@ type Sent = {
 };
 
 /** Start a session on the extension, with just enough of pi to run it. */
-async function startSession(env: NodeJS.ProcessEnv = {}) {
+async function startSession(
+	env: NodeJS.ProcessEnv = {},
+	ctx: Record<string, unknown> = {},
+) {
 	const sent: Sent[] = [];
+	const passed: { type: string; data: unknown }[] = [];
 	const lifecycle = new Map<
 		string,
 		(event: unknown, ctx: unknown) => unknown
@@ -75,16 +80,39 @@ async function startSession(env: NodeJS.ProcessEnv = {}) {
 			tools.set(tool.name, tool as never),
 		sendMessage: (message: Sent["message"], options?: unknown) =>
 			sent.push({ message, options }),
+		appendEntry: (type: string, data: unknown) => passed.push({ type, data }),
+		registerEntryRenderer: () => {},
 	};
 	mailWorkflow(paths, env)(pi as never);
 	await lifecycle.get("session_start")?.(
 		{ reason: "startup" },
-		{ hasUI: false, sessionManager: { getSessionId: () => session } },
+		{
+			hasUI: false,
+			cwd: root,
+			sessionManager: { getSessionId: () => session },
+			...ctx,
+		},
 	);
 	stops.push(async () => {
 		await lifecycle.get("session_shutdown")?.({}, {});
 	});
-	return { sent, tools };
+	return { sent, tools, passed };
+}
+
+/** A model registry holding one classifier that answers `about` so. */
+function judging(about: unknown, calls: unknown[] = []) {
+	return {
+		modelRegistry: {
+			getAvailableOfType: async () => [
+				{ provider: "typesafe", id: "jev-latest" },
+			],
+			classify: async (_model: unknown, context: unknown) => {
+				calls.push(context);
+				if (about instanceof Error) throw about;
+				return { stopReason: "stop", answers: { about } };
+			},
+		},
+	};
 }
 
 /** Mail from another session, written the way it writes it. */
@@ -136,12 +164,13 @@ describe("mail as context", () => {
 		fromElsewhere({ text: "two" });
 
 		const first = await startSession();
-		expect(first.sent).toHaveLength(1);
+		await vi.waitFor(() => expect(first.sent).toHaveLength(1));
 		expect(first.sent[0]?.options).toEqual({ triggerTurn: false });
 		expect(first.sent[0]?.message.content).toMatch(/one[\s\S]*two/);
 
 		// A reload is a fresh start that has read them already.
 		const again = await startSession();
+		await new Promise((wake) => setTimeout(wake, 20));
 		expect(again.sent).toEqual([]);
 	});
 
@@ -335,6 +364,74 @@ function other(session: string, names: string[], channels: string[]) {
 		channels,
 	});
 }
+
+describe("mail only where it bears", () => {
+	const other = {
+		type: "choice",
+		choice: "other",
+		probabilities: { other: 0.93, receiver: 0.05, machine: 0.02 },
+	};
+
+	it("shows another session's business on screen and keeps it from the model", async () => {
+		const calls: unknown[] = [];
+		const { sent, passed } = await startSession({}, judging(other, calls));
+
+		fromElsewhere({ kind: "fyi", text: "merging core.nix#330 now" });
+
+		await vi.waitFor(() => expect(passed).toHaveLength(1));
+		expect(passed[0]?.type).toBe(MAIL_PASSED);
+		expect(sent).toEqual([]);
+		// The classifier is told who is receiving, not just what was said.
+		expect(JSON.stringify(calls[0])).toContain("7M6JKG");
+	});
+
+	it("delivers as before when the classifier fails", async () => {
+		const { sent, passed } = await startSession(
+			{},
+			judging(new Error("network gone")),
+		);
+
+		fromElsewhere({ kind: "fyi", text: "merging core.nix#330 now" });
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(passed).toEqual([]);
+	});
+
+	it("asks no classifier when it is switched off", async () => {
+		const calls: unknown[] = [];
+		const { sent } = await startSession(
+			{ PI_MAIL_CLASSIFIER: "off" },
+			judging(other, calls),
+		);
+
+		fromElsewhere({ kind: "fyi" });
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(calls).toEqual([]);
+	});
+
+	it("starts a turn for a question to an idle session, and only then", async () => {
+		const idle = { isIdle: () => true };
+		const { sent } = await startSession({}, idle);
+
+		fromElsewhere({ kind: "question", to: ["7M6JKG"], text: "why?" });
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.options).toEqual({ triggerTurn: true });
+
+		fromElsewhere({ kind: "finding", to: ["7M6JKG"], text: "your bug" });
+		await vi.waitFor(() => expect(sent).toHaveLength(2));
+		expect(sent[1]?.options).toEqual({ triggerTurn: false });
+	});
+
+	it("never starts a turn for mail it catches up on at start", async () => {
+		fromElsewhere({ kind: "question", to: ["7M6JKG"], text: "why?" });
+
+		const { sent } = await startSession({}, { isIdle: () => true });
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.options).toEqual({ triggerTurn: false });
+	});
+});
 
 /** Send through the tool, and hand back what it answered. */
 async function send(
