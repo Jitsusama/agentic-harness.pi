@@ -18,18 +18,21 @@
 /**
  * Emitted once the subagent tool is registered, carrying its API.
  *
- * Listening to this is enough only for an extension that activates
- * after this one. Anything that might activate first registers by
- * emitting, which is why the handshake goes both ways.
+ * pi's bus is a plain emitter that keeps nothing, so this reaches only
+ * an extension already listening: one that activated before the host.
+ * One that activates after it has missed this and registers by
+ * emitting instead. Not knowing its order, a registrant does both,
+ * which is why the handshake goes both ways.
  */
 export const SUBAGENT_READY = "subagent:ready:v1";
 
 /**
  * Reverse registration for an extension every subagent should load.
  *
- * Payload is the absolute path. Listened for over the session's whole
- * life, so an extension that activated before the host is not too
- * late.
+ * Payload is the absolute path. The host listens from its activation
+ * to the end of the session, so this reaches it from an extension that
+ * activates after it. Emitted before the host activates, it reaches
+ * nothing and is lost; that case is what {@link SUBAGENT_READY} covers.
  */
 export const SUBAGENT_REGISTER_DEFAULT_EXTENSION =
 	"subagent:register-default-extension:v1";
