@@ -319,7 +319,10 @@ doing only when it is the easy thing:
   the subject names the kind of work. It lasts an hour unless
   `ms` says otherwise, and two hours at most, and ends with the
   session. Starting heavy work others still there are running
-  tells both sides, once.
+  tells both sides, once, unless the machine's queue is kept
+  (priority-workflow's `queue.json` written in the last two
+  minutes): then the queue gives each its turn by the room left,
+  and the claim only shows who runs what.
 
 Every lease also lapses when its holder is gone, which is asked
 of the machine (see Who Is Still There). Holds and waits

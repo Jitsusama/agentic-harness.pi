@@ -121,6 +121,23 @@ export function waitingInOrder(jobs: readonly Job[]): Job[] {
 const rank = (job: Job) => (CLASS_OF[job.kind] === "timed" ? 0 : 1);
 
 /**
+ * How the queue gives turns beyond memory, while the machine lacks the
+ * timed slice.
+ */
+export interface Rules {
+	/**
+	 * Whether a build waits while a VM check runs. The queue gates memory,
+	 * not CPU, and a VM check is the daemon's, in build.slice, so a build
+	 * started beside it shares its CPU: a kernel build beside a running
+	 * camera subtest is what broke its timing. A VM check still starts
+	 * beside builds. Off once VM tests run timed, from their drivers.
+	 */
+	readonly buildsWaitForVmChecks: boolean;
+}
+
+export const RULES: Rules = { buildsWaitForVmChecks: true };
+
+/**
  * The job to start now, if any: the first waiting in order that its
  * kind's limit and the memory left both let in. Nothing within
  * {@link SPREAD_MS} of the last turn given.
@@ -129,6 +146,7 @@ export function nextTurn(
 	jobs: readonly Job[],
 	room: Room,
 	now: number,
+	rules: Rules = RULES,
 ): Job | undefined {
 	const running = jobs.filter((job) => job.started !== undefined);
 	const last = Math.max(
@@ -141,8 +159,12 @@ export function nextTurn(
 		.filter((job) => now - Date.parse(job.started as string) < RAMP_MS)
 		.reduce((sum, job) => sum + NEEDS_GIB[job.kind], 0);
 	const vms = running.filter(isVm).length;
+	const checking =
+		rules.buildsWaitForVmChecks &&
+		running.some((job) => job.kind === "vm-check");
 	for (const job of waitingInOrder(jobs)) {
 		if (isVm(job) && vms >= MOST_VMS) continue;
+		if (checking && job.kind === "build") continue;
 		if (room.availableGib - growing < NEEDS_GIB[job.kind]) return undefined;
 		return job;
 	}

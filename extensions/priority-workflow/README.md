@@ -64,6 +64,10 @@ never waits.
   for the person's programs covers the job's need, memory pressure is
   under 10%, and fewer than two VMs run. Timed work goes first, then the
   oldest; a job memory holds back holds everyone behind it.
+- **Builds wait for VM checks** while there is no timed cgroup: the
+  queue gates memory, not CPU, and a VM check runs in the daemon beside
+  any build that starts, which is how a kernel build broke a camera
+  subtest's timing. A VM check still starts beside builds.
 - **One at a time:** turns are given at least 3 seconds apart, and a job
   just started counts its need as taken for a minute while it grows.
 - **Timed work** then runs in the cgroup `TIMED_CGROUP` names, or in
@@ -71,7 +75,10 @@ never waits.
   call's output.
 - **Giving way:** a shell runs its command anyway when its job is given
   up or nobody has kept the queue for two minutes. A job ends when its
-  shell does, or its session's pi, however either ends.
+  shell does, or its session's pi, however either ends. So work the
+  command hands off with `setsid -f`, `nohup` or a trailing `&` is
+  forgotten once the shell exits, and its memory counts as taken only
+  for the minute after its turn.
 - **Every session keeps it** every 2 seconds while jobs stand, under a
   lock, and rewrites `queue.json` whole on each change and at least
   every 30 seconds, with a `heartbeat` in epoch seconds. The launcher

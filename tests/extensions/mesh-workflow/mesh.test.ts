@@ -2427,6 +2427,24 @@ describe("a lease", () => {
 		expect(sentOut()).toHaveLength(1);
 	});
 
+	it("leaves heavy work overlapping to the machine's queue while it is kept", async () => {
+		const runtime = join(root, "run");
+		mkdirSync(join(runtime, "jobs"), { recursive: true });
+		writeFileSync(join(runtime, "jobs", "queue.json"), "{}\n");
+		peer("session-w", ["WCJQSG"], []);
+		leased("session-w", { kind: "heavy", subject: "qemu", why: "vm test" });
+		const { sent, emit } = await startSession({ XDG_RUNTIME_DIR: runtime });
+
+		emit(LEASE_EVENT, { take: { subject: "qemu", why: "flake check" } });
+
+		await vi.waitFor(() =>
+			expect(ownBoard()).toMatchObject([{ kind: "heavy", subject: "qemu" }]),
+		);
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(sent).toEqual([]);
+		expect(sentOut()).toEqual([]);
+	});
+
 	it("claims a heavy shell command's work until its call answers", async () => {
 		const { fire, emit } = await startSession();
 		const running = (id: string, command: string) =>

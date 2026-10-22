@@ -9,8 +9,13 @@
  * rewrites a checkout's files claims the checkout, a turn claims the
  * questions it carries, a hold sent claims what it holds, and answering
  * another's hold says this peer waits on it.
+ *
+ * Heavy work is claimed too, so others see it, but two peers' heavy
+ * work at once is told to them only where the machine's queue is not
+ * kept: where it is, the queue gives each its turn by the room left.
  */
 
+import { isKept, machineQueueDir } from "../../lib/internal/priority/folder.ts";
 import { answeringTo } from "../../lib/mesh/address.ts";
 import { homeOf } from "../../lib/mesh/group.ts";
 import {
@@ -38,6 +43,12 @@ import type { Peer } from "../../lib/mesh/peer.ts";
 import type { Presence, Presences } from "../../lib/mesh/presence.ts";
 import { mayReplace, sentBy } from "../../lib/mesh/thread.ts";
 import type { Transport } from "../../lib/mesh/transport.ts";
+
+/** Whether the machine's queue is kept, as this environment finds it. */
+export function queueKept(env: NodeJS.ProcessEnv): boolean {
+	const dir = machineQueueDir(env);
+	return dir !== undefined && isKept(dir);
+}
 
 /** How much of a message a lease keeps as what it is for. */
 const WHY_CHARS = 120;
@@ -75,6 +86,11 @@ export interface LeaseSurroundings {
 	 * asks with mesh_send, and a hand through the session that started it.
 	 */
 	readonly asking?: string;
+	/**
+	 * Whether the machine's queue is kept, so heavy work takes turns by
+	 * itself and two peers' running at once needs no word between them.
+	 */
+	queueKept?(): boolean;
 }
 
 export interface Leasing {
@@ -382,7 +398,7 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 				why,
 				now,
 			);
-			if (!fresh) return undefined;
+			if (!fresh || at.queueKept?.()) return undefined;
 			const overlapping = await untold(
 				othersOn(at.board.all(), peer.session, "heavy", subject, now),
 			);

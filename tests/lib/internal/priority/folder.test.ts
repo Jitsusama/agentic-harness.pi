@@ -13,6 +13,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	HEARTBEAT_MS,
+	isKept,
+	machineQueueDir,
 	PID_MS,
 	type QueueRecord,
 	queueFolder,
@@ -107,6 +109,27 @@ describe("the machine's queue folder", () => {
 		]);
 	});
 
+	it("gives turns by the rules it is kept with", () => {
+		const ran = new Date(NOW - 120_000).toISOString();
+		const ask = (queue: ReturnType<typeof folder>) => {
+			queue.ask(job("check", { kind: "vm-check", started: ran }));
+			queue.ask(job("build"));
+			shellSays("check", 601);
+			shellSays("build", 602);
+		};
+		const held = folder();
+		ask(held);
+		held.keep(ROOMY, NOW, () => undefined);
+		expect(held.hasTurn("build")).toBe(false);
+		const free = queueFolder(
+			dir,
+			{ isRunning: (pid) => running.has(pid), cgroupOf: () => undefined },
+			() => ({ buildsWaitForVmChecks: false }),
+		);
+		free.keep(ROOMY, NOW, () => undefined);
+		expect(free.hasTurn("build")).toBe(true);
+	});
+
 	it("gives up jobs whose shell or session has ended", () => {
 		const queue = folder();
 		queue.ask(job("finished"));
@@ -165,6 +188,18 @@ describe("the machine's queue folder", () => {
 			day: "2026-10-23",
 			minute: "2026-10-23T00:00",
 		});
+	});
+
+	it("is kept while queue.json is younger than two minutes", () => {
+		expect(machineQueueDir({ XDG_RUNTIME_DIR: "/run/user/1000" })).toBe(
+			"/run/user/1000/jobs",
+		);
+		expect(machineQueueDir({})).toBeUndefined();
+		expect(isKept(dir)).toBe(false);
+		folder().keep(ROOMY, NOW, () => undefined);
+		const written = statSync(join(dir, "queue.json")).mtimeMs;
+		expect(isKept(dir, written + 119_999)).toBe(true);
+		expect(isKept(dir, written + 120_000)).toBe(false);
 	});
 
 	it("writes queue.json when it changes or its heartbeat is due", () => {

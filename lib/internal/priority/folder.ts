@@ -37,6 +37,8 @@ import {
 	type Job,
 	NEEDS_GIB,
 	nextTurn,
+	RULES,
+	type Rules,
 	waitingInOrder,
 	waitsWithRoom,
 } from "./queue.ts";
@@ -50,6 +52,26 @@ const STALE_LOCK_MS = 10_000;
 
 /** How often queue.json is written when nothing in it changes. */
 export const HEARTBEAT_MS = 30_000;
+
+/** How long queue.json goes unwritten before nobody keeps the queue. */
+export const UNKEPT_MS = 120_000;
+
+/** The machine's queue folder, in the account's runtime directory. */
+export function machineQueueDir(
+	env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+	const runtime = env.XDG_RUNTIME_DIR;
+	return runtime ? join(runtime, "jobs") : undefined;
+}
+
+/** Whether some session keeps the queue at `dir`, by queue.json's age. */
+export function isKept(dir: string, now: number = Date.now()): boolean {
+	try {
+		return now - statSync(join(dir, "queue.json")).mtimeMs < UNKEPT_MS;
+	} catch {
+		return false;
+	}
+}
 
 /** The whole queue, as queue.json holds it. */
 export interface QueueRecord {
@@ -115,7 +137,11 @@ export interface QueueFolder {
 	): void;
 }
 
-export function queueFolder(dir: string, processes: Processes): QueueFolder {
+export function queueFolder(
+	dir: string,
+	processes: Processes,
+	rules: () => Rules = () => RULES,
+): QueueFolder {
 	const path = (id: string, ending: string) => join(dir, `${id}.${ending}`);
 	const ensure = () => mkdirSync(dir, { recursive: true });
 
@@ -212,7 +238,7 @@ export function queueFolder(dir: string, processes: Processes): QueueFolder {
 					drop(job.id);
 					return false;
 				});
-				const next = nextTurn(standing, reading, now);
+				const next = nextTurn(standing, reading, now, rules());
 				const queue = next
 					? standing.map((job) =>
 							job.id === next.id

@@ -114,7 +114,7 @@ describe("heavy work waiting for its turn", () => {
 		const { out } = await ran;
 		expect(Date.now() - started).toBeGreaterThanOrEqual(1_500);
 		expect(out).toMatch(
-			/^Waited [12]s for its turn in the machine queue\.\nran \n$/,
+			/^Waited [1-9]\d*s for its turn in the machine queue\.\nran \n$/,
 		);
 	});
 

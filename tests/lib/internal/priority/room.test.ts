@@ -12,11 +12,15 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
-function cgroup(path: string, min: number, current = 0) {
+function cgroup(path: string, min: number, anon = 0, file = 0) {
 	const dir = join(root, "cgroups", path);
 	mkdirSync(dir, { recursive: true });
 	writeFileSync(join(dir, "memory.min"), `${min}\n`);
-	writeFileSync(join(dir, "memory.current"), `${current}\n`);
+	writeFileSync(join(dir, "memory.current"), `${anon + file}\n`);
+	writeFileSync(
+		join(dir, "memory.stat"),
+		`anon ${anon}\nfile ${file}\nkernel 0\n`,
+	);
 	return dir;
 }
 
@@ -56,8 +60,9 @@ describe("the machine's room", () => {
 		expect(floorsIn(join(root, "cgroups"))).toEqual([app, session].sort());
 	});
 
-	it("leaves out the part of a floor its programs may still take", () => {
-		const app = cgroup("app.slice", 8 * GIB, 6 * GIB);
+	it("leaves out what a floor keeps past its programs' own memory", () => {
+		// A floor full of cache keeps it, though MemAvailable calls it free.
+		const app = cgroup("app.slice", 8 * GIB, 6 * GIB, 10 * GIB);
 		const session = cgroup("session.slice", 1 * GIB, 3 * GIB);
 		const reading = readRoom([app, session], {
 			proc: proc(40),

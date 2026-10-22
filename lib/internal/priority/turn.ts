@@ -14,7 +14,7 @@
  */
 
 import { randomBytes } from "node:crypto";
-import type { QueueFolder } from "./folder.ts";
+import { type QueueFolder, UNKEPT_MS } from "./folder.ts";
 import { type Job, kindOf, whatOf } from "./queue.ts";
 import type { Reading } from "./room.ts";
 
@@ -30,9 +30,6 @@ export interface Queueing {
 
 /** Seconds a wait lasts before the shell says it waited. */
 export const SAID_AFTER_S = 5;
-
-/** Seconds since anyone kept the queue before a wait gives way. */
-export const UNKEPT_S = 120;
 
 const QUEUEING = Symbol.for("agentic-harness.priority.queueing");
 
@@ -90,7 +87,7 @@ export function waitsForTurn(
 		[
 			`__queue='${dir}' __job='${id}' __since=$SECONDS`,
 			`printf '%s\\n' "$$" 2>/dev/null > "$__queue/$__job.pid"`,
-			`while [ ! -e "$__queue/$__job.turn" ] && [ -e "$__queue/$__job.job" ] && [ $(( $(date +%s) - $(stat -c %Y "$__queue/queue.json" 2>/dev/null || echo 0) )) -lt ${UNKEPT_S} ]; do sleep 1; done`,
+			`while [ ! -e "$__queue/$__job.turn" ] && [ -e "$__queue/$__job.job" ] && [ $(( $(date +%s) - $(stat -c %Y "$__queue/queue.json" 2>/dev/null || echo 0) )) -lt ${UNKEPT_MS / 1000} ]; do sleep 1; done`,
 			`__into=$(cat "$__queue/$__job.turn" 2>/dev/null)`,
 			`[ -n "$__into" ] && { printf '%s\\n' "$$" 2>/dev/null > "$__into/cgroup.procs" || :; }`,
 			`__since=$(( SECONDS - __since ))`,

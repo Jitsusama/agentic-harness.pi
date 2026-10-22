@@ -20,9 +20,12 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { queueFolder } from "../../lib/internal/priority/folder.ts";
+import {
+	machineQueueDir,
+	queueFolder,
+} from "../../lib/internal/priority/folder.ts";
 import { jobsProcs, placeChildren } from "../../lib/internal/priority/place.ts";
 import { CLASS_OF, type Job } from "../../lib/internal/priority/queue.ts";
 import {
@@ -74,15 +77,17 @@ function placeWork(pi: ExtensionAPI, own: string | undefined) {
 }
 
 function keepQueue(pi: ExtensionAPI, own: string | undefined) {
-	const runtime = process.env.XDG_RUNTIME_DIR;
-	if (!runtime) return;
-	const folder = queueFolder(join(runtime, "jobs"), { isRunning, cgroupOf });
+	const dir = machineQueueDir();
+	if (!dir) return;
 	const timedProcs = own ? jobsProcs(own, process.env.TIMED_CGROUP) : undefined;
 	const timed = timedProcs ? dirname(timedProcs) : undefined;
+	const hasTimed = () => timed !== undefined && existsSync(timed);
 	const cgroupFor = (job: Job) =>
-		CLASS_OF[job.kind] === "timed" && timed && existsSync(timed)
-			? timed
-			: undefined;
+		CLASS_OF[job.kind] === "timed" && hasTimed() ? timed : undefined;
+	// Until VM tests run timed, a build waits while a VM check runs.
+	const folder = queueFolder(dir, { isRunning, cgroupOf }, () => ({
+		buildsWaitForVmChecks: !hasTimed(),
+	}));
 
 	let floors: string[] = [];
 	let floorsAt = -Infinity;

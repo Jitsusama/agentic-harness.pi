@@ -126,7 +126,12 @@ import {
 	handedIn,
 	leftToIn,
 } from "./glances.ts";
-import { createHeavyCalls, createLeasing, type HoldEnd } from "./leases.ts";
+import {
+	createHeavyCalls,
+	createLeasing,
+	type HoldEnd,
+	queueKept,
+} from "./leases.ts";
 import { type Local, registerTools } from "./tools.ts";
 
 /**
@@ -254,6 +259,7 @@ export function meshWorkflow(
 			own: () => own,
 			peer: () => peer,
 			sent: (message) => seen.add(message.id),
+			queueKept: () => queueKept(env),
 		});
 		// The sessions last counted still there, so a quest's address is
 		// left only to a peer that is (see address.ts).

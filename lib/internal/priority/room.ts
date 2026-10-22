@@ -2,10 +2,14 @@
  * How much room the machine has left, read from the kernel.
  *
  * Memory available is the kernel's own MemAvailable, less what the
- * memory floors core.nix sets still keep for the programs under them:
- * a floor (memory.min) guards what a cgroup uses up to it, so the part
- * it does not use yet is room those programs may take back at any time,
- * not room for work. Only the innermost floors count, since an outer
+ * memory floors core.nix sets keep for the programs under them. A floor
+ * (memory.min) protects everything a cgroup holds up to it, its page
+ * cache too, but MemAvailable counts that cache as free; so a floor
+ * keeps all of itself but the memory its programs hold as their own
+ * (anon), which MemAvailable already leaves out. With session.slice's
+ * 1 GiB floor holding 116 MiB anon and 329 MiB cache, that is 908 MiB
+ * kept, where the floor less what it holds would say 564; it errs a
+ * little safe. Only the innermost floors count, since an outer
  * one (user.slice's 15%) holds the inner ones (app.slice's 13%) and the
  * work itself. They are read from the cgroups, not worked out again.
  */
@@ -66,12 +70,7 @@ export function readRoom(
 	const available = memAvailable(kernel.proc);
 	const kept = floors.reduce(
 		(sum, floor) =>
-			sum +
-			Math.max(
-				0,
-				number(join(floor, "memory.min")) -
-					number(join(floor, "memory.current")),
-			),
+			sum + Math.max(0, number(join(floor, "memory.min")) - anonIn(floor)),
 		0,
 	);
 	const memory = pressure(kernel.proc, "memory");
@@ -106,6 +105,12 @@ export function cgroupOf(
 		.split("\n")
 		.find((entry) => entry.startsWith("0::"));
 	return line ? line.slice(3) : undefined;
+}
+
+/** The memory a cgroup's programs hold as their own, from memory.stat. */
+function anonIn(cgroup: string): number {
+	const anon = /^anon (\d+)$/m.exec(text(join(cgroup, "memory.stat")));
+	return anon ? Number(anon[1]) : 0;
 }
 
 function memAvailable(proc: string): number {

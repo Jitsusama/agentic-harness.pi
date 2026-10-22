@@ -40,6 +40,7 @@ import {
 	createHeavyCalls,
 	createLeasing,
 	type Leaser,
+	queueKept,
 } from "./leases.ts";
 
 /** How a hand asks the peers it overlaps: through its parent. */
@@ -77,6 +78,7 @@ export function meshHand(
 			// Nothing reaches a hand, so nothing it sends needs keeping from it.
 			sent: () => {},
 			asking: ASKING,
+			queueKept: () => queueKept(env),
 		});
 		const say = (content: string) =>
 			pi.sendMessage(

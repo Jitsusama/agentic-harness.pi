@@ -105,10 +105,29 @@ describe("whose turn it is", () => {
 
 	it("lets the next job past a VM the VMs at once hold back", () => {
 		const vms = Array.from({ length: MOST_VMS }, (_, at) =>
-			job(`vm${at}`, { kind: "vm-check", started: startedAgo(RAMP_MS) }),
+			job(`vm${at}`, { kind: "vm-test", started: startedAgo(RAMP_MS) }),
 		);
 		const jobs = [...vms, job("third", { kind: "vm-test" }), job("build")];
 		expect(nextTurn(jobs, ROOMY, NOW)?.id).toBe("build");
+	});
+
+	it("holds builds while a VM check runs, until VM tests run timed", () => {
+		const check = job("check", {
+			kind: "vm-check",
+			started: startedAgo(RAMP_MS),
+		});
+		const waiting = [job("build"), job("bench", { kind: "benchmark" })];
+		expect(nextTurn([check, job("build")], ROOMY, NOW)).toBeUndefined();
+		expect(nextTurn([check, ...waiting], ROOMY, NOW)?.id).toBe("bench");
+		expect(
+			nextTurn([check, job("build")], ROOMY, NOW, {
+				buildsWaitForVmChecks: false,
+			})?.id,
+		).toBe("build");
+		const building = job("building", { started: startedAgo(RAMP_MS) });
+		expect(
+			nextTurn([building, job("check", { kind: "vm-check" })], ROOMY, NOW)?.id,
+		).toBe("check");
 	});
 
 	it("counts a wait as wasted only when its memory stands free", () => {
