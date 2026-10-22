@@ -9,6 +9,7 @@ import {
 	type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { QUIET_MS } from "../../../extensions/away-workflow/carry-on.ts";
 import awayWorkflow from "../../../extensions/away-workflow/index.ts";
 import {
 	machineAwayPath,
@@ -472,5 +473,113 @@ describe("across the machine", () => {
 		await pi.goAway();
 
 		expect(readMachineWord()).toBeUndefined();
+	});
+});
+
+describe("carrying on when nobody answers", () => {
+	beforeEach(() => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		setProgressSource(() => ({
+			document: "PLAN-9",
+			done: 1,
+			total: 4,
+			next: "Docs",
+		}));
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it("takes the plan's next item once a quiet stretch passes", async () => {
+		const pi = activate();
+		await pi.fire("session_start");
+
+		await pi.runEnds("Merged the first piece.");
+		vi.advanceTimersByTime(QUIET_MS - 1);
+		expect(pi.jobs).toHaveLength(0);
+		vi.advanceTimersByTime(1);
+
+		expect(pi.jobs).toHaveLength(1);
+		expect(pi.jobs[0]?.summary).toContain("Next: Docs");
+		expect(desktop).toEqual([]);
+	});
+
+	it("waits again for as long as the person stays quiet", async () => {
+		const pi = activate();
+		await pi.fire("session_start");
+
+		await pi.runEnds("First piece.");
+		vi.advanceTimersByTime(QUIET_MS);
+		await pi.fire("agent_start");
+		await pi.runEnds("Second piece.");
+		vi.advanceTimersByTime(QUIET_MS);
+
+		expect(pi.jobs).toHaveLength(2);
+	});
+
+	it("carries on nothing once the person answers", async () => {
+		const pi = activate();
+		await pi.fire("session_start");
+
+		await pi.runEnds("Merged the first piece.");
+		await pi.fire("input", { text: "hold on", source: "interactive" });
+		vi.advanceTimersByTime(QUIET_MS);
+
+		expect(pi.jobs).toHaveLength(0);
+	});
+
+	it("withdraws a carry-on not yet said when the person types", async () => {
+		const pi = activate();
+		await pi.fire("session_start");
+
+		await pi.runEnds("Merged the first piece.");
+		vi.advanceTimersByTime(QUIET_MS);
+		await pi.fire("input", { text: "wait", source: "interactive" });
+
+		expect(pi.jobs[0]?.withdrawn).toBe(true);
+	});
+
+	it("reaches the person once with a question it asked, and carries on", async () => {
+		const pi = activate();
+		await pi.fire("session_start");
+
+		await pi.runEnds("Built it.\n\nShall I merge it?");
+		vi.advanceTimersByTime(QUIET_MS);
+
+		expect(desktop.map((n) => n.title)).toEqual(["PLAN-9 asked you something"]);
+		expect(pi.jobs[0]?.summary).toContain("Your question stands");
+	});
+
+	it("does not carry on while a run is under way", async () => {
+		const pi = activate();
+		await pi.fire("session_start");
+
+		await pi.runEnds("Merged the first piece.");
+		pi.session.busy = true;
+		vi.advanceTimersByTime(QUIET_MS);
+
+		expect(pi.jobs).toHaveLength(0);
+	});
+
+	it("leaves a session nobody is at alone", async () => {
+		const pi = activate({ hasUI: false });
+		await pi.fire("session_start");
+
+		await pi.runEnds("Merged the first piece.");
+		vi.advanceTimersByTime(QUIET_MS);
+
+		expect(pi.jobs).toHaveLength(0);
+	});
+
+	it("hands over to keep-going once the person says they are away", async () => {
+		const pi = activate();
+		await pi.fire("session_start");
+
+		await pi.runEnds("Merged the first piece.");
+		await pi.goAway();
+		vi.advanceTimersByTime(QUIET_MS);
+
+		expect(pi.jobs).toHaveLength(0);
 	});
 });

@@ -58,6 +58,22 @@ carries on with what does not need you. This uses `notify-send` on
 Linux and `osascript` on macOS, and does nothing where neither is
 there.
 
+## When You Just Stop Answering
+
+You don't have to say you are leaving for work to carry on. When a
+run that was working stops short with the focused plan in build and
+items still open, and nobody types for 10 minutes, the session takes
+the next item. If the run ended by asking you something, the question
+stands, your desktop shows it once, and the session carries on with
+what does not need the answer. It keeps doing this for as long as you
+stay quiet, up to fifty times.
+
+It never carries on a reply that only talked (such as "holding" after
+you said wait), a run that ended `Done:` or `Blocked:`, or one you
+stopped with Escape; if you asked it to stop, it is told to rest.
+Anything you type resets it. Saying
+you are away hands over to away mode. `PI_CARRY_ON=off` turns it off.
+
 ## Coming Back
 
 Type anything. Your message goes through at once, since it might be
@@ -79,7 +95,8 @@ so the agent is never told you are away after you returned.
 - Sessions nobody sits at, such as subagents and print-mode runs,
   neither follow the machine's absence nor start one.
 - A panel left open with nobody answering is not yet taken as a sign
-  you have gone; say you are leaving.
+  you have gone; say you are leaving. A run that simply ended is, after
+  10 quiet minutes, as above.
 - A restart while away comes back away, with what was held, and the
   first thing you type shows you what waited.
 
