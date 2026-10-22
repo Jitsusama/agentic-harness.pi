@@ -17,6 +17,10 @@
  *   branch switched, a hard reset, a stash) changes every file in it,
  *   so it claims the whole checkout, named by its path: two worktrees
  *   are two checkouts, and only peers in the one rewritten are touched.
+ *   A pull is checked against others' changes the same way but claims
+ *   nothing, since it only brings the branch up to date: two sessions
+ *   installing
+ *   one checkout with a pull stopped each other for ten minutes after.
  *   Each change lease says which checkout it is in.
  * - **answer:** a question this peer has a turn for, so the rest of a
  *   group leave it to it. Lapses with the run.
@@ -184,6 +188,8 @@ export interface Rewrite {
 	readonly checkout: string;
 	/** The git command, as it was written. */
 	readonly command: string;
+	/** Whether it only brings the branch up to date, as a pull does. */
+	readonly catchesUp: boolean;
 }
 
 /** Where a shell command's parts end, so each is read on its own. */
@@ -224,7 +230,13 @@ export function rewriteIn(command: string, cwd: string): Rewrite | undefined {
 		}
 		if (!rewrites(words[at] ?? "", words.slice(at + 1))) continue;
 		const checkout = checkoutOf(runsIn);
-		if (checkout) return { checkout, command: part.trim() };
+		if (checkout) {
+			return {
+				checkout,
+				command: part.trim(),
+				catchesUp: words[at] === "pull",
+			};
+		}
 	}
 	return undefined;
 }

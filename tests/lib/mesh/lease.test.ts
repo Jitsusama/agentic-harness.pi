@@ -214,12 +214,19 @@ describe("a command that rewrites a checkout", () => {
 		expect(rewriteIn("git checkout main", main)).toEqual({
 			checkout: main,
 			command: "git checkout main",
+			catchesUp: false,
 		});
 		expect(rewriteIn(`cd ${other} && git reset --hard HEAD~1`, main)).toEqual({
 			checkout: other,
 			command: "git reset --hard HEAD~1",
+			catchesUp: false,
 		});
 		expect(rewriteIn(`git -C ${other} stash`, main)?.checkout).toBe(other);
+		expect(rewriteIn("git pull -q --ff-only origin main", main)).toEqual({
+			checkout: main,
+			command: "git pull -q --ff-only origin main",
+			catchesUp: true,
+		});
 		for (const run of [
 			"switch fix",
 			"checkout -b fix origin/main",
