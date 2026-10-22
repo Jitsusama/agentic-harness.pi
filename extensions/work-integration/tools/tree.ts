@@ -374,6 +374,11 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 			"Get somewhere to work and know what is in it: cut a worktree at a branch, pin a snapshot at a commit, list the trees this session holds, give one back, or read what has changed inside one. Call with no action to list what is held.",
 		promptSnippet:
 			"Somewhere to work: tree, snapshot, trees, release, status, tidy.",
+		// A batch holding a work call then runs one call at a time, in the order
+		// written. Side by side, a resume read the tree before the `git add` beside
+		// it, and a branch before the `git revert --abort` beside it, and both
+		// reported a halt or failure that was gone by the time anyone looked.
+		executionMode: "sequential",
 		promptGuidelines: [
 			"A worktree is checked out at a branch and is yours alone; a snapshot is pinned to a commit and may be shared with another reader. Ask for the one that matches what you are about to do.",
 			"Always say what the tree is for. The purpose names it, which is how it is recognised later and how a second caller avoids cutting a duplicate.",
