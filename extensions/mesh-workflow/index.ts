@@ -51,6 +51,7 @@ import {
 	carriedBy,
 	ROLLOVER_CARRY,
 } from "../../lib/internal/session/rollover.ts";
+import { onWants } from "../../lib/internal/session/wants.ts";
 import { onJobFinished } from "../../lib/jobs/index.ts";
 import type { QuestRecords } from "../../lib/mesh/address.ts";
 import {
@@ -102,6 +103,7 @@ import {
 	sentBy,
 } from "../../lib/mesh/thread.ts";
 import { folderTransport, type Transport } from "../../lib/mesh/transport.ts";
+import { type Want, type WantKind, wantFrom } from "../../lib/mesh/want.ts";
 import { type Acts, createActs, SETTLING, type Settling } from "./acts.ts";
 import {
 	type Delivered,
@@ -251,6 +253,7 @@ export function meshWorkflow(
 		const answered = new Set<string>();
 		let ctx: ExtensionContext | undefined;
 		let peer: Peer | undefined;
+		const wanting = new Map<WantKind, Want>();
 		let classifier: Promise<FoundClassifier> | undefined;
 		let stopWatching: (() => void) | undefined;
 		// Every id already looked at, so a watcher that reports one twice,
@@ -611,6 +614,7 @@ export function meshWorkflow(
 				...(owner ? { owner } : {}),
 				...(previous ? { previous } : {}),
 			});
+			for (const want of wanting.values()) peer.want(want);
 			glances.recover(branch);
 			const counted = countedIn(branch);
 			damper.recover(counted.turns, counted.said);
@@ -824,6 +828,24 @@ export function meshWorkflow(
 		if (pi.events) {
 			onJobFinished(pi.events, ({ toolCallId }) => {
 				if (toolCallId !== undefined) ended(toolCallId);
+			});
+		}
+
+		// What this session waits on its person for, as the session says it
+		// over the bus. Heard from load, since a reload with a panel still
+		// open says its wants again as the session starts, perhaps before
+		// this peer is made; held until then.
+		if (pi.events) {
+			onWants(pi.events, (event) => {
+				if (event.said === null) {
+					wanting.delete(event.kind);
+					peer?.settle(event.kind);
+					return;
+				}
+				const want = wantFrom(event);
+				if (!want) return;
+				wanting.set(want.kind, want);
+				peer?.want(want);
 			});
 		}
 

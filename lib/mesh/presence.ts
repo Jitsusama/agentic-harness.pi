@@ -31,6 +31,7 @@ import { loadedQuest, type QuestRecords } from "./address.ts";
 import { scopesOf } from "./scope.ts";
 import { type Stop, stopsFrom } from "./stop.ts";
 import { removeQuietly, removeStaged } from "./transport.ts";
+import { type Want, wantFrom } from "./want.ts";
 
 /** One peer, as it is seen on the mesh. */
 export interface Presence {
@@ -57,6 +58,11 @@ export interface Presence {
 	readonly owns: readonly string[];
 	/** Whether it is in the middle of a run, as of when it last said. */
 	readonly busy: boolean;
+	/**
+	 * What it is waiting on its person for, standing longest, while any
+	 * want stands (see want.ts).
+	 */
+	readonly wants?: Want;
 	/** The process holding it, when the machine would say. */
 	readonly owner?: Owner;
 	/** When it last said so, as an ISO time. */
@@ -294,6 +300,7 @@ function presenceFrom(value: unknown): Presence | undefined {
 		worksOn: typeof one.worksOn === "string" ? one.worksOn : "",
 		owns: strings(one.owns) ? one.owns : [],
 		busy: one.busy === true,
+		...(wantFrom(one.wants) ? { wants: wantFrom(one.wants) } : {}),
 		...(isOwner(one.owner) ? { owner: one.owner } : {}),
 		at: typeof one.at === "string" ? one.at : "",
 	};

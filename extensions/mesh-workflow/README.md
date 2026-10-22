@@ -39,7 +39,11 @@ and can answer a question or a gate left open on screen.
 - **Joined:** the groups a peer chose, kept across a reload.
 - **Presence:** what a peer publishes about itself: its
   addresses, its groups, what it works on and what it owns,
-  whether it is mid-run, and the process holding it.
+  whether it is mid-run, what it waits on its person for, and
+  the process holding it.
+- **Want:** what a peer waits on its person for: a question
+  it asked, an approval it is held at, or an unattended run
+  that ended blocked.
 - **Liveness:** whether a peer is still there, asked of the
   machine through the process its presence names.
 - **Attention:** what a message gets from the peer it reaches,
@@ -384,6 +388,36 @@ A peer has a message once its read marker passes it, which is
 when it is handed to the peer's model, at whatever attention.
 A pi that keeps no session, such as a reload's load check,
 stays off the mesh.
+
+## What a Peer Waits On
+
+A peer that has asked its person something, is held at an
+approval, or ended an unattended run blocked can do nothing
+until he answers, and its presence would say only that it is
+idle. So while it waits, its presence carries `wants`:
+
+```json
+{ "kind": "question", "since": "2026-10-22T08:00:00.000Z", "said": "Which launcher?" }
+```
+
+`kind` is `question`, `approval` or `blocked`; `since` is when
+it began waiting; `said` is what it asked or said, on one line
+of at most 120 characters. Each kind stands until it is
+settled, and while more than one stands, presence holds the
+one that has stood longest. The field is absent when nothing
+waits. The desktop reads it to mark a session that wants Joel;
+a peer can read it, and `mesh_groups` lists it, so none is
+waited on as though it were free.
+
+The session says each want as it starts and ends, over the bus
+(`session:wants:v1`, see `lib/internal/session/wants.ts`): a
+panel left unanswered for five seconds, calls held while away,
+an away run ended blocked, or a run ending on a question. A
+want is never read back from a presence file, only heard from
+the process that raised it, so a session restarted waits on
+nothing. The mesh listens from the moment it loads and holds
+what it heard until its peer is made, since a reload with a
+panel still open says its wants again as the session starts.
 
 ## The Legacy Mailbox
 

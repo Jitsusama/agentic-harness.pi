@@ -10,8 +10,12 @@
  * reload, because they are kept with its presence.
  *
  * Presence is published when something in it changes (its addresses,
- * its work, its groups, whether it is mid-run), never on a clock, so a
- * peer at rest writes nothing however long it rests.
+ * its work, its groups, whether it is mid-run, what it waits on its
+ * person for), never on a clock, so a peer at rest writes nothing
+ * however long it rests.
+ *
+ * What it waits on is never kept across a start, since whatever asked
+ * belonged to the process that ended.
  */
 
 import type { Owner } from "@jitsusama/agentic-harness.core/process";
@@ -26,6 +30,7 @@ import type { Receiver } from "./attention.ts";
 import type { Listener } from "./message.ts";
 import { type Presence, type Presences, workOf } from "./presence.ts";
 import type { Stop } from "./stop.ts";
+import { longestStanding, type Want, type WantKind } from "./want.ts";
 
 export interface Peer {
 	readonly session: string;
@@ -47,6 +52,12 @@ export interface Peer {
 	readonly receiver: Receiver;
 	/** Whether it is in the middle of a run. */
 	readonly busy: boolean;
+	/** What it waits on its person for, standing longest (see want.ts). */
+	readonly wants: Want | undefined;
+	/** Say it waits on its person for this, in place of any of its kind. */
+	want(want: Want): void;
+	/** Say it no longer waits for this kind; answers whether it did. */
+	settle(kind: WantKind): boolean;
 	/** Look its addresses and work up again, and publish any change. */
 	refresh(): void;
 	/** Say whether it is in the middle of a run. */
@@ -104,6 +115,7 @@ export function localPeer(at: Surroundings): Peer {
 	];
 	let receiver: Receiver = { addresses, worksOn: "", owns: [] };
 	let busy = false;
+	const wanting = new Map<WantKind, Want>();
 	const groups = () => [...new Set([...scopes, ...joined])].sort();
 	// What was last published, less its time, so an unchanged presence is
 	// not written again.
@@ -118,6 +130,7 @@ export function localPeer(at: Surroundings): Peer {
 			worksOn: receiver.worksOn,
 			owns: receiver.owns,
 			busy,
+			...(wanting.size > 0 ? { wants: longestStanding(wanting.values()) } : {}),
 			...(at.owner ? { owner: at.owner } : {}),
 		};
 		const text = JSON.stringify(said);
@@ -171,6 +184,18 @@ export function localPeer(at: Surroundings): Peer {
 		},
 		get busy() {
 			return busy;
+		},
+		get wants() {
+			return longestStanding(wanting.values());
+		},
+		want(want) {
+			wanting.set(want.kind, want);
+			publish();
+		},
+		settle(kind) {
+			if (!wanting.delete(kind)) return false;
+			publish();
+			return true;
 		},
 		refresh,
 		setBusy(now) {
