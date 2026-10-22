@@ -231,6 +231,22 @@ describe("heavy work in a shell command", () => {
 		expect(heavyWorkIn("cargo fmt")).toBeUndefined();
 		expect(heavyWorkIn("git log --grep nixbuild")).toBeUndefined();
 	});
+
+	it("is nothing where the work is only named, in quotes or a heredoc", () => {
+		expect(heavyWorkIn('echo "nix flake check" >/dev/null')).toBeUndefined();
+		expect(heavyWorkIn("rg 'cargo build' lib")).toBeUndefined();
+		expect(
+			heavyWorkIn('git commit -m "fix: say \\"nix build\\" plainly"'),
+		).toBeUndefined();
+		expect(
+			heavyWorkIn(
+				"gh pr create --body-file - <<'EOF'\nRan nix build.\nEOF\nls",
+			),
+		).toBeUndefined();
+		// Outside the quotes it still runs.
+		expect(heavyWorkIn('nix build ".#vm" && echo "done"')).toBe("nix build");
+		expect(heavyWorkIn("cat <<EOF > x\nhi\nEOF\nnix build")).toBe("nix build");
+	});
 });
 
 describe("the lease event", () => {
