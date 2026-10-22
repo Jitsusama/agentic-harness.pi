@@ -5,6 +5,8 @@ import {
 	MOST_VMS,
 	nextTurn,
 	RAMP_MS,
+	roomLeft,
+	roomSaid,
 	SPREAD_MS,
 	waitingInOrder,
 	waitsWithRoom,
@@ -12,7 +14,7 @@ import {
 } from "../../../../lib/internal/priority/queue.ts";
 
 const NOW = Date.parse("2026-10-22T16:00:00Z");
-const ROOMY = { availableGib: 40, memoryPressure: 0 };
+const ROOMY = { availableGib: 40, memoryPressure: 0, vms: 0 };
 
 function job(id: string, over: Partial<Job> = {}): Job {
 	return {
@@ -44,12 +46,35 @@ describe("the kind of heavy work a command runs", () => {
 		expect(kindOf("sudo nixos-rebuild switch")).toBe("build");
 	});
 
+	it("reads a quoted word as the argument it is", () => {
+		expect(
+			kindOf(
+				'nix build -L "path:$W/tmp/$job#checks.x86_64-linux.vm-desktop-works"',
+			),
+		).toBe("vm-check");
+		expect(kindOf('echo "nix build is slow"')).toBeUndefined();
+	});
+
 	it("finds none where the work is only named, or there is none", () => {
 		expect(kindOf("git log --oneline")).toBeUndefined();
 		expect(kindOf("rg 'nix build' docs")).toBeUndefined();
 		expect(
 			kindOf("git commit -F - <<'EOF'\ncargo build is faster\nEOF"),
 		).toBeUndefined();
+	});
+
+	it("finds none in a step that only looks for the work", () => {
+		for (const looking of [
+			"rm -f x; pgrep -x qemu-system-x86 | xargs -r ps -o pid,user -p",
+			'pkill -f "qemu-system-x86_64"',
+			"pidof qemu-system-x86_64",
+			"ps -C qemu-system-x86",
+			"sudo systemctl status qemu-system-x86",
+			"ls /proc | grep -c qemu-kvm",
+		]) {
+			expect(kindOf(looking)).toBeUndefined();
+		}
+		expect(kindOf("pgrep -x qemu-kvm || nix build .#a")).toBe("build");
 	});
 
 	it("says the step that does the work, past the variables it sets", () => {
@@ -81,23 +106,19 @@ describe("whose turn it is", () => {
 		const settled = { ...running, started: startedAgo(SPREAD_MS) };
 		expect(nextTurn([settled, job("next")], ROOMY, NOW)?.id).toBe("next");
 		expect(
-			nextTurn([job("next")], { availableGib: 40, memoryPressure: 10 }, NOW),
+			nextTurn([job("next")], { ...ROOMY, memoryPressure: 10 }, NOW),
 		).toBeUndefined();
 	});
 
 	it("holds everyone behind a job the memory left can't fit", () => {
 		const jobs = [job("vm", { kind: "vm-test" }), job("small")];
-		expect(
-			nextTurn(jobs, { availableGib: 5, memoryPressure: 0 }, NOW),
-		).toBeUndefined();
-		expect(
-			nextTurn(jobs, { availableGib: 6, memoryPressure: 0 }, NOW)?.id,
-		).toBe("vm");
+		expect(nextTurn(jobs, { ...ROOMY, availableGib: 5 }, NOW)).toBeUndefined();
+		expect(nextTurn(jobs, { ...ROOMY, availableGib: 6 }, NOW)?.id).toBe("vm");
 	});
 
 	it("counts what just started as taken while it grows", () => {
 		const growing = job("growing", { started: startedAgo(RAMP_MS - 1) });
-		const room = { availableGib: 7, memoryPressure: 0 };
+		const room = { ...ROOMY, availableGib: 7 };
 		expect(nextTurn([growing, job("next")], room, NOW)).toBeUndefined();
 		const grown = { ...growing, started: startedAgo(RAMP_MS) };
 		expect(nextTurn([grown, job("next")], room, NOW)?.id).toBe("next");
@@ -109,6 +130,28 @@ describe("whose turn it is", () => {
 		);
 		const jobs = [...vms, job("third", { kind: "vm-test" }), job("build")];
 		expect(nextTurn(jobs, ROOMY, NOW)?.id).toBe("build");
+	});
+
+	it("counts the VMs the machine runs, queued or not", () => {
+		const machine = { ...ROOMY, vms: MOST_VMS };
+		expect(
+			nextTurn([job("vm", { kind: "vm-test" })], machine, NOW),
+		).toBeUndefined();
+		// A VM outside the queue is a check the daemon runs: builds wait too.
+		expect(nextTurn([job("build")], { ...ROOMY, vms: 1 }, NOW)).toBeUndefined();
+		const test = job("test", { kind: "vm-test", started: startedAgo(RAMP_MS) });
+		expect(nextTurn([test, job("build")], { ...ROOMY, vms: 1 }, NOW)?.id).toBe(
+			"build",
+		);
+	});
+
+	it("holds the checks behind a build that waits for a check", () => {
+		const check = job("check", {
+			kind: "vm-check",
+			started: startedAgo(RAMP_MS),
+		});
+		const later = job("later", { kind: "vm-check", since: startedAgo(1) });
+		expect(nextTurn([check, job("build"), later], ROOMY, NOW)).toBeUndefined();
 	});
 
 	it("holds builds while a VM check runs, until VM tests run timed", () => {
@@ -133,11 +176,53 @@ describe("whose turn it is", () => {
 	it("counts a wait as wasted only when its memory stands free", () => {
 		const waiting = [job("vm", { kind: "vm-test" })];
 		expect(waitsWithRoom(waiting, ROOMY)).toBe(true);
-		expect(waitsWithRoom(waiting, { availableGib: 5, memoryPressure: 0 })).toBe(
-			false,
-		);
+		expect(waitsWithRoom(waiting, { ...ROOMY, availableGib: 5 })).toBe(false);
 		expect(
 			waitsWithRoom([{ ...waiting[0], started: startedAgo(1) }], ROOMY),
 		).toBe(false);
+	});
+});
+
+describe("the room left", () => {
+	it("counts what would start now, past what runs and waits", () => {
+		expect(roomLeft([], ROOMY, NOW)).toEqual({ vms: MOST_VMS, builds: 10 });
+		const running = job("vm", { kind: "vm-test", started: startedAgo(1) });
+		expect(roomLeft([running, job("next")], ROOMY, NOW)).toEqual({
+			vms: 1,
+			builds: 0,
+		});
+		expect(roomLeft([], { ...ROOMY, availableGib: 9, vms: 1 }, NOW)).toEqual({
+			vms: 1,
+			builds: 0,
+		});
+		const queued = [job("vm", { kind: "vm-test" })];
+		expect(roomLeft(queued, { ...ROOMY, availableGib: 10 }, NOW)).toEqual({
+			vms: 0,
+			builds: 1,
+		});
+		expect(roomLeft([], { ...ROOMY, memoryPressure: 10 }, NOW)).toEqual({
+			vms: 0,
+			builds: 0,
+		});
+	});
+
+	it("leaves no VM check past a build held for one", () => {
+		const check = job("check", {
+			kind: "vm-check",
+			started: startedAgo(RAMP_MS),
+		});
+		expect(roomLeft([check], ROOMY, NOW)).toEqual({ vms: 1, builds: 0 });
+		expect(roomLeft([check, job("build")], ROOMY, NOW)).toEqual({
+			vms: 0,
+			builds: 0,
+		});
+	});
+
+	it("says the room in words, or nothing", () => {
+		expect(roomSaid({ vms: 2, builds: 8 })).toBe(
+			"2 more VM tests and 8 more builds",
+		);
+		expect(roomSaid({ vms: 1, builds: 0 })).toBe("1 more VM test");
+		expect(roomSaid({ vms: 0, builds: 0 })).toBe("");
 	});
 });

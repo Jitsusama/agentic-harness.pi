@@ -8,6 +8,15 @@
  * cgroup the turn names, the timed one for timed work, and says how long
  * it waited when that was long enough to notice.
  *
+ * When the work has run for a minute or more, its shell says as it ends
+ * what room the machine had left beside it, and that independent work
+ * can run at once. The queue can't start work nobody asked for, and
+ * an agent that waits out one long build or test after another leaves
+ * the rest of the machine idle: the result is where an agent learns
+ * that, at the moment it would start the next one. Said on exit, so it
+ * stays with the end of the output that a long result keeps; a command
+ * that sets its own exit trap replaces it, and its exit code is kept.
+ *
  * The wait gives way rather than hold work forever: when the job is
  * given up, or nobody has kept the queue for two minutes, the shell
  * runs its command as though there were no queue.
@@ -30,6 +39,16 @@ export interface Queueing {
 
 /** Seconds a wait lasts before the shell says it waited. */
 export const SAID_AFTER_S = 5;
+
+/** Seconds work runs before its shell says the room left as it ends. */
+export const ROOM_SAID_AFTER_S = 60;
+
+/**
+ * What the shell says of the room left; `%s` is the room, as words. It
+ * sits in single quotes in the shell, so it holds none.
+ */
+export const ROOM_SAID =
+	"The machine has room for %s right now. Builds and tests independent of each other can run at once, each as its own bash call with background: true, and each takes its own turn.";
 
 const QUEUEING = Symbol.for("agentic-harness.priority.queueing");
 
@@ -81,6 +100,7 @@ export function queuedCommand(command: string): string {
 export function waitsForTurn(
 	dir: string,
 	saidAfterS: number = SAID_AFTER_S,
+	roomSaidAfterS: number = ROOM_SAID_AFTER_S,
 ): ((id: string) => string) | undefined {
 	if (dir.includes("'")) return undefined;
 	return (id) =>
@@ -92,6 +112,8 @@ export function waitsForTurn(
 			`[ -n "$__into" ] && { printf '%s\\n' "$$" 2>/dev/null > "$__into/cgroup.procs" || :; }`,
 			`__since=$(( SECONDS - __since ))`,
 			`[ "$__since" -ge ${saidAfterS} ] && printf 'Waited %ss for its turn in the machine queue.\\n' "$__since" >&2`,
-			"unset __queue __job __since __into; :",
+			"__ran=$SECONDS",
+			`trap "__room=\\$(cat '${dir}/room' 2>/dev/null); [ \\$(( SECONDS - $__ran )) -ge ${roomSaidAfterS} ] && [ -n \\"\\$__room\\" ] && printf '${ROOM_SAID}\\\\n' \\"\\$__room\\" >&2" EXIT`,
+			"unset __queue __job __since __into __ran; :",
 		].join("\n");
 }

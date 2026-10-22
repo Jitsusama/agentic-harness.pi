@@ -26,6 +26,7 @@ const NOW = Date.parse("2026-10-22T16:00:30Z");
 const ROOMY: Reading = {
 	availableGib: 40,
 	memoryPressure: 0,
+	vms: 0,
 	cores: 16,
 	pressure: { cpu: 1, memory: 0, io: 0 },
 };
@@ -82,7 +83,11 @@ describe("the machine's queue folder", () => {
 			cores: 16,
 			availableGib: 40,
 			pressure: ROOMY.pressure,
+			vms: 0,
 		});
+		// The VM started holds 6 GiB while it grows; the build waits.
+		expect(shown.room).toEqual({ vms: 1, builds: 0 });
+		expect(readFileSync(join(dir, "room"), "utf8")).toBe("1 more VM test");
 		expect(shown.jobs).toEqual([
 			{
 				id: "first",
