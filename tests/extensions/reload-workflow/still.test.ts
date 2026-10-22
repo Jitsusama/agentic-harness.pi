@@ -64,6 +64,28 @@ describe("waiting for the session to be still", () => {
 			hasPendingMessages: () => false,
 			waitForIdle: async () => {},
 		};
-		await expect(untilStill(ctx, STILL_MS)).resolves.toBeUndefined();
+		await expect(untilStill(ctx, STILL_MS)).resolves.toBe(0);
+	});
+
+	it("waits for a run under way even when pi calls the session idle", async () => {
+		// What the logs of 22 October show: the reload passed this wait
+		// while a resumed run's first reply was streaming.
+		const ctx = {
+			isIdle: () => true,
+			hasPendingMessages: () => false,
+			waitForIdle: async () => {},
+		};
+		let underWay = true;
+		let still = false;
+
+		const waiting = untilStill(ctx, STILL_MS, () => underWay).then((n) => {
+			still = true;
+			return n;
+		});
+		await new Promise((done) => setTimeout(done, STILL_MS * 4));
+		expect(still).toBe(false);
+
+		underWay = false;
+		expect(await waiting).toBeGreaterThan(0);
 	});
 });

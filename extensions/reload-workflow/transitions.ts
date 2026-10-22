@@ -50,6 +50,16 @@ export const STILL_MS = 1_000;
  * that gap pulled the tools out from under the resumed run's first
  * call. So the session has to be still for a moment, and is looked at
  * again after every wait.
+ *
+ * pi's word is not the only one asked. `underWay` says whether a run has
+ * started since the last one settled, from the run's own events, and a
+ * reload waits while it does. On 22 October six tool calls in four
+ * sessions failed on a stale context after the session reloaded itself.
+ * In the three read closely, the new code started 2.5 to 3.6 seconds
+ * into the first reply of a run a compaction had resumed, so this wait
+ * had passed while that run was streaming. Answers how many times pi
+ * said still while a run was under way, which is evidence for whoever
+ * looks next.
  */
 export async function untilStill(
 	ctx: Pick<
@@ -57,11 +67,15 @@ export async function untilStill(
 		"waitForIdle" | "isIdle" | "hasPendingMessages"
 	>,
 	stillMs: number = STILL_MS,
-): Promise<void> {
+	underWay: () => boolean = () => false,
+): Promise<number> {
+	let overruled = 0;
 	for (;;) {
 		await ctx.waitForIdle();
 		await new Promise((done) => setTimeout(done, stillMs));
-		if (ctx.isIdle() && !ctx.hasPendingMessages()) return;
+		if (!ctx.isIdle() || ctx.hasPendingMessages()) continue;
+		if (!underWay()) return overruled;
+		overruled += 1;
 	}
 }
 
@@ -164,6 +178,12 @@ export async function performReload(
 	ctx: ExtensionCommandContext,
 	running: Loaded,
 	settings: PackageSettings,
+	run: {
+		/** Whether a run has started since the last one settled. */
+		underWay: () => boolean;
+		/** Told when pi said still while a run was under way. */
+		overruled: (times: number) => void;
+	} = { underWay: () => false, overruled: () => {} },
 ): Promise<void> {
 	const slot = reloadSlot();
 	const tree = isSwapped(running) ? running.root : undefined;
@@ -174,7 +194,8 @@ export async function performReload(
 		by: "person",
 		...(tree ? { tree } : {}),
 	};
-	await untilStill(ctx);
+	const overruled = await untilStill(ctx, STILL_MS, run.underWay);
+	if (overruled > 0) run.overruled(overruled);
 	// Read after the wait: the session's own request says what came in,
 	// and more can come in while it waits.
 	const request: ReloadRequest = slot.request;
