@@ -210,7 +210,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			kind: Type.Optional(
 				Type.String({
 					description:
-						"create: quest, subquest or sidequest. reclassify: the loaded quest's new kind (quest, subquest or sidequest). think: plan, research, brief or report. draft: override the document kind chosen at think time before the id is minted (plan, research, brief or report).",
+						"create and reclassify: quest, subquest or sidequest. think, or draft to override think's choice: plan, research, brief or report.",
 				}),
 			),
 			note: Type.Optional(
@@ -285,25 +285,25 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			layout: Type.Optional(
 				Type.String({
 					description:
-						"spawn and restore: where each new shell appears: window (a new desktop window), tab (a tab in an existing window) or pane (a split of the current tab). spawn-* takes its suffix; a bare spawn and restore take the person's terminal setting, else tab. A layout the terminal cannot open is refused when the call names it and gives way to the nearest when a setting does.",
+						"spawn and restore: window, tab or pane. Defaults to the person's terminal setting, else tab; spawn-* takes its suffix.",
 				}),
 			),
 			terminal: Type.Optional(
 				Type.String({
 					description:
-						"spawn and restore: the terminal to open in (kitty, wezterm, tmux, zellij, foot, alacritty, ghostty, or one the person configured). Leave it out to use the person's terminal setting, else the terminal the session sits in. One whose program is not installed is refused, naming those that are.",
+						"spawn and restore: kitty, wezterm, tmux, zellij, foot, alacritty, ghostty or one configured. Defaults to the person's setting, else the terminal the session sits in.",
 				}),
 			),
 			nesting: Type.Optional(
 				Type.String({
 					description:
-						"spawn and restore: innermost or outermost, for a session inside more than one terminal (pi in zellij in kitty): innermost, the default, opens tabs and panes in the terminal the person is looking at; outermost opens them in the one holding it.",
+						"spawn and restore: for pi in nested terminals, innermost (the default, the one the person sees) or outermost.",
 				}),
 			),
 			command: Type.Optional(
 				Type.String({
 					description:
-						"spawn: shell command for the new terminal. Defaults to `pi`. This launches a detached process the other guardians cannot intercept; the agent should only spawn commands the user has authorized.",
+						"spawn: the command to run, `pi` by default. It runs detached, past every guard, so spawn only what the user authorized.",
 				}),
 			),
 			cwd: Type.Optional(
@@ -338,19 +338,19 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			scope: Type.Optional(
 				Type.String({
 					description:
-						"conclude/retire: 'quest' or 'document'. Declared scope wins over id-shape inference, so `id` plus scope:document concludes that document and scope:quest runs the quest sweep. Without scope, an explicit id infers scope from its shape. With no id it acts on the focused document, and with nothing focused it refuses rather than seal the loaded quest unnamed.",
+						"conclude/retire: 'quest' or 'document', which wins over what the id's shape implies. With no id it acts on the focused document, and refuses when nothing is focused.",
 				}),
 			),
 			force: Type.Optional(
 				Type.Boolean({
 					description:
-						"tree-prune: override safety refusals (dirty working tree, unmerged branch, attached session). Destructive: passing true is consent to lose uncommitted work, so the agent should confirm with the user first. restore: actually reopen the lost sessions (or, with id, exactly the named ones) rather than listing them, spawning a terminal per session, which the agent should likewise confirm first.",
+						"tree-prune: override its safety refusals (dirty tree, unmerged branch, attached session), consenting to lose uncommitted work: confirm with the user first. restore: reopen the lost sessions (or those id names), a terminal each, rather than list them; confirm first too.",
 				}),
 			),
 			dryRun: Type.Optional(
 				Type.Boolean({
 					description:
-						"reparent and bulk conclude/retire: preview the planned changes and report exactly what would change without writing anything. Use undo to reverse the last applied structural edit. spawn and restore: say which terminal, how and in which layout it would open, and which setting chose each, without opening anything.",
+						"reparent and bulk conclude/retire: say what would change, writing nothing (undo reverses the last applied one). spawn and restore: say what would open where, and which setting chose it, opening nothing.",
 				}),
 			),
 			limit: Type.Optional(

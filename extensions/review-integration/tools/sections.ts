@@ -121,13 +121,13 @@ export function sectionParameters() {
  * session, for an action used a handful of times.
  */
 export function stackSections() {
-	const same = (field: string) =>
-		`Held to the same contract as the top-level \`${field}\` field.`;
+	// The sections parameter says they keep propose's contract, so each
+	// field saying it again only costs every request the words.
 	return {
-		problem: Type.String({ description: same("problem") }),
-		solution: Type.String({ description: same("solution") }),
-		validation: Type.String({ description: same("validation") }),
-		tldr: Type.String({ description: same("tldr") }),
+		problem: Type.String(),
+		solution: Type.String(),
+		validation: Type.String(),
+		tldr: Type.String(),
 	};
 }
 

@@ -200,7 +200,7 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 		name: "review_offer",
 		label: "Review Offer",
 		description:
-			"Put work up for review and move it along: propose a change from a branch, edit its title, body or base, move it between draft and ready, ask people to look at it, close or reopen it, and merge it. Reading a change is review_see. This is how a pull request is opened, whatever hosts it, including when the request says cut, raise, submit or put up rather than review: `gh pr create` reaches GitHub only, so on a repo hosted elsewhere it opens a change on a mirror nothing reads and every later `gh` call is blind to it.",
+			"Put work up for review and move it along: propose a change from a branch, edit it, mark it ready or draft, ask reviewers, close, reopen and merge it. Reading a change is review_see. This is how a pull request is opened on any host, also when asked to cut, raise or submit one: `gh pr create` reaches GitHub only, and elsewhere opens a change on a mirror nothing reads.",
 		promptSnippet:
 			"Put work up for review: propose, edit, ready, draft, reviewers, close, reopen, merge.",
 		promptGuidelines: [
@@ -226,7 +226,7 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 				],
 				{
 					description:
-						"What to do. propose: put a branch up as a change. propose-stack: put up several at once, each based on the one before it. edit: change its title, body or base. ready: mark it ready for review; unready: put it back to a draft. reviewers: ask people to look. close and reopen. merge: land it. rerun: ask CI to run again, optionally naming one pipeline in 'which'. retarget-stack: after a local restack, point every change in the stack back at the branch it now sits on, natively where the backend holds the stack and change by change where it does not.",
+						"What to do. propose: put a branch up as a change; propose-stack: several, each on the one before. edit: its title, body or base. ready, or unready back to a draft. reviewers: ask people to look. close, reopen, merge. rerun: CI again. retarget-stack: after a local restack, point each change at the branch it now sits on.",
 				},
 			),
 			change: Type.Optional(
@@ -252,19 +252,19 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 			heads: Type.Optional(
 				Type.Array(Type.String(), {
 					description:
-						"For propose-stack: the branches, in dependency order with the root first. Each is proposed onto the one before it, and the first onto base. The order is yours because nothing here can work it out.",
+						"For propose-stack: the branches in dependency order, root first. Each is proposed onto the one before it, the first onto base.",
 				}),
 			),
 			bodies: Type.Optional(
 				Type.Array(Type.String(), {
 					description:
-						"For propose-stack: one body per branch, in the same order as heads, when not given as sections. Held to the PR format, the same as a single propose. Omit to open the stack with empty bodies, and give as many as there are branches: a shorter list is refused rather than paired off against the branches it happens to reach.",
+						"For propose-stack: one body per branch, in the order of heads, when not given as sections. Give one for every branch, or none.",
 				}),
 			),
 			sections: Type.Optional(
 				Type.Array(Type.Object(stackSections()), {
 					description:
-						"For propose-stack: each branch's description as its four sections, in the same order as heads, held to the same contract as propose's problem, solution, validation and tldr. Preferred over bodies, since the tool writes the headings and puts each stack note after the TL;DR.",
+						"For propose-stack: each branch's four sections, in the order of heads, held to the same contract as propose's. Preferred over bodies.",
 				}),
 			),
 			title: Type.Optional(
@@ -277,7 +277,7 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 			body: Type.Optional(
 				Type.String({
 					description:
-						"For propose and edit: the whole description, when it is not given as problem, solution, validation and tldr. Prefer those four: the tool writes the headings and order from them. Held to the PR format and the prose standard, the same as the shell path is.",
+						"For propose and edit: the whole description, when not given as the four sections, which are preferred. Held to the same format.",
 				}),
 			),
 			draft: Type.Optional(
@@ -292,7 +292,7 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 			which: Type.Optional(
 				Type.String({
 					description:
-						"For rerun: one pipeline to run, named as the backend names it. Omit to rerun everything on the change's head commit, which costs whatever that costs.",
+						"For rerun: one pipeline, as the backend names it. Omit to rerun everything on the head commit.",
 				}),
 			),
 			method: Type.Optional(
@@ -315,13 +315,13 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 			labels: Type.Optional(
 				Type.Array(Type.String(), {
 					description:
-						"For propose and edit: labels to put on the change. On edit these are added to whatever is already there, so naming one does not remove the others. Use labelMode to replace instead, or clear to strip them all.",
+						"For propose and edit: labels to add; an edit keeps the others unless labelMode is set.",
 				}),
 			),
 			labelMode: Type.Optional(
 				Type.Union([Type.Literal("add"), Type.Literal("set")], {
 					description:
-						"For edit: whether labels are added to the change or replace what it has. Defaults to add, since replacing loses labels somebody else put there.",
+						"For edit: add (the default), or set to replace the labels already there.",
 				}),
 			),
 			unlabels: Type.Optional(
@@ -332,7 +332,7 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 			assignees: Type.Optional(
 				Type.Array(Type.String(), {
 					description:
-						"For propose and edit: who to assign, named the way the backend names people. GitHub wants logins; some backends want email addresses. Added rather than replacing, like labels.",
+						"For propose and edit: who to assign, as the backend names people (logins on GitHub, emails on some). Added, like labels.",
 				}),
 			),
 			unassignees: Type.Optional(

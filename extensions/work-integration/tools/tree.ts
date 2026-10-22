@@ -424,7 +424,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 					],
 					{
 						description:
-							"tree: cut a worktree at a branch. snapshot: pin a snapshot at a commit. trees: list what this session holds. release: give a tree back. status: what has changed inside a tree. tidy: report what is spent once work landed, removing nothing. reclaim: take back the trees tidy found unowned, leaving their branches. record: stage and commit the work in a tree. branch: make a branch in a tree and check it out. push: publish the branch, setting upstream the first time. rebase: replay the branch onto another ref; a conflict halts it. resume: carry a halted replay on. abandon: undo a halted replay. stack: show what sits on what. track: record that a branch sits on another, or on trunk. untrack: forget a branch, moving whatever sat on it down. reparent: point a branch at a different parent. reorder: rearrange a chain into the order you name, lowest first. restack: replay every tracked branch onto trunk, in order, stopping at the first halt. sync: fetch trunk, then restack onto it. Defaults to trees.",
+							"tree: cut a worktree at a branch; snapshot: pin one at a commit; trees: list what is held (the default); release: give one back; status: what changed in it. tidy: report what is spent, removing nothing; reclaim: take back the unowned trees tidy found. record: stage and commit; branch: make and check out a branch; push: publish it. rebase onto a ref, halting on a conflict; resume or abandon a halted one. stack: what sits on what; track, untrack, reparent and reorder (lowest first) shape it; restack replays it onto trunk; sync fetches trunk first.",
 					},
 				),
 			),
@@ -467,7 +467,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 			tree: Type.Optional(
 				Type.String({
 					description:
-						"Which held tree to act on, by its key or its path. A path inside a tree a quest holds works too, for everything but release, which goes through quest tree-prune. Every action but tree, snapshot and trees works on one: release, status, tidy, record, branch, push, rebase, resume, abandon and every stack verb. Leave it out when you hold exactly one and that one is used, said out loud; holding several makes it a question, since these actions commit and push and the wrong directory is not recoverable.",
+						"Which held tree to act on, by key or path; a path inside a quest's tree works too, except for release, which is quest tree-prune. Every action but tree, snapshot and trees needs one. Leave it out only when you hold exactly one; holding several, it is refused, since these commit and push.",
 				}),
 			),
 			subject: Type.Optional(
