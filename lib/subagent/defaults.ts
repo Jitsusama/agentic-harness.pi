@@ -20,13 +20,16 @@
  * makes registration in any instance visible to every
  * runReviewer.
  *
- * The canonical way for an outside pi extension to add a
- * default is to listen for the `subagent:ready:v1`
- * event (see `./events.ts`) and call
- * the registration methods on the `SubagentWorkflowApi`
- * object the event carries. Direct imports of the
- * functions below are supported too, primarily for tests
- * and tightly-coupled internal callers.
+ * An outside pi extension adds a default over the bus,
+ * both ways at once, since it cannot know whether it
+ * activates before the host or after (see `./events.ts`):
+ * it emits `subagent:register-default-extension:v1`,
+ * which reaches a host already listening, and listens for
+ * `subagent:ready:v1`, calling the registration methods
+ * on the `SubagentWorkflowApi` it carries, which covers a
+ * host activating later. Direct imports of the functions
+ * below are supported too, primarily for tests and
+ * tightly-coupled internal callers.
  */
 
 import { processGlobal } from "../internal/process-global.ts";
