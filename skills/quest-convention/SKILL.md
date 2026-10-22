@@ -385,7 +385,10 @@ so routine edits go through verbs that hold the quest lock:
 - `tick` and `untick` with `query` set a checkbox item,
   named by its text or a start only it has.
 - `section` with `title` and `body` replaces one `##`
-  section. Journey is never replaced, only added to.
+  section. A plan, research, brief or report that has no
+  such section gets it added at its end; a README's
+  sections are a closed set, so it refuses there. Journey
+  is never replaced, only added to.
 
 They act on the focused document, or the README when
 nothing is focused; `id` names another document, or the
