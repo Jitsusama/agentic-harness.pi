@@ -1,6 +1,6 @@
 ---
 name: google-workspace-guide
-description: Access Google Workspace (Gmail, Calendar, Drive, Docs, Sheets, Slides). Use when asked to "check email", "read inbox", "get calendar", "what's on my schedule", "find in drive", "search drive", "read doc", "open spreadsheet", "show slides", "list emails", "emails from [person]", "send email", "reply to", "schedule meeting", "create event", "cancel meeting", or any query about the user's Google account data. Handles email, calendar, documents, and files.
+description: Gmail, Calendar, Drive, Docs, Sheets and Slides through the `google` tool. Use when asked to "check email", "read inbox", "emails from [person]", "send email", "reply to", "what's on my schedule", "schedule meeting", "cancel meeting", "find in drive", "read doc", "open spreadsheet", "show slides", or anything about the user's Google account.
 ---
 
 # Google Workspace

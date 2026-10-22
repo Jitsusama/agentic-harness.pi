@@ -1,14 +1,12 @@
 ---
 name: result-query-guide
 description: >
-  How to read a tool answer that cites a stored handle, and how to
-  query it with the shared JSONPath language through result_query.
-  Covers when to query rather than re-run, projecting versus
-  returning whole records, counting without fetching, filtering,
-  and what the payload of each tool family looks like. Use when a
-  tool answer says part of its payload is stored, when asked to
-  "query that result", "get the rest of it", "how many of those
-  were there", or when an answer looks truncated.
+  Read a tool answer that cites a stored handle by querying it
+  with result_query rather than running the tool again. Use
+  when a tool answer says part of its payload is stored, when
+  asked to "query that result", "get the rest of it", "how
+  many of those were there", or when an answer looks
+  truncated.
 ---
 
 # Querying a Stored Tool Output

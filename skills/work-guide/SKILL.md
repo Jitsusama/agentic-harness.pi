@@ -1,21 +1,14 @@
 ---
 name: work-guide
 description: >
-  How to get somewhere to work and move the work along
-  through the `work` tool: cut a worktree or pin a snapshot,
-  make a branch, record a commit, publish it, replay it onto
-  a new base, and keep a stack of branches each sitting on
-  the one below it. Covers what a snapshot is for against
-  what a worktree is for, why a tree is read before it is
-  repointed, how a halted replay is settled, and what a
-  stacked backend answers better than plain git.
-  Use when asked to "get me a worktree", "make a branch",
-  "commit that", "push it", "rebase onto main", "the rebase
-  stopped", "stack this on top of that", "reorder the
-  stack", "restack everything", "what does my stack look
-  like", or any request to work on code rather than review
-  it. Pairs with review-guide, git-branch-convention,
-  commit-format and prose-standard.
+  Get somewhere to work and move the work along with the
+  `work` tool: worktrees and snapshots, branches, commits,
+  pushes, rebases and stacks of branches. Use when asked to
+  "get me a worktree", "make a branch", "commit that", "push
+  it", "rebase onto main", "the rebase stopped", "stack this
+  on top of that", "reorder the stack", "restack
+  everything", "what does my stack look like", or to work on
+  code rather than review it.
 ---
 
 # Working on Code

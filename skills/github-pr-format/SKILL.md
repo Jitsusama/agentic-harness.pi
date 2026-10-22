@@ -1,15 +1,10 @@
 ---
 name: github-pr-format
 description: >
-  PR description structure and narrative, written for a person
-  who will not read the code. The closed four-section body
-  (TL;DR, Problem, Solution, Validation), what each section
-  must do and how long it may be, URI indexing, self-review
-  guidance and title conventions. Use when writing or editing a
-  pull request description. Pairs with github-cli-convention
-  for command syntax and markdown-standard for markdown
-  structure. Follow the user's writing voice and prose style
-  guides for description text.
+  PR descriptions for a reader who will not read the code: the
+  four sections (TL;DR, Problem, Solution, Validation), what
+  each must do and how long it may be, and titles. Use when
+  writing or editing a pull request description.
 ---
 
 # Pull Request Writing

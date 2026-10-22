@@ -1,15 +1,13 @@
 ---
 name: slack-guide
 description: >
-  Access Slack: search messages, read threads, send messages,
-  send threads, edit messages, upload files, look up users
-  and channels, manage reactions. Use when asked to "check
-  Slack", "find messages", "search Slack", "send a message",
-  "post a thread", "send these as a thread", "edit that
-  message", "fix that message", "update what I said",
-  "upload a file", "share this file", "attach this", "what
-  did X say", "show me the thread", "who is", "react to",
-  or any query about Slack messages, channels or users.
+  Read and write Slack: search, threads, messages, edits,
+  uploads, users, channels and reactions. Use when asked to
+  "check Slack", "search Slack", "send a message", "post a
+  thread", "edit that message", "update what I said",
+  "upload a file", "share this file", "what did X say",
+  "show me the thread", "who is", "react to", or anything
+  about Slack messages, channels or users.
 ---
 
 # Slack

@@ -58,7 +58,8 @@
 			"./extensions"
 		],
 		"skills": [
-			"./skills"
+			"./skills",
+			"!skills/review-*-format"
 		]
 	},
 	"dependencies": {

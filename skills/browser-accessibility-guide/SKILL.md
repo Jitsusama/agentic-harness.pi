@@ -1,17 +1,13 @@
 ---
 name: browser-accessibility-guide
 description: >
-  How to audit a web page for accessibility with browser_check
-  and browser_see: the keyboard walk, the axe and structural
-  rule sets, reading order, live region announcements, contrast
-  and target size. Covers what the tools decide, what they
-  deliberately refuse to decide, and how to report findings
-  without overstating them. Use when asked "is this
-  accessible", "check accessibility", "run an a11y audit",
-  "will a screen reader work", "can you use this with a
-  keyboard", "check the contrast", "is this WCAG compliant",
-  or when reviewing a change that touches markup, focus, colour
-  or interaction.
+  Audit a web page for accessibility with browser_check and
+  browser_see, and report without overstating. Use when asked
+  "is this accessible", "check accessibility", "run an a11y
+  audit", "will a screen reader work", "can you use this with
+  a keyboard", "check the contrast", "is this WCAG
+  compliant", or when reviewing a change to markup, focus,
+  colour or interaction.
 ---
 
 # Auditing a Page for Accessibility

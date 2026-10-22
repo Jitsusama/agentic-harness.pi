@@ -1,20 +1,15 @@
 ---
 name: browser-guide
 description: >
-  Drive a real browser with the browser_go, browser_see,
-  browser_do and browser_check tools: navigate, read the page
-  as an accessibility outline, query the DOM across frames and
-  shadow roots, inspect one element's box and cascade, run
-  expressions, press keys and gestures, wait for conditions,
-  read console and network telemetry, emulate devices, shape
-  the network, take screenshots, and form verdicts about
-  accessibility, layout, design drift, visual diffs and
-  performance. Use when asked to "open a page", "look at this
-  site", "click the button", "what does the page say", "why is
-  this element red", "check the console", "what requests did
-  it make", "test it on mobile", "is this accessible", "did
-  the layout break", "what changed visually", or any request
-  that involves looking at or operating a web page.
+  Drive a real browser with the browser tools: navigate, read
+  and act on a page, read its console and network, emulate
+  devices, take screenshots, and check layout, visual diffs
+  and performance. Use when asked to "open a page", "look at
+  this site", "click the button", "what does the page say",
+  "why is this element red", "check the console", "what
+  requests did it make", "test it on mobile", "did the layout
+  break", "what changed visually", or anything that looks at
+  or operates a web page.
 ---
 
 # Driving a Browser
