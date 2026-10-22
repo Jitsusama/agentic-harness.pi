@@ -606,7 +606,7 @@ describe("groups", () => {
 
 		const text = listed?.content[0]?.text ?? "";
 		expect(text).toContain(
-			"This peer is in #harness, its home group and #all.",
+			"This peer has joined #harness; it is also in its home group and #all.",
 		);
 		expect(text).toContain("#harness: 7M6JKG");
 		expect(text).toContain("#optimus/power: P9R1KI");
@@ -643,6 +643,120 @@ describe("groups", () => {
 		const text = read?.content[0]?.text ?? "";
 		expect(text).toContain("everyone's");
 		expect(text).not.toContain("someone else's");
+	});
+});
+
+describe("scopes", () => {
+	/** The fixture's quest, under 5GV2AH, with this worktree's checkout. */
+	function onQuest() {
+		const readme = (id: string, parent: string) =>
+			`---\nid: ${id}\nkind: quest\nparent: ${parent}\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\n---\n# ${id}\n`;
+		for (const [id, parent] of [
+			["QEST-20261021-7M6JKG", "QEST-20261021-5GV2AH"],
+			["QEST-20261021-5GV2AH", "null"],
+		] as const) {
+			mkdirSync(join(paths.quests, id), { recursive: true });
+			writeFileSync(join(paths.quests, id, "README.md"), readme(id, parent));
+		}
+	}
+
+	it("hear what is sent to the quest above this peer's", async () => {
+		onQuest();
+		const { sent } = await startSession();
+
+		fromElsewhere({ to: ["#quest/5gv2ah"], text: "to the whole quest" });
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.message.content).toContain("to the whole quest");
+	});
+
+	it("cannot be left while the work is there", async () => {
+		onQuest();
+		const { tools } = await startSession();
+
+		const answer = await tools
+			.get("mesh_leave")
+			?.execute("call-1", { group: "#quest/5gv2ah/7m6jkg" });
+
+		const text = answer?.content[0]?.text ?? "";
+		expect(text).toContain("is one of this peer's scopes");
+		expect(text).toContain("is in #quest/5gv2ah/7m6jkg by its work");
+	});
+});
+
+describe("a peer reads what it writes to", () => {
+	it("joins a named group it sends to", async () => {
+		// Skynet's peers posted into spaces they never read.
+		peer("session-p", ["P9R1KI"], ["#optimus"]);
+		const { sent, tools } = await startSession();
+
+		const answer = await send(tools, "#optimus", "question", "who has qemu?");
+		fromElsewhere({ from: "P9R1KI", to: ["#optimus"], text: "I do" });
+
+		expect(answer).toContain("This peer is in #optimus now");
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.message.content).toContain("I do");
+	});
+
+	it("joins nothing for a group it already hears, or the machine's", async () => {
+		peer("session-p", ["P9R1KI"], ["#optimus"]);
+		const { tools } = await startSession();
+		await tools
+			.get("mesh_join")
+			?.execute("call-1", { group: "#optimus/power" });
+
+		const answer = await send(tools, "#optimus, all", "fyi", "rebooting");
+
+		expect(answer).not.toContain("now, so it hears");
+	});
+});
+
+describe("an invitation", () => {
+	it("brings the peers named into a group, telling them why", async () => {
+		peer("session-p", ["P9R1KI"], []);
+		const { tools } = await startSession();
+
+		const answer = await tools.get("mesh_join")?.execute("call-1", {
+			group: "#jobs",
+			invite: "p9r1ki",
+			why: "where heavy work is placed",
+		});
+
+		expect(answer?.content[0]?.text).toContain("In #jobs. Invited P9R1KI.");
+		const transport = folderTransport(join(paths.mesh, "messages"));
+		const [id = ""] = transport.ids();
+		expect(transport.read(id)).toMatchObject({
+			to: ["@P9R1KI"],
+			invite: "#jobs",
+			text: expect.stringContaining("into #jobs: where heavy work is placed"),
+		});
+	});
+
+	it("puts this peer in the group when it is sent to its home", async () => {
+		const { sent } = await startSession();
+
+		fromElsewhere({
+			from: "P9R1KI",
+			to: ["@7M6JKG"],
+			text: "P9R1KI brings this peer into #jobs.",
+			invite: "#jobs",
+		});
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(
+			createPresences(join(paths.mesh, "presence")).of(session)?.joined,
+		).toEqual(["#jobs"]);
+	});
+
+	it("is not taken from a message sent to everyone", async () => {
+		const { sent } = await startSession();
+
+		fromElsewhere({ from: "P9R1KI", text: "come along", invite: "#jobs" });
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(
+			createPresences(join(paths.mesh, "presence")).of(session)?.joined,
+		).toEqual([]);
 	});
 });
 

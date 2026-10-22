@@ -16,6 +16,7 @@
  */
 
 import {
+	existsSync,
 	mkdirSync,
 	readdirSync,
 	readFileSync,
@@ -27,6 +28,7 @@ import { basename, dirname, isAbsolute, join } from "node:path";
 import { isOwner, type Owner } from "@jitsusama/agentic-harness.core/process";
 import { parseQuestFrontMatter } from "../internal/quest/frontmatter.ts";
 import { loadedQuest, type QuestRecords } from "./address.ts";
+import { scopesOf } from "./scope.ts";
 
 /** One peer, as it is seen on the mesh. */
 export interface Presence {
@@ -34,8 +36,17 @@ export interface Presence {
 	readonly session: string;
 	/** The addresses it answers to, the one it signs with first. */
 	readonly addresses: readonly string[];
-	/** The groups it joined, canonical (see group.ts). */
+	/**
+	 * Every group it is in, canonical (see group.ts): those its work puts
+	 * it in (see scope.ts) and those it joined.
+	 */
 	readonly groups: readonly string[];
+	/**
+	 * The groups it joined itself, which it keeps across a reload; its
+	 * scopes are worked out again. Missing from an older presence, whose
+	 * groups were all joined.
+	 */
+	readonly joined?: readonly string[];
 	/** Its work in a phrase: the quest's title and summary, or where it runs. */
 	readonly worksOn: string;
 	/** What it owns by name: its quest, its repositories, its groups. */
@@ -61,29 +72,90 @@ export interface Presences {
 /** How much of the summary is said, which is enough to name the work. */
 const SUMMARY_CHARS = 240;
 
+/** What a peer's work is, as presence says it. */
+export interface PeerWork {
+	readonly worksOn: string;
+	readonly owns: readonly string[];
+	/** The groups the work puts it in (see scope.ts). */
+	readonly scopes: readonly string[];
+}
+
+/** How far up a quest's parents are followed, against a loop. */
+const MOST_PARENTS = 8;
+
 /** What this session's peer works on and owns, from its quest. */
 export function workOf(
 	sessionId: string,
 	groups: readonly string[],
 	cwd: string,
 	records: QuestRecords,
-): Pick<Presence, "worksOn" | "owns"> {
+): PeerWork {
 	const here = cwd !== homedir() ? [basename(cwd)] : [];
 	// Owned as a message would mention them: harness, not #harness.
 	const named = groups.map((group) => group.slice(1));
+	const checkout = checkoutOf(cwd);
+	const runsIn = checkout ? [repositoryName(checkout)] : [];
 	const quest = loadedQuest(sessionId, records.sessions);
 	const readme = quest ? readReadme(records.quests, quest) : undefined;
 	const parsed = readme ? parseQuestFrontMatter(readme) : undefined;
 	if (!quest || !parsed) {
-		return { worksOn: `the work in ${cwd}`, owns: [...here, ...named] };
+		return {
+			worksOn: `the work in ${cwd}`,
+			owns: [...new Set([...runsIn, ...here, ...named])],
+			scopes: scopesOf({ questChain: [], repositories: runsIn }),
+		};
 	}
 	const trees = (parsed.frontMatter.trees ?? []).map((tree) =>
 		repositoryName(tree.repoRoot ?? tree.path),
 	);
+	const repositories = [...new Set([...trees, ...runsIn])];
 	return {
 		worksOn: describe(parsed.body),
-		owns: [...new Set([quest, ...trees, ...here, ...named])],
+		owns: [...new Set([quest, ...repositories, ...here, ...named])],
+		scopes: scopesOf({
+			questChain: questChain(quest, parsed.frontMatter.parent, records),
+			repositories,
+		}),
 	};
+}
+
+/** A quest, then each parent up to its root, as their READMEs say. */
+function questChain(
+	quest: string,
+	parent: string | null | undefined,
+	records: QuestRecords,
+): string[] {
+	const chain = [quest];
+	let next = parent;
+	while (next && !chain.includes(next) && chain.length <= MOST_PARENTS) {
+		chain.push(next);
+		const readme = readReadme(records.quests, next);
+		next = readme
+			? parseQuestFrontMatter(readme)?.frontMatter.parent
+			: undefined;
+	}
+	return chain;
+}
+
+/** Checkouts found for a folder, by the folder; they rarely change. */
+const checkouts = new Map<string, string | undefined>();
+
+/**
+ * The checkout a folder is in, found by looking up for a `.git`, and
+ * never the home directory's, which says nothing about the work.
+ */
+export function checkoutOf(cwd: string): string | undefined {
+	if (checkouts.has(cwd)) return checkouts.get(cwd);
+	let found: string | undefined;
+	for (let at = cwd; at !== homedir(); at = dirname(at)) {
+		if (existsSync(join(at, ".git"))) {
+			found = at;
+			break;
+		}
+		if (dirname(at) === at) break;
+	}
+	checkouts.set(cwd, found);
+	return found;
 }
 
 /** Repository names already read, by checkout; they never change. */
@@ -197,6 +269,7 @@ function presenceFrom(value: unknown): Presence | undefined {
 		session: one.session,
 		addresses: one.addresses,
 		groups: one.groups,
+		...(strings(one.joined) ? { joined: one.joined } : {}),
 		worksOn: typeof one.worksOn === "string" ? one.worksOn : "",
 		owns: strings(one.owns) ? one.owns : [],
 		busy: one.busy === true,

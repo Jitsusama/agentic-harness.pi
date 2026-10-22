@@ -53,6 +53,7 @@ import {
 	type Heed,
 	type Receiver,
 } from "../../lib/mesh/attention.ts";
+import { groupNamed, isJoinable } from "../../lib/mesh/group.ts";
 import {
 	bridgePresences,
 	bridgeTransport,
@@ -271,6 +272,18 @@ export function meshWorkflow(
 				return undefined;
 			}
 			transport.markRead(peer.signature, id);
+			// Brought into a group by another peer: it joins without being
+			// asked, as Joel wants agents to organise themselves, and the note
+			// it gets says how to leave.
+			if (
+				message.invite !== undefined &&
+				isHomeTo(message, peer.addresses) &&
+				groupNamed(message.invite) === message.invite &&
+				message.invite.startsWith("#") &&
+				isJoinable(message.invite)
+			) {
+				peer.join(message.invite);
+			}
 			return message;
 		};
 

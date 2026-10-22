@@ -87,7 +87,8 @@ describe("this session's peer", () => {
 		expect(peer.signature).toBe("LUQ49E");
 		expect(at.presences.of(session)).toMatchObject({
 			addresses: ["LUQ49E", "24B025FE"],
-			groups: ["#harness"],
+			groups: ["#harness", "#quest/luq49e"],
+			joined: ["#harness"],
 			worksOn: "A Stable Substrate: Grow the mesh.",
 			owns: expect.arrayContaining(["QEST-20261021-LUQ49E", "harness"]),
 		});
@@ -139,6 +140,72 @@ describe("this session's peer", () => {
 		peer.setBusy(true);
 		expect(written.map((one) => one.busy)).toEqual([false, true]);
 		expect(kept.of(session)).toMatchObject({ busy: true });
+	});
+
+	it("is in its quest's group, named down from the root, and its repository's", () => {
+		const readme = (id: string, parent: string, trees = "") =>
+			`---\nid: ${id}\nkind: subquest\nparent: ${parent}\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\n${trees}---\n# ${id}\n`;
+		const checkout = join(root, "agentic-harness.pi");
+		mkdirSync(join(checkout, ".git"), { recursive: true });
+		for (const [id, text] of [
+			[
+				"QEST-20261021-LUQ49E",
+				readme(
+					"QEST-20261021-LUQ49E",
+					"QEST-20261021-5GV2AH",
+					`trees:\n  - path: ${checkout}\n    providerId: git-worktree\n`,
+				),
+			],
+			[
+				"QEST-20261021-5GV2AH",
+				readme("QEST-20261021-5GV2AH", "QEST-20261013-4UHC5Q"),
+			],
+			["QEST-20261013-4UHC5Q", readme("QEST-20261013-4UHC5Q", "null")],
+		]) {
+			mkdirSync(join(root, "quests", id), { recursive: true });
+			writeFileSync(join(root, "quests", id, "README.md"), text);
+		}
+		mkdirSync(join(root, "sessions"), { recursive: true });
+		writeFileSync(
+			join(root, "sessions", `${session}.json`),
+			JSON.stringify({ quest: "QEST-20261021-LUQ49E" }),
+		);
+
+		const peer = localPeer(surroundings());
+
+		expect(peer.scopes).toEqual([
+			"#quest/4uhc5q/5gv2ah/luq49e",
+			"#repo/agentic-harness-pi",
+		]);
+		expect(peer.joined).toEqual([]);
+	});
+
+	it("is in the repository it runs in, with no quest", () => {
+		const checkout = join(root, "core.nix");
+		mkdirSync(join(checkout, ".git"), { recursive: true });
+		mkdirSync(join(checkout, "modules"));
+
+		const peer = localPeer({
+			...surroundings(),
+			cwd: join(checkout, "modules"),
+		});
+
+		expect(peer.scopes).toEqual(["#repo/core-nix"]);
+	});
+
+	it("keeps only what it joined across a reload, and works its scopes out again", () => {
+		const at = surroundings();
+		at.presences.publish(
+			presence({
+				session,
+				groups: ["#harness", "#quest/old"],
+				joined: ["#harness"],
+			}),
+		);
+
+		const again = localPeer(at);
+
+		expect(again.groups).toEqual(["#harness"]);
 	});
 
 	it("keeps its groups across a reload", () => {

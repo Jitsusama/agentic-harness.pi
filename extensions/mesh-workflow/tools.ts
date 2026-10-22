@@ -73,7 +73,7 @@ export function registerTools(
 		name: "mesh_send",
 		label: "Mesh",
 		description:
-			"Send a message to other pi sessions (peers) on this machine without interrupting them: it joins their conversation as context, at the attention each gives it. Send only what changes what another peer should do (a hold before a reboot, a switch, a merge or a heavy build; a question only it can answer) or what concerns something it owns (a finding). Never send progress, acknowledgements or thanks. Every message goes to a group: a peer's home group by its address (5GV2AH), a group by name (#harness), or #all, which is only for what touches every peer on the machine. Pick the narrowest that reaches everyone affected; mesh_groups lists the groups and who is in them.",
+			"Send a message to other pi sessions (peers) on this machine without interrupting them: it joins their conversation as context, at the attention each gives it. Send only what changes what another peer should do (a hold before a reboot, a switch, a merge or a heavy build; a question only it can answer) or what concerns something it owns (a finding). Never send progress, acknowledgements or thanks. Every message goes to a group: a peer's home group by its address (5GV2AH); a group a peer's work puts it in, its quest's (#quest/5gv2ah, which reaches the quests under it too) or its repository's (#repo/agentic-harness-pi); a group by name (#harness); or #all, which is only for what touches every peer on the machine. Pick the narrowest that reaches everyone affected. Sending to a named group joins it, so this peer hears the answers. mesh_groups lists the groups and who is in them.",
 		parameters: Type.Object({
 			to: Type.String({
 				description:
@@ -109,12 +109,23 @@ export function registerTools(
 		name: "mesh_join",
 		label: "Mesh",
 		description:
-			"Join a mesh group, so this peer hears what is sent to it and to the groups it is part of. Join the groups for the work this peer does (#harness, #optimus/power), not every group there is; join a peer's address to follow its home group.",
+			"Join a mesh group, so this peer hears what is sent to it and to the groups it is part of, and bring other peers into it without asking them. This peer is already in its quest's and repository's groups. Join, or make, a group for work shared beyond those (#harness, #optimus/power), not every group there is; join a peer's address to follow its home group.",
 		parameters: Type.Object({
 			group: Type.String({
 				description:
-					"A group such as #harness, a part of one such as #optimus/power, or a peer's address",
+					"A group such as #harness, a part of one such as #optimus/power, or a peer's address. A named group nobody is in yet is made by joining it.",
 			}),
+			invite: Type.Optional(
+				Type.String({
+					description:
+						"Comma-separated addresses of peers to bring into a named group too; each is told, and is in it from then on until it leaves",
+				}),
+			),
+			why: Type.Optional(
+				Type.String({
+					description: "What the group is for, said to those invited",
+				}),
+			),
 		}),
 		execute: using(join),
 	});
@@ -123,7 +134,7 @@ export function registerTools(
 		name: "mesh_leave",
 		label: "Mesh",
 		description:
-			"Leave a mesh group this peer no longer works on, so its messages stop reaching it.",
+			"Leave a mesh group this peer joined and no longer works on, so its messages stop reaching it. The groups its work puts it in are left with the work.",
 		parameters: Type.Object({
 			group: Type.String({ description: "The group to leave" }),
 		}),
@@ -190,17 +201,43 @@ async function send(
 		pid: process.pid,
 	});
 	at.sent(message);
+	// A peer reads what it writes to: Skynet's annals found peers posting
+	// into spaces they never read, so the answers went unheard.
+	const reading = to.filter(
+		(group) =>
+			group.startsWith("#") &&
+			group !== ALL &&
+			!hears(at.peer.groups, group) &&
+			at.peer.join(group),
+	);
+	const { notes, reached, gone } = reach(message, standing, at.peer);
+	if (reading.length > 0) {
+		notes.push(
+			`This peer is in ${reading.join(", ")} now, so it hears the answers.`,
+		);
+	}
+	return answer(
+		`Sent as ${message.from}: ${line(message)}\n${notes.join(" ")}`,
+		{ sent: true, message, reached, gone } satisfies SendDetails,
+	);
+}
+
+/** Who a message just sent goes to, and which addressed peers it misses. */
+function reach(
+	message: Message,
+	standing: Census,
+	peer: Peer,
+): { notes: string[]; reached: string[]; gone: string[] } {
+	const everyone = standing.present;
 	const reached = everyone
-		.filter(
-			(one) => one.session !== at.peer.session && one.addresses.length > 0,
-		)
+		.filter((one) => one.session !== peer.session && one.addresses.length > 0)
 		.filter((one) => reaches(message, one, -1))
 		.map((one) => one.addresses[0] as string);
 	const homes = (list: readonly Presence[]) =>
 		new Set(list.flatMap((one) => one.addresses.map(homeOf)));
 	const there = homes(everyone);
 	const ended = homes(standing.gone);
-	const addressed = to.filter((group) => group.startsWith("@"));
+	const addressed = message.to.filter((group) => group.startsWith("@"));
 	const gone = addressed
 		.filter((group) => !there.has(group) && ended.has(group))
 		.map((group) => group.slice(1));
@@ -218,10 +255,7 @@ async function send(
 			? `No peer goes by ${unknown.join(", ")}; one never will if the address is wrong.`
 			: "",
 	].filter(Boolean);
-	return answer(
-		`Sent as ${message.from}: ${line(message)}\n${notes.join(" ")}`,
-		{ sent: true, message, reached, gone } satisfies SendDetails,
-	);
+	return { notes, reached, gone };
 }
 
 async function read(at: Local, params: { count?: number }): Promise<Answer> {
@@ -295,7 +329,10 @@ function receipts(
 	};
 }
 
-async function join(at: Local, params: { group: string }): Promise<Answer> {
+async function join(
+	at: Local,
+	params: { group: string; invite?: string; why?: string },
+): Promise<Answer> {
 	const group = joinable(params.group, at.presences.all());
 	if (group === undefined || !isJoinable(group)) {
 		return answer(
@@ -307,22 +344,70 @@ async function join(at: Local, params: { group: string }): Promise<Answer> {
 			`${group} is this peer's own home group; it is always in it.`,
 		);
 	}
-	at.peer.join(group);
-	return answer(`In ${group}. ${groupsText(await peers(at), at.peer)}`, {
-		groups: at.peer.groups,
+	const already =
+		hears(at.peer.scopes, group) && !at.peer.joined.includes(group);
+	if (!already) at.peer.join(group);
+	const standing = await peers(at);
+	const said = already
+		? `Already in ${group} by this peer's work.`
+		: `In ${group}.`;
+	const invited = groupsNamed(params.invite ?? "");
+	if (invited.length === 0) {
+		return answer(`${said} ${groupsText(standing, at.peer)}`, {
+			groups: at.peer.groups,
+		});
+	}
+	if (!group.startsWith("#")) {
+		return answer(
+			`${said} Nobody was invited: peers are brought into a named group, and anyone may follow a home group by joining it.`,
+			{ groups: at.peer.groups },
+		);
+	}
+	const homes = invited.filter(
+		(one) =>
+			one.startsWith("@") && !at.peer.addresses.map(homeOf).includes(one),
+	);
+	const notHomes = invited.filter((one) => !homes.includes(one));
+	if (homes.length === 0) {
+		return answer(
+			`${said} Nobody was invited: ${notHomes.join(", ")} names no other peer. Invite peers by their addresses, as P9R1KI.`,
+			{ groups: at.peer.groups },
+		);
+	}
+	const why = params.why?.trim();
+	const message = at.transport.send({
+		from: at.peer.signature,
+		to: homes,
+		intent: "fyi",
+		text: `${at.peer.signature} brings this peer into ${group}${why ? `: ${why}` : "."} It is in ${group} from now on, hearing what is said there, until it leaves with mesh_leave.`,
+		pid: process.pid,
+		invite: group,
 	});
+	at.sent(message);
+	const { notes } = reach(message, standing, at.peer);
+	const skipped =
+		notHomes.length > 0
+			? ` Not invited, since they name no other peer: ${notHomes.join(", ")}.`
+			: "";
+	return answer(
+		`${said} Invited ${homes.map((one) => one.slice(1)).join(", ")}. ${notes.join(" ")}${skipped}`,
+		{ groups: at.peer.groups, invited: homes, message },
+	);
 }
 
 async function leave(at: Local, params: { group: string }): Promise<Answer> {
 	const group = groupNamed(params.group);
 	const left = group !== undefined && at.peer.leave(group);
 	const everyone = await peers(at);
-	return answer(
-		left
-			? `Left ${group}. ${groupsText(everyone, at.peer)}`
-			: `Not in ${params.group}, so nothing changed. ${groupsText(everyone, at.peer)}`,
-		{ groups: at.peer.groups },
-	);
+	const scoped = group !== undefined && at.peer.scopes.includes(group);
+	const said = scoped
+		? `${left ? `Left what this peer joined of ${group}, but it` : group} is one of this peer's scopes: its work puts it there, so it hears ${group} until it works on something else.`
+		: left
+			? `Left ${group}.`
+			: `Not in ${params.group}, so nothing changed.`;
+	return answer(`${said} ${groupsText(everyone, at.peer)}`, {
+		groups: at.peer.groups,
+	});
 }
 
 /**
@@ -370,9 +455,14 @@ function groupsText(standing: Census, peer: Peer): string {
 	const lines = [...members.keys()]
 		.sort()
 		.map((group) => `${group}: ${members.get(group)?.join(", ")}`);
+	const joined = peer.joined.filter((group) => !peer.scopes.includes(group));
+	const standsIn = [
+		peer.scopes.length > 0 ? `is in ${peer.scopes.join(", ")} by its work` : "",
+		joined.length > 0 ? `has joined ${joined.join(", ")}` : "",
+	].filter(Boolean);
 	const own =
-		peer.groups.length > 0
-			? `This peer is in ${peer.groups.join(", ")}, its home group and #all.`
+		standsIn.length > 0
+			? `This peer ${standsIn.join(", and ")}; it is also in its home group and #all.`
 			: "This peer is in its home group and #all only.";
 	const ended = standing.gone
 		.filter((one) => one.groups.length > 0 && one.addresses[0])
