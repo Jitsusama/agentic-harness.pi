@@ -80,7 +80,13 @@ it does:
   `cost-workflow`, `image-budget-workflow`,
   `panel-lifecycle-workflow`, `job-workflow`,
   `session-recall-workflow`, `install-check-workflow`,
-  `reload-workflow`, `shell-workflow`, `mail-workflow`.
+  `reload-workflow`, `shell-workflow`, `mail-workflow`,
+  `priority-workflow`.
+
+  `priority-workflow` keeps pi ahead of the work it starts: where
+  the machine names an idle cgroup for work in `JOBS_CGROUP`, every
+  process pi spawns is written into it as it is spawned, and pi
+  stays where it was started.
 
   `away-workflow` makes the person being away a mode rather than a
   convention the model has to remember: blocking approvals hold
