@@ -533,12 +533,28 @@ export default function costWorkflow(pi: ExtensionAPI) {
 				const prompts = (
 					await Promise.all(logs.map((path) => standingOf(path)))
 				).filter((one) => one !== undefined);
-				const [now, before, rewrites, reads, errors] = await Promise.all([
+				const deferred = pi
+					.getAllTools()
+					.filter((tool) => tool.exposure === "deferred")
+					.map((tool) => tool.name);
+				const [
+					now,
+					before,
+					rewrites,
+					reads,
+					errors,
+					sessions,
+					searches,
+					hidden,
+				] = await Promise.all([
 					rows(AUDIT_QUERIES.spend(current)),
 					rows(AUDIT_QUERIES.spend(prior)),
 					rows(AUDIT_QUERIES.rewrites(current)),
 					rows(AUDIT_QUERIES.readsByRepo(current)),
 					rows(AUDIT_QUERIES.errors(current)),
+					rows(AUDIT_QUERIES.sessions(current)),
+					rows(AUDIT_QUERIES.searches(current)),
+					rows(AUDIT_QUERIES.hidden(current, deferred)),
 				]);
 				const text = formatAudit(
 					{
@@ -549,6 +565,11 @@ export default function costWorkflow(pi: ExtensionAPI) {
 						errors,
 						standing: byRepo(prompts),
 						unread: logs.length - prompts.length,
+						loading: {
+							sessions: Number(sessions[0]?.sessions ?? 0),
+							searches: searches[0] ?? {},
+							hidden,
+						},
 					},
 					params.limit ?? 12,
 				);

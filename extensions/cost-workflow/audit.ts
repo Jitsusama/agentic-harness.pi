@@ -43,7 +43,25 @@ export const AUDIT_QUERIES = {
 		`SELECT coalesce(repo, cwd, '(no repository)') AS repo, count(*) AS turns, coalesce(sum(cost_cache_read), 0) AS cost, coalesce(sum(tokens_cache_read), 0) AS tokens FROM turn_facts WHERE kind = 'assistant' AND ${within(week)} GROUP BY 1`,
 	errors: (week: Week) =>
 		`SELECT name, count(*) AS calls, sum(is_error) AS failed FROM tool_calls WHERE ${within(week)} GROUP BY name HAVING sum(is_error) > 0 ORDER BY failed DESC LIMIT 8`,
+	sessions: (week: Week) =>
+		`SELECT count(DISTINCT session_id) AS sessions FROM turn_facts WHERE kind = 'assistant' AND ${within(week)}`,
+	// pi's tool_search answers exactly NO_MATCH when it finds nothing.
+	searches: (week: Week) =>
+		`SELECT count(*) AS calls, count(DISTINCT session_id) AS sessions, coalesce(sum(result_chars = ${NO_MATCH.length}), 0) AS empty FROM tool_calls WHERE name = 'tool_search' AND ${within(week)}`,
+	hidden: (week: Week, names: readonly string[]) =>
+		`SELECT name, count(*) AS calls, count(DISTINCT session_id) AS sessions FROM tool_calls WHERE ${within(week)} AND name IN (${names.map((name) => `'${name.replaceAll("'", "''")}'`).join(", ") || "''"}) GROUP BY name ORDER BY sessions DESC, calls DESC`,
 } as const;
+
+/** What pi's tool_search answers when nothing matched. */
+export const NO_MATCH = "No matching tools found.";
+
+/**
+ * The share of sessions past which a hidden tool is worth declaring on
+ * every turn again. Loading costs about its declaration once a session;
+ * declaring it costs that on every turn of every session, so a tool
+ * most sessions load is cheaper declared.
+ */
+const DECLARE_SHARE = 0.25;
 
 type Row = Readonly<Record<string, unknown>>;
 
@@ -86,6 +104,48 @@ export interface AuditInput {
 	readonly standing: readonly StandingByRepo[];
 	/** Session logs that held no system message to read. */
 	readonly unread: number;
+	/** How sessions found and used the tools that load on demand. */
+	readonly loading?: {
+		readonly sessions: number;
+		readonly searches: Row;
+		readonly hidden: readonly Row[];
+	};
+}
+
+/**
+ * Whether hiding tools cost anything: how often sessions searched, how
+ * often a search found nothing, and which hidden tools sessions reached
+ * for, naming any used in enough sessions to be cheaper declared.
+ */
+function loadingLines(loading: NonNullable<AuditInput["loading"]>): string[] {
+	const { sessions, searches, hidden } = loading;
+	const lines = ["Tools that load on demand:"];
+	lines.push(
+		`- tool_search: ${count(num(searches.calls), "call")} in ${count(num(searches.sessions), "session")}; ${num(searches.empty)} found nothing.`,
+	);
+	if (hidden.length === 0) {
+		lines.push("- No hidden tool was called.");
+		return lines;
+	}
+	const used = hidden
+		.slice(0, 8)
+		.map(
+			(row) =>
+				`${String(row.name)} in ${num(row.sessions)} of ${sessions} (${count(num(row.calls), "call")})`,
+		)
+		.join("; ");
+	lines.push(`- Used: ${used}.`);
+	const wanted = hidden
+		.filter(
+			(row) => sessions > 0 && num(row.sessions) / sessions > DECLARE_SHARE,
+		)
+		.map((row) => String(row.name));
+	lines.push(
+		wanted.length === 0
+			? "- None is used in more than a quarter of sessions, so none is worth declaring on every turn."
+			: `- Used in more than a quarter of sessions, so cheaper declared on every turn: ${wanted.join(", ")}.`,
+	);
+	return lines;
 }
 
 /** The audit, as the model and the person read it. */
@@ -133,6 +193,8 @@ export function formatAudit(input: AuditInput, limit: number): string {
 			`(${count(input.unread, "log")} held no system message to read and are left out.)`,
 		);
 	}
+
+	if (input.loading) lines.push("", ...loadingLines(input.loading));
 
 	lines.push("", "Tools whose calls failed most:");
 	if (input.errors.length === 0) lines.push("- none");
