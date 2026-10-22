@@ -57,7 +57,6 @@ beforeEach(() => {
 	root = mkdtempSync(join(tmpdir(), "mesh-workflow-"));
 	paths = {
 		mesh: join(root, "mesh"),
-		legacy: join(root, "pi-mailbox"),
 		sessions: join(root, "sessions"),
 		quests: join(root, "quests"),
 	};
@@ -812,24 +811,6 @@ describe("sending", () => {
 			"Nobody else is in #skynet yet; mesh_read shows it to whoever joins",
 		);
 		expect(folderTransport(join(paths.mesh, "messages")).ids()).toHaveLength(1);
-	});
-
-	it("reaches a session still on the old mailbox", async () => {
-		// Sessions keep the harness they started with until they reload.
-		mkdirSync(join(paths.legacy, ".members"), { recursive: true });
-		writeFileSync(
-			join(paths.legacy, ".members", "old.json"),
-			JSON.stringify({
-				session: "old",
-				names: ["WCJQSG"],
-				channels: ["optimus"],
-			}),
-		);
-		const { tools } = await startSession();
-
-		const answer = await send(tools, "#optimus", "hold", "hold builds");
-
-		expect(answer).toContain("It goes to WCJQSG;");
 	});
 
 	it("reads the latest it hears, oldest first, as many as asked", async () => {

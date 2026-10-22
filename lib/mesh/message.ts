@@ -112,7 +112,7 @@ export function shortId(message: Pick<Message, "id">): string {
 }
 
 /** An intent as written, or an fyi when it is none this version knows. */
-export function intentOf(written: unknown): Intent {
+function intentOf(written: unknown): Intent {
 	return (INTENTS as readonly unknown[]).includes(written)
 		? (written as Intent)
 		: "fyi";

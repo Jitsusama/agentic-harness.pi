@@ -32,7 +32,6 @@
  * alone, so what is said stays in a potentially shared space.
  */
 
-import { homedir } from "node:os";
 import { join } from "node:path";
 import {
 	type ExtensionAPI,
@@ -77,12 +76,6 @@ import {
 	ownLeases,
 	RUN_KINDS,
 } from "../../lib/mesh/lease.ts";
-import {
-	bridgePresences,
-	bridgeTransport,
-	LEGACY_GLANCE,
-	legacyGlance,
-} from "../../lib/mesh/legacy.ts";
 import {
 	isHomeTo,
 	line,
@@ -166,19 +159,12 @@ const STOPPED = "from a peer this one stopped";
 export interface MeshPaths extends QuestRecords {
 	/** The mesh's own state: its messages and every peer's presence. */
 	readonly mesh: string;
-	/** The legacy mailbox, bridged until no peer speaks it. */
-	readonly legacy: string;
 }
 
-/** The machine's mesh, and the legacy mailbox where it always was. */
+/** The machine's mesh and the quest records it reads. */
 export function machinePaths(): MeshPaths {
-	const state = process.env.XDG_STATE_HOME;
 	return {
 		mesh: stateDir("mesh-workflow"),
-		legacy: join(
-			state && state.length > 0 ? state : join(homedir(), ".local", "state"),
-			"pi-mailbox",
-		),
 		sessions: join(stateDir("quest-workflow"), "sessions"),
 		quests: join(dataDir("quest-workflow"), "quests"),
 	};
@@ -221,14 +207,8 @@ export function meshWorkflow(
 	return (pi: ExtensionAPI) => {
 		// Not on the mesh at all: see isSubagent.
 		if (isSubagent(env)) return;
-		const transport: Transport = bridgeTransport(
-			folderTransport(join(paths.mesh, "messages")),
-			paths.legacy,
-		);
-		const presences = bridgePresences(
-			createPresences(join(paths.mesh, "presence")),
-			paths.legacy,
-		);
+		const transport: Transport = folderTransport(join(paths.mesh, "messages"));
+		const presences = createPresences(join(paths.mesh, "presence"));
 		const glances = createGlances();
 		const damper = createDamper();
 		const board = createBoard(join(paths.mesh, "leases"));
@@ -257,8 +237,7 @@ export function meshWorkflow(
 		let classifier: Promise<FoundClassifier> | undefined;
 		let stopWatching: (() => void) | undefined;
 		// Every id already looked at, so a watcher that reports one twice,
-		// as inotify does for a rename, or a message seen in both the mesh
-		// and the legacy folder, is handed over once.
+		// as inotify does for a rename, is handed over once.
 		const seen = new Set<string>();
 
 		/** Whose business a message is, by the classifier, or nothing. */
@@ -545,10 +524,6 @@ export function meshWorkflow(
 		pi.registerEntryRenderer?.<{ message: Message }>(
 			GLANCE,
 			(entry, _options, theme) => glanceView(entry.data?.message, theme),
-		);
-		// Sessions that glanced before the mesh still show what they saw.
-		pi.registerEntryRenderer?.(LEGACY_GLANCE, (entry, _options, theme) =>
-			glanceView(legacyGlance(entry.data), theme),
 		);
 
 		/**
