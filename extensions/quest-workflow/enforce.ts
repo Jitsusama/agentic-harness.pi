@@ -132,7 +132,7 @@ function systemTempFunnel(
 	return {
 		guard: GUARDS.questTemp.name,
 		block: true,
-		reason: `Quest workflow: this writes to system temp, which is not tracked or reaped. Redirect into the tmp/ folder of this quest's workspace instead, which is cleared when the quest concludes: ${dir}`,
+		reason: `Quest workflow: this names a path in system temp, which nothing reaps. Use $TMPDIR instead (mktemp already does), which points at the tmp/ folder of this quest's workspace, cleared when the quest concludes: ${dir}`,
 	};
 }
 
@@ -181,16 +181,19 @@ function classifyTarget(
 	options: EnforceOptions,
 ): WriteClassification {
 	const tempRoots = (options.tempRoots ?? defaultTempRoots()).map(canonical);
-	// The whole workspace is the quest's own, so a write anywhere in it is
-	// scratch: never system temp, and never homeless in build.
-	const workspace =
-		workspaceDirOf(
-			options.workspaceRoot ?? defaultWorkspaceRoot(),
-			state.questId,
-		) ?? state.scratchDir;
-	return classifyWrite(canonical(absTarget), {
+	// Every quest's workspace is scratch, never system temp and never
+	// homeless in build: a workspace holds no record and no code home.
+	// Not only the loaded quest's, since sessions leave notes in each
+	// other's to coordinate, and 70 such writes were refused in a week.
+	// A legacy scratch folder of the loaded quest's counts as well.
+	const workspaces = options.workspaceRoot ?? defaultWorkspaceRoot();
+	const legacy = state.scratchDir ? canonical(state.scratchDir) : null;
+	const target = canonical(absTarget);
+	const scratch =
+		legacy && isWithin(target, legacy) ? legacy : canonical(workspaces);
+	return classifyWrite(target, {
 		questDir: state.questDir ? canonical(state.questDir) : null,
-		scratchDir: workspace ? canonical(workspace) : null,
+		scratchDir: scratch,
 		tempRoots,
 		isGitignored,
 		isTracked,
@@ -199,10 +202,24 @@ function classifyTarget(
 }
 
 /**
+ * Whether a plan in think or draft holds back changes to the tree at
+ * `root`. The hold keeps this plan's implementation waiting for its
+ * plan, so it covers the trees the quest works in. A fix to some other
+ * repository is not this plan's implementation, and refusing it only
+ * sent the agent to unfocus and retry. A quest that tracks no tree yet
+ * has not said where its code lives, so every tree is held.
+ */
+function holdsTree(state: QuestState, root: string | undefined): boolean {
+	const tracked = trackedTreePaths(state);
+	if (tracked.length === 0) return true;
+	return root !== undefined && tracked.some((p) => isWithin(root, p));
+}
+
+/**
  * The plan-phase write gate: in think or draft, defer only edits to
- * already-tracked code. The plan document, quest-internal files,
- * scratch and brand-new (untracked) files all flow, so drafting and
- * scratch exploration are never cornered.
+ * already-tracked code in a tree the plan holds. The plan document,
+ * quest-internal files, scratch and brand-new (untracked) files all
+ * flow, so drafting and scratch exploration are never cornered.
  */
 function enforcePhase(
 	state: QuestState,
@@ -214,7 +231,11 @@ function enforcePhase(
 	if (toolName === "write" || toolName === "edit") {
 		if (isFocusedDocWrite(toolName, input, state.documentPath, cwd)) return;
 		const target = path.resolve(cwd, String(input.path ?? ""));
-		if (classifyTarget(state, target, options).category === "tracked-code") {
+		const classification = classifyTarget(state, target, options);
+		if (
+			classification.category === "tracked-code" &&
+			holdsTree(state, classification.treeRoot)
+		) {
 			return {
 				guard: GUARDS.questPlanStage.name,
 				block: true,
@@ -227,7 +248,10 @@ function enforcePhase(
 	if (toolName === "bash") {
 		const command = String(input.command ?? "");
 		const kind = classifyBashWrite(command);
-		if (kind === "git-mutating") {
+		if (
+			kind === "git-mutating" &&
+			holdsTree(state, gitTreeRootOf(cwd) ?? undefined)
+		) {
 			return {
 				guard: GUARDS.questPlanStage.name,
 				block: true,
@@ -236,8 +260,10 @@ function enforcePhase(
 		}
 		if (kind === "bash-write") {
 			const lands = writeTargetsOf(toolName, input, cwd, options)
-				.map((t) => classifyTarget(state, t, options).category)
-				.some((category) => category === "tracked-code");
+				.map((t) => classifyTarget(state, t, options))
+				.some(
+					(c) => c.category === "tracked-code" && holdsTree(state, c.treeRoot),
+				);
 			if (lands) {
 				return {
 					guard: GUARDS.questPlanStage.name,
@@ -494,8 +520,8 @@ function enforceOwnedFields(
 /**
  * Every gate's verdict on a tool call, in the order the gates run: the
  * record, then system temp, then the plan stage or the build home. The
- * caller applies each guard's mode, so a gate switched to report does
- * not hide the ones after it.
+ * caller applies each guard's mode, so a gate that is off or relents
+ * does not hide the ones after it.
  */
 export function questVerdicts(
 	state: QuestState,

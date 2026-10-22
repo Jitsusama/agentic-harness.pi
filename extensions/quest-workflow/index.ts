@@ -37,6 +37,7 @@ import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { dataDir } from "../../lib/internal/paths.ts";
 import { discoverQuests } from "../../lib/internal/quest/discovery.ts";
 import { formatRelativeAge } from "../../lib/internal/quest/session-liveness.ts";
+import { offerShellEnvironment } from "../../lib/internal/shell/environment.ts";
 import {
 	registerBuiltinHandleTypes,
 	registerBuiltinPersonResolvers,
@@ -85,6 +86,7 @@ import {
 	isListingDetails,
 	renderListingExpanded,
 } from "./render-rows.ts";
+import { questTempDir } from "./scratch.ts";
 import {
 	endReasonForShutdown,
 	lostSessionCount,
@@ -148,6 +150,13 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 	// So the working layer does not reclaim a tree a quest is holding.
 	answerTreeClaims(pi, questsRoot);
 
+	// The agent's temporary files go where the loaded quest reaps them.
+	// Asked as each command starts, so loading another quest moves them.
+	offerShellEnvironment("quest-workflow", () => {
+		const dir = questTempDir(defaultWorkspaceRoot(), state.questId);
+		return dir ? { TMPDIR: dir } : undefined;
+	});
+
 	pi.registerTool({
 		name: "quest",
 		label: "Quest",
@@ -162,8 +171,8 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			"Use action `create` to mint a new quest. Use action `load` to switch to an existing one. The status bar shows the loaded quest at all times.",
 			"Edit a quest document's body with `journal` (add a Journey entry), `tick`/`untick` (a checkbox item) and `section` (replace one `##` section), not with edit or write: the workflow rewrites these files between reads, and hand edits miss. They act on the focused document, or the README when nothing is focused; `id` names another document, or the quest's id its README. Stage changes go through think/draft/build/conclude/retire.",
 			"`unload` puts a quest down and changes nothing on disk. `conclude` seals one for good (status, priority, documents, trees) and needs its `id`; never conclude to put a quest down. When unsure which was meant, unload.",
-			"`focus` and `unfocus` set or clear the focused document. While a plan is focused in think or draft, edits to already-tracked code defer to build; the plan itself, attachments, the workspace and brand-new files still flow.",
-			"A quest folder holds only its README, its ID documents and attachments/ (cited charts, notes and summaries within the limits). Clones, raw data, labs, runs and builds go in the quest's workspace, ~/.cache/pi/agentic-harness.pi/quest-workspace/<ID>/, whose tmp/ is cleared at conclude. When a result says a call left a record out of shape, move the files where it says.",
+			"`focus` and `unfocus` set or clear the focused document. While a plan is focused in think or draft, edits to already-tracked code in the quest's trees (any tree, while it tracks none) defer to build; the plan itself, attachments, any workspace and brand-new files still flow.",
+			"A quest folder holds only its README, its ID documents and attachments/ (cited charts, notes and summaries within the limits). Clones, raw data, labs, runs and builds go in the quest's workspace, ~/.cache/pi/agentic-harness.pi/quest-workspace/<ID>/, whose tmp/ is cleared at conclude and is $TMPDIR while the quest is loaded: use $TMPDIR or mktemp for temporary files, never a path named in /tmp. When a result says a call left a record out of shape, move the files where it says.",
 			"Stage transitions are think → draft → build → concluded (or retired). `think` accepts a kind on a fresh loop (default plan); `draft` scaffolds the document and mints its id; `build` lets you implement.",
 			"A refused transition returns guidance and changes nothing. There is no human gate and no approval prompt.",
 		],

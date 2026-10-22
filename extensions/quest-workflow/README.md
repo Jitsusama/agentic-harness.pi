@@ -81,14 +81,17 @@ while it waits its turn leaves without running.
   document kinds).
 - Discipline: a classification gate over every write, edit
   and bash redirect. While a focused plan is in `think` or
-  `draft`, only edits to already-tracked code defer to
-  build. In `build`, writes flow inside any tree the quest
-  tracks and into any quest's record; a write inside an
-  untracked git tree adopts that tree and goes ahead, and a
-  homeless write is refused with `tree-add`. Across stages,
-  `/dev` nodes always flow and bare system temp is funnelled
-  into a quest-owned managed scratch directory that is reaped
-  on conclude or retire. Bash targets resolve as the shell
+  `draft`, only edits to already-tracked code in the
+  quest's trees defer to build, or in any tree while the
+  quest tracks none. In `build`, writes flow inside any tree
+  the quest tracks, into any quest's record and into any
+  quest's workspace; a write inside an untracked git tree
+  adopts that tree and goes ahead, and a homeless write is
+  refused with `tree-add`. Across stages, `/dev` nodes
+  always flow. The agent's commands run with `TMPDIR` set
+  to `/tmp/pi-<ID>`, a link to the loaded quest's workspace
+  `tmp/`, which conclude and retire clear; a path named in
+  system temp is refused with that remedy. Bash targets resolve as the shell
   would, so `~` is the home directory and a `cd` counts.
 - Edits to a document's body: `journal` adds a dated
   Journey entry, to the quest `id` names or else the loaded
