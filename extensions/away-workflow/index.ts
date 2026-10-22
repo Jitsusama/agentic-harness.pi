@@ -29,6 +29,12 @@
  * What needs the absent person reaches them through a desktop
  * notification (`reach.ts`): the first call held in an absence, and a
  * run that rests `Blocked:`. The session carries on with the rest.
+ *
+ * A person who never said they were leaving is covered too
+ * (`carry-on.ts`): when a run ends with a plan in build still open and
+ * nobody answers for a quiet stretch, the session takes the next item,
+ * and a question it asked reaches the desktop. `PI_CARRY_ON=off` turns
+ * that off.
  */
 
 import { basename } from "node:path";
@@ -61,6 +67,14 @@ import {
 	firstText,
 	renderToolCall,
 } from "../../lib/ui/index.ts";
+import {
+	askedNotice,
+	carryOnText,
+	endsAsking,
+	freshCarryOn,
+	QUIET_MS,
+	shouldWait,
+} from "./carry-on.ts";
 import {
 	afterRun,
 	combine,
@@ -106,6 +120,15 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 	let stopWatching: () => void = () => {};
 	const memory = freshMemory();
 	const reached = freshReach();
+	const carrying = freshCarryOn();
+	let quiet: ReturnType<typeof setTimeout> | undefined;
+	let pendingCarry: Job | undefined;
+
+	/** Stop waiting out a quiet stretch: something answered it. */
+	const stopWaiting = () => {
+		if (quiet) clearTimeout(quiet);
+		quiet = undefined;
+	};
 
 	/**
 	 * Put a notice in front of the person, from an interactive session
@@ -131,6 +154,8 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 		saveAway(pi, now);
 		showStatus(latest);
 		if (now.since !== undefined) {
+			// Keep-going speaks for an absence; one voice is enough.
+			stopWaiting();
 			reach(heldNotice(where(), now.since, now.held.length, reached));
 		}
 	});
@@ -228,23 +253,69 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 			return;
 		}
 		if (verdict.kind !== "nudge") return;
+		const job = startJob("away", "keep working while the user is away");
+		if (!job) return;
+		pendingNudge = job;
+		job.onDelivered(() => {
+			if (pendingNudge === job) pendingNudge = undefined;
+		});
+		job.finish({ summary: verdict.text });
+	};
+
+	/**
+	 * A job whose summary will start the next turn once it is finished,
+	 * or nothing, said, when no job host is loaded.
+	 */
+	const startJob = (kind: string, label: string): Job | undefined => {
 		const host = findJobHost(pi.events);
 		if (!host) {
 			latest?.ui.notify(
 				"Away mode cannot send the run back to work: job-workflow is not loaded.",
 				"warning",
 			);
+			return undefined;
+		}
+		return host.start({ kind, label });
+	};
+
+	/**
+	 * The quiet stretch after a run ran out with nobody answering: carry
+	 * on with the plan, reaching the person if the run asked them
+	 * something. Rechecked now, since the stretch is long.
+	 */
+	const carryOn = (finished: RunSummary) => {
+		quiet = undefined;
+		if (isAway() || !latest) return;
+		try {
+			if (!latest.isIdle()) return;
+		} catch {
+			// A context a reload replaced; its successor waits for itself.
 			return;
 		}
-		const job = host.start({
-			kind: "away",
-			label: "keep working while the user is away",
-		});
-		pendingNudge = job;
+		const progress = planProgress();
+		if (!progress || progress.total - progress.done <= 0) return;
+		const asked = endsAsking(finished.lastText);
+		if (asked) reach(askedNotice(where(), finished.lastText, carrying));
+		const job = startJob(
+			"carry-on",
+			"carry on with the plan while nobody answers",
+		);
+		if (!job) return;
+		carrying.carried += 1;
+		pendingCarry = job;
 		job.onDelivered(() => {
-			if (pendingNudge === job) pendingNudge = undefined;
+			if (pendingCarry === job) pendingCarry = undefined;
 		});
-		job.finish({ summary: verdict.text });
+		job.finish({ summary: carryOnText(progress, asked) });
+	};
+
+	/** A run settled with the person here: wait for them, then carry on. */
+	const waitForAnswer = (ctx: ExtensionContext, finished: RunSummary) => {
+		stopWaiting();
+		if (!ctx.hasUI || process.env.PI_CARRY_ON === "off") return;
+		if (!shouldWait(finished, planProgress(), carrying)) return;
+		quiet = setTimeout(() => carryOn(finished), QUIET_MS);
+		quiet.unref?.();
 	};
 
 	pi.on("session_start", async (_event, ctx) => {
@@ -272,6 +343,7 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", async () => {
+		stopWaiting();
 		stopWatching();
 		stopWatching = () => {};
 		disposeListener();
@@ -284,6 +356,11 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 	pi.on("input", async (event, ctx) => {
 		latest = ctx;
 		if (event.source !== "interactive") return;
+		// The person answered: nothing carries on in their place.
+		stopWaiting();
+		pendingCarry?.withdraw();
+		pendingCarry = undefined;
+		Object.assign(carrying, freshCarryOn());
 		if (isAway()) endAway(ctx);
 		publishHere(ctx);
 		if (readsLikeDeparture(event.text)) {
@@ -293,6 +370,12 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 
 	// A run can end more than once before it settles (a retry, a queued
 	// follow-up), so what it did is gathered until it does.
+	// Any run starting, the person's or one a message woke, answers the
+	// quiet stretch; its own settling decides whether to wait again.
+	pi.on("agent_start", async () => {
+		stopWaiting();
+	});
+
 	pi.on("agent_end", async (event) => {
 		run = combine(run, summarize(event.messages));
 	});
@@ -301,7 +384,10 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 		latest = ctx;
 		const finished = run;
 		run = NOTHING_RUN;
-		if (!isAway()) return;
+		if (!isAway()) {
+			if (!settledAborted(event)) waitForAnswer(ctx, finished);
+			return;
+		}
 		if (settledAborted(event) || finished.aborted) {
 			// Escape is the person, here, saying stop.
 			endAway(ctx);
