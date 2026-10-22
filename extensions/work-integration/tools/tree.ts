@@ -49,6 +49,13 @@ import {
 } from "@jitsusama/agentic-harness.core/work";
 import { Type } from "@sinclair/typebox";
 import { sessionGateDeps } from "../../../lib/internal/gate/session-deps.ts";
+import {
+	duMeasure,
+	formatSize,
+	measureEach,
+	type Size,
+	sum,
+} from "../../../lib/internal/quest/footprint.ts";
 import { gitTreeRootOf } from "../../../lib/internal/quest/git-signals.ts";
 import { unattendedExec } from "../../../lib/internal/unattended-exec.ts";
 import { count, displayPath } from "../../../lib/ui/index.ts";
@@ -122,6 +129,12 @@ function resolved(path: string): string {
 		return path;
 	}
 }
+
+/**
+ * How long tidy may spend sizing the spent trees it names. A cargo
+ * target can run to tens of gigabytes; past this it says "at least".
+ */
+const TIDY_MEASURE_MS = 15_000;
 
 /**
  * Which trees beside this one nothing owns any more.
@@ -290,11 +303,23 @@ async function surveyRepo(
 			`   ${GLYPH.named} tracking refs for branches the remote dropped`,
 		);
 	}
+	// Sized only when there is a spent tree to size, at the lowest
+	// priority and under one short deadline, so tidy stays a quick
+	// question and a huge build directory reads as "at least".
+	const sizes =
+		orphans.reclaimable.length === 0
+			? new Map<string, Size>()
+			: await measureEach(
+					orphans.reclaimable.map((tree) => tree.path),
+					duMeasure({ deadlineMs: TIDY_MEASURE_MS }),
+				);
 	for (const tree of orphans.reclaimable) {
+		const size = sizes.get(tree.path);
 		lines.push(
-			`   ${GLYPH.named} ${displayPath(tree.path)}, a tree nothing holds${tree.branch ? ` (${tree.branch})` : ""}`,
+			`   ${GLYPH.named} ${displayPath(tree.path)}, a tree nothing holds${tree.branch ? ` (${tree.branch})` : ""}${size ? `, ${formatSize(size)}` : ""}`,
 		);
 	}
+	const freed = sizes.size > 0 ? sum([...sizes.values()]) : undefined;
 	for (const tree of orphans.retained) {
 		// The checkout itself is left out. It is retained for a
 		// reason nobody needs telling, and saying it every time
@@ -326,7 +351,7 @@ async function surveyRepo(
 						// branch survives the removal.
 						"",
 						`For the ${count(orphans.reclaimable.length, "tree", "trees")} nothing holds, work reclaim takes them`,
-						"back. Each branch stays exactly where it is, so re-cutting",
+						`back${freed ? `, freeing ${formatSize(freed)}` : ""}. Each branch stays exactly where it is, so re-cutting`,
 						"the tree puts you back.",
 					]),
 		].join("\n"),

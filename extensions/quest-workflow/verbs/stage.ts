@@ -18,6 +18,11 @@ import { appendJourneyByPath } from "../../../lib/internal/quest/append-journey.
 import { nowYmd } from "../../../lib/internal/quest/dates.ts";
 import { discoverQuests } from "../../../lib/internal/quest/discovery.ts";
 import {
+	duMeasure,
+	formatSize,
+	type Measure,
+} from "../../../lib/internal/quest/footprint.ts";
+import {
 	parseDocumentFrontMatter,
 	parseQuestFrontMatter,
 } from "../../../lib/internal/quest/frontmatter.ts";
@@ -648,6 +653,38 @@ function concludeElsewhere(
  * stageTransition. Otherwise concludes or retires the
  * whole quest and auto-prunes its trees.
  */
+/**
+ * How long a conclude may spend measuring the workspace it keeps.
+ *
+ * The largest workspace here, 19 GB, took a quarter of a second with
+ * the cache warm, and all 133 took eleven seconds cold. A conclude
+ * waits on this, so one slower than the deadline says "at least"
+ * rather than holding it up.
+ */
+const CONCLUDE_MEASURE_MS = 5_000;
+
+/**
+ * What a sealed quest's workspace still holds, said so the person knows
+ * what the quest leaves on disk: its tmp/ is cleared, and the rest stays
+ * in case the quest reopens. Nothing when it has no workspace.
+ */
+export async function workspaceKept(
+	questId: string | null,
+	signal?: AbortSignal,
+	measure: Measure = duMeasure({
+		deadlineMs: CONCLUDE_MEASURE_MS,
+		...(signal ? { signal } : {}),
+	}),
+): Promise<string | undefined> {
+	const dir = questId
+		? workspaceDirOf(defaultWorkspaceRoot(), questId)
+		: undefined;
+	if (!dir) return undefined;
+	const size = await measure(dir);
+	if (!size) return undefined;
+	return `Its workspace still holds ${formatSize(size)}, kept in case the quest reopens; \`cost\` with disk lists what could go across quests.`;
+}
+
 export async function concludeOrRetire(
 	state: QuestState,
 	action: "conclude" | "retire",
@@ -878,6 +915,8 @@ async function sealLoadedQuest(
 		}
 		message += ` ${count(blocked.length, "tree")} ${verb(blocked.length, "needs", "need")} manual resolution: ${blocked.map((b) => `${b.path}: ${b.reason}`).join("; ")}. Run \`tree-prune\` with its cwd once that is settled.`;
 	}
+	const kept = await workspaceKept(state.questId, signal);
+	if (kept) message += ` ${kept}`;
 	return ok(message, {
 		scope: "quest",
 		action,

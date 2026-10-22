@@ -10,11 +10,13 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	formatHoldings,
-	formatSize,
 	measureQuests,
 } from "../../../extensions/cost-workflow/disk.ts";
 import { clearDiscoveryCache } from "../../../lib/internal/quest/discovery.ts";
-import type { Holdings } from "../../../lib/internal/quest/footprint.ts";
+import {
+	formatSize,
+	type Holdings,
+} from "../../../lib/internal/quest/footprint.ts";
 
 let root: string;
 
