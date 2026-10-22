@@ -185,12 +185,17 @@ remains, and names attachments no document cites.
 The gate reads each write, edit and bash destination, and
 treats the workspace and devices as first-class so ad-hoc
 work is never cornered. Writes to a `/dev` node (the
-discard sink, the standard streams) always flow. A write
-to bare system temp (`/tmp`, the OS temp dir) is funnelled
-into the loaded quest's workspace `tmp/` folder, which is
-cleared when the quest concludes or retires. Write working
-material straight into the workspace rather than system
-temp when it should outlive the session. In `build`, a write inside any tree the quest
+discard sink, the standard streams) always flow. While a
+quest is loaded, commands run with `TMPDIR` pointing at its
+workspace `tmp/` folder, which is cleared when the quest
+concludes or retires: use `$TMPDIR` or `mktemp`, never a
+path you name in `/tmp`, which is refused with that
+remedy. Any quest's workspace is scratch, so a note left in
+another quest's workspace flows too. Write working
+material straight into the workspace rather than `tmp/`
+when it should outlive the session. In `think` or `draft`,
+only edits to tracked code in the quest's own trees wait
+for `build` (any tree, while the quest tracks none). In `build`, a write inside any tree the quest
 tracks flows; a write inside a git tree the quest does not
 track is refused with guidance to register it through
 `tree-adopt`, so the quest comes to account for every tree

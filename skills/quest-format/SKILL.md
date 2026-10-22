@@ -89,8 +89,8 @@ dumps. SVG counts as text.
 Everything else belongs in the quest's workspace, at
 `$XDG_CACHE_HOME/pi/agentic-harness.pi/quest-workspace/<ID>/`
 (`~/.cache/…` by default): clones, raw data, labs, runs,
-builds and downloads. Its `tmp/` folder takes the writes
-the gate funnels out of system temp and is cleared when
+builds and downloads. Its `tmp/` folder is the agent's
+`TMPDIR` while the quest is loaded, and is cleared when
 the quest concludes or retires. The rest of the workspace
 outlives the conclusion for a while, then the disk guard
 reclaims it. The workspace is never backed up, so nothing

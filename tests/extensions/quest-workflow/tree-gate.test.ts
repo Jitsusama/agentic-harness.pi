@@ -13,6 +13,7 @@ import {
 } from "@jitsusama/agentic-harness.core/tree";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { enforceQuest } from "../../../extensions/quest-workflow/enforce";
+import { questTempDir } from "../../../extensions/quest-workflow/scratch";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
 import { defaultWorkspaceRoot } from "../../../extensions/quest-workflow/workspace";
@@ -103,6 +104,70 @@ describe("build transition", () => {
 			action: "build",
 		});
 		expect(result.ok).toBe(true);
+	});
+});
+
+describe("the draft hold", () => {
+	it("holds tracked code in every tree while the quest tracks none", async () => {
+		const state = buildState();
+		await createQuestWithPlan(state);
+
+		const verdict = enforceQuest(
+			state,
+			"edit",
+			{ path: join(repoRoot, "README.md") },
+			repoRoot,
+			noScratch,
+		);
+
+		expect(verdict?.block).toBe(true);
+	});
+
+	it("holds tracked code in a tree the quest works in", async () => {
+		const state = buildState();
+		await createQuestWithPlan(state);
+		trackRepo(state);
+
+		const verdict = enforceQuest(
+			state,
+			"edit",
+			{ path: join(repoRoot, "README.md") },
+			repoRoot,
+			noScratch,
+		);
+
+		expect(verdict?.block).toBe(true);
+	});
+
+	it("lets a fix to some other repository through", async () => {
+		// The hold keeps this plan's implementation waiting for its plan.
+		// A fix elsewhere is not that, and refusing it only sent the agent
+		// to unfocus the plan and try again.
+		const state = buildState();
+		await createQuestWithPlan(state);
+		trackRepo(state);
+		const elsewhere = await makeRepo();
+		try {
+			const edit = enforceQuest(
+				state,
+				"edit",
+				{ path: join(elsewhere, "README.md") },
+				elsewhere,
+				noScratch,
+			);
+			const commit = enforceQuest(
+				state,
+				"bash",
+				{ command: "git commit -am fix" },
+				elsewhere,
+				noScratch,
+			);
+
+			expect(edit).toBeUndefined();
+			expect(commit).toBeUndefined();
+		} finally {
+			rmSync(elsewhere, { recursive: true, force: true });
+		}
 	});
 });
 
@@ -337,6 +402,45 @@ describe("workspace funnel", () => {
 			);
 			expect(verdict, rel).toBeUndefined();
 		}
+	});
+
+	it("lets a write into another quest's workspace through in build", async () => {
+		// Sessions leave notes in each other's workspaces to coordinate. A
+		// workspace holds no record and no code, so it is nobody's home to
+		// guard.
+		const state = buildState();
+		await createQuestWithPlan(state);
+		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
+		const other = join(defaultWorkspaceRoot(), "QEST-20260101-OTHER1");
+
+		const verdict = enforceQuest(
+			state,
+			"write",
+			{ path: join(other, "inbox/note.md") },
+			repoRoot,
+		);
+
+		expect(verdict).toBeUndefined();
+	});
+
+	it("lets a write through the quest's TMPDIR link through", async () => {
+		const state = buildState();
+		await createQuestWithPlan(state);
+		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
+		const linkRoot = join(tmpRoot, "t");
+		mkdirSync(linkRoot);
+		const dir = questTempDir(defaultWorkspaceRoot(), state.questId, linkRoot);
+
+		const verdict = enforceQuest(
+			state,
+			"write",
+			{ path: join(dir ?? "", "run.log") },
+			repoRoot,
+			{ tempRoots: [linkRoot] },
+		);
+
+		expect(dir).toBe(join(linkRoot, `pi-${state.questId}`));
+		expect(verdict).toBeUndefined();
 	});
 
 	it("funnels system temp in draft too", async () => {

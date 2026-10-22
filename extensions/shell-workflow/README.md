@@ -29,13 +29,21 @@ What it adds:
   `true`, `PAGER`, `GIT_PAGER`, `GH_PAGER` and `MANPAGER` set to `cat`,
   and `GIT_TERMINAL_PROMPT=0`. Git keeps its default message where it
   has one and fails fast where it has none, rather than waiting on an
-  editor nobody will close. Only the agent's commands get these: pi's
+  editor nobody will close. `GIT_ASKPASS` and `SSH_ASKPASS` are empty
+  and `SSH_ASKPASS_REQUIRE=never`, so a missing credential fails at
+  once instead of opening a prompt window on your screen; credential
+  helpers still run first. Only the agent's commands get these: pi's
   own editor and your shell are untouched, and a command that sets one
   itself still wins.
 - **Behind what you use.** Where `priority-workflow` is putting what
   pi starts into the machine's cgroup for work, the shell moves itself
   there before it runs the command, so nothing the command forks is
   left behind at pi's priority.
+- **What other extensions offer.** An extension can offer variables
+  for the agent's commands through `offerShellEnvironment` in
+  `lib/internal/shell/environment.ts`, read as each command starts.
+  The quest workflow offers `TMPDIR`, pointing at the loaded quest's
+  scratch. No offer can turn a prompt back on.
 - **Guidance.** The tool tells the agent not to pipe output through
   `tail` or `head` (pi already keeps the end and saves the rest), and
   not to sleep to wait for something.

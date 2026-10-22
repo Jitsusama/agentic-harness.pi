@@ -21,7 +21,13 @@
  */
 
 import { execFile } from "node:child_process";
-import { cpSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	cpSync,
+	mkdtempSync,
+	realpathSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -56,6 +62,11 @@ async function buildTemplate(): Promise<string> {
 /**
  * A fresh repo with one commit on `main`, isolated from every other.
  *
+ * Its real path, since git names a repo by its real path: where the
+ * temp directory sits behind a link (macOS's `/var`, or an agent's
+ * `TMPDIR` pointing into its quest's workspace) a test comparing what
+ * git said with the path it was handed would otherwise fail.
+ *
  * The caller owns the directory and should remove it, which
  * {@link disposeRepo} does.
  */
@@ -64,7 +75,7 @@ export async function freshRepo(prefix = "repo"): Promise<string> {
 	const source = await template;
 	const dir = mkdtempSync(join(tmpdir(), `${prefix}-`));
 	cpSync(source, dir, { recursive: true });
-	return dir;
+	return realpathSync(dir);
 }
 
 /** Remove a repo handed out by {@link freshRepo}. Never throws. */
