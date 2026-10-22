@@ -14,6 +14,9 @@
  *   the mesh. Each write replaces it whole, so a watch on the folder
  *   hears every change, and it carries a heartbeat in epoch seconds, so
  *   a reader can tell a queue nobody keeps any more.
+ * - `<id>.capped`: given beside a VM check, so the shell runs the work
+ *   with `capped.conf`, the Nix settings {@link CAPPED_NIX} holds,
+ *   first in `NIX_USER_CONF_FILES`.
  * - `room`: the room left, as words ("2 VM tests and 8 builds more"),
  *   or nothing, written with queue.json, which a shell says when its
  *   work ends.
@@ -35,6 +38,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import {
+	CAPPED_NIX,
 	CLASS_OF,
 	type Class,
 	type Job,
@@ -108,6 +112,8 @@ export interface QueueRecord {
 		readonly place?: number;
 		/** The cgroup it runs in, while it runs. */
 		readonly slice?: string;
+		/** Started beside a VM check, with its Nix builds capped. */
+		readonly capped?: true;
 	}[];
 	/** Minutes some job waited today though the memory it needed was free. */
 	readonly wasted: {
@@ -168,7 +174,7 @@ export function queueFolder(
 	};
 
 	const drop = (id: string) => {
-		for (const ending of ["job", "pid", "turn"]) {
+		for (const ending of ["job", "pid", "turn", "capped"]) {
 			rmSync(path(id, ending), { force: true });
 		}
 	};
@@ -251,13 +257,20 @@ export function queueFolder(
 				const queue = next
 					? standing.map((job) =>
 							job.id === next.id
-								? { ...job, started: new Date(now).toISOString() }
+								? { ...next, started: new Date(now).toISOString() }
 								: job,
 						)
 					: standing;
 				if (next) {
 					const given = queue.find((job) => job.id === next.id) as Job;
 					replace(path(next.id, "job"), `${JSON.stringify(given)}\n`);
+					if (given.capped) {
+						replace(
+							join(dir, "capped.conf"),
+							`max-jobs = ${CAPPED_NIX.maxJobs}\ncores = ${CAPPED_NIX.cores}\n`,
+						);
+						replace(path(next.id, "capped"), "");
+					}
 					replace(path(next.id, "turn"), cgroupFor(given) ?? "");
 				}
 				const before = parsed<QueueRecord>(join(dir, "queue.json"));
@@ -334,6 +347,7 @@ export function queueRecord(
 						? { place: waiting.indexOf(job) + 1 }
 						: {}),
 					...(slice !== undefined ? { slice } : {}),
+					...(job.capped ? { capped: true as const } : {}),
 				};
 			},
 		),

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	type Job,
 	kindOf,
+	MOST_CPU_PRESSURE_BESIDE_VMS,
 	MOST_VMS,
 	nextTurn,
 	RAMP_MS,
@@ -14,7 +15,8 @@ import {
 } from "../../../../lib/internal/priority/queue.ts";
 
 const NOW = Date.parse("2026-10-22T16:00:00Z");
-const ROOMY = { availableGib: 40, memoryPressure: 0, vms: 0 };
+const ROOMY = { availableGib: 40, memoryPressure: 0, vms: 0, cpuPressure: 0 };
+const BUSY = { ...ROOMY, cpuPressure: MOST_CPU_PRESSURE_BESIDE_VMS };
 
 function job(id: string, over: Partial<Job> = {}): Job {
 	return {
@@ -137,11 +139,14 @@ describe("whose turn it is", () => {
 		expect(
 			nextTurn([job("vm", { kind: "vm-test" })], machine, NOW),
 		).toBeUndefined();
-		// A VM outside the queue is a check the daemon runs: builds wait too.
-		expect(nextTurn([job("build")], { ...ROOMY, vms: 1 }, NOW)).toBeUndefined();
+		// A VM outside the queue is a check the daemon runs: builds beside
+		// it are capped.
+		expect(nextTurn([job("build")], { ...ROOMY, vms: 1 }, NOW)?.capped).toBe(
+			true,
+		);
 		const test = job("test", { kind: "vm-test", started: startedAgo(RAMP_MS) });
-		expect(nextTurn([test, job("build")], { ...ROOMY, vms: 1 }, NOW)?.id).toBe(
-			"build",
+		expect(nextTurn([test, job("build")], { ...ROOMY, vms: 1 }, NOW)).toEqual(
+			job("build"),
 		);
 	});
 
@@ -151,17 +156,23 @@ describe("whose turn it is", () => {
 			started: startedAgo(RAMP_MS),
 		});
 		const later = job("later", { kind: "vm-check", since: startedAgo(1) });
-		expect(nextTurn([check, job("build"), later], ROOMY, NOW)).toBeUndefined();
+		expect(nextTurn([check, job("build"), later], BUSY, NOW)).toBeUndefined();
 	});
 
-	it("holds builds while a VM check runs, until VM tests run timed", () => {
+	it("starts one capped build beside a VM check while the CPU is free", () => {
 		const check = job("check", {
 			kind: "vm-check",
 			started: startedAgo(RAMP_MS),
 		});
+		expect(nextTurn([check, job("build")], ROOMY, NOW)).toEqual({
+			...job("build"),
+			capped: true,
+		});
+		const beside = job("beside", { started: startedAgo(RAMP_MS) });
+		expect(nextTurn([check, beside, job("build")], ROOMY, NOW)).toBeUndefined();
+		expect(nextTurn([check, job("build")], BUSY, NOW)).toBeUndefined();
 		const waiting = [job("build"), job("bench", { kind: "benchmark" })];
-		expect(nextTurn([check, job("build")], ROOMY, NOW)).toBeUndefined();
-		expect(nextTurn([check, ...waiting], ROOMY, NOW)?.id).toBe("bench");
+		expect(nextTurn([check, ...waiting], BUSY, NOW)?.id).toBe("bench");
 		expect(
 			nextTurn([check, job("build")], ROOMY, NOW, {
 				buildsWaitForVmChecks: false,
@@ -193,7 +204,7 @@ describe("the room left", () => {
 		});
 		expect(roomLeft([], { ...ROOMY, availableGib: 9, vms: 1 }, NOW)).toEqual({
 			vms: 1,
-			builds: 0,
+			builds: 1,
 		});
 		const queued = [job("vm", { kind: "vm-test" })];
 		expect(roomLeft(queued, { ...ROOMY, availableGib: 10 }, NOW)).toEqual({
@@ -211,8 +222,9 @@ describe("the room left", () => {
 			kind: "vm-check",
 			started: startedAgo(RAMP_MS),
 		});
-		expect(roomLeft([check], ROOMY, NOW)).toEqual({ vms: 1, builds: 0 });
-		expect(roomLeft([check, job("build")], ROOMY, NOW)).toEqual({
+		expect(roomLeft([check], ROOMY, NOW)).toEqual({ vms: 1, builds: 1 });
+		expect(roomLeft([check], BUSY, NOW)).toEqual({ vms: 1, builds: 0 });
+		expect(roomLeft([check, job("build")], BUSY, NOW)).toEqual({
 			vms: 0,
 			builds: 0,
 		});

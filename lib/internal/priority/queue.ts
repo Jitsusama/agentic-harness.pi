@@ -99,6 +99,8 @@ export interface Job {
 	readonly since: string;
 	/** When it was given its turn, once it has one. */
 	readonly started?: string;
+	/** Given its turn beside a VM check, with its Nix builds capped. */
+	readonly capped?: boolean;
 }
 
 /** What the machine has left, as the queue reads it. */
@@ -109,6 +111,8 @@ export interface Room {
 	readonly memoryPressure: number;
 	/** VMs running on the machine, queued or not. */
 	readonly vms: number;
+	/** CPU pressure, avg10, in percent. */
+	readonly cpuPressure: number;
 }
 
 const VMS: ReadonlySet<Kind> = new Set(["vm-test", "vm-check"]);
@@ -138,18 +142,42 @@ const rank = (job: Job) => (CLASS_OF[job.kind] === "timed" ? 0 : 1);
  */
 export interface Rules {
 	/**
-	 * Whether a build waits while a VM check runs. The queue gates memory,
-	 * not CPU, and a VM check is the daemon's, in build.slice, so a build
-	 * started beside it shares its CPU: a kernel build beside a running
-	 * camera subtest is what broke its timing. A VM check still starts
-	 * beside builds, but not past one waiting for its turn, so a build
-	 * waits only for the checks already running: skipping it instead let
-	 * a stream of 15-minute checks hold a 1-minute build at place 5 for as
-	 * long as they kept coming. Off once VM tests run timed, from their
-	 * drivers.
+	 * Whether builds are held back while a VM check runs. The queue gates
+	 * memory, not CPU, and a VM check is the daemon's, in build.slice, so
+	 * a build started beside it shares its CPU: a kernel build beside a
+	 * running camera subtest is what broke its timing. Holding every build
+	 * cost more than it saved: at 13:47 on 22 October one check, on two
+	 * thirds of one core, held five builds for up to 24 minutes while the
+	 * CPU sat 72% idle. So {@link BUILDS_BESIDE_VMS} build at a time starts
+	 * beside one while CPU pressure is under
+	 * {@link MOST_CPU_PRESSURE_BESIDE_VMS}, and the rest wait. Pressure is
+	 * read seconds late, and nothing slows a daemon build once it runs, so
+	 * that build is capped as it starts (see {@link CAPPED_NIX}).
+	 *
+	 * A VM check still starts beside builds, but not past one waiting for
+	 * its turn, so a build waits only for the checks already running:
+	 * skipping it instead let a stream of 15-minute checks hold a 1-minute
+	 * build at place 5 for as long as they kept coming. Off once VM tests
+	 * run timed, from their drivers.
 	 */
 	readonly buildsWaitForVmChecks: boolean;
 }
+
+/** How many builds run beside a VM check at once. */
+export const BUILDS_BESIDE_VMS = 1;
+
+/** CPU pressure (avg10, percent) past which no build starts beside one. */
+export const MOST_CPU_PRESSURE_BESIDE_VMS = 10;
+
+/**
+ * The Nix settings a build beside a VM check runs with: at most about 8
+ * of the 16 cores, which leaves at least 8 for qemu. P9R1KI's estimate,
+ * not a measurement: the one failure measured was an all-core kernel
+ * build, at load about 30, beside vm-desktop-works. If a VM fails beside
+ * a capped build, cores drop to 2. The daemon honours them because the
+ * account is a trusted user.
+ */
+export const CAPPED_NIX = { maxJobs: 2, cores: 4 } as const;
 
 export const RULES: Rules = { buildsWaitForVmChecks: true };
 
@@ -171,24 +199,29 @@ export function nextTurn(
 	);
 	if (now - last < SPREAD_MS) return undefined;
 	if (room.memoryPressure >= MOST_MEMORY_PRESSURE) return undefined;
-	const { growing, vms, checking } = standing(jobs, room, now, rules);
+	const { growing, vms, builds } = standing(jobs, room, now, rules);
 	for (const job of waitingInOrder(jobs)) {
 		if (isVm(job) && vms >= MOST_VMS) continue;
 		// Only bulk work is behind a build, and it all waits with it.
-		if (checking && job.kind === "build") return undefined;
+		if (job.kind === "build" && builds < 1) return undefined;
 		if (room.availableGib - growing < NEEDS_GIB[job.kind]) return undefined;
-		return job;
+		return job.kind === "build" && Number.isFinite(builds)
+			? { ...job, capped: true }
+			: job;
 	}
 	return undefined;
 }
 
-/** What running work holds: memory still growing, VMs, a VM check. */
+/**
+ * What running work holds: memory still growing, VMs, and how many
+ * builds may start beside a VM check (all of them, with none running).
+ */
 function standing(
 	jobs: readonly Job[],
 	room: Room,
 	now: number,
 	rules: Rules,
-): { growing: number; vms: number; checking: boolean } {
+): { growing: number; vms: number; builds: number } {
 	const running = jobs.filter((job) => job.started !== undefined);
 	const growing = running
 		.filter((job) => now - Date.parse(job.started as string) < RAMP_MS)
@@ -200,7 +233,13 @@ function standing(
 	const checking =
 		rules.buildsWaitForVmChecks &&
 		(running.some((job) => job.kind === "vm-check") || room.vms > tests);
-	return { growing, vms, checking };
+	const beside = running.filter((job) => job.kind === "build").length;
+	const builds = !checking
+		? Number.POSITIVE_INFINITY
+		: room.cpuPressure < MOST_CPU_PRESSURE_BESIDE_VMS
+			? Math.max(0, BUILDS_BESIDE_VMS - beside)
+			: 0;
+	return { growing, vms, builds };
 }
 
 /** How many more VMs and builds could start now. */
@@ -220,7 +259,7 @@ export function roomLeft(
 	rules: Rules = RULES,
 ): RoomLeft {
 	if (room.memoryPressure >= MOST_MEMORY_PRESSURE) return { vms: 0, builds: 0 };
-	const { growing, vms, checking } = standing(jobs, room, now, rules);
+	const { growing, vms, builds } = standing(jobs, room, now, rules);
 	const waiting = waitingInOrder(jobs);
 	const free =
 		room.availableGib -
@@ -231,8 +270,8 @@ export function roomLeft(
 	// A build waiting is held by memory or the rule, and so is the next.
 	const buildWaits = waiting.some((job) => job.kind === "build");
 	return {
-		vms: checking && buildWaits ? 0 : Math.min(fits("vm-test"), slots),
-		builds: checking || buildWaits ? 0 : fits("build"),
+		vms: buildWaits && builds < 1 ? 0 : Math.min(fits("vm-test"), slots),
+		builds: buildWaits ? 0 : Math.min(fits("build"), builds),
 	};
 }
 

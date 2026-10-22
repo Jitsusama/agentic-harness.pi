@@ -24,7 +24,7 @@
 
 import { randomBytes } from "node:crypto";
 import { type QueueFolder, UNKEPT_MS } from "./folder.ts";
-import { type Job, kindOf, whatOf } from "./queue.ts";
+import { CAPPED_NIX, type Job, kindOf, whatOf } from "./queue.ts";
 import type { Reading } from "./room.ts";
 
 /** What a session's queue is kept with, set while the session runs. */
@@ -36,6 +36,21 @@ export interface Queueing {
 	readonly cgroupFor: (job: Job) => string | undefined;
 	readonly now?: () => number;
 }
+
+/**
+ * The line a shell given its turn beside a VM check runs: its Nix builds
+ * read `capped.conf` first, then the files Nix would read anyway, so the
+ * person's own nix.conf still holds and only the cap overrides it. A
+ * setting file rather than flags, since the work is often a `nix build`
+ * inside a loop or a script no flag reaches; an inline `NIX_CONFIG`
+ * with access tokens leaves it, as one naming max-jobs would not. Said
+ * in the output, so a VM check failing beside it can be traced to it.
+ */
+const CAPPING = [
+	'[ -e "$__queue/$__job.capped" ] && {',
+	` export NIX_USER_CONF_FILES="$__queue/capped.conf:\${NIX_USER_CONF_FILES:-\${XDG_CONFIG_HOME:-$HOME/.config}/nix/nix.conf:$(printf '%s' "\${XDG_CONFIG_DIRS:-/etc/xdg}" | sed 's#:#/nix/nix.conf:#g; s#$#/nix/nix.conf#')}";`,
+	` printf 'Runs beside a VM check, so its Nix builds are held to ${CAPPED_NIX.maxJobs} at once, of ${CAPPED_NIX.cores} cores each.\\n' >&2; }`,
+].join("");
 
 /** Seconds a wait lasts before the shell says it waited. */
 export const SAID_AFTER_S = 5;
@@ -110,6 +125,7 @@ export function waitsForTurn(
 			`while [ ! -e "$__queue/$__job.turn" ] && [ -e "$__queue/$__job.job" ] && [ $(( $(date +%s) - $(stat -c %Y "$__queue/queue.json" 2>/dev/null || echo 0) )) -lt ${UNKEPT_MS / 1000} ]; do sleep 1; done`,
 			`__into=$(cat "$__queue/$__job.turn" 2>/dev/null)`,
 			`[ -n "$__into" ] && { printf '%s\\n' "$$" 2>/dev/null > "$__into/cgroup.procs" || :; }`,
+			CAPPING,
 			`__since=$(( SECONDS - __since ))`,
 			`[ "$__since" -ge ${saidAfterS} ] && printf 'Waited %ss for its turn in the machine queue.\\n' "$__since" >&2`,
 			"__ran=$SECONDS",
