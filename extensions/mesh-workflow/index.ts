@@ -72,6 +72,7 @@ import {
 } from "../../lib/mesh/message.ts";
 import { localPeer, type Peer } from "../../lib/mesh/peer.ts";
 import { createPresences } from "../../lib/mesh/presence.ts";
+import { isStopped } from "../../lib/mesh/stop.ts";
 import {
 	answers,
 	depthOf,
@@ -113,6 +114,9 @@ const JUDGE_MS = 2500;
  * coordination has nothing to do with it but read it.
  */
 const FIRST_CATCH_UP_MS = 60 * 60 * 1000;
+
+/** Why a stopped peer's message is a glance, whatever it was. */
+const STOPPED = "from a peer this one stopped";
 
 /** Where the mesh and the quest records live; the defaults are the machine's. */
 export interface MeshPaths extends QuestRecords {
@@ -233,10 +237,16 @@ export function meshWorkflow(
 			const self: Self = { addresses: peer.addresses, pid: process.pid };
 			const listener = peer.listener;
 			const read = (id: string) => transport.read(id);
+			const everyone = presences.all();
+			const stopped = messages.map((message) =>
+				isStopped(message, peer?.stops ?? [], everyone),
+			);
 			const answering = messages.map((message) => answers(message, read, self));
 			const concerns = await Promise.all(
 				messages.map((message, at) =>
-					answeringAt(answering, at) ? undefined : judge(message, receiver),
+					stopped[at] || answeringAt(answering, at)
+						? undefined
+						: judge(message, receiver),
 				),
 			);
 			// Never while starting: the first prompt is about to run, and pi
@@ -244,6 +254,13 @@ export function meshWorkflow(
 			const idle = mayWake && (ctx.isIdle?.() ?? false);
 			const damped: string[] = [];
 			const heeded: Heeded[] = messages.map((message, at) => {
+				// Stopped is absolute: a line, never more, whatever it is.
+				if (stopped[at]) {
+					return {
+						message,
+						heed: { attention: "glance", why: STOPPED },
+					};
+				}
 				const worth = attend(message, {
 					receiver,
 					idle,
@@ -269,10 +286,7 @@ export function meshWorkflow(
 			});
 			say(damped);
 			for (const { message, heed } of heeded) {
-				if (heed.attention === "glance") {
-					pi.appendEntry(GLANCE, { message, why: heed.why });
-					glances.add(message);
-				}
+				if (heed.attention === "glance") glance(message, heed.why);
 				if (heed.attention === "act") acts?.add({ message, heed });
 			}
 			const now = heeded.filter(
@@ -297,13 +311,32 @@ export function meshWorkflow(
 			ctx.ui.notify(`Mesh: held back (${damped.join("; ")})`, "info");
 		};
 
+		/** A line on screen now, and for the model with its next turn. */
+		const glance = (message: Message, why: string) => {
+			pi.appendEntry(GLANCE, { message, why });
+			glances.add(message);
+		};
+
+		/**
+		 * What waited to act, less what came from a peer stopped since: a
+		 * stop reaches what is already waiting, which becomes a glance.
+		 */
+		const unstopped = (waiting: readonly Heeded[]): Heeded[] => {
+			const everyone = presences.all();
+			return waiting.filter(({ message }) => {
+				if (!isStopped(message, peer?.stops ?? [], everyone)) return true;
+				glance(message, STOPPED);
+				return false;
+			});
+		};
+
 		/**
 		 * Messages in full, carrying whatever glances are waiting. A wake
 		 * takes whatever waits to act with it, since it starts the turn they
 		 * were waiting for.
 		 */
 		const note = (heeded: readonly Heeded[], wake: boolean) => {
-			const all = wake ? [...heeded, ...(acts?.take() ?? [])] : heeded;
+			const all = wake ? [...heeded, ...unstopped(acts?.take() ?? [])] : heeded;
 			if (all.length === 0) return;
 			const messages = all.map(({ message }) => message);
 			const carried = glances.take();
@@ -328,8 +361,9 @@ export function meshWorkflow(
 		 * still worth one and affordable, and a note for the rest, such as a
 		 * group's question another peer has answered meanwhile.
 		 */
-		const settled = (waiting: Heeded[]) => {
+		const settled = (arrived: Heeded[]) => {
 			if (!ctx || !peer) return;
+			const waiting = unstopped(arrived);
 			const read = (id: string) => transport.read(id);
 			const idle = ctx.isIdle?.() ?? false;
 			const damped: string[] = [];
@@ -392,6 +426,7 @@ export function meshWorkflow(
 			// it gets says how to leave.
 			if (
 				message.invite !== undefined &&
+				!isStopped(message, peer.stops, presences.all()) &&
 				isHomeTo(message, peer.addresses) &&
 				groupNamed(message.invite) === message.invite &&
 				message.invite.startsWith("#") &&
@@ -494,7 +529,7 @@ export function meshWorkflow(
 		// A run started by something else takes what was waiting to act
 		// with it, in full, and the turn it waited for is never started.
 		pi.on("before_agent_start", async () => {
-			const waiting = acts?.take() ?? [];
+			const waiting = unstopped(acts?.take() ?? []);
 			if (waiting.length === 0) {
 				const message = glanceDigest();
 				return message ? { message } : undefined;

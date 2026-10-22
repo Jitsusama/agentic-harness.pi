@@ -218,4 +218,20 @@ describe("this session's peer", () => {
 		expect(again.leave("#optimus/power")).toBe(true);
 		expect(again.leave("#optimus/power")).toBe(false);
 	});
+
+	it("keeps its stops across a reload, until it lifts them", () => {
+		const stop = { address: "P9R1KI", session: "s-p", at: "2026-10-22" };
+		const first = localPeer(surroundings());
+		expect(first.stop(stop)).toBe(true);
+		expect(first.stop({ ...stop, why: "again" })).toBe(false);
+
+		const again = localPeer(surroundings());
+
+		expect(again.stops).toEqual([stop]);
+		expect(surroundings().presences.of(session)?.stops).toEqual([stop]);
+		expect(again.lift("P9R1KI")).toEqual(stop);
+		expect(again.lift("P9R1KI")).toBeUndefined();
+		expect(localPeer(surroundings()).stops).toEqual([]);
+		expect(surroundings().presences.of(session)?.stops).toBeUndefined();
+	});
 });

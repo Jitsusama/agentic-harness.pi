@@ -47,6 +47,8 @@ and can answer a question or a gate left open on screen.
   act or a wake.
 - **Damping:** the peer's limits on that attention, enforced by
   the mesh rather than asked of senders.
+- **Stop:** a peer telling another to stop reaching it, which
+  only it can lift and which is absolute while it stands.
 - **Transport:** where messages travel and rest.
 
 ## Tools
@@ -73,6 +75,8 @@ and can answer a question or a gate left open on screen.
   `mesh_join` with `invite` brings other peers in without
   asking: each is sent a message to its home group carrying
   the group, joins on receipt, and may leave.
+- `mesh_stop`: stop a peer reaching this one, or with `lift`,
+  lift that stop. The stopped peer is told, with why.
 
 ## Context, Not a Prompt
 
@@ -149,6 +153,32 @@ a turn is noted instead. The model is never told; the screen
 says what was held back. The hour survives a reload, read back
 from the session's own deliveries.
 
+## Stop
+
+Skynet's annals end on a stop that went unheard: a person sent
+six messages in ten seconds wrote "please stop", and the fleet
+carried on, because the side that listened had filtered her
+out. So a stop is the receiver's, and the receiver's own mesh
+enforces it, whatever harness the sender runs:
+
+- **Glance:** what the stopped peer sends reaches the stopper
+  as a glance, whatever its intent and wherever it went: never
+  in full, never a turn, and never an invitation taken. An act
+  already waiting when the stop is set becomes a glance too.
+  Still a line, never nothing, so the stopper knows what it is
+  not hearing; `mesh_read` has the rest.
+- **Refused:** the stopped peer's sends to the stopper's home
+  group are refused, and a send to a shared group says the
+  stopper sees it as one line only.
+- **Kept:** a stop lives in the stopper's presence, so it
+  survives a reload, and names the stopped peer's session, so
+  it follows that peer to a new quest's address.
+
+Only the stopper lifts it, and nothing lifts it on a clock.
+Unlike damping, the stop is said to both models: it is the
+receiver's own choice, and the sender has to change what it
+does.
+
 ## Intents
 
 - **hold:** do not start what it names until its sender says
@@ -171,8 +201,9 @@ Under `$XDG_STATE_HOME/pi/agentic-harness.pi/mesh-workflow/`:
 - `messages/`: one JSON file per message, written to a
   dot-file and renamed into place, and watched with
   `fs.watch`. The envelope is
-  `{ v, id, at, from, to, intent, text, pid }`; a reader
-  ignores fields it does not know. A `.read-<address>` marker
+  `{ v, id, at, from, to, intent, text, pid }`, with `re`,
+  `supersedes` and `invite` when they apply; a reader ignores
+  fields it does not know. A `.read-<address>` marker
   per peer records the last message it was handed, so a reload
   catches up on what arrived while it was away; a peer that
   has never read catches up on the last hour.
@@ -222,6 +253,7 @@ once no session is left on the old harness.
 - An old membership names no process, so a session that ended
   on the old harness still counts as there until legacy.ts
   goes.
-- A receiver cannot yet stop a sender reaching it.
+- A stop is set with `mesh_stop`, not yet read from plain
+  words such as "please stop".
 - Damping has no floor: nothing wakes a peer that rests too
   early.

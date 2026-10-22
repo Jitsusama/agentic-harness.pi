@@ -25,6 +25,7 @@ import {
 import type { Receiver } from "./attention.ts";
 import type { Listener } from "./message.ts";
 import { type Presence, type Presences, workOf } from "./presence.ts";
+import type { Stop } from "./stop.ts";
 
 export interface Peer {
 	readonly session: string;
@@ -38,6 +39,8 @@ export interface Peer {
 	readonly scopes: readonly string[];
 	/** The groups it joined itself, sorted. */
 	readonly joined: readonly string[];
+	/** The peers it has stopped reaching it (see stop.ts). */
+	readonly stops: readonly Stop[];
 	/** Who messages reach, as `reaches` asks. */
 	readonly listener: Listener;
 	/** What it works on and owns, as attention asks. */
@@ -55,6 +58,10 @@ export interface Peer {
 	 * is not left this way: it follows the work.
 	 */
 	leave(group: string): boolean;
+	/** Stop a peer reaching this one; answers whether it was new. */
+	stop(stop: Stop): boolean;
+	/** Lift the stop on an address; answers whether there was one. */
+	lift(address: string): Stop | undefined;
 }
 
 /** Where a peer finds what it needs to know about itself. */
@@ -71,6 +78,7 @@ export interface Surroundings {
 export function localPeer(at: Surroundings): Peer {
 	const before = at.presences.of(at.session);
 	let joined = [...(before?.joined ?? before?.groups ?? [])].sort();
+	let stops: Stop[] = [...(before?.stops ?? [])];
 	let scopes: string[] = [];
 	let addresses: string[] = [];
 	// Found once a start: reading every README on each refresh would
@@ -88,6 +96,7 @@ export function localPeer(at: Surroundings): Peer {
 			addresses,
 			groups: groups(),
 			joined,
+			...(stops.length > 0 ? { stops } : {}),
 			worksOn: receiver.worksOn,
 			owns: receiver.owns,
 			busy,
@@ -133,6 +142,9 @@ export function localPeer(at: Surroundings): Peer {
 		get joined() {
 			return joined;
 		},
+		get stops() {
+			return stops;
+		},
 		get listener() {
 			return { addresses, groups: groups() };
 		},
@@ -158,6 +170,19 @@ export function localPeer(at: Surroundings): Peer {
 			joined = joined.filter((one) => one !== group);
 			refresh();
 			return true;
+		},
+		stop(stop) {
+			if (stops.some((one) => one.address === stop.address)) return false;
+			stops = [...stops, stop];
+			publish();
+			return true;
+		},
+		lift(address) {
+			const lifted = stops.find((one) => one.address === address);
+			if (!lifted) return undefined;
+			stops = stops.filter((one) => one !== lifted);
+			publish();
+			return lifted;
 		},
 	};
 }

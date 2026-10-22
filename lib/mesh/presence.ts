@@ -29,6 +29,7 @@ import { isOwner, type Owner } from "@jitsusama/agentic-harness.core/process";
 import { parseQuestFrontMatter } from "../internal/quest/frontmatter.ts";
 import { loadedQuest, type QuestRecords } from "./address.ts";
 import { scopesOf } from "./scope.ts";
+import { type Stop, stopsFrom } from "./stop.ts";
 
 /** One peer, as it is seen on the mesh. */
 export interface Presence {
@@ -47,6 +48,8 @@ export interface Presence {
 	 * groups were all joined.
 	 */
 	readonly joined?: readonly string[];
+	/** The peers it has stopped reaching it (see stop.ts). */
+	readonly stops?: readonly Stop[];
 	/** Its work in a phrase: the quest's title and summary, or where it runs. */
 	readonly worksOn: string;
 	/** What it owns by name: its quest, its repositories, its groups. */
@@ -270,6 +273,7 @@ function presenceFrom(value: unknown): Presence | undefined {
 		addresses: one.addresses,
 		groups: one.groups,
 		...(strings(one.joined) ? { joined: one.joined } : {}),
+		...(stopsFrom(one.stops).length > 0 ? { stops: stopsFrom(one.stops) } : {}),
 		worksOn: typeof one.worksOn === "string" ? one.worksOn : "",
 		owns: strings(one.owns) ? one.owns : [],
 		busy: one.busy === true,
