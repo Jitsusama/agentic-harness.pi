@@ -328,6 +328,19 @@ describe("a reload that lands as the session is replaced", () => {
 		expect(next.hidden[0]).toContain("as asked: feat: x.");
 	});
 
+	it("tells the model of its own reload quietly, never the person", async () => {
+		runningTheInstall();
+		const now = runtime();
+		await now.start("startup");
+
+		reloadSlot().landed?.({ reason: "feat: y", by: "self" });
+		await until("the model is told", () => now.hidden.length > 0);
+
+		expect(now.hidden[0]).toContain(
+			"Reloaded between runs, because the install moved: feat: y.",
+		);
+	});
+
 	it("keeps a landing its replaced runtime could not say for the next one", async () => {
 		runningTheInstall();
 		const old = runtime();
