@@ -49,6 +49,15 @@ Two bounds keep this from spending all night on nothing: three runs
 in a row with no tool calls stop the nudging, and so do fifty nudges
 in one absence. Either stop is said in the transcript.
 
+What needs you reaches your desktop. The first call held in an
+absence puts a notification on your screen, naming the session's
+plan, and the rest are listed when you are back. A run that ends
+`Blocked:` shows what it is blocked on, once for each thing. A
+session that stops being sent back says so quietly. Each session
+carries on with what does not need you. This uses `notify-send` on
+Linux and `osascript` on macOS, and does nothing where neither is
+there.
+
 ## Coming Back
 
 Type anything. Your message goes through at once, since it might be

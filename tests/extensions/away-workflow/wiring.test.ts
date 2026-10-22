@@ -21,7 +21,17 @@ import {
 	resetAway,
 	setProgressSource,
 } from "../../../lib/internal/away/state.ts";
+import type { Notice } from "../../../lib/internal/notify.ts";
 import { announceJobHost, type Job } from "../../../lib/jobs/index.ts";
+
+/** What would have reached the desktop. */
+const desktop = vi.hoisted(() => [] as Notice[]);
+vi.mock("../../../lib/internal/notify.ts", () => ({
+	notify: async (notice: Notice) => {
+		desktop.push(notice);
+		return true;
+	},
+}));
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
 
@@ -134,6 +144,7 @@ function activate({ hasUI = true } = {}) {
 }
 
 beforeEach(async () => {
+	desktop.splice(0);
 	resetAway();
 	rmSync(machineAwayPath(), { force: true });
 });
@@ -203,6 +214,64 @@ describe("while away", () => {
 
 		expect(pi.jobs).toHaveLength(2);
 		expect(pi.said.map((s) => s.customType)).toContain("away-stopped");
+	});
+});
+
+describe("reaching the person", () => {
+	it("reaches them once when the first call is held, however many follow", async () => {
+		const pi = activate();
+		await pi.fire("session_start");
+		setProgressSource(() => ({ document: "PLAN-9", done: 0, total: 2 }));
+		await pi.goAway();
+
+		hold({ guard: "pr", title: "Open PR #1" });
+		hold({ guard: "pr", title: "Open PR #2" });
+
+		expect(desktop).toHaveLength(1);
+		expect(desktop[0]?.title).toBe("PLAN-9 holds a call for you");
+	});
+
+	it("reaches them with what a Blocked run needs, once for each thing", async () => {
+		const pi = activate();
+		await pi.fire("session_start");
+		await pi.goAway();
+
+		await pi.runEnds("Built it.\n\nBlocked: needs your npm one-time password.");
+		await pi.runEnds("Blocked: needs your npm one-time password.");
+
+		expect(desktop.map((n) => n.body)).toEqual([
+			"needs your npm one-time password.",
+		]);
+	});
+
+	it("says quietly that a session rests once it stops being sent back", async () => {
+		const pi = activate();
+		await pi.fire("session_start");
+		await pi.goAway();
+
+		for (let i = 0; i < 3; i++) await pi.runEnds("Hmm.", 0);
+
+		expect(desktop.map((n) => n.urgency)).toEqual(["low"]);
+	});
+
+	it("reaches nobody while the person is here", async () => {
+		const pi = activate();
+		await pi.fire("session_start");
+
+		await pi.runEnds("Blocked: needs you.");
+
+		expect(desktop).toEqual([]);
+	});
+
+	it("reaches nobody from a session nobody is at", async () => {
+		const pi = activate({ hasUI: false });
+		await pi.fire("session_start");
+		await pi.goAway();
+
+		hold({ guard: "pr", title: "Open PR #1" });
+		await pi.runEnds("Blocked: needs you.");
+
+		expect(desktop).toEqual([]);
 	});
 });
 
