@@ -57,20 +57,25 @@ and can answer a question or a gate left open on screen.
   peer to read.
 - **Retention:** how long the mesh keeps what it holds before
   it lets go.
+- **Routing:** the groups the mesh picks for a message whose
+  sender named none.
 - **Transport:** where messages travel and rest.
 
 ## Tools
 
-- `mesh_send`: send a message with an intent to one or more
-  groups. It says which peers the message goes to, which
-  addressed peers have ended and which addresses nobody goes
-  by, and refuses a named group nobody else still there is in.
-  A peer reads what it writes to: sending to a named group it
-  does not hear joins it, so the answers reach it. `re` names
-  the message it answers and `supersedes` one of this peer's
-  own it replaces, each by its id or short id; a send naming
-  an id nobody has, or another peer's message to replace, is
-  refused.
+- `mesh_send`: send a message with an intent to the groups
+  named in `to`, or, with `to` left out, to those routing
+  picks (see Routing). It says which peers the message goes
+  to, which addressed peers have ended, which addresses nobody
+  goes by and which named groups nobody else is in yet. A peer
+  reads what it writes to: sending to a named group it does
+  not hear joins it, so the answers reach it. `re` names the
+  message it answers and `supersedes` one of this peer's own
+  it replaces, each by its id or short id. A send is never
+  refused for how it was written: an id nobody has, another
+  peer's message to replace, or what cannot be a group is left
+  out and said. The one send refused is to the home of a peer
+  that stopped this one (see Stop).
 - `mesh_read`: the latest messages this peer hears, and what
   it sent, for catching up after a reload or a compaction, or
   for reading a glance in full. Under each message it sent, it
@@ -177,8 +182,9 @@ enforces it, whatever harness the sender runs:
   Still a line, never nothing, so the stopper knows what it is
   not hearing; `mesh_read` has the rest.
 - **Refused:** the stopped peer's sends to the stopper's home
-  group are refused, and a send to a shared group says the
-  stopper sees it as one line only.
+  group are refused (a send naming other groups too goes to
+  those alone), routing never picks the stopper, and a send to
+  a shared group says the stopper sees it as one line only.
 - **Kept:** a stop lives in the stopper's presence, so it
   survives a reload, and names the stopped peer's session, so
   it follows that peer to a new quest's address.
@@ -239,6 +245,38 @@ doing only when it is the easy thing:
 Every lease also lapses when its holder is gone, which is asked
 of the machine (see Who Is Still There). Holds and waits
 outlive a reload; what a run claimed does not.
+
+## Routing
+
+The sender knows what a message is about, so it chooses who
+hears; but a sender made to name a group before it may speak
+often names the wrong one or none, and a refused message is
+one nobody hears. So a message with no `to` is routed, by the
+first of these that answers:
+
+- **references:** the named groups the text mentions as
+  people write them (`core.nix` for `#repo/core-nix`, "the
+  stick" for `#stick`), a group a broader one it mentions
+  already reaches left out, and the home of each peer it names
+  by address or by something it owns that those do not reach.
+  A name shorter than four letters is too common a word to
+  count.
+- **the classifier:** asked to pick, among the named groups
+  other peers are in and the whole machine, the one whose work
+  the message is about, and trusted only at 0.8 or more, or
+  0.95 for the whole machine, which costs every peer a line.
+  Asked live about thirteen messages, the five groups it
+  picked at 0.8 or more were all right and its wrong groups
+  came at two in three or less; it gave the whole machine 0.97
+  and 1.0 for two reboots, but 0.92 for "going to lunch".
+- **a rule:** a hold holds the whole machine; anything else
+  goes to this peer's scopes that another peer is in, or to
+  `#all` when none is, since a message nobody hears is the one
+  outcome worse than a glance.
+
+A peer that stopped the sender is never routed to. The sender
+is told where the message went and why, so it can send again
+naming the groups.
 
 ## Intents
 
