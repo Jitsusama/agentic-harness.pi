@@ -20,8 +20,9 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { stateDir } from "../../lib/internal/paths.ts";
 import {
 	machineQueueDir,
 	queueFolder,
@@ -85,9 +86,12 @@ function keepQueue(pi: ExtensionAPI, own: string | undefined) {
 	const cgroupFor = (job: Job) =>
 		CLASS_OF[job.kind] === "timed" && hasTimed() ? timed : undefined;
 	// Until VM tests run timed, a build waits while a VM check runs.
-	const folder = queueFolder(dir, { isRunning, cgroupOf }, () => ({
-		buildsWaitForVmChecks: !hasTimed(),
-	}));
+	const folder = queueFolder(
+		dir,
+		{ isRunning, cgroupOf },
+		() => ({ buildsWaitForVmChecks: !hasTimed() }),
+		join(stateDir("priority-workflow"), "outcomes.jsonl"),
+	);
 
 	let floors: string[] = [];
 	let floorsAt = -Infinity;

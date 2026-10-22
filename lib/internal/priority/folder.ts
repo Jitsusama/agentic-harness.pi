@@ -17,6 +17,8 @@
  * - `<id>.capped`: given beside a VM check, so the shell runs the work
  *   with `capped.conf`, the Nix settings {@link CAPPED_NIX} holds,
  *   first in `NIX_USER_CONF_FILES`.
+ * - `<id>.end`: its shell's exit status, written as the shell exits,
+ *   which goes with the job into the outcome file when it is given up.
  * - `room`: the room left, as words ("2 VM tests and 8 builds more"),
  *   or nothing, written with queue.json, which a shell says when its
  *   work ends.
@@ -38,7 +40,15 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import {
-	CAPPED_NIX,
+	besideNow,
+	capFor,
+	keepOutcome,
+	mostBeside,
+	NOTHING_BESIDE,
+	outcomeOf,
+	outcomesIn,
+} from "./outcome.ts";
+import {
 	CLASS_OF,
 	type Class,
 	type Job,
@@ -156,6 +166,7 @@ export function queueFolder(
 	dir: string,
 	processes: Processes,
 	rules: () => Rules = () => RULES,
+	outcomes?: string,
 ): QueueFolder {
 	const path = (id: string, ending: string) => join(dir, `${id}.${ending}`);
 	const ensure = () => mkdirSync(dir, { recursive: true });
@@ -174,8 +185,27 @@ export function queueFolder(
 	};
 
 	const drop = (id: string) => {
-		for (const ending of ["job", "pid", "turn", "capped"]) {
+		for (const ending of ["job", "pid", "turn", "capped", "end"]) {
 			rmSync(path(id, ending), { force: true });
+		}
+	};
+
+	/** Keeps how the job ended, by its shell's word and when it said it. */
+	const remember = (job: Job, now: number) => {
+		if (!outcomes) return;
+		const end = path(job.id, "end");
+		const said = text(end).trim();
+		const exit = /^\d+$/.test(said) ? Number(said) : undefined;
+		let at = now;
+		try {
+			at = Math.min(now, statSync(end).mtimeMs);
+		} catch {
+			// Unsaid: it ended when it was seen to.
+		}
+		try {
+			keepOutcome(outcomes, outcomeOf(job, at, exit));
+		} catch {
+			// An outcome that can't be kept never holds up the queue.
 		}
 	};
 
@@ -214,6 +244,23 @@ export function queueFolder(
 		}
 	};
 
+	/**
+	 * Notes in each running job the most that ran beside it, writing its
+	 * file only when that grew, so a steady queue writes nothing.
+	 */
+	const noteBeside = (standing: Job[], reading: Reading): Job[] => {
+		const running = standing.filter((job) => job.started !== undefined);
+		return standing.map((job) => {
+			if (job.started === undefined) return job;
+			const seen = job.beside ?? NOTHING_BESIDE;
+			const most = mostBeside(seen, besideNow(job, running, reading));
+			if (JSON.stringify(most) === JSON.stringify(job.beside)) return job;
+			const noted = { ...job, beside: most };
+			replace(path(job.id, "job"), `${JSON.stringify(noted)}\n`);
+			return noted;
+		});
+	};
+
 	let written: string | undefined;
 
 	return {
@@ -248,11 +295,15 @@ export function queueFolder(
 		keep(reading, now, cgroupFor) {
 			ensure();
 			locked(now, () => {
-				const standing = jobs().filter((job) => {
-					if (!ended(job, now)) return true;
-					drop(job.id);
-					return false;
-				});
+				const standing = noteBeside(
+					jobs().filter((job) => {
+						if (!ended(job, now)) return true;
+						remember(job, now);
+						drop(job.id);
+						return false;
+					}),
+					reading,
+				);
 				const next = nextTurn(standing, reading, now, rules());
 				const queue = next
 					? standing.map((job) =>
@@ -265,9 +316,10 @@ export function queueFolder(
 					const given = queue.find((job) => job.id === next.id) as Job;
 					replace(path(next.id, "job"), `${JSON.stringify(given)}\n`);
 					if (given.capped) {
+						const cap = capFor(outcomes ? outcomesIn(outcomes) : [], now);
 						replace(
 							join(dir, "capped.conf"),
-							`max-jobs = ${CAPPED_NIX.maxJobs}\ncores = ${CAPPED_NIX.cores}\n`,
+							`max-jobs = ${cap.maxJobs}\ncores = ${cap.cores}\n`,
 						);
 						replace(path(next.id, "capped"), "");
 					}

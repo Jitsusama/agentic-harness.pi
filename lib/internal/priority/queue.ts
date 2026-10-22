@@ -38,6 +38,7 @@
  */
 
 import { noun } from "../../ui/count.ts";
+import type { Beside } from "./outcome.ts";
 
 /** What a command does, as the harness reads it. */
 export type Kind = "vm-test" | "vm-check" | "benchmark" | "build";
@@ -107,6 +108,8 @@ export interface Job {
 	 * VM check would run on every core; it waits for the check instead.
 	 */
 	readonly cappable?: boolean;
+	/** The most that ran beside it at once, while it runs. */
+	readonly beside?: Beside;
 }
 
 /** What the machine has left, as the queue reads it. */

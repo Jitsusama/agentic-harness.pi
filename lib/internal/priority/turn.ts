@@ -24,7 +24,7 @@
 
 import { randomBytes } from "node:crypto";
 import { type QueueFolder, UNKEPT_MS } from "./folder.ts";
-import { CAPPED_NIX, type Job, kindOf, whatOf } from "./queue.ts";
+import { type Job, kindOf, whatOf } from "./queue.ts";
 import type { Reading } from "./room.ts";
 
 /** What a session's queue is kept with, set while the session runs. */
@@ -45,11 +45,13 @@ export interface Queueing {
  * inside a loop or a script no flag reaches; an inline `NIX_CONFIG`
  * with access tokens leaves it, as one naming max-jobs would not. Said
  * in the output, so a VM check failing beside it can be traced to it.
+ * The settings themselves are the queue's, read from the file, since a
+ * VM failing beside a capped build lowers them.
  */
 const CAPPING = [
 	'[ -e "$__queue/$__job.capped" ] && {',
 	` export NIX_USER_CONF_FILES="$__queue/capped.conf:\${NIX_USER_CONF_FILES:-\${XDG_CONFIG_HOME:-$HOME/.config}/nix/nix.conf:$(printf '%s' "\${XDG_CONFIG_DIRS:-/etc/xdg}" | sed 's#:#/nix/nix.conf:#g; s#$#/nix/nix.conf#')}";`,
-	` printf 'Runs beside a VM check, so its Nix builds are held to ${CAPPED_NIX.maxJobs} at once, of ${CAPPED_NIX.cores} cores each.\\n' >&2; }`,
+	` printf 'Runs beside a VM check, so its Nix builds are held to %s at once, of %s cores each.\\n' "$(sed -n 's/^max-jobs = //p' "$__queue/capped.conf")" "$(sed -n 's/^cores = //p' "$__queue/capped.conf")" >&2; }`,
 ].join("");
 
 /** Seconds a wait lasts before the shell says it waited. */
@@ -130,7 +132,7 @@ export function waitsForTurn(
 			`__since=$(( SECONDS - __since ))`,
 			`[ "$__since" -ge ${saidAfterS} ] && printf 'Waited %ss for its turn in the machine queue.\\n' "$__since" >&2`,
 			"__ran=$SECONDS",
-			`trap "__room=\\$(cat '${dir}/room' 2>/dev/null); [ \\$(( SECONDS - $__ran )) -ge ${roomSaidAfterS} ] && [ -n \\"\\$__room\\" ] && printf '${ROOM_SAID}\\\\n' \\"\\$__room\\" >&2" EXIT`,
+			`trap "__end=\\$?; printf '%s\\\\n' \\"\\$__end\\" 2>/dev/null > '${dir}/${id}.end'; __room=\\$(cat '${dir}/room' 2>/dev/null); [ \\$(( SECONDS - $__ran )) -ge ${roomSaidAfterS} ] && [ -n \\"\\$__room\\" ] && printf '${ROOM_SAID}\\\\n' \\"\\$__room\\" >&2" EXIT`,
 			"unset __queue __job __since __into __ran; :",
 		].join("\n");
 }

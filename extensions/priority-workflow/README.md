@@ -78,7 +78,7 @@ never waits.
   left five waiting up to 24 minutes with the CPU 72% idle. So one
   build at a time starts beside a VM check, while CPU pressure is under
   10%, and its Nix builds run at `max-jobs = 2` and `cores = 4`, at
-  most about 8 cores. The cap is a settings file put first in
+  most about 8 cores, or `cores = 2` after a VM failed beside one. The cap is a settings file put first in
   `NIX_USER_CONF_FILES`, ahead of the files Nix reads anyway, so the
   person's nix.conf still holds and an inline `NIX_CONFIG` can't drop
   it; the daemon honours it since the account is a trusted user. The
@@ -112,3 +112,14 @@ never waits.
   somebody starts: on 22 October, 35 of the 43 minutes the CPU was
   under half busy had no VM running, while agents ran tests one after
   another.
+- **How work ended** is kept, one line a job, in `outcomes.jsonl` in
+  the workflow's state directory
+  (`~/.local/state/pi/agentic-harness.pi/priority-workflow/`): its kind,
+  how long it waited and ran, its shell's exit status, whether it was
+  capped, and the most that ran beside it at once (VMs, builds, capped
+  builds, CPU pressure). The shell writes its exit status as it exits;
+  a shell killed outright, or work that sets its own EXIT trap, leaves
+  none. The file keeps its newer half past 2 MiB, about a month of
+  work. A VM that failed (exit 1 to 125) beside a capped build in the
+  last day lowers the cap to 2 cores, since the cap is an estimate, not
+  a measurement.
