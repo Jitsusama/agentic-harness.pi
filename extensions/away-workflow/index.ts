@@ -60,6 +60,7 @@ import {
 	snapshot,
 } from "../../lib/internal/away/state.ts";
 import { type Notice, notify } from "../../lib/internal/notify.ts";
+import { ownWants, sessionWants } from "../../lib/internal/session/wants.ts";
 import { findJobHost, type Job } from "../../lib/jobs/index.ts";
 import {
 	asText,
@@ -72,6 +73,7 @@ import {
 	carryOnText,
 	endsAsking,
 	freshCarryOn,
+	lastLine,
 	QUIET_MS,
 	shouldWait,
 } from "./carry-on.ts";
@@ -89,7 +91,14 @@ import {
 	readsLikeDeparture,
 	returnMessage,
 } from "./messages.ts";
-import { blockedNotice, freshReach, heldNotice, stopNotice } from "./reach.ts";
+import {
+	blockedLine,
+	blockedNotice,
+	freshReach,
+	heldNotice,
+	heldWant,
+	stopNotice,
+} from "./reach.ts";
 
 /** Custom message types away mode speaks in. */
 const RETURN_MESSAGE = "away-return";
@@ -121,6 +130,11 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 	const memory = freshMemory();
 	const reached = freshReach();
 	const carrying = freshCarryOn();
+	// What this session waits on the person for, said on the bus for the
+	// mesh to show in its presence: calls held, a run ended blocked, a run
+	// ended asking. The same ones across a reload, which comes just when
+	// a session rests on one of these.
+	const wanting = ownWants("away-workflow");
 	let quiet: ReturnType<typeof setTimeout> | undefined;
 	let pendingCarry: Job | undefined;
 
@@ -149,10 +163,22 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 		ctx.ui.setStatus(STATUS_KEY, statusText(snapshot(), ctx.ui.theme));
 	};
 
+	/** Say what the absence holds for the person, or that it is over. */
+	const sayHeld = (now: ReturnType<typeof snapshot>) => {
+		if (now.since === undefined) {
+			wanting.settle("approval");
+			wanting.settle("blocked");
+			return;
+		}
+		const said = heldWant(now.held);
+		if (said) wanting.say("approval", said);
+	};
+
 	const disposeListener = onAwayChange((now) => {
 		if (restoring) return;
 		saveAway(pi, now);
 		showStatus(latest);
+		sayHeld(now);
 		if (now.since !== undefined) {
 			// Keep-going speaks for an absence; one voice is enough.
 			stopWaiting();
@@ -241,6 +267,7 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 			memory,
 		);
 		if (verdict.kind === "rest" && verdict.why === "blocked") {
+			wanting.say("blocked", blockedLine(finished.lastText) ?? "Blocked");
 			reach(blockedNotice(where(), since, finished.lastText, reached));
 			return;
 		}
@@ -327,6 +354,8 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 			restoring = false;
 		}
 		if (ctx.hasUI) {
+			sessionWants().bind(pi.events);
+			sayHeld(snapshot());
 			follow(ctx, readMachineWord());
 			stopWatching();
 			stopWatching = watchMachineWord((word) => {
@@ -343,6 +372,7 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", async () => {
+		sessionWants().unbind(pi.events);
 		stopWaiting();
 		stopWatching();
 		stopWatching = () => {};
@@ -356,8 +386,11 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 	pi.on("input", async (event, ctx) => {
 		latest = ctx;
 		if (event.source !== "interactive") return;
-		// The person answered: nothing carries on in their place.
+		// The person answered: nothing carries on in their place, and
+		// nothing waits on them any more.
 		stopWaiting();
+		wanting.settle("question");
+		wanting.settle("blocked");
 		pendingCarry?.withdraw();
 		pendingCarry = undefined;
 		Object.assign(carrying, freshCarryOn());
@@ -385,7 +418,12 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 		const finished = run;
 		run = NOTHING_RUN;
 		if (!isAway()) {
-			if (!settledAborted(event)) waitForAnswer(ctx, finished);
+			if (settledAborted(event)) return;
+			const asked = lastLine(finished.lastText);
+			if (ctx.hasUI && asked && endsAsking(asked)) {
+				wanting.say("question", asked);
+			}
+			waitForAnswer(ctx, finished);
 			return;
 		}
 		if (settledAborted(event) || finished.aborted) {

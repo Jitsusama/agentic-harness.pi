@@ -83,6 +83,7 @@ describe("bus names are declared by a library, not an extension", () => {
 			"jobs:finished:v1",
 			"mesh:lease:v1",
 			"session:rollover-carry:v1",
+			"session:wants:v1",
 			"subagent:ready:v1",
 			"subagent:register-default-extension:v1",
 			"subagent:register-default-skill:v1",

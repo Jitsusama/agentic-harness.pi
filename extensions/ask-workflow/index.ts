@@ -214,6 +214,7 @@ export default function ask(pi: ExtensionAPI) {
 					content: (theme: Theme, width: number) =>
 						renderMarkdown(q.prompt, theme, width),
 					options: buildOptions(q),
+					want: { kind: "question", said: q.prompt },
 				});
 
 				if (!result) {
@@ -263,6 +264,10 @@ export default function ask(pi: ExtensionAPI) {
 				const result = await promptTabbed(ctx, {
 					items,
 					autoResolve: true,
+					want: {
+						kind: "question",
+						said: `${count(questions.length, "question")}: ${questions[0]?.prompt ?? ""}`,
+					},
 				});
 
 				if (!result) {
