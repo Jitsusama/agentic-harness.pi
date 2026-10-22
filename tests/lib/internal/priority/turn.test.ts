@@ -130,6 +130,7 @@ describe("heavy work waiting for its turn", () => {
 		});
 		const quick = await run(`${waitsForTurn(dir, 5, 60)?.("gone")}\nexit 7`);
 		expect(quick).toEqual({ out: "", code: 7 });
+		expect(readFileSync(join(dir, "gone.end"), "utf8")).toBe("7\n");
 		writeFileSync(join(dir, "room"), "");
 		const full = await run(`${waitsForTurn(dir, 5, 0)?.("gone")}\ntrue`);
 		expect(full).toEqual({ out: "", code: 0 });
@@ -140,6 +141,7 @@ describe("heavy work waiting for its turn", () => {
 		for (const name of ["j3.job", "j3.turn", "j3.capped"]) {
 			writeFileSync(join(dir, name), "");
 		}
+		writeFileSync(join(dir, "capped.conf"), "max-jobs = 1\ncores = 2\n");
 		const show = 'echo "$NIX_USER_CONF_FILES"';
 		const env = {
 			...process.env,
@@ -154,7 +156,7 @@ describe("heavy work waiting for its turn", () => {
 			`${dir}/capped.conf:/home/a/.config/nix/nix.conf:/etc/xdg/nix/nix.conf:/run/sw/etc/xdg/nix/nix.conf\n`,
 		);
 		expect(capped.stderr.toString()).toBe(
-			"Runs beside a VM check, so its Nix builds are held to 2 at once, of 4 cores each.\n",
+			"Runs beside a VM check, so its Nix builds are held to 1 at once, of 2 cores each.\n",
 		);
 		const own = spawnSync("bash", ["-c", `${wait?.("j3")}\n${show}`], {
 			env: { ...env, NIX_USER_CONF_FILES: "/mine.conf" },

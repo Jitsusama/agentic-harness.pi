@@ -241,4 +241,58 @@ describe("the machine's queue folder", () => {
 		expect(record().jobs).toHaveLength(2);
 		expect(queue.hasJobs()).toBe(true);
 	});
+
+	it("keeps how each job ended and what ran beside it", () => {
+		const file = join(dir, "..", "state", "outcomes.jsonl");
+		const queue = queueFolder(
+			dir,
+			{ isRunning: (pid) => running.has(pid), cgroupOf: () => undefined },
+			undefined,
+			file,
+		);
+		const ran = new Date(NOW - 120_000).toISOString();
+		queue.ask(job("check", { kind: "vm-check", started: ran }));
+		queue.ask(job("build"));
+		shellSays("check", 601);
+		shellSays("build", 602);
+		const vm = { ...ROOMY, vms: 1 };
+		queue.keep(vm, NOW, () => undefined);
+		expect(readFileSync(join(dir, "capped.conf"), "utf8")).toBe(
+			"max-jobs = 2\ncores = 4\n",
+		);
+		queue.keep({ ...vm, cpuPressure: 7 }, NOW + 3_000, () => undefined);
+		queue.keep(vm, NOW + 4_000, () => undefined);
+		writeFileSync(join(dir, "check.end"), "1\n");
+		utimesSync(
+			join(dir, "check.end"),
+			(NOW + 5_000) / 1000,
+			(NOW + 5_000) / 1000,
+		);
+		running.delete(601);
+		running.delete(602);
+		queue.ask(job("next"));
+		shellSays("next", 603);
+		queue.keep(vm, NOW + 9_000, () => undefined);
+		const kept = readFileSync(file, "utf8")
+			.trim()
+			.split("\n")
+			.map((line) => JSON.parse(line));
+		expect(kept).toEqual([
+			expect.objectContaining({ id: "build", capped: true, ranS: 9 }),
+			expect.objectContaining({
+				id: "check",
+				kind: "vm-check",
+				exit: 1,
+				ranS: 125,
+				beside: { vms: 1, builds: 1, cappedBuilds: 1, cpuPressure: 7 },
+			}),
+		]);
+		expect(kept[0]).not.toHaveProperty("exit");
+		expect(existsSync(join(dir, "check.end"))).toBe(false);
+		// A VM failed beside a capped build, so the next one gets fewer cores.
+		expect(queue.hasTurn("next")).toBe(true);
+		expect(readFileSync(join(dir, "capped.conf"), "utf8")).toBe(
+			"max-jobs = 2\ncores = 2\n",
+		);
+	});
 });

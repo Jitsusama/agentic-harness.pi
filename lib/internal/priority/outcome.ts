@@ -1,0 +1,201 @@
+/**
+ * How the machine's heavy work ended, kept where a reboot leaves it, so
+ * the queue's limits can follow what happened rather than an estimate.
+ *
+ * A job's shell says its exit status in `<id>.end` as it exits; the
+ * session keeping the queue notes, in each running job, the most that
+ * ran beside it; and when the job ends, one line goes to
+ * `outcomes.jsonl` in the priority workflow's state directory. The file
+ * holds about a month of work at a few hundred jobs a day: past
+ * {@link MOST_OUTCOME_BYTES} it keeps its newer half.
+ */
+
+import {
+	appendFileSync,
+	mkdirSync,
+	readFileSync,
+	renameSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
+import { dirname } from "node:path";
+import { CAPPED_NIX, CLASS_OF, type Class, isVm, type Job } from "./queue.ts";
+
+/** What ran beside a job, the most at once while it ran. */
+export interface Beside {
+	/** VMs on the machine, its own included. */
+	readonly vms: number;
+	/** Other builds the queue ran. */
+	readonly builds: number;
+	/** Of those, the ones capped beside a VM check. */
+	readonly cappedBuilds: number;
+	/** CPU pressure, avg10, in percent. */
+	readonly cpuPressure: number;
+}
+
+/** How one job ended. */
+export interface Outcome {
+	readonly v: 1;
+	readonly id: string;
+	readonly kind: Job["kind"];
+	readonly class: Class;
+	readonly what: string;
+	readonly session: string;
+	/** When it asked for its turn. */
+	readonly asked: string;
+	/** When it was given its turn, if it was. */
+	readonly started?: string;
+	readonly ended: string;
+	readonly waitedS: number;
+	/** How long it ran, or nothing when it gave up waiting. */
+	readonly ranS?: number;
+	/**
+	 * Its shell's exit status, or nothing when the shell ended without
+	 * saying: killed, or the work set an EXIT trap of its own.
+	 */
+	readonly exit?: number;
+	readonly capped: boolean;
+	readonly beside: Beside;
+}
+
+/** How large the outcome file grows before it keeps its newer half. */
+export const MOST_OUTCOME_BYTES = 2 * 1024 * 1024;
+
+/** How far back a VM failing beside a capped build lowers the cap. */
+export const FAILURES_COUNT_FOR_MS = 24 * 60 * 60 * 1000;
+
+/** The cores a capped build gets once a VM failed beside one. */
+export const CAPPED_CORES_AFTER_FAILURE = 2;
+
+/** Nothing beside it yet. */
+export const NOTHING_BESIDE: Beside = {
+	vms: 0,
+	builds: 0,
+	cappedBuilds: 0,
+	cpuPressure: 0,
+};
+
+/** What runs beside `job` now, among the `running` jobs. */
+export function besideNow(
+	job: Job,
+	running: readonly Job[],
+	machine: { readonly vms: number; readonly cpuPressure: number },
+): Beside {
+	const builds = running.filter(
+		(other) => other.id !== job.id && other.kind === "build",
+	);
+	return {
+		vms: machine.vms,
+		builds: builds.length,
+		cappedBuilds: builds.filter((other) => other.capped).length,
+		cpuPressure: machine.cpuPressure,
+	};
+}
+
+/** The most of each, between what was seen and what is seen now. */
+export function mostBeside(seen: Beside, now: Beside): Beside {
+	return {
+		vms: Math.max(seen.vms, now.vms),
+		builds: Math.max(seen.builds, now.builds),
+		cappedBuilds: Math.max(seen.cappedBuilds, now.cappedBuilds),
+		cpuPressure: Math.max(seen.cpuPressure, now.cpuPressure),
+	};
+}
+
+/** How `job` ended at `ended`, its shell having said `exit`. */
+export function outcomeOf(
+	job: Job,
+	ended: number,
+	exit: number | undefined,
+): Outcome {
+	const asked = Date.parse(job.since);
+	const started =
+		job.started !== undefined ? Date.parse(job.started) : undefined;
+	const seconds = (ms: number) => Math.max(0, Math.round(ms / 1000));
+	return {
+		v: 1,
+		id: job.id,
+		kind: job.kind,
+		class: CLASS_OF[job.kind],
+		what: job.what,
+		session: job.owner.session,
+		asked: job.since,
+		...(job.started !== undefined ? { started: job.started } : {}),
+		ended: new Date(ended).toISOString(),
+		waitedS: seconds((started ?? ended) - asked),
+		...(started !== undefined ? { ranS: seconds(ended - started) } : {}),
+		...(exit !== undefined ? { exit } : {}),
+		capped: job.capped === true,
+		beside: job.beside ?? NOTHING_BESIDE,
+	};
+}
+
+/**
+ * Whether an exit says the work failed, rather than that it was stopped
+ * (128 and past, a signal) or never found (126, 127).
+ */
+export function failed(exit: number | undefined): boolean {
+	return exit !== undefined && exit >= 1 && exit <= 125;
+}
+
+/**
+ * The Nix settings a build beside a VM check gets: {@link CAPPED_NIX},
+ * with its cores lowered to {@link CAPPED_CORES_AFTER_FAILURE} while a VM
+ * failed beside a capped build in the last day, as P9R1KI asked for its
+ * estimate.
+ */
+export function capFor(
+	outcomes: readonly Outcome[],
+	now: number,
+): { readonly maxJobs: number; readonly cores: number } {
+	const since = now - FAILURES_COUNT_FOR_MS;
+	const failedBesideCap = outcomes.some(
+		(outcome) =>
+			isVm(outcome) &&
+			outcome.beside.cappedBuilds > 0 &&
+			failed(outcome.exit) &&
+			Date.parse(outcome.ended) >= since,
+	);
+	return failedBesideCap
+		? { ...CAPPED_NIX, cores: CAPPED_CORES_AFTER_FAILURE }
+		: CAPPED_NIX;
+}
+
+/** Adds one outcome to the file, keeping its newer half once it is full. */
+export function keepOutcome(file: string, outcome: Outcome): void {
+	mkdirSync(dirname(file), { recursive: true });
+	appendFileSync(file, `${JSON.stringify(outcome)}\n`);
+	let size = 0;
+	try {
+		size = statSync(file).size;
+	} catch {
+		return;
+	}
+	if (size <= MOST_OUTCOME_BYTES) return;
+	const lines = readFileSync(file, "utf8").split("\n").filter(Boolean);
+	const temporary = `${file}.${process.pid}.tmp`;
+	writeFileSync(
+		temporary,
+		`${lines.slice(Math.floor(lines.length / 2)).join("\n")}\n`,
+	);
+	renameSync(temporary, file);
+}
+
+/** The outcomes the file holds, leaving out any line it can't read. */
+export function outcomesIn(file: string): Outcome[] {
+	let content = "";
+	try {
+		content = readFileSync(file, "utf8");
+	} catch {
+		return [];
+	}
+	return content.split("\n").flatMap((line) => {
+		if (!line) return [];
+		try {
+			const outcome = JSON.parse(line) as Outcome;
+			return outcome?.v === 1 && outcome.beside ? [outcome] : [];
+		} catch {
+			return [];
+		}
+	});
+}
