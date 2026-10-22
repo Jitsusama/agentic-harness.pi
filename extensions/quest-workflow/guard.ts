@@ -8,7 +8,9 @@
  * the untracked-tree guard, which adopts the tree: the refusal only
  * ever told the agent to do that, and one session took 56 refusals to
  * stop trying the write instead. A guard that is off lets the write
- * through and shows the person what it saw.
+ * through and shows the person what it saw. Whatever a guard lets
+ * through outside every tree is noted for the quest, and `conclude`
+ * names it (outside-writes.ts).
  */
 
 import type { ToolCallEventResult } from "@earendil-works/pi-coding-agent";
@@ -18,8 +20,10 @@ import {
 	reportGuard,
 } from "../../lib/guardian/index.ts";
 import type { QuestVerdict } from "./enforce.ts";
+import { recordOutsideWrites } from "./outside-writes.ts";
 import type { QuestState } from "./state.ts";
 import { treeAdopt } from "./verbs/tree-ops.ts";
+import { defaultWorkspaceRoot } from "./workspace.ts";
 
 /** How a tree is adopted, so tests can stand in for the quest store. */
 export type Adopt = (
@@ -31,6 +35,14 @@ export type Adopt = (
 export const adoptTree: Adopt = (state, root) => {
 	const result = treeAdopt(state, { action: "tree-adopt", cwd: root });
 	return result.ok ? { ok: true } : { ok: false, why: result.guidance };
+};
+
+/** How a write outside every tree is noted, so tests can watch it. */
+export type NoteOutside = (state: QuestState, paths: string[]) => void;
+
+/** Note it in the quest's workspace. */
+export const noteOutside: NoteOutside = (state, paths) => {
+	recordOutsideWrites(defaultWorkspaceRoot(), state.questId, paths);
 };
 
 /**
@@ -62,10 +74,15 @@ export function applyQuestGuards(
 	verdicts: readonly QuestVerdict[],
 	adopt: Adopt = adoptTree,
 	subject: () => string = () => "",
+	note: NoteOutside = noteOutside,
 ): ToolCallEventResult | undefined {
+	// Noted only once every guard has let the call through, since a
+	// refused call writes nothing.
+	const outside: string[] = [];
 	for (const verdict of verdicts) {
 		const mode = guardMode(verdict.guard);
 		if (mode === "block") return { block: true, reason: verdict.reason };
+		outside.push(...(verdict.outside ?? []));
 		if (mode === "off") {
 			if (!verdict.adopt || firstRefusal(state, verdict.adopt)) {
 				reportGuard({
@@ -107,5 +124,6 @@ export function applyQuestGuards(
 		);
 		if (refusal) return refusal;
 	}
+	if (outside.length > 0) note(state, [...new Set(outside)]);
 	return undefined;
 }

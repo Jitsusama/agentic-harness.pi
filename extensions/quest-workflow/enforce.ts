@@ -66,6 +66,11 @@ export type QuestVerdict = ToolCallEventResult & {
 	guard: string;
 	/** For a write into an untracked tree: the root to adopt instead. */
 	adopt?: string;
+	/**
+	 * The paths outside every tree the call writes, noted for the quest
+	 * when the guard lets the call through.
+	 */
+	outside?: string[];
 };
 
 function isReadOnly(state: QuestState): boolean {
@@ -124,14 +129,15 @@ function systemTempFunnel(
 ): QuestVerdict | undefined {
 	const root = options.workspaceRoot ?? defaultWorkspaceRoot();
 	if (!state.questDir || !workspaceDirOf(root, state.questId)) return;
-	const hitsTemp = writeTargetsOf(toolName, input, cwd, options).some(
+	const inTemp = writeTargetsOf(toolName, input, cwd, options).filter(
 		(t) => classifyTarget(state, t, options).category === "system-temp",
 	);
-	if (!hitsTemp) return;
+	if (inTemp.length === 0) return;
 	const dir = ensureQuestWorkspaceTmp(root, state.questId ?? "");
 	return {
 		guard: GUARDS.questTemp.name,
 		block: true,
+		outside: inTemp,
 		reason: `Quest workflow: this names a path in system temp, which nothing reaps. Use $TMPDIR instead (mktemp already does), which points at the tmp/ folder of this quest's workspace, cleared when the quest concludes: ${dir}`,
 	};
 }
@@ -313,11 +319,12 @@ function enforceHome(
 	if (!state.questDir || !state.questId) return;
 	if (state.documentKind !== "plan" || state.documentStage !== "build") return;
 	const tracked = trackedTreePaths(state);
-	const looseBlock = (): QuestVerdict => ({
+	const looseBlock = (outside: string[]): QuestVerdict => ({
 		guard: GUARDS.questHomeless.name,
 		block: true,
+		outside,
 		reason:
-			"Quest workflow: this quest is in build, but this write lands outside every git working tree. Run `tree-add` to scaffold one (pass cwd to choose the repo, no need to change your session's directory), or write inside a git tree this quest works in. Do not unload the quest to bypass this.",
+			"Quest workflow: this quest is in build, but this write lands outside every git working tree. Run `tree-add` to scaffold one (pass cwd to choose the repo, no need to change your session's directory), or write inside a git tree this quest works in. A write that belongs outside every tree (live machine config, a shared file) is noted for the quest when it goes ahead, and conclude names it. Do not unload the quest to bypass this.",
 	});
 	const adoptBlock = (root: string): QuestVerdict => ({
 		guard: GUARDS.questUntrackedTree.name,
@@ -326,13 +333,18 @@ function enforceHome(
 		reason: `Quest workflow: this write lands in ${root}, a git tree this quest does not track yet. Register it so the quest accounts for it: run the quest tree-adopt action with cwd set to a path inside ${root}. You do not need to change your session's directory; the cwd parameter is the adoption target. Adopted trees are tracked and never auto-pruned. Do not unload the quest to bypass this.`,
 	});
 	// A write inside a tracked tree flows; one inside an untracked git
-	// tree gets adoption guidance; a homeless one gets tree-add.
+	// tree gets adoption guidance; a homeless one gets tree-add, and
+	// every homeless target is named so it can be noted.
+	const loose: string[] = [];
 	const verdict = (target: string): QuestVerdict | undefined => {
 		// Every quest's folder holds its record, whichever quest is loaded,
 		// and the record gate has already judged the write.
 		if (isWithin(target, state.questsRoot)) return;
 		const classification = classifyTarget(state, target, options);
-		if (classification.category === "loose-file") return looseBlock();
+		if (classification.category === "loose-file") {
+			loose.push(target);
+			return;
+		}
 		const root = classification.treeRoot;
 		if (!root) return;
 		if (tracked.some((p) => isWithin(root, p))) return;
@@ -342,7 +354,7 @@ function enforceHome(
 		const result = verdict(target);
 		if (result) return result;
 	}
-	return;
+	return loose.length > 0 ? looseBlock(loose) : undefined;
 }
 
 /**

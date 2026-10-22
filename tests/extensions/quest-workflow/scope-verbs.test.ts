@@ -8,8 +8,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { recordOutsideWrites } from "../../../extensions/quest-workflow/outside-writes";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
+import { defaultWorkspaceRoot } from "../../../extensions/quest-workflow/workspace";
 import {
 	clearRefTypes,
 	registerBuiltinRefTypes,
@@ -237,6 +239,27 @@ describe("conclude / retire scope", () => {
 		if (!result.ok) throw new Error("expected ok");
 		expect(result.message).toContain(`Concluded quest ${a.id} (Named Quest).`);
 		expect(readFileSync(a.path, "utf8")).toMatch(/status: concluded/);
+	});
+
+	it("names what the quest wrote outside its trees, in its message and Journey", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Busy Quest");
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: a.id,
+		});
+		recordOutsideWrites(defaultWorkspaceRoot(), a.id, ["/etc/a", "/etc/b"]);
+		recordOutsideWrites(defaultWorkspaceRoot(), a.id, ["/etc/a"]);
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "conclude",
+			id: a.id,
+		});
+
+		const said = "Outside its trees it wrote 2 paths: /etc/a, /etc/b.";
+		if (!result.ok) throw new Error(result.guidance);
+		expect(result.message).toContain(said);
+		expect(readFileSync(a.path, "utf8")).toContain(said);
 	});
 
 	it("cascades on conclude: resets priority to someday and seals documents", async () => {
