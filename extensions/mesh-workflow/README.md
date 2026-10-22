@@ -169,11 +169,17 @@ from the session's own deliveries.
 
 ## Stop
 
-Skynet's annals end on a stop that went unheard: a person sent
-six messages in ten seconds wrote "please stop", and the fleet
-carried on, because the side that listened had filtered her
-out. So a stop is the receiver's, and the receiver's own mesh
-enforces it, whatever harness the sender runs:
+Skynet's annals end on an objection that went unheard. One
+morning an engineer got six messages within ten seconds and
+answered that the list was too much. The fleet's night filter,
+never lifted, appears to have held that, and four minutes later
+it edited a reply and uploaded a file anyway. Her "please stop"
+never reached it either; the operator stopped it by hand. It
+listened as at night while it spoke as by day, and the
+requirements written after say a plain objection sets a stop
+toward whoever made it. So a stop is the receiver's, and the
+receiver's own mesh enforces it, whatever harness the sender
+runs:
 
 - **Glance:** what the stopped peer sends reaches the stopper
   as a glance, whatever its intent and wherever it went: never
@@ -199,8 +205,9 @@ does.
 The swarm's holds mattered "as presence more than as a gate":
 a peer reaching for what another held was told who, since
 when and what, once, and went ahead beside it if it reached
-again, while the holder heard. Skynet's bots, racing on one
-question, found the same cause at twice the cost. So a lease
+again, while the holder heard. Set racing on one jammed merge
+lane, Skynet and another team's bot found the same cause
+minutes apart, at twice the cost. So a lease
 says what a peer is doing, the mesh tells those involved when
 two overlap, and nothing waits to be granted one. The harness
 takes most of them itself, since agents say what they are
