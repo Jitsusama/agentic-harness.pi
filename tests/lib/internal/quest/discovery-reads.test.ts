@@ -151,6 +151,34 @@ describe("discovery reads", () => {
 	});
 });
 
+describe("a record's body", () => {
+	// The index keeps front matter and titles; prose stays on disk.
+	it("is read from its file only when asked for", () => {
+		const result = discoverQuests(root);
+		reads.mockClear();
+		const entry = result.index.quests.get(ID);
+		expect(readsOf(readmePath)).toBe(0);
+
+		expect(entry?.doc.body).toContain("# Alpha");
+		expect(entry?.documents[0]?.doc.body).toContain("# A Plan");
+		expect(readsOf(readmePath)).toBe(1);
+		expect(readsOf(planPath)).toBe(1);
+	});
+
+	it("is not kept in the index, so it reads as the file now says", () => {
+		const entry = discoverQuests(root).index.quests.get(ID);
+		writeSettled(planPath, `${plan()}\nA line added since the walk.\n`);
+		expect(entry?.documents[0]?.doc.body).toContain("added since the walk");
+		expect(entry?.documents[0]?.doc.title).toBe("A Plan");
+	});
+
+	it("is empty once its file is gone", () => {
+		const entry = discoverQuests(root).index.quests.get(ID);
+		rmSync(planPath);
+		expect(entry?.documents[0]?.doc.body).toBe("");
+	});
+});
+
 describe("one index for the whole process", () => {
 	// pi loads each extension through its own module graph and never
 	// unloads one, so several copies of discovery run in one process.
