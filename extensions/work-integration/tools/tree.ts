@@ -777,7 +777,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 					// A remote's branch is wanted as the remote holds it, not as the
 					// last fetch left it; on a shorter clock than the call's, since
 					// the branch can still be made from what is here.
-					const stale = args.from
+					const fresh = args.from
 						? await refreshStart(
 								spawnExec({
 									...(signal ? { signal } : {}),
@@ -785,17 +785,34 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 								}),
 								found.path,
 								args.from,
+								signal,
 							)
 						: undefined;
-					await author.branch(
-						found.path,
-						args.name,
-						args.from ? { from: args.from } : undefined,
-					);
+					const stale = fresh?.stale;
+					try {
+						await author.branch(
+							found.path,
+							args.name,
+							fresh ? { from: fresh.start } : undefined,
+						);
+					} catch (error) {
+						// A start point never fetched before has nothing to fall back
+						// on, and git's "not a commit" alone hides that the fetch is
+						// what went wrong.
+						if (!stale) throw error;
+						throw new Error(
+							`${error instanceof Error ? error.message : String(error)}\n${stale}`,
+						);
+					}
 					// Named, so a branch cut from the wrong base shows at once
-					// rather than after the work on it is built.
-					const head = await createGitHistory({ exec }).head(found.path);
-					const start = `${head.commit.slice(0, 12)}${args.from ? ` from ${args.from}` : ""}`;
+					// rather than after the work on it is built. A head that cannot
+					// be read now is left out rather than reported as a failure,
+					// since the branch exists and a retry would be refused for it.
+					const commit = await history
+						.head(found.path)
+						.then((head) => head.commit)
+						.catch(() => undefined);
+					const where = `${commit ? `, at ${commit.slice(0, 12)}` : ""}${args.from ? ` from ${args.from}` : ""}`;
 					// Said after the branch exists, because the name is workable
 					// and the convention is a preference rather than a rule git
 					// enforces. Refusing here would make a repo with its own
@@ -803,13 +820,18 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 					const naming = namingComplaints(args.name);
 					return say(
 						[
-							`${GLYPH.tree} ${found.identity.key} is on ${args.name}, at ${start}.`,
+							`${GLYPH.tree} ${found.identity.key} is on ${args.name}${where}.`,
 							...(stale ? [`   ${stale}`] : []),
 							...(naming.length === 0
 								? []
 								: [`   Against the convention: ${naming.join("; ")}.`]),
 						].join("\n"),
-						{ ok: true, branch: args.name, commit: head.commit },
+						{
+							ok: true,
+							branch: args.name,
+							...(commit ? { commit } : {}),
+							...(args.from ? { fresh: stale === undefined } : {}),
+						},
 					);
 				}
 
