@@ -73,6 +73,7 @@ function runtime() {
 	const sentToPrompt: { text: string; options: unknown }[] = [];
 	const statuses = new Map<string, string | undefined>();
 	const notices: string[] = [];
+	const entries: { type: string; data: unknown }[] = [];
 	let tool: Tool | undefined;
 	let command: Command | undefined;
 	const pi = {
@@ -91,6 +92,7 @@ function runtime() {
 		},
 		sendUserMessage: (text: string, options: unknown) =>
 			sentToPrompt.push({ text, options }),
+		appendEntry: (type: string, data: unknown) => entries.push({ type, data }),
 	};
 	const ui = {
 		setStatus: (key: string, text: string | undefined) =>
@@ -106,6 +108,7 @@ function runtime() {
 	};
 	return {
 		hidden,
+		entries,
 		sentToPrompt,
 		statuses,
 		notices,
@@ -217,6 +220,33 @@ describe("the agent asking for a reload", () => {
 			{ text: "/harness reload", options: { expandPromptTemplates: true } },
 		]);
 	});
+
+	it("waits for a run that started after it was handed over, whatever pi says", async () => {
+		runningTheInstall();
+		const now = runtime();
+		await now.start("startup");
+		await now.ask({ reason: "try it" });
+		await now.fire("agent_settled");
+		// The run a compaction resumes, starting before the command runs.
+		await now.fire("agent_start");
+		let reloaded = false;
+		const next = {
+			start: async () => {
+				reloaded = true;
+			},
+		};
+
+		const command = now.command("reload", next);
+		await new Promise((done) => setTimeout(done, 1_500));
+		expect(reloaded).toBe(false);
+
+		await now.fire("agent_settled");
+		await command;
+		expect(reloaded).toBe(true);
+		expect(now.entries).toMatchObject([
+			{ type: "reload-waited-for-run", data: { times: expect.any(Number) } },
+		]);
+	}, 10_000);
 
 	it("is called off when the person stops the run", async () => {
 		runningTheInstall();

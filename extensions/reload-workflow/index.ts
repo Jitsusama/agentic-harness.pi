@@ -55,6 +55,12 @@ import {
 	treeToLoad,
 } from "./transitions.ts";
 
+/**
+ * The entry a reload leaves when pi said the session was still while a
+ * run was under way, and the reload waited for the run instead.
+ */
+const OVERRULED_ENTRY = "reload-waited-for-run";
+
 /** Whether a settled run was stopped by the person. */
 function settledAborted(event: unknown): boolean {
 	return (
@@ -69,6 +75,21 @@ export default function reloadWorkflow(pi: ExtensionAPI) {
 	const settings = piPackageSettings();
 	let running: Loaded = { root: PACKAGE_ROOT };
 	let follower: Follower | undefined;
+	// Whether a run has started since the last one settled, from the run's
+	// own events, so a reload has more than pi's idle flag to go by (see
+	// untilStill).
+	let underWay = false;
+	const started = () => {
+		underWay = true;
+	};
+	pi.on("agent_start", started);
+	pi.on("turn_start", started);
+	pi.on("tool_execution_start", started);
+	const run = {
+		underWay: () => underWay,
+		overruled: (times: number) =>
+			pi.appendEntry(OVERRULED_ENTRY, { times, at: new Date().toISOString() }),
+	};
 
 	pi.on("session_start", async (event, ctx) => {
 		await startRuntime(pi, ctx, event.reason, settings, (loaded) => {
@@ -80,6 +101,7 @@ export default function reloadWorkflow(pi: ExtensionAPI) {
 	// The run that asked has ended: hand the request to the command,
 	// through pi's prompt path, which is what gives it `reload()`.
 	pi.on("agent_settled", async (event, ctx: ExtensionContext) => {
+		underWay = false;
 		// The session's own reload waits for a settle, whoever stopped the
 		// run, and for anything else it is waiting on.
 		if (reloadSlot().request === undefined) {
@@ -103,7 +125,7 @@ export default function reloadWorkflow(pi: ExtensionAPI) {
 			"Say which harness code this session runs. `/harness reload` reloads onto it again, so a tree stays a tree.",
 		handler: async (args, ctx) => {
 			if (args.trim() === RELOAD_ARG) {
-				await performReload(ctx, running, settings);
+				await performReload(ctx, running, settings, run);
 				return;
 			}
 			running = await whatRuns(settings);
