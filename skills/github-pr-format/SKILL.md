@@ -59,10 +59,14 @@ shown. The set is closed: no other headings, no optional ones.
 
 The word limits below are ceilings, not targets. Most changes
 need well under half of them. Say what the reader needs and stop.
+A count made by feel lands either side of where it aimed, so aim
+for about three quarters of a ceiling: written to the ceiling
+itself, about one TL;DR in seven came back refused.
 
 ### 💡 TL;DR
 
-The eight-second version, at most 40 words in one or two sentences.
+The eight-second version, about 30 words and at most 40, in one or
+two sentences.
 The first sentence is a headline that stands on its own: it opens
 with the thing that changed (never "This PR" or "This change") and
 says what is different once this merges and for whom. Lead with what
@@ -89,7 +93,8 @@ know (a count, an incident, an error somebody saw). Do not tour
 the subsystem; the reader knows it. If the reader would likely
 assume the wrong cause, or the change reverses something they
 rely on, say so outright: "it looks like X; it is actually Y,
-because Z". Prose only, at most 120 words. It describes the world
+because Z". Prose only, at most 120 words and three code spans.
+It describes the world
 before this PR, never the fix.
 
 ### 🔧 Solution
@@ -136,7 +141,7 @@ a column of "Adds..."). Never a list of artifacts: no "Docs:",
 "Tests:" or "Files:" entries. If the change has more
 independent parts than five bullets can hold, name the rest in one
 "Also:" sentence; a change that cannot be described this way
-should probably be split. At most 200 words.
+should probably be split. At most 200 words and eight code spans.
 
 ### 🔬 Validation
 
@@ -220,7 +225,7 @@ present.
   "per the plan").
 - **Plain words.** Jargon and needless long words cost a reader's
   trust even when they are defined. Use the word the reader would
-  use. Keep sentences under 40 words, most well under.
+  use. No sentence may pass 40 words; keep each under about 30.
 - **Numbers that mean something.** "Merging failed 23 times in two
   months" tells the reader something; "1,353 tests pass" mostly
   tells them the suite is large.

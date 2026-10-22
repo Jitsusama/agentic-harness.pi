@@ -86,6 +86,16 @@ function heldByName(held: readonly HeldTree[], name: string) {
 const CLAIMED_PROVIDER = "claimed";
 
 /**
+ * The longest commit subject core's commit format accepts, and a length
+ * to aim for below it. Said in the subject's description because the
+ * refusal was the only place it was said: the subjects refused ran
+ * mostly 51 to 53 characters, written to a limit the writer was guessing
+ * at, and each refusal cost a turn.
+ */
+export const SUBJECT_LIMIT = 50;
+const SUBJECT_AIM = 40;
+
+/**
  * A tree something else holds, such as a quest, found by a path inside
  * it. This tool did not cut it and keeps no record of it, but its
  * reads, commits and pushes work in it the same, so a tree a quest cut
@@ -462,8 +472,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 			),
 			subject: Type.Optional(
 				Type.String({
-					description:
-						"For record: the commit subject, in conventional form, type(scope): subject.",
+					description: `For record: the commit subject, in conventional form, type(scope): subject. At most ${SUBJECT_LIMIT} characters, type and scope included; aim for about ${SUBJECT_AIM}, since a length judged by eye is most often refused for one to three characters over.`,
 				}),
 			),
 			body: Type.Optional(
