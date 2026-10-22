@@ -181,6 +181,11 @@ export function meshHand(
 							for (const { hold } of unheard) stoppedFor.add(hold.id);
 							return { block: true, reason: heldBack(unheard, work) };
 						}
+						const why =
+							typeof command === "string"
+								? await leasing.rewrite(command, called?.cwd ?? process.cwd())
+								: undefined;
+						if (why) return { block: true, reason: why };
 						if (own) heavyCalls.called(event.toolCallId, command);
 						return undefined;
 					}

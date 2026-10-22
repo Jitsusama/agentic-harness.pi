@@ -17,7 +17,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	ADVISORY,
@@ -1151,6 +1151,56 @@ describe("groups", () => {
 			`Waiting on their person:\nWCJQSG: held at an approval since ${at}: Push to main?`,
 		);
 		expect(text).not.toContain("P9R1KI: held");
+
+		const sentTo = async (to: string) =>
+			(
+				await tools
+					.get("mesh_send")
+					?.execute("call-s", { to, intent: "question", text: "which qemu?" })
+			)?.content[0]?.text ?? "";
+		expect(await sentTo("WCJQSG")).toContain(
+			`WCJQSG (held at an approval since ${at}) is waiting on its person, so it may be slow to take this up.`,
+		);
+		expect(await sentTo("#optimus")).not.toContain("waiting on");
+	});
+
+	it("lists each other peer still there, whether it is in a run, and its work", async () => {
+		const presences = createPresences(join(paths.mesh, "presence"));
+		const publish = (
+			session: string,
+			address: string,
+			worksOn: string,
+			busy: boolean,
+			ended = false,
+		) =>
+			presences.publish({
+				session,
+				addresses: [address],
+				groups: [],
+				worksOn,
+				owns: [],
+				busy,
+				...(ended ? { owner: { pid: process.pid, startedAt: 1 } } : {}),
+				at: new Date().toISOString(),
+			});
+		publish(
+			"session-p",
+			"P9R1KI",
+			`Optimus: ${"memory floors ".repeat(10)}`,
+			true,
+		);
+		publish("session-w", "WCJQSG", "the  launcher", false);
+		publish("session-e", "ENDEDP", "gone", false, true);
+		const { tools } = await startSession();
+
+		const listed = await tools.get("mesh_groups")?.execute("call-1", {});
+
+		const text = listed?.content[0]?.text ?? "";
+		const lines = text.split("\nPeers:\n")[1]?.split("\n") ?? [];
+		expect(lines).toEqual([
+			`P9R1KI, busy: Optimus: ${"memory floors ".repeat(10).slice(0, 88)}...`,
+			"WCJQSG, idle: the launcher",
+		]);
 	});
 
 	it("says in presence what this session waits on, from the bus, held until it starts", async () => {
@@ -1787,6 +1837,98 @@ describe("a lease", () => {
 
 		expect(await fire(...editing("a.ts"))).toBeUndefined();
 		expect(sentOut()).toEqual([]);
+	});
+
+	it("stops a git command once that rewrites a checkout another peer changes files in", async () => {
+		mkdirSync(join(root, ".git"));
+		peer("session-w", ["WCJQSG"], []);
+		leased("session-w", { checkout: root });
+		const { fire } = await startSession();
+		const run = (command: string) =>
+			fire(
+				"tool_call",
+				{
+					type: "tool_call",
+					toolName: "bash",
+					toolCallId: "b",
+					input: { command },
+				},
+				{ cwd: root },
+			) as Promise<{ block?: boolean; reason?: string } | undefined>;
+
+		expect(await run("git status")).toBeUndefined();
+		const first = await run("git reset --hard");
+		const again = await run("git reset --hard");
+
+		expect(first?.block).toBe(true);
+		expect(first?.reason).toMatch(
+			/^Not run yet: `git reset --hard` rewrites the files of .*, where WCJQSG \(since \d\d:\d\d\) is changing .*a\.ts\. /,
+		);
+		expect(again).toBeUndefined();
+		expect(ownBoard()).toMatchObject([
+			{
+				kind: "change",
+				subject: root,
+				checkout: root,
+				why: "git reset --hard",
+			},
+		]);
+		const told = sentOut();
+		expect(told).toHaveLength(1);
+		expect(told[0]).toMatchObject({ to: ["@WCJQSG"], intent: "fyi" });
+		expect(told[0]?.text).toMatch(
+			/is about to run `git reset --hard` in .*, which rewrites its files while this peer is changing /,
+		);
+	});
+
+	it("lets a rewrite go ahead beside a peer in another checkout, or one that has ended", async () => {
+		mkdirSync(join(root, ".git"));
+		peer("session-w", ["WCJQSG"], []);
+		peer("session-e", ["ENDEDP"], [], true);
+		leased("session-w", { checkout: join(root, "elsewhere") });
+		leased("session-e", { checkout: root });
+		const { fire } = await startSession();
+
+		expect(
+			await fire(
+				"tool_call",
+				{
+					type: "tool_call",
+					toolName: "bash",
+					toolCallId: "b",
+					input: { command: "git checkout main" },
+				},
+				{ cwd: root },
+			),
+		).toBeUndefined();
+		expect(sentOut()).toEqual([]);
+	});
+
+	it("stops an edit once in a checkout another peer rewrote", async () => {
+		mkdirSync(join(root, ".git"));
+		peer("session-w", ["WCJQSG"], []);
+		leased("session-w", {
+			subject: root,
+			checkout: root,
+			why: "git checkout main",
+		});
+		const { fire } = await startSession();
+
+		const first = (await fire(...editing("a.ts"))) as {
+			block?: boolean;
+			reason?: string;
+		};
+		const again = await fire(...editing("a.ts"));
+
+		expect(first.block).toBe(true);
+		expect(first.reason).toContain(
+			`is working on what \`git checkout main\` left in ${root}, so what is there may not be what this peer read`,
+		);
+		expect(again).toBeUndefined();
+		expect(ownBoard()).toMatchObject([
+			{ kind: "change", subject: `${basename(root)}:a.ts`, checkout: root },
+		]);
+		expect(sentOut()[0]?.text).toContain("in the checkout this peer rewrote");
 	});
 
 	it("leaves a group's question another peer is answering to it", async () => {

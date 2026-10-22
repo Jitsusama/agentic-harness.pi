@@ -11,15 +11,19 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	carryLeases,
+	changeOf,
 	changeSubject,
+	claimsCheckout,
 	createBoard,
 	heavyWorkIn,
 	holdingFrom,
 	type Lease,
 	leaseEventFrom,
+	othersIn,
 	othersOn,
 	ownLeases,
 	RUN_KINDS,
+	rewriteIn,
 } from "../../../lib/mesh/lease.ts";
 
 let root: string;
@@ -181,6 +185,100 @@ describe("a change's subject", () => {
 	it("is the absolute path outside any checkout", () => {
 		expect(changeSubject("notes.md", root)).toBe(join(root, "notes.md"));
 	});
+
+	it("says which checkout it is in, and the board keeps that", () => {
+		const main = checkout("main");
+		mkdirSync(join(main, "src"));
+		const board = createBoard(join(root, "leases"));
+		const change = changeOf("src/a.ts", main);
+		const own = ownLeases(board, "me", at);
+		own.take("change", change.subject, minutes(10), undefined, at, main);
+
+		expect(change.checkout).toBe(main);
+		expect(changeOf("notes.md", root).checkout).toBeUndefined();
+		expect(board.of("me")?.leases[0]?.checkout).toBe(main);
+	});
+});
+
+function checkout(name: string): string {
+	const path = join(root, name);
+	mkdirSync(join(path, ".git"), { recursive: true });
+	return path;
+}
+
+describe("a command that rewrites a checkout", () => {
+	it("is a git command that changes the files, where it runs", () => {
+		const main = checkout("main");
+		const other = checkout("other");
+
+		expect(rewriteIn("git checkout main", main)).toEqual({
+			checkout: main,
+			command: "git checkout main",
+		});
+		expect(rewriteIn(`cd ${other} && git reset --hard HEAD~1`, main)).toEqual({
+			checkout: other,
+			command: "git reset --hard HEAD~1",
+		});
+		expect(rewriteIn(`git -C ${other} stash`, main)?.checkout).toBe(other);
+		for (const run of [
+			"switch fix",
+			"checkout -b fix origin/main",
+			"stash pop",
+			"rebase origin/main",
+			"pull --ff-only",
+			"clean -fd",
+			"restore src",
+			"-c core.pager=cat merge fix",
+		]) {
+			expect(rewriteIn(`git ${run}`, main)?.checkout).toBe(main);
+		}
+	});
+
+	it("is nothing for git that leaves the files as they are, or outside a checkout", () => {
+		const main = checkout("main");
+
+		for (const run of [
+			"status",
+			"checkout -b fix",
+			"switch -c fix",
+			"reset HEAD~1",
+			"stash list",
+			"clean -n",
+			"clean -fn",
+			"commit -m wip",
+			"push",
+		]) {
+			expect(rewriteIn(`git ${run}`, main)).toBeUndefined();
+		}
+		expect(rewriteIn('echo "git checkout main"', main)).toBeUndefined();
+		expect(rewriteIn("git checkout main", root)).toBeUndefined();
+	});
+});
+
+describe("other peers in a checkout", () => {
+	it("are those changing files or all of it there, not in another worktree", () => {
+		const here = { checkout: "/src/widget" };
+		const file = lease(here);
+		const whole = lease({ subject: "/src/widget", ...here });
+		const board = [
+			{ session: "me", leases: [lease(here)] },
+			{ session: "two", leases: [file, lease({ kind: "answer", ...here })] },
+			{ session: "two.hand", handOf: "two", leases: [whole] },
+			{ session: "three", leases: [lease({ checkout: "/src/widget-2" })] },
+			{
+				session: "four",
+				leases: [lease({ ...here, until: new Date(at).toISOString() })],
+			},
+		];
+
+		expect(othersIn(board, "me", "/src/widget", at)).toEqual([
+			{ session: "two", lease: file },
+			{ session: "two", lease: whole },
+		]);
+		expect(claimsCheckout(whole)).toBe(true);
+		expect(claimsCheckout(file)).toBe(false);
+		expect(holdingFrom(board[2])?.leases).toEqual([whole]);
+	});
 });
 
 describe("a peer's own leases", () => {
@@ -274,7 +372,10 @@ describe("heavy work in a shell command", () => {
 		expect(heavyWorkIn("nix-build -A vm")).toBe("nix build");
 		expect(heavyWorkIn("qemu-system-x86_64 -m 2G")).toBe("qemu");
 		expect(heavyWorkIn("sudo nixos-rebuild switch")).toBe("nixos-rebuild");
-		expect(heavyWorkIn("cargo build --release")).toBe("cargo build");
+		expect(heavyWorkIn("cargo build --release")).toBe("cargo");
+		for (const run of ["test -p mesh", "nextest run", "clippy", "check"]) {
+			expect(heavyWorkIn(`cargo ${run}`)).toBe("cargo");
+		}
 	});
 
 	it("is nothing for a command that only looks at things", () => {
