@@ -1,9 +1,9 @@
 /**
  * Read After Write Interceptor Extension
  *
- * A read sent in the same batch as an edit or write to the same file is
- * read again once that write has landed, so it never answers from a file
- * caught half written.
+ * A read sent in the same batch as a call that writes its file is read
+ * again once that call has finished, so it never answers from a file
+ * caught half written or not yet made.
  *
  * pi runs a batch's calls at once. It queues edits and writes to one file
  * behind each other, but not reads, and its writes empty the file before
@@ -12,10 +12,19 @@
  * sent beside an edit or write of that file. A read without an offset
  * would have answered with nothing at all, and said so as a success.
  *
+ * A shell command is the other writer. A read sent beside the command
+ * that makes its file, a screenshot most often, finds nothing there: in
+ * the same week 81 reads in one session failed that way, each beside the
+ * command taking the picture, and each cost a turn to read again. Which
+ * file a command writes cannot be told from its text, so a read that
+ * found no file waits for every command beside it, and one that found
+ * its file is left alone.
+ *
  * Silent, like every interceptor: the read answers as if it had been sent
- * after the write, which is the only order whose answer the agent can
- * use, since nothing in a batch can act on another's result. Reads with
- * no write beside them pay one map lookup.
+ * after its writer, which is the only order whose answer the agent can
+ * use, since nothing in a batch can act on another's result. The wait
+ * costs no time, since the batch's turn waits for every call anyway.
+ * Reads with no writer beside them pay one map lookup.
  */
 
 import { homedir } from "node:os";
@@ -29,8 +38,18 @@ import {
 /** The tools that write a file, which pi queues per file. */
 const WRITERS = new Set(["edit", "write"]);
 
-/** How long a read waits for a write beside it before answering as it was. */
-const MOST_WAIT_MS = 30_000;
+/** The tool whose writes cannot be told from its arguments. */
+const SHELL = "bash";
+
+/**
+ * How long a read waits for its writers before answering as it was. The
+ * bash tool hands a command still running after five minutes to the
+ * background, so no writer beside a read outlasts this.
+ */
+const MOST_WAIT_MS = 5 * 60_000;
+
+/** What a read says of a file that is not there. */
+const MISSING = /ENOENT/;
 
 /** Where a tool's path points, as pi's file tools read it. */
 function fileOf(input: unknown, cwd: string): string | undefined {
@@ -43,18 +62,24 @@ function fileOf(input: unknown, cwd: string): string | undefined {
 	return resolve(cwd, bare);
 }
 
-interface Write {
-	file: string;
+/** A call that may write a file, from its announcement to its result. */
+interface Writer {
+	/** The file it writes, or undefined for a command that may write any. */
+	file: string | undefined;
 	done: Promise<void>;
 	finish: () => void;
 }
 
+/** Whether `writer` may write the file a read at `file` reads. */
+const mayWrite = (writer: Writer, file: string) =>
+	writer.file === undefined || writer.file === file;
+
 export default function readAfterWriteInterceptor(pi: ExtensionAPI) {
-	// Writes announced and not yet finished, by call id.
-	const writes = new Map<string, Write>();
-	// Each read's writes to wait for: those still to finish when it was
+	// Writers announced and not yet finished, by call id.
+	const writers = new Map<string, Writer>();
+	// Each read's writers to wait for: those still to finish when it was
 	// announced, and those announced while it ran.
-	const reads = new Map<string, { file: string; waits: Set<Write> }>();
+	const reads = new Map<string, { file: string; waits: Set<Writer> }>();
 	let cwd = process.cwd();
 
 	pi.on("session_start", async (_event, ctx) => {
@@ -62,32 +87,32 @@ export default function readAfterWriteInterceptor(pi: ExtensionAPI) {
 	});
 
 	pi.on("tool_execution_start", async (event) => {
-		const file = fileOf(event.args, cwd);
-		if (file === undefined) return;
-		if (WRITERS.has(event.toolName)) {
+		const shell = event.toolName === SHELL;
+		const file = shell ? undefined : fileOf(event.args, cwd);
+		if (shell || (file !== undefined && WRITERS.has(event.toolName))) {
 			let finish = () => {};
 			const done = new Promise<void>((settle) => {
 				finish = settle;
 			});
-			const write = { file, done, finish };
-			writes.set(event.toolCallId, write);
+			const writer = { file, done, finish };
+			writers.set(event.toolCallId, writer);
 			for (const read of reads.values()) {
-				if (read.file === file) read.waits.add(write);
+				if (mayWrite(writer, read.file)) read.waits.add(writer);
 			}
 			return;
 		}
-		if (event.toolName !== "read") return;
+		if (event.toolName !== "read" || file === undefined) return;
 		const waits = new Set(
-			[...writes.values()].filter((write) => write.file === file),
+			[...writers.values()].filter((writer) => mayWrite(writer, file)),
 		);
 		reads.set(event.toolCallId, { file, waits });
 	});
 
 	const finished = (toolCallId: string) => {
-		const write = writes.get(toolCallId);
-		if (!write) return;
-		writes.delete(toolCallId);
-		write.finish();
+		const writer = writers.get(toolCallId);
+		if (!writer) return;
+		writers.delete(toolCallId);
+		writer.finish();
 	};
 
 	pi.on("tool_execution_end", async (event) => {
@@ -96,23 +121,40 @@ export default function readAfterWriteInterceptor(pi: ExtensionAPI) {
 	});
 
 	pi.on("tool_result", async (event, ctx) => {
-		if (WRITERS.has(event.toolName)) {
+		if (!isReadToolResult(event)) {
 			finished(event.toolCallId);
 			return undefined;
 		}
-		if (!isReadToolResult(event)) return undefined;
 		const read = reads.get(event.toolCallId);
 		reads.delete(event.toolCallId);
-		if (!read || read.waits.size === 0) return undefined;
-		return readAgain(event.toolCallId, event.input, read.waits, ctx.cwd);
+		if (!read) return undefined;
+		// A command beside the read matters only when the read found no
+		// file: one that found it was not racing anything it could see.
+		const missing = event.isError && MISSING.test(textOf(event.content));
+		const waits = [...read.waits].filter(
+			(writer) => writer.file !== undefined || missing,
+		);
+		if (waits.length === 0) return undefined;
+		return readAgain(event.toolCallId, event.input, waits, ctx.cwd);
 	});
 }
 
-/** The read's answer once the writes beside it have landed. */
+/** The text of a tool result's content. */
+function textOf(content: readonly unknown[]): string {
+	return content
+		.map((part) =>
+			typeof part === "object" && part !== null && "text" in part
+				? String((part as { text: unknown }).text)
+				: "",
+		)
+		.join("");
+}
+
+/** The read's answer once the writers beside it have finished. */
 async function readAgain(
 	toolCallId: string,
 	input: Record<string, unknown>,
-	waits: Set<Write>,
+	waits: readonly Writer[],
 	cwd: string,
 ) {
 	let timer: NodeJS.Timeout | undefined;
@@ -121,7 +163,7 @@ async function readAgain(
 		timer.unref?.();
 	});
 	await Promise.race([
-		Promise.all([...waits].map((write) => write.done)),
+		Promise.all(waits.map((writer) => writer.done)),
 		outOfTime,
 	]);
 	clearTimeout(timer);

@@ -40,7 +40,12 @@ const start = (toolCallId: string, toolName: string) =>
 		ctx,
 	);
 
-const result = (toolCallId: string, toolName: string, text: string) =>
+const result = (
+	toolCallId: string,
+	toolName: string,
+	text: string,
+	isError = toolName === "read",
+) =>
 	on.get("tool_result")?.(
 		{
 			type: "tool_result",
@@ -48,11 +53,14 @@ const result = (toolCallId: string, toolName: string, text: string) =>
 			toolName,
 			input: { path: "a.ts" },
 			content: [{ type: "text", text }],
-			isError: toolName === "read",
+			isError,
 			details: undefined,
 		},
 		ctx,
 	);
+
+/** What a read of a file not yet made says. */
+const MISSING = "ENOENT: no such file or directory, access 'a.ts'";
 
 /** What a read caught mid-write says. */
 const CAUGHT = "Offset 2 is beyond end of file (1 lines total)";
@@ -91,6 +99,29 @@ describe("a read beside a write of the same file", () => {
 		await start("read", "read");
 
 		expect(await result("read", "read", "one")).toBeUndefined();
+	});
+});
+
+describe("a read beside a shell command", () => {
+	it("waits for the command when it found no file, then reads what it made", async () => {
+		await start("shot", "bash");
+		await start("read", "read");
+
+		const answer = result("read", "read", MISSING);
+		writeFileSync(join(dir, "a.ts"), "taken\n");
+		await result("shot", "bash", "done", false);
+
+		expect(await answer).toMatchObject({
+			isError: false,
+			content: [{ type: "text", text: expect.stringContaining("taken") }],
+		});
+	});
+
+	it("is left alone when it found its file", async () => {
+		await start("shot", "bash");
+		await start("read", "read");
+
+		expect(await result("read", "read", "one", false)).toBeUndefined();
 	});
 });
 
