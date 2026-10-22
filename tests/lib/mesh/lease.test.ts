@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	awaitedSessions,
 	carryLeases,
 	changeOf,
 	changeSubject,
@@ -25,6 +26,7 @@ import {
 	RUN_KINDS,
 	rewriteIn,
 } from "../../../lib/mesh/lease.ts";
+import { senderOf } from "../../../lib/mesh/transport.ts";
 
 let root: string;
 
@@ -111,6 +113,41 @@ describe("a holding as read", () => {
 		expect(holdingFrom({ leases: [] })).toBeUndefined();
 		expect(holdingFrom({ session: "one" })).toBeUndefined();
 		expect(holdingFrom(null)).toBeUndefined();
+	});
+});
+
+describe("who the live peers wait on", () => {
+	it("is the sender of a hold a live peer is parked on, and its hands", () => {
+		const wait = (subject: string, over: Partial<Lease> = {}) =>
+			lease({ kind: "wait", subject, ...over });
+		const board = [
+			{ session: "waiter", leases: [wait("1792698000000-P9R1KI-5402-aaaa")] },
+			// Gone from the census, so whatever it waits on no longer counts.
+			{ session: "ended", leases: [wait("1792698000000-WCJQSG-7-bbbb")] },
+			{
+				session: "lapsed",
+				leases: [
+					wait("1792698000000-2HN63P-8-cccc", {
+						until: new Date(at).toISOString(),
+					}),
+				],
+			},
+			{ session: "hand", handOf: "holder", leases: [lease()] },
+		];
+		const present = [
+			{ session: "waiter", addresses: ["LUQ49E"] },
+			{ session: "lapsed", addresses: ["X7FXPL"] },
+			{ session: "holder", addresses: ["P9R1KI", "26502274"] },
+			{ session: "launcher", addresses: ["WCJQSG"] },
+			{ session: "stick", addresses: ["2HN63P"] },
+		];
+
+		expect([...awaitedSessions(board, present, at)].sort()).toEqual([
+			"hand",
+			"holder",
+		]);
+		expect(senderOf("1792698000000-P9R1KI-5402-aaaa")).toBe("P9R1KI");
+		expect(senderOf("not-a-stamp")).toBeUndefined();
 	});
 });
 

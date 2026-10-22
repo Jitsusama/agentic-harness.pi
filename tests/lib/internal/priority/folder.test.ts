@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { tellAwaited } from "../../../../lib/internal/priority/awaited.ts";
 import {
 	HEARTBEAT_MS,
 	isKept,
@@ -119,6 +120,33 @@ describe("the machine's queue folder", () => {
 				place: 1,
 			},
 		]);
+	});
+
+	it("gives the turn to work a session waits on, as the mesh tells it", () => {
+		const untell = tellAwaited(() => new Set(["session-b"]));
+		try {
+			const queue = folder();
+			queue.ask(job("older", { since: new Date(NOW - 9_000).toISOString() }));
+			queue.ask(job("waited", { owner: { session: "session-b", pid: 100 } }));
+			queue.ask(
+				job("after", {
+					owner: { session: "session-b", pid: 100 },
+					since: new Date(NOW - 500).toISOString(),
+				}),
+			);
+			queue.keep(ROOMY, NOW, () => undefined);
+			expect(queue.hasTurn("waited")).toBe(true);
+			expect(queue.hasTurn("older")).toBe(false);
+			const waiting = record().jobs.filter((one) => one.state === "waiting");
+			expect(
+				waiting.map((one) => [one.id, one.place, one.awaited ?? false]),
+			).toEqual([
+				["after", 1, true],
+				["older", 2, false],
+			]);
+		} finally {
+			untell();
+		}
 	});
 
 	it("gives turns by the rules it is kept with", () => {

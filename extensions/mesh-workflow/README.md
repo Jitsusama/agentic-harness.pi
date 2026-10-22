@@ -315,7 +315,11 @@ doing only when it is the easy thing:
   that what it named is free first. Ends settle as acts
   do, so peers held by one hold do not all carry on at once.
   Only while it waits does a peer check, once a minute, that
-  the holder is still there.
+  the holder is still there. While a live peer waits, the
+  holder's heavy work, and its hands', goes first in its class
+  in the machine queue, since finishing it is what lets the
+  waiting peers carry on; `queue.json` marks such a job
+  `awaited`.
   This is how a machine-wide pause, a reboot included, hands
   work back: the holder asks each peer to answer its hold once
   parked, and answers the hold itself when work may resume.

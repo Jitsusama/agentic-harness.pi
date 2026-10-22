@@ -47,6 +47,7 @@ import { checkoutOf, repositoryName } from "./presence.ts";
 import {
 	removeQuietly,
 	removeStaged,
+	senderOf,
 	touchedAt,
 	writeAtomically,
 } from "./transport.ts";
@@ -258,6 +259,40 @@ export function isCurrent(lease: Lease, now: number): boolean {
  * latest say what it works on as well as all of them would.
  */
 export const MOST_CHANGES_SHOWN = 12;
+
+/**
+ * The sessions a live peer is waiting on now: whoever sent a hold it is
+ * parked on, and the hands working for them. Their heavy work goes first
+ * in the machine queue, since it is what lets the waiting peers carry on.
+ */
+export function awaitedSessions(
+	board: readonly Holding[],
+	present: readonly {
+		readonly session: string;
+		readonly addresses: readonly string[];
+	}[],
+	now: number = Date.now(),
+): Set<string> {
+	const live = new Set(present.map((one) => one.session));
+	const senders = new Set(
+		board
+			.filter((holding) => live.has(holding.session))
+			.flatMap((holding) => holding.leases)
+			.filter((lease) => lease.kind === "wait" && isCurrent(lease, now))
+			.flatMap((lease) => senderOf(lease.subject) ?? []),
+	);
+	const awaited = new Set(
+		present
+			.filter((one) => one.addresses.some((address) => senders.has(address)))
+			.map((one) => one.session),
+	);
+	for (const holding of board) {
+		if (holding.handOf && awaited.has(holding.handOf)) {
+			awaited.add(holding.session);
+		}
+	}
+	return awaited;
+}
 
 /** What a peer is changing now, latest first: its standing change leases. */
 export function changesOf(

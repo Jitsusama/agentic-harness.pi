@@ -58,6 +58,12 @@ export function stampId(draft: Pick<Draft, "from" | "pid">): string {
 	return `${lastStamp}-${draft.from}-${draft.pid}-${randomBytes(4).toString("hex")}`;
 }
 
+/** The address a stamped id was sent from, or nothing for another id. */
+export function senderOf(id: string): string | undefined {
+	const [stamp, from] = id.split("-");
+	return stamp && /^\d+$/.test(stamp) && from ? from : undefined;
+}
+
 /** The time the last id this process stamped carries. */
 let lastStamp = 0;
 
