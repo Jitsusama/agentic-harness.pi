@@ -49,6 +49,7 @@ import {
 	type WaitCondition,
 } from "@jitsusama/agentic-harness.core/web/wait";
 import { Type } from "@sinclair/typebox";
+import { BROWSER_EXPOSURE } from "./exposure.ts";
 import { beyondBound, MAX_WAIT_MS } from "./limits.ts";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.ts";
 import { renderBrowserCall, renderBrowserResult } from "./render.ts";
@@ -337,6 +338,7 @@ const parameters = Type.Object({
 export function registerDo(pi: ExtensionAPI, registry: SessionRegistry): void {
 	pi.registerTool({
 		name: "browser_do",
+		...BROWSER_EXPOSURE,
 		label: "Browser Do",
 		description:
 			"Act on a browser page. kind 'act' clicks an element or types into " +

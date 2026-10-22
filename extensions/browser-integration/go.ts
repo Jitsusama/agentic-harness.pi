@@ -32,6 +32,7 @@ import {
 import { renderDialogs } from "@jitsusama/agentic-harness.core/web/telemetry";
 import { Type } from "@sinclair/typebox";
 import { KnownDevices } from "puppeteer-core";
+import { BROWSER_EXPOSURE } from "./exposure.ts";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.ts";
 import { renderBrowserCall, renderBrowserResult } from "./render.ts";
 import { answer, refusal } from "./result.ts";
@@ -546,6 +547,7 @@ async function loadSignedIn(
 export function registerGo(pi: ExtensionAPI, registry: SessionRegistry): void {
 	pi.registerTool({
 		name: "browser_go",
+		...BROWSER_EXPOSURE,
 		label: "Browser Go",
 		description:
 			"Put a browser session somewhere. kind 'navigate' goes to a url and " +

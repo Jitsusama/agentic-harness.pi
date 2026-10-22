@@ -60,6 +60,7 @@ import {
 	parseTarget,
 } from "@jitsusama/agentic-harness.core/web/target";
 import { type Static, Type } from "@sinclair/typebox";
+import { BROWSER_EXPOSURE } from "./exposure.ts";
 import { beyondBound, MAX_WALK_STOPS } from "./limits.ts";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.ts";
 import { renderBrowserCall, renderBrowserResult } from "./render.ts";
@@ -273,6 +274,7 @@ export function registerCheck(
 ): void {
 	pi.registerTool({
 		name: "browser_check",
+		...BROWSER_EXPOSURE,
 		label: "Browser Check",
 		description:
 			"Form a verdict about a browser page. kind 'keyboard' tabs through " +

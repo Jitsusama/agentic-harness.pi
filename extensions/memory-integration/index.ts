@@ -185,6 +185,8 @@ export default function memoryIntegration(pi: ExtensionAPI) {
 
 	pi.registerTool({
 		name: "memory_reflect",
+		// Not called once in 77 sessions from 8 October: loaded on demand.
+		exposure: "deferred",
 		label: "Reflect Memory",
 		description:
 			"Ask memory to synthesize an answer over the facts it holds for the " +

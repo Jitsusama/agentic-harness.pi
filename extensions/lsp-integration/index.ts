@@ -155,6 +155,8 @@ export default function lspIntegration(pi: ExtensionAPI) {
 
 	pi.registerTool({
 		name: "lsp",
+		// Called in 11 of 77 sessions from 8 October: loaded on demand.
+		exposure: "deferred",
 		label: "LSP",
 		description:
 			"Semantic code intelligence from a real language server. " +

@@ -68,6 +68,7 @@ import {
 } from "@jitsusama/agentic-harness.core/web/telemetry";
 import { Type } from "@sinclair/typebox";
 import { count } from "../../lib/ui/count.ts";
+import { BROWSER_EXPOSURE } from "./exposure.ts";
 import { beyondBound, MAX_PROFILE_MS } from "./limits.ts";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.ts";
 import { renderBrowserCall, renderBrowserResult } from "./render.ts";
@@ -584,6 +585,7 @@ const parameters = Type.Object({
 export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 	pi.registerTool({
 		name: "browser_see",
+		...BROWSER_EXPOSURE,
 		label: "Browser See",
 		description:
 			"Read the current state of a browser session without changing it. " +

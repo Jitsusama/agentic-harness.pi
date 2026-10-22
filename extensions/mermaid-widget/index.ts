@@ -95,6 +95,8 @@ export default function mermaidWidget(pi: ExtensionAPI) {
 
 	pi.registerTool({
 		name: "render_mermaid",
+		// Called in 4 of 77 sessions from 8 October: loaded on demand.
+		exposure: "deferred",
 		label: "Render Mermaid",
 		description:
 			"Render Mermaid diagram source to a crisp SVG plus a PNG, and " +
