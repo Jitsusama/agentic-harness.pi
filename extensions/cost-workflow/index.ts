@@ -347,6 +347,8 @@ export default function costWorkflow(pi: ExtensionAPI) {
 
 	pi.registerTool({
 		name: "cost",
+		// Called in 6 of 77 sessions from 8 October: loaded on demand.
+		exposure: "deferred",
 		label: "Cost",
 		description:
 			"Report what pi has actually cost, from the session logs it " +

@@ -114,19 +114,20 @@ export function sectionParameters() {
 
 /**
  * The schema for one change's sections in a stack. All four are
- * required, as they are for a single proposal, and each says the same
- * contract, since a model writing the third change of a stack reads this
- * description and not the one on propose's fields.
+ * required, as they are for a single proposal, and each points at the
+ * contract on propose's field of the same name rather than saying it
+ * again. Both sit in one declaration the model reads whole, and said
+ * twice the contract cost about 3,500 characters on every turn of every
+ * session, for an action used a handful of times.
  */
 export function stackSections() {
-	const bare = (text: string) => text.replace(/^For propose and edit: /, "");
+	const same = (field: string) =>
+		`Held to the same contract as the top-level \`${field}\` field.`;
 	return {
-		problem: Type.String({ description: bare(SECTION_DESCRIPTIONS.problem) }),
-		solution: Type.String({ description: bare(SECTION_DESCRIPTIONS.solution) }),
-		validation: Type.String({
-			description: bare(SECTION_DESCRIPTIONS.validation),
-		}),
-		tldr: Type.String({ description: bare(SECTION_DESCRIPTIONS.tldr) }),
+		problem: Type.String({ description: same("problem") }),
+		solution: Type.String({ description: same("solution") }),
+		validation: Type.String({ description: same("validation") }),
+		tldr: Type.String({ description: same("tldr") }),
 	};
 }
 

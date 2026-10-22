@@ -70,6 +70,8 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 
 	pi.registerTool({
 		name: "google",
+		// Not called once in 77 sessions from 8 October: loaded on demand.
+		exposure: "deferred",
 		label: "Google Workspace",
 		description:
 			"Access Google Workspace (Gmail, Calendar, Drive, Docs, Sheets, Slides). Use when asked to check email, view calendar, open Google docs, search Drive, or access any Google Workspace data.",

@@ -1,24 +1,16 @@
 ---
 name: review-guide
 description: >
-  How to put up, read and review a change through the
-  `review`, `review_see`, `review_say`, `review_ask`,
-  `review_draft` and `review_offer` tools, whatever hosts
-  it: GitHub, Meteorite, GitLab, or commits nobody has
-  proposed. Covers attaching a change, reading a diff and a
-  stack, asking other models through a council and a judge,
-  drafting a review, and proposing a branch through to
-  merge. The council is these tools: never build one out of
-  subagents.
-  Use when asked to "review this change", "read this PR",
-  "what did people say", "reply to that thread", "resolve
-  those comments", "approve it", "run a council", "open a
-  PR", "cut a PR", "cut one for each", "raise a PR",
-  "submit a PR", "put it up for review", "mark it ready",
-  "merge it", or any request to look at, comment on, create
-  or land a change. Creating a PR is this skill's job even
-  when review is never mentioned; `gh pr create` is the
-  mistake it exists to prevent.
+  Put up, read and review a change on any host, or none,
+  through the review tools, councils included (never build
+  one from subagents). Use when asked to "review this
+  change", "read this PR", "what did people say", "reply to
+  that thread", "resolve those comments", "approve it", "run
+  a council", "open a PR", "cut a PR", "raise a PR", "submit
+  a PR", "put it up for review", "mark it ready", "merge
+  it", or to look at, comment on, create or land a change.
+  Creating a PR is this skill's job even when review is not
+  mentioned; `gh pr create` is the mistake it prevents.
 ---
 
 # Review Guide
