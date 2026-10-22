@@ -17,6 +17,15 @@
  * and no longer this one's: a session that once held a quest and moved
  * on must not take the messages its successor sends, as its own, nor
  * what is sent to that successor.
+ *
+ * Two sessions can have one quest loaded at once, as when a second is
+ * opened on it. Both signing with its address, each took the other's
+ * messages for its own and heard none of them, and they shared one
+ * read marker. So the quest's address is one live peer's: a peer that
+ * already signs with it keeps it, and one starting while another live
+ * peer signs with it signs with its session's address instead, until
+ * that peer ends. Two that took it at once settle it by session id,
+ * the lower keeping it, so neither flips back and forth.
  */
 
 import { readdirSync, readFileSync } from "node:fs";
@@ -47,14 +56,54 @@ export function addressesOf(
 	records: QuestRecords,
 	older: readonly string[] = olderAddresses(sessionId, records),
 	claimed: ReadonlySet<string> = new Set(),
+	yielded = false,
 ): string[] {
-	const own = sessionId.replace(/-/g, "").slice(-8).toUpperCase();
-	const loaded = loadedQuest(sessionId, records.sessions);
-	const signing = loaded ? questAddress(loaded) : undefined;
+	const own = sessionAddress(sessionId);
+	const signing = loadedAddress(sessionId, records);
 	const kept = older.filter(
 		(address) => address !== signing && !claimed.has(address),
 	);
-	return [...(signing ? [signing] : []), ...kept, own];
+	return [...(signing && !yielded ? [signing] : []), ...kept, own];
+}
+
+/**
+ * The address a session always has: the last eight characters of its
+ * id, the last because a pi session id begins with its start time.
+ */
+export function sessionAddress(sessionId: string): string {
+	return sessionId.replace(/-/g, "").slice(-8).toUpperCase();
+}
+
+/** The address of the quest this session has loaded, if it has one. */
+export function loadedAddress(
+	sessionId: string,
+	records: QuestRecords,
+): string | undefined {
+	const loaded = loadedQuest(sessionId, records.sessions);
+	return loaded ? questAddress(loaded) : undefined;
+}
+
+/**
+ * The live peer this session leaves its quest's address to, if any: one
+ * already signing with it, when this session is not; or, when both are,
+ * one whose session id is lower.
+ */
+export function yieldsTo<
+	One extends {
+		readonly session: string;
+		readonly addresses: readonly string[];
+	},
+>(
+	session: string,
+	signing: string | undefined,
+	signingNow: boolean,
+	live: readonly One[],
+): One | undefined {
+	if (signing === undefined) return undefined;
+	return live
+		.filter((one) => one.session !== session && one.addresses[0] === signing)
+		.sort((one, other) => one.session.localeCompare(other.session))
+		.find((one) => !signingNow || one.session < session);
 }
 
 /**

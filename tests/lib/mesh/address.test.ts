@@ -10,6 +10,7 @@ import {
 	answeringTo,
 	olderAddresses,
 	questAddress,
+	yieldsTo,
 } from "../../../lib/mesh/address.ts";
 
 let root: string;
@@ -41,6 +42,26 @@ function loaded(questId: string) {
 		"utf8",
 	);
 }
+
+describe("a quest's address, when two sessions have it loaded", () => {
+	const holder = { session: "02-holder", addresses: ["7M6JKG", "02HOLDER"] };
+	const older = { session: "00-older", addresses: ["7M6JKG"] };
+	const elsewhere = { session: "00-else", addresses: ["P9R1KI"] };
+
+	it("is left by a peer starting to one already signing with it", () => {
+		expect(yieldsTo("01-me", "7M6JKG", false, [holder, elsewhere])).toBe(
+			holder,
+		);
+		expect(yieldsTo("01-me", "7M6JKG", false, [elsewhere])).toBeUndefined();
+		expect(yieldsTo("01-me", undefined, false, [holder])).toBeUndefined();
+	});
+
+	it("is kept by the lower session id when both sign with it", () => {
+		expect(yieldsTo("01-me", "7M6JKG", true, [holder])).toBeUndefined();
+		expect(yieldsTo("01-me", "7M6JKG", true, [older, holder])).toBe(older);
+		expect(yieldsTo("02-holder", "7M6JKG", true, [holder])).toBeUndefined();
+	});
+});
 
 describe("a peer's addresses", () => {
 	it("are a quest's last six letters", () => {
@@ -90,6 +111,14 @@ describe("a peer's addresses", () => {
 
 		expect(answeringTo(spawner, [spawner, spawned])).toEqual(["5GV2AH"]);
 		expect(answeringTo(spawned, [spawner, spawned])).toEqual(["LUQ49E"]);
+	});
+
+	it("leave the quest's address out when it was left to another peer", () => {
+		loaded("QEST-20261021-7M6JKG");
+
+		expect(addressesOf(session, records(), [], new Set(), true)).toEqual([
+			"24B025FE",
+		]);
 	});
 
 	it("are the session id's tail alone with no quest store", () => {

@@ -82,6 +82,7 @@ import {
 	ownLeases,
 	RUN_KINDS,
 } from "../../lib/mesh/lease.ts";
+import { census } from "../../lib/mesh/liveness.ts";
 import {
 	isHomeTo,
 	line,
@@ -118,7 +119,13 @@ import {
 	NOTED,
 	noted,
 } from "./delivery.ts";
-import { countedIn, createGlances, type Entry, handedIn } from "./glances.ts";
+import {
+	countedIn,
+	createGlances,
+	type Entry,
+	handedIn,
+	leftToIn,
+} from "./glances.ts";
 import { createHeavyCalls, createLeasing, type HoldEnd } from "./leases.ts";
 import { type Local, registerTools } from "./tools.ts";
 
@@ -248,6 +255,57 @@ export function meshWorkflow(
 			peer: () => peer,
 			sent: (message) => seen.add(message.id),
 		});
+		// The sessions last counted still there, so a quest's address is
+		// left only to a peer that is (see address.ts).
+		let live: ReadonlySet<string> | undefined;
+		const countLive = async () => {
+			try {
+				const { present } = await census(presences.all());
+				live = new Set(present.map((one) => one.session));
+			} catch {
+				// Uncounted, the last count stands.
+			}
+		};
+		// Whose quest address this peer was told it left, and what it last
+		// signed as, so each is said once.
+		let leftTo: string | undefined;
+		let signed: string | undefined;
+		/**
+		 * Tell both sides when this peer leaves its quest's address to a
+		 * live peer that already signs with it: two sessions on one quest
+		 * are how work gets done twice, so each is asked to say what it
+		 * takes. A change of signature is said on screen.
+		 */
+		const identity = () => {
+			if (!peer) return;
+			const holder = peer.yieldedTo;
+			const quest = holder?.addresses[0];
+			if (holder && quest && holder.session !== leftTo) {
+				const sig = peer.signature;
+				const message = transport.send({
+					from: sig,
+					to: [homeOf(quest)],
+					intent: "fyi",
+					text: `${sig} has quest ${quest} loaded too. ${quest} stays this peer's address and ${sig} signs as itself; both hear the quest's group. Say which part of the quest each is taking, so neither repeats the other's work.`,
+					pid: process.pid,
+				});
+				seen.add(message.id);
+				pi.sendMessage(
+					{
+						customType: NOTED,
+						content: `Another live session, ${quest}, already has this quest loaded and signs with its address, so this peer signs as ${sig} until it ends; both hear the quest's group, and ${quest} has been told. Before starting on the quest, see what ${quest} is on (mesh_groups) and agree with it which part each takes, so neither repeats the other's work.`,
+						display: true,
+						details: { ...delivered([], []), leftTo: holder.session },
+					},
+					{ triggerTurn: false },
+				);
+			}
+			leftTo = holder?.session;
+			if (signed !== undefined && signed !== peer.signature && ctx?.hasUI) {
+				ctx.ui.notify(`Mesh: this peer signs as ${peer.signature} now`, "info");
+			}
+			signed = peer.signature;
+		};
 		// Holds this peer waited on that are over, waiting to settle as acts
 		// do, so peers held by one hold do not all carry on at once.
 		let resumes: Acts<HoldEnd> | undefined;
@@ -329,6 +387,7 @@ export function meshWorkflow(
 		const route = async (messages: readonly Message[], starting = false) => {
 			if (messages.length === 0 || !ctx || !peer) return;
 			peer.refresh();
+			identity();
 			const receiver = peer.receiver;
 			const self: Self = { addresses: peer.addresses, pid: process.pid };
 			const listener = peer.listener;
@@ -622,6 +681,12 @@ export function meshWorkflow(
 		/** Messages the watcher never reported, taken as it would have. */
 		const lookAgain = () => {
 			if (!peer) return;
+			// Who is still there changes without a message saying so: a
+			// quest's address left to a peer that ended is taken back.
+			void countLive().then(() => {
+				peer?.refresh();
+				identity();
+			});
 			if (left.size > 0) void reconsider();
 			const missed = transport
 				.ids()
@@ -691,7 +756,12 @@ export function meshWorkflow(
 			// A log rolled over into a fresh one carries on as the same peer.
 			const previous = previousSession(carriedBy(branch, CARRY_NAME));
 			if (previous) carryLeases(board, previous, session);
+			await countLive();
+			// Said already before a reload is not said again.
+			leftTo = leftToIn(branch);
+			signed = undefined;
 			peer = localPeer({
+				live: () => live,
 				session,
 				cwd: started.cwd ?? process.cwd(),
 				records: paths,
@@ -770,6 +840,7 @@ export function meshWorkflow(
 				if (message) missed.push(message);
 			}
 			void route(missed, true);
+			identity();
 			tidy();
 			if (started.hasUI) {
 				const groups =
