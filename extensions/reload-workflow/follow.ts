@@ -14,11 +14,14 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import {
+	CEILING_MS,
+	cacheLifetimeMs,
 	cameIn,
 	dependenciesReady,
 	FOLLOW_ENV,
 	type Moved,
 	type Unwatch,
+	untilCheap,
 	watchHeads,
 	whenToReload,
 } from "../../lib/internal/reload/follow.ts";
@@ -34,6 +37,9 @@ import { COMMAND, RELOAD_ARG } from "./transitions.ts";
 
 /** How often a reload that is waiting on jobs or an install looks again. */
 const RECHECK_MS = 30_000;
+
+/** The shortest wait before looking again for a cheap moment. */
+const LEAST_WAIT_MS = 1_000;
 
 /** The process's one follower, so a reload replaces it rather than adding one. */
 const FOLLOWER_KEY = Symbol.for("agentic-harness.reload.follower");
@@ -80,11 +86,22 @@ export async function follow(
 	{
 		env = process.env,
 		quietMs,
-	}: { env?: NodeJS.ProcessEnv; quietMs?: number } = {},
+		lastTurnAt = () => Date.now(),
+		now = () => Date.now(),
+		ceilingMs = CEILING_MS,
+	}: {
+		env?: NodeJS.ProcessEnv;
+		quietMs?: number;
+		/** When the model last answered, so an expired cache can be told. */
+		lastTurnAt?: () => number;
+		now?: () => number;
+		ceilingMs?: number;
+	} = {},
 ): Promise<Follower | undefined> {
 	const global = globalThis as FollowerGlobal;
 	global[FOLLOWER_KEY]?.();
 	global[FOLLOWER_KEY] = undefined;
+	reloadSlot().compacted = undefined;
 	if (!ctx.hasUI || isSubagent(env) || env[FOLLOW_ENV]?.trim() === "off") {
 		return undefined;
 	}
@@ -94,7 +111,17 @@ export async function follow(
 	// after dispatch, since a reload waits for the session to be still
 	// and more can land meanwhile; the next runtime starts with none.
 	const moved = new Map<string, Moved>();
+	let movedAt = 0;
 	let recheck: NodeJS.Timeout | undefined;
+	const lifetimeMs = cacheLifetimeMs(env);
+	const waitForCheap = () =>
+		untilCheap({
+			movedAt,
+			lastTurnAt: lastTurnAt(),
+			now: now(),
+			lifetimeMs,
+			ceilingMs,
+		});
 
 	const reasonNow = async () => {
 		const named = (
@@ -114,9 +141,13 @@ export async function follow(
 		slot.request = { ...slot.request, reason };
 	};
 
-	const dispatch = async () => {
+	const dispatch = async (resume?: string) => {
 		const slot = reloadSlot();
-		slot.request = { reason: await reasonNow(), by: "self" };
+		slot.request = {
+			reason: await reasonNow(),
+			by: "self",
+			...(resume === undefined ? {} : { resume }),
+		};
 		slot.dispatched = true;
 		pi.sendUserMessage(`/${COMMAND} ${RELOAD_ARG}`, {
 			expandPromptTemplates: true,
@@ -138,18 +169,28 @@ export async function follow(
 			// A stale context belongs to a runtime that has gone.
 			return;
 		}
+		const pendingJobs = findJobHost(pi.events)?.pending?.() ?? 0;
+		const ready = [...moved.keys()].every(dependenciesReady);
+		const untilCheapMs = waitForCheap();
 		const moment = whenToReload({
 			swapped: isSwapped(running()),
 			idle,
-			pendingJobs: findJobHost(pi.events)?.pending?.() ?? 0,
-			ready: [...moved.keys()].every(dependenciesReady),
+			pendingJobs,
+			ready,
+			cheap: untilCheapMs === 0,
 		});
 		if (moment === "never") {
 			moved.clear();
 			return;
 		}
 		if (moment === "wait") {
-			recheck = setTimeout(() => consider(), RECHECK_MS);
+			// Jobs and installs are looked at again often; a cheap moment
+			// comes at a time that is known.
+			const delay =
+				pendingJobs > 0 || !ready
+					? RECHECK_MS
+					: Math.max(LEAST_WAIT_MS, untilCheapMs);
+			recheck = setTimeout(() => consider(), delay);
 			recheck.unref?.();
 			return;
 		}
@@ -157,9 +198,30 @@ export async function follow(
 		if (moment === "now") void dispatch();
 	};
 
+	// A compaction has just landed, so the next request writes the whole
+	// cache anyway: reload in its moment, taking the resume with it.
+	reloadSlot().compacted = (resume) => {
+		if (moved.size === 0) return false;
+		const slot = reloadSlot();
+		if (slot.request !== undefined) return false;
+		const moment = whenToReload({
+			swapped: isSwapped(running()),
+			idle: true,
+			pendingJobs: findJobHost(pi.events)?.pending?.() ?? 0,
+			ready: [...moved.keys()].every(dependenciesReady),
+			cheap: true,
+		});
+		if (moment !== "now") return false;
+		if (recheck) clearTimeout(recheck);
+		recheck = undefined;
+		void dispatch(resume);
+		return true;
+	};
+
 	const unwatch = await watchHeads(
 		installedRoots(settings),
 		(one) => {
+			if (moved.size === 0) movedAt = now();
 			const earlier = moved.get(one.root);
 			moved.set(one.root, earlier ? { ...one, from: earlier.from } : one);
 			if (reloadSlot().request?.by === "self") void retell();
@@ -170,6 +232,7 @@ export async function follow(
 	global[FOLLOWER_KEY] = () => {
 		unwatch();
 		if (recheck) clearTimeout(recheck);
+		reloadSlot().compacted = undefined;
 	};
 	return { consider };
 }

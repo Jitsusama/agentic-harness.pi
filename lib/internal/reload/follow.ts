@@ -18,6 +18,17 @@
  * since `git merge` lands before `pnpm install` does. A session that
  * runs a tree rather than the install is being tested on purpose and
  * is never moved.
+ *
+ * It also waits for the cache to be cheap to lose. A reload that
+ * changes any tool's declaration makes the next request read nothing
+ * from the cache and write the whole context again: on 22 October that
+ * happened 40 times, about 9.9M tokens or $78, almost all of it
+ * sessions following a deploy. A change to prompt sections alone keeps
+ * the cache. So a session reloads itself when the cache is being
+ * rewritten anyway (just after a compaction) or has expired (no turn
+ * for longer than it is kept), and at the latest an hour after the
+ * install moved, Joel's ceiling. A median compaction cycle is 70
+ * minutes, so most reloads land within about half an hour.
  */
 
 import { execFile } from "node:child_process";
@@ -33,6 +44,17 @@ const MOST_NAMED = 8;
 /** The environment variable that turns following off. */
 export const FOLLOW_ENV = "PI_FOLLOW_INSTALL";
 
+/** The longest a reload waits for the cache to be cheap to lose. */
+export const CEILING_MS = 60 * 60_000;
+
+/**
+ * How long the provider keeps the cache after the last request: an
+ * hour under long retention, five minutes otherwise.
+ */
+export function cacheLifetimeMs(env: NodeJS.ProcessEnv = process.env): number {
+	return env.PI_CACHE_RETENTION === "long" ? 60 * 60_000 : 5 * 60_000;
+}
+
 /** When a waiting reload should happen, given where the session stands. */
 export type Moment = "now" | "after-run" | "wait" | "never";
 
@@ -46,13 +68,39 @@ export interface Standing {
 	readonly pendingJobs: number;
 	/** Every moved install has the dependencies its lockfile names. */
 	readonly ready: boolean;
+	/**
+	 * Losing the cache costs nothing now, or the reload has waited as
+	 * long as it may for that.
+	 */
+	readonly cheap: boolean;
 }
 
 /** When to reload a session standing like this. */
 export function whenToReload(at: Standing): Moment {
 	if (at.swapped) return "never";
-	if (at.pendingJobs > 0 || !at.ready) return "wait";
+	if (at.pendingJobs > 0 || !at.ready || !at.cheap) return "wait";
 	return at.idle ? "now" : "after-run";
+}
+
+/** The clocks that say whether the cache is cheap to lose. */
+export interface CacheClock {
+	/** When the install first moved since the code that runs. */
+	readonly movedAt: number;
+	/** When the model last answered. */
+	readonly lastTurnAt: number;
+	readonly now: number;
+	readonly lifetimeMs: number;
+	readonly ceilingMs: number;
+}
+
+/**
+ * Milliseconds until losing the cache costs nothing or the ceiling
+ * comes, whichever is first; 0 when that is now.
+ */
+export function untilCheap(clock: CacheClock): number {
+	const cold = clock.lastTurnAt + clock.lifetimeMs;
+	const ceiling = clock.movedAt + clock.ceilingMs;
+	return Math.max(0, Math.min(cold, ceiling) - clock.now);
 }
 
 /**

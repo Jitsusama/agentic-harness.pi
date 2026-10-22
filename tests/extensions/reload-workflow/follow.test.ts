@@ -45,6 +45,10 @@ async function session({
 	hasUI = true,
 	swapped = false,
 	pending = 0,
+	// The model last answered long ago, so the cache has expired and a
+	// reload costs nothing, unless a test says otherwise.
+	warm = false,
+	ceilingMs = 60 * 60_000,
 } = {}) {
 	const install = await freshRepo("install");
 	repos.push(install);
@@ -67,7 +71,12 @@ async function session({
 		{ hasUI, isIdle: () => !busy } as never,
 		settingsFor(install),
 		() => ({ root: swapped ? "/a/tree" : install, install }),
-		{ env: {}, quietMs: QUIET_MS },
+		{
+			env: {},
+			quietMs: QUIET_MS,
+			lastTurnAt: () => (warm ? Date.now() : 0),
+			ceilingMs,
+		},
 	);
 	return {
 		install,
@@ -143,6 +152,37 @@ describe("following the install", () => {
 		finishJobs();
 		settle();
 		await until("the reload is asked for", () => prompted.length > 0);
+	});
+
+	it("waits while the cache is warm, and reloads in a compaction's moment", async () => {
+		const { install, prompted } = await session({ warm: true });
+
+		await land(install, "feat: something to try");
+		await quietFor(QUIET_MS, 4);
+		expect(prompted).toEqual([]);
+
+		expect(reloadSlot().compacted?.("carry on")).toBe(true);
+		await until("the reload is asked for", () => prompted.length > 0);
+		expect(reloadSlot().request).toEqual({
+			reason: "feat: something to try",
+			by: "self",
+			resume: "carry on",
+		});
+	});
+
+	it("leaves a compaction's resume alone when nothing moved", async () => {
+		await session({ warm: true });
+
+		expect(reloadSlot().compacted?.("carry on")).toBe(false);
+	});
+
+	it("reloads at the ceiling however warm the cache", async () => {
+		const { install, prompted } = await session({ warm: true, ceilingMs: 50 });
+
+		await land(install, "feat: something to try");
+
+		await until("the reload is asked for", () => prompted.length > 0);
+		expect(prompted).toEqual(["/harness reload"]);
 	});
 
 	it("never moves a session running a tree, or one nobody sits at", async () => {

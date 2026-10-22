@@ -14,8 +14,13 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import compactionWorkflow from "../../../extensions/compaction-workflow/index.ts";
+import { reloadSlot } from "../../../lib/internal/reload/slot.ts";
+
+afterEach(() => {
+	reloadSlot().compacted = undefined;
+});
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
 
@@ -99,6 +104,28 @@ describe("resuming the run a compaction interrupted", () => {
 		expect(calls.sendMessage).toEqual([]);
 		expect(calls.sendUserMessage).toHaveLength(1);
 		expect(String(calls.sendUserMessage[0]?.[0])).toMatch(/compacted/);
+	});
+
+	it("hands the resume to a reload waiting for the cache to be cheap", async () => {
+		const handed: (string | undefined)[] = [];
+		reloadSlot().compacted = (resume) => {
+			handed.push(resume);
+			return true;
+		};
+
+		const calls = await runUntilCompaction((options) => options.onComplete?.());
+
+		expect(calls.sendUserMessage).toEqual([]);
+		expect(handed).toHaveLength(1);
+		expect(String(handed[0])).toMatch(/compacted/);
+	});
+
+	it("resumes itself when no reload takes the moment", async () => {
+		reloadSlot().compacted = () => false;
+
+		const calls = await runUntilCompaction((options) => options.onComplete?.());
+
+		expect(calls.sendUserMessage).toHaveLength(1);
 	});
 
 	it("resumes after a failed compaction through the prompt path", async () => {
