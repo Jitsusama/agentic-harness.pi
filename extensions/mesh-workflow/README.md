@@ -393,6 +393,20 @@ A peer that stopped the sender is never routed to. The sender
 is told where the message went and why, so it can send again
 naming the groups.
 
+A message that opens by naming peers ("P9R1KI: may I", or
+"@WCJQSG the schema") is for them, so it goes to their homes
+alone, wherever it was sent and whether or not it named a
+group. Sent to a group they share, every other member would
+read it only to learn it was not theirs: on 22 October
+questions meant for one session went to a design group of
+five.
+Two are left where they were sent: an answer, since the group
+its question went to sees by it that the question is
+answered, and a replacement, which goes wherever what it
+replaces went. An opening that names anything but other
+peers, as a sender signing its own message does, is not
+read as an address.
+
 ## Intents
 
 - **hold:** do not start what it names until its sender says

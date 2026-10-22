@@ -150,6 +150,41 @@ export function signaturesOfOthers(
 	);
 }
 
+/**
+ * The peers a message opens by naming, as "P9R1KI: may I…" or
+ * "@P9R1KI @WCJQSG the schema…", by the address each signs with: the
+ * peers it is for. Sent to a group they share, it would cost every
+ * other member its words to learn it was not for them. Nothing when
+ * the opening names anything but other peers, as a sender signing its
+ * own message ("WCJQSG: the shape suits…") does.
+ */
+export function namedAtStart(
+	text: string,
+	session: string,
+	everyone: readonly {
+		readonly session: string;
+		readonly addresses: readonly string[];
+	}[],
+): string[] {
+	const opening =
+		/^\s*((?:@?[A-Za-z0-9]+(?:\s*,\s*|\s+and\s+|\s*&\s*|\s+))*@?[A-Za-z0-9]+)\s*:/.exec(
+			text,
+		)?.[1] ?? /^\s*((?:@[A-Za-z0-9]+[\s,]+)*@[A-Za-z0-9]+)\b/.exec(text)?.[1];
+	if (opening === undefined) return [];
+	const names = opening
+		.split(/\s*,\s*|\s+and\s+|\s*&\s*|\s+/)
+		.map((name) => name.replace(/^@/, "").toUpperCase());
+	const others = everyone.filter((one) => one.session !== session);
+	const meant = names.map(
+		(name) =>
+			others.find((one) => answeringTo(one, everyone).includes(name))
+				?.addresses[0],
+	);
+	return meant.every((address) => address !== undefined)
+		? [...new Set(meant as string[])]
+		: [];
+}
+
 /** The id of the quest this session has loaded, when its record says. */
 export function loadedQuest(
 	sessionId: string,

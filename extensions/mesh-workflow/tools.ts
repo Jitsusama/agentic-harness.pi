@@ -6,7 +6,7 @@
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { answeringTo } from "../../lib/mesh/address.ts";
+import { answeringTo, namedAtStart } from "../../lib/mesh/address.ts";
 import {
 	ALL,
 	groupNamed,
@@ -88,7 +88,7 @@ export function registerTools(
 		name: "mesh_send",
 		label: "Mesh",
 		description:
-			"Send a message to other pi sessions (peers) on this machine without interrupting them: it joins their conversation as context, at the attention each gives it. Send only what changes what another peer should do (a hold before a reboot, a switch, a merge or a heavy build; a question only it can answer) or what concerns something it owns (a finding). Never send progress, acknowledgements or thanks. Every message goes to a group: a peer's home group by its address (5GV2AH); a group a peer's work puts it in, its quest's (#quest/5gv2ah, which reaches the quests under it too) or its repository's (#repo/agentic-harness-pi); a group by name (#harness); or #all, which is only for what touches every peer on the machine. Pick the narrowest that reaches everyone affected, or leave `to` out and the mesh picks from what the message names and who works on it. Sending to a named group joins it, so this peer hears the answers. mesh_groups lists the groups and who is in them.",
+			"Send a message to other pi sessions (peers) on this machine without interrupting them: it joins their conversation as context, at the attention each gives it. Send only what changes what another peer should do (a hold before a reboot, a switch, a merge or a heavy build; a question only it can answer) or what concerns something it owns (a finding). Never send progress, acknowledgements or thanks. Every message goes to a group: a peer's home group by its address (5GV2AH); a group a peer's work puts it in, its quest's (#quest/5gv2ah, which reaches the quests under it too) or its repository's (#repo/agentic-harness-pi); a group by name (#harness); or #all, which is only for what touches every peer on the machine. Pick the narrowest that reaches everyone affected: a question for one peer goes to its address alone (to: P9R1KI, not a group it shares), since every member of a group reads what is sent there, and a message that opens by naming peers ('P9R1KI: may I') goes to them alone wherever it was sent. When the person asks to stop or pause other sessions' work, send a hold to #all, which every peer obeys until it is answered. Leave `to` out and the mesh picks from what the message names and who works on it. Sending to a named group joins it, so this peer hears the answers. mesh_groups lists the groups and who is in them.",
 		parameters: Type.Object({
 			to: Type.Optional(
 				Type.String({
@@ -273,8 +273,24 @@ async function send(
 			...named.filter((group) => !unnamed.includes(group)),
 		]),
 	];
+	// A message that opens by naming peers is for them: sent to a group
+	// they share, every other member would read it to learn it was not.
+	// An answer is left where it was sent, since the group its question
+	// went to sees by it that the question is answered, and a replacement
+	// must reach everyone who heard what it replaces.
+	const meant =
+		params.re === undefined && ownReplaced === undefined
+			? namedAtStart(params.text, at.peer.session, everyone).map(homeOf)
+			: [];
+	const aimed =
+		meant.length > 0 && !sameGroups(chosen, meant) ? meant : undefined;
+	if (aimed) {
+		notes.push(
+			`It opens by naming ${aimed.map((home) => home.slice(1)).join(", ")}, so it goes to ${aimed.length === 1 ? "that peer" : "those peers"} alone${chosen.length > 0 ? ` rather than ${chosen.join(", ")}` : ""}; open it another way to send it to a group.`,
+		);
+	}
 	const routed =
-		chosen.length > 0
+		chosen.length > 0 || aimed
 			? undefined
 			: await routeOf(
 					{ intent: params.intent, text: params.text },
@@ -295,7 +311,7 @@ async function send(
 		stops.filter(({ stopper }) =>
 			stopper.addresses.map(homeOf).includes(group),
 		);
-	const wanted = routed?.to ?? chosen;
+	const wanted = aimed ?? routed?.to ?? chosen;
 	const barred = wanted.filter((group) => stoppedAt(group).length > 0);
 	const to = wanted.filter((group) => !barred.includes(group));
 	const barredText = () =>
@@ -790,6 +806,12 @@ function anyoneElseIn(
  * Every joined group with who is in it among the peers still there,
  * where this peer stands, and who joined groups but has since ended.
  */
+function sameGroups(one: readonly string[], other: readonly string[]): boolean {
+	return (
+		one.length === other.length && one.every((group) => other.includes(group))
+	);
+}
+
 function capitalized(text: string): string {
 	return text.charAt(0).toUpperCase() + text.slice(1);
 }

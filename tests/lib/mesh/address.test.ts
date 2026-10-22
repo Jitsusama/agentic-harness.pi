@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	addressesOf,
 	answeringTo,
+	namedAtStart,
 	olderAddresses,
 	questAddress,
 	yieldsTo,
@@ -123,5 +124,32 @@ describe("a peer's addresses", () => {
 
 	it("are the session id's tail alone with no quest store", () => {
 		expect(addressesOf(session, records())).toEqual(["24B025FE"]);
+	});
+});
+
+describe("the peers a message opens by naming", () => {
+	const everyone = [
+		{ session: "me", addresses: ["LUQ49E"] },
+		{ session: "p", addresses: ["P9R1KI", "CA6H2X"] },
+		{ session: "w", addresses: ["WCJQSG"] },
+	];
+
+	it("are the peers before its colon, by what each signs with", () => {
+		expect(namedAtStart("P9R1KI: may I write it?", "me", everyone)).toEqual([
+			"P9R1KI",
+		]);
+		expect(
+			namedAtStart("ca6h2x and @WCJQSG: the schema", "me", everyone),
+		).toEqual(["P9R1KI", "WCJQSG"]);
+		expect(namedAtStart("@WCJQSG the schema is in", "me", everyone)).toEqual([
+			"WCJQSG",
+		]);
+	});
+
+	it("are none when the opening names anything else, its sender included", () => {
+		expect(namedAtStart("LUQ49E: the shape suits", "me", everyone)).toEqual([]);
+		expect(namedAtStart("Joel, P9R1KI: hold", "me", everyone)).toEqual([]);
+		expect(namedAtStart("Note: P9R1KI builds", "me", everyone)).toEqual([]);
+		expect(namedAtStart("the queue, P9R1KI: yes", "me", everyone)).toEqual([]);
 	});
 });

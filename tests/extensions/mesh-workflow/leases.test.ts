@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	commandLine,
 	createHeavyCalls,
 	createLeasing,
 	leasesText,
@@ -280,6 +281,20 @@ describe("heavy shell calls", () => {
 		expect(events.filter((event) => "release" in event)).toEqual([
 			{ release: "nix build" },
 		]);
+	});
+
+	it("say what runs heavy, past the variables a command sets first", () => {
+		// Seen live: "started heavy work on nix build too
+		// (W=/home/jitsusama/.cache/\u2026; L=\u2026)" told a peer a path.
+		expect(
+			commandLine(
+				"W=/home/jitsusama/.cache/w; L=$W/log\ncd ~/src/core.nix && NIX_CONFIG='x' nix build .#vm -L > $L",
+			),
+		).toBe("nix build .#vm -L > $L");
+		expect(commandLine('A=1 B="two words" cargo test -p x')).toBe(
+			"cargo test -p x",
+		);
+		expect(commandLine("git status\nls")).toBe("git status");
 	});
 
 	it("keep the work of a call handed to a job until the job ends", () => {

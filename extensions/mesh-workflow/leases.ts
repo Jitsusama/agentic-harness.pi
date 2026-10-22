@@ -503,11 +503,25 @@ function describeAll(leases: readonly Lease[]): string {
 /** How a bash call says it handed its command to a job. */
 const HANDED_OFF = /in the background as job \S+/;
 
-/** A command's first line, as a lease says what it is for. */
+/**
+ * The part of a command that does its heavy work, as a lease says what
+ * it is for: its first step otherwise. Variables it sets first are left
+ * out, since "W=/home/jitsusama/.cache/...; nix build" told the peers
+ * beside it a path and not what was running.
+ */
 export function commandLine(command: string): string {
-	const first = command.trim().split("\n")[0] ?? "";
-	return first.length > 120 ? `${first.slice(0, 117)}...` : first;
+	const steps = command
+		.split(/\n|;|&&|\|\|/)
+		.map((step) => step.replace(ASSIGNMENTS, "").trim())
+		.filter((step) => step !== "");
+	const step =
+		steps.find((one) => heavyWorkIn(one) !== undefined) ?? steps[0] ?? "";
+	return step.length > 120 ? `${step.slice(0, 117)}...` : step;
 }
+
+/** Variables set at the start of a step, as `A=1 B="two" cmd` sets two. */
+const ASSIGNMENTS =
+	/^\s*(?:export\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|\S*)(?:\s+|$))+/;
 
 /**
  * The heavy shell commands running, by call, so work two calls share is
