@@ -3,12 +3,18 @@
  * bus standing in for job-workflow.
  */
 
+import { rmSync } from "node:fs";
 import {
 	createEventBus,
 	type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import awayWorkflow from "../../../extensions/away-workflow/index.ts";
+import {
+	machineAwayPath,
+	publishMachineWord,
+	readMachineWord,
+} from "../../../lib/internal/away/machine.ts";
 import {
 	hold,
 	isAway,
@@ -40,9 +46,9 @@ interface FakeJob {
 	withdrawn: boolean;
 }
 
-const disposers: (() => void)[] = [];
+const disposers: (() => unknown)[] = [];
 
-function activate() {
+function activate({ hasUI = true } = {}) {
 	const handlers = new Map<string, Handler[]>();
 	const events = createEventBus();
 	const said: Said[] = [];
@@ -90,7 +96,7 @@ function activate() {
 			entries.push({ type: "custom", customType, data }),
 	};
 	const ctx = {
-		hasUI: true,
+		hasUI,
 		isIdle: () => !session.busy,
 		sessionManager: { getBranch: () => entries },
 		ui: {
@@ -103,6 +109,8 @@ function activate() {
 	const fire = async (name: string, event: unknown = {}) => {
 		for (const handler of handlers.get(name) ?? []) await handler(event, ctx);
 	};
+	// Each session watches the machine's word until it shuts down.
+	disposers.push(() => fire("session_shutdown"));
 	const goAway = async (goal?: string) => {
 		await tool?.execute("t1", goal ? { goal } : {}, undefined, undefined, ctx);
 	};
@@ -127,11 +135,13 @@ function activate() {
 
 beforeEach(async () => {
 	resetAway();
+	rmSync(machineAwayPath(), { force: true });
 });
 
-afterEach(() => {
-	for (const dispose of disposers.splice(0)) dispose();
+afterEach(async () => {
+	for (const dispose of disposers.splice(0)) await dispose();
 	resetAway();
+	rmSync(machineAwayPath(), { force: true });
 });
 
 describe("while away", () => {
@@ -306,8 +316,8 @@ describe("across a restart", () => {
 		).toContain("#1 Send");
 	});
 
-	it("starts present in another session, though this process was away", async () => {
-		const first = activate();
+	it("starts present in another session when only this one went away", async () => {
+		const first = activate({ hasUI: false });
 		await first.fire("session_start");
 		await first.goAway();
 
@@ -315,5 +325,83 @@ describe("across a restart", () => {
 		await other.fire("session_start");
 
 		expect(isAway()).toBe(false);
+	});
+
+	it("starts away in another session while the machine is away", async () => {
+		const first = activate();
+		await first.fire("session_start");
+		await first.goAway("overnight work");
+		resetAway();
+
+		const other = activate();
+		await other.fire("session_start");
+
+		expect(isAway()).toBe(true);
+	});
+});
+
+describe("across the machine", () => {
+	it("says the person left, for every session to follow", async () => {
+		const pi = activate();
+		await pi.fire("session_start");
+
+		await pi.goAway("overnight work");
+
+		expect(readMachineWord()?.away?.goal).toBe("overnight work");
+	});
+
+	it("goes away when another window says the person left", async () => {
+		const pi = activate();
+		await pi.fire("session_start");
+
+		publishMachineWord({ since: new Date().toISOString(), goal: "sleep" });
+
+		await vi.waitFor(() => expect(isAway()).toBe(true));
+	});
+
+	it("comes back when the person types in another window", async () => {
+		const pi = activate();
+		await pi.fire("session_start");
+		await pi.goAway();
+		hold({ guard: "slack", title: "Send to #team" });
+
+		publishMachineWord(undefined, new Date(Date.now() + 1_000));
+
+		await vi.waitFor(() => expect(isAway()).toBe(false));
+		const back = pi.said.find((s) => s.customType === "away-return");
+		expect(back?.content).toContain("typed in another window");
+		expect(back?.content).toContain("#1 Send to #team");
+	});
+
+	it("tells every window when the person types here", async () => {
+		const pi = activate();
+		await pi.fire("session_start");
+		await pi.goAway();
+
+		await pi.fire("input", { text: "morning", source: "interactive" });
+
+		expect(readMachineWord()).toBeDefined();
+		expect(readMachineWord()?.away).toBeUndefined();
+	});
+
+	it("tells every window, even when no session has said anything yet", async () => {
+		const pi = activate({ hasUI: false });
+		await pi.fire("session_start");
+		await pi.goAway();
+		const here = activate();
+		await here.fire("session_start");
+
+		await here.fire("input", { text: "morning", source: "interactive" });
+
+		expect(readMachineWord()).toEqual({ at: expect.any(String) });
+	});
+
+	it("leaves the machine alone in a session nobody is at", async () => {
+		const pi = activate({ hasUI: false });
+		await pi.fire("session_start");
+
+		await pi.goAway();
+
+		expect(readMachineWord()).toBeUndefined();
 	});
 });
