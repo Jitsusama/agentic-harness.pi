@@ -57,7 +57,7 @@ import {
 	attend,
 	type Concern,
 	concernFrom,
-	concernQuestion,
+	concernQuestionFor,
 	concernState,
 	FYI_MS,
 	type Heed,
@@ -73,6 +73,7 @@ import { groupNamed, homeOf, isJoinable } from "../../lib/mesh/group.ts";
 import { isSubagent, MESH_SESSION_ENV } from "../../lib/mesh/hand.ts";
 import {
 	carryLeases,
+	changesOf,
 	createBoard,
 	LEASE_EVENT,
 	type LeaseEvent,
@@ -355,7 +356,7 @@ export function meshWorkflow(
 				const result = await found.classify(
 					{
 						state: concernState(message, receiver),
-						questions: concernQuestion,
+						questions: concernQuestionFor(receiver),
 					},
 					AbortSignal.timeout(JUDGE_MS),
 				);
@@ -391,7 +392,11 @@ export function meshWorkflow(
 			if (messages.length === 0 || !ctx || !peer) return;
 			peer.refresh();
 			identity();
-			const receiver = peer.receiver;
+			// What it changes now tells its business from another's best.
+			const receiver: Receiver = {
+				...peer.receiver,
+				changing: changesOf(board.of(peer.session)?.leases ?? []),
+			};
 			const self: Self = { addresses: peer.addresses, pid: process.pid };
 			const listener = peer.listener;
 			const read = (id: string) => transport.read(id);

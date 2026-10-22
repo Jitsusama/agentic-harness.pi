@@ -846,9 +846,19 @@ function groupsText(standing: Census, peer: Peer): string {
 		standsIn.length > 0
 			? `This peer ${standsIn.join(", and ")}; it is also in its home group and #all.`
 			: "This peer is in its home group and #all only.";
-	const ended = standing.gone
-		.filter((one) => one.groups.length > 0 && one.addresses[0])
-		.map((one) => one.addresses[0]);
+	// An address a live session answers to again (a quest's peer restarted
+	// under a new session) has not ended, so it is not listed as ended.
+	const answering = new Set(
+		standing.present.flatMap((one) => one.addresses.slice(0, 1)),
+	);
+	const ended = [
+		...new Set(
+			standing.gone
+				.filter((one) => one.groups.length > 0 && one.addresses[0])
+				.map((one) => one.addresses[0] as string)
+				.filter((address) => !answering.has(address)),
+		),
+	];
 	const gone =
 		ended.length > 0
 			? `\nEnded, so left out until restored: ${ended.join(", ")}.`

@@ -13,6 +13,7 @@ import {
 	carryLeases,
 	changeOf,
 	changeSubject,
+	changesOf,
 	claimsCheckout,
 	createBoard,
 	holdingFrom,
@@ -110,6 +111,34 @@ describe("a holding as read", () => {
 		expect(holdingFrom({ leases: [] })).toBeUndefined();
 		expect(holdingFrom({ session: "one" })).toBeUndefined();
 		expect(holdingFrom(null)).toBeUndefined();
+	});
+});
+
+describe("what a peer is changing now", () => {
+	it("is its standing change leases, latest first, each once and at most twelve", () => {
+		const older = lease({ subject: "widget:src/old.ts" });
+		const later = (subject: string, plus: number) =>
+			lease({ subject, since: new Date(at + minutes(plus)).toISOString() });
+		const leases = [
+			older,
+			later("widget:src/new.ts", 2),
+			later("widget:src/old.ts", 1),
+			lease({ kind: "answer", subject: "1-WCJQSG-1-aaaa" }),
+			lease({
+				subject: "widget:src/lapsed.ts",
+				until: new Date(at).toISOString(),
+			}),
+		];
+
+		expect(changesOf(leases, at)).toEqual([
+			"widget:src/new.ts",
+			"widget:src/old.ts",
+		]);
+		const many = Array.from({ length: 15 }, (_, one) =>
+			later(`widget:src/${one}.ts`, one),
+		);
+		expect(changesOf(many, at)).toHaveLength(12);
+		expect(changesOf(many, at)[0]).toBe("widget:src/14.ts");
 	});
 });
 

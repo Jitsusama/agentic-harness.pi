@@ -186,9 +186,17 @@ the first of TypeSafe's Jev models with credentials, or the one
 under a second, and only a judgement of "another peer's" at 0.6
 or more makes a glance. With no classifier,
 `PI_MESH_CLASSIFIER=off`, a failed call or one slower than
-2.5 s, a message is noted. A message that names this peer or
-something it owns is about its work without asking the
-classifier at all.
+2.5 s, a message is noted. A message that names this peer,
+something it owns or the path of a file it is changing is about
+its work without asking the classifier at all.
+
+While a peer is changing files, the classifier is shown them,
+latest first and at most twelve, and asked about what the peer
+changes now as well as what it works on. That is what tells one
+peer's merge on a shared group from another's: shown the files,
+Jev put four unrelated "merging core" fyis at 0.73 to 0.81
+"another peer's", where without them it stayed under 0.6 and
+noted each in full.
 
 ## Damping
 

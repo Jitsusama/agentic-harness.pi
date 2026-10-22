@@ -6,6 +6,10 @@ import { describe, expect, it } from "vitest";
 import {
 	attend,
 	concernFrom,
+	concernQuestion,
+	concernQuestionFor,
+	concernQuestionNow,
+	concernState,
 	FYI_MS,
 	mentions,
 	type Standing,
@@ -195,5 +199,38 @@ describe("a classifier's concern", () => {
 		);
 		expect(concernFrom({ type: "choice", choice: "nonsense" })).toBeUndefined();
 		expect(concernFrom(undefined)).toBeUndefined();
+	});
+
+	it("is asked about what the peer changes now only while it changes something", () => {
+		const changing = {
+			...standing.receiver,
+			changing: ["agentic-harness.pi:lib/mesh/attention.ts"],
+		};
+
+		expect(concernQuestionFor(changing)).toBe(concernQuestionNow);
+		expect(concernQuestionFor(standing.receiver)).toBe(concernQuestion);
+		expect(concernQuestionFor({ changing: [] })).toBe(concernQuestion);
+		expect(concernState(message(), changing)).toMatchObject({
+			receiver: { changing_now: ["agentic-harness.pi:lib/mesh/attention.ts"] },
+		});
+		expect(
+			concernState(message(), { ...standing.receiver, changing: [] }),
+		).not.toHaveProperty("receiver.changing_now");
+	});
+
+	it("reads a file the peer changes, named by its path, as concerning it", () => {
+		const changing = {
+			...standing.receiver,
+			changing: ["widget:src/queue.ts", "widget:flake.nix"],
+		};
+
+		expect(mentions(message({ text: "src/queue.ts is wrong" }), changing)).toBe(
+			true,
+		);
+		// A file every checkout has does not say which work it is.
+		expect(mentions(message({ text: "bumped flake.nix" }), changing)).toBe(
+			false,
+		);
+		expect(mentions(message(), changing)).toBe(false);
 	});
 });
