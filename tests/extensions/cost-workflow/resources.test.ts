@@ -160,9 +160,12 @@ describe("booking to quests", () => {
 	it("reads the moments a session's quest changed from the ledger itself", async () => {
 		const sessions = join(scratch, "sessions", "proj");
 		mkdirSync(sessions, { recursive: true });
-		const turn = (id: string, timestamp: string) =>
+		// Each entry names its parent, as pi writes them: the ledger books a
+		// turn to the quest in force on its own branch of the log.
+		const turn = (id: string, timestamp: string, parentId: string | null) =>
 			JSON.stringify({
 				id,
+				parentId,
 				type: "message",
 				timestamp,
 				message: {
@@ -175,17 +178,18 @@ describe("booking to quests", () => {
 		const quest = (id: string) =>
 			JSON.stringify({
 				id: `q-${id}`,
+				parentId: null,
 				type: "custom",
 				customType: "quest-workflow",
 				data: { questId: id },
 			});
 		writeFileSync(
 			join(sessions, "it's.jsonl"),
-			`${[quest("QEST-A"), turn("a1", "2026-10-23T05:00:00.000Z"), turn("a2", "2026-10-23T05:01:00.000Z")].join("\n")}\n`,
+			`${[quest("QEST-A"), turn("a1", "2026-10-23T05:00:00.000Z", "q-QEST-A"), turn("a2", "2026-10-23T05:01:00.000Z", "a1")].join("\n")}\n`,
 		);
 		writeFileSync(
 			join(sessions, "s2.jsonl"),
-			`${turn("b1", "2026-10-23T05:02:00.000Z")}\n`,
+			`${turn("b1", "2026-10-23T05:02:00.000Z", null)}\n`,
 		);
 		const ledger = join(scratch, "ledger.db");
 		const store = await openTurnStore(ledger);
