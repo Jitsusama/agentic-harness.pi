@@ -5,7 +5,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { addressesOf, questAddress } from "../../../lib/mesh/address.ts";
+import {
+	addressesOf,
+	answeringTo,
+	olderAddresses,
+	questAddress,
+} from "../../../lib/mesh/address.ts";
 
 let root: string;
 const session = "01a15f3a-2255-7463-9909-afa624b025fe";
@@ -61,6 +66,30 @@ describe("a peer's addresses", () => {
 		quest("QEST-20261021-ZZZZZZ", "- someone-else");
 
 		expect(addressesOf(session, records())).toEqual(["AF7P9P", "24B025FE"]);
+	});
+
+	it("give up an older quest that another peer now signs with", () => {
+		// Seen live: the session that spawned LUQ49E still answered to it,
+		// and took every message LUQ49E sent for one of its own.
+		quest("QEST-20261021-LUQ49E", `- ${session}`);
+		loaded("QEST-20261021-5GV2AH");
+
+		expect(
+			addressesOf(
+				session,
+				records(),
+				olderAddresses(session, records()),
+				new Set(["LUQ49E"]),
+			),
+		).toEqual(["5GV2AH", "24B025FE"]);
+	});
+
+	it("as another peer sees them, never include what a third signs with", () => {
+		const spawner = { session: "s-1", addresses: ["5GV2AH", "LUQ49E"] };
+		const spawned = { session: "s-2", addresses: ["LUQ49E"] };
+
+		expect(answeringTo(spawner, [spawner, spawned])).toEqual(["5GV2AH"]);
+		expect(answeringTo(spawned, [spawner, spawned])).toEqual(["LUQ49E"]);
 	});
 
 	it("are the session id's tail alone with no quest store", () => {

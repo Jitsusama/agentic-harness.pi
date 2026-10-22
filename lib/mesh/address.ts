@@ -11,6 +11,12 @@
  * has: the last rather than the first, because a pi session id begins
  * with its start time, and sessions started in the same minute shared a
  * first eight.
+ *
+ * An older address is only ever a fallback. When another peer signs
+ * with it, because that quest is now loaded there, it is that peer's
+ * and no longer this one's: a session that once held a quest and moved
+ * on must not take the messages its successor sends, as its own, nor
+ * what is sent to that successor.
  */
 
 import { readdirSync, readFileSync } from "node:fs";
@@ -29,18 +35,70 @@ export function questAddress(questId: string): string {
 	return (questId.split("-").pop() ?? questId).toUpperCase();
 }
 
-/** Every address this session's peer answers to, its signature first. */
+/**
+ * Every address this session's peer answers to, its signature first.
+ *
+ * `older` are the addresses of the quests that list it, which reading
+ * every README finds, so a caller that asks often passes them in once
+ * found; `claimed` are those other peers sign with, which it gives up.
+ */
 export function addressesOf(
 	sessionId: string,
 	records: QuestRecords,
+	older: readonly string[] = olderAddresses(sessionId, records),
+	claimed: ReadonlySet<string> = new Set(),
 ): string[] {
 	const own = sessionId.replace(/-/g, "").slice(-8).toUpperCase();
 	const loaded = loadedQuest(sessionId, records.sessions);
 	const signing = loaded ? questAddress(loaded) : undefined;
-	const older = questsListing(sessionId, records.quests)
-		.map(questAddress)
-		.filter((address) => address !== signing);
-	return [...(signing ? [signing] : []), ...older, own];
+	const kept = older.filter(
+		(address) => address !== signing && !claimed.has(address),
+	);
+	return [...(signing ? [signing] : []), ...kept, own];
+}
+
+/**
+ * The addresses of every quest whose README lists this session, which
+ * means reading every README: hundreds of them on a long-used machine.
+ */
+export function olderAddresses(
+	sessionId: string,
+	records: QuestRecords,
+): string[] {
+	return questsListing(sessionId, records.quests).map(questAddress);
+}
+
+/**
+ * The addresses a peer still answers to, given what every peer signs
+ * with: its own signature, and none another peer signs with.
+ */
+export function answeringTo(
+	peer: { readonly session: string; readonly addresses: readonly string[] },
+	everyone: readonly {
+		readonly session: string;
+		readonly addresses: readonly string[];
+	}[],
+): string[] {
+	const claimed = signaturesOfOthers(peer.session, everyone);
+	return peer.addresses.filter(
+		(address, at) => at === 0 || !claimed.has(address),
+	);
+}
+
+/** What every peer but this session signs with. */
+export function signaturesOfOthers(
+	session: string,
+	everyone: readonly {
+		readonly session: string;
+		readonly addresses: readonly string[];
+	}[],
+): Set<string> {
+	return new Set(
+		everyone
+			.filter((one) => one.session !== session)
+			.map((one) => one.addresses[0])
+			.filter((address): address is string => address !== undefined),
+	);
 }
 
 /** The id of the quest this session has loaded, when its record says. */
