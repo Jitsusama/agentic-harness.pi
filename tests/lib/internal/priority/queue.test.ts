@@ -64,6 +64,10 @@ describe("the kind of heavy work a command runs", () => {
 		expect(
 			kindOf("git commit -F - <<'EOF'\ncargo build is faster\nEOF"),
 		).toBeUndefined();
+		expect(kindOf("nix flake show")).toBeUndefined();
+		expect(kindOf("cargo fmt")).toBeUndefined();
+		// Past the heredoc, it still runs.
+		expect(kindOf("cat <<EOF > x\nhi\nEOF\nnix build")).toBe("build");
 	});
 
 	it("finds none in a step that only looks for the work", () => {
@@ -85,6 +89,12 @@ describe("the kind of heavy work a command runs", () => {
 			"cargo test -p a",
 		);
 		expect(whatOf("echo hi")).toBe("echo hi");
+		// Seen live: a mesh notice that named the variables told a peer a path.
+		expect(
+			whatOf(
+				"W=/home/jitsusama/.cache/w; L=$W/log\ncd ~/src/core.nix && NIX_CONFIG='x' nix build .#vm -L > $L",
+			),
+		).toBe("nix build .#vm -L > $L");
 	});
 });
 

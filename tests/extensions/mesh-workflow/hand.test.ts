@@ -140,7 +140,7 @@ describe("a peer's hand", () => {
 	});
 
 	it("claims heavy work as its peer's, telling another peer running it once", async () => {
-		othersLease("heavy", "nix build");
+		othersLease("heavy", "build");
 		const { said, bash, fire } = await startHand();
 
 		expect(await bash("1", "nix build .#x")).toBeUndefined();
@@ -150,7 +150,7 @@ describe("a peer's hand", () => {
 		expect(handLeases()?.leases).toMatchObject([
 			{
 				kind: "heavy",
-				subject: "nix build",
+				subject: "build",
 				why: "nix build .#x, by a subagent",
 			},
 		]);
@@ -180,8 +180,20 @@ describe("a peer's hand", () => {
 		expect(first.block).toBe(true);
 		expect(first.reason).toContain(`OTHERS holds [${shortId(hold)}]`);
 		expect(first.reason).toContain("hold builds: rebooting");
+		expect(first.reason).toContain("this runs a build");
 
 		expect(await bash("3", "nix build .#x")).toBeUndefined();
+	});
+
+	it("lets a command that only looks for heavy work past a hold, as the queue does", async () => {
+		othersHold("hold builds: rebooting");
+		const { bash } = await startHand();
+
+		expect(await bash("1", "pgrep -x qemu-system-x86")).toBeUndefined();
+		expect(await bash("2", "qemu-img info disk.qcow2")).toBeUndefined();
+		expect(await bash("3", "./result/bin/nixos-test-driver")).toMatchObject({
+			block: true,
+		});
 	});
 
 	it("is told of the holds standing as it starts, and when each is over", async () => {

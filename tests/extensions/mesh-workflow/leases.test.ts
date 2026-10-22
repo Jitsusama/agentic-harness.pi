@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-	commandLine,
 	createHeavyCalls,
 	createLeasing,
 	leasesText,
@@ -17,7 +16,7 @@ import {
 	ownLeases,
 	RUN_LEASE_MS,
 } from "../../../lib/mesh/lease.ts";
-import type { Draft } from "../../../lib/mesh/message.ts";
+import { clock, type Draft } from "../../../lib/mesh/message.ts";
 import type { Peer } from "../../../lib/mesh/peer.ts";
 import { createPresences, type Presence } from "../../../lib/mesh/presence.ts";
 import { folderTransport } from "../../../lib/mesh/transport.ts";
@@ -231,7 +230,7 @@ describe("leases as listed", () => {
 		const now = Date.now();
 		const heavy = {
 			kind: "heavy" as const,
-			subject: "nix build",
+			subject: "build",
 			since: "",
 			until: new Date(now + 60_000).toISOString(),
 			why: "nix build, by a subagent",
@@ -241,7 +240,63 @@ describe("leases as listed", () => {
 		];
 
 		expect(leasesText(board, [present("w", "WCJQSG")], now)).toBe(
-			"\nLeases:\nWCJQSG: running heavy work on nix build (nix build, by a subagent)",
+			"\nLeases:\nWCJQSG: running a build (nix build, by a subagent)",
+		);
+	});
+
+	it("say what the queue runs and waits for in place of heavy leases", () => {
+		const now = Date.now();
+		const until = new Date(now + 60_000).toISOString();
+		const board = [
+			{
+				session: "w",
+				leases: [
+					{ kind: "heavy" as const, subject: "vm-check", since: "", until },
+					{ kind: "wait" as const, subject: "m-aaaaaaaa", since: "", until },
+				],
+			},
+			{ session: "w.hand.run.lens", handOf: "w", leases: [] },
+		];
+		const job = {
+			class: "bulk" as const,
+			memoryGib: 6,
+			since: "2026-10-22T19:30:00.000Z",
+		};
+		const jobs = [
+			{
+				...job,
+				id: "j1",
+				kind: "vm-check" as const,
+				state: "running" as const,
+				owner: { session: "w", pid: 1 },
+				what: "nix build .#checks.vm-a",
+			},
+			{
+				...job,
+				id: "j2",
+				kind: "build" as const,
+				state: "waiting" as const,
+				owner: { session: "w.hand.run.lens", pid: 2 },
+				what: "cargo test",
+				place: 2,
+			},
+			{
+				...job,
+				id: "j3",
+				kind: "build" as const,
+				state: "running" as const,
+				owner: { session: "gone", pid: 3 },
+				what: "nix build",
+			},
+		];
+		const at = clock({ at: job.since });
+
+		expect(leasesText(board, [present("w", "WCJQSG")], now, jobs)).toBe(
+			`\nLeases:\nWCJQSG: waiting on [aaaaaaaa]; running a VM check since ${at} (nix build .#checks.vm-a); waiting at place 2 to run a build, since ${at} (cargo test)`,
+		);
+		// Nobody keeping the queue, the lease is what there is.
+		expect(leasesText(board, [present("w", "WCJQSG")], now)).toBe(
+			"\nLeases:\nWCJQSG: running a VM check; waiting on [aaaaaaaa]",
 		);
 	});
 });
@@ -260,12 +315,12 @@ describe("heavy shell calls", () => {
 	it("claim the heavy work a command runs, and nothing for one that runs none", () => {
 		const { events, calls } = tracked();
 
-		expect(calls.called("1", "nix build .#x")).toBe("nix build");
+		expect(calls.called("1", "nix build .#x")).toBe("build");
 		expect(calls.called("2", "ls -la")).toBeUndefined();
 		expect(calls.called("3", 42)).toBeUndefined();
 
 		expect(events).toEqual([
-			{ take: { subject: "nix build", why: "why: nix build .#x" } },
+			{ take: { subject: "build", why: "why: nix build .#x" } },
 		]);
 	});
 
@@ -279,22 +334,8 @@ describe("heavy shell calls", () => {
 		calls.answered("2", text("done"));
 
 		expect(events.filter((event) => "release" in event)).toEqual([
-			{ release: "nix build" },
+			{ release: "build" },
 		]);
-	});
-
-	it("say what runs heavy, past the variables a command sets first", () => {
-		// Seen live: "started heavy work on nix build too
-		// (W=/home/jitsusama/.cache/\u2026; L=\u2026)" told a peer a path.
-		expect(
-			commandLine(
-				"W=/home/jitsusama/.cache/w; L=$W/log\ncd ~/src/core.nix && NIX_CONFIG='x' nix build .#vm -L > $L",
-			),
-		).toBe("nix build .#vm -L > $L");
-		expect(commandLine('A=1 B="two words" cargo test -p x')).toBe(
-			"cargo test -p x",
-		);
-		expect(commandLine("git status\nls")).toBe("git status");
 	});
 
 	it("keep the work of a call handed to a job until the job ends", () => {
@@ -306,7 +347,7 @@ describe("heavy shell calls", () => {
 		calls.finished("1");
 
 		expect(events.filter((event) => "release" in event)).toEqual([
-			{ release: "nix build" },
+			{ release: "build" },
 		]);
 	});
 });

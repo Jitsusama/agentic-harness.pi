@@ -318,13 +318,14 @@ doing only when it is the easy thing:
   finds the holder ended, and carries on checking first. A
   question or an fyi hands nothing back, so a pause sent as one
   leaves sessions parked.
-- **heavy:** a `bash` call running heavy work (`nix flake
-  check`, `nix build`, `nixos-rebuild`, `qemu`, and `cargo`
-  building, checking, linting, testing, benching, running or
-  installing, which each compile the crate)
-  claims that kind of work until the call answers (only where
-  the shell runs it: named in quotes or a heredoc, as a grep or
-  a commit message does, it claims nothing); one handed
+- **heavy:** a `bash` call running heavy work, as the machine
+  queue's own map reads it (`kindOf` in
+  lib/internal/priority/queue.ts: a VM test, a VM check, a
+  benchmark or a build), claims that kind of work until the
+  call answers. So a hold stops exactly what the queue would
+  queue: a step that only looks for the work, as `pgrep
+  qemu-system-x86` does, or work named in quotes or a heredoc,
+  claims nothing. One handed
   to a job runs on past its answer, until the job says it has
   ended (`jobs:finished:v1`). Any extension can claim heavy work too, by
   emitting `mesh:lease:v1` on pi's bus with
@@ -335,7 +336,9 @@ doing only when it is the easy thing:
   tells both sides, once, unless the machine's queue is kept
   (priority-workflow's `queue.json` written in the last two
   minutes): then the queue gives each its turn by the room left,
-  and the claim only shows who runs what.
+  and `mesh_groups` says what each peer runs, or waits for at
+  which place, from `queue.json` in place of these claims, since
+  a claim says only that a command started.
 
 Every lease also lapses when its holder is gone, which is asked
 of the machine (see Who Is Still There). Holds and waits

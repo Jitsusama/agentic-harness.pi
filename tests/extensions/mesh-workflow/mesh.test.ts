@@ -2449,7 +2449,7 @@ describe("a lease", () => {
 		await vi.waitFor(() => expect(sent).toHaveLength(1));
 		expect(sent[0]?.options).toEqual({ triggerTurn: false });
 		expect(sent[0]?.message.content).toMatch(
-			/^Heavy work on qemu: WCJQSG \(since \d\d:\d\d\) is running it already/,
+			/^WCJQSG \(since \d\d:\d\d\) is running heavy work on qemu already/,
 		);
 		expect(sentOut()).toMatchObject([
 			{
@@ -2507,7 +2507,7 @@ describe("a lease", () => {
 		expect(ownBoard()).toMatchObject([
 			{
 				kind: "heavy",
-				subject: "nix flake check",
+				subject: "build",
 				// Two calls on one kind of work: it says the latest, by its first line.
 				why: "nix flake check .#vm",
 			},
@@ -2523,7 +2523,7 @@ describe("a lease", () => {
 			"b3",
 			"Still running after 5 minutes, so it now runs in the background as job 4.",
 		);
-		expect(ownBoard()).toMatchObject([{ kind: "heavy", subject: "qemu" }]);
+		expect(ownBoard()).toMatchObject([{ kind: "heavy", subject: "vm-test" }]);
 		// Until its job says it has ended; another job's end is not its.
 		const finished = (toolCallId: string) =>
 			emit(JOBS_FINISHED, {
@@ -2553,6 +2553,39 @@ describe("a lease", () => {
 			`\nLeases:\nWCJQSG: changing ${join(root, "a.ts")}`,
 		);
 		expect(listed?.content[0]?.text).not.toContain("ENDED1:");
+	});
+
+	it("lists a peer's heavy work as the machine's queue holds it", async () => {
+		const runtime = join(root, "run");
+		mkdirSync(join(runtime, "jobs"), { recursive: true });
+		writeFileSync(
+			join(runtime, "jobs", "queue.json"),
+			`${JSON.stringify({
+				v: 1,
+				jobs: [
+					{
+						id: "j1",
+						class: "bulk",
+						kind: "vm-check",
+						state: "waiting",
+						owner: { session: "session-w", pid: 1 },
+						what: "nix build .#checks.vm-a",
+						memoryGib: 6,
+						since: new Date().toISOString(),
+						place: 1,
+					},
+				],
+			})}\n`,
+		);
+		peer("session-w", ["WCJQSG"], []);
+		leased("session-w", { kind: "heavy", subject: "vm-check" });
+		const { tools } = await startSession({ XDG_RUNTIME_DIR: runtime });
+
+		const listed = await tools.get("mesh_groups")?.execute("call-g", {});
+
+		expect(listed?.content[0]?.text).toMatch(
+			/\nLeases:\nWCJQSG: waiting at place 1 to run a VM check, since \d\d:\d\d \(nix build \.#checks\.vm-a\)$/,
+		);
 	});
 });
 

@@ -362,6 +362,14 @@ export function kindOf(command: string): Kind | undefined {
 	return KINDS.find(([pattern]) => pattern.test(runs))?.[1];
 }
 
+/** Each kind as a sentence names one, so every surface says it alike. */
+export const KIND_SAID: Readonly<Record<Kind, string>> = {
+	"vm-test": "a VM test",
+	"vm-check": "a VM check",
+	benchmark: "a benchmark",
+	build: "a build",
+};
+
 /** Where a command's steps and the parts of its pipes end. */
 const SEGMENTS = /\n|;|&&|\|\|?/;
 

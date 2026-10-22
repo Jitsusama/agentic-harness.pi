@@ -10,12 +10,26 @@
  * questions it carries, a hold sent claims what it holds, and answering
  * another's hold says this peer waits on it.
  *
- * Heavy work is claimed too, so others see it, but two peers' heavy
- * work at once is told to them only where the machine's queue is not
- * kept: where it is, the queue gives each its turn by the room left.
+ * Heavy work is claimed too, read by the queue's own map (kindOf), so a
+ * hold stops what the queue would queue and nothing else. Two peers'
+ * heavy work at once is told to them only where the machine's queue is
+ * not kept: where it is, the queue gives each its turn by the room
+ * left, and mesh_groups says what each peer runs or waits for from the
+ * queue's record rather than from these leases.
  */
 
-import { isKept, machineQueueDir } from "../../lib/internal/priority/folder.ts";
+import {
+	isKept,
+	machineQueueDir,
+	type QueueRecord,
+	readQueue,
+} from "../../lib/internal/priority/folder.ts";
+import {
+	KIND_SAID,
+	type Kind,
+	kindOf,
+	whatOf,
+} from "../../lib/internal/priority/queue.ts";
 import { answeringTo } from "../../lib/mesh/address.ts";
 import { homeOf } from "../../lib/mesh/group.ts";
 import {
@@ -25,7 +39,6 @@ import {
 	HEAVY_MS,
 	type Held,
 	type Holding,
-	heavyWorkIn,
 	isCurrent,
 	type Lease,
 	type LeaseEvent,
@@ -48,6 +61,14 @@ import type { Transport } from "../../lib/mesh/transport.ts";
 export function queueKept(env: NodeJS.ProcessEnv): boolean {
 	const dir = machineQueueDir(env);
 	return dir !== undefined && isKept(dir);
+}
+
+/** The machine queue's jobs, while some session keeps it. */
+export function queueJobs(
+	env: NodeJS.ProcessEnv,
+): QueueRecord["jobs"] | undefined {
+	const dir = machineQueueDir(env);
+	return dir === undefined ? undefined : readQueue(dir)?.jobs;
 }
 
 /** How much of a message a lease keeps as what it is for. */
@@ -407,10 +428,10 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 				told.add(key(one));
 				tell(
 					one.holder,
-					`${peer.signature} started heavy work on ${subject} too${why ? ` (${why})` : ""}, beside this peer's.`,
+					`${peer.signature} started ${heavySaid(subject)} too${why ? ` (${why})` : ""}, beside this peer's.`,
 				);
 			}
-			return `Heavy work on ${subject}: ${holders(overlapping)} running it already, so both now run on this machine at once. If that is too much for it, hold yours or ${asking}; they have been told.`;
+			return `${holders(overlapping)} running ${heavySaid(subject)} already, so both now run on this machine at once. If that is too much for it, hold yours or ${asking}; they have been told.`;
 		},
 	};
 }
@@ -462,23 +483,52 @@ function changingText(leases: readonly Lease[]): string {
 		.join(", and ");
 }
 
-/** The leases of the peers still there, as mesh_groups lists them. */
+/**
+ * The leases of the peers still there, as mesh_groups lists them. Given
+ * the queue's jobs, a peer's heavy work is what the queue says it runs
+ * or waits for, and its heavy leases are left out: the lease says only
+ * that a command started, the queue whether it has its turn.
+ */
 export function leasesText(
 	board: readonly Holding[],
 	present: readonly Presence[],
 	now: number = Date.now(),
+	jobs?: QueueRecord["jobs"],
 ): string {
+	// A hand's work is the peer's it works for, as its leases were claimed.
+	const owners = new Map(
+		board.map((holding) => [holding.session, ownerOf(holding)]),
+	);
 	const lines = present.flatMap((one) => {
-		// Its hands' leases are its own, as they were claimed.
 		const leases = board
 			.filter((holding) => ownerOf(holding) === one.session)
 			.flatMap((holding) => holding.leases)
-			.filter((lease) => isCurrent(lease, now));
-		return leases.length > 0 && one.addresses[0]
-			? [`${one.addresses[0]}: ${describeAll(leases)}`]
+			.filter((lease) => isCurrent(lease, now))
+			.filter((lease) => jobs === undefined || lease.kind !== "heavy");
+		const queued = (jobs ?? [])
+			.filter(
+				(job) =>
+					(owners.get(job.owner.session) ?? job.owner.session) === one.session,
+			)
+			.map(jobSaid);
+		const said = [
+			...(leases.length > 0 ? [describeAll(leases)] : []),
+			...queued,
+		];
+		return said.length > 0 && one.addresses[0]
+			? [`${one.addresses[0]}: ${said.join("; ")}`]
 			: [];
 	});
 	return lines.length > 0 ? `\nLeases:\n${lines.join("\n")}` : "";
+}
+
+/** A job as the queue holds it: running, or waiting at its place. */
+function jobSaid(job: QueueRecord["jobs"][number]): string {
+	const kind = KIND_SAID[job.kind] ?? job.kind;
+	const since = clock({ at: job.since });
+	return job.state === "running"
+		? `running ${kind} since ${since} (${job.what})`
+		: `waiting${job.place ? ` at place ${job.place}` : ""} to run ${kind}, since ${since} (${job.what})`;
 }
 
 /** A peer's leases in a phrase, its changes counted past the first few. */
@@ -512,7 +562,7 @@ function describeAll(leases: readonly Lease[]): string {
 				case "wait":
 					return `waiting on ${id}${why}`;
 				default:
-					return `running heavy work on ${lease.subject}${why}`;
+					return `running ${heavySaid(lease.subject)}${why}`;
 			}
 		});
 	return [...changing, ...rest].join("; ");
@@ -522,24 +572,12 @@ function describeAll(leases: readonly Lease[]): string {
 const HANDED_OFF = /in the background as job \S+/;
 
 /**
- * The part of a command that does its heavy work, as a lease says what
- * it is for: its first step otherwise. Variables it sets first are left
- * out, since "W=/home/jitsusama/.cache/...; nix build" told the peers
- * beside it a path and not what was running.
+ * Heavy work as a sentence names it: the queue's words for its kind, or
+ * the subject itself for one claimed some other way.
  */
-export function commandLine(command: string): string {
-	const steps = command
-		.split(/\n|;|&&|\|\|/)
-		.map((step) => step.replace(ASSIGNMENTS, "").trim())
-		.filter((step) => step !== "");
-	const step =
-		steps.find((one) => heavyWorkIn(one) !== undefined) ?? steps[0] ?? "";
-	return step.length > 120 ? `${step.slice(0, 117)}...` : step;
+export function heavySaid(subject: string): string {
+	return KIND_SAID[subject as Kind] ?? `heavy work on ${subject}`;
 }
-
-/** Variables set at the start of a step, as `A=1 B="two" cmd` sets two. */
-const ASSIGNMENTS =
-	/^\s*(?:export\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|\S*)(?:\s+|$))+/;
 
 /**
  * The heavy shell commands running, by call, so work two calls share is
@@ -560,7 +598,7 @@ export interface HeavyCalls {
 
 export function createHeavyCalls(
 	heavy: (event: LeaseEvent) => void,
-	why: (command: string) => string = commandLine,
+	why: (command: string) => string = whatOf,
 ): HeavyCalls {
 	const calls = new Map<string, string>();
 	const ended = (toolCallId: string) => {
@@ -571,8 +609,7 @@ export function createHeavyCalls(
 	};
 	return {
 		called(toolCallId, command) {
-			const subject =
-				typeof command === "string" ? heavyWorkIn(command) : undefined;
+			const subject = typeof command === "string" ? kindOf(command) : undefined;
 			if (subject === undefined || typeof command !== "string") {
 				return undefined;
 			}

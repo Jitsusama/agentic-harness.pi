@@ -15,7 +15,6 @@ import {
 	changeSubject,
 	claimsCheckout,
 	createBoard,
-	heavyWorkIn,
 	holdingFrom,
 	type Lease,
 	leaseEventFrom,
@@ -365,46 +364,6 @@ describe("a peer's own leases", () => {
 		own.take("hold", "h", minutes(1), undefined, at);
 
 		expect(own.held("hold", "h", at + minutes(1))).toBeUndefined();
-	});
-});
-
-describe("heavy work in a shell command", () => {
-	it("is named by what it runs, wherever in the command it is", () => {
-		expect(heavyWorkIn("cd x && nice -n 10 nix flake check -L")).toBe(
-			"nix flake check",
-		);
-		expect(heavyWorkIn("direnv exec . nix build .#checks.vm")).toBe(
-			"nix build",
-		);
-		expect(heavyWorkIn("nix-build -A vm")).toBe("nix build");
-		expect(heavyWorkIn("qemu-system-x86_64 -m 2G")).toBe("qemu");
-		expect(heavyWorkIn("sudo nixos-rebuild switch")).toBe("nixos-rebuild");
-		expect(heavyWorkIn("cargo build --release")).toBe("cargo");
-		for (const run of ["test -p mesh", "nextest run", "clippy", "check"]) {
-			expect(heavyWorkIn(`cargo ${run}`)).toBe("cargo");
-		}
-	});
-
-	it("is nothing for a command that only looks at things", () => {
-		expect(heavyWorkIn("nix flake show")).toBeUndefined();
-		expect(heavyWorkIn("cargo fmt")).toBeUndefined();
-		expect(heavyWorkIn("git log --grep nixbuild")).toBeUndefined();
-	});
-
-	it("is nothing where the work is only named, in quotes or a heredoc", () => {
-		expect(heavyWorkIn('echo "nix flake check" >/dev/null')).toBeUndefined();
-		expect(heavyWorkIn("rg 'cargo build' lib")).toBeUndefined();
-		expect(
-			heavyWorkIn('git commit -m "fix: say \\"nix build\\" plainly"'),
-		).toBeUndefined();
-		expect(
-			heavyWorkIn(
-				"gh pr create --body-file - <<'EOF'\nRan nix build.\nEOF\nls",
-			),
-		).toBeUndefined();
-		// Outside the quotes it still runs.
-		expect(heavyWorkIn('nix build ".#vm" && echo "done"')).toBe("nix build");
-		expect(heavyWorkIn("cat <<EOF > x\nhi\nEOF\nnix build")).toBe("nix build");
 	});
 });
 
