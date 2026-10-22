@@ -351,6 +351,16 @@ message, and the reverse a line. Ended peers are left out of
 addressed; their presence is kept for a day (see Retention), so
 a session restored by then is back in its groups.
 
+A session whose log rolls over into a fresh one (see the
+rollover workflow) carries on as the same peer under a new
+session id. The old log names its session as it goes, and the
+fresh one takes that session's presence and leases as its own:
+its addresses, including the old session id's eight
+characters, the groups it joined, the stops it set, and the
+holds and waits it stood on. The old presence is then
+forgotten, so nobody else signs with those addresses and a
+hold nobody has let go of does not read as its holder ending.
+
 A peer has a message once its read marker passes it, which is
 when it is handed to the peer's model, at whatever attention.
 A pi that keeps no session, such as a reload's load check,

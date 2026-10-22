@@ -47,6 +47,10 @@ import {
 	findClassifier,
 } from "../../lib/classifier/jev.ts";
 import { dataDir, stateDir } from "../../lib/internal/paths.ts";
+import {
+	carriedBy,
+	ROLLOVER_CARRY,
+} from "../../lib/internal/session/rollover.ts";
 import { onJobFinished } from "../../lib/jobs/index.ts";
 import type { QuestRecords } from "../../lib/mesh/address.ts";
 import {
@@ -62,6 +66,7 @@ import {
 import { createDamper } from "../../lib/mesh/damping.ts";
 import { groupNamed, isJoinable } from "../../lib/mesh/group.ts";
 import {
+	carryLeases,
 	createBoard,
 	heavyWorkIn,
 	LEASE_EVENT,
@@ -586,15 +591,20 @@ export function meshWorkflow(
 			// peer is still there; a peer the machine will not name is taken
 			// as there, which only costs a sender a line.
 			const owner = await ownerNow().catch(() => undefined);
+			const branch = (started.sessionManager.getBranch?.() ??
+				[]) as readonly Entry[];
+			const session = started.sessionManager.getSessionId();
+			// A log rolled over into a fresh one carries on as the same peer.
+			const previous = previousSession(carriedBy(branch, CARRY_NAME));
+			if (previous) carryLeases(board, previous, session);
 			peer = localPeer({
-				session: started.sessionManager.getSessionId(),
+				session,
 				cwd: started.cwd ?? process.cwd(),
 				records: paths,
 				presences,
 				...(owner ? { owner } : {}),
+				...(previous ? { previous } : {}),
 			});
-			const branch = (started.sessionManager.getBranch?.() ??
-				[]) as readonly Entry[];
 			glances.recover(branch);
 			const counted = countedIn(branch);
 			damper.recover(counted.turns, counted.said);
@@ -690,6 +700,18 @@ export function meshWorkflow(
 						why: waiting.map(({ heed }) => heed.why),
 					}),
 				},
+			};
+		});
+
+		// A log about to roll over names the session the fresh one carries
+		// on from, so it can take this peer's presence and leases.
+		pi.events?.on(ROLLOVER_CARRY, (data: unknown) => {
+			const carry = data as { carried?: unknown } | undefined;
+			if (!peer || typeof carry?.carried !== "object" || !carry.carried) {
+				return;
+			}
+			(carry.carried as Record<string, unknown>)[CARRY_NAME] = {
+				session: peer.session,
 			};
 		});
 
@@ -822,6 +844,15 @@ export function meshWorkflow(
 				: undefined,
 		);
 	};
+}
+
+/** The name the mesh carries its peer's session under across a rollover. */
+const CARRY_NAME = "mesh";
+
+/** The session a rolled-over log carried on from, as the mesh carried it. */
+function previousSession(carried: unknown): string | undefined {
+	const session = (carried as { session?: unknown } | undefined)?.session;
+	return typeof session === "string" && session !== "" ? session : undefined;
 }
 
 /** A message with the attention it gets here. */
