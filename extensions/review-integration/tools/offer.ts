@@ -45,6 +45,7 @@ import { REVIEW_COMMANDS } from "../commands.ts";
 import { attachments } from "../engine.ts";
 import { confirmWrite as confirmUnder } from "../gate.ts";
 import { type GatePanel, GLYPH, proposalLine } from "../render.ts";
+import { sayRefusal } from "./resubmit.ts";
 import {
 	revised,
 	type SectionFields,
@@ -387,7 +388,9 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 						params = { ...params, body: sections.body };
 					if (sections.kind === "revise") revising = sections.fields;
 					const complaint = proposalComplaint(params.title, params.body);
-					if (complaint) return refuse(complaint);
+					if (complaint) {
+						return refuse(sayRefusal(complaint, params.title, params.body));
+					}
 				}
 
 				bound = await boundFor(
@@ -524,7 +527,9 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 						const next = revised(current.body, revising);
 						if ("refusal" in next) return refuse(next.refusal);
 						const complaint = proposalComplaint(undefined, next.body);
-						if (complaint) return refuse(complaint);
+						if (complaint) {
+							return refuse(sayRefusal(complaint, undefined, next.body));
+						}
 						return edit(
 							ctx,
 							change,
@@ -860,7 +865,8 @@ async function proposeStack(
 	for (const [at, body] of (bodies ?? []).entries()) {
 		const complaint = proposalComplaint(undefined, body);
 		if (complaint) {
-			return refuse(`The body for ${heads[at]} is not usable.\n\n${complaint}`);
+			const said = sayRefusal(complaint, heads[at], body);
+			return refuse(`The body for ${heads[at]} is not usable.\n\n${said}`);
 		}
 	}
 

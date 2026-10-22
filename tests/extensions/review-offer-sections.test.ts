@@ -20,6 +20,7 @@ import {
 	readPrFields,
 } from "@jitsusama/agentic-harness.core/sections";
 import { afterEach, describe, expect, it } from "vitest";
+import { forgetRefusals } from "../../extensions/review-integration/tools/resubmit.ts";
 import { stubProvider } from "../support/stub-provider.ts";
 import { activate, HEADLESS, toolNamed } from "./support/review-extension.ts";
 
@@ -120,6 +121,7 @@ const proposing = {
 afterEach(() => {
 	clearReviewProviders();
 	clearTargetBindings();
+	forgetRefusals();
 });
 
 describe("proposing with sections", () => {
@@ -167,6 +169,28 @@ describe("proposing with sections", () => {
 		);
 
 		expect(answer).toContain("TL;DR is 50 words");
+		expect(proposed).toHaveLength(0);
+	});
+
+	it("says so when a refused description comes back unchanged", async () => {
+		const { provider, proposed } = recordingProvider();
+		registerReviewProvider(provider);
+		const tldr = `${Array.from({ length: 45 }, () => "words").join(" ")}.`;
+
+		const first = JSON.stringify(
+			await offer({ ...proposing, ...SECTIONS, tldr }),
+		);
+		const again = JSON.stringify(
+			await offer({ ...proposing, ...SECTIONS, tldr }),
+		);
+		const changed = JSON.stringify(
+			await offer({ ...proposing, ...SECTIONS, tldr: `${tldr} More.` }),
+		);
+
+		expect(first).not.toContain("word for word");
+		expect(again).toContain("word for word the description refused");
+		expect(again).toContain("TL;DR is 45 words");
+		expect(changed).not.toContain("word for word");
 		expect(proposed).toHaveLength(0);
 	});
 });

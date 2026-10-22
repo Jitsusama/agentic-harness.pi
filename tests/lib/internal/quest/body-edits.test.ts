@@ -78,6 +78,25 @@ describe("ticking a checkbox", () => {
 		expect(result.ok).toBe(false);
 	});
 
+	it("names an item by the words it shows, not its markdown", () => {
+		const body = [
+			"- [ ] **R5. m569: capture, then restart leafd (D6).** S1 first.",
+			"- [ ] Take `core` 0.13.0 from [npm](https://npmjs.com)",
+			"- [ ] Leave *.ts globs and snake__case alone",
+			"",
+		].join("\n");
+
+		const labelled = setCheckbox(body, "R5. m569", true);
+		const coded = setCheckbox(body, "take core 0.13.0 from npm", true);
+		const literal = setCheckbox(body, "Leave *.ts globs and snake__case", true);
+
+		for (const result of [labelled, coded, literal]) {
+			if (!result.ok) throw new Error(result.reason);
+			expect(result.changed).toBe(true);
+		}
+		expect(labelled.ok && labelled.line).toMatch(/^- \[x\] \*\*R5\./);
+	});
+
 	it("unticks, and says when nothing needed changing", () => {
 		const unticked = setCheckbox(PLAN, "restore the docs", false);
 		if (!unticked.ok) throw new Error(unticked.reason);
