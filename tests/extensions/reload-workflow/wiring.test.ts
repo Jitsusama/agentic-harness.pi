@@ -123,6 +123,8 @@ function runtime() {
 				ui,
 				cwd: dir,
 				waitForIdle: async () => {},
+				isIdle: () => true,
+				hasPendingMessages: () => false,
 				reload: async () => {
 					await next?.start("reload");
 				},
