@@ -1,11 +1,15 @@
 /**
  * Stops: a peer telling another to stop reaching it, which is absolute.
  *
- * Skynet's annals end on a stop that went unheard. An engineer got six
- * messages in ten seconds, answered "this list is too much" and then
- * "please stop", and the fleet carried on: the side that listened was
- * filtering her out while the side that spoke was not. The lesson
- * written down was that a stop from a recipient is absolute. So a stop
+ * Skynet's annals end on an objection that went unheard. An engineer got
+ * six messages within ten seconds and answered that the list was too
+ * much. The night filter, never lifted, appears to have held that, and
+ * four minutes later the fleet edited a reply and uploaded a file
+ * anyway; her "please stop" never reached it either, and the operator
+ * stopped it by hand. The side that listened was set for the night
+ * while the side that spoke was not. The requirements written after say
+ * that a plain objection sets a stop toward whoever made it (R-3.3-5,
+ * R-6.3-2 in the Skynet requirements register). So a stop
  * is the receiver's to set and the receiver's alone to lift, it lives
  * in the receiver's presence, and the receiver's own mesh enforces it,
  * so no sender, on whatever version of the harness, can get past it:

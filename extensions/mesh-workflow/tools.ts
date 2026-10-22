@@ -330,8 +330,8 @@ async function send(
 		...(supersedes ? { supersedes } : {}),
 	});
 	at.sent(message);
-	// A peer reads what it writes to: Skynet's annals found peers posting
-	// into spaces they never read, so the answers went unheard.
+	// A peer reads what it writes to: overnight Skynet listened to one
+	// channel while it spoke in others, so an objection there went unheard.
 	const reading = to.filter(
 		(group) =>
 			group.startsWith("#") &&

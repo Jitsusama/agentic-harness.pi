@@ -4,9 +4,9 @@
  * Attention says what a message is worth to the peer it reaches (see
  * attention.ts); damping holds that to the peer's limits, so no sender
  * and no conversation can wear it out. Skynet's annals are the case for
- * it: sender-side rules put 112 tags on 15 people overnight, Ashley had
- * six messages in ten seconds, and each brake that lived in prose was
- * talked past. So the limits live here, in the receiver, and are
+ * it: on its second night it tagged 15 people 112 times, one engineer
+ * got six messages within ten seconds, and each brake that lived in
+ * prose was talked past. So the limits live here, in the receiver, and are
  * enforced rather than asked for:
  *
  * - Turns: the mesh starts at most {@link MOST_TURNS_AN_HOUR} turns of
