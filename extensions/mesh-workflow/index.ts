@@ -62,7 +62,9 @@ import { createDamper } from "../../lib/mesh/damping.ts";
 import { groupNamed, isJoinable } from "../../lib/mesh/group.ts";
 import {
 	createBoard,
+	heavyWorkIn,
 	LEASE_EVENT,
+	type LeaseEvent,
 	leaseEventFrom,
 	type OwnLeases,
 	ownLeases,
@@ -133,6 +135,18 @@ const FIRST_CATCH_UP_MS = 60 * 60 * 1000;
  * waiting on nothing keeps no clock.
  */
 export const WAIT_CHECK_MS = 60 * 1000;
+
+/**
+ * How the shell tool answers a call it handed to a job (see
+ * shell-workflow's hand-off), whose command runs on past its answer.
+ */
+const HANDED_OFF = /in the background as job \S+/;
+
+/** A command's first line, as a lease says what it is for. */
+function commandLine(command: string): string {
+	const first = command.trim().split("\n")[0] ?? "";
+	return first.length > 120 ? `${first.slice(0, 117)}...` : first;
+}
 
 /** Why a stopped peer's message is a glance, whatever it was. */
 const STOPPED = "from a peer this one stopped";
@@ -674,18 +688,53 @@ export function meshWorkflow(
 			resumes?.stop();
 			clearInterval(waitClock);
 			waitClock = undefined;
-			own?.releaseAll(RUN_KINDS);
+			// Its heavy work ends with it: pi stops a session's jobs as it goes.
+			own?.releaseAll(new Set([...RUN_KINDS, "heavy" as const]));
+			heavyCalls.clear();
 			stopWatching?.();
 			stopWatching = undefined;
 		});
 
+		/** Claim or give up heavy work, saying so when it overlaps another's. */
+		const heavy = (event: LeaseEvent) =>
+			void leasing
+				.heavy(event)
+				.then((said) => {
+					if (!said) return;
+					pi.sendMessage(
+						{
+							customType: NOTED,
+							content: said,
+							display: true,
+							details: delivered([], []),
+						},
+						{ triggerTurn: false },
+					);
+				})
+				.catch(() => {});
+
+		// The heavy shell commands running, by call, so work two calls share
+		// is given up only when the last of them ends.
+		const heavyCalls = new Map<string, string>();
+
 		// A change claims its file, and a peer reaching for a file another is
-		// changing is told who, once, before it goes ahead beside them. Never
-		// throws: pi blocks a tool whose handler fails.
+		// changing is told who, once, before it goes ahead beside them. A heavy
+		// command claims its kind of work. Never throws: pi blocks a tool
+		// whose handler fails.
 		pi.on(
 			"tool_call",
 			async (event, called): Promise<ToolCallEventResult | undefined> => {
 				try {
+					if (isToolCallEventType("bash", event)) {
+						const command = event.input.command;
+						const subject =
+							typeof command === "string" ? heavyWorkIn(command) : undefined;
+						if (subject && own && peer) {
+							heavyCalls.set(event.toolCallId, subject);
+							heavy({ take: { subject, why: commandLine(command) } });
+						}
+						return undefined;
+					}
 					const path =
 						isToolCallEventType("edit", event) ||
 						isToolCallEventType("write", event)
@@ -703,25 +752,26 @@ export function meshWorkflow(
 			},
 		);
 
+		// A heavy command's work is over when its call answers, unless the
+		// call handed it to a job, which runs on past the answer: nothing
+		// says yet when a job ends, so its lease stands until its clock.
+		pi.on("tool_result", async (event) => {
+			const subject = heavyCalls.get(event.toolCallId);
+			if (subject === undefined) return undefined;
+			heavyCalls.delete(event.toolCallId);
+			const handedOff = event.content.some(
+				(part) => part.type === "text" && HANDED_OFF.test(part.text),
+			);
+			if (!handedOff && ![...heavyCalls.values()].includes(subject)) {
+				heavy({ release: subject });
+			}
+			return undefined;
+		});
+
 		// Heavy work is claimed by whatever places it, over pi's bus.
 		pi.events?.on(LEASE_EVENT, (data: unknown) => {
 			const event = leaseEventFrom(data);
-			if (!event) return;
-			void leasing
-				.heavy(event)
-				.then((said) => {
-					if (!said) return;
-					pi.sendMessage(
-						{
-							customType: NOTED,
-							content: said,
-							display: true,
-							details: delivered([], []),
-						},
-						{ triggerTurn: false },
-					);
-				})
-				.catch(() => {});
+			if (event) heavy(event);
 		});
 
 		registerTools(pi, (): Local | undefined =>

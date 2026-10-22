@@ -147,13 +147,16 @@ describe("this session's peer", () => {
 			`---\nid: ${id}\nkind: subquest\nparent: ${parent}\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\n${trees}---\n# ${id}\n`;
 		const checkout = join(root, "agentic-harness.pi");
 		mkdirSync(join(checkout, ".git"), { recursive: true });
+		// A tree taken away since names no repository: its folder's name
+		// is the broker's, not the repository's.
+		const gone = join(root, "worktree-github-someone-widget-a-branch");
 		for (const [id, text] of [
 			[
 				"QEST-20261021-LUQ49E",
 				readme(
 					"QEST-20261021-LUQ49E",
 					"QEST-20261021-5GV2AH",
-					`trees:\n  - path: ${checkout}\n    providerId: git-worktree\n`,
+					`trees:\n  - path: ${checkout}\n    providerId: git-worktree\n  - path: ${gone}\n    repoRoot: ${gone}\n    providerId: git-worktree\n`,
 				),
 			],
 			[
