@@ -76,6 +76,15 @@ function runtime() {
 	const entries: { type: string; data: unknown }[] = [];
 	let tool: Tool | undefined;
 	let command: Command | undefined;
+	// A runtime the session replaced: pi refuses its captured pi from then on.
+	let replaced = false;
+	const live = () => {
+		if (replaced) {
+			throw new Error(
+				"This extension ctx is stale after session replacement or reload.",
+			);
+		}
+	};
 	const pi = {
 		events,
 		on: (name: string, handler: Handler) => {
@@ -88,6 +97,7 @@ function runtime() {
 			tool = definition;
 		},
 		sendMessage: (message: { content: string; display: boolean }) => {
+			live();
 			if (!message.display) hidden.push(message.content);
 		},
 		sendUserMessage: (text: string, options: unknown) =>
@@ -107,6 +117,10 @@ function runtime() {
 		}
 	};
 	return {
+		/** The session replaced this runtime, as a rollover does. */
+		replace: () => {
+			replaced = true;
+		},
 		hidden,
 		entries,
 		sentToPrompt,
@@ -160,6 +174,7 @@ beforeEach(() => {
 	slot.dispatched = undefined;
 	slot.reloading = undefined;
 	slot.landed = undefined;
+	slot.unsaid = undefined;
 });
 
 afterEach(() => {
@@ -290,6 +305,43 @@ describe("the agent asking for a reload", () => {
 			now.ask({ reason: "x", onto: join(dir, "elsewhere") }),
 		).rejects.toThrow(/is not a checkout of agentic-harness\.pi/);
 		expect(reloadSlot().request).toBeUndefined();
+	});
+});
+
+describe("a reload that lands as the session is replaced", () => {
+	// On 22 October a rollover replaced the session while a landing was
+	// still asking git what runs, and the stale pi's throw took pi down.
+	const landing = { reason: "feat: x", by: "person" } as const;
+
+	it("hands the landing to the runtime that replaced it", async () => {
+		runningTheInstall();
+		const old = runtime();
+		await old.start("startup");
+		const say = reloadSlot().landed;
+		old.replace();
+		const next = runtime();
+		await next.start("resume");
+
+		say?.(landing);
+		await until("the landing is said", () => next.hidden.length > 0);
+
+		expect(next.hidden[0]).toContain("as asked: feat: x.");
+	});
+
+	it("keeps a landing its replaced runtime could not say for the next one", async () => {
+		runningTheInstall();
+		const old = runtime();
+		await old.start("startup");
+		old.replace();
+
+		reloadSlot().landed?.(landing);
+		await until("it is kept", () => reloadSlot().unsaid !== undefined);
+		const next = runtime();
+		await next.start("resume");
+
+		expect(next.hidden).toHaveLength(1);
+		expect(next.hidden[0]).toContain("as asked: feat: x.");
+		expect(reloadSlot().unsaid).toBeUndefined();
 	});
 });
 

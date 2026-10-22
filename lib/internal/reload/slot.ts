@@ -43,6 +43,11 @@ export interface ReloadSlot {
 	reloading?: boolean;
 	/** Left by the newest runtime: say that a reload landed. */
 	landed?: (landed: ReloadLanded) => void;
+	/**
+	 * A landing no runtime could say, because the one that tried had been
+	 * replaced before it spoke; the next runtime to start says it.
+	 */
+	unsaid?: ReloadLanded;
 }
 
 const SLOT_KEY = Symbol.for("agentic-harness.reload.slot");
