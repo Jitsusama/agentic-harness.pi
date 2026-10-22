@@ -67,18 +67,34 @@ describe("how heavy work ended", () => {
 		]);
 	});
 
-	it("lowers the cap for a day after a VM fails beside a capped build", () => {
+	it("lowers the cap for a day after a VM that passed alone fails beside one", () => {
+		const alone = { ...NOTHING_BESIDE, vms: 1 };
+		const passedAlone = outcome({ id: "p", exit: 0, beside: alone });
 		expect(capFor([], NOW)).toEqual({ maxJobs: 2, cores: 4 });
-		expect(capFor([outcome()], NOW)).toEqual({ maxJobs: 2, cores: 2 });
+		expect(capFor([passedAlone, outcome()], NOW)).toEqual({
+			maxJobs: 2,
+			cores: 2,
+		});
+		// A break copy fails every time, so its failure beside a cap says
+		// nothing about the cap.
+		expect(capFor([outcome()], NOW)).toEqual({ maxJobs: 2, cores: 4 });
+		const elsewhere = { ...passedAlone, what: "nix build .#checks.other" };
+		const besideCap = outcome({ exit: 0 });
+		for (const pass of [elsewhere, besideCap]) {
+			expect(capFor([pass, outcome()], NOW)).toEqual({ maxJobs: 2, cores: 4 });
+		}
 		const passed = outcome({ exit: 0 });
 		const stopped = outcome({ exit: 130 });
-		const alone = outcome({ beside: { ...NOTHING_BESIDE, vms: 1 } });
+		const lone = outcome({ beside: alone });
 		const build = outcome({ kind: "build" });
 		const old = outcome({
 			ended: new Date(NOW - FAILURES_COUNT_FOR_MS - 1).toISOString(),
 		});
-		for (const one of [passed, stopped, alone, build, old]) {
-			expect(capFor([one], NOW)).toEqual({ maxJobs: 2, cores: 4 });
+		for (const one of [passed, stopped, lone, build, old]) {
+			expect(capFor([passedAlone, one], NOW)).toEqual({
+				maxJobs: 2,
+				cores: 4,
+			});
 		}
 	});
 

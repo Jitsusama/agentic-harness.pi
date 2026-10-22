@@ -122,4 +122,6 @@ never waits.
   none. The file keeps its newer half past 2 MiB, about a month of
   work. A VM that failed (exit 1 to 125) beside a capped build in the
   last day lowers the cap to 2 cores, since the cap is an estimate, not
-  a measurement.
+  a measurement, but only when the same command, as the queue names it,
+  has passed with no capped build beside it. A break copy, a test with
+  a feature broken on purpose, fails every time and so never counts.
