@@ -89,6 +89,29 @@ describe("the index of tools that load on demand", () => {
 		expect(index).not.toContain("mcp__gw__vault_tool_0");
 	});
 
+	it("keeps a hidden tool's when-to-use line and trigger rules in view", () => {
+		const lesson: LoadableTool = {
+			name: "capture_lesson",
+			description: "Capture lessons. Long text.",
+			exposure: "deferred",
+		};
+
+		const index = loadableIndex([lesson], {
+			snippets: { capture_lesson: "Capture lessons into durable rules." },
+			guidelines: {
+				capture_lesson: [
+					"When the user asks you to remember a lesson, call capture_lesson.",
+					"Never file a rule the user has not seen.",
+				],
+			},
+		});
+
+		expect(index).toContain(
+			"- capture_lesson: Capture lessons into durable rules. When the user asks you to remember a lesson, call capture_lesson.",
+		);
+		expect(index).not.toContain("Never file");
+	});
+
 	it("says nothing when nothing is deferred", () => {
 		expect(loadableIndex([])).toBeUndefined();
 	});

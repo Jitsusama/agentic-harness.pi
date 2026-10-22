@@ -50,7 +50,11 @@ export default function loadoutWorkflow(pi: ExtensionAPI) {
 	let index: string | undefined;
 
 	pi.on("before_agent_start", async (event) => {
-		index ??= loadableIndex(loadable(pi.getAllTools(), new Set()));
+		// pi offers every tool's snippet and rules here, declared or not.
+		index ??= loadableIndex(loadable(pi.getAllTools(), new Set()), {
+			snippets: event.systemPromptOptions.toolSnippets ?? {},
+			guidelines: event.systemPromptOptions.toolGuidelines ?? {},
+		});
 		if (index) event.systemPromptOptions.sections[INDEX_SECTION] = index;
 		return undefined;
 	});
