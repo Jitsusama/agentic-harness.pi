@@ -128,6 +128,9 @@ function firstLine(body: string): string {
 export function registerDraftTool(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "review_draft",
+		// Used in 15 of 80 sessions from 8 October, and review-guide names
+		// it, so reading that skill loads it: loaded on demand.
+		exposure: "deferred",
 		label: "Review Draft",
 		description:
 			"Compose a review and land it in one go: add anchored findings, replies into existing threads, resolutions, reactions and a verdict; see exactly what publishing will do, including what degrades and why; then publish, or render the review as a document when nothing hosts the target.",

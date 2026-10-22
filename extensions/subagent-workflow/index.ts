@@ -590,13 +590,13 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 				Type.Object({
 					id: Type.String({
 						description:
-							"Stable id for this subagent; appears in progress UI and on-disk artifact paths. Restricted to letters, digits, dot, underscore and dash so two ids cannot alias to the same artifact directory after path sanitization.",
+							"Stable id for this subagent, shown on the board and naming its artifacts.",
 						pattern: "^[a-zA-Z0-9._-]+$",
 					}),
 					model: Type.Optional(
 						Type.String({
 							description:
-								"Pi --model value: provider/model (anthropic/claude-opus-4-7) or a bare model id. Omit to take the run's defaults, then the loaded quest's, the project's or the config's subagent settings, and otherwise the session's own model.",
+								"provider/model or a bare model id. Omit to take the run's defaults, then the configured settings, then the session's model.",
 						}),
 					),
 					thinkingLevel: Type.Optional(
@@ -606,46 +606,44 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 							THINKING_LEVELS,
 							{
 								description:
-									"Pi --thinking value. Omit to take the same layers as model, and otherwise high.",
+									"Omit to take the same layers as model, and otherwise high.",
 							},
 						),
 					),
 					tools: Type.Optional(
 						Type.Array(Type.String(), {
 							description:
-								"Tool palette passed via --tools (e.g. [read,grep,glob,ls,bash]). Omit for the default palette.",
+								"Tool palette, e.g. [read,bash]. Omit for the default.",
 						}),
 					),
 					cwd: Type.String({
 						description:
-							"Working directory for the subprocess. Use the project root for ad-hoc work, or a worktree path if you need detachment.",
+							"Working directory: the project root, or a worktree for detached work.",
 					}),
 					systemPrompt: Type.Optional(
 						Type.String({
-							description:
-								"Persona / baseline instructions sent via pi's --system-prompt. Use for role-based fan-outs (security reviewer, performance reviewer, contrarian, ...).",
+							description: "Persona instructions, for role-based fan-outs.",
 						}),
 					),
 					userPrompt: Type.String({
 						description:
-							"The user prompt the subagent answers. Phrase it the way you'd phrase a question to a teammate; the subagent has the same tools and the same working directory.",
+							"What the subagent answers, phrased as you would ask a teammate.",
 					}),
 					isolated: Type.Optional(
 						Type.Boolean({
 							description:
-								"When true, strip ambient inheritance (--no-skills --no-context-files --no-extensions) so the subagent sees only what you attach here. Defaults to true for the fleet tool, so opt out when you want the subagent to share your local pi setup.",
+								"Defaults to true: the subagent sees only what you attach, not your skills, context files or extensions.",
 						}),
 					),
 					extraExtensions: Type.Optional(
 						Type.Array(Type.String(), {
-							description:
-								"Absolute paths to inject via --extension. Use for verify packs, custom tools or domain-specific helpers.",
+							description: "Absolute extension paths to load.",
 						}),
 					),
 					extraSkills: Type.Optional(
 						Type.Array(Type.String(), {
 							description:
-								"Absolute skill paths to inject via --skill. Use to teach the subagent an output contract or methodology without baking it into the prompt.",
+								"Absolute skill paths to load, e.g. an output contract.",
 						}),
 					),
 					timeoutMs: Type.Optional(
@@ -653,7 +651,7 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 							minimum: 1000,
 							maximum: 8 * 60 * 60 * 1000,
 							description:
-								"Hard wall-clock timeout in milliseconds for this subagent. Overrides the runner's configured default. Use for jobs that legitimately run longer than the runner's default: deep investigations, soak tests, multi-step deploys. Per-job override; siblings keep the default. Capped at eight hours.",
+								"Wall-clock limit for this job, for work that runs long. At most eight hours.",
 						}),
 					),
 					idleTimeoutMs: Type.Optional(
@@ -661,7 +659,7 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 							minimum: 1000,
 							maximum: 8 * 60 * 60 * 1000,
 							description:
-								"Idle timeout in milliseconds: how long the supervisor waits between progress events before declaring the child stuck. Overrides the runner's configured default. Bump this when the subagent's natural workflow contains long bash commands that stay silent on stdout (benchmark runs, git pushes against large mirrors, gcloud deploys). Per-job override; siblings keep the default. When set above the wall-clock default, also bump `timeoutMs` so the wall clock doesn't fire first. Capped at eight hours.",
+								"How long the job may be silent before it counts as stuck. Raise it, and timeoutMs with it, for long quiet commands such as cloud deletes or benchmarks.",
 						}),
 					),
 					verify: Type.Optional(
@@ -680,14 +678,14 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 							},
 							{
 								description:
-									"Verify pack. When set, the subagent must call verify_output and return ok=true before the engine accepts the run.",
+									"Verify pack: the subagent must pass verify_output before its run is accepted.",
 							},
 						),
 					),
 				}),
 				{
 					description:
-						"Subagent jobs to run concurrently. One pi process per job. Order is preserved in the result payload.",
+						"Jobs to run at once, one pi process each, answered in order.",
 					minItems: 1,
 				},
 			),
@@ -700,7 +698,7 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 					// finishing releases the other's.
 					pattern: "^[a-zA-Z0-9._-]+$",
 					description:
-						"Stable id for this fleet run. Used for durable supervisor artifacts, the ledger entry that keeps them, and progress correlation. Letters, digits, dot, underscore and dash, so it names exactly one run on disk. Auto-generated when omitted.",
+						"Stable id for this run, naming its artifacts. Generated when omitted.",
 				}),
 			),
 			defaults: Type.Optional(
@@ -721,7 +719,7 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 			background: Type.Optional(
 				Type.Boolean({
 					description:
-						"When true, return at once and let the fleet run on. Its summary arrives later as a message of its own, so do not poll or wait for it; carry on with other work. The board stays above the editor meanwhile. Use for fleets you do not need the answer to before your next step. Defaults to false.",
+						"Return at once and let the fleet run on; its summary arrives later as its own message, so carry on rather than poll.",
 				}),
 			),
 		}),
