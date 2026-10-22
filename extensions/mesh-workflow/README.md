@@ -137,12 +137,15 @@ group is judged against what the receiving peer works on: its
 quest's title and summary, the repositories its trees are in,
 and its groups.
 
-- **Note:** in full, with what its intent asks. For what is
-  sent to this peer, a hold, and what is about this peer's
-  work or the whole machine.
-- **Glance:** another peer's own business. Shown on screen as
-  it arrives, and handed to the model as one line with its
-  next turn: at the end of the current step while it runs, or
+- **Note:** in full to the model, with what its intent asks.
+  For what is sent to this peer, a hold, and what is about
+  this peer's work or the whole machine. On screen it is one
+  line a message, `※ mesh: WCJQSG · finding · <how it opens>`,
+  naming the group only when it went to one, and in full once
+  expanded, so a session waiting its turn keeps its own work
+  in sight.
+- **Glance:** another peer's own business. Nothing on screen;
+  handed to the model as one line with its next turn: at the end of the current step while it runs, or
   at the start of its next run while it is idle, or carried
   along with the next message noted in full. A digest spells
   out six and counts the rest, each cut to 160 characters.
