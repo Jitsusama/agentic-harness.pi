@@ -162,6 +162,7 @@ describe("presence across the edge", () => {
 			groups: ["#harness", "@P9R1KI"],
 			worksOn: "",
 			owns: [],
+			busy: false,
 			at: "",
 		});
 
@@ -180,6 +181,7 @@ describe("presence across the edge", () => {
 			groups: ["#harness", "@P9R1KI"],
 			worksOn: "",
 			owns: [],
+			busy: false,
 			at: "",
 		});
 

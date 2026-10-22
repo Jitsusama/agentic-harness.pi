@@ -9,6 +9,10 @@
  * nothing about anything. Presence is kept by session id, which
  * survives a reload and a restore, so a peer stays in the groups it
  * joined.
+ *
+ * A presence also says which process holds it, so whether the peer is
+ * still there is asked of the machine rather than of a clock: a peer
+ * whose process has ended is gone, however recently it wrote.
  */
 
 import {
@@ -19,7 +23,8 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
+import { isOwner, type Owner } from "@jitsusama/agentic-harness.core/process";
 import { parseQuestFrontMatter } from "../internal/quest/frontmatter.ts";
 import { loadedQuest, type QuestRecords } from "./address.ts";
 
@@ -35,6 +40,10 @@ export interface Presence {
 	readonly worksOn: string;
 	/** What it owns by name: its quest, its repositories, its groups. */
 	readonly owns: readonly string[];
+	/** Whether it is in the middle of a run, as of when it last said. */
+	readonly busy: boolean;
+	/** The process holding it, when the machine would say. */
+	readonly owner?: Owner;
 	/** When it last said so, as an ISO time. */
 	readonly at: string;
 }
@@ -69,12 +78,71 @@ export function workOf(
 		return { worksOn: `the work in ${cwd}`, owns: [...here, ...named] };
 	}
 	const trees = (parsed.frontMatter.trees ?? []).map((tree) =>
-		basename(tree.repoRoot ?? tree.path),
+		repositoryName(tree.repoRoot ?? tree.path),
 	);
 	return {
 		worksOn: describe(parsed.body),
 		owns: [...new Set([quest, ...trees, ...here, ...named])],
 	};
+}
+
+/** Repository names already read, by checkout; they never change. */
+const repositories = new Map<string, string>();
+
+/**
+ * The name of the repository checked out here, as people write it
+ * (agentic-harness.pi), rather than the folder it sits in, which for a
+ * worktree is a name only the tree broker uses. Read from the origin
+ * remote in git's own config, without running git, since presence is
+ * worked out often; the folder's name when there is no such remote.
+ */
+export function repositoryName(checkout: string): string {
+	const known = repositories.get(checkout);
+	if (known !== undefined) return known;
+	const name = originName(checkout) ?? basename(checkout);
+	repositories.set(checkout, name);
+	return name;
+}
+
+function originName(checkout: string): string | undefined {
+	try {
+		const config = readFileSync(join(commonGitDir(checkout), "config"), "utf8");
+		const origin = config
+			.split(/^\[/m)
+			.find((section) => section.startsWith('remote "origin"]'));
+		const url = origin?.match(/^\s*url\s*=\s*(\S+)\s*$/m)?.[1];
+		const name = url
+			?.replace(/\/+$/, "")
+			.split(/[/:]/)
+			.pop()
+			?.replace(/\.git$/, "");
+		return name && name.length > 0 ? name : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * The git directory a checkout shares with its siblings: its own `.git`
+ * folder, or for a worktree the one its `.git` file points through.
+ */
+function commonGitDir(checkout: string): string {
+	const dotGit = join(checkout, ".git");
+	let pointer: string;
+	try {
+		pointer = readFileSync(dotGit, "utf8");
+	} catch {
+		return dotGit;
+	}
+	const gitDir = pointer.match(/^gitdir:\s*(.+?)\s*$/m)?.[1];
+	if (!gitDir) return dotGit;
+	const own = isAbsolute(gitDir) ? gitDir : join(checkout, gitDir);
+	try {
+		const common = readFileSync(join(own, "commondir"), "utf8").trim();
+		return isAbsolute(common) ? common : join(own, common);
+	} catch {
+		return dirname(dirname(own));
+	}
 }
 
 /** The presence kept in this folder, one file per peer. */
@@ -131,6 +199,8 @@ function presenceFrom(value: unknown): Presence | undefined {
 		groups: one.groups,
 		worksOn: typeof one.worksOn === "string" ? one.worksOn : "",
 		owns: strings(one.owns) ? one.owns : [],
+		busy: one.busy === true,
+		...(isOwner(one.owner) ? { owner: one.owner } : {}),
 		at: typeof one.at === "string" ? one.at : "",
 	};
 }

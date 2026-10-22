@@ -37,6 +37,7 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
+import { ownerNow } from "@jitsusama/agentic-harness.core/process";
 import {
 	type FoundClassifier,
 	findClassifier,
@@ -285,11 +286,16 @@ export function meshWorkflow(
 		pi.on("session_start", async (_event, started) => {
 			if (isEphemeral(started.sessionManager)) return;
 			ctx = started;
+			// Named on its presence so others can ask the machine whether this
+			// peer is still there; a peer the machine will not name is taken
+			// as there, which only costs a sender a line.
+			const owner = await ownerNow().catch(() => undefined);
 			peer = localPeer({
 				session: started.sessionManager.getSessionId(),
 				cwd: started.cwd ?? process.cwd(),
 				records: paths,
 				presences,
+				...(owner ? { owner } : {}),
 			});
 			glances.recover(
 				(started.sessionManager.getBranch?.() ?? []) as readonly Entry[],
@@ -356,6 +362,14 @@ export function meshWorkflow(
 		pi.on("before_agent_start", async () => {
 			const message = glanceDigest();
 			return message ? { message } : undefined;
+		});
+
+		// Whether a peer is mid-run is part of what others see of it.
+		pi.on("agent_start", async () => {
+			peer?.setBusy(true);
+		});
+		pi.on("agent_end", async () => {
+			peer?.setBusy(false);
 		});
 
 		pi.on("session_shutdown", async () => {

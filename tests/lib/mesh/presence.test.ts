@@ -7,7 +7,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { localPeer } from "../../../lib/mesh/peer.ts";
-import { createPresences, type Presence } from "../../../lib/mesh/presence.ts";
+import {
+	createPresences,
+	type Presence,
+	repositoryName,
+} from "../../../lib/mesh/presence.ts";
 
 let root: string;
 const session = "01a15f3a-2255-7463-9909-afa624b025fe";
@@ -26,6 +30,7 @@ const presence = (over: Partial<Presence> = {}): Presence => ({
 	groups: ["#harness"],
 	worksOn: "the mesh",
 	owns: ["harness"],
+	busy: false,
 	at: "2026-10-21T22:00:00.000Z",
 	...over,
 });
@@ -86,6 +91,54 @@ describe("this session's peer", () => {
 			worksOn: "A Stable Substrate: Grow the mesh.",
 			owns: expect.arrayContaining(["QEST-20261021-LUQ49E", "harness"]),
 		});
+	});
+
+	it("owns its worktree's repository by the repository's name", () => {
+		// A worktree's folder is named for the tree broker, which no
+		// message about the repository ever mentions.
+		const main = join(root, "agentic-harness.pi");
+		const tree = join(root, "worktree-github-x-agentic-harness.pi-branch");
+		mkdirSync(join(main, ".git", "worktrees", "branch"), { recursive: true });
+		mkdirSync(tree, { recursive: true });
+		writeFileSync(
+			join(main, ".git", "config"),
+			'[core]\n\tbare = false\n[remote "origin"]\n\turl = git@github.com:Jitsusama/agentic-harness.pi.git\n',
+		);
+		writeFileSync(
+			join(main, ".git", "worktrees", "branch", "commondir"),
+			"../..\n",
+		);
+		writeFileSync(
+			join(tree, ".git"),
+			`gitdir: ${join(main, ".git", "worktrees", "branch")}\n`,
+		);
+		mkdirSync(join(root, "plain"));
+
+		expect(repositoryName(tree)).toBe("agentic-harness.pi");
+		expect(repositoryName(main)).toBe("agentic-harness.pi");
+		expect(repositoryName(join(root, "plain"))).toBe("plain");
+	});
+
+	it("publishes only when something in its presence changed", () => {
+		// Presence follows events, never a clock: a peer at rest writes nothing.
+		const kept = createPresences(join(root, "presence"));
+		const written: Presence[] = [];
+		const presences = {
+			...kept,
+			publish: (one: Presence) => {
+				written.push(one);
+				kept.publish(one);
+			},
+		};
+		const peer = localPeer({ ...surroundings(), presences });
+
+		peer.refresh();
+		peer.refresh();
+		peer.setBusy(false);
+		expect(written).toHaveLength(1);
+		peer.setBusy(true);
+		expect(written.map((one) => one.busy)).toEqual([false, true]);
+		expect(kept.of(session)).toMatchObject({ busy: true });
 	});
 
 	it("keeps its groups across a reload", () => {

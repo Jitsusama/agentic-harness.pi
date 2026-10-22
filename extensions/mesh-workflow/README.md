@@ -23,7 +23,10 @@ and can answer a question or a gate left open on screen.
   work a peer does, and nest: a member of `#optimus/power`
   also hears `#optimus`.
 - **Presence:** what a peer publishes about itself: its
-  addresses, its groups, what it works on and what it owns.
+  addresses, its groups, what it works on and what it owns,
+  whether it is mid-run, and the process holding it.
+- **Liveness:** whether a peer is still there, asked of the
+  machine through the process its presence names.
 - **Attention:** what a message gets from the peer it reaches,
   decided by that peer and never none: a glance, a note or a
   wake.
@@ -32,12 +35,13 @@ and can answer a question or a gate left open on screen.
 ## Tools
 
 - `mesh_send`: send a message with an intent to one or more
-  groups. It says which peers the message reaches and which
-  addresses nobody goes by, and refuses a named group nobody
-  else is in.
+  groups. It says which peers the message goes to, which
+  addressed peers have ended and which addresses nobody goes
+  by, and refuses a named group nobody else still there is in.
 - `mesh_read`: the latest messages this peer hears, and what
   it sent, for catching up after a reload or a compaction, or
-  for reading a glance in full.
+  for reading a glance in full. Under each message it sent, it
+  says which peers have it and which not yet.
 - `mesh_join`, `mesh_leave` and `mesh_groups`: the groups this
   peer is in, and who is in each. A bare name joins a peer's
   home group when some peer goes by it, and a named group
@@ -115,7 +119,31 @@ Under `$XDG_STATE_HOME/pi/agentic-harness.pi/mesh-workflow/`:
   catches up on what arrived while it was away; a peer that
   has never read catches up on the last hour.
 - `presence/`: one file per peer, by session id, so its groups
-  survive a reload and a restore.
+  survive a reload and a restore. It is written when something
+  in it changes (the quest, the groups, a run starting or
+  ending), never on a clock.
+
+## Who Is Still There
+
+A presence names the process holding it (pid, start time and
+boot), and the core's process module says whether that process
+still runs, so a new process wearing an old pid is not taken
+for the peer. It is the answer the fleet sweep and review
+leases give too. There is no heartbeat: Skynet's showed a timer
+becomes pressure to post, and one died unnoticed for an hour
+and forty-six minutes. A pi holds one session at a time, so of
+the presences one process holds, only its latest is there. A
+presence naming no process (an old membership) cannot be
+judged and counts as there, since telling a sender a peer is
+gone when it is not costs the message, and the reverse a line.
+Ended peers are left out of `mesh_groups` and of who a message
+goes to, and named when addressed; their presence is kept, so a
+restored session is back in its groups.
+
+A peer has a message once its read marker passes it, which is
+when it is handed to the peer's model, at whatever attention.
+A pi that keeps no session, such as a reload's load check,
+stays off the mesh.
 
 ## The Legacy Mailbox
 
@@ -133,4 +161,7 @@ once no session is left on the old harness.
 ## Not Yet
 
 - Messages, markers and presence are never expired.
+- An old membership names no process, so a session that ended
+  on the old harness still counts as there until legacy.ts
+  goes.
 - There is no reply threading.

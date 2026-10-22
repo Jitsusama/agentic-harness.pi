@@ -13,6 +13,7 @@ import {
 	homeOf,
 	isJoinable,
 } from "../../lib/mesh/group.ts";
+import { type Census, census } from "../../lib/mesh/liveness.ts";
 import {
 	INTENTS,
 	line,
@@ -44,8 +45,10 @@ export interface SendDetails {
 	/** What it refused, when it sent nothing. */
 	readonly refused?: readonly string[];
 	readonly message?: Message;
-	/** The peers it reaches, by the address each signs with. */
+	/** The peers it goes to, by the address each signs with. */
 	readonly reached?: readonly string[];
+	/** The peers it was addressed to whose sessions have ended. */
+	readonly gone?: readonly string[];
 }
 
 export function registerTools(
@@ -53,7 +56,7 @@ export function registerTools(
 	local: () => Local | undefined,
 ): void {
 	const using =
-		<P>(act: (at: Local, params: P) => Answer) =>
+		<P>(act: (at: Local, params: P) => Answer | Promise<Answer>) =>
 		async (_id: string, params: P) => {
 			const at = local();
 			if (!at) {
@@ -132,8 +135,8 @@ export function registerTools(
 		description:
 			"List the mesh groups, who is in each, and which this peer is in.",
 		parameters: Type.Object({}),
-		execute: using((at) =>
-			answer(groupsText(at.presences.all(), at.peer), {
+		execute: using(async (at) =>
+			answer(groupsText(await peers(at), at.peer), {
 				groups: at.peer.groups,
 			}),
 		),
@@ -142,13 +145,21 @@ export function registerTools(
 
 type Answer = ReturnType<typeof answer>;
 
-function send(
+/** Every peer, sorted by whether it is still on the mesh. */
+function peers(at: Local): Promise<Census> {
+	return census(at.presences.all());
+}
+
+async function send(
 	at: Local,
 	params: { to: string; intent: Message["intent"]; text: string },
-): Answer {
+): Promise<Answer> {
 	const to = groupsNamed(params.to);
-	const everyone = at.presences.all();
+	const standing = await peers(at);
+	const everyone = standing.present;
 	const refused = to.filter(
+		// Only peers still there count as in a group: a group whose every
+		// other member has ended is one nobody would hear this in.
 		(group) =>
 			groupNamed(group) === undefined ||
 			(group.startsWith("#") &&
@@ -157,7 +168,7 @@ function send(
 	);
 	if (refused.length > 0) {
 		return answer(
-			`Not sent: nobody else is in ${refused.join(", ")}. ${groupsText(everyone, at.peer)}`,
+			`Not sent: nobody else is in ${refused.join(", ")}. ${groupsText(standing, at.peer)}`,
 			{ sent: false, refused } satisfies SendDetails,
 		);
 	}
@@ -175,25 +186,35 @@ function send(
 		)
 		.filter((one) => reaches(message, one, -1))
 		.map((one) => one.addresses[0] as string);
-	const known = new Set(everyone.flatMap((one) => one.addresses.map(homeOf)));
-	const unknown = to.filter(
-		(group) => group.startsWith("@") && !known.has(group),
-	);
+	const homes = (list: readonly Presence[]) =>
+		new Set(list.flatMap((one) => one.addresses.map(homeOf)));
+	const there = homes(everyone);
+	const ended = homes(standing.gone);
+	const addressed = to.filter((group) => group.startsWith("@"));
+	const gone = addressed
+		.filter((group) => !there.has(group) && ended.has(group))
+		.map((group) => group.slice(1));
+	const unknown = addressed
+		.filter((group) => !there.has(group) && !ended.has(group))
+		.map((group) => group.slice(1));
 	const notes = [
 		reached.length > 0
-			? `It reaches ${reached.join(", ")}.`
+			? `It goes to ${reached.join(", ")}; mesh_read says when each has it.`
 			: "No peer on the mesh is reached by it yet.",
+		gone.length > 0
+			? `${gone.join(", ")} ${gone.length === 1 ? "has" : "have"} ended, so ${gone.length === 1 ? "it hears" : "they hear"} this only if restored.`
+			: "",
 		unknown.length > 0
-			? `No peer goes by ${unknown.map((group) => group.slice(1)).join(", ")}; one never will if the address is wrong.`
+			? `No peer goes by ${unknown.join(", ")}; one never will if the address is wrong.`
 			: "",
 	].filter(Boolean);
 	return answer(
 		`Sent as ${message.from}: ${line(message)}\n${notes.join(" ")}`,
-		{ sent: true, message, reached } satisfies SendDetails,
+		{ sent: true, message, reached, gone } satisfies SendDetails,
 	);
 }
 
-function read(at: Local, params: { count?: number }): Answer {
+async function read(at: Local, params: { count?: number }): Promise<Answer> {
 	const wanted = Math.min(
 		MOST_READ,
 		Math.max(1, Math.floor(params.count ?? 15)),
@@ -209,14 +230,62 @@ function read(at: Local, params: { count?: number }): Answer {
 				reaches(message, at.peer.listener, -1),
 		)
 		.slice(-wanted);
+	const receipt = receipts(at, (await peers(at)).present);
 	const text =
 		latest.length > 0
-			? latest.map(line).join("\n")
+			? latest
+					.map((message) =>
+						[line(message), receipt(message)].filter(Boolean).join("\n  "),
+					)
+					.join("\n")
 			: "Nothing on the mesh yet.";
 	return answer(`This peer is ${at.peer.addresses.join(" or ")}.\n${text}`);
 }
 
-function join(at: Local, params: { group: string }): Answer {
+/**
+ * Who has a message this peer sent, and who it is still on its way to,
+ * among the peers still there. A peer has it once its read marker has
+ * passed it, which happens when the message is handed to its model,
+ * at whatever attention; a peer mid-run gets it at its next step.
+ */
+function receipts(
+	at: Local,
+	present: readonly Presence[],
+): (message: Message) => string {
+	const marks = new Map<string, string | undefined>();
+	const markOf = (one: Presence) => {
+		if (!marks.has(one.session)) {
+			marks.set(one.session, at.transport.lastRead(one.addresses));
+		}
+		return marks.get(one.session);
+	};
+	return (message) => {
+		const own =
+			message.pid === process.pid || at.peer.addresses.includes(message.from);
+		if (!own) return "";
+		const meant = present.filter(
+			(one) =>
+				one.session !== at.peer.session &&
+				one.addresses.length > 0 &&
+				reaches(message, one, -1),
+		);
+		if (meant.length === 0) return "reached no peer";
+		const signed = (list: readonly Presence[]) =>
+			list.map((one) => one.addresses[0]).join(", ");
+		const has = meant.filter((one) => (markOf(one) ?? "") >= message.id);
+		const waiting = meant.filter((one) => !has.includes(one));
+		return [
+			has.length > 0
+				? `${signed(has)} ${has.length === 1 ? "has" : "have"} it`
+				: "",
+			waiting.length > 0 ? `not yet ${signed(waiting)}` : "",
+		]
+			.filter(Boolean)
+			.join("; ");
+	};
+}
+
+async function join(at: Local, params: { group: string }): Promise<Answer> {
 	const group = joinable(params.group, at.presences.all());
 	if (group === undefined || !isJoinable(group)) {
 		return answer(
@@ -229,15 +298,15 @@ function join(at: Local, params: { group: string }): Answer {
 		);
 	}
 	at.peer.join(group);
-	return answer(`In ${group}. ${groupsText(at.presences.all(), at.peer)}`, {
+	return answer(`In ${group}. ${groupsText(await peers(at), at.peer)}`, {
 		groups: at.peer.groups,
 	});
 }
 
-function leave(at: Local, params: { group: string }): Answer {
+async function leave(at: Local, params: { group: string }): Promise<Answer> {
 	const group = groupNamed(params.group);
 	const left = group !== undefined && at.peer.leave(group);
-	const everyone = at.presences.all();
+	const everyone = await peers(at);
 	return answer(
 		left
 			? `Left ${group}. ${groupsText(everyone, at.peer)}`
@@ -274,10 +343,13 @@ function anyoneElseIn(
 	);
 }
 
-/** Every joined group with who is in it, and where this peer stands. */
-function groupsText(everyone: readonly Presence[], peer: Peer): string {
+/**
+ * Every joined group with who is in it among the peers still there,
+ * where this peer stands, and who joined groups but has since ended.
+ */
+function groupsText(standing: Census, peer: Peer): string {
 	const members = new Map<string, string[]>();
-	for (const one of everyone) {
+	for (const one of standing.present) {
 		const signature = one.addresses[0];
 		if (!signature) continue;
 		const groups = one.session === peer.session ? peer.groups : one.groups;
@@ -292,9 +364,16 @@ function groupsText(everyone: readonly Presence[], peer: Peer): string {
 		peer.groups.length > 0
 			? `This peer is in ${peer.groups.join(", ")}, its home group and #all.`
 			: "This peer is in its home group and #all only.";
+	const ended = standing.gone
+		.filter((one) => one.groups.length > 0 && one.addresses[0])
+		.map((one) => one.addresses[0]);
+	const gone =
+		ended.length > 0
+			? `\nEnded, so left out until restored: ${ended.join(", ")}.`
+			: "";
 	return lines.length > 0
-		? `${own}\nGroups:\n${lines.join("\n")}`
-		: `${own} No other groups yet.`;
+		? `${own}\nGroups:\n${lines.join("\n")}${gone}`
+		: `${own} No other groups yet.${gone}`;
 }
 
 function answer(text: string, details: unknown = {}) {

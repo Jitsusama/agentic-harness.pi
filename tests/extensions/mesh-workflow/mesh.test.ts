@@ -160,14 +160,25 @@ async function send(
 	return answer?.content[0]?.text ?? "";
 }
 
-/** Another peer's presence, as it would have published it. */
-function peer(session: string, addresses: string[], groups: string[]) {
+/**
+ * Another peer's presence, as it would have published it. One that has
+ * ended names this process with a start time it never had, which is
+ * how the machine sees a pid that a new process came to wear.
+ */
+function peer(
+	session: string,
+	addresses: string[],
+	groups: string[],
+	ended = false,
+) {
 	createPresences(join(paths.mesh, "presence")).publish({
 		session,
 		addresses,
 		groups,
 		worksOn: "",
 		owns: [],
+		busy: false,
+		...(ended ? { owner: { pid: process.pid, startedAt: 1 } } : {}),
 		at: new Date().toISOString(),
 	});
 }
@@ -437,8 +448,22 @@ describe("sending", () => {
 
 		const answer = await send(tools, "p9r1ki, p9rlki", "question", "ready?");
 
-		expect(answer).toContain("It reaches P9R1KI.");
+		expect(answer).toContain("It goes to P9R1KI;");
 		expect(answer).toContain("No peer goes by P9RLKI");
+	});
+
+	it("says when a peer it was addressed to has ended, and reaches no one there", async () => {
+		// A dead session was once sent work for six hours.
+		peer("session-w", ["WCJQSG"], ["#optimus"], true);
+		const { tools } = await startSession();
+
+		const answer = await send(tools, "wcjqsg", "question", "ready?");
+
+		expect(answer).toContain("WCJQSG has ended");
+		expect(answer).toContain("No peer on the mesh is reached by it yet.");
+		expect(answer).not.toContain("No peer goes by");
+		const group = await send(tools, "#optimus", "hold", "hold builds");
+		expect(group).toContain("Not sent: nobody else is in #optimus");
 	});
 
 	it("refuses a group nobody else is in, and sends nothing", async () => {
@@ -465,7 +490,23 @@ describe("sending", () => {
 
 		const answer = await send(tools, "#optimus", "hold", "hold builds");
 
-		expect(answer).toContain("It reaches WCJQSG.");
+		expect(answer).toContain("It goes to WCJQSG;");
+	});
+
+	it("reads back who has a message it sent, and who not yet", async () => {
+		peer("session-p", ["P9R1KI"], ["#harness"]);
+		peer("session-o", ["OVAE1I"], ["#harness"]);
+		const { tools } = await startSession();
+		await send(tools, "#harness", "finding", "the bridge is in");
+		const transport = folderTransport(join(paths.mesh, "messages"));
+		const [id = ""] = transport.ids();
+		transport.markRead("P9R1KI", id);
+
+		const read = await tools.get("mesh_read")?.execute("call-1", {});
+
+		expect(read?.content[0]?.text).toContain(
+			"the bridge is in\n  P9R1KI has it; not yet OVAE1I",
+		);
 	});
 });
 
@@ -542,6 +583,17 @@ describe("groups", () => {
 		expect(text).toContain("#optimus/power: P9R1KI");
 	});
 
+	it("leaves out a peer whose session has ended, and says so", async () => {
+		peer("session-p", ["P9R1KI"], ["#optimus/power"], true);
+		const { tools } = await startSession();
+
+		const listed = await tools.get("mesh_groups")?.execute("call-1", {});
+
+		const text = listed?.content[0]?.text ?? "";
+		expect(text).not.toContain("#optimus/power: P9R1KI");
+		expect(text).toContain("Ended, so left out until restored: P9R1KI.");
+	});
+
 	it("refuses what is not a group to join", async () => {
 		const { tools } = await startSession();
 
@@ -562,6 +614,28 @@ describe("groups", () => {
 		const text = read?.content[0]?.text ?? "";
 		expect(text).toContain("everyone's");
 		expect(text).not.toContain("someone else's");
+	});
+});
+
+describe("presence", () => {
+	it("names this process, so others can ask whether it is still there", async () => {
+		await startSession();
+
+		const own = createPresences(join(paths.mesh, "presence")).of(session);
+
+		expect(own?.owner?.pid).toBe(process.pid);
+	});
+
+	it("says whether the peer is mid-run", async () => {
+		const { fire } = await startSession();
+		const own = () =>
+			createPresences(join(paths.mesh, "presence")).of(session)?.busy;
+
+		expect(own()).toBe(false);
+		await fire("agent_start");
+		expect(own()).toBe(true);
+		await fire("agent_end");
+		expect(own()).toBe(false);
 	});
 });
 

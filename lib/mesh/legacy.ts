@@ -227,6 +227,8 @@ function presenceOfMember(text: string): Presence | undefined {
 			groups: one.channels.map((channel) => `#${channel}`),
 			worksOn: "",
 			owns: [],
+			// An old membership never said, and has no process to ask.
+			busy: false,
 			at: "",
 		};
 	} catch {
