@@ -13,6 +13,11 @@ external packages. These modules may change without notice.
   commit, PR and issue guardians, the last-outcome registry
   `/guards` reads, and `guards.ts`, the catalogue every
   guard in this package is declared from.
+- **`notify.ts`**: reach the person at the machine through a
+  desktop notification (notify-send on Linux, osascript on
+  macOS), answering whether it was shown and never throwing.
+  It decides how; the mesh decides when. `PI_NOTIFY=off`
+  silences it.
 - **`package-state-dir.ts`**: resolve the on-disk state
   directory for one extension in this package. Honours
   `XDG_STATE_HOME`; scopes everything under

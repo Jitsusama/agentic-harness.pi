@@ -39,3 +39,7 @@ process.env.XDG_STATE_HOME = join(sandbox, "state");
 process.env.XDG_DATA_HOME = join(sandbox, "data");
 process.env.XDG_CACHE_HOME = join(sandbox, "cache");
 process.env.XDG_CONFIG_HOME = join(sandbox, "config");
+
+// The desktop is the developer's too: a test that reaches someone
+// through a notification must not put one on their screen.
+process.env.PI_NOTIFY = "off";
