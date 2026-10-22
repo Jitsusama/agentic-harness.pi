@@ -39,6 +39,29 @@ time, under one 60-second deadline; a figure the deadline cut short is
 said as "at least". It reads no ledger, since disk is a standing amount
 rather than a flow of turns.
 
+## So Are CPU, Disk I/O and Memory
+
+`cost` with `resources` reports the CPU time, the bytes read from and
+written to storage, and the most memory pi held, for each quest's
+sessions, heaviest CPU first. CPU is split between pi itself and what
+it ran: the commands, builds and subagents it started.
+
+pi's logs hold no such figures, so this is the one thing here that is
+recorded rather than derived. At every turn's end, a session with a
+person at it reads the kernel's counters for its process (about 11 µs)
+and appends what was used since the last turn's end to a file named
+after its session log, under `observability/resources/`. It records
+no quest: the report asks the ledger which quest that session's turns
+were booked to at the time, so money and machine time follow one rule.
+
+On Linux the counters include every child pi waited for, wherever it
+ran, so a build run through bash counts in full once it exits. They
+miss work a daemon does for pi (a `nix build` runs in nix-daemon), a
+command still running, and the memory children used. Elsewhere, only
+pi's own CPU and memory are counted, and the line says so. Subagents
+record nothing themselves, since their use lands in the session that
+started them.
+
 ## Coverage Is Part of Every Answer
 
 An aggregate that cannot say what it missed is not evidence, so:
@@ -144,6 +167,8 @@ dependency, and it is DuckDB doing the retrospecting either way.
 - `report.ts`: pure formatting, tested without loading pi.
 - `disk.ts`: the disk report, over `lib/internal/quest/footprint.ts`,
   which measures and decides what could go.
+- `resources.ts`: the per-turn resource figures and their report, over
+  `lib/internal/resources.ts`, which reads the kernel's counters.
 
 The store, the turn and session types live in `agentic-harness.core`'s
 `observability` module, since a billable turn is not a pi-specific idea.
