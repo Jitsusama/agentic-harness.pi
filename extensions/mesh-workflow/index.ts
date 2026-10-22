@@ -84,6 +84,7 @@ import {
 } from "../../lib/mesh/message.ts";
 import { localPeer, type Peer } from "../../lib/mesh/peer.ts";
 import { createPresences } from "../../lib/mesh/presence.ts";
+import { createReadFront } from "../../lib/mesh/reading.ts";
 import { sweeper } from "../../lib/mesh/retention.ts";
 import type { Judge } from "../../lib/mesh/routing.ts";
 import { isStopped } from "../../lib/mesh/stop.ts";
@@ -107,7 +108,7 @@ import {
 	NOTED,
 	noted,
 } from "./delivery.ts";
-import { countedIn, createGlances, type Entry } from "./glances.ts";
+import { countedIn, createGlances, type Entry, handedIn } from "./glances.ts";
 import { createLeasing, type HoldEnd } from "./leases.ts";
 import { type Local, registerTools } from "./tools.ts";
 
@@ -139,6 +140,15 @@ const FIRST_CATCH_UP_MS = 60 * 60 * 1000;
  * waiting on nothing keeps no clock.
  */
 export const WAIT_CHECK_MS = 60 * 1000;
+
+/**
+ * How often a peer looks in the folder for messages its watcher never
+ * reported. The kernel drops events when its queue fills, and a watcher
+ * can die with the folder under it; either leaves a peer deaf with
+ * nothing to show it. Aquifer's sessions keep a fallback poll for the
+ * same reason. A look is one listing, so a minute costs nothing.
+ */
+export const LOOK_AGAIN_MS = 60 * 1000;
 
 /**
  * How the shell tool answers a call it handed to a job (see
@@ -203,6 +213,7 @@ export function meshWorkflow(
 	env: NodeJS.ProcessEnv = process.env,
 	settling: Settling = SETTLING,
 	waitCheckMs: number = WAIT_CHECK_MS,
+	lookAgainMs: number = LOOK_AGAIN_MS,
 ) {
 	return (pi: ExtensionAPI) => {
 		// Not on the mesh at all: see isSubagent.
@@ -239,6 +250,15 @@ export function meshWorkflow(
 		// Every id already looked at, so a watcher that reports one twice,
 		// as inotify does for a rename, is handed over once.
 		const seen = new Set<string>();
+		// How far the read marker may move: only past what was handed over.
+		let front = createReadFront();
+		let lookClock: ReturnType<typeof setInterval> | undefined;
+
+		/** These were handed over, or need nothing more: the marker follows. */
+		const handedOver = (messages: readonly Message[]) => {
+			const to = front.handed(messages.map((one) => one.id));
+			if (to !== undefined && peer) transport.markRead(peer.signature, to);
+		};
 
 		/** Whose business a message is, by the classifier, or nothing. */
 		const judge = async (
@@ -335,6 +355,7 @@ export function meshWorkflow(
 				if (replaced) {
 					glances.drop(replaced.id);
 					acts?.drop((one) => one.message.id === replaced.id);
+					handedOver([replaced]);
 				}
 				const raised: Heed =
 					heard && worth.attention === "glance"
@@ -375,6 +396,8 @@ export function meshWorkflow(
 		const glance = (message: Message, why: string) => {
 			pi.appendEntry(GLANCE, { message, why });
 			glances.add(message);
+			// Recorded in the session, so a reload finds it waiting still.
+			handedOver([message]);
 		};
 
 		/**
@@ -413,6 +436,7 @@ export function meshWorkflow(
 				},
 				{ triggerTurn: wake },
 			);
+			handedOver(messages);
 			damper.handed(messages);
 			if (wake) damper.started(messages.map((one) => one.from));
 		};
@@ -504,7 +528,8 @@ export function meshWorkflow(
 			if (!message || !reaches(message, peer.listener, process.pid)) {
 				return undefined;
 			}
-			transport.markRead(peer.signature, id);
+			// The marker passes it only once it is handed over (see reading.ts).
+			front.taken(id);
 			// Brought into a group by another peer: it joins without being
 			// asked, as Joel wants agents to organise themselves, and the note
 			// it gets says how to leave.
@@ -519,6 +544,17 @@ export function meshWorkflow(
 				peer.join(message.invite);
 			}
 			return message;
+		};
+
+		/** Messages the watcher never reported, taken as it would have. */
+		const lookAgain = () => {
+			if (!peer) return;
+			const missed = transport
+				.ids()
+				.filter((id) => !seen.has(id))
+				.map(take)
+				.filter((one): one is Message => one !== undefined);
+			if (missed.length > 0) void route(missed);
 		};
 
 		pi.registerEntryRenderer?.<{ message: Message }>(
@@ -616,6 +652,33 @@ export function meshWorkflow(
 					reason: error instanceof Error ? error.message : String(error),
 				}),
 			);
+			// A peer reads afresh: what another session took is not this one's,
+			// and what this one handed over before a reload its entries say.
+			seen.clear();
+			for (const id of handedIn(branch)) seen.add(id);
+			front = createReadFront();
+			// Watching before looking, so what lands between the two is heard
+			// by one of them, and seen keeps it to once.
+			stopWatching?.();
+			stopWatching = undefined;
+			try {
+				stopWatching = transport.watch((id) => {
+					const message = take(id);
+					if (message) void route([message]);
+				});
+			} catch (error) {
+				// A transport that cannot be watched leaves this peer slow to
+				// hear, which nothing else would show.
+				if (started.hasUI) {
+					started.ui.notify(
+						`Mesh: cannot watch for messages (${error instanceof Error ? error.message : String(error)}), so this session looks for them once a minute instead.`,
+						"warning",
+					);
+				}
+			}
+			clearInterval(lookClock);
+			lookClock = setInterval(lookAgain, lookAgainMs);
+			lookClock.unref?.();
 			const since =
 				transport.lastRead(peer.addresses) ??
 				`${Date.now() - FIRST_CATCH_UP_MS}`;
@@ -630,23 +693,6 @@ export function meshWorkflow(
 			}
 			void route(missed, false);
 			tidy();
-			stopWatching?.();
-			stopWatching = undefined;
-			try {
-				stopWatching = transport.watch((id) => {
-					const message = take(id);
-					if (message) void route([message]);
-				});
-			} catch (error) {
-				// A transport that cannot be watched leaves this peer deaf,
-				// which nothing else would show.
-				if (started.hasUI) {
-					started.ui.notify(
-						`Mesh: cannot watch for messages (${error instanceof Error ? error.message : String(error)}), so they will arrive only at this session's next start.`,
-						"warning",
-					);
-				}
-			}
 			if (started.hasUI) {
 				const groups =
 					peer.groups.length > 0 ? `, in ${peer.groups.join(", ")}` : "";
@@ -675,6 +721,7 @@ export function meshWorkflow(
 			const messages = waiting.map(({ message }) => message);
 			leasing.answering(messages);
 			const carried = glances.take();
+			handedOver(messages);
 			damper.handed(messages);
 			return {
 				message: {
@@ -705,6 +752,7 @@ export function meshWorkflow(
 			peer?.setBusy(true);
 		});
 		pi.on("agent_end", async () => {
+			lookAgain();
 			tidy();
 			peer?.setBusy(false);
 			// What a run claimed is claimed only while it runs.
@@ -712,7 +760,10 @@ export function meshWorkflow(
 		});
 
 		pi.on("session_shutdown", async () => {
+			// What still waits is not marked read, so the next start has it.
 			acts?.stop();
+			clearInterval(lookClock);
+			lookClock = undefined;
 			resumes?.stop();
 			clearInterval(waitClock);
 			waitClock = undefined;

@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { ALL } from "../../../lib/mesh/group.ts";
 import {
+	clock,
 	isHomeTo,
 	type Message,
 	messageFrom,
@@ -83,5 +84,16 @@ describe("who a message reaches", () => {
 		expect(reaches(message({ from: "CA6H2X", pid: 2 }), listener, 2)).toBe(
 			false,
 		);
+	});
+});
+
+describe("when a message was sent", () => {
+	it("says the time of day for today, and the date as well for any other day", () => {
+		// Built from local parts, so it reads the same in any time zone.
+		const sent = new Date(2026, 9, 21, 9, 5);
+		const at = { at: sent.toISOString() };
+
+		expect(clock(at, new Date(2026, 9, 21, 23, 0))).toBe("09:05");
+		expect(clock(at, new Date(2026, 9, 22, 8, 0))).toBe("2026-10-21 09:05");
 	});
 });
