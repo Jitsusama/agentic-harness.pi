@@ -144,8 +144,15 @@ work record tree:… subject:"fix(auth): stop double-charging" body:"…"
 work push tree:…
 ```
 
-`record` stages and commits. `push` publishes, and two rules
-are built in rather than offered:
+`record` stages and commits: everything changed, untracked
+files included, or only the `paths` you name. A sweep that
+would take in build output (`target/`, `node_modules/` and the
+like) or more than 500 untracked files is refused before
+anything is staged; ignore what is not work, or name the paths,
+which is also how to commit such files on purpose.
+
+`push` publishes, and two rules are built in rather than
+offered:
 
 - **The first push sets upstream.** A branch without one has
   to be told its own name every time and is eventually told

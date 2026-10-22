@@ -73,6 +73,7 @@ import {
 	say,
 } from "./shared.ts";
 import { runStackAction } from "./stack.ts";
+import { sweepObjection } from "./sweep.ts";
 
 /** Find a held tree by the key or path a caller named. */
 function heldByName(held: readonly HeldTree[], name: string) {
@@ -442,7 +443,8 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 			),
 			paths: Type.Optional(
 				Type.Array(Type.String(), {
-					description: "For snapshot: restrict it to these paths.",
+					description:
+						"For snapshot: restrict it to these paths. For record: commit only these, rather than every change, untracked files included; a sweep that would take in build output or more than 500 untracked files is refused until the paths are named.",
 				}),
 			),
 			tree: Type.Optional(
@@ -747,24 +749,34 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 							`${GLYPH.clean} Nothing to record in ${found.identity.key}: the tree is clean.`,
 						);
 					}
-					await author.stage(
-						found.path,
-						args.paths && args.paths.length > 0 ? args.paths : undefined,
-					);
+					const paths =
+						args.paths && args.paths.length > 0 ? args.paths : undefined;
+					// Only a sweep is checked: naming paths says what is meant.
+					const swept = paths ? undefined : sweepObjection(before.changed);
+					if (swept !== undefined) {
+						return refuse(`${GLYPH.refused} ${swept}`);
+					}
+					await author.stage(found.path, paths);
 					await author.commit(found.path, {
 						subject: args.subject,
 						...(message.body ? { body: message.body } : {}),
 					});
 					const head = await history.head(found.path);
+					// What the commit holds, not what was changed before it: with paths
+					// named, the rest stays uncommitted and was counted as recorded.
+					const recorded = paths
+						? before.changed.length -
+							(await history.status(found.path)).changed.length
+						: before.changed.length;
 					const rewrapped = message.wrapped
 						? " The body ran past 72 columns, so it was wrapped to fit."
 						: "";
 					return say(
-						`${GLYPH.clean} Recorded ${before.changed.length} paths in ${found.identity.key} at ${head.commit.slice(0, 12)}.${rewrapped}`,
+						`${GLYPH.clean} Recorded ${count(recorded, "path")} in ${found.identity.key} at ${head.commit.slice(0, 12)}.${rewrapped}`,
 						{
 							ok: true,
 							commit: head.commit,
-							recorded: before.changed.length,
+							recorded,
 						},
 					);
 				}
