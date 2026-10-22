@@ -8,24 +8,17 @@
  * has credentials, which is the model the selection was tested with.
  */
 
-import type { ClassifierApi, ClassifierModel } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { findClassifier } from "../../lib/classifier/jev.ts";
 import type { Classifier } from "../../lib/compaction/selection/classify.ts";
+
+export { JEV_MODELS } from "../../lib/classifier/jev.ts";
 
 /**
  * The environment variable naming the classifier as `provider/model`,
  * or `off` for none.
  */
 export const CLASSIFIER_ENV = "PI_COMPACTION_CLASSIFIER";
-
-/** Jev as pi's catalog lists it, in the order one is preferred. */
-export const JEV_MODELS: readonly string[] = [
-	"typesafe/jev-latest",
-	"openrouter/typesafe/jev-1.13",
-	"opencode/jev-1.13",
-	"vercel-ai-gateway/typesafe-ai/jev",
-	"cloudflare-workers-ai/typesafe/jev",
-];
 
 /** A classifier ready to call, or why there is none. */
 export type ResolvedClassifier =
@@ -47,37 +40,7 @@ export async function resolveClassifier(
 	ctx: ExtensionContext,
 	env: NodeJS.ProcessEnv = process.env,
 ): Promise<ResolvedClassifier> {
-	const registry = ctx.modelRegistry;
-	// A pi from before classifier models has neither call.
-	if (
-		typeof registry.getAvailableOfType !== "function" ||
-		typeof registry.classify !== "function"
-	) {
-		return { ok: false, reason: "this pi has no classifier models" };
-	}
-	const named = env[CLASSIFIER_ENV]?.trim();
-	if (named === "off") {
-		return { ok: false, reason: `${CLASSIFIER_ENV} is off`, off: true };
-	}
-	const wanted = named ? [named] : JEV_MODELS;
-	const available = await registry.getAvailableOfType("classifier");
-	const byLabel = new Map(available.map((model) => [labelOf(model), model]));
-	for (const label of wanted) {
-		const model = byLabel.get(label);
-		if (!model) continue;
-		return {
-			ok: true,
-			label,
-			classify: (context, signal) =>
-				registry.classify(model, context, { signal }),
-		};
-	}
-	return {
-		ok: false,
-		reason: named
-			? `no classifier ${named} has credentials`
-			: "no Jev classifier has credentials",
-	};
+	return findClassifier(ctx, env[CLASSIFIER_ENV], CLASSIFIER_ENV);
 }
 
 /** What the selection last found of its classifier, for its records. */
@@ -129,8 +92,4 @@ export function classifierStatus(
 			told = false;
 		},
 	};
-}
-
-function labelOf(model: ClassifierModel<ClassifierApi>): string {
-	return `${model.provider}/${model.id}`;
 }
