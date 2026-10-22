@@ -101,6 +101,34 @@ describe("resuming the run a compaction interrupted", () => {
 		expect(String(calls.sendUserMessage[0]?.[0])).toMatch(/compacted/);
 	});
 
+	it("tries again after a compaction that could not start", async () => {
+		const { handlers } = activate();
+		let attempts = 0;
+		let size = 60_000;
+		const ctx = context(
+			() => size,
+			() => {
+				attempts += 1;
+				if (attempts === 1) throw new Error("This extension ctx is stale.");
+			},
+		);
+		await handlers.get("session_start")?.({}, ctx);
+		const turnEnd = handlers.get("turn_end");
+		if (turnEnd === undefined) throw new Error("no turn_end handler");
+		await turnEnd({ toolResults: [{}] }, ctx);
+		size = 900_000;
+
+		for (let turn = 0; turn < 200 && attempts < 2; turn++) {
+			try {
+				await turnEnd({ toolResults: [{}] }, ctx);
+			} catch {
+				// pi catches a handler's throw; so does this stand-in.
+			}
+		}
+
+		expect(attempts).toBe(2);
+	});
+
 	it("resumes after a failed compaction through the prompt path", async () => {
 		const calls = await runUntilCompaction((options) =>
 			options.onError?.(new Error("Summarization failed")),

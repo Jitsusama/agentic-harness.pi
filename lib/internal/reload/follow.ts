@@ -137,6 +137,14 @@ export interface Moved {
 /** Stops watching. */
 export type Unwatch = () => void;
 
+// The HEAD each checkout was at when this code was loaded from it. Kept at
+// module level, which is exactly as long-lived as the code: pi reuses its
+// cached extension modules when a rollover or a resume replaces the
+// session, and loads them afresh only on a reload. So a runtime that
+// starts after a replacement can still tell that the install moved past
+// the code it runs, though git's HEAD already reads as the new commit.
+const loadedAt = new Map<string, string>();
+
 /**
  * Watch each checkout's git directory and say when its HEAD moves.
  * A merge or a pull writes several files in a burst, so HEAD is read
@@ -150,6 +158,7 @@ export async function watchHeads(
 ): Promise<Unwatch> {
 	const watchers: FSWatcher[] = [];
 	const timers = new Set<NodeJS.Timeout>();
+	const already: Moved[] = [];
 	let stopped = false;
 	for (const root of roots) {
 		const dir = join(root, ".git");
@@ -158,6 +167,9 @@ export async function watchHeads(
 		if (!existsSync(join(dir, "HEAD"))) continue;
 		let seen = await headOf(root);
 		if (seen === undefined) continue;
+		const loaded = loadedAt.get(root);
+		if (loaded === undefined) loadedAt.set(root, seen);
+		else if (loaded !== seen) already.push({ root, from: loaded, to: seen });
 		let timer: NodeJS.Timeout | undefined;
 		const settle = () => {
 			if (timer) {
@@ -186,6 +198,9 @@ export async function watchHeads(
 			// A directory that cannot be watched is followed no further.
 		}
 	}
+	// Moves made before this runtime started, under code that is still
+	// loaded: said once the watch is in place, as a move seen now would be.
+	for (const moved of already) onMoved(moved);
 	return () => {
 		stopped = true;
 		for (const watcher of watchers) watcher.close();

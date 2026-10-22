@@ -274,6 +274,22 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		resume: boolean,
 	) => {
 		compacting = true;
+		// A compaction that cannot start (a context the session replaced
+		// throws on first use) ends here, or the flag would stay set and
+		// keep every later compaction off for the session.
+		try {
+			startCompaction(ctx, tokens, resume);
+		} catch (error) {
+			compacting = false;
+			throw error;
+		}
+	};
+
+	const startCompaction = (
+		ctx: ExtensionContext,
+		tokens: number,
+		resume: boolean,
+	) => {
 		ctx.compact({
 			onComplete: () => {
 				if (!resume || ctx.hasPendingMessages()) return;

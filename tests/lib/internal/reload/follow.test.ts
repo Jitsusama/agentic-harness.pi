@@ -118,6 +118,20 @@ describe("watchHeads", () => {
 		expect(seen).toEqual([{ root: dir, from, to: await headOf(dir) }]);
 	});
 
+	// pi reuses the loaded code when a rollover replaces the session, so
+	// the runtime after it runs code from before a move it never saw.
+	it("says a move made before a later watch, under the same loaded code", async () => {
+		const dir = await repo();
+		const from = await headOf(dir);
+		(await watchHeads([dir], () => {}, 50))();
+		await commit(dir, "while replaced");
+		const seen: Moved[] = [];
+
+		stops.push(await watchHeads([dir], (moved) => seen.push(moved), 50));
+
+		expect(seen).toEqual([{ root: dir, from, to: await headOf(dir) }]);
+	});
+
 	it("sees a ref moved without a checkout", async () => {
 		const dir = await repo();
 		await git(dir, "checkout", "-qb", "side");
