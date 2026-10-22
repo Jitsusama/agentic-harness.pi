@@ -57,14 +57,25 @@ function harness(state: { current: string | null }) {
 		WORDING,
 		() => state.current,
 	);
+	let sections: Record<string, string> = {};
+	let returned: { systemPrompt?: string } | undefined;
 	return {
+		/** The prompt sections the last prompt rendered, and what it returned. */
+		last: () => ({ sections, returned }),
 		start: () => handlers.get("session_start")?.({}, ctx),
 		/** Run a prompt, recording any message it sends, as pi would. */
 		async prompt(): Promise<string | undefined> {
+			sections = {};
 			const turn = (await handlers.get("before_agent_start")?.(
-				{ systemPrompt: "base", systemPromptOptions: { sections: {} } },
+				{ systemPrompt: "base", systemPromptOptions: { sections } },
 				ctx,
-			)) as { message?: { customType: string; content: string } } | undefined;
+			)) as
+				| {
+						message?: { customType: string; content: string };
+						systemPrompt?: string;
+				  }
+				| undefined;
+			returned = turn;
 			if (turn?.message) {
 				add({ type: "custom_message", customType: turn.message.customType });
 				return turn.message.content;
@@ -109,6 +120,20 @@ async function movedOn() {
 	const afterChange = h.talk();
 	return { state, h, beforeChange, afterChange };
 }
+
+describe("a standing context in the prompt", () => {
+	it("freezes into a section of its own and never forces the prompt", async () => {
+		const state = { current: "A" as string | null };
+		const h = harness(state);
+		await h.start();
+		await h.prompt();
+		state.current = "B";
+		await h.prompt();
+
+		expect(h.last().sections).toEqual({ "probe-context": "[Probe] A" });
+		expect(h.last().returned?.systemPrompt).toBeUndefined();
+	});
+});
 
 describe("a standing context across a compaction", () => {
 	it("stays quiet when the last change survives in the kept tail", async () => {
