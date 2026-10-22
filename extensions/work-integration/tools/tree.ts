@@ -38,6 +38,7 @@ import {
 	orphanedTrees,
 	reclaimTrees,
 	refusalFrom,
+	type SettledFile,
 	surveyTarget,
 	type TreeBroker,
 	type TreeClaims,
@@ -64,6 +65,7 @@ import { FETCH_MS, refreshStart } from "../fresh-start.ts";
 import { GLYPH, treeLine } from "../render.ts";
 import { candidatesFor, machineSeams, warmStart } from "../warm-start.ts";
 import { recordMessage } from "./message.ts";
+import { settlingLines } from "./settling.ts";
 import {
 	type Answer,
 	messageOf,
@@ -1042,7 +1044,9 @@ async function replay(
 			// Said the same way the first halt is said. A stack halts more than once,
 			// and the second one used to print no branch at all, which is the moment
 			// a reader most needs to know which branch they are being asked about.
-			return refuse(haltLines(outcome.conflicted, subjectOfHalt(outcome)));
+			return refuse(
+				haltLines(outcome.conflicted, subjectOfHalt(outcome), outcome.settled),
+			);
 		}
 		if (outcome.kind === "abandoned") {
 			return say(
@@ -1057,10 +1061,13 @@ async function replay(
 		// replay: the next restack then measured from there and handed the branch
 		// copies of its parent's history.
 		await createGitStacks({ exec, rebaser }).settled(found.path);
-		return say(`${GLYPH.tree} ${outcome.branch} replayed.`, {
-			ok: true,
-			branch: outcome.branch,
-		});
+		return say(
+			[
+				`${GLYPH.tree} ${outcome.branch} replayed.`,
+				...settlingLines(outcome.settled, outcome.stale),
+			].join("\n"),
+			{ ok: true, branch: outcome.branch },
+		);
 	}
 
 	if (onto === undefined) {
@@ -1084,11 +1091,15 @@ async function replay(
 			haltLines(
 				outcome.conflicted,
 				`${outcome.branch} onto ${outcome.onto}${outcome.at === undefined ? "" : `, at ${outcome.at}`}`,
+				outcome.settled,
 			),
 		);
 	}
 	return say(
-		`${GLYPH.tree} ${outcome.branch} replayed onto ${outcome.onto}, ${outcome.commits} ${outcome.commits === 1 ? "commit" : "commits"}.`,
+		[
+			`${GLYPH.tree} ${outcome.branch} replayed onto ${outcome.onto}, ${outcome.commits} ${outcome.commits === 1 ? "commit" : "commits"}.`,
+			...settlingLines(outcome.settled, outcome.stale),
+		].join("\n"),
 		{ ok: true, branch: outcome.branch, replayed: outcome.commits },
 	);
 }
@@ -1117,16 +1128,22 @@ function subjectOfHalt(halt: {
 	return `${halt.branch}${onto}${at}`;
 }
 
-function haltLines(conflicted: readonly string[], what?: string): string {
+function haltLines(
+	conflicted: readonly string[],
+	what?: string,
+	settled?: readonly SettledFile[],
+): string {
 	const head =
 		what === undefined ? "Replay halted." : `Replay halted: ${what}.`;
 	const paths =
 		conflicted.length === 0
 			? ["   nothing is unmerged, so something else stopped it"]
 			: conflicted.map((path) => `   ${GLYPH.dirty} ${path}`);
+	const before = settlingLines(settled);
 	return [
 		`${GLYPH.refused} ${head}`,
 		...paths,
+		...(before.length > 0 ? ["", "Settled on the way:", ...before] : []),
 		"",
 		"Settle these, then resume: a text file edited clean of its markers is staged by the resume itself. Or abandon, and the tree goes back to where it started.",
 	].join("\n");

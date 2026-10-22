@@ -16,6 +16,7 @@ import {
 	type WorkStacks,
 } from "@jitsusama/agentic-harness.core/work";
 import { GLYPH } from "../render.ts";
+import { settlingLines } from "./settling.ts";
 import { type Answer, refuse, say } from "./shared.ts";
 
 /** How far in a branch sits, so the shape is visible at a glance. */
@@ -91,6 +92,16 @@ function replayLine(result: ReplayResult): string {
 				? GLYPH.named
 				: GLYPH.tree;
 	return `   ${mark} ${result.branch} · ${said[result.outcome]}`;
+}
+
+/** One replay's line, with what it settled by itself beneath it. */
+function replayLines(result: ReplayResult): string[] {
+	return [
+		replayLine(result),
+		...settlingLines(result.settled, result.stale).map((line) =>
+			line === "" ? line : `   ${line}`,
+		),
+	];
 }
 
 /** Run one stack verb against a held tree. */
@@ -274,7 +285,7 @@ export async function runStackAction(
 			[
 				...(fetched === undefined ? [] : [`${GLYPH.stack} ${fetched}`, ""]),
 				`${GLYPH.refused} Restack halted at ${outcome.at}.`,
-				...outcome.results.map(replayLine),
+				...outcome.results.flatMap(replayLines),
 				"",
 				...outcome.conflicted.map((path) => `   ${GLYPH.dirty} ${path}`),
 				"",
@@ -291,7 +302,7 @@ export async function runStackAction(
 			moved === 0
 				? `${GLYPH.clean} Every branch was already in place. Nothing to replay.`
 				: `${GLYPH.stack} Restacked ${moved} of ${outcome.results.length} onto ${trunk}.`,
-			...outcome.results.map(replayLine),
+			...outcome.results.flatMap(replayLines),
 			...(outcome.on === undefined ? [] : ["", `Back on ${outcome.on}.`]),
 		].join("\n"),
 		{ ok: true, replayed: moved },
