@@ -958,6 +958,13 @@ branches. Nothing needs to host it. This is how to review
 work before it is proposed, or work that will never be
 proposed at all.
 
+A council, a judge and a critique take a range too, through
+the same `base` and `head` on `review_ask`. Its rounds and
+findings are held under `base..head` as written, so pass the
+same pair to `review_see findings` and `review_draft decide`.
+A range cannot be attached, since attaching keeps a change a
+host can be asked about, and it has no threads to audit.
+
 Where nothing hosts the target, `review_draft render` writes
 the review as a document rather than failing. Reach for that
 instead of reporting that publishing is impossible.

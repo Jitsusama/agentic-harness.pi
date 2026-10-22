@@ -57,6 +57,7 @@ import {
 	renderAnswer,
 	renderInvocation,
 	repoToList,
+	reviewedChange,
 	say,
 	type TargetParams,
 	threadsOf,
@@ -502,7 +503,7 @@ async function seeConversation(
  * than appearing in the conversation.
  */
 async function seeFindings(bound: BoundTarget): Promise<Answer> {
-	const change = hostedChange(bound);
+	const change = reviewedChange(bound);
 	if (!change) {
 		return refuse(
 			`A ${bound.target.kind} in ${bound.repo.key} is not something findings are held against, since there is no change to hold them on.`,
