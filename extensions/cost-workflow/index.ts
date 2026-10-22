@@ -64,9 +64,10 @@ import {
 	recordIndex,
 } from "../../lib/internal/session/rollover.ts";
 import { LEDGER_SCOPE } from "../../lib/ledger/index.ts";
+import { AUDIT_QUERIES, formatAudit, weeks } from "./audit.ts";
 import { formatHoldings, measureQuests } from "./disk.ts";
 import { fanOutView, summarizeFanOut } from "./fanout.ts";
-import { indexSessionLogs } from "./indexer.ts";
+import { indexSessionLogs, sessionsDir } from "./indexer.ts";
 import {
 	formatFanOut,
 	formatIndexOutcome,
@@ -88,6 +89,7 @@ import {
 	recordTurn,
 	useByQuest,
 } from "./resources.ts";
+import { byRepo, logsSince, standingOf } from "./standing.ts";
 
 /** Where each session's per-turn resource figures are kept. */
 const resourcesDir = () => join(packageStateDir("observability"), "resources");
@@ -436,6 +438,16 @@ export default function costWorkflow(pi: ExtensionAPI) {
 						"turn, including the commands and subagents a session ran.",
 				}),
 			),
+			audit: Type.Optional(
+				Type.Boolean({
+					description:
+						"Report the last seven days in one digest, held against the " +
+						"seven before: spend and what it went on, cache rewrites by " +
+						"cause, the always-on context each repository reads on every " +
+						"turn piece by piece, and the tools whose calls failed most. " +
+						"Start here when asked where the money went or what to fix.",
+				}),
+			),
 			payback: Type.Optional(
 				Type.Boolean({
 					description:
@@ -509,6 +521,39 @@ export default function costWorkflow(pi: ExtensionAPI) {
 							}),
 						},
 					],
+					details: { ok: true, index },
+				};
+			}
+
+			if (params.audit) {
+				const read = await openReader();
+				const { current, prior } = weeks(Date.now());
+				const rows = async (sql: string) => (await read.query(sql)).rows;
+				const logs = logsSince(sessionsDir(), Date.parse(current.from));
+				const prompts = (
+					await Promise.all(logs.map((path) => standingOf(path)))
+				).filter((one) => one !== undefined);
+				const [now, before, rewrites, reads, errors] = await Promise.all([
+					rows(AUDIT_QUERIES.spend(current)),
+					rows(AUDIT_QUERIES.spend(prior)),
+					rows(AUDIT_QUERIES.rewrites(current)),
+					rows(AUDIT_QUERIES.readsByRepo(current)),
+					rows(AUDIT_QUERIES.errors(current)),
+				]);
+				const text = formatAudit(
+					{
+						week: current,
+						spend: { now: now[0] ?? {}, before: before[0] ?? {} },
+						rewrites,
+						reads,
+						errors,
+						standing: byRepo(prompts),
+						unread: logs.length - prompts.length,
+					},
+					params.limit ?? 12,
+				);
+				return {
+					content: [{ type: "text", text }],
 					details: { ok: true, index },
 				};
 			}

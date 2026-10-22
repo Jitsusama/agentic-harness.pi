@@ -24,6 +24,24 @@ its cost per turn, which is the figure worth watching: cost per turn is
 97 percent explained by the context resident when a turn runs, and it
 varies more than fivefold between subjects.
 
+## The Weekly Audit
+
+`cost` with `audit` answers "where did the week go, and what is worth
+fixing" in one call, held against the week before:
+
+- **Spend:** the total, and what share went on cache reads, cache
+  writes and output.
+- **Cache rewrites:** the `misses` view by cause, with what each cost.
+- **Always-on context:** what every turn reads before the
+  conversation, by repository and piece by piece (tools, rules,
+  skills, project instructions), read from each session log's first
+  system message, since the ledger counts tokens but not what they
+  were. A repository's weekly cost is its median session's size at
+  about 2.8 characters a token, times its turns, at its own read
+  price. A checkout whose path names no repository is listed by its
+  directory.
+- **Failures:** the tools whose calls failed most, with their rates.
+
 ## Disk Is a Cost Too
 
 `cost` with `disk` reports what each quest holds on disk, heaviest
