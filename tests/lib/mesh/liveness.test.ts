@@ -1,0 +1,105 @@
+/**
+ * Liveness: whether a peer is still on the mesh, asked of the machine.
+ */
+import type { ProcessFacts } from "@jitsusama/agentic-harness.core/process";
+import { describe, expect, it } from "vitest";
+import { census, livenessOf } from "../../../lib/mesh/liveness.ts";
+import type { Presence } from "../../../lib/mesh/presence.ts";
+
+/** A machine on which these pids run, started at these times. */
+function machine(running: Record<number, number>): ProcessFacts & {
+	asked: number[];
+} {
+	const asked: number[] = [];
+	return {
+		asked,
+		alive: (pid) => pid in running,
+		startedAt: async (pid) => {
+			asked.push(pid);
+			return running[pid];
+		},
+	};
+}
+
+const presence = (over: Partial<Presence> = {}): Presence => ({
+	session: "s-1",
+	addresses: ["P9R1KI"],
+	groups: [],
+	worksOn: "",
+	owns: [],
+	busy: false,
+	at: "2026-10-22T03:00:00.000Z",
+	...over,
+});
+
+describe("a peer's liveness", () => {
+	it("is present while the process that holds it runs", async () => {
+		const one = presence({ owner: { pid: 40, startedAt: 1000 } });
+
+		expect(await livenessOf(one, machine({ 40: 1000 }))).toBe("present");
+	});
+
+	it("is gone once that process has ended", async () => {
+		const one = presence({ owner: { pid: 40, startedAt: 1000 } });
+
+		expect(await livenessOf(one, machine({}))).toBe("gone");
+	});
+
+	it("is gone when a new process wears its pid", async () => {
+		const one = presence({ owner: { pid: 40, startedAt: 1000 } });
+
+		expect(await livenessOf(one, machine({ 40: 900_000 }))).toBe("gone");
+	});
+
+	it("cannot be told for a presence that names no process", async () => {
+		expect(await livenessOf(presence(), machine({}))).toBe("unknown");
+	});
+});
+
+describe("a census", () => {
+	it("keeps the peers that cannot be told among those present", async () => {
+		const there = presence({ owner: { pid: 40, startedAt: 1000 } });
+		const old = presence({ session: "s-2", addresses: ["WCJQSG"] });
+		const ended = presence({
+			session: "s-3",
+			addresses: ["OVAE1I"],
+			owner: { pid: 41, startedAt: 1000 },
+		});
+
+		const { present, gone } = await census(
+			[there, old, ended],
+			machine({ 40: 1000 }),
+		);
+
+		expect(present.map((one) => one.session)).toEqual(["s-1", "s-2"]);
+		expect(gone.map((one) => one.session)).toEqual(["s-3"]);
+	});
+
+	it("counts a session its process has moved on from as gone", async () => {
+		// One pi holds one session at a time: /new leaves the last one behind.
+		const owner = { pid: 40, startedAt: 1000 };
+		const left = presence({ owner, at: "2026-10-22T03:00:00.000Z" });
+		const now = presence({
+			session: "s-2",
+			owner,
+			at: "2026-10-22T03:05:00.000Z",
+		});
+
+		const { present, gone } = await census([left, now], machine({ 40: 1000 }));
+
+		expect(present.map((one) => one.session)).toEqual(["s-2"]);
+		expect(gone.map((one) => one.session)).toEqual(["s-1"]);
+	});
+
+	it("asks the machine once per process", async () => {
+		const owner = { pid: 40, startedAt: 1000 };
+		const facts = machine({ 40: 1000 });
+
+		await census(
+			[presence({ owner }), presence({ session: "s-2", owner })],
+			facts,
+		);
+
+		expect(facts.asked).toEqual([40]);
+	});
+});

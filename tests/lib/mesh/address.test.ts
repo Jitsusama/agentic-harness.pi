@@ -1,24 +1,24 @@
 /**
- * What a session is called in the mail.
+ * A peer's addresses: what it signs with and answers to.
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { namesFor } from "../../../lib/mail/names.ts";
+import { addressesOf, questAddress } from "../../../lib/mesh/address.ts";
 
 let root: string;
 const session = "01a15f3a-2255-7463-9909-afa624b025fe";
 
 beforeEach(() => {
-	root = mkdtempSync(join(tmpdir(), "mail-names-"));
+	root = mkdtempSync(join(tmpdir(), "mesh-address-"));
 });
 
 afterEach(() => {
 	rmSync(root, { recursive: true, force: true });
 });
 
-const paths = () => ({
+const records = () => ({
 	sessions: join(root, "sessions"),
 	quests: join(root, "quests"),
 });
@@ -37,29 +37,33 @@ function loaded(questId: string) {
 	);
 }
 
-describe("a session's names", () => {
-	it("signs with the quest it has loaded, ahead of older quests", () => {
-		// The bug the interim mailbox had: a session listed in two
-		// READMEs signed with whichever the folder listed last.
+describe("a peer's addresses", () => {
+	it("are a quest's last six letters", () => {
+		expect(questAddress("QEST-20261021-luq49e")).toBe("LUQ49E");
+	});
+
+	it("sign with the quest it has loaded, ahead of older quests", () => {
+		// A session listed in two READMEs once signed with whichever the
+		// folder happened to list last.
 		quest("QEST-20261021-AF7P9P", `- ${session}`);
 		quest("QEST-20261021-7M6JKG", `- ${session}`);
 		loaded("QEST-20261021-7M6JKG");
 
-		expect(namesFor(session, paths())).toEqual([
+		expect(addressesOf(session, records())).toEqual([
 			"7M6JKG",
 			"AF7P9P",
 			"24B025FE",
 		]);
 	});
 
-	it("answers to an older quest that lists it, so mail sent there arrives", () => {
+	it("include an older quest that lists it, so what was sent there arrives", () => {
 		quest("QEST-20261021-AF7P9P", `- ${session}`);
 		quest("QEST-20261021-ZZZZZZ", "- someone-else");
 
-		expect(namesFor(session, paths())).toEqual(["AF7P9P", "24B025FE"]);
+		expect(addressesOf(session, records())).toEqual(["AF7P9P", "24B025FE"]);
 	});
 
-	it("is its session id alone with no quest store", () => {
-		expect(namesFor(session, paths())).toEqual(["24B025FE"]);
+	it("are the session id's tail alone with no quest store", () => {
+		expect(addressesOf(session, records())).toEqual(["24B025FE"]);
 	});
 });

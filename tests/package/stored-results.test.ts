@@ -227,7 +227,7 @@ describe("tools that can answer big must bound their answers", () => {
 			// fails to load lists its failures, one line per extension.
 			"reload-workflow",
 			// One line sent, or at most fifty short messages read.
-			"mail-workflow",
+			"mesh-workflow",
 		]);
 		const accounted = new Set<string>([
 			...MUST_BOUND,

@@ -80,7 +80,7 @@ it does:
   `cost-workflow`, `image-budget-workflow`,
   `panel-lifecycle-workflow`, `job-workflow`,
   `session-recall-workflow`, `install-check-workflow`,
-  `reload-workflow`, `shell-workflow`, `mail-workflow`,
+  `reload-workflow`, `shell-workflow`, `mesh-workflow`,
   `priority-workflow`.
 
   `priority-workflow` keeps pi ahead of the work it starts: where
