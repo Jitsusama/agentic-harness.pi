@@ -101,6 +101,12 @@ export interface Job {
 	readonly started?: string;
 	/** Given its turn beside a VM check, with its Nix builds capped. */
 	readonly capped?: boolean;
+	/**
+	 * Whether its shell caps its builds when told to. A shell an older
+	 * harness started waits without reading the cap, so its build beside a
+	 * VM check would run on every core; it waits for the check instead.
+	 */
+	readonly cappable?: boolean;
 }
 
 /** What the machine has left, as the queue reads it. */
@@ -204,6 +210,9 @@ export function nextTurn(
 		if (isVm(job) && vms >= MOST_VMS) continue;
 		// Only bulk work is behind a build, and it all waits with it.
 		if (job.kind === "build" && builds < 1) return undefined;
+		if (job.kind === "build" && Number.isFinite(builds) && !job.cappable) {
+			return undefined;
+		}
 		if (room.availableGib - growing < NEEDS_GIB[job.kind]) return undefined;
 		return job.kind === "build" && Number.isFinite(builds)
 			? { ...job, capped: true }

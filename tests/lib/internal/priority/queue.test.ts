@@ -25,6 +25,7 @@ function job(id: string, over: Partial<Job> = {}): Job {
 		what: "nix build",
 		owner: { session: "s", pid: 1 },
 		since: new Date(NOW - 60_000).toISOString(),
+		cappable: true,
 		...over,
 	};
 }
@@ -171,6 +172,9 @@ describe("whose turn it is", () => {
 		const beside = job("beside", { started: startedAgo(RAMP_MS) });
 		expect(nextTurn([check, beside, job("build")], ROOMY, NOW)).toBeUndefined();
 		expect(nextTurn([check, job("build")], BUSY, NOW)).toBeUndefined();
+		const older = job("older", { cappable: undefined });
+		expect(nextTurn([check, older], ROOMY, NOW)).toBeUndefined();
+		expect(nextTurn([older], ROOMY, NOW)?.id).toBe("older");
 		const waiting = [job("build"), job("bench", { kind: "benchmark" })];
 		expect(nextTurn([check, ...waiting], BUSY, NOW)?.id).toBe("bench");
 		expect(

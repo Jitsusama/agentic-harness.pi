@@ -96,6 +96,7 @@ describe("heavy work waiting for its turn", () => {
 			JSON.parse(readFileSync(join(dir, `${id}.job`), "utf8")),
 		).toMatchObject({
 			kind: "benchmark",
+			cappable: true,
 			owner: { session: "session-a", pid: process.pid },
 		});
 		const { out, code } = await run(command);
