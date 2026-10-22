@@ -25,8 +25,13 @@
  * back (`lib/internal/away/machine.ts`). Sessions without a UI, such as
  * subagents and print-mode runs, neither follow nor publish it, since
  * nobody is at them to leave or come back.
+ *
+ * What needs the absent person reaches them through a desktop
+ * notification (`reach.ts`): the first call held in an absence, and a
+ * run that rests `Blocked:`. The session carries on with the rest.
  */
 
+import { basename } from "node:path";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
@@ -48,6 +53,7 @@ import {
 	planProgress,
 	snapshot,
 } from "../../lib/internal/away/state.ts";
+import { type Notice, notify } from "../../lib/internal/notify.ts";
 import { findJobHost, type Job } from "../../lib/jobs/index.ts";
 import {
 	asText,
@@ -69,6 +75,7 @@ import {
 	readsLikeDeparture,
 	returnMessage,
 } from "./messages.ts";
+import { blockedNotice, freshReach, heldNotice, stopNotice } from "./reach.ts";
 
 /** Custom message types away mode speaks in. */
 const RETURN_MESSAGE = "away-return";
@@ -98,6 +105,21 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 	let pendingNudge: Job | undefined;
 	let stopWatching: () => void = () => {};
 	const memory = freshMemory();
+	const reached = freshReach();
+
+	/**
+	 * Put a notice in front of the person, from an interactive session
+	 * only: a subagent's needs reach them through the session that ran it.
+	 * Never waited on, so a slow desktop holds nothing up.
+	 */
+	const reach = (notice: Notice | undefined) => {
+		if (!notice || !latest?.hasUI) return;
+		void notify(notice);
+	};
+
+	/** The name a notice gives this session: its document, else its folder. */
+	const where = (): string =>
+		planProgress()?.document ?? (basename(latest?.cwd ?? "") || "pi");
 
 	const showStatus = (ctx: ExtensionContext | undefined) => {
 		if (!ctx?.hasUI) return;
@@ -108,6 +130,9 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 		if (restoring) return;
 		saveAway(pi, now);
 		showStatus(latest);
+		if (now.since !== undefined) {
+			reach(heldNotice(where(), now.since, now.held.length, reached));
+		}
 	});
 
 	/**
@@ -190,7 +215,12 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 			},
 			memory,
 		);
+		if (verdict.kind === "rest" && verdict.why === "blocked") {
+			reach(blockedNotice(where(), since, finished.lastText, reached));
+			return;
+		}
 		if (verdict.kind === "stop") {
+			reach(stopNotice(where(), since, verdict.note, reached));
 			pi.sendMessage(
 				{ customType: STOPPED_MESSAGE, content: verdict.note, display: true },
 				{ triggerTurn: false },
