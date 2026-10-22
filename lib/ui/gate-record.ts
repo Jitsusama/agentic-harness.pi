@@ -49,24 +49,43 @@ export function settleRecord(
 	// Rows from the record's top to the screen's bottom, last frame.
 	let lastSpan = 0;
 
+	// What it drew last, by the width and height it drew at, since a
+	// settled record draws the same rows at the same width every frame.
+	let drawn: { at: number; keep: number; rows: string[] } | undefined;
+	const shown = (at: number): string[] => {
+		if (drawn?.at === at && drawn.keep === keep) return drawn.rows;
+		const rows = (keep === 1 ? [one] : lines.slice(tall - keep)).map((line) =>
+			clean(line, at),
+		);
+		drawn = { at, keep, rows };
+		return rows;
+	};
+
 	const record: Component = {
 		render(at) {
+			// Settled for good: nothing below it can change what it shows, so
+			// it measures nothing. A record stays in the transcript for the
+			// rest of the session, and one that measured every frame would
+			// draw the transcript below it and the dock again, every frame,
+			// for every gate ever answered.
+			if (frozen || keep <= 1) return shown(at);
 			const after = rowsAfter(tui, record, at);
 			const dock = dockRows(tui, at);
-			if (!frozen && keep > 1) {
-				const want = Math.max(1, tall - Math.max(0, after + dock - base));
-				const rows = tui.terminal.rows;
-				const onScreen = want + after + dock <= rows && lastSpan <= rows;
-				if (want < keep && onScreen) keep = want;
-				else if (want < keep) frozen = true;
-			}
+			const want = Math.max(1, tall - Math.max(0, after + dock - base));
+			const rows = tui.terminal.rows;
+			const onScreen = want + after + dock <= rows && lastSpan <= rows;
+			if (want < keep && onScreen) keep = want;
+			else if (want < keep) frozen = true;
 			if (!frozen && keep > 1) lastSpan = keep + after + dock;
-			const shown = keep === 1 ? [one] : lines.slice(tall - keep);
-			return shown.map((line) => clean(line, at));
+			return shown(at);
 		},
 		invalidate() {},
 	};
-	markSettling(record, () => !frozen && keep > 1);
+	markSettling(
+		record,
+		() => !frozen && keep > 1,
+		() => Math.min(keep, tall),
+	);
 
 	if (!settleIntoChat(tui, record)) return false;
 	tui.requestRender();

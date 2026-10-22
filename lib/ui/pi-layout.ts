@@ -39,9 +39,17 @@ function holds(value: unknown): value is Holder {
 	return Array.isArray(Reflect.get(value, "children"));
 }
 
+/**
+ * Rows `components` draw at `width`. A gate's record is taken at the
+ * height it says it shows rather than drawn: a record measures what lies
+ * below it as it draws, so drawing one to count it would draw every
+ * record after it as well, each of those every record after that, and
+ * the cost of a frame would double with every gate answered.
+ */
 function rowsOf(components: readonly Component[], width: number): number {
 	let rows = 0;
-	for (const one of components) rows += one.render(width).length;
+	for (const one of components)
+		rows += shownRows(one) ?? one.render(width).length;
 	return rows;
 }
 
@@ -100,9 +108,28 @@ function changeableTail(
  */
 const SETTLING = Symbol.for("agentic-harness.settling-record");
 
-/** Marks `record` as one that shrinks while `live` says so. */
-export function markSettling(record: Component, live: () => boolean): void {
+/**
+ * The key a gate's record answers its height under, for the same reason
+ * as the one above: every copy's measure reads every copy's records.
+ */
+const SHOWN = Symbol.for("agentic-harness.record-rows");
+
+/**
+ * Marks `record` as one that shrinks while `live` says so, and that draws
+ * `shown` rows, which is how it is counted without being drawn.
+ */
+export function markSettling(
+	record: Component,
+	live: () => boolean,
+	shown?: () => number,
+): void {
 	Reflect.set(record, SETTLING, live);
+	if (shown !== undefined) Reflect.set(record, SHOWN, shown);
+}
+
+function shownRows(component: Component): number | undefined {
+	const shown: unknown = Reflect.get(component, SHOWN);
+	return typeof shown === "function" ? Number(shown()) : undefined;
 }
 
 function settling(component: Component): boolean {
