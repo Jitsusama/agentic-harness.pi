@@ -43,6 +43,7 @@ import {
 	provideVerificationCheck,
 	type VerificationCheck,
 } from "../../lib/internal/verification/signal.ts";
+import { expandable } from "../../lib/ui/expandable.ts";
 import { footerMark } from "../../lib/ui/footer-mark.ts";
 import {
 	checkRunVerdict,
@@ -86,11 +87,9 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 		(message, options, theme) => {
 			const report = message.details;
 			if (!isVerificationReport(report)) return undefined;
-			return {
-				render: (width: number) =>
-					verificationLines(report, theme, width, options.expanded),
-				invalidate: () => {},
-			};
+			return expandable(message, options.expanded, (width, expanded) =>
+				verificationLines(report, theme, width, expanded),
+			);
 		},
 	);
 
