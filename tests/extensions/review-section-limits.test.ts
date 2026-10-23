@@ -60,12 +60,11 @@ describe("each section field states the limits the gate enforces", () => {
 		expect(SECTION_DESCRIPTIONS.tldr).toContain("At most 2 sentences.");
 	});
 
-	it("points each change of a stack at the contract, rather than saying it twice", () => {
+	it("leaves the contract to the stack's sections parameter, rather than saying it twice", () => {
 		const stack = stackSections();
 		for (const field of FIELDS) {
-			expect(stack[field]).toMatchObject({
-				description: `Held to the same contract as the top-level \`${field}\` field.`,
-			});
+			expect(stack[field]).toMatchObject({ type: "string" });
+			expect(stack[field]).not.toHaveProperty("description");
 		}
 	});
 });
