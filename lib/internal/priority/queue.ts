@@ -75,6 +75,25 @@ export const NEEDS_GIB: Readonly<Record<Kind, number>> = {
 };
 
 /**
+ * What a whole flake's check holds, in GiB, whatever its kind: `nix flake
+ * check` evaluates every output before it builds one, and keeps that heap
+ * until the last build ends. A core.nix check's evaluator held 17.1 GiB
+ * (P9R1KI's measurement) and 17.8 to 20.2 GiB in four that ran at once on
+ * 23 October, against the 4 a build is held to: the queue let in about
+ * 80 GiB it counted as 16, and the rest went to swap.
+ */
+export const EVALUATION_GIB = 20;
+
+/** A command that checks a whole flake. */
+const WHOLE_FLAKE = /\bnix(?:\s+--?\S+)*\s+flake\s+check\b/;
+
+/** The memory one job is held to need, in GiB. */
+export function needsGibOf(job: Pick<Job, "kind" | "what">): number {
+	const kind = NEEDS_GIB[job.kind];
+	return WHOLE_FLAKE.test(job.what) ? Math.max(kind, EVALUATION_GIB) : kind;
+}
+
+/**
  * How many VMs run at once. 2HN63P's run 1 to 4 vCPUs each and kvm
  * takes several together; they ran one at a time across the machine
  * only because their timeouts flaked beside each other and big builds.
@@ -243,7 +262,7 @@ export function nextTurn(
 		if (job.kind === "build" && Number.isFinite(builds) && !job.cappable) {
 			return undefined;
 		}
-		if (room.availableGib - growing < NEEDS_GIB[job.kind]) return undefined;
+		if (room.availableGib - growing < needsGibOf(job)) return undefined;
 		return job.kind === "build" && Number.isFinite(builds)
 			? { ...job, capped: true }
 			: job;
@@ -264,7 +283,7 @@ function standing(
 	const running = jobs.filter((job) => job.started !== undefined);
 	const growing = running
 		.filter((job) => now - Date.parse(job.started as string) < RAMP_MS)
-		.reduce((sum, job) => sum + NEEDS_GIB[job.kind], 0);
+		.reduce((sum, job) => sum + needsGibOf(job), 0);
 	// A VM just given its turn may not have started its qemu yet, and one
 	// the machine shows may be outside the queue: the larger count holds.
 	const vms = Math.max(running.filter(isVm).length, room.vms);
@@ -303,7 +322,7 @@ export function roomLeft(
 	const free =
 		room.availableGib -
 		growing -
-		waiting.reduce((sum, job) => sum + NEEDS_GIB[job.kind], 0);
+		waiting.reduce((sum, job) => sum + needsGibOf(job), 0);
 	const fits = (kind: Kind) => Math.max(0, Math.floor(free / NEEDS_GIB[kind]));
 	const slots = Math.max(
 		0,
@@ -334,7 +353,7 @@ export function roomSaid(left: RoomLeft): string {
 export function waitsWithRoom(jobs: readonly Job[], room: Room): boolean {
 	return (
 		room.memoryPressure < MOST_MEMORY_PRESSURE &&
-		waitingInOrder(jobs).some((job) => NEEDS_GIB[job.kind] <= room.availableGib)
+		waitingInOrder(jobs).some((job) => needsGibOf(job) <= room.availableGib)
 	);
 }
 

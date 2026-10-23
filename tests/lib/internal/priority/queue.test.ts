@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+	EVALUATION_GIB,
 	type Job,
 	kindOf,
 	MOST_CPU_PRESSURE_BESIDE_VMS,
 	MOST_VMS,
+	needsGibOf,
 	nextTurn,
 	RAMP_MS,
 	roomLeft,
@@ -147,6 +149,19 @@ describe("whose turn it is", () => {
 		const jobs = [job("vm", { kind: "vm-test" }), job("small")];
 		expect(nextTurn(jobs, { ...ROOMY, availableGib: 5 }, NOW)).toBeUndefined();
 		expect(nextTurn(jobs, { ...ROOMY, availableGib: 6 }, NOW)?.id).toBe("vm");
+	});
+
+	it("holds a whole flake's check to what its evaluation keeps", () => {
+		const check = job("check", { what: "nix flake check --keep-going -L" });
+		expect(needsGibOf(check)).toBe(EVALUATION_GIB);
+		const one = job("one", { what: "nix build .#checks.x.foo" });
+		expect(needsGibOf(one)).toBe(4);
+		expect(
+			needsGibOf(job("wrapped", { what: "nice -n 10 nix -L flake check" })),
+		).toBe(EVALUATION_GIB);
+		const room = { ...ROOMY, availableGib: EVALUATION_GIB - 1 };
+		expect(nextTurn([check], room, NOW)).toBeUndefined();
+		expect(nextTurn([job("build")], room, NOW)?.id).toBe("build");
 	});
 
 	it("counts what just started as taken while it grows", () => {

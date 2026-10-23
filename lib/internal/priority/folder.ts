@@ -55,7 +55,7 @@ import {
 	CLASS_OF,
 	type Class,
 	type Job,
-	NEEDS_GIB,
+	needsGibOf,
 	nextTurn,
 	type RoomLeft,
 	RULES,
@@ -441,7 +441,7 @@ export function queueRecord(
 					state: job.started !== undefined ? "running" : "waiting",
 					owner: job.owner,
 					what: job.what,
-					memoryGib: NEEDS_GIB[job.kind],
+					memoryGib: needsGibOf(job),
 					since: job.started ?? job.since,
 					...(job.started === undefined
 						? { place: waiting.indexOf(job) + 1 }
