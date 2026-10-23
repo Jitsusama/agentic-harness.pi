@@ -24,17 +24,35 @@ interface Recorded {
 	sendUserMessage: unknown[][];
 }
 
+/** What pi throws from a pi or ctx a reload or a session switch replaced. */
+const STALE =
+	"This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload().";
+
 /** Just enough of pi for the extension to register and be driven. */
-function activate(): { handlers: Map<string, Handler>; calls: Recorded } {
+function activate(stale = { now: false }): {
+	handlers: Map<string, Handler>;
+	calls: Recorded;
+} {
 	const handlers = new Map<string, Handler>();
 	const calls: Recorded = { sendMessage: [], sendUserMessage: [] };
+	const live =
+		<T extends unknown[]>(act: (...args: T) => unknown) =>
+		(...args: T) => {
+			if (stale.now) throw new Error(STALE);
+			act(...args);
+		};
 	const pi = {
-		events: { on: () => () => {}, emit: () => {} },
+		events: {
+			on: () => () => {},
+			emit: live(() => {}),
+		},
 		on: (name: string, handler: Handler) => handlers.set(name, handler),
-		appendEntry: () => {},
+		appendEntry: live(() => {}),
 		registerCommand: () => {},
-		sendMessage: (...args: unknown[]) => calls.sendMessage.push(args),
-		sendUserMessage: (...args: unknown[]) => calls.sendUserMessage.push(args),
+		sendMessage: live((...args: unknown[]) => calls.sendMessage.push(args)),
+		sendUserMessage: live((...args: unknown[]) =>
+			calls.sendUserMessage.push(args),
+		),
 	};
 	compactionWorkflow(pi as unknown as ExtensionAPI);
 	return { handlers, calls };
@@ -127,6 +145,39 @@ describe("resuming the run a compaction interrupted", () => {
 		}
 
 		expect(attempts).toBe(2);
+	});
+
+	it("ends quietly when a reload replaced it before the compaction ended", async () => {
+		// On 22 October a compaction failed after a reload, its onError
+		// wrote through the old pi, and the throw took pi down.
+		const stale = { now: false };
+		const { handlers } = activate(stale);
+		const ended: Array<{
+			onComplete?: () => void;
+			onError?: (error: Error) => void;
+		}> = [];
+		let size = 60_000;
+		const ctx = context(
+			() => size,
+			(options) => ended.push(options),
+		);
+		await handlers.get("session_start")?.({}, ctx);
+		const turnEnd = handlers.get("turn_end");
+		if (turnEnd === undefined) throw new Error("no turn_end handler");
+		await turnEnd({ toolResults: [{}] }, ctx);
+		size = 900_000;
+		for (let turn = 0; turn < 200 && ended.length === 0; turn++) {
+			await turnEnd({ toolResults: [{}] }, ctx);
+		}
+		const options = ended[0];
+		if (options === undefined) throw new Error("the policy never compacted");
+
+		stale.now = true;
+
+		expect(() =>
+			options.onError?.(new Error("Summarization failed")),
+		).not.toThrow();
+		expect(() => options.onComplete?.()).not.toThrow();
 	});
 
 	it("resumes after a failed compaction through the prompt path", async () => {
