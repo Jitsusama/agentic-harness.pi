@@ -344,7 +344,10 @@ doing only when it is the easy thing:
   `{ take: { subject, why?, ms? } }` or `{ release: subject }`;
   the subject names the kind of work. It lasts an hour unless
   `ms` says otherwise, and two hours at most, and ends with the
-  session. Starting heavy work others still there are running
+  session. A reload is not the session ending: its jobs run on
+  through it, so the claims of calls handed to one stay, and the
+  runtime the reload starts lets each go when its job ends, even
+  one that ended before that runtime had started. Starting heavy work others still there are running
   tells both sides, once, unless the machine's queue is kept
   (priority-workflow's `queue.json` written in the last two
   minutes): then the queue gives each its turn by the room left,

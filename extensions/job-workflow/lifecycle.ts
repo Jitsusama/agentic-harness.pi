@@ -1,17 +1,34 @@
 /**
- * One session's jobs, from `session_start` until `session_shutdown`.
+ * One session's jobs, from `session_start` until the session ends.
  *
- * Nothing outlives the session: a reload, a new session and a quit all
- * stop every job it started and drop whatever was waiting to be said,
- * because the `pi` a result would be said through is stale by then.
+ * A new session, a resume, a fork and a quit stop every job the session
+ * started and drop whatever was waiting to be said, because a result
+ * belongs to the conversation it was started in.
+ *
+ * A reload is not the session ending. pi stops nothing on a reload: the
+ * process, the bus and every child it runs go on, and only the old `pi`
+ * and `ctx` go stale. So the jobs are parked instead (carry.ts), still
+ * running, and the runtime the reload starts takes them over, saying
+ * their results through its own `pi`. Jobs nobody takes over are
+ * stopped as before once the wait for one runs out.
  */
 
 import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { announceJobHost, JOBS_FINISHED } from "../../lib/jobs/index.ts";
+import {
+	announceJobHost,
+	JOBS_FINISHED,
+	type JobFinished,
+} from "../../lib/jobs/index.ts";
 import { footerMark, type MarkTheme } from "../../lib/ui/footer-mark.ts";
+import {
+	CARRY_MS,
+	park as parkJobs,
+	sessionIdOf,
+	takeParked,
+} from "./carry.ts";
 import { createJobs, type Jobs } from "./jobs.ts";
 import { createOutbox, type Outbox } from "./outbox.ts";
 
@@ -27,7 +44,14 @@ export interface JobSession {
 	readonly outbox: Outbox;
 	/** A user message reached the session. */
 	seen(text: string): void;
+	/** The session ended: stop every job and drop what waits. */
 	close(): void;
+	/**
+	 * The runtime is reloading: keep every job running, for the runtime
+	 * the reload starts to take over, and stop them only if none does
+	 * within `carryMs`.
+	 */
+	park(carryMs?: number): void;
 }
 
 /**
@@ -47,16 +71,39 @@ export function statusLine(
 	return footerMark("background", "muted", theme, running);
 }
 
-/** Open a session's jobs and announce them as the host. */
+/** The runtime a session's jobs speak through, replaced on a reload. */
+interface Runtime {
+	readonly pi: ExtensionAPI;
+	readonly ctx: ExtensionContext;
+}
+
+/**
+ * The session's jobs: those a reload parked for this session when
+ * there are any, and otherwise a fresh set, announced as the host.
+ */
 export function openSession(
 	pi: ExtensionAPI,
 	ctx: ExtensionContext,
+	reason?: string,
 ): JobSession {
+	const carried =
+		reason === "reload" ? takeParked(sessionIdOf(ctx), pi, ctx) : undefined;
+	return carried ?? freshSession(pi, ctx);
+}
+
+/** A session with no jobs yet, announced as the host. */
+function freshSession(pi: ExtensionAPI, ctx: ExtensionContext): JobSession {
+	let runtime: Runtime = { pi, ctx };
+	// Ends heard while parked, said once a runtime takes the jobs over:
+	// the parked `pi` cannot say anything, and the mesh releases a lease
+	// on hearing one.
+	let unsaid: JobFinished[] | undefined;
+
 	const outbox = createOutbox({
-		send: (text) => pi.sendUserMessage(text),
+		send: (text) => runtime.pi.sendUserMessage(text),
 		idle: () => {
 			try {
-				return ctx.isIdle();
+				return runtime.ctx.isIdle();
 			} catch {
 				// A stale context after a reload: not a moment to send.
 				return false;
@@ -66,22 +113,48 @@ export function openSession(
 	});
 	const show = () => {
 		try {
-			ctx.ui.setStatus(STATUS_KEY, statusLine(jobs, ctx.ui.theme));
+			runtime.ctx.ui.setStatus(
+				STATUS_KEY,
+				statusLine(jobs, runtime.ctx.ui.theme),
+			);
 		} catch {
 			// A stale context after a reload has no footer to update.
+		}
+	};
+	const say = (finished: JobFinished) => {
+		if (unsaid) {
+			unsaid.push(finished);
+			return;
+		}
+		try {
+			runtime.pi.events.emit(JOBS_FINISHED, finished);
+		} catch {
+			// A stale `pi` whose runtime was replaced some way other than a
+			// reload; nobody is left listening on its bus.
 		}
 	};
 	const jobs = createJobs(
 		(result) => outbox.post(result),
 		show,
 		(jobId) => outbox.withdraw(jobId),
-		(finished) => pi.events.emit(JOBS_FINISHED, finished),
+		say,
 	);
-	const withdraw = announceJobHost(pi.events, jobs);
-	const timer = setInterval(() => outbox.tick(), TICK_MS);
-	timer.unref();
 
-	return {
+	let withdraw: (() => void) | undefined;
+	let timer: ReturnType<typeof setInterval> | undefined;
+	const listen = () => {
+		withdraw = announceJobHost(runtime.pi.events, jobs);
+		timer = setInterval(() => outbox.tick(), TICK_MS);
+		timer.unref();
+	};
+	const quiet = () => {
+		withdraw?.();
+		withdraw = undefined;
+		clearInterval(timer);
+		timer = undefined;
+	};
+
+	const session: JobSession = {
 		jobs,
 		outbox,
 		seen(text) {
@@ -90,10 +163,32 @@ export function openSession(
 			jobs.delivered((id) => waiting.has(id));
 		},
 		close() {
-			withdraw();
-			clearInterval(timer);
+			quiet();
 			jobs.close();
 			show();
 		},
+		park(carryMs = CARRY_MS) {
+			quiet();
+			unsaid = [];
+			parkJobs(
+				{
+					session: sessionIdOf(runtime.ctx),
+					adopt(next, nextCtx) {
+						runtime = { pi: next, ctx: nextCtx };
+						const ends = unsaid ?? [];
+						unsaid = undefined;
+						listen();
+						for (const finished of ends) say(finished);
+						show();
+						outbox.tick();
+						return session;
+					},
+					stop: () => jobs.close(),
+				},
+				carryMs,
+			);
+		},
 	};
+	listen();
+	return session;
 }

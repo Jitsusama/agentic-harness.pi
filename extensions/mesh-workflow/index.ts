@@ -128,8 +128,11 @@ import {
 	createHeavyCalls,
 	createLeasing,
 	type HoldEnd,
+	parkHeavyCalls,
 	queueJobs,
 	queueKept,
+	reloading,
+	takeHeavyCalls,
 } from "./leases.ts";
 import { meshLines, type Shown } from "./render.ts";
 import { type Local, registerTools } from "./tools.ts";
@@ -252,6 +255,8 @@ export function meshWorkflow(
 		// Lets go of what is past its time, at most hourly, off the turn.
 		const tidy = sweeper({ transport, presences, board });
 		let own: OwnLeases | undefined;
+		// Heavy work that ended before this runtime had its leases to release.
+		const unowned: LeaseEvent[] = [];
 		const leasing = createLeasing({
 			board,
 			presences,
@@ -821,6 +826,7 @@ export function meshWorkflow(
 			resumes = createActs(peer.session, settling, resumed);
 			// Its holds and waits outlive a reload; what a run claimed does not.
 			own = ownLeases(board, peer.session);
+			for (const event of unowned.splice(0)) claim(event);
 			clearInterval(waitClock);
 			waitClock = undefined;
 			watchWaits();
@@ -946,7 +952,7 @@ export function meshWorkflow(
 			own?.releaseAll(RUN_KINDS);
 		});
 
-		pi.on("session_shutdown", async () => {
+		pi.on("session_shutdown", async (event) => {
 			// What still waits is not marked read, so the next start has it.
 			acts?.stop();
 			clearInterval(lookClock);
@@ -954,8 +960,16 @@ export function meshWorkflow(
 			resumes?.stop();
 			clearInterval(waitClock);
 			waitClock = undefined;
-			// Its heavy work ends with it: pi stops a session's jobs as it goes.
-			own?.releaseAll(new Set([...RUN_KINDS, "heavy" as const]));
+			if (reloading(event)) {
+				// Its heavy work runs on through a reload, as its jobs do, so its
+				// leases stay and the runtime the reload starts releases them.
+				own?.releaseAll(RUN_KINDS);
+				parkHeavyCalls(heavyCalls.held());
+			} else {
+				// Any other end stops the session's jobs, and its heavy work with them.
+				own?.releaseAll(new Set([...RUN_KINDS, "heavy" as const]));
+				unowned.length = 0;
+			}
 			heavyCalls.clear();
 			stopWatching?.();
 			stopWatching = undefined;
@@ -964,7 +978,16 @@ export function meshWorkflow(
 		});
 
 		/** Claim or give up heavy work, saying so when it overlaps another's. */
-		const heavy = (event: LeaseEvent) =>
+		const heavy = (event: LeaseEvent) => {
+			// A job carried through a reload can end before this runtime has its
+			// leases; its release waits for them rather than being lost.
+			if (!own && "release" in event) {
+				unowned.push(event);
+				return;
+			}
+			claim(event);
+		};
+		const claim = (event: LeaseEvent) =>
 			void leasing
 				.heavy(event)
 				.then((said) => {
@@ -981,7 +1004,8 @@ export function meshWorkflow(
 				})
 				.catch(() => {});
 
-		const heavyCalls = createHeavyCalls(heavy);
+		// The calls a reload carried over from the runtime before this one.
+		const heavyCalls = createHeavyCalls(heavy, undefined, takeHeavyCalls());
 
 		// A change claims its file, and a peer reaching for a file another is
 		// changing is told who, once, before it goes ahead beside them. A git

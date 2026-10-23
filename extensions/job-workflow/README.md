@@ -93,13 +93,44 @@ from `agentic-harness.pi/jobs` hears it. The mesh uses it to release
 the heavy-work lease a bash call took, the moment the command handed
 to a job ends rather than when the lease runs out.
 
+## Through a Reload
+
+A reload is not the session ending, and nothing a job runs notices
+it. pi stops no process on a reload: it evaluates every extension
+again in the same process, on the same bus, and only the old `pi` and
+`ctx` go stale. So on `session_shutdown` with reason `reload` the
+host parks its jobs, still running, with what waits to be said, under
+a `Symbol.for` key on `globalThis` (`carry.ts`). The runtime the
+reload starts takes them over on `session_start` with reason
+`reload`, answers as the host, and says their results through its own
+`pi`. Job ids carry on from where they were.
+
+- **What is handed over is the registry itself.** A producer holds
+  `Job` objects bound to it, from code the reload replaced, so the
+  same objects keep working and the new runtime only rebinds where
+  they speak.
+- **A job that ends in between** has its result and its
+  `jobs:finished:v1` held, and both are said once the new runtime
+  has taken over, so the mesh still lets go of its lease.
+- **Jobs nobody takes over within five minutes** are stopped, with
+  the reason `session`, as every reload stopped them before. That is
+  a reload onto code from before this, or one whose job-workflow
+  failed to load. The key carries a version, and a change to what is
+  handed over takes a new one.
+
+This is what keeps a 50-minute build, a fleet or heavy work waiting
+its turn in the machine's queue alive through a reload: a bash
+command runs under its job's signal, so stopping the job used to kill
+the shell, and a job's place in the queue goes with its shell.
+
 ## Limits
 
-- **Nothing outlives the session.** A reload, a new session, a resume
-  and a quit all stop every job, with the reason `session`, and drop
-  whatever was waiting. A job's
-  work should write its output somewhere durable if it matters beyond
-  the session.
+- **Nothing else outlives the session.** A new session, a resume, a
+  fork and a quit stop every job, with the reason `session`, and drop
+  whatever was waiting, since a result belongs to the conversation it
+  was started in. Rolling a log over switches sessions, so it waits
+  for jobs instead. A job's work should write its output somewhere
+  durable if it matters beyond the session.
 - **A narrow race remains.** If you press Enter in the milliseconds
   while the outbox's own prompt runs its `before_agent_start`
   handlers, pi refuses yours as already processing a prompt. pi's own

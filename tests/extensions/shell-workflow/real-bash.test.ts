@@ -1,7 +1,7 @@
 /**
  * The same, through pi's own bash: the agent's commands get no editor or
  * pager, and a handed-off command really keeps running until its job is
- * stopped.
+ * stopped, a reload included.
  */
 
 import { execFileSync } from "node:child_process";
@@ -17,10 +17,16 @@ import {
 	type JobOutcome,
 	jobStopReason,
 } from "../../../lib/jobs/index.ts";
+import {
+	forgetParkedJobs,
+	jobRuntime,
+	reloadJobs,
+} from "../../support/job-runtime.ts";
 
 const disposers: (() => void)[] = [];
 afterEach(() => {
 	for (const dispose of disposers.splice(0)) dispose();
+	forgetParkedJobs();
 });
 
 async function until(condition: () => boolean, ms = 5000): Promise<void> {
@@ -118,5 +124,33 @@ describe("a real command handed off", () => {
 		await until(() => outcomes.length > 0);
 		await until(() => !running(marker));
 		expect(outcomes[0]?.failed).toBe(true);
+	});
+
+	it("outlives a reload, and the runtime the reload started says how it ended", async () => {
+		const events = createEventBus();
+		const first = jobRuntime(events);
+		await first.fire("session_start", { reason: "startup" });
+		const marker = `sleep 2.${process.pid}${Date.now() % 1000}`;
+		const command = `echo started; ${marker}; echo finished`;
+
+		const result = await runOrHandOff({
+			command,
+			background: true,
+			nested: false,
+			signal: undefined,
+			onUpdate: undefined,
+			bus: events,
+			run: (signal, onUpdate) =>
+				bash.execute("t4", { command }, signal, onUpdate, undefined as never),
+		});
+		expect(textOf(result)).toContain("in the background as job j1");
+
+		const next = await reloadJobs(events, first);
+		expect(running(marker)).toBe(true);
+		await until(() => next.said.length > 0, 10_000);
+		expect(next.said[0]).toContain("[job j1]");
+		expect(next.said[0]).toContain("exited 0");
+		expect(next.said[0]).toContain("finished");
+		expect(first.said).toEqual([]);
 	});
 });

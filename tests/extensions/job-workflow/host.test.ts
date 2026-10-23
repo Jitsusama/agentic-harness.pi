@@ -258,7 +258,7 @@ describe("a resumed session", () => {
 describe("a job started on a host whose session has ended", () => {
 	it("is stopped from the start, as the session's own were", async () => {
 		const { host, fire } = await started();
-		await fire("session_shutdown", { reason: "reload" });
+		await fire("session_shutdown", { reason: "quit" });
 		const late = host.start({ kind: "subagent", label: "lanes" });
 		expect(jobStopOf(late.signal)).toBe("session");
 	});

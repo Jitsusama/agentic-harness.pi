@@ -6,7 +6,8 @@
  * and finishes it when the work ends. The result waits in the outbox
  * until no run, compaction or submitted prompt is under way, and goes
  * out as a prompt of its own. `/jobs` lists what is running and stops
- * one.
+ * one. A reload hands the jobs to the runtime it starts, still running;
+ * any other end of the session stops them.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -36,13 +37,14 @@ function textOf(message: unknown): string | undefined {
 export default function jobWorkflow(pi: ExtensionAPI) {
 	let session: JobSession | undefined;
 
-	pi.on("session_start", (_event, ctx) => {
+	pi.on("session_start", (event, ctx) => {
 		session?.close();
-		session = openSession(pi, ctx);
+		session = openSession(pi, ctx, event.reason);
 	});
 
-	pi.on("session_shutdown", () => {
-		session?.close();
+	pi.on("session_shutdown", (event) => {
+		if (event.reason === "reload") session?.park();
+		else session?.close();
 		session = undefined;
 	});
 

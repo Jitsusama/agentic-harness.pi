@@ -10,12 +10,12 @@
  * model to make, though. The harness can see its own install move, so
  * it reloads itself, and the model is told afterwards what came in.
  *
- * The moment matters more than the move. A reload stops background
- * jobs and drops results that have not been said yet, and it pulls the
- * tools from under a run that is streaming. So it waits: for the run
- * to end, for every job to finish and be said, and for the install's
- * dependencies to be installed when the move changed its lockfile,
- * since `git merge` lands before `pnpm install` does. A session that
+ * The moment matters more than the move. A reload pulls the tools from
+ * under a run that is streaming, so it waits for the run to end, and
+ * for the install's dependencies to be installed when the move changed
+ * its lockfile, since `git merge` lands before `pnpm install` does.
+ * It does not wait for background jobs: a reload hands them, still
+ * running, to the runtime it starts (extensions/job-workflow/carry.ts). A session that
  * runs a tree rather than the install is being tested on purpose and
  * is never moved.
  *
@@ -50,8 +50,6 @@ export interface Standing {
 	readonly swapped: boolean;
 	/** No run is under way. */
 	readonly idle: boolean;
-	/** Jobs running, or finished with results not yet said. */
-	readonly pendingJobs: number;
 	/** Every moved install has the dependencies its lockfile names. */
 	readonly ready: boolean;
 }
@@ -59,7 +57,7 @@ export interface Standing {
 /** When to reload a session standing like this. */
 export function whenToReload(at: Standing): Moment {
 	if (at.swapped) return "never";
-	if (at.pendingJobs > 0 || !at.ready) return "wait";
+	if (!at.ready) return "wait";
 	return at.idle ? "now" : "after-run";
 }
 
