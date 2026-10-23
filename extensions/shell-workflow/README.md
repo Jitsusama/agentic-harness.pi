@@ -51,7 +51,9 @@ What it adds:
 ## Stopping a Command
 
 Before it moves, Escape stops it as always. After it moves, `/jobs`
-stops it, and so does the session ending or a reload. A timeout the
+stops it, and so does the session ending. A reload does not: the
+command keeps running, and its result arrives in the reloaded session
+(see [job-workflow](../job-workflow/#through-a-reload)). A timeout the
 agent passed still applies in the background.
 
 ## Limits

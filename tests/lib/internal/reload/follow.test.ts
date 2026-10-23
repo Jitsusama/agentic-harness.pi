@@ -38,15 +38,14 @@ async function commit(dir: string, message: string): Promise<void> {
 }
 
 describe("whenToReload", () => {
-	const still = { swapped: false, idle: true, pendingJobs: 0, ready: true };
+	const still = { swapped: false, idle: true, ready: true };
 
 	it("reloads an idle session at once, and a busy one after its run", () => {
 		expect(whenToReload(still)).toBe("now");
 		expect(whenToReload({ ...still, idle: false })).toBe("after-run");
 	});
 
-	it("waits while a reload would lose a job or load a half-installed tree", () => {
-		expect(whenToReload({ ...still, pendingJobs: 1 })).toBe("wait");
+	it("waits while a reload would load a half-installed tree", () => {
 		expect(whenToReload({ ...still, ready: false })).toBe("wait");
 	});
 

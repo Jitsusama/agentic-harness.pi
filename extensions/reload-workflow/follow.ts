@@ -28,11 +28,10 @@ import {
 	sourceOf,
 } from "../../lib/internal/reload/settings.ts";
 import { reloadSlot } from "../../lib/internal/reload/slot.ts";
-import { findJobHost } from "../../lib/jobs/index.ts";
 import { canonical } from "./lifecycle.ts";
 import { COMMAND, RELOAD_ARG } from "./transitions.ts";
 
-/** How often a reload that is waiting on jobs or an install looks again. */
+/** How often a reload that is waiting on an install looks again. */
 const RECHECK_MS = 30_000;
 
 /** The process's one follower, so a reload replaces it rather than adding one. */
@@ -154,7 +153,6 @@ export async function follow(
 		const moment = whenToReload({
 			swapped: isSwapped(running()),
 			idle,
-			pendingJobs: findJobHost(pi.events)?.pending?.() ?? 0,
 			ready: [...moved.keys()].every(dependenciesReady),
 		});
 		if (moment === "never") {

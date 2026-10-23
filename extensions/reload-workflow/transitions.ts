@@ -94,17 +94,22 @@ function expand(path: string, cwd: string, home: string): string {
  * The tree a reload is to load, or undefined for the install.
  *
  * Left out, it is whatever runs now, so a tree being edited is loaded
- * again rather than dropped for the install.
+ * again rather than dropped for the install. A null is left out too,
+ * as is the `"null"` pi's schema coercion makes of one: seen live, a
+ * model passing `onto: null` was refused for a checkout named null.
  */
 export function treeToLoad(
-	onto: string | undefined,
+	onto: string | null | undefined,
 	running: Loaded,
 	cwd: string,
 	home: string,
 ): string | undefined {
-	if (onto === undefined) return isSwapped(running) ? running.root : undefined;
-	if (onto.trim() === INSTALLED) return undefined;
-	const tree = canonical(expand(onto.trim(), cwd, home));
+	const given = onto?.trim();
+	if (given === undefined || given === "" || given === "null") {
+		return isSwapped(running) ? running.root : undefined;
+	}
+	if (given === INSTALLED) return undefined;
+	const tree = canonical(expand(given, cwd, home));
 	if (tree === running.install) return undefined;
 	if (packageName(tree) !== PACKAGE_NAME) {
 		throw new Error(
@@ -149,7 +154,7 @@ export async function requestReload(
 		`Reload queued${onto}.${checked}`,
 		"It runs as soon as this run ends, so end your turn now, without another call.",
 		"When it lands, a message says which code runs and you carry on from there.",
-		"Background jobs stop with the reload; a review round's answer stays on disk for collect.",
+		"Background jobs keep running through the reload, and their results arrive in the reloaded session.",
 	].join(" ");
 }
 

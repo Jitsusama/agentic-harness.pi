@@ -33,10 +33,11 @@ loads the install and the install is `main`.
   package its settings name reloads itself when that install's HEAD
   moves, so nobody has to mail every session to reload.
   - It waits for a moment that loses nothing: an idle session at
-    once, a busy one when its run ends, and either only once no
-    background job is running or holds a result not yet said, and
-    once `pnpm install` has followed a move that changed the
-    lockfile.
+    once, a busy one when its run ends, and either only once
+    `pnpm install` has followed a move that changed the lockfile.
+    Background jobs are no reason to wait: they keep running
+    through a reload, and their results arrive in the reloaded
+    session (see [job-workflow](../job-workflow/#through-a-reload)).
   - It does not wait for the cache: pi sends tool and section
     changes without rewriting it, now that no hook forces the system
     prompt (agentic-harness.pi#641).

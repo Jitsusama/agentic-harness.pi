@@ -222,6 +222,20 @@ describe("the agent asking for a reload", () => {
 		expect(now.sentToPrompt).toEqual([]);
 	});
 
+	it("reads an onto given as null as left out, not as a path named null", async () => {
+		runningTheInstall();
+		const now = runtime();
+		await now.start("startup");
+
+		// Raw, and as the string pi's schema coercion makes of it.
+		for (const onto of [null, "null"]) {
+			const answer = await now.ask({ reason: "try it", onto });
+			expect(answer.content[0]?.text).toMatch(
+				/^Reload queued onto the install\./,
+			);
+		}
+	});
+
 	it("hands it to the command once, when the run ends", async () => {
 		runningTheInstall();
 		const now = runtime();

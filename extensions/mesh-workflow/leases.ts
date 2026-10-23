@@ -594,13 +594,23 @@ export interface HeavyCalls {
 	finished(toolCallId: string): void;
 	/** Forget every call, as a session ending does. */
 	clear(): void;
+	/** The calls still running, each with the heavy work it claimed. */
+	held(): readonly HeavyCall[];
 }
 
+/** A call still running, and the heavy work it claimed. */
+export type HeavyCall = readonly [toolCallId: string, subject: string];
+
+/**
+ * Heavy calls whose work is running, from `carried` on: the calls a
+ * reload handed over from the runtime before, whose work runs on.
+ */
 export function createHeavyCalls(
 	heavy: (event: LeaseEvent) => void,
 	why: (command: string) => string = whatOf,
+	carried: readonly HeavyCall[] = [],
 ): HeavyCalls {
-	const calls = new Map<string, string>();
+	const calls = new Map<string, string>(carried);
 	const ended = (toolCallId: string) => {
 		const subject = calls.get(toolCallId);
 		if (subject === undefined) return;
@@ -629,7 +639,42 @@ export function createHeavyCalls(
 		},
 		finished: ended,
 		clear: () => calls.clear(),
+		held: () => [...calls],
 	};
+}
+
+/**
+ * Where a reload leaves the heavy calls still running for the runtime it
+ * starts. A reload evaluates this module again, so only a `Symbol.for`
+ * key on `globalThis` outlives it; the version changes with the shape.
+ */
+const CARRIED_CALLS = Symbol.for("agentic-harness.mesh.heavy-calls.v1");
+
+type CarriedGlobal = { [CARRIED_CALLS]?: readonly HeavyCall[] };
+
+/** Leave the heavy calls still running for the runtime a reload starts. */
+export function parkHeavyCalls(calls: readonly HeavyCall[]): void {
+	const global = globalThis as CarriedGlobal;
+	if (calls.length === 0) delete global[CARRIED_CALLS];
+	else global[CARRIED_CALLS] = calls;
+}
+
+/** Take the heavy calls a reload left, once; none when it left none. */
+export function takeHeavyCalls(): readonly HeavyCall[] {
+	const global = globalThis as CarriedGlobal;
+	const calls = global[CARRIED_CALLS] ?? [];
+	delete global[CARRIED_CALLS];
+	return calls;
+}
+
+/** Whether a session is ending only to reload, as pi's shutdown event says. */
+export function reloading(event: unknown): boolean {
+	return (
+		typeof event === "object" &&
+		event !== null &&
+		"reason" in event &&
+		event.reason === "reload"
+	);
 }
 
 /** A message's words, cut to what a lease keeps. */

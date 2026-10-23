@@ -82,9 +82,6 @@ async function session({
 			busy = false;
 			follower?.consider(true);
 		},
-		finishJobs: () => {
-			pending = 0;
-		},
 	};
 }
 
@@ -147,18 +144,10 @@ describe("following the install", () => {
 		await until("the reload is asked for", () => prompted.length > 0);
 	});
 
-	it("waits for background jobs, which a reload would stop", async () => {
-		const { install, prompted, settle, finishJobs } = await session({
-			pending: 1,
-		});
+	it("does not wait for background jobs, which a reload carries over", async () => {
+		const { install, prompted } = await session({ pending: 1 });
 
 		await land(install, "feat: something to try");
-		await quietFor(QUIET_MS, 4);
-		settle();
-		expect(prompted).toEqual([]);
-
-		finishJobs();
-		settle();
 		await until("the reload is asked for", () => prompted.length > 0);
 	});
 

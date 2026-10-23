@@ -2606,6 +2606,60 @@ describe("a lease", () => {
 		expect(ownBoard()).toEqual([]);
 	});
 
+	describe("a handed-off call's heavy work, through a reload", () => {
+		const handedOff = async (run: Awaited<ReturnType<typeof startSession>>) => {
+			await run.fire("tool_call", {
+				type: "tool_call",
+				toolName: "bash",
+				toolCallId: "b3",
+				input: { command: "qemu-system-x86_64" },
+			});
+			await run.fire("tool_result", {
+				type: "tool_result",
+				toolCallId: "b3",
+				content: [
+					{ type: "text", text: "Running in the background as job j1." },
+				],
+			});
+		};
+		const ended = {
+			jobId: "j1",
+			kind: "shell",
+			toolCallId: "b3",
+			failed: false,
+		};
+
+		it("stays claimed, and the runtime the reload starts lets it go when its job ends", async () => {
+			const first = await startSession();
+			await handedOff(first);
+			await first.fire("session_shutdown", { reason: "reload" });
+			expect(ownBoard()).toMatchObject([{ kind: "heavy", subject: "vm-test" }]);
+
+			const next = await startSession();
+			expect(ownBoard()).toMatchObject([{ kind: "heavy", subject: "vm-test" }]);
+			next.emit(JOBS_FINISHED, ended);
+			await vi.waitFor(() => expect(ownBoard()).toEqual([]));
+		});
+
+		it("is let go when its job ends before the new runtime has started", async () => {
+			const first = await startSession();
+			await handedOff(first);
+			await first.fire("session_shutdown", { reason: "reload" });
+
+			await startSession({}, {}, [], undefined, undefined, (emit) =>
+				emit(JOBS_FINISHED, ended),
+			);
+			await vi.waitFor(() => expect(ownBoard()).toEqual([]));
+		});
+
+		it("is let go at once when the session ends any other way", async () => {
+			const first = await startSession();
+			await handedOff(first);
+			await first.fire("session_shutdown", { reason: "new" });
+			expect(ownBoard()).toEqual([]);
+		});
+	});
+
 	it("lists what the peers still there hold", async () => {
 		peer("session-w", ["WCJQSG"], []);
 		leased("session-w", { why: "a fix" });
