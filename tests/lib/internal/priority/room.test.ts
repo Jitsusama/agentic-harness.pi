@@ -24,12 +24,19 @@ function cgroup(path: string, min: number, anon = 0, file = 0) {
 	return dir;
 }
 
-function proc(availableGib: number) {
+function proc(
+	availableGib: number,
+	swap?: { readonly totalGib: number; readonly freeGib: number },
+) {
 	const dir = join(root, "proc");
 	mkdirSync(join(dir, "pressure"), { recursive: true });
+	const kib = (gib: number) => gib * 1024 * 1024;
 	writeFileSync(
 		join(dir, "meminfo"),
-		`MemTotal: 1 kB\nMemAvailable: ${availableGib * 1024 * 1024} kB\n`,
+		`MemTotal: 1 kB\nMemAvailable: ${kib(availableGib)} kB\n` +
+			(swap
+				? `SwapTotal: ${kib(swap.totalGib)} kB\nSwapFree: ${kib(swap.freeGib)} kB\n`
+				: ""),
 	);
 	for (const [kind, avg] of [
 		["cpu", "1.50"],
@@ -73,6 +80,18 @@ describe("the machine's room", () => {
 		expect(reading.pressure).toEqual({ cpu: 1.5, memory: 4, io: 0.25 });
 		expect(reading.cores).toBe(2);
 		expect(reading.cpuPressure).toBe(1.5);
+	});
+
+	it("counts no more memory than the swap left", () => {
+		const cgroups = join(root, "cgroups");
+		mkdirSync(cgroups, { recursive: true });
+		const at = (swap: { totalGib: number; freeGib: number }) =>
+			readRoom([], { proc: proc(40, swap), cgroups }).availableGib;
+		// Cold heaps sit in swap while MemAvailable reads free.
+		expect(at({ totalGib: 96, freeGib: 13 })).toBe(13);
+		expect(at({ totalGib: 96, freeGib: 90 })).toBe(40);
+		// A machine with no swap is read by MemAvailable alone.
+		expect(at({ totalGib: 0, freeGib: 0 })).toBe(40);
 	});
 
 	it("counts the VMs running, by their processes' names", () => {

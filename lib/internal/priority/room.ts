@@ -13,6 +13,14 @@
  * one (user.slice's 15%) holds the inner ones (app.slice's 13%) and the
  * work itself. They are read from the cgroups, not worked out again.
  *
+ * Memory is also no more than the swap left. A job's heap that has gone
+ * cold is swapped out and MemAvailable recovers, though the job still
+ * holds it: four flake checks' evaluators held about 80 GiB on 23
+ * October, mostly in swap, while MemAvailable read 17 GiB free with
+ * swap 86% full. A new job's memory then has nowhere to push what it
+ * displaces. So on a machine with swap, the room is the smaller of the
+ * two; with swap mostly free, as it usually is, that changes nothing.
+ *
  * VMs are counted by their processes' names, whoever runs them: the
  * Nix daemon's build users run a VM check's qemu, and the name is all
  * that another user's process shows. A whole reading took 3.9 ms over
@@ -72,7 +80,8 @@ export function readRoom(
 	floors: readonly string[],
 	kernel: Kernel = KERNEL,
 ): Reading {
-	const available = memAvailable(kernel.proc);
+	const swap = swapFree(kernel.proc);
+	const available = Math.min(memAvailable(kernel.proc), swap ?? Infinity);
 	const kept = floors.reduce(
 		(sum, floor) =>
 			sum + Math.max(0, number(join(floor, "memory.min")) - anonIn(floor)),
@@ -122,11 +131,22 @@ function anonIn(cgroup: string): number {
 }
 
 function memAvailable(proc: string): number {
+	return meminfo(proc, "MemAvailable") ?? 0;
+}
+
+/** The swap left, in bytes, or undefined on a machine with none. */
+function swapFree(proc: string): number | undefined {
+	const total = meminfo(proc, "SwapTotal") ?? 0;
+	return total > 0 ? (meminfo(proc, "SwapFree") ?? 0) : undefined;
+}
+
+/** One field of /proc/meminfo, in bytes. */
+function meminfo(proc: string, field: string): number | undefined {
 	const line = text(join(proc, "meminfo"))
 		.split("\n")
-		.find((entry) => entry.startsWith("MemAvailable:"));
+		.find((entry) => entry.startsWith(`${field}:`));
 	const kib = Number(line?.split(/\s+/)[1]);
-	return Number.isFinite(kib) ? kib * 1024 : 0;
+	return Number.isFinite(kib) ? kib * 1024 : undefined;
 }
 
 /** The share of time some task stalled, avg10, in percent. */
