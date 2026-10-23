@@ -81,7 +81,14 @@ it does:
   `panel-lifecycle-workflow`, `job-workflow`,
   `session-recall-workflow`, `install-check-workflow`,
   `reload-workflow`, `rollover-workflow`, `shell-workflow`,
-  `mesh-workflow`, `priority-workflow`.
+  `mesh-workflow`, `priority-workflow`, `stray-output-workflow`.
+
+  `stray-output-workflow` keeps writes off pi's screen while its TUI
+  holds the terminal. pi guards neither stream in interactive mode, and
+  its own event bus `console.error`s a throwing `pi.events` handler's
+  whole stack over the editor. Each caught write is kept with the stack
+  that made it, and the person sees one line naming the writer, so a
+  handler that throws can be found rather than only seen.
 
   `priority-workflow` keeps pi ahead of the work it starts: where
   the machine names an idle cgroup for work in `JOBS_CGROUP`, every
