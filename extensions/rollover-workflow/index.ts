@@ -14,6 +14,10 @@
  * The switch goes through pi's own `switchSession`, so every extension
  * starts on the fresh log as it would on a resumed one, rebuilding its
  * state from the branch.
+ *
+ * A log rolled over before the system messages were folded lost the
+ * built-in tools on its next restart; when one starts, they are given
+ * back (see `builtInsLostToRollover`).
  */
 
 import { statSync } from "node:fs";
@@ -26,6 +30,7 @@ import type {
 import { formatSize } from "../../lib/internal/quest/footprint.ts";
 import { reloadSlot } from "../../lib/internal/reload/slot.ts";
 import {
+	builtInsLostToRollover,
 	type Carry,
 	type Entry,
 	ROLLOVER_BYTES,
@@ -113,6 +118,33 @@ export async function rollOverNow(
 	return cancelled ? "Not rolled over: the switch was called off." : said;
 }
 
+/**
+ * Give back the built-in tools a log rolled over by an earlier version
+ * of this extension lost on a resume, and say so. Returns their names.
+ */
+export function restoreLostBuiltIns(
+	pi: Pick<ExtensionAPI, "getActiveTools" | "getAllTools" | "setActiveTools">,
+	ctx: Pick<ExtensionContext, "sessionManager" | "hasUI" | "ui">,
+): string[] {
+	// Most logs lost nothing, and their branch is all that is read.
+	const candidates = builtInsLostToRollover(ctx.sessionManager.getBranch());
+	if (candidates.length === 0) return [];
+	const active = pi.getActiveTools();
+	const registered = new Set(pi.getAllTools().map((tool) => tool.name));
+	const lost = candidates.filter(
+		(name) => registered.has(name) && !active.includes(name),
+	);
+	if (lost.length === 0) return [];
+	pi.setActiveTools([...active, ...lost]);
+	if (ctx.hasUI) {
+		ctx.ui.notify(
+			`Gave back ${lost.join(", ")}, which this session's rolled-over log had lost.`,
+			"info",
+		);
+	}
+	return lost;
+}
+
 export default function rolloverWorkflow(pi: ExtensionAPI) {
 	// A compaction has made the log's history dead weight; the next still
 	// moment hands the rollover to the command, which can switch logs.
@@ -128,8 +160,9 @@ export default function rolloverWorkflow(pi: ExtensionAPI) {
 		reloadSlot().request === undefined &&
 		(findJobHost(pi.events)?.pending?.() ?? 0) === 0;
 
-	pi.on("session_start", async () => {
+	pi.on("session_start", async (_event, ctx) => {
 		due = false;
+		restoreLostBuiltIns(pi, ctx);
 	});
 
 	pi.on("session_compact", async (_event, ctx) => {

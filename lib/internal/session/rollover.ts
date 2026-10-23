@@ -18,6 +18,13 @@
  * - before that, every extension's state (`custom` entries), model and
  *   thinking changes and the session's name, in their order, so each
  *   extension rebuilds from the branch exactly as before;
+ * - before that too, the system messages folded into one, which
+ *   declares the tools they left declared and removes the ones they
+ *   took away. pi builds a resumed session's tools by replaying the
+ *   system messages on its branch, and the first of them is the only
+ *   one that declares the built-in tools, so a log without it came back
+ *   from a restart with no `read`, `bash`, `edit` or `write`. The model
+ *   never sees the fold: pi builds context from the compaction on;
  * - a label or context edit only when what it points at is kept;
  * - last, a record naming the parent log and the entry it ended at, and
  *   whatever extensions asked to carry over (`carried`), such as the
@@ -33,6 +40,10 @@
 import { randomBytes } from "node:crypto";
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import {
+	getCurrentSystemMessage,
+	type SystemMessage,
+} from "@earendil-works/pi-ai";
 
 /** The bus event asking extensions what to carry over; see `Carry`. */
 export const ROLLOVER_CARRY = "session:rollover-carry:v1";
@@ -178,9 +189,116 @@ export function recordIndex(branch: readonly unknown[]): number {
 	return -1;
 }
 
+/**
+ * The tools pi declares by itself rather than for an extension. Only a
+ * session's first system message names them, and pi does not declare
+ * one again on a resume that the system messages leave out.
+ */
+export const PI_BUILT_IN_TOOLS: readonly string[] = [
+	"read",
+	"bash",
+	"edit",
+	"write",
+	"grep",
+	"find",
+	"ls",
+];
+
+/**
+ * The built-in tools a log rolled over before system messages were
+ * folded cannot give back: the ones its first compaction still declared
+ * and that no system message on the branch has declared since. Such a
+ * log kept no system message from before its first kept entry, so pi,
+ * which rebuilds a resumed session's tools from the system messages,
+ * resumes it without them. Empty for any other log.
+ */
+export function builtInsLostToRollover(branch: readonly unknown[]): string[] {
+	if (!rolledFrom(branch)) return [];
+	const entries = branch as readonly Partial<Entry>[];
+	const compaction = entries.find((entry) => entry?.type === "compaction");
+	const firstKept = entries.findIndex(
+		(entry) => entry?.id === compaction?.firstKeptEntryId,
+	);
+	if (!compaction || firstKept === -1) return [];
+	if (entries.slice(0, firstKept).some(isSystemEntry)) return [];
+	const snapshot = compaction.systemMessage as SystemMessage | undefined;
+	const declaredSince = new Set(
+		entries
+			.filter(isSystemEntry)
+			.flatMap((entry) => entry.message.toolsAdded ?? [])
+			.map((tool) => tool.name),
+	);
+	return (snapshot?.toolsAdded ?? [])
+		.map((tool) => tool.name)
+		.filter(
+			(name) => PI_BUILT_IN_TOOLS.includes(name) && !declaredSince.has(name),
+		);
+}
+
 /** What one extension carried over, or undefined when it carried nothing. */
 export function carriedBy(branch: readonly unknown[], name: string): unknown {
 	return rolledFrom(branch)?.carried[name];
+}
+
+/** Whether an entry is a system message, which declares prompt and tools. */
+export function isSystemEntry(
+	entry: Partial<Entry> | undefined,
+): entry is Entry & { readonly message: SystemMessage } {
+	if (entry?.type !== "message") return false;
+	const message = entry.message as { role?: unknown } | undefined;
+	return message?.role === "system";
+}
+
+/**
+ * Several system messages as one that leaves pi in the same place when
+ * it replays them: the same prompt and sections, the same tools
+ * declared, and every tool they ever named. A tool they removed and
+ * never declared again is removed in the fold too, since pi treats an
+ * extension's tool no system message names as new and declares it,
+ * which would bring back a tool the session had put away.
+ */
+export function foldSystemMessages(
+	messages: readonly SystemMessage[],
+): SystemMessage | undefined {
+	const current = getCurrentSystemMessage(messages);
+	if (!current) return undefined;
+	const declared = new Set((current.toolsAdded ?? []).map((tool) => tool.name));
+	const named = new Set(
+		messages.flatMap((message) =>
+			[...(message.toolsAdded ?? []), ...(message.toolsRemoved ?? [])].map(
+				(tool) => tool.name,
+			),
+		),
+	);
+	const removed = [...named]
+		.filter((name) => !declared.has(name))
+		.map((name) => ({ name }));
+	const last = messages[messages.length - 1];
+	return {
+		...current,
+		...(removed.length > 0 ? { toolsRemoved: removed } : {}),
+		timestamp: last?.timestamp ?? current.timestamp,
+	};
+}
+
+/**
+ * The entries before the first kept one that a fresh log keeps: the
+ * state, in its order, and the system messages folded into one where
+ * the last of them stood, under its id.
+ */
+function keptBefore(before: readonly Entry[]): Entry[] {
+	const systems = before.filter(isSystemEntry);
+	const last = systems[systems.length - 1];
+	const folded = foldSystemMessages(systems.map((entry) => entry.message));
+	return before.flatMap((entry): Entry[] => {
+		if (isSystemEntry(entry)) {
+			return entry === last && folded ? [{ ...entry, message: folded }] : [];
+		}
+		const state =
+			STATE.has(entry.type) &&
+			!(entry.type === "custom" && entry.customType === ROLLOVER_RECORD);
+		return state ? [entry] : [];
+	});
 }
 
 /** An id no entry in `taken` has, in pi's eight-hex form. */
@@ -220,16 +338,7 @@ export function rollOver(
 	// a context from; better to leave it as it is.
 	if (from === -1 || from > compaction) return undefined;
 
-	const chosen = [
-		...branch
-			.slice(0, from)
-			.filter(
-				(entry) =>
-					STATE.has(entry.type) &&
-					!(entry.type === "custom" && entry.customType === ROLLOVER_RECORD),
-			),
-		...branch.slice(from),
-	];
+	const chosen = [...keptBefore(branch.slice(0, from)), ...branch.slice(from)];
 	const kept = new Set(chosen.map((entry) => entry.id));
 	const pointed = chosen.filter((entry) => {
 		const field = POINTING[entry.type];

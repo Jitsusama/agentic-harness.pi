@@ -40,6 +40,12 @@ on where it was.
 - Before that, every extension's own state, the model and thinking
   changes and the session's name, in their order, so each extension
   starts as it would on a resumed session.
+- Before that too, the system messages folded into one, which
+  declares the tools they left declared and removes the ones they took
+  away. pi works out a resumed session's tools by replaying the system
+  messages on its branch, and only the first of them declares `read`,
+  `bash`, `edit` and `write`. The model never reads the fold, since pi
+  builds what it sees from the compaction on.
 - Labels and context edits only when what they point at is kept.
 - Last, a record naming the parent log and where it ended, with
   whatever extensions carried over: the cost footer's session spend,
@@ -49,6 +55,19 @@ Abandoned branches and the summarised conversation stay in the parent
 log. `session_recall` reads every parent from disk when it is called,
 so the session's whole history is still one call away. Entry ids are
 kept, and the cost ledger bills a copied turn once.
+
+## Logs Rolled Over Before the Fold
+
+A log rolled over before the fold kept no system message from before
+its first kept entry. Once a turn in it changed the tools, the next
+restart resumed it without `read`, `edit` and `write`, and without
+`bash` too until a reload. That is what two sessions came back with
+after the reboot of 2026-10-22.
+
+When such a log starts, or reloads, the workflow gives back each of
+pi's built-in tools that its first compaction still declared and that
+no system message has declared since, and says which. It touches only
+those tools: an extension's tool comes back through pi itself.
 
 ## Carrying State Over
 
