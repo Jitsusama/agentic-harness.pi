@@ -93,6 +93,7 @@ import {
 	wasCancelled,
 } from "../../lib/compaction/index.ts";
 import { cachePrices } from "../../lib/internal/cache-prices.ts";
+import { whileCurrent } from "../../lib/internal/stale.ts";
 import { conversationProvider } from "./conversation.ts";
 import { registerCompactionHost } from "./host.ts";
 import { idleTimer } from "./idle.ts";
@@ -290,12 +291,15 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		tokens: number,
 		resume: boolean,
 	) => {
+		// pi calls these when the compaction ends, which can be after a
+		// reload replaced this runtime: on 22 October onError wrote through
+		// the stale pi, and the throw, with nothing above it, took pi down.
 		ctx.compact({
-			onComplete: () => {
+			onComplete: whileCurrent(() => {
 				if (!resume || ctx.hasPendingMessages()) return;
 				resumeRun(pi, RESUME_TEXT);
-			},
-			onError: (error) => {
+			}),
+			onError: whileCurrent((error: Error) => {
 				compacting = false;
 				failures += 1;
 				const failure = failureRecord(tokens, error, failures);
@@ -316,7 +320,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 					return;
 				}
 				resumeRun(pi, FAILED_RESUME_TEXT);
-			},
+			}),
 		});
 	};
 
