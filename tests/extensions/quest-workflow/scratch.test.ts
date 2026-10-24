@@ -15,7 +15,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { questTempDir } from "../../../extensions/quest-workflow/scratch.ts";
+import {
+	questTempDir,
+	TEMP_LINK_PREFIX,
+} from "../../../extensions/quest-workflow/scratch.ts";
 
 const QUEST = "QEST-20261022-ABC123";
 let root: string;
@@ -37,9 +40,22 @@ describe("a quest's TMPDIR", () => {
 	it("is a short link to the workspace's tmp/, made on first need", () => {
 		const dir = questTempDir(workspaces, QUEST, links);
 
-		expect(dir).toBe(join(links, `pi-${QUEST}`));
+		expect(dir).toBe(join(links, `${TEMP_LINK_PREFIX}${QUEST}`));
 		expect(readlinkSync(dir ?? "")).toBe(tmpOf());
 		expect(lstatSync(tmpOf()).isDirectory()).toBe(true);
+	});
+
+	it("carries the name disk-guard leaves alone", () => {
+		// disk-guard's temp pass takes a made-up name it finds idle, and
+		// pi-QEST-<id> ends in a run with digits in it, so it read as
+		// one. On 24 October it took eleven of these links under urgent
+		// pressure, and a background job reading through one found no
+		// such file until its session's next command made it again.
+		// pi-quest- is the prefix disk-guard keeps for the harness.
+		const dir = questTempDir(workspaces, QUEST, links) ?? "";
+
+		expect(TEMP_LINK_PREFIX).toBe("pi-quest-");
+		expect(dir.slice(links.length + 1).startsWith("pi-quest-")).toBe(true);
 	});
 
 	it("keeps a socket path short enough wherever the workspace lives", () => {
@@ -64,7 +80,10 @@ describe("a quest's TMPDIR", () => {
 	});
 
 	it("repairs a link of ours that points somewhere else", () => {
-		symlinkSync(join(root, "elsewhere"), join(links, `pi-${QUEST}`));
+		symlinkSync(
+			join(root, "elsewhere"),
+			join(links, `${TEMP_LINK_PREFIX}${QUEST}`),
+		);
 
 		const dir = questTempDir(workspaces, QUEST, links);
 
@@ -72,7 +91,7 @@ describe("a quest's TMPDIR", () => {
 	});
 
 	it("never replaces a file that is not a link, and uses tmp/ itself", () => {
-		writeFileSync(join(links, `pi-${QUEST}`), "somebody's");
+		writeFileSync(join(links, `${TEMP_LINK_PREFIX}${QUEST}`), "somebody's");
 
 		expect(questTempDir(workspaces, QUEST, links)).toBe(tmpOf());
 	});

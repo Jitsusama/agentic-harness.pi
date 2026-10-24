@@ -439,7 +439,7 @@ describe("workspace funnel", () => {
 			{ tempRoots: [linkRoot] },
 		);
 
-		expect(dir).toBe(join(linkRoot, `pi-${state.questId}`));
+		expect(dir).toBe(join(linkRoot, `pi-quest-${state.questId}`));
 		expect(verdict).toBeUndefined();
 	});
 
