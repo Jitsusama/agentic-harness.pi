@@ -29,6 +29,18 @@ import * as path from "node:path";
 import { questWorkspace } from "@jitsusama/agentic-harness.core/quest/workspace";
 import { workspaceDirOf } from "./workspace.ts";
 
+/**
+ * The start of every link's name, to be followed by the quest's ID.
+ *
+ * `pi-quest-` because disk-guard's temp pass leaves that prefix alone
+ * and takes other idle names that look made up, which `pi-QEST-<id>`
+ * does, since it ends in a run with digits in it. Named that way, eleven
+ * links went at once under urgent disk pressure on 24 October. A
+ * background job reading through one met "No such file or directory"
+ * until its session's next command made the link again.
+ */
+export const TEMP_LINK_PREFIX = "pi-quest-";
+
 /** Where the short link goes: `/tmp` when there is one, else the OS temp. */
 function systemTemp(): string {
 	try {
@@ -75,7 +87,9 @@ export function questTempDir(
 	const { tmp } = questWorkspace(workspaceRoot, questId);
 	mkdirSync(tmp, { recursive: true });
 	try {
-		return linkTo(path.join(linkRoot, `pi-${questId}`), tmp) ?? tmp;
+		return (
+			linkTo(path.join(linkRoot, `${TEMP_LINK_PREFIX}${questId}`), tmp) ?? tmp
+		);
 	} catch {
 		// A temp directory we cannot write a link into still leaves the
 		// workspace, whose long path is fine for everything but sockets.
