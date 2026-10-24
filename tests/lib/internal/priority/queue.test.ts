@@ -71,6 +71,18 @@ describe("the kind of heavy work a command runs", () => {
 		).toBeUndefined();
 		expect(kindOf("cat tests/changed-checks.py")).toBeUndefined();
 		expect(kindOf("nvim changed-checks.nix")).toBeUndefined();
+		// Run from where it was built, as Y9XISP ran its Rust port on 24
+		// October and was held to a build's 4 GiB, using 11.8.
+		const built = "$out/bin/changed-checks --build --no-vm > $TMPDIR/cc.out";
+		expect(kindOf(built)).toBe("build");
+		expect(needsGibOf(job("built", { what: built }))).toBe(CHANGED_CHECKS_GIB);
+		// Its crate's folder is not the tool.
+		expect(kindOf("cd tests/changed-checks && ls")).toBeUndefined();
+		expect(
+			needsGibOf(
+				job("crate", { what: "cd tests/changed-checks && cargo test" }),
+			),
+		).toBe(4);
 	});
 
 	it("reads the common forms of heavy work it missed", () => {

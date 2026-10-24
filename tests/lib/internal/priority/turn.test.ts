@@ -16,7 +16,10 @@ import {
 	keepOutcome,
 	outcomeOf,
 } from "../../../../lib/internal/priority/outcome.ts";
-import { EVERY_CHECK_GIB } from "../../../../lib/internal/priority/queue.ts";
+import {
+	CHANGED_CHECKS_GIB,
+	EVERY_CHECK_GIB,
+} from "../../../../lib/internal/priority/queue.ts";
 import type { Reading } from "../../../../lib/internal/priority/room.ts";
 import {
 	queuedCommand,
@@ -145,6 +148,18 @@ describe("heavy work waiting for its turn", () => {
 		const job = JSON.parse(readFileSync(join(dir, `${id}.job`), "utf8"));
 		expect(job.what).not.toContain("#checks");
 		expect(job.needsGib).toBe(EVERY_CHECK_GIB);
+	});
+
+	it("asks for the memory of its heaviest step, not its first", () => {
+		// Y9XISP's on 24 October: the tool's build came first, so the job
+		// was held to a build's 4 GiB while the tool it built used 11.8.
+		queueing(ROOMY);
+		queuedCommand(
+			'cd $T && rev=$(git rev-parse HEAD); out=$(nix build --no-link --print-out-paths "git+file://$PWD?rev=$rev#checks.x86_64-linux.changed-checks-names-what-moved") && s=$(date +%s) && NIX_CONFIG="max-jobs = 2" $out/bin/changed-checks --build --no-vm > $TMPDIR/cc-build.out 2> $TMPDIR/cc-build.err; r=$?; exit $r',
+		);
+		const [id] = jobIds();
+		const job = JSON.parse(readFileSync(join(dir, `${id}.job`), "utf8"));
+		expect(job.needsGib).toBe(CHANGED_CHECKS_GIB);
 	});
 
 	it("asks for a turn, and runs at once when the room is there", async () => {
