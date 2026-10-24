@@ -32,6 +32,44 @@ import {
 import { createJobs, type Jobs } from "./jobs.ts";
 import { createOutbox, type Outbox } from "./outbox.ts";
 
+/**
+ * Asked on the bus by a runtime starting for a session: a runtime still
+ * holding that session's jobs parks them for it. pi's reload is not one
+ * at a time, and two that overlap leave the runtime the first started
+ * replaced but never made stale, its host first on the bus. On 24
+ * October that one held the carried jobs while the new runtime's list
+ * said there were none, and said a result nobody marked as seen every
+ * 30 seconds.
+ */
+const JOBS_YIELD = "jobs:yield:v1";
+
+/** What a starting runtime asks with, and hears back on. */
+interface YieldAsk {
+	readonly session: string;
+	parked: boolean;
+}
+
+function isYieldAsk(data: unknown): data is YieldAsk {
+	return (
+		typeof data === "object" &&
+		data !== null &&
+		typeof (data as { session?: unknown }).session === "string"
+	);
+}
+
+/** Have whatever runtime still hosts `session`'s jobs park them; whether one did. */
+function askToYield(pi: ExtensionAPI, session: string | undefined): boolean {
+	if (session === undefined) return false;
+	const ask: YieldAsk = { session, parked: false };
+	try {
+		pi.events.emit(JOBS_YIELD, ask);
+	} catch {
+		// A runtime that can't ask has nobody to take over from.
+		return false;
+	}
+	return ask.parked;
+}
+
 /** How often the outbox looks again, for a prompt that went nowhere. */
 const TICK_MS = 1_000;
 
@@ -86,8 +124,10 @@ export function openSession(
 	ctx: ExtensionContext,
 	reason?: string,
 ): JobSession {
+	const id = sessionIdOf(ctx);
+	const yielded = askToYield(pi, id);
 	const carried =
-		reason === "reload" ? takeParked(sessionIdOf(ctx), pi, ctx) : undefined;
+		reason === "reload" || yielded ? takeParked(id, pi, ctx) : undefined;
 	return carried ?? freshSession(pi, ctx);
 }
 
@@ -141,15 +181,24 @@ function freshSession(pi: ExtensionAPI, ctx: ExtensionContext): JobSession {
 	);
 
 	let withdraw: (() => void) | undefined;
+	let yielding: (() => void) | undefined;
 	let timer: ReturnType<typeof setInterval> | undefined;
 	const listen = () => {
 		withdraw = announceJobHost(runtime.pi.events, jobs);
+		yielding = runtime.pi.events.on(JOBS_YIELD, (data) => {
+			if (!isYieldAsk(data) || data.parked) return;
+			if (data.session !== sessionIdOf(runtime.ctx)) return;
+			data.parked = true;
+			session.park();
+		});
 		timer = setInterval(() => outbox.tick(), TICK_MS);
 		timer.unref();
 	};
 	const quiet = () => {
 		withdraw?.();
 		withdraw = undefined;
+		yielding?.();
+		yielding = undefined;
 		clearInterval(timer);
 		timer = undefined;
 	};
