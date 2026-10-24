@@ -14,6 +14,7 @@ export {
 	findJobHost,
 	JOBS_ASK,
 	JOBS_FINISHED,
+	JOBS_YIELD,
 	type Job,
 	type JobFinished,
 	type JobHost,

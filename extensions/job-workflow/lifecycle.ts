@@ -20,6 +20,7 @@ import type {
 import {
 	announceJobHost,
 	JOBS_FINISHED,
+	JOBS_YIELD,
 	type JobFinished,
 } from "../../lib/jobs/index.ts";
 import { footerMark, type MarkTheme } from "../../lib/ui/footer-mark.ts";
@@ -33,17 +34,11 @@ import { createJobs, type Jobs } from "./jobs.ts";
 import { createOutbox, type Outbox } from "./outbox.ts";
 
 /**
- * Asked on the bus by a runtime starting for a session: a runtime still
- * holding that session's jobs parks them for it. pi's reload is not one
- * at a time, and two that overlap leave the runtime the first started
- * replaced but never made stale, its host first on the bus. On 24
- * October that one held the carried jobs while the new runtime's list
- * said there were none, and said a result nobody marked as seen every
- * 30 seconds.
+ * What a starting runtime asks on `JOBS_YIELD` with, and hears back on.
+ * On 24 October a runtime two overlapping reloads left live held the
+ * carried jobs while the new runtime's list said there were none, and
+ * said a result nobody marked as seen every 30 seconds.
  */
-const JOBS_YIELD = "jobs:yield:v1";
-
-/** What a starting runtime asks with, and hears back on. */
 interface YieldAsk {
 	readonly session: string;
 	parked: boolean;
