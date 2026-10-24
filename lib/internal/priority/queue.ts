@@ -134,8 +134,15 @@ const WHOLE_FLAKE = new RegExp(
 		.join("|"),
 );
 
-/** The memory one job is held to need, in GiB. */
-export function needsGibOf(job: Pick<Job, "kind" | "what">): number {
+/**
+ * The memory one job is held to need, in GiB: what it was judged to need
+ * when it asked, from its whole step, or else from what it does, which a
+ * job an older harness asked for carries alone.
+ */
+export function needsGibOf(
+	job: Pick<Job, "kind" | "what"> & Pick<Partial<Job>, "needsGib">,
+): number {
+	if (job.needsGib !== undefined) return job.needsGib;
 	const kind = NEEDS_GIB[job.kind];
 	if (CHANGED_CHECKS.test(job.what) || EVERY_CHECK.test(job.what)) {
 		return Math.max(kind, EVERY_CHECK_GIB);
@@ -154,14 +161,26 @@ export function needsGibOf(job: Pick<Job, "kind" | "what">): number {
  * checks with an exit by then, 21 passed, 18 with builds beside them and
  * two of those with three VMs running at CPU pressure up to 50; the one
  * that failed ended in 11 s, no timeout. Since core #381, too, daemon-run
- * qemu runs at nice -10, ahead of the builds beside it. So three run at
- * once, and {@link FEWER_VMS} while the outcomes say three is too many
- * (see vmsFor in outcome.ts).
+ * qemu runs at nice -10, ahead of the builds beside it. So three ran at
+ * once.
+ *
+ * Three held work back too. On 24 October at 17:30 ten VM checks had
+ * waited up to 57 minutes with 25 GiB free and two qemu on 1.4 of 16
+ * cores. Of 623 VM runs from 22 October, those with 0 to 2 VMs beside
+ * them failed 4.7% of the time, 213 runs; with 3 to 5, 2.5%, 319 runs;
+ * with 6 or more beside, 2.2%, 91 runs; nor did failures rise with CPU
+ * pressure, 20 of 623 at none to past 60. The counts are the machine's
+ * qemu, so a test with two machines counts twice, and a limit of three
+ * jobs has had eight qemu beside it. So four run at once, and {@link FEWER_VMS} while the
+ * outcomes say four is too many (see vmsFor in outcome.ts).
  */
-export const MOST_VMS = 3;
+export const MOST_VMS = 4;
 
-/** How many VMs run at once for a day after one failed at {@link MOST_VMS}. */
-export const FEWER_VMS = 2;
+/**
+ * How many VMs run at once for a day while they fail more often at
+ * {@link MOST_VMS} than with fewer.
+ */
+export const FEWER_VMS = 3;
 
 /** Memory pressure (avg10, percent) past which no job starts. */
 export const MOST_MEMORY_PRESSURE = 10;
@@ -178,6 +197,13 @@ export interface Job {
 	readonly kind: Kind;
 	/** The step that does the heavy work, as one line. */
 	readonly what: string;
+	/**
+	 * The memory it was judged to need as it asked, in GiB, from its whole
+	 * step: `what` is cut short, and a long flake reference such as
+	 * `git+file://$PWD?rev=<commit>` once cut off the `#checks` that said a
+	 * job evaluates every check, holding it to a build's 4.
+	 */
+	readonly needsGib?: number;
 	/** The pi session that started it, and pi's pid. */
 	readonly owner: { readonly session: string; readonly pid: number };
 	/** When it asked for its turn. */
@@ -518,12 +544,20 @@ export const KIND_SAID: Readonly<Record<Kind, string>> = {
 const SEGMENTS = /\n|;|&&|\|\|?/;
 
 /**
- * A step whose command finds processes or text, or reports on them, or
- * reads a file or a path, as `readlink -f $d/bin/nixos-test-driver`
- * does without running the driver.
+ * A git command that only reads the history, past options such as
+ * `-C <dir>` and `--no-pager`: `git grep -n 'changed-checks' origin/main`
+ * waited 51 s for a turn as an evaluation of every check.
  */
-const LOOKS =
-	/^\s*(?:sudo\s+)?(?:(?:pgrep|pkill|pidof|ps|kill|killall|grep|egrep|fgrep|rg|systemctl|journalctl|echo|printf|which|readlink|realpath|ls|stat|file|cat|head|tail|wc|test)\b|\[\s)/;
+const GIT_READS = String.raw`git(?:\s+(?:-C\s+\S+|-c\s+\S+|--?[\w-]+(?:=\S+)?))*\s+(?:grep|log|show|diff|blame|status|ls-files|ls-tree|rev-parse|rev-list|cat-file|shortlog|describe|merge-base)\b`;
+
+/**
+ * A step whose command finds processes or text, or reports on them, or
+ * reads a file, a path or git's history, as
+ * `readlink -f $d/bin/nixos-test-driver` does without running the driver.
+ */
+const LOOKS = new RegExp(
+	String.raw`^\s*(?:sudo\s+)?(?:(?:pgrep|pkill|pidof|ps|kill|killall|grep|egrep|fgrep|rg|systemctl|journalctl|echo|printf|which|readlink|realpath|ls|stat|file|cat|head|tail|wc|test)\b|\[\s|${GIT_READS})`,
+);
 
 /**
  * Variables set at the start of a step, as `A=1 B="two" cmd` sets two.
@@ -533,12 +567,25 @@ const LOOKS =
 const ASSIGNMENTS =
 	/^\s*(?:export\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=(?:\$\(\s*|(?:"[^"]*"|'[^']*'|\S*)(?:\s+|$)))+/;
 
-/** The step of a command that does its heavy work, as one line. */
-export function whatOf(command: string): string {
+/**
+ * The step of a command that does its heavy work, whole, never a line of
+ * a heredoc: a commit message naming changed-checks was once the step
+ * named, and the build beside it was held to that tool's memory.
+ */
+export function stepOf(command: string): string {
 	const steps = command
+		.replace(HEREDOC, "\n")
 		.split(STEPS)
 		.map((step) => step.replace(ASSIGNMENTS, "").trim())
 		.filter((step) => step !== "");
-	const step = steps.find((one) => kindOf(one) !== undefined) ?? steps[0] ?? "";
-	return step.length > 120 ? `${step.slice(0, 117)}...` : step;
+	return steps.find((one) => kindOf(one) !== undefined) ?? steps[0] ?? "";
+}
+
+/** How long a job's `what` may be before it is cut. */
+const MOST_WHAT = 120;
+
+/** The step of a command that does its heavy work, as one short line. */
+export function whatOf(command: string): string {
+	const step = stepOf(command);
+	return step.length > MOST_WHAT ? `${step.slice(0, MOST_WHAT - 3)}...` : step;
 }

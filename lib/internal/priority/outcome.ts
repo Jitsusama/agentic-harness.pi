@@ -220,14 +220,37 @@ export function capFor(
 		: CAPPED_NIX;
 }
 
+/** How many VMs must fail at the most in a day before it is lowered. */
+export const FAILURES_TO_LOWER_VMS = 3;
+
+/**
+ * How many times as often VMs must fail at the most as with fewer before
+ * the most is lowered.
+ */
+export const FAILING_TIMES_AS_OFTEN = 2;
+
 /**
  * How many VMs run at once: {@link MOST_VMS}, or {@link FEWER_VMS}
- * while, in the last day, a VM failed with that many running that has
- * passed with fewer. As for {@link capFor}, a failure alone says too
- * little, since a break copy fails however few run beside it.
+ * while, in the last day, VMs failed at the most
+ * {@link FAILING_TIMES_AS_OFTEN} times as often as with fewer, in at
+ * least {@link FAILURES_TO_LOWER_VMS} runs. A failure counts only for
+ * work that has passed with fewer, since a break copy fails however few
+ * run beside it, as for {@link capFor}.
+ *
+ * One failure lowered it once, and said nothing: a check being written
+ * failed an assertion in 86 s, and the limit stayed down a day while
+ * ten checks waited. Over the 623 VM runs to then, a run failed no more
+ * often with eight VMs beside it than with one. A rate is what a
+ * crowded machine would change, and one failure is not a rate.
  */
 export function vmsFor(outcomes: readonly Outcome[], now: number): number {
 	const since = now - FAILURES_COUNT_FOR_MS;
+	const recent = outcomes.filter(
+		(outcome) =>
+			isVm(outcome) &&
+			(outcome.exit === 0 || failed(outcome.exit)) &&
+			Date.parse(outcome.ended) >= since,
+	);
 	const passedWithFewer = new Set(
 		outcomes
 			.filter(
@@ -236,15 +259,21 @@ export function vmsFor(outcomes: readonly Outcome[], now: number): number {
 			)
 			.map((outcome) => outcome.what),
 	);
-	const failedAtMost = outcomes.some(
-		(outcome) =>
-			isVm(outcome) &&
-			outcome.beside.vms >= MOST_VMS &&
-			failed(outcome.exit) &&
-			passedWithFewer.has(outcome.what) &&
-			Date.parse(outcome.ended) >= since,
-	);
-	return failedAtMost ? FEWER_VMS : MOST_VMS;
+	const atMost = recent.filter((outcome) => outcome.beside.vms >= MOST_VMS);
+	const withFewer = recent.filter((outcome) => outcome.beside.vms < MOST_VMS);
+	const failedAtMost = atMost.filter(
+		(outcome) => failed(outcome.exit) && passedWithFewer.has(outcome.what),
+	).length;
+	if (failedAtMost < FAILURES_TO_LOWER_VMS) return MOST_VMS;
+	// With fewer, a run or two either way is taken as given, so that no
+	// failures in a handful of runs isn't read as never failing.
+	const rateWithFewer =
+		(withFewer.filter((outcome) => failed(outcome.exit)).length + 1) /
+		(withFewer.length + 2);
+	const rateAtMost = failedAtMost / atMost.length;
+	return rateAtMost >= FAILING_TIMES_AS_OFTEN * rateWithFewer
+		? FEWER_VMS
+		: MOST_VMS;
 }
 
 /** Adds one outcome to the file, keeping its newer half once it is full. */
