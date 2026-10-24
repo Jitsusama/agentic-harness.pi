@@ -84,12 +84,39 @@ export const NEEDS_GIB: Readonly<Record<Kind, number>> = {
  */
 export const EVALUATION_GIB = 20;
 
-/** A command that checks a whole flake. */
-const WHOLE_FLAKE = /\bnix(?:\s+--?\S+)*\s+flake\s+check\b/;
+/**
+ * core.nix's changed-checks, run as a command rather than named as a
+ * file: it evaluates every check twice, at the base and in the tree,
+ * then builds what moved, VM tests too unless told `--no-vm`.
+ */
+const CHANGED_CHECKS = /(?<![\w./-])changed-checks(?![\w.-])/;
+
+/**
+ * What changed-checks holds, in GiB: its evaluation of every check's
+ * derivation reached 24 GB on optimus (2HN63P's run, 7SU7HB's
+ * measurement), and two ran with no turn on 24 October at about 20
+ * each, beside a flake check given one, which filled swap.
+ */
+export const CHANGED_CHECKS_GIB = 24;
+
+/** An evaluation of a flake's every check, for one system or all. */
+const EVERY_CHECK =
+	/\bnix(?:\s+--?\S+)*\s+eval\b[^\n]*#checks(?:\.[\w-]+)?(?![\w.-])/;
+
+/**
+ * A command that evaluates a whole flake's checks: `nix flake check`,
+ * changed-checks, and an evaluation of every check.
+ */
+const WHOLE_FLAKE = new RegExp(
+	[/\bnix(?:\s+--?\S+)*\s+flake\s+check\b/, CHANGED_CHECKS, EVERY_CHECK]
+		.map((pattern) => pattern.source)
+		.join("|"),
+);
 
 /** The memory one job is held to need, in GiB. */
 export function needsGibOf(job: Pick<Job, "kind" | "what">): number {
 	const kind = NEEDS_GIB[job.kind];
+	if (CHANGED_CHECKS.test(job.what)) return Math.max(kind, CHANGED_CHECKS_GIB);
 	return WHOLE_FLAKE.test(job.what) ? Math.max(kind, EVALUATION_GIB) : kind;
 }
 
@@ -382,11 +409,19 @@ const KINDS: readonly (readonly [RegExp, Kind])[] = [
 		/\bnix(?:\s+--?\S+)*\s+(?:build|flake\s+check)\b[^\n]*(?:\bvm-|\.vm\b|nixosTests|vmTest)/,
 		"vm-check",
 	],
+	[
+		new RegExp(
+			`${CHANGED_CHECKS.source}(?=[^\\n]*\\s--build\\b)(?![^\\n]*\\s--no-vm\\b)`,
+		),
+		"vm-check",
+	],
 	[/\bcargo\s+bench\b|\bhyperfine\b/, "benchmark"],
 	[
 		/\bnix\s+flake\s+check\b|\bnix\s+build\b|\bnix-build\b|\bnixos-rebuild\b|\bcargo\s+(?:build|check|clippy|test|nextest|run|install)\b/,
 		"build",
 	],
+	[CHANGED_CHECKS, "build"],
+	[EVERY_CHECK, "build"],
 ];
 
 /**

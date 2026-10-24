@@ -60,7 +60,14 @@ does, so the wait never uses it up (see
 | vm-test | A VM or a test's driver run here | timed | 6 GiB |
 | vm-check | A Nix build of a VM test, which the daemon runs | bulk | 6 GiB |
 | benchmark | `cargo bench`, `hyperfine` | timed | 2 GiB |
-| build | Nix builds and checks, `nixos-rebuild`, cargo's builds | bulk | 4 GiB |
+| build | Nix builds and checks, `nixos-rebuild`, cargo's builds, `changed-checks`, `nix eval` of every check | bulk | 4 GiB |
+
+Work that evaluates a whole flake's checks, `nix flake check` and
+`nix eval` of `#checks`, is held to 20 GiB whatever its kind, since its
+evaluator keeps that heap until it ends; `changed-checks`, which
+reached 24 GB, is held to 24.
+`changed-checks --build` without `--no-vm` builds VM tests too, so it
+is a vm-check.
 
 - **A turn** comes when the memory left past the floors core.nix keeps
   for the person's programs covers the job's need, memory pressure is

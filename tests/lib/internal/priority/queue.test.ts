@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	CHANGED_CHECKS_GIB,
 	EVALUATION_GIB,
 	type Job,
 	kindOf,
@@ -49,6 +50,26 @@ describe("the kind of heavy work a command runs", () => {
 		expect(kindOf("cd x && cargo clippy --all")).toBe("build");
 		expect(kindOf("nix flake check")).toBe("build");
 		expect(kindOf("sudo nixos-rebuild switch")).toBe("build");
+	});
+
+	it("reads changed-checks and an evaluation of every check as heavy", () => {
+		// Seen 24 October: two `changed-checks --build --no-vm` runs held
+		// about 20 GiB each with no turn, beside a flake check given one.
+		expect(kindOf("changed-checks")).toBe("build");
+		expect(kindOf("cd ~/src/core.nix && changed-checks --build --no-vm")).toBe(
+			"build",
+		);
+		expect(kindOf("direnv exec . changed-checks --build")).toBe("vm-check");
+		expect(kindOf("nix eval --json .#checks.x86_64-linux --apply 'x: 1'")).toBe(
+			"build",
+		);
+		expect(kindOf('nix eval --json "path:$W#checks"')).toBe("build");
+		// One check's evaluation, or a file the tool is named for, is not.
+		expect(
+			kindOf("nix eval --raw .#checks.x86_64-linux.foo.drvPath"),
+		).toBeUndefined();
+		expect(kindOf("cat tests/changed-checks.py")).toBeUndefined();
+		expect(kindOf("nvim changed-checks.nix")).toBeUndefined();
 	});
 
 	it("reads a quoted word as the argument it is", () => {
@@ -159,6 +180,21 @@ describe("whose turn it is", () => {
 		expect(
 			needsGibOf(job("wrapped", { what: "nice -n 10 nix -L flake check" })),
 		).toBe(EVALUATION_GIB);
+		expect(
+			needsGibOf(
+				job("every", {
+					what: "nix eval --json .#checks.x86_64-linux --apply f",
+				}),
+			),
+		).toBe(EVALUATION_GIB);
+		expect(
+			needsGibOf(job("changed", { what: "changed-checks --build --no-vm" })),
+		).toBe(CHANGED_CHECKS_GIB);
+		expect(
+			needsGibOf(
+				job("vm", { kind: "vm-check", what: "changed-checks --build" }),
+			),
+		).toBe(CHANGED_CHECKS_GIB);
 		const room = { ...ROOMY, availableGib: EVALUATION_GIB - 1 };
 		expect(nextTurn([check], room, NOW)).toBeUndefined();
 		expect(nextTurn([job("build")], room, NOW)?.id).toBe("build");
