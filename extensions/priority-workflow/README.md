@@ -96,7 +96,10 @@ so once its checks come from the cache it is a build again.
 - **Only work is read:** a quoted single word, such as a quoted flake
   reference, counts as part of the command. A step that only looks for
   something, such as `pgrep`, `ps`, `grep`, `systemctl` or `echo`,
-  counts as no work, however its words read.
+  or only reads a file or a path, such as `readlink`, `ls`, `cat` or
+  `[ -x ... ]`, counts as no work, however its words read. A step that
+  sets a variable from `$(...)` is judged by the command inside, so
+  `w=$(readlink -f $d/bin/nixos-test-driver)` runs no VM.
 - **One capped build beside a VM check** while there is no timed
   cgroup: the queue gates memory, not CPU, and a VM check runs in the
   daemon beside any build that starts, which is how an all-core kernel

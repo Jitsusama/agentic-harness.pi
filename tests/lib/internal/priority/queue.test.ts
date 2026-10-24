@@ -177,6 +177,38 @@ describe("the kind of heavy work a command runs", () => {
 		expect(kindOf("/nix/store/abc-nix/bin/nix-build x.nix")).toBe("build");
 	});
 
+	it("finds no work in a step that only reads a file or a path, though it sets a variable", () => {
+		// On 24 October Y9XISP's look at a driver it had just built waited
+		// for a turn as a VM test, from `w=$(readlink -f .../nixos-test-driver)`.
+		const looking =
+			"cd $T && d=$(nix build --no-link --print-out-paths \"git+file://$PWD?rev=9bf8#checks.x86_64-linux.vm-network-revives-units.driver\"); w=$(readlink -f $d/bin/nixos-test-driver); head -c 1500 $w | tr ':' '\\n' | grep -E 'site-packages' | head -5; ls $d";
+		expect(kindOf(looking)).toBe("build");
+		for (const reading of [
+			"w=$(readlink -f $d/bin/nixos-test-driver)",
+			"p=$(realpath result/bin/nixos-test-driver)",
+			"ls -l $d/bin/nixos-test-driver",
+			"stat $d/bin/qemu-system-x86_64",
+			"file $d/bin/nixos-test-driver",
+			"cat $d/bin/nixos-test-driver",
+			"head -c 1500 $d/bin/nixos-test-driver",
+			"[ -x $d/bin/nixos-test-driver ]",
+			"test -x $d/bin/nixos-test-driver",
+		]) {
+			expect(kindOf(reading), reading).toBeUndefined();
+		}
+		// Set from what a step runs, a variable still runs it.
+		for (const [running, kind] of [
+			["out=$(nix build --print-out-paths .#tool)", "build"],
+			["log=$($d/bin/nixos-test-driver 2>&1)", "vm-test"],
+			[
+				"[ -x $d/bin/nixos-test-driver ] && $d/bin/nixos-test-driver",
+				"vm-test",
+			],
+		] as const) {
+			expect(kindOf(running), running).toBe(kind);
+		}
+	});
+
 	it("finds no VM in a store path that only names the driver or qemu", () => {
 		// On 24 October Y9XISP's grep through the driver's sources waited for a
 		// turn as a VM test, since the store path named nixos-test-driver.
