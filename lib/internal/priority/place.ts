@@ -75,6 +75,8 @@ const PASSING = new Set(["ESRCH", "ENOENT", "ENODEV"]);
 
 const PLACEMENT = Symbol.for("agentic-harness.priority.placement");
 const ORIGINAL = Symbol.for("agentic-harness.priority.original-spawn");
+/** How many {@link withPi} calls are under way, on the prototype every copy shares. */
+const STAYING = Symbol.for("agentic-harness.priority.staying");
 
 /** Node's own spawn, which its public types leave out. */
 type Spawn = (this: ChildProcess, ...args: unknown[]) => unknown;
@@ -83,9 +85,27 @@ interface Prototype {
 	spawn: Spawn;
 	[PLACEMENT]?: Placement;
 	[ORIGINAL]?: Spawn;
+	[STAYING]?: number;
 }
 
 const prototypeOf = () => ChildProcess.prototype as unknown as Prototype;
+
+/**
+ * Runs `spawning`, leaving whatever it spawns where pi is rather than in
+ * jobs. For a helper pi keeps for its own screen, as the status line's
+ * git engine is: placed in jobs, it starved behind the builds there and
+ * the footer lagged whenever the machine was busy. Only what is spawned
+ * synchronously inside counts, since spawn itself is synchronous.
+ */
+export function withPi<T>(spawning: () => T): T {
+	const prototype = prototypeOf();
+	prototype[STAYING] = (prototype[STAYING] ?? 0) + 1;
+	try {
+		return spawning();
+	} finally {
+		prototype[STAYING] = (prototype[STAYING] ?? 1) - 1;
+	}
+}
 
 /** Where children are being written, while the cgroup still takes them. */
 export function placementTarget(): string | undefined {
@@ -130,8 +150,13 @@ export function placeChildren(
 		prototype[ORIGINAL] = original;
 		prototype.spawn = function spawnIntoJobs(this: ChildProcess, ...args) {
 			const result = original.apply(this, args);
-			const placement = prototypeOf()[PLACEMENT];
-			if (placement && !placement.broken && this.pid !== undefined) {
+			const { [PLACEMENT]: placement, [STAYING]: staying } = prototypeOf();
+			if (
+				placement &&
+				!placement.broken &&
+				!staying &&
+				this.pid !== undefined
+			) {
 				try {
 					placement.write(placement.path, this.pid);
 				} catch (error) {
