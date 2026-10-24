@@ -42,7 +42,7 @@
 
 import { readdirSync, readFileSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { checkoutOf, repositoryName } from "./presence.ts";
 import {
 	removeQuietly,
@@ -177,16 +177,19 @@ const STASH_READS = new Set(["list", "show", "drop", "clear", "create"]);
  * restore, a forced clean, a cherry-pick, a revert or an am. It runs in
  * the checkout `-C` names, else the last `cd` before it, else `cwd`.
  * A new branch made where the checkout stands rewrites nothing. A
- * directory in quotes is missed, which claims too little, never too
- * much.
+ * folder the shell works out, from a variable, a substitution, quotes
+ * or `cd -`, is unknown until a `cd` to a plain absolute path, and git
+ * run there is missed: that claims too little, never too much. Read as
+ * a path, `cd $C` was a folder inside `cwd`, so a rebase in another
+ * worktree was claimed as one in the session's own checkout.
  */
 export function rewriteIn(command: string, cwd: string): Rewrite | undefined {
 	const runs = command.replace(HEREDOC, "\n").replace(QUOTED, "''");
-	let dir = cwd;
+	let dir: string | undefined = cwd;
 	for (const part of runs.split(PARTS)) {
 		const words = part.trim().split(/\s+/);
-		if (words[0] === "cd" && words.length === 2 && words[1]) {
-			dir = resolve(dir, expandHome(words[1]));
+		if (words[0] === "cd") {
+			dir = words.length === 1 ? homedir() : movedTo(dir, words.slice(1));
 			continue;
 		}
 		let at = words.findIndex((word) => !/^\w+=/.test(word));
@@ -195,11 +198,12 @@ export function rewriteIn(command: string, cwd: string): Rewrite | undefined {
 		for (at += 1; words[at]?.startsWith("-"); at += 1) {
 			if (words[at] === "-C" || words[at] === "-c") {
 				if (words[at] === "-C" && words[at + 1]) {
-					runsIn = resolve(runsIn, expandHome(words[at + 1] ?? ""));
+					runsIn = movedTo(runsIn, [words[at + 1] ?? ""]);
 				}
 				at += 1;
 			}
 		}
+		if (runsIn === undefined) continue;
 		if (!rewrites(words[at] ?? "", words.slice(at + 1))) continue;
 		const checkout = checkoutOf(runsIn);
 		if (checkout) {
@@ -240,6 +244,24 @@ function rewrites(verb: string, args: readonly string[]): boolean {
 		default:
 			return false;
 	}
+}
+
+/**
+ * The folder `cd` or `git -C` with these arguments moves to from `dir`,
+ * or unknown where the shell would work it out: from a variable, a
+ * substitution, a glob, quotes (blanked to `''` by then), `-`, or more
+ * than one argument. A plain absolute path is known from anywhere.
+ */
+function movedTo(
+	dir: string | undefined,
+	args: readonly string[],
+): string | undefined {
+	const [path] = args;
+	if (args.length !== 1 || !path || path === "-") return undefined;
+	if (/[$`'"*?[\\]/.test(path)) return undefined;
+	const expanded = expandHome(path);
+	if (isAbsolute(expanded)) return resolve(expanded);
+	return dir === undefined ? undefined : resolve(dir, expanded);
 }
 
 function expandHome(path: string): string {

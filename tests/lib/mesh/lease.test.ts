@@ -325,6 +325,27 @@ describe("a command that rewrites a checkout", () => {
 		expect(rewriteIn('echo "git checkout main"', main)).toBeUndefined();
 		expect(rewriteIn("git checkout main", root)).toBeUndefined();
 	});
+
+	it("is nothing where the shell names the folder, not the session's checkout", () => {
+		const main = checkout("main");
+		const other = checkout("other");
+
+		for (const command of [
+			"cd $C && git rebase -q -i --autosquash origin/main",
+			'cd "$C" && git rebase origin/main',
+			`cd "${other}" && git rebase origin/main`,
+			"cd $(git rev-parse --show-toplevel) && git stash",
+			"cd - && git checkout main",
+			"cd $C && cd src && git reset --hard",
+			"git -C $C rebase origin/main",
+			'git -C "$C" rebase origin/main',
+		]) {
+			expect(rewriteIn(command, main), command).toBeUndefined();
+		}
+		expect(
+			rewriteIn(`cd $C && cd ${other} && git rebase origin/main`, main)?.checkout,
+		).toBe(other);
+	});
 });
 
 describe("other peers in a checkout", () => {
