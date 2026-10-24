@@ -217,6 +217,47 @@ describe("heavy work waiting for its turn", () => {
 		expect(unkept.stdout.toString()).toBe("ran\n");
 	});
 
+	it("gives the keepers a grace after a sleep, and no longer", async () => {
+		// The machine slept 153 s at 07:15 on 24 October. Nobody writes
+		// queue.json while it sleeps, so on waking it reads as two minutes
+		// unkept, and a waiting shell that looked before any keeper had
+		// rewritten it would start its heavy work without a turn.
+		const bin = join(root, "bin");
+		mkdirSync(bin);
+		const now = Math.floor(Date.now() / 1000);
+		const counted = join(root, "calls");
+		// The wall clock: now as the wait begins, then 200 s on, as it reads
+		// after waking, and ticking from there.
+		writeFileSync(
+			join(bin, "date"),
+			`#!${process.env.BASH ?? "/bin/sh"}\nn=$(cat '${counted}' 2>/dev/null || echo 0)\necho $((n + 1)) > '${counted}'\nif [ "$n" -eq 0 ]; then echo ${now}; else echo $((${now + 200} + n)); fi\n`,
+			{ mode: 0o755 },
+		);
+		writeFileSync(join(dir, "j5.job"), "{}\n");
+		const wait = waitsForTurn(dir);
+		const shell = spawn("bash", ["-c", `${wait?.("j5")}\necho ran`], {
+			env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+		});
+		let out = "";
+		shell.stdout.on("data", (data: Buffer) => {
+			out += data.toString();
+		});
+		const ended = new Promise<void>((resolve) =>
+			shell.on("exit", () => resolve()),
+		);
+		try {
+			await new Promise((resolve) => setTimeout(resolve, 2_500));
+			expect(out).toBe("");
+
+			// No keeper woke to write queue.json, so once the grace is over
+			// nobody keeps the queue and the work goes ahead.
+			await ended;
+			expect(out).toBe("ran\n");
+		} finally {
+			shell.kill();
+		}
+	}, 30_000);
+
 	it("can't quote a folder with a single quote in it", () => {
 		expect(waitsForTurn("/run/it's")).toBeUndefined();
 	});
