@@ -45,6 +45,7 @@ import {
 	type FoundClassifier,
 	findClassifier,
 } from "../../lib/classifier/jev.ts";
+import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { dataDir, stateDir } from "../../lib/internal/paths.ts";
 import { tellAwaited } from "../../lib/internal/priority/awaited.ts";
 import {
@@ -77,14 +78,16 @@ import {
 	carryLeases,
 	changesOf,
 	createBoard,
+	isCurrent,
 	LEASE_EVENT,
 	type LeaseEvent,
 	leaseEventFrom,
 	type OwnLeases,
+	ownerOf,
 	ownLeases,
 	RUN_KINDS,
 } from "../../lib/mesh/lease.ts";
-import { census } from "../../lib/mesh/liveness.ts";
+import { census, machineBooted } from "../../lib/mesh/liveness.ts";
 import { isHomeTo, type Message, reaches } from "../../lib/mesh/message.ts";
 import { localPeer, type Peer } from "../../lib/mesh/peer.ts";
 import { createPresences } from "../../lib/mesh/presence.ts";
@@ -117,6 +120,7 @@ import {
 	NOTED,
 	noted,
 } from "./delivery.ts";
+import { confirmEnd } from "./end-hold.ts";
 import {
 	countedIn,
 	createGlances,
@@ -247,6 +251,7 @@ export function meshWorkflow(
 		// Not a peer: a subagent is its parent's hands (see hand.ts).
 		if (isSubagent(env)) return;
 		registerHands(pi.events);
+		declareGuards(GUARDS.meshEndHold);
 		const transport: Transport = folderTransport(join(paths.mesh, "messages"));
 		const presences = createPresences(join(paths.mesh, "presence"));
 		const glances = createGlances();
@@ -265,6 +270,7 @@ export function meshWorkflow(
 			peer: () => peer,
 			sent: (message) => seen.add(message.id),
 			queueKept: () => queueKept(env),
+			booted: () => machineBooted(),
 		});
 		// The sessions last counted still there, so a quest's address is
 		// left only to a peer that is (see address.ts).
@@ -826,6 +832,8 @@ export function meshWorkflow(
 			resumes = createActs(peer.session, settling, resumed);
 			// Its holds and waits outlive a reload; what a run claimed does not.
 			own = ownLeases(board, peer.session);
+			// Restored after a reboot, nothing it claimed is under way.
+			leasing.forgetEarlierBoots();
 			for (const event of unowned.splice(0)) claim(event);
 			clearInterval(waitClock);
 			waitClock = undefined;
@@ -1080,6 +1088,25 @@ export function meshWorkflow(
 			if (event) heavy(event);
 		});
 
+		/** Who waits on a hold, by the address each signs with. */
+		const waitingOn = (id: string): string[] => {
+			const now = Date.now();
+			return board
+				.all()
+				.filter((holding) =>
+					holding.leases.some(
+						(lease) =>
+							lease.kind === "wait" &&
+							lease.subject === id &&
+							isCurrent(lease, now),
+					),
+				)
+				.flatMap((holding) => {
+					const address = presences.of(ownerOf(holding))?.addresses[0];
+					return address ? [address] : [];
+				});
+		};
+
 		registerTools(pi, (): Local | undefined =>
 			peer
 				? {
@@ -1094,6 +1121,8 @@ export function meshWorkflow(
 							leasing.sent(message);
 							watchWaits();
 						},
+						confirmEnd: (hold, text) =>
+							confirmEnd(ctx, hold, text, waitingOn(hold.id)),
 					}
 				: undefined,
 		);

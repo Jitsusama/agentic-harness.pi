@@ -55,12 +55,26 @@ export interface Message {
 	 * reaching everyone who heard that one (see thread.ts).
 	 */
 	readonly supersedes?: string;
+	/**
+	 * That the hold it answers (`re`) is over on the person's word, said
+	 * by a peer other than its holder once the person confirmed it. Only
+	 * a holder ends its hold otherwise (see thread.ts).
+	 */
+	readonly endsHold?: true;
 }
 
 /** What a sender says; the mesh adds the rest. */
 export type Draft = Pick<
 	Message,
-	"from" | "to" | "intent" | "text" | "pid" | "invite" | "re" | "supersedes"
+	| "from"
+	| "to"
+	| "intent"
+	| "text"
+	| "pid"
+	| "invite"
+	| "re"
+	| "supersedes"
+	| "endsHold"
 >;
 
 /** Who a message could be for: a peer's addresses and groups. */
@@ -99,6 +113,9 @@ export function messageFrom(value: unknown): Message | undefined {
 		...(typeof one.re === "string" ? { re: one.re } : {}),
 		...(typeof one.supersedes === "string"
 			? { supersedes: one.supersedes }
+			: {}),
+		...(one.endsHold === true && typeof one.re === "string"
+			? { endsHold: true as const }
 			: {}),
 	};
 }

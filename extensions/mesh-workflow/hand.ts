@@ -30,6 +30,7 @@ import {
 	ownLeases,
 	RUN_KINDS,
 } from "../../lib/mesh/lease.ts";
+import { machineBooted } from "../../lib/mesh/liveness.ts";
 import { clock, shortId } from "../../lib/mesh/message.ts";
 import { createPresences } from "../../lib/mesh/presence.ts";
 import { folderTransport } from "../../lib/mesh/transport.ts";
@@ -114,6 +115,7 @@ export function meshHand(
 				{ addresses: presence.addresses, groups: presence.groups },
 				presence.owner?.pid ?? -1,
 				Date.now(),
+				machineBooted(),
 			);
 		};
 		/**

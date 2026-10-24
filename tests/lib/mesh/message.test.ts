@@ -45,6 +45,15 @@ describe("an envelope", () => {
 		);
 	});
 
+	it("keeps an end on the person's word only beside the hold it answers", () => {
+		const ending = { ...message(), re: "0-X-1-bbbb", endsHold: true };
+		expect(messageFrom(ending)).toEqual(ending);
+		expect(messageFrom({ ...message(), endsHold: true })).toEqual(message());
+		expect(
+			messageFrom({ ...message(), re: "0-X-1-bbbb", endsHold: "yes" }),
+		).toEqual({ ...message(), re: "0-X-1-bbbb" });
+	});
+
 	it("reads an intent it does not know as an fyi", () => {
 		expect(messageFrom({ ...message(), intent: "gossip" })?.intent).toBe("fyi");
 		const { intent: _, ...none } = message();

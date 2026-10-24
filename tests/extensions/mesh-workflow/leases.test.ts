@@ -31,8 +31,11 @@ afterEach(() => {
 	rmSync(root, { recursive: true, force: true });
 });
 
-/** Leasing for a peer signing as LUQ49E, with its own leases. */
-function leasing() {
+/**
+ * Leasing for a peer signing as LUQ49E, with its own leases, on a
+ * machine that booted when `booted` says.
+ */
+function leasing(booted: () => number | undefined = () => undefined) {
 	const board = createBoard(join(root, "leases"));
 	const transport = folderTransport(join(root, "messages"));
 	const own: OwnLeases = ownLeases(board, "me");
@@ -48,6 +51,7 @@ function leasing() {
 		own: () => own,
 		peer: () => self,
 		sent: () => {},
+		booted,
 	});
 	const from = (over: Partial<Draft>) =>
 		transport.send({
@@ -81,6 +85,38 @@ describe("a wait on a hold", () => {
 			},
 		]);
 		expect(own.leases).toEqual([]);
+	});
+
+	it("ends once the machine has restarted since the hold, though its holder is back", async () => {
+		// After a reboot every session came back at the same address, so no
+		// holder was gone, and seven peers sat parked on a hold whose holder
+		// had rebooted the machine.
+		const hold = Date.now();
+		const { at, own, from, mine } = leasing(() => hold + 1000);
+		const sent = from({ intent: "hold", text: "rebooting in 2 minutes" });
+		at.sent(mine({ re: sent.id, text: "parked for the reboot" }));
+
+		const ends = await at.lapsed();
+
+		expect(ends).toEqual([
+			{
+				hold: sent,
+				how: "the machine has restarted since it was sent",
+				said: false,
+				why: "parked for the reboot",
+			},
+		]);
+		expect(own.leases).toEqual([]);
+	});
+
+	it("stands when the machine booted before the hold, or will not say when", async () => {
+		for (const booted of [() => Date.now() - 60_000, () => undefined]) {
+			const { at, from, mine } = leasing(booted);
+			const hold = from({ intent: "hold", text: "hold qemu" });
+			at.sent(mine({ re: hold.id, text: "waiting" }));
+
+			expect(await at.lapsed()).toEqual([]);
+		}
 	});
 
 	it("ends once, however many looks overlap", async () => {
@@ -132,6 +168,50 @@ describe("a wait on a hold", () => {
 		expect(own.leases).toMatchObject([{ kind: "wait", subject: hold.id }]);
 	});
 
+	it("ends on the person's word, said by a peer other than the holder", () => {
+		const { at, own, from, mine } = leasing();
+		const hold = from({ intent: "hold", text: "rebooting in 2 minutes" });
+		at.sent(mine({ re: hold.id, text: "parked" }));
+
+		const over = from({
+			from: "R82FBP",
+			pid: process.pid + 2,
+			re: hold.id,
+			endsHold: true,
+			text: "the reboot is done",
+		});
+
+		expect(at.ended(over)).toEqual({
+			hold,
+			how: 'the person said it is over: "the reboot is done"',
+			said: true,
+			why: "parked",
+		});
+		expect(own.leases).toEqual([]);
+	});
+
+	it("is not taken by the peer ending another's hold on the person's word", () => {
+		// Answering a hold says the answerer waits on it, so the session
+		// that told every peer the reboot was over was parked by its own
+		// message.
+		const { at, own, from, mine } = leasing();
+		const hold = from({ intent: "hold", text: "rebooting" });
+
+		at.sent(mine({ re: hold.id, endsHold: true, text: "it is over" }));
+
+		expect(own.leases).toEqual([]);
+	});
+
+	it("is let go by its holder when the person ends it", () => {
+		const { at, own, from, mine } = leasing();
+		const hold = mine({ intent: "hold", text: "switching" });
+		at.sent(hold);
+
+		at.ended(from({ re: hold.id, endsHold: true, text: "over" }));
+
+		expect(own.leases).toEqual([]);
+	});
+
 	it("is not taken on this peer's own hold, nor on what is not a hold", () => {
 		const { at, own, from, mine } = leasing();
 		const question = from({ intent: "question", text: "who has qemu?" });
@@ -141,6 +221,33 @@ describe("a wait on a hold", () => {
 		at.sent(mine({ re: hold.id, text: "still holding" }));
 
 		expect(own.leases.map(({ kind }) => kind)).toEqual([]);
+	});
+});
+
+describe("leases from before the machine booted", () => {
+	it("are let go, all but the waits, which end with a turn", () => {
+		const now = Date.now();
+		const { at, own, from, mine } = leasing(() => now - 5_000);
+		const hold = from({ intent: "hold", text: "hold qemu" });
+		at.sent(mine({ re: hold.id, text: "waiting" }));
+		own.take("hold", "old-hold", MOST_HOLD_MS, "rebooting", now - 10_000);
+		own.take("heavy", "vm", MOST_HOLD_MS, "a VM test", now - 10_000);
+		own.take("hold", "new-hold", MOST_HOLD_MS, "switching", now);
+
+		at.forgetEarlierBoots();
+
+		expect(own.leases.map(({ kind, subject }) => `${kind} ${subject}`)).toEqual(
+			[`wait ${hold.id}`, "hold new-hold"],
+		);
+	});
+
+	it("are kept where the machine will not say when it booted", () => {
+		const { at, own } = leasing();
+		own.take("hold", "old-hold", MOST_HOLD_MS, "x", Date.now() - 10_000);
+
+		at.forgetEarlierBoots();
+
+		expect(own.leases).toHaveLength(1);
 	});
 });
 

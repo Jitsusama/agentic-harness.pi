@@ -112,6 +112,11 @@ export interface LeaseSurroundings {
 	 * itself and two peers' running at once needs no word between them.
 	 */
 	queueKept?(): boolean;
+	/**
+	 * When the machine booted, in milliseconds, or nothing where it will
+	 * not say: nothing anybody started before then is still under way.
+	 */
+	booted?(): number | undefined;
 }
 
 export interface Leasing {
@@ -143,6 +148,11 @@ export interface Leasing {
 	lapsed(now?: number): Promise<HoldEnd[]>;
 	/** Heavy work this peer starts or stops; what to say when it overlaps. */
 	heavy(event: LeaseEvent): Promise<string | undefined>;
+	/**
+	 * Let go of what this peer claimed before the machine last booted,
+	 * but its waits, which end by `lapsed` so it hears they are over.
+	 */
+	forgetEarlierBoots(): void;
 }
 
 export function createLeasing(at: LeaseSurroundings): Leasing {
@@ -338,7 +348,8 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 					own.release("hold", ended);
 				}
 			}
-			if (message.re === undefined) return;
+			// Ending another's hold on the person's word waits on nothing.
+			if (message.re === undefined || message.endsHold) return;
 			const hold = at.transport.read(message.re);
 			const self = { addresses: peer.addresses, pid: process.pid };
 			if (hold?.intent !== "hold" || sentBy(hold, self)) return;
@@ -349,13 +360,24 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 		ended(message) {
 			const own = at.own();
 			if (!own) return undefined;
+			const byPerson = (ref: string) =>
+				message.endsHold === true && ref === message.re;
+			// A hold the person ended is its holder's no longer.
+			if (
+				message.re !== undefined &&
+				byPerson(message.re) &&
+				own.held("hold", message.re, Date.now())
+			) {
+				own.release("hold", message.re);
+			}
 			for (const ref of [message.re, message.supersedes]) {
 				if (ref === undefined) continue;
 				const wait = own.leases.find(
 					(lease) => lease.kind === "wait" && lease.subject === ref,
 				);
 				const hold = wait ? at.transport.read(ref) : undefined;
-				if (!wait || !hold || !mayReplace(message, hold)) continue;
+				if (!wait || !hold) continue;
+				if (!mayReplace(message, hold) && !byPerson(ref)) continue;
 				own.release("wait", ref);
 				// A hold replaced by another hold still holds: the wait moves to it.
 				if (message.supersedes === ref && message.intent === "hold") {
@@ -365,7 +387,9 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 				}
 				return {
 					hold,
-					how: `its holder said "${cut(message.text)}"`,
+					how: byPerson(ref)
+						? `the person said it is over: "${cut(message.text)}"`
+						: `its holder said "${cut(message.text)}"`,
 					said: true,
 					...(wait.why !== undefined ? { why: wait.why } : {}),
 				};
@@ -379,14 +403,19 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 			const waits = own.leases.filter((lease) => lease.kind === "wait");
 			if (waits.length === 0) return [];
 			const { present, gone } = await standing();
+			const booted = at.booted?.();
 			const ends: HoldEnd[] = [];
 			for (const wait of waits) {
 				const hold = at.transport.read(wait.subject);
+				// A holder restored after a reboot answers at its old address,
+				// so it is not gone, but what it held off was the machine's.
 				const how = !isCurrent(wait, now)
 					? "it has stood two hours, as long as a hold lasts"
-					: hold && heldByGone(hold.from, present, gone)
-						? "its holder has ended"
-						: undefined;
+					: hold && booted !== undefined && Date.parse(hold.at) < booted
+						? "the machine has restarted since it was sent"
+						: hold && heldByGone(hold.from, present, gone)
+							? "its holder has ended"
+							: undefined;
 				if (!how) continue;
 				// Only the look that releases the wait tells it. Looks overlap
 				// across the census read above, and another may have ended it
@@ -402,6 +431,17 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 				}
 			}
 			return ends;
+		},
+
+		forgetEarlierBoots() {
+			const own = at.own();
+			const booted = at.booted?.();
+			if (!own || booted === undefined) return;
+			for (const lease of own.leases) {
+				if (lease.kind !== "wait" && Date.parse(lease.since) < booted) {
+					own.release(lease.kind, lease.subject);
+				}
+			}
 		},
 
 		async heavy(event) {

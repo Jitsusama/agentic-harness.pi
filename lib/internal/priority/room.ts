@@ -179,8 +179,12 @@ function vmsIn(proc: string): number {
 /** Where the Nix daemon makes a cgroup for each build. */
 const BUILDS = "build.slice/nix-daemon.service";
 
-/** What runs in a check with deadlines, besides a VM's qemu. */
-const TIMED = ["nixos-test-driver", "systemd-nspawn", "niri", "sway"];
+/**
+ * What runs in a check with deadlines, besides a VM's qemu: a name
+ * ending in `*` by what a process's name starts with, any other whole,
+ * since cargo names a niri build's own test programs `niri-<hash>`.
+ */
+const TIMED = ["nixos-test-driver*", "systemd-nspawn*", "niri", "sway"];
 
 /** The longest name the kernel keeps for a process. */
 const COMM_LENGTH = 15;
@@ -188,14 +192,17 @@ const COMM_LENGTH = 15;
 /**
  * Whether a process's name is one in {@link TIMED}. Nix's wrapped
  * programs start with a dot, and the kernel cuts a name at 15
- * characters, so `.nixos-test-dri` is the test driver.
+ * characters, so `.nixos-test-dri` is the test driver. A whole name
+ * matches only itself, or Nix's wrapper of it, as `.niri-wrapped` is.
  */
 function isTimed(comm: string): boolean {
 	const cut = comm.length === COMM_LENGTH;
 	const bare = comm.startsWith(".") ? comm.slice(1) : comm;
-	return TIMED.some(
-		(name) => bare.startsWith(name) || (cut && name.startsWith(bare)),
-	);
+	return TIMED.some((name) => {
+		if (!name.endsWith("*")) return bare === name || bare === `${name}-wrapped`;
+		const prefix = name.slice(0, -1);
+		return bare.startsWith(prefix) || (cut && prefix.startsWith(bare));
+	});
 }
 
 /** How many Nix builds run a check with deadlines but no qemu. */

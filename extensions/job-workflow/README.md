@@ -158,6 +158,32 @@ its turn in the machine's queue alive through a reload: a bash
 command runs under its job's signal, so stopping the job used to kill
 the shell, and a job's place in the queue goes with its shell.
 
+## When the Machine Ends a Session
+
+pi resumes nothing on its own. A session restored after a reboot sits
+at its prompt, though its run was cut off or a job it waited on died
+with it, and after one reboot three sessions sat idle that way until
+another asked them to carry on.
+
+A signal, SIGTERM or SIGHUP, is what tells the machine ending a
+session from the person ending it. When one ends the session with a
+run or a running job under way, a `job-session-cut-off` entry records
+which, and when the session is next started or resumed it is given a
+turn of its own: when it ended, whether mid-run, and which jobs died
+and will never report. A session killed outright writes nothing, so a
+log that stops on a tool call or its result is read the same way. A
+prompt after the record, the person's or that turn's, takes it up, so
+the turn comes once.
+
+- A run stopped with Escape has settled before the session ends, so
+  it is never read as cut off.
+- A log from before this ran can't tell a signal's abort from Escape,
+  so it gets no turn.
+- A session killed outright while idle and waiting on a job is missed:
+  its log ends where a finished run's would.
+- Closing a terminal mid-run sends SIGHUP, so that session too is given
+  a turn when it is reopened.
+
 ## Limits
 
 - **Nothing else outlives the session.** A new session, a resume, a

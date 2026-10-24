@@ -80,6 +80,10 @@ vi.mock("node:fs", async (importOriginal) => {
 	};
 });
 
+import {
+	restoreSessionModes,
+	setSessionMode,
+} from "../../../lib/guardian/policy.ts";
 import { folderTransport } from "../../../lib/mesh/transport.ts";
 
 const session = "01a15f3a-2255-7463-9909-afa624b025fe";
@@ -2807,5 +2811,59 @@ describe("a fleet's subagent", () => {
 		expect(sent).toEqual([]);
 		expect(tools.size).toBe(0);
 		expect(createPresences(join(paths.mesh, "presence")).all()).toEqual([]);
+	});
+});
+
+describe("ending another peer's hold on the person's word", () => {
+	afterEach(() => restoreSessionModes({}));
+
+	/** Answer a hold through the tool, saying the person ended it. */
+	const ending = async (
+		tools: Awaited<ReturnType<typeof startSession>>["tools"],
+		re: string,
+	) =>
+		(
+			await tools.get("mesh_send")?.execute("call-1", {
+				intent: "fyi",
+				text: "Joel says the reboot is done; carry on",
+				re,
+				endsHold: true,
+			})
+		)?.content[0]?.text ?? "";
+
+	it("goes wherever the hold went, and waits on nothing", async () => {
+		setSessionMode("mesh-end-hold", "redirect");
+		const { tools } = await startSession();
+		const hold = fromElsewhere({ intent: "hold", text: "rebooting" });
+
+		const said = await ending(tools, hold.id);
+
+		expect(sentOut()).toMatchObject([
+			{ re: hold.id, endsHold: true, to: [ALL] },
+		]);
+		expect(said).toContain("ends [");
+		expect(said).not.toContain("waits on");
+		expect(ownBoard()).toEqual([]);
+	});
+
+	it("is not sent where nobody can confirm it", async () => {
+		const { tools } = await startSession();
+		const hold = fromElsewhere({ intent: "hold", text: "rebooting" });
+
+		const said = await ending(tools, hold.id);
+
+		expect(said).toMatch(/^Not sent: /);
+		expect(sentOut()).toEqual([]);
+	});
+
+	it("is left out where it answers no other peer's hold", async () => {
+		const { tools } = await startSession();
+		const question = fromElsewhere({ intent: "question", text: "who?" });
+
+		const said = await ending(tools, question.id);
+
+		expect(sentOut()).toHaveLength(1);
+		expect(sentOut()[0]?.endsHold).toBeUndefined();
+		expect(said).toContain("is no other peer's hold");
 	});
 });
