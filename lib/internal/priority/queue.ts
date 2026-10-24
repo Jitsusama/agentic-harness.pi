@@ -194,6 +194,16 @@ export interface Job {
 	readonly cappable?: boolean;
 	/** The most that ran beside it at once, while it runs. */
 	readonly beside?: Beside;
+	/**
+	 * A Nix build it asked for ran a VM or another check with deadlines,
+	 * seen while it runs, so the next time it is asked for it waits as one.
+	 */
+	readonly ranTimed?: true;
+	/**
+	 * The most memory its Nix builds held at once, in bytes: up to, since
+	 * it adds each build's own peak, and those need not have met.
+	 */
+	readonly buildsPeakBytes?: number;
 }
 
 /** What the machine has left, as the queue reads it. */

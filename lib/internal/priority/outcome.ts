@@ -26,6 +26,7 @@ import {
 	FEWER_VMS,
 	isVm,
 	type Job,
+	type Kind,
 	MOST_VMS,
 } from "./queue.ts";
 
@@ -64,6 +65,10 @@ export interface Outcome {
 	readonly exit?: number;
 	readonly capped: boolean;
 	readonly beside: Beside;
+	/** A Nix build it asked for ran a VM or another check with deadlines. */
+	readonly ranTimed?: true;
+	/** Up to how much memory its Nix builds held at once, in bytes. */
+	readonly buildsPeakBytes?: number;
 }
 
 /** How large the outcome file grows before it keeps its newer half. */
@@ -135,7 +140,32 @@ export function outcomeOf(
 		...(exit !== undefined ? { exit } : {}),
 		capped: job.capped === true,
 		beside: job.beside ?? NOTHING_BESIDE,
+		...(job.ranTimed ? { ranTimed: true as const } : {}),
+		...(job.buildsPeakBytes !== undefined
+			? { buildsPeakBytes: job.buildsPeakBytes }
+			: {}),
 	};
+}
+
+/**
+ * The kind work asked for as `kind` waits as, by how its last run went:
+ * a build whose Nix builds ran a VM or another check with deadlines
+ * waits as a VM check, since its name need not say so, as `nix flake
+ * check`'s does not. Only a run that had its turn counts, and only the
+ * latest: once its checks come from the cache, it is a build again.
+ */
+export function kindAfter(
+	kind: Kind,
+	what: string,
+	outcomes: readonly Outcome[],
+): Kind {
+	if (kind !== "build") return kind;
+	for (let at = outcomes.length - 1; at >= 0; at -= 1) {
+		const outcome = outcomes[at];
+		if (outcome.what !== what || outcome.started === undefined) continue;
+		return outcome.ranTimed ? "vm-check" : kind;
+	}
+	return kind;
 }
 
 /**

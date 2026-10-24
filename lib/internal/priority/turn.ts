@@ -106,15 +106,16 @@ export function queueHeavyWork(queueing: Queueing): () => void {
  */
 export function queuedCommand(command: string): string {
 	const queueing = (globalThis as Holder)[QUEUEING];
-	const kind = queueing ? kindOf(command) : undefined;
-	if (!queueing || !kind) return command;
+	const read = queueing ? kindOf(command) : undefined;
+	if (!queueing || !read) return command;
 	const wait = waitsForTurn(queueing.folder.dir);
 	if (!wait) return command;
 	const now = queueing.now?.() ?? Date.now();
+	const what = whatOf(command);
 	const job: Job = {
 		id: `${now.toString(36)}-${randomBytes(4).toString("hex")}`,
-		kind,
-		what: whatOf(command),
+		kind: queueing.folder.kindFor(read, what),
+		what,
 		owner: { session: queueing.session, pid: queueing.pid },
 		since: new Date(now).toISOString(),
 		cappable: true,

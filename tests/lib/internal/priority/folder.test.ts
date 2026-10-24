@@ -388,6 +388,84 @@ describe("the machine's queue folder", () => {
 		);
 	});
 
+	it("learns from a job's builds whether it runs a check with deadlines, and how much memory they held", () => {
+		const file = join(dir, "..", "state", "outcomes.jsonl");
+		const GIB = 1024 ** 3;
+		const queue = queueFolder(
+			dir,
+			{
+				isRunning: (pid) => running.has(pid),
+				cgroupOf: (pid) => `/work-${pid}.scope`,
+			},
+			undefined,
+			file,
+		);
+		const ran = new Date(NOW - 60_000).toISOString();
+		queue.ask(job("flake", { what: "nix flake check", started: ran }));
+		queue.ask(job("other", { what: "cargo build", started: ran }));
+		shellSays("flake", 801);
+		shellSays("other", 802);
+		// The flake check's second build runs a VM; a build nobody is known to
+		// have asked for counts for no job.
+		queue.keep(
+			{
+				...ROOMY,
+				builds: [
+					{ asker: "/work-801.scope", timed: false, memoryPeak: 2 * GIB },
+					{ asker: "/work-801.scope", timed: true, memoryPeak: 3 * GIB },
+					{ asker: "/work-802.scope", timed: false, memoryPeak: GIB },
+					{ timed: true, memoryPeak: 9 * GIB },
+				],
+			},
+			NOW,
+			() => undefined,
+		);
+		// Later its VM has finished, and less is held: the most is kept.
+		queue.keep(
+			{
+				...ROOMY,
+				builds: [{ asker: "/work-801.scope", timed: false, memoryPeak: GIB }],
+			},
+			NOW + 3_000,
+			() => undefined,
+		);
+		running.delete(801);
+		running.delete(802);
+		queue.keep(ROOMY, NOW + 6_000, () => undefined);
+		const kept = readFileSync(file, "utf8")
+			.trim()
+			.split("\n")
+			.map((line) => JSON.parse(line));
+		const flake = kept.find((outcome) => outcome.id === "flake");
+		const other = kept.find((outcome) => outcome.id === "other");
+		expect(flake).toMatchObject({ ranTimed: true, buildsPeakBytes: 5 * GIB });
+		expect(other).toMatchObject({ buildsPeakBytes: GIB });
+		expect(other).not.toHaveProperty("ranTimed");
+
+		// Asked again, the flake check waits as a VM check; the rest as they were.
+		expect(queue.kindFor("build", "nix flake check")).toBe("vm-check");
+		expect(queue.kindFor("build", "cargo build")).toBe("build");
+		expect(queue.kindFor("build", "nix build .#never-ran")).toBe("build");
+		expect(queue.kindFor("benchmark", "nix flake check")).toBe("benchmark");
+		// A run that gave up waiting says nothing about what the work runs.
+		keepOutcome(
+			file,
+			outcomeOf(job("gave-up", { what: "nix flake check" }), NOW + 7_000, 0),
+		);
+		expect(queue.kindFor("build", "nix flake check")).toBe("vm-check");
+		// Its latest run built no check with deadlines, all cached, so it is a
+		// build again.
+		keepOutcome(
+			file,
+			outcomeOf(
+				job("cached", { what: "nix flake check", started: ran }),
+				NOW + 8_000,
+				0,
+			),
+		);
+		expect(queue.kindFor("build", "nix flake check")).toBe("build");
+	});
+
 	it("runs fewer VMs while the outcomes say the most was too many", () => {
 		const file = join(dir, "..", "state", "outcomes.jsonl");
 		const check = (id: string, exit: number, vms: number) => ({

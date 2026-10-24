@@ -49,6 +49,21 @@ export interface Reading extends Room {
 		readonly memory: number;
 		readonly io: number;
 	};
+	/** The Nix builds the daemon runs, on a machine where it is read. */
+	readonly builds?: readonly BuildSeen[];
+}
+
+/** One Nix build the daemon runs in a cgroup of its own. */
+export interface BuildSeen {
+	/**
+	 * The cgroup of the program that asked the daemon for it, as `nix
+	 * build` or `nix flake check` does, while its worker still runs.
+	 */
+	readonly asker?: string;
+	/** Whether it runs a VM or another check with deadlines. */
+	readonly timed: boolean;
+	/** The most memory it has held, in bytes, from its memory.peak. */
+	readonly memoryPeak: number;
 }
 
 /** Where the kernel's files are, so a test can stand in for them. */
@@ -97,10 +112,14 @@ export function readRoom(
 	);
 	const memory = pressure(kernel.proc, "memory");
 	const cpu = pressure(kernel.proc, "cpu");
+	const builds = buildsIn(kernel);
 	return {
 		availableGib: Math.max(0, available - kept) / GIB,
 		memoryPressure: memory,
-		vms: vmsIn(kernel.proc) + timedBuildsIn(kernel),
+		vms:
+			vmsIn(kernel.proc) +
+			builds.filter((build) => build.timed && !build.qemu).length,
+		builds: builds.map(({ qemu: _, ...seen }) => seen),
 		cpuPressure: cpu,
 		cores: cores(kernel.proc),
 		pressure: {
@@ -205,19 +224,51 @@ function isTimed(comm: string): boolean {
 	});
 }
 
-/** How many Nix builds run a check with deadlines but no qemu. */
-function timedBuildsIn(kernel: Kernel): number {
+/**
+ * The Nix builds the daemon runs, in order of their cgroups' names, and
+ * whether a qemu runs in each, which {@link vmsIn} counts already.
+ */
+function buildsIn(kernel: Kernel): (BuildSeen & { qemu: boolean })[] {
 	const daemon = join(kernel.cgroups, BUILDS);
-	let count = 0;
-	for (const build of entries(daemon)) {
-		if (!build.startsWith("nix-build-")) continue;
-		const comms = pidsUnder(join(daemon, build)).map((pid) =>
-			text(join(kernel.proc, pid, "comm")).trim(),
-		);
-		if (comms.some((comm) => VM_PROCESS.test(comm))) continue;
-		if (comms.some(isTimed)) count += 1;
+	return entries(daemon)
+		.filter((build) => build.startsWith("nix-build-"))
+		.sort()
+		.map((build) => {
+			const pids = pidsUnder(join(daemon, build));
+			const comms = pids.map((pid) =>
+				text(join(kernel.proc, pid, "comm")).trim(),
+			);
+			const qemu = comms.some((comm) => VM_PROCESS.test(comm));
+			const asker = askerOf(pids, kernel.proc);
+			return {
+				...(asker !== undefined ? { asker } : {}),
+				timed: qemu || comms.some(isTimed),
+				memoryPeak: number(join(daemon, build, "memory.peak")),
+				qemu,
+			};
+		});
+}
+
+/** How far up from a build's process its worker is looked for. */
+const MOST_ANCESTORS = 32;
+
+/**
+ * The cgroup of the program a build was asked for by. The daemon forks
+ * a worker for each client, named `nix-daemon <client's pid>`, and a
+ * build's processes descend from its worker.
+ */
+function askerOf(pids: readonly string[], proc: string): string | undefined {
+	for (const pid of pids) {
+		let at = pid;
+		for (let step = 0; step < MOST_ANCESTORS && /^\d+$/.test(at); step += 1) {
+			const argv = text(join(proc, at, "cmdline")).split("\0");
+			if (argv[0] === "nix-daemon" && /^\d+$/.test(argv[1] ?? ""))
+				return cgroupOf(Number(argv[1]), proc);
+			at = /^PPid:\s*(\d+)$/m.exec(text(join(proc, at, "status")))?.[1] ?? "";
+			if (at === "0" || at === "1") break;
+		}
 	}
-	return count;
+	return undefined;
 }
 
 /** Every process in a cgroup and the cgroups under it. */

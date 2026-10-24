@@ -75,6 +75,15 @@ tool, and the command doesn't say which.
 `changed-checks --build` without `--no-vm` builds VM tests too, so it
 is a vm-check.
 
+A command's name need not say it runs a VM test, as `nix flake check`'s
+does not, so the queue also learns it from what ran. While a job runs,
+the Nix builds it asked for are found by their worker, which the daemon
+names after its client's pid, and that client runs in the job shell's
+cgroup. A build running qemu, NixOS's test driver, systemd-nspawn, niri
+or sway marks the job, and the next time the same command is asked for
+it waits as a vm-check. Only the latest run that had its turn decides,
+so once its checks come from the cache it is a build again.
+
 - **A turn** comes when the memory left past the floors core.nix keeps
   for the person's programs covers the job's need, memory pressure is
   under 10%, and fewer than three VMs run, or two for a day after a VM
@@ -137,8 +146,11 @@ is a vm-check.
   the workflow's state directory
   (`~/.local/state/pi/agentic-harness.pi/priority-workflow/`): its kind,
   how long it waited and ran, its shell's exit status, whether it was
-  capped, and the most that ran beside it at once (VMs, builds, capped
-  builds, CPU pressure). The shell writes its exit status as it exits;
+  capped, the most that ran beside it at once (VMs, builds, capped
+  builds, CPU pressure), whether a build it asked for ran a check with
+  deadlines (`ranTimed`), and up to how much memory its builds held at
+  once (`buildsPeakBytes`, each build's own `memory.peak` added up,
+  though those peaks need not have met). The shell writes its exit status as it exits;
   a shell killed outright, or work that sets its own EXIT trap, leaves
   none. The file keeps its newer half past 2 MiB, about a month of
   work. A VM that failed (exit 1 to 125) beside a capped build in the
