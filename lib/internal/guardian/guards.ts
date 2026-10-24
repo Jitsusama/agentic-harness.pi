@@ -170,6 +170,15 @@ export const GUARDS = {
 		defaultMode: "block",
 		groups: ["send"],
 	}),
+	// Only a hold's sender may otherwise end it, so this one asks: the
+	// agent says it has the person's word, and only the person can say so.
+	meshEndHold: declare({
+		name: "mesh-end-hold",
+		class: "approval",
+		description: "Asks before ending another session's hold on your word",
+		defaultMode: "block",
+		groups: ["send"],
+	}),
 	questRecord: declare({
 		name: "quest-record",
 		class: "form",

@@ -312,10 +312,14 @@ doing only when it is the easy thing:
   one), when the holder has ended, when the machine has
   restarted since it was sent (a restored holder answers at
   its old address, so it is not gone), or when it has stood
-  two hours, the waiting peer is handed the hold back with how it
+  two hours, or when another peer ends it on the person's word
+  (`endsHold`, which the `mesh-end-hold` guard asks the person
+  to confirm, and which waits on nothing), the waiting peer is
+  handed the hold back with how it
   ended: a turn when idle, a note mid-run. Only a hold its
-  holder said was over comes with leave to carry on; one that
-  lapsed or lost its holder says nobody said so, and to check
+  holder or the person said was over comes with leave to carry
+  on; one that lapsed, outlived its boot or lost its holder
+  says nobody said so, and to check
   that what it named is free first. Ends settle as acts
   do, so peers held by one hold do not all carry on at once.
   Only while it waits does a peer check, once a minute, that

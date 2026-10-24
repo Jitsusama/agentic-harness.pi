@@ -348,7 +348,8 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 					own.release("hold", ended);
 				}
 			}
-			if (message.re === undefined) return;
+			// Ending another's hold on the person's word waits on nothing.
+			if (message.re === undefined || message.endsHold) return;
 			const hold = at.transport.read(message.re);
 			const self = { addresses: peer.addresses, pid: process.pid };
 			if (hold?.intent !== "hold" || sentBy(hold, self)) return;
@@ -359,13 +360,24 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 		ended(message) {
 			const own = at.own();
 			if (!own) return undefined;
+			const byPerson = (ref: string) =>
+				message.endsHold === true && ref === message.re;
+			// A hold the person ended is its holder's no longer.
+			if (
+				message.re !== undefined &&
+				byPerson(message.re) &&
+				own.held("hold", message.re, Date.now())
+			) {
+				own.release("hold", message.re);
+			}
 			for (const ref of [message.re, message.supersedes]) {
 				if (ref === undefined) continue;
 				const wait = own.leases.find(
 					(lease) => lease.kind === "wait" && lease.subject === ref,
 				);
 				const hold = wait ? at.transport.read(ref) : undefined;
-				if (!wait || !hold || !mayReplace(message, hold)) continue;
+				if (!wait || !hold) continue;
+				if (!mayReplace(message, hold) && !byPerson(ref)) continue;
 				own.release("wait", ref);
 				// A hold replaced by another hold still holds: the wait moves to it.
 				if (message.supersedes === ref && message.intent === "hold") {
@@ -375,7 +387,9 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 				}
 				return {
 					hold,
-					how: `its holder said "${cut(message.text)}"`,
+					how: byPerson(ref)
+						? `the person said it is over: "${cut(message.text)}"`
+						: `its holder said "${cut(message.text)}"`,
 					said: true,
 					...(wait.why !== undefined ? { why: wait.why } : {}),
 				};

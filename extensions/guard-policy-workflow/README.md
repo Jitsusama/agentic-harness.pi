@@ -45,7 +45,9 @@ refusal tells the agent exactly what to do instead:
   `commit`, `pr`, `issue`, `review-offer`, `review-say` and
   `review-publish` go ahead and show you what they would have
   asked.
-- Approvals that reach other people block: `slack` and `google`.
+- Approvals that reach other people block: `slack`, `google`,
+  and `mesh-end-hold`, which asks before a session ends
+  another session's hold on your word.
 - Form guards block: each names the one right form to retry
   with, and a PR, issue or commit that reaches other people is
   held to it.

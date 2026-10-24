@@ -168,6 +168,50 @@ describe("a wait on a hold", () => {
 		expect(own.leases).toMatchObject([{ kind: "wait", subject: hold.id }]);
 	});
 
+	it("ends on the person's word, said by a peer other than the holder", () => {
+		const { at, own, from, mine } = leasing();
+		const hold = from({ intent: "hold", text: "rebooting in 2 minutes" });
+		at.sent(mine({ re: hold.id, text: "parked" }));
+
+		const over = from({
+			from: "R82FBP",
+			pid: process.pid + 2,
+			re: hold.id,
+			endsHold: true,
+			text: "the reboot is done",
+		});
+
+		expect(at.ended(over)).toEqual({
+			hold,
+			how: 'the person said it is over: "the reboot is done"',
+			said: true,
+			why: "parked",
+		});
+		expect(own.leases).toEqual([]);
+	});
+
+	it("is not taken by the peer ending another's hold on the person's word", () => {
+		// Answering a hold says the answerer waits on it, so the session
+		// that told every peer the reboot was over was parked by its own
+		// message.
+		const { at, own, from, mine } = leasing();
+		const hold = from({ intent: "hold", text: "rebooting" });
+
+		at.sent(mine({ re: hold.id, endsHold: true, text: "it is over" }));
+
+		expect(own.leases).toEqual([]);
+	});
+
+	it("is let go by its holder when the person ends it", () => {
+		const { at, own, from, mine } = leasing();
+		const hold = mine({ intent: "hold", text: "switching" });
+		at.sent(hold);
+
+		at.ended(from({ re: hold.id, endsHold: true, text: "over" }));
+
+		expect(own.leases).toEqual([]);
+	});
+
 	it("is not taken on this peer's own hold, nor on what is not a hold", () => {
 		const { at, own, from, mine } = leasing();
 		const question = from({ intent: "question", text: "who has qemu?" });
