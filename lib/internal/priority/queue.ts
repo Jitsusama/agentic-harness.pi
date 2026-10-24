@@ -95,15 +95,21 @@ const CHANGED_CHECKS = /(?<![\w./-])changed-checks(?![\w.-])/;
  * What evaluating every check's derivation at once holds, in GiB: it
  * reached 24 GB on optimus inside changed-checks (2HN63P's run, 7SU7HB's
  * measurement), and a bare `nix eval` of every check about the same
- * (Y9XISP's). Two ran with no turn on 24 October at about 20 each,
- * beside a flake check given one, which filled swap.
- *
- * changed-checks since core #465 evaluates 40 checks at a time and
- * peaked at 10.5 GB, but a worktree cut before it runs the old tool,
- * and the command doesn't say which; so it is held to this until the
- * old ones are gone.
+ * (Y9XISP's), and 2HN63P's evaluation of a commit's checks held 22 GiB on
+ * 24 October. Two ran with no turn that day at about 20 each, beside a
+ * flake check given one, which filled swap.
  */
 export const EVERY_CHECK_GIB = 24;
+
+/**
+ * What changed-checks holds, in GiB: since core #465 it evaluates checks
+ * 40 at a time, so its peak is one chunk's, not every check's. Its own
+ * scope peaked at 11.7 and 12.5 GiB in the two runs recorded on 24
+ * October, and a chunk of 40 VM tests, the heaviest chunk it can meet,
+ * held 13.8 GiB evaluated alone (40 other checks held 4.9). The last tree
+ * still running the tool from before #465 was pruned that day.
+ */
+export const CHANGED_CHECKS_GIB = 16;
 
 /**
  * cargo up to its subcommand, past a `+toolchain` and flags such as
@@ -144,9 +150,8 @@ export function needsGibOf(
 ): number {
 	if (job.needsGib !== undefined) return job.needsGib;
 	const kind = NEEDS_GIB[job.kind];
-	if (CHANGED_CHECKS.test(job.what) || EVERY_CHECK.test(job.what)) {
-		return Math.max(kind, EVERY_CHECK_GIB);
-	}
+	if (CHANGED_CHECKS.test(job.what)) return Math.max(kind, CHANGED_CHECKS_GIB);
+	if (EVERY_CHECK.test(job.what)) return Math.max(kind, EVERY_CHECK_GIB);
 	return WHOLE_FLAKE.test(job.what) ? Math.max(kind, EVALUATION_GIB) : kind;
 }
 
