@@ -46,6 +46,7 @@ import {
 	besideNow,
 	capFor,
 	keepOutcome,
+	kindAfter,
 	mostBeside,
 	NOTHING_BESIDE,
 	type Outcome,
@@ -57,6 +58,7 @@ import {
 	CLASS_OF,
 	type Class,
 	type Job,
+	type Kind,
 	needsGibOf,
 	nextTurn,
 	type RoomLeft,
@@ -67,7 +69,7 @@ import {
 	waitingInOrder,
 	waitsWithRoom,
 } from "./queue.ts";
-import type { Reading } from "./room.ts";
+import type { BuildSeen, Reading } from "./room.ts";
 
 /** How long a shell has to say its pid before its job is given up. */
 export const PID_MS = 30_000;
@@ -169,6 +171,11 @@ export interface QueueFolder {
 	hasTurn(id: string): boolean;
 	/** Whether any job is waiting or running. */
 	hasJobs(): boolean;
+	/**
+	 * The kind work read as `kind` waits as, by what its last run's Nix
+	 * builds ran (outcome.ts's `kindAfter`).
+	 */
+	kindFor(kind: Kind, what: string): Kind;
 	/** Whether queue.json is older than its heartbeat allows. */
 	isDue(now: number): boolean;
 	/**
@@ -325,8 +332,21 @@ export function queueFolder(
 	};
 
 	/**
-	 * Notes in each running job the most that ran beside it, writing its
-	 * file only when that grew, so a steady queue writes nothing.
+	 * The Nix builds a running job asked for: those whose asker runs in
+	 * its shell's cgroup, as the shell's own `nix` does.
+	 */
+	const buildsOf = (job: Job, reading: Reading): readonly BuildSeen[] => {
+		const shell = shellOf(job.id);
+		const own = shell !== undefined ? processes.cgroupOf(shell) : undefined;
+		if (own === undefined) return [];
+		return (reading.builds ?? []).filter((build) => build.asker === own);
+	};
+
+	/**
+	 * Notes in each running job the most that ran beside it, whether its
+	 * builds ran a check with deadlines, and the most memory they held,
+	 * writing its file only when that grew, so a steady queue writes
+	 * nothing.
 	 */
 	const noteBeside = (standing: Job[], reading: Reading): Job[] => {
 		const running = standing.filter((job) => job.started !== undefined);
@@ -334,8 +354,17 @@ export function queueFolder(
 			if (job.started === undefined) return job;
 			const seen = job.beside ?? NOTHING_BESIDE;
 			const most = mostBeside(seen, besideNow(job, running, reading));
-			if (JSON.stringify(most) === JSON.stringify(job.beside)) return job;
-			const noted = { ...job, beside: most };
+			const builds = buildsOf(job, reading);
+			const held = builds.reduce((sum, build) => sum + build.memoryPeak, 0);
+			const peak = Math.max(job.buildsPeakBytes ?? 0, held);
+			const ranTimed = job.ranTimed || builds.some((build) => build.timed);
+			const noted: Job = {
+				...job,
+				beside: most,
+				...(ranTimed ? { ranTimed: true } : {}),
+				...(peak > 0 ? { buildsPeakBytes: peak } : {}),
+			};
+			if (JSON.stringify(noted) === JSON.stringify(job)) return job;
 			replace(path(job.id, "job"), `${JSON.stringify(noted)}\n`);
 			return noted;
 		});
@@ -362,6 +391,10 @@ export function queueFolder(
 
 		hasJobs() {
 			return names(dir).some((name) => name.endsWith(".job"));
+		},
+
+		kindFor(kind, what) {
+			return kindAfter(kind, what, recorded());
 		},
 
 		isDue(now) {

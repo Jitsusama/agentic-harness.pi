@@ -177,6 +177,27 @@ describe("the kind of heavy work a command runs", () => {
 		expect(kindOf("/nix/store/abc-nix/bin/nix-build x.nix")).toBe("build");
 	});
 
+	it("finds no VM in a store path that only names the driver or qemu", () => {
+		// On 24 October Y9XISP's grep through the driver's sources waited for a
+		// turn as a VM test, since the store path named nixos-test-driver.
+		for (const looking of [
+			"D=/nix/store/xfx93d0y-nixos-test-driver-1.1/lib/python3.14/site-packages/test_driver; grep -rn 'timeout' $D/*.py | head -20",
+			"ls /nix/store/abc-qemu-system-x86_64-9.2.0/bin",
+			"cat /nix/store/abc-qemu-kvm-9.2.0/share/doc/README",
+			"rg retry $D/nixos-test-driver/machine",
+		]) {
+			expect(kindOf(looking), looking).toBeUndefined();
+		}
+		for (const running of [
+			"$d/bin/nixos-test-driver --output_directory $out > $L 2>&1",
+			"/nix/store/abc-nixos-test-driver-1.1/bin/nixos-test-driver",
+			"/nix/store/abc-qemu-9.2.0/bin/qemu-system-x86_64 -m 2G",
+			"qemu-kvm -nographic",
+		]) {
+			expect(kindOf(running), running).toBe("vm-test");
+		}
+	});
+
 	it("knows an image built for containers as a build", () => {
 		for (const building of [
 			"podman build -t probe .",

@@ -194,6 +194,16 @@ export interface Job {
 	readonly cappable?: boolean;
 	/** The most that ran beside it at once, while it runs. */
 	readonly beside?: Beside;
+	/**
+	 * A Nix build it asked for ran a VM or another check with deadlines,
+	 * seen while it runs, so the next time it is asked for it waits as one.
+	 */
+	readonly ranTimed?: true;
+	/**
+	 * The most memory its Nix builds held at once, in bytes: up to, since
+	 * it adds each build's own peak, and those need not have met.
+	 */
+	readonly buildsPeakBytes?: number;
 }
 
 /** What the machine has left, as the queue reads it. */
@@ -424,7 +434,10 @@ const STEPS = /\n|;|&&|\|\|/;
  */
 const KINDS: readonly (readonly [RegExp, Kind])[] = [
 	[
-		/\bqemu-system-[\w-]+\b|\bqemu-kvm\b|\bnixos-test-driver\b|\/bin\/run-[\w-]+-vm\b|(?<![\w./-])run-subtests(?![\w.-])/,
+		// Each as a program, not a store path or folder named after one, as
+		// `/nix/store/<hash>-nixos-test-driver-1.1/lib` is: a grep there
+		// waited for a turn as a VM test.
+		/\bqemu-system-[\w-]+(?![\w.*/-])|\bqemu-kvm(?![\w.*/-])|\bnixos-test-driver(?![\w.*/-])|\/bin\/run-[\w-]+-vm\b|(?<![\w./-])run-subtests(?![\w.-])/,
 		"vm-test",
 	],
 	[/\bnix\s+build\b[^\n]*\.driver\b/, "build"],

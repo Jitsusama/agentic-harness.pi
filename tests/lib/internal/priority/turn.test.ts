@@ -12,6 +12,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { queueFolder } from "../../../../lib/internal/priority/folder.ts";
+import {
+	keepOutcome,
+	outcomeOf,
+} from "../../../../lib/internal/priority/outcome.ts";
 import type { Reading } from "../../../../lib/internal/priority/room.ts";
 import {
 	queuedCommand,
@@ -84,6 +88,48 @@ describe("heavy work waiting for its turn", () => {
 		queueing(ROOMY);
 		expect(queuedCommand("git status")).toBe("git status");
 		expect(jobIds()).toEqual([]);
+	});
+
+	it("asks as a VM check for work whose builds last ran one", () => {
+		const outcomes = join(root, "outcomes.jsonl");
+		const ran = new Date().toISOString();
+		keepOutcome(outcomes, {
+			...outcomeOf(
+				{
+					id: "before",
+					kind: "build",
+					what: "nix flake check --keep-going",
+					owner: { session: "session-a", pid: 1 },
+					since: ran,
+					started: ran,
+					ranTimed: true,
+				},
+				Date.now(),
+				0,
+			),
+		});
+		undo = queueHeavyWork({
+			folder: queueFolder(
+				dir,
+				{ isRunning: () => true, cgroupOf: () => undefined },
+				undefined,
+				outcomes,
+			),
+			session: "session-a",
+			pid: process.pid,
+			room: () => ROOMY,
+			cgroupFor: () => undefined,
+		});
+		queuedCommand("nix flake check --keep-going");
+		queuedCommand("nix build .#tool");
+		const kinds = jobIds()
+			.map((id) => JSON.parse(readFileSync(join(dir, `${id}.job`), "utf8")))
+			.map((job) => [job.what, job.kind])
+			.sort();
+		expect(kinds).toEqual([
+			["nix build .#tool", "build"],
+			["nix flake check --keep-going", "vm-check"],
+		]);
 	});
 
 	it("asks for a turn, and runs at once when the room is there", async () => {

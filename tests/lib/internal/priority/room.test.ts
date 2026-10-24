@@ -150,4 +150,55 @@ describe("the machine's room", () => {
 			readRoom([], { proc: dir, cgroups: join(root, "cgroups") }).vms,
 		).toBe(3);
 	});
+
+	it("says who asked for each Nix build, whether it has deadlines, and the most memory it held", () => {
+		const dir = proc(40);
+		const daemon = join(root, "cgroups", "build.slice/nix-daemon.service");
+		const running = (
+			pid: string,
+			comm: string,
+			parent: string,
+			at: { cmdline?: string; cgroup?: string } = {},
+		) => {
+			mkdirSync(join(dir, pid));
+			writeFileSync(join(dir, pid, "comm"), `${comm}\n`);
+			writeFileSync(
+				join(dir, pid, "status"),
+				`Name:\t${comm}\nPPid:\t${parent}\n`,
+			);
+			writeFileSync(join(dir, pid, "cmdline"), at.cmdline ?? `${comm}\0`);
+			if (at.cgroup)
+				writeFileSync(join(dir, pid, "cgroup"), `0::${at.cgroup}\n`);
+		};
+		const build = (name: string, pids: string[], peak?: number) => {
+			mkdirSync(join(daemon, name), { recursive: true });
+			writeFileSync(join(daemon, name, "cgroup.procs"), `${pids.join("\n")}\n`);
+			if (peak !== undefined)
+				writeFileSync(join(daemon, name, "memory.peak"), `${peak}\n`);
+		};
+		// The daemon forks a worker for each client, naming the client's pid.
+		running("971", "nix-daemon", "1", { cmdline: "nix-daemon\0--daemon\0" });
+		running("80", "nix", "70", { cgroup: "/jobs.slice/work-70.scope" });
+		running("81", "nix", "71", { cgroup: "/jobs.slice/work-71.scope" });
+		running("90", "nix-daemon", "971", { cmdline: "nix-daemon\x0080\0\0\0" });
+		running("91", "nix-daemon", "971", { cmdline: "nix-daemon\x0081\0\0\0" });
+		// A VM test, whose qemu is the builder's child.
+		running("101", "bash", "90");
+		running("102", "qemu-system-x86", "101");
+		build("nix-build-uid-1", ["101", "102"], 3 * GIB);
+		// A compiler's build for the other client.
+		running("201", "cc1", "91");
+		build("nix-build-uid-2", ["201"], GIB);
+		// A container's test whose worker has gone, so nobody is known to ask.
+		running("301", "systemd-nspawn", "999");
+		build("nix-build-uid-3", ["301"]);
+
+		expect(
+			readRoom([], { proc: dir, cgroups: join(root, "cgroups") }).builds,
+		).toEqual([
+			{ asker: "/jobs.slice/work-70.scope", timed: true, memoryPeak: 3 * GIB },
+			{ asker: "/jobs.slice/work-71.scope", timed: false, memoryPeak: GIB },
+			{ timed: true, memoryPeak: 0 },
+		]);
+	});
 });
