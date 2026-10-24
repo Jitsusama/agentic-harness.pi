@@ -103,29 +103,61 @@ describe("how heavy work ended", () => {
 		}
 	});
 
-	it("runs fewer VMs for a day after one that passed with fewer fails at the most", () => {
+	it("runs fewer VMs for a day once VMs fail more often at the most than with fewer", () => {
 		const fewer = { ...NOTHING_BESIDE, vms: MOST_VMS - 1 };
 		const most = { ...NOTHING_BESIDE, vms: MOST_VMS };
-		const passedWithFewer = outcome({ id: "p", exit: 0, beside: fewer });
-		const failedAtMost = outcome({ beside: most });
+		const passedWithFewer = Array.from({ length: 10 }, (_, n) =>
+			outcome({ id: `p${n}`, exit: 0, beside: fewer }),
+		);
+		const failedAtMost = (n: number) =>
+			Array.from({ length: n }, (_, k) =>
+				outcome({ id: `f${k}`, beside: most }),
+			);
 		expect(vmsFor([], NOW)).toBe(MOST_VMS);
-		expect(vmsFor([passedWithFewer, failedAtMost], NOW)).toBe(FEWER_VMS);
+		expect(vmsFor([...passedWithFewer, ...failedAtMost(3)], NOW)).toBe(
+			FEWER_VMS,
+		);
+		// On 24 October one work-in-progress check failing, an assertion in
+		// 86 s, held the limit down for a day while 623 runs over two days
+		// failed no more often with eight VMs beside them than with one.
+		expect(vmsFor([...passedWithFewer, ...failedAtMost(1)], NOW)).toBe(
+			MOST_VMS,
+		);
+		// Failing as often with fewer, the crowd isn't what fails them.
+		const failedWithFewer = Array.from({ length: 3 }, (_, n) =>
+			outcome({ id: `w${n}`, beside: fewer }),
+		);
+		const passedAtMost = Array.from({ length: 7 }, (_, n) =>
+			outcome({ id: `m${n}`, exit: 0, beside: most }),
+		);
+		expect(
+			vmsFor(
+				[
+					...passedWithFewer.slice(0, 7),
+					...failedWithFewer,
+					...passedAtMost,
+					...failedAtMost(3),
+				],
+				NOW,
+			),
+		).toBe(MOST_VMS);
 		// A break copy fails however few run, so it says nothing of the limit.
-		expect(vmsFor([failedAtMost], NOW)).toBe(MOST_VMS);
-		const elsewhere = { ...passedWithFewer, what: "nix build .#checks.other" };
-		const passedAtMost = outcome({ exit: 0, beside: most });
-		for (const pass of [elsewhere, passedAtMost]) {
-			expect(vmsFor([pass, failedAtMost], NOW)).toBe(MOST_VMS);
-		}
+		expect(vmsFor(failedAtMost(3), NOW)).toBe(MOST_VMS);
+		const elsewhere = passedWithFewer.map((pass) => ({
+			...pass,
+			what: "nix build .#checks.other",
+		}));
+		expect(vmsFor([...elsewhere, ...failedAtMost(3)], NOW)).toBe(MOST_VMS);
 		const stopped = outcome({ exit: 130, beside: most });
-		const withFewer = outcome({ beside: fewer });
 		const build = outcome({ kind: "build", beside: most });
 		const old = outcome({
 			beside: most,
 			ended: new Date(NOW - FAILURES_COUNT_FOR_MS - 1).toISOString(),
 		});
-		for (const one of [passedAtMost, stopped, withFewer, build, old]) {
-			expect(vmsFor([passedWithFewer, one], NOW)).toBe(MOST_VMS);
+		for (const one of [stopped, build, old]) {
+			expect(vmsFor([...passedWithFewer, ...failedAtMost(2), one], NOW)).toBe(
+				MOST_VMS,
+			);
 		}
 	});
 
