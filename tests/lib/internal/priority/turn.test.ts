@@ -16,6 +16,7 @@ import {
 	keepOutcome,
 	outcomeOf,
 } from "../../../../lib/internal/priority/outcome.ts";
+import { EVERY_CHECK_GIB } from "../../../../lib/internal/priority/queue.ts";
 import type { Reading } from "../../../../lib/internal/priority/room.ts";
 import {
 	queuedCommand,
@@ -130,6 +131,20 @@ describe("heavy work waiting for its turn", () => {
 			["nix build .#tool", "build"],
 			["nix flake check --keep-going", "vm-check"],
 		]);
+	});
+
+	it("asks for the memory its whole step needs, past where its name is cut", () => {
+		// On 24 October an evaluation of every check on a commit's flake
+		// was held to a build's 4 GiB, its `#checks` past the cut.
+		queueing(ROOMY);
+		const rev = "fbbe51d2220badda56d82cfc6b681cd0213876c8";
+		queuedCommand(
+			`nix eval --json "git+file:///home/jitsusama/.local/state/pi/agentic-harness.pi/work/trees/worktree-github-Jitsusama-core.nix-main?rev=${rev}#checks.x86_64-linux" --apply builtins.attrNames > names.json`,
+		);
+		const [id] = jobIds();
+		const job = JSON.parse(readFileSync(join(dir, `${id}.job`), "utf8"));
+		expect(job.what).not.toContain("#checks");
+		expect(job.needsGib).toBe(EVERY_CHECK_GIB);
 	});
 
 	it("asks for a turn, and runs at once when the room is there", async () => {

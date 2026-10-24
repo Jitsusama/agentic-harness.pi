@@ -86,18 +86,25 @@ so once its checks come from the cache it is a build again.
 
 - **A turn** comes when the memory left past the floors core.nix keeps
   for the person's programs covers the job's need, memory pressure is
-  under 10%, and fewer than three VMs run, or two for a day after a VM
-  that passed with fewer failed beside two others. The VMs are counted from the
+  under 10%, and fewer than four VMs run. It is three for a day once at
+  least three VMs that had passed with fewer failed beside three
+  others, twice as often as VMs failed with fewer: one failure is not a
+  rate, and 623 runs failed no more often beside eight VMs than beside
+  one. The VMs are counted from the
   machine's processes as well as the queue, so a check picked from a
   variable, or a VM a session runs outside the queue, still counts.
+  A job's need is judged from its whole step as it asks, since the
+  `what` it shows is cut at 120 characters.
   Timed work goes first, then within each class the work of a session
   another is parked on (the mesh says whose, from its wait leases),
   then the oldest; a job memory holds back holds everyone behind it.
 - **Only work is read:** a quoted single word, such as a quoted flake
   reference, counts as part of the command. A step that only looks for
   something, such as `pgrep`, `ps`, `grep`, `systemctl` or `echo`,
-  or only reads a file or a path, such as `readlink`, `ls`, `cat` or
-  `[ -x ... ]`, counts as no work, however its words read. A step that
+  or only reads a file, a path or git's history, such as `readlink`,
+  `ls`, `cat`, `[ -x ... ]`, `git grep`, `git log` or `git show`,
+  counts as no work, however its words read. A heredoc is never the
+  step a job is named for. A step that
   sets a variable from `$(...)` is judged by the command inside, so
   `w=$(readlink -f $d/bin/nixos-test-driver)` runs no VM.
 - **One capped build beside a VM check** while there is no timed

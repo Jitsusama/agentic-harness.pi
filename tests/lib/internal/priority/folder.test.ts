@@ -22,6 +22,7 @@ import {
 	readQueue,
 } from "../../../../lib/internal/priority/folder.ts";
 import {
+	FAILURES_TO_LOWER_VMS,
 	keepOutcome,
 	NOTHING_BESIDE,
 	outcomeOf,
@@ -95,8 +96,10 @@ describe("the machine's queue folder", () => {
 			vms: 0,
 		});
 		// The VM started holds 6 GiB while it grows; the build waits.
-		expect(shown.room).toEqual({ vms: 2, builds: 0 });
-		expect(readFileSync(join(dir, "room"), "utf8")).toBe("2 more VM tests");
+		expect(shown.room).toEqual({ vms: MOST_VMS - 1, builds: 0 });
+		expect(readFileSync(join(dir, "room"), "utf8")).toBe(
+			`${MOST_VMS - 1} more VM tests`,
+		);
 		expect(shown.jobs).toEqual([
 			{
 				id: "first",
@@ -250,20 +253,14 @@ describe("the machine's queue folder", () => {
 
 	it("counts each minute a job waited with its memory free, once", () => {
 		const queue = folder();
-		// Three VMs run, so a fourth waits on the limit with its memory free.
+		// The most VMs run, so one more waits on the limit with its memory free.
 		const ran = new Date(NOW - 120_000).toISOString();
-		queue.ask(job("vm1", { kind: "vm-check", started: ran }));
-		queue.ask(job("vm2", { kind: "vm-check", started: ran }));
-		queue.ask(job("vm3", { kind: "vm-check", started: ran }));
-		queue.ask(job("held", { kind: "vm-test" }));
-		for (const [id, pid] of [
-			["vm1", 401],
-			["vm2", 402],
-			["vm3", 404],
-			["held", 403],
-		] as const) {
-			shellSays(id, pid);
+		for (let at = 0; at < MOST_VMS; at += 1) {
+			queue.ask(job(`vm${at}`, { kind: "vm-check", started: ran }));
+			shellSays(`vm${at}`, 410 + at);
 		}
+		queue.ask(job("held", { kind: "vm-test" }));
+		shellSays("held", 403);
 		queue.keep(ROOMY, NOW, () => undefined);
 		expect(record().wasted.today).toBe(1);
 		queue.keep(ROOMY, NOW + 10_000, () => undefined);
@@ -524,7 +521,9 @@ describe("the machine's queue folder", () => {
 			beside: { ...NOTHING_BESIDE, vms },
 		});
 		keepOutcome(file, check("passed", 0, MOST_VMS - 1));
-		keepOutcome(file, check("failed", 1, MOST_VMS));
+		for (let at = 0; at < FAILURES_TO_LOWER_VMS; at += 1) {
+			keepOutcome(file, check(`failed${at}`, 1, MOST_VMS));
+		}
 		const queue = queueFolder(
 			dir,
 			{ isRunning: (pid) => running.has(pid), cgroupOf: () => undefined },

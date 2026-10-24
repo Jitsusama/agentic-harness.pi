@@ -164,6 +164,26 @@ describe("the kind of heavy work a command runs", () => {
 		expect(kindOf('pgrep -f "nix-build;cargo"')).toBeUndefined();
 	});
 
+	it("finds none in a git command that only reads the history", () => {
+		// On 24 October this waited 51 s for a turn, read as changed-checks
+		// and held to the 24 GiB an evaluation of every check needs.
+		for (const looking of [
+			"git grep -ln 'changed-checks' origin/main -- '*.nix' '*.py'",
+			"git -C ~/src/core.nix grep -n nix-build origin/main",
+			"git log --oneline origin/main -- tests/changed-checks.py",
+			"git show origin/main:tests/changed-checks.py | head -50",
+			"git diff origin/main -- tests/vm-first-vm-test.py",
+			"git --no-pager blame checks.nix",
+		]) {
+			expect(kindOf(looking), looking).toBeUndefined();
+		}
+		// A git step beside the work leaves the work to be judged.
+		expect(kindOf("git log -1; nix build .#a")).toBe("build");
+		expect(kindOf("git -C core.nix pull && changed-checks --build")).toBe(
+			"vm-check",
+		);
+	});
+
 	it("finds none in a path or a glob that only names the work", () => {
 		// On 24 October this read-only loop waited 315 s for a turn as a build.
 		for (const looking of [
@@ -255,6 +275,19 @@ describe("the kind of heavy work a command runs", () => {
 				"W=/home/jitsusama/.cache/w; L=$W/log\ncd ~/src/core.nix && NIX_CONFIG='x' nix build .#vm -L > $L",
 			),
 		).toBe("nix build .#vm -L > $L");
+	});
+
+	it("says the step that does the work, never a line of a heredoc", () => {
+		// On 24 October Y9XISP's commit and build was named for its commit's
+		// subject, "write changed-checks in Rust", and so held to the 24 GiB
+		// of an evaluation of every check rather than a build's 4.
+		const committing =
+			'cd $T && git commit -q -F - <<\'EOF\'\nrefactor(tests): write changed-checks in Rust\n\nIt is now a crate.\nEOF\nf="git+file://$PWD"; nix build --no-link -L "$f#checks.x86_64-linux.formatting" > $L 2>&1';
+		const what = whatOf(committing);
+		expect(what).toBe(
+			'nix build --no-link -L "$f#checks.x86_64-linux.formatting" > $L 2>&1',
+		);
+		expect(needsGibOf(job("committing", { kind: "build", what }))).toBe(4);
 	});
 });
 
