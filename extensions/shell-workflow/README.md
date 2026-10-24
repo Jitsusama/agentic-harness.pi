@@ -39,6 +39,13 @@ What it adds:
   pi starts into the machine's cgroup for work, the shell moves itself
   there before it runs the command, so nothing the command forks is
   left behind at pi's priority.
+- **A time limit that measures the run.** Heavy work waits in its shell
+  for a turn in the machine's queue before it runs, and pi's own clock
+  counted that wait: hour-long jobs died at their hour having never
+  started. For a command the queue holds, the clock starts when its
+  turn does, read from a mark the shell leaves as the work begins, and
+  running out reads as pi's own does: `Command timed out after N
+  seconds`. Every other command keeps pi's clock.
 - **What other extensions offer.** An extension can offer variables
   for the agent's commands through `offerShellEnvironment` in
   `lib/internal/shell/environment.ts`, read as each command starts.

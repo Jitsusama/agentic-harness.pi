@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -123,9 +123,34 @@ function quitSession(sessionId: string, questId: string, minutesAgo = 5) {
  * that before it calls a session reopened.
  */
 function checkIn(line: string | undefined): void {
+	// A fresh pi records a session of its own on the quest it was given.
+	const quest = /QUEST_WORKFLOW_AUTOLOAD_ID='([^']+)' pi$/m.exec(
+		line ?? "",
+	)?.[1];
+	if (quest) {
+		saveRecord(
+			openRecord({
+				sessionId: "sess-fresh",
+				instanceId: "inst-fresh",
+				cwd: tmpRoot,
+				questId: quest,
+				now: new Date(),
+			}),
+		);
+		return;
+	}
 	const id = /pi --session '([^']+)'/.exec(line ?? "")?.[1];
 	const record = id ? readRecord(id) : undefined;
 	if (record) saveRecord(reopenRecord(record, { instanceId: "inst-back" }));
+}
+
+/** pi's session store, holding a saved log for each of `ids`. */
+function savedSessions(...ids: string[]): void {
+	const dir = join(tmpRoot, ".pi", "agent", "sessions", "--work--");
+	mkdirSync(dir, { recursive: true });
+	for (const id of ids) {
+		writeFileSync(join(dir, `2026-10-24T02-51-00-000Z_${id}.jsonl`), "{}\n");
+	}
 }
 
 /** A terminal driver that records what restore typed, and where. */
@@ -487,6 +512,62 @@ describe("restore verb", () => {
 			expect(result.guidance).toContain("sess-quit-1");
 			expect(result.guidance).toContain("sess-quit-2");
 			expect(spawns).toBe(0);
+		});
+	});
+
+	describe("a lost session pi never saved", () => {
+		// pi saves a session with its first message. One lost before then
+		// has nothing to resume: `pi --session` says it found no session
+		// and exits, and restore used to call that opened but unconfirmed.
+		it("is offered as a fresh start on its quest", async () => {
+			savedSessions("sess-saved");
+			saveRecord(lostSession("sess-saved", "QEST-1"));
+			saveRecord(lostSession("sess-new", "QEST-2"));
+			const { message } = await restoreNow();
+			expect(message).toContain("pi --session 'sess-saved'");
+			expect(message).not.toContain("pi --session 'sess-new'");
+			expect(message).toContain(
+				`(cd '${tmpRoot}' && QUEST_WORKFLOW_AUTOLOAD_ID='QEST-2' pi)  # QEST-2`,
+			);
+			expect(message).toMatch(
+				/QEST-2 .*sess-new.*pi never saved it, so it starts fresh on its quest/,
+			);
+		});
+
+		it("is started fresh on its quest when forced, and said so", async () => {
+			savedSessions("sess-other");
+			const typed = recordingDriver();
+			saveRecord(lostSession("sess-new", "QEST-2"));
+			const result = succeeded(
+				await handle(buildState(), fakePi(), fakeCtx(), {
+					action: "restore",
+					force: true,
+				}),
+			);
+			expect(typed.map((t) => t.text)).toEqual([
+				"QUEST_WORKFLOW_AUTOLOAD_ID='QEST-2' pi\n",
+			]);
+			expect(result.message).toContain("Reopened 1 of 1");
+			expect(result.message).toContain(
+				"Started fresh on their quests, since pi never saved them:",
+			);
+			expect(result.message).toContain("- sess-new: QEST-2");
+			expect(result.message).not.toContain("not yet seen running");
+			expect((await restoreNow()).message).toContain("nothing to restore");
+		});
+
+		it("stops being offered once a session is started in its place", async () => {
+			savedSessions("sess-other");
+			saveRecord(lostSession("sess-new", "QEST-2"));
+			checkIn("QUEST_WORKFLOW_AUTOLOAD_ID='QEST-2' pi");
+			expect((await restoreNow()).message).toContain("nothing to restore");
+		});
+
+		it("is resumed as before when pi's store cannot be read", async () => {
+			// No store means no way to tell, and starting a saved session
+			// afresh would lose it, so the resume line stands.
+			saveRecord(lostSession("sess-new", "QEST-2"));
+			expect((await restoreNow()).message).toContain("pi --session 'sess-new'");
 		});
 	});
 

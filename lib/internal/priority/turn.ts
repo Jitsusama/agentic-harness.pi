@@ -126,6 +126,9 @@ export function waitsForTurn(
 			`__queue='${dir}' __job='${id}' __since=$SECONDS`,
 			`printf '%s\\n' "$$" 2>/dev/null > "$__queue/$__job.pid"`,
 			`while [ ! -e "$__queue/$__job.turn" ] && [ -e "$__queue/$__job.job" ] && [ $(( $(date +%s) - $(stat -c %Y "$__queue/queue.json" 2>/dev/null || echo 0) )) -lt ${UNKEPT_MS / 1000} ]; do sleep 1; done`,
+			// The mark its time limit starts from (clock.ts): the run begins
+			// here, whether its turn was given or the wait gave way.
+			`{ : > "$__queue/$__job.began"; } 2>/dev/null || :`,
 			`__into=$(cat "$__queue/$__job.turn" 2>/dev/null)`,
 			`[ -n "$__into" ] && { printf '%s\\n' "$$" 2>/dev/null > "$__into/cgroup.procs" || :; }`,
 			CAPPING,

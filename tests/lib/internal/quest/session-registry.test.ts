@@ -8,10 +8,12 @@ import {
 	parseSessionRecord,
 	pruneRecords,
 	recentlyClosed,
+	reopenCommand,
 	reopenRecord,
 	restorable,
 	restoreRecipe,
 	type SessionRecord,
+	startedAgain,
 	switchQuest,
 } from "../../../../lib/internal/quest/session-registry";
 
@@ -142,11 +144,56 @@ describe("restoreRecipe", () => {
 		);
 	});
 
+	it("starts a session pi never saved afresh on its quest", () => {
+		// pi saves a session with its first message, so one closed before
+		// then has nothing to resume, and `pi --session` would refuse it.
+		expect(restoreRecipe([opened()], () => false)).toEqual([
+			"(cd '/work' && QUEST_WORKFLOW_AUTOLOAD_ID='QEST-1' pi)  # QEST-1",
+		]);
+		expect(reopenCommand(opened({ questId: undefined }), false)).toEqual({
+			command: "pi",
+		});
+	});
+
 	it("keeps a newline out of the trailing comment", () => {
 		// A newline would end the comment and turn the rest of the line
 		// into a live command.
 		const line = restoreRecipe([opened({ questId: "QEST-1\nrm -rf /" })]);
 		expect(line[0]).not.toContain("\n");
+	});
+});
+
+describe("startedAgain", () => {
+	const lost = closeRecord(opened(), "died", LATER);
+
+	it("sees a session opened in its place since, on its quest and in its folder", () => {
+		const fresh = opened({ sessionId: "sess-2", now: LATER_STILL });
+		expect(startedAgain(lost, [lost, fresh])).toBe(true);
+	});
+
+	it("does not count one opened before it closed, elsewhere or on another quest", () => {
+		const before = opened({ sessionId: "sess-2" });
+		const elsewhere = opened({
+			sessionId: "sess-3",
+			cwd: "/other",
+			now: LATER_STILL,
+		});
+		const other = opened({
+			sessionId: "sess-4",
+			questId: "QEST-2",
+			now: LATER_STILL,
+		});
+		expect(startedAgain(lost, [lost, before, elsewhere, other])).toBe(false);
+	});
+
+	it("counts only a running one when asked", () => {
+		const gone = closeRecord(
+			opened({ sessionId: "sess-2", now: LATER_STILL }),
+			"quit",
+			LATER_STILL,
+		);
+		expect(startedAgain(lost, [gone])).toBe(true);
+		expect(startedAgain(lost, [gone], { running: true })).toBe(false);
 	});
 });
 

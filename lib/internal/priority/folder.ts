@@ -17,6 +17,8 @@
  * - `<id>.capped`: given beside a VM check, so the shell runs the work
  *   with `capped.conf`, the Nix settings {@link CAPPED_NIX} holds,
  *   first in `NIX_USER_CONF_FILES`.
+ * - `<id>.began`: written by its shell as the work begins, after the
+ *   wait, so its time limit can start there (clock.ts).
  * - `<id>.end`: its shell's exit status, written as the shell exits,
  *   which goes with the job into the outcome file when it is given up.
  * - `room`: the room left, as words ("2 VM tests and 8 builds more"),
@@ -223,7 +225,7 @@ export function queueFolder(
 	};
 
 	const drop = (id: string) => {
-		for (const ending of ["job", "pid", "turn", "capped", "end"]) {
+		for (const ending of ["job", "pid", "turn", "began", "capped", "end"]) {
 			rmSync(path(id, ending), { force: true });
 		}
 	};

@@ -121,6 +121,17 @@ describe("heavy work waiting for its turn", () => {
 		);
 	});
 
+	it("marks the moment its turn begins, and not before", async () => {
+		const wait = waitsForTurn(dir, 60);
+		writeFileSync(join(dir, "j1.job"), "{}\n");
+		const ran = run(`${wait?.("j1")}\ntrue`);
+		await new Promise((resolve) => setTimeout(resolve, 1_200));
+		expect(readdirSync(dir)).not.toContain("j1.began");
+		writeFileSync(join(dir, "j1.turn"), "");
+		expect(await ran).toEqual({ out: "", code: 0 });
+		expect(readdirSync(dir)).toContain("j1.began");
+	});
+
 	it("says the room left as work that ran long ends, keeping its code", async () => {
 		writeFileSync(join(dir, "room"), "2 more VM tests and 8 more builds");
 		const said = await run(`${waitsForTurn(dir, 5, 0)?.("gone")}\nexit 7`);
