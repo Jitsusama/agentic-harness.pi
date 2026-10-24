@@ -23,8 +23,16 @@ shipped and tested.
 - **Structural edits**: `reparent` (single or comma-
   separated batch), bulk `conclude` / `retire` (triggered
   by a comma-separated `id` set), and `undo`. All
-  structural edits are atomic, support a `dryRun` preview,
-  and are journalled so `undo` can reverse the last one.
+  structural edits are atomic and journalled so `undo` can
+  reverse the last one. `reparent` and the sweep take a
+  `dryRun` preview; `undo` has none, and given one it
+  refuses and says what it would reverse.
+- **Dry runs**: an action that can't preview refuses
+  `dryRun: true` and does nothing, rather than dropping it
+  and acting for real. That includes `conclude` and
+  `retire` of the loaded quest or a document, which only
+  the sweep previews. The list of actions that preview is
+  in `dry-run.ts`.
 - **Aliases**: `alias-add`, `alias-remove`.
 - **Sessions**: `session-attach`, `session-detach`,
   `session-rename`, `session-audit` (report any session active on

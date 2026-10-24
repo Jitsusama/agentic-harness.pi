@@ -49,6 +49,7 @@ import {
 } from "../../../lib/quest/index.ts";
 import { count, noun, verb } from "../../../lib/ui/count.ts";
 import { displayPath } from "../../../lib/ui/path.ts";
+import { refuseSealingDryRun } from "../dry-run.ts";
 import {
 	appendJourneyEntry,
 	autoFocusPlan,
@@ -710,7 +711,10 @@ export async function concludeOrRetire(
 		targetId === state.questId &&
 		declaredScope !== "document"
 	) {
-		return sealLoadedQuest(state, action, params, signal);
+		return (
+			refuseSealingDryRun(params, action, `the loaded quest ${targetId}`) ??
+			sealLoadedQuest(state, action, params, signal)
+		);
 	}
 	if (targetId.length > 0) {
 		// A single document-kind id (PLAN/RSCH/BRIF/RPRT) concludes or
@@ -729,13 +733,19 @@ export async function concludeOrRetire(
 					`scope:document needs a single document id (PLAN, RSCH, BRIF or RPRT); "${targetId}" is not one.`,
 				);
 			}
-			return concludeDocumentById(state, action, params, ctx, targetId, subdir);
+			return (
+				refuseSealingDryRun(params, action, `document ${targetId}`) ??
+				concludeDocumentById(state, action, params, ctx, targetId, subdir)
+			);
 		}
 		if (declaredScope === "quest") {
 			return sweepQuests(state, action, params);
 		}
 		if (subdir) {
-			return concludeDocumentById(state, action, params, ctx, targetId, subdir);
+			return (
+				refuseSealingDryRun(params, action, `document ${targetId}`) ??
+				concludeDocumentById(state, action, params, ctx, targetId, subdir)
+			);
 		}
 		return sweepQuests(state, action, params);
 	}
@@ -749,7 +759,13 @@ export async function concludeOrRetire(
 				? "document"
 				: "quest";
 	if (scope === "document") {
-		return stageTransition(state, action, params, ctx);
+		return (
+			refuseSealingDryRun(
+				params,
+				action,
+				`the focused document ${state.documentId ?? ""}`.trim(),
+			) ?? stageTransition(state, action, params, ctx)
+		);
 	}
 	// Sealing a quest is final, prunes its trees and sets it to someday,
 	// so it is never inferred from what happens to be loaded. A quest was

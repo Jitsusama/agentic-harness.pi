@@ -22,6 +22,7 @@ import type {
 import { createMutex } from "../../lib/internal/async-mutex.ts";
 import type { QuestPriority } from "../../lib/quest/index.ts";
 import { suggestAction } from "./actions.ts";
+import { refuseIgnoredDryRun } from "./dry-run.ts";
 import type { QuestState } from "./state.ts";
 import { aliasAdd, aliasRemove } from "./verbs/alias.ts";
 import { configReport } from "./verbs/config.ts";
@@ -109,6 +110,8 @@ async function dispatch(
 	params: QuestToolParams,
 	signal?: AbortSignal,
 ): Promise<QuestResult> {
+	const ignored = refuseIgnoredDryRun(params, state.questsRoot);
+	if (ignored) return ignored;
 	switch (params.action) {
 		case "create":
 			return create(state, pi, ctx, params, signal);
