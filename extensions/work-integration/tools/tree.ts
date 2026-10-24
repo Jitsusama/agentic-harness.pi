@@ -1104,13 +1104,17 @@ async function replay(
 			),
 		);
 	}
-	return say(
-		[
-			`${GLYPH.tree} ${outcome.branch} replayed onto ${outcome.onto}, ${outcome.commits} ${outcome.commits === 1 ? "commit" : "commits"}.`,
-			...settlingLines(outcome),
-		].join("\n"),
-		{ ok: true, branch: outcome.branch, replayed: outcome.commits },
-	);
+	// A branch with no commits of its own isn't replayed but moved up to a
+	// base that moved on, and "0 commits" would read as nothing happening.
+	const done =
+		outcome.commits === 0
+			? `${outcome.branch} moved up to ${outcome.onto}, with no commits of its own to replay.`
+			: `${outcome.branch} replayed onto ${outcome.onto}, ${outcome.commits} ${outcome.commits === 1 ? "commit" : "commits"}.`;
+	return say([`${GLYPH.tree} ${done}`, ...settlingLines(outcome)].join("\n"), {
+		ok: true,
+		branch: outcome.branch,
+		replayed: outcome.commits,
+	});
 }
 
 /**

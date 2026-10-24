@@ -174,3 +174,29 @@ describe("a rebase through a log both sides appended to", () => {
 		);
 	}, 20_000);
 });
+
+describe("a rebase of a branch with no commits of its own", () => {
+	it("moves it up to a base that moved on, and says so", async () => {
+		// A branch just cut from main, asked onto a branch built on main, as
+		// found live on 24 October: it was left behind as "already on top".
+		await git(repo, "checkout", "-qb", "base");
+		await commit("NOTES.md", "# Notes\n", "docs: start the notes");
+		await git(repo, "checkout", "-q", "main");
+		await git(repo, "checkout", "-qb", "topic");
+
+		const answer = await workTool()({
+			action: "rebase",
+			tree: repo,
+			onto: "base",
+		});
+		const said = answer.content[0]?.text ?? "";
+
+		expect(answer.details?.ok).toBe(true);
+		expect(said).toContain(
+			"topic moved up to base, with no commits of its own to replay.",
+		);
+		expect(await git(repo, "rev-parse", "HEAD")).toBe(
+			await git(repo, "rev-parse", "base"),
+		);
+	}, 20_000);
+});
