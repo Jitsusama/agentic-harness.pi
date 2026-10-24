@@ -173,6 +173,7 @@ beforeEach(() => {
 	slot.request = undefined;
 	slot.dispatched = undefined;
 	slot.reloading = undefined;
+	slot.performing = undefined;
 	slot.landed = undefined;
 	slot.unsaid = undefined;
 });
@@ -308,6 +309,46 @@ describe("the agent asking for a reload", () => {
 		expect(reported[0]).toMatch(/Carry on from where you were\.$/);
 		expect(next.hidden).toEqual([]);
 	});
+
+	it("reloads once when a second command comes while the first is under way", async () => {
+		// pi's reload is not one at a time: a second begun while the first
+		// loads shuts down the same old runtime, and the runtime the first
+		// starts is replaced without being made stale. Its job host stayed
+		// first on the bus on 24 October, holding carried jobs the new
+		// runtime's list never showed, and saying the landing every 30 s.
+		runningTheInstall();
+		const now = runtime();
+		await now.start("startup");
+		await now.ask({ reason: "take the install" });
+		await now.fire("agent_settled");
+		let reloads = 0;
+		const loading: (() => void)[] = [];
+		const next = runtime();
+		const slow = {
+			start: async (reason: string) => {
+				reloads += 1;
+				await new Promise<void>((done) => {
+					loading.push(done);
+				});
+				await next.start(reason);
+			},
+		};
+		const loaded = () => {
+			for (const done of loading.splice(0)) done();
+		};
+
+		const first = now.command("reload", slow);
+		await until("the first reload is under way", () => reloads === 1);
+		const second = now.command("reload", slow);
+		await new Promise((done) => setTimeout(done, 1_500));
+		loaded();
+		await Promise.all([first, second]);
+		await until("the reload is said", () => reported.length > 0);
+		await new Promise((done) => setTimeout(done, 200));
+
+		expect(reloads).toBe(1);
+		expect(reported).toHaveLength(1);
+	}, 15_000);
 
 	it("refuses a directory that is not this package", async () => {
 		runningTheInstall();

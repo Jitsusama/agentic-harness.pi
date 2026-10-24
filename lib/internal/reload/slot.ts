@@ -41,6 +41,13 @@ export interface ReloadSlot {
 	 * session), and any request left over belongs to the code before it.
 	 */
 	reloading?: boolean;
+	/**
+	 * A reload command is running, from its wait for stillness until its
+	 * reload has landed. pi's reload is not one at a time: a second begun
+	 * while the first loads leaves a runtime that is never made stale, so
+	 * a command that finds this set does nothing.
+	 */
+	performing?: boolean;
 	/** Left by the newest runtime: say that a reload landed. */
 	landed?: (landed: ReloadLanded) => void;
 	/**
