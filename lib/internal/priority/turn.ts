@@ -67,6 +67,19 @@ export const SAID_AFTER_S = 5;
 export const ROOM_SAID_AFTER_S = 60;
 
 /**
+ * Seconds between two looks of a waiting shell, a second apart, that
+ * mean the machine slept between them. A loaded machine can stall a
+ * shell for a few seconds, which costs only a grace nobody needs.
+ */
+const JUMP_S = 5;
+
+/**
+ * Seconds a waiting shell gives the queue's keepers to write queue.json
+ * once it has seen the clock jump. They keep it every two seconds.
+ */
+const GRACE_S = 10;
+
+/**
  * What the shell says of the room left; `%s` is the room, as words. It
  * sits in single quotes in the shell, so it holds none.
  */
@@ -131,7 +144,12 @@ export function waitsForTurn(
 		[
 			`__queue='${dir}' __job='${id}' __since=$SECONDS`,
 			`printf '%s\\n' "$$" 2>/dev/null > "$__queue/$__job.pid"`,
-			`while [ ! -e "$__queue/$__job.turn" ] && [ -e "$__queue/$__job.job" ] && [ $(( $(date +%s) - $(stat -c %Y "$__queue/queue.json" 2>/dev/null || echo 0) )) -lt ${UNKEPT_MS / 1000} ]; do sleep 1; done`,
+			// It waits while nobody has given up its job and somebody keeps the
+			// queue, by queue.json's age. Nobody writes that while the machine
+			// sleeps, so a clock that jumped gives the keepers a grace to
+			// wake and write it before its age counts.
+			`__then=$(date +%s) __grace=0`,
+			`while [ ! -e "$__queue/$__job.turn" ] && [ -e "$__queue/$__job.job" ] && { __now=$(date +%s); [ $(( __now - __then )) -gt ${JUMP_S} ] && __grace=$(( __now + ${GRACE_S} )); __then=$__now; [ $(( __now - $(stat -c %Y "$__queue/queue.json" 2>/dev/null || echo 0) )) -lt ${UNKEPT_MS / 1000} ] || [ "$__now" -lt "$__grace" ]; }; do sleep 1; done`,
 			// The mark its time limit starts from (clock.ts): the run begins
 			// here, whether its turn was given or the wait gave way.
 			`{ : > "$__queue/$__job.began"; } 2>/dev/null || :`,
@@ -142,6 +160,6 @@ export function waitsForTurn(
 			`[ "$__since" -ge ${saidAfterS} ] && printf 'Waited %ss for its turn in the machine queue.\\n' "$__since" >&2`,
 			"__ran=$SECONDS",
 			`trap "__end=\\$?; printf '%s\\\\n' \\"\\$__end\\" 2>/dev/null > '${dir}/${id}.end'; __room=\\$(cat '${dir}/room' 2>/dev/null); [ \\$(( SECONDS - $__ran )) -ge ${roomSaidAfterS} ] && [ -n \\"\\$__room\\" ] && printf '${ROOM_SAID}\\\\n' \\"\\$__room\\" >&2" EXIT`,
-			"unset __queue __job __since __into __ran; :",
+			"unset __queue __job __since __into __ran __then __now __grace; :",
 		].join("\n");
 }

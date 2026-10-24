@@ -113,7 +113,9 @@ is a vm-check.
   jobs while there is none. A wait of 5 seconds or more is said in the
   call's output.
 - **Giving way:** a shell runs its command anyway when its job is given
-  up or nobody has kept the queue for two minutes. A job ends when its
+  up or nobody has kept the queue for two minutes. Nobody keeps it
+  while the machine sleeps, so a shell whose clock has jumped gives the
+  keepers 10 seconds to wake before that counts. A job ends when its
   shell does, or its session's pi, however either ends. So work the
   command hands off with `setsid -f`, `nohup` or a trailing `&` is
   forgotten once the shell exits, and its memory counts as taken only
