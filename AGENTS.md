@@ -9,6 +9,10 @@ the root `package.json`.
 The package manager is **pnpm**. `pnpm-lock.yaml` is canonical;
 `package-lock.json` is gitignored to prevent drift.
 
+This file is the index: each rule in a line, with the reasoning
+in [`docs/`](./docs/). Read the linked page before changing what
+a rule covers.
+
 ## Structure
 
 - `lib/`: shared library code in three layers: public modules
@@ -17,7 +21,7 @@ The package manager is **pnpm**. `pnpm-lock.yaml` is canonical;
   outside the package imports. [`lib/README.md`](./lib/README.md)
   lists every module and what it is for
 - `extensions/`: Pi extension wiring, organized by
-  behavioural contract (see Extension Categories below)
+  behavioural contract (see Extension Categories)
 - `packs/`: extensions loaded into a subagent by path, never
   auto-discovered, so deliberately not under `extensions/`
 - `skills/`: package-bound markdown instructions the agent
@@ -31,192 +35,34 @@ are consumed by extensions via direct file imports.
 
 ## Extension Categories
 
-Every extension has a contract suffix that identifies what
-it does:
+Every extension's directory name ends in the contract it keeps.
+[`docs/extensions.md`](./docs/extensions.md) says what each
+category commits to and why each workflow and integration exists.
 
-- **Guardians** (`*-guardian`): intercept shell commands and
-  present them for human review, inline or in a gate as the
-  guard policy says. Implement `CommandGuardian<T>` with
-  detect → parse → review.
-  `commit-guardian`, `pr-guardian`, `issue-guardian`,
-  `history-guardian`
-
-- **Interceptors** (`*-interceptor`): intercept shell commands
-  and modify or block them silently, without a review gate.
-  `attribution-interceptor`, `edit-escape-interceptor`,
-  `git-cli-interceptor`, `github-cli-interceptor`
-
-- **Workflows** (`*-workflow`): orchestrate a multi-step or
-  session-wide process with state and stages. This covers
-  persistent session workflows such as planning.
-  `quest-workflow`,
-  `ask-workflow`, `away-workflow`, `guard-policy-workflow`,
-  `result-store-workflow`,
-  `cost-workflow`, `image-budget-workflow`,
-  `panel-lifecycle-workflow`, `job-workflow`,
-  `session-recall-workflow`, `install-check-workflow`,
-  `reload-workflow`, `rollover-workflow`, `shell-workflow`,
-  `mesh-workflow`, `priority-workflow`, `stray-output-workflow`.
-
-  `stray-output-workflow` keeps writes off pi's screen while its TUI
-  holds the terminal. pi guards neither stream in interactive mode, and
-  its own event bus `console.error`s a throwing `pi.events` handler's
-  whole stack over the editor. Each caught write is kept with the stack
-  that made it, and the person sees one line naming the writer, so a
-  handler that throws can be found rather than only seen.
-
-  `priority-workflow` keeps pi ahead of the work it starts: where
-  the machine names an idle cgroup for work in `JOBS_CGROUP`, every
-  process pi spawns is written into it as it is spawned, and pi
-  stays where it was started.
-
-  `away-workflow` makes the person being away a mode rather than a
-  convention the model has to remember: blocking approvals hold
-  their call, `ask` takes its recommendation, and a run that ends
-  without `Done:` or `Blocked:` is sent back through job-workflow.
-  Its state is `lib/internal/away/`, read by the gates without
-  importing the extension. It errs towards stopping: nothing held
-  is ever approved on the person's behalf, and the nudging has
-  bounds of its own.
-
-  `install-check-workflow` says when the code running is not
-  the code on disk: a dependency installed outside its range in
-  `package.json`, a checkout behind its upstream, or a HEAD that
-  moved since the code loaded. A pull is neither a reinstall
-  nor a reload, and both used to drift silently for days.
-
-  `reload-workflow` lets the agent reload its own session, onto
-  the worktree it is changing, and carry on when the reload
-  lands, so trying a change needs neither a merge nor a person.
-  The `reload` tool only asks: pi gives `reload()` to a
-  command's context alone, so the request is handed to
-  `/harness reload` once the run settles. A tree is loaded in a
-  pi of its own first, and the install's settings entry points
-  at it only for the reload itself, since a tree beside the
-  install would load twice.
-
-  `rollover-workflow` moves a session whose log has passed 64 MB
-  into a fresh log at the first still moment after a compaction,
-  keeping what the model sees and every extension's state, with
-  the old log as its parent: pi holds a whole log in memory for
-  the life of a session. `session_recall` reads the parents back
-  from disk. Like reload, the switch is a command's alone, so it
-  goes through `/rollover`.
-
-  `job-workflow` hosts background jobs. A tool that returns
-  before its work ends hands the work to it, and it says the
-  result to the model as a prompt of its own once no run,
-  compaction or submitted prompt is under way, since a message
-  queued behind a run is what Escape puts in the person's
-  editor. It is the only thing that starts a turn nobody
-  typed, so every producer goes through it.
-
-  `shell-workflow` replaces pi's `bash` with pi's own definition,
-  rebuilt with the same settings, and adds two things: the
-  agent's commands get no editor or pager to wait on, and a
-  command still running after five minutes moves to a job
-  instead of holding the session. It hands off rather than
-  kills, because the session logs show short timeouts killing
-  real builds. A codemode script's calls never move, since the
-  script reads their structured result.
-
-  `image-budget-workflow` scales images down at the
-  `tool_result` seam, on the one ground that makes a silent
-  reduction defensible: a provider bills an image by its
-  dimensions, and the pixels above a display's logical
-  resolution are redundancy rather than information.
-
-  `cost-workflow` is the only extension here that reasons about
-  money, deliberately: cost counted by whoever needed it
-  produced five wrong answers in a row. It derives spend from
-  the session logs pi already writes, so there is one writer of
-  the truth and the ledger can be rebuilt whenever its shape
-  changes. Anything else that learns a cost should emit to it
-  rather than keep a second figure.
-
-- **Integrations** (`*-integration`): bridge to external
-  services via registered tools.
-  `google-workspace-integration`, `web-search-integration`,
-  `browser-integration`, `review-integration`,
-  `work-integration`
-
-  The last two are worth a note, because they bridge to
-  whatever hosts a change rather than to one named service.
-  `review-integration` hosts the six review tools over
-  `agentic-harness.core`'s `review`, and every provider behind
-  them registers over the event bus, so the extension has no
-  idea which backends exist. `work-integration` does the same
-  for `agentic-harness.core`'s `work` and
-  the trees underneath. Neither imports the other: the review
-  side reaches the working layer over the bus, so a consumer
-  needs the work *library* and never the work *extension*.
-
-- **Widgets** (`*-widget`): add UI elements to the interface.
-  `content-viewer-widget`, `status-line-widget`,
-  `panel-zoom-widget`
-
-- **Providers** (`*-provider`): contribute an implementation to
-  a host over the `pi.events` bus without importing the host's
-  registry: a `FrontEndProvider` decorating a subset of an MCP
-  server's tools (shape, render or wrap), or a
-  `CompactionProvider` writing summaries for
-  `compaction-workflow`, which walks its providers as a chain,
-  or summary contributions appended to what they write, as
-  `compaction-selection-provider` quotes the paragraphs a
-  compaction drops. Distinct from a `*-widget`, which adds standalone UI, and from
-  an `*-integration`, which hosts a service. The seam is the
-  bus, so a provider can live in a different package from its
-  host.
-
-- **Packs** (`packs/`): an extension loaded into a subagent
-  with `pi --extension <path>` and never auto-discovered, so
-  one must not live under `extensions/`: a directory pi scans
-  is the wrong place for a thing pi must not load. A pack's
-  tool belongs to the subagent, not to the session that
-  dispatched one.
-
-  `packs/review-journal` ships one, so a reviewer can write a
-  finding down the moment it has one rather than saving every
-  finding for an answer an interruption then takes. It is
-  offered only for the finding-shaped rounds.
-
-  A verifier is the other kind, a tool a subagent calls to
-  validate its structured output against a schema before
-  finishing. None ship; the `subagent` tool's `verify` option
-  is how a caller attaches one.
-
-  Note what the review rounds deliberately do not do. They
-  attach a contract skill without a verify tool, so a
-  malformed entry is dropped and warned about rather than
-  refused, and a reviewer that half-follows the contract
-  still contributes what it got right. The journal keeps that
-  bargain: it writes down whatever shape it is handed and
-  lets the round judge it, because a tool arguing with a
-  reviewer about a missing field spends the budget the
-  reviewer needed for the review.
+- **Guardians** (`*-guardian`): intercept a shell command and
+  show it for review, inline or in a gate as the guard policy
+  says. They implement `CommandGuardian<T>`.
+- **Interceptors** (`*-interceptor`): rewrite or block a shell
+  command silently, with no review.
+- **Workflows** (`*-workflow`): a multi-step or session-wide
+  process with state and stages.
+- **Integrations** (`*-integration`): bridge to an outside
+  service through registered tools.
+- **Widgets** (`*-widget`): add something to pi's interface.
+- **Providers** (`*-provider`): give a host an implementation
+  over the `pi.events` bus, without importing the host.
+- **Packs** (`packs/`): an extension a subagent loads by path,
+  never auto-discovered, so never under `extensions/`.
 
 ## Skill Categories
 
-Every skill has a type suffix that identifies what kind of
-guidance it provides:
-
-- **Guides** (`*-guide`): teach how to do something.
-  Step-by-step instructions, principles, decision criteria.
-- **Conventions** (`*-convention`): operational rules for
-  using a tool.
-- **Formats** (`*-format`): structural templates for
-  artifacts.
-- **Standards** (`*-standard`): opinionated quality and style
-  preferences.
-
-Skill names follow `{domain}-{concern}-{suffix}`. See the
-`taxonomy-guide` skill in `.pi/skills/` for the full naming
-rules, domain definitions and decision framework.
-
-Extensions and skills are complementary. Skills teach
-methodology; extensions enforce it. Some are paired (e.g.,
-the `planning-guide` skill + `quest-workflow` extension) but
-they all work independently.
+Skill names follow `{domain}-{concern}-{suffix}`, the suffix
+saying what kind of guidance it is: `-guide` (how to do
+something), `-convention` (rules for using a tool), `-format`
+(the shape of an artifact) or `-standard` (quality and style).
+The `taxonomy-guide` skill in `.pi/skills/` has the naming rules,
+the domains, and when to write a skill, an extension or a line
+here. Skills teach a method; extensions enforce it.
 
 ## Conventions
 
@@ -227,510 +73,109 @@ they all work independently.
   (for browsing). Do not duplicate content between them.
 - **Never put a README.md in the `skills/` root.** Pi treats
   any `.md` file there as a skill.
-- Imports from pi use `@earendil-works/pi-coding-agent`,
-  `@earendil-works/pi-ai` and `@earendil-works/pi-tui`.
-  These are provided by pi at runtime; do not add them to
-  `dependencies`. They appear in three other places, each
-  for its own reason, and all three are enforced by
-  `tests/package/runtime-deps.test.ts`:
-  - `peerDependencies` at `"*"`, under the current
-    `@earendil-works/*` names, because that is the
-    relationship: pi hands these to an extension at load
-    time, and which version is the host's business.
-  - `peerDependenciesMeta` marking every one optional,
-    because npm installs a root package's peers otherwise
-    and pi runs `npm install --omit=dev` on a git install.
-    Measured: without the flag, one declaration pulled 189
-    packages into a clean tree, among them a deprecated
-    copy of pi's whole runtime three minor versions
-    behind. A second copy of pi's modules is a different
-    copy, and the instanceof checks in its own APIs stop
-    holding.
-  - `devDependencies`, so `tsc` has the real declarations
-    on disk. Naming the same packages here as in
-    `peerDependencies` is also what stops pnpm installing
-    its own: pnpm installs peers by default and ignores
-    the optional flag, but it finds these already
-    satisfied. Consumers never receive them, since
-    `--omit=dev` skips the list entirely. Pin them to the
-    pi version that runs, and pin the rest of the
-    `@earendil-works` family to it under `pnpm.overrides`:
-    pi's own manifest asks for its siblings with a caret,
-    so a newer sibling arrives beside an older pi, and
-    pi 1.1.0 would not import beside pi-codemode 1.2.0.
-
-  Pi's loader also aliases the older `@mariozechner/*`
-  spelling, which this repo imported until every site was
-  migrated. Do not reintroduce it: those packages are
-  published deprecated, pi's loader comment says the compat
-  aliases stay only until compat is removed, and the
-  `tsconfig.json` and vitest mappings that used to bridge
-  the two names are gone.
+- Import pi as `@earendil-works/pi-coding-agent`,
+  `@earendil-works/pi-ai` and `@earendil-works/pi-tui`. Pi
+  provides them, so they are optional peers and dev
+  dependencies, never `dependencies`;
+  [`docs/dependencies.md`](./docs/dependencies.md) says why
+  each declaration sits where it does.
 - Every mechanical rule a skill states is tracked in
   [`docs/convention-coverage.md`](./docs/convention-coverage.md)
   against the gate that enforces it. When adding a rule to a
   skill or a gate to the code, update the matrix in the same
   change so the coverage stays visible.
 
-## Design Principles
+## Design Rules
 
-The code should read like a description of what the system
-does, not how it wires things up. Every module should use
-idiomatic TypeScript, handle errors honestly and serve as an
-example of clean Pi extension code.
+The code should read like a description of what the system does,
+not how it wires things up. Each rule's reasoning, and the cost
+that taught it, is in [`docs/architecture.md`](./docs/architecture.md).
 
-### Split by Responsibility, Not Line Count
+- Split a file by its reasons to change, not by its length.
+- Share behaviour through types and helper functions, never class
+  hierarchies.
+- A guardian runs detect, parse, review, and is wired by
+  `registerGuardian`; it never touches event wiring or mutates
+  the command itself.
+- Every guard declares its class and mode from the one catalogue,
+  `lib/internal/guardian/guards.ts`. A refusal goes through
+  `refusalUnder` and a confirmation through `asksUnder`
+  (`lib/guardian/apply.ts`); never branch on a mode by hand.
+- A workflow keeps its concerns in `state.ts`, `lifecycle.ts`,
+  `enforce.ts`, `transitions.ts` and `index.ts`, merging
+  neighbours that would be trivially small.
+- The prompt is append-only: never edit what a request has sent,
+  in the system prompt or earlier messages. Say a change as a new
+  message, supersede stale context rather than removing it, and
+  use `registerStandingContext` (`lib/prompt`) for state the
+  model should always know.
+- Don't merge two modules that merely look alike today.
+- A tool whose answer can outgrow a context window stores it and
+  cites a handle (core's `result` module), or answers with a
+  path on disk; never inline everything or truncate.
+  `tests/package/stored-results.test.ts` checks each tool.
+- A helper several domains use lives in the shared library at the
+  level of its concern, not in the first domain that needed it.
+- Every export in a public barrel is a long-term commitment;
+  implementation details stay out of it.
+- An integration's API client, auth, renderers and types live in
+  `lib/`; the extension keeps only pi's wiring and owns caching.
+  Analysis of what a service returned never needs the service.
+- An extension's `index.ts` registers and wires, and reads as a
+  table of contents; event handlers delegate to named functions.
+  A tool's `execute`, `renderCall` and `renderResult` stay in
+  its registration, delegating substantial work.
+- Only the guardian registration helper and interceptors mutate
+  `event.input.command`.
+- Prefer type guards to `as` casts (pi's `renderCall` and
+  `renderResult` excepted), top-level `import` to `require()`,
+  and named constants to magic numbers. Every empty `catch {}`
+  says why the error is safe to ignore, and every exported
+  function has a JSDoc comment saying what it does.
 
-A 300-line file that does one cohesive job is fine. A 150-line
-file with three interleaved responsibilities should be split.
-The question to ask is whether the file has multiple reasons
-to change, not whether it's long.
-
-### Composition Over Inheritance
-
-Shared behaviour uses types and helper functions, not class
-hierarchies. Each guardian is a plain module that implements
-the shared interface; a registration helper wires it into
-Pi's event system. Workflows share a file naming convention
-but no base type because their runtime contracts differ.
-
-### Guardian Pipeline: detect → parse → review
-
-Every guardian follows the same three-step pipeline:
-
-1. **detect**: does this command match? (fast, no parsing)
-2. **parse**: extract structured data from the command
-3. **review**: present the data for human review, return a
-   result (undefined to allow, block, or rewrite)
-
-A new guardian implements the shared interface and calls the
-registration helper; it never touches event wiring or command
-mutation directly. See `lib/guardian/` for the public contract
-(downstream packages import from `./guardian`).
-
-### Guard Policy
-
-Every guard in the package, guardian, interceptor, quest gate or
-tool confirmation, declares a class (approval, form or safety)
-and runs under a mode: off, redirect or block. Block is a panel
-for an approval and a refusal, every time, for anything else.
-Redirect is what makes most of them cheap without teaching
-nothing: a refusal reaches the agent in its own tool result with
-its remedy, and the same call made again unchanged goes through
-as an override the person sees, so a wrong guard cannot corner
-the agent. An approval under redirect goes ahead and shows the
-person what it would have asked. Off lets everything through and
-shows the person what the guard saw; nothing a guard sees is
-silent. The former `report` mode, which let a refusal through
-and told only the person, is read as off: the agent never heard
-it and so repeated the mistake.
-
-The defaults follow one rule: block where a mistake reaches
-somebody else, cannot be undone, or has one right form, and
-redirect everywhere else. So the commit, PR, issue and review
-approvals redirect, Slack and Google block, the PR, issue and
-commit form guards block, the quest's write gates redirect, and
-safety blocks only the irrecoverable.
-
-Each extension declares its own guards when it loads, from the
-one catalogue in `lib/internal/guardian/guards.ts`, so the
-defaults hold whether or not `guard-policy-workflow` is
-loaded. A guard nobody declared resolves to block, which is
-what keeps a downstream guardian that predates the policy
-working as it did. A guardian opts in by passing `declaration`
-to `registerGuardian`, and its review receives the mode; a
-refusal goes through `refusalUnder` and a confirmation through
-`asksUnder`, both in `lib/guardian/apply.ts`. Never read a mode
-and branch on it by hand: those two are what keep an off guard's
-report, a redirect and a blocking guard's refusal the same text,
-and what remember a redirect for its override.
-
-### Workflow File Convention
-
-Each workflow extension uses these files:
-
-- `state.ts`: state interface and initial/default values
-- `lifecycle.ts`: activate, deactivate, toggle, persist,
-  restore
-- `enforce.ts`: tool_call interception: what gets blocked,
-  what gets allowed and why
-- `transitions.ts`: confirmation gates, context injection
-  and superseding context that has gone stale
-- `index.ts`: registration only: declares state, registers
-  commands/shortcuts/flags, wires other modules to pi events.
-  Should read as a table of contents for the extension.
-
-Not every workflow needs every file; merge neighbours if a
-file would be trivially small. But the naming convention is
-what tells readers where to find each concern.
-
-### The Prompt Is Append-Only
-
-The provider caches the prompt as a prefix: tools, then the
-system prompt, then the conversation. Changing any byte of it
-re-writes everything after that byte at the cache-write price,
-which under one-hour retention is forty times a read on Opus
-5.5. So an extension never edits what a request has already
-sent. It does not re-render state into the system prompt on
-each prompt, and it does not filter or rewrite earlier messages
-from a `context` hook. State that changes is said as a new
-message (`before_agent_start` can return one), and context that
-has gone stale is superseded by a message saying so, never
-removed. For state the model should always know, register a
-standing context (`registerStandingContext` in `lib/prompt`,
-exported as `agentic-harness.pi/prompt`): it freezes the text
-into the system prompt once per session and says each change
-as a message. Over a month the two patterns this replaced, a quest
-line re-rendered into the system prompt and TDD reminders
-filtered out once a loop ended, cost about $600 at list in
-rewrites that told the model nothing new. There is no exception:
-a demotion workflow that rewrote old tool results in batches
-was removed on 2026-09-24, since it never ran outside shadow and
-its whole stake was about $300 a month.
-
-### Don't Merge Things That Merely Converge
-
-Two modules that happen to look similar today aren't
-necessarily the same abstraction. PR and issue guardians
-share a shape via `CommandGuardian` but aren't merged into a
-factory; they're independently motivated and could grow
-separate concerns. When deciding whether to deduplicate, ask
-yourself: are these the same concept, or just coincidentally
-similar right now?
-
-### A Large Answer Is Stored, Not Truncated
-
-A tool that can produce a payload larger than a context window
-keeps the whole payload and hands back a bounded view plus a
-handle. It never inlines everything, and it never truncates into
-oblivion: the caller who needed the part that was cut has to be
-able to reach it without calling the tool again and guessing at
-different arguments.
-
-Use agentic-harness.core's `result` module: `citeListing` for a rendered listing whose
-records are to hand, `boundedByDetails` where a family already
-passes its records through a result's details, and `cite` for
-anything shaped differently. A handle is cited exactly when the
-stored payload holds more than the view shows, and that decision
-belongs to `cite` rather than to each family.
-
-Answering with a path on disk is the same bargain by another road
-and is equally acceptable: `web_read` returns a bundle manifest
-and `subagent` names each fan-out result file.
-
-`tests/package/stored-results.test.ts` checks that every
-tool-registering extension has been accounted for one way or the
-other, so a new tool cannot quietly skip the question.
-
-### Keep Concerns in Their Domain
-
-Each module should own its concern and nothing else. When a
-helper is used by multiple domains, it belongs in the shared
-library at the level that matches its concern, not in the
-first domain that needed it.
-
-### Public Library vs Internal Code
-
-The `lib/` directory is split into public modules (with
-barrel exports) and `lib/internal/` (no barrels).
-
-**Public modules** (`lib/ui/`, `lib/slack/`, `lib/google/`)
-have an `index.ts` barrel that declares the public surface.
-Every export in a barrel is a long-term commitment: other
-Pi packages depend on it. Only export interfaces consumers
-need to get value from the library. Implementation details
-(cache management, parameter parsing, layout plumbing) stay
-out of the barrel even if they're exported from the file
-itself.
-
-**Internal modules** (`lib/internal/`) have no barrels.
-Extensions import directly from specific files. These are
-free to change without worrying about external consumers.
-
-External consumers import from barrels, never from internal
-files. Internal extensions may import from either barrels or
-specific files depending on what they need.
-
-### Integration Architecture
-
-Integration extensions (`*-integration`) bridge to external
-services. Their domain logic, meaning API clients,
-authentication, renderers and types, lives in `lib/` as a
-public library.
-The extension keeps only Pi-specific wiring: tool
-registration, `renderCall`/`renderResult`, slash commands,
-confirmation gates and session lifecycle.
-
-This split means other Pi packages can use the library
-(e.g., call the Slack API) without loading the extension.
-The extension is a thin consumer of its own library.
-
-**Caching belongs in the extension**, not the library.
-Authentication functions like `ensureAuthenticated` are
-stateless: they read credentials, build a client and
-return it. The extension wraps this in a cache (`Map` or
-local variable) so repeated tool calls within a session
-reuse the same client. The library stays pure; the
-extension owns session lifetime.
-
-**Analysis must not require the service.** Where an
-integration's library also analyses what the service returned,
-that analysis takes serializable data and returns answers, with
-no path back to the client that fetched it. `agentic-harness.core`'s
-`web` (the browser engine this package's `browser-integration` and
-`web-search-integration` extensions drive) holds the strongest form
-of this: every subdomain but `session` can judge a stored capture,
-or one taken by a different tool entirely, and none of them can
-start a browser. It is worth stating because it breaks silently. A
-disk sink that imported the page reader once dragged `jsdom` into
-anything writing a PNG, and neither the types nor the tests
-noticed. Its `tests/web/purity.test.ts`, in that package, walks the
-import graph and fails when an analysis barrel reaches something
-heavy.
-
-### `index.ts` Is for Registration and Wiring
-
-Extension `index.ts` files declare state, register commands,
-event handlers and tools, then wire to other modules. They
-should read as a table of contents.
-
-**Event handlers** should delegate to named functions in other
-files. This prevents interleaving where five concerns get
-shuffled by event registration order.
-
-**Tool registration** is an exception. Pi's `registerTool`
-API bundles `execute`, `renderCall` and `renderResult` as
-part of the registration call. Extracting those to separate
-files would split one cohesive tool definition across
-modules. That said, the execute body should still delegate to
-other modules for substantial work (showing gates, lifecycle
-changes) rather than inlining all logic.
-
-### One Mutation Site for Command Rewriting
-
-The guardian registration helper is the single place that
-mutates `event.input.command` for guardians. Individual
-guardians return a result (undefined, block, or rewrite);
-they never touch the event directly. The history guardian's
-lease of a bare `git push --force` is a rewrite, and lands
-there like any other.
-
-Interceptors are the second sanctioned mutation site.
-They mutate `event.input.command` silently (no review
-gate) because that's their contract: transparent command
-enrichment.
-
-### Idiomatic TypeScript
-
-- Prefer type guards over `as` casts. Each `as` cast should
-  be justified or replaced with a narrowing check. The
-  exception is Pi's `renderCall` and `renderResult` APIs,
-  which type `args` and `details` as `unknown`; casts there
-  are acceptable since you're reading back what you just
-  wrote.
-- Use top-level `import` over inline `require()`. Use dynamic
-  `import()` only when lazy loading is intentional.
-- Every empty `catch {}` block must have a comment explaining
-  why the error is safe to ignore. Silent swallowing without
-  explanation is not acceptable.
-- Every exported function needs a JSDoc comment describing
-  what it does (not how). Internal helpers need docs only
-  when their purpose isn't obvious.
-- Replace magic numbers with named constants.
-
-## Linting
-
-This project uses [Biome](https://biomejs.dev/) for linting and
-formatting. **Run the linter after making code changes and before
-committing:**
+## Commands
 
 ```sh
-pnpm lint:fix    # auto-fix, then verify
-pnpm lint        # confirm no remaining issues
+pnpm lint:fix        # auto-fix, then verify
+pnpm lint            # no errors and no warnings, before committing
+pnpm typecheck       # tsc over the whole project, which reports nothing
+pnpm test            # everything, about 94 s
+pnpm test:unit       # the unit project, about 26 s
+pnpm test:browser    # the browser tests; set CHROME_PATH or they skip
+pnpm exec vitest run <paths>   # the tests a change touches, as you go
 ```
 
-Always run `lint:fix` first. Biome's auto-fixes are safe for
-this project (import ordering, formatting), so there's no
-reason to check before fixing. All code in `extensions/`,
-`lib/` and `tests/` must pass `pnpm lint` cleanly (no errors,
-no warnings) before being committed. Fix the code to satisfy
-the linter rather than suppressing rules.
+Always run `lint:fix` first: Biome's fixes are safe here. Fix the
+code to satisfy the linter rather than suppressing a rule, and fix
+a failing type on the spot rather than excluding its file. CI runs
+`pnpm lint`, `pnpm typecheck`, `pnpm test` and `pnpm load-check`
+on every pull request and push to `main`; the load check installs
+production dependencies only, as pi does from git.
 
-## Typecheck
+New library code ships with tests of observable behaviour through
+its public API, under `tests/` mirroring `lib/`. Extension wiring
+is exercised live rather than unit-tested.
+[`docs/testing.md`](./docs/testing.md) has the lanes, timings and
+history.
 
-`tsc --noEmit` runs in CI over the whole project: every
-extension, every library, every test, the scripts and the
-root config files.
+## Before Trusting a Live Run
 
-```sh
-pnpm typecheck
-```
-
-This used to cover a handful of directories, because the
-older extensions carried type debt that predated tsc being
-wired in at all. That debt is gone: the project reports
-nothing, so the scope is everything and the narrow config
-has been deleted.
-
-Keep it that way. A single failing file is worth fixing on
-the spot; the alternative is a second exclusion list, and
-that is how the first one started. Note that the scope
-includes root files such as `vitest.config.ts`, which sat
-outside it and held a real error while the project called
-itself clean.
-
-## Testing
-
-Library code under `lib/` has unit tests written with vitest.
-Specs live under `tests/` mirroring the source layout (e.g.
-`tests/lib/ui/badge.test.ts` exercises `lib/ui/badge.ts`).
-Run the suite with:
-
-```sh
-pnpm test            # everything, about 94s
-pnpm test:unit       # only the unit project, about 26s
-pnpm test:browser    # only the browser tests
-pnpm test:watch      # re-run on save
-pnpm test:coverage   # v8 coverage report
-```
-
-New library modules should ship with tests that assert
-**observable behaviour through the public API**, never
-internals. A test that would still pass after a legitimate
-refactor is a good test. A test that breaks when you rename a
-private helper is testing internals.
-
-Extension wiring (`renderCall`, `renderResult`, tool
-registration, pi-side gates) is generally not unit-tested
-because it depends on pi's runtime context. Exercise that
-live via `/reload` in a running pi session, or with
-`pi -e ./extensions/some-ext` to load a single extension in
-isolation.
-
-**A session runs the extension it loaded at startup.** Editing
-a file here does not change the tools in the session you are
-editing from, even though this package is installed by path.
-So driving a tool is evidence about whatever was loaded, not
-about the working tree, and the gap is invisible: the tool
-answers normally and answers the old way. This has already
-produced a confident bug report against behaviour that had
-been fixed hours earlier. Before treating a live tool run as
-evidence, call the `reload` tool onto the tree you changed, or
-check the claim against the test suite, which always runs the
-tree. After `reload`, `/harness` says which code the session
-runs, and the footer shows `⇄` while it is a tree.
-
-**A reload re-evaluates a `.ts`, but not a `.mjs`.**
-Measured, not inferred: build a jiti the way pi builds one,
-with `moduleCache: false`, and import a barrel over a leaf.
-Edit a `.ts` leaf and the new value arrives on the next
-import. Edit a `.mjs` leaf and the old value comes back, and
-an export added to it reads `undefined`. Taken against pi
-0.84.1 and the jiti it ships; the routing that produces this
-is jiti's business and was not read, so treat the behaviour
-as the fact and not the explanation.
-
-That is what killed a council. A constant had been added to
-`runpi/journal.mjs` and merged mid-session, the reloaded
-`tools/ask.ts` read it, the value was the one from before
-the merge, and seven reviewers died on `Cannot read
-properties of undefined (reading 'split')` before any of
-them spawned. The round left no reviewer directories at all,
-which is how a crash in the parent is told from one in a
-child.
-
-Three files can do this, and they are the `.mjs` a running
-pi imports a value out of: `runpi/journal.mjs`,
-`runpi/assistant.mjs` and `runpi/grace.mjs`. Any change to
-one under a live session sets it up, whether it arrived by
-merge, by rebase or by your own editor. `runpi/watchdog.mjs`
-and `runpi/supervisor.mjs` are not on the list, and the
-reason is the opposite one: nothing in this process imports
-them, because they run in a child that is spawned fresh and
-reads them off disk every time. The hazard there is the
-mirror image, a parent that reloaded and a child that did
-not, disagreeing about a constant they share.
-
-Reads of those three are guarded, so the next occurrence
-names itself instead of throwing arithmetic on `undefined`
-somewhere downstream: see `runpi/fresh.ts`. The guard cannot
-stop the staleness, only the mystery.
-
-The obvious fix is to stop having `.mjs` at all, since node
-has stripped types since 22.18 and this package demands
-22.19. It was tried, and it cannot be done. Node refuses to
-strip types anywhere under a `node_modules` directory, which
-is where a consumer install puts this package, and refuses
-with `ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING` at the
-first import. The spawned supervisor would not start at all,
-and no test here would say so, because a package installed
-by path is outside `node_modules` and strips fine. A council
-ran green through the converted script on this machine while
-being broken for everybody who installs the package
-normally.
-
-So the seam is structural. A module shared between a parent
-pi loads through jiti and a child node spawns directly has
-to be a `.mjs`, and a `.mjs` is the thing a reload cannot
-refresh. Removing the hazard needs a build step, and this
-package does not have one on purpose.
-
-**After pi upgrades, restart rather than reload.** A session
-pins its subagents to the install it started from, on
-purpose: `lib/subagent/install.ts` stashes that snapshot
-under a `Symbol.for` key so a reload cannot recapture a
-path an upgrade has since deleted. The consequence is that
-when the versioned `~/.pi/pkg/pi-<version>` directory does
-go, every child dies at startup on a path the parent is
-still pointing at, and a reload cannot help, because the
-running process is the old one either way. A whole council
-was lost to this, a different one from the council above.
-The snapshot needs a global key precisely because a reload
-does re-evaluate this module, the same re-evaluation the
-previous note is about.
-
-`pnpm test` runs everything, browser tests included, in about 94
-seconds. Set `CHROME_PATH` or the browser tests skip themselves.
-
-It was not always this fast, and the reason is worth knowing because
-it was not a slow test anywhere. The browser lane ran twice, once in
-its own job and once inside `pnpm test`, and it ran one file at a
-time because four workers had been observed putting seven browsers on
-the machine. Seven was the tell: four workers cannot make seven
-browsers unless something else is running them too. The duplication
-caused the contention, the contention justified the serial lane, and
-the serial lane made the duplication expensive. Removing the
-duplication let the lane run four wide, which took it from 275s to
-70s and the whole suite from roughly five minutes to 94s, with the
-race guard enabled and no race.
-
-The pool cap counts workers, not processes, which matters when a test
-spawns one: a supervisor test is node spawning a script spawning a
-child. That is how the suite used to drive the load average to 24 on
-a twelve-core machine and then starve its own subprocess tests until
-they blew a two-minute budget. If you add a test that spawns
-something, keep its budget small enough that a starved run says so in
-seconds.
-
-Those tests now have their own lane, `process`, listed by name in
-`vitest.config.ts` and run one file at a time on one worker. Capping
-the pool was not enough on its own: a supervisor test competing with
-four workers of ordinary tests starves the very child it is watching,
-and the failure reads as a reviewer that would not spawn rather than
-as a machine that was busy. Two cases failed that way for weeks and
-were green whenever anybody ran them alone, which is the signature.
-Add a test that spawns node from node to that list; the five there
-now are the supervisor and reviewer suites, not every test that
-shells out. It costs about 45 seconds, and `pnpm test` runs every
-project, this one included.
-
-CI runs `pnpm lint`, `pnpm typecheck`, `pnpm test` and
-`pnpm load-check` on every pull request and every push to `main` via
-`.github/workflows/ci.yml`, as four parallel jobs. The load check
-installs a copy with production dependencies only, the way pi
-installs from git, and loads it through pi with nothing else
-loaded; it is the only check that sees a runtime dependency the
-install does not hold.
+- **A session runs the extension it loaded at startup.** Editing a
+  file here changes nothing in the session editing it. Call the
+  `reload` tool onto the tree you changed before treating a live
+  tool run as evidence; `/harness` says which code runs.
+- **A reload re-evaluates a `.ts`, not a `.mjs`.**
+  `runpi/journal.mjs`, `runpi/assistant.mjs` and
+  `runpi/grace.mjs` keep their old values in a reloaded session,
+  so a change to one under a live session needs a restart. They
+  can't become `.ts`: node won't strip types under
+  `node_modules`, where consumers install this package.
+- **After pi upgrades, restart rather than reload.** Subagents are
+  pinned to the install the session started from.
+- **A test that spawns node from node goes in the `process`
+  lane** listed in `vitest.config.ts`, which runs one file at a
+  time; keep its budget small enough that a starved run says so
+  in seconds.
 
 ## What Not to Do
 

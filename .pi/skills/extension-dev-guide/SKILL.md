@@ -53,14 +53,14 @@ editing, and a merge is not needed to try a change:
    `⇄`, and `/harness` says what runs.
 
 A reload re-evaluates `.ts` files but not `.mjs` ones loaded
-from the same path; see AGENTS.md. A tree is a different path,
+from the same path; see `docs/testing.md`. A tree is a different path,
 so its `.mjs` files are read fresh.
 
 ## Architecture: Extensions vs Library
 
 Extensions and library code serve different roles. See
-AGENTS.md's "Integration Architecture" section for the full
-pattern. The short version:
+the "Integration Architecture" section of `docs/architecture.md`
+for the full pattern. The short version:
 
 - **`lib/`** holds domain logic: API clients, authentication,
   renderers, types and UI components. This is reusable code
@@ -74,8 +74,9 @@ consumer of its library. Caching belongs in the extension;
 the library stays stateless.
 
 When building a guardian or workflow, shared logic goes in
-`lib/internal/`. See AGENTS.md for the full guidelines on
-public vs internal code.
+`lib/internal/`. See `lib/README.md` for the three layers and
+`docs/architecture.md` for the full guidelines on public vs
+internal code.
 
 ## What's Available (Orientation Only; Verify Against Source)
 
