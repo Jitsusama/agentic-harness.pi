@@ -24,13 +24,28 @@ export interface JobRuntime {
 	/** Whether pi would call the session busy. */
 	readonly state: { busy: boolean; stale: boolean };
 	fire(name: string, event?: unknown): Promise<void>;
+	/** Call one of its tools, answering with the text it says. */
+	tool(name: string, params: Record<string, unknown>): Promise<string>;
 	/** What pi does to a runtime once its shutdown has run. */
 	invalidate(): void;
+}
+
+/** A registered tool, as far as calling one needs. */
+interface Tool {
+	name: string;
+	execute: (
+		toolCallId: string,
+		params: Record<string, unknown>,
+		signal: AbortSignal | undefined,
+		onUpdate: undefined,
+		ctx: unknown,
+	) => Promise<{ content: { type: string; text?: string }[] }>;
 }
 
 /** job-workflow loaded into a runtime on `events`, for session `sessionId`. */
 export function jobRuntime(events: EventBus, sessionId = "s1"): JobRuntime {
 	const handlers = new Map<string, Handler[]>();
+	const tools = new Map<string, Tool>();
 	const said: string[] = [];
 	const subscriptions: (() => void)[] = [];
 	const state = { stale: false, busy: false };
@@ -54,6 +69,9 @@ export function jobRuntime(events: EventBus, sessionId = "s1"): JobRuntime {
 			handlers.set(name, [...(handlers.get(name) ?? []), handler]);
 		},
 		registerCommand: () => {},
+		registerTool: (tool: Tool) => {
+			tools.set(tool.name, tool);
+		},
 		sendUserMessage: (text: string) => {
 			live();
 			said.push(text);
@@ -81,6 +99,18 @@ export function jobRuntime(events: EventBus, sessionId = "s1"): JobRuntime {
 			for (const handler of handlers.get(name) ?? []) {
 				await handler(event, ctx);
 			}
+		},
+		async tool(name, params) {
+			const tool = tools.get(name);
+			if (!tool) throw new Error(`no tool named ${name}`);
+			const answer = await tool.execute(
+				"call",
+				params,
+				undefined,
+				undefined,
+				ctx,
+			);
+			return answer.content.map((part) => part.text ?? "").join("");
 		},
 		invalidate() {
 			state.stale = true;

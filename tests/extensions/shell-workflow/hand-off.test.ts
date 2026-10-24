@@ -183,6 +183,9 @@ describe("a command still running when the time comes", () => {
 		expect(text).toContain("in the background as job j1");
 		expect(text).toContain("do not run it again");
 		expect(text).toContain("ran 40 of 300");
+		// The way to stop it that takes its children with it, not a kill.
+		expect(text).toContain("jobs tool's stop with j1");
+		expect(text).toContain("never kill its shell by hand");
 	});
 
 	it("says how it ended once it has", async () => {

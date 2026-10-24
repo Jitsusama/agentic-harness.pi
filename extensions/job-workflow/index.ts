@@ -6,13 +6,15 @@
  * and finishes it when the work ends. The result waits in the outbox
  * until no run, compaction or submitted prompt is under way, and goes
  * out as a prompt of its own. `/jobs` lists what is running and stops
- * one. A reload hands the jobs to the runtime it starts, still running;
+ * one for the person; the deferred `jobs` tool does the same for the
+ * agent. A reload hands the jobs to the runtime it starts, still running;
  * any other end of the session stops them.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { showJobs } from "./command.ts";
 import { type JobSession, openSession } from "./lifecycle.ts";
+import { registerJobsTool } from "./tool.ts";
 
 /** The text of a user message, however pi carried it. */
 function textOf(message: unknown): string | undefined {
@@ -65,4 +67,6 @@ export default function jobWorkflow(pi: ExtensionAPI) {
 		description: "List background jobs, and stop one",
 		handler: (_args, ctx) => showJobs(session?.jobs, ctx),
 	});
+
+	registerJobsTool(pi, () => session?.jobs);
 }

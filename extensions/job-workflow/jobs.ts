@@ -37,11 +37,19 @@ export interface Jobs extends JobHost {
 	list(): readonly JobEntry[];
 	/** Stop a job for the person, saying so to the model. */
 	stop(id: string): void;
+	/**
+	 * Stop a job for the agent, whose tool call is told how it went, so
+	 * nothing more is said: `stopped`, or why it was not.
+	 */
+	stopForAgent(id: string): AgentStop;
 	/** These results are in the session: tell their producers and let go. */
 	delivered(isWaiting: (id: string) => boolean): void;
 	/** The session ended: stop everything and accept nothing more. */
 	close(): void;
 }
+
+/** What came of an agent's stop. */
+export type AgentStop = "stopped" | "finished" | "unknown";
 
 interface Held {
 	readonly spec: JobSpec;
@@ -129,6 +137,22 @@ export function createJobs(
 			if (!job || job.finished) return;
 			finish(id, { summary: "Stopped by the person before it finished." });
 			job.controller.abort(jobStopReason("person"));
+		},
+		stopForAgent(id) {
+			const job = held.get(id);
+			if (!job) return "unknown";
+			if (job.finished) return "finished";
+			// Finished and let go before the abort, so the producer's own
+			// finish, arriving once its work is down, is ignored.
+			job.finished = true;
+			held.delete(id);
+			// The work stops first, then whoever holds a lease on it hears it
+			// end: a lease let go while the work ran would hand its place on.
+			job.controller.abort(jobStopReason("agent"));
+			end(id, job.spec, true);
+			for (const listener of job.listeners.splice(0)) listener();
+			changed();
+			return "stopped";
 		},
 		delivered(isWaiting) {
 			for (const [id, job] of held) {

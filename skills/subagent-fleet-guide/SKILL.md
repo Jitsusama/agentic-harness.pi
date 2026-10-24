@@ -259,7 +259,8 @@ saying no human typed it.
   subagent's result file.
 - **Tell the person how to stop it.** `/jobs` lists what
   is running and stops one; Escape on the board still
-  cancels the fleet.
+  cancels the fleet. To stop it yourself, use the `jobs`
+  tool's `stop` with the job's id.
 - **Nothing survives the session.** A reload, a new
   session or a quit stops the fleet. The transcripts it
   wrote stay on disk.

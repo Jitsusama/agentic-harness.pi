@@ -1410,7 +1410,10 @@ describe("groups", () => {
 	});
 
 	it("says which peers are waiting on their person, and for what", async () => {
-		const since = "2026-10-22T08:00:00.000Z";
+		// Today, so the listing gives the time alone: a fixed day began
+		// failing the moment it was no longer today, as the listing then
+		// names the day too.
+		const since = new Date().toISOString();
 		const presences = createPresences(join(paths.mesh, "presence"));
 		const waiting = (session: string, address: string, ended: boolean) =>
 			presences.publish({

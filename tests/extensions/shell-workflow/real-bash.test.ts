@@ -126,6 +126,45 @@ describe("a real command handed off", () => {
 		expect(outcomes[0]?.failed).toBe(true);
 	});
 
+	it("takes its grandchildren with it when the agent stops its job", async () => {
+		// A nix build is a grandchild of the shell: under a pipe, a subshell
+		// or a script. Killing the shell and its direct children by hand left
+		// one running on 23 October. Stopping the job kills the whole group.
+		const events = createEventBus();
+		const runtime = jobRuntime(events);
+		await runtime.fire("session_start", { reason: "startup" });
+		const stamp = `${process.pid}${Date.now() % 1000}`;
+		const piped = `sleep 31.${stamp}`;
+		const nested = `sleep 32.${stamp}`;
+		const command = `echo started; ( ${piped} | cat ) & sh -c '${nested}' & wait`;
+		disposers.push(() => {
+			try {
+				execFileSync("pkill", ["-f", `\\.${stamp}`]);
+			} catch {
+				// Nothing was left to kill, which is the point.
+			}
+		});
+
+		const result = await runOrHandOff({
+			command,
+			background: true,
+			nested: false,
+			signal: undefined,
+			onUpdate: undefined,
+			bus: events,
+			run: (signal, onUpdate) =>
+				bash.execute("t5", { command }, signal, onUpdate, undefined as never),
+		});
+		expect(textOf(result)).toContain("job j1");
+		await until(() => running(piped) && running(nested));
+
+		const stopped = await runtime.tool("jobs", { action: "stop", id: "j1" });
+
+		expect(stopped).toContain("Stopped j1");
+		await until(() => !running(piped) && !running(nested));
+		await runtime.fire("session_shutdown", { reason: "quit" });
+	});
+
 	it("outlives a reload, and the runtime the reload started says how it ended", async () => {
 		const events = createEventBus();
 		const first = jobRuntime(events);

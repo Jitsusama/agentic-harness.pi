@@ -28,7 +28,7 @@ export interface JobOutcome {
 /** One job the host is holding. */
 export interface Job {
 	readonly id: string;
-	/** Fires when the person stops the job or its session ends. */
+	/** Fires when the person or the agent stops the job, or its session ends. */
 	readonly signal: AbortSignal;
 	/** Say the result. Called once; a second call is ignored. */
 	finish(outcome: JobOutcome): void;
@@ -43,11 +43,17 @@ export interface Job {
 }
 
 /**
- * Why a job's signal fired. The person stopping a job means stop the
- * work; the session ending means the work has nobody to answer to,
- * which some work (a round whose answer is on disk) survives.
+ * Why a job's signal fired. The person or the agent stopping a job
+ * means stop the work; the session ending means the work has nobody to
+ * answer to, which some work (a round whose answer is on disk) survives.
  */
-export type JobStop = "person" | "session";
+export type JobStop = "person" | "agent" | "session";
+
+const STOPS: ReadonlySet<unknown> = new Set<JobStop>([
+	"person",
+	"agent",
+	"session",
+]);
 
 /** What a host aborts a job's signal with, so the producer can tell why. */
 export function jobStopReason(stop: JobStop): { readonly jobStop: JobStop } {
@@ -60,9 +66,7 @@ export function jobStopOf(signal: AbortSignal): JobStop | undefined {
 	const reason: unknown = signal.reason;
 	if (typeof reason !== "object" || reason === null) return undefined;
 	if (!("jobStop" in reason)) return undefined;
-	return reason.jobStop === "person" || reason.jobStop === "session"
-		? reason.jobStop
-		: undefined;
+	return STOPS.has(reason.jobStop) ? (reason.jobStop as JobStop) : undefined;
 }
 
 /** The host a producer hands its background work to. */
@@ -85,7 +89,8 @@ export const JOBS_ASK = "jobs:ask:v1";
 
 /**
  * Said on the bus when a job's work ends, however it ends: finished,
- * stopped by the person, or stopped because its session ended. Its
+ * stopped by the person or the agent, or stopped because its session
+ * ended. Its
  * answer may still be waiting to be said; this is about the work.
  */
 export const JOBS_FINISHED = "jobs:finished:v1";
