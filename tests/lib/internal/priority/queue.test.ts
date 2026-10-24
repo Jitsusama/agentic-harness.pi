@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	CHANGED_CHECKS_GIB,
 	EVALUATION_GIB,
 	EVERY_CHECK_GIB,
 	type Job,
@@ -350,8 +351,8 @@ describe("whose turn it is", () => {
 		expect(
 			needsGibOf(job("wrapped", { what: "nice -n 10 nix -L flake check" })),
 		).toBe(EVALUATION_GIB);
-		// Evaluating every check's derivation reached 24 GB, as a bare
-		// `nix eval` and inside changed-checks before core #465 alike.
+		// Evaluating every check's derivation at once reached 24 GB as a
+		// bare `nix eval`; changed-checks evaluates them 40 at a time.
 		expect(
 			needsGibOf(
 				job("every", {
@@ -361,12 +362,13 @@ describe("whose turn it is", () => {
 		).toBe(EVERY_CHECK_GIB);
 		expect(
 			needsGibOf(job("changed", { what: "changed-checks --build --no-vm" })),
-		).toBe(EVERY_CHECK_GIB);
+		).toBe(CHANGED_CHECKS_GIB);
 		expect(
 			needsGibOf(
 				job("vm", { kind: "vm-check", what: "changed-checks --build" }),
 			),
-		).toBe(EVERY_CHECK_GIB);
+		).toBe(CHANGED_CHECKS_GIB);
+		expect(CHANGED_CHECKS_GIB).toBeLessThan(EVERY_CHECK_GIB);
 		const room = { ...ROOMY, availableGib: EVALUATION_GIB - 1 };
 		expect(nextTurn([check], room, NOW)).toBeUndefined();
 		expect(nextTurn([job("build")], room, NOW)?.id).toBe("build");

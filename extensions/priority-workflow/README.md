@@ -69,9 +69,9 @@ Work that evaluates a whole flake's checks, `nix flake check` and
 `nix-fast-build`, is held to 20 GiB whatever its kind, since its
 evaluator keeps that heap until it ends. Evaluating every check's
 derivation at once, as `nix eval` of `#checks` does, reached 24 GB,
-so it is held to 24, and so is `changed-checks`: since core #465 it
-peaks at about 10.5 GB, but a worktree cut before that runs the old
-tool, and the command doesn't say which.
+so it is held to 24. `changed-checks` is held to 16: since core #465
+it evaluates 40 checks at a time, its runs peaked at 11.7 and 12.5 GiB,
+and a chunk of 40 VM tests, the heaviest it can meet, held 13.8.
 `changed-checks --build` without `--no-vm` builds VM tests too, so it
 is a vm-check.
 
