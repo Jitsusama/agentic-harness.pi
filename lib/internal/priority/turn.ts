@@ -47,11 +47,17 @@ export interface Queueing {
  * in the output, so a VM check failing beside it can be traced to it.
  * The settings themselves are the queue's, read from the file, since a
  * VM failing beside a capped build lowers them.
+ *
+ * cargo is held to the same cores, through `CARGO_BUILD_JOBS`: the cap
+ * reached only Nix, so a cargo build given its turn beside a VM check
+ * still ran a rustc for every core. A `-j` on the command still wins,
+ * as cargo lets it.
  */
 const CAPPING = [
 	'[ -e "$__queue/$__job.capped" ] && {',
 	` export NIX_USER_CONF_FILES="$__queue/capped.conf:\${NIX_USER_CONF_FILES:-\${XDG_CONFIG_HOME:-$HOME/.config}/nix/nix.conf:$(printf '%s' "\${XDG_CONFIG_DIRS:-/etc/xdg}" | sed 's#:#/nix/nix.conf:#g; s#$#/nix/nix.conf#')}";`,
-	` printf 'Runs beside a VM check, so its Nix builds are held to %s at once, of %s cores each.\\n' "$(sed -n 's/^max-jobs = //p' "$__queue/capped.conf")" "$(sed -n 's/^cores = //p' "$__queue/capped.conf")" >&2; }`,
+	` __cores=$(sed -n 's/^cores = //p' "$__queue/capped.conf"); [ -n "$__cores" ] && export CARGO_BUILD_JOBS="$__cores";`,
+	` printf 'Runs beside a VM check, so its Nix builds are held to %s at once, of %s cores each, and cargo to %s jobs.\\n' "$(sed -n 's/^max-jobs = //p' "$__queue/capped.conf")" "$__cores" "$__cores" >&2; unset __cores; }`,
 ].join("");
 
 /** Seconds a wait lasts before the shell says it waited. */

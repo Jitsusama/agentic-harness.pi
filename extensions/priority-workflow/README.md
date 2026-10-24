@@ -95,8 +95,10 @@ is a vm-check.
   most about 8 cores, or `cores = 2` after a VM failed beside one. The cap is a settings file put first in
   `NIX_USER_CONF_FILES`, ahead of the files Nix reads anyway, so the
   person's nix.conf still holds and an inline `NIX_CONFIG` can't drop
-  it; the daemon honours it since the account is a trusted user. The
-  call's output says it ran capped, and `queue.json` marks the job
+  it; the daemon honours it since the account is a trusted user.
+  cargo is held to the same cores through `CARGO_BUILD_JOBS`, which a
+  `-j` on the command still overrides. The call's output says it ran
+  capped, and `queue.json` marks the job
   `capped`, so a VM failing beside one can be traced to it. A build
   from a session on an older harness, whose shell can't read the cap,
   waits for the check instead of running on every core. Other builds
