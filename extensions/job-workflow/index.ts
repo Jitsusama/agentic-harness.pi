@@ -11,8 +11,19 @@
  * any other end of the session stops them.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { showJobs } from "./command.ts";
+import {
+	CUT_OFF_ENTRY,
+	cutOffIn,
+	endedRecord,
+	resumeText,
+	type SignalSource,
+	watchSignals,
+} from "./cut-off.ts";
 import { type JobSession, openSession } from "./lifecycle.ts";
 import { type ShownReports, shownReports } from "./shown.ts";
 import { registerJobsTool } from "./tool.ts";
@@ -58,17 +69,96 @@ function* userTexts(ctx: {
 	}
 }
 
-export default function jobWorkflow(pi: ExtensionAPI) {
+/**
+ * Leave a record that a signal ended the session with work under way,
+ * for the session to be told when it returns (cut-off.ts).
+ */
+function recordCutOff(
+	pi: ExtensionAPI,
+	session: JobSession | undefined,
+	ctx: ExtensionContext,
+): void {
+	let running: boolean;
+	try {
+		running = !ctx.isIdle();
+	} catch {
+		// A context that can't say is taken as idle: a job still says why.
+		running = false;
+	}
+	const jobs = (session?.jobs.list() ?? [])
+		.filter((job) => job.state === "running")
+		.map((job) => ({ id: job.id, label: job.spec.label }));
+	const record = endedRecord(running, jobs, Date.now());
+	if (record === undefined) return;
+	try {
+		pi.appendEntry(CUT_OFF_ENTRY, record);
+	} catch {
+		// A session that can't be written as it ends is read on its return
+		// from where its log stops, as a killed one is.
+	}
+}
+
+/** Give a returning session a turn when the machine cut it off. */
+function resumeIfCutOff(session: JobSession, ctx: ExtensionContext): void {
+	let branch: readonly unknown[];
+	try {
+		branch = ctx.sessionManager.getBranch();
+	} catch {
+		// No history to read: nothing to resume.
+		return;
+	}
+	const cut = cutOffIn(branch);
+	if (cut === undefined) return;
+	session.outbox.post({
+		jobId: "cut-off",
+		label: "the machine ended this session",
+		text: resumeText(cut, clockTime),
+	});
+}
+
+/** Why a session started, when it may be one the machine cut off. */
+const RETURNS = new Set(["startup", "resume"]);
+
+/** A time as the person's clock says it, hours and minutes. */
+const clockTime = (at: number) =>
+	new Date(at).toLocaleTimeString([], {
+		hour: "2-digit",
+		minute: "2-digit",
+		hour12: false,
+	});
+
+/** Where the extension hears signals; the process unless a test says. */
+export interface JobWorkflowOptions {
+	readonly signals?: SignalSource;
+}
+
+export default function jobWorkflow(
+	pi: ExtensionAPI,
+	options: JobWorkflowOptions = {},
+) {
 	let session: JobSession | undefined;
 	let shown: ShownReports = shownReports([]);
+	let signals: ReturnType<typeof watchSignals> | undefined;
 
 	pi.on("session_start", (event, ctx) => {
 		session?.close();
 		session = openSession(pi, ctx, event.reason);
 		shown = shownReports(userTexts(ctx));
+		signals?.stop();
+		signals = watchSignals(options.signals ?? process);
+		if (RETURNS.has(event.reason)) resumeIfCutOff(session, ctx);
 	});
 
-	pi.on("session_shutdown", (event) => {
+	pi.on("session_shutdown", async (event, ctx) => {
+		if (event.reason === "quit") {
+			// pi's own signal listener starts the shutdown before the rest
+			// are called, so the signal is heard only once this yields. pi
+			// awaits this handler before it aborts the run.
+			await new Promise((resolve) => setImmediate(resolve));
+			if (signals?.signalled()) recordCutOff(pi, session, ctx);
+		}
+		signals?.stop();
+		signals = undefined;
 		if (event.reason === "reload") session?.park();
 		else session?.close();
 		session = undefined;
