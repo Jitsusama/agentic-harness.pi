@@ -131,6 +131,13 @@ reload starts takes them over on `session_start` with reason
   a reload onto code from before this, or one whose job-workflow
   failed to load. The key carries a version, and a change to what is
   handed over takes a new one.
+- **The registry stays the code that first built it.** A session
+  that started before a registry method existed holds a registry
+  without it for good, however often it reloads, so the newer code
+  checks for the method before calling it. The `jobs` tool stops a job
+  in a registry without `stopForAgent` through the person's `stop`: the
+  work and its process group go the same way, but a message saying the
+  person stopped it follows, and the tool's answer says so.
 
 This is what keeps a 50-minute build, a fleet or heavy work waiting
 its turn in the machine's queue alive through a reload: a bash
