@@ -73,6 +73,30 @@ function linkTo(link: string, target: string): string | undefined {
 	return link;
 }
 
+/** The variable that names the quest a command's work is for. */
+export const QUEST_ENV = "PI_QUEST";
+
+/**
+ * What the loaded quest's commands carry: the quest's id, which the
+ * machine reads to share CPU and disk by quest, and its `TMPDIR`.
+ * The id stays when the temp folder can't be made, since a command
+ * that keeps its files elsewhere still does the quest's work.
+ */
+export function questCommandEnvironment(
+	workspaceRoot: string,
+	questId: string | null,
+	linkRoot: string = systemTemp(),
+): Record<string, string> | undefined {
+	if (!questId) return undefined;
+	let tmp: string | undefined;
+	try {
+		tmp = questTempDir(workspaceRoot, questId, linkRoot);
+	} catch {
+		tmp = undefined;
+	}
+	return { [QUEST_ENV]: questId, ...(tmp ? { TMPDIR: tmp } : {}) };
+}
+
 /**
  * The `TMPDIR` for a quest's commands, made on first need: a short link
  * to its workspace's `tmp/`, or the `tmp/` itself when the link cannot

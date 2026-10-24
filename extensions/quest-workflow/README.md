@@ -101,10 +101,18 @@ while it waits its turn leaves without running.
   adopts that tree and goes ahead, and a homeless write is
   refused with `tree-add`. Across stages, `/dev` nodes
   always flow. The agent's commands run with `TMPDIR` set
-  to `/tmp/pi-<ID>`, a link to the loaded quest's workspace
+  to `/tmp/pi-quest-<ID>`, a link to the loaded quest's workspace
   `tmp/`, which conclude and retire clear; a path named in
   system temp is refused with that remedy. Bash targets resolve as the shell
   would, so `~` is the home directory and a `cd` counts.
+- Sharing the machine by quest: the agent's commands and
+  subagents carry `PI_QUEST`, the loaded quest's id, and on
+  Linux every session keeps `$XDG_RUNTIME_DIR/jobs/quests.json`,
+  each open quest's id to a cgroup weight by its priority
+  (driving 400, active 200, queued 100, bench 50, someday 25),
+  rewritten at session start and after a quest action when it
+  would change. A machine that sorts work into a cgroup per
+  quest reads both; elsewhere nothing reads them.
 - Edits to a document's body: `journal` adds a dated
   Journey entry, to the quest `id` names or else the loaded
   one, `tick` and `untick` set a checkbox item by

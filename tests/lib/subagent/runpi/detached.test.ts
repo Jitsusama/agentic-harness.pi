@@ -3,6 +3,7 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { offerShellEnvironment } from "../../../../lib/internal/shell/environment.ts";
 import { ReviewerArtifactsStore } from "../../../../lib/subagent/artifacts.ts";
 import {
 	type LeaseRecord,
@@ -75,6 +76,35 @@ describe("starting a reviewer that outlives the session", () => {
 			"ignore",
 		]);
 		expect(noted.unrefs()).toBe(1);
+	});
+
+	it("gives it what the session offers its commands, such as the quest", async () => {
+		// Its work counts for the quest that started it, which the
+		// machine reads from its environment to share CPU and disk.
+		const noted = noteSpawn();
+		const stateDir = await tempStateDir();
+		const startPi = createSupervisorStartPi({
+			piInstall: { node: process.execPath, entry: "child.mjs" },
+			stateDir,
+			spawn: noted.spawn,
+		});
+
+		offerShellEnvironment("test", () => ({ PI_QUEST: "QEST-20261024-ABC123" }));
+		try {
+			await startPi({
+				args: [],
+				cwd: stateDir,
+				runId: "run",
+				reviewerId: "one",
+			});
+		} finally {
+			offerShellEnvironment("test", undefined);
+		}
+
+		expect(noted.calls[0]?.options.env).toMatchObject({
+			PI_QUEST: "QEST-20261024-ABC123",
+			PATH: process.env.PATH,
+		});
 	});
 
 	it("reports the pid, so a collect can tell it is still running", async () => {

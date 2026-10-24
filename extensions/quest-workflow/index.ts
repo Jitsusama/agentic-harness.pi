@@ -89,7 +89,7 @@ import {
 	isListingDetails,
 	renderListingExpanded,
 } from "./render-rows.ts";
-import { questTempDir } from "./scratch.ts";
+import { questCommandEnvironment } from "./scratch.ts";
 import {
 	endReasonForShutdown,
 	lostSessionCount,
@@ -101,6 +101,7 @@ import {
 import { createQuestState, type QuestState } from "./state.ts";
 import { handle, type QuestToolParams } from "./transitions.ts";
 import { currentSessionId, isPersistedSession } from "./verbs/shared.ts";
+import { keepQuestWeights } from "./weights.ts";
 import { defaultWorkspaceRoot } from "./workspace.ts";
 
 /** What an `agent_before_settle` handler may return, as pi 0.87 defines it. */
@@ -153,12 +154,13 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 	// So the working layer does not reclaim a tree a quest is holding.
 	answerTreeClaims(pi, questsRoot);
 
-	// The agent's temporary files go where the loaded quest reaps them.
-	// Asked as each command starts, so loading another quest moves them.
-	offerShellEnvironment("quest-workflow", () => {
-		const dir = questTempDir(defaultWorkspaceRoot(), state.questId);
-		return dir ? { TMPDIR: dir } : undefined;
-	});
+	// The agent's commands name the loaded quest, so the machine can
+	// share itself by quest, and their temporary files go where that
+	// quest reaps them. Asked as each command starts, so loading another
+	// quest moves both.
+	offerShellEnvironment("quest-workflow", () =>
+		questCommandEnvironment(defaultWorkspaceRoot(), state.questId),
+	);
 
 	pi.registerTool({
 		name: "quest",
@@ -626,6 +628,8 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			updateScoreboard(state, ctx);
 		}
 		persist(state, pi, ctx);
+		// A quest action can change what a quest's work is weighted by.
+		if (event.toolName === "quest") keepQuestWeights(state.questsRoot);
 		const broke = watch.after(event.toolCallId);
 		if (broke) {
 			return { content: [...event.content, { type: "text", text: broke }] };
@@ -680,6 +684,9 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			];
 			asideFor(ctx)(lines.join("\n"));
 		}
+		// From the walk just made, so it costs a look, and it catches a
+		// priority edited by hand while no session was running.
+		keepQuestWeights(state.questsRoot);
 
 		// Resolve which quest to load through the one startup
 		// pipeline: an explicit spawn request wins, then this
