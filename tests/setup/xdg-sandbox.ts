@@ -39,6 +39,9 @@ process.env.XDG_STATE_HOME = join(sandbox, "state");
 process.env.XDG_DATA_HOME = join(sandbox, "data");
 process.env.XDG_CACHE_HOME = join(sandbox, "cache");
 process.env.XDG_CONFIG_HOME = join(sandbox, "config");
+// The machine's queue and each quest's weight live in the runtime
+// directory's jobs folder, which every session on the machine reads.
+process.env.XDG_RUNTIME_DIR = join(sandbox, "runtime");
 
 // The desktop is the developer's too: a test that reaches someone
 // through a notification must not put one on their screen.

@@ -12,6 +12,7 @@ import { join } from "node:path";
 import type { Readable, Writable } from "node:stream";
 import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
+import { offerShellEnvironment } from "../../../../lib/internal/shell/environment.ts";
 import { ReviewerArtifactsStore } from "../../../../lib/subagent/artifacts.ts";
 import { UNFINISHED } from "../../../../lib/subagent/reviewer-error.ts";
 import { STDIO_GRACE_MS } from "../../../../lib/subagent/runpi/grace.mjs";
@@ -439,6 +440,40 @@ describe("createSupervisorRunPi", () => {
 
 		expectRan(result);
 		expect(result.finalAssistantText).toBe(pinned);
+	});
+
+	it("gives the child what the session offers its commands, such as the quest", async () => {
+		// The machine shares CPU and disk by quest, sorting each piece of
+		// work by the quest its environment names. A subagent's work is
+		// its session's quest's work, so the child carries it too.
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "child.mjs");
+		await writeFile(
+			childPath,
+			`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:String(process.env.PI_QUEST)}]}})+"\\n");`,
+		);
+		const runPi = createSupervisorRunPi({
+			piInstall: { node: process.execPath, entry: childPath },
+			stateDir,
+			idleTimeoutMs: GENEROUS_MS,
+			timeoutMs: GENEROUS_MS,
+		});
+
+		offerShellEnvironment("test", () => ({ PI_QUEST: "QEST-20261024-ABC123" }));
+		let result: Awaited<ReturnType<typeof runPi>>;
+		try {
+			result = await runPi({
+				args: [],
+				cwd: stateDir,
+				runId: "run",
+				reviewerId: "fast",
+			});
+		} finally {
+			offerShellEnvironment("test", undefined);
+		}
+
+		expectRan(result);
+		expect(result.finalAssistantText).toBe("QEST-20261024-ABC123");
 	});
 
 	it("persists the reviewer session and reports the minted session path", async () => {

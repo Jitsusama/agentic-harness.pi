@@ -5,6 +5,7 @@ import {
 } from "node:child_process";
 import { readFile, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { offeredShellEnvironment } from "../../internal/shell/environment.ts";
 import {
 	ReviewerArtifactsStore,
 	type ReviewerRunPaths,
@@ -198,6 +199,7 @@ export function createSupervisorStartPi(
 			[where.script, paths.requestPath],
 			{
 				cwd: options.cwd,
+				env: supervisorEnvironment(),
 				// Its own process group. A child in the session's group
 				// takes the session's signals, so the interrupt that ends a
 				// pi session would end the round with it, which is the
@@ -237,6 +239,16 @@ export function createSupervisorStartPi(
 			requestPath: paths.requestPath,
 		};
 	};
+}
+
+/**
+ * What a supervisor and its reviewer run with: pi's own environment
+ * and what the session offers its commands, such as the loaded quest.
+ * A subagent does its session's work, so the machine counts it for the
+ * same quest.
+ */
+function supervisorEnvironment(): NodeJS.ProcessEnv {
+	return { ...process.env, ...offeredShellEnvironment() };
 }
 
 /** Where the supervisor script is and what runs it. */
@@ -352,6 +364,7 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 				[supervisorPath, paths.requestPath],
 				{
 					cwd,
+					env: supervisorEnvironment(),
 					detached: false,
 					stdio: ["ignore", "pipe", "pipe"],
 				},

@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	questCommandEnvironment,
 	questTempDir,
 	TEMP_LINK_PREFIX,
 } from "../../../extensions/quest-workflow/scratch.ts";
@@ -98,5 +99,28 @@ describe("a quest's TMPDIR", () => {
 
 	it("is nothing without a quest", () => {
 		expect(questTempDir(workspaces, null, links)).toBeUndefined();
+	});
+});
+
+describe("what a quest's commands carry", () => {
+	// The machine shares CPU and disk by quest: what sorts a command
+	// into its quest's cgroup reads the quest from its environment.
+	it("names the quest and its TMPDIR", () => {
+		expect(questCommandEnvironment(workspaces, QUEST, links)).toEqual({
+			PI_QUEST: QUEST,
+			TMPDIR: join(links, `${TEMP_LINK_PREFIX}${QUEST}`),
+		});
+	});
+
+	it("names the quest even when its temp folder can't be made", () => {
+		writeFileSync(workspaces, "not a folder");
+
+		expect(questCommandEnvironment(workspaces, QUEST, links)).toEqual({
+			PI_QUEST: QUEST,
+		});
+	});
+
+	it("is nothing without a quest", () => {
+		expect(questCommandEnvironment(workspaces, null, links)).toBeUndefined();
 	});
 });

@@ -5,9 +5,10 @@
  * the damage shows up later in the developer's own tooling.
  */
 
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { cacheDir, dataDir, stateDir } from "../../lib/internal/paths";
+import { machineQueueDir } from "../../lib/internal/priority/folder";
 
 describe("the test suite's XDG sandbox", () => {
 	it("resolves every directory outside the developer's home", () => {
@@ -22,5 +23,16 @@ describe("the test suite's XDG sandbox", () => {
 		]) {
 			expect(path.startsWith(homedir())).toBe(false);
 		}
+	});
+
+	it("keeps the machine's own jobs folder out of reach", () => {
+		// Every session's quest extension writes each quest's weight into
+		// the jobs folder, which the machine reads to share itself by
+		// quest. A test starting that extension must not replace the
+		// machine's real weights with its throwaway quests'.
+		const queue = machineQueueDir() ?? "";
+
+		expect(queue.startsWith("/run/user/")).toBe(false);
+		expect(queue.startsWith(tmpdir())).toBe(true);
 	});
 });

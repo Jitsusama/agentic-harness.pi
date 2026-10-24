@@ -83,6 +83,21 @@ describe("a wait on a hold", () => {
 		expect(own.leases).toEqual([]);
 	});
 
+	it("ends once, however many looks overlap", async () => {
+		// The session looks on a clock that doesn't wait for the last
+		// look, which reads the census in between. Under load two looks
+		// both saw the wait before either released it, and the peer was
+		// told "[77d257a1] or [77d257a1] was over".
+		const { at, from, mine } = leasing();
+		const hold = from({ intent: "hold", text: "hold qemu" });
+		at.sent(mine({ re: hold.id, text: "waiting" }));
+		const late = Date.now() + MOST_HOLD_MS;
+
+		const looks = await Promise.all([at.lapsed(late), at.lapsed(late)]);
+
+		expect(looks.flat().map((end) => end.hold.id)).toEqual([hold.id]);
+	});
+
 	it("moves to the hold that replaces it, and ends with that one", () => {
 		const { at, own, from, mine } = leasing();
 		const hold = from({ intent: "hold", text: "hold qemu" });

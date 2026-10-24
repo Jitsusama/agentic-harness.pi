@@ -388,7 +388,10 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 						? "its holder has ended"
 						: undefined;
 				if (!how) continue;
-				own.release("wait", wait.subject);
+				// Only the look that releases the wait tells it. Looks overlap
+				// across the census read above, and another may have ended it
+				// since this one listed it.
+				if (!own.release("wait", wait.subject)) continue;
 				if (hold) {
 					ends.push({
 						hold,
