@@ -60,7 +60,11 @@ What it adds:
 Before it moves, Escape stops it as always. After it moves, `/jobs`
 stops it for the person, the `jobs` tool's `stop` for the agent, and
 the session ending too. Each kills the command's whole process group,
-children and grandchildren alike; the hand-off answer tells the agent
+children and grandchildren alike. On Linux it also kills whatever left
+that group, as `timeout`, `setsid` and some build clients do: every
+command's environment carries a mark of its own in `PI_BASH_CALL`, and
+a stop or a timeout kills every process still carrying it. A command
+that ends by itself keeps what it left running. The hand-off answer tells the agent
 to use the tool and never to kill the shell by hand, which would leave
 what the command started running. A reload does not: the
 command keeps running, and its result arrives in the reloaded session
