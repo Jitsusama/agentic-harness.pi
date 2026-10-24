@@ -193,6 +193,34 @@ describe("an action that cannot honour a dry run", () => {
 	});
 });
 
+describe("an undo given an id", () => {
+	// undo reverses the journal's last entry, whatever it is named. On 24
+	// October an undo given a plan's id, meant for a section write that
+	// undo cannot reverse, reopened another session's concluded quest.
+	it("refuses an id the last change did not touch, saying what it would undo", async () => {
+		const { run, planId, questId, otherId, snapshot } = await world();
+		const before = snapshot();
+
+		for (const id of [planId, questId]) {
+			const result = refused(await run({ action: "undo", id }));
+			expect(result.guidance).toContain(id);
+			expect(result.guidance).toContain(otherId);
+			expect(result.guidance).toContain("conclude");
+			expect(result.guidance).toContain("section");
+		}
+
+		expect(snapshot()).toEqual(before);
+	});
+
+	it("undoes the last change when the id is one it touched", async () => {
+		const { run, otherId } = await world();
+
+		succeeded(await run({ action: "undo", id: otherId }));
+
+		expect(read(readmeOf(otherId))).not.toContain("status: concluded");
+	});
+});
+
 describe("an action that honours a dry run", () => {
 	it("still previews a sweep of quests not loaded here", async () => {
 		const { run, state, questId, snapshot } = await world();

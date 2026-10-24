@@ -16,6 +16,10 @@
  * Only `dryRun` is held to this. An ignored `force`, `limit` or `note`
  * does less than the caller asked, or nothing; an ignored `dryRun` does
  * more, and destroys what the caller was trying to keep.
+ *
+ * An undo's `id` is held to it the same way, since undo reverses the
+ * last structural change whatever it is named: see
+ * {@link refuseUndoElsewhere}.
  */
 
 import {
@@ -74,6 +78,29 @@ export function refuseIgnoredDryRun(
 	}
 	return refuse(
 		`${params.action} has no dry run and would have acted for real, so nothing was done. Call it without dryRun when you mean it. ${WHAT_PREVIEWS}`,
+	);
+}
+
+/**
+ * The refusal for an undo naming an id the journal's last change did not
+ * touch, or nothing. undo reverses that change whatever it is given: on
+ * 24 October one given a plan's id, meant for a section write, reopened
+ * another session's concluded quest. Only structural changes (status,
+ * priority, parent, order and the like) are journalled, so a document's
+ * body writes are never undone.
+ */
+export function refuseUndoElsewhere(
+	params: QuestToolParams,
+	questsRoot: string,
+): QuestResult | undefined {
+	const id = params.id?.trim();
+	if (params.action !== "undo" || !id) return undefined;
+	const last = lastStructuralOp(questsRoot);
+	if (!last || last.changes.some((change) => change.id === id)) {
+		return undefined;
+	}
+	return refuse(
+		`Nothing was undone: undo reverses only the last structural change, and that one did not touch ${id}. It is ${undoing(last)} Writes by section, journal, tick and untick are not journalled, so undo never reverses them; restore those from a backup. Call undo without an id only if reversing that last change is what you want.`,
 	);
 }
 
