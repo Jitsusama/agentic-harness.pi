@@ -12,12 +12,36 @@
  *
  * A stop the tool answered is not said again as a message: the call's
  * own answer is how the agent hears it.
+ *
+ * A reload hands the session's registry on as it is (see carry.ts), so a
+ * session that started before this tool holds an older registry for the
+ * rest of its life. That one has no `stopForAgent`; it is stopped through
+ * the person's `stop`, which every registry has, and which still aborts
+ * the work, killing the process group the same way.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { asText, renderToolCall } from "../../lib/ui/index.ts";
-import type { JobEntry, Jobs } from "./jobs.ts";
+import type { AgentStop, JobEntry, Jobs } from "./jobs.ts";
+
+/** A registry as any version built it: older ones lack `stopForAgent`. */
+export type CarriedJobs = Omit<Jobs, "stopForAgent"> &
+	Partial<Pick<Jobs, "stopForAgent">>;
+
+/** How a stop went: an older registry's stop is the person's, said as one. */
+type Stop = AgentStop | "stopped-as-person";
+
+/** Stop `id` through whichever stop the registry has. */
+function stopIn(jobs: CarriedJobs | undefined, id: string): Stop {
+	if (!jobs) return "unknown";
+	if (typeof jobs.stopForAgent === "function") return jobs.stopForAgent(id);
+	const entry = jobs.list().find((job) => job.id === id);
+	if (!entry) return "unknown";
+	if (entry.state === "finished") return "finished";
+	jobs.stop(id);
+	return "stopped-as-person";
+}
 
 /** A tool answer: text, and whether it is a refusal. */
 function answer(text: string, refused = false) {
@@ -38,7 +62,7 @@ function line(entry: JobEntry): string {
 /** Register `jobs`, reading the session's jobs at each call. */
 export function registerJobsTool(
 	pi: ExtensionAPI,
-	jobsNow: () => Jobs | undefined,
+	jobsNow: () => CarriedJobs | undefined,
 ): void {
 	pi.registerTool({
 		name: "jobs",
@@ -92,7 +116,7 @@ export function registerJobsTool(
 			}
 			const id = params.id.trim();
 			const entry = jobs?.list().find((job) => job.id === id);
-			const outcome = jobs?.stopForAgent(id) ?? "unknown";
+			const outcome = stopIn(jobs, id);
 			if (outcome === "unknown") {
 				return answer(
 					`Nothing was stopped: this session holds no job ${id}. Call jobs list to see the ones it does; a job another session started is that session's to stop.`,
@@ -106,9 +130,13 @@ export function registerJobsTool(
 				);
 			}
 			const what = entry ? ` (${entry.spec.kind}: ${entry.spec.label})` : "";
-			return answer(
-				`Stopped ${id}${what}. Its work was told to stop; a shell job's whole process group is killed, grandchildren included. Nothing more will be said about it.`,
-			);
+			const stopped = `Stopped ${id}${what}. Its work was told to stop; a shell job's whole process group is killed, grandchildren included.`;
+			if (outcome === "stopped-as-person") {
+				return answer(
+					`${stopped} This session's jobs came over a reload from older code, so a message saying the person stopped it follows; that message is this stop, not another.`,
+				);
+			}
+			return answer(`${stopped} Nothing more will be said about it.`);
 		},
 	});
 }
