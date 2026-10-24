@@ -169,7 +169,10 @@ describe("a real command handed off", () => {
 		const events = createEventBus();
 		const first = jobRuntime(events);
 		await first.fire("session_start", { reason: "startup" });
-		const marker = `sleep 2.${process.pid}${Date.now() % 1000}`;
+		// Long enough to outlast a reload on a loaded machine, and checked
+		// for once it has started: a check made at once raced the spawn, and
+		// a two-second sleep could end before a slow reload did.
+		const marker = `sleep 4.${process.pid}${Date.now() % 1000}`;
 		const command = `echo started; ${marker}; echo finished`;
 
 		const result = await runOrHandOff({
@@ -183,13 +186,14 @@ describe("a real command handed off", () => {
 				bash.execute("t4", { command }, signal, onUpdate, undefined as never),
 		});
 		expect(textOf(result)).toContain("in the background as job j1");
+		await until(() => running(marker));
 
 		const next = await reloadJobs(events, first);
 		expect(running(marker)).toBe(true);
-		await until(() => next.said.length > 0, 10_000);
+		await until(() => next.said.length > 0, 15_000);
 		expect(next.said[0]).toContain("[job j1]");
 		expect(next.said[0]).toContain("exited 0");
 		expect(next.said[0]).toContain("finished");
 		expect(first.said).toEqual([]);
-	});
+	}, 25_000);
 });
