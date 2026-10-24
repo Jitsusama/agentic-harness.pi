@@ -3,7 +3,11 @@
  */
 import type { ProcessFacts } from "@jitsusama/agentic-harness.core/process";
 import { describe, expect, it } from "vitest";
-import { census, livenessOf } from "../../../lib/mesh/liveness.ts";
+import {
+	census,
+	livenessOf,
+	machineBooted,
+} from "../../../lib/mesh/liveness.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
 
 /** A machine on which these pids run, started at these times. */
@@ -101,5 +105,22 @@ describe("a census", () => {
 		);
 
 		expect(facts.asked).toEqual([40]);
+	});
+});
+
+describe("when the machine booted", () => {
+	it("is the kernel's btime, in milliseconds", () => {
+		const stat = "cpu  1 2 3\nintr 9\nbtime 1792864593\nprocesses 4\n";
+
+		expect(machineBooted(() => stat)).toBe(1792864593000);
+	});
+
+	it("is nothing where the machine will not say", () => {
+		expect(machineBooted(() => "cpu  1 2 3\n")).toBeUndefined();
+		expect(
+			machineBooted(() => {
+				throw new Error("ENOENT: /proc/stat");
+			}),
+		).toBeUndefined();
 	});
 });

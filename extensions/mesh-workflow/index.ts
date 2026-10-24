@@ -84,7 +84,7 @@ import {
 	ownLeases,
 	RUN_KINDS,
 } from "../../lib/mesh/lease.ts";
-import { census } from "../../lib/mesh/liveness.ts";
+import { census, machineBooted } from "../../lib/mesh/liveness.ts";
 import { isHomeTo, type Message, reaches } from "../../lib/mesh/message.ts";
 import { localPeer, type Peer } from "../../lib/mesh/peer.ts";
 import { createPresences } from "../../lib/mesh/presence.ts";
@@ -265,6 +265,7 @@ export function meshWorkflow(
 			peer: () => peer,
 			sent: (message) => seen.add(message.id),
 			queueKept: () => queueKept(env),
+			booted: () => machineBooted(),
 		});
 		// The sessions last counted still there, so a quest's address is
 		// left only to a peer that is (see address.ts).
@@ -826,6 +827,8 @@ export function meshWorkflow(
 			resumes = createActs(peer.session, settling, resumed);
 			// Its holds and waits outlive a reload; what a run claimed does not.
 			own = ownLeases(board, peer.session);
+			// Restored after a reboot, nothing it claimed is under way.
+			leasing.forgetEarlierBoots();
 			for (const event of unowned.splice(0)) claim(event);
 			clearInterval(waitClock);
 			waitClock = undefined;

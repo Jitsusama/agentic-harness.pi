@@ -70,7 +70,8 @@ export interface StandingHold {
 /**
  * The holds standing on the board that reach this listener, oldest
  * first: a hold is a lease its holder keeps until it answers or replaces
- * it, or for two hours at most.
+ * it, or for two hours at most, and never past the boot it was taken
+ * in, when the machine says when it `booted`.
  */
 export function holdsReaching(
 	board: readonly Holding[],
@@ -78,11 +79,15 @@ export function holdsReaching(
 	listener: Listener,
 	pid: number,
 	now: number,
+	booted?: number,
 ): StandingHold[] {
 	return board
 		.flatMap((holding) =>
 			holding.leases.filter(
-				(lease) => lease.kind === "hold" && isCurrent(lease, now),
+				(lease) =>
+					lease.kind === "hold" &&
+					isCurrent(lease, now) &&
+					!(booted !== undefined && Date.parse(lease.since) < booted),
 			),
 		)
 		.flatMap((lease) => {

@@ -94,6 +94,19 @@ describe("the holds reaching a peer", () => {
 		).toEqual(["a-1", "b-2"]);
 	});
 
+	it("leave out a hold taken before the machine booted", () => {
+		// A holder the reboot ended and nobody restored keeps its lease on
+		// the board, which held back every hand's heavy work for two hours.
+		const listener = { addresses: ["LUQ49E"], groups: [] };
+
+		expect(holdsReaching(board, read, listener, 7, at, at + 1)).toEqual([]);
+		expect(
+			holdsReaching(board, read, listener, 7, at, at).map(
+				({ hold }) => hold.id,
+			),
+		).toEqual(["a-1", "b-2"]);
+	});
+
 	it("include one sent to its home group", () => {
 		const home = [
 			{ session: "holder", leases: [hold("home")] },

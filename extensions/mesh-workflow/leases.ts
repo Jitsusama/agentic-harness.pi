@@ -112,6 +112,11 @@ export interface LeaseSurroundings {
 	 * itself and two peers' running at once needs no word between them.
 	 */
 	queueKept?(): boolean;
+	/**
+	 * When the machine booted, in milliseconds, or nothing where it will
+	 * not say: nothing anybody started before then is still under way.
+	 */
+	booted?(): number | undefined;
 }
 
 export interface Leasing {
@@ -143,6 +148,11 @@ export interface Leasing {
 	lapsed(now?: number): Promise<HoldEnd[]>;
 	/** Heavy work this peer starts or stops; what to say when it overlaps. */
 	heavy(event: LeaseEvent): Promise<string | undefined>;
+	/**
+	 * Let go of what this peer claimed before the machine last booted,
+	 * but its waits, which end by `lapsed` so it hears they are over.
+	 */
+	forgetEarlierBoots(): void;
 }
 
 export function createLeasing(at: LeaseSurroundings): Leasing {
@@ -379,14 +389,19 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 			const waits = own.leases.filter((lease) => lease.kind === "wait");
 			if (waits.length === 0) return [];
 			const { present, gone } = await standing();
+			const booted = at.booted?.();
 			const ends: HoldEnd[] = [];
 			for (const wait of waits) {
 				const hold = at.transport.read(wait.subject);
+				// A holder restored after a reboot answers at its old address,
+				// so it is not gone, but what it held off was the machine's.
 				const how = !isCurrent(wait, now)
 					? "it has stood two hours, as long as a hold lasts"
-					: hold && heldByGone(hold.from, present, gone)
-						? "its holder has ended"
-						: undefined;
+					: hold && booted !== undefined && Date.parse(hold.at) < booted
+						? "the machine has restarted since it was sent"
+						: hold && heldByGone(hold.from, present, gone)
+							? "its holder has ended"
+							: undefined;
 				if (!how) continue;
 				// Only the look that releases the wait tells it. Looks overlap
 				// across the census read above, and another may have ended it
@@ -402,6 +417,17 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 				}
 			}
 			return ends;
+		},
+
+		forgetEarlierBoots() {
+			const own = at.own();
+			const booted = at.booted?.();
+			if (!own || booted === undefined) return;
+			for (const lease of own.leases) {
+				if (lease.kind !== "wait" && Date.parse(lease.since) < booted) {
+					own.release(lease.kind, lease.subject);
+				}
+			}
 		},
 
 		async heavy(event) {

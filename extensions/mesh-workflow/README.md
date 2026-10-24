@@ -303,12 +303,16 @@ doing only when it is the easy thing:
   the run.
 - **hold:** a hold sent claims what it holds, until its sender
   answers (`re`) or replaces (`supersedes`) it, or for two
-  hours at most.
+  hours at most. No lease outlives the boot it was taken in:
+  a session restored after a reboot lets go of what it
+  claimed before, and a hand is not held by a hold from then.
 - **wait:** answering another peer's hold says this peer waits
   on it, so the holder sees what waits. When the holder answers
   or replaces it (a hold replacing it moves the wait to the new
-  one), when the holder has ended, or when it has stood two
-  hours, the waiting peer is handed the hold back with how it
+  one), when the holder has ended, when the machine has
+  restarted since it was sent (a restored holder answers at
+  its old address, so it is not gone), or when it has stood
+  two hours, the waiting peer is handed the hold back with how it
   ended: a turn when idle, a note mid-run. Only a hold its
   holder said was over comes with leave to carry on; one that
   lapsed or lost its holder says nobody said so, and to check
