@@ -350,7 +350,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			dryRun: Type.Optional(
 				Type.Boolean({
 					description:
-						"reparent and bulk conclude/retire: say what would change, writing nothing (undo reverses the last applied one). spawn and restore: say what would open where, and which setting chose it, opening nothing.",
+						"reparent, and conclude/retire of quests not loaded here: say what would change, writing nothing. spawn and restore: say what would open where, and which setting chose it, opening nothing. Every other action, and conclude/retire of the loaded quest or a document, refuses it and does nothing.",
 				}),
 			),
 			limit: Type.Optional(
