@@ -343,7 +343,8 @@ describe("a command that rewrites a checkout", () => {
 			expect(rewriteIn(command, main), command).toBeUndefined();
 		}
 		expect(
-			rewriteIn(`cd $C && cd ${other} && git rebase origin/main`, main)?.checkout,
+			rewriteIn(`cd $C && cd ${other} && git rebase origin/main`, main)
+				?.checkout,
 		).toBe(other);
 	});
 });
