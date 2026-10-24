@@ -24,7 +24,7 @@
 
 import { randomBytes } from "node:crypto";
 import { type QueueFolder, UNKEPT_MS } from "./folder.ts";
-import { type Job, kindOf, needsGibOf, stepOf, whatOf } from "./queue.ts";
+import { type Job, kindOf, needsGibOfCommand, whatOf } from "./queue.ts";
 import type { Reading } from "./room.ts";
 
 /** What a session's queue is kept with, set while the session runs. */
@@ -117,7 +117,7 @@ export function queuedCommand(command: string): string {
 		id: `${now.toString(36)}-${randomBytes(4).toString("hex")}`,
 		kind,
 		what,
-		needsGib: needsGibOf({ kind, what: stepOf(command) }),
+		needsGib: needsGibOfCommand(kind, command),
 		owner: { session: queueing.session, pid: queueing.pid },
 		since: new Date(now).toISOString(),
 		cappable: true,

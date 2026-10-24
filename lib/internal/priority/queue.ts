@@ -87,9 +87,11 @@ export const EVALUATION_GIB = 20;
 /**
  * core.nix's changed-checks, run as a command rather than named as a
  * file: it evaluates every check twice, at the base and in the tree,
- * then builds what moved, VM tests too unless told `--no-vm`.
+ * then builds what moved, VM tests too unless told `--no-vm`. Run from
+ * a `bin` folder too, as `$out/bin/changed-checks` runs a build of it,
+ * but never a file or folder named after it, such as its crate's.
  */
-const CHANGED_CHECKS = /(?<![\w./-])changed-checks(?![\w.-])/;
+const CHANGED_CHECKS = /(?:(?<![\w./-])|(?<=\/bin\/))changed-checks(?![\w./-])/;
 
 /**
  * What evaluating every check's derivation at once holds, in GiB: it
@@ -578,12 +580,32 @@ const ASSIGNMENTS =
  * named, and the build beside it was held to that tool's memory.
  */
 export function stepOf(command: string): string {
-	const steps = command
+	const steps = stepsOf(command);
+	return steps.find((one) => kindOf(one) !== undefined) ?? steps[0] ?? "";
+}
+
+/**
+ * The memory a command of `kind` is held to need, in GiB: its heaviest
+ * step's, not its first's. Y9XISP's on 24 October built changed-checks
+ * and then ran it, and was held to the build's 4 GiB while the tool
+ * used 11.8.
+ */
+export function needsGibOfCommand(kind: Kind, command: string): number {
+	return Math.max(
+		needsGibOf({ kind, what: stepOf(command) }),
+		...stepsOf(command)
+			.filter((step) => kindOf(step) !== undefined)
+			.map((step) => needsGibOf({ kind, what: step })),
+	);
+}
+
+/** A command's steps, each whole, never a line of a heredoc. */
+function stepsOf(command: string): string[] {
+	return command
 		.replace(HEREDOC, "\n")
 		.split(STEPS)
 		.map((step) => step.replace(ASSIGNMENTS, "").trim())
 		.filter((step) => step !== "");
-	return steps.find((one) => kindOf(one) !== undefined) ?? steps[0] ?? "";
 }
 
 /** How long a job's `what` may be before it is cut. */

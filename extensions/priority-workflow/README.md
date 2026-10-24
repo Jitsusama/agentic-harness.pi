@@ -93,8 +93,10 @@ so once its checks come from the cache it is a build again.
   one. The VMs are counted from the
   machine's processes as well as the queue, so a check picked from a
   variable, or a VM a session runs outside the queue, still counts.
-  A job's need is judged from its whole step as it asks, since the
-  `what` it shows is cut at 120 characters.
+  A job's need is its heaviest step's, judged whole as it asks: a
+  command that builds `changed-checks` and then runs it from
+  `$out/bin` needs the tool's memory, not the build's, and the `what`
+  it shows is cut at 120 characters.
   Timed work goes first, then within each class the work of a session
   another is parked on (the mesh says whose, from its wait leases),
   then the oldest; a job memory holds back holds everyone behind it.
