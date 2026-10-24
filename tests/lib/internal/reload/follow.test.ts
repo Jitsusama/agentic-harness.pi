@@ -104,18 +104,23 @@ describe("cameIn", () => {
 
 describe("watchHeads", () => {
 	it("says once when HEAD moves, after the burst of writes settles", async () => {
+		// The burst here is two commits, with an add and a commit run
+		// between their HEAD writes. On a loaded CI runner those took longer
+		// than a 50 ms settle, so the two commits were rightly said as two
+		// bursts. The settle is sized for the gap, not for speed.
+		const burstMs = 1_500;
 		const dir = await repo();
 		const from = await headOf(dir);
 		const seen: Moved[] = [];
-		stops.push(await watchHeads([dir], (moved) => seen.push(moved), 50));
+		stops.push(await watchHeads([dir], (moved) => seen.push(moved), burstMs));
 
 		await commit(dir, "one");
 		await commit(dir, "two");
-		await until("the move is said", () => seen.length > 0);
-		await quietFor(50, 4);
+		await until("the move is said", () => seen.length > 0, 20_000);
+		await quietFor(burstMs, 2);
 
 		expect(seen).toEqual([{ root: dir, from, to: await headOf(dir) }]);
-	});
+	}, 30_000);
 
 	// pi reuses the loaded code when a rollover replaces the session, so
 	// the runtime after it runs code from before a move it never saw.
