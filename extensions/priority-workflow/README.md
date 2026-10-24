@@ -57,13 +57,16 @@ does, so the wait never uses it up (see
 
 | Kind | What it is | Class | Held to need |
 | --- | --- | --- | --- |
-| vm-test | A VM or a test's driver run here | timed | 6 GiB |
+| vm-test | A VM or a test's driver run here, `run-subtests` | timed | 6 GiB |
 | vm-check | A Nix build of a VM test, which the daemon runs | bulk | 6 GiB |
 | benchmark | `cargo bench`, `hyperfine` | timed | 2 GiB |
-| build | Nix builds and checks, `nixos-rebuild`, cargo's builds, `changed-checks`, `nix eval` of every check | bulk | 4 GiB |
+| build | Nix builds and checks, `nixos-rebuild`, `home-manager switch`, `darwin-rebuild`, cargo's builds and tests (aliases, toolchains and flags too), `make -j`, `cmake --build`, `go build` and `go test`, `changed-checks`, `nix-fast-build`, `nix eval` of every check | bulk | 4 GiB |
 
-Work that evaluates a whole flake's checks, `nix flake check` and
-`nix eval` of `#checks`, is held to 20 GiB whatever its kind, since its
+Watchers such as `cargo watch` and `bacon` are left out, since they
+would hold a turn for as long as they watch.
+
+Work that evaluates a whole flake's checks, `nix flake check`,
+`nix-fast-build` and `nix eval` of `#checks`, is held to 20 GiB whatever its kind, since its
 evaluator keeps that heap until it ends; `changed-checks`, which
 reached 24 GB, is held to 24.
 `changed-checks --build` without `--no-vm` builds VM tests too, so it

@@ -72,6 +72,57 @@ describe("the kind of heavy work a command runs", () => {
 		expect(kindOf("nvim changed-checks.nix")).toBeUndefined();
 	});
 
+	it("reads the common forms of heavy work it missed", () => {
+		// 7SU7HB's audit replayed these through kindOf on 23 October and
+		// each ran with no turn, a VM's driver among them.
+		for (const build of [
+			"cargo +nightly build",
+			"cargo --locked build --release",
+			"cargo b",
+			"cargo t -p walgit",
+			"cargo c",
+			"cargo r --bin x",
+			"cargo doc --no-deps",
+			"cargo llvm-cov nextest",
+			"cargo miri test",
+			"cargo insta test",
+			"home-manager switch --flake .",
+			"darwin-rebuild switch --flake .",
+			"nix-fast-build --no-nom",
+			"make -j16",
+			"make -j 8 all",
+			"cmake --build build",
+			"go test ./...",
+			"go build ./cmd/x",
+		]) {
+			expect(kindOf(build), build).toBe("build");
+		}
+		expect(kindOf("cargo +nightly bench")).toBe("benchmark");
+		expect(
+			kindOf(
+				"timeout 3000 nice -n 10 nix develop .#x -c run-subtests vm-desktop",
+			),
+		).toBe("vm-test");
+		expect(needsGibOf(job("fast", { what: "nix-fast-build" }))).toBe(
+			EVALUATION_GIB,
+		);
+		// Watchers hold a turn for as long as they watch, and a one-attribute
+		// evaluation or a plain make is too often trivial to wait behind a build.
+		for (const light of [
+			"cargo watch -x test",
+			"bacon",
+			"cargo fmt",
+			"cargo rm serde",
+			"make",
+			"make install",
+			"go fmt ./...",
+			"home-manager news",
+			"cat run-subtests.py",
+		]) {
+			expect(kindOf(light), light).toBeUndefined();
+		}
+	});
+
 	it("reads a quoted word as the argument it is", () => {
 		expect(
 			kindOf(
