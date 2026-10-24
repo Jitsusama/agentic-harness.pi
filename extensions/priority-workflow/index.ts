@@ -34,6 +34,7 @@ import {
 	floorsIn,
 	isRunning,
 	KERNEL,
+	memoryPeakOf,
 	readRoom,
 } from "../../lib/internal/priority/room.ts";
 import { queueHeavyWork } from "../../lib/internal/priority/turn.ts";
@@ -88,7 +89,7 @@ function keepQueue(pi: ExtensionAPI, own: string | undefined) {
 	// Until VM tests run timed, a build waits while a VM check runs.
 	const folder = queueFolder(
 		dir,
-		{ isRunning, cgroupOf },
+		{ isRunning, cgroupOf, memoryPeakOf: (cgroup) => memoryPeakOf(cgroup) },
 		() => ({ buildsWaitForVmChecks: !hasTimed() }),
 		join(stateDir("priority-workflow"), "outcomes.jsonl"),
 	);

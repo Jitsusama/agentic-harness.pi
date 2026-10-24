@@ -160,6 +160,11 @@ export interface QueueRecord {
 export interface Processes {
 	isRunning(pid: number): boolean;
 	cgroupOf(pid: number): string | undefined;
+	/**
+	 * The most memory a cgroup has held, in bytes, or nothing when it
+	 * can't be read. A reader that never can leaves it out.
+	 */
+	memoryPeakOf?(cgroup: string): number | undefined;
 }
 
 /** The machine's queue folder. */
@@ -342,11 +347,18 @@ export function queueFolder(
 		return (reading.builds ?? []).filter((build) => build.asker === own);
 	};
 
+	/** The most memory a running job's own scope has held, if readable. */
+	const ownPeakOf = (job: Job): number | undefined => {
+		const shell = shellOf(job.id);
+		const own = shell !== undefined ? processes.cgroupOf(shell) : undefined;
+		return own !== undefined ? processes.memoryPeakOf?.(own) : undefined;
+	};
+
 	/**
 	 * Notes in each running job the most that ran beside it, whether its
-	 * builds ran a check with deadlines, and the most memory they held,
-	 * writing its file only when that grew, so a steady queue writes
-	 * nothing.
+	 * builds ran a check with deadlines, and the most memory they and its
+	 * own commands held, writing its file only when that grew, so a steady
+	 * queue writes nothing.
 	 */
 	const noteBeside = (standing: Job[], reading: Reading): Job[] => {
 		const running = standing.filter((job) => job.started !== undefined);
@@ -358,11 +370,17 @@ export function queueFolder(
 			const held = builds.reduce((sum, build) => sum + build.memoryPeak, 0);
 			const peak = Math.max(job.buildsPeakBytes ?? 0, held);
 			const ranTimed = job.ranTimed || builds.some((build) => build.timed);
+			const ownNow = ownPeakOf(job);
+			const own =
+				ownNow === undefined
+					? job.ownPeakBytes
+					: Math.max(job.ownPeakBytes ?? 0, ownNow);
 			const noted: Job = {
 				...job,
 				beside: most,
 				...(ranTimed ? { ranTimed: true } : {}),
 				...(peak > 0 ? { buildsPeakBytes: peak } : {}),
+				...(own !== undefined ? { ownPeakBytes: own } : {}),
 			};
 			if (JSON.stringify(noted) === JSON.stringify(job)) return job;
 			replace(path(job.id, "job"), `${JSON.stringify(noted)}\n`);

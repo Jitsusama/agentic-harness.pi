@@ -204,6 +204,12 @@ export interface Job {
 	 * it adds each build's own peak, and those need not have met.
 	 */
 	readonly buildsPeakBytes?: number;
+	/**
+	 * The most memory its own commands held, in bytes, from its shell's
+	 * scope: the `nix` client's evaluation, cargo, or a VM test run from
+	 * its driver, none of which is a Nix build's.
+	 */
+	readonly ownPeakBytes?: number;
 }
 
 /** What the machine has left, as the queue reads it. */

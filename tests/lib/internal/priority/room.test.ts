@@ -2,7 +2,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { floorsIn, readRoom } from "../../../../lib/internal/priority/room.ts";
+import {
+	floorsIn,
+	memoryPeakOf,
+	readRoom,
+} from "../../../../lib/internal/priority/room.ts";
 
 const GIB = 1024 ** 3;
 
@@ -200,5 +204,18 @@ describe("the machine's room", () => {
 			{ asker: "/jobs.slice/work-71.scope", timed: false, memoryPeak: GIB },
 			{ timed: true, memoryPeak: 0 },
 		]);
+	});
+});
+
+describe("memoryPeakOf", () => {
+	it("reads the most a cgroup has held, and nothing for one gone or keeping none", () => {
+		const cgroups = join(root, "cgroups");
+		const scope = join(cgroups, "jobs.slice", "work-71.scope");
+		mkdirSync(scope, { recursive: true });
+		writeFileSync(join(scope, "memory.peak"), `${3 * GIB}\n`);
+		mkdirSync(join(cgroups, "no-peak.scope"));
+		expect(memoryPeakOf("/jobs.slice/work-71.scope", cgroups)).toBe(3 * GIB);
+		expect(memoryPeakOf("/no-peak.scope", cgroups)).toBeUndefined();
+		expect(memoryPeakOf("/gone.scope", cgroups)).toBeUndefined();
 	});
 });
