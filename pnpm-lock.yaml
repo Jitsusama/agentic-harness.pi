@@ -33,9 +33,6 @@ importers:
       puppeteer-core:
         specifier: ^25.3.0
         version: 25.3.0
-      sqlite3:
-        specifier: ^6.0.1
-        version: 6.0.1
       yaml:
         specifier: ^2.9.0
         version: 2.9.0

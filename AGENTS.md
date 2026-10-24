@@ -11,36 +11,11 @@ The package manager is **pnpm**. `pnpm-lock.yaml` is canonical;
 
 ## Structure
 
-- `lib/`: shared library code, split into public and internal
-  - `lib/ui/`: TUI primitives: panels, prompts, content
-    rendering, navigable lists, text layout (public)
-  - `lib/slack/`: Slack API client, authentication,
-    renderers, resolvers and types (public)
-  - `lib/google/`: Google Workspace API clients,
-    authentication, renderers and types (public)
-  - `lib/clock/`: what a duration bounding a child process may
-    be (public). Its own module because the rules belong to the
-    runner, which is the last place they can be applied, and the
-    first place they are needed is whoever reads a duration out
-    of a config file. One definition, two readers, so a roster
-    cannot accept a clock the runner will then throw over from
-    inside a paid round
-  - `lib/guardian/`: guardian contract, registration and
-    redirect formatting (public)
-  - `lib/shell/`: shell command parsing: flag extraction,
-    heredoc stripping, splitting, quoting (public)
-  - `lib/command/`: lossless, range-indexed command model:
-    tokenize, the caller-spec flag layer, splice-by-range
-    editing and the effective working directory (public)
-  - `lib/jobs/`: the seam between work that runs on after its
-    tool returns and the host that says its result, found over
-    the event bus so a producer never imports the host (public)
-  - `lib/internal/`: not for external use
-    - `guardian/`: commit-specific parsing, entity review
-      and the catalogue every guard is declared from
-    - `github/`: GitHub utilities (CLI parsing, diff,
-      GraphQL, PR identity, review posting)
-    - `state.ts`: session state helpers
+- `lib/`: shared library code in three layers: public modules
+  exported in `package.json`, shared modules the extensions here
+  use but don't export, and `lib/internal/`, which nothing
+  outside the package imports. [`lib/README.md`](./lib/README.md)
+  lists every module and what it is for
 - `extensions/`: Pi extension wiring, organized by
   behavioural contract (see Extension Categories below)
 - `packs/`: extensions loaded into a subagent by path, never
