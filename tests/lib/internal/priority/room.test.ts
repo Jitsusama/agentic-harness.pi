@@ -108,4 +108,40 @@ describe("the machine's room", () => {
 		mkdirSync(join(dir, "qemu-system-x86"));
 		expect(readRoom([], { proc: dir, cgroups: root }).vms).toBe(2);
 	});
+
+	it("counts a check with deadlines in a Nix build as a VM, though no qemu runs in it", () => {
+		const dir = proc(40);
+		const daemon = join(root, "cgroups", "build.slice/nix-daemon.service");
+		const running = (build: string, pids: Record<string, string>) => {
+			mkdirSync(join(daemon, build), { recursive: true });
+			writeFileSync(
+				join(daemon, build, "cgroup.procs"),
+				`${Object.keys(pids).join("\n")}\n`,
+			);
+			for (const [pid, name] of Object.entries(pids)) {
+				mkdirSync(join(dir, pid));
+				writeFileSync(join(dir, pid, "comm"), `${name}\n`);
+			}
+		};
+		// A VM test: its qemu counts it, and its driver doesn't count it again.
+		running("nix-build-uid-1", {
+			"101": ".nixos-test-dri",
+			"102": "qemu-system-x86",
+		});
+		// A container's test, and a nested compositor's, in its container's cgroup.
+		running("nix-build-uid-2", {
+			"201": ".nixos-test-dri",
+			"202": "systemd-nspawn",
+		});
+		running("nix-build-uid-3", { "301": "bash" });
+		running("nix-build-uid-3/payload", { "302": ".niri-wrapped" });
+		// A compiler's build, and Joel's own niri outside the daemon.
+		running("nix-build-uid-4", { "401": "cc1" });
+		mkdirSync(join(dir, "501"));
+		writeFileSync(join(dir, "501", "comm"), "niri\n");
+
+		expect(
+			readRoom([], { proc: dir, cgroups: join(root, "cgroups") }).vms,
+		).toBe(3);
+	});
 });
