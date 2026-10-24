@@ -135,8 +135,14 @@ describe("the machine's room", () => {
 		});
 		running("nix-build-uid-3", { "301": "bash" });
 		running("nix-build-uid-3/payload", { "302": ".niri-wrapped" });
-		// A compiler's build, and Joel's own niri outside the daemon.
+		// A compiler's build, a niri build running its own tests, which cargo
+		// names after the crate and a hash, and Joel's niri outside the daemon.
 		running("nix-build-uid-4", { "401": "cc1" });
+		running("nix-build-uid-5", {
+			"601": "niri-3f2a1b9c0d",
+			"602": "niri_config-ab1",
+			"603": "swaybg",
+		});
 		mkdirSync(join(dir, "501"));
 		writeFileSync(join(dir, "501", "comm"), "niri\n");
 
