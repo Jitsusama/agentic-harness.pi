@@ -23,7 +23,8 @@ export interface JobRuntime {
 	readonly said: string[];
 	/** Whether pi would call the session busy. */
 	readonly state: { busy: boolean; stale: boolean };
-	fire(name: string, event?: unknown): Promise<void>;
+	/** Run its handlers for `name`, answering with the last one that answered. */
+	fire(name: string, event?: unknown): Promise<unknown>;
 	/** Call one of its tools, answering with the text it says. */
 	tool(name: string, params: Record<string, unknown>): Promise<string>;
 	/** What pi does to a runtime once its shutdown has run. */
@@ -42,8 +43,15 @@ interface Tool {
 	) => Promise<{ content: { type: string; text?: string }[] }>;
 }
 
-/** job-workflow loaded into a runtime on `events`, for session `sessionId`. */
-export function jobRuntime(events: EventBus, sessionId = "s1"): JobRuntime {
+/**
+ * job-workflow loaded into a runtime on `events`, for session
+ * `sessionId`, whose history is `branch`.
+ */
+export function jobRuntime(
+	events: EventBus,
+	sessionId = "s1",
+	branch: readonly unknown[] = [],
+): JobRuntime {
 	const handlers = new Map<string, Handler[]>();
 	const tools = new Map<string, Tool>();
 	const said: string[] = [];
@@ -79,7 +87,10 @@ export function jobRuntime(events: EventBus, sessionId = "s1"): JobRuntime {
 	};
 	const ctx = {
 		hasUI: true,
-		sessionManager: { getSessionId: () => sessionId },
+		sessionManager: {
+			getSessionId: () => sessionId,
+			getBranch: () => branch,
+		},
 		isIdle: () => {
 			live();
 			return !state.busy;
@@ -96,9 +107,11 @@ export function jobRuntime(events: EventBus, sessionId = "s1"): JobRuntime {
 		said,
 		state,
 		async fire(name, event = {}) {
+			let answer: unknown;
 			for (const handler of handlers.get(name) ?? []) {
-				await handler(event, ctx);
+				answer = (await handler(event, ctx)) ?? answer;
 			}
+			return answer;
 		},
 		async tool(name, params) {
 			const tool = tools.get(name);

@@ -14,6 +14,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { showJobs } from "./command.ts";
 import { type JobSession, openSession } from "./lifecycle.ts";
+import { type ShownReports, shownReports } from "./shown.ts";
 import { registerJobsTool } from "./tool.ts";
 
 /** The text of a user message, however pi carried it. */
@@ -36,12 +37,35 @@ function textOf(message: unknown): string | undefined {
 		.join("");
 }
 
+/**
+ * The text of every user message in a session's history: none when it
+ * can't be read, since that only costs one repeat a turn.
+ */
+function* userTexts(ctx: {
+	sessionManager?: { getBranch?(): readonly unknown[] };
+}): Generator<string> {
+	let branch: readonly unknown[];
+	try {
+		branch = ctx.sessionManager?.getBranch?.() ?? [];
+	} catch {
+		return;
+	}
+	for (const entry of branch) {
+		if (typeof entry !== "object" || entry === null) continue;
+		if (!("message" in entry)) continue;
+		const text = textOf(entry.message);
+		if (text !== undefined) yield text;
+	}
+}
+
 export default function jobWorkflow(pi: ExtensionAPI) {
 	let session: JobSession | undefined;
+	let shown: ShownReports = shownReports([]);
 
 	pi.on("session_start", (event, ctx) => {
 		session?.close();
 		session = openSession(pi, ctx, event.reason);
+		shown = shownReports(userTexts(ctx));
 	});
 
 	pi.on("session_shutdown", (event) => {
@@ -52,7 +76,13 @@ export default function jobWorkflow(pi: ExtensionAPI) {
 
 	// A prompt typed during a run is queued by pi, not submitted; the
 	// outbox tells the two apart by whether the session is idle.
-	pi.on("input", () => session?.outbox.promptSubmitted());
+	pi.on("input", (event) => {
+		// A report already shown, sent again by a runtime pi left running
+		// (see shown.ts): dropped, so it costs no turn.
+		if (shown.again(event.text)) return { action: "handled" as const };
+		session?.outbox.promptSubmitted();
+		return undefined;
+	});
 
 	pi.on("agent_start", () => session?.outbox.runStarted());
 
@@ -60,7 +90,9 @@ export default function jobWorkflow(pi: ExtensionAPI) {
 
 	pi.on("message_end", (event) => {
 		const text = textOf(event.message);
-		if (text !== undefined) session?.seen(text);
+		if (text === undefined) return;
+		shown.add(text);
+		session?.seen(text);
 	});
 
 	pi.registerCommand("jobs", {
