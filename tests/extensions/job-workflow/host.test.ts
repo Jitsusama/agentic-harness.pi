@@ -26,10 +26,29 @@ interface Command {
 	handler: (args: string, ctx: unknown) => Promise<void> | void;
 }
 
+/** What a tool's execute answers, as far as these tests read it. */
+interface Answer {
+	content: { type: string; text?: string }[];
+	isError?: boolean;
+}
+
+interface Tool {
+	name: string;
+	exposure?: string;
+	execute: (
+		toolCallId: string,
+		params: Record<string, unknown>,
+		signal?: AbortSignal,
+		onUpdate?: unknown,
+		ctx?: unknown,
+	) => Promise<Answer>;
+}
+
 /** Just enough of pi and a session to drive the extension. */
 function activate(options: { choices?: (string | undefined)[] } = {}) {
 	const handlers = new Map<string, Handler[]>();
 	const commands = new Map<string, Command>();
+	const tools = new Map<string, Tool>();
 	const events = createEventBus();
 	const said: string[] = [];
 	const status: (string | undefined)[] = [];
@@ -42,6 +61,9 @@ function activate(options: { choices?: (string | undefined)[] } = {}) {
 		},
 		registerCommand: (name: string, command: Command) => {
 			commands.set(name, command);
+		},
+		registerTool: (tool: Tool) => {
+			tools.set(tool.name, tool);
 		},
 		sendUserMessage: (text: string) => {
 			said.push(text);
@@ -64,7 +86,7 @@ function activate(options: { choices?: (string | undefined)[] } = {}) {
 	const fire = async (name: string, event: unknown = {}) => {
 		for (const handler of handlers.get(name) ?? []) await handler(event, ctx);
 	};
-	return { events, said, status, session, fire, commands, ctx };
+	return { events, said, status, session, fire, commands, tools, ctx };
 }
 
 /** A user message as pi's `message_end` carries it. */
@@ -284,5 +306,93 @@ describe("the person stopping a job", () => {
 		expect(pi.said).toHaveLength(1);
 		expect(pi.said[0]).toMatch(/stopped/i);
 		expect(pi.said[0]).toContain("three lanes");
+	});
+});
+
+describe("the agent stopping a job", () => {
+	// An agent with no way in killed a job's shell and its direct children
+	// by hand on 23 October, and the nix build beneath them ran on, writing into a log a
+	// later job had reused and holding a VM the queue had counted free. The
+	// tool stops a job the way /jobs does, so the work goes with it.
+	async function withTool() {
+		const pi = await started();
+		const heard: JobFinished[] = [];
+		onJobFinished(pi.events, (finished) => heard.push(finished));
+		const tool = pi.tools.get("jobs");
+		expect(tool).toBeDefined();
+		const call = (params: Record<string, unknown>) =>
+			(tool as Tool).execute("call-1", params, undefined, undefined, pi.ctx);
+		return { ...pi, heard, tool: tool as Tool, call };
+	}
+	const text = (answer: Answer) => answer.content[0]?.text ?? "";
+
+	it("is loaded on demand, not declared on every turn", async () => {
+		const { tool } = await withTool();
+		expect(tool.exposure).toBe("deferred");
+	});
+
+	it("lists each job by the id the hand-off named", async () => {
+		const { host, call } = await withTool();
+		const build = host.start({ kind: "shell", label: "nix build .#check" });
+		const lanes = host.start({ kind: "subagent", label: "three lanes" });
+		lanes.finish({ summary: "agreed" });
+
+		const listed = text(await call({ action: "list" }));
+
+		expect(listed).toContain(`${build.id}`);
+		expect(listed).toContain("nix build .#check");
+		expect(listed).toContain("running");
+		expect(listed).toContain(`${lanes.id}`);
+		expect(listed).toContain("finished");
+	});
+
+	it("says when there is nothing to list", async () => {
+		const { call } = await withTool();
+		expect(text(await call({ action: "list" }))).toMatch(/no background jobs/i);
+	});
+
+	it("stops a running job for the agent, and its work ends once", async () => {
+		const { host, call, heard, said, fire } = await withTool();
+		const job = host.start({
+			kind: "shell",
+			label: "nix build .#check",
+			toolCallId: "call-7",
+		});
+
+		const answer = await call({ action: "stop", id: job.id });
+
+		expect(answer.isError).not.toBe(true);
+		expect(text(answer)).toContain(`Stopped ${job.id}`);
+		expect(job.signal.aborted).toBe(true);
+		expect(jobStopOf(job.signal)).toBe("agent");
+		// The mesh lets go of the call's lease on hearing this.
+		expect(heard).toEqual([
+			{ jobId: job.id, kind: "shell", toolCallId: "call-7", failed: true },
+		]);
+		// The shell's own end, arriving after, changes nothing.
+		job.finish({ summary: "stopped after 3 minutes", failed: true });
+		expect(heard).toHaveLength(1);
+		// The tool's answer said it, so no turn is started to say it again.
+		await fire("agent_settled");
+		await new Promise((resolve) => setTimeout(resolve, 1_100));
+		expect(said).toEqual([]);
+		expect(text(await call({ action: "list" }))).not.toContain(job.id);
+	});
+
+	it("refuses a job that is not running, naming why", async () => {
+		const { host, call } = await withTool();
+		const done = host.start({ kind: "subagent", label: "three lanes" });
+		done.finish({ summary: "agreed" });
+
+		const finished = await call({ action: "stop", id: done.id });
+		const unknown = await call({ action: "stop", id: "j99" });
+		const unnamed = await call({ action: "stop" });
+
+		expect(finished.isError).toBe(true);
+		expect(text(finished)).toMatch(/finished/);
+		expect(unknown.isError).toBe(true);
+		expect(text(unknown)).toContain("j99");
+		expect(unnamed.isError).toBe(true);
+		expect(jobStopOf(done.signal)).toBeUndefined();
 	});
 });

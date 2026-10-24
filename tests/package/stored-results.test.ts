@@ -228,6 +228,8 @@ describe("tools that can answer big must bound their answers", () => {
 			"reload-workflow",
 			// One line sent, or at most fifty short messages read.
 			"mesh-workflow",
+			// One line per job the session holds, or one line saying a stop.
+			"job-workflow",
 		]);
 		const accounted = new Set<string>([
 			...MUST_BOUND,

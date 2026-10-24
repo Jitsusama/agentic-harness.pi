@@ -73,7 +73,7 @@ export function startedAnswer(job: Job, runId: string, size: number) {
 		content: [
 			{
 				type: "text" as const,
-				text: `Started ${count(size, "subagent")} in the background as job ${job.id} (fleet ${runId}). The result arrives on its own as a message once the fleet ends, so do not poll or wait for it; carry on with other work. The person can stop it with /jobs or from its board.`,
+				text: `Started ${count(size, "subagent")} in the background as job ${job.id} (fleet ${runId}). The result arrives on its own as a message once the fleet ends, so do not poll or wait for it; carry on with other work. To stop it, call the jobs tool's stop with ${job.id}; the person can stop it with /jobs or from its board.`,
 			},
 		],
 		details: { ok: true, background: true, runId, jobId: job.id },

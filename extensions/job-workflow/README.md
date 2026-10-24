@@ -75,12 +75,26 @@ count once there is more than one. A finished job waiting to be said
 is left off it: it is said as soon as the session is idle, and `/jobs`
 lists it meanwhile.
 
+The agent has the same through the `jobs` tool, which loads on
+demand: `list` shows each job's id, kind, state and label, and `stop`
+with an id stops a running one. It refuses an id the session doesn't
+hold or a job that has already finished. The tool's answer is how the
+agent hears of the stop, so no message follows it, and the job's end
+is said on the bus at once, which lets go of the mesh's lease. A shell
+job's stop kills the command's whole process group, so what the
+command started goes with it. Killing the shell by hand doesn't: on 23
+October a nix build, a grandchild of the shell, ran on after its shell
+and direct children were killed, writing into a log a later job had
+reused and holding a VM the machine queue counted free. The tool lists
+and stops only its own session's jobs.
+
 A producer can tell why its job's signal fired: `jobStopOf(signal)`
 from `agentic-harness.pi/jobs` answers `person` for a stop from
-`/jobs` and `session` for the session ending. Most work stops either
-way. Work whose answer is on disk can outlive the session, and a
-started review round does: the session ending stops only the watching,
-and only the person stopping the job stops the round.
+`/jobs`, `agent` for a stop from the `jobs` tool and `session` for
+the session ending. Most work stops either way. Work whose answer is
+on disk can outlive the session, and a started review round does: the
+session ending stops only the watching, and only the person or the
+agent stopping the job stops the round.
 
 ## Hearing a Job End
 

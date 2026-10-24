@@ -79,7 +79,11 @@ export function watchStartedRound(round: StartedRound): Job | undefined {
 			"abort",
 			() => {
 				clearInterval(timer);
-				if (jobStopOf(job.signal) !== "person") return;
+				// The session ending leaves the round running: its answer is on
+				// disk for whoever collects it. The person or the agent stopping
+				// the job stops the round.
+				const stop = jobStopOf(job.signal);
+				if (stop !== "person" && stop !== "agent") return;
 				round.stop().catch(() => {
 					// The person can still stop it with review_ask stop, and
 					// a watcher has nobody to report a failure to.

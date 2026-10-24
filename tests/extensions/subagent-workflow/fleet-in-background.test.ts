@@ -254,6 +254,7 @@ describe("a fleet in the background", () => {
 			on: (name: string, handler: (event: unknown, ctx: unknown) => unknown) =>
 				lifecycle.set(name, handler),
 			registerCommand: () => {},
+			registerTool: () => {},
 			sendUserMessage: (text: string) => prompts.push(text),
 		} as never);
 		const session = { isIdle: () => true, ui: { setStatus: () => {} } };

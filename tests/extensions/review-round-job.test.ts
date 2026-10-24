@@ -149,6 +149,23 @@ describe("a started round with a job host", () => {
 		await until(() => stopped === 1);
 	});
 
+	it("stops the round when the agent stops the job", async () => {
+		const { bus, controller } = recordingHost();
+		let stopped = 0;
+		watchStartedRound({
+			bus,
+			runId: "council-1",
+			label: "council",
+			isRunning: async () => true,
+			stop: async () => {
+				stopped++;
+			},
+			pollMs: 5,
+		});
+		controller.abort(jobStopReason("agent"));
+		await until(() => stopped === 1);
+	});
+
 	it("leaves the round running when only the session ends", async () => {
 		const { bus, controller } = recordingHost();
 		let stopped = 0;

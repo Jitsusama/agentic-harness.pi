@@ -264,7 +264,10 @@ function handOffText(handed: {
 		: `Still running after ${spoken(handed.afterMs)}, so it now runs in the background as job ${handed.jobId}.`;
 	const lines = [
 		`${opening} Its result will arrive as a message of its own when it ends.`,
-		"Carry on with work that does not depend on it. Until then, do not run it again, and do not run anything that needs its result or changes what it is working on. The person can stop it with /jobs.",
+		"Carry on with work that does not depend on it. Until then, do not run it again, and do not run anything that needs its result or changes what it is working on.",
+		// Killing the shell by hand left a grandchild nix build running on
+		// 23 October, and the machine queue counted its place free.
+		`To stop it, call the jobs tool's stop with ${handed.jobId} (load it with tool_search), which kills everything the command started; never kill its shell by hand, which leaves the command's children running. The person can stop it with /jobs.`,
 	];
 	if (handed.output.trim() !== "") {
 		lines.push(
