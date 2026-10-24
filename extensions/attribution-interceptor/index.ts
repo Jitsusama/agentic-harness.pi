@@ -18,7 +18,7 @@
  * This extension mutates `event.input.command` directly rather
  * than going through `registerGuardian`, because interceptors
  * are a sanctioned mutation site for silent command enrichment
- * (see AGENTS.md "One Mutation Site for Command Rewriting").
+ * (see docs/architecture.md "One Mutation Site for Command Rewriting").
  *
  * Attribution is unconditional: there is no opt-out flag. A gh
  * entity command in a shape we cannot parse well enough to

@@ -26,8 +26,8 @@ so it lives under [`packs/`](../packs/): pi scans this directory,
 and a pack must not load into the session that dispatched the
 subagent.
 
-See [`AGENTS.md`](../AGENTS.md) for what each category commits
-to and which extensions are in it.
+See [`docs/extensions.md`](../docs/extensions.md) for what each
+category commits to and which extensions are in it.
 
 Each extension has its own README. Domain logic (API clients,
 authentication, renderers) lives in the top-level

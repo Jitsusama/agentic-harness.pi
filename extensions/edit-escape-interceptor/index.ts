@@ -8,8 +8,9 @@
  * Silent, like every interceptor: there is nothing for the model to learn
  * from being told, since the edit went in as it meant it to. It mutates
  * `event.input.edits` directly, as interceptors are sanctioned to (see
- * AGENTS.md "One Mutation Site for Command Rewriting"), and loads before
- * the gates that read an edit's text, so they judge what will be written.
+ * docs/architecture.md "One Mutation Site for Command Rewriting"), and
+ * loads before the gates that read an edit's text, so they judge what
+ * will be written.
  *
  * Only an edit naming an escape reads the file, so the rest pay nothing.
  * A file that cannot be read is left to the edit tool to report.
