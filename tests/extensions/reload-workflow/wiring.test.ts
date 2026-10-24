@@ -348,6 +348,9 @@ describe("the agent asking for a reload", () => {
 
 		expect(reloads).toBe(1);
 		expect(reported).toHaveLength(1);
+		expect(now.notices).toContain(
+			"A reload is already under way, so this one did nothing.",
+		);
 	}, 15_000);
 
 	it("refuses a directory that is not this package", async () => {

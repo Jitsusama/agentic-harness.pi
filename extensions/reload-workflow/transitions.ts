@@ -195,7 +195,17 @@ export async function performReload(
 	// both ran: two reloads overlapped, and the runtime the first started
 	// was replaced without going stale, its job host still first on the
 	// bus, holding carried jobs and saying the landing every 30 seconds.
-	if (slot.performing) return;
+	if (slot.performing) {
+		try {
+			ctx.ui.notify(
+				"A reload is already under way, so this one did nothing.",
+				"info",
+			);
+		} catch {
+			// A context with no screen to say it on.
+		}
+		return;
+	}
 	slot.performing = true;
 	try {
 		await reloadOnce(ctx, running, settings, run);
