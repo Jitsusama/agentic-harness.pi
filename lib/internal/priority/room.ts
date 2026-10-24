@@ -151,6 +151,18 @@ export function cgroupOf(
 	return line ? line.slice(3) : undefined;
 }
 
+/**
+ * The most memory a cgroup has held, from its memory.peak, or nothing
+ * when the cgroup is gone or keeps no peak.
+ */
+export function memoryPeakOf(
+	cgroup: string,
+	cgroups: string = KERNEL.cgroups,
+): number | undefined {
+	const peak = text(join(cgroups, cgroup, "memory.peak")).trim();
+	return /^\d+$/.test(peak) ? Number(peak) : undefined;
+}
+
 /** The memory a cgroup's programs hold as their own, from memory.stat. */
 function anonIn(cgroup: string): number {
 	const anon = /^anon (\d+)$/m.exec(text(join(cgroup, "memory.stat")));

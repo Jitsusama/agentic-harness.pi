@@ -153,8 +153,12 @@ so once its checks come from the cache it is a build again.
   builds, CPU pressure), whether a build it asked for ran a check with
   deadlines (`ranTimed`), and up to how much memory its builds held at
   once (`buildsPeakBytes`, each build's own `memory.peak` added up,
-  though those peaks need not have met). The shell writes its exit status as it exits;
-  a shell killed outright, or work that sets its own EXIT trap, leaves
+  though those peaks need not have met), and the most its own commands
+  held (`ownPeakBytes`, its shell's scope's `memory.peak`: the `nix`
+  client's evaluation, cargo, or a VM test run from its driver). Nothing
+  yet sizes a turn by either; they are there to measure what the fixed
+  sizes should be. The shell writes its exit status as it exits; a
+  shell killed outright, or work that sets its own EXIT trap, leaves
   none. The file keeps its newer half past 2 MiB, about a month of
   work. A VM that failed (exit 1 to 125) beside a capped build in the
   last day lowers the cap to 2 cores, since the cap is an estimate, not

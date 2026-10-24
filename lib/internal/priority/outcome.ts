@@ -69,6 +69,8 @@ export interface Outcome {
 	readonly ranTimed?: true;
 	/** Up to how much memory its Nix builds held at once, in bytes. */
 	readonly buildsPeakBytes?: number;
+	/** The most memory its own commands held, in bytes, from its scope. */
+	readonly ownPeakBytes?: number;
 }
 
 /** How large the outcome file grows before it keeps its newer half. */
@@ -143,6 +145,9 @@ export function outcomeOf(
 		...(job.ranTimed ? { ranTimed: true as const } : {}),
 		...(job.buildsPeakBytes !== undefined
 			? { buildsPeakBytes: job.buildsPeakBytes }
+			: {}),
+		...(job.ownPeakBytes !== undefined
+			? { ownPeakBytes: job.ownPeakBytes }
 			: {}),
 	};
 }

@@ -388,6 +388,53 @@ describe("the machine's queue folder", () => {
 		);
 	});
 
+	it("records the most memory a job's own commands held, from its scope", () => {
+		const file = join(dir, "..", "state", "outcomes.jsonl");
+		const GIB = 1024 ** 3;
+		// A VM test run from its driver: qemu runs in the job's own scope, so
+		// none of its memory is a Nix build's.
+		const peaks = new Map([["/work-801.scope", 5 * GIB]]);
+		const queue = queueFolder(
+			dir,
+			{
+				isRunning: (pid) => running.has(pid),
+				cgroupOf: (pid) => `/work-${pid}.scope`,
+				memoryPeakOf: (cgroup) => peaks.get(cgroup),
+			},
+			undefined,
+			file,
+		);
+		const ran = new Date(NOW - 60_000).toISOString();
+		queue.ask(
+			job("driver", {
+				kind: "vm-test",
+				what: "nixos-test-driver",
+				started: ran,
+			}),
+		);
+		queue.ask(job("unread", { what: "cargo build", started: ran }));
+		shellSays("driver", 801);
+		shellSays("unread", 802);
+		queue.keep(ROOMY, NOW, () => undefined);
+		// A reading that comes back lower, as a scope remade would, never
+		// lowers what was seen.
+		peaks.set("/work-801.scope", 2 * GIB);
+		queue.keep(ROOMY, NOW + 3_000, () => undefined);
+		running.delete(801);
+		running.delete(802);
+		queue.keep(ROOMY, NOW + 6_000, () => undefined);
+		const kept = readFileSync(file, "utf8")
+			.trim()
+			.split("\n")
+			.map((line) => JSON.parse(line));
+		const driver = kept.find((outcome) => outcome.id === "driver");
+		const unread = kept.find((outcome) => outcome.id === "unread");
+		expect(driver).toMatchObject({ ownPeakBytes: 5 * GIB });
+		expect(driver).not.toHaveProperty("buildsPeakBytes");
+		// A scope whose peak can't be read says nothing, rather than nought.
+		expect(unread).not.toHaveProperty("ownPeakBytes");
+	});
+
 	it("learns from a job's builds whether it runs a check with deadlines, and how much memory they held", () => {
 		const file = join(dir, "..", "state", "outcomes.jsonl");
 		const GIB = 1024 ** 3;
