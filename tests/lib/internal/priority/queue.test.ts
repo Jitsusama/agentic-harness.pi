@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-	CHANGED_CHECKS_GIB,
 	EVALUATION_GIB,
+	EVERY_CHECK_GIB,
 	type Job,
 	kindOf,
 	MOST_CPU_PRESSURE_BESIDE_VMS,
@@ -156,6 +156,12 @@ describe("the kind of heavy work a command runs", () => {
 			expect(kindOf(looking)).toBeUndefined();
 		}
 		expect(kindOf("pgrep -x qemu-kvm || nix build .#a")).toBe("build");
+		// A pipe inside one quoted word is the pattern's, not the shell's:
+		// on 24 October this waited for a turn, read as changed-checks.
+		expect(
+			kindOf("pgrep -af 'run-subtests|changed-checks' | cut -c1-160"),
+		).toBeUndefined();
+		expect(kindOf('pgrep -f "nix-build;cargo"')).toBeUndefined();
 	});
 
 	it("says the step that does the work, past the variables it sets", () => {
@@ -231,21 +237,23 @@ describe("whose turn it is", () => {
 		expect(
 			needsGibOf(job("wrapped", { what: "nice -n 10 nix -L flake check" })),
 		).toBe(EVALUATION_GIB);
+		// Evaluating every check's derivation reached 24 GB, as a bare
+		// `nix eval` and inside changed-checks before core #465 alike.
 		expect(
 			needsGibOf(
 				job("every", {
 					what: "nix eval --json .#checks.x86_64-linux --apply f",
 				}),
 			),
-		).toBe(EVALUATION_GIB);
+		).toBe(EVERY_CHECK_GIB);
 		expect(
 			needsGibOf(job("changed", { what: "changed-checks --build --no-vm" })),
-		).toBe(CHANGED_CHECKS_GIB);
+		).toBe(EVERY_CHECK_GIB);
 		expect(
 			needsGibOf(
 				job("vm", { kind: "vm-check", what: "changed-checks --build" }),
 			),
-		).toBe(CHANGED_CHECKS_GIB);
+		).toBe(EVERY_CHECK_GIB);
 		const room = { ...ROOMY, availableGib: EVALUATION_GIB - 1 };
 		expect(nextTurn([check], room, NOW)).toBeUndefined();
 		expect(nextTurn([job("build")], room, NOW)?.id).toBe("build");

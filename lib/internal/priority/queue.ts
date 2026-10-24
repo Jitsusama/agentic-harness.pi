@@ -92,12 +92,18 @@ export const EVALUATION_GIB = 20;
 const CHANGED_CHECKS = /(?<![\w./-])changed-checks(?![\w.-])/;
 
 /**
- * What changed-checks holds, in GiB: its evaluation of every check's
- * derivation reached 24 GB on optimus (2HN63P's run, 7SU7HB's
- * measurement), and two ran with no turn on 24 October at about 20
- * each, beside a flake check given one, which filled swap.
+ * What evaluating every check's derivation at once holds, in GiB: it
+ * reached 24 GB on optimus inside changed-checks (2HN63P's run, 7SU7HB's
+ * measurement), and a bare `nix eval` of every check about the same
+ * (Y9XISP's). Two ran with no turn on 24 October at about 20 each,
+ * beside a flake check given one, which filled swap.
+ *
+ * changed-checks since core #465 evaluates 40 checks at a time and
+ * peaked at 10.5 GB, but a worktree cut before it runs the old tool,
+ * and the command doesn't say which; so it is held to this until the
+ * old ones are gone.
  */
-export const CHANGED_CHECKS_GIB = 24;
+export const EVERY_CHECK_GIB = 24;
 
 /**
  * cargo up to its subcommand, past a `+toolchain` and flags such as
@@ -131,7 +137,9 @@ const WHOLE_FLAKE = new RegExp(
 /** The memory one job is held to need, in GiB. */
 export function needsGibOf(job: Pick<Job, "kind" | "what">): number {
 	const kind = NEEDS_GIB[job.kind];
-	if (CHANGED_CHECKS.test(job.what)) return Math.max(kind, CHANGED_CHECKS_GIB);
+	if (CHANGED_CHECKS.test(job.what) || EVERY_CHECK.test(job.what)) {
+		return Math.max(kind, EVERY_CHECK_GIB);
+	}
 	return WHOLE_FLAKE.test(job.what) ? Math.max(kind, EVALUATION_GIB) : kind;
 }
 
@@ -464,8 +472,10 @@ const KINDS: readonly (readonly [RegExp, Kind])[] = [
 export function kindOf(command: string): Kind | undefined {
 	const runs = command
 		.replace(HEREDOC, "\n")
+		// A pipe or a semicolon inside the word is its own, as in
+		// `pgrep -af 'run-subtests|changed-checks'`, and splits no step.
 		.replace(QUOTED, (quoted) =>
-			/\s/.test(quoted) ? "''" : quoted.slice(1, -1),
+			/\s/.test(quoted) ? "''" : quoted.slice(1, -1).replace(/[|;&]/g, " "),
 		)
 		.split(SEGMENTS)
 		.filter((step) => !LOOKS.test(step.replace(ASSIGNMENTS, "")))

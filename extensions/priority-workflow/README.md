@@ -65,10 +65,13 @@ does, so the wait never uses it up (see
 Watchers such as `cargo watch` and `bacon` are left out, since they
 would hold a turn for as long as they watch.
 
-Work that evaluates a whole flake's checks, `nix flake check`,
-`nix-fast-build` and `nix eval` of `#checks`, is held to 20 GiB whatever its kind, since its
-evaluator keeps that heap until it ends; `changed-checks`, which
-reached 24 GB, is held to 24.
+Work that evaluates a whole flake's checks, `nix flake check` and
+`nix-fast-build`, is held to 20 GiB whatever its kind, since its
+evaluator keeps that heap until it ends. Evaluating every check's
+derivation at once, as `nix eval` of `#checks` does, reached 24 GB,
+so it is held to 24, and so is `changed-checks`: since core #465 it
+peaks at about 10.5 GB, but a worktree cut before that runs the old
+tool, and the command doesn't say which.
 `changed-checks --build` without `--no-vm` builds VM tests too, so it
 is a vm-check.
 
