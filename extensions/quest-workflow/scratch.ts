@@ -27,7 +27,12 @@ import {
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { questWorkspace } from "@jitsusama/agentic-harness.core/quest/workspace";
-import { workspaceDirOf } from "./workspace.ts";
+import {
+	btrfsFolders,
+	makeWorkspace,
+	type WorkspaceFolders,
+	workspaceDirOf,
+} from "./workspace.ts";
 
 /**
  * The start of every link's name, to be followed by the quest's ID.
@@ -106,9 +111,11 @@ export function questTempDir(
 	workspaceRoot: string,
 	questId: string | null,
 	linkRoot: string = systemTemp(),
+	folders: WorkspaceFolders = btrfsFolders,
 ): string | undefined {
 	if (!questId || !workspaceDirOf(workspaceRoot, questId)) return undefined;
-	const { tmp } = questWorkspace(workspaceRoot, questId);
+	const { dir, tmp } = questWorkspace(workspaceRoot, questId);
+	makeWorkspace(dir, folders);
 	mkdirSync(tmp, { recursive: true });
 	try {
 		return (
