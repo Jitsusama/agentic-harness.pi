@@ -2,10 +2,12 @@
  * Shell Workflow Extension
  *
  * Registers `bash` as pi's own bash tool, built with the same settings,
- * with three changes. The agent's commands run with no interactive editor
+ * with four changes. The agent's commands run with no interactive editor
  * or pager, since nobody is at the keyboard to leave one. Each command is
  * kept off its shell's command line, so `pkill -f` with a pattern from it
- * kills what it names rather than the shell running it. And a command
+ * kills what it names rather than the shell running it. A time limit on
+ * work the machine's queue holds starts when its turn does, not while it
+ * waits (lib/internal/priority/clock.ts). And a command
  * still running after five minutes is handed to job-workflow rather than
  * holding the session silently: the call returns saying so, and the job
  * says how the command ended. A model expecting a long run passes
@@ -16,7 +18,6 @@
  */
 
 import {
-	type BashToolOptions,
 	createBashToolDefinition,
 	type ExtensionAPI,
 	type ExtensionContext,
@@ -24,15 +25,13 @@ import {
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { placedCommand } from "../../lib/internal/priority/place.ts";
-import { offCommandLine } from "./command-line.ts";
-import { withoutInteraction } from "./environment.ts";
+import { agentBash, type ShellSettings } from "./agent-bash.ts";
 import { HAND_OFF_MS, runOrHandOff, spoken } from "./hand-off.ts";
 
 type BashDefinition = ReturnType<typeof createBashToolDefinition>;
 
 /** The settings pi builds its own bash with, as this project sees them. */
-function shellSettings(ctx: ExtensionContext): BashToolOptions {
+function shellSettings(ctx: ExtensionContext): ShellSettings {
 	try {
 		const settings = SettingsManager.create(ctx.cwd, getAgentDir(), {
 			projectTrusted: ctx.isProjectTrusted(),
@@ -56,20 +55,7 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 	let bash: BashDefinition | undefined;
 
 	const bashFor = (ctx: ExtensionContext): BashDefinition => {
-		bash ??= createBashToolDefinition(ctx.cwd, {
-			...shellSettings(ctx),
-			// The shell moves itself into jobs before it runs anything, where
-			// priority-workflow is placing what pi starts there. The command,
-			// that move included, then leaves the shell's command line last,
-			// so `pkill -f` cannot match the shell running it.
-			spawnHook: (context) =>
-				offCommandLine(
-					withoutInteraction({
-						...context,
-						command: placedCommand(context.command),
-					}),
-				),
-		});
+		bash ??= agentBash(ctx.cwd, shellSettings(ctx));
 		return bash;
 	};
 
@@ -90,7 +76,8 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 			command: Type.String({ description: "Bash command to execute" }),
 			timeout: Type.Optional(
 				Type.Number({
-					description: "Timeout in seconds (optional, no default timeout)",
+					description:
+						"Timeout in seconds (optional, no default timeout). It measures the run: work waiting for its turn in the machine's queue starts it when its turn comes.",
 				}),
 			),
 			background: Type.Optional(

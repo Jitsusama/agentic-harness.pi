@@ -51,7 +51,9 @@ Now every pi session shares one queue in `$XDG_RUNTIME_DIR/jobs`, with
 no daemon and no command to learn. When a bash call runs heavy work,
 the harness reads its kind from one map, puts a job in the queue, and
 the call's shell waits for its turn before it runs anything; pi itself
-never waits.
+never waits. A time limit the call was given starts when its turn
+does, so the wait never uses it up (see
+[shell-workflow](../shell-workflow/)).
 
 | Kind | What it is | Class | Held to need |
 | --- | --- | --- | --- |
