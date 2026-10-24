@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import {
 	mkdirSync,
 	mkdtempSync,
+	realpathSync,
 	rmSync,
 	symlinkSync,
 	writeFileSync,
@@ -15,6 +16,7 @@ import {
 	isMainWorkingTree,
 	isTracked,
 	isWithin,
+	trackedTreeRoot,
 } from "../../../../lib/internal/quest/git-signals";
 
 let repo: string;
@@ -103,6 +105,61 @@ describe("gitTreeRootOf", () => {
 
 	it("returns null for a directory outside any repository", () => {
 		expect(gitTreeRootOf(outside)).toBeNull();
+	});
+});
+
+describe("trackedTreeRoot", () => {
+	/** A git lookup that counts how often it is asked. */
+	function counting(answer: string | null) {
+		const asked: string[] = [];
+		return {
+			asked,
+			rootOf: (p: string) => {
+				asked.push(p);
+				return answer;
+			},
+		};
+	}
+
+	it("takes a tree holding a .git entry as its own root without asking git", () => {
+		// Asked of every tracked tree on every write, once per tree: a quest
+		// tracking 87 trees ran 87 git processes on pi's input path per write.
+		const git = counting("/somewhere/else");
+
+		expect(trackedTreeRoot(repo, git.rootOf)).toBe(realpathSync(repo));
+		expect(git.asked).toEqual([]);
+	});
+
+	it("takes a linked worktree, whose .git is a file, as its own root too", () => {
+		const linked = mkdtempSync(path.join(tmpdir(), "tracked-root-linked-"));
+		writeFileSync(path.join(linked, ".git"), "gitdir: /elsewhere\n");
+		const git = counting(null);
+		try {
+			expect(trackedTreeRoot(linked, git.rootOf)).toBe(realpathSync(linked));
+			expect(git.asked).toEqual([]);
+		} finally {
+			rmSync(linked, { recursive: true, force: true });
+		}
+	});
+
+	it("asks git for a tracked directory inside a tree", () => {
+		const git = counting(repo);
+
+		expect(trackedTreeRoot(path.join(repo, "src"), git.rootOf)).toBe(
+			realpathSync(repo),
+		);
+		expect(git.asked).toEqual([path.join(repo, "src")]);
+	});
+
+	it("keeps the path itself when git has no root for it", () => {
+		expect(trackedTreeRoot(outside, counting(null).rootOf)).toBe(
+			realpathSync(outside),
+		);
+	});
+
+	it("answers as git does, with git really asked", () => {
+		expect(trackedTreeRoot(path.join(repo, "src"))).toBe(realpathSync(repo));
+		expect(trackedTreeRoot(repo)).toBe(gitTreeRootOf(repo));
 	});
 });
 

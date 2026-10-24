@@ -50,6 +50,7 @@ import {
 	isGitignored,
 	isTracked,
 	isWithin,
+	trackedTreeRoot,
 } from "../../lib/internal/quest/git-signals.ts";
 import {
 	applyEdits,
@@ -306,7 +307,7 @@ function trackedTreePaths(state: QuestState): string[] {
 	// quest that adopted a subdirectory of a repo still matches a write
 	// anywhere in that repo. Fall back to the raw path for a tracked
 	// path that is not inside a git tree.
-	return result.trees.map((t) => canonical(gitTreeRootOf(t.path) ?? t.path));
+	return result.trees.map((t) => trackedTreeRoot(t.path));
 }
 
 function enforceHome(
