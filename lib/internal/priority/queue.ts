@@ -164,7 +164,7 @@ export function needsGibOf(
  * qemu runs at nice -10, ahead of the builds beside it. So three ran at
  * once.
  *
- * Three held work back too. On 24 October at 21:30 ten VM checks had
+ * Three held work back too. On 24 October at 17:30 ten VM checks had
  * waited up to 57 minutes with 25 GiB free and two qemu on 1.4 of 16
  * cores. Of 623 VM runs from 22 October, those with 0 to 2 VMs beside
  * them failed 4.7% of the time, 213 runs; with 3 to 5, 2.5%, 319 runs;
