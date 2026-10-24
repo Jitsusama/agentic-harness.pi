@@ -53,7 +53,10 @@ What it adds:
   scratch. No offer can turn a prompt back on.
 - **Guidance.** The tool tells the agent not to pipe output through
   `tail` or `head` (pi already keeps the end and saves the rest), and
-  not to sleep to wait for something.
+  not to sleep to wait for something. Where `JOBS_CGROUP` places its
+  commands, it also says not to add `nice`: inside that cgroup `nice`
+  only ranks a command against other agents' work, so a niced VM test
+  loses to every build beside it.
 
 ## Stopping a Command
 

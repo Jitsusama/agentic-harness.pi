@@ -14,6 +14,7 @@ import shellWorkflow from "../../../extensions/shell-workflow/index.ts";
 
 interface Tool {
 	name: string;
+	promptGuidelines?: string[];
 	parameters: { properties: Record<string, unknown> };
 	execute: (
 		id: string,
@@ -102,5 +103,50 @@ describe("the registered bash", () => {
 		expect(shown).toContain("eval");
 		expect(shown).not.toContain("WIRED");
 		expect(shown).not.toContain("cmdline");
+	});
+});
+
+// 480 of 1,499 queued jobs on record ran under `nice -n`, which in the jobs
+// cgroup only ranks a command against other agents' work: a niced VM test
+// loses to every build beside it.
+describe("telling agents not to add nice", () => {
+	let savedCgroup: string | undefined;
+
+	beforeEach(() => {
+		savedCgroup = process.env.JOBS_CGROUP;
+	});
+
+	afterEach(() => {
+		if (savedCgroup === undefined) delete process.env.JOBS_CGROUP;
+		else process.env.JOBS_CGROUP = savedCgroup;
+	});
+
+	const guidelines = (cgroup: string | undefined): string[] => {
+		if (cgroup === undefined) delete process.env.JOBS_CGROUP;
+		else process.env.JOBS_CGROUP = cgroup;
+		let registered: Tool | undefined;
+		shellWorkflow({
+			events: createEventBus(),
+			on: () => {},
+			registerTool: (definition: Tool) => {
+				registered = definition;
+			},
+		} as unknown as ExtensionAPI);
+		return registered?.promptGuidelines ?? [];
+	};
+
+	it("says so where commands run in the jobs cgroup", () => {
+		const said = guidelines("jobs.slice/jobs.service").filter((line) =>
+			line.includes("nice"),
+		);
+
+		expect(said).toHaveLength(1);
+		expect(said[0]).toMatch(/VM test.*every build/s);
+	});
+
+	it("says nothing where nice still does what it says", () => {
+		expect(
+			guidelines(undefined).filter((line) => line.includes("nice")),
+		).toEqual([]);
 	});
 });

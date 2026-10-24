@@ -71,6 +71,13 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 			...(shape.promptGuidelines ?? []),
 			"Let a command's output through: do not pipe it into tail or head to keep it short, since bash already keeps the end and saves the full output to a file, and a pipe hides all progress until the command ends.",
 			"Do not sleep in bash to wait for something. Pass background: true for a command expected to run long, or use a tool's own watch, and carry on; the result arrives as its own message.",
+			// Only where commands are placed in the jobs cgroup: elsewhere
+			// nice still ranks a command against what the person uses.
+			...(process.env.JOBS_CGROUP
+				? [
+						"Do not add nice or ionice to a command. Every command already runs in a cgroup below everything the person uses, where nice only ranks it against other agents' work: a niced VM test loses to every build beside it and times out, and a niced nix build slows only its own evaluation, since the Nix daemon does the building.",
+					]
+				: []),
 		],
 		parameters: Type.Object({
 			command: Type.String({ description: "Bash command to execute" }),
