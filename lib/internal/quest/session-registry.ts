@@ -331,12 +331,6 @@ export function lastOpenAt(
 }
 
 /**
- * Stamp a record as ended. Closing an already-closed record leaves it
- * alone: a late heartbeat or a second shutdown must not move the
- * moment the session actually ended, which is the timestamp every
- * recency ordering is built on.
- */
-/**
  * A runnable line per session, to be pasted into a shell.
  *
  * Everything interpolated is quoted, because all of it comes from
@@ -344,11 +338,67 @@ export function lastOpenAt(
  * record can be hand-edited. A line the user is invited to paste is
  * not the place to trust either.
  */
-export function restoreRecipe(records: readonly SessionRecord[]): string[] {
+export function restoreRecipe(
+	records: readonly SessionRecord[],
+	saved: (sessionId: string) => boolean = () => true,
+): string[] {
 	return records.map((record) => {
 		const quest = record.quest ? `  # ${commentSafe(record.quest)}` : "";
-		return `(cd ${shellSingleQuote(record.cwd)} && pi --session ${shellSingleQuote(record.sessionId)})${quest}`;
+		const { command, env } = reopenCommand(record, saved(record.sessionId));
+		const assignments = Object.entries(env ?? {})
+			.map(([name, value]) => `${name}=${shellSingleQuote(value)} `)
+			.join("");
+		return `(cd ${shellSingleQuote(record.cwd)} && ${assignments}${command})${quest}`;
 	});
+}
+
+/** What a fresh pi reads to load a quest as it starts. */
+export const AUTOLOAD_VARIABLE = "QUEST_WORKFLOW_AUTOLOAD_ID";
+
+/**
+ * How to bring a session back: resume it, or, for one pi never saved,
+ * start a fresh pi on its quest.
+ *
+ * pi saves a session with its first message, so a tab lost before then
+ * left a record and no conversation. `pi --session` refuses it and
+ * exits, and the tab that opened shows only that. Its quest and folder
+ * are all it had, and a fresh pi on them is all there is to bring back.
+ * The id is quoted although the parser refuses an id that is not a
+ * shell word, since this runs in the person's own shell.
+ */
+export function reopenCommand(
+	record: SessionRecord,
+	saved: boolean,
+): { command: string; env?: Record<string, string> } {
+	if (saved) {
+		return { command: `pi --session ${shellSingleQuote(record.sessionId)}` };
+	}
+	return {
+		command: "pi",
+		...(record.quest ? { env: { [AUTOLOAD_VARIABLE]: record.quest } } : {}),
+	};
+}
+
+/**
+ * Whether a session has been opened in a lost one's place since it was
+ * lost: on its quest, in its folder. For one pi never saved that is
+ * the whole of bringing it back, so it stops being offered. Asked for
+ * a running one, a session that has since closed does not count.
+ */
+export function startedAgain(
+	lost: SessionRecord,
+	records: readonly SessionRecord[],
+	options: { running?: boolean } = {},
+): boolean {
+	const since = lost.closedAt ?? lost.openedAt;
+	return records.some(
+		(other) =>
+			other.sessionId !== lost.sessionId &&
+			other.cwd === lost.cwd &&
+			other.quest === lost.quest &&
+			other.openedAt >= since &&
+			!(options.running && other.closedAt),
+	);
 }
 
 /**
@@ -474,6 +524,12 @@ export function reopenRecord(
 	};
 }
 
+/**
+ * Stamp a record as ended. Closing an already-closed record leaves it
+ * alone: a late heartbeat or a second shutdown must not move the
+ * moment the session actually ended, which is the timestamp every
+ * recency ordering is built on.
+ */
 export function closeRecord(
 	record: SessionRecord,
 	reason: SessionEndReason,

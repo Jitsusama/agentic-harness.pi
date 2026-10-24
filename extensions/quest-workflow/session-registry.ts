@@ -22,12 +22,14 @@ import {
 	utimesSync,
 } from "node:fs";
 import { join } from "node:path";
+import { sessionsDir } from "../../lib/internal/paths.ts";
 import { atomicWriteFile } from "../../lib/internal/quest/io.ts";
 import { sessionRegistryDir } from "../../lib/internal/quest/loaded.ts";
 import {
 	localProcessDeps,
 	probeProcess,
 } from "../../lib/internal/quest/process-liveness.ts";
+import { indexSessionFiles } from "../../lib/internal/quest/session-liveness.ts";
 import {
 	closeRecord,
 	markSignalled,
@@ -35,11 +37,12 @@ import {
 	parseSessionRecord,
 	pruneRecords,
 	recentlyClosed,
+	reopenCommand,
 	reopenRecord,
 	restorable,
 	type SessionEndReason,
 	type SessionRecord,
-	shellSingleQuote,
+	startedAgain,
 	switchQuest,
 	wasLost,
 } from "../../lib/internal/quest/session-registry.ts";
@@ -495,13 +498,38 @@ export function recordSessionEnd(
  * before the question is asked: the record it left behind still
  * claims to be open, and only a probe can settle that.
  */
-export function restorableSessions(): SessionRecord[] {
+export function restorableSessions(
+	saved: (sessionId: string) => boolean = savedSessions(),
+): SessionRecord[] {
 	const stored = loadRecords();
 	observeRecords(stored);
 	// Re-read rather than patching the list in place: observing writes
 	// the repairs to disk, and the reload is what makes the answer the
 	// same one a second reader would get.
-	return restorable(loadRecords().map((entry) => entry.record));
+	const records = loadRecords().map((entry) => entry.record);
+	// A session pi never saved is brought back by starting one in its
+	// place, by restore or by hand from its recipe line; once that has
+	// happened there is nothing left to offer, and its record goes.
+	return restorable(records).filter((record) => {
+		if (saved(record.sessionId) || !startedAgain(record, records)) return true;
+		forgetRecord(record.sessionId);
+		return false;
+	});
+}
+
+/**
+ * Which sessions pi has saved, and so can resume, read from its session
+ * store once.
+ *
+ * A store that holds no session at all, or cannot be read, says nothing
+ * about any of them: a pi keeping its sessions elsewhere would look
+ * like one that saved none, and starting a saved session afresh would
+ * lose it. Then every session counts as saved, as it did before.
+ */
+export function savedSessions(): (sessionId: string) => boolean {
+	const index = indexSessionFiles(sessionsDir());
+	if (index.size === 0) return () => true;
+	return (sessionId) => index.has(sessionId);
 }
 
 /**
@@ -541,6 +569,11 @@ export function lostSessionCount(): number {
 export interface ReopenOutcome {
 	/** Sessions seen running again: their record is back in the open set. */
 	reopened: string[];
+	/**
+	 * Sessions pi never saved, so a fresh pi was started on their quest
+	 * in their place, and seen running. Counted among those reopened.
+	 */
+	fresh: { sessionId: string; quest?: string }[];
 	/** Sessions whose terminal opened but which had not checked in yet. */
 	unconfirmed: string[];
 	failed: { sessionId: string; reason: string }[];
@@ -580,34 +613,42 @@ const REOPEN_POLL_MS = 250;
  * its record back in the open set. One whose terminal opened but which
  * has not checked in by the end of the wait is reported as such, so a
  * command sent is never reported as a session restored.
+ *
+ * A session pi never saved has nothing to resume, so a fresh pi is
+ * started on its quest instead (see `reopenCommand`). It counts as
+ * back once a session in its place is running, and its record is then
+ * forgotten, since the new session carries everything it held.
  */
 export async function reopenLostSessions(
 	records: readonly SessionRecord[],
 	options: OpenOptions & {
 		readonly layout?: TerminalLayout;
 		readonly confirmMs?: number;
+		readonly saved?: (sessionId: string) => boolean;
 	} = {},
 ): Promise<ReopenOutcome> {
-	const { layout, confirmMs = REOPEN_CONFIRM_MS, ...open } = options;
+	const {
+		layout,
+		confirmMs = REOPEN_CONFIRM_MS,
+		saved = savedSessions(),
+		...open
+	} = options;
 	const outcomes = await openTerminals(
 		records.map((record) => ({
 			...(layout ? { layout } : {}),
 			cwd: record.cwd,
-			// Quoted even though the parser already refuses an id that is
-			// not an identifier. This text is executed in the user's own
-			// shell, so it should not be one validation away from running
-			// whatever a file on disk says.
-			command: `pi --session ${shellSingleQuote(record.sessionId)}`,
+			...reopenCommand(record, saved(record.sessionId)),
 		})),
 		open,
 	);
 	const outcome: ReopenOutcome = {
 		reopened: [],
+		fresh: [],
 		unconfirmed: [],
 		failed: [],
 		notes: [],
 	};
-	const opened: string[] = [];
+	const opened: SessionRecord[] = [];
 	outcomes.forEach((result, index) => {
 		const record = records[index];
 		if (!record) return;
@@ -628,34 +669,52 @@ export async function reopenLostSessions(
 				sessionId: record.sessionId,
 				reason: "no terminal could be opened",
 			});
-		} else opened.push(record.sessionId);
+		} else opened.push(record);
 	});
 	if (outcome.planned) return outcome;
-	const back = await awaitCheckIn(opened, confirmMs);
-	for (const id of opened) {
-		(back.has(id) ? outcome.reopened : outcome.unconfirmed).push(id);
+	const back = await awaitCheckIn(opened, saved, confirmMs);
+	for (const record of opened) {
+		const id = record.sessionId;
+		if (!back.has(id)) outcome.unconfirmed.push(id);
+		else if (saved(id)) outcome.reopened.push(id);
+		else {
+			forgetRecord(id);
+			outcome.fresh.push({
+				sessionId: id,
+				...(record.quest ? { quest: record.quest } : {}),
+			});
+		}
 	}
 	return outcome;
 }
 
 /**
- * Wait until each session's record is back in the open set, which the
- * reopened pi does itself as it starts, or the wait runs out. Returns
- * the ones that checked in.
+ * Wait until each session is running again, or the wait runs out, and
+ * return the ones that are. A resumed pi puts its own record back in
+ * the open set as it starts; a fresh one started in a lost one's place
+ * opens a record of its own on that quest, in that folder.
  */
 async function awaitCheckIn(
-	sessionIds: readonly string[],
+	records: readonly SessionRecord[],
+	saved: (sessionId: string) => boolean,
 	waitMs: number,
 ): Promise<Set<string>> {
 	const back = new Set<string>();
 	const deadline = Date.now() + waitMs;
-	while (back.size < sessionIds.length) {
-		for (const id of sessionIds) {
+	while (back.size < records.length) {
+		const fresh = records.some(
+			(record) => !back.has(record.sessionId) && !saved(record.sessionId),
+		);
+		const all = fresh ? loadRecords().map((entry) => entry.record) : [];
+		for (const record of records) {
+			const id = record.sessionId;
 			if (back.has(id)) continue;
-			const record = readRecord(id);
-			if (record && record.closedAt === undefined) back.add(id);
+			if (saved(id)) {
+				const now = readRecord(id);
+				if (now && now.closedAt === undefined) back.add(id);
+			} else if (startedAgain(record, all, { running: true })) back.add(id);
 		}
-		if (back.size === sessionIds.length || Date.now() >= deadline) break;
+		if (back.size === records.length || Date.now() >= deadline) break;
 		await new Promise((resolve) => setTimeout(resolve, REOPEN_POLL_MS));
 	}
 	return back;

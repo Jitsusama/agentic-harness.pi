@@ -302,7 +302,8 @@ mutates anything:
   crash, a closed tab, the terminal dying or quitting, or a
   shutdown all leave that record marked lost; a deliberate
   `/quit` does not. Restore lists the lost sessions with a
-  `pi --session` recipe each, then the sessions closed on
+  `pi --session` recipe each (a fresh pi on its quest for one
+  lost before pi saved it), then the sessions closed on
   purpose in the last day as a backstop. It lists only;
   `force` reopens the lost ones, and `id` (session ids or
   unique prefixes, comma-separated) narrows it to named

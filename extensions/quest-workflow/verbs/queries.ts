@@ -45,6 +45,7 @@ import {
 	recentlyClosedSessions,
 	reopenLostSessions,
 	restorableSessions,
+	savedSessions,
 	seedLiveSessions,
 } from "../session-registry.ts";
 import type { QuestState } from "../state.ts";
@@ -329,7 +330,8 @@ export async function restore(
 	// prune after, so a window that has passed is not carried by every
 	// later read.
 	seedLiveSessions(claimedSessions(state));
-	const allLost = restorableSessions();
+	const saved = savedSessions();
+	const allLost = restorableSessions(saved);
 	const allClosed = recentlyClosedSessions();
 	pruneClosedRecords(state.sessionRetentionDays);
 	// Naming sessions makes them the whole set: listed alone, and the
@@ -351,10 +353,10 @@ export async function restore(
 			{ restore: { toRestore: [], recipe: [], recentlyClosed: closed } },
 		);
 	}
-	const recipe = restoreRecipe(toRestore);
+	const recipe = restoreRecipe(toRestore, saved);
 	const rows = toRestore.map(
 		(record) =>
-			`- ${record.quest ?? "(no quest)"} ${record.cwd} (session ${record.sessionId}, ${wasLost(record) ? "lost" : "closed"} ${record.closedAt})`,
+			`- ${record.quest ?? "(no quest)"} ${record.cwd} (session ${record.sessionId}, ${wasLost(record) ? "lost" : "closed"} ${record.closedAt}${saved(record.sessionId) ? "" : `; pi never saved it, so it starts fresh${record.quest ? " on its quest" : ""}`})`,
 	);
 	const read = await terminalOptions(
 		{ ...opts, dryRun: opts.dryRun === true || !opts.act },
@@ -367,6 +369,7 @@ export async function restore(
 	const reopenWith = {
 		...read.options,
 		...(read.layout ? { layout: read.layout } : {}),
+		saved,
 	};
 	if (!opts.act || opts.dryRun) {
 		// Planning opens nothing, so the listing can say how force would
@@ -411,9 +414,18 @@ export async function restore(
 	}
 	const outcome = await reopenLostSessions(toRestore, reopenWith);
 	const lines = [
-		`Reopened ${outcome.reopened.length} of ${count(toRestore.length, "session")}${outcome.used ? `, through ${outcome.used}` : ""}.`,
+		`Reopened ${outcome.reopened.length + outcome.fresh.length} of ${count(toRestore.length, "session")}${outcome.used ? `, through ${outcome.used}` : ""}.`,
 		...outcome.notes.map((note) => `Note: ${note}.`),
 	];
+	if (outcome.fresh.length > 0) {
+		lines.push(
+			"",
+			"Started fresh on their quests, since pi never saved them:",
+			...outcome.fresh.map(
+				(each) => `- ${each.sessionId}: ${each.quest ?? "(no quest)"}`,
+			),
+		);
+	}
 	if (outcome.unconfirmed.length > 0) {
 		lines.push(
 			"",
@@ -430,6 +442,7 @@ export async function restore(
 				toRestore.filter((r) =>
 					outcome.failed.some((f) => f.sessionId === r.sessionId),
 				),
+				saved,
 			),
 		);
 	}

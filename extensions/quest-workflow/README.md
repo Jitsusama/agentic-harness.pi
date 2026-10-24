@@ -58,8 +58,12 @@ shipped and tested.
   so the person's startup files put the right pi on PATH.
   Restore gathers tabs with no window to hold them into one
   new window, and counts a session reopened only once its pi
-  has started. See the terminal library's README for the
-  settings.
+  has started. A lost session pi never saved, since it was
+  lost before its first message, has nothing to resume:
+  restore starts a fresh pi on its quest in its folder
+  instead, says so, and stops offering it once a session is
+  running in its place. See the terminal library's README for
+  the settings.
 - **Queries**: `find`, `who`, `links`, `locate` (the inverse
   index: resolve a document id, alias ref or session id to the
   quest that owns it), `ancestors` (trace a quest's parent chain
