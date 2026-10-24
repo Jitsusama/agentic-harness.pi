@@ -139,6 +139,12 @@ reload starts takes them over on `session_start` with reason
   holding them parks them for it. A registry from code before this
   never hears the ask; the reload workflow keeps its own reloads one
   at a time for that reason.
+- **A report that comes again is dropped.** A runtime left live that
+  way still holds its outbox, which never hears its report land and
+  so sends it every thirty seconds until pi exits. Its sends come in
+  through the session, so the live runtime turns away any job report
+  the session has already shown, its history included, and no turn
+  starts. Only an exact repeat of a report is dropped.
 - **The registry stays the code that first built it.** A session
   that started before a registry method existed holds a registry
   without it for good, however often it reloads, so the newer code
