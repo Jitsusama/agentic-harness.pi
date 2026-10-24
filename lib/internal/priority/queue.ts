@@ -511,13 +511,21 @@ export const KIND_SAID: Readonly<Record<Kind, string>> = {
 /** Where a command's steps and the parts of its pipes end. */
 const SEGMENTS = /\n|;|&&|\|\|?/;
 
-/** A step whose command finds processes or text, or reports on them. */
+/**
+ * A step whose command finds processes or text, or reports on them, or
+ * reads a file or a path, as `readlink -f $d/bin/nixos-test-driver`
+ * does without running the driver.
+ */
 const LOOKS =
-	/^\s*(?:sudo\s+)?(?:pgrep|pkill|pidof|ps|kill|killall|grep|egrep|fgrep|rg|systemctl|journalctl|echo|printf|which)\b/;
+	/^\s*(?:sudo\s+)?(?:(?:pgrep|pkill|pidof|ps|kill|killall|grep|egrep|fgrep|rg|systemctl|journalctl|echo|printf|which|readlink|realpath|ls|stat|file|cat|head|tail|wc|test)\b|\[\s)/;
 
-/** Variables set at the start of a step, as `A=1 B="two" cmd` sets two. */
+/**
+ * Variables set at the start of a step, as `A=1 B="two" cmd` sets two.
+ * One set from `$(` leaves the command inside, since that is what the
+ * step runs: `w=$(readlink -f x)` reads, `d=$(nix build ...)` builds.
+ */
 const ASSIGNMENTS =
-	/^\s*(?:export\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|\S*)(?:\s+|$))+/;
+	/^\s*(?:export\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=(?:\$\(\s*|(?:"[^"]*"|'[^']*'|\S*)(?:\s+|$)))+/;
 
 /** The step of a command that does its heavy work, as one line. */
 export function whatOf(command: string): string {
