@@ -164,6 +164,33 @@ describe("the kind of heavy work a command runs", () => {
 		expect(kindOf('pgrep -f "nix-build;cargo"')).toBeUndefined();
 	});
 
+	it("finds none in a path or a glob that only names the work", () => {
+		// On 24 October this read-only loop waited 315 s for a turn as a build.
+		for (const looking of [
+			"D=/sys/fs/cgroup/build.slice/nix-daemon.service; for c in $D/nix-build-*; do cat $c/cpu.weight; done",
+			"ls -d /sys/fs/cgroup/build.slice/nix-daemon.service/nix-build-uid-872415232",
+			"cat $D/nix-build-uid-1/cpu.weight",
+		]) {
+			expect(kindOf(looking), looking).toBeUndefined();
+		}
+		expect(kindOf("nix-build lab/container-probe.nix")).toBe("build");
+		expect(kindOf("/nix/store/abc-nix/bin/nix-build x.nix")).toBe("build");
+	});
+
+	it("knows an image built for containers as a build", () => {
+		for (const building of [
+			"podman build -t probe .",
+			"docker build .",
+			"docker buildx build --load .",
+			"docker compose build",
+			"buildah build -t probe .",
+		]) {
+			expect(kindOf(building), building).toBe("build");
+		}
+		expect(kindOf("podman ps")).toBeUndefined();
+		expect(kindOf("docker images")).toBeUndefined();
+	});
+
 	it("says the step that does the work, past the variables it sets", () => {
 		expect(whatOf('cd core && RUST_LOG=debug A="x y" cargo test -p a')).toBe(
 			"cargo test -p a",

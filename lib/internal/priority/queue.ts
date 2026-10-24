@@ -442,7 +442,11 @@ const KINDS: readonly (readonly [RegExp, Kind])[] = [
 	[
 		new RegExp(
 			[
-				/\bnix\s+flake\s+check\b|\bnix\s+build\b|\bnix-build\b|\bnixos-rebuild\b/,
+				// nix-build as a program, not a build's cgroup or a glob over them,
+				// as in `$D/nix-build-*`, which held a read-only loop 315 s.
+				/\bnix\s+flake\s+check\b|\bnix\s+build\b|\bnix-build(?![\w.*-])|\bnixos-rebuild\b/,
+				// An image for containers, which compiles what it holds.
+				/\b(?:podman|docker)\s+(?:buildx\s+|compose\s+)?build\b|\bbuildah\s+(?:build|bud)\b/,
 				/\b(?:darwin-rebuild\s+(?:switch|build|check|test)|home-manager\s+(?:switch|build))\b/,
 				NIX_FAST_BUILD,
 				new RegExp(

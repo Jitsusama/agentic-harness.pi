@@ -25,6 +25,14 @@
  * Nix daemon's build users run a VM check's qemu, and the name is all
  * that another user's process shows. A whole reading took 3.9 ms over
  * 767 processes on optimus, every 2 seconds while jobs stand.
+ *
+ * A check with deadlines counts as one VM whatever it runs its machine
+ * on, since load breaks its timing the same way: a Nix build running
+ * NixOS's test driver, systemd-nspawn, niri or sway, with no qemu of its
+ * own to be counted by, in the build's cgroup or its containers'. Only
+ * the daemon's builds are looked in, so Joel's own niri never counts.
+ * It is read from what runs rather than from the check's name, which
+ * says what a check proves, not where it runs.
  */
 
 import { readdirSync, readFileSync } from "node:fs";
@@ -92,7 +100,7 @@ export function readRoom(
 	return {
 		availableGib: Math.max(0, available - kept) / GIB,
 		memoryPressure: memory,
-		vms: vmsIn(kernel.proc),
+		vms: vmsIn(kernel.proc) + timedBuildsIn(kernel),
 		cpuPressure: cpu,
 		cores: cores(kernel.proc),
 		pressure: {
@@ -166,6 +174,54 @@ function vmsIn(proc: string): number {
 		if (VM_PROCESS.test(text(join(proc, entry, "comm")))) count += 1;
 	}
 	return count;
+}
+
+/** Where the Nix daemon makes a cgroup for each build. */
+const BUILDS = "build.slice/nix-daemon.service";
+
+/** What runs in a check with deadlines, besides a VM's qemu. */
+const TIMED = ["nixos-test-driver", "systemd-nspawn", "niri", "sway"];
+
+/** The longest name the kernel keeps for a process. */
+const COMM_LENGTH = 15;
+
+/**
+ * Whether a process's name is one in {@link TIMED}. Nix's wrapped
+ * programs start with a dot, and the kernel cuts a name at 15
+ * characters, so `.nixos-test-dri` is the test driver.
+ */
+function isTimed(comm: string): boolean {
+	const cut = comm.length === COMM_LENGTH;
+	const bare = comm.startsWith(".") ? comm.slice(1) : comm;
+	return TIMED.some(
+		(name) => bare.startsWith(name) || (cut && name.startsWith(bare)),
+	);
+}
+
+/** How many Nix builds run a check with deadlines but no qemu. */
+function timedBuildsIn(kernel: Kernel): number {
+	const daemon = join(kernel.cgroups, BUILDS);
+	let count = 0;
+	for (const build of entries(daemon)) {
+		if (!build.startsWith("nix-build-")) continue;
+		const comms = pidsUnder(join(daemon, build)).map((pid) =>
+			text(join(kernel.proc, pid, "comm")).trim(),
+		);
+		if (comms.some((comm) => VM_PROCESS.test(comm))) continue;
+		if (comms.some(isTimed)) count += 1;
+	}
+	return count;
+}
+
+/** Every process in a cgroup and the cgroups under it. */
+function pidsUnder(cgroup: string): string[] {
+	const own = text(join(cgroup, "cgroup.procs"))
+		.split("\n")
+		.filter((pid) => /^\d+$/.test(pid));
+	return [
+		...own,
+		...entries(cgroup).flatMap((child) => pidsUnder(join(cgroup, child))),
+	];
 }
 
 function names(dir: string): string[] {
