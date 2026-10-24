@@ -1,7 +1,7 @@
 /**
- * The cache prices a context decision is weighed at, demotion and
- * compaction alike, from the active model's own rates rather than a
- * table that goes stale when a provider reprices.
+ * The cache prices a compaction is weighed at, from the active model's
+ * own rates rather than a table that goes stale when a provider
+ * reprices.
  *
  * pi bills a one-hour cache write at twice base input against the
  * model's own five-minute write rate, and only asks for one on the
