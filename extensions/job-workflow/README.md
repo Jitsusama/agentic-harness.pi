@@ -131,6 +131,14 @@ reload starts takes them over on `session_start` with reason
   a reload onto code from before this, or one whose job-workflow
   failed to load. The key carries a version, and a change to what is
   handed over takes a new one.
+- **A runtime pi replaced without making stale** hands its jobs
+  over too. Two reloads that overlap both shut down the same old
+  runtime, so the one the first starts is replaced but stays live,
+  its host first on the bus. So a starting runtime asks on
+  `jobs:yield:v1` for its session's jobs, and any runtime still
+  holding them parks them for it. A registry from code before this
+  never hears the ask; the reload workflow keeps its own reloads one
+  at a time for that reason.
 - **The registry stays the code that first built it.** A session
   that started before a registry method existed holds a registry
   without it for good, however often it reloads, so the newer code

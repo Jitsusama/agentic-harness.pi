@@ -167,7 +167,7 @@ describe("heavy work waiting for its turn", () => {
 			`${dir}/capped.conf:/home/a/.config/nix/nix.conf:/etc/xdg/nix/nix.conf:/run/sw/etc/xdg/nix/nix.conf\n`,
 		);
 		expect(capped.stderr.toString()).toBe(
-			"Runs beside a VM check, so its Nix builds are held to 1 at once, of 2 cores each.\n",
+			"Runs beside a VM check, so its Nix builds are held to 1 at once, of 2 cores each, and cargo to 2 jobs.\n",
 		);
 		const own = spawnSync("bash", ["-c", `${wait?.("j3")}\n${show}`], {
 			env: { ...env, NIX_USER_CONF_FILES: "/mine.conf" },
@@ -178,6 +178,28 @@ describe("heavy work waiting for its turn", () => {
 			env,
 		});
 		expect(uncapped.stdout.toString()).toBe("\n");
+	});
+
+	it("caps cargo's jobs beside a VM check too, as it caps Nix's", async () => {
+		// The cap reached only Nix, so a cargo build given its turn beside a
+		// VM check still ran a rustc for every core.
+		const wait = waitsForTurn(dir);
+		for (const name of ["j4.job", "j4.turn", "j4.capped"]) {
+			writeFileSync(join(dir, name), "");
+		}
+		writeFileSync(join(dir, "capped.conf"), "max-jobs = 2\ncores = 4\n");
+		const show = 'echo "$CARGO_BUILD_JOBS"';
+		const env = { ...process.env, CARGO_BUILD_JOBS: "16" };
+
+		const capped = spawnSync("bash", ["-c", `${wait?.("j4")}\n${show}`], {
+			env,
+		});
+		expect(capped.stdout.toString()).toBe("4\n");
+		rmSync(join(dir, "j4.capped"));
+		const uncapped = spawnSync("bash", ["-c", `${wait?.("j4")}\n${show}`], {
+			env,
+		});
+		expect(uncapped.stdout.toString()).toBe("16\n");
 	});
 
 	it("gives way when its job is given up or nobody keeps the queue", () => {

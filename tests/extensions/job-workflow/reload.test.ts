@@ -111,6 +111,57 @@ describe("a reload", () => {
 		expect(ended.map((finished) => finished.toolCallId)).toEqual(["c1", "c2"]);
 	});
 
+	it("takes the jobs from a runtime pi replaced without making it stale", async () => {
+		// Two reloads that overlap both shut down the same old runtime, so
+		// the one the first starts is replaced and never made stale. On 24
+		// October its host stayed first on the bus: it held the carried
+		// jobs, the new runtime's list said there were none, and a result
+		// nobody marked as seen was said again every 30 seconds.
+		const events = createEventBus();
+		const { first, host } = await startedOn(events);
+		const job = host.start({ kind: "shell", label: "run-subtests vm-desktop" });
+		await first.fire("session_shutdown", { reason: "reload" });
+		first.invalidate();
+		const second = jobRuntime(events);
+		await second.fire("session_start", { reason: "reload" });
+
+		const third = jobRuntime(events);
+		await third.fire("session_start", { reason: "reload" });
+
+		expect(await third.tool("jobs", { action: "list" })).toContain(job.id);
+		job.finish({ summary: "exited 0" });
+		findJobHost(events)
+			?.start({ kind: "reload", label: "the reload you asked for" })
+			.finish({ summary: "Reloaded, as asked." });
+		expect(second.said).toEqual([]);
+		expect(third.said).toHaveLength(1);
+		expect(third.said[0]).toContain("exited 0");
+		await third.fire("message_end", landed(third.said[0] ?? ""));
+		await third.fire("agent_settled");
+		expect(third.said).toHaveLength(2);
+		expect(third.said[1]).toContain("Reloaded, as asked.");
+		await third.fire("message_end", landed(third.said[1] ?? ""));
+		await third.fire("agent_settled");
+		expect(third.said).toHaveLength(2);
+	});
+
+	it("leaves another session's live jobs where they are", async () => {
+		const events = createEventBus();
+		const other = jobRuntime(events, "s2");
+		await other.fire("session_start", { reason: "startup" });
+		const job = findJobHost(events)?.start({ kind: "shell", label: "x" });
+
+		const mine = jobRuntime(events, "s1");
+		await mine.fire("session_start", { reason: "reload" });
+
+		expect(await mine.tool("jobs", { action: "list" })).toMatch(
+			/No background jobs/,
+		);
+		expect(await other.tool("jobs", { action: "list" })).toContain(
+			job?.id ?? "?",
+		);
+	});
+
 	it("carries the jobs through one reload after another", async () => {
 		const events = createEventBus();
 		const { first, host } = await startedOn(events);

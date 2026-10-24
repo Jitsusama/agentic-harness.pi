@@ -200,6 +200,40 @@ describe("the machine's queue folder", () => {
 		expect(existsSync(join(dir, "unsaid.job"))).toBe(false);
 	});
 
+	it("clears what a job left behind once its .job is gone", () => {
+		// A session on older code dropped a job without the files it did not
+		// know, so a `.began` stayed in the folder for every job it ended.
+		// A job's .job is written before its shell is given the command, so
+		// a file without one is left over; a minute's grace covers a clock
+		// that disagrees.
+		mkdirSync(dir, { recursive: true });
+		const leftover = (name: string, ageMs: number) => {
+			const file = join(dir, name);
+			writeFileSync(file, "");
+			const at = (NOW - ageMs) / 1000;
+			utimesSync(file, at, at);
+			return file;
+		};
+		const queue = folder();
+		queue.ask(job("kept"));
+		const keptBegan = leftover("kept.began", 10 * 60_000);
+		const old = [
+			leftover("gone.began", 10 * 60_000),
+			leftover("gone.pid", 10 * 60_000),
+			leftover("gone.end", 10 * 60_000),
+		];
+		const fresh = leftover("new.began", 1_000);
+		const other = leftover("notes.txt", 10 * 60_000);
+
+		queue.keep(ROOMY, NOW, () => undefined);
+
+		for (const file of old) expect(existsSync(file)).toBe(false);
+		expect(existsSync(keptBegan)).toBe(true);
+		expect(existsSync(fresh)).toBe(true);
+		expect(existsSync(other)).toBe(true);
+		expect(existsSync(join(dir, "queue.json"))).toBe(true);
+	});
+
 	it("leaves the queue to a session keeping it, until its lock is stale", () => {
 		const queue = folder();
 		queue.ask(job("first", { since: new Date().toISOString() }));

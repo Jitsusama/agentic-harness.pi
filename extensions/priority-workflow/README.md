@@ -57,13 +57,16 @@ does, so the wait never uses it up (see
 
 | Kind | What it is | Class | Held to need |
 | --- | --- | --- | --- |
-| vm-test | A VM or a test's driver run here | timed | 6 GiB |
+| vm-test | A VM or a test's driver run here, `run-subtests` | timed | 6 GiB |
 | vm-check | A Nix build of a VM test, which the daemon runs | bulk | 6 GiB |
 | benchmark | `cargo bench`, `hyperfine` | timed | 2 GiB |
-| build | Nix builds and checks, `nixos-rebuild`, cargo's builds, `changed-checks`, `nix eval` of every check | bulk | 4 GiB |
+| build | Nix builds and checks, `nixos-rebuild`, `home-manager switch`, `darwin-rebuild`, cargo's builds and tests (aliases, toolchains and flags too), `make -j`, `cmake --build`, `go build` and `go test`, `changed-checks`, `nix-fast-build`, `nix eval` of every check | bulk | 4 GiB |
 
-Work that evaluates a whole flake's checks, `nix flake check` and
-`nix eval` of `#checks`, is held to 20 GiB whatever its kind, since its
+Watchers such as `cargo watch` and `bacon` are left out, since they
+would hold a turn for as long as they watch.
+
+Work that evaluates a whole flake's checks, `nix flake check`,
+`nix-fast-build` and `nix eval` of `#checks`, is held to 20 GiB whatever its kind, since its
 evaluator keeps that heap until it ends; `changed-checks`, which
 reached 24 GB, is held to 24.
 `changed-checks --build` without `--no-vm` builds VM tests too, so it
@@ -92,8 +95,10 @@ is a vm-check.
   most about 8 cores, or `cores = 2` after a VM failed beside one. The cap is a settings file put first in
   `NIX_USER_CONF_FILES`, ahead of the files Nix reads anyway, so the
   person's nix.conf still holds and an inline `NIX_CONFIG` can't drop
-  it; the daemon honours it since the account is a trusted user. The
-  call's output says it ran capped, and `queue.json` marks the job
+  it; the daemon honours it since the account is a trusted user.
+  cargo is held to the same cores through `CARGO_BUILD_JOBS`, which a
+  `-j` on the command still overrides. The call's output says it ran
+  capped, and `queue.json` marks the job
   `capped`, so a VM failing beside one can be traced to it. A build
   from a session on an older harness, whose shell can't read the cap,
   waits for the check instead of running on every core. Other builds

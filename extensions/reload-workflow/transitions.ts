@@ -191,6 +191,40 @@ export async function performReload(
 	} = { underWay: () => false, overruled: () => {} },
 ): Promise<void> {
 	const slot = reloadSlot();
+	// One at a time. On 24 October the follower's command and the agent's
+	// both ran: two reloads overlapped, and the runtime the first started
+	// was replaced without going stale, its job host still first on the
+	// bus, holding carried jobs and saying the landing every 30 seconds.
+	if (slot.performing) {
+		try {
+			ctx.ui.notify(
+				"A reload is already under way, so this one did nothing.",
+				"info",
+			);
+		} catch {
+			// A context with no screen to say it on.
+		}
+		return;
+	}
+	slot.performing = true;
+	try {
+		await reloadOnce(ctx, running, settings, run);
+	} finally {
+		slot.performing = false;
+	}
+}
+
+/** The reload {@link performReload} runs, once nothing else is. */
+async function reloadOnce(
+	ctx: ExtensionCommandContext,
+	running: Loaded,
+	settings: PackageSettings,
+	run: {
+		underWay: () => boolean;
+		overruled: (times: number) => void;
+	},
+): Promise<void> {
+	const slot = reloadSlot();
 	const tree = isSwapped(running) ? running.root : undefined;
 	// Set before the wait, so the new runtime knows this one will say
 	// how it went and does not say it twice.

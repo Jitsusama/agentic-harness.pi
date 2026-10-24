@@ -8,6 +8,7 @@ import {
 	placeChildren,
 	placedCommand,
 	shellMovesItself,
+	withPi,
 } from "../../../../lib/internal/priority/place.ts";
 
 const OWN =
@@ -165,6 +166,40 @@ describe("placeChildren", () => {
 
 	it("has no shell line for a path it can't quote", () => {
 		expect(shellMovesItself("/a'b")).toBeUndefined();
+	});
+
+	it("leaves a helper pi keeps for itself where pi is", async () => {
+		// The status line's git engine serves pi's own screen for as long as
+		// pi runs. In jobs it starved behind the builds, and the footer lagged
+		// whenever the machine was busy.
+		const written: number[] = [];
+		undo = placeChildren("/jobs", (_path, pid) => {
+			written.push(pid);
+		});
+		const kept = await new Promise<number>((resolve, reject) => {
+			const child = withPi(() => spawn("true"));
+			child.on("error", reject);
+			child.on("exit", () => resolve(child.pid ?? -1));
+		});
+		const placed = await spawned();
+
+		expect(kept).toBeGreaterThan(0);
+		expect(written).toEqual([placed]);
+	});
+
+	it("places again after a helper that failed to start", async () => {
+		const written: number[] = [];
+		undo = placeChildren("/jobs", (_path, pid) => {
+			written.push(pid);
+		});
+		expect(() =>
+			withPi(() => {
+				throw new Error("no such program");
+			}),
+		).toThrow("no such program");
+		const placed = await spawned();
+
+		expect(written).toEqual([placed]);
 	});
 
 	it("leaves spawns alone once undone", async () => {

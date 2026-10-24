@@ -88,6 +88,15 @@ export interface JobHost {
 export const JOBS_ASK = "jobs:ask:v1";
 
 /**
+ * Asked by a runtime starting for a session: a runtime still holding
+ * that session's jobs parks them for it. pi's reload is not one at a
+ * time, and two that overlap leave a replaced runtime live, its host
+ * first on the bus. The payload names the session and is marked
+ * `parked` by whoever parks, before `emit` returns.
+ */
+export const JOBS_YIELD = "jobs:yield:v1";
+
+/**
  * Said on the bus when a job's work ends, however it ends: finished,
  * stopped by the person or the agent, or stopped because its session
  * ended. Its

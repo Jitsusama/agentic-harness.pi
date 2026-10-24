@@ -183,6 +183,19 @@ export interface QueueFolder {
 	): void;
 }
 
+/** Every file a job has in the folder, by its ending. */
+const JOB_FILES: readonly string[] = [
+	"job",
+	"pid",
+	"turn",
+	"began",
+	"capped",
+	"end",
+];
+
+/** How old a job's file without its .job must be to count as left over. */
+const LEFTOVER_MS = 60_000;
+
 export function queueFolder(
 	dir: string,
 	processes: Processes,
@@ -225,8 +238,35 @@ export function queueFolder(
 	};
 
 	const drop = (id: string) => {
-		for (const ending of ["job", "pid", "turn", "began", "capped", "end"]) {
-			rmSync(path(id, ending), { force: true });
+		for (const ending of JOB_FILES) rmSync(path(id, ending), { force: true });
+	};
+
+	/**
+	 * Clears what jobs left once their .job is gone. A session on older
+	 * code drops a job without the files it does not know, which left a
+	 * `.began` for every job it ended. A job's .job is written before its
+	 * shell is handed the command, so anything else of a job without one
+	 * is left over; a minute's grace covers a clock that disagrees.
+	 */
+	const sweep = (now: number) => {
+		const all = names(dir);
+		const asked = new Set(
+			all
+				.filter((name) => name.endsWith(".job"))
+				.map((name) => name.slice(0, -4)),
+		);
+		for (const name of all) {
+			const dot = name.lastIndexOf(".");
+			const ending = name.slice(dot + 1);
+			if (dot <= 0 || ending === "job" || !JOB_FILES.includes(ending)) continue;
+			if (asked.has(name.slice(0, dot))) continue;
+			try {
+				const file = join(dir, name);
+				if (now - statSync(file).mtimeMs >= LEFTOVER_MS)
+					rmSync(file, { force: true });
+			} catch {
+				// Gone as it was looked at.
+			}
 		}
 	};
 
@@ -344,6 +384,7 @@ export function queueFolder(
 					}),
 					reading,
 				);
+				sweep(now);
 				const awaited = standing.some((job) => job.started === undefined)
 					? awaitedNow()
 					: NOBODY;

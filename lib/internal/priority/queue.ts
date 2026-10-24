@@ -99,6 +99,16 @@ const CHANGED_CHECKS = /(?<![\w./-])changed-checks(?![\w.-])/;
  */
 export const CHANGED_CHECKS_GIB = 24;
 
+/**
+ * cargo up to its subcommand, past a `+toolchain` and flags such as
+ * `--locked`: `cargo +nightly build` and `cargo --locked build` ran with
+ * no turn, as did the short aliases, `cargo b`, `cargo t` and `cargo c`.
+ */
+const CARGO = String.raw`\bcargo(?:\s+\+\S+)?(?:\s+--?[\w-]+(?:=\S+)?)*\s+`;
+
+/** nix-fast-build, which evaluates every check, then builds them. */
+const NIX_FAST_BUILD = /(?<![\w./-])nix-fast-build(?![\w.-])/;
+
 /** An evaluation of a flake's every check, for one system or all. */
 const EVERY_CHECK =
 	/\bnix(?:\s+--?\S+)*\s+eval\b[^\n]*#checks(?:\.[\w-]+)?(?![\w.-])/;
@@ -108,7 +118,12 @@ const EVERY_CHECK =
  * changed-checks, and an evaluation of every check.
  */
 const WHOLE_FLAKE = new RegExp(
-	[/\bnix(?:\s+--?\S+)*\s+flake\s+check\b/, CHANGED_CHECKS, EVERY_CHECK]
+	[
+		/\bnix(?:\s+--?\S+)*\s+flake\s+check\b/,
+		CHANGED_CHECKS,
+		EVERY_CHECK,
+		NIX_FAST_BUILD,
+	]
 		.map((pattern) => pattern.source)
 		.join("|"),
 );
@@ -401,7 +416,7 @@ const STEPS = /\n|;|&&|\|\|/;
  */
 const KINDS: readonly (readonly [RegExp, Kind])[] = [
 	[
-		/\bqemu-system-[\w-]+\b|\bqemu-kvm\b|\bnixos-test-driver\b|\/bin\/run-[\w-]+-vm\b/,
+		/\bqemu-system-[\w-]+\b|\bqemu-kvm\b|\bnixos-test-driver\b|\/bin\/run-[\w-]+-vm\b|(?<![\w./-])run-subtests(?![\w.-])/,
 		"vm-test",
 	],
 	[/\bnix\s+build\b[^\n]*\.driver\b/, "build"],
@@ -415,9 +430,21 @@ const KINDS: readonly (readonly [RegExp, Kind])[] = [
 		),
 		"vm-check",
 	],
-	[/\bcargo\s+bench\b|\bhyperfine\b/, "benchmark"],
+	[new RegExp(`${CARGO}bench\\b|\\bhyperfine\\b`), "benchmark"],
 	[
-		/\bnix\s+flake\s+check\b|\bnix\s+build\b|\bnix-build\b|\bnixos-rebuild\b|\bcargo\s+(?:build|check|clippy|test|nextest|run|install)\b/,
+		new RegExp(
+			[
+				/\bnix\s+flake\s+check\b|\bnix\s+build\b|\bnix-build\b|\bnixos-rebuild\b/,
+				/\b(?:darwin-rebuild\s+(?:switch|build|check|test)|home-manager\s+(?:switch|build))\b/,
+				NIX_FAST_BUILD,
+				new RegExp(
+					`${CARGO}(?:build|b|check|c|clippy|test|t|nextest|run|r|install|doc|llvm-cov|miri|insta)\\b`,
+				),
+				/\bmake\b[^\n]*\s-j\s*\d*|\bcmake\s+--build\b|\bgo\s+(?:build|test|install|vet)\b/,
+			]
+				.map((pattern) => pattern.source)
+				.join("|"),
+		),
 		"build",
 	],
 	[CHANGED_CHECKS, "build"],

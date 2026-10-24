@@ -12,6 +12,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import * as path from "node:path";
+import { withPi } from "../../lib/internal/priority/place.ts";
 
 /** What git is in the middle of, with its steps when it keeps count. */
 export interface Operation {
@@ -173,12 +174,12 @@ export class Engine {
 		if (this.child) return this.child;
 		let child: ChildProcess;
 		try {
-			child = spawn(
-				this.program,
-				["-s", "1", "-u", "1", "-c", "1", "-d", "1"],
-				{
+			// Kept where pi is rather than with the work pi starts: it answers
+			// for pi's own screen, and beside the builds it fell behind.
+			child = withPi(() =>
+				spawn(this.program, ["-s", "1", "-u", "1", "-c", "1", "-d", "1"], {
 					stdio: ["pipe", "pipe", "ignore"],
-				},
+				}),
 			);
 		} catch {
 			this.broken = true;

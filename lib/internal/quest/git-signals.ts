@@ -86,6 +86,27 @@ export function gitTreeRootOf(absPath: string): string | null {
 }
 
 /**
+ * The root a tree a quest tracks is compared on: the tree itself when
+ * it holds a `.git` entry, which makes it its own root, otherwise git's
+ * root for it, otherwise the path as it is.
+ *
+ * The write gate asks this of every tracked tree on every write, on
+ * pi's input path. Asking git each time ran one process per tree per
+ * write: 87 for a quest tracking 87 worktrees, and 3,988 root lookups
+ * in 57 minutes on one machine. A tracked tree is nearly always a
+ * checkout's own top, so a stat answers it; a subdirectory somebody
+ * adopted still goes to git. A `.git` git cannot read gives the path
+ * itself, which is what a failed git lookup gave too.
+ */
+export function trackedTreeRoot(
+	absPath: string,
+	rootOf: (p: string) => string | null = gitTreeRootOf,
+): string {
+	if (existsSync(path.join(absPath, ".git"))) return canonicalPath(absPath);
+	return canonicalPath(rootOf(absPath) ?? absPath);
+}
+
+/**
  * The directory to run git from for a target: the target itself when
  * it is a directory, and otherwise the nearest existing ancestor.
  */
