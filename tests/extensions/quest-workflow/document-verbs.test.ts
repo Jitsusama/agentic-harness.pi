@@ -303,6 +303,87 @@ describe("documents of a quest this session has not loaded", () => {
 	});
 });
 
+describe("retitle", () => {
+	it("renames the loaded quest and journals the old title", async () => {
+		const { state, run } = await questWithPlan();
+		const readme = join(state.questDir ?? "", "README.md");
+
+		const result = succeeded(
+			await run({
+				action: "retitle",
+				id: state.questId ?? "",
+				title: "Verbs That Say What They Do",
+			}),
+		);
+
+		const after = readFileSync(readme, "utf8");
+		expect(result.message).toContain("Verbs That Say What They Do");
+		expect(after).toMatch(/^# Verbs That Say What They Do$/m);
+		expect(after).not.toMatch(/^# Verb Quest$/m);
+		expect(after).toContain(
+			'Retitled from "Verb Quest" to "Verbs That Say What They Do".',
+		);
+		expect(state.questTitle).toBe("Verbs That Say What They Do");
+	});
+
+	it("renames a document and journals it in its quest", async () => {
+		const { state, run, planPath } = await questWithPlan();
+		const planId = state.documentId ?? "";
+
+		succeeded(
+			await run({ action: "retitle", id: planId, title: "Verbs, Planned" }),
+		);
+
+		const plan = readFileSync(planPath, "utf8");
+		expect(plan).toMatch(/^# Verbs, Planned$/m);
+		expect(plan).not.toMatch(/^# Verb Plan$/m);
+		expect(plan).toContain("## Work\n\n- [ ] First item");
+		expect(
+			readFileSync(join(state.questDir ?? "", "README.md"), "utf8"),
+		).toContain(`Retitled ${planId} from "Verb Plan" to "Verbs, Planned".`);
+	});
+
+	it("renames a quest this session has not loaded, and stays put", async () => {
+		const { state, run } = await questWithPlan();
+		const other = await anotherQuestWithPlan(state.questsRoot);
+		const here = { id: state.questId, title: state.questTitle };
+
+		succeeded(
+			await run({ action: "retitle", id: other.id, title: "Other, Renamed" }),
+		);
+
+		expect(readFileSync(join(other.dir, "README.md"), "utf8")).toMatch(
+			/^# Other, Renamed$/m,
+		);
+		expect({ id: state.questId, title: state.questTitle }).toEqual(here);
+	});
+
+	it("refuses without an id, so a rename always says what it renames", async () => {
+		const { run } = await questWithPlan();
+		const result = refused(await run({ action: "retitle", title: "Anything" }));
+		expect(result.guidance).toContain("`id`");
+	});
+
+	it("refuses an empty or multi-line title", async () => {
+		const { state, run } = await questWithPlan();
+		const id = state.questId ?? "";
+		refused(await run({ action: "retitle", id, title: "  " }));
+		refused(await run({ action: "retitle", id, title: "One\nTwo" }));
+	});
+
+	it("says so when the title already reads that way", async () => {
+		const { state, run } = await questWithPlan();
+		const result = succeeded(
+			await run({
+				action: "retitle",
+				id: state.questId ?? "",
+				title: "Verb Quest",
+			}),
+		);
+		expect(result.message).toContain("already");
+	});
+});
+
 describe("hand edits of owned front matter", () => {
 	it("are refused with the verb that owns the field", async () => {
 		const { state, planPath } = await questWithPlan();
