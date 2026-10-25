@@ -233,12 +233,15 @@ retires, and a manual `tree-prune` removes it freely. An
 adopted (or legacy, unmarked) tree is a shared checkout the
 tool did not create, so it is never auto-pruned and a manual
 prune refuses unless you pass `force: true` after confirming
-with the user. Name the tree to prune or expand with `cwd`, a
-path inside it: a quest with several trees refuses rather than
-guess, and a path that names none of them is refused too. The
-`tree-list` inventory flags any recorded
-tree whose directory has gone missing on disk, so a stale
-entry is visible rather than trusted.
+with the user. Once its quest is concluded or retired, an
+adopted tree is no longer the quest's to hold: `work tidy`
+and `work reclaim` judge it as any tree nothing holds, taking
+it only when it is clean and trunk holds its branch. Name the
+tree to prune or expand with `cwd`, a path inside it: a quest
+with several trees refuses rather than guess, and a path that
+names none of them is refused too. The `tree-list` inventory
+flags any recorded tree whose directory has gone missing on
+disk, so a stale entry is visible rather than trusted.
 
 The two origins also magnetize differently. A fresh session,
 and an id-less `quest load`, resolve a quest from the cwd only
