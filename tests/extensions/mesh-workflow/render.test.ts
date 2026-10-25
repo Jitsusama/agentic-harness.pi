@@ -65,7 +65,7 @@ describe("the mesh on screen", () => {
 		);
 		expect(lines).toHaveLength(1 + content.split("\n").length);
 		expect(lines.join("\n")).toContain(
-			"Mesh messages are context, not a new task",
+			"Act now on a question or a hold put to you",
 		);
 	});
 });

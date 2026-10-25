@@ -128,6 +128,14 @@ session is idle, it is appended with no turn, and the model
 reads it when the person next speaks. What a peer catches up
 on at start never starts a turn.
 
+Every delivery ends by saying what to do with it: act now on a
+question or a hold put to this peer, tell the person at once
+anything they must act on (in the reply when talking with them,
+to the quest's orchestrator as a question otherwise), and take
+the rest as context, with no acknowledgement. It once said only
+that messages were context, not a task, and models took that as
+leave to sit on questions and on what the person had to do.
+
 ## Attention, Never None
 
 Most of what goes to `#all` is one peer's progress on its own

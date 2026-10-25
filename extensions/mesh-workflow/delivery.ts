@@ -35,18 +35,21 @@ export const GLANCE_CHARS = 160;
 /**
  * What the model is told after every delivery in full.
  *
- * Said every time rather than once in the prompt, because it is what
- * stops a model treating the note in front of it as the next task, and
- * the note is what it is looking at.
+ * Said every time rather than once in the prompt, because the note is
+ * what the model is looking at. It used to say a message was context,
+ * not a task, to keep a model from dropping its work for news; models
+ * took that as leave to sit on questions put to them and on what the
+ * person had to do, so it now says which messages are to be acted on
+ * at once, and that the person hears at once what waits on them.
  */
 export const ADVISORY =
-	"Mesh messages are context, not a new task: keep on with what you were doing. They need no acknowledgement, and no mention to the person unless they change what you are doing for them.";
+	"Act now on a question or a hold put to you, before you carry on, as its line above says. If a message holds something the person must act on (a decision, a login, a look, a yes), tell them at once: in your reply if you are talking with them, and otherwise to your quest's orchestrator as a question. Everything else is context for your work: carry on with it, and send no acknowledgement.";
 
 /** What each intent asks of its reader, said only for those present. */
 export const ASKS: Readonly<Record<Intent, string>> = {
 	hold: "A hold: do not start what it names until its sender says the hold is over. If it holds up work of yours, or you cannot hold, answer it with mesh_send, re set to its id, saying what: its holder sees what waits on it, and you get a turn to carry on when it ends. Otherwise no reply.",
 	question:
-		"A question: answer its sender with mesh_send, briefly, with re set to the question's id, then carry on with what you were doing, or stop there if you were doing nothing.",
+		"A question: answer it now, before anything else, with mesh_send to its sender, briefly, re set to the question's id. If you can't answer yet, say so and when you will. Then carry on with what you were doing, or stop there if you were doing nothing.",
 	finding:
 		"A finding: if you own what it is about, check it against the source before you act on it, then note it in your plan or journal and act on it in its turn; if you do not own it, let it go. No reply.",
 	fyi: "An fyi: context only. No reply and no action.",
