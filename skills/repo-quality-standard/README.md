@@ -1,7 +1,8 @@
 # Repository Quality Standard
 
-Teaches the agent what a repository holds as a whole: one local
-gate, a short and true AGENTS.md, every file linted at its
+Teaches the agent what a repository holds as a whole: every
+folder with a reason, a name and a note saying what it holds, one
+local gate, a short and true AGENTS.md, every file linted at its
 strictest, programs in files of their own language, tests at
 the cheapest level that proves them, and the sweep that keeps a
 repository clean as other work lands.
