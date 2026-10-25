@@ -12,9 +12,9 @@
  * a promise the surface cannot keep.
  */
 
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join, sep } from "node:path";
+import { dirname, isAbsolute, join, sep } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type Exec, spawnExec } from "@jitsusama/agentic-harness.core/exec";
 import { complaintsAbout } from "@jitsusama/agentic-harness.core/guardian/commit-format";
@@ -101,6 +101,12 @@ const SUBJECT_AIM = 40;
  * reads, commits and pushes work in it the same, so a tree a quest cut
  * does not have to be driven with raw git. It is never released from
  * here: the holder owns that.
+ *
+ * Its path is the checkout git runs in, which need not be the claim
+ * itself: `quest tree-add` cuts a World tree as a folder holding its
+ * checkout in `src/`, and git run in the folder answered "not a git
+ * repository" to every branch and commit (seen 2026-10-14 and again on
+ * 2026-10-25).
  */
 function claimedTree(pi: ExtensionAPI, name: string): HeldTree | undefined {
 	const expanded =
@@ -118,9 +124,34 @@ function claimedTree(pi: ExtensionAPI, name: string): HeldTree | undefined {
 	if (holder === undefined || !existsSync(holder)) return undefined;
 	return {
 		identity: { key: holder, shareable: false },
-		path: holder,
+		path: checkoutWithin(asked, holder) ?? holder,
 		providerId: CLAIMED_PROVIDER,
 	};
+}
+
+/**
+ * The checkout a path inside a claim belongs to, kept inside the claim:
+ * the nearest folder from the path up to the claim holding a `.git`,
+ * else the claim's one child folder holding one. Nothing when neither
+ * settles it, so a claim with several checkouts below it is never
+ * guessed at.
+ */
+function checkoutWithin(asked: string, holder: string): string | undefined {
+	for (let dir = asked; ; dir = dirname(dir)) {
+		if (existsSync(join(dir, ".git"))) return dir;
+		if (dir === holder || !dir.startsWith(`${holder}${sep}`)) break;
+	}
+	let children: string[];
+	try {
+		children = readdirSync(holder, { withFileTypes: true })
+			.filter((entry) => entry.isDirectory())
+			.map((entry) => join(holder, entry.name))
+			.filter((child) => existsSync(join(child, ".git")));
+	} catch {
+		// A claim that can't be listed has no checkout we can name.
+		return undefined;
+	}
+	return children.length === 1 ? children[0] : undefined;
 }
 
 /**
