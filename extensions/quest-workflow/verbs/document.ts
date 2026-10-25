@@ -1,6 +1,6 @@
 /**
  * Verbs that edit the body of a quest document under the quest lock:
- * `journal`, `tick`, `untick` and `section`.
+ * `journal`, `tick`, `untick`, `section` and `retitle`.
  *
  * They exist because hand edits to these files kept missing. The
  * workflow rewrites a README or plan on its own (a Journey line after
@@ -122,6 +122,62 @@ export function section(
 	);
 }
 
+/**
+ * Give the quest or document `id` names a new title: its H1, which is
+ * where every listing reads a title from. The old title goes into the
+ * quest's Journey, so a rename can be read back and undone by hand.
+ *
+ * It takes no default target: a title is the one thing a person
+ * recognises a record by, so a rename always says what it renames.
+ */
+export function retitle(
+	state: QuestState,
+	params: QuestToolParams,
+): QuestResult {
+	if (!params.id?.trim()) {
+		return refuse(
+			"Pass the quest or document to retitle as `id`: a rename always names what it renames.",
+		);
+	}
+	const title = params.title?.trim();
+	if (!title) return refuse("Pass the new title as `title`.");
+	if (/[\r\n]/.test(title)) {
+		return refuse("A title is one line; pass it without line breaks.");
+	}
+	const target = addressOf(state, params.id, { focused: false });
+	if ("refusal" in target) return refuse(target.refusal);
+	let old: string | undefined;
+	const result = editBody(
+		state,
+		params,
+		(body) => {
+			const h1 = /^#[ \t]+(.+)$/m.exec(body);
+			if (!h1) return { ok: false, reason: "It has no `# ` title line." };
+			old = h1[1].trim();
+			if (old === title) return { ok: true, body, changed: false };
+			const at = h1.index;
+			return {
+				ok: true,
+				body: `${body.slice(0, at)}# ${title}${body.slice(at + h1[0].length)}`,
+				changed: true,
+			};
+		},
+		{
+			changed: (path) => `Retitled ${path}: "${title}".`,
+			unchanged: (path) => `${path} is already titled "${title}".`,
+		},
+		false,
+	);
+	if (!result.ok || old === undefined || old === title) return result;
+	const what = target.documentId ? `${target.documentId} ` : "";
+	appendJourneyByPath(
+		target.questDir,
+		`Retitled ${what}from "${old}" to "${title}".`,
+	);
+	if (target.loaded && !target.documentId) state.questTitle = title;
+	return result;
+}
+
 type BodyEdit = (
 	body: string,
 	readme: boolean,
@@ -147,8 +203,9 @@ function editBody(
 		changed: (path: string, line?: string, added?: boolean) => string;
 		unchanged: (path: string, line?: string) => string;
 	},
+	focused = true,
 ): QuestResult {
-	const target = addressOf(state, params.id, { focused: true });
+	const target = addressOf(state, params.id, { focused });
 	if ("refusal" in target) return refuse(target.refusal);
 	const shown = displayPath(target.path);
 	const readme = target.documentId === undefined;

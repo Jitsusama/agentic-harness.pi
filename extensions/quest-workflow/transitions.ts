@@ -26,7 +26,7 @@ import { refuseIgnoredDryRun, refuseUndoElsewhere } from "./dry-run.ts";
 import type { QuestState } from "./state.ts";
 import { aliasAdd, aliasRemove } from "./verbs/alias.ts";
 import { configReport } from "./verbs/config.ts";
-import { journal, section, tick } from "./verbs/document.ts";
+import { journal, retitle, section, tick } from "./verbs/document.ts";
 import {
 	create,
 	focus,
@@ -140,6 +140,8 @@ async function dispatch(
 			return tick(state, params, false);
 		case "section":
 			return section(state, params);
+		case "retitle":
+			return retitle(state, params);
 		case "think":
 		case "draft":
 		case "build":
