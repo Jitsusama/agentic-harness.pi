@@ -96,7 +96,9 @@ async function batch(size: number) {
 	) =>
 		handle(state, fakePi(), fakeCtx(root), {
 			action,
-			...(action === "undo" ? {} : { id: ids.join(","), reason: "swept" }),
+			...(action === "undo"
+				? { id: ids[0] }
+				: { id: ids.join(","), reason: "swept" }),
 			...extra,
 		});
 	return { state, ids, put, status, sweep };

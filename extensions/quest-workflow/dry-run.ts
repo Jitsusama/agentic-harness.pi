@@ -82,25 +82,35 @@ export function refuseIgnoredDryRun(
 }
 
 /**
- * The refusal for an undo naming an id the journal's last change did not
- * touch, or nothing. undo reverses that change whatever it is given: on
- * 24 October one given a plan's id, meant for a section write, reopened
- * another session's concluded quest. Only structural changes (status,
- * priority, parent, order and the like) are journalled, so a document's
- * body writes are never undone.
+ * The refusal for an undo naming no id, or an id the journal's last
+ * change did not touch, or nothing. undo reverses that change whatever
+ * it is given, and the journal is shared by every session on the machine
+ * without saying whose each change was: on 24 October one given a plan's
+ * id, meant for a section write, reopened another session's concluded
+ * quest, and on 25 October one given no id reopened twelve. Naming the
+ * quest is the caller saying the change is theirs to take back. Only
+ * structural changes (status, priority, parent, order and the like) are
+ * journalled, so a document's body writes are never undone.
  */
 export function refuseUndoElsewhere(
 	params: QuestToolParams,
 	questsRoot: string,
 ): QuestResult | undefined {
+	if (params.action !== "undo") return undefined;
 	const id = params.id?.trim();
-	if (params.action !== "undo" || !id) return undefined;
 	const last = lastStructuralOp(questsRoot);
-	if (!last || last.changes.some((change) => change.id === id)) {
-		return undefined;
+	// With nothing journalled, undo itself says there is nothing to undo.
+	if (!last) return undefined;
+	const bodyWrites =
+		"Writes by section, journal, tick, untick and retitle are not journalled, so undo never reverses them; restore those from a backup or write them again.";
+	if (!id) {
+		return refuse(
+			`Nothing was undone: name the quest as \`id\`. The last structural change may be another session's, since every session shares one journal. It is ${undoing(last)} ${bodyWrites} If that change is yours to take back, call undo again with one of the ids it names.`,
+		);
 	}
+	if (last.changes.some((change) => change.id === id)) return undefined;
 	return refuse(
-		`Nothing was undone: undo reverses only the last structural change, and that one did not touch ${id}. It is ${undoing(last)} Writes by section, journal, tick and untick are not journalled, so undo never reverses them; restore those from a backup. Call undo without an id only if reversing that last change is what you want.`,
+		`Nothing was undone: undo reverses only the last structural change, and that one did not touch ${id}. It is ${undoing(last)} ${bodyWrites}`,
 	);
 }
 

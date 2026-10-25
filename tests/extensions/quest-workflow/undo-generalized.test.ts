@@ -115,7 +115,10 @@ describe("undo over any journalled field", () => {
 		expect(fieldOf(quest.id, "kind")).toBe("quest");
 
 		succeeded(
-			await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "undo" }),
+			await handle(state, fakePi(), fakeCtx(tmpRoot), {
+				action: "undo",
+				id: quest.id,
+			}),
 		);
 		expect(fieldOf(quest.id, "kind")).toBe(before);
 	});
@@ -147,6 +150,7 @@ describe("undo over any journalled field", () => {
 
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "undo",
+			id: quest.id,
 		});
 
 		expect(result.ok).toBe(false);
@@ -169,7 +173,10 @@ describe("undo over any journalled field", () => {
 			}),
 		);
 		corruptJournalledOld("kind", "sleepy");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "undo" });
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "undo",
+			id: quest.id,
+		});
 
 		const listed = succeeded(
 			await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "list" }),

@@ -102,6 +102,7 @@ describe("reclassify verb", () => {
 
 		const undone = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "undo",
+			id: id,
 		});
 		expect(undone.ok).toBe(true);
 		expect(readFileSync(path, "utf8")).toMatch(/^kind: quest$/m);
