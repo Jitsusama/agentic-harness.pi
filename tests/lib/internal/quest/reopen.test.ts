@@ -84,27 +84,65 @@ describe("resolveSpawnCwd", () => {
 		});
 	});
 
-	it("falls back to the quest dir when nothing else resolves", () => {
+	// A session started in a quest's folder loads no repo's AGENTS.md or
+	// skills, so the folder is never where one is opened.
+	it("falls back to home, never the quest dir, when nothing else resolves", () => {
 		const result = resolveSpawnCwd({
 			questDir: "/q",
+			home: "/home/joel",
 			trees: [],
 			sessions: [],
 			exists: none,
 		});
-		expect(result).toEqual({ cwd: "/q", source: "questDir" });
+		expect(result).toEqual({ cwd: "/home/joel", source: "home" });
 	});
 
-	it("flags the heal when a recorded path was missing and it falls through to the quest dir", () => {
+	it("flags the heal when a recorded path was missing and it falls through to home", () => {
 		const result = resolveSpawnCwd({
 			questDir: "/q",
+			home: "/home/joel",
 			// A recorded tree path that no longer exists: resolution
-			// heals past it, and nothing else resolves, so it lands on the
-			// quest dir but must still report that a stale record was met.
+			// heals past it, and nothing else resolves, so it lands on
+			// home but must still report that a stale record was met.
 			trees: [{ path: "/gone", providerId: "git-worktree" }],
 			sessions: [],
 			exists: none,
 		});
-		expect(result).toEqual({ cwd: "/q", source: "questDir", healed: true });
+		expect(result).toEqual({
+			cwd: "/home/joel",
+			source: "home",
+			healed: true,
+		});
+	});
+
+	it("skips a session that ran in a folder of the quest store", () => {
+		const result = resolveSpawnCwd({
+			questDir: "/store/QEST-1",
+			store: "/store",
+			home: "/home/joel",
+			trees: [tree("/gone", "/src/repo")],
+			sessions: [
+				liveSession("/store/QEST-1", "2026-10-25T18:00:00Z"),
+				liveSession("/store/QEST-2/plans", "2026-10-25T17:00:00Z"),
+			],
+			exists: onlyAt("/store/QEST-1", "/store/QEST-2/plans", "/src/repo"),
+		});
+		expect(result).toEqual({
+			cwd: "/src/repo",
+			source: "repoRoot",
+			healed: true,
+		});
+	});
+
+	it("skips the quest dir itself even with no store named", () => {
+		const result = resolveSpawnCwd({
+			questDir: "/q",
+			home: "/home/joel",
+			trees: [],
+			sessions: [liveSession("/q", "2026-10-25T18:00:00Z")],
+			exists: all,
+		});
+		expect(result).toEqual({ cwd: "/home/joel", source: "home" });
 	});
 });
 

@@ -288,14 +288,15 @@ export async function spawn(
 
 	// Resolve the working directory: prefer a quest-owned
 	// tree, then a recent session's cwd, then a tree's repo
-	// root, then the quest dir. A recorded path that no
-	// longer exists self-heals to the next candidate rather
-	// than dropping the new terminal into home.
+	// root, then home, never a folder of the quest store. A
+	// recorded path that no longer exists self-heals to the
+	// next candidate.
 	const now = new Date();
 	const snapshot = await buildSessionSnapshot(fm.sessions, { now });
 	const sessions = fm.sessions.map((s) => deriveLiveness(s, snapshot));
 	const resolved = resolveSpawnCwd({
 		questDir: entry.dir,
+		store: state.questsRoot,
 		trees: fm.trees ?? [],
 		sessions,
 	});
