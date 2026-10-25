@@ -6,7 +6,7 @@ knowing before running anything.
 
 ## Typecheck
 
-`tsc --noEmit` runs in CI over the whole project: every
+`tsc --noEmit` runs in `pnpm check` over the whole project: every
 extension, every library, every test, the scripts and the
 root config files.
 
@@ -37,7 +37,6 @@ Run the suite with:
 ```sh
 pnpm test            # everything, about 94s
 pnpm test:unit       # only the unit project, about 26s
-pnpm test:browser    # only the browser tests
 pnpm test:watch      # re-run on save
 pnpm test:coverage   # v8 coverage report
 ```
@@ -137,8 +136,8 @@ The snapshot needs a global key precisely because a reload
 does re-evaluate this module, the same re-evaluation the
 previous note is about.
 
-`pnpm test` runs everything, browser tests included, in about 94
-seconds. Set `CHROME_PATH` or the browser tests skip themselves.
+`pnpm test` runs everything in about 94 seconds. The browser tests
+moved to agentic-harness.core with the code they prove.
 
 It was not always this fast, and the reason is worth knowing because
 it was not a slow test anywhere. The browser lane ran twice, once in
@@ -167,15 +166,14 @@ four workers of ordinary tests starves the very child it is watching,
 and the failure reads as a reviewer that would not spawn rather than
 as a machine that was busy. Two cases failed that way for weeks and
 were green whenever anybody ran them alone, which is the signature.
-Add a test that spawns node from node to that list; the five there
-now are the supervisor and reviewer suites, not every test that
-shells out. It costs about 45 seconds, and `pnpm test` runs every
+Add a test that spawns node from node to that list; the six there
+now are the subagent supervisor's, the reviewer's, the fleet's and
+the load check's, not every test that shells out. It costs about 45 seconds, and `pnpm test` runs every
 project, this one included.
 
-CI runs `pnpm lint`, `pnpm typecheck`, `pnpm test` and
-`pnpm load-check` on every pull request and every push to `main` via
-`.github/workflows/ci.yml`, as four parallel jobs. The load check
-installs a copy with production dependencies only, the way pi
+There is no CI. `pnpm check` runs `pnpm lint`, `pnpm typecheck`,
+the tests the change touches beside origin's main, and
+`pnpm load-check`, before merging. The load check installs a copy with production dependencies only, the way pi
 installs from git, and loads it through pi with nothing else
 loaded; it is the only check that sees a runtime dependency the
 install does not hold.
