@@ -34,8 +34,13 @@ function bus() {
 	};
 }
 
-/** A quests root holding one quest that lists the given trees. */
+/** A quests root holding one active quest that lists the given trees. */
 function questsRootHolding(...paths: string[]): string {
+	return questsRootWith("active", ...paths);
+}
+
+/** A quests root holding one quest of `status` that lists the given trees. */
+function questsRootWith(status: string, ...paths: string[]): string {
 	const root = mkdtempSync(join(tmpdir(), "claims-quests-"));
 	const id = "QEST-20260731-AAAAAA";
 	mkdirSync(join(root, id), { recursive: true });
@@ -48,7 +53,7 @@ function questsRootHolding(...paths: string[]): string {
 		.join("");
 	writeFileSync(
 		join(root, id, "README.md"),
-		`---\nid: ${id}\nkind: quest\nstatus: active\npriority: active\n` +
+		`---\nid: ${id}\nkind: quest\nstatus: ${status}\npriority: active\n` +
 			`rank: 1\nstarted: 2026-07-31\nupdated: 2026-07-31\n` +
 			(paths.length > 0 ? `trees:\n${trees}` : "") +
 			`---\n\n# Holding trees\n\n## Summary\n\nA quest with trees.\n`,
@@ -82,6 +87,39 @@ describe("answering who holds a tree", () => {
 			"/src/other/.worktrees/theirs",
 			"/src/repo/.worktrees/mine",
 		]);
+	});
+
+	it("leaves a finished quest's trees to the working layer's own judgement", () => {
+		// A quest that is over is nobody's reason to keep a tree: claimed
+		// for good, its trees were never offered back, since the prune that
+		// would release them is never run once the quest is done.
+		for (const status of ["concluded", "retired"]) {
+			const pi = bus();
+			answerTreeClaims(
+				pi as never,
+				questsRootWith(status, "/src/repo/.worktrees/done"),
+			);
+
+			const claims: TreeClaims = { paths: [] };
+			pi.events.emit(WORK_TREE_CLAIMS, claims);
+
+			expect(claims.paths, status).toEqual([]);
+		}
+	});
+
+	it("still claims the trees of a quest that is only paused or blocked", () => {
+		for (const status of ["paused", "blocked"]) {
+			const pi = bus();
+			answerTreeClaims(
+				pi as never,
+				questsRootWith(status, "/src/repo/.worktrees/waiting"),
+			);
+
+			const claims: TreeClaims = { paths: [] };
+			pi.events.emit(WORK_TREE_CLAIMS, claims);
+
+			expect(claims.paths, status).toEqual(["/src/repo/.worktrees/waiting"]);
+		}
 	});
 
 	it("claims nothing when no quest holds a tree", () => {

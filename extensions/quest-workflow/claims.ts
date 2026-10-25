@@ -20,21 +20,24 @@ import {
 	WORK_TREE_CLAIMS,
 } from "@jitsusama/agentic-harness.core/work";
 import { discoverQuests } from "../../lib/internal/quest/discovery.ts";
+import { isSealedStatus } from "../../lib/internal/quest/status.ts";
 
 /**
  * Answer the working layer's question about held trees.
  *
- * Every quest is asked, whatever its status. A concluded quest that
- * still lists a tree is still the reason that tree is on disk, and
- * treating conclusion as a release would hand back exactly the trees
- * whose owner has stopped watching them. Releasing is `tree-prune`,
- * which is a decision somebody makes on purpose.
+ * Only a live quest claims the trees it lists. A concluded or retired
+ * one hands them to the working layer's own judgement, which reclaims a
+ * tree only when it is clean and trunk holds its branch, and reports
+ * the rest rather than taking them. Claiming them for good, waiting on
+ * a `tree-prune` nobody runs once a quest is over, kept 102 finished
+ * trees on one machine's disk, none of them ever offered back.
  */
 export function answerTreeClaims(pi: ExtensionAPI, questsRoot: string): void {
 	pi.events.on(WORK_TREE_CLAIMS, (data: unknown) => {
 		const claims = data as TreeClaims;
 		const { index } = discoverQuests(questsRoot);
 		for (const entry of index.quests.values()) {
+			if (isSealedStatus(entry.doc.frontMatter.status)) continue;
 			for (const tree of entry.doc.frontMatter.trees ?? []) {
 				claims.paths.push(tree.path);
 			}
