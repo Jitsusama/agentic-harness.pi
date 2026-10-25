@@ -139,6 +139,7 @@ import {
 	takeHeavyCalls,
 } from "./leases.ts";
 import { meshLines, type Shown } from "./render.ts";
+import { createSteering, type Steering, steerText } from "./steer.ts";
 import { type Local, registerTools } from "./tools.ts";
 
 /**
@@ -186,6 +187,14 @@ export const LOOK_AGAIN_MS = 60 * 1000;
  */
 export const LEFT_MS = FYI_MS;
 
+/**
+ * How long after a session starts it first takes its steer inboxes.
+ * Pi refuses a second turn beside the first prompt, so what waited
+ * through a restart is taken once that prompt is under way, as a steer
+ * into its run, or as a turn of its own when there was none.
+ */
+const FIRST_STEER_MS = 3000;
+
 /** Why a stopped peer's message is a glance, whatever it was. */
 const STOPPED = "from a peer this one stopped";
 
@@ -193,12 +202,15 @@ const STOPPED = "from a peer this one stopped";
 export interface MeshPaths extends QuestRecords {
 	/** The mesh's own state: its messages and every peer's presence. */
 	readonly mesh: string;
+	/** The person's steer inboxes (lib/mesh/steer.ts); none, none watched. */
+	readonly steer?: string;
 }
 
 /** The machine's mesh and the quest records it reads. */
 export function machinePaths(): MeshPaths {
 	return {
 		mesh: stateDir("mesh-workflow"),
+		steer: stateDir("steer"),
 		sessions: join(stateDir("quest-workflow"), "sessions"),
 		quests: join(dataDir("quest-workflow"), "quests"),
 	};
@@ -361,6 +373,36 @@ export function meshWorkflow(
 		// How far the read marker may move: only past what was handed over.
 		let front = createReadFront();
 		let lookClock: ReturnType<typeof setInterval> | undefined;
+		let steering: Steering | undefined;
+
+		/**
+		 * The person's words from outside the window, as their own message:
+		 * a turn when idle, or into the run under way, read after its tool.
+		 */
+		const steered = (text: string) => {
+			const idle = ctx?.isIdle?.() ?? true;
+			pi.sendUserMessage(text, idle ? undefined : { deliverAs: "steer" });
+		};
+
+		/** Steering for this session's addresses, when the mesh has inboxes. */
+		const steer = (root: string | undefined) => {
+			steering?.stop();
+			steering = undefined;
+			if (root === undefined) return;
+			steering = createSteering({
+				root,
+				addresses: () => peer?.addresses ?? [],
+				deliver: (one) => steered(steerText(one)),
+				setAside: (inbox, names) => {
+					if (!ctx?.hasUI) return;
+					ctx.ui.notify(
+						`Steer: set aside ${names.join(", ")} in ${inbox}, which held no text to deliver.`,
+						"warning",
+					);
+				},
+			});
+			setTimeout(() => steering?.look(), FIRST_STEER_MS).unref?.();
+		};
 
 		/** These were handed over, or need nothing more: the marker follows. */
 		const handedOver = (messages: readonly Message[]) => {
@@ -723,6 +765,7 @@ export function meshWorkflow(
 			void countLive().then(() => {
 				peer?.refresh();
 				identity();
+				steering?.look();
 			});
 			if (left.size > 0) void reconsider();
 			const missed = transport
@@ -891,6 +934,7 @@ export function meshWorkflow(
 				if (message) missed.push(message);
 			}
 			void route(missed, true);
+			steer(paths.steer);
 			identity();
 			tidy();
 			if (started.hasUI) {
@@ -983,6 +1027,8 @@ export function meshWorkflow(
 			stopWatching = undefined;
 			untellAwaited?.();
 			untellAwaited = undefined;
+			steering?.stop();
+			steering = undefined;
 		});
 
 		/** Claim or give up heavy work, saying so when it overlaps another's. */
