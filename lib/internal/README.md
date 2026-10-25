@@ -56,6 +56,9 @@ may import from here, and any of it may change without notice.
   pi's prompt path.
 - **`cache-prices.ts`**: the cache prices a compaction is weighed
   at, from the active model's own rates.
+- **`claude-plan.ts`**: where a Claude plan's five-hour and weekly
+  windows stand, read from what the Claude Code provider says after
+  each turn, and the footer's words for them.
 - **`notify.ts`**: reaching the person at the machine through a
   desktop notification. It decides how; the mesh decides when.
   `PI_NOTIFY=off` silences it.

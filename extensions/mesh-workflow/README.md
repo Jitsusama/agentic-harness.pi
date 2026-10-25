@@ -497,6 +497,29 @@ Under `$XDG_STATE_HOME/pi/agentic-harness.pi/mesh-workflow/`:
   rewritten when a lease is taken, given up, or renewed by a
   minute or more, and taken away when the peer holds none.
 
+A session with `PI_MESH=off` stays off the mesh altogether, as
+one kept nowhere does: it joins no group, hears nothing and
+claims nothing. A session on a small personal plan runs so, since
+the machine's holds and questions could otherwise start turns on
+its allowance.
+
+## Steer
+
+The person can speak to a session from outside its window, as
+the launcher's Steer box does, through a folder per address
+under `$XDG_STATE_HOME/pi/agentic-harness.pi/steer/`: a file
+renamed into `steer/<ADDRESS>/` as `<unix-ms>-<random>.json`,
+holding `{"text": "...", "at": "<ISO time>", "from": "joel"}`
+(only `text` is needed), reaches the session going by that
+address as the person's own message. That's a turn when idle,
+and a steer into the run under way, read after its tool,
+otherwise. It isn't a mesh message, since peers read those as
+another agent's context. The session takes each file by
+renaming it, so it's delivered once, and sets one with no text
+aside as `.bad`. It settles which folders it watches at every
+look, since a quest's address comes and goes with the quest
+([`lib/mesh/steer.ts`](../../lib/mesh/steer.ts)).
+
 ## Retention
 
 Nothing on the mesh is a record anyone is owed, and kept for

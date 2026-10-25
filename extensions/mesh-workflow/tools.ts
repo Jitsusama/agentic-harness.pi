@@ -85,7 +85,7 @@ export function registerTools(
 			const at = local();
 			if (!at) {
 				return answer(
-					"This pi is not on the mesh: it keeps no session, or has not started one yet.",
+					"This pi is not on the mesh: it keeps no session, runs with PI_MESH=off, or has not started one yet.",
 				);
 			}
 			at.peer.refresh();

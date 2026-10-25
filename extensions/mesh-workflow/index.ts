@@ -154,6 +154,15 @@ import { type Local, registerTools } from "./tools.ts";
 export const MESH_CLASSIFIER_ENV = "PI_MESH_CLASSIFIER";
 
 /**
+ * The environment variable that keeps a session off the mesh when
+ * `off`: it joins no group, hears nothing and claims nothing, as a
+ * session kept nowhere does. A session on a small personal plan uses
+ * it, since every hold and question on the machine could otherwise
+ * start a turn on that plan's allowance.
+ */
+export const MESH_ENV = "PI_MESH";
+
+/**
  * How long a classifier may take over one message before it is noted
  * unjudged. Jev answers in well under half a second; this is for the
  * network having gone, which must not leave a message undelivered.
@@ -847,7 +856,9 @@ export function meshWorkflow(
 		};
 
 		pi.on("session_start", async (_event, started) => {
-			if (isEphemeral(started.sessionManager)) return;
+			if (isEphemeral(started.sessionManager) || env[MESH_ENV] === "off") {
+				return;
+			}
 			ctx = started;
 			// Named on its presence so others can ask the machine whether this
 			// peer is still there; a peer the machine will not name is taken

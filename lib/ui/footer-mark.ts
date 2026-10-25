@@ -35,6 +35,8 @@ export const FOOTER_GLYPH = {
 	failed: "\u2715",
 	// The session runs a tree in place of the install pi's settings name.
 	swapped: "\u21c4",
+	// A Claude plan's allowance: the spark Claude Code draws for itself.
+	plan: "\u273b",
 } as const;
 
 /** What a footer mark is called. */
