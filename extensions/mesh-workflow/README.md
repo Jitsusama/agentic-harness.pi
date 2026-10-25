@@ -156,16 +156,22 @@ and its groups.
   group about its work. It waits 30 seconds and up to 30 more,
   the extra different for each session so peers hearing one
   message do not start at once, and what arrives meanwhile
-  goes in the same turn. A group's question another peer has
-  answered by then is noted instead, and so is one another
-  peer is answering, until that peer lets it go. When its run
+  goes in the same turn. A question to the machine that
+  another peer has answered by then is noted instead, and so
+  is one another peer is answering, until that peer lets it
+  go. When its run
   ends, or it does, with no answer sent, the question waits to
   act here after all, up to an hour after it was asked. A run
   that starts first,
   from the person or a wake, takes it along.
 - **Wake:** a note that starts a turn at once, for a question
   sent to this idle peer or answering one it sent, and for any
-  answer to a question it asked.
+  answer to a question it asked. A question sent to several
+  peers, or to a named group, asks each of them: it wakes
+  every idle one, and another's answer is never this peer's,
+  since on 2026-10-25 a group question that gave each member
+  its own part was silenced by the first reply. Only a
+  question to `#all` goes to whoever takes it up.
 
 An fyi or a hold never starts a turn; neither asks an idle
 peer to do anything. The one exception is an answer to a
@@ -297,7 +303,7 @@ doing only when it is the easy thing:
   shared checkout is where a hard reset or a stash takes
   another peer's edits with it.
 - **answer:** a turn claims the questions it carries, so a
-  group's question another peer has a turn for is only noted,
+  machine-wide question another peer has a turn for is only noted,
   "being answered by" that peer. Each turn's end renews it, so
   a long answer is not taken for one let go. It lapses with
   the run.

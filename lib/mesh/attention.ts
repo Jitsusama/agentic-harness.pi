@@ -83,6 +83,8 @@ export interface Standing {
 	readonly answers?: boolean;
 	/** The message answers a question this peer asked (see thread.ts). */
 	readonly asked?: boolean;
+	/** A question asking this peer as one of each it went to (message.ts). */
+	readonly askedEach?: boolean;
 	/** The time it is handed over, for judging an fyi or a hold past its time. */
 	readonly now?: number;
 }
@@ -134,8 +136,13 @@ export function attend(message: Message, at: Standing): Heed {
 	) {
 		return { attention: "glance", why: "a hold past the longest one stands" };
 	}
-	if (at.answers || isHomeTo(message, at.receiver.addresses)) {
-		const why = at.answers ? "answering this peer" : "sent to this peer";
+	const home = isHomeTo(message, at.receiver.addresses);
+	if (at.answers || home || at.askedEach) {
+		const why = at.answers
+			? "answering this peer"
+			: home
+				? "sent to this peer"
+				: "asked of each peer it went to";
 		if (!at.idle) return { attention: "note", why };
 		if (message.intent === "question") return { attention: "wake", why };
 		if (message.intent === "finding") return { attention: "act", why };

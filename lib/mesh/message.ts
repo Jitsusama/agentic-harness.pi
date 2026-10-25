@@ -10,7 +10,7 @@
  * peer never breaks on a newer message.
  */
 
-import { hears, homeOf } from "./group.ts";
+import { ALL, hears, homeOf } from "./group.ts";
 
 /**
  * What a message asks of the peers it reaches.
@@ -159,6 +159,23 @@ export function isHomeTo(
 	addresses: readonly string[],
 ): boolean {
 	return addresses.some((address) => message.to.includes(homeOf(address)));
+}
+
+/**
+ * Whether a message is a question asked of this peer as one of each it
+ * went to, so another's answer is not this peer's: sent to its home, or
+ * to a named group it is a member of. A question to the machine's group
+ * asks nobody in particular, and a peer following another's home group
+ * hears that peer's questions without being asked them.
+ */
+export function asksEach(message: Message, listener: Listener): boolean {
+	if (message.intent !== "question" || message.to.includes(ALL)) return false;
+	return (
+		isHomeTo(message, listener.addresses) ||
+		message.to.some(
+			(group) => group.startsWith("#") && hears(listener.groups, group),
+		)
+	);
 }
 
 /**

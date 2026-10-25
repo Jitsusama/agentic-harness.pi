@@ -89,6 +89,20 @@ describe("attention", () => {
 		).toBe("act");
 	});
 
+	it("wakes an idle member for a question that asks each, whatever it is judged", () => {
+		const group = message({
+			intent: "question",
+			to: ["#optimus/done"],
+			text: "each of you: what's left in your part?",
+		});
+		const each = { ...standing, askedEach: true, concern: "other" as const };
+		expect(attend(group, { ...each, idle: true })).toEqual({
+			attention: "wake",
+			why: "asked of each peer it went to",
+		});
+		expect(attend(group, each).attention).toBe("note");
+	});
+
 	it("starts a turn only for questions and findings", () => {
 		const idle = { ...standing, idle: true };
 		const to = ["@5GV2AH"];

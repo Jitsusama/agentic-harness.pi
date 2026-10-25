@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { ALL } from "../../../lib/mesh/group.ts";
 import {
+	asksEach,
 	clock,
 	isHomeTo,
 	type Message,
@@ -86,6 +87,29 @@ describe("who a message reaches", () => {
 	it("is the members of a group it went to", () => {
 		expect(reaches(message({ to: ["#harness"] }), listener, 2)).toBe(true);
 		expect(reaches(message({ to: ["#skynet"] }), listener, 2)).toBe(false);
+	});
+
+	// On 2026-10-25 a question to a group gave each member its own part,
+	// and the first member's answer silenced the rest.
+	it("asks each peer it was sent to, or each member of a named group", () => {
+		const question = (to: string[]) => message({ intent: "question", to });
+		expect(asksEach(question(["@7M6JKG", "@OVAE1I"]), listener)).toBe(true);
+		expect(asksEach(question(["#harness"]), listener)).toBe(true);
+		expect(asksEach(question(["#harness/mesh"]), listener)).toBe(false);
+		expect(
+			asksEach(question(["#quest"]), { ...listener, groups: ["#quest/x"] }),
+		).toBe(true);
+	});
+
+	it("asks nobody in particular on the machine's group, or past a followed peer", () => {
+		const question = (to: string[]) => message({ intent: "question", to });
+		expect(asksEach(question([ALL]), listener)).toBe(false);
+		expect(asksEach(question([ALL, "@7M6JKG"]), listener)).toBe(false);
+		// Following another peer's home group hears its questions, not asked them.
+		expect(
+			asksEach(question(["@OVAE1I"]), { ...listener, groups: ["@OVAE1I"] }),
+		).toBe(false);
+		expect(asksEach(message({ to: ["#harness"] }), listener)).toBe(false);
 	});
 
 	it("is never its own sender, by address or by process", () => {

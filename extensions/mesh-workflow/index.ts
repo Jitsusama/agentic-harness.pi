@@ -88,7 +88,12 @@ import {
 	RUN_KINDS,
 } from "../../lib/mesh/lease.ts";
 import { census, machineBooted } from "../../lib/mesh/liveness.ts";
-import { isHomeTo, type Message, reaches } from "../../lib/mesh/message.ts";
+import {
+	asksEach,
+	isHomeTo,
+	type Message,
+	reaches,
+} from "../../lib/mesh/message.ts";
 import { localPeer, type Peer } from "../../lib/mesh/peer.ts";
 import { createPresences } from "../../lib/mesh/presence.ts";
 import { createReadFront } from "../../lib/mesh/reading.ts";
@@ -344,8 +349,9 @@ export function meshWorkflow(
 		let resumes: Acts<HoldEnd> | undefined;
 		let waitClock: ReturnType<typeof setInterval> | undefined;
 		let acts: Acts<Heeded> | undefined;
-		// Messages other peers have answered, so a question to a group that
-		// one peer took up starts no turn of the rest.
+		// Messages other peers have answered, so a question to the machine
+		// that one peer took up starts no turn of the rest. A question that
+		// asks each peer is answered for this one only by its own reply.
 		const answered = new Set<string>();
 		// Questions this peer left to the peer answering them, by id, kept
 		// until answered so one let go reaches this peer after all.
@@ -455,6 +461,7 @@ export function meshWorkflow(
 					idle,
 					answers: answeringAt(answering, at),
 					asked: answeringAt(asked, at),
+					askedEach: asksEach(message, listener),
 					now: Date.now(),
 					...(concerns[at] ? { concern: concerns[at] } : {}),
 				});
@@ -589,10 +596,13 @@ export function meshWorkflow(
 		const settled = async (arrived: Heeded[]) => {
 			if (!ctx || !peer) return;
 			const waiting = unstopped(arrived);
-			// A question another peer has a turn for is left to it.
+			// A question another peer has a turn for is left to it, unless it
+			// asks each peer, when another's answer is not this one's.
+			const listener = peer.listener;
+			const each = waiting.map(({ message }) => asksEach(message, listener));
 			const answerers = await Promise.all(
-				waiting.map(({ message }) =>
-					message.intent === "question"
+				waiting.map(({ message }, at) =>
+					message.intent === "question" && !each[at]
 						? leasing.answeredBy(message).catch(() => undefined)
 						: undefined,
 				),
@@ -602,7 +612,11 @@ export function meshWorkflow(
 			const idle = ctx.isIdle?.() ?? false;
 			const damped: string[] = [];
 			const now = waiting.map(({ message, heed }, at): Heeded => {
-				if (answered.has(message.id) && message.intent === "question") {
+				if (
+					answered.has(message.id) &&
+					message.intent === "question" &&
+					!each[at]
+				) {
 					return {
 						message,
 						heed: { attention: "note", why: `${heed.why}, answered already` },
