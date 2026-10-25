@@ -26,7 +26,9 @@ shipped and tested.
   structural edits are atomic and journalled so `undo` can
   reverse the last one. `reparent` and the sweep take a
   `dryRun` preview; `undo` has none, and given one it
-  refuses and says what it would reverse.
+  refuses and says what it would reverse. Every session
+  shares the one journal, so `undo` needs the `id` of a
+  quest the last change touched, and refuses otherwise.
 - **Dry runs**: an action that can't preview refuses
   `dryRun: true` and does nothing, rather than dropping it
   and acting for real. That includes `conclude` and

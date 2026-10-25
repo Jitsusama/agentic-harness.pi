@@ -24,6 +24,8 @@ beforeAll(() => {
 	run(["init", "-q"]);
 	run(["config", "user.email", "t@t"]);
 	run(["config", "user.name", "t"]);
+	// The machine's own config signs every commit; a fixture's seed is not one.
+	run(["config", "commit.gpgsign", "false"]);
 	mkdirSync(join(repo, "src"));
 	writeFileSync(join(repo, tracked), "export const a = 1;\n");
 	run(["add", tracked]);

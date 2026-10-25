@@ -167,7 +167,10 @@ describe("reparent verb", () => {
 		expect(new Set(siblingRanks).size).toBe(3); // all distinct
 
 		// Undo restores both the parent and the original rank.
-		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "undo" });
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "undo",
+			id: mover.id,
+		});
 		expect(parentOf(mover.id)).toBe(moverParentBefore);
 		expect(fieldOf(mover.id, "rank")).toBe(moverRankBefore);
 	});
@@ -200,6 +203,7 @@ describe("reparent verb", () => {
 
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "undo",
+			id: child.id,
 		});
 		expect(result.ok).toBe(true);
 		expect(parentOf(child.id)).toBe("null");
@@ -217,15 +221,17 @@ describe("reparent verb", () => {
 		});
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "undo",
+			id: child.id,
 		});
 		expect(refused(result).guidance).toMatch(/nothing to undo/i);
 	});
 
 	it("refuses undo when nothing has been done", async () => {
 		const state = buildState();
-		await createQuest(state, "Solo");
+		const solo = await createQuest(state, "Solo");
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "undo",
+			id: solo.id,
 		});
 		expect(refused(result).guidance).toMatch(/nothing to undo/i);
 	});
@@ -246,6 +252,7 @@ describe("reparent verb", () => {
 
 		const undone = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "undo",
+			id: a.id,
 		});
 		expect(undone.ok).toBe(true);
 		expect(statusOf(a.id)).toBe("active");
@@ -273,6 +280,7 @@ describe("reparent verb", () => {
 		// And it is reversible (as is the loaded-quest path now).
 		const undone = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "undo",
+			id: other.id,
 		});
 		expect(undone.ok).toBe(true);
 		expect(statusOf(other.id)).toBe("active");
@@ -293,6 +301,7 @@ describe("reparent verb", () => {
 
 		const undone = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "undo",
+			id: a.id,
 		});
 		expect(undone.ok).toBe(true);
 		expect(statusOf(a.id)).toBe("active");
@@ -319,6 +328,7 @@ describe("reparent verb", () => {
 
 		const undone = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "undo",
+			id: a.id,
 		});
 		expect(undone.ok).toBe(true);
 		expect(statusOf(a.id)).toBe("active");
@@ -348,7 +358,10 @@ describe("reparent verb", () => {
 			action: "conclude",
 			id: second.id,
 		});
-		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "undo" });
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "undo",
+			id: second.id,
+		});
 
 		expect(statusOf(second.id)).toBe("active");
 		expect(fieldOf(second.id, "priority")).toBe("driving");
@@ -457,6 +470,7 @@ describe("reparent verb", () => {
 		setParentDirect(child.id, other.id);
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "undo",
+			id: child.id,
 		});
 		expect(parentOf(child.id)).toBe(other.id);
 		const details = succeeded(result).details as { skipped: string[] };
@@ -480,6 +494,7 @@ describe("reparent verb", () => {
 		setParentDirect(a.id, other.id);
 		const first = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "undo",
+			id: a.id,
 		});
 		expect(first.ok).toBe(true);
 		expect(parentOf(b.id)).toBe("null");
@@ -491,6 +506,7 @@ describe("reparent verb", () => {
 		setParentDirect(a.id, parent.id);
 		const second = await handle(state, fakePi(), fakeCtx(tmpRoot), {
 			action: "undo",
+			id: a.id,
 		});
 		expect(second.ok).toBe(true);
 		expect(parentOf(a.id)).toBe("null");
@@ -504,7 +520,10 @@ describe("reparent verb", () => {
 			id: a.id,
 		});
 		expect(statusOf(a.id)).toBe("concluded");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "undo" });
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "undo",
+			id: a.id,
+		});
 		expect(statusOf(a.id)).toBe("active");
 		// The original "Concluded the quest (bulk)." entry must not stand
 		// uncontradicted on a quest that now reads active.
