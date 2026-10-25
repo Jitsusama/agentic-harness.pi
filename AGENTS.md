@@ -136,25 +136,27 @@ that taught it, is in [`docs/architecture.md`](./docs/architecture.md).
 ## Commands
 
 ```sh
+pnpm check           # lint, typecheck, the tests a change touches, load check
 pnpm lint:fix        # auto-fix, then verify
 pnpm lint            # no errors and no warnings, before committing
 pnpm typecheck       # tsc over the whole project, which reports nothing
 pnpm test            # everything, about 94 s
 pnpm test:unit       # the unit project, about 26 s
-pnpm test:browser    # the browser tests; set CHROME_PATH or they skip
 pnpm exec vitest run <paths>   # the tests a change touches, as you go
 ```
 
 Always run `lint:fix` first: Biome's fixes are safe here. Fix the
 code to satisfy the linter rather than suppressing a rule, and fix
-a failing type on the spot rather than excluding its file. CI runs
-`pnpm lint`, `pnpm typecheck`, `pnpm test` and `pnpm load-check`
-on every pull request and push to `main`; the load check installs
-production dependencies only, as pi does from git.
+a failing type on the spot rather than excluding its file. There
+is no CI: `pnpm check` runs before merging, on this machine, and
+runs only the tests the change touches beside origin's main; run
+`pnpm test` as well for a change that crosses many modules. The
+load check installs production dependencies only, as pi does from
+git.
 
 New library code ships with tests of observable behaviour through
-its public API, under `tests/` mirroring `lib/`. Extension wiring
-is exercised live rather than unit-tested.
+its public API, under `tests/` mirroring `lib/`. Extensions are
+tested the same way, under `tests/extensions/`.
 [`docs/testing.md`](./docs/testing.md) has the lanes, timings and
 history.
 

@@ -7,7 +7,7 @@ grep-and-hope.
 
 ## What it does
 
-- Registers the standalone backend from `lib/lsp`, which
+- Registers the standalone backend from core's `lsp`, which
   spawns and supervises language servers itself, keyed one
   per resolved project root.
 - Exposes the `lsp` tool. `operation=diagnostics` reports a
@@ -44,7 +44,7 @@ over the shared event bus instead:
   malformed. `priority` below 100 wins over the standalone
   default; `isAvailable()` gates when it may serve (e.g. only
   while an editor is paired); `backend` implements the
-  `LspBackend` contract from `lib/lsp`.
+  `LspBackend` contract from core's `lsp`.
 - `lsp:unregister-backend` with `{ name }` removes it.
 - On startup this extension emits `lsp:ready` once, so a
   provider that loaded first can re-register on receipt.
@@ -56,7 +56,7 @@ bridge, so the handshake is load-order independent.
 
 An integration in the package taxonomy: the domain logic
 (server discovery, lifecycle, the JSON-RPC client, position
-translation) lives in `lib/lsp`; this extension is the thin
+translation) lives in core's `lsp`; this extension is the thin
 pi-specific wiring. The standalone backend needs a language
 server on disk and is TypeScript-first today; provision a
 server where you already provision tools (a project

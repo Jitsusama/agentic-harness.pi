@@ -64,7 +64,7 @@ between what `quest-convention` and `quest-format` promise and what
 the extension enforces. Those gaps are tracked in Quest Workflow
 Rework Gaps below. The glyph-bullet gap recorded here previously is
 now
-🟢 enforced: `lib/slack/detect.ts` flags a run of two or more
+🟢 enforced: core `slack/detect.ts` flags a run of two or more
 lines led by a `•`, `‣`, `◦`, `▪` or `·` glyph and blocks with
 a message pointing the author at the markdown markers, using the
 same conservative run-of-two threshold as the existing
@@ -143,7 +143,7 @@ Voice and style rules for all written output.
 | Sentence structure (active voice, plain words) | Grammar and Sentence Structure | ⚪ | Judgment. |
 | List hygiene (no orphan items, parallel grammar) | Lists | ⚪ | Judgment for prose; mechanical for Slack only (see `slack-guide`). |
 | Headings | Headings | ⚪ | Owned by `markdown-standard`. |
-| Commit message prose | Commit Messages | 🟢 | Same prose gate, run by `commit-guardian` over the commit body via `lib/internal/guardian/prose-gate.ts`. |
+| Commit message prose | Commit Messages | 🟢 | Same prose gate, run by `commit-guardian` over the commit body via core `internal/guardian/prose-gate.ts`. |
 
 ### github-pr-format
 
@@ -151,8 +151,8 @@ PR description structure and narrative.
 
 | Rule | Section in skill | Status | Enforced by |
 | --- | --- | --- | --- |
-| Descriptive Title Case title (not conventional commit) | Title | 🟢 | `lib/title/detect.ts` flags the conventional-commit form; the gate runs in `pr-guardian` |
-| Title Case enforcement | Title (via `github-cli-convention`) | 🟢 | `lib/title/detect.ts` flags sentence case when lowercase major words number at least two and outnumber the capitalized ones; gated in `pr-guardian`, including title-only edits with no body. A title made mostly of lowercase proper nouns can still false-positive, bounded by the gate relenting on the identical resubmission; over-capitalized minor words stay judgment, skill-only. |
+| Descriptive Title Case title (not conventional commit) | Title | 🟢 | core `title/detect.ts` flags the conventional-commit form; the gate runs in `pr-guardian` |
+| Title Case enforcement | Title (via `github-cli-convention`) | 🟢 | core `title/detect.ts` flags sentence case when lowercase major words number at least two and outnumber the capitalized ones; gated in `pr-guardian`, including title-only edits with no body. A title made mostly of lowercase proper nouns can still false-positive, bounded by the gate relenting on the identical resubmission; over-capitalized minor words stay judgment, skill-only. |
 | Closed four-section body set (💡 TL;DR / 🧩 Problem / 🔧 Solution / 🔬 Validation) | Body Structure | 🟢 | core `sections/detect.ts` against `PR_SECTIONS`, bound to the skill by `tests/lib/sections/sanctioned.test.ts`. On the tool path the sections are `review_offer` fields and the tool writes the headings, so no guard mode can let a wrong skeleton through |
 | TL;DR of at most 40 words and two sentences, with no code, links or bullets | Body Structure | 🟢 | core `sections/shape.ts` against `PR_SHAPE`, in the `pr-guardian` section gate and in `proposalComplaint`, which `review_offer` applies whatever the guard policy |
 | Problem in prose, at most 120 words and 3 code spans | Body Structure | 🟢 | Same detector, `words`, `codeSpans` and `bullets` rules |
@@ -169,14 +169,14 @@ PR description structure and narrative.
 | Solution states a real choice as a contrast; Validation says where its checks stop, as a fact about them, and what to watch | Solution, Validation | ⚪ | Judgment: whether a sentence names a decision, or whether a limit is true, is not mechanical. Prompted by the field descriptions on `review_offer` and measured in the quest's experiment rather than gated |
 | Each claimed behaviour names the path where it does not hold; what a reader must act on is named as they will type it (config keys, commands, CI jobs and triggers, removed extensions, dependency ranges); no fact the change does not show | Solution, Validation, Before You Submit | ⚪ | Judgment: whether a claim has an exception, or a detail is in the change, needs the diff. Measured rather than gated, in [`docs/pr-descriptions.md`](./pr-descriptions.md) |
 | Writing for a teammate who will not open the diff (plain words, behaviour over artifacts) | Writing for a Person | ⚪ | Judgment; the shape rules bound the worst of it (code spans, artifact lists, long sentences) |
-| Sections in mandated order | Body Structure | 🟢 | `lib/sections/detect.ts` flags `misordered` (R3 in the remediation plan) |
+| Sections in mandated order | Body Structure | 🟢 | core `sections/detect.ts` flags `misordered` (R3 in the remediation plan) |
 | No invented headings | Body Structure | 🟢 | Same detector, `invented` issue kind |
 | URI indexing (issues, files, commits) | URI Indexing | ⚪ | Judgment about what to reference. |
 | Self-review comment placement and ranges | Self-Review Comments | ⚪ | Judgment. |
 | Prose conventions inside the body | (inherits prose-standard) | 🟢 | `runProseGate` in `pr-guardian`, and `proposalComplaint` on the tool path |
 | Link the tracking issue when one exists, and omit the line when none does | Issue and Stack Context | 🚫 | Was written as "always start the body with `Part of #ISSUE_NUMBER`", which asks for a number that may not exist and produced bodies pointing at unrelated issues. Now conditional. Not gateable: whether an issue tracks the work is not in the text. Where the line sits is gated: the shape detector refuses anything above the TL;DR. |
 | Stack note shape, and that it sits after the TL;DR's text | Issue and Stack Context | 🟢 | Written by `propose-stack` itself in `extensions/review-integration/tools/offer.ts`, which is the only place every change's number exists at once; placed by `withNote` in `tools/sections.ts`; pinned by `tests/extensions/review-offer-stack.test.ts` |
-| A change is opened through the review tools, not `gh pr create` | (cross-cutting) | 🟢 | `runRedirectGate` in `lib/internal/guardian/redirect-gate.ts`, blocking a create once where a provider serves the checkout and relenting on a repeat; also stated in `review_offer`'s tool description and the resident conventions block |
+| A change is opened through the review tools, not `gh pr create` | (cross-cutting) | 🟢 | `runRedirectGate` in core `internal/guardian/redirect-gate.ts`, blocking a create once where a provider serves the checkout and relenting on a repeat; also stated in `review_offer`'s tool description and the resident conventions block |
 | Future work belongs in an issue, not the PR | Body Structure (intro) | ⚪ | The closed section set already removes the temptation; no separate gate needed. |
 
 ### github-issue-format
@@ -185,8 +185,8 @@ Issue body structure and narrative.
 
 | Rule | Section in skill | Status | Enforced by |
 | --- | --- | --- | --- |
-| Descriptive Title Case title (not conventional commit) | Title | 🟢 | `lib/title/detect.ts`; gate runs in `issue-guardian` |
-| Closed three-section body set (🌐 Situation / 🎯 Outcome / ✅ Acceptance) | Body Structure | 🟢 | `lib/sections/detect.ts` against `ISSUE_SECTIONS`, bound to the skill |
+| Descriptive Title Case title (not conventional commit) | Title | 🟢 | core `title/detect.ts`; gate runs in `issue-guardian` |
+| Closed three-section body set (🌐 Situation / 🎯 Outcome / ✅ Acceptance) | Body Structure | 🟢 | core `sections/detect.ts` against `ISSUE_SECTIONS`, bound to the skill |
 | Sections in mandated order | Body Structure | 🟢 | Same detector |
 | No invented headings | Body Structure | 🟢 | Same detector |
 | URI indexing | URI Indexing | ⚪ | Judgment. |
@@ -198,7 +198,7 @@ Commit message structure.
 
 | Rule | Section in skill | Status | Enforced by |
 | --- | --- | --- | --- |
-| Conventional-commit subject (`type(scope): subject`) | Format / Subject Line | 📋 | `extensions/commit-guardian/validate.ts` `conventionalOk`, shown as a `✓ conventional` / `⚠ not conventional` indicator. Not blocked. |
+| Conventional-commit subject (`type(scope): subject`) | Format / Subject Line | 📋 | core `internal/guardian/commit-format.ts` `conventionalOk`, shown as a `✓ conventional` / `⚠ not conventional` indicator. Not blocked. |
 | Subject ≤ 50 characters | Subject Line | 📋 | Same module, `subjectOk` indicator |
 | Body line wrap ≤ 72 characters | Body | 📋 | Same module, `bodyWrapOk` indicator |
 | Type from the allowed list | Types | ⚪ | The conventional-commit regex accepts any lowercase word as a type; choosing the right one is judgment. |
@@ -237,14 +237,14 @@ Slack message authoring and content.
 
 | Rule | Section in skill | Status | Enforced by |
 | --- | --- | --- | --- |
-| No markdown image embeds (`![alt](url)`); upload files instead | Unsupported Syntax | 🟢 | `lib/slack/detect.ts` |
-| No markdown pipe tables; use the `table` parameter instead | Tables | 🟢 | `lib/slack/detect.ts` |
-| Well-formed lists (no orphan items, parallel shape) | Tables / Lists | 🟢 | `lib/slack/detect.ts`, conservative thresholds (runs of two, separator-or-adjacent-rows) |
-| No glyph bullets (`•`, `‣`, `◦`, `▪`, `·`); markdown markers (`- `, `* `, `+ `) only | Message Formatting | 🟢 | `lib/slack/detect.ts` flags a run of two glyph-led lines with a distinct instructive message; same run-of-two threshold as the markdown-marker scan |
+| No markdown image embeds (`![alt](url)`); upload files instead | Unsupported Syntax | 🟢 | core `slack/detect.ts` |
+| No markdown pipe tables; use the `table` parameter instead | Tables | 🟢 | core `slack/detect.ts` |
+| Well-formed lists (no orphan items, parallel shape) | Tables / Lists | 🟢 | core `slack/detect.ts`, conservative thresholds (runs of two, separator-or-adjacent-rows) |
+| No glyph bullets (`•`, `‣`, `◦`, `▪`, `·`); markdown markers (`- `, `* `, `+ `) only | Message Formatting | 🟢 | core `slack/detect.ts` flags a run of two glyph-led lines with a distinct instructive message; same run-of-two threshold as the markdown-marker scan |
 | Thread replies put the parent ts in `ts`, never `thread_ts` | Reply to that thread saying ... | ⚪ | Parameter-usage methodology, not artifact shape. The `ts`/`thread_ts` schema descriptions and the `slack` tool guideline carry it; `thread_ts` without `ts` already fails loudly at the router. |
-| Slack mrkdwn dialect (`*bold*`, `_italic_`, `~strike~`) instead of markdown | Text Formatting | 🔇 | `lib/slack/blocks.ts` translates `**bold**` → `*bold*`, `*italic*` → `_italic_`, etc., at send time |
-| Slack link syntax (`<url|text>`) instead of markdown | Links and Mentions | 🔇 | `lib/slack/blocks.ts` translates `[text](url)` → `<url|text>` |
-| Colour swatch hex codes (`#DA35EA`) get a leading zero-width space to suppress the auto-detected swatch | Avoiding Auto-Detected Colour Swatches | 🔇 | `lib/slack/blocks.ts` inserts a ZWSP before the `#` |
+| Slack mrkdwn dialect (`*bold*`, `_italic_`, `~strike~`) instead of markdown | Text Formatting | 🔇 | core `slack/blocks.ts` translates `**bold**` → `*bold*`, `*italic*` → `_italic_`, etc., at send time |
+| Slack link syntax (`<url|text>`) instead of markdown | Links and Mentions | 🔇 | core `slack/blocks.ts` translates `[text](url)` → `<url|text>` |
+| Colour swatch hex codes (`#DA35EA`) get a leading zero-width space to suppress the auto-detected swatch | Avoiding Auto-Detected Colour Swatches | 🔇 | core `slack/blocks.ts` inserts a ZWSP before the `#` |
 | Prose conventions inside Slack messages | (inherits prose-standard) | 🚫 | Slack messages are casual and the gate scope is the Slack-format check; prose-standard runs in artifacts the user signs their name to (PRs, commits, issues, review comments). |
 | Translating user intent to API actions | Translating User Intent | ⚪ | Methodology, not artifact shape. |
 | Search operator and ID handling | Search Operators / URL and ID Handling | ⚪ | Methodology. |
@@ -255,17 +255,17 @@ Command syntax for `gh` operations.
 
 | Rule | Section in skill | Status | Enforced by |
 | --- | --- | --- | --- |
-| `--body-file -` heredoc form, never `--body "..."` | Heredoc Syntax / Why --body-file Over --body | 🟢 | `extensions/github-cli-interceptor/patterns.ts` blocks an inline body through the command model, catching both `--body` and the short `-b` |
+| `--body-file -` heredoc form, never `--body "..."` | Heredoc Syntax / Why --body-file Over --body | 🟢 | core `github-cli/index.ts` blocks an inline body through the command model, catching both `--body` and the short `-b` |
 | `--body-file -` (stdin), never `--body-file <path>` | Why --body-file Over --body | 🟢 | Same module blocks file-path form |
 | Heredoc must be present when `--body-file -` is used | Heredoc Syntax | 🟢 | Same module blocks bare stdin |
-| Quoted heredoc delimiter (`<<'EOF'`, not `<<EOF`) | Heredoc Syntax | 🟢 | `lib/shell/parse.ts` `hasUnquotedHeredoc`, blocked in the guardians |
-| Descriptive, not conventional commit | Title Conventions | 🟢 | `lib/title/detect.ts`, gated in pr-guardian and issue-guardian |
-| Title Case | Title Conventions | 🟢 | `lib/title/detect.ts` `detectSentenceCase` flags sentence case (lowercase major words at least two and outnumbering the capitalized ones), gated in pr-guardian and issue-guardian, including title-only edits with no body (the parser keeps a null body so the title gate still runs). A title made mostly of lowercase proper nouns can still false-positive, bounded by the gate relenting on the identical resubmission; over-capitalized minor words remain judgment. |
-| Title length ≤ 72 characters (upper bound) | Title Conventions | 🟢 | `lib/title/detect.ts` `MAX_TITLE_LENGTH`, gated in pr-guardian and issue-guardian; the skill text is asserted by `tests/lib/title/skill-binding.test.ts` |
+| Quoted heredoc delimiter (`<<'EOF'`, not `<<EOF`) | Heredoc Syntax | 🟢 | core `shell/parse.ts` `hasUnquotedHeredoc`, blocked in the guardians |
+| Descriptive, not conventional commit | Title Conventions | 🟢 | core `title/detect.ts`, gated in pr-guardian and issue-guardian |
+| Title Case | Title Conventions | 🟢 | core `title/detect.ts` `detectSentenceCase` flags sentence case (lowercase major words at least two and outnumbering the capitalized ones), gated in pr-guardian and issue-guardian, including title-only edits with no body (the parser keeps a null body so the title gate still runs). A title made mostly of lowercase proper nouns can still false-positive, bounded by the gate relenting on the identical resubmission; over-capitalized minor words remain judgment. |
+| Title length ≤ 72 characters (upper bound) | Title Conventions | 🟢 | core `title/detect.ts` `MAX_TITLE_LENGTH`, gated in pr-guardian and issue-guardian; the skill text is asserted by `tests/lib/title/skill-binding.test.ts` |
 | Aim for 50+ characters (lower bound) | Title Conventions | ⚪ | Guidance, not enforced. A short descriptive title ("Add Dark Mode Toggle") is fine; blocking would mark legitimate prose wrong. The skill is explicit about which bound is the wall and which is the nudge. |
 | A count is said properly, never `1 tree(s)` | n/a (shared UI) | 🟢 | `tests/package/counts-are-said-properly.test.ts` sweeps `lib/` and `extensions/` for both spellings, telling prose from a call so `push(s)` does not trip it. `lib/ui/count.ts` is the one pluralizer; review had a private copy and the other surfaces spelled `(s)` inline in forty-five places. The second spelling was added after this row was already green: banning `(s)` selects for `${n === 1 ? "" : "s"}`, and nineteen sites across ten files had reached for it while the gate reported the rule enforced. |
 | A refusal states its corrective action, not a skill to read | n/a (enforcement) | 🟢 | `tests/package/refusals-are-actionable.test.ts`, plus a twin in the private package. Checks no block message hands the reader onward and that both required command forms appear literally. |
-| Metadata in separate commands (not packed into `create`) | Metadata in Separate Commands | 🟢 | `extensions/github-cli-interceptor/patterns.ts` `detectPackedMetadata` blocks a `create` carrying labels, assignees, reviewers, milestones or projects. Recorded as ⚪ judgment until an audit read the code: the gate had been there the whole time, and a matrix that says a rule is unenforced when it is blocks somebody's command with no warning and tells the next maintainer not to bother writing the gate they already have. |
+| Metadata in separate commands (not packed into `create`) | Metadata in Separate Commands | 🟢 | core `github-cli/index.ts` `detectPackedMetadata` blocks a `create` carrying labels, assignees, reviewers, milestones or projects. Recorded as ⚪ judgment until an audit read the code: the gate had been there the whole time, and a matrix that says a rule is unenforced when it is blocks somebody's command with no warning and tells the next maintainer not to bother writing the gate they already have. |
 | Line wrapping in bodies | Line Wrapping in Bodies | ⚪ | Judgment. |
 
 ### commit-format (command syntax)
@@ -324,11 +324,11 @@ Operational rules for the quest system.
 | Owned front matter changes only through the verbs | Editing a Quest's Documents | 🟢 | The `quest-owned-fields` guard in `enforce.ts` computes what a write or edit would leave and refuses one that changes a document's `stage`, `id`, `kind` or `quest`, or a quest's `id`, `kind` or `status`, naming the verb (`lib/internal/quest/owned-fields.ts`). Pinned by `tests/extensions/quest-workflow/document-verbs.test.ts`. |
 | Document kind is fixable until the id is minted | Focus and the Document Loop | 🟢 | Phase 5, RC-L (`draft` accepts a `kind` override validated against the kind set, superseding the provisional think-time kind before the mint) |
 | Quest code lives in a tracked working tree | Focus and the Document Loop | 🟢 | During build, `enforce.ts` allows a write inside any tree the quest tracks (`listTreesOnQuest`), blocks a write inside a git tree the quest does not track with `tree-adopt` guidance naming the repo root, and blocks a genuinely homeless write with a `tree-add` remedy. Replaces the old transition refusal and the registered-tree/active-session stand-down. |
-| Scratch and devices are not policed as code | (write classification) | 🟢 | The classifier in `lib/internal/quest/write-classifier.ts` allows `/dev` nodes unconditionally and funnels bare system temp (`/tmp`, `/private/tmp`, the OS temp dir) into a quest-owned managed scratch dir created under the OS temp dir (`lib/internal/quest/scratch.ts`), recorded on the quest frontmatter and reaped on conclude or retire. The system-temp block names the managed dir as the redirect target instead of pointing at `tree-add`. |
+| Scratch and devices are not policed as code | (write classification) | 🟢 | The classifier in core `internal/quest/write-classifier.ts` allows `/dev` nodes unconditionally and funnels bare system temp (`/tmp`, `/private/tmp`, the OS temp dir) into a quest-owned managed scratch dir created under the OS temp dir (`lib/internal/quest/scratch.ts`), recorded on the quest frontmatter and reaped on conclude or retire. The system-temp block names the managed dir as the redirect target instead of pointing at `tree-add`. |
 | Auto-prune only trees the tool scaffolded | (tree lifecycle) | 🟢 | `pruneAllTreesOnQuest` in `verbs/stage.ts` auto-prunes only trees with `origin: scaffolded` (set by `tree-add`). Adopted trees (`tree-adopt`) and unmarked legacy or hand-registered trees are never auto-pruned, so concluding a quest cannot delete a tree it did not create; `tree-prune` still releases any tree deliberately. |
 | Name the tree to prune or expand with `cwd` | (tree lifecycle) | 🟢 | `namedTree` in `verbs/tree-ops.ts` resolves `cwd` (or the legacy `target`) to the deepest tree holding it, uses the only tree when none is named, and refuses with the list otherwise, so a prune never falls through to a tree nobody named. Pinned by `tests/extensions/quest-workflow/tree-target.test.ts`. |
 | Document scaffolding criteria | When to Scaffold a Document | ⚪ | Judgment. |
-| Code-write discipline on focused plan | Focus and the Document Loop | 🟢 | `extensions/quest-workflow/enforce.ts` routes writes through `lib/internal/quest/write-classifier.ts` during plan think/draft and defers only edits to already-tracked code; the plan itself, quest-directory files, scratch and brand-new (untracked) files flow. Bash writes are classified on the stripped skeleton so a read-only command carrying a literal mutating verb is not blocked. |
+| Code-write discipline on focused plan | Focus and the Document Loop | 🟢 | `extensions/quest-workflow/enforce.ts` routes writes through core `internal/quest/write-classifier.ts` during plan think/draft and defers only edits to already-tracked code; the plan itself, quest-directory files, scratch and brand-new (untracked) files flow. Bash writes are classified on the stripped skeleton so a read-only command carrying a literal mutating verb is not blocked. |
 | Conclude vs Retire | Conclude vs Retire | ⚪ | Judgment. |
 
 ## Skills With No Artifact-Shape Rules
@@ -416,7 +416,7 @@ is followed by judgment, not by a regex.
 
   | Residual rule | Now covered by |
   | --- | --- |
-  | `--delete-branch` permanently closes dependent PRs | 🟢 `extensions/github-cli-interceptor/patterns.ts` `detectDeleteBranchOnMerge`, plus the reasoning in `review-guide` |
+  | `--delete-branch` permanently closes dependent PRs | 🟢 core `github-cli/index.ts` `detectDeleteBranchOnMerge`, plus the reasoning in `review-guide` |
   | Post-merge local cleanup: prune refs, delete merged locals | `work-guide`, as prose. No tool does it and none is claimed to |
 
   The `--delete-branch` rule is the one worth pausing on. It was
@@ -491,15 +491,15 @@ is followed by judgment, not by a regex.
   the failure it prevents is silent and already happened:
   🟢 every git command a library shells out must say which repo
   it means.
-  `lib/review`'s `Exec` is `(command, args)` with no working
+  core's `review` `Exec` is `(command, args)` with no working
   directory, so `-C` is the only way to scope a call and leaving
   it off runs against whatever repo the process sits in. That
   shipped once, in `createGitTreeProvider.release`, and stayed
   shipped because the unit test asserted `toContain` on the argv,
   which cannot see a missing flag.
-  `tests/package/git-scoping.test.ts` reads every git invocation
-  in `lib/review` and `lib/work` and fails on any that does not
-  scope itself, naming the file and line. Verified against both
+  core's `tests/package/git-scoping.test.ts` reads every git
+  invocation in its `review` and `work` and fails on any that
+  does not scope itself, naming the file and line. Verified against both
   real instances: the bug that shipped, and dropping `-C` from
   the engine's range diff. Reading source text is blunt on
   purpose, since a type change would have to reach providers in
@@ -581,7 +581,7 @@ is followed by judgment, not by a regex.
   markdown, which it did not:
   🟢 no emdash, curly quote or Unicode ellipsis in any `.md`
   file.
-  `tests/package/markdown-prose.test.ts`. The rule was stated
+  `tests/package/prose-glyphs.test.ts`. The rule was stated
   absolutely and violated 150 times across 20 files, in the repo
   that ships the detector which finds them. It is scoped to the
   three glyph rules deliberately: the detector also flags

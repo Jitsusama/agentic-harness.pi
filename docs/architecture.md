@@ -213,7 +213,7 @@ or one taken by a different tool entirely, and none of them can
 start a browser. It is worth stating because it breaks silently. A
 disk sink that imported the page reader once dragged `jsdom` into
 anything writing a PNG, and neither the types nor the tests
-noticed. Its `tests/web/purity.test.ts`, in that package, walks the
+noticed. agentic-harness.core's `tests/web/purity.test.ts` walks the
 import graph and fails when an analysis barrel reaches something
 heavy.
 

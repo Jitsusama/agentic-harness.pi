@@ -26,7 +26,7 @@ or visualize something as a diagram.
 
 ## How It Works
 
-Rendering loads the pinned Mermaid library into the shared `lib/web`
+Rendering loads the pinned Mermaid library into core's shared `web`
 headless browser and renders the source to SVG. The SVG's intrinsic
 size is read from its viewBox, the PNG scale is chosen so the rasterized
 dimensions fill the pixel budget without crossing the long-edge or
@@ -42,5 +42,5 @@ broken image.
 
 ## Category
 
-Widget: it renders and displays agent content. It leans on `lib/web` for
+Widget: it renders and displays agent content. It leans on core's `web` for
 the browser and returns the artifact as a file plus an inline image.

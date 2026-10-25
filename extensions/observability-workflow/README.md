@@ -25,7 +25,7 @@ from real data rather than by re-parsing CLI args.
 
 ## Design
 
-The queryable core lives in `lib/observability` (the store,
+The queryable core lives in core's `observability` (the store,
 the record mapper and the rollup logic) and is unit-tested
 through its public API. This extension is thin wiring: it
 opens the store, registers the recorder, contributes the

@@ -190,7 +190,8 @@ The most-used public modules:
   authentication, renderers and resolvers.
 - **[`google`](lib/google/)** wraps the Google Workspace APIs
   with authentication and renderers.
-- **[`web`](lib/web/)** does web search and page reading via
+- **[`web`](https://github.com/Jitsusama/agentic-harness.core/tree/main/web)**,
+  from agentic-harness.core, does web search and page reading via
   headless Chrome.
 
 More is exported for building your own workflows: `guardian`

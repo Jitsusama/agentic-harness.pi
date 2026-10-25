@@ -58,5 +58,6 @@ taxonomy's rule is that the primary behavioural contract wins.
 | `render.ts` | How a query reads in the transcript |
 
 The store, the query language, the digest and the citation rule
-all live in [`lib/result`](../../lib/result/README.md); this
-extension is a thin consumer of its own library.
+all live in agentic-harness.core's
+[`result`](https://github.com/Jitsusama/agentic-harness.core/tree/main/result);
+this extension is a thin consumer of that library.
