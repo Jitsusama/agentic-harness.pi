@@ -7,7 +7,7 @@
  * who claims it, and leaves releasing it to the quest.
  */
 
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -82,5 +82,53 @@ describe("a tree a quest holds", () => {
 		const { run } = await workWithClaim();
 		const status = await run({ action: "status", tree: join(root, "other") });
 		expect(status.content[0]?.text).toContain("No held tree called");
+	});
+});
+
+/**
+ * The work tool, with a quest claiming a tree whose checkout sits in a
+ * folder below it, the way `quest tree-add` cuts a World tree: the claim
+ * is the tree, and git's checkout is its `src/`.
+ */
+async function workWithNestedClaim() {
+	repo = await freshRepo("work-claimed-nested");
+	const tree = join(root, "world-tree");
+	const checkout = join(tree, "src");
+	cpSync(repo, checkout, { recursive: true });
+	mkdirSync(join(checkout, "areas"), { recursive: true });
+	const stub = activateWith(workIntegration);
+	stub.pi.events.on(WORK_TREE_CLAIMS, (data) => {
+		(data as TreeClaims).paths.push(tree);
+	});
+	const work = toolNamed(stub, "work");
+	const run = (args: Record<string, unknown>) =>
+		work.execute("call", args, undefined, undefined, HEADLESS) as Promise<{
+			content: { text: string }[];
+			details?: { ok?: boolean };
+		}>;
+	return { tree: realpathSync(tree), checkout: realpathSync(checkout), run };
+}
+
+describe("a tree a quest holds with its checkout in a folder below", () => {
+	it("runs git in the checkout when named by the tree", async () => {
+		const { tree, run } = await workWithNestedClaim();
+		const status = await run({ action: "status", tree });
+		expect(status.content[0]?.text).toContain(`${tree} is clean, on main`);
+	});
+
+	it("runs git in the checkout when named by a path inside it", async () => {
+		const { tree, checkout, run } = await workWithNestedClaim();
+		const status = await run({
+			action: "status",
+			tree: join(checkout, "areas"),
+		});
+		expect(status.content[0]?.text).toContain(`${tree} is clean, on main`);
+	});
+
+	it("makes a branch there", async () => {
+		const { tree, run } = await workWithNestedClaim();
+		const made = await run({ action: "branch", tree, name: "nested-work" });
+		expect(made.content[0]?.text).not.toContain("not a git repository");
+		expect(made.details?.ok).not.toBe(false);
 	});
 });
