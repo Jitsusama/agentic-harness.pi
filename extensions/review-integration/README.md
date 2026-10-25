@@ -1,6 +1,6 @@
 # Review Integration
 
-Hosts the [review substrate](../../lib/review/) for a session:
+Hosts the [review substrate][substrate] for a session:
 owns the provider registry, registers the providers this package
 ships, and exposes reviewing as tools rather than as shell
 commands.
@@ -287,7 +287,7 @@ another package entirely:
 import {
   REVIEW_READY,
   REVIEW_REGISTER_PROVIDER,
-} from "agentic-harness.pi/lib/review";
+} from "@jitsusama/agentic-harness.core/review";
 
 // Both directions, so load order does not matter.
 pi.events.on(REVIEW_READY, () => {
@@ -311,7 +311,7 @@ import {
   REVIEW_READY,
   REVIEW_REQUEST_SUBSTRATE,
   type ReviewSubstrateApi,
-} from "agentic-harness.pi/lib/review";
+} from "@jitsusama/agentic-harness.core/review";
 
 let substrate: ReviewSubstrateApi | undefined;
 
@@ -343,3 +343,5 @@ document.
 
 None of them reach a forge. What gets posted is someone else's
 surface.
+
+[substrate]: https://github.com/Jitsusama/agentic-harness.core/tree/main/review

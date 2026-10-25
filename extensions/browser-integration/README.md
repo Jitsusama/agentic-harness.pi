@@ -107,7 +107,9 @@ The extension registers the tools; the skills teach the method.
 - `render.ts`: how calls and results read in the transcript
 
 Everything the tools actually know how to do lives in
-[`lib/web`](../../lib/web). This extension is Pi wiring: tool
+agentic-harness.core's
+[`web`](https://github.com/Jitsusama/agentic-harness.core/tree/main/web).
+This extension is Pi wiring: tool
 registration, parameter schemas, rendering and refusals.
 
 ## Notes
