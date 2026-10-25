@@ -10,13 +10,15 @@
  */
 
 import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { sep } from "node:path";
 import type { QuestTree } from "../../quest/types.ts";
 import type { SessionView } from "./session-liveness.ts";
 
 /** The resolved working directory and how it was chosen. */
 export interface ResolvedCwd {
 	cwd: string;
-	source: "tree" | "session" | "repoRoot" | "questDir";
+	source: "tree" | "session" | "repoRoot" | "home";
 	/** True when a recorded candidate was missing and we fell through. */
 	healed?: boolean;
 }
@@ -24,17 +26,33 @@ export interface ResolvedCwd {
 /**
  * Resolve the working directory to reopen a quest in. Preference
  * order: an existing tree path (newest first), then the most-recent
- * session's cwd, then a tree repoRoot, then the quest dir. A
+ * session's cwd, then a tree repoRoot, then the home folder. A
  * recorded path that no longer exists is skipped and the result is
  * flagged as healed so the caller can offer to rewrite the record.
+ *
+ * It never lands in the quest's own folder, nor in any folder of the
+ * quest store, even where an older session ran there: pi started in
+ * one finds no repo's AGENTS.md and no project skills, and on
+ * 2026-10-25 Joel found every session opened that way working
+ * without them. Home is the last resort rather than a refusal, since
+ * the desktop launcher opens a quest with no tree the same way, and
+ * pi's own skills still load there.
  */
 export function resolveSpawnCwd(opts: {
 	questDir: string;
+	/** The quest store's root; a folder anywhere under it is skipped. */
+	store?: string;
+	/** The last resort; the user's home folder unless a test names one. */
+	home?: string;
 	trees: QuestTree[];
 	sessions: SessionView[];
 	exists?: (p: string) => boolean;
 }): ResolvedCwd {
 	const exists = opts.exists ?? existsSync;
+	const inStore = (p: string) =>
+		[opts.questDir, opts.store].some(
+			(root) => root !== undefined && (p === root || p.startsWith(root + sep)),
+		);
 	let healed = false;
 	const markMissing = () => {
 		healed = true;
@@ -55,6 +73,7 @@ export function resolveSpawnCwd(opts: {
 	const sessions = [...opts.sessions].sort(byActivityDesc);
 	for (const session of sessions) {
 		if (!session.cwd || session.liveness === "dead") continue;
+		if (inStore(session.cwd)) continue;
 		if (exists(session.cwd)) {
 			return {
 				cwd: session.cwd,
@@ -77,8 +96,8 @@ export function resolveSpawnCwd(opts: {
 	}
 
 	return {
-		cwd: opts.questDir,
-		source: "questDir",
+		cwd: opts.home ?? homedir(),
+		source: "home",
 		...(healed ? { healed } : {}),
 	};
 }

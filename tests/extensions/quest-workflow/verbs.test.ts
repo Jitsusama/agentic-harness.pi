@@ -456,8 +456,9 @@ describe("spawn verbs", () => {
 		});
 		expect(result.ok).toBe(true);
 		expect(calls[0].env).toEqual({ QUEST_WORKFLOW_AUTOLOAD_ID: other.id });
-		expect(calls[0].cwd).not.toBe(state.questDir);
-		expect(calls[0].cwd).toContain(other.id);
+		// The quest is named by the autoload, never by where it opens: a
+		// session in a quest's folder loads no repo's skills.
+		expect(calls[0].cwd).not.toContain(state.questsRoot);
 		// The caller's loaded state must not have changed.
 		expect(state.questId).toBe(loaded.id);
 	});
