@@ -124,8 +124,8 @@ searching and reading the web; and `browser-integration` for
 driving a real browser.
 
 **Live in the terminal.** Widgets round out the experience:
-`content-viewer-widget`, `mermaid-widget`, `panel-zoom-widget`
-and `status-line-widget`, while `panel-lifecycle-workflow`
+`content-viewer-widget`, `mermaid-widget`, `panel-zoom-widget`,
+`status-line-widget` and `claude-plan-widget`, while `panel-lifecycle-workflow`
 closes every panel when its session ends so none is left
 waiting on a key. And `observability-workflow` records
 run telemetry for subagent and council fan-outs so you can see

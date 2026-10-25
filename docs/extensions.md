@@ -128,7 +128,7 @@ it does:
 
 - **Widgets** (`*-widget`): add UI elements to the interface.
   `content-viewer-widget`, `status-line-widget`,
-  `panel-zoom-widget`
+  `panel-zoom-widget`, `claude-plan-widget`
 
 - **Providers** (`*-provider`): contribute an implementation to
   a host over the `pi.events` bus without importing the host's
