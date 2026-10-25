@@ -30,6 +30,8 @@ beforeAll(() => {
 	run(["init", "-q"]);
 	run(["config", "user.email", "t@t"]);
 	run(["config", "user.name", "t"]);
+	// The machine's own config signs every commit; a fixture's seed is not one.
+	run(["config", "commit.gpgsign", "false"]);
 	writeFileSync(path.join(repo, ".gitignore"), "ignored/\n*.log\n");
 	mkdirSync(path.join(repo, "src"));
 	writeFileSync(path.join(repo, "src", "tracked.ts"), "export const a = 1;\n");
