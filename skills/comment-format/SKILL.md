@@ -5,7 +5,7 @@ description: >
   Labels, decorations and tone. Use when writing review
   comments, giving code feedback or posting PR review
   observations. Pairs with code-review-standard for what
-  to evaluate. Follow the user's writing voice and prose
+  to evaluate. Follow the person's writing voice and prose
   style guides for comment text.
 ---
 
@@ -75,7 +75,7 @@ alternatives and teach.
 
 The structural format here (labels, decorations,
 subject/discussion) is the container; the prose inside it
-should follow the user's writing voice and prose style
+should follow the person's writing voice and prose style
 guides so the comments sound like something they would
 actually write.
 

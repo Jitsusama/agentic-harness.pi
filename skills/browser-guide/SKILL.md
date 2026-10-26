@@ -638,7 +638,7 @@ ways that happens, and the headline always says which.
 Nothing could measure it: text over a gradient, a page with no
 focusable controls, a comparison with no baseline yet. Reporting
 any of those as a pass would be a lie of the most damaging kind.
-If you relay a `WARN` to the user as a pass, you have introduced
+If you relay a `WARN` to the person as a pass, you have introduced
 the exact failure the tool went out of its way to avoid.
 
 Or nothing was broken but something is still worth your
@@ -661,7 +661,7 @@ first is also what a check that silently did nothing says.
 The reports are written to be read by a person. Summarise what
 matters and say what you would do about it; do not paste a
 verdict block back with no interpretation, and do not restate a
-table that the user can already see.
+table that the person can already see.
 
 When a check fails, lead with the thing worth fixing first,
 which the report has already put at the top.
@@ -680,7 +680,7 @@ own, not for an element you are about to operate.
 **Asking for a screenshot to find something out.** An image
 costs far more context than the reading that would have answered
 the question. Reach for `see page`, `see element` or `see query`
-first, and take a screenshot when a human needs to look at it.
+first, and take a screenshot when the person needs to look at it.
 
 **Treating design drift as a defect.** `check design` reports
 values close enough to have been meant as one. Two blues a step
@@ -701,7 +701,7 @@ what the browser actually did. Read that part.
 A session lives until you close it, the pi session ends, or it
 goes half an hour without being used. Idle means no activity, so
 a long check is never closed underneath itself. Close one when a
-task is done and another is starting against a different site, so
+piece of work is done and another is starting against a different site, so
 state, storage and emulation do not leak between them.
 
 If a session does lapse, the refusal says so rather than claiming

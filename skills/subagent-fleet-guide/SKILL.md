@@ -12,7 +12,7 @@ description: >
 
 # Subagent Fleet Guide
 
-Drive the `subagent` tool. The user wants several
+Drive the `subagent` tool. The person wants several
 independent passes over the same problem; the tool gives
 each its own pi process, context window, model and tool
 palette, then returns each subagent's final text for you
@@ -90,7 +90,7 @@ Common personas to keep on hand:
 Three rules for persona prose:
 
 1. **Isolate the role.** Default `isolated: true` so the
-   user's ambient AGENTS.md and personal skills don't
+   person's ambient AGENTS.md and personal skills don't
    leak in and water down the persona. Flip to `false`
    only when the persona explicitly wants the
    inheritance. See the safety note below before doing
@@ -110,7 +110,7 @@ Three rules for persona prose:
 `isolated: true` (the tool's default) spawns each
 subagent with `--no-skills --no-context-files
 --no-extensions`. The flag is convenient for clean-slate
-investigation, but it strips the user's installed pi
+investigation, but it strips the person's installed pi
 extensions, including guardians and interceptors that
 gate commits, PRs and shell commands.
 
@@ -224,14 +224,14 @@ windows, N model calls. Three habits keep this honest:
   personas on a 400-line file" is fine; "ten personas on
   the whole repo" wants a sanity check first. Eyeball
   the prompt size × N.
-- **Mention `Esc` to bail.** When you tell the user the
+- **Mention `Esc` to bail.** When you tell the person the
   fleet is running, remind them they can press `Esc` in
   the focused panel to cancel the whole fleet (or `r` to
   cancel the selected subagent). Long-running runs feel
   trapped without that cue.
 - **Read `totalUsage`.** After the fleet settles, surface
   the aggregate spend ("4,200 tokens, $0.012") so the
-  user has a feedback loop on cost. The tool's text
+  person has a feedback loop on cost. The tool's text
   summary includes this when usage is present.
 - **Give an implementation job `thinkingLevel:
   "medium"`.** A job with a checkable outcome (tests to
@@ -249,7 +249,7 @@ the fleet's answer. The call returns at once with a job
 id, the board stays above the editor, and the person can
 type while it runs. When the fleet ends, its summary
 arrives as a message of its own, opening with a line
-saying no human typed it.
+saying no person typed it.
 
 - **Do not poll.** Nothing needs checking; the result
   comes to you. Carry on with other work, or end your
@@ -286,7 +286,7 @@ The `details` payload carries the same paths structurally
 read a subagent's full output back with the plain `read`
 tool without re-running anything. Reach for this when a
 subagent's final assistant text was long and the summary
-truncated it, or when the user asks to see one persona's
+truncated it, or when the person asks to see one persona's
 full reasoning after the fact. The result JSON holds the
 complete final text, exit status and usage.
 
@@ -367,7 +367,7 @@ subagent({
 
 ## Worked Example 1: Three-Persona Project Audit
 
-User asks: "Take a look at `src/auth/` from a few
+The person asks: "Take a look at `src/auth/` from a few
 different angles."
 
 ```ts
@@ -423,12 +423,12 @@ subagent({
 After the fleet settles, synthesise: collect the
 Critical bullets from each report, dedupe, surface the
 shared concerns first, then per-persona signals. Hand
-the user a synthesis paragraph plus the three full
+the person a synthesis paragraph plus the three full
 reports.
 
 ## Worked Example 2: Multi-Angle Bug Investigation
 
-User reports: "Sessions are randomly logging out users in
+The person reports: "Sessions are randomly logging out users in
 production. We don't see a pattern."
 
 ```ts
@@ -492,7 +492,7 @@ priors give cleaner triangulation.
 
 After the fleet settles, look for **convergence**: which
 file:line citations appear in two or more reports?
-Convergence is your strongest signal. Hand the user the
+Convergence is your strongest signal. Hand the person the
 convergent findings plus the three full investigations.
 
 ## Quick reference

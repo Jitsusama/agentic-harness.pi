@@ -58,6 +58,6 @@ flag the conflict for manual resolution.
 ## What Not to Do
 
 - Don't create branches from stale bases without pulling first.
-- Don't leave the user on a detached HEAD.
+- Don't leave the person on a detached HEAD.
 - Don't lose commits; always verify after moving work.
 - Don't force-push without discussion.

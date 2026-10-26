@@ -33,7 +33,7 @@ description: >
 - Explain what matters, not everything you found.
 - Structure as: what exists → how it works → what's relevant.
 - Call out surprises, risks or constraints.
-- Keep it concise; the user can ask for more detail.
+- Keep it concise; the person can ask for more detail.
 
 ## Command Output Fidelity
 

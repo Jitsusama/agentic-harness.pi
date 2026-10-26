@@ -88,8 +88,8 @@ violations before they reach a correction.
 
 ## What It Does Not Measure
 
-This counts corrections the user typed, the pain the gates remove.
+This counts corrections the person typed, the pain the gates remove.
 It does not count the gate blocks themselves (those are the gates
-working, not the user correcting). A separate rise in gate blocks
-with a fall in user corrections is the healthy signature: the
-gates are absorbing the corrections the user used to type.
+working, not the person correcting). A separate rise in gate blocks
+with a fall in the person's corrections is the healthy signature: the
+gates are absorbing the corrections the person used to type.

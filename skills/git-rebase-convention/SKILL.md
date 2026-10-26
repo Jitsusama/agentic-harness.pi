@@ -79,7 +79,7 @@ on every rebase invocation:
 ## Pushing
 
 - Always use `--force-with-lease`, never `--force`.
-- Show the final state before pushing; the user confirms.
+- Show the final state before pushing; the person confirms.
 - If tests fail after rebase, abort and reassess rather than
   pushing broken code.
 

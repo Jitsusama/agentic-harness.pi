@@ -1,13 +1,13 @@
 ---
 name: google-workspace-guide
-description: Gmail, Calendar, Drive, Docs, Sheets and Slides through the `google` tool. Use when asked to "check email", "read inbox", "emails from [person]", "send email", "reply to", "what's on my schedule", "schedule meeting", "cancel meeting", "find in drive", "read doc", "open spreadsheet", "show slides", or anything about the user's Google account.
+description: Gmail, Calendar, Drive, Docs, Sheets and Slides through the `google` tool. Use when asked to "check email", "read inbox", "emails from [person]", "send email", "reply to", "what's on my schedule", "schedule meeting", "cancel meeting", "find in drive", "read doc", "open spreadsheet", "show slides", or anything about the person's Google account.
 ---
 
 # Google Workspace
 
 Access Gmail, Google Calendar, and Google Drive through the `google` tool. Translates natural language requests into structured API calls.
 
-When composing emails, drafts or event descriptions on behalf of the user, follow the user's writing voice and prose style guides. The text should sound like the user wrote it.
+When composing emails, drafts or event descriptions on behalf of the person, follow the person's writing voice and prose style guides. The text should sound like the person wrote it.
 
 ## Authentication
 
@@ -15,7 +15,7 @@ User must run `google-auth` once to authenticate. Credentials persist in session
 
 ## Core Principle: Translate Intent to Actions
 
-When the user makes a natural language request, extract the core intent and parameters, then call the appropriate action.
+When the person makes a natural language request, extract the core intent and parameters, then call the appropriate action.
 
 ## Gmail - Translating User Intent
 
@@ -24,7 +24,7 @@ When the user makes a natural language request, extract the core intent and para
 
 ### "Find emails from [person]"
 → `search_emails` with `query: "from:person@shopify.com"`
-- If user says first name, add @shopify.com domain
+- If the person says first name, add @shopify.com domain
 - Extract email if provided explicitly
 
 ### "Find emails about [topic]"
@@ -147,7 +147,7 @@ Your calendar is included automatically. The response shows each person's
 busy blocks and common free slots where everyone (including you) is available.
 Supports up to 49 attendees.
 
-The time window can span multiple days (e.g. an entire week). When the user
+The time window can span multiple days (e.g. an entire week). When the person
 asks to "find a time this week" or "look across next week", use a single call
 with the full date range rather than one call per day.
 
@@ -158,7 +158,7 @@ with the full date range rather than one call per day.
 
 Pick the first free slot that meets the requested duration. When scanning a
 multi-day range, filter free slots to business hours and skip weekends unless
-the user says otherwise. The confirmation gate on `create_event` gives the
+the person says otherwise. The confirmation gate on `create_event` gives the
 user final say before invitations go out.
 
 ## Drive - Translating User Intent
@@ -199,7 +199,7 @@ user final say before invitations go out.
 ### "Show me comments on that doc"
 → `get_file` with:
 - `include_comments: true`
-- `comments_filter: "unresolved"` (default to unresolved unless user says "all")
+- `comments_filter: "unresolved"` (default to unresolved unless the person says "all")
 
 ## Context Management
 
@@ -224,7 +224,7 @@ After `list_files`, remember the file list. User may say:
 
 ### Maintain Conversation State
 
-Track what the user is currently working with:
+Track what the person is currently working with:
 - Current email being read
 - Current document open  
 - Current event being discussed
@@ -306,7 +306,7 @@ Google Docs can contain multiple tabs (like sheets in a spreadsheet). The `get_f
 - **Tab links**: when a URL contains a `tab=t.XXXXX` parameter (from "Copy link" on a tab), the response includes a "Linked tab" hint identifying which tab was referenced.
 - **Tab content**: available in `details.content.tabs[]`, each with `id`, `title`, `body`, and `nestingLevel` (0 for root tabs, 1+ for subtabs).
 
-When the user asks about a specific tab, reference it by its title. When summarising a multi-tab document, mention all tabs by name.
+When the person asks about a specific tab, reference it by its title. When summarising a multi-tab document, mention all tabs by name.
 
 ## Common Mistakes to Avoid
 
@@ -337,7 +337,7 @@ google({
 })
 ```
 
-**DON'T** forget to use page tokens when user asks for "more results":
+**DON'T** forget to use page tokens when the person asks for "more results":
 ```typescript
 // User: "show me more"
 google({
@@ -355,7 +355,7 @@ Default limit: 25 results. If response includes `nextPageToken`:
 // First page
 const result1 = google({ action: "search_emails", query: "..." })
 
-// If user asks for more
+// If the person asks for more
 const result2 = google({
   action: "search_emails",
   query: same_query,

@@ -5,7 +5,7 @@ description: >
   (Canadian English), punctuation, tone and sentence structure.
   Use when writing or editing commit messages, PR descriptions,
   issue bodies, review comments, code comments, markdown, skill
-  files, agent instructions or any other prose for humans or
+  files, agent instructions or any other prose for people or
   language models.
 ---
 
@@ -13,7 +13,7 @@ description: >
 
 This skill defines how prose should sound when we write
 together. It applies to every artifact meant to be read by
-humans (code comments, commit messages, PR descriptions, issue
+people (code comments, commit messages, PR descriptions, issue
 bodies, review feedback, documentation and markdown files) as
 well as content aimed at language models (agent skill files,
 project guidelines and instruction strings in code).
@@ -217,7 +217,7 @@ Write in a way that people can connect with. The tone should
 match the context (a bug report reads differently from a
 design discussion), but it should always lean conversational
 rather than formal. We are not writing legal briefs; we are
-talking to other human beings.
+talking to other people.
 
 Avoid stiff, corporate phrasing. If a sentence sounds like it
 belongs in a compliance document, rewrite it until it sounds
@@ -337,7 +337,7 @@ them. Ask questions before making declarations. Acknowledge
 what is good before addressing what could be better. Frame
 corrections as perspectives rather than pronouncements. The
 technical substance of the conversation matters, but so does
-the human being on the other side of it.
+the person on the other side of it.
 
 This applies everywhere: PR reviews, issue comments, code
 review threads, design discussions and any other context where
@@ -348,9 +348,9 @@ impression of who we are.
 
 Not everything we write is aimed at the same reader. The voice
 stays consistent, but the delivery shifts depending on whether
-a human or a language model is on the receiving end.
+a person or a language model is on the receiving end.
 
-### Human Audience
+### A Person Reading
 
 This covers documentation, readmes, doc comments and any
 other prose that a person will read directly.
@@ -361,11 +361,11 @@ other prose that a person will read directly.
 - The tone should sound like you're explaining something to a
   colleague, not writing a spec.
 - Doc comments follow the same conversational tone as other
-  human-audience prose. The `code-style-standard` skill covers when and
+  prose for people. The `code-style-standard` skill covers when and
   how to write them; this skill covers the voice they should
   use.
 
-### LLM Audience
+### A Language Model Reading
 
 This covers agent skill files, project guidelines (like an
 AGENTS.md) and string literals in code that serve as agent
