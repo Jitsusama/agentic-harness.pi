@@ -1118,6 +1118,75 @@ describe("damping", () => {
 	});
 });
 
+describe("asking again", () => {
+	const later = () => vi.setSystemTime(Date.now() + 5 * 60 * 1000 + 1000);
+	afterEach(() => vi.useRealTimers());
+	const start = () =>
+		startSession(
+			{},
+			{ isIdle: () => true },
+			[],
+			undefined,
+			undefined,
+			undefined,
+			20,
+		);
+
+	it("asks again, with a turn, a question put to this peer it never answered", async () => {
+		const { sent } = await start();
+		fromElsewhere({ intent: "question", to: ["@7M6JKG"], text: "ready?" });
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+
+		vi.useFakeTimers({ toFake: ["Date"] });
+		later();
+
+		await vi.waitFor(() => expect(sent).toHaveLength(2));
+		expect(sent[1]?.options).toEqual({ triggerTurn: true });
+		expect(sent[1]?.message.content).toMatch(/^Asked again: this question/);
+		expect(sent[1]?.message.content).toContain("ready?");
+	});
+
+	it("asks nothing again once this peer has answered", async () => {
+		const { sent, tools } = await start();
+		peer("session-w", ["WCJQSG"], []);
+		const asked = fromElsewhere({
+			intent: "question",
+			to: ["@7M6JKG"],
+			text: "ready?",
+		});
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		await tools.get("mesh_send")?.execute("call-1", {
+			to: "WCJQSG",
+			intent: "fyi",
+			text: "yes",
+			re: asked.id.slice(-8),
+		});
+
+		vi.useFakeTimers({ toFake: ["Date"] });
+		later();
+		await new Promise((done) => setTimeout(done, 100));
+
+		expect(sent).toHaveLength(1);
+	});
+
+	it("tells the asker a question put by name has had no answer", async () => {
+		const { sent, tools } = await start();
+		peer("session-w", ["WCJQSG"], []);
+		await tools.get("mesh_send")?.execute("call-1", {
+			to: "WCJQSG",
+			intent: "question",
+			text: "is equilibrius ready again?",
+		});
+
+		vi.useFakeTimers({ toFake: ["Date"] });
+		later();
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.options).toEqual({ triggerTurn: false });
+		expect(sent[0]?.message.content).toContain("has had no answer from WCJQSG");
+	});
+});
+
 describe("sending", () => {
 	it("signs with the quest the session has loaded, and the mesh stamps it", async () => {
 		const { tools } = await startSession();

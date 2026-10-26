@@ -191,7 +191,15 @@ this peer; neither asks an idle peer to do anything. The one
 exception is an answer to a question this peer asked, which
 it is waiting on however the answer was sent. What a peer
 catches up on as it starts is noted, since it rides the first
-prompt. Any other fyi more than an hour old when it
+prompt.
+
+A question put to this peer that it hasn't answered (no message
+from it with `re` set to the question) is asked again five
+minutes after it was last handed over, with a turn, at most
+twice and within the hour. The peer that asked it of named
+addresses is told once, on screen and in a note, which of them
+hasn't answered after five minutes. Both are kept in memory, so
+a reload starts them again ([`lib/mesh/owed.ts`](../../lib/mesh/owed.ts)). Any other fyi more than an hour old when it
 reaches a peer, as after a reload, is a glance wherever it
 went, since what it told has moved on (Skynet's register gives
 an fyi an hour). So is a hold more than two hours old, the
