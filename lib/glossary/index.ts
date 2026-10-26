@@ -12,9 +12,10 @@
  * plural counts as its word. A replaced name inside a longer term passes ("line" inside
  * "status line"), and so does one the row replacing it spells on its own as its code's
  * (`pressure` for filling). Another row's code doesn't count: the `backlight` program is a
- * screen's brightness, so backlight for the keyboard's light still fails. Most replaced names are ordinary English, so each repository
- * keeps the names that use one in another sense, or wait on a rename, and a kept name it
- * no longer has fails, so what's kept only shrinks.
+ * screen's brightness, so backlight for the keyboard's light still fails. Most replaced
+ * names are ordinary English, so each repository keeps the names that use one in another
+ * sense, or wait on a rename, and a kept name it no longer has fails, so what's kept only
+ * shrinks.
  */
 
 /** One row of the glossary: its word, the names it replaces, and how code spells it. */
