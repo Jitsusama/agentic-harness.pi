@@ -3,8 +3,14 @@ import { count } from "../ui/count.ts";
 import { joinTextContent, spillToFile } from "./content.ts";
 import type { McpContent, McpToolResult } from "./types.ts";
 
-/** A byte ceiling at or above the 200KB soft default, so it never tightens an already-capped tool. */
-export const DEFAULT_RESULT_CEILING_BYTES = 256 * 1024;
+/**
+ * The most a tool's result spends of the context before the rest is
+ * stored behind a handle. At 256 KB it let one gateway answer spend
+ * about 64k tokens: a code search's bulk answers reached exactly
+ * 262,144 bytes, and 17 of 38 ran past 20 KB. Lowering it costs
+ * nothing, since what is cut is kept whole and can be queried.
+ */
+export const DEFAULT_RESULT_CEILING_BYTES = 32 * 1024;
 
 /** Where a spilled payload landed: a path to read, and an optional queryable handle. */
 export interface SpillTarget {

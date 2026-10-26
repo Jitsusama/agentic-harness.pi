@@ -188,8 +188,10 @@ describe("enforceResultCeiling", () => {
 		expect(textOf(out)).toContain("Re-run with a tighter query.");
 	});
 
-	it("keeps a default ceiling at or above the 200KB soft default", () => {
-		expect(DEFAULT_RESULT_CEILING_BYTES).toBeGreaterThanOrEqual(200 * 1024);
+	it("keeps a default ceiling within what one answer should spend", () => {
+		// About 8k tokens: enough to read the head of a log or a search,
+		// with the whole of it stored.
+		expect(DEFAULT_RESULT_CEILING_BYTES).toBeLessThanOrEqual(32 * 1024);
 	});
 });
 
