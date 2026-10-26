@@ -32,6 +32,7 @@
  * alone, so what is said stays in a potentially shared space.
  */
 
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -54,7 +55,7 @@ import {
 } from "../../lib/internal/session/rollover.ts";
 import { onWants } from "../../lib/internal/session/wants.ts";
 import { onJobFinished } from "../../lib/jobs/index.ts";
-import type { QuestRecords } from "../../lib/mesh/address.ts";
+import { loadedQuest, type QuestRecords } from "../../lib/mesh/address.ts";
 import {
 	attend,
 	type Concern,
@@ -225,6 +226,11 @@ export interface MeshPaths extends QuestRecords {
 	readonly mesh: string;
 	/** The person's steer inboxes (lib/mesh/steer.ts); none, none watched. */
 	readonly steer?: string;
+	/**
+	 * What each quest has waiting on the person, where the launcher reads
+	 * it (lib/mesh/waiting.ts); none, and mesh_wait keeps nothing.
+	 */
+	readonly waiting?: string;
 }
 
 /** The machine's mesh and the quest records it reads. */
@@ -232,6 +238,11 @@ export function machinePaths(): MeshPaths {
 	return {
 		mesh: stateDir("mesh-workflow"),
 		steer: stateDir("steer"),
+		waiting: join(
+			process.env.XDG_STATE_HOME || join(homedir(), ".local", "state"),
+			"mission",
+			"waiting",
+		),
 		sessions: join(stateDir("quest-workflow"), "sessions"),
 		quests: join(dataDir("quest-workflow"), "quests"),
 	};
@@ -1283,6 +1294,19 @@ export function meshWorkflow(
 						},
 						confirmEnd: (hold, text) =>
 							confirmEnd(ctx, hold, text, waitingOn(hold.id)),
+						...(paths.waiting
+							? {
+									waiting: {
+										folder: paths.waiting,
+										quest: () =>
+											peer
+												? loadedQuest(peer.session, paths.sessions)
+												: undefined,
+										window: () =>
+											peer ? presences.of(peer.session)?.title : undefined,
+									},
+								}
+							: {}),
 					}
 				: undefined,
 		);

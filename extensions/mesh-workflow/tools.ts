@@ -38,6 +38,7 @@ import type { Transport } from "../../lib/mesh/transport.ts";
 import { UNANSWERED_WITHIN_MS, unanswered } from "../../lib/mesh/unanswered.ts";
 import type { WantKind } from "../../lib/mesh/want.ts";
 import { leasesText } from "./leases.ts";
+import { type Waiting, waitOnPerson } from "./wait.ts";
 
 /**
  * The most messages one mesh_read hands back. Messages are short by
@@ -63,6 +64,8 @@ export interface Local {
 	 * why it may not be sent, or nothing once it may (see end-hold.ts).
 	 */
 	confirmEnd?(hold: Message, text: string): Promise<string | undefined>;
+	/** Where what waits on the person is kept (see wait.ts). */
+	readonly waiting?: Waiting;
 }
 
 /** What mesh_send hands back beside its words. */
@@ -103,7 +106,7 @@ export function registerTools(
 		// one a session reading it after a reload concluded it had no mesh
 		// tools and went through codemode; one line names the six.
 		promptSnippet:
-			"Message the other pi sessions on this machine; mesh_read, mesh_groups, mesh_join, mesh_leave and mesh_stop read the mesh and shape who hears what.",
+			"Message the other pi sessions on this machine; mesh_read, mesh_groups, mesh_join, mesh_leave and mesh_stop read the mesh and shape who hears what, and mesh_wait says what waits on the person.",
 		description:
 			"Send a message to other pi sessions (peers) on this machine without interrupting them: it joins their conversation as context, at the attention each gives it. Send only what changes what another peer should do (a hold before a reboot, a switch or a merge; a question only it can answer) or what concerns something it owns (a finding). Never send progress, acknowledgements or thanks, nor word of heavy work: builds, VM tests and benchmarks take turns in the machine's queue by themselves. Every message goes to a group: a peer's home group by its address (5GV2AH); a group a peer's work puts it in, its quest's (#quest/5gv2ah, which reaches the quests under it too) or its repository's (#repo/agentic-harness-pi); a group by name (#harness); or #machine (#all names it too), which every session hears and which takes only holds and the answers that end them: a question, finding or fyi sent there is refused. Pick the narrowest that reaches everyone affected: a question for one peer goes to its address alone (to: P9R1KI, not a group it shares), since every member of a group reads what is sent there; a question to several peers or a named group asks each of them, giving each a turn and counting only each one's own answer, and a message that opens by naming peers ('P9R1KI: may I') goes to them alone wherever it was sent. When the person asks to stop or pause other sessions' work, as before a reboot, send a hold to #machine asking each peer to answer it once parked, then answer the hold yourself (re) when work may resume: that hands every peer that answered its turn back, and a reboot since a hold was sent ends it by itself. When the person tells you a hold another peer sent is over, answer it with endsHold, which asks them to confirm. A question or an fyi hands no turn back, so a pause sent as one leaves sessions parked. Leave `to` out and the mesh picks from what the message names and who works on it. Sending to a named group joins it, so this peer hears the answers. mesh_groups lists the groups and who is in them.",
 		parameters: Type.Object({
@@ -216,6 +219,51 @@ export function registerTools(
 			),
 		}),
 		execute: using(stop),
+	});
+
+	pi.registerTool({
+		name: "mesh_wait",
+		label: "Mesh",
+		description:
+			"Say that this session's quest has something waiting on the person that only they can do (a login, a look, a decision, a yes), or that it no longer waits. It shows in the launcher's Waiting on you, outlives this session, and tells its orchestrator through presence. Say it again with the same id to change it, with ready: true once they can do it now (which raises a notice), and with done: true once it is done.",
+		parameters: Type.Object({
+			id: Type.String({
+				description:
+					"A short name for the item within this quest, such as eero-login, used to change or settle it",
+			}),
+			title: Type.Optional(
+				Type.String({ description: "What they are to do, in a few words" }),
+			),
+			why: Type.Optional(
+				Type.String({ description: "Why it needs them rather than an agent" }),
+			),
+			minutes: Type.Optional(
+				Type.Integer({ description: "How many minutes it takes them" }),
+			),
+			when: Type.Optional(
+				Type.String({
+					description: "When they can do it: now, tonight, after 08:00",
+				}),
+			),
+			ready: Type.Optional(
+				Type.Boolean({ description: "They can do it now: raises a notice" }),
+			),
+			done: Type.Optional(
+				Type.Boolean({ description: "It no longer waits: settles the item" }),
+			),
+		}),
+		execute: using((at, params: Parameters<typeof waitOnPerson>[2]) => {
+			if (!at.waiting) {
+				return answer(
+					"Nothing was kept: this pi keeps no folder for what waits on the person.",
+				);
+			}
+			const outcome = waitOnPerson(at.peer, at.waiting, params);
+			return answer(outcome.text, {
+				written: outcome.written,
+				items: outcome.items,
+			});
+		}),
 	});
 
 	pi.registerTool({
@@ -1094,6 +1142,7 @@ const WANTING: Record<WantKind, string> = {
 	question: "asked",
 	approval: "held at an approval",
 	blocked: "blocked",
+	action: "waiting on them for",
 };
 
 /** The stops on this peer, said to it. */

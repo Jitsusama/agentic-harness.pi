@@ -29,6 +29,7 @@ export const WANT_KINDS: readonly WantKind[] = [
 	"question",
 	"approval",
 	"blocked",
+	"action",
 ];
 
 /** One thing a peer is waiting on its person for. */

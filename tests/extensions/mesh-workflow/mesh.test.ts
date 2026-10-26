@@ -13,6 +13,7 @@ import {
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	readFileSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
@@ -2054,6 +2055,53 @@ describe("a message that names no group", () => {
 		expect(said?.content[0]?.text).toContain(
 			"It named no group, so it goes to #quest/5gv2ah/7m6jkg:",
 		);
+	});
+
+	it("keeps what waits on the person where the launcher reads it, mirrored in presence", async () => {
+		paths = { ...paths, waiting: join(root, "waiting") };
+		const { tools } = await startSession();
+		const wait = (params: Record<string, unknown>) =>
+			tools.get("mesh_wait")?.execute("call-w", params);
+		const file = join(root, "waiting", "7M6JKG.json");
+		const presence = () =>
+			createPresences(join(paths.mesh, "presence")).of(session);
+
+		const kept = await wait({
+			id: "eero-login",
+			title: "Log in to eero",
+			why: "Only Joel has the account",
+			minutes: 2,
+			when: "now",
+			ready: true,
+		});
+
+		expect(kept?.content[0]?.text).toContain("Kept eero-login");
+		expect(JSON.parse(readFileSync(file, "utf8"))).toMatchObject({
+			quest: "QEST-20261021-7M6JKG",
+			items: [
+				{
+					id: "eero-login",
+					title: "Log in to eero",
+					why: "Only Joel has the account",
+					minutes: 2,
+					when: "now",
+					quest: "QEST-20261021-7M6JKG",
+					ready: true,
+				},
+			],
+		});
+		expect(presence()?.wants).toMatchObject({
+			kind: "action",
+			said: "Log in to eero",
+		});
+
+		const refused = await wait({ id: "look", title: "Look" });
+		expect(refused?.content[0]?.text).toContain("Nothing was kept");
+
+		await wait({ id: "eero-login", done: true });
+
+		expect(existsSync(file)).toBe(false);
+		expect(presence()?.wants).toBeUndefined();
 	});
 
 	it("refuses a send to an orchestrator nobody is, and drops the word beside other groups", async () => {
