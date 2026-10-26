@@ -18,8 +18,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type {
 	BoundTarget,
+	Change,
 	ChangeRef,
-	Proposal,
 } from "../../lib/core/review/index.ts";
 import { count } from "../../lib/ui/count.ts";
 
@@ -61,7 +61,7 @@ interface Commit {
  */
 export async function rangeProposal(
 	bound: BoundTarget,
-): Promise<Proposal | undefined> {
+): Promise<Change | undefined> {
 	const range = bound.target;
 	const change = rangeChange(bound);
 	if (range.kind !== "range" || change === undefined) return undefined;

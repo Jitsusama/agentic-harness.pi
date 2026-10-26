@@ -18,9 +18,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { editPanel } from "../../extensions/review-integration/tools/offer.ts";
 import {
 	type AuthoringCapabilities,
+	type Change,
 	clearReviewProviders,
 	clearTargetBindings,
-	type Proposal,
 	type RepoLocator,
 	registerReviewProvider,
 } from "../../lib/core/review/index.ts";
@@ -79,7 +79,7 @@ function recordingProvider() {
 				edit: unused("edit a change"),
 				close: unused("close a change"),
 				merge: unused("merge a change"),
-				propose: async (request: ProposeRequest): Promise<Proposal> => {
+				propose: async (request: ProposeRequest): Promise<Change> => {
 					asked.push(request);
 					return {
 						ref: {

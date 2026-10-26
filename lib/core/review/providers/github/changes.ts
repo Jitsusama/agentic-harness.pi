@@ -11,9 +11,9 @@
 
 import type { Exec } from "../../../exec/index.ts";
 import { run } from "../../../exec/index.ts";
-import type { ChangeState, Proposal, RepoLocator } from "../../change.ts";
+import type { Change, ChangeState, RepoLocator } from "../../change.ts";
 import type { Check, CheckState, ChecksRollup } from "../../checks.ts";
-import type { ChangeFilter, ProposalsFacet } from "../../provider.ts";
+import type { ChangeFilter, ChangesFacet } from "../../provider.ts";
 import { GHOST, githubChange, ownerRepoFromKey } from "./claims.ts";
 import { labelsAndAssignees } from "./fields.ts";
 import { landabilityFrom, QUEUE_QUERY, queueStateFrom } from "./queue.ts";
@@ -98,7 +98,7 @@ function stateOf(raw: Record<string, unknown>): ChangeState {
 function proposalFromRest(
 	repo: RepoLocator,
 	raw: Record<string, unknown>,
-): Proposal {
+): Change {
 	const id = String(raw.number ?? "");
 	return {
 		ref: githubChange(repo, id),
@@ -127,7 +127,7 @@ function proposalFromRest(
 function proposalFromListing(
 	repo: RepoLocator,
 	raw: Record<string, unknown>,
-): Proposal {
+): Change {
 	const id = String(raw.number ?? "");
 	const state = (str(raw.state) ?? "OPEN").toLowerCase();
 	return {
@@ -173,7 +173,7 @@ function rollUp(checks: Check[]): CheckState {
 }
 
 /** Build the proposals facet. */
-export function githubProposals(exec: Exec): ProposalsFacet {
+export function githubChanges(exec: Exec): ChangesFacet {
 	async function json<T>(args: string[], what: string): Promise<T> {
 		const stdout = await run(exec, "gh", args, what);
 		return JSON.parse(stdout) as T;
@@ -202,7 +202,7 @@ export function githubProposals(exec: Exec): ProposalsFacet {
 	async function standingOf(
 		repo: RepoLocator,
 		id: string,
-	): Promise<Pick<Proposal, "queue" | "landing">> {
+	): Promise<Pick<Change, "queue" | "landing">> {
 		const owned = ownerRepoFromKey(repo.key);
 		if (!owned) return {};
 		const number = Number(id);

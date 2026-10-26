@@ -34,7 +34,9 @@ export function changeKey(ref: ChangeRef): string {
  * over the same refs never collide.
  */
 export function targetKey(target: ReviewTarget): string {
-	if (target.kind === "proposal") {
+	if (target.kind === "change") {
+		// The kind was once named proposal, and saved review rounds and
+		// findings are filed under this key, so the key keeps it.
 		return `proposal/${changeKey(target.change)}`;
 	}
 	const repo = segment(repoKey(target.repo));

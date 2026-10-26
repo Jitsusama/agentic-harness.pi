@@ -493,7 +493,7 @@ async function pruneAllTreesOnQuest(
 			continue;
 		}
 		try {
-			await provider.prune({
+			await provider.release({
 				path: tree.path,
 				...(signal ? { signal } : {}),
 			});

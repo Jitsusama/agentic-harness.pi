@@ -304,7 +304,7 @@ async function watchFor(pi: ExtensionAPI, bound: BoundTarget): Promise<Answer> {
 	if (!unsettled(checks)) return say(now, { ok: true, state: checks.state });
 
 	const label =
-		bound.target.kind === "proposal"
+		bound.target.kind === "change"
 			? bound.target.change.label
 			: `${bound.target.kind} in ${bound.repo.key}`;
 	const watched = watchChecks({
@@ -642,7 +642,7 @@ async function seeChanges(
 		}
 	}
 
-	const lister = bound.provider.proposals?.list;
+	const lister = bound.provider.changes?.list;
 	if (!lister) {
 		return refuse(
 			`The ${bound.provider.id} provider cannot list the changes in a repo, so there is nothing to show. Read one change at a time instead.`,

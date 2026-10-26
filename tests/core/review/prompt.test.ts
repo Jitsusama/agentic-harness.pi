@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Proposal, RepoGuidance } from "../../../lib/core/review/index.ts";
+import type { Change, RepoGuidance } from "../../../lib/core/review/index.ts";
 import {
 	auditPrompt,
 	councilPrompt,
@@ -22,7 +22,7 @@ const diff = parseUnifiedDiff(`diff --git a/lib/a.ts b/lib/a.ts
  const after = 3;
 `);
 
-function proposal(over: Partial<Proposal> = {}): Proposal {
+function proposal(over: Partial<Change> = {}): Change {
 	return {
 		ref: {
 			provider: "github",

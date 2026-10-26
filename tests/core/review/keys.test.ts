@@ -14,7 +14,7 @@ const world: RepoLocator = {
 };
 
 const proposal: ReviewTarget = {
-	kind: "proposal",
+	kind: "change",
 	change: {
 		provider: "meteorite",
 		repo: world,

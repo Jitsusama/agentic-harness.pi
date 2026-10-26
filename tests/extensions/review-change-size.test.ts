@@ -10,9 +10,9 @@
 
 import { describe, expect, it } from "vitest";
 import { proposalLine } from "../../extensions/review-integration/render.ts";
-import type { Proposal } from "../../lib/core/review/index.ts";
+import type { Change } from "../../lib/core/review/index.ts";
 
-function change(size: Partial<Proposal>): Proposal {
+function change(size: Partial<Change>): Change {
 	return {
 		ref: {
 			label: "owner/repo#1",
@@ -27,7 +27,7 @@ function change(size: Partial<Proposal>): Proposal {
 		base: "main",
 		draft: false,
 		...size,
-	} as Proposal;
+	} as Change;
 }
 
 describe("stating the size of a change", () => {

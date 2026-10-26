@@ -14,12 +14,7 @@ import type { Exec } from "../exec/index.ts";
 import { run } from "../exec/index.ts";
 import { resolveRepo, resolveTarget } from "./bind.ts";
 import type { Capabilities } from "./capabilities.ts";
-import type {
-	ChangeRef,
-	Proposal,
-	RepoLocator,
-	ReviewTarget,
-} from "./change.ts";
+import type { Change, ChangeRef, RepoLocator, ReviewTarget } from "./change.ts";
 import type { ChecksRollup } from "./checks.ts";
 import type { ReviewConfig } from "./config.ts";
 import type { DiffModel } from "./diff.ts";
@@ -67,7 +62,7 @@ export interface BoundTarget {
 	via: ResolvedVia;
 	capabilities: Capabilities;
 	/** The hosted change, when the target is one. */
-	proposal(): Promise<Proposal | null>;
+	proposal(): Promise<Change | null>;
 	/** Unified diff, from the provider or from local git. */
 	diff(): Promise<string>;
 	/** The same diff, parsed. */
@@ -194,12 +189,12 @@ export function createReviewEngine(deps: ReviewEngineDeps): ReviewEngine {
 		let diffText: Promise<string> | undefined;
 
 		async function readDiff(): Promise<string> {
-			if (target.kind === "proposal") {
-				if (!provider.proposals) {
+			if (target.kind === "change") {
+				if (!provider.changes) {
 					throw new Error(`the ${provider.id} provider cannot read a diff`);
 				}
 				try {
-					return await provider.proposals.diff(target.change);
+					return await provider.changes.diff(target.change);
 				} catch (error) {
 					// A big change is the case a diff is most wanted for and the one
 					// that failed hardest: a backend that caps its own diff route
@@ -236,7 +231,7 @@ export function createReviewEngine(deps: ReviewEngineDeps): ReviewEngine {
 			cause: unknown,
 		): Promise<string> {
 			const why = cause instanceof Error ? cause.message : String(cause);
-			const fetchAsRef = provider.proposals?.fetchAsRef;
+			const fetchAsRef = provider.changes?.fetchAsRef;
 			const root = repo.localPath ?? change.repo.localPath;
 			if (!fetchAsRef || !root) {
 				throw new Error(
@@ -248,7 +243,7 @@ export function createReviewEngine(deps: ReviewEngineDeps): ReviewEngine {
 			// The base is not fetched with it, and the diff is against the base.
 			// Asking the provider what the base is costs one read and beats
 			// guessing at a default branch name.
-			const base = (await provider.proposals?.fetch(change))?.base;
+			const base = (await provider.changes?.fetch(change))?.base;
 			if (base === undefined) {
 				throw new Error(
 					`${why}\n\n${change.label} was fetched to ${head}, but the ${provider.id} provider did not say what it is based on, so there is nothing to diff it against.`,
@@ -286,11 +281,11 @@ export function createReviewEngine(deps: ReviewEngineDeps): ReviewEngine {
 			via,
 			capabilities: provider.capabilities(repo),
 			conversation:
-				target.kind === "proposal" ? (provider.conversation ?? null) : null,
+				target.kind === "change" ? (provider.conversation ?? null) : null,
 
 			async proposal() {
-				if (target.kind !== "proposal" || !provider.proposals) return null;
-				return provider.proposals.fetch(target.change);
+				if (target.kind !== "change" || !provider.changes) return null;
+				return provider.changes.fetch(target.change);
 			},
 
 			diff,
@@ -301,7 +296,7 @@ export function createReviewEngine(deps: ReviewEngineDeps): ReviewEngine {
 
 			async stack() {
 				if (!provider.stacking) return null;
-				if (target.kind === "proposal") {
+				if (target.kind === "change") {
 					return provider.stacking.stack(target.change);
 				}
 				const { head } = endpointsOf(target);
@@ -309,10 +304,10 @@ export function createReviewEngine(deps: ReviewEngineDeps): ReviewEngine {
 			},
 
 			async checks() {
-				if (target.kind !== "proposal" || !provider.proposals?.checks) {
+				if (target.kind !== "change" || !provider.changes?.checks) {
 					return null;
 				}
-				return provider.proposals.checks(target.change);
+				return provider.changes.checks(target.change);
 			},
 		};
 	}
@@ -341,7 +336,7 @@ export function createReviewEngine(deps: ReviewEngineDeps): ReviewEngine {
 			});
 			if (!resolution.resolved) throw new Error(resolution.message);
 			const target: ReviewTarget = {
-				kind: "proposal",
+				kind: "change",
 				change: resolution.change,
 			};
 			return bind(
@@ -358,7 +353,7 @@ export function createReviewEngine(deps: ReviewEngineDeps): ReviewEngine {
 			// again. Nothing was claimed here, so nothing about claiming is
 			// true of it: it resolved the way a pin does, by being told.
 			return bind(
-				{ kind: "proposal", change },
+				{ kind: "change", change },
 				providerFor(change.provider),
 				change.repo,
 				"config-repo",

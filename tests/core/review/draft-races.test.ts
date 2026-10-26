@@ -33,7 +33,7 @@ const changeOf = (id: string): ChangeRef => ({
 	label: `o/r#${id}`,
 });
 const targetOf = (id: string): ReviewTarget => ({
-	kind: "proposal",
+	kind: "change",
 	change: changeOf(id),
 });
 

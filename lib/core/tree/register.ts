@@ -7,13 +7,16 @@
 
 import { BUILTIN_TREE_PROVIDERS } from "../internal/tree/builtins.ts";
 import { clear, register, unregister } from "../internal/tree/registry.ts";
-import type { TreeProvider } from "./types.ts";
+import type { TreeProvider, TreeProviderSayingPrune } from "./types.ts";
 
 /**
  * Register a tree provider. Overwrites any previously
- * registered provider with the same id.
+ * registered provider with the same id. A provider still
+ * saying `prune` is taken, and read as saying `release`.
  */
-export function registerTreeProvider(provider: TreeProvider): void {
+export function registerTreeProvider(
+	provider: TreeProvider | TreeProviderSayingPrune,
+): void {
 	register(provider);
 }
 

@@ -91,7 +91,7 @@ describe("resolving a reference", () => {
 			"https://github.com/Shopify/world/pull/123",
 		);
 		expect(bound.provider.id).toBe("github");
-		expect(bound.target.kind).toBe("proposal");
+		expect(bound.target.kind).toBe("change");
 		expect(bound.capabilities.conversation?.anchoredBatchReview).toBe(true);
 	});
 
@@ -102,7 +102,7 @@ describe("resolving a reference", () => {
 		]);
 		const bound = await engine.resolve("123", "/src/world");
 		expect(bound.provider.id).toBe("github");
-		expect(bound.target.kind === "proposal" && bound.target.change.id).toBe(
+		expect(bound.target.kind === "change" && bound.target.change.id).toBe(
 			"123",
 		);
 	});

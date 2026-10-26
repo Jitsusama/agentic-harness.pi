@@ -243,7 +243,7 @@ export async function boundForTarget(
 	target: ReviewTarget,
 ): Promise<BoundTarget | undefined> {
 	const { engine } = await reviewEngine(pi);
-	if (target.kind === "proposal") return engine.bound(target.change);
+	if (target.kind === "change") return engine.bound(target.change);
 	const root = target.repo.localPath;
 	if (root === undefined) return undefined;
 	return target.kind === "range"
@@ -381,7 +381,7 @@ export async function checkoutElsewhere(
 
 /** The hosted change behind a bound target, when there is one. */
 export function hostedChange(bound: BoundTarget): ChangeRef | undefined {
-	return bound.target.kind === "proposal" ? bound.target.change : undefined;
+	return bound.target.kind === "change" ? bound.target.change : undefined;
 }
 
 /**

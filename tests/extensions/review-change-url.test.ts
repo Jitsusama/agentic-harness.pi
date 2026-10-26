@@ -10,9 +10,9 @@
 
 import { describe, expect, it } from "vitest";
 import { proposalLine } from "../../extensions/review-integration/render.ts";
-import type { Proposal } from "../../lib/core/review/index.ts";
+import type { Change } from "../../lib/core/review/index.ts";
 
-function change(extra: Partial<Proposal>): Proposal {
+function change(extra: Partial<Change>): Change {
 	return {
 		ref: {
 			label: "shop/world#2001696",
@@ -27,7 +27,7 @@ function change(extra: Partial<Proposal>): Proposal {
 		base: "main",
 		draft: false,
 		...extra,
-	} as Proposal;
+	} as Change;
 }
 
 describe("saying where a change is", () => {

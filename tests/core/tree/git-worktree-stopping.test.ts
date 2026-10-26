@@ -141,7 +141,7 @@ describe("git-worktree provider, stopped or out of time", () => {
 		process.env.PATH = `${bin}:${path}`;
 		try {
 			const stop = new AbortController();
-			const pruning = provider.prune({
+			const pruning = provider.release({
 				path: handle.path,
 				signal: stop.signal,
 			});

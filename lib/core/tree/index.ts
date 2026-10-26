@@ -9,7 +9,7 @@
  *
  * Typical use: `quest-workflow` calls
  * `resolveTreeProvider(repoRoot)` to pick a provider, then
- * dispatches `create` or `prune` against it. Consumers
+ * dispatches `create` or `release` against it. Consumers
  * outside this package register their own providers via
  * `registerTreeProvider`.
  */
@@ -28,6 +28,8 @@ export {
 export type {
 	CreateTreeInput,
 	PruneTreeInput,
+	ReleaseTreeInput,
 	TreeHandle,
 	TreeProvider,
+	TreeProviderSayingPrune,
 } from "./types.ts";

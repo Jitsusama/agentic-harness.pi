@@ -16,7 +16,7 @@ const world = { key: "gitstream:shop/world" };
 const mirror = { key: "github:Shopify/world" };
 
 const hosted: ReviewTarget = {
-	kind: "proposal",
+	kind: "change",
 	change: {
 		provider: "meteorite",
 		repo: world,

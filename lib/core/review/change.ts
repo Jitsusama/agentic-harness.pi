@@ -58,14 +58,14 @@ export interface ChangeRef {
 /**
  * What a review session is looking at.
  *
- * `proposal` is a change someone is hosting. `range` is any
+ * `change` is a change someone is hosting. `range` is any
  * two endpoints in a repo, which is how an unposted branch
  * gets reviewed. `stack` is an ordered set of refs reviewed
  * as one body of work, whether or not proposals exist for
  * its members.
  */
 export type ReviewTarget =
-	| { kind: "proposal"; change: ChangeRef }
+	| { kind: "change"; change: ChangeRef }
 	| { kind: "range"; repo: RepoLocator; base: string; head: string }
 	| { kind: "stack"; repo: RepoLocator; refs: string[] };
 
@@ -86,7 +86,7 @@ export interface Actor {
 }
 
 /** A hosted change, read back. */
-export interface Proposal {
+export interface Change {
 	ref: ChangeRef;
 	title: string;
 	body: string;
@@ -151,3 +151,10 @@ export interface Proposal {
 	 */
 	extensions?: Record<string, unknown>;
 }
+
+/**
+ * The name {@link Change} had before the glossary said change.
+ *
+ * @deprecated Use {@link Change}.
+ */
+export type Proposal = Change;

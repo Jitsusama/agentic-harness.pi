@@ -79,7 +79,7 @@ import {
 
 /** A target as a person names it. */
 function targetLabel(target: ReviewTarget): string {
-	if (target.kind === "proposal") return target.change.label;
+	if (target.kind === "change") return target.change.label;
 	if (target.kind === "range") return `${target.base}..${target.head}`;
 	return target.refs.join(", ");
 }
@@ -657,7 +657,7 @@ async function stackKeys(bound: BoundTarget): Promise<string[]> {
 	const members = (stack?.nodes ?? []).flatMap((node) =>
 		node.proposal === undefined
 			? []
-			: [targetKey({ kind: "proposal", change: node.proposal.ref })],
+			: [targetKey({ kind: "change", change: node.proposal.ref })],
 	);
 	return [targetKey(bound.target), ...members];
 }
@@ -723,7 +723,7 @@ async function publishStack(
 	for (const node of stack.nodes) {
 		if (node.proposal === undefined) continue;
 		const change = node.proposal.ref;
-		const target: ReviewTarget = { kind: "proposal", change };
+		const target: ReviewTarget = { kind: "change", change };
 
 		const held = await store.forTarget(target);
 		if (held.length === 0) {

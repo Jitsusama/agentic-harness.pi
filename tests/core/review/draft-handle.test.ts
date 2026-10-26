@@ -17,7 +17,7 @@ import {
 import { stubProvider } from "../../support/stub-provider.ts";
 
 const target: ReviewTarget = {
-	kind: "proposal",
+	kind: "change",
 	change: {
 		provider: "forge",
 		repo: { key: "forge:o/r" },

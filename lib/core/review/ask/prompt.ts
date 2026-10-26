@@ -12,7 +12,7 @@
  * template string at the call site.
  */
 
-import type { Proposal } from "../change.ts";
+import type { Change } from "../change.ts";
 import type { DiffModel } from "../diff.ts";
 import { filePath, hunkHeader } from "../diff.ts";
 import { anchorableRanges, describeRanges } from "./anchorable.ts";
@@ -87,7 +87,7 @@ export function quotable(text: string): boolean {
 
 /** What a round needs to say to whoever it asks. */
 export interface PromptInput {
-	proposal: Proposal;
+	proposal: Change;
 	diff: DiffModel;
 	/** Extra direction for this round only. */
 	intent?: string;
@@ -267,7 +267,7 @@ export function auditPrompt(input: AuditPromptInput): string {
 export interface StackChangePrompt {
 	/** How a finding names this change. */
 	ref: string;
-	proposal: Proposal;
+	proposal: Change;
 	diff: DiffModel;
 }
 
@@ -337,7 +337,7 @@ function intentSection(intent: string | undefined): string {
 }
 
 /** The change, as its author described it. */
-function changeSection(proposal: Proposal): string {
+function changeSection(proposal: Change): string {
 	const parts = [`## The change\n\n${proposal.title || "(no title)"}`];
 	const body = proposal.body?.trim() ?? "";
 	if (body !== "") parts.push(`### As its author described it\n\n${body}`);

@@ -14,11 +14,15 @@ import {
 	get,
 	list,
 	register,
+	sayingChanges,
 	unregister,
 } from "../internal/review/registry.ts";
 import { type Unbacked, unbackedDeclarations } from "./backed.ts";
 import type { RepoLocator } from "./change.ts";
-import type { ReviewProvider } from "./provider.ts";
+import type {
+	ReviewProvider,
+	ReviewProviderSayingProposals,
+} from "./provider.ts";
 
 /**
  * What a provider was found saying about itself that is not true.
@@ -50,14 +54,17 @@ export interface ProviderComplaint {
  * answer differently for different repos, and one handed a key from a space it
  * does not recognize returns a default and reports greens having compared
  * nothing.
+ *
+ * A provider still naming its changes facet `proposals` is taken, and
+ * read as naming it `changes`.
  */
 export function registerReviewProvider(
-	provider: ReviewProvider,
+	provider: ReviewProvider | ReviewProviderSayingProposals,
 	against?: RepoLocator,
 ): ProviderComplaint | undefined {
 	register(provider);
 	if (!against) return undefined;
-	const unbacked = unbackedDeclarations(provider, against);
+	const unbacked = unbackedDeclarations(sayingChanges(provider), against);
 	return unbacked.length > 0
 		? { provider: provider.id, repo: against.key, unbacked }
 		: undefined;

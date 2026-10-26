@@ -32,9 +32,9 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type {
 	Anchor,
+	Change,
 	ChecksRollup,
 	DiffModel,
-	Proposal,
 	PublishOutcome,
 	PublishPlan,
 	Stack,
@@ -406,7 +406,7 @@ export { count };
  * for: it is the state in which touching the change is expensive, and a
  * reader who cannot see it will find out by causing it.
  */
-function queueNote(proposal: Proposal): string {
+function queueNote(proposal: Change): string {
 	const queue = proposal.queue;
 	if (!queue || queue.posture === "unqueued") return "";
 	if (queue.posture === "waiting") return " · waiting to merge";
@@ -429,7 +429,7 @@ function queueNote(proposal: Proposal): string {
  * than the CLI largely to get them, so they were fetched on every change and
  * dropped on the floor.
  */
-function sizeNote(proposal: Proposal): string {
+function sizeNote(proposal: Change): string {
 	const files =
 		proposal.changedFiles === undefined
 			? undefined
@@ -443,7 +443,7 @@ function sizeNote(proposal: Proposal): string {
 }
 
 /** A change, in one line. */
-export function proposalLine(proposal: Proposal): string {
+export function proposalLine(proposal: Change): string {
 	const draft = proposal.draft ? " (draft)" : "";
 	// Landing on its own line rather than appended to the first. It is the
 	// question somebody asks before merging, it can name two blockers at once,

@@ -21,14 +21,14 @@ import { unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Exec, run } from "../../../exec/index.ts";
-import type { ChangeRef, Proposal, RepoLocator } from "../../change.ts";
+import type { Change, ChangeRef, RepoLocator } from "../../change.ts";
 import type { RerunOutcome } from "../../checks.ts";
 import type {
 	AuthoringFacet,
+	ChangeDraft,
+	ChangeEdit,
 	MergeOutcome,
 	MergeRequest,
-	ProposalDraft,
-	ProposalEdit,
 	SetEdit,
 } from "../../provider.ts";
 import { githubChange, ownerRepoFromKey } from "./claims.ts";
@@ -243,7 +243,7 @@ export function githubAuthoring(exec: Exec): AuthoringFacet {
 	}
 
 	return {
-		async propose(draft: ProposalDraft): Promise<Proposal> {
+		async propose(draft: ChangeDraft): Promise<Change> {
 			const raw = await send(
 				"POST",
 				`repos/${slugOf(draft.repo)}/pulls`,
@@ -282,7 +282,7 @@ export function githubAuthoring(exec: Exec): AuthoringFacet {
 			return proposed;
 		},
 
-		async edit(ref: ChangeRef, edit: ProposalEdit): Promise<Proposal> {
+		async edit(ref: ChangeRef, edit: ChangeEdit): Promise<Change> {
 			const payload: Record<string, unknown> = {};
 			if (edit.title) {
 				payload.title = edit.title.action === "clear" ? "" : edit.title.value;
@@ -496,7 +496,7 @@ export function githubAuthoring(exec: Exec): AuthoringFacet {
 	};
 
 	/** The change the API handed back, read the way a fetch reads one. */
-	function proposalFrom(repo: RepoLocator, stdout: string): Proposal {
+	function proposalFrom(repo: RepoLocator, stdout: string): Change {
 		const raw: unknown = JSON.parse(stdout);
 		if (typeof raw !== "object" || raw === null) {
 			throw new Error("GitHub answered with something that is not a change.");
@@ -548,10 +548,7 @@ function nested(value: Record<string, unknown>, key: string) {
  * save a dozen lines. If a third caller appears, that is the moment to
  * move it.
  */
-function restProposal(
-	repo: RepoLocator,
-	raw: Record<string, unknown>,
-): Proposal {
+function restProposal(repo: RepoLocator, raw: Record<string, unknown>): Change {
 	const id = String(raw.number ?? "");
 	const state = raw.merged_at
 		? "merged"

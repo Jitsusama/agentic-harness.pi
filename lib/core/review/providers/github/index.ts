@@ -15,13 +15,13 @@ import type { Capabilities } from "../../capabilities.ts";
 import type { Reaction } from "../../conversation.ts";
 import type { ReviewProvider } from "../../provider.ts";
 import { githubAuthoring } from "./authoring.ts";
+import { githubChanges } from "./changes.ts";
 import {
 	claimGitHubReference,
 	claimGitHubRepo,
 	GITHUB_PROVIDER_ID,
 } from "./claims.ts";
 import { githubConversation } from "./conversation.ts";
-import { githubProposals } from "./proposals.ts";
 import { githubStacking } from "./stacking.ts";
 
 /**
@@ -45,7 +45,7 @@ const GITHUB_REACTIONS: readonly Reaction[] = [
 /** What GitHub can do, which does not vary by repo. */
 function githubCapabilities(): Capabilities {
 	return {
-		proposals: { fetchAsRef: true, checks: true, list: true },
+		changes: { fetchAsRef: true, checks: true, list: true },
 		stacking: { provenance: "derived", fanOut: true },
 		conversation: {
 			anchoredBatchReview: true,
@@ -115,7 +115,7 @@ export function createGitHubProvider(deps: ProviderDeps): ReviewProvider {
 		claimReference: claimGitHubReference,
 		claimRepo: claimGitHubRepo,
 		capabilities: githubCapabilities,
-		proposals: githubProposals(deps.exec),
+		changes: githubChanges(deps.exec),
 		conversation: githubConversation(deps.exec),
 		stacking: githubStacking(deps.exec),
 		authoring: githubAuthoring(deps.exec),

@@ -62,7 +62,7 @@ describe("git-worktree provider", () => {
 	it("prunes a clean worktree and removes the branch", async () => {
 		const provider = createGitWorktreeProvider();
 		const handle = await provider.create({ name: "feature-z", repoRoot });
-		await provider.prune({ path: handle.path });
+		await provider.release({ path: handle.path });
 		expect(existsSync(handle.path)).toBe(false);
 		const branches = await git(repoRoot, "branch", "--list", "feature-z");
 		expect(branches.trim()).toBe("");
@@ -72,7 +72,7 @@ describe("git-worktree provider", () => {
 		const provider = createGitWorktreeProvider();
 		const handle = await provider.create({ name: "dirty", repoRoot });
 		writeFileSync(join(handle.path, "scratch.txt"), "dirty\n");
-		await expect(provider.prune({ path: handle.path })).rejects.toThrow(
+		await expect(provider.release({ path: handle.path })).rejects.toThrow(
 			/uncommitted/,
 		);
 		expect(existsSync(handle.path)).toBe(true);
@@ -82,7 +82,7 @@ describe("git-worktree provider", () => {
 		const provider = createGitWorktreeProvider();
 		const handle = await provider.create({ name: "dirty-force", repoRoot });
 		writeFileSync(join(handle.path, "scratch.txt"), "dirty\n");
-		await provider.prune({ path: handle.path, force: true });
+		await provider.release({ path: handle.path, force: true });
 		expect(existsSync(handle.path)).toBe(false);
 	});
 
@@ -129,7 +129,7 @@ describe("git-worktree provider", () => {
 		await git(handle.path, "commit", "-qm", "unmerged commit");
 		// No origin remote: previously this silently returned
 		// false and let a non-force prune destroy the work.
-		await expect(provider.prune({ path: handle.path })).rejects.toThrow(
+		await expect(provider.release({ path: handle.path })).rejects.toThrow(
 			/not merged/,
 		);
 		expect(existsSync(handle.path)).toBe(true);
@@ -195,7 +195,7 @@ describe("pruning a branch merged on the host", () => {
 		const { provider, handle } = await workedTree("merged-there");
 		await landOnHost("merged-there", "merge");
 
-		await provider.prune({ path: handle.path });
+		await provider.release({ path: handle.path });
 
 		expect(existsSync(handle.path)).toBe(false);
 	});
@@ -204,7 +204,7 @@ describe("pruning a branch merged on the host", () => {
 		const { provider, handle } = await workedTree("squashed-there");
 		await landOnHost("squashed-there", "squash");
 
-		await provider.prune({ path: handle.path });
+		await provider.release({ path: handle.path });
 
 		expect(existsSync(handle.path)).toBe(false);
 		expect(await git(repoRoot, "branch", "--list", "squashed-there")).toBe("");
@@ -213,7 +213,7 @@ describe("pruning a branch merged on the host", () => {
 	it("still refuses a branch whose work the host does not have", async () => {
 		const { provider, handle } = await workedTree("not-there");
 
-		await expect(provider.prune({ path: handle.path })).rejects.toThrow(
+		await expect(provider.release({ path: handle.path })).rejects.toThrow(
 			/not merged against origin\/main/,
 		);
 		expect(existsSync(handle.path)).toBe(true);
@@ -226,7 +226,7 @@ describe("pruning a branch merged on the host", () => {
 		await git(handle.path, "commit", "-qm", "add three.txt");
 		await landOnHost("partly-there", "squash");
 
-		await expect(provider.prune({ path: handle.path })).rejects.toThrow(
+		await expect(provider.release({ path: handle.path })).rejects.toThrow(
 			/not merged/,
 		);
 	});
@@ -236,7 +236,7 @@ describe("pruning a branch merged on the host", () => {
 		await landOnHost("offline", "merge");
 		await git(repoRoot, "remote", "set-url", "origin", join(remote, "gone"));
 
-		await expect(provider.prune({ path: handle.path })).rejects.toThrow(
+		await expect(provider.release({ path: handle.path })).rejects.toThrow(
 			/not merged/,
 		);
 	});

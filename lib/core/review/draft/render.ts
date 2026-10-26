@@ -36,7 +36,7 @@ export interface ReviewDocument {
 
 /** How to name what was reviewed. */
 function describeTarget(target: ReviewTarget): string {
-	if (target.kind === "proposal") {
+	if (target.kind === "change") {
 		return `${target.change.repo.key} ${target.change.id}`;
 	}
 	if (target.kind === "range") {

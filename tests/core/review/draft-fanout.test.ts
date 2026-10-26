@@ -41,7 +41,7 @@ const changeOf = (id: string): ChangeRef => ({
 /** One change's entry, carrying one finding. */
 function entry(ref: string, id: string, body = "leaks"): StackPublishEntry {
 	const change = changeOf(id);
-	let state = emptyDraft(`d${id}`, { kind: "proposal", change });
+	let state = emptyDraft(`d${id}`, { kind: "change", change });
 	state = addFinding(state, { anchor, body });
 	state = setVerdict(state, "comment", "a look");
 	return {
@@ -175,7 +175,7 @@ describe("publishing across a stack", () => {
 		const empty: StackPublishEntry = {
 			ref: "refs/heads/quiet",
 			change,
-			plan: compilePlan(emptyDraft("d9", { kind: "proposal", change }), {
+			plan: compilePlan(emptyDraft("d9", { kind: "change", change }), {
 				capabilities: { conversation: capabilities },
 			}),
 		};
