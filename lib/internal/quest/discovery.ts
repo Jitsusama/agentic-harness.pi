@@ -131,20 +131,19 @@ export interface DiscoveryResult {
 interface Pass {
 	bytes: Map<string, Buffer>;
 	listings: Map<string, Dirent[] | undefined>;
+	/** Each file's content hash, as the signature pass found it. */
+	hashes: Map<string, string>;
+	/** Every file the walk parsed or reused, so the memo keeps no others. */
+	parsed: Set<string>;
 }
 
 function newPass(): Pass {
-	return { bytes: new Map(), listings: new Map() };
-}
-
-function readMaybe(path: string, pass: Pass): string | undefined {
-	const bytes = pass.bytes.get(path);
-	if (bytes) return bytes.toString("utf8");
-	try {
-		return readFileSync(path, "utf8");
-	} catch {
-		return undefined;
-	}
+	return {
+		bytes: new Map(),
+		listings: new Map(),
+		hashes: new Map(),
+		parsed: new Set(),
+	};
 }
 
 function safeRealpath(path: string): string | undefined {
@@ -271,6 +270,8 @@ interface Stamp {
 interface Memo {
 	cache: Map<string, CacheSlot>;
 	stamps: Map<string, Stamp>;
+	readmes: Map<string, Parsed<QuestDoc>>;
+	documents: Map<string, Parsed<QuestDocumentDoc>>;
 }
 
 /**
@@ -294,7 +295,12 @@ function memo(): Memo {
 	const global = globalThis as GlobalMemo;
 	let found = global[MEMO];
 	if (!found) {
-		found = { cache: new Map(), stamps: new Map() };
+		found = {
+			cache: new Map(),
+			stamps: new Map(),
+			readmes: new Map(),
+			documents: new Map(),
+		};
 		global[MEMO] = found;
 	}
 	return found;
@@ -398,20 +404,96 @@ function contentHash(path: string, pass: Pass): string {
 	const stat = `${st.size}:${st.mtimeNs}:${st.ctimeNs}:${st.ino}`;
 	const { stamps } = memo();
 	const known = stamps.get(path);
-	if (known && known.stat === stat) return known.hash;
+	if (known && known.stat === stat) {
+		pass.hashes.set(path, known.hash);
+		return known.hash;
+	}
 	const bytes = readFileSync(path);
 	pass.bytes.set(path, bytes);
-	const hash = createHash("sha1").update(bytes).digest("hex");
+	const hash = hashOf(bytes);
+	pass.hashes.set(path, hash);
 	const age = BigInt(Date.now()) * 1_000_000n - st.mtimeNs;
 	if (age > SETTLED_NS) stamps.set(path, { stat, hash });
 	else stamps.delete(path);
 	return hash;
 }
 
+function hashOf(bytes: Buffer): string {
+	return createHash("sha1").update(bytes).digest("hex");
+}
+
+/** A file's kept record, and the hash of the text it was parsed from. */
+interface Parsed<D> {
+	readonly hash: string;
+	readonly doc: D;
+}
+
+/** A file's record, or its text when that would not parse. */
+type Reading<D> = { doc: D } | { text: string };
+
+/**
+ * A file's kept record, parsed only when its content is new.
+ *
+ * Any change anywhere in the tree misses the index, and the walk that
+ * follows used to reparse every README and document: about 900 ms over
+ * 753 quests, paid by each session on its next call after any other
+ * session wrote a journal line. A record whose file's hash is the one
+ * it was parsed from is reused, so a rebuild reparses only what
+ * changed. A miss hashes the bytes it parses rather than trusting the
+ * signature's hash, which a stat may have vouched for. A file that will
+ * not parse is not kept, so its error is raised on every walk.
+ */
+function parsedOnce<D>(
+	path: string,
+	pass: Pass,
+	table: Map<string, Parsed<D>>,
+	parse: (text: string) => D | undefined,
+): Reading<D> | undefined {
+	const known = table.get(path);
+	if (known && known.hash === pass.hashes.get(path)) {
+		pass.parsed.add(path);
+		return { doc: known.doc };
+	}
+	let bytes = pass.bytes.get(path);
+	if (!bytes) {
+		try {
+			bytes = readFileSync(path);
+		} catch {
+			// Gone or unreadable since the signature pass: the caller
+			// treats it as missing, and the next signature differs.
+			return undefined;
+		}
+	}
+	const text = bytes.toString("utf8");
+	if (!text) return undefined;
+	const doc = parse(text);
+	if (!doc) return { text };
+	table.set(path, { hash: hashOf(bytes), doc });
+	pass.parsed.add(path);
+	return { doc };
+}
+
+/** Drop every kept record the last walk neither parsed nor reused. */
+function forgetUnparsed(pass: Pass): void {
+	const { readmes, documents } = memo();
+	for (const table of [readmes, documents]) {
+		for (const path of table.keys()) {
+			if (!pass.parsed.has(path)) table.delete(path);
+		}
+	}
+}
+
 function discoverQuestsUncached(
 	questsRoot: string,
 	pass: Pass,
 ): DiscoveryResult {
+	const result = walkQuests(questsRoot, pass);
+	forgetUnparsed(pass);
+	return result;
+}
+
+function walkQuests(questsRoot: string, pass: Pass): DiscoveryResult {
+	const { readmes, documents: documentRecords } = memo();
 	const quests = new Map<string, QuestEntry>();
 	const children = new Map<string, string[]>();
 	const errors: DiscoveryError[] = [];
@@ -450,14 +532,13 @@ function discoverQuestsUncached(
 				if (extname(child) !== ".md") continue;
 				const base = child.slice(0, -3);
 				if (!isId(base) || prefixOf(base) === "QEST") continue;
-				const docText = readMaybe(childPath, pass);
-				if (!docText) continue;
-				const docDoc = parseDocumentFile(docText);
-				if (docDoc) {
-					documents.push({
-						path: childPath,
-						doc: kept(docDoc, childPath),
-					});
+				const reading = parsedOnce(childPath, pass, documentRecords, (t) => {
+					const docDoc = parseDocumentFile(t);
+					return docDoc ? kept(docDoc, childPath) : undefined;
+				});
+				if (!reading) continue;
+				if ("doc" in reading) {
+					documents.push({ path: childPath, doc: reading.doc });
 					continue;
 				}
 				// Surfaced rather than skipped. A file named like a document,
@@ -466,7 +547,7 @@ function discoverQuestsUncached(
 				// not existing, and the record does exist.
 				errors.push({
 					path: childPath,
-					message: `Document "${child}" could not be read: ${explainDocumentFrontMatter(docText).join("; ")}.`,
+					message: `Document "${child}" could not be read: ${explainDocumentFrontMatter(reading.text).join("; ")}.`,
 				});
 			}
 		}
@@ -499,19 +580,22 @@ function discoverQuestsUncached(
 
 	function acceptQuest(name: string, full: string): void {
 		const readmePath = join(full, "README.md");
-		const text = readMaybe(readmePath, pass);
-		if (!text) {
+		const reading = parsedOnce(readmePath, pass, readmes, (t) => {
+			const parsed = parseQuestDoc(t);
+			return parsed ? kept(parsed, readmePath) : undefined;
+		});
+		if (!reading) {
 			errors.push({ path: readmePath, message: "README.md missing" });
 			return;
 		}
-		const doc = parseQuestDoc(text);
-		if (!doc) {
+		if (!("doc" in reading)) {
 			errors.push({
 				path: readmePath,
 				message: "Front-matter invalid or absent.",
 			});
 			return;
 		}
+		const { doc } = reading;
 		if (doc.frontMatter.id !== name) {
 			errors.push({
 				path: readmePath,
@@ -519,11 +603,7 @@ function discoverQuestsUncached(
 			});
 		}
 		const documents = scanDocuments(full);
-		quests.set(doc.frontMatter.id, {
-			dir: full,
-			doc: kept(doc, readmePath),
-			documents,
-		});
+		quests.set(doc.frontMatter.id, { dir: full, doc, documents });
 		const parentKey = doc.frontMatter.parent ?? "";
 		const list = children.get(parentKey) ?? [];
 		list.push(doc.frontMatter.id);
