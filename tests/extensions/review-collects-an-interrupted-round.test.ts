@@ -641,6 +641,74 @@ describe("heldByLiveSupervisor", () => {
 		};
 	}
 
+	/** A machine that also keeps ticks and names its boot, as Linux does. */
+	function ticking(options: {
+		startedAt: number;
+		startTicks: number;
+		boot?: string;
+	}) {
+		return {
+			...machine({ startedAt: options.startedAt }),
+			bootId: () => options.boot ?? "boot-1",
+			startTicks: async (pid: number) =>
+				pid === PID ? options.startTicks : undefined,
+		};
+	}
+
+	it("holds a round whose supervisor's start moved with a suspend, by its ticks", async () => {
+		// After 100 suspends the boot time had moved four seconds, so the
+		// start in milliseconds no longer matched, and a live supervisor
+		// read as a stranger: its round was offered for collecting.
+		const store = new ReviewerArtifactsStore(root);
+		lease(store, "hawk", {
+			supervisorPid: PID,
+			supervisorStartedAt: BORN,
+			supervisorStartTicks: 812_345,
+			bootId: "boot-1",
+			updatedAt: new Date(NOW - 2_000).toISOString(),
+		});
+
+		expect(
+			await heldByLiveSupervisor(
+				store,
+				RUN,
+				["hawk"],
+				ticking({ startedAt: BORN + 4_000, startTicks: 812_345 }),
+				NOW,
+			),
+		).toMatchObject({ reviewerId: "hawk", pid: PID });
+	});
+
+	it("releases a round whose ticks name another process, though its milliseconds match", async () => {
+		const store = new ReviewerArtifactsStore(root);
+		lease(store, "hawk", {
+			supervisorPid: PID,
+			supervisorStartedAt: BORN,
+			supervisorStartTicks: 812_345,
+			bootId: "boot-1",
+			updatedAt: new Date(NOW - 2_000).toISOString(),
+		});
+
+		expect(
+			await heldByLiveSupervisor(
+				store,
+				RUN,
+				["hawk"],
+				ticking({ startedAt: BORN, startTicks: 900_000 }),
+				NOW,
+			),
+		).toBeUndefined();
+		expect(
+			await heldByLiveSupervisor(
+				store,
+				RUN,
+				["hawk"],
+				ticking({ startedAt: BORN, startTicks: 812_345, boot: "boot-2" }),
+				NOW,
+			),
+		).toBeUndefined();
+	});
+
 	it("holds a round whose supervisor is the one the lease named", async () => {
 		// Collecting under a live session files the findings of whoever
 		// finished, then that session files them all again.

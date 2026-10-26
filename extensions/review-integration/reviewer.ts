@@ -27,9 +27,9 @@ import type {
 	AskStop,
 } from "../../lib/core/review/index.ts";
 import { budgetForLimit } from "../../lib/core/review/index.ts";
+import { type TickFacts, tickFacts } from "../../lib/internal/process-ticks.ts";
 import type {
 	PiInstall,
-	ProcessFacts,
 	ReviewerArtifactsStore,
 	ReviewerTerminalState,
 	RunPi,
@@ -42,7 +42,6 @@ import {
 	RESUME_SUFFIX,
 	STALE_RUNTIME_WARNING_PREFIX,
 	supervisorStanding,
-	systemFacts,
 	WRAP_UP_SUFFIX,
 } from "../../lib/subagent/index.ts";
 import {
@@ -256,7 +255,7 @@ function safeSegment(name: string): string {
 export async function whyNotYet(
 	artifacts: ReviewerArtifactsStore,
 	held: { id: string; participants: readonly { id: string }[] },
-	facts: ProcessFacts = systemFacts,
+	facts: TickFacts = tickFacts,
 	now: number = Date.now(),
 ): Promise<string | undefined> {
 	// One look at each run, judged on both counts at once. This was two
@@ -292,7 +291,7 @@ export async function heldByLiveSupervisor(
 	store: ReviewerArtifactsStore,
 	runId: string,
 	reviewerIds: readonly string[],
-	facts: ProcessFacts = systemFacts,
+	facts: TickFacts = tickFacts,
 	now: number = Date.now(),
 ): Promise<{ reviewerId: string; pid: number; sinceMs: number } | undefined> {
 	for (const reviewerId of reviewerIds) {

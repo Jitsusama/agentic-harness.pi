@@ -1,11 +1,20 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
+import {
+	type StartTicks,
+	startTicksFromProc,
+} from "../internal/process-ticks.ts";
 import type {
 	ReviewerArtifactsStore,
 	ReviewerTerminalState,
 } from "./artifacts.ts";
 import type { LeaseRecord, ProcessFacts } from "./lease.ts";
-import { sameProcess, supervisorStanding, systemFacts } from "./lease.ts";
+import {
+	sameProcess,
+	standingOf,
+	supervisorStanding,
+	systemFacts,
+} from "./lease.ts";
 import type { ReviewerUsage } from "./subagent.ts";
 
 /** Compact recovered result for a supervised reviewer job. */
@@ -44,6 +53,8 @@ export interface ReapedReviewerChild {
  * that kills a process by a number it read from a file.
  */
 export interface ReaperDeps extends ProcessFacts {
+	/** A process's start in ticks since boot, where the machine keeps them. */
+	readonly startTicks?: StartTicks;
 	/** Signal the process group this pid leads. */
 	kill(pid: number, signal: "SIGTERM" | "SIGKILL"): void;
 	/** Pause, so a terminated process has a moment to go. */
@@ -195,9 +206,22 @@ async function reap(
 	if (typeof pid !== "number" || pid <= 0) return undefined;
 	if (typeof spawned !== "number") return undefined;
 	if (!reaper.alive(pid)) return undefined;
-	const startedAt = await reaper.startedAt(pid);
-	if (startedAt === undefined) return undefined;
-	if (!sameProcess(startedAt, spawned)) return undefined;
+	// Ticks first, since a suspend moves core's start in milliseconds
+	// and an orphan then went unreaped as a stranger. Without them, the
+	// milliseconds, and any doubt refuses.
+	const byTicks = await standingOf(
+		pid,
+		spawned,
+		lease.childStartTicks,
+		lease,
+		reaper,
+	);
+	if (byTicks === "gone") return undefined;
+	if (byTicks === undefined) {
+		const startedAt = await reaper.startedAt(pid);
+		if (startedAt === undefined) return undefined;
+		if (!sameProcess(startedAt, spawned)) return undefined;
+	}
 
 	reaper.kill(pid, "SIGTERM");
 	await reaper.wait(TERM_GRACE_MS);
@@ -218,6 +242,8 @@ const TERM_GRACE_MS = 500;
 const systemReaper: ReaperDeps = {
 	startedAt: systemFacts.startedAt,
 	alive: systemFacts.alive,
+	...(systemFacts.bootId ? { bootId: systemFacts.bootId } : {}),
+	startTicks: startTicksFromProc,
 	async wait(ms) {
 		await new Promise((resolve) => setTimeout(resolve, ms));
 	},
