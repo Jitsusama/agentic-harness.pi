@@ -1,9 +1,9 @@
 /**
  * A tool's name and its actions say the glossary's words, never a name it replaces.
  *
- * core.nix keeps the glossary: every thing on Joel's machines and in their tooling, its
- * one word, and the names that word replaces. A tool's name and its actions are what
- * agents say all day and what Joel reads in every gate, so they are held to it here,
+ * core.nix keeps the glossary: every thing its machines and their tooling hold, its one
+ * word, and the names that word replaces. A tool's name and its actions are what agents
+ * say all day and what the person reads in every gate, so they are held to it here,
  * through the matcher every repository shares (lib/glossary).
  *
  * The glossary is pinned beside this file, as core-glossary.txt, a plain copy so that this

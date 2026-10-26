@@ -1,10 +1,10 @@
 /**
  * Whether a name says the glossary's words or a name it replaces.
  *
- * core.nix keeps the glossary, docs/glossary.md: every thing on Joel's machines and in
- * their tooling, its one word in each context, and the names that word replaces. Joel has
- * a poor memory, and two names for one thing cost him every time he meets them, so a
- * replaced name is never written, shown or found. Each repository holds its own names to
+ * core.nix keeps the glossary, docs/glossary.md: every thing its machines and their
+ * tooling hold, its one word in each context, and the names that word replaces. Two names
+ * for one thing cost a reader every time they meet them, so a replaced name is never
+ * written, shown or found. Each repository holds its own names to
  * it; this is the matcher they share, read as core's tests/names.py reads it, so a name
  * passes or fails the same way in every one.
  *
