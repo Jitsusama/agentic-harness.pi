@@ -14,6 +14,11 @@ export function driftNotice(drift: string, command: string): string {
 	return `agentic-harness.pi: installed dependencies do not match package.json: ${drift}. Run \`${command}\` in the package, then /reload.`;
 }
 
+/** The install left native modules unbuilt, so what imports them fails. */
+export function unbuiltNotice(skipped: readonly string[]): string {
+	return `agentic-harness.pi: the install skipped building ${skipped.join(", ")}, so what needs them fails. Run \`pnpm rebuild ${skipped.join(" ")}\` in the package, then /reload.`;
+}
+
 /** The checkout moved under the running code. */
 export function moveNotice(move: HeadMove): string {
 	return `agentic-harness.pi: the checkout moved from ${short(move.loaded)} to ${short(move.now)} since this code loaded. /reload to run it.`;

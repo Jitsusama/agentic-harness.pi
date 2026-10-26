@@ -25,12 +25,21 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import {
+	packageName,
+	skippedBuilds,
+} from "../../lib/internal/install/builds.ts";
+import {
 	dependencyStandings,
 	describeDrift,
 	drifted,
 } from "../../lib/internal/install/drift.ts";
 import { headWatch } from "../../lib/internal/install/head.ts";
-import { behindNotice, driftNotice, moveNotice } from "./notice.ts";
+import {
+	behindNotice,
+	driftNotice,
+	moveNotice,
+	unbuiltNotice,
+} from "./notice.ts";
 import {
 	commitsBehind,
 	dependencyRanges,
@@ -65,6 +74,8 @@ export default function installCheckWorkflow(pi: ExtensionAPI) {
 				installedVersion(PACKAGE_ROOT, name),
 			),
 		);
+		const skipped = skippedBuilds(PACKAGE_ROOT).map(packageName);
+		if (skipped.length > 0) say(ctx, unbuiltNotice(skipped));
 		if (drift.length === 0) return;
 		say(ctx, driftNotice(describeDrift(drift), installCommand(PACKAGE_ROOT)));
 	};

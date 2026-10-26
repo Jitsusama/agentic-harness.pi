@@ -12,8 +12,9 @@
  *
  * The moment matters more than the move. A reload pulls the tools from
  * under a run that is streaming, so it waits for the run to end, and
- * for the install's dependencies to be installed when the move changed
- * its lockfile, since `git merge` lands before `pnpm install` does.
+ * for the install that follows the move to finish, since `git merge`
+ * lands before `pnpm install` does, and pnpm takes the packages away
+ * while it reinstalls them, lockfile changed or not.
  * It does not wait for background jobs: a reload hands them, still
  * running, to the runtime it starts (extensions/job-workflow/carry.ts). A session that
  * runs a tree rather than the install is being tested on purpose and
@@ -62,22 +63,45 @@ export function whenToReload(at: Standing): Moment {
 }
 
 /**
- * Whether a checkout's dependencies are installed for its lockfile:
- * pnpm writes `node_modules/.modules.yaml` last, so it is newer than
- * the lockfile once an install has followed a move that changed it. A
- * checkout with no lockfile or no `node_modules` has nothing to wait
- * for.
+ * How long after a move the install is taken as done when nothing has
+ * installed since, so a checkout moved by hand without an install still
+ * reloads. pi's own update installs within seconds of moving it.
  */
-export function dependenciesReady(root: string): boolean {
+export const INSTALL_GRACE_MS = 5 * 60_000;
+
+/**
+ * Whether a checkout's dependencies are installed for where it now
+ * stands. pnpm writes `node_modules/.modules.yaml` last, so an install
+ * has finished once that is newer than the lockfile and, when the move
+ * is known (`movedAt`), than the move. pi installs after every update,
+ * even one that leaves the lockfile as it was, and pnpm takes the
+ * packages away and back while it does: on 26 October, sessions that
+ * reloaded the moment the lockfile looked current found 15 of them
+ * missing. With no `.modules.yaml` an install is under way, or never
+ * finished. A checkout with no lockfile has nothing to wait for.
+ */
+export function dependenciesReady(
+	root: string,
+	movedAt?: number,
+	now = Date.now(),
+): boolean {
+	let lock: number;
 	try {
-		const lock = statSync(join(root, "pnpm-lock.yaml")).mtimeMs;
-		const installed = statSync(
-			join(root, "node_modules", ".modules.yaml"),
-		).mtimeMs;
-		return installed >= lock;
+		lock = statSync(join(root, "pnpm-lock.yaml")).mtimeMs;
 	} catch {
+		// No lockfile: nothing is installed for it, so nothing to wait for.
 		return true;
 	}
+	let installed: number;
+	try {
+		installed = statSync(join(root, "node_modules", ".modules.yaml")).mtimeMs;
+	} catch {
+		// No record of a finished install: one is under way or failed.
+		return false;
+	}
+	if (installed < lock) return false;
+	if (movedAt === undefined || installed >= movedAt) return true;
+	return now - movedAt >= INSTALL_GRACE_MS;
 }
 
 function git(root: string, args: readonly string[]): Promise<string> {
@@ -130,6 +154,12 @@ export interface Moved {
 	readonly root: string;
 	readonly from: string;
 	readonly to: string;
+	/**
+	 * When it moved, as epoch milliseconds: the moment the checkout went
+	 * still before its HEAD was read. Unknown for a move made before this
+	 * runtime started.
+	 */
+	readonly at?: number;
 }
 
 /** Stops watching. */
@@ -180,7 +210,8 @@ export async function watchHeads(
 				if (stopped || now === undefined || now === seen) return;
 				const from = seen;
 				seen = now;
-				if (from !== undefined) onMoved({ root, from, to: now });
+				const at = Date.now() - quietMs;
+				if (from !== undefined) onMoved({ root, from, to: now, at });
 			}, quietMs);
 			timer.unref?.();
 			timers.add(timer);

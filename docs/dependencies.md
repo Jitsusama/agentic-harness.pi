@@ -35,6 +35,12 @@ for its own reason, and all three are enforced by
   pi's own manifest asks for its siblings with a caret,
   so a newer sibling arrives beside an older pi, and
   pi 1.1.0 would not import beside pi-codemode 1.2.0.
+- `pnpm.onlyBuiltDependencies`, naming every dependency
+  with a native build (sqlite3). pnpm 10 runs no
+  dependency's install script that the package does not
+  allow, and pi installs with whichever pnpm it finds, so
+  on 26 October sqlite3 arrived without its binding.
+  `pnpm load-check` fails when an install skips a build.
 
 Pi's loader also aliases the older `@mariozechner/*`
 spelling, which this repo imported until every site was

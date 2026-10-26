@@ -153,7 +153,9 @@ export async function follow(
 		const moment = whenToReload({
 			swapped: isSwapped(running()),
 			idle,
-			ready: [...moved.keys()].every(dependenciesReady),
+			ready: [...moved.values()].every((one) =>
+				dependenciesReady(one.root, one.at),
+			),
 		});
 		if (moment === "never") {
 			moved.clear();

@@ -24,7 +24,8 @@ may import from here, and any of it may change without notice.
   trailer; and the entity review the commit, PR and issue guardians
   share.
 - **`install/`**: whether the installed dependencies and checkout
-  are the ones on disk, for `install-check-workflow`.
+  are the ones on disk, and which builds the install skipped, for
+  `install-check-workflow` and `pnpm load-check`.
 - **`people/`**: the built-in handle types (Slack, GitHub, email),
   the resolvers and where people are stored.
 - **`priority/`**: the machine queue: when a session's heavy work
