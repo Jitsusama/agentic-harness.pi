@@ -18,6 +18,13 @@
  * Only a click is taken. A press passes through, so dragging across
  * the line still selects its text, and pi turns a press and release
  * in one place into the click.
+ *
+ * Pi draws every entry in the transcript on every frame, so an entry
+ * keeps the lines it last drew and draws them again until its width or
+ * its state changes. Without that, each frame parsed every guard
+ * report's markdown again, and a session's frames grew dearer with
+ * every entry it had shown. So `lines` must give the same lines for the
+ * same width and state, as a renderer of a finished entry does.
  */
 
 import { type Component, MouseRegion } from "@earendil-works/pi-tui";
@@ -48,10 +55,19 @@ export function expandable(
 	const state =
 		kept && kept.setting === setting ? kept : { setting, expanded: setting };
 	opened.set(key, state);
+	let drawn: { width: number; expanded: boolean; lines: string[] } | undefined;
 	return new MouseRegion(
 		{
-			render: (width: number) => lines(width, state.expanded),
-			invalidate: () => {},
+			render: (width: number) => {
+				if (drawn?.width !== width || drawn.expanded !== state.expanded) {
+					const expanded = state.expanded;
+					drawn = { width, expanded, lines: lines(width, expanded) };
+				}
+				return drawn.lines;
+			},
+			invalidate: () => {
+				drawn = undefined;
+			},
 		},
 		(event) => {
 			if (event.type !== "click" || event.button !== "left") return undefined;

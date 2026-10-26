@@ -50,6 +50,24 @@ describe("an entry a click opens", () => {
 		expect(expandable({}, false, lines).render(80)).toEqual(["head"]);
 	});
 
+	it("draws its lines once for a width and state, and again when either changes", () => {
+		const asked: string[] = [];
+		const counted = (width: number, expanded: boolean) => {
+			asked.push(`${width} ${expanded}`);
+			return lines(width, expanded);
+		};
+		const entry = expandable({}, false, counted);
+		entry.render(80);
+		entry.render(80);
+		expect(asked).toEqual(["80 false"]);
+		entry.render(60);
+		press(entry);
+		expect(entry.render(60)).toEqual(["head", "body"]);
+		entry.invalidate();
+		entry.render(60);
+		expect(asked).toEqual(["80 false", "60 false", "60 true", "60 true"]);
+	});
+
 	it("follows the expand key once it is pressed after a click", () => {
 		const message = {};
 		press(expandable(message, false, lines));

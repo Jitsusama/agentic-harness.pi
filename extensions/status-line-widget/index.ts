@@ -153,6 +153,17 @@ export default function statusLine(pi: ExtensionAPI) {
 				tui.requestRender();
 			});
 
+			// The line as last fitted, since a frame of pi's working animation
+			// most often draws the same one, and fitting it measures every
+			// grapheme.
+			let fitted = { line: "", columns: -1, out: [""] };
+			const fit = (line: string, columns: number): string[] => {
+				if (fitted.line !== line || fitted.columns !== columns) {
+					fitted = { line, columns, out: [truncateToWidth(line, columns)] };
+				}
+				return fitted.out;
+			};
+
 			const paint = (pieces: readonly Piece[], level: string) =>
 				pieces
 					.map((piece) => {
@@ -200,13 +211,11 @@ export default function statusLine(pi: ExtensionAPI) {
 
 					const { left, right } = layout(facts, columns);
 					const leftText = paint(left, thinking);
-					if (right.length === 0) {
-						return [truncateToWidth(leftText, columns)];
-					}
+					if (right.length === 0) return fit(leftText, columns);
 					const room = columns - width(left) - width(right);
 					const line =
 						leftText + " ".repeat(Math.max(2, room)) + paint(right, thinking);
-					return [truncateToWidth(line, columns)];
+					return fit(line, columns);
 				},
 			};
 		});

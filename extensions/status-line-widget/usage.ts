@@ -7,11 +7,13 @@
  * so reading it in render kept a long session's pi at half a core while it
  * only waited on a tool. The figure only moves when the context does, so
  * it's held until an event says the context changed, and for no longer
- * than a second in case one happens that no event names.
+ * than fifteen seconds in case one happens that no event names. It was
+ * a second, and on 26 October a profile of a working session found that
+ * second's rebuilds the costliest thing the harness did in a frame.
  */
 
 /** How long a reading stands before it's read again, unasked. */
-export const USAGE_MAX_AGE_MS = 1000;
+export const USAGE_MAX_AGE_MS = 15_000;
 
 export interface UsageReader<T> {
 	/** The reading, from the source only when the held one won't do. */
