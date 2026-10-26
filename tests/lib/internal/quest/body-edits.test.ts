@@ -233,6 +233,24 @@ describe("naming an item by its number", () => {
 		expect(seven.line).toBe("- [ ] 7. **Write the tests**");
 	});
 
+	it("finds a numbered item by the words after its number", () => {
+		// Sessions named plan items by their words, as "Window titles" for
+		// "1. Window titles ...", and were refused for the number in front.
+		const result = setCheckbox(NUMBERED, "ship it", true);
+		if (!result.ok) throw new Error(result.reason);
+		expect(result.line).toBe("- [x] 70. Ship it");
+		const prefix = setCheckbox(NUMBERED, "Write the", false);
+		if (!prefix.ok) throw new Error(prefix.reason);
+		expect(prefix.line).toBe("- [ ] 7. **Write the tests**");
+	});
+
+	it("still refuses words that fit several numbered items", () => {
+		const body = "- [ ] 1. Ship the gate\n- [ ] 2. Ship the timer\n";
+		const result = setCheckbox(body, "Ship the", true);
+		if (result.ok) throw new Error("expected a refusal");
+		expect(result.reason).toContain('2 items fit "Ship the"');
+	});
+
 	it("refuses a number no item carries, rather than matching a time", () => {
 		const body = "- [ ] 12:00 run failed\n- [ ] Ship it\n";
 		const result = setCheckbox(body, "1", true);

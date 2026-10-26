@@ -97,18 +97,28 @@ export function setCheckbox(
 	};
 }
 
+/** An item's text without the number it is listed by, as `7. `. */
+const ITEM_NUMBER = /^\d+[a-z]?[.)]\s+/;
+
 /**
  * The one item a caller names: by its exact text, else by a start only
- * one item has. A bare number names the item it numbers, so `7` finds
- * `7. Write the tests` and not `70. ...`.
+ * one item has, read with or without the number in front of it, so
+ * `Write the` finds `7. Write the tests`. A bare number names the item
+ * it numbers, so `7` finds `7. Write the tests` and not `70. ...`.
  */
 function findItem(
 	items: readonly Located[],
 	item: string,
 ): { ok: true; match: Located } | EditRefused {
 	const wanted = normalise(item);
-	const exact = items.filter((i) => normalise(i.text) === wanted);
-	const prefixed = items.filter((i) => normalise(i.text).startsWith(wanted));
+	const readings = (i: Located) => {
+		const text = normalise(i.text);
+		return [text, text.replace(ITEM_NUMBER, "")];
+	};
+	const exact = items.filter((i) => readings(i).includes(wanted));
+	const prefixed = items.filter((i) =>
+		readings(i).some((text) => text.startsWith(wanted)),
+	);
 	// A number names only the item it numbers, never one starting `12:00`.
 	const matches = /^\d+$/.test(wanted)
 		? items.filter((i) =>
