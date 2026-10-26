@@ -4,15 +4,12 @@
  * Durable, quest-scoped facts with lifecycle-based retention:
  * a true fact is never evicted by age, only archived or
  * dropped when its quest concludes, invalidated explicitly, or
- * surfaced for curation past a soft cap. The store, types and
- * scope serialization live in core, `lib/core/memory` (the
- * database is shared with the Claude Code adapter: see core's
- * memory/paths.ts for why they share one file, not one each).
- * resolveScope stays here: it derives the current scope from pi's
- * own session log, which a host with no quest system has nothing
- * equivalent to derive from.
+ * surfaced for curation past a soft cap.
  */
 
+export { memoryDbPath } from "./paths.ts";
+export { resolveScope, serializeScope } from "./scope.ts";
+export { openMemoryStore } from "./store.ts";
 export type {
 	Fact,
 	FactStatus,
@@ -20,10 +17,4 @@ export type {
 	RecallQuery,
 	RetainInput,
 	Scope,
-} from "../core/memory/index.ts";
-export {
-	memoryDbPath,
-	openMemoryStore,
-	serializeScope,
-} from "../core/memory/index.ts";
-export { resolveScope } from "./scope.ts";
+} from "./types.ts";

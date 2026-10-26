@@ -7,7 +7,7 @@ import {
 	splitAtCommand,
 	stripShellData,
 	unquote,
-} from "../../../lib/core/shell/parse.ts";
+} from "../../../lib/shell/parse.ts";
 
 describe("unquote", () => {
 	it("leaves an unquoted word untouched", () => {

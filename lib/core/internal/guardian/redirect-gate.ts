@@ -20,7 +20,7 @@
  */
 
 import { decideGate, type GateDeps } from "../../../gate/index.ts";
-import type { GuardianResult } from "../../guardian/types.ts";
+import type { GuardianResult } from "../../../guardian/types.ts";
 import { resolveRepo } from "../../review/index.ts";
 
 export type { GateDeps };

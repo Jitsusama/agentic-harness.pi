@@ -15,9 +15,9 @@ import {
 	findFlag,
 	type SimpleCommand,
 	tokenize,
-} from "../command/index.ts";
+} from "../../command/index.ts";
+import { stripHeredocBodies, stripShellData } from "../../shell/index.ts";
 import { GH_BODY_SPEC, isGhCommand } from "../github-cli/index.ts";
-import { stripHeredocBodies, stripShellData } from "../shell/index.ts";
 
 /** The outcome of attempting to attribute a gh command. */
 export type GhFooterInsertion =

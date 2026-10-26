@@ -12,11 +12,16 @@ each module's `index.ts` is what core exported as
 was, but for its imports, which name their `.ts` files as the rest
 of this package does.
 
+Core's tests are under `tests/core/`, and move to `tests/lib/` with
+their module. Modules that had a second copy elsewhere in `lib/`
+keep one copy at the `lib/` path, a domain at a time: refs,
+registry, thinking and ui, then gate, prose and clock, then shell,
+command, guardian and memory have gone from here.
+
 What comes next, by the fold's plan (PLAN-20261025-QR647O):
 
-- core's tests come across, beside the harness's own;
-- each module that also has an older copy elsewhere in `lib/` loses
-  one of the two, a domain at a time;
+- the other modules with a second copy (completion, google, slack,
+  terminal, quest and parts of internal) lose one of the two;
 - a module that belongs beside the harness's own moves there, and
   this folder empties.
 

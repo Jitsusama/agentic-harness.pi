@@ -7,7 +7,7 @@
  */
 
 import type { GateDeps } from "../../../gate/index.ts";
-import type { GuardianResult } from "../../guardian/types.ts";
+import type { GuardianResult } from "../../../guardian/types.ts";
 import { type TitleGateConfig, titleGateDecision } from "../../title/index.ts";
 
 /** Run the title gate over a title. Returns a block or undefined. */

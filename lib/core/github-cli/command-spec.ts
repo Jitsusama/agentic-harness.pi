@@ -6,7 +6,7 @@
  * these in.
  */
 
-import type { FlagSpec } from "../command/index.ts";
+import type { FlagSpec } from "../../command/index.ts";
 
 /**
  * The body flags of gh pr/issue create and edit: the inline body

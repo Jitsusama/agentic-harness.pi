@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyEdits } from "../../../lib/core/command/index.ts";
+import { applyEdits } from "../../../lib/command/index.ts";
 
 describe("applyEdits", () => {
 	it("returns the source unchanged when there are no edits", () => {

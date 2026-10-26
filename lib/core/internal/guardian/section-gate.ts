@@ -7,7 +7,7 @@
  */
 
 import type { GateDeps } from "../../../gate/index.ts";
-import type { GuardianResult } from "../../guardian/types.ts";
+import type { GuardianResult } from "../../../guardian/types.ts";
 import {
 	type SectionGateConfig,
 	sectionGateDecision,

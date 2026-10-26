@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { memoryDbPath } from "../../../lib/core/memory/paths.ts";
+import { memoryDbPath } from "../../../lib/memory/paths.ts";
 
 const ORIGINAL = process.env.XDG_STATE_HOME;
 let dir: string;

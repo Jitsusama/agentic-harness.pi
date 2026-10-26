@@ -16,8 +16,8 @@ import {
 	type SimpleCommand,
 	tokenize,
 	type Word,
-} from "../../command/index.ts";
-import { unquote } from "../../shell/index.ts";
+} from "../../../command/index.ts";
+import { unquote } from "../../../shell/index.ts";
 
 /**
  * Git global options that sit before the subcommand and take a
