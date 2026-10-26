@@ -7,6 +7,7 @@ import type {
 	RepeatedCall,
 	VerifierOutcome,
 } from "../../lib/core/observability/index.ts";
+import type { Bill } from "../../lib/internal/spend-watch.ts";
 import type { FanOutSummary, FanOutView } from "./fanout.ts";
 
 /** What indexing a corpus of session logs did. */
@@ -70,6 +71,36 @@ export function formatTotal(total: LedgerTotal): string {
 				`${share.toFixed(1)}% at the one-hour rate`,
 		);
 	}
+	return lines.join("\n");
+}
+
+/**
+ * Render spend-watch's bill for a period, saying which figure it is.
+ *
+ * Its own amounts as it writes them, with "about" before a row worked
+ * out from pi's logs rather than billed, so a reader never takes an
+ * estimate for the bill. `uncut` names a grouping spend-watch has no
+ * cut for, which gets the period's total alone.
+ */
+export function formatBill(bill: Bill, limit = 12, uncut?: string): string {
+	const span = bill.from === bill.to ? bill.from : `${bill.from} to ${bill.to}`;
+	const lines = [
+		`The bill, from spend-watch: ${bill.shown} (${span}), ${bill.source}`,
+	];
+	if (uncut) {
+		lines.push(
+			`  spend-watch has no cut by ${uncut}, so this is the whole period`,
+		);
+		return lines.join("\n");
+	}
+	for (const row of bill.rows.slice(0, limit)) {
+		const amount = row.estimated ? `about ${row.shown}` : row.shown;
+		lines.push(`  ${elide(row.name).padEnd(KEY_WIDTH)} ${amount.padStart(15)}`);
+	}
+	if (bill.rows.length > limit) {
+		lines.push(`  ${bill.rows.length - limit} more, ask for a larger limit`);
+	}
+	for (const note of bill.notes) lines.push(`  ${note}`);
 	return lines.join("\n");
 }
 

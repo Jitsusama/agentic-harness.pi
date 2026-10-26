@@ -33,6 +33,7 @@ import type {
 	ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { spawnExec } from "../../lib/core/exec/index.ts";
 import type {
 	CostSlice,
 	QueryAnswer,
@@ -60,6 +61,12 @@ import {
 	ROLLOVER_CARRY,
 	recordIndex,
 } from "../../lib/internal/session/rollover.ts";
+import {
+	askBill,
+	BILL_PERIODS,
+	type BillPeriod,
+	isBillCut,
+} from "../../lib/internal/spend-watch.ts";
 import { LEDGER_SCOPE } from "../../lib/ledger/index.ts";
 import { formatAudit } from "./audit.ts";
 import { gatherAudit } from "./audit-input.ts";
@@ -67,6 +74,7 @@ import { formatHoldings, measureQuests } from "./disk.ts";
 import { fanOutView, summarizeFanOut } from "./fanout.ts";
 import { indexSessionLogs, sessionsDir } from "./indexer.ts";
 import {
+	formatBill,
 	formatFanOut,
 	formatIndexOutcome,
 	formatPaybackReplay,
@@ -93,6 +101,15 @@ const resourcesDir = () => join(packageStateDir("observability"), "resources");
 
 /** Rows of a query answer shown before the rest is left to the store. */
 const QUERY_ROWS_SHOWN = 40;
+
+/** The period the bill is asked for when the caller names none. */
+const BILL_PERIOD: BillPeriod = "30 days";
+
+/**
+ * How long spend-watch may take to answer. It reads its whole history,
+ * about 1.3 s on a busy machine, so this only stops one that hangs.
+ */
+const BILL_TIMEOUT_MS = 20_000;
 
 /** Dimensions the tool will group by, in the ledger's own vocabulary. */
 const DIMENSIONS: readonly CostDimension[] = [
@@ -177,6 +194,27 @@ function assistantCost(message: { role: string }): number {
 		return (message as AssistantMessage).usage.cost.total;
 	}
 	return 0;
+}
+
+/**
+ * spend-watch's bill for a period, drawn as its own section, in the
+ * same grouping where it has one; nothing when it isn't installed or
+ * doesn't answer, since the ledger's answer stands on its own.
+ */
+async function quoteBill(
+	period: BillPeriod,
+	by: CostDimension | undefined,
+	limit: number,
+	signal: AbortSignal | undefined,
+): Promise<string | undefined> {
+	const exec = spawnExec({
+		timeoutMs: BILL_TIMEOUT_MS,
+		...(signal ? { signal } : {}),
+	});
+	const cut = by && isBillCut(by) ? by : undefined;
+	const bill = await askBill(exec, period, cut);
+	if (!bill) return undefined;
+	return formatBill(bill, limit, by && !cut ? by : undefined);
 }
 
 export default function spendWorkflow(pi: ExtensionAPI) {
@@ -361,7 +399,10 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 			"incremental and runs automatically before a report; pass " +
 			"reindex to force a pass without reporting. Every answer states " +
 			"its coverage, including turns that carried no usage and spend " +
-			"whose session named no repo or quest. For any other question " +
+			"whose session named no repo or quest. Its own figures are list " +
+			"prices; where spend-watch is installed, a report also quotes " +
+			"its bill for a period (30 days unless period is given), in the " +
+			"same grouping where it has one. For any other question " +
 			"about spend, cache misses, compaction cycles, runs or the moment " +
 			"of a compaction, pass query with one SQL SELECT over the ledger's " +
 			"views.",
@@ -385,6 +426,17 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 						"How many slices, or query rows, to show. Defaults to 12, and " +
 						"to 40 for a query.",
 				}),
+			),
+			period: Type.Optional(
+				Type.Union(
+					BILL_PERIODS.map((p) => Type.Literal(p)),
+					{
+						description:
+							"The period spend-watch's bill is quoted for, where it is " +
+							"installed. Defaults to 30 days; the ledger's own figures " +
+							"cover every log it holds.",
+					},
+				),
 			),
 			query: Type.Optional(Type.String({ description: QUERY_GUIDE })),
 			reindex: Type.Optional(
@@ -636,6 +688,13 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 					formatSlices(HEADINGS[params.by], slices, params.limit ?? 12),
 				);
 			}
+			const bill = await quoteBill(
+				params.period ?? BILL_PERIOD,
+				params.by,
+				params.limit ?? 12,
+				signal,
+			);
+			if (bill) sections.push(bill);
 			const fanOut = await (await openRuns()).queryRuns();
 			sections.push(
 				formatFanOut(

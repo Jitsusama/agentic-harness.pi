@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	formatBill,
 	formatIndexOutcome,
 	formatPaybackReplay,
 	formatQueryAnswer,
@@ -10,6 +11,62 @@ import {
 	formatVerifierOutcomes,
 } from "../../../extensions/spend-workflow/report.ts";
 import type { RepeatedCall } from "../../../lib/core/observability/index.ts";
+import type { Bill } from "../../../lib/internal/spend-watch.ts";
+
+describe("formatBill", () => {
+	const bill: Bill = {
+		title: "Spend the last 30 days by quest",
+		from: "2026-09-27",
+		to: "2026-10-26",
+		total: 33198,
+		shown: "$33,198",
+		source: "billed, the latest hours from the live meter",
+		rows: [
+			{
+				name: "Bootstrap optimus",
+				dollars: 9000,
+				shown: "$9,000",
+				estimated: false,
+			},
+			{ name: "no quest", dollars: 28, shown: "$28", estimated: true },
+		],
+		notes: ["579 more under $13,991 together."],
+	};
+
+	it("says it is spend-watch's bill, for which days, and which figure", () => {
+		expect(formatBill(bill).split("\n")[0]).toBe(
+			"The bill, from spend-watch: $33,198 (2026-09-27 to 2026-10-26), " +
+				"billed, the latest hours from the live meter",
+		);
+	});
+
+	it("marks a row worked out rather than billed as about, and keeps the notes", () => {
+		const text = formatBill(bill);
+		expect(text).toMatch(/Bootstrap optimus +\$9,000/);
+		expect(text).toMatch(/no quest +about \$28/);
+		expect(text).toContain("579 more under $13,991 together.");
+	});
+
+	it("names one day once", () => {
+		expect(formatBill({ ...bill, from: "2026-10-26" })).toContain(
+			"$33,198 (2026-10-26),",
+		);
+	});
+
+	it("gives the total alone for a grouping spend-watch has no cut for", () => {
+		const text = formatBill(bill, 12, "document");
+		expect(text).toContain(
+			"spend-watch has no cut by document, so this is the whole period",
+		);
+		expect(text).not.toContain("Bootstrap optimus");
+	});
+
+	it("shows the heaviest rows up to the limit and counts the rest", () => {
+		const text = formatBill(bill, 1);
+		expect(text).not.toContain("no quest");
+		expect(text).toContain("1 more, ask for a larger limit");
+	});
+});
 
 describe("formatQueryAnswer", () => {
 	const answer = {

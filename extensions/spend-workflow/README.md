@@ -114,6 +114,13 @@ An aggregate that cannot say what it missed is not evidence, so:
   Reconciled against the AI Proxy for 2026-08-23 to 09-22, the bill was
   $26,597 against $30,485 of these records: contract discounts, not
   missing tokens.
+- Where spend-watch is installed, a report also quotes its bill, which
+  is billed where a feed gives one, under a heading saying which
+  figure it is. It covers a period (`period`, 30 days unless named) and
+  the same grouping where spend-watch has one (repo, quest, model, day
+  or session); a row it worked out rather than billed reads "about".
+  Without spend-watch, or when it doesn't answer, the report is the
+  ledger's alone.
 
 ## Indexing
 

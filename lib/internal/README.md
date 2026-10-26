@@ -84,6 +84,8 @@ may import from here, and any of it may change without notice.
   `shell-habit-interceptor` catches them.
 - **`single-flight.ts`**: one flight per key, which later callers
   join.
+- **`spend-watch.ts`**: the bill for a period, asked of spend-watch's
+  command line where it is installed, for the spend tool.
 - **`stale.ts`**: telling pi's stale-context error, after a reload
   or session switch, from any other.
 - **`state.ts`**: persisting an extension's state across sessions
