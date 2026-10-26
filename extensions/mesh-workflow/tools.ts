@@ -17,6 +17,7 @@ import {
 	isJoinable,
 	MACHINE,
 	machineTakes,
+	orchestratorNamed,
 } from "../../lib/mesh/group.ts";
 import { type Board, isCurrent, othersOn } from "../../lib/mesh/lease.ts";
 import { type Census, census } from "../../lib/mesh/liveness.ts";
@@ -109,7 +110,7 @@ export function registerTools(
 			to: Type.Optional(
 				Type.String({
 					description:
-						"Comma-separated groups: peer addresses such as P9R1KI, groups such as #harness, or all. Leave it out and the mesh picks, saying where and why",
+						"Comma-separated groups: peer addresses such as P9R1KI, groups such as #harness, orchestrator for the orchestrator above this peer's quest, or machine. Leave it out and the mesh picks, saying where and why",
 				}),
 			),
 			intent: StringEnum(INTENTS, {
@@ -314,9 +315,21 @@ async function send(
 	// A send is never refused for how it was written: what does not hold
 	// is left out and said, and the message goes on without it.
 	const ownReplaced = replaced && sentBy(replaced, self) ? replaced : undefined;
-	const named = groupsNamed(params.to ?? "");
+	const target = orchestratorNamed(params.to ?? "", at.peer.orchestratedBy);
+	const named = groupsNamed(target.to);
+	// Meant for one recipient that is not there: routed by rule, it would
+	// land in a group that may have nobody listening.
+	if (target.missing && named.length === 0) {
+		return answer(
+			"Not sent: no orchestrator is above this peer's quest. Tell the person in your reply, or name the peers it is for by address.",
+			{ sent: false } satisfies SendDetails,
+		);
+	}
 	const unnamed = named.filter((group) => groupNamed(group) === undefined);
 	const said = [
+		target.missing
+			? "no orchestrator is above this peer's quest, so `orchestrator` reached nobody and was left out"
+			: "",
 		params.re && !answersNamed
 			? `no message has the id ${params.re}, so it answers nothing`
 			: "",
@@ -366,7 +379,7 @@ async function send(
 		chosen.length === 0 &&
 		asker &&
 		!sentBy(asker, self) &&
-		groupsNamed(params.to ?? "").length === 0
+		named.length === 0
 	) {
 		chosen.push(homeOf(asker.from));
 	}

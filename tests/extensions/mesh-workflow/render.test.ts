@@ -57,6 +57,16 @@ describe("the mesh on screen", () => {
 		);
 	});
 
+	it("names the orchestrator a delivery says to tell, or the reply when there is none", () => {
+		const messages = [message()];
+		expect(noted(messages, [], "WCJQSG")).toContain(
+			"otherwise to your orchestrator, WCJQSG, as a question (mesh_send to: orchestrator)",
+		);
+		expect(noted(messages)).toContain(
+			"otherwise in your next reply, since no orchestrator is above your quest",
+		);
+	});
+
 	it("shows everything the model read once expanded", () => {
 		const messages = [message()];
 		const content = noted(messages);

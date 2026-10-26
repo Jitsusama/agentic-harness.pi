@@ -6,7 +6,8 @@
  * next quest below that is marked too. So a quest's orchestrator is
  * found by walking up `parent` to the nearest marked quest, with no
  * address wired anywhere; a quest an orchestrator takes on from outside
- * its tree names it with `orchestratedBy`, which wins over the walk. An
+ * its tree names it with `orchestratedBy`, which wins over the walk
+ * while the quest it names is marked. An
  * orchestrator nested under another answers to the one above it, and
  * heads its own.
  *
@@ -69,8 +70,11 @@ function orchestratorAbove(
 	const seen = new Set([quest]);
 	let at = own;
 	while (seen.size <= MOST_PARENTS) {
+		// A named quest counts only while it orchestrates, so a stale name
+		// left after the mark was cleared does not route to a plain quest.
 		const named = namedOrchestrator(at);
-		if (named && !seen.has(named)) return named;
+		const namedQuest = named && !seen.has(named) ? read(named) : undefined;
+		if (named && namedQuest && orchestrates(namedQuest)) return named;
 		const parent = at.parent;
 		if (!parent || seen.has(parent)) return undefined;
 		const above = read(parent);

@@ -643,7 +643,7 @@ export function meshWorkflow(
 				}
 			}
 			const carried = glances.take();
-			const content = noted(messages, carried);
+			const content = noted(messages, carried, peer?.orchestratedBy);
 			pi.sendMessage(
 				{
 					customType: NOTED,
@@ -1083,7 +1083,7 @@ export function meshWorkflow(
 			return {
 				message: {
 					customType: NOTED,
-					content: noted(messages, carried),
+					content: noted(messages, carried, peer?.orchestratedBy),
 					display: true,
 					details: delivered(messages, carried, {
 						why: waiting.map(({ heed }) => heed.why),

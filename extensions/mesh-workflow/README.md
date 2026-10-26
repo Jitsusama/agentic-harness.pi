@@ -41,11 +41,23 @@ and can answer a question or a gate left open on screen.
   `#optimus/power` also hears `#optimus`.
 - **Scope:** a group a peer is in because of its work rather
   than because it joined: its quest's, named down the parent
-  chain from the root (`#quest/5gv2ah/luq49e`), and each
-  repository's its work is in (`#repo/agentic-harness-pi`).
-  A message to `#quest/5gv2ah` reaches every peer on that
-  quest or under it. Scopes follow the work and are not left
-  while it is there.
+  chain from the root (`#quest/5gv2ah/luq49e`), each
+  repository's its work is in (`#repo/agentic-harness-pi`),
+  and each orchestration's it is in
+  (`#orchestration/wcjqsg`). A message to `#quest/5gv2ah`
+  reaches every peer on that quest or under it. Scopes follow
+  the work and are not left while it is there.
+- **Orchestration:** a quest marked `orchestrator: true` (the
+  quest tool's `orchestrate`) is played by the session with it
+  loaded, which orchestrates every quest below it up to the
+  next marked one. Those sessions are in
+  `#orchestration/<address>`, and their presence names it as
+  `orchestratedBy`; `to: orchestrator` reaches it without its
+  address. The tree is walked on the quest side; the mesh reads
+  only presence. Within a mission, an unaddressed message now
+  usually goes to the orchestration's group, since another
+  peer is nearly always in it: the same reach `#quest/<root>`
+  had.
 - **Joined:** the groups a peer chose, kept across a reload.
 - **Presence:** what a peer publishes about itself: its
   addresses, its groups, what it works on and what it owns,
@@ -477,10 +489,10 @@ first of these that answers:
   goes to this peer's scopes that another peer is in; failing
   those, to the nearest quest above this peer's own that
   another peer hears, since a subquest alone on its scope is
-  still its parent's work; or to `#all` when none is, since a
-  message nobody hears is the one outcome worse than a glance.
-  Only a hold goes there now: anything else the mesh would send
-  to the machine goes to this peer's own work's groups.
+  still its parent's work; failing that, to this peer's own
+  orchestration, quest or repository group, where it waits for
+  whoever joins. Only a hold, or a message from a peer on no
+  work at all, goes to the whole machine.
 
 A peer that stopped the sender is never routed to. The sender
 is told where the message went and why, so it can send again

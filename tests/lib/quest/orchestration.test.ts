@@ -87,6 +87,16 @@ describe("a quest's orchestration", () => {
 		expect(orchestrationOf(WORKER, read)).toEqual({ by: MISSION });
 	});
 
+	it("ignores `orchestratedBy` naming a quest that does not orchestrate, and walks on", () => {
+		const read = store(
+			quest(MISSION, null, { orchestrator: true }),
+			quest(KARST, null),
+			quest(LOOP, MISSION, { orchestratedBy: KARST }),
+		);
+
+		expect(orchestrationOf(LOOP, read)).toEqual({ by: MISSION });
+	});
+
 	it("reads the mark from a README written by a parser that keeps it as an extra", () => {
 		const read = store(
 			quest(MISSION, null, { _extra: { orchestrator: true } }),

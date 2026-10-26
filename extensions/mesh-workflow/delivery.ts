@@ -42,8 +42,15 @@ export const GLANCE_CHARS = 160;
  * person had to do, so it now says which messages are to be acted on
  * at once, and that the person hears at once what waits on them.
  */
-export const ADVISORY =
-	"Act now on a question or a hold put to you, before you carry on, as its line above says. If a message holds something the person must act on (a decision, a login, a look, a yes), tell them at once: in your reply if you are talking with them, and otherwise to your quest's orchestrator as a question. Everything else is context for your work: carry on with it, and send no acknowledgement.";
+export function advisory(orchestrator?: string): string {
+	const otherwise = orchestrator
+		? `otherwise to your orchestrator, ${orchestrator}, as a question (mesh_send to: orchestrator)`
+		: "otherwise in your next reply, since no orchestrator is above your quest";
+	return `Act now on a question or a hold put to you, before you carry on, as its line above says. If a message holds something the person must act on (a decision, a login, a look, a yes), tell them at once: in your reply if you are talking with them, and ${otherwise}. Everything else is context for your work: carry on with it, and send no acknowledgement.`;
+}
+
+/** The note for a session with no orchestrator above its quest. */
+export const ADVISORY = advisory();
 
 /** What each intent asks of its reader, said only for those present. */
 export const ASKS: Readonly<Record<Intent, string>> = {
@@ -80,6 +87,7 @@ export interface Delivered {
 export function noted(
 	messages: readonly Message[],
 	glances: readonly Message[] = [],
+	orchestrator?: string,
 ): string {
 	const each = messages.map((message) => {
 		const threads = [
@@ -98,7 +106,7 @@ export function noted(
 		...each,
 		asks.join(" "),
 		...(glances.length > 0 ? [digest(glances)] : []),
-		ADVISORY,
+		advisory(orchestrator),
 	].join("\n\n");
 }
 

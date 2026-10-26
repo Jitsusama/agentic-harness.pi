@@ -70,6 +70,33 @@ export function groupsNamed(written: string): string[] {
 	return [...new Set(named)];
 }
 
+/**
+ * What `to` says once the word `orchestrator` in it is read as the
+ * address of the orchestrator above the sender's quest, from its own
+ * presence (see internal/quest/orchestration.ts), so a session asks its
+ * orchestrator without knowing which session that is. With none above
+ * it, the word is dropped and `missing` says so.
+ */
+export function orchestratorNamed(
+	written: string,
+	orchestratedBy: string | undefined,
+): { readonly to: string; readonly missing: boolean } {
+	const parts = written.split(",").map((one) => one.trim());
+	const word = (one: string) =>
+		one.replace(/^[#@]/, "").toLowerCase() === ORCHESTRATOR;
+	if (!parts.some(word)) return { to: written, missing: false };
+	const to = parts
+		.flatMap((one) =>
+			word(one) ? (orchestratedBy ? [orchestratedBy] : []) : [one],
+		)
+		.filter((one) => one !== "")
+		.join(", ");
+	return { to, missing: orchestratedBy === undefined };
+}
+
+/** The word in `to` that names the sender's orchestrator. */
+export const ORCHESTRATOR = "orchestrator";
+
 /** The home group of a peer going by this address. */
 export function homeOf(address: string): string {
 	return `@${address}`;

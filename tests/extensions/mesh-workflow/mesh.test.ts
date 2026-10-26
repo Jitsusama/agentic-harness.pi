@@ -2056,6 +2056,30 @@ describe("a message that names no group", () => {
 		);
 	});
 
+	it("refuses a send to an orchestrator nobody is, and drops the word beside other groups", async () => {
+		onQuest();
+		peer("session-q", ["5GV2AH"], ["#quest/5gv2ah/7m6jkg", "#harness"]);
+		const { tools } = await startSession();
+		const transport = folderTransport(join(paths.mesh, "messages"));
+
+		const refused = await send(tools, "orchestrator", "question", "May I?");
+		expect(refused).toContain(
+			"Not sent: no orchestrator is above this peer's quest",
+		);
+		expect(transport.ids()).toEqual([]);
+
+		const narrowed = await send(
+			tools,
+			"orchestrator, #harness",
+			"question",
+			"Who has the stick?",
+		);
+		expect(transport.read(transport.ids().at(-1) ?? "")?.to).toEqual([
+			"#harness",
+		]);
+		expect(narrowed).toContain("`orchestrator` reached nobody");
+	});
+
 	it("keeps the machine's group for holds and the answers that end them", async () => {
 		onQuest();
 		peer("session-q", ["5GV2AH"], ["#quest/5gv2ah/7m6jkg", "#harness"]);
