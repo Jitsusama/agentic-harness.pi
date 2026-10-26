@@ -304,8 +304,8 @@ quests" without fuzzy regex on prose.
 The Journey lives in its own file, `JOURNEY.md` beside the
 README, so a session reading the README to learn what a
 quest is for doesn't pay for its whole history. The README's
-section holds only the pointer, and for now a comment line
-naming the attachments the Journey cites.
+section holds only the pointer. An attachment the Journey
+cites is kept by the backup like one the README cites.
 Write entries with the `journal` action, never by hand;
 `show` reads the newest back.
 

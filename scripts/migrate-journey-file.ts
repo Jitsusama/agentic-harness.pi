@@ -44,7 +44,6 @@ import {
 } from "../lib/internal/quest/journey.ts";
 import {
 	CITATIONS_OPENING,
-	listAttachments,
 	planJourneySweep,
 	sweepJourney,
 } from "../lib/internal/quest/journey-sweep.ts";
@@ -81,10 +80,7 @@ export function planQuest(dir: string): QuestOutcome {
 	const readme = readFileSync(join(dir, "README.md"), "utf8");
 	const file = journeyFilePath(dir);
 	const journey = existsSync(file) ? readFileSync(file, "utf8") : undefined;
-	const plan = planJourneySweep(readme, {
-		journey,
-		citations: { quest: basename(dir), attachments: listAttachments(dir) },
-	});
+	const plan = planJourneySweep(readme, { journey });
 	return {
 		quest: basename(dir),
 		dir,

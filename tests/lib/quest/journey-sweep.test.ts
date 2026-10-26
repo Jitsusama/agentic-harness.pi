@@ -19,7 +19,6 @@ import {
 } from "../../../lib/internal/quest/journey";
 import {
 	CITATIONS_OPENING,
-	citationsLine,
 	planJourneySweep,
 	sweepJourney,
 } from "../../../lib/internal/quest/journey-sweep";
@@ -306,55 +305,33 @@ describe("planning a sweep", () => {
 	});
 });
 
-describe("carrying the Journey's citations", () => {
-	const attachments = [
-		"attachments/journey.md",
-		"attachments/chart.png",
-		"attachments/runs/a.md",
-		"attachments/runs/b.md",
-		"attachments/notes/cited.md",
-		"attachments/notes/uncited.md",
-	];
+describe("the former citations line", () => {
+	const journey = `${JOURNEY_TITLE}\n\n- **2026-06-01**: Wrote attachments/runs/a.md.\n`;
 
-	it("names what only the Journey cites, folded to whole folders", () => {
-		const line = citationsLine(
-			"QEST-20260101-AAAAAA",
-			"- **2026-06-01**: See attachments/runs/a.md, attachments/runs/b.md and attachments/notes/cited.md.",
-			"![chart](attachments/chart.png)",
-			attachments,
-		);
-		expect(line).toBe(
-			`${CITATIONS_OPENING} attachments/notes/cited.md attachments/runs -->`,
-		);
-	});
+	const withLine = `# T\n\n## Journey\n\n${JOURNEY_POINTER}\n\n${CITATIONS_OPENING} attachments/runs -->\n\n## Context\n\nKept.\n`;
+	const without = `# T\n\n## Journey\n\n${JOURNEY_POINTER}\n\n## Context\n\nKept.\n`;
 
-	it("says nothing when the README already cites all of it", () => {
-		expect(
-			citationsLine(
-				"QEST-20260101-AAAAAA",
-				"- **2026-06-01**: Drew attachments/chart.png.",
-				"![chart](attachments/chart.png)",
-				attachments,
-			),
-		).toBeUndefined();
-	});
-
-	it("keeps them cited in the README across a sweep and a new entry", () => {
+	beforeEach(() => {
 		mkdirSync(join(questDir, "attachments/runs"), { recursive: true });
 		writeFileSync(join(questDir, "attachments/runs/a.md"), "a\n");
-		writeFileSync(join(questDir, "attachments/notes.md"), "n\n");
-		writeFileSync(
-			join(questDir, "README.md"),
-			"# T\n\n## Journey\n\n- **2026-06-01**: Wrote attachments/runs/a.md.\n",
-		);
+		writeFileSync(join(questDir, "README.md"), withLine);
+		writeFileSync(join(questDir, JOURNEY_FILE), journey);
+	});
+
+	it("is dropped by a sweep, the Journey left as it was", () => {
+		expect(planJourneySweep(withLine, { journey })?.readme).toBe(without);
 		sweepJourney(questDir);
-		expect(readme()).toContain(`${CITATIONS_OPENING} attachments/runs -->`);
-		appendJourneyByPath(questDir, "Noted attachments/notes.md.", {
+
+		expect(readme()).toBe(without);
+		expect(journeyFile()).toBe(journey);
+	});
+
+	it("is dropped when the next entry is written, and never written again", () => {
+		appendJourneyByPath(questDir, "Noted attachments/runs/a.md.", {
 			now: fixedNow,
 		});
-		expect(readme()).toContain(
-			`${CITATIONS_OPENING} attachments/notes.md attachments/runs -->`,
-		);
+
+		expect(readme()).toBe(without);
 		expect(recentJourney(questDir, readme(), 5)).toHaveLength(2);
 	});
 });

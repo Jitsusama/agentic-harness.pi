@@ -15,6 +15,12 @@
  * then is the old one removed. A session on older code that writes
  * the old file after the move is folded in by the next sweep.
  *
+ * It also tidies a quest whose Journey already moved but whose sweep
+ * would still change something: a README carrying the former
+ * citations comment line, or a pointer an old-code session filed in
+ * the Journey as an entry. Each quest is otherwise fixed at its next
+ * entry; this reaches the quiet ones too.
+ *
  * Dry run by default, printing each quest it would move with its
  * size, and the total. `--apply` first writes a tarball of the whole
  * quests folder beside it, outside the quests root (`--backup <file>`
@@ -30,12 +36,18 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { dataDir } from "../lib/internal/paths.ts";
 import { withQuestLock } from "../lib/internal/quest/io.ts";
-import { formerJourneyFilePath } from "../lib/internal/quest/journey.ts";
-import { sweepJourneyUnlocked } from "../lib/internal/quest/journey-sweep.ts";
+import {
+	formerJourneyFilePath,
+	journeyFilePath,
+} from "../lib/internal/quest/journey.ts";
+import {
+	planJourneySweep,
+	sweepJourneyUnlocked,
+} from "../lib/internal/quest/journey-sweep.ts";
 import { questDirs } from "./migrate-journey-file.ts";
 
 /** What moving one quest's Journey would do, or did. */
@@ -44,6 +56,8 @@ export interface QuestOutcome {
 	dir: string;
 	/** The old file's size in bytes, zero when there was none. */
 	bytes: number;
+	/** With no old file, whether a sweep would still change anything. */
+	tidy: boolean;
 	/** Why the quest could not be moved, if it could not. */
 	problem?: string;
 }
@@ -52,13 +66,25 @@ export interface QuestOutcome {
 export function planQuest(dir: string): QuestOutcome {
 	const former = formerJourneyFilePath(dir);
 	const bytes = existsSync(former) ? statSync(former).size : 0;
-	return { quest: basename(dir), dir, bytes };
+	return { quest: basename(dir), dir, bytes, tidy: bytes === 0 && untidy(dir) };
+}
+
+/** Whether a sweep would change a moved quest's README or Journey. */
+function untidy(dir: string): boolean {
+	const readme = textAt(join(dir, "README.md"));
+	const journey = textAt(journeyFilePath(dir));
+	if (readme === undefined || journey === undefined) return false;
+	return planJourneySweep(readme, { journey }) !== undefined;
+}
+
+function textAt(path: string): string | undefined {
+	return existsSync(path) ? readFileSync(path, "utf8") : undefined;
 }
 
 /** Move one quest's Journey up beside its README, under its lock. */
 export function moveQuest(dir: string): QuestOutcome {
 	const planned = planQuest(dir);
-	if (!existsSync(formerJourneyFilePath(dir))) return planned;
+	if (planned.bytes === 0 && !planned.tidy) return planned;
 	try {
 		const moved = withQuestLock(dir, () => sweepJourneyUnlocked(dir));
 		return moved === undefined ? { ...planned, problem: "no README" } : planned;
@@ -72,10 +98,11 @@ export function moveQuest(dir: string): QuestOutcome {
 
 function report(outcomes: readonly QuestOutcome[], verb: string): string {
 	const moving = outcomes.filter((o) => o.bytes > 0);
+	const tidying = outcomes.filter((o) => o.tidy);
 	const bytes = moving.reduce((total, o) => total + o.bytes, 0);
 	return [
 		...moving.map((o) => `  ${o.quest}: ${o.bytes} bytes`),
-		`${verb} ${moving.length} of ${outcomes.length} quests' Journeys, ${bytes} bytes.`,
+		`${verb} ${moving.length} of ${outcomes.length} quests' Journeys, ${bytes} bytes, and tidy ${tidying.length} more.`,
 	].join("\n");
 }
 

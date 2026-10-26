@@ -9,7 +9,11 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { JOURNEY_POINTER } from "../../lib/internal/quest/journey";
+import {
+	JOURNEY_POINTER,
+	JOURNEY_TITLE,
+} from "../../lib/internal/quest/journey";
+import { CITATIONS_OPENING } from "../../lib/internal/quest/journey-sweep";
 import { questDirs } from "../../scripts/migrate-journey-file";
 import { moveQuest, planQuest } from "../../scripts/move-journey-file";
 
@@ -70,5 +74,33 @@ describe("moving each Journey up beside its README", () => {
 		).toBe(true);
 		questDirs(root).forEach(moveQuest);
 		expect(read(`${A}/README.md`)).toBe(before);
+	});
+
+	it("tidies a moved quest a sweep would still change, and only that one", () => {
+		questDirs(root).forEach(moveQuest);
+		const entry = "- **2026-01-03**: Ran it.";
+		writeFileSync(
+			join(root, A, B, "README.md"),
+			readme(`${JOURNEY_POINTER}\n\n${CITATIONS_OPENING} attachments/runs -->`),
+		);
+		writeFileSync(
+			join(root, A, B, "JOURNEY.md"),
+			`${JOURNEY_TITLE}\n\n${entry}\n${JOURNEY_POINTER}\n`,
+		);
+
+		const plans = questDirs(root).map(planQuest);
+		expect(plans.map((p) => [p.quest, p.bytes, p.tidy])).toEqual([
+			[A, 0, false],
+			[B, 0, true],
+		]);
+		questDirs(root).forEach(moveQuest);
+
+		expect(read(`${A}/${B}/README.md`)).toBe(readme(JOURNEY_POINTER));
+		expect(read(`${A}/${B}/JOURNEY.md`)).toBe(`${JOURNEY_TITLE}\n\n${entry}\n`);
+		expect(
+			questDirs(root)
+				.map(planQuest)
+				.some((p) => p.tidy),
+		).toBe(false);
 	});
 });
