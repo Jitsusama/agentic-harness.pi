@@ -13,6 +13,11 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import {
+	listTreesOnQuest,
+	removeTreeFromQuest,
+	setPendingPrune,
+} from "../../../internal/quest/trees.ts";
 import { nowYmd } from "../../internal/quest/dates.ts";
 import { discoverQuests } from "../../internal/quest/discovery.ts";
 import { parseQuestFrontMatter } from "../../internal/quest/frontmatter.ts";
@@ -24,11 +29,6 @@ import {
 	type JournalChange,
 	recordStructuralOp,
 } from "../../internal/quest/structural-journal.ts";
-import {
-	listTreesOnQuest,
-	removeTreeFromQuest,
-	setPendingPrune,
-} from "../../internal/quest/trees.ts";
 import { resolveTreeProvider } from "../../tree/index.ts";
 import { count, noun, verb } from "../../ui/count.ts";
 import { displayPath } from "../../ui/path.ts";

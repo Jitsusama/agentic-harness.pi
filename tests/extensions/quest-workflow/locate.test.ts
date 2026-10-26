@@ -2,7 +2,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { locateOwner } from "../../../extensions/quest-workflow/lookup";
+import {
+	findQuests,
+	locateOwner,
+} from "../../../extensions/quest-workflow/lookup";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
 import { createEnvGuard } from "./_helpers";
@@ -103,6 +106,50 @@ describe("locateOwner", () => {
 		const bySession = locateOwner(state, "sess-1");
 		expect(bySession).toHaveLength(1);
 		expect(bySession[0]).toMatchObject({ questId, matchKind: "session" });
+	});
+
+	it("resolves a tree's path, bare or as the old alias, once per tree", () => {
+		const state = buildState();
+		const write = (id: string, aliases: string) => {
+			const dir = join(tmpRoot, "quests", id);
+			mkdirSync(dir, { recursive: true });
+			writeFileSync(
+				join(dir, "README.md"),
+				`---\nid: ${id}\nkind: quest\nparent: null\nstatus: active\npriority: someday\nrank: 1\nstarted: 2026-01-01\nupdated: 2026-01-01\n${aliases}trees:\n  - path: /trees/${id}\n    providerId: git-worktree\n---\n\n# ${id}\n\nBody.\n`,
+			);
+		};
+		write("QEST-20260101-TREE01", "");
+		// A quest the migration has not reached yet still mirrors its tree.
+		write(
+			"QEST-20260101-TREE02",
+			"aliases:\n  - type: git-worktree\n    value: /trees/QEST-20260101-TREE02\n",
+		);
+
+		for (const needle of [
+			"/trees/QEST-20260101-TREE01",
+			"git-worktree:/trees/QEST-20260101-TREE01",
+		]) {
+			expect(locateOwner(state, needle)).toEqual([
+				expect.objectContaining({
+					questId: "QEST-20260101-TREE01",
+					matchKind: "tree",
+					detail: "/trees/QEST-20260101-TREE01",
+				}),
+			]);
+		}
+		expect(locateOwner(state, "/trees/QEST-20260101-TREE02")).toHaveLength(1);
+
+		// find answers the old alias type, and a tree's path, from trees.
+		expect(
+			findQuests(state, { refType: "git-worktree" })
+				.map((h) => h.id)
+				.sort(),
+		).toEqual(["QEST-20260101-TREE01", "QEST-20260101-TREE02"]);
+		expect(
+			findQuests(state, { query: "/trees/QEST-20260101-TREE01" }).map(
+				(h) => h.id,
+			),
+		).toEqual(["QEST-20260101-TREE01"]);
 	});
 
 	it("surfaces every owner when a needle resolves ambiguously", () => {
