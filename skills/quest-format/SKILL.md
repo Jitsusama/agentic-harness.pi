@@ -126,6 +126,7 @@ A small YAML block at the top of every quest README:
 ```yaml
 ---
 id: QEST-20260603-AAA111
+short: Login flow
 kind: sidequest
 parent: null
 status: active
@@ -162,6 +163,11 @@ sessions:
 
 Field semantics:
 
+- `short`: optional short name, what the quest is about in
+  two or three words. It names the session, so a pi
+  window's title reads `π - <short> - <folder>`; without
+  one the title's first three words stand in. The id is
+  never in the window title; the status line shows it.
 - `kind`: `quest`, `subquest` or `sidequest`. See
   quest-convention for choosing.
 - `parent`: the id of the parent quest when this is a

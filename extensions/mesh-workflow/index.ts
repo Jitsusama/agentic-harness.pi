@@ -102,7 +102,7 @@ import {
 	createOwing,
 } from "../../lib/mesh/owed.ts";
 import { localPeer, type Peer } from "../../lib/mesh/peer.ts";
-import { createPresences } from "../../lib/mesh/presence.ts";
+import { createPresences, windowTitle } from "../../lib/mesh/presence.ts";
 import { createReadFront } from "../../lib/mesh/reading.ts";
 import { sweeper } from "../../lib/mesh/retention.ts";
 import type { Judge } from "../../lib/mesh/routing.ts";
@@ -962,6 +962,13 @@ export function meshWorkflow(
 				cwd: started.cwd ?? process.cwd(),
 				records: paths,
 				presences,
+				// Read at each publish, so the desktop matches this peer's
+				// window by its exact title after a quest renames the session.
+				title: () =>
+					windowTitle(
+						started.sessionManager.getSessionName(),
+						started.sessionManager.getCwd(),
+					),
 				...(owner ? { owner } : {}),
 				...(previous ? { previous } : {}),
 			});

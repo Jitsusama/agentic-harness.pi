@@ -100,6 +100,16 @@ export interface Surroundings {
 	 * before any count, when every presence is taken as there.
 	 */
 	readonly live?: () => ReadonlySet<string> | undefined;
+	/**
+	 * The window title pi gives this session now, read at each publish so
+	 * a rename reaches presence with the next thing the peer says.
+	 */
+	readonly title?: () => string | undefined;
+}
+
+/** A presence's title field, when there is a title to say. */
+function titled(title: string | undefined): { title?: string } {
+	return title ? { title } : {};
 }
 
 /** This session's peer, with the groups it last joined. */
@@ -144,6 +154,7 @@ export function localPeer(at: Surroundings): Peer {
 			busy,
 			...(wanting.size > 0 ? { wants: longestStanding(wanting.values()) } : {}),
 			...(at.owner ? { owner: at.owner } : {}),
+			...titled(at.title?.()),
 		};
 		const text = JSON.stringify(said);
 		if (text === published) return;

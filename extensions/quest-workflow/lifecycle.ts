@@ -102,6 +102,19 @@ export function releaseSessionOnShutdown(
 	detachSessionIfOwner(state.questDir, sessionId, instanceId);
 }
 
+/**
+ * A quest's short name. Core's parser, which `findQuestEntry` uses until
+ * core folds into this package, does not know the field and keeps it
+ * among the extras; the harness's own parser reads it directly.
+ */
+function shortNameOf(frontMatter: {
+	short?: unknown;
+	_extra?: Record<string, unknown>;
+}): string | undefined {
+	const short = frontMatter.short ?? frontMatter._extra?.short;
+	return typeof short === "string" ? short : undefined;
+}
+
 /** Load a quest into state by id. */
 export function loadQuest(
 	state: QuestState,
@@ -131,7 +144,7 @@ export function loadQuest(
 	refreshProgress(state);
 	const sessionName = sessionNameFor(
 		entry.doc.title ?? null,
-		entry.doc.frontMatter.id,
+		shortNameOf(entry.doc.frontMatter),
 	);
 	if (sessionName) pi.setSessionName?.(sessionName);
 	return { ok: true };
