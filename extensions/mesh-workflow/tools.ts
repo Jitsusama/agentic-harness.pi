@@ -32,6 +32,7 @@ import { type Judge, type Route, routeOf } from "../../lib/mesh/routing.ts";
 import { stoppedBy } from "../../lib/mesh/stop.ts";
 import { idNamed, mayReplace, sentBy } from "../../lib/mesh/thread.ts";
 import type { Transport } from "../../lib/mesh/transport.ts";
+import { UNANSWERED_WITHIN_MS, unanswered } from "../../lib/mesh/unanswered.ts";
 import type { WantKind } from "../../lib/mesh/want.ts";
 import { leasesText } from "./leases.ts";
 
@@ -142,11 +143,17 @@ export function registerTools(
 		name: "mesh_read",
 		label: "Mesh",
 		description:
-			"Read the latest messages this peer hears on the mesh, and what it sent, to catch up after a reload or compaction, or to read a glance in full.",
+			"Read the latest messages this peer hears on the mesh, and what it sent, to catch up after a reload or compaction, or to read a glance in full. With unanswered, list instead every question on the mesh, from any peer, still waiting on a peer it was put to, oldest first with its age, to see which sessions are stuck.",
 		parameters: Type.Object({
 			count: Type.Optional(
 				Type.Number({
 					description: `How many of the latest to show; default 15, at most ${MOST_READ}`,
+				}),
+			),
+			unanswered: Type.Optional(
+				Type.Boolean({
+					description:
+						"true to list every question on the mesh still waiting on an answer from a peer it named, from the last three hours, rather than the latest messages",
 				}),
 			),
 		}),
@@ -549,7 +556,11 @@ function reach(
 	return { notes, reached, gone };
 }
 
-async function read(at: Local, params: { count?: number }): Promise<Answer> {
+async function read(
+	at: Local,
+	params: { count?: number; unanswered?: boolean },
+): Promise<Answer> {
+	if (params.unanswered) return answer(await openText(at));
 	const wanted = Math.min(
 		MOST_READ,
 		Math.max(1, Math.floor(params.count ?? 15)),
@@ -591,6 +602,51 @@ async function read(at: Local, params: { count?: number }): Promise<Answer> {
 			: "Nothing on the mesh yet.";
 	return answer(`This peer is ${at.peer.addresses.join(" or ")}.\n${text}`);
 }
+
+/**
+ * Every question on the mesh still waiting on a peer it named, oldest
+ * first, with how long it has waited and whether that peer is still
+ * there (lib/mesh/unanswered.ts).
+ */
+async function openText(at: Local, now = Date.now()): Promise<string> {
+	const since = now - UNANSWERED_WITHIN_MS;
+	// Ids start with the time they were sent, so older ones go unread.
+	const messages = at.transport
+		.ids()
+		.filter((id) => !(Number.parseInt(id, 10) < since))
+		.map((id) => at.transport.read(id))
+		.filter((one): one is Message => one !== undefined);
+	const everyone = at.presences.all();
+	const aliases = (address: string): readonly string[] =>
+		everyone.find((one) => one.addresses.includes(address))?.addresses ?? [
+			address,
+		];
+	const present = new Set(
+		(await peers(at)).present.flatMap((one) => one.addresses),
+	);
+	const open = unanswered(messages, aliases, now);
+	if (open.length === 0) {
+		return "No question on the mesh is waiting on an answer.";
+	}
+	const lines = open.slice(-MOST_READ).map(({ message, waitingOn }) => {
+		const minutes = Math.round((now - Date.parse(message.at)) / 60_000);
+		const who = waitingOn
+			.map((address) => (present.has(address) ? address : `${address} (gone)`))
+			.join(", ");
+		const text = message.text.replace(/\s+/g, " ").trim();
+		const cut =
+			text.length > OPEN_CHARS ? `${text.slice(0, OPEN_CHARS - 3)}...` : text;
+		return `${clock(message)} [${shortId(message)}] from ${message.from}, ${minutes} min, waiting on ${who}: ${cut}`;
+	});
+	const more =
+		open.length > MOST_READ
+			? ` (the newest ${MOST_READ} of ${open.length} shown)`
+			: "";
+	return `${open.length} ${open.length === 1 ? "question is" : "questions are"} waiting on an answer, oldest first${more}:\n${lines.join("\n")}`;
+}
+
+/** How much of an open question's text its line shows. */
+const OPEN_CHARS = 100;
 
 /**
  * Where each of this peer's own questions among these stands: answered,

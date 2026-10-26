@@ -1403,6 +1403,41 @@ describe("sending", () => {
 		expect(text.indexOf("third")).toBeGreaterThan(text.indexOf("second"));
 	});
 
+	it("lists every question on the mesh still waiting on a peer it named", async () => {
+		const { tools } = await startSession();
+		peer("session-y", ["Y2YBTS"], []);
+		const stuck = fromElsewhere({
+			intent: "question",
+			to: ["@5FWIUS", "@Y2YBTS"],
+			text: "what does the disk guard say?",
+		});
+		fromElsewhere({
+			from: "Y2YBTS",
+			to: ["@WCJQSG"],
+			re: stuck.id,
+			text: "the launcher reads it",
+		});
+		const settled = fromElsewhere({
+			intent: "question",
+			to: ["@Y2YBTS"],
+			text: "ready?",
+		});
+		fromElsewhere({ from: "Y2YBTS", to: ["@WCJQSG"], re: settled.id });
+
+		const read = await tools
+			.get("mesh_read")
+			?.execute("call-1", { unanswered: true });
+		const text = read?.content[0]?.text ?? "";
+
+		expect(text).toMatch(
+			/^1 question is waiting on an answer, oldest first:\n/,
+		);
+		expect(text).toContain(
+			`[${stuck.id.slice(-8)}] from WCJQSG, 0 min, waiting on 5FWIUS (gone): what does the disk guard say?`,
+		);
+		expect(text).not.toContain("ready?");
+	});
+
 	it("reads back who has a message it sent, and who not yet", async () => {
 		peer("session-p", ["P9R1KI"], ["#harness"]);
 		peer("session-o", ["OVAE1I"], ["#harness"]);
