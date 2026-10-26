@@ -21,6 +21,12 @@ barrel, never from a file behind it.
 - **[`compaction/`](compaction/)**: when compacting pays, the
   contract a summary provider registers over the bus, and how a
   summary is asked for, sized and spliced in.
+- **[`core/`](core/)**: the modules folded in from
+  agentic-harness.core that another package builds on, each under
+  `core/<module>`: `exec`, `quest` (with `quest/config`),
+  `result`, `review`, `tree` and `work`. They replace importing
+  `@jitsusama/agentic-harness.core`, so a provider runs the same
+  code on each bus as the harness it registers with.
 - **[`glossary/`](glossary/)**: whether a name says core.nix's
   glossary's words or a name it replaces, the matcher every
   repository holds its names to.
