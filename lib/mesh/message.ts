@@ -85,6 +85,11 @@ export interface Listener {
 	readonly addresses: readonly string[];
 	/** The groups it joined, beside its home groups and the machine's. */
 	readonly groups: readonly string[];
+	/**
+	 * The machine it runs on, when that is another one (see presence.ts);
+	 * absent, it runs on this machine.
+	 */
+	readonly machine?: string;
 }
 
 /**
@@ -141,7 +146,10 @@ function intentOf(written: unknown): Intent {
 /**
  * Whether a message reaches this listener: sent to a group it hears,
  * and never its own, by address or by process, since a peer that
- * loaded another quest still sent what it sent.
+ * loaded another quest still sent what it sent. The machine's group is
+ * this machine's alone: a session elsewhere, whose presence another
+ * machine's node carries here, never hears it, so a hold before this
+ * machine restarts neither parks it nor waits on its answer.
  */
 export function reaches(
 	message: Message,
@@ -149,10 +157,13 @@ export function reaches(
 	pid: number,
 ): boolean {
 	const groups = [...listener.groups, ...listener.addresses.map(homeOf)];
+	const elsewhere = listener.machine !== undefined;
 	return (
 		message.pid !== pid &&
 		!listener.addresses.includes(message.from) &&
-		message.to.some((group) => hears(groups, group))
+		message.to.some(
+			(group) => !(elsewhere && group === ALL) && hears(groups, group),
+		)
 	);
 }
 

@@ -113,6 +113,12 @@ export interface Presence {
 	 * signs with the quest's address, which is the one that had it first.
 	 */
 	readonly orchestrates?: string;
+	/**
+	 * The machine it runs on, when that is another one: a mycelium node
+	 * writes the presence of a session elsewhere here, with its owner
+	 * taken out, since only its own machine can judge its process.
+	 */
+	readonly machine?: string;
 	/** When it last said so, as an ISO time. */
 	readonly at: string;
 }
@@ -409,6 +415,9 @@ function presenceFrom(value: unknown): Presence | undefined {
 			: {}),
 		...(typeof one.orchestrates === "string"
 			? { orchestrates: one.orchestrates }
+			: {}),
+		...(typeof one.machine === "string" && one.machine !== ""
+			? { machine: one.machine }
 			: {}),
 		at: typeof one.at === "string" ? one.at : "",
 	};
