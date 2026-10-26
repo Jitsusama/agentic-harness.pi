@@ -87,6 +87,16 @@ export const GUARDS = {
 		defaultMode: "redirect",
 		groups: ["git", "shell"],
 	}),
+	shellEdit: declare({
+		name: "shell-edit",
+		class: "form",
+		description:
+			"Refuses a shell rewrite of a tracked file, pointing at edit and write",
+		// A repeat goes ahead: a generated file is sometimes tracked, and
+		// rewriting it whole from the shell is then the point.
+		defaultMode: "redirect",
+		groups: ["shell"],
+	}),
 	sleep: declare({
 		name: "sleep",
 		class: "form",

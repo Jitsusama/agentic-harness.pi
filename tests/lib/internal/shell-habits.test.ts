@@ -1,13 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+	shellEditRefusal,
 	sleepRefusal,
 	stashRefusal,
+	trackedShellEdits,
 	withoutOutputCut,
 } from "../../../lib/internal/shell-habits.ts";
 import {
 	stripHeredocBodies,
 	stripShellData,
 } from "../../../lib/shell/index.ts";
+import { disposeRepo, freshRepo, git } from "../../support/git-fixture.ts";
 
 /** The command as the interceptor reads it. */
 const stripped = (command: string) =>
@@ -101,5 +106,56 @@ describe("sleep", () => {
 			sleepRefusal(stripped("cat <<'EOF' > x.sh\nsleep 60\nEOF")),
 		).toBeUndefined();
 		expect(sleepRefusal(stripped('echo "sleep 60"'))).toBeUndefined();
+	});
+});
+
+describe("a tracked file rewritten from the shell", () => {
+	let repo: string;
+	const home = "/home/nobody";
+	const edits = (command: string, cwd = "/") =>
+		trackedShellEdits(command, { cwd, home });
+
+	beforeAll(async () => {
+		repo = await freshRepo("shell-edit");
+		writeFileSync(join(repo, "a.test.ts"), "it();\n");
+		await git(repo, "add", "a.test.ts");
+		await git(repo, "commit", "-q", "-m", "a test");
+	});
+	afterAll(() => disposeRepo(repo));
+
+	it("is found by each way the shell rewrites a file", () => {
+		const file = join(repo, "a.test.ts");
+		for (const command of [
+			`cat >> ${file} <<'EOF'\nit();\nEOF`,
+			`echo x > ${file}`,
+			`printf x | tee -a ${file}`,
+			`sed -i 's/a/b/' ${file}`,
+			`perl -pi -e 's/a/b/' ${file}`,
+		]) {
+			expect(edits(command), command).toEqual([file]);
+		}
+	});
+
+	it("is placed where the command changes directory to", () => {
+		expect(edits(`cd ${repo} && cat >> a.test.ts <<'EOF'\nx\nEOF`)).toEqual([
+			join(repo, "a.test.ts"),
+		]);
+	});
+
+	it("leaves alone a new file, scratch, and a mere read", () => {
+		for (const command of [
+			`cat > ${join(repo, "zz-debug.test.ts")} <<'EOF'\nx\nEOF`,
+			`cd ${repo} && pnpm test > /tmp/run.log 2>&1`,
+			`grep -n it ${join(repo, "a.test.ts")} > /dev/null`,
+			`echo "> ${join(repo, "a.test.ts")}"`,
+		]) {
+			expect(edits(command), command).toEqual([]);
+		}
+	});
+
+	it("names each file and the tools to use instead", () => {
+		const reason = shellEditRefusal(["/r/a.ts", "/r/b.ts"]);
+		expect(reason).toContain("`/r/a.ts`, `/r/b.ts`");
+		expect(reason).toContain("Use the edit tool");
 	});
 });
