@@ -15,7 +15,7 @@ describe("naming what is held", () => {
 	it("names at most five and counts the rest", () => {
 		const many = held(...Array.from({ length: 40 }, (_, i) => `tree-${i}`));
 		expect(heldNames(many)).toBe(
-			"tree-0, tree-1, tree-2, tree-3, tree-4, and 35 more; action trees lists them",
+			"tree-0, tree-1, tree-2, tree-3, tree-4, and 35 more; work's trees action lists them",
 		);
 	});
 
@@ -41,7 +41,9 @@ describe("naming what is held", () => {
 		});
 		expect(target.ok).toBe(false);
 		if (target.ok) return;
-		expect(target.refusal).toContain("and 195 more; action trees lists them");
+		expect(target.refusal).toContain(
+			"and 195 more; work's trees action lists them",
+		);
 		expect(target.refusal.length).toBeLessThan(400);
 	});
 });

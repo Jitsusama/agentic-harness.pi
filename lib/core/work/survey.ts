@@ -45,7 +45,7 @@ const NAMED_HELD = 5;
  * Name what is held, so a typo becomes a correction rather than a
  * guess: the keys sharing most words with the name asked for come
  * first, at most five of them, and the rest are counted and left to
- * action trees.
+ * work's trees action.
  */
 export function heldNames(
 	held: readonly { key: string }[],
@@ -65,7 +65,7 @@ export function heldNames(
 	const named = keys.slice(0, NAMED_HELD).join(", ");
 	const rest = keys.length - NAMED_HELD;
 	return rest > 0
-		? `${named}, and ${rest} more; action trees lists them`
+		? `${named}, and ${rest} more; work's trees action lists them`
 		: named;
 }
 
