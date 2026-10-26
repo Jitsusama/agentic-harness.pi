@@ -26,8 +26,20 @@ a rule covers.
   auto-discovered, so deliberately not under `extensions/`
 - `skills/`: package-bound markdown instructions the agent
   loads on demand when a task matches their description
+- `docs/`: the reasoning behind the rules here, a page a
+  subject
+- `scripts/`: programs run by hand or by `pnpm`: the load
+  check, the sensors, and one-shot migrators of the quest store
+- `tests/`: the tests, mirroring the source;
+  [`tests/README.md`](./tests/README.md) says which folders
+  don't
 - `.pi/skills/`: project-local skills for developing this
   package (not shipped to consumers)
+
+Every folder says what goes in it: a README.md, or an entry
+file whose first line is a comment, as
+`tests/package/every-folder-says-what-it-holds.test.ts` holds.
+A new folder gets its note in the change that makes it.
 
 Public library modules have barrel exports (`index.ts`) that
 define what external consumers can import. Internal modules
