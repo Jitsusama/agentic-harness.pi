@@ -3,7 +3,13 @@
  * caught up, what came in, and seeing HEAD move.
  */
 
-import { mkdirSync, utimesSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	renameSync,
+	symlinkSync,
+	utimesSync,
+	writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -200,6 +206,29 @@ describe("watchHeads", () => {
 
 		await until("the move is said", () => seen.length > 0);
 		expect(seen[0]?.to).toBe(ahead);
+	});
+
+	it("follows an install whose link is renamed onto another release", async () => {
+		// As pi-packages swaps one in: a release per commit, and `current`
+		// replaced by a new link renamed over it.
+		const old = await repo();
+		const next = await repo();
+		await commit(next, "the next release");
+		const install = await repo();
+		const current = join(install, "current");
+		symlinkSync(old, current);
+		const seen: Moved[] = [];
+		stops.push(await watchHeads([current], (moved) => seen.push(moved), 50));
+
+		symlinkSync(next, join(install, ".current.new"));
+		renameSync(join(install, ".current.new"), current);
+
+		await until("the move is said", () => seen.length > 0);
+		expect(seen[0]).toMatchObject({
+			root: current,
+			from: await headOf(old),
+			to: await headOf(next),
+		});
 	});
 
 	it("says nothing when the git directory is touched but HEAD stays", async () => {

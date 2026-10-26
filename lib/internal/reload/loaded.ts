@@ -12,7 +12,7 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 /** How long one git call may take before it is given up on. */
 const GIT_TIMEOUT_MS = 2_000;
@@ -32,9 +32,27 @@ export interface Loaded {
 	readonly install?: string;
 }
 
-/** Whether the session runs something other than the install its settings name. */
+/**
+ * The install a release folder belongs to: a package installed whole
+ * into `<install>/releases/<commit>` and named by a `current` link
+ * beside them (core.nix's pi-packages), or nothing for any other folder.
+ */
+export function releasesOf(root: string): string | undefined {
+	const parent = dirname(root);
+	return basename(parent) === "releases" ? dirname(parent) : undefined;
+}
+
+/**
+ * Whether the session runs something other than the install its settings
+ * name. A release the install's link has since left is still the install,
+ * only behind it: the session follows it, rather than being held as one
+ * running a tree on purpose.
+ */
 export function isSwapped(loaded: Pick<Loaded, "root" | "install">): boolean {
-	return loaded.install !== loaded.root;
+	if (loaded.install === loaded.root) return false;
+	if (loaded.install === undefined) return true;
+	const releases = releasesOf(loaded.root);
+	return releases === undefined || releases !== releasesOf(loaded.install);
 }
 
 function git(

@@ -55,6 +55,22 @@ describe("saying which code runs", () => {
 		expect(isSwapped({ root: "/src/tree" })).toBe(true);
 	});
 
+	it("counts a release the install's link has left as the install, behind it", () => {
+		const releases = "/p/github.com/Jitsusama/agentic-harness.pi/releases";
+		expect(
+			isSwapped({ root: `${releases}/aaa`, install: `${releases}/bbb` }),
+		).toBe(false);
+		expect(isSwapped({ root: "/src/tree", install: `${releases}/bbb` })).toBe(
+			true,
+		);
+		expect(
+			isSwapped({
+				root: "/p/github.com/Jitsusama/neovim.pi/releases/aaa",
+				install: `${releases}/bbb`,
+			}),
+		).toBe(true);
+	});
+
 	it("writes the home directory as ~", () => {
 		expect(homely("/home/joel/src/x", "/home/joel")).toBe("~/src/x");
 		expect(homely("/home/joelle/x", "/home/joel")).toBe("/home/joelle/x");

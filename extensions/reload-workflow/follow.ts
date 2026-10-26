@@ -9,6 +9,8 @@
  * that short.
  */
 
+import { lstatSync } from "node:fs";
+import { resolve } from "node:path";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
@@ -53,13 +55,19 @@ function isSubagent(env: NodeJS.ProcessEnv): boolean {
 	return env.SUBAGENT_SUPERVISOR === "1" || Boolean(env.SUBAGENT_RUN_ID);
 }
 
-/** Every installed package root the personal settings name. */
+/**
+ * Every installed package root the personal settings name. A root that
+ * is a link is kept as the link, since the link is what moves.
+ */
 function installedRoots(settings: PackageSettings): string[] {
 	const roots = new Set<string>();
 	for (const entry of settings.read()) {
 		try {
 			const root = settings.rootOf(sourceOf(entry));
-			if (root !== undefined) roots.add(canonical(root));
+			if (root === undefined) continue;
+			roots.add(
+				lstatSync(root).isSymbolicLink() ? resolve(root) : canonical(root),
+			);
 		} catch {
 			// An entry pi cannot place is not one to follow.
 		}
