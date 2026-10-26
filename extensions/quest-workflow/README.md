@@ -20,6 +20,12 @@ shipped and tested.
 - **Priority and rank**: `promote`, `demote`, `drive`,
   `park`, `defer`, `top`, `bottom`, `bump`, `sink`,
   `before`, `after`, `renumber`.
+- **The machine's queue**: `queue-first` marks the quest `id`
+  names with `queue: first`, so its sessions' builds and checks go
+  ahead of other agents' bulk work; `queue-normal` takes it off.
+  Either works on any quest, loaded or not, and journals it.
+  Priority could not say this: 14 quests sat at driving on 25
+  October when one lab's builds were to go ahead.
 - **Structural edits**: `reparent` (single or comma-
   separated batch), bulk `conclude` / `retire` (triggered
   by a comma-separated `id` set), and `undo`. All
@@ -114,7 +120,9 @@ while it waits its turn leaves without running.
   (driving 400, active 200, queued 100, bench 50, someday 25),
   rewritten at session start and after a quest action when it
   would change. A machine that sorts work into a cgroup per
-  quest reads both; elsewhere nothing reads them.
+  quest reads both; elsewhere nothing reads them. Beside it,
+  `first.json` lists the open quests marked `queue: first`, which
+  the machine's queue reads (see priority-workflow).
 - Edits to a document's body: `journal` adds a dated
   Journey entry, to the quest `id` names or else the loaded
   one, `tick` and `untick` set a checkbox item by

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { NOBODY } from "../../../../lib/internal/priority/awaited.ts";
 import {
 	CHANGED_CHECKS_GIB,
 	EVALUATION_GIB,
@@ -337,6 +338,29 @@ describe("whose turn it is", () => {
 		const bulk = jobs.filter((one) => one.id !== "timed");
 		expect(nextTurn(bulk, ROOMY, NOW, undefined, awaited)?.id).toBe("waited");
 		expect(nextTurn(bulk, ROOMY, NOW)?.id).toBe("old");
+	});
+
+	it("starts a quest put first after the work a session waits on", () => {
+		const old = job("old", { since: startedAgo(600_000) });
+		const lab = job("lab", { quest: "QEST-LAB" });
+		const parked = job("parked", {
+			owner: { session: "waited-on", pid: 2 },
+			since: startedAgo(1),
+		});
+		const bench = job("bench", { kind: "benchmark", since: startedAgo(1) });
+		const first = new Set(["QEST-LAB"]);
+
+		expect(
+			waitingInOrder(
+				[old, lab, parked, bench],
+				new Set(["waited-on"]),
+				first,
+			).map((one) => one.id),
+		).toEqual(["bench", "parked", "lab", "old"]);
+		expect(nextTurn([old, lab], ROOMY, NOW, undefined, NOBODY, first)?.id).toBe(
+			"lab",
+		);
+		expect(nextTurn([old, lab], ROOMY, NOW)?.id).toBe("old");
 	});
 
 	it("gives no turn within a spread of the last, nor under pressure", () => {

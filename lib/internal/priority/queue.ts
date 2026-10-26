@@ -251,6 +251,11 @@ export interface Job {
 	 * check, at {@link QUICK_NIX}.
 	 */
 	readonly quick?: true;
+	/**
+	 * The quest its session had loaded as it asked, from the `PI_QUEST`
+	 * its commands carry, so a quest marked `queue: first` goes ahead.
+	 */
+	readonly quest?: string;
 }
 
 /** What the machine has left, as the queue reads it. */
@@ -274,20 +279,25 @@ export function isVm(job: Pick<Job, "kind">): boolean {
 
 /**
  * The jobs waiting, in the order they get their turns: within each
- * class, those of the sessions `awaited` names first. Never ahead of
- * its class, so only bulk work is ever behind a build.
+ * class, those of the sessions `awaited` names first, then those of the
+ * quests `first` names. Never ahead of its class, so only bulk work is
+ * ever behind a build.
  */
 export function waitingInOrder(
 	jobs: readonly Job[],
 	awaited: ReadonlySet<string> = NOBODY,
+	first: ReadonlySet<string> = NOBODY,
 ): Job[] {
 	const waitedOn = (job: Job) => (awaited.has(job.owner.session) ? 0 : 1);
+	const putFirst = (job: Job) =>
+		job.quest !== undefined && first.has(job.quest) ? 0 : 1;
 	return jobs
 		.filter((job) => job.started === undefined)
 		.sort(
 			(one, other) =>
 				rank(one) - rank(other) ||
 				waitedOn(one) - waitedOn(other) ||
+				putFirst(one) - putFirst(other) ||
 				Date.parse(one.since) - Date.parse(other.since) ||
 				one.id.localeCompare(other.id),
 		);
@@ -380,6 +390,7 @@ export function nextTurn(
 	now: number,
 	rules: Rules = RULES,
 	awaited: ReadonlySet<string> = NOBODY,
+	first: ReadonlySet<string> = NOBODY,
 ): Job | undefined {
 	const running = jobs.filter((job) => job.started !== undefined);
 	const last = Math.max(
@@ -390,7 +401,7 @@ export function nextTurn(
 	if (room.memoryPressure >= MOST_MEMORY_PRESSURE) return undefined;
 	const { growing, vms, builds, quick } = standing(jobs, room, now, rules);
 	const fits = (job: Job) => room.availableGib - growing >= needsGibOf(job);
-	const waiting = waitingInOrder(jobs, awaited);
+	const waiting = waitingInOrder(jobs, awaited, first);
 	// Quick work passes older work, one job at a time: it ends in seconds,
 	// so what it passes waits seconds longer, never starved by a stream.
 	const passes = (job: Job) =>

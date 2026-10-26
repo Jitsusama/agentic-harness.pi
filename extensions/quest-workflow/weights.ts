@@ -8,9 +8,15 @@
  * a cap, so a quest alone on the machine still gets all of it, and a
  * driving quest only gets more while others want the same CPU or disk.
  *
- * Every session writes the same file from the same quests on disk, and
- * only when it would change, so a reader watching it wakes for a real
- * change rather than for each session's look.
+ * Beside it, `first.json` lists the open quests whose work goes first in
+ * the machine's queue (`queue: first` in their front matter), which the
+ * queue reads as it gives turns. Priority could not say it: 14 quests
+ * sat at driving on 25 October, most of them old, when one lab's builds
+ * were to go ahead of the rest.
+ *
+ * Every session writes the same files from the same quests on disk, and
+ * only when they would change, so a reader watching them wakes for a
+ * real change rather than for each session's look.
  */
 
 import {
@@ -21,12 +27,29 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { machineQueueDir } from "../../lib/internal/priority/folder.ts";
+import {
+	machineQueueDir,
+	QUEUE_FIRST_FILE,
+} from "../../lib/internal/priority/folder.ts";
 import { discoverQuests } from "../../lib/internal/quest/discovery.ts";
-import type { QuestPriority } from "../../lib/quest/types.ts";
+import type { QuestFrontMatter, QuestPriority } from "../../lib/quest/types.ts";
 
 /** The file in the jobs folder that holds each quest's weight. */
 export const QUEST_WEIGHTS_FILE = "quests.json";
+
+/** The front-matter value that puts a quest's work first in the queue. */
+export const QUEUE_FIRST = "first";
+
+/**
+ * Whether a quest's work goes first in the machine's queue. The field is
+ * the harness's own, so both parsers keep it among the extras, and
+ * core's verbs write it back untouched.
+ */
+export function goesFirst(
+	frontMatter: Pick<QuestFrontMatter, "_extra">,
+): boolean {
+	return frontMatter._extra?.queue === QUEUE_FIRST;
+}
 
 /**
  * A quest's cgroup weight by its priority. Work with no quest sits at
@@ -54,14 +77,23 @@ function questWeights(questsRoot: string): Record<string, number> {
 	return Object.fromEntries(weights);
 }
 
-/**
- * Write each open quest's weight into `dir`'s weights file, replacing
- * it whole, unless it already says the same. Whether it was written.
- */
-export function writeQuestWeights(questsRoot: string, dir: string): boolean {
-	if (!existsSync(questsRoot)) return false;
-	const file = join(dir, QUEST_WEIGHTS_FILE);
-	const content = `${JSON.stringify(questWeights(questsRoot), null, "\t")}\n`;
+/** The open quests whose work goes first, sorted. */
+function questsFirst(questsRoot: string): string[] {
+	const first: string[] = [];
+	for (const [id, entry] of discoverQuests(questsRoot).index.quests) {
+		const { status } = entry.doc.frontMatter;
+		if (status === "concluded" || status === "retired") continue;
+		if (goesFirst(entry.doc.frontMatter)) first.push(id);
+	}
+	return first.sort();
+}
+
+/** Replace `file` whole with `content`, unless it already says it. */
+function replaceUnlessSame(
+	dir: string,
+	file: string,
+	content: string,
+): boolean {
 	try {
 		if (readFileSync(file, "utf8") === content) return false;
 	} catch {
@@ -72,6 +104,27 @@ export function writeQuestWeights(questsRoot: string, dir: string): boolean {
 	writeFileSync(temporary, content);
 	renameSync(temporary, file);
 	return true;
+}
+
+/**
+ * Write each open quest's weight into `dir`'s weights file, and the
+ * quests whose work goes first into its first file, replacing each whole
+ * unless it already says the same. Whether either was written.
+ */
+export function writeQuestWeights(questsRoot: string, dir: string): boolean {
+	if (!existsSync(questsRoot)) return false;
+	const json = (value: unknown) => `${JSON.stringify(value, null, "\t")}\n`;
+	const weighed = replaceUnlessSame(
+		dir,
+		join(dir, QUEST_WEIGHTS_FILE),
+		json(questWeights(questsRoot)),
+	);
+	const first = replaceUnlessSame(
+		dir,
+		join(dir, QUEUE_FIRST_FILE),
+		json(questsFirst(questsRoot)),
+	);
+	return weighed || first;
 }
 
 /**
