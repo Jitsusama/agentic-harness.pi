@@ -47,6 +47,16 @@ describe("the machine's word", () => {
 		expect(readMachineWord(path)).toEqual({ at: "2026-10-22T12:00:00.000Z" });
 	});
 
+	it("says what brought the person back, and where", () => {
+		const at = new Date("2026-10-22T12:00:00.000Z");
+		publishMachineWord(undefined, at, path, "typed in pi 42 at /work");
+
+		expect(readMachineWord(path)).toEqual({
+			at: "2026-10-22T12:00:00.000Z",
+			by: "typed in pi 42 at /work",
+		});
+	});
+
 	it("says nothing when the file is missing or unreadable", () => {
 		expect(readMachineWord(path)).toBeUndefined();
 		publishMachineWord(undefined, new Date(), path);

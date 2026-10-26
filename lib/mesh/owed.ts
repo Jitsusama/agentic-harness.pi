@@ -36,8 +36,12 @@ export const OWED_FOR_MS = 60 * 60 * 1000;
 export interface Owing {
 	/** A question put to this peer was handed over now. */
 	owe(message: Message, now?: number): void;
-	/** This peer answered the question with this id. */
-	paid(id: string): void;
+	/**
+	 * This peer answered the question with this id. A question
+	 * answered stays answered: handing it over again, as a turn that
+	 * carries what waited does, owes nothing.
+	 */
+	paid(id: string, now?: number): void;
 	/**
 	 * The questions to hand again now, with how many times each has
 	 * been handed before; each is counted as handed again.
@@ -73,16 +77,24 @@ export function createOwing(): Owing {
 		string,
 		{ message: Message; handed: number; last: number }
 	>();
+	// When each answered question was answered, kept as long as a
+	// question can be owed, so a late hand-over of one is not owed again.
+	const answered = new Map<string, number>();
 	return {
 		owe(message, now = Date.now()) {
+			if (answered.has(message.id)) return;
 			const one = owed.get(message.id);
 			if (one) one.last = now;
 			else owed.set(message.id, { message, handed: 1, last: now });
 		},
-		paid(id) {
+		paid(id, now = Date.now()) {
 			owed.delete(id);
+			answered.set(id, now);
 		},
 		due(now = Date.now()) {
+			for (const [id, at] of answered) {
+				if (now - at > OWED_FOR_MS) answered.delete(id);
+			}
 			const again: Again[] = [];
 			for (const [id, one] of owed) {
 				if (now - Date.parse(one.message.at) > OWED_FOR_MS) {
