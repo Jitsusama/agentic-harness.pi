@@ -270,10 +270,14 @@ noted each in full.
 What a message is worth is held to what the receiving peer can
 afford, so no sender and no conversation wears it out:
 
+- **Questions:** none of these limits holds back a question
+  that would start a turn: on 2026-10-25 one put to an idle
+  peer sat unstarted as too deep in its thread while Joel
+  watched it wait. A hold put to the peer passes depth too.
 - **Turns:** the mesh starts at most 12 turns of a peer an
   hour, and at most 6 for any one sender.
-- **Depth:** an answer more than 4 deep in its thread never
-  starts a turn.
+- **Depth:** any other answer more than 4 deep in its thread
+  never starts a turn.
 - **Repeats:** what a sender already said, word for word,
   within the hour, is a glance. The same message handed again,
   as a question let go comes back, is no repeat.

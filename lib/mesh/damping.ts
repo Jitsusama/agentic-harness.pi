@@ -18,9 +18,15 @@
  *   repeats still hold it back, so two peers cannot ask and answer
  *   each other past them.
  * - Addressed: a question or hold put to this peer is let past the
- *   hour's turns the same way. The orchestrator, which everyone asks,
- *   spent its twelve early and left questions waiting for the person.
- * - Depth: an answer more than {@link MOST_REPLY_DEPTH} deep never
+ *   hour's turns and its thread's depth. The orchestrator, which
+ *   everyone asks, spent its twelve early and left questions waiting
+ *   for the person.
+ * - Questions: a question that would start a turn always does, whatever
+ *   the hour, its depth or its words. On 2026-10-25 at 23:20 a question
+ *   the orchestrator put to one idle peer sat unstarted, as "an answer
+ *   too deep in its thread", while Joel watched it wait: a question is
+ *   the one message whose sender is parked on the answer.
+ * - Depth: any other answer more than {@link MOST_REPLY_DEPTH} deep never
  *   starts a turn, which ends two peers answering each other's answers.
  * - Repeats: what a sender already said, word for word, within the
  *   hour, is a glance, since the peer has it. The same message handed
@@ -114,6 +120,9 @@ export function createDamper(): Damper {
 	return {
 		damp(message, heed, depth, now = Date.now(), earlier = []) {
 			forget(now);
+			if (message.intent === "question" && TURNS.includes(heed.attention)) {
+				return heed;
+			}
 			if (
 				heed.attention !== "glance" &&
 				said.some(
@@ -137,10 +146,11 @@ export function createDamper(): Damper {
 				};
 			}
 			if (!TURNS.includes(heed.attention)) return heed;
-			const why =
-				depth > MOST_REPLY_DEPTH
+			const why = heed.addressed
+				? undefined
+				: depth > MOST_REPLY_DEPTH
 					? "an answer too deep in its thread"
-					: heed.awaited || heed.addressed
+					: heed.awaited
 						? undefined
 						: turns.length >= MOST_TURNS_AN_HOUR
 							? "the hour's turns spent"

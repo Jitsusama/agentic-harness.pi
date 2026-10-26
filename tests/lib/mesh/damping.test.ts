@@ -23,7 +23,8 @@ function message(over: Partial<Message> = {}): Message {
 		at: "2026-10-22T04:00:00.000Z",
 		from: "WCJQSG",
 		to: ["@LUQ49E"],
-		intent: "question",
+		// A finding: a question is never damped (see the questions' own test).
+		intent: "finding",
 		text: "who has qemu?",
 		pid: 7,
 		...over,
@@ -54,13 +55,18 @@ describe("a peer's turns", () => {
 			damper.started(["WCJQSG"], at);
 		}
 		const awaited: Heed = { ...turn, awaited: true };
+		const answer = message({ intent: "fyi", text: "I do." });
 
-		expect(damper.damp(message(), awaited, 1, at)).toEqual(awaited);
+		expect(damper.damp(answer, awaited, 1, at)).toEqual(awaited);
 		expect(
-			damper.damp(message(), awaited, MOST_REPLY_DEPTH + 1, at).attention,
+			damper.damp(answer, awaited, MOST_REPLY_DEPTH + 1, at).attention,
 		).toBe("note");
-		damper.handed([message()], at);
-		const said = message({ id: "2-WCJQSG-7-bbbbbbbb" });
+		damper.handed([answer], at);
+		const said = message({
+			id: "2-WCJQSG-7-bbbbbbbb",
+			intent: "fyi",
+			text: "I do.",
+		});
 		expect(damper.damp(said, awaited, 1, at).attention).toBe("glance");
 	});
 
@@ -86,11 +92,34 @@ describe("a peer's turns", () => {
 
 	it("are never started by an answer too deep in its thread", () => {
 		const damper = createDamper();
-		expect(damper.damp(message(), turn, MOST_REPLY_DEPTH, at)).toEqual(turn);
-		expect(damper.damp(message(), turn, MOST_REPLY_DEPTH + 1, at)).toEqual({
+		const finding = message({ intent: "finding" });
+		expect(damper.damp(finding, act, MOST_REPLY_DEPTH, at)).toEqual(act);
+		expect(damper.damp(finding, act, MOST_REPLY_DEPTH + 1, at)).toEqual({
 			attention: "note",
 			why: "sent to this peer, an answer too deep in its thread",
 		});
+	});
+
+	it("are always started by a question, however deep, spent or repeated", () => {
+		// 23:20, 2026-10-25: the orchestrator's question to one idle peer
+		// sat unstarted as an answer too deep in its thread.
+		const damper = createDamper();
+		for (let one = 0; one < MOST_TURNS_AN_HOUR; one += 1) {
+			damper.started(["WCJQSG"], at);
+		}
+		const asked = message({ intent: "question" });
+		damper.handed([asked], at);
+		const again = message({ id: "2-WCJQSG-7-bbbbbbbb", intent: "question" });
+
+		expect(damper.damp(again, turn, MOST_REPLY_DEPTH + 5, at)).toEqual(turn);
+	});
+
+	it("are started by a hold put to this peer however deep its thread", () => {
+		const damper = createDamper();
+		const held: Heed = { ...turn, addressed: true };
+		const hold = message({ intent: "hold", text: "hold builds" });
+
+		expect(damper.damp(hold, held, MOST_REPLY_DEPTH + 1, at)).toEqual(held);
 	});
 
 	it("are counted again from what an earlier start recorded", () => {
