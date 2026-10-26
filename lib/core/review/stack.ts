@@ -39,7 +39,15 @@ export interface StackNode {
 	 * it is what makes a restack possible after a rebase.
 	 */
 	forkPoint?: string;
-	/** The proposal on this node, when one exists. */
+	/** The change on this node, when one exists. */
+	change?: Change;
+	/**
+	 * The change on this node, under the name a provider gave it
+	 * before the glossary said change. The registry hands such a
+	 * node out saying `change`.
+	 *
+	 * @deprecated Give `change` instead.
+	 */
 	proposal?: Change;
 	/**
 	 * True when the parent has moved since this node last

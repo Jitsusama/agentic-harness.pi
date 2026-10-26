@@ -504,7 +504,7 @@ export function stackLines(stack: Stack): string {
 	// Top of the stack first: that is how people draw them.
 	const rows = [...stack.nodes.entries()].reverse().map(([index, node]) => {
 		const here = index === stack.cursor ? "▶" : " ";
-		const proposal = node.proposal;
+		const proposal = node.change;
 		const label = proposal
 			? `${node.ref} · ${proposal.title}`
 			: `${node.ref} · not proposed anywhere`;

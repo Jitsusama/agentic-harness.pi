@@ -56,7 +56,7 @@ export function retargetPlan(stack: Stack): RetargetPlan {
 	const skipped: { ref: string; why: string }[] = [];
 
 	for (const node of stack.nodes) {
-		if (node.proposal === undefined) {
+		if (node.change === undefined) {
 			// Nothing to retarget. A branch with no change on it is a
 			// perfectly ordinary part of a stack somebody has not put up
 			// yet, so this is a fact rather than a problem.
@@ -71,7 +71,7 @@ export function retargetPlan(stack: Stack): RetargetPlan {
 			continue;
 		}
 
-		const now = node.proposal.base;
+		const now = node.change.base;
 		if (now === node.parent) continue;
 		moves.push({ ref: node.ref, from: now, to: node.parent });
 	}

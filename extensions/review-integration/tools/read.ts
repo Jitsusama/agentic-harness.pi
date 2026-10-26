@@ -321,13 +321,13 @@ async function stepAttachment(
 		);
 	}
 	if (step.kind === "choose") {
-		const names = step.candidates.map((c) => c.proposal?.ref.label ?? c.ref);
+		const names = step.candidates.map((c) => c.change?.ref.label ?? c.ref);
 		return refuse(
 			`${change.label} forks into ${names.join(" and ")}. Attach the one you mean, since picking for you would move you onto a sibling branch without saying so.`,
 		);
 	}
 
-	const landing = step.node.proposal?.ref;
+	const landing = step.node.change?.ref;
 	if (!landing) {
 		return refuse(
 			`${step.node.ref} is ${direction === "next" ? "above" : "below"} ${change.label} but nothing hosts it yet, so there is no change to attach. Offer it for review first.`,

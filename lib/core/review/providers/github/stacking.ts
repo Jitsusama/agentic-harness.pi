@@ -92,7 +92,7 @@ export function githubStacking(exec: Exec): StackingFacet {
 					ref: proposal.head,
 					...(parent ? { parent } : {}),
 					...(proposal.headCommit ? { headCommit: proposal.headCommit } : {}),
-					proposal,
+					change: proposal,
 				});
 			});
 
@@ -104,7 +104,7 @@ export function githubStacking(exec: Exec): StackingFacet {
 				...(cursorProposal.headCommit
 					? { headCommit: cursorProposal.headCommit }
 					: {}),
-				proposal: cursorProposal,
+				change: cursorProposal,
 			});
 
 			for (const { proposal, parent } of descendants) {
@@ -112,7 +112,7 @@ export function githubStacking(exec: Exec): StackingFacet {
 					ref: proposal.head,
 					parent,
 					...(proposal.headCommit ? { headCommit: proposal.headCommit } : {}),
-					proposal,
+					change: proposal,
 				});
 			}
 
