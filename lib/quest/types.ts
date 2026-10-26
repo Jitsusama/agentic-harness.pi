@@ -136,6 +136,13 @@ export interface QuestSession {
 		 * before this was captured, and on hosts that publish no token.
 		 */
 		bootToken?: string;
+		/**
+		 * The process's start in clock ticks since boot, where the machine
+		 * counts them (Linux). Unlike the start token it never moves
+		 * with the clock or a suspend, so within one boot it names the
+		 * process exactly.
+		 */
+		startTicks?: number;
 	};
 	/**
 	 * The terminal surface the session ran in, as a probeable handle.

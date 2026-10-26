@@ -4,14 +4,14 @@
  * through the refs registry.
  */
 
-import { appendHarnessLog } from "../../../internal/quest/harness-log.ts";
-import { parseRef } from "../../../refs/index.ts";
 import {
 	buildAliasIndex,
 	lookupAliasDetail,
-} from "../../internal/quest/alias-index.ts";
-import { discoverQuests } from "../../internal/quest/discovery.ts";
-import type { QuestAlias } from "../index.ts";
+} from "../../../internal/quest/alias-index.ts";
+import { discoverQuests } from "../../../internal/quest/discovery.ts";
+import { appendHarnessLog } from "../../../internal/quest/harness-log.ts";
+import type { QuestAlias } from "../../../quest/index.ts";
+import { parseRef } from "../../../refs/index.ts";
 import { addAliasesToLoaded, removeAliasesFromLoaded } from "../lifecycle.ts";
 import type { QuestState } from "../state.ts";
 import {

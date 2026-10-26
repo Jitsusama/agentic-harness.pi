@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { currentInstanceId } from "../../../../lib/core/internal/quest/process-liveness.ts";
+import { currentInstanceId } from "../../../../lib/internal/quest/process-liveness.ts";
 
 describe("currentInstanceId", () => {
 	it("returns a stable non-empty id across calls in one process", () => {

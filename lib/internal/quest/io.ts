@@ -30,7 +30,9 @@
 import {
 	closeSync,
 	existsSync,
+	fstatSync,
 	fsyncSync,
+	linkSync,
 	openSync,
 	readFileSync,
 	renameSync,
@@ -122,30 +124,51 @@ function isProcessAlive(pid: number): boolean {
 	}
 }
 
+/**
+ * Take the lock over if its holder has gone or it is too old to be a
+ * write in progress.
+ *
+ * A lock with no readable record is judged by its file's age alone: a
+ * holder creates the lock and then writes its record, so for a moment
+ * every live lock is empty, and treating that as abandoned took locks
+ * from their holders. Taking over moves the lock aside and checks the
+ * move took the one judged stale; deleting by name could delete a lock
+ * another writer made after taking over first.
+ */
 function tryStealStaleLock(lockPath: string, now: number): boolean {
-	const record = readLockRecord(lockPath);
-	if (!record) {
-		// Malformed lock file; remove and retry.
-		try {
-			unlinkSync(lockPath);
-		} catch {
-			// Another process beat us to the cleanup; that's fine.
-		}
+	let judged: ReturnType<typeof statSync>;
+	try {
+		judged = statSync(lockPath);
+	} catch {
+		// Released since the failed create; the next attempt takes it.
 		return true;
 	}
-	const age = now - record.startedAt;
-	if (age < STALE_LOCK_MS && isProcessAlive(record.pid)) return false;
+	const record = readLockRecord(lockPath);
+	const stale = record
+		? now - record.startedAt >= STALE_LOCK_MS || !isProcessAlive(record.pid)
+		: now - judged.mtimeMs >= STALE_LOCK_MS;
+	if (!stale) return false;
+	const aside = `${lockPath}.stale-${process.pid}-${Math.random().toString(36).slice(2, 10)}`;
 	try {
-		unlinkSync(lockPath);
-		return true;
+		renameSync(lockPath, aside);
 	} catch {
-		// Another process beat us to the cleanup; let the
-		// next loop iteration retry the acquire.
+		// Somebody else took it over first; the next attempt sees theirs.
 		return false;
 	}
+	if (statSync(aside).ino !== judged.ino) {
+		// Moved a fresh lock another writer made after taking over first.
+		// Put it back, unless a third already made one, which then stands.
+		try {
+			linkSync(aside, lockPath);
+		} catch {
+			// EEXIST: the newer lock stands, as above.
+		}
+	}
+	unlinkSync(aside);
+	return true;
 }
 
-function acquireLock(lockPath: string): number {
+function acquireLock(lockPath: string): { fd: number; ino: number } {
 	const deadline = Date.now() + LOCK_TIMEOUT_MS;
 	let lastStealCheck = 0;
 	while (true) {
@@ -157,7 +180,7 @@ function acquireLock(lockPath: string): number {
 			};
 			writeSync(fd, JSON.stringify(payload));
 			fsyncSync(fd);
-			return fd;
+			return { fd, ino: fstatSync(fd).ino };
 		} catch (err) {
 			const code = (err as NodeJS.ErrnoException).code;
 			if (code !== "EEXIST") throw err;
@@ -184,14 +207,19 @@ function acquireLock(lockPath: string): number {
 	}
 }
 
-function releaseLock(lockPath: string, fd: number): void {
+function releaseLock(
+	lockPath: string,
+	held: { fd: number; ino: number },
+): void {
 	try {
-		closeSync(fd);
+		closeSync(held.fd);
 	} catch {
 		// Already closed; cleanup of the path below still runs.
 	}
 	try {
-		unlinkSync(lockPath);
+		// Only this holder's own lock: one taken over from it belongs to
+		// whoever made the new one.
+		if (statSync(lockPath).ino === held.ino) unlinkSync(lockPath);
 	} catch {
 		// Lock file was stolen out from under us or never
 		// committed; nothing more we can do.
@@ -219,11 +247,11 @@ export function withQuestLock<T>(questDir: string, fn: () => T): T {
 			// Stat failed; the acquire loop handles it.
 		}
 	}
-	const fd = acquireLock(lockPath);
+	const held = acquireLock(lockPath);
 	try {
 		return fn();
 	} finally {
-		releaseLock(lockPath, fd);
+		releaseLock(lockPath, held);
 	}
 }
 

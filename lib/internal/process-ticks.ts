@@ -16,6 +16,7 @@
  * written without them, core's account decides as before.
  */
 
+import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import {
 	askedOnce,
@@ -44,18 +45,36 @@ const START_FIELD = 19;
 /** A process's start in ticks, read from `/proc/<pid>/stat`. */
 export const startTicksFromProc: StartTicks = async (pid) => {
 	try {
-		const stat = await readFile(`/proc/${pid}/stat`, "utf8");
-		// The command name sits in parentheses and may hold anything,
-		// so the fields are counted from the last closing one.
-		const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
-		const ticks = Number(fields[START_FIELD]);
-		return Number.isSafeInteger(ticks) ? ticks : undefined;
+		return ticksOfStat(await readFile(`/proc/${pid}/stat`, "utf8"));
 	} catch {
 		// No such process, or no /proc, as on macOS: there is nothing to
 		// name it by, and the caller falls back on core's account.
 		return undefined;
 	}
 };
+
+/**
+ * A process's start in ticks, read from `/proc/<pid>/stat` at once, for
+ * a caller that answers synchronously, as the quest workflow's session
+ * liveness does on pi's input path.
+ */
+export function startTicksFromProcSync(pid: number): number | undefined {
+	try {
+		return ticksOfStat(readFileSync(`/proc/${pid}/stat`, "utf8"));
+	} catch {
+		// No such process, or no /proc: as startTicksFromProc.
+		return undefined;
+	}
+}
+
+/** The start ticks in one `/proc/<pid>/stat` line. */
+function ticksOfStat(stat: string): number | undefined {
+	// The command name sits in parentheses and may hold anything, so the
+	// fields are counted from the last closing one.
+	const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+	const ticks = Number(fields[START_FIELD]);
+	return Number.isSafeInteger(ticks) ? ticks : undefined;
+}
 
 /** This machine's account of its processes, ticks included. */
 export const tickFacts: TickFacts = {
