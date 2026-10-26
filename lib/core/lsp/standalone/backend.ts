@@ -25,7 +25,7 @@
  * session registry) -- not something this module does itself.
  */
 
-import { bounded } from "../../clock/bound.ts";
+import { bounded } from "../../../clock/bound.ts";
 import {
 	DEFAULT_SERVERS,
 	resolveBinary,

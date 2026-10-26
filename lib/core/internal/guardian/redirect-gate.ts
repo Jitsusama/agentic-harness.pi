@@ -19,7 +19,7 @@
  * `gh` still gets it on the second try.
  */
 
-import { decideGate, type GateDeps } from "../../gate/index.ts";
+import { decideGate, type GateDeps } from "../../../gate/index.ts";
 import type { GuardianResult } from "../../guardian/types.ts";
 import { resolveRepo } from "../../review/index.ts";
 

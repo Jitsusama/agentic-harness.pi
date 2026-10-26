@@ -12,7 +12,7 @@
  * with a new terminal state there.
  */
 
-import { CLOCK_FLOOR_MS } from "../clock/index.ts";
+import { CLOCK_FLOOR_MS } from "../../clock/index.ts";
 import type { AskLimit, AskStop, Participant } from "./index.ts";
 
 /**

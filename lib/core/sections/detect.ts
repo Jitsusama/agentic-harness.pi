@@ -9,7 +9,7 @@
  * absent headings and leaves the repair to the author.
  */
 
-import type { Violation } from "../gate/index.ts";
+import type { Violation } from "../../gate/index.ts";
 
 /** A single section convention violation. */
 export interface SectionViolation extends Violation {

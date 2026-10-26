@@ -13,7 +13,19 @@
  * levels do. One definition, two readers: the runner throws with it
  * and the roster refuses with it, and they cannot come to disagree
  * about what a usable clock is.
+ *
+ * The same barrel offers `bounded`, which holds work to a clock and a
+ * signal once it is running: the rules above say what a duration may
+ * be, and it is what makes one mean something.
  */
+
+export {
+	abortError,
+	type Bounds,
+	bounded,
+	isAbort,
+	WallClockExceeded,
+} from "./bound.ts";
 
 /** The shortest duration worth calling a timeout. */
 export const CLOCK_FLOOR_MS = 1000;

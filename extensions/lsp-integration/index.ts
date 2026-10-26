@@ -25,7 +25,7 @@ import type {
 	ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { bounded, WallClockExceeded } from "../../lib/core/clock/index.ts";
+import { bounded, WallClockExceeded } from "../../lib/clock/index.ts";
 import {
 	createStandaloneBackend,
 	formatCodeActions,

@@ -25,7 +25,7 @@
  * say the same thing and there is one place to improve it.
  */
 
-import { detectProseViolations, formatProseBlock } from "../prose/index.ts";
+import { detectProseViolations, formatProseBlock } from "../../prose/index.ts";
 import {
 	detectBodyViolations,
 	formatBodyBlock,

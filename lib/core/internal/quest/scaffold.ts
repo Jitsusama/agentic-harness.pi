@@ -13,7 +13,7 @@
  * when they need them. We do not enforce their presence.
  */
 
-import { wrapProse } from "../../prose/wrap.ts";
+import { wrapProse } from "../../../prose/wrap.ts";
 import type {
 	DocumentFrontMatter,
 	DocumentKind,

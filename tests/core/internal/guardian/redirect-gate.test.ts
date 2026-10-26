@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { GateDeps } from "../../../../lib/core/gate/index.ts";
 import { runRedirectGate } from "../../../../lib/core/internal/guardian/redirect-gate.ts";
 import type { AuthoringCapabilities } from "../../../../lib/core/review/index.ts";
 import {
 	clearReviewProviders,
 	registerReviewProvider,
 } from "../../../../lib/core/review/index.ts";
+import type { GateDeps } from "../../../../lib/gate/index.ts";
 import { stubProvider } from "../../review/support/stub-provider.ts";
 
 afterEach(() => {

@@ -6,7 +6,7 @@
  * one behaviour with prose, sections and Slack.
  */
 
-import { decideGate, type GateDecision } from "../gate/index.ts";
+import { decideGate, type GateDecision } from "../../gate/index.ts";
 import { formatTitleBlock } from "./block.ts";
 import { detectTitleViolations } from "./detect.ts";
 

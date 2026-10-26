@@ -176,6 +176,31 @@ const URL_REGEX = /https?:\/\/\S+/g;
 // block the author clears by wrapping the path in backticks.
 const PATH_REGEX = /(?:^|\s)[~./][\w./-]*\/[\w./-]+/g;
 
+// Names that only look like words. Each was refused in a week of
+// sessions and none was prose: the scope of a conventional commit
+// (`fix(enroll):`), a handle (`@colin.gray`), a command-line flag
+// (`--force-color-profile`), and the joined tokens below. Spelling
+// a name the Canadian way would break it, so it is not read at all.
+const COMMIT_SCOPE_REGEX = /^\w+\([^)\n]*\)!?:/gm;
+const HANDLE_REGEX = /(?<![\w.])@\w[\w.-]*/g;
+const FLAG_REGEX = /(?<![\w-])--?[A-Za-z][\w-]*(?:=\S*)?/g;
+const JOINED_REGEX = /\w+(?:[-./:=]\w+)+/g;
+
+/**
+ * Whether a joined token is a name rather than English. A branch, a
+ * tag, a file or a setting joins its parts with something other
+ * than a hyphen, carries a digit, or runs to three hyphenated parts
+ * (`hold-d159-catalog-only`, `catalog.json`, `color=auto`). A plain
+ * two-part compound such as "color-coded" is English, so it is still
+ * read: a word wrongly let through is a missed block, which is the
+ * cheaper mistake only while it stays rare.
+ */
+function isName(token: string): boolean {
+	return (
+		/[./:=_]/.test(token) || /\d/.test(token) || token.split("-").length > 2
+	);
+}
+
 /**
  * Replace every match of a pattern with spaces of the same
  * length, so later offset-based scans see blanks where the
@@ -196,7 +221,7 @@ function matchCase(found: string, suggestion: string): string {
 /**
  * Find every emdash and non-Canadian spelling in prose, skipping
  * regions where the text is not prose (code fences, inline code,
- * URLs, paths).
+ * URLs, paths, and names such as branches, flags and handles).
  */
 export function detectProseViolations(text: string): ProseViolation[] {
 	// Mask non-prose regions first so their contents never match.
@@ -204,6 +229,12 @@ export function detectProseViolations(text: string): ProseViolation[] {
 	prose = blankOut(prose, INLINE_CODE_REGEX);
 	prose = blankOut(prose, URL_REGEX);
 	prose = blankOut(prose, PATH_REGEX);
+	prose = blankOut(prose, COMMIT_SCOPE_REGEX);
+	prose = blankOut(prose, HANDLE_REGEX);
+	prose = blankOut(prose, FLAG_REGEX);
+	prose = prose.replace(JOINED_REGEX, (token) =>
+		isName(token) ? " ".repeat(token.length) : token,
+	);
 
 	const violations: ProseViolation[] = [];
 

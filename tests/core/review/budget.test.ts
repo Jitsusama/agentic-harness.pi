@@ -28,7 +28,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { whyUnusableClocks } from "../../../lib/core/clock/index.ts";
+import { whyUnusableClocks } from "../../../lib/clock/index.ts";
 import {
 	boundsFor,
 	REVIEWER_ANSWER_MS,

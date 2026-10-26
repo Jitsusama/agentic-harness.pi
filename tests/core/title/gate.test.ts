@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { violationSignature } from "../../../lib/core/gate/index.ts";
 import {
 	detectTitleViolations,
 	titleGateDecision,
 } from "../../../lib/core/title/index.ts";
+import { violationSignature } from "../../../lib/gate/index.ts";
 
 const PR_CONFIG = { entityLabel: "PR", skill: "github-pr-format" };
 const cc = "chore(monitoring): define the policies as code";

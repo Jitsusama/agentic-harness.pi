@@ -17,7 +17,7 @@
  * and what it found, and leaves the repair to the author.
  */
 
-import type { Violation } from "../gate/index.ts";
+import type { Violation } from "../../gate/index.ts";
 import {
 	type SectionWording,
 	type WordingRule,

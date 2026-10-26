@@ -1,4 +1,4 @@
-export { violationSignature } from "../gate/index.ts";
+export { violationSignature } from "../../gate/index.ts";
 export { formatSectionBlock } from "./block.ts";
 export {
 	composePrBody,
