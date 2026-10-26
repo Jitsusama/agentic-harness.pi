@@ -133,6 +133,36 @@ export function detectTitleViolations(title: string): TitleViolation[] {
 }
 
 /**
+ * A title in Title Case: each plain lowercase major word capitalised,
+ * and the first and last word whatever they are. Minor words inside
+ * stay lowercase, and verbatim tokens (backticked, dotted, slashed),
+ * mixed-case words (iOS) and words already capitalised are left as
+ * written, so the only loss is a proper noun spelled lowercase on
+ * purpose, which whoever reads the gate can put back.
+ */
+export function toTitleCase(title: string): string {
+	// Trimmed, so the first and last parts are words and the spaces
+	// between come back as they were.
+	const parts = title.trim().split(/(\s+)/);
+	const last = parts.length - 1;
+	return parts
+		.map((part, at) =>
+			/^\s+$/.test(part) ? part : capitalised(part, at === 0 || at === last),
+		)
+		.join("");
+}
+
+/** One word of a title in Title Case, as {@link toTitleCase} says. */
+function capitalised(raw: string, edge: boolean): string {
+	const word = raw.replace(/^[^\p{L}\p{N}`]+|[^\p{L}\p{N}`]+$/gu, "");
+	if (!word || isVerbatimToken(word) || /\p{Lu}/u.test(word)) return raw;
+	if (!edge && MINOR_WORDS.has(word.toLowerCase())) return raw;
+	const at = raw.search(/\p{L}/u);
+	if (at < 0) return raw;
+	return `${raw.slice(0, at)}${raw.charAt(at).toUpperCase()}${raw.slice(at + 1)}`;
+}
+
+/**
  * Flag a title that reads as a sentence rather than Title Case.
  *
  * Detection is precision-over-recall: it counts the major words

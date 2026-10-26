@@ -45,7 +45,84 @@ export function sayRefusal(
 /** Forget every refusal; for tests. */
 export function forgetRefusals(): void {
 	refused.clear();
+	drafts.clear();
 }
+
+/**
+ * How long a refused proposal's sections are kept for a resubmit to
+ * fill from. Long enough to rewrite one section, short enough that a
+ * later proposal of the same branch starts fresh.
+ */
+const DRAFT_KEPT_MS = 30 * 60_000;
+
+/** The four sections, as a proposal gives them. */
+export interface DraftSections {
+	readonly tldr?: string;
+	readonly problem?: string;
+	readonly solution?: string;
+	readonly validation?: string;
+}
+
+/** A refused proposal, kept so a resubmit need carry only what it changes. */
+interface Draft {
+	readonly title?: string;
+	readonly sections: Required<DraftSections>;
+	readonly at: number;
+}
+
+/** The latest refused proposal of each repo and branch, by that pair. */
+const drafts = new Map<string, Draft>();
+
+/** Which proposal a draft is of: the repo and branch as the call named them. */
+export function draftKey(repo?: string, head?: string): string {
+	return `${repo ?? ""}\0${head ?? ""}`;
+}
+
+/**
+ * Keep a refused proposal's title and sections. The logs showed 487
+ * refusals of the PR format in 44 sessions, each followed by the whole
+ * description written out again to change one sentence.
+ */
+export function keepRefusedDraft(
+	key: string,
+	title: string | undefined,
+	sections: Required<DraftSections>,
+	now: number = Date.now(),
+): void {
+	drafts.delete(key);
+	drafts.set(key, { ...(title ? { title } : {}), sections, at: now });
+	if (drafts.size > REMEMBERED) {
+		const oldest = drafts.keys().next().value;
+		if (oldest !== undefined) drafts.delete(oldest);
+	}
+}
+
+/**
+ * A resubmit's title and sections with what it left out taken from the
+ * proposal refused under the same key, or nothing when there is no such
+ * draft, it has expired, or the resubmit gave every section anyway.
+ */
+export function filledFromRefused(
+	key: string,
+	title: string | undefined,
+	sections: DraftSections,
+	now: number = Date.now(),
+): { title?: string; sections: Required<DraftSections> } | undefined {
+	const draft = drafts.get(key);
+	if (!draft || now - draft.at > DRAFT_KEPT_MS) return undefined;
+	const filled = {
+		tldr: sections.tldr ?? draft.sections.tldr,
+		problem: sections.problem ?? draft.sections.problem,
+		solution: sections.solution ?? draft.sections.solution,
+		validation: sections.validation ?? draft.sections.validation,
+	};
+	const kept = title ?? draft.title;
+	return { ...(kept ? { title: kept } : {}), sections: filled };
+}
+
+/** What a refusal of a proposal given as sections adds, saying how to resubmit. */
+export const RESUBMIT_ONLY_CHANGES =
+	"To send it again, give only the title or sections you change: the rest is kept from this draft for 30 minutes.";
 
 function unchanged(elapsedMs: number): string {
 	const minutes = Math.round(elapsedMs / 60_000);

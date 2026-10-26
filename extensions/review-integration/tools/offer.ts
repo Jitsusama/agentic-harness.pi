@@ -36,6 +36,10 @@ import {
 } from "../../../lib/core/review/index.ts";
 import { composePrBody } from "../../../lib/core/sections/index.ts";
 import {
+	detectTitleViolations,
+	toTitleCase,
+} from "../../../lib/core/title/index.ts";
+import {
 	createGitRebaser,
 	createGitStacks,
 } from "../../../lib/core/work/index.ts";
@@ -45,7 +49,13 @@ import { REVIEW_COMMANDS } from "../commands.ts";
 import { attachments } from "../engine.ts";
 import { confirmWrite as confirmUnder } from "../gate.ts";
 import { type GatePanel, GLYPH, proposalLine } from "../render.ts";
-import { sayRefusal } from "./resubmit.ts";
+import {
+	draftKey,
+	filledFromRefused,
+	keepRefusedDraft,
+	RESUBMIT_ONLY_CHANGES,
+	sayRefusal,
+} from "./resubmit.ts";
 import {
 	revised,
 	type SectionFields,
@@ -185,6 +195,61 @@ const INTENT: Record<OfferParams["action"], AuthoringIntent["kind"]> = {
  */
 function missingMethod(providerId: string, what: string): string {
 	return `The ${providerId} provider declares it can ${what} but exposes no way to do it, so nothing happened. This is a bug in the provider rather than something you did.`;
+}
+
+/**
+ * A title that reads as a sentence, put in Title Case rather than
+ * refused: 34 sessions since 18 October were refused for it, each once,
+ * and the fix is mechanical. The gate shows the title as it will be
+ * sent. A title already in Title Case, lowercase proper nouns and all,
+ * is left as written.
+ */
+function inTitleCase(title: string): string {
+	const sentence = detectTitleViolations(title).some(
+		(violation) => violation.issue === "sentence-case",
+	);
+	return sentence ? toTitleCase(title) : title;
+}
+
+/** The four sections a call gives, when it gives every one of them. */
+function sectionsGiven(
+	params: SectionFields,
+): Required<SectionFields> | undefined {
+	const { tldr, problem, solution, validation } = params;
+	return tldr !== undefined &&
+		problem !== undefined &&
+		solution !== undefined &&
+		validation !== undefined
+		? { tldr, problem, solution, validation }
+		: undefined;
+}
+
+/**
+ * A proposal resubmitted after a refusal, with the title and sections
+ * it left out taken from the refused draft of the same repo and branch.
+ * A call giving a body, or every section, is its own whole draft.
+ */
+function resubmitted<
+	T extends SectionFields & {
+		title?: string;
+		body?: string;
+		repo?: string;
+		head?: string;
+	},
+>(params: T): T {
+	if (params.body !== undefined || sectionsGiven(params)) return params;
+	const filled = filledFromRefused(
+		draftKey(params.repo, params.head),
+		params.title,
+		params,
+	);
+	return filled
+		? {
+				...params,
+				...filled.sections,
+				...(filled.title ? { title: filled.title } : {}),
+			}
+		: params;
 }
 
 function intentFor(params: OfferParams): AuthoringIntent["kind"] {
@@ -380,15 +445,30 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 				// only some sections has to read the change first, so its body is
 				// checked once the change is known.
 				let revising: SectionFields | undefined;
+				if (params.action === "propose") params = resubmitted(params);
+				if (params.title !== undefined) {
+					params = { ...params, title: inTitleCase(params.title) };
+				}
 				if (params.action === "propose" || params.action === "edit") {
 					const sections = sectionsOf(params.action, params);
 					if (sections.kind === "refuse") return refuse(sections.reason);
+					const asSections =
+						sections.kind === "body" ? sectionsGiven(params) : undefined;
 					if (sections.kind === "body")
 						params = { ...params, body: sections.body };
 					if (sections.kind === "revise") revising = sections.fields;
 					const complaint = proposalComplaint(params.title, params.body);
 					if (complaint) {
-						return refuse(sayRefusal(complaint, params.title, params.body));
+						const said = sayRefusal(complaint, params.title, params.body);
+						if (params.action !== "propose" || asSections === undefined) {
+							return refuse(said);
+						}
+						keepRefusedDraft(
+							draftKey(params.repo, params.head),
+							params.title,
+							asSections,
+						);
+						return refuse(`${said}\n\n${RESUBMIT_ONLY_CHANGES}`);
 					}
 				}
 
