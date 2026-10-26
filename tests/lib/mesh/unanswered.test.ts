@@ -56,6 +56,22 @@ describe("questions still unanswered", () => {
 		expect(unanswered([asked, answer], aliases, now)).toEqual([]);
 	});
 
+	it("counts an answer anywhere in the question's thread", () => {
+		const asked = message({ to: ["@5FWIUS", "@Y2YBTS"] });
+		const reply = message({ from: "Y2YBTS", intent: "fyi", re: asked.id });
+		const more = message({ to: ["@Y2YBTS"], re: reply.id, intent: "fyi" });
+		const late = message({ from: "5FWIUS", intent: "fyi", re: more.id });
+		expect(unanswered([asked, reply, more, late], aliases, now)).toEqual([]);
+	});
+
+	it("closes a question its asker moved on from by asking again", () => {
+		const asked = message({ to: ["@85PKB2"] });
+		const instead = message({ to: ["@85PKB2"], re: asked.id });
+		expect(
+			unanswered([asked, instead], aliases, now).map((one) => one.message),
+		).toEqual([instead]);
+	});
+
 	it("leaves out what needs no answer here", () => {
 		const toGroup = message({ to: ["#quest/wcjqsg"] });
 		const told = message({ intent: "fyi" });

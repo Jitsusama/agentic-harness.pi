@@ -747,6 +747,9 @@ export function meshWorkflow(
 			if (seen.has(id) || !peer) return undefined;
 			seen.add(id);
 			const message = transport.read(id);
+			// A file caught half written reads as nothing: the next look takes
+			// it again rather than counting it seen and losing it for good.
+			if (!message) seen.delete(id);
 			// A hold this peer waits on can end in a message to a group it does
 			// not hear, so ends are looked for before what reaches it.
 			const end = message ? leasing.ended(message) : undefined;
