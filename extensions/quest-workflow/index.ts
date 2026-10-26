@@ -80,6 +80,7 @@ import {
 	resolveStartup,
 } from "./lifecycle.ts";
 import { recentSessionHints, showLoaded } from "./lookup.ts";
+import { keepOrchestratorsListed } from "./orchestrators.ts";
 import { sayPeersOnStartup } from "./peers.ts";
 import { questsTouchedBy, RecordWatch } from "./record-watch.ts";
 import { formatQuestList, renderWidget } from "./render.ts";
@@ -629,8 +630,12 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			updateScoreboard(state, ctx);
 		}
 		persist(state, pi, ctx);
-		// A quest action can change what a quest's work is weighted by.
-		if (event.toolName === "quest") keepQuestWeights(state.questsRoot);
+		// A quest action can change what a quest's work is weighted by, and
+		// which quests orchestrate.
+		if (event.toolName === "quest") {
+			keepQuestWeights(state.questsRoot);
+			keepOrchestratorsListed(state.questsRoot);
+		}
 		const broke = watch.after(event.toolCallId);
 		if (broke) {
 			return { content: [...event.content, { type: "text", text: broke }] };
@@ -688,6 +693,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		// From the walk just made, so it costs a look, and it catches a
 		// priority edited by hand while no session was running.
 		keepQuestWeights(state.questsRoot);
+		keepOrchestratorsListed(state.questsRoot);
 
 		// Resolve which quest to load through the one startup
 		// pipeline: an explicit spawn request wins, then this
