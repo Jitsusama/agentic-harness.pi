@@ -171,4 +171,57 @@ describe("the audit digest", () => {
 		);
 		expect(text).toContain("(1 log held no system message");
 	});
+
+	it("holds each kind of quest file read a session against the week before", () => {
+		const text = formatAudit(
+			{
+				week,
+				spend: { now: {}, before: {} },
+				rewrites: [],
+				reads: [],
+				errors: [],
+				standing: [],
+				unread: 0,
+				questReads: {
+					now: [
+						{ kind: "documents", calls: 60, sessions: 13, chars: 260_000 },
+						{ kind: "READMEs", calls: 2, sessions: 2, chars: 9_000 },
+					],
+					// Twice the documents read in four times the sessions: half a session.
+					before: [
+						{ kind: "documents", calls: 500, sessions: 52, chars: 2_080_000 },
+					],
+				},
+			},
+			12,
+		);
+
+		expect(text).toContain("Quest files read with read, a session's share:");
+		expect(text).toContain(
+			"- documents: 260k characters in 13 sessions, about 20k a session, down 50% on the week before.",
+		);
+		expect(text).toContain(
+			"- READMEs: 9000 characters in 2 sessions, about 4500 a session.",
+		);
+	});
+
+	it("says no quest file was read when none was", () => {
+		const text = formatAudit(
+			{
+				week,
+				spend: { now: {}, before: {} },
+				rewrites: [],
+				reads: [],
+				errors: [],
+				standing: [],
+				unread: 0,
+				questReads: { now: [], before: [] },
+			},
+			12,
+		);
+
+		expect(text).toContain(
+			"Quest files read with read, a session's share:\n- none",
+		);
+	});
 });

@@ -543,6 +543,8 @@ export default function costWorkflow(pi: ExtensionAPI) {
 					sessions,
 					searches,
 					hidden,
+					questReadsNow,
+					questReadsBefore,
 				] = await Promise.all([
 					rows(AUDIT_QUERIES.spend(current)),
 					rows(AUDIT_QUERIES.spend(prior)),
@@ -552,6 +554,8 @@ export default function costWorkflow(pi: ExtensionAPI) {
 					rows(AUDIT_QUERIES.sessions(current)),
 					rows(AUDIT_QUERIES.searches(current)),
 					rows(AUDIT_QUERIES.hidden(current, deferred)),
+					rows(AUDIT_QUERIES.questReads(current)),
+					rows(AUDIT_QUERIES.questReads(prior)),
 				]);
 				const text = formatAudit(
 					{
@@ -567,6 +571,7 @@ export default function costWorkflow(pi: ExtensionAPI) {
 							searches: searches[0] ?? {},
 							hidden,
 						},
+						questReads: { now: questReadsNow, before: questReadsBefore },
 					},
 					params.limit ?? 12,
 				);
