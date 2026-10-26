@@ -316,6 +316,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 	declareGuards(
 		GUARDS.questRecord,
 		GUARDS.questOwnedFields,
+		GUARDS.questDocumentRead,
 		GUARDS.questTemp,
 		GUARDS.questPlanStage,
 		GUARDS.questUntrackedTree,

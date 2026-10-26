@@ -419,6 +419,16 @@ document's `stage`, `id`, `kind` and `quest`, and a
 quest's `id`, `kind` and `status`. The gate refuses that
 and names the verb that does it.
 
+Read a document through `show` too: its `id` alone gives
+the outline (each section with its size, the open items,
+the next), `title` one section, and `query` one item with
+its notes. A plan grows past 400 KB, and whatever a read
+brings in is paid for on every turn after it, so a shell
+`grep` or `sed` of a document, or a `read` of a whole one,
+is refused with the `show` call that answers it. Asked
+again, it goes through, for the rare time the raw file is
+what you need.
+
 Sealing a quest cascades so it leaves nothing live behind:
 the priority drops to `someday` and every still-active
 document seals to the quest's terminal stage. You do not

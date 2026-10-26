@@ -211,6 +211,16 @@ export const GUARDS = {
 		defaultMode: "block",
 		groups: ["quest"],
 	}),
+	questDocumentRead: declare({
+		name: "quest-document-read",
+		class: "form",
+		description:
+			"Sends a shell search or whole read of a quest document to quest show",
+		// A repeat goes ahead: a session that needs the raw file, to check
+		// what the quest tool wrote, says so by asking again.
+		defaultMode: "redirect",
+		groups: ["quest"],
+	}),
 	questTemp: declare({
 		name: "quest-temp",
 		class: "form",

@@ -70,6 +70,7 @@ beforeEach(async () => {
 	registerBuiltinTreeProviders();
 	declareGuards(
 		GUARDS.questRecord,
+		GUARDS.questDocumentRead,
 		GUARDS.questTemp,
 		GUARDS.questPlanStage,
 		GUARDS.questUntrackedTree,
@@ -119,6 +120,32 @@ describe("where a bash write lands", () => {
 		);
 
 		expect(verdicts.map((v) => v.guard)).not.toContain("quest-homeless");
+	});
+});
+
+describe("a quest document read from the shell", () => {
+	it("is sent to quest show once, and goes through when asked again", async () => {
+		const state = await questInBuild();
+		const plan = join(
+			state.questsRoot,
+			"QEST-20261025-85PKB2",
+			"plans",
+			"PLAN-20261025-QR647O.md",
+		);
+		const input = { command: `grep -n "^## " ${plan}` };
+		const call = () => `bash ${JSON.stringify(input)}`;
+		const verdicts = () =>
+			questVerdicts(state, "bash", input, tmpRoot, noScratch);
+
+		expect(verdicts().map((v) => v.guard)).toContain("quest-document-read");
+		const first = applyQuestGuards(state, verdicts(), undefined, call);
+		const again = applyQuestGuards(state, verdicts(), undefined, call);
+
+		expect(first?.reason).toContain(
+			"`quest show` with id PLAN-20261025-QR647O",
+		);
+		expect(again).toBeUndefined();
+		expect(reports.map((r) => r.kind)).toEqual(["overridden"]);
 	});
 });
 
