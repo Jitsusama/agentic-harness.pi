@@ -1,6 +1,6 @@
 /**
  * Flag layer: understand a command's flags against a caller-supplied
- * spec. The core ships no flag tables; each domain passes the spec
+ * spec. This layer ships no flag tables; each domain passes the spec
  * for the command it owns, so knowledge of a command lives in one
  * place and is imported where needed.
  */

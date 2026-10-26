@@ -13,11 +13,11 @@
  */
 
 import type { GateDeps } from "../../../gate/index.ts";
+import type { GuardianResult } from "../../../guardian/types.ts";
 import {
 	detectProseViolations,
 	proseGateDecision,
 } from "../../../prose/index.ts";
-import type { GuardianResult } from "../../guardian/types.ts";
 
 export type { GateDeps };
 

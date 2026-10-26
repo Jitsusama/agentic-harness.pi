@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { MemoryStore, Scope } from "../../../lib/core/memory/index.ts";
-import { openMemoryStore } from "../../../lib/core/memory/store.ts";
+import type { MemoryStore, Scope } from "../../../lib/memory/index.ts";
+import { openMemoryStore } from "../../../lib/memory/store.ts";
 
 const quest: Scope = { kind: "quest", id: "QEST-1" };
 const other: Scope = { kind: "quest", id: "QEST-2" };

@@ -1,13 +1,24 @@
 /**
- * Resolving which scope currently applies. This is pi-specific
- * (it reads pi's own session log for a loaded quest); scope
- * serialization itself lives in core (`lib/core/memory`) and is
- * re-exported from ./index.ts.
+ * A fact's scope: which one applies now, and the single string key
+ * it is stored under, so recall is a plain lookup. This is the only
+ * place that key is minted.
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { Scope } from "../core/memory/index.ts";
 import { getLastEntry } from "../internal/state.ts";
+import type { Scope } from "./types.ts";
+
+/** The canonical string key for a scope. */
+export function serializeScope(scope: Scope): string {
+	switch (scope.kind) {
+		case "global":
+			return "global";
+		case "project":
+			return `project:${scope.path}`;
+		case "quest":
+			return `quest:${scope.id}`;
+	}
+}
 
 /**
  * Resolve the active scope for the current session: the loaded

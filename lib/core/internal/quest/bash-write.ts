@@ -8,9 +8,9 @@
  */
 
 import { isAbsolute, join, resolve } from "node:path";
-import { type SimpleCommand, tokenize } from "../../command/index.ts";
-import { stripShellData, unquote } from "../../shell/index.ts";
-import { matchHeredocs } from "../../shell/parse.ts";
+import { type SimpleCommand, tokenize } from "../../../command/index.ts";
+import { stripShellData, unquote } from "../../../shell/index.ts";
+import { matchHeredocs } from "../../../shell/parse.ts";
 import { createdBy, removedBy, unwrap } from "./bash-effects.ts";
 
 /** What kind of write, if any, a bash command performs. */

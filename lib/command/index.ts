@@ -5,30 +5,22 @@
  *
  * Public entry point. Guardians and interceptors pull from here to
  * detect, enforce and rewrite commands without reconstructing them.
- * The implementation lives in core (`lib/core/command`); this
- * re-exports it so existing local
- * imports keep working unchanged.
  */
 
+export type { EffectiveCwd } from "./cwd.ts";
+export { effectiveCwd } from "./cwd.ts";
+export type { Edit } from "./edit.ts";
+export { applyEdits } from "./edit.ts";
+export type { FlagDef, FlagMatch, FlagSpec } from "./flags.ts";
+export { findFlag, findFlags } from "./flags.ts";
+export { tokenize } from "./tokenize.ts";
 export type {
 	CommandLine,
 	Connector,
-	Edit,
-	EffectiveCwd,
-	FlagDef,
-	FlagMatch,
-	FlagSpec,
 	Heredoc,
 	Quoting,
 	Redirect,
 	SimpleCommand,
 	Span,
 	Word,
-} from "../core/command/index.ts";
-export {
-	applyEdits,
-	effectiveCwd,
-	findFlag,
-	findFlags,
-	tokenize,
-} from "../core/command/index.ts";
+} from "./types.ts";

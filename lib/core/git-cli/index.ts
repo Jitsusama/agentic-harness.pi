@@ -25,7 +25,7 @@ import {
 	hasUnquotedHeredoc,
 	stripHeredocBodies,
 	stripShellData,
-} from "../shell/parse.ts";
+} from "../../shell/parse.ts";
 
 /** Commands that guardians intercept and may rewrite. */
 const GUARDABLE_PATTERNS: RegExp[] = [

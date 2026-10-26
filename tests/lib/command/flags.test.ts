@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-	findFlag,
-	findFlags,
-	tokenize,
-} from "../../../lib/core/command/index.ts";
+import { findFlag, findFlags, tokenize } from "../../../lib/command/index.ts";
 
 const commitSpec = {
 	flags: [

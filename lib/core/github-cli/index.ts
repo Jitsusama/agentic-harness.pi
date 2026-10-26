@@ -7,13 +7,13 @@
  * assignment in separate commands after creation.
  */
 
-import { findFlag, type SimpleCommand, tokenize } from "../command/index.ts";
+import { findFlag, type SimpleCommand, tokenize } from "../../command/index.ts";
 import {
 	extractBodyFilePath,
 	hasUnquotedHeredoc,
 	stripHeredocBodies,
 	stripShellData,
-} from "../shell/parse.ts";
+} from "../../shell/parse.ts";
 import { GH_BODY_SPEC } from "./command-spec.ts";
 
 export { GH_BODY_SPEC } from "./command-spec.ts";

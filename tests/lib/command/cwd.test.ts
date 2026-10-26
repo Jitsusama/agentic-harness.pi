@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { effectiveCwd, tokenize } from "../../../lib/core/command/index.ts";
+import { effectiveCwd, tokenize } from "../../../lib/command/index.ts";
 
 describe("effectiveCwd", () => {
 	it("returns the base cwd when the command has no cd", () => {

@@ -17,9 +17,9 @@ import {
 	findFlag,
 	type SimpleCommand,
 	tokenize,
-} from "../../command/index.ts";
+} from "../../../command/index.ts";
+import { unquote } from "../../../shell/index.ts";
 import { GH_BODY_SPEC, isGhCommand } from "../../github-cli/index.ts";
-import { unquote } from "../../shell/index.ts";
 
 export { isGhCommand } from "../../github-cli/index.ts";
 

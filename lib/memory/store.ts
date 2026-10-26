@@ -8,7 +8,7 @@
  * separate from any other structured store an adapter keeps.
  */
 
-import { openDb } from "../internal/sqlite/db.ts";
+import { openDb } from "../core/internal/sqlite/db.ts";
 import { serializeScope } from "./scope.ts";
 import type {
 	Fact,

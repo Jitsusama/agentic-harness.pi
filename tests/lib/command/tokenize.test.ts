@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { tokenize } from "../../../lib/core/command/index.ts";
+import { tokenize } from "../../../lib/command/index.ts";
 
 describe("tokenize", () => {
 	it("yields no commands for an empty command", () => {
