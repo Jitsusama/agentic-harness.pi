@@ -11,3 +11,9 @@ Pairs with the convention gates (pr-guardian, issue-guardian,
 commit-guardian, slack-integration) and the convention-context
 extension. The runnable sensor lives at
 [`scripts/convention-recurrence.ts`](../../scripts/convention-recurrence.ts).
+
+It also covers the learning sensor,
+[`scripts/learning-sensor.ts`](../../scripts/learning-sensor.ts),
+which counts the refusals, guard blocks and broken standing rules
+that recur across sessions, so each can become a harness change
+whose effect the next run measures.
