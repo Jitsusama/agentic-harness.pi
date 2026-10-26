@@ -76,6 +76,9 @@ may import from here, and any of it may change without notice.
   by project.
 - **`resources.ts`**: the CPU, disk and memory this pi process and
   its work used, from the kernel's counters.
+- **`shell-habits.ts`**: the shell habits the standing rules
+  forbid (output cut with tail, long sleeps, git stash), as
+  `shell-habit-interceptor` catches them.
 - **`single-flight.ts`**: one flight per key, which later callers
   join.
 - **`stale.ts`**: telling pi's stale-context error, after a reload

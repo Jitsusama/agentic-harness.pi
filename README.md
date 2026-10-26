@@ -72,8 +72,10 @@ trust gap, and `code-style-standard` keeps the code readable.
 moments worth reviewing: `commit-guardian`, `pr-guardian`,
 `issue-guardian` and `history-guardian`. Interceptors quietly
 enforce convention as the agent types:
-`attribution-interceptor`, `git-cli-interceptor` and
-`github-cli-interceptor`. By default a guard blocks only where
+`attribution-interceptor`, `git-cli-interceptor`,
+`github-cli-interceptor` and `shell-habit-interceptor`, which
+drops a pipe into tail from a build and turns a long sleep or a
+stash toward the harness's way. By default a guard blocks only where
 a mistake reaches somebody else, cannot be undone, or has one
 right form to retry with. Elsewhere it redirects: the agent
 hears what is wrong and how to fix it, and can make the same
