@@ -4,10 +4,11 @@
  *
  * One call in place of each quest writing its file by hand with a
  * shell script: it keeps the item where the launcher's Waiting on you
- * reads it (lib/mesh/waiting.ts), and mirrors it in this peer's
- * presence as an `action` want, so its orchestrator and every other
- * peer see it waits on him. The file is the record and outlives the
- * session; presence follows it.
+ * reads it (lib/mesh/waiting.ts), and mirrors what of it is ready in
+ * this peer's presence as an `action` want, so its orchestrator and
+ * every other peer see it waits on him now. The desktop raises a notice
+ * for each want, so an item not yet ready stays in the file alone. The
+ * file is the record and outlives the session; presence follows it.
  */
 
 import type { Peer } from "../../lib/mesh/peer.ts";
@@ -16,6 +17,7 @@ import {
 	settleWaiting,
 	type WaitingItem,
 	waitingOf,
+	wantFor,
 } from "../../lib/mesh/waiting.ts";
 
 /** Where what waits on the person is kept, and whose it is here. */
@@ -149,25 +151,16 @@ export function waitOnPerson(
 	};
 }
 
-/**
- * Presence says the oldest item still waiting, and how many more; with
- * none left, the want is settled. A want already standing keeps its
- * time, so he sees how long he has been waited on.
- */
+/** Presence says what is ready (wantFor), or settles the want. */
 function mirror(
 	peer: Peer,
 	items: readonly WaitingItem[],
 	startedAt: Date | undefined,
 ): void {
-	const [first] = items;
-	if (!first) {
-		peer.settle("action");
-		return;
-	}
 	const standing = peer.wants?.kind === "action" ? peer.wants.since : undefined;
-	const since = standing ?? (startedAt ?? new Date()).toISOString();
-	const more = items.length > 1 ? ` and ${items.length - 1} more` : "";
-	peer.want({ kind: "action", since, said: `${first.title}${more}` });
+	const want = wantFor(items, standing, startedAt ?? new Date());
+	if (want) peer.want(want);
+	else peer.settle("action");
 }
 
 function remaining(items: readonly WaitingItem[]): string {

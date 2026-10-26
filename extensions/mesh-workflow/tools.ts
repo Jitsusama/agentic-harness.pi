@@ -248,7 +248,7 @@ export function registerTools(
 		name: "mesh_wait",
 		label: "Mesh",
 		description:
-			"Say that this session's quest has something waiting on the person that only they can do (a login, a look, a decision, a yes), or that it no longer waits. It shows in the launcher's Waiting on you, outlives this session, and tells its orchestrator through presence. Say it again with the same id to change it, with ready: true once they can do it now (which raises a notice), and with done: true once it is done.",
+			"Say that this session's quest has something waiting on the person that only they can do (a login, a look, a decision, a yes), or that it no longer waits. It shows in the launcher's Waiting on you and outlives this session. Say it again with the same id to change it, with ready: true once they can do it now (which raises a notice and tells its orchestrator through presence), and with done: true once it is done.",
 		parameters: Type.Object({
 			id: Type.String({
 				description:
