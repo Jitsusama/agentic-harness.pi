@@ -8,5 +8,6 @@ verbs in `verbs/`. They read and write quests through the harness's
 `lib/quest` and `lib/internal/quest`, which are the only copies of
 the quest store's types, parsing and I/O.
 
-The verbs here still have twins in `extensions/quest-workflow/verbs`;
-folding those into one copy is the next step.
+The quest tool's alias, reorder and structural verbs live in `verbs/`,
+and `extensions/quest-workflow/verbs` re-exports them beside the verbs
+only pi runs: create, load, show, the queries and the session story.
