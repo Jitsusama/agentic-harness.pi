@@ -87,7 +87,7 @@ export const QUEST_ENV = "PI_QUEST";
  * machine reads to share CPU and disk by quest, its `TMPDIR`, and Go's
  * build and module caches in its workspace, so they go with the quest.
  * Left to themselves they sit in the account, where on 26 October they
- * held 6.1 GB that no quest owned. Cargo's needs no variable: its build
+ * held 6.4 GB that no quest owned. Cargo's needs no variable: its build
  * folder is in the project, so a tree's goes with the tree. The id
  * stays when the temp folder can't be made, since a command that keeps
  * its files elsewhere still does the quest's work.
