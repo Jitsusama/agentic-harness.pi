@@ -214,7 +214,10 @@ async function quoteBill(
 	const cut = by && isBillCut(by) ? by : undefined;
 	const bill = await askBill(exec, period, cut);
 	if (!bill) return undefined;
-	return formatBill(bill, limit, by && !cut ? by : undefined);
+	// Asked for no cut, spend-watch still answers by quest, its own
+	// default; the ledger's section beside it is a total, so this is too.
+	if (!by) return formatBill({ ...bill, rows: [], notes: [] }, limit);
+	return formatBill(bill, limit, cut ? undefined : by);
 }
 
 export default function spendWorkflow(pi: ExtensionAPI) {
