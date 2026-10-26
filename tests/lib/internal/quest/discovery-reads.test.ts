@@ -59,17 +59,17 @@ function readme(status: string): string {
 	].join("\n");
 }
 
-function plan(): string {
+function plan(title = "A Plan", id = "PLAN-20260604-BBB222"): string {
 	return [
 		"---",
-		"id: PLAN-20260604-BBB222",
+		`id: ${id}`,
 		"kind: plan",
 		`quest: ${ID}`,
 		"stage: think",
 		"updated: 2026-06-04",
 		"---",
 		"",
-		"# A Plan",
+		`# ${title}`,
 		"",
 	].join("\n");
 }
@@ -148,6 +148,55 @@ describe("discovery reads", () => {
 		reads.mockClear();
 		discoverQuests(root);
 		expect(readsOf(readmePath)).toBe(1);
+	});
+});
+
+describe("a rebuild after a change", () => {
+	// Any change misses the index; only what changed is parsed again.
+
+	it("reads only the file that changed", () => {
+		discoverQuests(root);
+		writeSettled(planPath, plan("A New Plan"));
+		reads.mockClear();
+		const result = discoverQuests(root);
+		const [document] = result.index.quests.get(ID)?.documents ?? [];
+		expect(document?.doc.title).toBe("A New Plan");
+		expect(readsOf(planPath)).toBe(1);
+		expect(readsOf(readmePath)).toBe(0);
+	});
+
+	it("drops a removed document and adds a new one", () => {
+		discoverQuests(root);
+		rmSync(planPath);
+		const newPath = join(root, ID, "plans", "PLAN-20260604-CCC333.md");
+		writeSettled(newPath, plan("Another", "PLAN-20260604-CCC333"));
+		const documents = discoverQuests(root).index.quests.get(ID)?.documents;
+		expect(documents?.map((d) => d.path)).toEqual([newPath]);
+	});
+
+	it("reports a README that no longer parses, every walk, until it does", () => {
+		discoverQuests(root);
+		writeSettled(readmePath, "no front matter\n");
+		const broken = discoverQuests(root);
+		expect(broken.index.quests.has(ID)).toBe(false);
+		expect(broken.errors.map((e) => e.message)).toContain(
+			"Front-matter invalid or absent.",
+		);
+		writeSettled(planPath, plan("Touched"));
+		expect(discoverQuests(root).errors).toHaveLength(1);
+		writeSettled(readmePath, readme("paused"));
+		const mended = discoverQuests(root);
+		expect(mended.index.quests.get(ID)?.doc.frontMatter.status).toBe("paused");
+		expect(mended.errors).toEqual([]);
+	});
+
+	it("parses afresh once the memo is cleared", () => {
+		discoverQuests(root);
+		clearDiscoveryCache();
+		reads.mockClear();
+		discoverQuests(root);
+		expect(readsOf(readmePath)).toBe(1);
+		expect(readsOf(planPath)).toBe(1);
 	});
 });
 
