@@ -130,7 +130,7 @@ against the sessions active, since a short week reads lower.
 The harness owner reviews each proposal.
 
 The weekly measure runs the sensor over the last seven days
-beside the `cost` tool's weekly audit, with no pi session, and writes one
+beside the `spend` tool's weekly audit, with no pi session, and writes one
 report to the state directory's `measure/` folder, named for
 the day the week ends:
 

@@ -7,7 +7,10 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { formatAudit, weeks } from "../../../extensions/spend-workflow/audit.ts";
+import {
+	formatAudit,
+	weeks,
+} from "../../../extensions/spend-workflow/audit.ts";
 import {
 	byRepo,
 	standingOf,

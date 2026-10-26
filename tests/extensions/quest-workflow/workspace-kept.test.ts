@@ -23,7 +23,7 @@ describe("workspaceKept", () => {
 		expect(asked).toHaveLength(1);
 		expect(asked[0]).toMatch(new RegExp(`${ID}$`));
 		expect(said).toBe(
-			"Its workspace still holds 2.5 GB, kept in case the quest reopens; `cost` with disk lists what could go across quests.",
+			"Its workspace still holds 2.5 GB, kept in case the quest reopens; `spend` with disk lists what could go across quests.",
 		);
 	});
 

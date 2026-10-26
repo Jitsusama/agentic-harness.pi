@@ -24,7 +24,7 @@ import { drift, readGlossary } from "../../lib/glossary/index.ts";
 import { registered } from "./registered-tools.ts";
 
 /** The core.nix commit core-glossary.txt was copied from. */
-const PINNED = "556ad08346e6ab5a433803745656fd539ed2cfe0";
+const PINNED = "cd6aa51fa428cd8fe308314c7aba626437d8132b";
 
 /** Names whose word means something the glossary doesn't replace, each with why. */
 const OTHER_SENSE: Record<string, string> = {
@@ -33,9 +33,7 @@ const OTHER_SENSE: Record<string, string> = {
 };
 
 /** Names waiting on a rename by the harness's owner, each with the rename. */
-const WAITING: Record<string, string> = {
-	cost: "cost to spend, AI spend's word",
-};
+const WAITING: Record<string, string> = {};
 
 const KEPT = [...Object.keys(OTHER_SENSE), ...Object.keys(WAITING)];
 

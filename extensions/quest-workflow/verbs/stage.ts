@@ -686,7 +686,7 @@ export async function workspaceKept(
 	if (!dir) return undefined;
 	const size = await measure(dir);
 	if (!size) return undefined;
-	return `Its workspace still holds ${formatSize(size)}, kept in case the quest reopens; \`cost\` with disk lists what could go across quests.`;
+	return `Its workspace still holds ${formatSize(size)}, kept in case the quest reopens; \`spend\` with disk lists what could go across quests.`;
 }
 
 export async function concludeOrRetire(

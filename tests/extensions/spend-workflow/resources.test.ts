@@ -96,7 +96,9 @@ describe("a turn's end", () => {
 		recordTurn("a.jsonl", { dir, read: () => reading(1000, 0) });
 		// A reload loads this module again, as a copy of its own.
 		vi.resetModules();
-		const copy = await import("../../../extensions/spend-workflow/resources.ts");
+		const copy = await import(
+			"../../../extensions/spend-workflow/resources.ts"
+		);
 		expect(copy.recordTurn).not.toBe(recordTurn);
 		const second = copy.recordTurn("a.jsonl", {
 			dir,

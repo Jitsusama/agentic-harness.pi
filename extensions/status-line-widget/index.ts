@@ -7,7 +7,7 @@
  *
  * Context and money read as one field, because they are one fact: cost
  * per turn is 97 percent explained by the context resident when the turn
- * runs. `cost-workflow` owns the figures and publishes them; this line
+ * runs. `spend-workflow` owns the figures and publishes them; this line
  * lays them out and decides what to drop. The brain does not paint and
  * the widget does not price.
  *
@@ -76,7 +76,7 @@ function gaugePieces(gauge: ContextGauge): Piece[] {
 	];
 }
 
-/** The latest figures cost-workflow published. */
+/** The latest figures spend-workflow published. */
 interface CostReading {
 	session: number;
 	marginal: number | null;

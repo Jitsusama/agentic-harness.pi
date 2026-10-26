@@ -28,7 +28,7 @@ it does:
   `quest-workflow`,
   `ask-workflow`, `away-workflow`, `guard-policy-workflow`,
   `result-store-workflow`,
-  `cost-workflow`, `image-budget-workflow`,
+  `spend-workflow`, `image-budget-workflow`,
   `panel-lifecycle-workflow`, `job-workflow`,
   `session-recall-workflow`, `install-check-workflow`,
   `reload-workflow`, `rollover-workflow`, `shell-workflow`,
@@ -102,7 +102,7 @@ it does:
   dimensions, and the pixels above a display's logical
   resolution are redundancy rather than information.
 
-  `cost-workflow` is the only extension here that reasons about
+  `spend-workflow` is the only extension here that reasons about
   money, deliberately: cost counted by whoever needed it
   produced five wrong answers in a row. It derives spend from
   the session logs pi already writes, so there is one writer of
