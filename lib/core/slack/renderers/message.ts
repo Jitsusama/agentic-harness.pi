@@ -6,7 +6,7 @@
  * when possible.
  */
 
-import { count } from "../../ui/count.ts";
+import { count } from "../../../ui/count.ts";
 import { cacheChannelName } from "../resolvers/conversation.ts";
 import { cacheUser, displayNameForId } from "../resolvers/user.ts";
 import type { SlackMessage, SlackTable } from "../types.ts";

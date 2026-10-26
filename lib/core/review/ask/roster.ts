@@ -12,8 +12,8 @@
  * has six reviewers.
  */
 
+import { isThinkingLevel, THINKING_LEVELS } from "../../../thinking/index.ts";
 import { whyUnusableClock, whyUnusableClocks } from "../../clock/index.ts";
-import { isThinkingLevel, THINKING_LEVELS } from "../../thinking/index.ts";
 import type { Participant, ParticipantClocks } from "./identity.ts";
 
 /** Settings a call may change for one round. */

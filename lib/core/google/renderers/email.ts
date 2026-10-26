@@ -2,7 +2,7 @@
  * Email rendering to markdown.
  */
 
-import { count } from "../../ui/count.ts";
+import { count } from "../../../ui/count.ts";
 import type { EmailMessage, EmailMessageFull } from "../types.ts";
 
 /**

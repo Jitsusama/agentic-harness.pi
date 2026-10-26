@@ -7,7 +7,7 @@
  * counted before the list rather than found in it.
  */
 
-import { count } from "../../ui/count.ts";
+import { count } from "../../../ui/count.ts";
 import type { NetworkRequest } from "./network.ts";
 
 /** Where a status stops being a success. */

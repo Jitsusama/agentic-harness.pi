@@ -15,6 +15,8 @@
 
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { parseRef, urlForRef } from "../../../refs/index.ts";
+import { displayPath } from "../../../ui/path.ts";
 import {
 	buildAliasIndex,
 	lookupAliasDetail,
@@ -28,8 +30,6 @@ import { parseQuestFrontMatter } from "../../internal/quest/frontmatter.ts";
 import { atomicWriteFile } from "../../internal/quest/io.ts";
 import { nextRank } from "../../internal/quest/ranking.ts";
 import { isSealedStatus } from "../../internal/quest/status.ts";
-import { parseRef, urlForRef } from "../../refs/index.ts";
-import { displayPath } from "../../ui/path.ts";
 import {
 	fetchUrlHints,
 	mintId,

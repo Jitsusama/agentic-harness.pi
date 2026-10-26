@@ -5,8 +5,8 @@
  * helper.
  */
 
+import { createGlobalSymbolRegistry } from "../../../internal/registry/global-symbol-registry.ts";
 import type { TreeProvider } from "../../tree/types.ts";
-import { createGlobalSymbolRegistry } from "../registry/global-symbol-registry.ts";
 
 const registry = createGlobalSymbolRegistry<TreeProvider>({
 	slot: "pi:agentic-harness:tree-providers",

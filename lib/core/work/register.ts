@@ -12,7 +12,7 @@
  * contract and no caller should have to re-sort to get it right.
  */
 
-import { createGlobalSymbolRegistry } from "../internal/registry/global-symbol-registry.ts";
+import { createGlobalSymbolRegistry } from "../../internal/registry/global-symbol-registry.ts";
 import type { TreeProvider } from "./broker.ts";
 
 const registry = createGlobalSymbolRegistry<TreeProvider>({

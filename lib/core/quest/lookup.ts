@@ -14,13 +14,13 @@
  * what's here.
  */
 
+import { urlForRef, whyRefHasNoUrl } from "../../refs/index.ts";
 import {
 	discoverQuests,
 	type QuestDocumentEntry,
 	type QuestEntry,
 	type QuestIndex,
 } from "../internal/quest/discovery.ts";
-import { urlForRef, whyRefHasNoUrl } from "../refs/index.ts";
 import {
 	type CastEntry,
 	extractCast,

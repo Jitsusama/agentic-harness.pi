@@ -12,11 +12,11 @@
  * `discoverQuests` directly, the way pi's does.
  */
 
+import { count } from "../../../ui/count.ts";
 import {
 	discoverQuests,
 	type QuestIndex,
 } from "../../internal/quest/discovery.ts";
-import { count } from "../../ui/count.ts";
 import {
 	ancestorsOf,
 	buildRowExpansion,

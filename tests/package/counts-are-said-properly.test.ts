@@ -43,13 +43,9 @@ const SHORTCUT = /[a-z]\(s\)(?=[\s:.$\\"'`]|$)/;
 const TERNARY_PLURAL = /\?\s*(""\s*:\s*"s"|"s"\s*:\s*"")/;
 
 /**
- * The files that explain the anti-pattern have to be able to write it:
- * the harness's and core's copy folded beside it, until the two are one.
+ * The file that explains the anti-pattern has to be able to write it.
  */
-const EXPLAINERS = [
-	join("lib", "ui", "count.ts"),
-	join("lib", "core", "ui", "count.ts"),
-];
+const EXPLAINERS = [join("lib", "ui", "count.ts")];
 const explainsItself = (path: string) =>
 	EXPLAINERS.some((file) => path.endsWith(file));
 

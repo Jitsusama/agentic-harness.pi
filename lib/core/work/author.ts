@@ -13,10 +13,10 @@
  * refused before it reaches a command line rather than after.
  */
 
-import { type Exec, run } from "../exec/index.ts";
 // The leaf rather than the barrel, so a working layer that never draws anything
 // does not pull the TUI in behind one string helper.
-import { displayPath } from "../ui/path.ts";
+import { displayPath } from "../../ui/path.ts";
+import { type Exec, run } from "../exec/index.ts";
 
 /** What a commit says. */
 export interface CommitMessage {

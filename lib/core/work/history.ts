@@ -8,8 +8,8 @@
  * untracked file counts as work here rather than as noise.
  */
 
+import { displayPath } from "../../ui/path.ts";
 import { type Exec, run } from "../exec/index.ts";
-import { displayPath } from "../ui/path.ts";
 import type { LocalBranch, WorktreeOnDisk } from "./tidy.ts";
 
 /** One path git reports as changed, and how. */

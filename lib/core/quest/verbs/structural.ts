@@ -6,6 +6,7 @@
  */
 
 import { appendJourneyByPath } from "../../../internal/quest/append-journey.ts";
+import { count, verb } from "../../../ui/count.ts";
 import {
 	discoverQuests,
 	siblingRanks,
@@ -23,7 +24,6 @@ import {
 	lastStructuralOp,
 	recordStructuralOp,
 } from "../../internal/quest/structural-journal.ts";
-import { count, verb } from "../../ui/count.ts";
 import type { QuestFrontMatter } from "../index.ts";
 import {
 	sealQuestDocuments,

@@ -16,7 +16,7 @@
  * trade, given what a round costs to run.
  */
 
-import { count } from "../../ui/count.ts";
+import { count } from "../../../ui/count.ts";
 import type { Finding } from "../finding.ts";
 import { alsoRecorded, type Harvest, harvestFindings } from "./harvest.ts";
 import { type Participant, participantIdentity } from "./identity.ts";

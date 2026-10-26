@@ -12,7 +12,7 @@
  * can disagree, and only one of them is the evidence.
  */
 
-import { count } from "../../ui/count.ts";
+import { count } from "../../../ui/count.ts";
 import type { AskStop } from "./council.ts";
 import type { ParticipantIdentity } from "./identity.ts";
 import type { GuidanceState } from "./prompt.ts";
