@@ -200,7 +200,13 @@ minutes after it was last handed over, with a turn, at most
 twice and within the hour. The peer that asked it of named
 addresses is told once, on screen and in a note, which of them
 hasn't answered after five minutes. Both are kept in memory, so
-a reload starts them again ([`lib/mesh/owed.ts`](../../lib/mesh/owed.ts)). Any other fyi more than an hour old when it
+a reload starts them again ([`lib/mesh/owed.ts`](../../lib/mesh/owed.ts)).
+`mesh_read` with `unanswered` lists every question on the mesh,
+from any peer, still waiting on a peer it named in the last three
+hours, oldest first with its age, and says which of those peers
+have gone ([`lib/mesh/unanswered.ts`](../../lib/mesh/unanswered.ts)).
+
+An fyi other than an awaited answer, more than an hour old when it
 reaches a peer, as after a reload, is a glance wherever it
 went, since what it told has moved on (Skynet's register gives
 an fyi an hour). So is a hold more than two hours old, the
