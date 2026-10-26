@@ -218,6 +218,9 @@ async function seatFor(
 export function registerAskTool(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "review_ask",
+		// Called in 16 of 70 sessions from 18 October, and the review-guide
+		// skill names it, so it loads when that is read.
+		exposure: "deferred",
 		label: "Review Ask",
 		description:
 			"Put a change to other models and keep what they say: a council of reviewers reading it independently, a judge consolidating what they found, the rounds already run, and a retry of one participant whose run failed. Produces findings; read them with review_see findings and decide them with review_draft decide.",

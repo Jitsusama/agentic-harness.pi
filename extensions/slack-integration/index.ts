@@ -256,6 +256,9 @@ export default function slackIntegration(pi: ExtensionAPI) {
 
 	pi.registerTool({
 		name: "slack",
+		// Called in 23 of 66 sessions from 18 October, and the slack-guide
+		// skill names it, so it loads when that is read.
+		exposure: "deferred",
 		label: "Slack",
 		description:
 			"Access Slack: search messages, read threads, send messages, " +

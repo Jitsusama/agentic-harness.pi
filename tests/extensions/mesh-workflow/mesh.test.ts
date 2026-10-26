@@ -2109,6 +2109,30 @@ describe("a message that names no group", () => {
 		expect(told?.text).toContain("(The Plan)");
 	});
 
+	it("tells an orchestrator nothing once it has stopped this peer", async () => {
+		onQuest();
+		writeFileSync(
+			join(paths.quests, "QEST-20261021-5GV2AH", "README.md"),
+			"---\nid: QEST-20261021-5GV2AH\nkind: quest\nparent: null\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\norchestrator: true\n---\n# QEST-20261021-5GV2AH\n",
+		);
+		createPresences(join(paths.mesh, "presence")).publish({
+			session: "session-o",
+			addresses: ["5GV2AH"],
+			groups: ["#orchestration/5gv2ah"],
+			stops: [{ address: "7M6JKG", at: new Date().toISOString() }],
+			worksOn: "",
+			owns: [],
+			busy: false,
+			at: new Date().toISOString(),
+		});
+		const { emit } = await startSession();
+		const transport = folderTransport(join(paths.mesh, "messages"));
+
+		emit(QUEST_CONCLUDED, { how: "concluded", ids: ["X"], said: "Done." });
+
+		expect(transport.ids()).toEqual([]);
+	});
+
 	it("tells nobody of an ending when no orchestrator is above the quest", async () => {
 		onQuest();
 		const { emit } = await startSession();

@@ -214,6 +214,8 @@ export default function memoryIntegration(pi: ExtensionAPI) {
 
 	pi.registerTool({
 		name: "memory_edit",
+		// Called in 15 of 66 sessions from 18 October: loaded on demand.
+		exposure: "deferred",
 		label: "Edit Memory",
 		description:
 			"Amend a fact's text or tags, or invalidate it when it is wrong or " +

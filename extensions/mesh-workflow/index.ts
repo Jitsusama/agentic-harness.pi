@@ -1274,7 +1274,12 @@ export function meshWorkflow(
 		// not from whether the session remembers to say so.
 		if (pi.events) {
 			onConcluded(pi.events, (event) => {
-				const message = tellOrchestrator(peer, transport, event);
+				const message = tellOrchestrator(
+					peer,
+					transport,
+					event,
+					presences.all(),
+				);
 				if (message) seen.add(message.id);
 			});
 		}
