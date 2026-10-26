@@ -10,6 +10,7 @@ import {
 	cameIn,
 	dependenciesReady,
 	headOf,
+	INSTALL_GRACE_MS,
 	type Moved,
 	watchHeads,
 	whenToReload,
@@ -69,6 +70,46 @@ describe("dependenciesReady", () => {
 		expect(dependenciesReady(dir)).toBe(true);
 	});
 
+	it("waits for an install that follows the move, though the lockfile stayed", async () => {
+		// pi installs after every update, and pnpm takes the packages away
+		// while it does: on 26 October sessions reloading then lost 15.
+		const dir = await repo();
+		writeFileSync(join(dir, "pnpm-lock.yaml"), "lock\n");
+		mkdirSync(join(dir, "node_modules"));
+		const installed = join(dir, "node_modules", ".modules.yaml");
+		writeFileSync(installed, "x\n");
+		utimesSync(join(dir, "pnpm-lock.yaml"), 1_000, 1_000);
+		utimesSync(installed, 2_000, 2_000);
+		const movedAt = 5_000_000;
+		expect(dependenciesReady(dir, movedAt, movedAt + 1_000)).toBe(false);
+		utimesSync(installed, 5_020, 5_020);
+		expect(dependenciesReady(dir, movedAt, movedAt + 21_000)).toBe(true);
+	});
+
+	it("takes a move nothing installed after as done once the grace has passed", async () => {
+		const dir = await repo();
+		writeFileSync(join(dir, "pnpm-lock.yaml"), "lock\n");
+		mkdirSync(join(dir, "node_modules"));
+		const installed = join(dir, "node_modules", ".modules.yaml");
+		writeFileSync(installed, "x\n");
+		utimesSync(join(dir, "pnpm-lock.yaml"), 1_000, 1_000);
+		utimesSync(installed, 2_000, 2_000);
+		const movedAt = 5_000_000;
+		expect(
+			dependenciesReady(dir, movedAt, movedAt + INSTALL_GRACE_MS - 1),
+		).toBe(false);
+		expect(dependenciesReady(dir, movedAt, movedAt + INSTALL_GRACE_MS)).toBe(
+			true,
+		);
+	});
+
+	it("waits while no install has finished", async () => {
+		const dir = await repo();
+		writeFileSync(join(dir, "pnpm-lock.yaml"), "lock\n");
+		mkdirSync(join(dir, "node_modules"));
+		expect(dependenciesReady(dir)).toBe(false);
+	});
+
 	it("has nothing to wait for without a lockfile", async () => {
 		expect(dependenciesReady(await repo())).toBe(true);
 	});
@@ -114,12 +155,20 @@ describe("watchHeads", () => {
 		const seen: Moved[] = [];
 		stops.push(await watchHeads([dir], (moved) => seen.push(moved), burstMs));
 
+		const before = Date.now();
 		await commit(dir, "one");
 		await commit(dir, "two");
 		await until("the move is said", () => seen.length > 0, 20_000);
+		const after = Date.now();
 		await quietFor(burstMs, 2);
 
-		expect(seen).toEqual([{ root: dir, from, to: await headOf(dir) }]);
+		expect(seen).toEqual([
+			{ root: dir, from, to: await headOf(dir), at: expect.any(Number) },
+		]);
+		// When it moved is when the burst ended, not when it was said.
+		const at = seen[0]?.at ?? 0;
+		expect(at).toBeGreaterThanOrEqual(before - burstMs);
+		expect(at).toBeLessThanOrEqual(after - burstMs);
 	}, 30_000);
 
 	// pi reuses the loaded code when a rollover replaces the session, so

@@ -18,6 +18,11 @@ from git:
   so a merged fix sits on disk while the session runs the version
   before it. A month of compaction improvements reached 2 live
   compactions in 957 this way.
+- **An install is not a build.** pnpm 10 skips a dependency's build
+  script unless the package allows it, so a native module installs
+  without its binding and fails only when imported. On 26 October
+  sqlite3 went unbuilt after pi's update, and the memory and
+  observability extensions failed in every session that reloaded.
 
 ## What It Says
 
@@ -26,6 +31,8 @@ from git:
     in `package.json`, or that is missing, with the install command
     to run (`pnpm install` beside a pnpm lockfile, otherwise
     `npm install --omit=dev`) and a reminder to `/reload`;
+  - any dependency whose build pnpm recorded as skipped, with the
+    `pnpm rebuild` to run;
   - how many commits the checkout is behind its upstream, as of the
     last fetch. A fetch from any worktree updates the shared refs, so
     this catches a live checkout left behind its siblings.
@@ -36,6 +43,10 @@ from git:
 Each notice is said once a process, and only in a session with a UI.
 
 ## How It Works
+
+The skipped builds are read from pnpm's own record of the install,
+`node_modules/.modules.yaml`, in `lib/internal/install/builds.ts`;
+`pnpm load-check` fails on them too.
 
 The range check is pure and lives in `lib/internal/install/drift.ts`.
 It reads the shapes this package writes (caret, tilde, exact, `>=`

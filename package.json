@@ -61,7 +61,10 @@
 			"@earendil-works/pi-telemetry": "1.4.0",
 			"@earendil-works/pi-tui": "1.4.0",
 			"google-auth-library": "10.9.0"
-		}
+		},
+		"onlyBuiltDependencies": [
+			"sqlite3"
+		]
 	},
 	"pi": {
 		"extensions": [

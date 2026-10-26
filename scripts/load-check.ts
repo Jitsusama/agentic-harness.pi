@@ -17,6 +17,10 @@
  *
  *   node scripts/load-check.ts [--production] [package-root]
  *
+ * A native module whose build pnpm skipped loads nothing until it is
+ * imported, which may be long after load, so either way the check also
+ * fails when the install skipped a build.
+ *
  * Exits 0 when every extension loads, 1 when any does not.
  */
 
@@ -30,6 +34,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { packageName, skippedBuilds } from "../lib/internal/install/builds.ts";
 import { checkLoad, describeLoad } from "../lib/internal/reload/load-check.ts";
 
 /** What pi runs to install a git package's dependencies under pnpm. */
@@ -77,6 +82,17 @@ function copyCheckout(from: string, to: string): void {
 	}
 }
 
+/** Says which builds the install in `root` skipped; true when none. */
+function builtAll(root: string): boolean {
+	const skipped = skippedBuilds(root);
+	if (skipped.length === 0) return true;
+	const names = skipped.map(packageName);
+	console.log(
+		`The install skipped building ${skipped.join(", ")}. Allow ${names.join(", ")} in package.json's pnpm.onlyBuiltDependencies.`,
+	);
+	return false;
+}
+
 async function main(): Promise<number> {
 	const args = process.argv.slice(2);
 	const production = args.includes("--production");
@@ -86,7 +102,7 @@ async function main(): Promise<number> {
 	if (!production) {
 		const report = await checkLoad(pi, root);
 		console.log(describeLoad(report, root));
-		return report.ok ? 0 : 1;
+		return builtAll(root) && report.ok ? 0 : 1;
 	}
 
 	const scratch = mkdtempSync(join(tmpdir(), "load-check-"));
@@ -96,7 +112,7 @@ async function main(): Promise<number> {
 		execFileSync("pnpm", PI_GIT_INSTALL, { cwd: scratch, stdio: "inherit" });
 		const report = await checkLoad(pi, scratch);
 		console.log(describeLoad(report, "The production install"));
-		return report.ok ? 0 : 1;
+		return builtAll(scratch) && report.ok ? 0 : 1;
 	} finally {
 		rmSync(scratch, { recursive: true, force: true });
 	}
