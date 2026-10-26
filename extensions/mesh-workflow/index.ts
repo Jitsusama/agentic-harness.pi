@@ -42,7 +42,6 @@ import {
 	isToolCallEventType,
 	type ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
-import { ownerNow } from "@jitsusama/agentic-harness.core/process";
 import {
 	type FoundClassifier,
 	findClassifier,
@@ -91,7 +90,11 @@ import {
 	ownLeases,
 	RUN_KINDS,
 } from "../../lib/mesh/lease.ts";
-import { census, machineBooted } from "../../lib/mesh/liveness.ts";
+import {
+	census,
+	machineBooted,
+	peerOwnerNow,
+} from "../../lib/mesh/liveness.ts";
 import {
 	asksEach,
 	clock,
@@ -972,7 +975,7 @@ export function meshWorkflow(
 			// Named on its presence so others can ask the machine whether this
 			// peer is still there; a peer the machine will not name is taken
 			// as there, which only costs a sender a line.
-			const owner = await ownerNow().catch(() => undefined);
+			const owner = await peerOwnerNow().catch(() => undefined);
 			const branch = (started.sessionManager.getBranch?.() ??
 				[]) as readonly Entry[];
 			const session = started.sessionManager.getSessionId();

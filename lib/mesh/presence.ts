@@ -38,6 +38,13 @@ import { type Stop, stopsFrom } from "./stop.ts";
 import { removeQuietly, removeStaged } from "./transport.ts";
 import { type Want, wantFrom } from "./want.ts";
 
+/**
+ * The process holding a presence: core's account of it, and its start
+ * in the kernel's ticks since boot where the machine keeps them, which
+ * a suspend never moves (see liveness.ts).
+ */
+export type PeerOwner = Owner & { readonly startTicks?: number };
+
 /** One peer, as it is seen on the mesh. */
 export interface Presence {
 	/** The pi session id, which outlives the process. */
@@ -69,7 +76,7 @@ export interface Presence {
 	 */
 	readonly wants?: Want;
 	/** The process holding it, when the machine would say. */
-	readonly owner?: Owner;
+	readonly owner?: PeerOwner;
 	/**
 	 * The terminal window title pi gives its session, exactly, so the
 	 * desktop can tell which window is this peer's without parsing it
@@ -343,6 +350,15 @@ export function createPresences(dir: string): Presences {
 	};
 }
 
+/** The owner a presence names, its ticks kept only when they are a count. */
+function peerOwnerFrom(owner: Owner): PeerOwner {
+	if (!("startTicks" in owner)) return owner;
+	const { startTicks, ...rest } = owner;
+	return typeof startTicks === "number" && Number.isSafeInteger(startTicks)
+		? { ...rest, startTicks }
+		: rest;
+}
+
 function read(path: string): Presence | undefined {
 	try {
 		return presenceFrom(JSON.parse(readFileSync(path, "utf8")));
@@ -374,7 +390,7 @@ function presenceFrom(value: unknown): Presence | undefined {
 		owns: strings(one.owns) ? one.owns : [],
 		busy: one.busy === true,
 		...(wantFrom(one.wants) ? { wants: wantFrom(one.wants) } : {}),
-		...(isOwner(one.owner) ? { owner: one.owner } : {}),
+		...(isOwner(one.owner) ? { owner: peerOwnerFrom(one.owner) } : {}),
 		...(typeof one.title === "string" ? { title: one.title } : {}),
 		...(typeof one.orchestratedBy === "string"
 			? { orchestratedBy: one.orchestratedBy }
