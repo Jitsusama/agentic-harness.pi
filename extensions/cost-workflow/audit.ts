@@ -71,7 +71,8 @@ export const NO_MATCH = "No matching tools found.";
  */
 const DECLARE_SHARE = 0.25;
 
-type Row = Readonly<Record<string, unknown>>;
+/** One row a ledger query answers. */
+export type Row = Readonly<Record<string, unknown>>;
 
 const num = (value: unknown) => (typeof value === "number" ? value : 0);
 const dollars = (value: number) =>
