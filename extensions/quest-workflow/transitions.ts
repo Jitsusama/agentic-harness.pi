@@ -234,11 +234,11 @@ async function dispatch(
 		case "demote":
 			return priorityShift(state, "down", params);
 		case "drive":
-			return priorityJump(state, "driving" as QuestPriority);
+			return priorityJump(state, "driving" as QuestPriority, params);
 		case "park":
-			return priorityJump(state, "bench" as QuestPriority);
+			return priorityJump(state, "bench" as QuestPriority, params);
 		case "defer":
-			return priorityJump(state, "someday" as QuestPriority);
+			return priorityJump(state, "someday" as QuestPriority, params);
 		case "reclassify":
 			return reclassify(state, params);
 		case "tree":

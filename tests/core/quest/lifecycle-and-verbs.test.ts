@@ -172,6 +172,68 @@ describe("reorder / priority verbs", () => {
 		expect(shifted.ok).toBe(true);
 		expect(state.questPriority).toBe("active");
 	});
+
+	it("moves the quest its id names, leaving the loaded one where it is", () => {
+		// park with another quest's id once benched the loaded quest.
+		const state = buildState();
+		const loaded = seedQuest(state.questsRoot, "Loaded", {
+			priority: "driving",
+		});
+		const other = seedQuest(state.questsRoot, "Other", { priority: "driving" });
+		loadIntoState(state, loaded);
+
+		expect(
+			priorityJump(state, "bench", { action: "park", id: other.id }).ok,
+		).toBe(true);
+		expect(
+			priorityShift(state, "down", { action: "demote", id: other.id }).ok,
+		).toBe(true);
+
+		expect(findQuestEntry(state, other.id)?.doc.frontMatter.priority).toBe(
+			"someday",
+		);
+		expect(findQuestEntry(state, loaded.id)?.doc.frontMatter.priority).toBe(
+			"driving",
+		);
+		expect(state.questPriority).toBe("driving");
+	});
+
+	it("refuses an id that names no quest", () => {
+		const state = buildState();
+		const loaded = seedQuest(state.questsRoot, "Loaded", {
+			priority: "driving",
+		});
+		loadIntoState(state, loaded);
+
+		const parked = priorityJump(state, "bench", {
+			action: "park",
+			id: "QEST-20261026-NOSUCH",
+		});
+
+		expect(parked.ok).toBe(false);
+		expect(findQuestEntry(state, loaded.id)?.doc.frontMatter.priority).toBe(
+			"driving",
+		);
+	});
+
+	it("puts a move back on undo, its priority and its rank", () => {
+		const state = buildState();
+		const loaded = seedQuest(state.questsRoot, "Loaded");
+		const other = seedQuest(state.questsRoot, "Other", {
+			priority: "driving",
+			rank: 3,
+		});
+		seedQuest(state.questsRoot, "Benched", { priority: "bench", rank: 1 });
+		loadIntoState(state, loaded);
+		priorityJump(state, "bench", { action: "park", id: other.id });
+		expect(findQuestEntry(state, other.id)?.doc.frontMatter.rank).toBe(2);
+
+		expect(undo(state).ok).toBe(true);
+
+		const back = findQuestEntry(state, other.id)?.doc.frontMatter;
+		expect(back?.priority).toBe("driving");
+		expect(back?.rank).toBe(3);
+	});
 });
 
 describe("reparent / undo", () => {

@@ -640,9 +640,9 @@ export function setQuestStatusByDir(
 }
 
 /**
- * Set a quest's priority by directory (the by-id counterpart to
- * `setLoadedPriority`). Used by the bulk seal cascade and by undo
- * when it reverses a journalled priority change.
+ * Set a quest's priority by directory. Used by the priority verbs,
+ * the bulk seal cascade, and undo when it reverses a journalled
+ * priority change.
  */
 export function setQuestPriorityByDir(
 	questDir: string,
@@ -937,38 +937,6 @@ export function detachSessionInQuestDir(
 	return { ok: true, detached };
 }
 
-const PRIORITY_ORDER: QuestPriority[] = [
-	"driving",
-	"active",
-	"queued",
-	"bench",
-	"someday",
-];
-
-/** Set the loaded quest's priority bucket. */
-export function setLoadedPriority(
-	state: QuestState,
-	priority: QuestPriority,
-): { ok: true; changed: boolean } | { ok: false; guidance: string } {
-	if (!state.questDir) return { ok: false, guidance: "Load a quest first." };
-	let changed = false;
-	const result = writeQuestFrontMatter(state.questDir, (fm) => {
-		if (fm.priority === priority) return undefined;
-		changed = true;
-		// Append to the end of the destination bucket rather than
-		// colliding at rank 1: take the next free rank in the target
-		// (parent, priority) group, excluding the quest being moved.
-		const { index } = discoverQuests(state.questsRoot);
-		const destRanks = siblingRanks(index, fm.parent ?? null, priority, fm.id);
-		return { ...fm, priority, rank: nextRank(destRanks) };
-	});
-	if (!result.ok) return result;
-	if (changed) {
-		state.questPriority = priority;
-	}
-	return { ok: true, changed };
-}
-
 /**
  * Change the loaded quest's kind. A subquest needs a parent to rank
  * within, so refuse the move to subquest when the quest has none.
@@ -994,29 +962,6 @@ export function setLoadedKind(
 	if (refusal) return { ok: false, guidance: refusal };
 	if (!result.ok) return result;
 	return { ok: true, changed };
-}
-
-/** Shift the loaded quest one bucket up or down the priority ladder. */
-export function bumpLoadedPriority(
-	state: QuestState,
-	direction: "up" | "down",
-):
-	| { ok: true; from: QuestPriority; to: QuestPriority }
-	| { ok: false; guidance: string } {
-	if (!state.questDir || !state.questPriority) {
-		return { ok: false, guidance: "Load a quest first." };
-	}
-	const i = PRIORITY_ORDER.indexOf(state.questPriority);
-	if (i < 0)
-		return { ok: false, guidance: "Unknown priority on the loaded quest." };
-	const step = direction === "up" ? -1 : 1;
-	const j = Math.min(PRIORITY_ORDER.length - 1, Math.max(0, i + step));
-	const next = PRIORITY_ORDER[j];
-	const from = state.questPriority;
-	if (next === from) return { ok: true, from, to: from };
-	const result = setLoadedPriority(state, next);
-	if (!result.ok) return result;
-	return { ok: true, from, to: next };
 }
 
 /** Set the loaded quest's coarse status enum. */

@@ -5,14 +5,21 @@
  * (cross-bucket priority moves).
  */
 
+import { appendJourneyByPath } from "../../../internal/quest/append-journey.ts";
+import {
+	discoverQuests,
+	siblingRanks,
+} from "../../../internal/quest/discovery.ts";
+import { nextRank } from "../../../internal/quest/ranking.ts";
+import { isSealedStatus } from "../../../internal/quest/status.ts";
+import { recordStructuralOp } from "../../../internal/quest/structural-journal.ts";
 import type { QuestPriority } from "../../../quest/index.ts";
 import { count } from "../../../ui/count.ts";
 import {
-	appendJourneyEntry,
-	bumpLoadedPriority,
 	type RankAction,
 	reorderSiblings,
-	setLoadedPriority,
+	setQuestPriorityByDir,
+	setQuestRankByDir,
 } from "../lifecycle.ts";
 import type { QuestState } from "../state.ts";
 import {
@@ -68,13 +75,77 @@ export function reorder(
 	);
 }
 
-/** Shift the loaded quest one priority bucket up or down. */
+/** The priority buckets, from the most pressing to the least. */
+const LADDER: readonly QuestPriority[] = [
+	"driving",
+	"active",
+	"queued",
+	"bench",
+	"someday",
+];
+
+/**
+ * Move the quest `params.id` names, or the loaded one, to the bucket
+ * `target` picks from where it is: at the end of that bucket, written
+ * in its Journey, and recorded so `undo` puts priority and rank back.
+ * An id that names no quest is refused, never read as the loaded one.
+ */
+function movePriority(
+	state: QuestState,
+	op: string,
+	params: QuestToolParams | undefined,
+	target: (from: QuestPriority) => QuestPriority,
+): QuestResult {
+	const questId = params?.id ?? state.questId;
+	if (!questId) {
+		return refuse("Load a quest first or pass the quest id in `id`.");
+	}
+	const { index } = discoverQuests(state.questsRoot);
+	const entry = index.quests.get(questId);
+	if (!entry) {
+		return refuse(`No quest with id "${questId}" under ${state.questsRoot}.`);
+	}
+	const fm = entry.doc.frontMatter;
+	if (isSealedStatus(fm.status)) {
+		return refuse(
+			`Quest "${questId}" is ${fm.status}; reopen it before moving its priority.`,
+		);
+	}
+	const from = fm.priority;
+	const to = target(from);
+	if (to === from) {
+		return ok(`Quest ${questId} is already ${to}.`, { from, to });
+	}
+	// The end of the destination bucket, rather than colliding at rank 1.
+	const rank = nextRank(siblingRanks(index, fm.parent ?? null, to, questId));
+	const moved = setQuestPriorityByDir(entry.dir, to);
+	if (!moved.ok) return refuse(moved.guidance);
+	const ranked = setQuestRankByDir(entry.dir, rank);
+	const changes = [
+		{ id: questId, field: "priority" as const, old: from, new: to },
+		...(ranked.ok
+			? [
+					{
+						id: questId,
+						field: "rank" as const,
+						old: String(fm.rank),
+						new: String(rank),
+					},
+				]
+			: []),
+	];
+	recordStructuralOp(state.questsRoot, op, changes);
+	if (questId === state.questId) state.questPriority = to;
+	appendJourneyByPath(entry.dir, `Moved from ${from} to ${to}.`);
+	return ok(`Quest ${questId} is now ${to} (was ${from}).`, { from, to });
+}
+
+/** Shift a quest one priority bucket up or down: the one named, or the loaded one. */
 export function priorityShift(
 	state: QuestState,
 	direction: "up" | "down",
 	params?: QuestToolParams,
 ): QuestResult {
-	if (!state.questId) return refuse("Load a quest first.");
 	// promote and demote are relative one-tier moves; a supplied
 	// priority is ambiguous, so refuse rather than silently ignore it.
 	// To land in a specific bucket, use drive, park or defer.
@@ -83,38 +154,19 @@ export function priorityShift(
 			`${direction === "up" ? "promote" : "demote"} moves one tier relative and takes no \`priority\`. Use drive, park or defer to jump to a specific bucket.`,
 		);
 	}
-	const result = bumpLoadedPriority(state, direction);
-	if (!result.ok) return refuse(result.guidance);
-	if (result.from === result.to) {
-		return ok(
-			direction === "up"
-				? `Already at the top of the priority ladder (${result.from}).`
-				: `Already at the bottom of the priority ladder (${result.from}).`,
-			{ from: result.from, to: result.to },
-		);
-	}
-	appendJourneyEntry(state, `Moved from ${result.from} to ${result.to}.`);
-	return ok(
-		`Quest ${state.questId} is now ${result.to} (was ${result.from}).`,
-		{
-			from: result.from,
-			to: result.to,
-		},
-	);
+	const op = direction === "up" ? "promote" : "demote";
+	return movePriority(state, op, params, (from) => {
+		const at = LADDER.indexOf(from);
+		const step = direction === "up" ? -1 : 1;
+		return LADDER[Math.min(LADDER.length - 1, Math.max(0, at + step))] ?? from;
+	});
 }
 
-/** Jump the loaded quest directly to a named priority bucket. */
+/** Jump a quest straight to a named priority bucket: the one named, or the loaded one. */
 export function priorityJump(
 	state: QuestState,
 	to: QuestPriority,
+	params?: QuestToolParams,
 ): QuestResult {
-	if (!state.questId) return refuse("Load a quest first.");
-	const from = state.questPriority ?? "active";
-	const result = setLoadedPriority(state, to);
-	if (!result.ok) return refuse(result.guidance);
-	if (!result.changed) {
-		return ok(`Quest ${state.questId} is already ${to}.`, { from, to });
-	}
-	appendJourneyEntry(state, `Moved from ${from} to ${to}.`);
-	return ok(`Quest ${state.questId} is now ${to} (was ${from}).`, { from, to });
+	return movePriority(state, `move to ${to}`, params, () => to);
 }
