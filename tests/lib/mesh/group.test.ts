@@ -18,7 +18,9 @@ describe("a group's name", () => {
 		expect(groupNamed("@P9R1KI")).toBe("@P9R1KI");
 	});
 
-	it("is the machine's for all, #all and #global", () => {
+	it("is the machine's for #machine, all, #all and #global", () => {
+		expect(groupNamed("#machine")).toBe(ALL);
+		expect(groupNamed("machine")).toBe(ALL);
 		expect(groupNamed("all")).toBe(ALL);
 		expect(groupNamed("#all")).toBe(ALL);
 		expect(groupNamed("#global")).toBe(ALL);

@@ -90,7 +90,12 @@ describe("a quest put first in the queue", () => {
 
 		const readme = readFileSync(join(dirname(lab.path), "README.md"), "utf8");
 		expect(readme).toMatch(/^queue: first$/m);
-		expect(readme).toContain("Put first in the machine's queue");
+		expect(
+			readFileSync(
+				join(dirname(lab.path), "attachments", "journey.md"),
+				"utf8",
+			),
+		).toContain("Put first in the machine's queue");
 		expect(first()).toEqual([lab.id]);
 		expect(s.questId).toBe(other.id);
 

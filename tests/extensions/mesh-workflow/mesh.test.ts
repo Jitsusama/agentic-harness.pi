@@ -175,6 +175,8 @@ async function startSession(
 				getSessionId: () => session,
 				getSessionFile: () => join(root, `${session}.jsonl`),
 				getBranch: () => branch,
+				getSessionName: () => undefined,
+				getCwd: () => root,
 			},
 			...ctx,
 		},
@@ -417,7 +419,7 @@ describe("a message as context", () => {
 		const { sent, tools } = await startSession();
 
 		fromElsewhere({ to: ["@OVAE1I"], text: "not for you" });
-		await send(tools, "all", "fyi", "from me");
+		await send(tools, "#optimus", "fyi", "from me");
 		fromElsewhere({ to: ["@7M6JKG"], text: "for you" });
 
 		await vi.waitFor(() => expect(sent).toHaveLength(1));
@@ -833,7 +835,7 @@ describe("an answer", () => {
 	it("to this peer's own message gets a turn, wherever it went", async () => {
 		const { sent, tools } = await startSession({}, { isIdle: () => true });
 		peer("session-w", ["WCJQSG"], []);
-		await send(tools, "all", "question", "who has qemu?");
+		await send(tools, "#optimus", "question", "who has qemu?");
 		const [asked = ""] = folderTransport(join(paths.mesh, "messages")).ids();
 
 		fromElsewhere({ intent: "question", re: asked, text: "which version?" });
@@ -846,7 +848,7 @@ describe("an answer", () => {
 	it("to this peer's question gets a turn however it was sent, whatever the hour spent", async () => {
 		const { sent, tools } = await startSession({}, { isIdle: () => true });
 		peer("session-w", ["WCJQSG"], []);
-		await send(tools, "all", "question", "who has qemu?");
+		await send(tools, "#optimus", "question", "who has qemu?");
 		const [asked = ""] = folderTransport(join(paths.mesh, "messages")).ids();
 		for (let one = 1; one <= MOST_TURNS_FROM_ONE; one += 1) {
 			fromElsewhere({
@@ -926,9 +928,9 @@ describe("an answer", () => {
 	});
 
 	it("stands under this peer's question as it is read back", async () => {
-		peer("session-p", ["P9R1KI"], []);
+		peer("session-p", ["P9R1KI"], ["#optimus"]);
 		const { tools } = await startSession();
-		await send(tools, "all", "question", "who has qemu?");
+		await send(tools, "#optimus", "question", "who has qemu?");
 		const [asked = ""] = folderTransport(join(paths.mesh, "messages")).ids();
 		const readBack = async () =>
 			(await tools.get("mesh_read")?.execute("call-2", {}))?.content[0]?.text ??
@@ -1249,7 +1251,7 @@ describe("sending", () => {
 	it("signs with the quest the session has loaded, and the mesh stamps it", async () => {
 		const { tools } = await startSession();
 
-		const answer = await send(tools, "p9r1ki, all", "fyi", "hello");
+		const answer = await send(tools, "p9r1ki, #optimus", "fyi", "hello");
 
 		expect(answer).toContain("Sent as 7M6JKG");
 		const transport = folderTransport(join(paths.mesh, "messages"));
@@ -1257,7 +1259,7 @@ describe("sending", () => {
 		expect(id && transport.read(id)).toMatchObject({
 			v: 1,
 			from: "7M6JKG",
-			to: ["@P9R1KI", ALL],
+			to: ["@P9R1KI", "#optimus"],
 			text: "hello",
 			intent: "fyi",
 			pid: process.pid,
@@ -1363,7 +1365,7 @@ describe("sending", () => {
 		peer("session-s", ["5GV2AH", "7M6JKG"], []);
 		const { tools } = await startSession();
 
-		const answer = await send(tools, "all", "finding", "installed");
+		const answer = await send(tools, "all", "hold", "installing");
 
 		expect(answer).toContain("It goes to 5GV2AH;");
 	});
@@ -1603,7 +1605,7 @@ describe("groups", () => {
 
 		const text = listed?.content[0]?.text ?? "";
 		expect(text).toContain(
-			"This peer has joined #harness; it is also in its home group and #all.",
+			"This peer has joined #harness; it is also in its home group and #machine.",
 		);
 		expect(text).toContain("#harness: 7M6JKG");
 		expect(text).toContain("#optimus/power: P9R1KI");
@@ -1929,6 +1931,8 @@ describe("a rollover", () => {
 			{
 				sessionManager: {
 					getSessionId: () => fresh,
+					getSessionName: () => undefined,
+					getCwd: () => root,
 					getSessionFile: () => join(root, `${fresh}.jsonl`),
 					getBranch: () => [
 						{
@@ -2021,10 +2025,18 @@ describe("a message that names no group", () => {
 			judging(undefined, [], picking("g1", 0.5)),
 		);
 
-		const sent = await unaddressed(tools, "fyi", "Going to lunch.");
+		const sent = await unaddressed(tools, "hold", "Rebooting soon.");
 
 		expect(sent.to).toEqual([ALL]);
-		expect(sent.text).toContain("no other peer is on this peer's work");
+		expect(sent.text).toContain("a hold that names nowhere");
+		// Anything else the rule would send to the whole machine has
+		// nowhere to go from a peer with no work, and is refused.
+		const told = await tools
+			.get("mesh_send")
+			?.execute("call-2", { intent: "fyi", text: "Going to lunch." });
+		expect(told?.content[0]?.text).toContain(
+			"Not sent: #machine takes only holds",
+		);
 	});
 
 	it("holds the whole machine when it is a hold, and its work's groups otherwise", async () => {
@@ -2042,6 +2054,40 @@ describe("a message that names no group", () => {
 		expect(said?.content[0]?.text).toContain(
 			"It named no group, so it goes to #quest/5gv2ah/7m6jkg:",
 		);
+	});
+
+	it("keeps the machine's group for holds and the answers that end them", async () => {
+		onQuest();
+		peer("session-q", ["5GV2AH"], ["#quest/5gv2ah/7m6jkg", "#harness"]);
+		const { tools } = await startSession();
+		const transport = folderTransport(join(paths.mesh, "messages"));
+		const last = () => transport.read(transport.ids().at(-1) ?? "");
+
+		const refused = await send(tools, "#machine", "fyi", "Going to lunch.");
+		expect(refused).toContain("Not sent: #machine takes only holds");
+		expect(refused).toContain("#quest/5gv2ah/7m6jkg");
+		expect(transport.ids()).toEqual([]);
+
+		const narrowed = await send(
+			tools,
+			"#all, #harness",
+			"question",
+			"Who has the stick?",
+		);
+		expect(last()?.to).toEqual(["#harness"]);
+		expect(narrowed).toContain("Not written to #machine");
+
+		await send(tools, "#machine", "hold", "Rebooting in ten minutes.");
+		const hold = last();
+		expect(hold?.to).toEqual([ALL]);
+		const over = await tools.get("mesh_send")?.execute("call-9", {
+			to: "#machine",
+			intent: "fyi",
+			text: "The reboot is done.",
+			re: hold?.id.slice(-8),
+		});
+		expect(over?.content[0]?.text).not.toContain("Not sent");
+		expect(last()?.to).toEqual([ALL]);
 	});
 
 	it("leaves out what cannot be a group, and goes on without it", async () => {
@@ -2232,7 +2278,7 @@ describe("a stop", () => {
 		peer("session-w", ["WCJQSG"], []);
 		const { tools } = await startSession();
 
-		const answer = await send(tools, "all", "fyi", "done here");
+		const answer = await send(tools, "all", "hold", "hold here");
 
 		expect(answer).toContain(
 			"P9R1KI stopped this peer, so it sees this as one line and no more.",
@@ -2957,6 +3003,8 @@ describe("a pi that keeps no session", () => {
 			{
 				sessionManager: {
 					getSessionId: () => session,
+					getSessionName: () => undefined,
+					getCwd: () => root,
 					getSessionFile: () => undefined,
 				},
 			},

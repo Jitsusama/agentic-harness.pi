@@ -15,6 +15,8 @@ import {
 	hears,
 	homeOf,
 	isJoinable,
+	MACHINE,
+	machineTakes,
 } from "../../lib/mesh/group.ts";
 import { type Board, isCurrent, othersOn } from "../../lib/mesh/lease.ts";
 import { type Census, census } from "../../lib/mesh/liveness.ts";
@@ -102,7 +104,7 @@ export function registerTools(
 		promptSnippet:
 			"Message the other pi sessions on this machine; mesh_read, mesh_groups, mesh_join, mesh_leave and mesh_stop read the mesh and shape who hears what.",
 		description:
-			"Send a message to other pi sessions (peers) on this machine without interrupting them: it joins their conversation as context, at the attention each gives it. Send only what changes what another peer should do (a hold before a reboot, a switch or a merge; a question only it can answer) or what concerns something it owns (a finding). Never send progress, acknowledgements or thanks, nor word of heavy work: builds, VM tests and benchmarks take turns in the machine's queue by themselves. Every message goes to a group: a peer's home group by its address (5GV2AH); a group a peer's work puts it in, its quest's (#quest/5gv2ah, which reaches the quests under it too) or its repository's (#repo/agentic-harness-pi); a group by name (#harness); or #all, which is only for what touches every peer on the machine. Pick the narrowest that reaches everyone affected: a question for one peer goes to its address alone (to: P9R1KI, not a group it shares), since every member of a group reads what is sent there; a question to several peers or a named group asks each of them, giving each a turn and counting only each one's own answer, while one to #all goes to whoever takes it up; and a message that opens by naming peers ('P9R1KI: may I') goes to them alone wherever it was sent. When the person asks to stop or pause other sessions' work, as before a reboot, send a hold to #all asking each peer to answer it once parked, then answer the hold yourself (re) when work may resume: that hands every peer that answered its turn back, and a reboot since a hold was sent ends it by itself. When the person tells you a hold another peer sent is over, answer it with endsHold, which asks them to confirm. A question or an fyi hands no turn back, so a pause sent as one leaves sessions parked. Leave `to` out and the mesh picks from what the message names and who works on it. Sending to a named group joins it, so this peer hears the answers. mesh_groups lists the groups and who is in them.",
+			"Send a message to other pi sessions (peers) on this machine without interrupting them: it joins their conversation as context, at the attention each gives it. Send only what changes what another peer should do (a hold before a reboot, a switch or a merge; a question only it can answer) or what concerns something it owns (a finding). Never send progress, acknowledgements or thanks, nor word of heavy work: builds, VM tests and benchmarks take turns in the machine's queue by themselves. Every message goes to a group: a peer's home group by its address (5GV2AH); a group a peer's work puts it in, its quest's (#quest/5gv2ah, which reaches the quests under it too) or its repository's (#repo/agentic-harness-pi); a group by name (#harness); or #machine (#all names it too), which every session hears and which takes only holds and the answers that end them: a question, finding or fyi sent there is refused. Pick the narrowest that reaches everyone affected: a question for one peer goes to its address alone (to: P9R1KI, not a group it shares), since every member of a group reads what is sent there; a question to several peers or a named group asks each of them, giving each a turn and counting only each one's own answer, and a message that opens by naming peers ('P9R1KI: may I') goes to them alone wherever it was sent. When the person asks to stop or pause other sessions' work, as before a reboot, send a hold to #machine asking each peer to answer it once parked, then answer the hold yourself (re) when work may resume: that hands every peer that answered its turn back, and a reboot since a hold was sent ends it by itself. When the person tells you a hold another peer sent is over, answer it with endsHold, which asks them to confirm. A question or an fyi hands no turn back, so a pause sent as one leaves sessions parked. Leave `to` out and the mesh picks from what the message names and who works on it. Sending to a named group joins it, so this peer hears the answers. mesh_groups lists the groups and who is in them.",
 		parameters: Type.Object({
 			to: Type.Optional(
 				Type.String({
@@ -271,6 +273,15 @@ function endedOnWord(
 	return { hold };
 }
 
+/** Whether the mesh's own routing, not the sender, picked the groups. */
+function routedWide(
+	routed: Route | undefined,
+	aimed: readonly string[] | undefined,
+	chosen: readonly string[],
+): boolean {
+	return routed !== undefined && aimed === undefined && chosen.length === 0;
+}
+
 async function send(
 	at: Local,
 	params: {
@@ -388,7 +399,37 @@ async function send(
 		stops.filter(({ stopper }) =>
 			stopper.addresses.map(homeOf).includes(group),
 		);
-	const wanted = aimed ?? routed?.to ?? chosen;
+	const meantFor = aimed ?? routed?.to ?? chosen;
+	// The machine's group takes only holds and the answers that end them
+	// (group.ts). What routing sent there goes to this peer's own work's
+	// groups instead; what the sender named there is left out, and with
+	// nowhere else to go is refused with where to send it.
+	const machineRefused =
+		meantFor.includes(ALL) && !machineTakes(params.intent, asker);
+	const ownWork = at.peer.scopes;
+	const wanted = !machineRefused
+		? meantFor
+		: routed && !aimed && chosen.length === 0
+			? [...ownWork]
+			: meantFor.filter((group) => group !== ALL);
+	const instead =
+		ownWork.length > 0
+			? `this peer's work's ${ownWork.length === 1 ? "group" : "groups"}, ${ownWork.join(", ")}, or to the peers it is for by address`
+			: "the peers it is for by address, or a group they share";
+	const machineText = `${MACHINE} takes only holds and the answers that end them, since every session on the machine hears it, those on other work too. Send it to ${instead}.`;
+	if (machineRefused && wanted.length === 0) {
+		return answer(`Not sent: ${machineText}`, {
+			sent: false,
+			refused: [ALL],
+		} satisfies SendDetails);
+	}
+	if (machineRefused) {
+		notes.push(
+			routedWide(routed, aimed, chosen)
+				? `Routing judged it for ${MACHINE}, but ${MACHINE} takes only holds and the answers that end them, so it goes to ${wanted.join(", ")}.`
+				: `Not written to ${MACHINE}: ${machineText}`,
+		);
+	}
 	const barred = wanted.filter((group) => stoppedAt(group).length > 0);
 	const to = wanted.filter((group) => !barred.includes(group));
 	const barredText = () =>
@@ -801,7 +842,7 @@ async function join(
 	const group = joinable(params.group, at.presences.all());
 	if (group === undefined || !isJoinable(group)) {
 		return answer(
-			`${params.group} is not a group to join: name one with letters, digits and dashes after a #, with / between a group and its part, as #optimus/power, or give a peer's address. Every peer is in #all already.`,
+			`${params.group} is not a group to join: name one with letters, digits and dashes after a #, with / between a group and its part, as #optimus/power, or give a peer's address. Every peer is in #machine already.`,
 		);
 	}
 	if (at.peer.addresses.map(homeOf).includes(group)) {
@@ -967,8 +1008,8 @@ function groupsText(standing: Census, peer: Peer): string {
 	].filter(Boolean);
 	const own =
 		standsIn.length > 0
-			? `This peer ${standsIn.join(", and ")}; it is also in its home group and #all.`
-			: "This peer is in its home group and #all only.";
+			? `This peer ${standsIn.join(", and ")}; it is also in its home group and #machine.`
+			: "This peer is in its home group and #machine only.";
 	// An address a live session answers to again (a quest's peer restarted
 	// under a new session) has not ended, so it is not listed as ended.
 	const answering = new Set(
