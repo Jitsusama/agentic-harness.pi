@@ -202,7 +202,19 @@ function parseSessionProcess(
 	// it was captured stays valid, and reading it back is what lets a
 	// pre-reboot session be retired without probing a meaningless pid.
 	const bootToken = asString(obj.bootToken);
-	return { hostId, pid, startToken, ...(bootToken ? { bootToken } : {}) };
+	// Ticks are kept only when they are a count, so a malformed field is
+	// dropped rather than deciding anything.
+	const startTicks =
+		typeof obj.startTicks === "number" && Number.isSafeInteger(obj.startTicks)
+			? obj.startTicks
+			: undefined;
+	return {
+		hostId,
+		pid,
+		startToken,
+		...(bootToken ? { bootToken } : {}),
+		...(startTicks !== undefined ? { startTicks } : {}),
+	};
 }
 
 function parseSessionTerminal(

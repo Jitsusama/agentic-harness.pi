@@ -13,6 +13,7 @@ import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { hostname } from "node:os";
+import { startTicksFromProcSync } from "../process-ticks.ts";
 
 /** Stable identity of a recorded pi process. */
 export interface ProcessIdentity {
@@ -33,6 +34,15 @@ export interface ProcessIdentity {
 	 * readable token, falls through to the pid inspection.
 	 */
 	bootToken?: string;
+	/**
+	 * The process's start in clock ticks since boot, where the machine
+	 * counts them (Linux). The start token is worked out from the boot
+	 * time, which the kernel moves with every clock correction and
+	 * suspend; the ticks never move, so within one boot they name the
+	 * process exactly. Optional: a record written before this was
+	 * captured, or on a host without them, is judged by its token.
+	 */
+	startTicks?: number;
 }
 
 /** What an OS inspection of a pid found. */
@@ -55,6 +65,11 @@ export interface ProbeProcessDeps {
 	 * with no readable token must not declare anything dead.
 	 */
 	localBootToken?: string;
+	/**
+	 * Read a live pid's start in ticks since boot. Optional, because a
+	 * host that keeps none (macOS) is judged by its start token alone.
+	 */
+	startTicks?: (pid: number) => number | undefined;
 }
 
 /**
@@ -196,7 +211,12 @@ function readProcessIdentity(): ProcessIdentity | undefined {
 	// this record wholesale after a reboot instead of asking the OS
 	// about a pid that means nothing any more.
 	const bootToken = currentBootToken();
-	return bootToken ? { ...identity, bootToken } : identity;
+	const startTicks = startTicksFromProcSync(process.pid);
+	return {
+		...identity,
+		...(bootToken ? { bootToken } : {}),
+		...(startTicks !== undefined ? { startTicks } : {}),
+	};
 }
 
 /**
@@ -292,6 +312,9 @@ export function localProcessDeps(): ProbeProcessDeps {
 		localHostId: hostname(),
 		inspect: readStartToken,
 		...(localBootToken ? { localBootToken } : {}),
+		...(process.platform === "linux"
+			? { startTicks: startTicksFromProcSync }
+			: {}),
 	};
 }
 
@@ -333,6 +356,8 @@ export function probeProcess(
 	// earlier boot is dead without asking the OS: whatever holds that
 	// pid now is a reuse, even when its start token happens to match.
 	if (fromAnotherBoot(id, deps)) return "gone";
+	const byTicks = probeByTicks(id, deps);
+	if (byTicks) return byTicks;
 	const found = deps.inspect(id.pid);
 	switch (found.kind) {
 		case "gone":
@@ -342,4 +367,26 @@ export function probeProcess(
 		case "alive":
 			return sameStart(found.startToken, id.startToken) ? "matching" : "gone";
 	}
+}
+
+/**
+ * The verdict by ticks, when the record names its boot and its ticks,
+ * the reader is in that same boot, and the pid's ticks can be read:
+ * equal ticks are the same process however far the clock has moved,
+ * and different ones are a reuse. Anything less leaves it to the start
+ * token, as before ticks were kept.
+ */
+function probeByTicks(
+	id: ProcessIdentity,
+	deps: ProbeProcessDeps,
+): ProcessProbe | undefined {
+	if (id.startTicks === undefined || id.bootToken === undefined) {
+		return undefined;
+	}
+	if (id.bootToken !== deps.localBootToken || !deps.startTicks) {
+		return undefined;
+	}
+	const ticks = deps.startTicks(id.pid);
+	if (ticks === undefined) return undefined;
+	return ticks === id.startTicks ? "matching" : "gone";
 }

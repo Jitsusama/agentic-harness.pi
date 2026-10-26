@@ -50,6 +50,7 @@ const SESSION_WITH_IDENTITY: QuestFrontMatter = {
 				pid: 4321,
 				startToken: "Sat Jul 12",
 				bootToken: "3152D2B4-B508-4118-BDE5-7804CA87C255",
+				startTicks: 123_456,
 			},
 			terminal: {
 				driverId: "wezterm",
@@ -74,6 +75,21 @@ describe("quest front-matter", () => {
 		expect(parsed?.frontMatter.sessions).toEqual(
 			SESSION_WITH_IDENTITY.sessions,
 		);
+	});
+
+	it("drops a session's start ticks that are not a count", () => {
+		const text =
+			`${serializeQuestFrontMatter(SESSION_WITH_IDENTITY)}\n# Title\n`.replace(
+				"startTicks: 123456",
+				'startTicks: "soon"',
+			);
+		const parsed = parseQuestFrontMatter(text);
+		expect(parsed?.frontMatter.sessions?.[0]?.process).toEqual({
+			hostId: "host-a",
+			pid: 4321,
+			startToken: "Sat Jul 12",
+			bootToken: "3152D2B4-B508-4118-BDE5-7804CA87C255",
+		});
 	});
 
 	it("omits due and eta when not set", () => {

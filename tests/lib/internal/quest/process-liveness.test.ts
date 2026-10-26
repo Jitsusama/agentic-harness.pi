@@ -123,6 +123,50 @@ describe("a start reading moved by a clock correction", () => {
 	});
 });
 
+describe("a process recorded with its start in ticks", () => {
+	// After 100 suspends on 26 October the kernel's boot time had moved
+	// four seconds, and by now a long-lived session's start reading can
+	// sit past any tolerance; its ticks never move.
+	const recorded = id({
+		startToken: "Sun Oct 11 20:36:26 2026",
+		bootToken: "boot-1",
+		startTicks: 9_000,
+	});
+	const drifted = () =>
+		({ kind: "alive", startToken: "Sun Oct 11 21:36:26 2026" }) as const;
+	const withTicks = (ticks: number | undefined, boot = "boot-1") => ({
+		...deps(drifted, boot),
+		startTicks: () => ticks,
+	});
+
+	it("matches its own process however far the start reading drifted", () => {
+		expect(probeProcess(recorded, withTicks(9_000))).toBe("matching");
+	});
+
+	it("is gone when another process holds the pid", () => {
+		expect(
+			probeProcess(recorded, {
+				...withTicks(9_500),
+				inspect: () => ({ kind: "alive", startToken: recorded.startToken }),
+			}),
+		).toBe("gone");
+	});
+
+	it("is judged by its start reading where the ticks can't be read", () => {
+		expect(probeProcess(recorded, withTicks(undefined))).toBe("gone");
+		expect(probeProcess(recorded, deps(drifted, "boot-1"))).toBe("gone");
+	});
+
+	it("is gone from another boot whatever its ticks say", () => {
+		expect(probeProcess(recorded, withTicks(9_000, "boot-2"))).toBe("gone");
+	});
+
+	it("falls back to its start reading when the record has no boot", () => {
+		const { bootToken: _, ...unbooted } = recorded;
+		expect(probeProcess(unbooted, withTicks(9_000))).toBe("gone");
+	});
+});
+
 describe("identityFromInspection", () => {
 	it("builds an identity from a live inspection", () => {
 		expect(

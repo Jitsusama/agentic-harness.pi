@@ -3,7 +3,10 @@
  */
 import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { startTicksFromProc } from "../../../lib/internal/process-ticks.ts";
+import {
+	startTicksFromProc,
+	startTicksFromProcSync,
+} from "../../../lib/internal/process-ticks.ts";
 
 const hasProc = existsSync(`/proc/${process.pid}/stat`);
 
@@ -17,5 +20,12 @@ describe("a process's start in ticks", () => {
 
 	it("is nothing for a process that is not there", async () => {
 		expect(await startTicksFromProc(2 ** 30)).toBeUndefined();
+	});
+
+	it.runIf(hasProc)("reads the same at once as it does awaited", async () => {
+		expect(startTicksFromProcSync(process.pid)).toBe(
+			await startTicksFromProc(process.pid),
+		);
+		expect(startTicksFromProcSync(2 ** 30)).toBeUndefined();
 	});
 });

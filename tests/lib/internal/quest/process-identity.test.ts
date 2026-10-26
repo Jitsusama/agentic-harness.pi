@@ -1,6 +1,8 @@
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { hostname } from "node:os";
 import { describe, expect, it, vi } from "vitest";
+import { startTicksFromProcSync } from "../../../../lib/internal/process-ticks.ts";
 import {
 	currentProcessIdentity,
 	localProcessDeps,
@@ -27,6 +29,17 @@ describe("currentProcessIdentity", () => {
 		expect(me.pid).toBe(process.pid);
 		expect(me.startToken.length).toBeGreaterThan(0);
 	});
+
+	it.runIf(existsSync(`/proc/${process.pid}/stat`))(
+		"carries its start in ticks, which its probe goes by",
+		() => {
+			const me = currentProcessIdentity();
+			if (!me) throw new Error("expected an identity");
+			expect(me.startTicks).toBe(startTicksFromProcSync(process.pid));
+			const drifted = { ...me, startToken: "Thu Jan  1 00:00:00 1970" };
+			expect(probeProcess(drifted, localProcessDeps())).toBe("matching");
+		},
+	);
 
 	it("asks ps once however often it is asked", () => {
 		const first = currentProcessIdentity();
