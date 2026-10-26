@@ -5,7 +5,10 @@ description: >
   in the pi session logs, by category and by week. Use to record
   a baseline before the convention gates take effect and to
   re-run afterwards to confirm the recurring categories bend
-  down. Pairs with the convention gates (pr-guardian,
+  down. Also how to run the learning sensor, which counts the
+  refusals, guard blocks and broken standing rules that recur,
+  to pick harness changes and measure them. Pairs with the
+  convention gates (pr-guardian,
   issue-guardian, commit-guardian, slack-integration) and the
   convention-context extension.
 ---
@@ -93,3 +96,35 @@ It does not count the gate blocks themselves (those are the gates
 working, not the person correcting). A separate rise in gate blocks
 with a fall in the person's corrections is the healthy signature: the
 gates are absorbing the corrections the person used to type.
+
+## The Learning Sensor
+
+The gate blocks, and the mistakes no gate catches, are what the
+learning sensor counts:
+
+```bash
+node scripts/learning-sensor.ts [--since YYYY-MM-DD] [--top N] [--json <file>]
+```
+
+It writes a markdown report to stdout: the sessions active each
+week, then the top groups of each kind with distinct sessions per
+week. `--json` also writes every group with a few samples, for
+checking a group against what the logs say.
+
+- **Refusals**: a harness tool answered `⊘`. Grouped by the
+  refusal's first line, with each bullet under it (a section over
+  its limit, say) counted again as a reason.
+- **Guards**: a shell command a harness guard blocked. Ordinary
+  command failures are left out.
+- **Habits**: a tool call that breaks a standing rule, such as a
+  tracked file edited with sed, `sleep` to wait or `git stash`.
+  Heredoc bodies are cut before matching.
+
+Refusals and guards are exact. Habits are patterns, so check a
+group's samples before acting on it. A group that recurs across
+many sessions is a candidate harness change: a refusal that
+loops wants a better answer or an automatic fix, and a habit
+wants a guard or a line in the standing context. Re-run it after
+the change lands, and compare that group's sessions per week
+against the sessions active, since a short week reads lower.
+The harness owner reviews each proposal.
