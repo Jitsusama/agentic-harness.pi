@@ -29,7 +29,7 @@ it, then reads again. A read that found its file is left alone.
 - Nothing in a batch can act on another call's answer, so the read
   after the write is the only one the agent can use.
 - A read waits at most five minutes, then answers as it first did.
-  The bash tool sends a command still running after five minutes to
+  The bash tool sends a command still running after a minute to
   the background, so no writer beside a read outlasts that.
 - pi announces each call only as it runs when a batch runs one at a
   time, so a read is never left waiting on a write queued behind it.

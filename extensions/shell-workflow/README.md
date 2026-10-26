@@ -1,7 +1,7 @@
 # Shell Workflow
 
 Stops a bash command from holding the session silently. A command still
-running after five minutes moves to the background: the agent gets its
+running after a minute moves to the background: the agent gets its
 turn back, and the command's result arrives later as a message of its
 own. The agent's shell also has no interactive editor or pager to wait
 on.
@@ -15,15 +15,17 @@ all pi's.
 
 What it adds:
 
-- **Hand-off.** A command still running after five minutes becomes a
+- **Hand-off.** A command still running after a minute becomes a
   job (see [job-workflow](../job-workflow/)). The call returns saying
   so, with the last output and how long ago it came, and tells the
   agent not to run it again or run anything that depends on it. When
   the command ends, the job says its exit status, how long it took, its
   last lines and where the full output is.
 - **A `background` parameter.** `true` moves the command to the
-  background at once; `false` waits however long it takes, as bash
-  always did. Left out, the five-minute rule applies.
+  background at once. `false` or left out, the one-minute rule
+  applies: nothing holds the call longer. `false` once waited however
+  long the command took, and models passed it on nearly every call, so
+  sessions sat deaf to the person and the mesh for up to half an hour.
 - **No interactive programs.** The agent's commands run with
   `GIT_EDITOR`, `GIT_SEQUENCE_EDITOR`, `EDITOR` and `VISUAL` set to
   `true`, `PAGER`, `GIT_PAGER`, `GH_PAGER` and `MANPAGER` set to `cat`,
@@ -80,8 +82,11 @@ agent passed still applies in the background.
   the real result.
 - Without job-workflow loaded nothing is moved, and bash behaves as pi's
   does.
-- Five minutes is one constant, `HAND_OFF_MS` in `hand-off.ts`, chosen
-  from the session logs, where people started aborting commands at
-  about seven minutes.
+- A minute is one constant, `HAND_OFF_MS` in `hand-off.ts`. It was
+  five, chosen from the session logs, where people started aborting
+  commands at about seven minutes. On 2026-10-25 it came down to a
+  minute, since a session in a call can't be steered: pi hands it
+  messages only between tool calls, and questions to sessions sitting
+  in long commands waited 13 to 31 minutes.
 - Another extension that also registers `bash` would replace this one,
   or be replaced by it, depending on load order.

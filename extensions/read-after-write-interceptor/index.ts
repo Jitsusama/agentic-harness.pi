@@ -43,7 +43,7 @@ const SHELL = "bash";
 
 /**
  * How long a read waits for its writers before answering as it was. The
- * bash tool hands a command still running after five minutes to the
+ * bash tool hands a command still running after a minute to the
  * background, so no writer beside a read outlasts this.
  */
 const MOST_WAIT_MS = 5 * 60_000;
