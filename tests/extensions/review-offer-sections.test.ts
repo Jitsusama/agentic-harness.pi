@@ -56,7 +56,7 @@ const SECTIONS = {
 
 /** A provider that records what it is asked to open and to edit. */
 function recordingProvider(current: string = composePrBody(SECTIONS)) {
-	const proposed: { body: string }[] = [];
+	const proposed: { body: string; title?: string }[] = [];
 	const edited: (string | undefined)[] = [];
 	const existing: Proposal = {
 		ref: { provider: "meteorite", repo: world, id: "7", label: "shop/world#7" },
@@ -88,7 +88,7 @@ function recordingProvider(current: string = composePrBody(SECTIONS)) {
 			authoring: {
 				close: unused("close a change"),
 				merge: unused("merge a change"),
-				propose: async (request: { body: string }) => {
+				propose: async (request: { body: string; title?: string }) => {
 					proposed.push(request);
 					return { ...existing, body: request.body };
 				},
@@ -191,6 +191,54 @@ describe("proposing with sections", () => {
 		expect(again).toContain("word for word the description refused");
 		expect(again).toContain("TL;DR is 45 words");
 		expect(changed).not.toContain("word for word");
+		expect(proposed).toHaveLength(0);
+	});
+
+	it("takes a resubmit of only what changed, keeping the rest of the refused draft", async () => {
+		// 487 refusals in 44 sessions, each followed by the whole
+		// description written out again to change one section.
+		const { provider, proposed } = recordingProvider();
+		registerReviewProvider(provider);
+		const long = `${Array.from({ length: 45 }, () => "words").join(" ")}.`;
+
+		const refused = JSON.stringify(
+			await offer({ ...proposing, ...SECTIONS, tldr: long }),
+		);
+		const { title: _, ...untitled } = proposing;
+		await offer({ ...untitled, tldr: SECTIONS.tldr });
+
+		expect(refused).toContain("give only the title or sections you change");
+		expect(proposed).toHaveLength(1);
+		expect(readPrFields(proposed[0]?.body ?? "").fields).toEqual(SECTIONS);
+	});
+
+	it("puts a title written as a sentence in Title Case rather than refusing it", async () => {
+		const { provider, proposed } = recordingProvider();
+		registerReviewProvider(provider);
+
+		await offer({
+			...proposing,
+			...SECTIONS,
+			title: "merge short commit ids the first time",
+		});
+
+		expect(proposed).toHaveLength(1);
+		expect(proposed[0]).toMatchObject({
+			title: "Merge Short Commit Ids the First Time",
+		});
+	});
+
+	it("keeps nothing from another branch's refused draft", async () => {
+		const { provider, proposed } = recordingProvider();
+		registerReviewProvider(provider);
+		const long = `${Array.from({ length: 45 }, () => "words").join(" ")}.`;
+
+		await offer({ ...proposing, ...SECTIONS, tldr: long });
+		const answer = JSON.stringify(
+			await offer({ ...proposing, head: "other", tldr: SECTIONS.tldr }),
+		);
+
+		expect(answer).toContain("missing problem, solution, validation");
 		expect(proposed).toHaveLength(0);
 	});
 });
