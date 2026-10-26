@@ -58,6 +58,7 @@ export async function measureWeek(opts: {
 	}
 	const reader = await openLedgerReader(ledger);
 	let audit: string;
+	let start: number;
 	let from: string;
 	let to: string;
 	try {
@@ -66,12 +67,14 @@ export async function measureWeek(opts: {
 			{ now: opts.now, sessionsDir: sessionsDir() },
 		);
 		audit = formatAudit(input, opts.top ?? 12);
+		start = Date.parse(input.week.from);
 		from = input.week.from.slice(0, 10);
 		to = input.week.to.slice(0, 10);
 	} finally {
 		await reader.close();
 	}
-	const { groups, active } = sense(Date.parse(from));
+	// The same seven days the audit reads, to the minute.
+	const { groups, active } = sense(start);
 	const sensed = renderReport(groups, active, {
 		since: from,
 		top: opts.top ?? 20,
