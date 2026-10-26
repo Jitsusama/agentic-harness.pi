@@ -1182,9 +1182,7 @@ async function askStack(
 	// ChangeRef. Both are called ref and they are not the same thing, so
 	// they stay in separate fields rather than being spread together.
 	const proposed = stack.nodes.flatMap((node) =>
-		node.proposal === undefined
-			? []
-			: [{ ref: node.ref, proposal: node.proposal }],
+		node.change === undefined ? [] : [{ ref: node.ref, proposal: node.change }],
 	);
 	if (proposed.length === 0) {
 		return refuse(

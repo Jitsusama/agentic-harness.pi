@@ -40,7 +40,7 @@ describe("which changes point at the wrong base", () => {
 		// branch that merged.
 		const plan = retargetPlan(
 			stackOf(
-				{ ref: "middle", parent: "main", proposal: proposedOnto("bottom") },
+				{ ref: "middle", parent: "main", change: proposedOnto("bottom") },
 				{ ref: "top", parent: "middle", proposal: proposedOnto("middle") },
 			),
 		);
@@ -53,7 +53,7 @@ describe("which changes point at the wrong base", () => {
 			stackOf({
 				ref: "top",
 				parent: "middle",
-				proposal: proposedOnto("middle"),
+				change: proposedOnto("middle"),
 			}),
 		);
 
@@ -64,7 +64,7 @@ describe("which changes point at the wrong base", () => {
 		// A root proposed against a release branch is somebody's
 		// decision, and moving it to trunk asks a different team to look.
 		const plan = retargetPlan(
-			stackOf({ ref: "bottom", proposal: proposedOnto("release-25") }),
+			stackOf({ ref: "bottom", change: proposedOnto("release-25") }),
 		);
 
 		expect(plan.moves).toEqual([]);

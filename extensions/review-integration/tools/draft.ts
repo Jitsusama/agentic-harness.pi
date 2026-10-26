@@ -655,9 +655,9 @@ async function turnsFor(
 async function stackKeys(bound: BoundTarget): Promise<string[]> {
 	const stack = await bound.stack();
 	const members = (stack?.nodes ?? []).flatMap((node) =>
-		node.proposal === undefined
+		node.change === undefined
 			? []
-			: [targetKey({ kind: "change", change: node.proposal.ref })],
+			: [targetKey({ kind: "change", change: node.change.ref })],
 	);
 	return [targetKey(bound.target), ...members];
 }
@@ -721,8 +721,8 @@ async function publishStack(
 	const diffs = new Map<string, DiffModel | undefined>();
 
 	for (const node of stack.nodes) {
-		if (node.proposal === undefined) continue;
-		const change = node.proposal.ref;
+		if (node.change === undefined) continue;
+		const change = node.change.ref;
 		const target: ReviewTarget = { kind: "change", change };
 
 		const held = await store.forTarget(target);
