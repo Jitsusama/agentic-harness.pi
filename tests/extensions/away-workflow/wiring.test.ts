@@ -21,6 +21,7 @@ import {
 	isAway,
 	resetAway,
 	setProgressSource,
+	stoppingFromOutside,
 } from "../../../lib/internal/away/state.ts";
 import type { Notice } from "../../../lib/internal/notify.ts";
 import {
@@ -414,6 +415,33 @@ describe("coming back", () => {
 
 		expect(isAway()).toBe(false);
 		expect(pi.jobs).toHaveLength(0);
+	});
+
+	it("stays away when a steer stopped the run, and lets it rest", async () => {
+		// The orchestrator's Stop, from outside the window, aborts the run
+		// as Escape does; the person is still asleep.
+		const pi = activate();
+		await pi.fire("session_start");
+		await pi.goAway();
+
+		stoppingFromOutside();
+		await pi.runEnds("", 0, "aborted");
+
+		expect(isAway()).toBe(true);
+		expect(pi.jobs).toHaveLength(0);
+		expect(readMachineWord()?.away).toBeDefined();
+	});
+
+	it("takes the person's Escape after a steer's stop as theirs", async () => {
+		const pi = activate();
+		await pi.fire("session_start");
+		await pi.goAway();
+		stoppingFromOutside();
+		await pi.runEnds("", 0, "aborted");
+
+		await pi.runEnds("", 0, "aborted");
+
+		expect(isAway()).toBe(false);
 	});
 
 	it("ends on pi's own aborted flag too", async () => {

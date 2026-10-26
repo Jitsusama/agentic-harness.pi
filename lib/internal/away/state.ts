@@ -81,6 +81,8 @@ interface AwayState {
 	decided: Decision[];
 	listeners: Set<Listener>;
 	progress?: () => PlanProgress | undefined;
+	/** The run under way was stopped from outside its window. */
+	stoppedFromOutside?: boolean;
 }
 
 const AWAY_KEY = Symbol.for("pi:away");
@@ -108,6 +110,26 @@ function changed(): void {
 			// live copy's listener says so.
 		}
 	}
+}
+
+/**
+ * Say that the run under way is being stopped from outside its window,
+ * as a steer's stop or pause does, so the abort it ends with is not
+ * taken for the person pressing Escape, which ends an absence.
+ */
+export function stoppingFromOutside(): void {
+	state().stoppedFromOutside = true;
+}
+
+/**
+ * Whether the run that just ended was stopped from outside its window,
+ * clearing the mark so it speaks for that run alone.
+ */
+export function takeStoppedFromOutside(): boolean {
+	const current = state();
+	const was = current.stoppedFromOutside === true;
+	current.stoppedFromOutside = false;
+	return was;
 }
 
 /** Whether the person is away. */
@@ -270,4 +292,5 @@ export function resetAway(): void {
 	current.held = [];
 	current.decided = [];
 	current.progress = undefined;
+	current.stoppedFromOutside = false;
 }

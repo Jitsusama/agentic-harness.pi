@@ -46,6 +46,7 @@ import {
 	type FoundClassifier,
 	findClassifier,
 } from "../../lib/classifier/jev.ts";
+import { stoppingFromOutside } from "../../lib/internal/away/state.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { dataDir, stateDir } from "../../lib/internal/paths.ts";
 import { tellAwaited } from "../../lib/internal/priority/awaited.ts";
@@ -436,7 +437,11 @@ export function meshWorkflow(
 		// Pause, Resume and Stop from outside the window (pausing.ts).
 		const pausing = createPausing({
 			idle: () => ctx?.isIdle?.() ?? true,
-			abort: () => ctx?.abort?.(),
+			abort: () => {
+				// Stopped from outside, not by the person: away mode stays on.
+				stoppingFromOutside();
+				ctx?.abort?.();
+			},
 			paused: () => peer?.paused ?? false,
 			setPaused: (paused) => peer?.setPaused(paused),
 			carryOn: () => pi.sendUserMessage(RESUMED_TEXT),
