@@ -38,7 +38,12 @@ import {
 	workOf,
 } from "./presence.ts";
 import type { Stop } from "./stop.ts";
-import { longestStanding, type Want, type WantKind } from "./want.ts";
+import {
+	longestStanding,
+	type Want,
+	type WantKind,
+	wantsThePerson,
+} from "./want.ts";
 
 export interface Peer {
 	readonly session: string;
@@ -334,6 +339,7 @@ export function localPeer(at: Surroundings): Peer {
 			return yieldedTo;
 		},
 		want(want) {
+			if (!wantsThePerson(want.kind, roles.orchestratedBy)) return;
 			wanting.set(want.kind, want);
 			publish();
 		},
