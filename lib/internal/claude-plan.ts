@@ -9,6 +9,8 @@
  * message as a `claude-code.rate-limit` diagnostic; this reads it.
  */
 
+import { isRecord } from "./record.ts";
+
 /** The diagnostic the provider writes, by its type. */
 export const RATE_LIMIT = "claude-code.rate-limit";
 
@@ -92,8 +94,4 @@ function windowFrom(raw: unknown): PlanWindow | undefined {
 		used: raw.utilization,
 		...(resets !== undefined ? { resets } : {}),
 	};
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
 }

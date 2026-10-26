@@ -86,6 +86,7 @@ import {
 } from "../../../lib/internal/config/loader.ts";
 import { packageConfigPath } from "../../../lib/internal/paths.ts";
 import { questLoadedIn } from "../../../lib/internal/quest/loaded.ts";
+import { isRecord } from "../../../lib/internal/record.ts";
 import type { ReviewerThinkingLevel } from "../../../lib/subagent/index.ts";
 import {
 	getParentPiInstall,
@@ -2011,11 +2012,6 @@ export async function rosterFromConfig(
 	);
 	if ("refusal" in applied) throw new Error(applied.refusal);
 	return { roster: applied.roster, source: choice.source, max };
-}
-
-/** Whether a value is an object we can read keys off. */
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**

@@ -18,6 +18,7 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Participant, Roster } from "../../lib/core/review/index.ts";
+import { isRecord } from "../../lib/internal/record.ts";
 
 /**
  * What a reviewer is given to read with: enough to follow the change
@@ -229,9 +230,4 @@ export function tooMany(
 ): string | undefined {
 	if (asking <= max) return undefined;
 	return `This round would ask ${asking} reviewers and the most a round may ask is ${max}. Pick a smaller set, or raise review.ask.maxReviewers in ${path} if a council this size is what you mean.`;
-}
-
-/** Whether a value is an object we can read keys off. */
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

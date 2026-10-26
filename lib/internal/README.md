@@ -74,6 +74,8 @@ may import from here, and any of it may change without notice.
   fleet's owner) still runs.
 - **`project.ts`**: which project a checkout is, for settings keyed
   by project.
+- **`record.ts`**: whether a parsed value is an object whose keys
+  can be read by name; one copy for the package outside `lib/core`.
 - **`resources.ts`**: the CPU, disk and memory this pi process and
   its work used, from the kernel's counters.
 - **`shell-habits.ts`**: the shell habits the standing rules

@@ -20,6 +20,7 @@
 
 import { homedir } from "node:os";
 import { resolve, sep } from "node:path";
+import { isRecord } from "../../lib/internal/record.ts";
 
 /** Where each named skill applies: the folders a session must run under. */
 export type SkillPlaces = Readonly<Record<string, readonly string[]>>;
@@ -101,8 +102,4 @@ function expand(folder: string, home: string): string {
 
 function isUnder(path: string, folder: string): boolean {
 	return path === folder || path.startsWith(`${folder}${sep}`);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

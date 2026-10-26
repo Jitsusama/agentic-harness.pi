@@ -1,4 +1,5 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { isRecord } from "../../internal/record.ts";
 import {
 	buildDiscoverySections,
 	type DiscoveryEntry,
@@ -159,8 +160,4 @@ export function createProgressiveHelpers(deps: {
 function textResult(text: string, isError = false): McpToolResult {
 	const content: McpContent[] = [{ type: "text", text }];
 	return { content, isError };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

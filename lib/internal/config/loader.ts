@@ -4,6 +4,7 @@
 
 import { readFile } from "node:fs/promises";
 import { packageConfigPath } from "../paths.ts";
+import { isRecord } from "../record.ts";
 
 /** Configuration version written by a fresh, empty config. */
 const EMPTY_CONFIG: PackageConfig = { version: 1, sections: {} };
@@ -90,10 +91,6 @@ function validateEnvelope(
 			sections: value.sections ?? {},
 		},
 	};
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**

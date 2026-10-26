@@ -1,6 +1,7 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { isRecord } from "../internal/record.ts";
 import type { McpContent, McpToolResult } from "./types.ts";
 
 /** A resource that was written to disk. */
@@ -262,10 +263,6 @@ function extensionForMimeType(mimeType: string | undefined): string {
 		default:
 			return ".bin";
 	}
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
 }
 
 function stringOr(value: unknown): string | undefined {

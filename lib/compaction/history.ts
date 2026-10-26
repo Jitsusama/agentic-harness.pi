@@ -11,6 +11,8 @@
  * resumed session look brand new.
  */
 
+import { isRecord } from "../internal/record.ts";
+
 /** The summariser recorded on compactions written from the conversation. */
 const CONVERSATION_SUMMARISER = "conversation";
 
@@ -38,10 +40,6 @@ export interface CompactionHistory {
 	readonly retainedTokens: number | null;
 	/** Prompt of the session's first turn: its fixed overhead. */
 	readonly firstPromptTokens: number | null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
 }
 
 function count(value: unknown): number {
