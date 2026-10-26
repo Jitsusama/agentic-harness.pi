@@ -31,7 +31,12 @@ import {
 } from "./address.ts";
 import type { Receiver } from "./attention.ts";
 import type { Listener } from "./message.ts";
-import { type Presence, type Presences, workOf } from "./presence.ts";
+import {
+	type PeerState,
+	type Presence,
+	type Presences,
+	workOf,
+} from "./presence.ts";
 import type { Stop } from "./stop.ts";
 import { longestStanding, type Want, type WantKind } from "./want.ts";
 
@@ -80,6 +85,13 @@ export interface Peer {
 	refresh(): void;
 	/** Say whether it is in the middle of a run. */
 	setBusy(busy: boolean): void;
+	/**
+	 * Say the step a run is on, such as the tool it is running. Said at
+	 * most once every STEP_MS, since the desktop watches presence and
+	 * a run starts a tool every few seconds; the newest step said inside
+	 * that window is said when it ends.
+	 */
+	setStep(step: string): void;
 	/** Join a canonical group; answers whether it was new. */
 	join(group: string): boolean;
 	/**
@@ -116,6 +128,21 @@ export interface Surroundings {
 	 * a rename reaches presence with the next thing the peer says.
 	 */
 	readonly title?: () => string | undefined;
+	/** The clock, in milliseconds; the system's unless a test sets one. */
+	readonly now?: () => number;
+}
+
+/** How long a step said stands before a newer one is said. */
+export const STEP_MS = 30_000;
+
+/**
+ * What a peer is doing, as the desktop shows it: listening (idle),
+ * busy (mid-run, since when and on what step), or waiting on its
+ * person while idle.
+ */
+export function stateOf(busy: boolean, waiting: boolean): PeerState {
+	if (busy) return "busy";
+	return waiting ? "waiting" : "listening";
 }
 
 /** A presence's title field, when there is a title to say. */
@@ -172,6 +199,23 @@ export function localPeer(at: Surroundings): Peer {
 	let receiver: Receiver = { addresses, worksOn: "", owns: [] };
 	let roles: { orchestratedBy?: string; orchestrates?: string } = {};
 	let busy = false;
+	const now = at.now ?? Date.now;
+	// When the run in progress began, and the step it was last said on.
+	let since: string | undefined;
+	let step: { text: string; at: number } | undefined;
+	// The newest step said inside the window, said when the window ends,
+	// so a long tool started just after a short one is not hidden by it.
+	let pending: string | undefined;
+	let trailing: ReturnType<typeof setTimeout> | undefined;
+	const dropPending = () => {
+		if (trailing) clearTimeout(trailing);
+		trailing = undefined;
+		pending = undefined;
+	};
+	const sayStep = (text: string) => {
+		step = { text, at: now() };
+		publish();
+	};
 	const wanting = new Map<WantKind, Want>();
 	const groups = () => [...new Set([...scopes, ...joined])].sort();
 	// What was last published, less its time, so an unchanged presence is
@@ -187,6 +231,9 @@ export function localPeer(at: Surroundings): Peer {
 			worksOn: receiver.worksOn,
 			owns: receiver.owns,
 			busy,
+			state: stateOf(busy, wanting.size > 0),
+			...(busy && since ? { since } : {}),
+			...(busy && step ? { step: step.text } : {}),
 			...(wanting.size > 0 ? { wants: longestStanding(wanting.values()) } : {}),
 			...(at.owner ? { owner: at.owner } : {}),
 			...titled(at.title?.()),
@@ -281,9 +328,35 @@ export function localPeer(at: Surroundings): Peer {
 			return true;
 		},
 		refresh,
-		setBusy(now) {
-			busy = now;
+		setBusy(running) {
+			if (running && !busy) since = new Date(now()).toISOString();
+			if (!running) since = undefined;
+			step = undefined;
+			dropPending();
+			busy = running;
 			publish();
+		},
+		setStep(text) {
+			if (!busy) return;
+			if (step?.text === text) {
+				pending = undefined;
+				return;
+			}
+			const wait = step ? STEP_MS - (now() - step.at) : 0;
+			if (wait <= 0) {
+				dropPending();
+				sayStep(text);
+				return;
+			}
+			pending = text;
+			if (trailing) return;
+			trailing = setTimeout(() => {
+				const next = pending;
+				trailing = undefined;
+				pending = undefined;
+				if (busy && next !== undefined && next !== step?.text) sayStep(next);
+			}, wait);
+			trailing.unref?.();
 		},
 		join(group) {
 			if (joined.includes(group)) return false;

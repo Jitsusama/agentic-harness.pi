@@ -50,7 +50,12 @@ shipped and tested.
   presence as `orchestratedBy`, with nothing else wired. Each
   of those sessions starts with the marked quest's Context
   section in its prompt, as its standing rules, and is told
-  once when that section changes.
+  once when that section changes. Every
+  open marked quest is listed, parents first, in
+  `orchestrators.json` in quest-workflow's state folder (its
+  id, address, short name, title and parent), looked at again
+  after each quest action and at session start, so the
+  desktop can offer one that has no session.
 - **Sessions**: `session-attach`, `session-detach`,
   `session-rename`, `session-audit` (report any session active on
   more than one quest).

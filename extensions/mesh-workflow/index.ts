@@ -1138,6 +1138,10 @@ export function meshWorkflow(
 		pi.on("agent_start", async () => {
 			peer?.setBusy(true);
 		});
+		// And the step it is on, by the tool it runs, for the desktop's Busy.
+		pi.on("tool_execution_start", async (event) => {
+			peer?.setStep(event.toolName);
+		});
 		pi.on("agent_end", async () => {
 			lookAgain();
 			tidy();

@@ -12,8 +12,8 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { localPeer } from "../../../lib/mesh/peer.ts";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { localPeer, STEP_MS } from "../../../lib/mesh/peer.ts";
 import {
 	createPresences,
 	type Presence,
@@ -178,6 +178,80 @@ describe("this session's peer", () => {
 		peer.setBusy(true);
 		expect(written.map((one) => one.busy)).toEqual([false, true]);
 		expect(kept.of(session)).toMatchObject({ busy: true });
+	});
+
+	it("says what it is doing: since when a run began, and its step at most every 30 s", () => {
+		let clock = Date.parse("2026-10-26T06:00:00Z");
+		const at = { ...surroundings(), now: () => clock };
+		const peer = localPeer(at);
+		const seen = () => at.presences.of(session);
+
+		expect(seen()).toMatchObject({ state: "listening" });
+		peer.setBusy(true);
+		peer.setStep("bash");
+		expect(seen()).toMatchObject({
+			state: "busy",
+			since: "2026-10-26T06:00:00.000Z",
+			step: "bash",
+		});
+
+		clock += STEP_MS - 1;
+		peer.setStep("edit");
+		expect(seen()?.step).toBe("bash");
+		clock += 1;
+		peer.setStep("edit");
+		expect(seen()?.step).toBe("edit");
+
+		peer.setBusy(false);
+		expect(seen()).toMatchObject({ state: "listening" });
+		expect(seen()?.since).toBeUndefined();
+		expect(seen()?.step).toBeUndefined();
+	});
+
+	it("says a step begun inside the window once the window ends, unless the run ended first", () => {
+		// A long bash begun 5 s after a short read must not read as "read"
+		// for the whole of it.
+		vi.useFakeTimers();
+		try {
+			let clock = Date.parse("2026-10-26T06:00:00Z");
+			const at = { ...surroundings(), now: () => clock };
+			const peer = localPeer(at);
+			const step = () => at.presences.of(session)?.step;
+
+			peer.setBusy(true);
+			peer.setStep("read");
+			clock += 5_000;
+			vi.advanceTimersByTime(5_000);
+			peer.setStep("bash");
+			expect(step()).toBe("read");
+
+			clock += STEP_MS - 5_000;
+			vi.advanceTimersByTime(STEP_MS - 5_000);
+			expect(step()).toBe("bash");
+
+			clock += 1_000;
+			peer.setStep("edit");
+			peer.setBusy(false);
+			clock += STEP_MS;
+			vi.advanceTimersByTime(STEP_MS);
+			expect(step()).toBeUndefined();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("is waiting when idle with a want standing, and busy while it runs", () => {
+		const at = surroundings();
+		const peer = localPeer(at);
+		peer.want({
+			kind: "action",
+			said: "a login",
+			since: "2026-10-26T06:00:00Z",
+		});
+
+		expect(at.presences.of(session)?.state).toBe("waiting");
+		peer.setBusy(true);
+		expect(at.presences.of(session)?.state).toBe("busy");
 	});
 
 	it("says its window's title as pi sets it, and the new one after a rename", () => {
