@@ -622,12 +622,17 @@ A steer may instead carry an `act`, with no text needed
 - `stop` ends the run in progress at once; the session stays
   open and listening.
 - `pause` lets the run finish the turn it is on, tools and
-  all, then ends it. Until Resume or a talk, a run that starts
-  is ended as it starts, whatever started it, and mesh
-  messages arrive without a turn. Presence says `paused`, and
-  a reload keeps it.
+  all, then ends it. Until Resume, a talk or the person typing
+  in the window, any other run that starts is ended as it
+  starts, whatever started it, and mesh messages arrive
+  without a turn. Presence says `paused`, and a reload keeps
+  it.
 - `resume` clears the pause and has the session carry on
   where it left off; with text, the text is the turn instead.
+
+An ended run ends away mode on every session, so a Stop, or a
+Pause landing mid-run, ends it too: pressing either says the
+person is at the desk.
 
 ## Retention
 

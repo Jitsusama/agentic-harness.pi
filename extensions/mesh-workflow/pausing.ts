@@ -5,11 +5,15 @@
  * - Stop ends the run in progress at once; the session stays open and
  *   listening.
  * - Pause lets the run finish the turn it is on, tools and all, then
- *   ends it; until Resume or a talk, any run that starts is ended as it
- *   starts, whatever started it, and the mesh hands its messages over
- *   without a turn.
- * - Resume clears the pause and has the session carry on; a talk does
- *   the same, its words being the turn.
+ *   ends it; until Resume, a talk or the person typing in the window,
+ *   any other run that starts is ended as it starts, whatever started
+ *   it, and the mesh hands its messages over without a turn.
+ * - Resume clears the pause and has the session carry on; a talk or
+ *   typing in the window does the same, its words being the turn.
+ *
+ * An ended run ends away mode (away-workflow), so a Stop, or a Pause
+ * landing mid-run, ends it for every session: pressing either says the
+ * person is at the desk.
  *
  * The pause itself is kept by the peer, in presence as `paused`, so it
  * outlasts a reload and the desktop shows it.
@@ -39,7 +43,10 @@ export interface Pausing {
 	readonly paused: boolean;
 	/** The person did this from outside the window. */
 	act(act: SteerAct): void;
-	/** The person talked to it: a pause ends, and the talk is the turn. */
+	/**
+	 * The person talked to it, from the launcher or by typing in its
+	 * window: a pause ends, and what they said is the turn.
+	 */
 	talked(): void;
 	/** A run started: a paused session ends it at once. */
 	started(): void;

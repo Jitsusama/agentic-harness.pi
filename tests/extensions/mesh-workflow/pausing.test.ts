@@ -60,7 +60,7 @@ describe("pausing a session", () => {
 		expect(one.did).toHaveLength(3);
 	});
 
-	it("ends with a talk, whose words are the turn", () => {
+	it("ends with a talk, or the person typing in the window, whose words are the turn", () => {
 		const one = session(true);
 		one.pausing.act("pause");
 		one.pausing.talked();

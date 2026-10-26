@@ -1163,6 +1163,12 @@ export function meshWorkflow(
 			};
 		});
 
+		// The person typing in the window is at the desk: a pause ends, and
+		// what they typed is the run, never ended as it starts.
+		pi.on("input", async (event) => {
+			if (event.source === "interactive") pausing.talked();
+			return { action: "continue" };
+		});
 		// Whether a peer is mid-run is part of what others see of it.
 		pi.on("agent_start", async () => {
 			peer?.setBusy(true);
