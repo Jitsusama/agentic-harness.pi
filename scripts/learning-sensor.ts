@@ -4,7 +4,8 @@
  * Counts what keeps going wrong in the pi session logs, so each
  * recurring mistake can become a proposed harness change and the
  * same count can show whether the change made it recur less. Three
- * kinds of signal, each counted as distinct sessions per ISO week:
+ * kinds of signal, each counted as distinct sessions per ISO week, or
+ * per day for a daily measure:
  *
  * - refusal: a harness tool answered `⊘`, refusing the call. The
  *   refusal's first line is the group, and each `- ` bullet under it
@@ -19,21 +20,27 @@
  *
  * Refusals and guards are exact, since the logs mark them. Habits
  * are patterns, tuned for precision over recall: a trend that bends
- * is the goal, not a census. Each week also says how many sessions
- * were active in it, so a short week reads as a rate, not a drop.
+ * is the goal, not a census. Each period also says how many sessions
+ * were active in it, so a quiet day reads as a rate, not a drop.
+ *
+ * A log last written before the window opened is not read at all, so
+ * a day's count reads a day's logs rather than every log since March.
  *
  * Run it directly (Node strips the types):
  *
- *   node scripts/learning-sensor.ts [--since YYYY-MM-DD] [--top N]
- *     [--json <file>]
+ *   node scripts/learning-sensor.ts [--since YYYY-MM-DD] [--by day]
+ *     [--top N] [--json <file>]
  *
  * See the convention-recurrence-sensor-guide skill for the method
  * and how the output feeds proposals.
  */
 
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
+import type { Span } from "../extensions/spend-workflow/audit.ts";
+import { sleepRefusal } from "../lib/internal/shell-habits.ts";
+import { stripShellData } from "../lib/shell/index.ts";
 import { isoWeek } from "./convention-recurrence.ts";
 
 /** What kind of thing went wrong. */
@@ -84,8 +91,10 @@ export const HABITS: readonly Habit[] = [
 		test: (_, c) => /\bgit\s+stash\b(?!\s+(list|show))/.test(c),
 	},
 	{
+		// What the sleep guard refuses, and nothing shorter: a pause of a
+		// few seconds between polls is how a wait should go.
 		key: "sleep used to wait",
-		test: (_, c) => /(^|[;&|(]\s*|\bdo\s+)sleep\s+\d/.test(c),
+		test: (_, c) => sleepRefusal(stripShellData(c)) !== undefined,
 	},
 	{
 		key: "nice or ionice added",
@@ -183,9 +192,16 @@ export function signalsFromCall(call: ToolCall): Signal[] {
 	}));
 }
 
-/** A signal seen in one session in one week. */
+/** The period a moment falls in: `2026-W44`, or `2026-10-26`. */
+export function periodOf(when: number, by: Span): string {
+	return by === "day"
+		? new Date(when).toISOString().slice(0, 10)
+		: isoWeek(when);
+}
+
+/** A signal seen in one session in one period. */
 export interface Sighting extends Signal {
-	readonly week: string;
+	readonly period: string;
 	readonly session: string;
 }
 
@@ -195,8 +211,8 @@ export interface Group {
 	readonly key: string;
 	readonly calls: number;
 	readonly sessions: number;
-	/** Distinct sessions per week. */
-	readonly weeks: Readonly<Record<string, number>>;
+	/** Distinct sessions per period. */
+	readonly periods: Readonly<Record<string, number>>;
 	readonly samples: readonly string[];
 }
 
@@ -211,7 +227,7 @@ export function tally(sightings: readonly Sighting[]): Group[] {
 			key: string;
 			calls: number;
 			sessions: Set<string>;
-			weeks: Map<string, Set<string>>;
+			periods: Map<string, Set<string>>;
 			samples: string[];
 		}
 	>();
@@ -224,16 +240,16 @@ export function tally(sightings: readonly Sighting[]): Group[] {
 				key: s.key,
 				calls: 0,
 				sessions: new Set(),
-				weeks: new Map(),
+				periods: new Map(),
 				samples: [],
 			};
 			groups.set(id, group);
 		}
 		group.calls++;
 		group.sessions.add(s.session);
-		const week = group.weeks.get(s.week) ?? new Set<string>();
-		week.add(s.session);
-		group.weeks.set(s.week, week);
+		const period = group.periods.get(s.period) ?? new Set<string>();
+		period.add(s.session);
+		group.periods.set(s.period, period);
 		if (group.samples.length < SAMPLES) group.samples.push(s.sample);
 	}
 	return [...groups.values()]
@@ -242,8 +258,8 @@ export function tally(sightings: readonly Sighting[]): Group[] {
 			key: g.key,
 			calls: g.calls,
 			sessions: g.sessions.size,
-			weeks: Object.fromEntries(
-				[...g.weeks].map(([week, sessions]) => [week, sessions.size]),
+			periods: Object.fromEntries(
+				[...g.periods].map(([period, sessions]) => [period, sessions.size]),
 			),
 			samples: g.samples,
 		}))
@@ -258,19 +274,19 @@ const HEADINGS: Record<SignalKind, string> = {
 };
 
 /**
- * A markdown report: sessions active per week, then each kind's top
- * groups with distinct sessions per week.
+ * A markdown report: sessions active per period, then each kind's top
+ * groups with distinct sessions per period.
  */
 export function renderReport(
 	groups: readonly Group[],
 	active: Readonly<Record<string, number>>,
 	options: { since: string; top: number },
 ): string {
-	const weeks = Object.keys(active).sort();
+	const periods = Object.keys(active).sort();
 	const lines = [
 		`# Learning Sensor, Since ${options.since}`,
 		"",
-		`Sessions active: ${weeks.map((w) => `${w} ${active[w]}`).join(", ")}.`,
+		`Sessions active: ${periods.map((p) => `${p} ${active[p]}`).join(", ")}.`,
 	];
 	for (const kind of ["habit", "refusal", "reason", "guard"] as const) {
 		const rows = groups.filter((g) => g.kind === kind).slice(0, options.top);
@@ -279,11 +295,11 @@ export function renderReport(
 			"",
 			`## ${HEADINGS[kind]}`,
 			"",
-			`| Sessions | Calls | ${weeks.join(" | ")} | What |`,
-			`| ---: | ---: | ${weeks.map(() => "---:").join(" | ")} | --- |`,
+			`| Sessions | Calls | ${periods.join(" | ")} | What |`,
+			`| ---: | ---: | ${periods.map(() => "---:").join(" | ")} | --- |`,
 		);
 		for (const g of rows) {
-			const cells = weeks.map((w) => String(g.weeks[w] ?? 0));
+			const cells = periods.map((p) => String(g.periods[p] ?? 0));
 			const what = g.key.replace(/\|/g, "\\|");
 			lines.push(
 				`| ${g.sessions} | ${g.calls} | ${cells.join(" | ")} | ${what} |`,
@@ -330,20 +346,21 @@ function callsOf(content: unknown): ToolCall[] {
 	);
 }
 
-/** Read one session file: its sightings and the weeks it was active. */
+/** Read one session file: its sightings and the periods it was active. */
 function scanSession(
 	path: string,
 	sinceMs: number,
-): { sightings: Sighting[]; weeks: Set<string> } {
+	by: Span,
+): { sightings: Sighting[]; periods: Set<string> } {
 	const session = basename(path);
 	const sightings: Sighting[] = [];
-	const weeks = new Set<string>();
+	const periods = new Set<string>();
 	let raw: string;
 	try {
 		raw = readFileSync(path, "utf8");
 	} catch {
 		// Removed since it was listed: nothing to read.
-		return { sightings, weeks };
+		return { sightings, periods };
 	}
 	for (const line of raw.split("\n")) {
 		if (!line.trim()) continue;
@@ -357,8 +374,8 @@ function scanSession(
 		if (entry.type !== "message" || !entry.message) continue;
 		const when = Date.parse(String(entry.timestamp));
 		if (Number.isNaN(when) || when < sinceMs) continue;
-		const week = isoWeek(when);
-		weeks.add(week);
+		const period = periodOf(when, by);
+		periods.add(period);
 		const m = entry.message;
 		const signals =
 			m.role === "toolResult"
@@ -370,12 +387,22 @@ function scanSession(
 				: m.role === "assistant"
 					? callsOf(m.content).flatMap(signalsFromCall)
 					: [];
-		for (const s of signals) sightings.push({ ...s, week, session });
+		for (const s of signals) sightings.push({ ...s, period, session });
 	}
-	return { sightings, weeks };
+	return { sightings, periods };
 }
 
-function sessionFiles(): string[] {
+/** Whether a log was written since `sinceMs`, so it can hold a sighting. */
+function writtenSince(path: string, sinceMs: number): boolean {
+	try {
+		return statSync(path).mtimeMs >= sinceMs;
+	} catch {
+		// Removed since it was listed: nothing to read.
+		return false;
+	}
+}
+
+function sessionFiles(sinceMs: number): string[] {
 	const root = join(homedir(), ".pi", "agent", "sessions");
 	let dirs: string[];
 	try {
@@ -388,7 +415,8 @@ function sessionFiles(): string[] {
 		try {
 			return readdirSync(join(root, dir))
 				.filter((name) => name.endsWith(".jsonl"))
-				.map((name) => join(root, dir, name));
+				.map((name) => join(root, dir, name))
+				.filter((path) => writtenSince(path, sinceMs));
 		} catch {
 			// A file beside the session folders, not a folder.
 			return [];
@@ -398,19 +426,24 @@ function sessionFiles(): string[] {
 
 /**
  * Read every session log from `sinceMs` on: what recurred, grouped,
- * and how many sessions were active each ISO week.
+ * and how many sessions were active each period, ISO week unless
+ * `by` says day.
  */
-export function sense(sinceMs: number): {
+export function sense(
+	sinceMs: number,
+	by: Span = "week",
+): {
 	groups: Group[];
 	active: Record<string, number>;
 } {
+	const since = Number.isNaN(sinceMs) ? 0 : sinceMs;
 	const sightings: Sighting[] = [];
 	const active = new Map<string, number>();
-	for (const file of sessionFiles()) {
-		const scanned = scanSession(file, Number.isNaN(sinceMs) ? 0 : sinceMs);
+	for (const file of sessionFiles(since)) {
+		const scanned = scanSession(file, since, by);
 		sightings.push(...scanned.sightings);
-		for (const week of scanned.weeks)
-			active.set(week, (active.get(week) ?? 0) + 1);
+		for (const period of scanned.periods)
+			active.set(period, (active.get(period) ?? 0) + 1);
 	}
 	return { groups: tally(sightings), active: Object.fromEntries(active) };
 }
@@ -423,7 +456,8 @@ function main(): void {
 	};
 	const since = option("--since") ?? "1970-01-01";
 	const top = Number(option("--top") ?? 20);
-	const { groups, active } = sense(Date.parse(since));
+	const by: Span = option("--by") === "day" ? "day" : "week";
+	const { groups, active } = sense(Date.parse(since), by);
 	process.stdout.write(renderReport(groups, active, { since, top }));
 	const json = option("--json");
 	if (json) writeFileSync(json, `${JSON.stringify(groups, null, 1)}\n`);

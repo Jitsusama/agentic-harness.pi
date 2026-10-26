@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	formatAudit,
-	weeks,
+	periods,
 } from "../../../extensions/spend-workflow/audit.ts";
 import {
 	byRepo,
@@ -90,12 +90,13 @@ describe("the always-on context of a session", () => {
 });
 
 describe("the audit digest", () => {
-	const week = weeks(Date.parse("2026-10-22T12:00:00Z")).current;
+	const week = periods(Date.parse("2026-10-22T12:00:00Z")).current;
 
 	it("holds the week's spend against the week before", () => {
 		const text = formatAudit(
 			{
-				week,
+				span: "week",
+				period: week,
 				spend: {
 					now: { turns: 3, cost: 1500, reads: 1000, writes: 300, output: 200 },
 					before: { cost: 1000 },
@@ -115,10 +116,35 @@ describe("the audit digest", () => {
 		expect(text).toContain("- edit: 3 of 100 (3%)");
 	});
 
+	it("holds a day against the day before", () => {
+		const day = periods(Date.parse("2026-10-26T13:00:00Z"), "day");
+		expect(day.current).toEqual({
+			from: "2026-10-25T13:00:00.000Z",
+			to: "2026-10-26T13:00:00.000Z",
+		});
+		expect(day.prior.from).toBe("2026-10-24T13:00:00.000Z");
+
+		const text = formatAudit(
+			{
+				span: "day",
+				period: day.current,
+				spend: { now: { turns: 2, cost: 50 }, before: { cost: 100 } },
+				rewrites: [],
+				reads: [],
+				errors: [],
+				standing: [],
+				unread: 0,
+			},
+			12,
+		);
+		expect(text).toContain("$50 over 2 turns, down 50% on the day before");
+	});
+
 	it("says how hidden tools were found and used, and which are worth declaring", () => {
 		const text = formatAudit(
 			{
-				week,
+				span: "week",
+				period: week,
 				spend: { now: {}, before: {} },
 				rewrites: [],
 				reads: [],
@@ -149,7 +175,8 @@ describe("the audit digest", () => {
 	it("prices a repository's always-on context at what its reads cost", () => {
 		const text = formatAudit(
 			{
-				week,
+				span: "week",
+				period: week,
 				spend: { now: {}, before: {} },
 				rewrites: [],
 				// 1,000 turns at $1 a million tokens read.
@@ -178,7 +205,8 @@ describe("the audit digest", () => {
 	it("holds each kind of quest file read a session against the week before", () => {
 		const text = formatAudit(
 			{
-				week,
+				span: "week",
+				period: week,
 				spend: { now: {}, before: {} },
 				rewrites: [],
 				reads: [],
@@ -214,7 +242,8 @@ describe("the audit digest", () => {
 	it("says no quest file was read when none was", () => {
 		const text = formatAudit(
 			{
-				week,
+				span: "week",
+				period: week,
 				spend: { now: {}, before: {} },
 				rewrites: [],
 				reads: [],

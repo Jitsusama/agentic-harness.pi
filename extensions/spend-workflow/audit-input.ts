@@ -1,10 +1,16 @@
 /**
  * Gathers what the weekly audit reports, from the ledger and the
- * session logs, so the `spend` tool and the weekly measure script ask
+ * session logs, so the `spend` tool and the measure script ask
  * the same questions and print the same answer.
  */
 
-import { AUDIT_QUERIES, type AuditInput, type Row, weeks } from "./audit.ts";
+import {
+	AUDIT_QUERIES,
+	type AuditInput,
+	periods,
+	type Row,
+	type Span,
+} from "./audit.ts";
 import { byRepo, logsSince, standingOf } from "./standing.ts";
 
 /** Answers one read-only query against the ledger with its rows. */
@@ -12,8 +18,10 @@ export type AuditQuery = (sql: string) => Promise<readonly Row[]>;
 
 /** Where and when to gather an audit. */
 export interface AuditSources {
-	/** The moment the audited week ends. */
+	/** The moment the audited period ends. */
 	readonly now: number;
+	/** How long it runs: a week unless a day is asked for. */
+	readonly span?: Span;
 	/** Where pi keeps its session logs. */
 	readonly sessionsDir: string;
 	/**
@@ -23,12 +31,13 @@ export interface AuditSources {
 	readonly deferred?: readonly string[];
 }
 
-/** Gather the week's audit, held against the week before. */
+/** Gather the period's audit, held against the one before. */
 export async function gatherAudit(
 	query: AuditQuery,
 	sources: AuditSources,
 ): Promise<AuditInput> {
-	const { current, prior } = weeks(sources.now);
+	const span = sources.span ?? "week";
+	const { current, prior } = periods(sources.now, span);
 	const logs = logsSince(sources.sessionsDir, Date.parse(current.from));
 	const prompts = (
 		await Promise.all(logs.map((path) => standingOf(path)))
@@ -61,7 +70,8 @@ export async function gatherAudit(
 	]);
 	const active = Number(sessions[0]?.sessions ?? 0);
 	return {
-		week: current,
+		span,
+		period: current,
 		spend: { now: now[0] ?? {}, before: before[0] ?? {} },
 		rewrites,
 		reads,
