@@ -30,12 +30,17 @@ import {
 	shortId,
 } from "../../lib/mesh/message.ts";
 import type { Peer } from "../../lib/mesh/peer.ts";
+import { pivotTargets } from "../../lib/mesh/pivot.ts";
 import type { Presence, Presences } from "../../lib/mesh/presence.ts";
 import { type Judge, type Route, routeOf } from "../../lib/mesh/routing.ts";
 import { stoppedBy } from "../../lib/mesh/stop.ts";
 import { idNamed, mayReplace, sentBy } from "../../lib/mesh/thread.ts";
 import type { Transport } from "../../lib/mesh/transport.ts";
-import { UNANSWERED_WITHIN_MS, unanswered } from "../../lib/mesh/unanswered.ts";
+import {
+	UNANSWERED_WITHIN_MS,
+	unanswered,
+	withinOrchestration,
+} from "../../lib/mesh/unanswered.ts";
 import type { WantKind } from "../../lib/mesh/want.ts";
 import { count } from "../../lib/ui/count.ts";
 import { leasesText } from "./leases.ts";
@@ -124,7 +129,7 @@ export function registerTools(
 			),
 			intent: StringEnum(INTENTS, {
 				description:
-					"hold: put off something until you say it is over; question: wants an answer; finding: for whoever owns what it is about, saying what you checked it against; fyi: context only",
+					"hold: put off something until you say it is over; question: wants an answer; finding: for whoever owns what it is about, saying what you checked it against; fyi: context only; pivot: change what they are doing, sent only by an orchestrator to the sessions it orchestrates, each answering once it has changed course",
 			}),
 			text: Type.String({
 				description: "The message, plain and short, standing on its own",
@@ -155,7 +160,7 @@ export function registerTools(
 		name: "mesh_read",
 		label: "Mesh",
 		description:
-			"Read the latest messages this peer hears on the mesh, and what it sent, to catch up after a reload or compaction, or to read a glance in full. With unanswered, list instead every question on the mesh, from any peer, still waiting on a peer it was put to, oldest first with its age, to see which sessions are stuck.",
+			"Read the latest messages this peer hears on the mesh, and what it sent, to catch up after a reload or compaction, or to read a glance in full. With unanswered, list instead every question on the mesh, from any peer, still waiting on a peer it was put to, oldest first with its age, to see which sessions are stuck; an orchestrator sees those of its own orchestration.",
 		parameters: Type.Object({
 			count: Type.Optional(
 				Type.Number({
@@ -418,6 +423,23 @@ async function send(
 			: [];
 	const standing = await peers(at);
 	const everyone = standing.present;
+	let pivotTo: readonly string[] = [];
+	if (params.intent === "pivot") {
+		// Read the mark now: an orchestration undone since this session
+		// last looked sends nothing.
+		at.peer.refresh();
+		const pivot = pivotTargets(
+			at.peer.orchestrates,
+			named.filter((group) => !unnamed.includes(group)),
+			everyone,
+		);
+		if ("refused" in pivot) {
+			return answer(`Not sent: ${pivot.refused}.`, {
+				sent: false,
+			} satisfies SendDetails);
+		}
+		pivotTo = pivot.to;
+	}
 	// A replacement goes wherever what it replaces went, so it reaches
 	// everyone who heard that, beside whoever it is now sent to.
 	const chosen = [
@@ -426,6 +448,7 @@ async function send(
 			// An end goes wherever the hold went, to everyone it parked.
 			...(ended.hold?.to ?? []),
 			...named.filter((group) => !unnamed.includes(group)),
+			...pivotTo,
 		]),
 	];
 	// A message that opens by naming peers is for them: sent to a group
@@ -433,8 +456,12 @@ async function send(
 	// An answer is left where it was sent, since the group its question
 	// went to sees by it that the question is answered, and a replacement
 	// must reach everyone who heard what it replaces.
+	// A pivot goes where it was checked to go, never narrowed to peers
+	// named at its start, who may be outside the orchestration.
 	const meant =
-		params.re === undefined && ownReplaced === undefined
+		params.re === undefined &&
+		ownReplaced === undefined &&
+		params.intent !== "pivot"
 			? namedAtStart(params.text, at.peer.session, everyone).map(homeOf)
 			: [];
 	// An answer that names nowhere goes back to whoever asked: routed by
@@ -788,9 +815,26 @@ async function openText(at: Local, now = Date.now()): Promise<string> {
 	const present = new Set(
 		(await peers(at)).present.flatMap((one) => one.addresses),
 	);
-	const open = unanswered(messages, aliases, now);
+	const all = unanswered(messages, aliases, now);
+	// An orchestrator sees its own orchestration's: the rest of the mesh
+	// is not its to unstick. Any other session sees the whole mesh.
+	const heads = at.peer.orchestrates;
+	const members = heads
+		? new Set([
+				...at.peer.addresses,
+				...everyone
+					.filter((one) => one.orchestratedBy === heads)
+					.flatMap((one) => one.addresses),
+			])
+		: undefined;
+	const open = members ? withinOrchestration(all, members) : all;
+	const where = members ? "in this orchestration" : "on the mesh";
+	const elsewhere =
+		all.length > open.length
+			? ` ${all.length - open.length} more elsewhere on the mesh are left out.`
+			: "";
 	if (open.length === 0) {
-		return "No question on the mesh is waiting on an answer.";
+		return `No question ${where} is waiting on an answer.${elsewhere}`;
 	}
 	const lines = open.slice(-MOST_READ).map(({ message, waitingOn }) => {
 		const minutes = Math.round((now - Date.parse(message.at)) / 60_000);
@@ -806,7 +850,7 @@ async function openText(at: Local, now = Date.now()): Promise<string> {
 		open.length > MOST_READ
 			? ` (the newest ${MOST_READ} of ${open.length} shown)`
 			: "";
-	return `${open.length} ${open.length === 1 ? "question is" : "questions are"} waiting on an answer, oldest first${more}:\n${lines.join("\n")}`;
+	return `${open.length} ${open.length === 1 ? "question is" : "questions are"} ${where} waiting on an answer, oldest first${more}:${elsewhere}\n${lines.join("\n")}`;
 }
 
 /** How much of an open question's text its line shows. */
@@ -816,7 +860,9 @@ const OPEN_CHARS = 100;
  * Where each of this peer's own questions among these stands: answered,
  * and by whom; being answered, by a peer that took it up; or unanswered,
  * and for how long. A question nobody answers otherwise reads the same
- * as one answered in a group the asker never looked at.
+ * as one answered in a group the asker never looked at. A pivot is
+ * answered like a question, by each session once it has changed course,
+ * and also names those it reached that have not, so one ignored shows.
  */
 function questionStates(
 	at: Local,
@@ -828,7 +874,7 @@ function questionStates(
 	const self = { addresses: at.peer.addresses, pid: process.pid };
 	const asked = shown.filter(
 		(message) =>
-			message.intent === "question" &&
+			(message.intent === "question" || message.intent === "pivot") &&
 			sentBy(message, self) &&
 			!withdrawn.has(message.id),
 	);
@@ -847,6 +893,10 @@ function questionStates(
 	const board = at.board.all();
 	for (const question of asked) {
 		const given = answers.get(question.id) ?? [];
+		if (question.intent === "pivot") {
+			states.set(question.id, pivotState(question, given, present, self));
+			continue;
+		}
 		if (given.length > 0) {
 			const by = [...new Set(given.map((one) => one.from))].join(", ");
 			const last = given.at(-1) as Message;
@@ -873,6 +923,31 @@ function questionStates(
 		);
 	}
 	return states;
+}
+
+/**
+ * Who of the sessions a pivot reached has answered it, having changed
+ * course, and who has not yet.
+ */
+function pivotState(
+	pivot: Message,
+	given: readonly Message[],
+	present: readonly Presence[],
+	self: { addresses: readonly string[]; pid: number },
+): string {
+	const by = new Set(given.map((one) => one.from));
+	const reached = present.filter(
+		(one) =>
+			!one.addresses.some((address) => self.addresses.includes(address)) &&
+			(one.addresses.some((address) => pivot.to.includes(homeOf(address))) ||
+				one.groups.some((group) => pivot.to.includes(group))),
+	);
+	const waiting = reached
+		.filter((one) => !one.addresses.some((address) => by.has(address)))
+		.map((one) => one.addresses[0] as string);
+	const answered = by.size > 0 ? `changed course: ${[...by].join(", ")}` : "";
+	const yet = waiting.length > 0 ? `not yet: ${waiting.join(", ")}` : "";
+	return [answered, yet].filter(Boolean).join("; ") || "reached nobody present";
 }
 
 /** How long ago a message was sent, in minutes, or hours past two. */

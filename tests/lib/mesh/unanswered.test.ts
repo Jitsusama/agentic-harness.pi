@@ -7,6 +7,7 @@ import type { Message } from "../../../lib/mesh/message.ts";
 import {
 	UNANSWERED_WITHIN_MS,
 	unanswered,
+	withinOrchestration,
 } from "../../../lib/mesh/unanswered.ts";
 
 const now = Date.parse("2026-10-26T01:30:00.000Z");
@@ -88,5 +89,18 @@ describe("questions still unanswered", () => {
 		expect(
 			unanswered([withdrawn, instead], aliases, now).map((one) => one.message),
 		).toEqual([instead]);
+	});
+});
+
+describe("an orchestration's own unanswered questions", () => {
+	it("keeps those asked in it or waiting on it, and leaves the rest of the mesh out", () => {
+		const fromInside = message({ from: "QCXZEB", to: ["@N10TYF"] });
+		const toInside = message({ from: "N10TYF", to: ["@85PKB2"] });
+		const elsewhere = message({ from: "N10TYF", to: ["@19AMVE"] });
+		const open = unanswered([fromInside, toInside, elsewhere], aliases, now);
+
+		const mine = withinOrchestration(open, new Set(["QCXZEB", "85PKB2"]));
+
+		expect(mine.map((one) => one.message)).toEqual([fromInside, toInside]);
 	});
 });

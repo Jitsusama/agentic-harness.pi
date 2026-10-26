@@ -89,6 +89,8 @@ export interface Standing {
 	readonly askedEach?: boolean;
 	/** The time it is handed over, for judging an fyi or a hold past its time. */
 	readonly now?: number;
+	/** The address of the orchestrator above this peer's quest, when one is. */
+	readonly orchestrator?: string;
 }
 
 /** The attention a message gets, and why, for the screen and the tests. */
@@ -145,6 +147,17 @@ export function attend(message: Message, at: Standing): Heed {
 		at.now - Date.parse(message.at) > MOST_HOLD_MS
 	) {
 		return { attention: "glance", why: "a hold past the longest one stands" };
+	}
+	// A pivot carries its orchestrator's authority, so it is steered into
+	// a run under way like a hold. From anyone else it is only news.
+	if (message.intent === "pivot") {
+		return message.from === at.orchestrator
+			? {
+					attention: "turn",
+					why: "a pivot from this peer's orchestrator",
+					addressed: true,
+				}
+			: { attention: "note", why: "a pivot from another orchestrator" };
 	}
 	const home = isHomeTo(message, at.receiver.addresses);
 	if (at.answers || home || at.askedEach) {
