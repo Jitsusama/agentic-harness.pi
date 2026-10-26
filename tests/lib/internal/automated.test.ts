@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { OUTBOX_HEADER } from "../../../extensions/job-workflow/outbox.ts";
+import {
+	isOutboxMessage,
+	OUTBOX_HEADER,
+} from "../../../extensions/job-workflow/outbox.ts";
 import {
 	FAILED_RESUME_TEXT,
 	isResumeText,
@@ -24,13 +27,15 @@ describe("the turns the harness starts itself", () => {
 		}
 	});
 
-	it("gives the job host the header it always had", () => {
+	it("gives the job host its header, and still knows the one before", () => {
 		expect(OUTBOX_HEADER).toBe(
-			"[Automated message, no human input: background jobs are reporting.]",
+			"[Automated message, no human input: background work is reporting.]",
 		);
-		expect(automatedHeader("background jobs are reporting")).toBe(
-			OUTBOX_HEADER,
-		);
+		expect(automatedHeader("background work is reporting")).toBe(OUTBOX_HEADER);
+		// A result sent just before a reload reaches the code loaded after.
+		expect(
+			isOutboxMessage(automatedHeader("background jobs are reporting")),
+		).toBe(true);
 	});
 
 	it("still recognises what the harness sent before the header", () => {
