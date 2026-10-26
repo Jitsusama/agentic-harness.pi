@@ -8,7 +8,7 @@
  * kills what it names rather than the shell running it. A time limit on
  * work the machine's queue holds starts when its turn does, not while it
  * waits (lib/internal/priority/clock.ts). And a command
- * still running after five minutes is handed to job-workflow rather than
+ * still running after a minute is handed to job-workflow rather than
  * holding the session silently: the call returns saying so, and the job
  * says how the command ended. A model expecting a long run passes
  * `background`; a codemode script's calls are never handed off.
@@ -66,7 +66,7 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 
 	pi.registerTool({
 		...shape,
-		description: `${shape.description} A command still running after ${spoken(HAND_OFF_MS)} moves to the background, and its result arrives later as a message of its own.`,
+		description: `${shape.description} A command still running after ${spoken(HAND_OFF_MS)} moves to the background, and its result arrives later as a message of its own, so the session never stops hearing the person or other sessions for longer than that.`,
 		promptGuidelines: [
 			...(shape.promptGuidelines ?? []),
 			"Let a command's output through: do not pipe it into tail or head to keep it short, since bash already keeps the end and saves the full output to a file, and a pipe hides all progress until the command ends.",
@@ -89,7 +89,7 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 			),
 			background: Type.Optional(
 				Type.Boolean({
-					description: `true to run it in the background at once, false to wait however long it takes. Left out, a command still running after ${spoken(HAND_OFF_MS)} moves to the background.`,
+					description: `true to run it in the background at once. False or left out, a command still running after ${spoken(HAND_OFF_MS)} moves to the background; nothing waits longer.`,
 				}),
 			),
 		}),

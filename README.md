@@ -60,7 +60,7 @@ leaving and `away-workflow` keeps the run going until it is done
 or truly blocked, holding anything that needed you for your
 return rather than waiting on it. A long command no longer holds
 the session either: `shell-workflow` moves anything still running
-after five minutes to the background and says how it ended.
+after a minute to the background and says how it ended.
 
 **Build test-first.** The `code-tdd-guide` skill teaches the
 red-green-refactor method, with no tool standing over it. When

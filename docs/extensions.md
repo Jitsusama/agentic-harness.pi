@@ -89,7 +89,7 @@ it does:
   `shell-workflow` replaces pi's `bash` with pi's own definition,
   rebuilt with the same settings, and adds two things: the
   agent's commands get no editor or pager to wait on, and a
-  command still running after five minutes moves to a job
+  command still running after a minute moves to a job
   instead of holding the session. It hands off rather than
   kills, because the session logs show short timeouts killing
   real builds. A codemode script's calls never move, since the

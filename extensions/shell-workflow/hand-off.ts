@@ -9,6 +9,14 @@
  * call to a job, the call returns saying so, and the job says how the
  * command ended once it has.
  *
+ * A session in a bash call hears neither the person nor the mesh until
+ * the call returns, since pi steers messages in only between tool calls.
+ * So the wait is a minute, not the five it once was, and `background:
+ * false` no longer means never: on 2026-10-25 sessions passed it on
+ * 1,210 of 1,381 bash calls since 19:00, and the three that went deaf
+ * to the orchestrator for 20 to 31 minutes had all passed it, two of
+ * them while waiting in the machine queue.
+ *
  * The command itself is pi's, run by pi's own bash under a signal this
  * module owns. Until the hand-off that signal follows the call's, so
  * Escape kills the command as it always has; after it, it follows the
@@ -27,7 +35,7 @@ import { findJobHost } from "../../lib/jobs/index.ts";
 import { firstText } from "../../lib/ui/index.ts";
 
 /** How long a command may hold the call before it is handed off. */
-export const HAND_OFF_MS = 5 * 60 * 1000;
+export const HAND_OFF_MS = 60 * 1000;
 
 /** Lines of output the hand-off shows, so the model can see where it was. */
 export const HAND_OFF_LINES = 20;
@@ -46,7 +54,7 @@ export interface Call<T> {
 	readonly command: string;
 	/** The call being run, named on its job if it is handed off. */
 	readonly toolCallId?: string;
-	/** True to hand off at once, false never to; unset, after a while. */
+	/** True to hand off at once; false or unset, after a while. */
 	readonly background?: boolean;
 	/** Made by a codemode script, which needs the real result. */
 	readonly nested: boolean;
@@ -123,10 +131,7 @@ function exitCodeOf(result: AgentToolResult<unknown>): number | undefined {
 export async function runOrHandOff<T>(
 	call: Call<T>,
 ): Promise<AgentToolResult<T | undefined>> {
-	const host =
-		call.nested || call.background === false
-			? undefined
-			: findJobHost(call.bus);
+	const host = call.nested ? undefined : findJobHost(call.bus);
 	const passThrough: AgentToolUpdateCallback<T> = (partial) =>
 		call.onUpdate?.(partial);
 	if (!host) {

@@ -11,6 +11,7 @@ import {
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	FINISHED_LINES,
+	HAND_OFF_MS,
 	labelOf,
 	runOrHandOff,
 	spoken,
@@ -343,7 +344,7 @@ describe("what decides whether a command moves", () => {
 		expect(specs).toHaveLength(1);
 	});
 
-	it("never moves when asked to wait", async () => {
+	it("moves after a while even when asked to wait, so the session can still be reached", async () => {
 		const { bus, specs } = recordingHost();
 		const command = controllable();
 		const running = runOrHandOff({
@@ -356,11 +357,17 @@ describe("what decides whether a command moves", () => {
 			run: command.run,
 			afterMs: 0,
 		});
-		await new Promise((resolve) => setTimeout(resolve, 20));
-		command.end(said("up"));
 
-		expect((await running).content[0]).toEqual({ type: "text", text: "up" });
-		expect(specs).toEqual([]);
+		const result = await running;
+		const text =
+			result.content[0]?.type === "text" ? result.content[0].text : "";
+		expect(text).toContain("in the background as job j1");
+		expect(specs).toHaveLength(1);
+		command.end(said("up"));
+	});
+
+	it("waits no longer than a minute", () => {
+		expect(HAND_OFF_MS).toBeLessThanOrEqual(60_000);
 	});
 
 	it("never moves a call a codemode script made", async () => {
