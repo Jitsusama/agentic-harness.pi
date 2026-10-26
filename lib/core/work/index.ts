@@ -114,7 +114,7 @@ export type {
 } from "./stacks.ts";
 export { createGitStacks } from "./stacks.ts";
 export type { SurveyRequest, SurveyTarget } from "./survey.ts";
-export { surveyTarget } from "./survey.ts";
+export { heldNames, surveyTarget } from "./survey.ts";
 export type {
 	Kept,
 	LocalBranch,

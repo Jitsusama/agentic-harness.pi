@@ -35,11 +35,38 @@ export type SurveyTarget =
 	| { ok: true; key: string; path: string; held: boolean }
 	| { ok: false; refusal: string };
 
-/** Name what is held, so a typo becomes a correction rather than a guess. */
-function heldNames(held: { key: string }[]): string {
-	return held.length === 0
-		? "none are held"
-		: held.map((one) => one.key).join(", ");
+/**
+ * How many held trees a refusal names. A session holding dozens of
+ * trees made every mistyped name answer 30 KB of keys.
+ */
+const NAMED_HELD = 5;
+
+/**
+ * Name what is held, so a typo becomes a correction rather than a
+ * guess: the keys sharing most words with the name asked for come
+ * first, at most five of them, and the rest are counted and left to
+ * action trees.
+ */
+export function heldNames(
+	held: readonly { key: string }[],
+	asked?: string,
+): string {
+	if (held.length === 0) return "none are held";
+	const words = (asked ?? "")
+		.toLowerCase()
+		.split(/[^a-z0-9]+/)
+		.filter((word) => word.length > 2);
+	const shared = (key: string) =>
+		words.filter((word) => key.toLowerCase().includes(word)).length;
+	const keys = held
+		.map((one, at) => ({ key: one.key, at, score: shared(one.key) }))
+		.sort((a, b) => b.score - a.score || a.at - b.at)
+		.map((one) => one.key);
+	const named = keys.slice(0, NAMED_HELD).join(", ");
+	const rest = keys.length - NAMED_HELD;
+	return rest > 0
+		? `${named}, and ${rest} more; action trees lists them`
+		: named;
 }
 
 /**
@@ -61,7 +88,7 @@ export function surveyTarget(request: SurveyRequest): SurveyTarget {
 		if (root) return { ok: true, key: root, path: root, held: false };
 		return {
 			ok: false,
-			refusal: `No held tree called ${tree}, and it is not inside a checkout: ${heldNames(held)}.`,
+			refusal: `No held tree called ${tree}, and it is not inside a checkout: ${heldNames(held, tree)}.`,
 		};
 	}
 

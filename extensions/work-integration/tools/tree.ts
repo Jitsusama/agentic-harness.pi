@@ -34,6 +34,7 @@ import {
 	createGitRebaser,
 	createGitStacks,
 	type HeldTree,
+	heldNames,
 	namingComplaints,
 	type OrphanPlan,
 	orphanedTrees,
@@ -330,13 +331,24 @@ async function surveyRepo(
 		tracked: tracked.map((step) => step.name),
 	});
 
+	// One record per line below, so a plan too long to read whole is
+	// stored and queried rather than read at its full length: a
+	// checkout with hundreds of merged branches answered 43 KB.
+	type Verdict = "can go" | "decide" | "kept";
+	const records: { what: string; verdict: Verdict; why?: string }[] = [];
 	const lines: string[] = [];
 	for (const gone of plan.removable) {
+		records.push({ what: gone.branch, verdict: "can go" });
 		lines.push(
 			`   ${GLYPH.named} ${gone.branch}${gone.alsoUntrack ? ", and untrack it" : ""}`,
 		);
 	}
 	for (const kept of plan.keeping) {
+		records.push({
+			what: kept.branch,
+			verdict: kept.decide ? "decide" : "kept",
+			why: kept.why,
+		});
 		// A judgement call is marked apart from a refusal. The
 		// difference is whether anybody could act on it.
 		lines.push(
@@ -360,6 +372,7 @@ async function surveyRepo(
 				);
 	for (const tree of orphans.reclaimable) {
 		const size = sizes.get(tree.path);
+		records.push({ what: displayPath(tree.path), verdict: "can go" });
 		lines.push(
 			`   ${GLYPH.named} ${displayPath(tree.path)}, a tree nothing holds${tree.branch ? ` (${tree.branch})` : ""}${size ? `, ${formatSize(size)}` : ""}`,
 		);
@@ -371,35 +384,49 @@ async function surveyRepo(
 		// trains people to skip the list that also holds the one
 		// line they must read.
 		if (tree.path === resolved(target.path)) continue;
+		records.push({
+			what: displayPath(tree.path),
+			verdict: tree.decide ? "decide" : "kept",
+			why: tree.why,
+		});
 		lines.push(
 			`   ${tree.decide ? GLYPH.undecided : GLYPH.refused} ${displayPath(tree.path)}: ${tree.why}`,
 		);
 	}
 
 	const spent = plan.removable.length + orphans.reclaimable.length;
+	const headline =
+		spent === 0
+			? `${GLYPH.clean} Nothing in ${named} has been spent yet, against ${trunk}.`
+			: `${GLYPH.named} ${count(spent, "thing", "things")} in ${named} can go, against ${trunk}.`;
+	// The advice is the trailer, so it survives a cut list: it is
+	// what the reader acts on once they have read the list.
+	const advice = [
+		"Nothing has been removed. Delete the branches you agree with,",
+		"and prefer git branch -d, which refuses anything trunk does not",
+		"contain and is the check rather than the obstacle.",
+		...(orphans.reclaimable.length === 0
+			? []
+			: [
+					// The one place a reader is sent to a verb rather than
+					// left with a git call the guide tells them never to
+					// make. Trees are reclaimable precisely because the
+					// branch survives the removal.
+					"",
+					`For the ${count(orphans.reclaimable.length, "tree", "trees")} nothing holds, work reclaim takes them`,
+					`back${freed ? `, freeing ${formatSize(freed)}` : ""}. Each branch stays exactly where it is, so re-cutting`,
+					"the tree puts you back.",
+				]),
+	].join("\n");
 	return say(
-		[
-			spent === 0
-				? `${GLYPH.clean} Nothing in ${named} has been spent yet, against ${trunk}.`
-				: `${GLYPH.named} ${count(spent, "thing", "things")} in ${named} can go, against ${trunk}.`,
-			...lines,
-			"",
-			"Nothing has been removed. Delete the branches you agree with,",
-			"and prefer git branch -d, which refuses anything trunk does not",
-			"contain and is the check rather than the obstacle.",
-			...(orphans.reclaimable.length === 0
-				? []
-				: [
-						// The one place a reader is sent to a verb rather than
-						// left with a git call the guide tells them never to
-						// make. Trees are reclaimable precisely because the
-						// branch survives the removal.
-						"",
-						`For the ${count(orphans.reclaimable.length, "tree", "trees")} nothing holds, work reclaim takes them`,
-						`back${freed ? `, freeing ${formatSize(freed)}` : ""}. Each branch stays exactly where it is, so re-cutting`,
-						"the tree puts you back.",
-					]),
-		].join("\n"),
+		citeListing(openSessionStore(), {
+			view: [headline, ...lines].join("\n"),
+			records,
+			unit: "branches and trees",
+			narrowing:
+				'Query the stored result by verdict, such as $[?(@.verdict=="can go")].what.',
+			trailer: advice,
+		}),
 		{
 			ok: true,
 			removable: plan.removable.length,
@@ -732,10 +759,10 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 				if (!found) {
 					// Naming what is held turns a typo into a correction
 					// rather than a second guess.
-					const names =
-						held.length === 0
-							? "none are held"
-							: held.map((h) => h.identity.key).join(", ");
+					const names = heldNames(
+						held.map((h) => ({ key: h.identity.key })),
+						inPlay.key,
+					);
 					return refuse(
 						`${GLYPH.refused} No held tree called ${inPlay.key}: ${names}.`,
 					);
