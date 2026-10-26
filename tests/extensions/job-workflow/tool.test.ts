@@ -88,6 +88,6 @@ describe("the jobs tool over a registry carried from older code", () => {
 		expect(finished.isError).toBe(true);
 		expect(finished.text).toMatch(/already finished/);
 		expect(unknown.isError).toBe(true);
-		expect(unknown.text).toMatch(/holds no job j99/);
+		expect(unknown.text).toMatch(/holds nothing in the background as j99/);
 	});
 });

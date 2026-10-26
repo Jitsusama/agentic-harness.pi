@@ -23,11 +23,11 @@ export async function showJobs(
 ): Promise<void> {
 	const entries = jobs?.list() ?? [];
 	if (!jobs || entries.length === 0) {
-		ctx.ui.notify("No background jobs.", "info");
+		ctx.ui.notify("Nothing is running in the background.", "info");
 		return;
 	}
 	const options = entries.map(describe);
-	const picked = await ctx.ui.select("Background jobs", options);
+	const picked = await ctx.ui.select("Background work", options);
 	const entry =
 		picked === undefined ? undefined : entries[options.indexOf(picked)];
 	if (!entry) return;

@@ -79,7 +79,7 @@ it does:
   from disk. Like reload, the switch is a command's alone, so it
   goes through `/rollover`.
 
-  `job-workflow` hosts background jobs. A tool that returns
+  `job-workflow` hosts background work. A tool that returns
   before its work ends hands the work to it, and it says the
   result to the model as a prompt of its own once no run,
   compaction or submitted prompt is under way, since a message
@@ -90,8 +90,8 @@ it does:
   `shell-workflow` replaces pi's `bash` with pi's own definition,
   rebuilt with the same settings, and adds two things: the
   agent's commands get no editor or pager to wait on, and a
-  command still running after a minute moves to a job
-  instead of holding the session. It hands off rather than
+  command still running after a minute becomes a background
+  command instead of holding the session. It hands off rather than
   kills, because the session logs show short timeouts killing
   real builds. A codemode script's calls never move, since the
   script reads their structured result.

@@ -3092,9 +3092,7 @@ describe("a lease", () => {
 			await run.fire("tool_result", {
 				type: "tool_result",
 				toolCallId: "b3",
-				content: [
-					{ type: "text", text: "Running in the background as job j1." },
-				],
+				content: [{ type: "text", text: "Running as background command j1." }],
 			});
 		};
 		const ended = {

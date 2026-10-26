@@ -348,7 +348,7 @@ describe("the agent stopping a job", () => {
 
 	it("says when there is nothing to list", async () => {
 		const { call } = await withTool();
-		expect(text(await call({ action: "list" }))).toMatch(/no background jobs/i);
+		expect(text(await call({ action: "list" }))).toMatch(/no background work/i);
 	});
 
 	it("stops a running job for the agent, and its work ends once", async () => {

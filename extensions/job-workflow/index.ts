@@ -186,7 +186,8 @@ export default function jobWorkflow(
 	});
 
 	pi.registerCommand("jobs", {
-		description: "List background jobs, and stop one",
+		description:
+			"List background commands, fleets and review rounds, and stop one",
 		handler: (_args, ctx) => showJobs(session?.jobs, ctx),
 	});
 

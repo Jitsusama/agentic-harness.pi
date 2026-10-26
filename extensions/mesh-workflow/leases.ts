@@ -611,8 +611,11 @@ function describeAll(leases: readonly Lease[]): string {
 	return [...changing, ...rest].join("; ");
 }
 
-/** How a bash call says it handed its command to a job. */
-const HANDED_OFF = /in the background as job \S+/;
+/**
+ * How a bash call says it handed its command to the background, in
+ * this code's words or older code's.
+ */
+const HANDED_OFF = /in the background as job \S+|as background command \S+/;
 
 /**
  * Heavy work as a sentence names it: the queue's words for its kind, or

@@ -10,7 +10,7 @@ commands.
 | Tool | For |
 |---|---|
 | `review` | What the session is working on: attach, detach, next, prev, capabilities |
-| `review_see` | Every read: change, diff, checks (with `watch`, waited on as a background job), stack, changes, threads, reviews, messages |
+| `review_see` | Every read: change, diff, checks (with `watch`, waited on in the background), stack, changes, threads, reviews, messages |
 | `review_say` | Saying something now: reply, comment, resolve, unresolve, react |
 | `review_ask` | Putting the change to other models: council, start, judge, critique, audit, stack, runs, collect, retry, release |
 | `review_offer` | Putting work up and moving it along: propose, edit, ready, draft, reviewers, close, reopen, merge |

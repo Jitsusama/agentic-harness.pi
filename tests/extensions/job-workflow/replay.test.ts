@@ -18,7 +18,7 @@ import { OUTBOX_HEADER } from "../../../extensions/job-workflow/outbox.ts";
 import { forgetParkedJobs, jobRuntime } from "../../support/job-runtime.ts";
 
 const report = (jobId: string) =>
-	`${OUTBOX_HEADER}\n\n[job ${jobId}] the reload you asked for\nReloaded, as asked.`;
+	`${OUTBOX_HEADER}\n\n[${jobId}] the reload you asked for\nReloaded, as asked.`;
 
 /** A user message as pi's `message_end` carries it. */
 const landed = (text: string) => ({

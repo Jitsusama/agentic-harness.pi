@@ -21,7 +21,7 @@ the provider's prompt cache carries on too.
 
 - **By itself,** at the first still moment after a compaction of a log
   of 64 MB or more: the run has settled, you did not stop it, no
-  background job is running (switching logs would end it) and no
+  background work is running (switching logs would end it) and no
   reload is waiting. A compaction you ask for between runs rolls over
   at once.
 - **On asking,** with `/rollover`, whatever the log's size, once the

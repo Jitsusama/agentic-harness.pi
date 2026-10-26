@@ -145,6 +145,15 @@ describe("exactly once", () => {
 		expect(box.waiting()).toHaveLength(1);
 	});
 
+	it("takes a result older code sent before a reload as landed", () => {
+		const { box } = outbox();
+		box.post(result("j1"));
+		box.seen(
+			"[Automated message, no human input: background jobs are reporting.]\n\n[job j1] x\ndone",
+		);
+		expect(box.waiting()).toHaveLength(0);
+	});
+
 	it("ignores the person quoting a job, which is not its own message", () => {
 		const { box } = outbox();
 		box.post(result("j1"));

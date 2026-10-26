@@ -245,7 +245,7 @@ windows, N model calls. Three habits keep this honest:
 ## Running a Fleet in the Background
 
 Pass `background: true` when your next step does not need
-the fleet's answer. The call returns at once with a job
+the fleet's answer. The call returns at once with an
 id, the board stays above the editor, and the person can
 type while it runs. When the fleet ends, its summary
 arrives as a message of its own, opening with a line
@@ -260,7 +260,7 @@ saying no person typed it.
 - **Tell the person how to stop it.** `/jobs` lists what
   is running and stops one; Escape on the board still
   cancels the fleet. To stop it yourself, use the `jobs`
-  tool's `stop` with the job's id.
+  tool's `stop` with that id.
 - **Nothing survives the session.** A reload, a new
   session or a quit stops the fleet. The transcripts it
   wrote stay on disk.

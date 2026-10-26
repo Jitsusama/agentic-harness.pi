@@ -265,8 +265,8 @@ function handOffText(handed: {
 	holdsBack: boolean;
 }): string {
 	const opening = handed.background
-		? `Running in the background as job ${handed.jobId}.`
-		: `Still running after ${spoken(handed.afterMs)}, so it now runs in the background as job ${handed.jobId}.`;
+		? `Running as background command ${handed.jobId}.`
+		: `Still running after ${spoken(handed.afterMs)}, so it now runs as background command ${handed.jobId}.`;
 	const lines = [
 		`${opening} Its result will arrive as a message of its own when it ends.`,
 		"Carry on with work that does not depend on it. Until then, do not run it again, and do not run anything that needs its result or changes what it is working on.",

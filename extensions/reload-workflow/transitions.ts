@@ -154,7 +154,7 @@ export async function requestReload(
 		`Reload queued${onto}.${checked}`,
 		"It runs as soon as this run ends, so end your turn now, without another call.",
 		"When it lands, a message says which code runs and you carry on from there.",
-		"Background jobs keep running through the reload, and their results arrive in the reloaded session.",
+		"Background commands, fleets and review rounds keep running through the reload, and their results arrive in the reloaded session.",
 	].join(" ");
 }
 

@@ -35,7 +35,7 @@ loads the install and the install is `main`.
   - It waits for a moment that loses nothing: an idle session at
     once, a busy one when its run ends, and either only once
     `pnpm install` has followed a move that changed the lockfile.
-    Background jobs are no reason to wait: they keep running
+    Background work is no reason to wait: it keeps running
     through a reload, and their results arrive in the reloaded
     session (see [job-workflow](../job-workflow/#through-a-reload)).
   - It does not wait for the cache: pi sends tool and section
