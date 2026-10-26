@@ -102,6 +102,18 @@ describe("the standing rules for the loaded quest", () => {
 		expect(rulesFor(CHILD)).toContain("British spelling.");
 	});
 
+	it("follow the quest moving out from under its orchestrator", () => {
+		const rulesFor = standingRules(() => root);
+		expect(rulesFor(CHILD)).toContain("Canadian spelling.");
+
+		const path = join(root, CHILD, "README.md");
+		writeFileSync(path, readme(CHILD, {}));
+		const later = new Date(Date.now() + 5_000);
+		utimesSync(path, later, later);
+
+		expect(rulesFor(CHILD)).toBeNull();
+	});
+
 	it("are none with no quest loaded", () => {
 		expect(standingRules(() => root)(null)).toBeNull();
 	});

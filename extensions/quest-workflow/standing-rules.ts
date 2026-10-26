@@ -51,21 +51,29 @@ export function standingRulesFor(
 
 /**
  * The standing rules for whichever quest is loaded, read again only
- * when the loaded quest or its orchestrator's README changes, since
- * the prompt asks on every turn.
+ * when the loaded quest, its own README (a reparent, a moved mark) or
+ * its orchestrator's README changes, since the prompt asks on every
+ * turn.
  */
 export function standingRules(
 	questsRoot: () => string,
 ): (quest: string | null) => string | null {
 	let last:
-		| { quest: string; by?: string; mtime?: number; rules: string | null }
+		| {
+				quest: string;
+				own?: number;
+				by?: string;
+				mtime?: number;
+				rules: string | null;
+		  }
 		| undefined;
 	return (quest) => {
 		if (!quest) return null;
 		const read = readmeIn(questsRoot());
-		if (last?.quest !== quest) {
+		const own = modified(join(questsRoot(), quest, "README.md"));
+		if (last?.quest !== quest || last.own !== own) {
 			const by = orchestratorOf(quest, read);
-			last = { quest, by, mtime: undefined, rules: null };
+			last = { quest, own, by, mtime: undefined, rules: null };
 		}
 		if (last.by === undefined) return null;
 		const mtime = modified(join(questsRoot(), last.by, "README.md"));
