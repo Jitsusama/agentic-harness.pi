@@ -1,14 +1,16 @@
 /**
- * The weekly measure, run with no pi session, as a timer does: the
- * `spend` tool's weekly audit and the learning sensor's count over the
- * same week, written as one report.
+ * The measure, run with no pi session, as a timer does: the `spend`
+ * tool's audit and the learning sensor's count, written as one report.
  *
- * The audit holds the week against the one before: spend, cache
- * rewrites, the always-on context each repository pays for, the
- * tools that failed most and how much of the quest files sessions
- * read. The sensor counts the refusals, guard blocks and habits that
- * recurred, by distinct sessions per ISO week. Together they show
- * whether a harness change made a mistake recur less.
+ * It measures a day unless `--week` asks for a week. A day's audit
+ * holds the last 24 hours against the 24 before: spend, cache
+ * rewrites, the always-on context each repository pays for, the tools
+ * that failed most and how much of the quest files sessions read. Its
+ * sensor counts the refusals, guard blocks and habits that recurred
+ * over the last seven days, day by day, so a harness change shows as
+ * a bend in the days after it lands rather than a week later. A
+ * week's measure is the audit's week and the sensor over the same
+ * seven days, by ISO week.
  *
  * It indexes the session logs into the ledger first, as the tool
  * does before it answers, then reads the ledger read-only. The one
@@ -16,18 +18,18 @@
  * out, since only a running pi knows.
  *
  * The report goes to the `measure` folder of the package's state
- * directory, named for the day the week ends, unless `--out` names a
- * file. The path is printed.
+ * directory, named for the day it ends (`-week` added for a week),
+ * unless `--out` names a file. The path is printed.
  *
  * Node runs it as it stands, stripping the types; the project's
  * tsconfig refuses the syntax stripping can't take, so it stays so:
  *
- *   node scripts/weekly-measure.ts [--out <file>] [--top N]
+ *   node scripts/measure.ts [--week] [--out <file>] [--top N]
  */
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { formatAudit } from "../extensions/spend-workflow/audit.ts";
+import { formatAudit, type Span } from "../extensions/spend-workflow/audit.ts";
 import { gatherAudit } from "../extensions/spend-workflow/audit-input.ts";
 import {
 	indexSessionLogs,
@@ -40,9 +42,14 @@ import {
 import { packageStateDir } from "../lib/internal/package-state-dir.ts";
 import { renderReport, sense } from "./learning-sensor.ts";
 
-/** Write the week's report and answer where it went. */
-export async function measureWeek(opts: {
+/** How far back a day's sensor looks, so each day reads beside six more. */
+const SENSED_DAYS = 7;
+const DAY_MS = 86_400_000;
+
+/** Write the span's report and answer where it went. */
+export async function measure(opts: {
 	now: number;
+	span: Span;
 	out?: string;
 	top?: number;
 }): Promise<string> {
@@ -63,23 +70,30 @@ export async function measureWeek(opts: {
 	try {
 		const input = await gatherAudit(
 			async (sql) => (await reader.query(sql)).rows,
-			{ now: opts.now, sessionsDir: sessionsDir() },
+			{ now: opts.now, span: opts.span, sessionsDir: sessionsDir() },
 		);
 		audit = formatAudit(input, opts.top ?? 12);
-		start = Date.parse(input.week.from);
-		from = input.week.from.slice(0, 10);
-		to = input.week.to.slice(0, 10);
+		start = Date.parse(input.period.from);
+		from = input.period.from.slice(0, 10);
+		to = input.period.to.slice(0, 10);
 	} finally {
 		await reader.close();
 	}
-	// The same seven days the audit reads, to the minute.
-	const { groups, active } = sense(start);
+	// A week senses the audit's seven days to the minute; a day senses
+	// the seven days before it, day by day.
+	const sensedFrom =
+		opts.span === "week" ? start : opts.now - SENSED_DAYS * DAY_MS;
+	const { groups, active } = sense(sensedFrom, opts.span);
 	const sensed = renderReport(groups, active, {
-		since: from,
+		since: new Date(sensedFrom).toISOString().slice(0, 10),
 		top: opts.top ?? 20,
 	}).replace(/^#/gm, "##");
+	const title =
+		opts.span === "week"
+			? `# Weekly Measure, ${from} to ${to}`
+			: `# Daily Measure, ${to}`;
 	const report = [
-		`# Weekly Measure, ${from} to ${to}`,
+		title,
 		"",
 		"## Audit",
 		"",
@@ -88,13 +102,15 @@ export async function measureWeek(opts: {
 		sensed.trimEnd(),
 		"",
 	].join("\n");
-	const out = opts.out ?? join(packageStateDir("measure"), `${to}.md`);
+	const name = opts.span === "week" ? `${to}-week.md` : `${to}.md`;
+	const out = opts.out ?? join(packageStateDir("measure"), name);
 	mkdirSync(dirname(out), { recursive: true });
 	writeFileSync(out, report);
 	return out;
 }
 
-const USAGE = "Usage: node scripts/weekly-measure.ts [--out <file>] [--top N]";
+const USAGE =
+	"Usage: node scripts/measure.ts [--week] [--out <file>] [--top N]";
 
 /**
  * What in `args` is not an option the script takes, or the value one
@@ -106,6 +122,7 @@ export function strayArguments(args: readonly string[]): string[] {
 	for (let i = 0; i < args.length; i++) {
 		const arg = args[i] ?? "";
 		const value = args[i + 1];
+		if (arg === "--week") continue;
 		if (
 			(arg === "--out" || arg === "--top") &&
 			value &&
@@ -128,13 +145,17 @@ async function main(): Promise<void> {
 		const index = args.indexOf(name);
 		return index >= 0 ? args[index + 1] : undefined;
 	};
+	const span: Span = args.includes("--week") ? "week" : "day";
 	const top = option("--top");
-	const out = await measureWeek({
+	const out = await measure({
 		now: Date.now(),
+		span,
 		...(option("--out") ? { out: option("--out") } : {}),
 		...(top ? { top: Number(top) } : {}),
 	});
-	console.log(`Wrote the weekly measure to ${out}.`);
+	console.log(
+		`Wrote the ${span === "week" ? "weekly" : "daily"} measure to ${out}.`,
+	);
 }
 
 if (import.meta.main) {

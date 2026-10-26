@@ -174,11 +174,14 @@ while it waits its turn leaves without running.
   neither an id nor either of those, `show` projects the
   quest as before. Plans grow past 400 KB, mostly as notes
   under done items, and sessions hunted them with grep and
-  sed instead.
+  sed instead. A shell command that searches or prints a
+  document, or a `read` of a whole one, is refused with the
+  `show` call that answers it (`quest-document-read`, in
+  redirect: asked again, it goes through).
 - The gates are guards under the guard policy:
   `quest-record`, `quest-owned-fields` and
-  `quest-plan-stage` block. `quest-temp` and
-  `quest-homeless` redirect: the agent hears the refusal
+  `quest-plan-stage` block. `quest-document-read`,
+  `quest-temp` and `quest-homeless` redirect: the agent hears the refusal
   and its remedy, and the same write made again goes
   through as an override you see. Each path those let
   through, outside every tree, is noted in the quest's

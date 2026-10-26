@@ -45,6 +45,10 @@ import {
 } from "../../lib/core/internal/quest/write-classifier.ts";
 import { GUARDS } from "../../lib/internal/guardian/guards.ts";
 import {
+	documentRead,
+	documentReadReason,
+} from "../../lib/internal/quest/document-reads.ts";
+import {
 	canonicalPath,
 	gitTreeRootOf,
 	isGitignored,
@@ -531,8 +535,36 @@ function enforceOwnedFields(
 }
 
 /**
+ * A quest document read from the shell or whole is sent to `quest
+ * show`, with or without a quest loaded, since any session may read any
+ * quest's documents.
+ */
+function enforceDocumentReads(
+	state: QuestState,
+	toolName: string,
+	input: Record<string, unknown>,
+	cwd: string,
+	options: EnforceOptions,
+): QuestVerdict | undefined {
+	const read = documentRead(
+		toolName,
+		input,
+		cwd,
+		options.home ?? homedir(),
+		state.questsRoot,
+	);
+	if (!read) return;
+	return {
+		guard: GUARDS.questDocumentRead.name,
+		block: true,
+		reason: documentReadReason(read),
+	};
+}
+
+/**
  * Every gate's verdict on a tool call, in the order the gates run: the
- * record, then system temp, then the plan stage or the build home. The
+ * record, the document reads, then system temp, then the plan stage or
+ * the build home. The
  * caller applies each guard's mode, so a gate that is off or relents
  * does not hide the ones after it.
  */
@@ -546,6 +578,7 @@ export function questVerdicts(
 	const verdicts = [
 		enforceRecord(state, toolName, input, cwd, options),
 		enforceOwnedFields(state, toolName, input, cwd, options),
+		enforceDocumentReads(state, toolName, input, cwd, options),
 	];
 	if (isGateActive(state)) {
 		verdicts.push(systemTempFunnel(state, toolName, input, cwd, options));

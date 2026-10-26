@@ -52,10 +52,12 @@ fixing" in one call, held against the week before:
   and are left out; the learning sensor counts those.
 - **Failures:** the tools whose calls failed most, with their rates.
 
-`scripts/weekly-measure.ts` gathers the same audit with no pi session,
-as a timer does, beside the learning sensor's count for the week, and
-writes both as one report. Only the tools that load on demand are left
-out, since only a running pi knows which they are.
+`scripts/measure.ts` gathers the same audit with no pi session, as a
+timer does, beside the learning sensor's count, and writes both as one
+report. It audits the last day against the day before, with the
+sensor's last seven days day by day, unless `--week` asks for the
+week. Only the tools that load on demand are left out, since only a
+running pi knows which they are.
 
 ## Disk Is a Cost Too
 

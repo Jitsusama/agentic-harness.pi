@@ -2,14 +2,17 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { AUDIT_QUERIES, weeks } from "../../../extensions/spend-workflow/audit";
+import {
+	AUDIT_QUERIES,
+	periods,
+} from "../../../extensions/spend-workflow/audit";
 import {
 	type AuditQuery,
 	gatherAudit,
 } from "../../../extensions/spend-workflow/audit-input";
 
 const NOW = Date.parse("2026-10-26T12:00:00Z");
-const { current, prior } = weeks(NOW);
+const { current, prior } = periods(NOW);
 let sessionsDir: string;
 let asked: string[];
 
@@ -37,7 +40,7 @@ describe("gathering the weekly audit", () => {
 	it("holds the week against the one before, by sessions active", async () => {
 		const input = await gatherAudit(ledger, { now: NOW, sessionsDir });
 
-		expect(input.week).toEqual(current);
+		expect(input.period).toEqual(current);
 		expect(input.spend.now).toEqual({ turns: 9, cost: 3 });
 		expect(input.questReads?.active).toEqual({ now: 40, before: 30 });
 		expect(input.questReads?.now).toEqual([

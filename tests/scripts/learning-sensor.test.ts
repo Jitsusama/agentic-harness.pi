@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	normalise,
+	periodOf,
 	renderReport,
 	type Sighting,
 	signalsFromCall,
@@ -107,6 +108,8 @@ describe("reading a tool call for habits", () => {
 			"perl -pi -e 's/a/b/' /tmp/x.ts",
 			"grep -n x ~/.local/share/pi/agentic-harness.pi/quest-workflow/quests/QEST-1/README.md tests/plans/a.ts",
 			"grep -rn sleep lib",
+			"sleep 3; git log -1",
+			"for i in 1 2 3; do curl -s x; sleep 2; done",
 		]) {
 			expect(habits(command), command).toEqual([]);
 		}
@@ -139,14 +142,20 @@ describe("reading a tool call for habits", () => {
 describe("counting and reporting", () => {
 	const seen = (
 		session: string,
-		week: string,
+		period: string,
 		key = "sleep used to wait",
 	): Sighting => ({
 		kind: "habit",
 		key,
 		sample: "s",
 		session,
-		week,
+		period,
+	});
+
+	it("names a moment's period by its ISO week, or by its day", () => {
+		const when = Date.parse("2026-10-26T13:14:00Z");
+		expect(periodOf(when, "week")).toBe("2026-W44");
+		expect(periodOf(when, "day")).toBe("2026-10-26");
 	});
 
 	it("counts distinct sessions per week, most sessions first", () => {
@@ -157,7 +166,7 @@ describe("counting and reporting", () => {
 			seen("b", "2026-W44"),
 			seen("c", "2026-W44", "git stash run directly"),
 		]);
-		expect(groups.map((g) => [g.key, g.sessions, g.calls, g.weeks])).toEqual([
+		expect(groups.map((g) => [g.key, g.sessions, g.calls, g.periods])).toEqual([
 			["sleep used to wait", 2, 4, { "2026-W43": 2, "2026-W44": 1 }],
 			["git stash run directly", 1, 1, { "2026-W44": 1 }],
 		]);

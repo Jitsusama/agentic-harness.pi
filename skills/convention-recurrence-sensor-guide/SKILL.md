@@ -129,13 +129,17 @@ the change lands, and compare that group's sessions per week
 against the sessions active, since a short week reads lower.
 The harness owner reviews each suggested change.
 
-The weekly measure runs the sensor over the last seven days
-beside the `spend` tool's weekly audit, with no pi session, and writes one
-report to the state directory's `measure/` folder, named for
-the day the week ends:
+The measure runs the sensor beside the `spend` tool's audit,
+with no pi session, and writes one report to the state
+directory's `measure/` folder, named for the day it ends. A
+day's measure audits the last 24 hours against the 24 before,
+and counts the sensor's last seven days day by day, so a change
+shows within a day of landing; `--week` measures the week
+instead:
 
 ```bash
-node scripts/weekly-measure.ts [--out <file>] [--top N]
+node scripts/measure.ts [--week] [--out <file>] [--top N]
 ```
 
-It is what a weekly timer runs, and what each re-take reads.
+It is what the daily timer runs, and what each re-take reads.
+The sensor alone counts by day with `--by day`.
