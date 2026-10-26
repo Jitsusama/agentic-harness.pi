@@ -7,6 +7,7 @@ import {
 	mkdtempSync,
 	readFileSync,
 	rmSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -106,10 +107,17 @@ describe("presences", () => {
 			"utf8",
 		);
 
+		const touched = new Date("2026-10-26T22:40:00.000Z");
+		utimesSync(join(root, "s-3.json"), touched, touched);
+		createPresences(root).publish(presence());
+
 		const read = createPresences(root).of("s-3");
 		expect(read?.machine).toBe("equilibrius");
 		expect(read?.owner).toBeUndefined();
-		expect(createPresences(root).of("s-1")?.machine).toBeUndefined();
+		expect(read?.carriedAt).toBe(touched.getTime());
+		const here = createPresences(root).of("s-1");
+		expect(here?.machine).toBeUndefined();
+		expect(here?.carriedAt).toBeUndefined();
 	});
 });
 
