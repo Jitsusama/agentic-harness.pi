@@ -1233,7 +1233,7 @@ async function askStack(
 		stack.nodes.length === proposed.length
 			? { files: changes.flatMap((one) => one.diff.files) }
 			: {
-					unknown: `${stack.nodes.length - proposed.length} of this stack's ${stack.nodes.length} branches carry no proposal, so they carry no diff, and the tree read is the tip that holds their work.`,
+					unknown: `${stack.nodes.length - proposed.length} of this stack's ${stack.nodes.length} branches have not been put up as changes, so they carry no diff, and the tree read is the tip that holds their work.`,
 				},
 	);
 

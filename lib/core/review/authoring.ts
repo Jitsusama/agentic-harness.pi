@@ -266,7 +266,7 @@ function retargetable(
 	}
 	return {
 		ok: false,
-		reason: `The ${providerId} provider cannot change what a proposal targets.`,
+		reason: `The ${providerId} provider cannot retarget a change.`,
 		instead:
 			"Close this change and propose it again against the base you want.",
 	};
