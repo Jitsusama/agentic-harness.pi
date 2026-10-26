@@ -56,6 +56,13 @@ shipped and tested.
   id, address, short name, title and parent), looked at again
   after each quest action and at session start, so the
   desktop can offer one that has no session.
+- **Quest index**: every open quest is listed the same way in
+  `quests.json` beside it, for the launcher's Agents place:
+  its id, address, short name, title, Summary, kind, status,
+  priority, rank, parent, the address of its orchestrator, its
+  documents with their stages, its attached sessions, `start`
+  (the folder `spawn` would open it in) and `updated`. What a
+  session is doing stays in presence.
 - **Sessions**: `session-attach`, `session-detach`,
   `session-rename`, `session-audit` (report any session active on
   more than one quest).

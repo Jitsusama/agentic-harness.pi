@@ -10,8 +10,7 @@
  * it is written only when the list changed.
  */
 
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { stateDir } from "../../lib/internal/paths.ts";
 import {
 	discoverQuests,
@@ -19,6 +18,7 @@ import {
 } from "../../lib/internal/quest/discovery.ts";
 import { orchestrates } from "../../lib/internal/quest/orchestration.ts";
 import { questAddress } from "../../lib/mesh/address.ts";
+import { writeWhenChanged } from "./desktop-file.ts";
 
 /** One orchestrator, as the desktop lists it. */
 export interface OrchestratorEntry {
@@ -92,29 +92,16 @@ export function writeOrchestrators(
 	list: readonly OrchestratorEntry[],
 	path: string = orchestratorsPath(),
 ): boolean {
-	const text = `${JSON.stringify({ orchestrators: list }, null, 2)}\n`;
-	if (readOr(path) === text) return false;
-	mkdirSync(dirname(path), { recursive: true });
-	const partial = `${path}.${process.pid}.tmp`;
-	writeFileSync(partial, text);
-	renameSync(partial, path);
-	return true;
+	return writeWhenChanged(path, { orchestrators: list });
 }
 
-function readOr(path: string): string | undefined {
-	try {
-		return readFileSync(path, "utf8");
-	} catch {
-		// No list yet: there is nothing to compare, so it is written.
-		return undefined;
-	}
-}
-
-function isOpen(status: string): boolean {
+/** Whether a quest is still open: neither concluded nor retired. */
+export function isOpen(status: string): boolean {
 	return status !== "concluded" && status !== "retired";
 }
 
-function byRank(index: QuestIndex): (a: string, b: string) => number {
+/** Siblings in their order: by rank, then by id. */
+export function byRank(index: QuestIndex): (a: string, b: string) => number {
 	const rank = (id: string) =>
 		index.quests.get(id)?.doc.frontMatter.rank ?? Number.MAX_SAFE_INTEGER;
 	return (a, b) => rank(a) - rank(b) || a.localeCompare(b);
