@@ -1,7 +1,7 @@
 /**
  * An oversized MCP result as a summary plus a stored handle.
  *
- * The digest and the store are general and live in agentic-harness.core's result module;
+ * The digest and the store are general and live in core's result module (`lib/core/result`);
  * what stays here is the part that knows about MCP: content
  * blocks, and the terminal-only view that rides on
  * structuredContent where the renderer can read it and the model

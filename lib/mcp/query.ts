@@ -2,7 +2,7 @@
  * Querying a stored MCP payload.
  *
  * The query language and its bounds are general and live in
- * agentic-harness.core's result module. What stays here is the MCP shape of the answer:
+ * core's result module (`lib/core/result`). What stays here is the MCP shape of the answer:
  * content blocks, and the absolute ceiling that can send an
  * over-broad answer straight back to the store it came from.
  */

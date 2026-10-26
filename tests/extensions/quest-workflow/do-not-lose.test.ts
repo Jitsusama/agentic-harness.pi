@@ -16,12 +16,10 @@ import { QUEST_ACTIONS } from "../../../extensions/quest-workflow/actions";
  * file fails, forcing a conscious decision rather than a silent
  * regression.
  *
- * Three guards point at agentic-harness.core's installed dist
- * artifact rather than a test file in this repo: their real
- * coverage moved with the pure logic it tests (actions, machine,
- * render-rows), and core's own test files are not part of the
- * published package (only `dist/` ships). Presence is what this
- * repo can still check; correctness is core's own CI's job now.
+ * Four guards point at core's source, folded into `lib/core`,
+ * rather than a test file: their coverage is core's own tests
+ * (actions, machine, the write classifier, render-rows), which come
+ * across after the code. Until then presence is what is checked.
  */
 
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
@@ -38,7 +36,7 @@ const DO_NOT_LOSE: Capability[] = [
 	{
 		name: "One tool with one verb surface",
 		guards: [
-			"node_modules/@jitsusama/agentic-harness.core/dist/quest/actions.js",
+			"lib/core/quest/actions.ts",
 		],
 	},
 	{
@@ -51,14 +49,14 @@ const DO_NOT_LOSE: Capability[] = [
 	{
 		name: "Four-kind stage machine and focus loop",
 		guards: [
-			"node_modules/@jitsusama/agentic-harness.core/dist/quest/machine.js",
+			"lib/core/quest/machine.ts",
 		],
 	},
 	{
 		name: "Discipline gate with honest-by-destination classification",
 		guards: [
-			"node_modules/@jitsusama/agentic-harness.core/dist/internal/quest/write-classifier.js",
-			"node_modules/@jitsusama/agentic-harness.core/dist/internal/quest/record-gate.js",
+			"lib/core/internal/quest/write-classifier.ts",
+			"lib/core/internal/quest/record-gate.ts",
 			"tests/extensions/quest-workflow/record-gate.test.ts",
 			"tests/extensions/quest-workflow/discipline.test.ts",
 			"tests/extensions/quest-workflow/tree-gate.test.ts",
@@ -84,7 +82,7 @@ const DO_NOT_LOSE: Capability[] = [
 		name: "Richness of the show projection",
 		guards: [
 			"tests/extensions/quest-workflow/render.test.ts",
-			"node_modules/@jitsusama/agentic-harness.core/dist/quest/render-rows.js",
+			"lib/core/quest/render-rows.ts",
 		],
 	},
 	{

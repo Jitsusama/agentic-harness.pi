@@ -14,7 +14,7 @@ of this package does.
 
 What comes next, by the fold's plan (PLAN-20261025-QR647O):
 
-- core's tests come across to `tests/core/`;
+- core's tests come across, beside the harness's own;
 - each module that also has an older copy elsewhere in `lib/` loses
   one of the two, a domain at a time;
 - a module that belongs beside the harness's own moves there, and
