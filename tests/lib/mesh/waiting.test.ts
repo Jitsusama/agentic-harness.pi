@@ -18,6 +18,7 @@ import {
 	type WaitingItem,
 	waitingFile,
 	waitingOf,
+	wantFor,
 } from "../../../lib/mesh/waiting.ts";
 
 let folder: string;
@@ -41,6 +42,36 @@ const item = (over: Partial<WaitingItem> = {}): WaitingItem => ({
 	quest: QUEST,
 	ready: false,
 	...over,
+});
+
+describe("the want presence says for what waits", () => {
+	// The desktop raises a notice for each want, so an item he can't do
+	// yet must never make one: on 2026-10-26 sessions reloading put up
+	// notices for items their quests never set ready.
+	it("is nothing while no item is ready", () => {
+		const items = [item(), item({ id: "mic-try", title: "Try the mic" })];
+		expect(wantFor(items, undefined, at)).toBeUndefined();
+		expect(wantFor([], undefined, at)).toBeUndefined();
+	});
+
+	it("names the first ready item and counts only the ready ones", () => {
+		const items = [
+			item({ id: "later", title: "Later" }),
+			item({ id: "now", title: "Now", ready: true }),
+			item({ id: "also", title: "Also now", ready: true }),
+		];
+		expect(wantFor(items, undefined, at)).toEqual({
+			kind: "action",
+			since: at.toISOString(),
+			said: "Now and 1 more",
+		});
+	});
+
+	it("keeps the time of a want already standing", () => {
+		const items = [item({ ready: true })];
+		const standing = "2026-10-26T01:00:00.000Z";
+		expect(wantFor(items, standing, at)?.since).toBe(standing);
+	});
 });
 
 describe("what waits on the person", () => {

@@ -371,6 +371,24 @@ describe("this session's peer", () => {
 			);
 		});
 
+		it("keeps a question its run ends on for its orchestrator, and still shows an approval", () => {
+			write(
+				[
+					[MISSION, readme(MISSION, "null", true)],
+					[LOOP, readme(LOOP, MISSION)],
+				],
+				LOOP,
+			);
+			const peer = localPeer(surroundings());
+			const since = new Date(0).toISOString();
+
+			peer.want({ kind: "question", since, said: "Shall I merge it?" });
+			expect(peer.wants).toBeUndefined();
+
+			peer.want({ kind: "approval", since, said: "git push" });
+			expect(peer.wants).toMatchObject({ kind: "approval" });
+		});
+
 		it("heads its own orchestration as a member of the one above", () => {
 			write(
 				[

@@ -41,6 +41,21 @@ export interface Want {
 	readonly said: string;
 }
 
+/**
+ * Whether a want is said in presence for the person to see. A session
+ * another orchestrates sends what it needs from him to its orchestrator,
+ * which batches it (P9R1KI, 2026-10-26: "nothing reaches Joel except
+ * through me"), so the question it ends a run on is its orchestrator's
+ * and stays out of the launcher. An approval still shows, since only the
+ * person can answer a gate held open in its window.
+ */
+export function wantsThePerson(
+	kind: WantKind,
+	orchestratedBy: string | undefined,
+): boolean {
+	return kind !== "question" || orchestratedBy === undefined;
+}
+
 /** A want read from outside, or nothing when it is not one. */
 export function wantFrom(value: unknown): Want | undefined {
 	if (typeof value !== "object" || value === null) return undefined;

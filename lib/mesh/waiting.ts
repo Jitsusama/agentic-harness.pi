@@ -12,7 +12,8 @@
  * minutes it takes, when, the window it is done in, its quest, and
  * whether he can do it now. The file outlives the session that wrote
  * it, so what waits on him is not lost when a session ends; presence
- * only mirrors it.
+ * only mirrors it, and only what is ready, since the desktop raises a
+ * notice for each want a session's presence says.
  *
  * Each file is written whole under a temporary name beside it and
  * renamed in, so a reader never sees half of one, and a file left with
@@ -28,6 +29,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { questAddress } from "./address.ts";
+import type { Want } from "./want.ts";
 
 /** One thing a quest has waiting on its person. */
 export interface WaitingItem {
@@ -47,6 +49,29 @@ export interface WaitingItem {
 	readonly quest: string;
 	/** Whether he can do it now, which raises a notice. */
 	readonly ready: boolean;
+}
+
+/**
+ * The want presence says for what waits: the first item ready, and how
+ * many more are, or nothing while none is. An item not ready is kept in
+ * the file alone, for the launcher's Waiting on you, since a want in
+ * presence raises a notice and he can't do it yet. A want already
+ * standing keeps its time, so he sees how long he has been waited on.
+ */
+export function wantFor(
+	items: readonly WaitingItem[],
+	standing: string | undefined,
+	now: Date,
+): Want | undefined {
+	const ready = items.filter((one) => one.ready);
+	const [first] = ready;
+	if (!first) return undefined;
+	const more = ready.length > 1 ? ` and ${ready.length - 1} more` : "";
+	return {
+		kind: "action",
+		since: standing ?? now.toISOString(),
+		said: `${first.title}${more}`,
+	};
 }
 
 /** A quest's file, as the launcher reads it. */
