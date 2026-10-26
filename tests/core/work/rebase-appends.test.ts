@@ -15,7 +15,7 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { spawnExec } from "../../../lib/core/exec/index.ts";
 import { createGitRebaser } from "../../../lib/core/work/rebase.ts";
-import { disposeRepo, freshRepo, git } from "../support/git-fixture.ts";
+import { disposeRepo, freshRepo, git } from "../../support/git-fixture.ts";
 
 let repo: string;
 

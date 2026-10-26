@@ -4,7 +4,7 @@ import {
 	namingComplaints,
 	safeBranchName,
 } from "../../../lib/core/work/index.ts";
-import { fakeExec } from "../support/fake-exec.ts";
+import { fakeExec } from "../../support/fake-exec.ts";
 
 const ok = [{ when: [], stdout: "" }];
 

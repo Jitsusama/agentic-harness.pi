@@ -13,7 +13,7 @@ import {
 	createGitPublisher,
 	refspecCovers,
 } from "../../../lib/core/work/publish.ts";
-import { fakeExec } from "../support/fake-exec.ts";
+import { fakeExec } from "../../support/fake-exec.ts";
 
 const TREE = "/trees/topic";
 

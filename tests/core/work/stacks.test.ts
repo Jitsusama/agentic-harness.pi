@@ -9,7 +9,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { WorkRebaser } from "../../../lib/core/work/rebase.ts";
 import { createGitStacks } from "../../../lib/core/work/stacks.ts";
-import { fakeExec, type Reply } from "../support/fake-exec.ts";
+import { fakeExec, type Reply } from "../../support/fake-exec.ts";
 
 const TREE = "/trees/topic";
 

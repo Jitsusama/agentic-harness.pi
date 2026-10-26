@@ -6,7 +6,7 @@ import {
 	registerReviewProvider,
 } from "../../../../lib/core/review/index.ts";
 import type { GateDeps } from "../../../../lib/gate/index.ts";
-import { stubProvider } from "../../review/support/stub-provider.ts";
+import { stubProvider } from "../../../support/stub-provider.ts";
 
 afterEach(() => {
 	clearReviewProviders();

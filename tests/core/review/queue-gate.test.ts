@@ -19,7 +19,7 @@ import {
 	createGitHubProvider,
 	offerable,
 } from "../../../lib/core/review/index.ts";
-import { fakeExec } from "../support/fake-exec.ts";
+import { fakeExec } from "../../support/fake-exec.ts";
 
 const REPO = { key: "github:Shopify/world" };
 const CHANGE = {

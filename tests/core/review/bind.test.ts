@@ -10,7 +10,7 @@ import {
 	resolveTarget,
 	unregisterReviewProvider,
 } from "../../../lib/core/review/index.ts";
-import { claimingProvider, stubProvider } from "./support/stub-provider.ts";
+import { claimingProvider, stubProvider } from "../../support/stub-provider.ts";
 
 const world = { key: "gitstream:shop/world" };
 const mirror = { key: "github:Shopify/world" };

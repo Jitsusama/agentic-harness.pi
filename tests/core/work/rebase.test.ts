@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createGitRebaser } from "../../../lib/core/work/rebase.ts";
-import { fakeExec, type Reply } from "../support/fake-exec.ts";
+import { fakeExec, type Reply } from "../../support/fake-exec.ts";
 
 const TREE = "/trees/topic";
 

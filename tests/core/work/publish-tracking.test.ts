@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { spawnExec } from "../../../lib/core/exec/index.ts";
 import { createGitPublisher } from "../../../lib/core/work/publish.ts";
-import { disposeRepo, freshRepo, git } from "../support/git-fixture.ts";
+import { disposeRepo, freshRepo, git } from "../../support/git-fixture.ts";
 
 let place: string;
 let clone: string;
