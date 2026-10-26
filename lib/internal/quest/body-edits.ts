@@ -135,8 +135,11 @@ function findItem(
 /** One checkbox item, as an outline lists it. */
 export interface OutlineItem {
 	/**
-	 * Its text without the checkbox, with the lines it wraps onto joined
-	 * to it, so an item written over several lines reads whole.
+	 * Its text without the checkbox, with its paragraph's further lines
+	 * joined to it, so an item written over several lines reads whole. A
+	 * deeper line with no blank before it is that paragraph in markdown,
+	 * so a note written that way joins too; a note after a blank line, or
+	 * a list line, does not.
 	 */
 	readonly text: string;
 	readonly done: boolean;

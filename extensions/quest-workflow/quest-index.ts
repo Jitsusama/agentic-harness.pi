@@ -48,7 +48,12 @@ import { questAddress } from "../../lib/mesh/address.ts";
 import type { QuestSession } from "../../lib/quest/index.ts";
 import type { TerminalProbe } from "../../lib/terminal/index.ts";
 import { writeWhenChanged } from "./desktop-file.ts";
-import { byRank, isOpen } from "./orchestrators.ts";
+import {
+	byRank,
+	isOpen,
+	orchestratorsIn,
+	writeOrchestrators,
+} from "./orchestrators.ts";
 
 /** One document of a quest, as the desktop lists it. */
 export interface QuestIndexDocument {
@@ -91,12 +96,13 @@ let running: Promise<void> | undefined;
 let again = false;
 
 /**
- * Bring the index up to date with the quests as they stand. Calls made
- * while one is under way fold into one more pass after it. An index
- * that can't be built or written leaves the last one standing: no quest
- * action waits on it or fails for it.
+ * Bring both of the desktop's lists up to date with the quests as they
+ * stand, from one walk of the store: this index and `orchestrators.json`.
+ * Calls made while one is under way fold into one more pass after it. A
+ * list that can't be built or written leaves the last one standing: no
+ * quest action waits on it or fails for it.
  */
-export function keepQuestsIndexed(questsRoot: string): Promise<void> {
+export function keepDesktopListsCurrent(questsRoot: string): Promise<void> {
 	if (running) {
 		again = true;
 		return running;
@@ -109,6 +115,11 @@ export function keepQuestsIndexed(questsRoot: string): Promise<void> {
 			again = false;
 			try {
 				const { index } = discoverQuests(questsRoot);
+				try {
+					writeOrchestrators(orchestratorsIn(index));
+				} catch {
+					// The quest index is still worth writing; the next pass retries.
+				}
 				const snapshot = await snapshotOf(openSessions(index));
 				writeWhenChanged(questIndexPath(), {
 					quests: questsIn(index, snapshot, questsRoot),

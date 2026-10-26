@@ -80,9 +80,8 @@ import {
 	resolveStartup,
 } from "./lifecycle.ts";
 import { recentSessionHints, showLoaded } from "./lookup.ts";
-import { keepOrchestratorsListed } from "./orchestrators.ts";
 import { sayPeersOnStartup } from "./peers.ts";
-import { keepQuestsIndexed } from "./quest-index.ts";
+import { keepDesktopListsCurrent } from "./quest-index.ts";
 import { questsTouchedBy, RecordWatch } from "./record-watch.ts";
 import { formatQuestList, renderWidget } from "./render.ts";
 import {
@@ -637,8 +636,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		// which quests orchestrate, and what the desktop lists.
 		if (event.toolName === "quest") {
 			keepQuestWeights(state.questsRoot);
-			keepOrchestratorsListed(state.questsRoot);
-			void keepQuestsIndexed(state.questsRoot);
+			void keepDesktopListsCurrent(state.questsRoot);
 		}
 		const broke = watch.after(event.toolCallId);
 		if (broke) {
@@ -697,8 +695,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		// From the walk just made, so it costs a look, and it catches a
 		// priority edited by hand while no session was running.
 		keepQuestWeights(state.questsRoot);
-		keepOrchestratorsListed(state.questsRoot);
-		void keepQuestsIndexed(state.questsRoot);
+		void keepDesktopListsCurrent(state.questsRoot);
 
 		// Resolve which quest to load through the one startup
 		// pipeline: an explicit spawn request wins, then this
