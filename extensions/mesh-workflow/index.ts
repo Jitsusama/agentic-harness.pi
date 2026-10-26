@@ -18,7 +18,7 @@
  * picked it up as a new task at the moment it would have finished, and
  * each answered messages that needed no answer. The exceptions are what
  * an idle peer has to do something about: a question it is the one to
- * answer wakes it, and a finding sent to it, or a question to a group
+ * answer starts a turn at once, and a finding sent to it, or a question to a group
  * about its work, starts a turn once the mesh settles (see acts.ts).
  *
  * At the attention it bears, never none (lib/mesh/attention.ts), held
@@ -482,7 +482,7 @@ export function meshWorkflow(
 
 		/**
 		 * The attention each message gets here, judged together. Starting,
-		 * it is a catch-up: nothing wakes, and a long one is held to what
+		 * it is a catch-up: nothing takes a turn, and a long one is held to what
 		 * a peer starting can take in.
 		 */
 		const route = async (messages: readonly Message[], starting = false) => {
@@ -529,7 +529,7 @@ export function meshWorkflow(
 				});
 				// What a starting peer catches up on rides the first prompt.
 				const worth: Heed =
-					starting && judged.attention === "wake"
+					starting && judged.attention === "turn"
 						? { attention: "note", why: judged.why }
 						: judged;
 				const replaced = replacedBy(message);
@@ -582,11 +582,11 @@ export function meshWorkflow(
 				if (heed.attention === "act") acts?.add({ message, heed });
 			}
 			const now = heeded.filter(
-				({ heed }) => heed.attention === "note" || heed.attention === "wake",
+				({ heed }) => heed.attention === "note" || heed.attention === "turn",
 			);
 			note(
 				now,
-				now.some(({ heed }) => heed.attention === "wake"),
+				now.some(({ heed }) => heed.attention === "turn"),
 			);
 		};
 
@@ -628,17 +628,17 @@ export function meshWorkflow(
 		};
 
 		/**
-		 * Messages in full, carrying whatever glances are waiting. A wake
-		 * takes whatever waits to act with it, since it starts the turn they
+		 * Messages in full, carrying whatever glances are waiting. A turn
+		 * takes whatever waits to act with it, since it is the turn they
 		 * were waiting for.
 		 */
-		const note = (heeded: readonly Heeded[], wake: boolean, lead?: string) => {
-			const all = wake ? [...heeded, ...unstopped(acts?.take() ?? [])] : heeded;
+		const note = (heeded: readonly Heeded[], turn: boolean, lead?: string) => {
+			const all = turn ? [...heeded, ...unstopped(acts?.take() ?? [])] : heeded;
 			if (all.length === 0) return;
 			const messages = all.map(({ message }) => message);
-			if (wake) leasing.answering(messages);
+			if (turn) leasing.answering(messages);
 			for (const { message, heed } of all) {
-				if (wake && heed.addressed && message.intent === "question") {
+				if (turn && heed.addressed && message.intent === "question") {
 					owing.owe(message);
 				}
 			}
@@ -650,15 +650,15 @@ export function meshWorkflow(
 					content: lead ? `${lead}\n\n${content}` : content,
 					display: true,
 					details: delivered(messages, carried, {
-						turn: wake,
+						turn,
 						why: all.map(({ heed }) => heed.why),
 					}),
 				},
-				{ triggerTurn: wake },
+				{ triggerTurn: turn },
 			);
 			handedOver(messages);
 			damper.handed(messages);
-			if (wake) damper.started(messages.map((one) => one.from));
+			if (turn) damper.started(messages.map((one) => one.from));
 		};
 
 		/**
@@ -824,7 +824,7 @@ export function meshWorkflow(
 					again.map(({ message }) => ({
 						message,
 						heed: {
-							attention: "wake",
+							attention: "turn",
 							why: "asked again, unanswered",
 							addressed: true,
 						},

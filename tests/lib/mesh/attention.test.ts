@@ -1,6 +1,6 @@
 /**
  * The attention a message gets from the peer it reaches: a glance, a
- * note, an act or a wake, and never none.
+ * note, an act or a turn, and never none.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -68,14 +68,14 @@ describe("attention", () => {
 		);
 	});
 
-	it("wakes a peer for a question sent to it, busy or not, and acts on one to a group about its work", () => {
+	it("gives a peer a turn for a question sent to it, busy or not, and acts on one to a group about its work", () => {
 		const asked = message({
 			intent: "question",
 			to: ["@5GV2AH"],
 			text: "why?",
 		});
 		const put = {
-			attention: "wake",
+			attention: "turn",
 			why: "sent to this peer",
 			addressed: true,
 		};
@@ -94,7 +94,7 @@ describe("attention", () => {
 		).toBe("act");
 	});
 
-	it("wakes a member for a question that asks each, busy or not, whatever it is judged", () => {
+	it("gives a member a turn for a question that asks each, busy or not, whatever it is judged", () => {
 		const group = message({
 			intent: "question",
 			to: ["#optimus/done"],
@@ -102,7 +102,7 @@ describe("attention", () => {
 		});
 		const each = { ...standing, askedEach: true, concern: "other" as const };
 		const put = {
-			attention: "wake",
+			attention: "turn",
 			why: "asked of each peer it went to",
 			addressed: true,
 		};
@@ -117,10 +117,10 @@ describe("attention", () => {
 			"act",
 		);
 		expect(attend(message({ intent: "hold", to }), idle).attention).toBe(
-			"wake",
+			"turn",
 		);
 		expect(attend(message({ intent: "hold", to }), standing).attention).toBe(
-			"wake",
+			"turn",
 		);
 		expect(attend(message({ intent: "fyi", to }), idle).attention).toBe("note");
 		expect(attend(message({ intent: "finding", to }), standing).attention).toBe(
@@ -132,13 +132,13 @@ describe("attention", () => {
 		const answer = message({ intent: "question", re: "0-5GV2AH-1-bbbb" });
 		const answering = { ...standing, answers: true, concern: "other" as const };
 		expect(attend(answer, { ...answering, idle: true })).toEqual({
-			attention: "wake",
+			attention: "turn",
 			why: "answering this peer",
 		});
 		expect(attend(answer, answering).attention).toBe("note");
 	});
 
-	it("wakes a peer for an answer to its question, busy or not, however it was sent", () => {
+	it("gives a peer a turn for an answer to its question, busy or not, however it was sent", () => {
 		const answer = message({ intent: "fyi", re: "0-5GV2AH-1-bbbb" });
 		const asked = {
 			...standing,
@@ -147,12 +147,12 @@ describe("attention", () => {
 			concern: "other" as const,
 		};
 		expect(attend(answer, { ...asked, idle: true })).toEqual({
-			attention: "wake",
+			attention: "turn",
 			why: "answering this peer's question",
 			awaited: true,
 		});
 		expect(attend(answer, asked)).toEqual({
-			attention: "wake",
+			attention: "turn",
 			why: "answering this peer's question",
 			awaited: true,
 		});
@@ -192,11 +192,11 @@ describe("attention", () => {
 		);
 		expect(
 			attend(held, { ...standing, now: sent + MOST_HOLD_MS }).attention,
-		).toBe("wake");
+		).toBe("turn");
 	});
 
 	it("reads a mention of the peer or what it owns as concerning it", () => {
-		// Without a classifier, so a question about the harness still wakes.
+		// Without a classifier, so a question about the harness still gets a turn.
 		const asked = message({
 			intent: "question",
 			text: "is that refusal from the Harness?",

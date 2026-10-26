@@ -9,7 +9,7 @@
  * hear one message do not all start at once; the swarm quest settled
  * on varied thresholds for the same reason.
  *
- * Anything that starts a run first (the person, or a wake) takes what
+ * Anything that starts a run first (the person, or a turn) takes what
  * is waiting with it, and the turn is never started.
  */
 
