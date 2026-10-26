@@ -151,10 +151,3 @@ export interface Change {
 	 */
 	extensions?: Record<string, unknown>;
 }
-
-/**
- * The name {@link Change} had before the glossary said change.
- *
- * @deprecated Use {@link Change}.
- */
-export type Proposal = Change;

@@ -27,9 +27,7 @@ export {
 } from "./resolve.ts";
 export type {
 	CreateTreeInput,
-	PruneTreeInput,
 	ReleaseTreeInput,
 	TreeHandle,
 	TreeProvider,
-	TreeProviderSayingPrune,
 } from "./types.ts";

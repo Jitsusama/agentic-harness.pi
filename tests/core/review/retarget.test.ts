@@ -41,7 +41,7 @@ describe("which changes point at the wrong base", () => {
 		const plan = retargetPlan(
 			stackOf(
 				{ ref: "middle", parent: "main", change: proposedOnto("bottom") },
-				{ ref: "top", parent: "middle", proposal: proposedOnto("middle") },
+				{ ref: "top", parent: "middle", change: proposedOnto("middle") },
 			),
 		);
 

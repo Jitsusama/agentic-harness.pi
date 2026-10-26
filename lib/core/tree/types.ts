@@ -92,22 +92,3 @@ export interface TreeProvider {
 	 */
 	list?(repoRoot: string): Promise<TreeHandle[]>;
 }
-
-/**
- * The name `ReleaseTreeInput` had before the glossary said release.
- *
- * @deprecated Use {@link ReleaseTreeInput}.
- */
-export type PruneTreeInput = ReleaseTreeInput;
-
-/**
- * A provider written before the glossary said release, whose method
- * is still `prune`. Another package's provider may arrive in this
- * shape, from its own pinned copy of the harness, so the registry
- * takes it and reads its `prune` as `release`.
- *
- * @deprecated Write {@link TreeProvider}'s `release`.
- */
-export type TreeProviderSayingPrune = Omit<TreeProvider, "release"> & {
-	prune(input: ReleaseTreeInput): Promise<void>;
-};
