@@ -34,7 +34,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { packageName, skippedBuilds } from "../lib/internal/install/builds.ts";
+import { unbuiltDependencies } from "../lib/internal/install/builds.ts";
 import { checkLoad, describeLoad } from "../lib/internal/reload/load-check.ts";
 
 /** What pi runs to install a git package's dependencies under pnpm. */
@@ -82,13 +82,12 @@ function copyCheckout(from: string, to: string): void {
 	}
 }
 
-/** Says which builds the install in `root` skipped; true when none. */
+/** Says which builds the install in `root` skipped and left unbuilt; true when none. */
 function builtAll(root: string): boolean {
-	const skipped = skippedBuilds(root);
-	if (skipped.length === 0) return true;
-	const names = skipped.map(packageName);
+	const unbuilt = unbuiltDependencies(root);
+	if (unbuilt.length === 0) return true;
 	console.log(
-		`The install skipped building ${skipped.join(", ")}. Allow ${names.join(", ")} in package.json's pnpm.onlyBuiltDependencies.`,
+		`The install skipped building ${unbuilt.join(", ")}. Allow ${unbuilt.length === 1 ? "it" : "them"} in package.json's pnpm.onlyBuiltDependencies.`,
 	);
 	return false;
 }

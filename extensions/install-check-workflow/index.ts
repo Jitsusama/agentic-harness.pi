@@ -24,10 +24,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import {
-	packageName,
-	skippedBuilds,
-} from "../../lib/internal/install/builds.ts";
+import { unbuiltDependencies } from "../../lib/internal/install/builds.ts";
 import {
 	dependencyStandings,
 	describeDrift,
@@ -74,7 +71,7 @@ export default function installCheckWorkflow(pi: ExtensionAPI) {
 				installedVersion(PACKAGE_ROOT, name),
 			),
 		);
-		const skipped = skippedBuilds(PACKAGE_ROOT).map(packageName);
+		const skipped = unbuiltDependencies(PACKAGE_ROOT);
 		if (skipped.length > 0) say(ctx, unbuiltNotice(skipped));
 		if (drift.length === 0) return;
 		say(ctx, driftNotice(describeDrift(drift), installCommand(PACKAGE_ROOT)));
