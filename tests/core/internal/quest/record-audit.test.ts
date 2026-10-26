@@ -107,6 +107,14 @@ describe("auditQuestRecord", () => {
 		expect(audit.uncited).not.toContain("attachments/notes.md");
 	});
 
+	it("keeps the harness log without reading it for citations", () => {
+		put("attachments/notes.md");
+		put("harness.log", "2026-10-26T05:01:02Z Wrote attachments/notes.md.\n");
+		const audit = auditQuestRecord(questDir);
+		expect(audit.strays).toEqual([]);
+		expect(audit.uncited).toContain("attachments/notes.md");
+	});
+
 	it("calls a record with only uncited attachments sound", () => {
 		put("plans/PLAN-20260924-RUE4Q4.md", "See `attachments/runs/`.\n");
 		put("attachments/lonely.md");

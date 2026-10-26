@@ -45,6 +45,7 @@ export interface RecordRefusal {
 		| "document-by-bash"
 		| "document-removed"
 		| "journey-by-hand"
+		| "log-by-hand"
 		| "stray"
 		| "attachment";
 	readonly reason: string;
@@ -73,6 +74,7 @@ function judgeRemoval(place: QuestRecordPath): RecordRefusal | undefined {
 		kind === "document" ||
 		kind === "readme" ||
 		kind === "journey" ||
+		kind === "log" ||
 		kind === "folder" ||
 		kind === "quest" ||
 		(kind === "stray" && isKindFolderPattern(rel));
@@ -82,7 +84,7 @@ function judgeRemoval(place: QuestRecordPath): RecordRefusal | undefined {
 		rule: "document-removed",
 		reason:
 			`This removes ${what}, which is part of ${place.quest}'s record. ` +
-			"Documents, the README, the Journey and the record's folders leave only through " +
+			"Documents, the README, the Journey, the harness log and the record's folders leave only through " +
 			"`quest retire`, which keeps what was written.",
 	};
 }
@@ -102,6 +104,15 @@ function judgeWrite(
 				`This writes into ${rel}, ${place.quest}'s Journey. Add an entry ` +
 				"with `quest journal` instead, which dates it, puts it at the head " +
 				"and writes under the quest's lock.",
+		};
+	}
+
+	if (kind === "log") {
+		return {
+			rule: "log-by-hand",
+			reason:
+				`This writes into ${rel}, the harness's bookkeeping for ${place.quest}, ` +
+				"which only the harness writes. Say what happened with `quest journal` instead.",
 		};
 	}
 

@@ -82,6 +82,10 @@ export function auditQuestRecord(questDir: string): RecordAudit {
 						});
 					} else strays.push(place.rel);
 					break;
+				// Record, but it cites nothing, so it is not read for links.
+				case "log":
+					if (!stats.isFile()) strays.push(place.rel);
+					break;
 				case "folder":
 					if (stats.isDirectory()) walk(path);
 					else strays.push(place.rel);

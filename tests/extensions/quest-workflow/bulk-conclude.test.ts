@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
 import { defaultWorkspaceRoot } from "../../../extensions/quest-workflow/workspace";
+import { harnessLogPath } from "../../../lib/internal/quest/harness-log";
 import { ensureQuestScratchDir } from "../../../lib/internal/quest/scratch";
 import { journeyOf } from "./_helpers";
 
@@ -114,9 +115,11 @@ describe("sweeping quests by id", () => {
 			for (const id of ids) {
 				expect(existsSync(workspace(id, "tmp"))).toBe(false);
 				expect(existsSync(workspace(id, "lab/results.csv"))).toBe(true);
-				expect(journeyOf(join(state.questsRoot, id))).toContain(
+				const dir = join(state.questsRoot, id);
+				expect(readFileSync(harnessLogPath(dir), "utf8")).toContain(
 					"Cleared the workspace's tmp/ folder.",
 				);
+				expect(journeyOf(dir)).not.toContain("Cleared the workspace");
 			}
 		});
 	}

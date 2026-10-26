@@ -4,6 +4,7 @@
  * through the refs registry.
  */
 
+import { appendHarnessLog } from "../../../internal/quest/harness-log.ts";
 import { parseRef } from "../../../refs/index.ts";
 import {
 	buildAliasIndex,
@@ -11,11 +12,7 @@ import {
 } from "../../internal/quest/alias-index.ts";
 import { discoverQuests } from "../../internal/quest/discovery.ts";
 import type { QuestAlias } from "../index.ts";
-import {
-	addAliasesToLoaded,
-	appendJourneyEntry,
-	removeAliasesFromLoaded,
-} from "../lifecycle.ts";
+import { addAliasesToLoaded, removeAliasesFromLoaded } from "../lifecycle.ts";
 import type { QuestState } from "../state.ts";
 import {
 	ok,
@@ -96,7 +93,9 @@ export function aliasAdd(
 	if (!result.ok) return refuse(result.guidance);
 	const { added, already } = result;
 	for (const alias of added) {
-		appendJourneyEntry(state, `Linked ${alias.type}:${alias.value}.`);
+		if (state.questDir) {
+			appendHarnessLog(state.questDir, `Linked ${alias.type}:${alias.value}.`);
+		}
 	}
 	const label = (a: QuestAlias) => `${a.type}:${a.value}`;
 	if (added.length === 0) {
