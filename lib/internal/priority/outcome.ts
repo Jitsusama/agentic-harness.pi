@@ -180,18 +180,76 @@ export const QUICK_S = 60;
 const CHECK_NAMED = /#checks\.[\w-]+\.([\w-]+)/g;
 
 /**
- * What work is, so it is known again whatever flake reference or wrapper
- * it came with: the checks it names, or else its command past `timeout`
- * and `direnv exec`. The same checks were asked for as `.#checks...`,
- * `path:$T#checks...` and `git+file://$PWD?rev=$rev#checks...`.
+ * A redirection and what it names, as `> $TMPDIR/cc.log`, `2>&1` and
+ * `2>>err`: where output goes, which each run names afresh.
+ */
+const REDIRECTION = /\s*(?:\d|&)?>>?\s*(?:&\d|\S+)/g;
+
+/**
+ * What work is, so it is known again whatever flake reference, wrapper
+ * or log it came with: the checks it names, or else its command past
+ * `timeout` and `direnv exec`, without its redirections. The same checks
+ * were asked for as `.#checks...`, `path:$T#checks...` and
+ * `git+file://$PWD?rev=$rev#checks...`, and 2,650 of the 4,298 runs
+ * recorded by 26 October sent their output to a log named for that run,
+ * so the same command was never known again.
  */
 export function workKey(what: string): string {
 	const checks = checksNamed(what);
 	if (checks.length > 0) return `checks:${checks.join(",")}`;
-	return what.replace(
-		/^[\s(]*(?:timeout\s+\d+\s+)?(?:direnv\s+exec\s+\S+\s+)?/,
-		"",
-	);
+	return what
+		.replace(/^[\s(]*(?:timeout\s+\d+\s+)?(?:direnv\s+exec\s+\S+\s+)?/, "")
+		.replace(REDIRECTION, "")
+		.trim();
+}
+
+/** How long a failed run must have taken for its peak to count. */
+export const TELLING_S = 10;
+
+/** How many of work's latest runs its need is read from. */
+export const RUNS_READ = 3;
+
+/** What work is held to past the most its latest runs held. */
+export const HEADROOM = 1.15;
+
+const GIB = 1024 ** 3;
+
+/**
+ * The memory work needs by its latest runs, in GiB: the most any of
+ * the last {@link RUNS_READ} held, its own commands' peak from its
+ * shell's scope, with {@link HEADROOM}, rounded up. So the queue admits
+ * work by what it took rather than by a guess for its kind. Nothing for
+ * work never seen, or seen only failing within {@link TELLING_S}, which
+ * says nothing of what it needs. Its Nix builds' memory is left out:
+ * that counts each build's own peak whether or not they met, so it is a
+ * ceiling rather than a measure.
+ *
+ * By 26 October's afternoon a `nix flake check` peaked at 25.4 GiB
+ * against the 20 it was held to, a `nix develop -c cargo test` at 10.9
+ * against a build's 4, and jobs at their memory limit stalled 22% of
+ * the time (5FWIUS). Replayed over the 2,017 runs recorded with a peak
+ * by 15:40 that day, the guesses fell over 2 GiB short 97 times and held
+ * 14,132 GiB in all; this falls short 86 times and holds 12,123. The
+ * last run alone fell short 133 times: one command's peaks vary.
+ */
+export function peakGibAfter(
+	what: string,
+	outcomes: readonly Outcome[],
+): number | undefined {
+	const key = workKey(what);
+	const peaks: number[] = [];
+	for (let at = outcomes.length - 1; at >= 0; at -= 1) {
+		const outcome = outcomes[at];
+		if (outcome.ownPeakBytes === undefined || outcome.ranS === undefined) {
+			continue;
+		}
+		if (failed(outcome.exit) && outcome.ranS < TELLING_S) continue;
+		if (workKey(outcome.what) !== key) continue;
+		peaks.push(outcome.ownPeakBytes);
+		if (peaks.length === RUNS_READ) break;
+	}
+	if (peaks.length === 0) return undefined;
+	return Math.max(1, Math.ceil((Math.max(...peaks) * HEADROOM) / GIB));
 }
 
 /** The checks a command names in full, sorted, each once. */

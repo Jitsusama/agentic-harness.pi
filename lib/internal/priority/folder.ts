@@ -53,6 +53,7 @@ import {
 	type Outcome,
 	outcomeOf,
 	outcomesIn,
+	peakGibAfter,
 	quickAfter,
 	vmsFor,
 } from "./outcome.ts";
@@ -210,6 +211,11 @@ export interface QueueFolder {
 	 * builds (outcome.ts's `quickAfter`).
 	 */
 	quickFor(kind: Kind, what: string): boolean;
+	/**
+	 * The memory work held the last time it ran, in GiB, or nothing for
+	 * work not yet seen (outcome.ts's `peakGibAfter`).
+	 */
+	peakFor(what: string): number | undefined;
 	/** Whether queue.json is older than its heartbeat allows. */
 	isDue(now: number): boolean;
 	/**
@@ -446,6 +452,10 @@ export function queueFolder(
 
 		quickFor(kind, what) {
 			return quickAfter(kind, what, recorded());
+		},
+
+		peakFor(what) {
+			return peakGibAfter(what, recorded());
 		},
 
 		isDue(now) {

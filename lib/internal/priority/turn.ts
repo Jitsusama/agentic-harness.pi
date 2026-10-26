@@ -129,7 +129,10 @@ export function queuedCommand(command: string): string {
 	const now = queueing.now?.() ?? Date.now();
 	const what = whatOf(command);
 	const kind = queueing.folder.kindFor(read, what);
-	const needsGib = needsGibOfCommand(kind, command);
+	// What it held the last time it ran, when it has run: a guess for its
+	// kind only for work never seen.
+	const needsGib =
+		queueing.folder.peakFor(what) ?? needsGibOfCommand(kind, command);
 	// A step past the one named that needs more, as changed-checks after a
 	// check's build does, is no seconds-long job, whatever the first is.
 	const quick =
