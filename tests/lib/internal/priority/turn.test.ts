@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { queueFolder } from "../../../../lib/internal/priority/folder.ts";
 import {
+	HEADROOM,
 	keepOutcome,
 	outcomeOf,
 } from "../../../../lib/internal/priority/outcome.ts";
@@ -148,6 +149,44 @@ describe("heavy work waiting for its turn", () => {
 		const job = JSON.parse(readFileSync(join(dir, `${id}.job`), "utf8"));
 		expect(job.what).not.toContain("#checks");
 		expect(job.needsGib).toBe(EVERY_CHECK_GIB);
+	});
+
+	it("asks for the memory it held when it last ran, with headroom", () => {
+		// On 26 October `nix develop -c cargo test` peaked at 10.9 GiB
+		// while held to a build's 4.
+		const outcomes = join(root, "outcomes.jsonl");
+		const ran = new Date().toISOString();
+		keepOutcome(outcomes, {
+			...outcomeOf(
+				{
+					id: "before",
+					kind: "build",
+					what: 'nix develop "path:$d" -c cargo test > $W/logs/one.log 2>&1',
+					owner: { session: "session-a", pid: 1 },
+					since: ran,
+					started: ran,
+					ownPeakBytes: 10.9 * 1024 ** 3,
+				},
+				Date.now() + 300_000,
+				0,
+			),
+		});
+		undo = queueHeavyWork({
+			folder: queueFolder(
+				dir,
+				{ isRunning: () => true, cgroupOf: () => undefined },
+				undefined,
+				outcomes,
+			),
+			session: "session-a",
+			pid: process.pid,
+			room: () => ROOMY,
+			cgroupFor: () => undefined,
+		});
+		queuedCommand('nix develop "path:$d" -c cargo test > $W/logs/two.log 2>&1');
+		const [id] = jobIds();
+		const job = JSON.parse(readFileSync(join(dir, `${id}.job`), "utf8"));
+		expect(job.needsGib).toBe(Math.ceil(10.9 * HEADROOM));
 	});
 
 	it("asks for the memory of its heaviest step, not its first", () => {

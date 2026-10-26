@@ -6,14 +6,18 @@ import {
 	capFor,
 	FAILURES_COUNT_FOR_MS,
 	failed,
+	HEADROOM,
 	keepOutcome,
 	MOST_OUTCOME_BYTES,
 	NOTHING_BESIDE,
 	type Outcome,
 	outcomeOf,
 	outcomesIn,
+	peakGibAfter,
 	QUICK_S,
 	quickAfter,
+	RUNS_READ,
+	TELLING_S,
 	vmsFor,
 	workKey,
 } from "../../../../lib/internal/priority/outcome.ts";
@@ -21,6 +25,7 @@ import {
 	FEWER_VMS,
 	type Job,
 	MOST_VMS,
+	needsGibOfCommand,
 } from "../../../../lib/internal/priority/queue.ts";
 
 const NOW = Date.parse("2026-10-22T18:00:00Z");
@@ -78,6 +83,86 @@ describe("work that takes seconds", () => {
 		expect(quickAfter("vm-check", check, [ran(check, 4)])).toBe(false);
 		const waited = outcome({ kind: "build", what: check, ranS: undefined });
 		expect(quickAfter("build", check, [ran(check, 600), waited])).toBe(false);
+	});
+});
+
+describe("the memory work needs, by its latest runs", () => {
+	const GIB = 1024 ** 3;
+	const ran = (what: string, gib: number, over: Partial<Outcome> = {}) =>
+		outcome({
+			kind: "build",
+			what,
+			ranS: 300,
+			exit: 0,
+			ownPeakBytes: gib * GIB,
+			...over,
+		});
+
+	it("knows work again whatever log it sends its output to", () => {
+		expect(
+			workKey(
+				"nix develop -c changed-checks --no-vm > $L/sub-changed.txt 2>&1",
+			),
+		).toBe(
+			workKey("nix develop -c changed-checks --no-vm >$L/talk.txt 2>>err"),
+		);
+	});
+
+	it("is the most its own commands held in its latest runs, with headroom", () => {
+		const check = "direnv exec . nix flake check --no-build --all-systems";
+		const runs = [
+			ran(check, 12),
+			ran(`${check} > $TMPDIR/core-fc.log 2>&1`, 20),
+			ran(check, 16),
+		];
+
+		expect(peakGibAfter(check, runs)).toBe(Math.ceil(20 * HEADROOM));
+	});
+
+	it("forgets what runs before its latest few held", () => {
+		const check = "nix flake check --keep-going";
+		const runs = [
+			ran(check, 30),
+			...Array.from({ length: RUNS_READ }, () => ran(check, 5)),
+		];
+
+		expect(peakGibAfter(check, runs)).toBe(Math.ceil(5 * HEADROOM));
+	});
+
+	it("is nothing for work never seen, so its kind's guess stands", () => {
+		expect(peakGibAfter("cargo test -p walgit", [ran("cargo build", 9)])).toBe(
+			undefined,
+		);
+	});
+
+	it("passes over a run that failed too soon to say anything", () => {
+		const test = 'nix develop "path:$d" -c cargo test';
+		const runs = [
+			ran(test, 10.9),
+			ran(test, 0.2, { exit: 1, ranS: TELLING_S - 1 }),
+		];
+
+		expect(peakGibAfter(test, runs)).toBe(Math.ceil(10.9 * HEADROOM));
+	});
+
+	it("holds the forms 5FWIUS found to the whole flake's guess until they have run", () => {
+		for (const [command, gib] of [
+			[
+				"direnv exec . nix flake check --no-build --all-systems > $T/fc.log 2>&1",
+				20,
+			],
+			['nix flake check --keep-going "path:$PWD" > $ws/check.log 2>&1', 20],
+			[
+				'nix eval --json "path:$zc#checks.x86_64-linux" --apply builtins.attrNames',
+				24,
+			],
+			[
+				"timeout 2700 nix develop -c changed-checks --build --no-vm > $T/cc.log 2>&1",
+				16,
+			],
+		] as const) {
+			expect(needsGibOfCommand("build", command)).toBe(gib);
+		}
 	});
 });
 
