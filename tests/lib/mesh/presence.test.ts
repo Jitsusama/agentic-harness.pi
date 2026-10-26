@@ -2,9 +2,16 @@
  * Presence: what a peer publishes, where it is kept, and what this
  * session's own peer says about itself.
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { localPeer } from "../../../lib/mesh/peer.ts";
 import {
@@ -34,6 +41,36 @@ const presence = (over: Partial<Presence> = {}): Presence => ({
 	busy: false,
 	at: "2026-10-21T22:00:00.000Z",
 	...over,
+});
+
+describe("a window's title", () => {
+	// windowTitle copies how pi titles its terminal, which pi does not
+	// export. Read pi's own source, so a pi upgrade that changes the shape
+	// fails here rather than leaving the desktop matching no window.
+	const pi = dirname(
+		fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent")),
+	);
+	const source = (path: string) => readFileSync(join(pi, path), "utf8");
+
+	it("is composed as pi composes it, with and without a session name", () => {
+		const interactive = source("modes/interactive/interactive-mode.js");
+		expect(interactive).toContain(
+			`setTitle(\`\${APP_TITLE} - \${sessionName} - \${cwdBasename}\`)`,
+		);
+		expect(interactive).toContain(
+			`setTitle(\`\${APP_TITLE} - \${cwdBasename}\`)`,
+		);
+		expect(source("config.js")).toContain(
+			'APP_TITLE = piConfigName ? APP_NAME : "\u03c0"',
+		);
+
+		expect(windowTitle("Agentic loop", "/home/someone/src/core.nix")).toBe(
+			"\u03c0 - Agentic loop - core.nix",
+		);
+		expect(windowTitle(undefined, "/home/someone/src/core.nix")).toBe(
+			"\u03c0 - core.nix",
+		);
+	});
 });
 
 describe("presences", () => {

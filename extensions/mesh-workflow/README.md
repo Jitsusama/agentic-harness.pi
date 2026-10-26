@@ -520,7 +520,9 @@ Under `$XDG_STATE_HOME/pi/agentic-harness.pi/mesh-workflow/`:
 - `presence/`: one file per peer, by session id, so its groups
   survive a reload and a restore. It is written when something
   in it changes (the quest, the groups, a run starting or
-  ending), never on a clock.
+  ending), never on a clock. Its `title` is the exact window
+  title pi sets, so the desktop finds a peer's window by it
+  rather than by parsing the title, which carries no address.
 - `leases/`: one file per peer, by session id, holding its
   current leases, so each peer writes only its own. It is
   rewritten when a lease is taken, given up, or renewed by a
