@@ -208,6 +208,12 @@ function pinPrimaryPlanIfUnset(questDir: string, planId: string): void {
  * "draft from think" 45 times in a week, and the next call
  * was `unfocus` nearly every time, so the verb does that step
  * itself and says so.
+ *
+ * The same holds for `draft` given a title while a document already
+ * drafted or in build is focused: a title names a new document, since
+ * the focused one has its H1, so that one is put down where it stands
+ * and the new one drafted beside it. Of 40 "draft from think"
+ * refusals from 2026-10-19 to 2026-10-26, 39 were exactly that.
  */
 export function stageTransition(
 	state: QuestState,
@@ -222,8 +228,18 @@ export function stageTransition(
 	}
 	const terminal =
 		state.documentStage === "concluded" || state.documentStage === "retired";
-	if (terminal && (action === "think" || action === "draft")) {
-		const left = `${state.documentKind} ${state.documentId} stays ${state.documentStage}, and this starts a fresh loop beside it.`;
+	const besideActive =
+		action === "draft" &&
+		Boolean(params.title?.trim()) &&
+		Boolean(state.documentId) &&
+		(state.documentStage === "draft" || state.documentStage === "build");
+	if (
+		(terminal && (action === "think" || action === "draft")) ||
+		besideActive
+	) {
+		const left = besideActive
+			? `${state.documentKind} ${state.documentId} stays in ${state.documentStage}, put down; \`focus\` takes it up again. This drafts a new document beside it.`
+			: `${state.documentKind} ${state.documentId} stays ${state.documentStage}, and this starts a fresh loop beside it.`;
 		unfocusDocument(state);
 		const result = stageTransition(state, action, params, ctx);
 		return result.ok
