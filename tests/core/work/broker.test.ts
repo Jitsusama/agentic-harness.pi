@@ -18,21 +18,30 @@ const snapshot = (commit: string): TreeRequest => ({
 	commit,
 });
 
-/** Records every cut it was asked to make, so reuse is observable. */
+/**
+ * Records every cut it was asked to make, so reuse is observable. Like
+ * a real provider, it answers a request it has placed before with the
+ * same path, and one placed by a record it is shown in `placed`.
+ */
 function fakeProvider(
 	id: string,
 	specificity = 0,
 	applies: (repo: RepoLocator) => boolean = () => true,
+	placed: ReadonlyMap<string, string> = new Map(),
 ) {
 	const cuts: TreeRequest[] = [];
 	const released: string[] = [];
+	const paths = new Map(placed);
 	const provider: TreeProvider = {
 		id,
 		specificity,
 		appliesTo: applies,
 		async ensure(request) {
 			cuts.push(request);
-			return { path: `/trees/${id}/${cuts.length}` };
+			const key = treeIdentity(request).key;
+			const path = paths.get(key) ?? `/trees/${id}/${cuts.length}`;
+			paths.set(key, path);
+			return { path };
 		},
 		async release(held) {
 			released.push(held.path);
@@ -88,7 +97,12 @@ describe("a worktree somebody else is working in", () => {
 	});
 
 	it("is taken over once nobody running holds it", async () => {
-		const { provider } = fakeProvider("git-worktree");
+		const { provider } = fakeProvider(
+			"git-worktree",
+			0,
+			undefined,
+			new Map([[theirs.identity.key, theirs.path]]),
+		);
 		const broker = createTreeBroker({
 			providers: [provider],
 			memory: remembering(theirs, []),
@@ -106,7 +120,12 @@ describe("a worktree somebody else is working in", () => {
 			path: "/trees/shared",
 			providerId: "git-worktree",
 		};
-		const { provider } = fakeProvider("git-worktree");
+		const { provider } = fakeProvider(
+			"git-worktree",
+			0,
+			undefined,
+			new Map([[shared.identity.key, shared.path]]),
+		);
 		const broker = createTreeBroker({
 			providers: [provider],
 			memory: remembering(shared, [4242]),
@@ -169,6 +188,43 @@ describe("createTreeBroker", () => {
 		await broker.ensure(snapshot("abc123"));
 
 		expect(asked).toHaveLength(2);
+	});
+
+	it("follows the provider to where a remembered tree is now, and writes that down", async () => {
+		// World's provider once handed back a tree's container and now
+		// hands back the checkout inside it. A record from before kept
+		// every status and release running git in the container.
+		const request = worktree("main");
+		const old: HeldTree = {
+			identity: treeIdentity(request),
+			path: "/trees/w-main",
+			providerId: "world-dev-tree",
+			owners: [{ pid: 1, startedAt: 1 }],
+		};
+		const { provider } = fakeProvider(
+			"world-dev-tree",
+			0,
+			undefined,
+			new Map([[old.identity.key, "/trees/w-main/src"]]),
+		);
+		const written: HeldTree[] = [];
+		const broker = createTreeBroker({
+			providers: [provider],
+			memory: {
+				...remembering(old, []),
+				rememberHeldByUs: async (held) => {
+					written.push(held);
+				},
+			},
+		});
+
+		const held = await broker.ensure(request);
+
+		expect(held.path).toBe("/trees/w-main/src");
+		expect(written).toEqual([{ ...old, path: "/trees/w-main/src" }]);
+		expect((await broker.stillHeld()).map((tree) => tree.path)).toContain(
+			"/trees/w-main/src",
+		);
 	});
 
 	it("cuts a second tree for a different request", async () => {

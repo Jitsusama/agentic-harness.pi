@@ -261,7 +261,16 @@ export function createTreeBroker(
 				// directory is still there and still the right one to hand
 				// back; only the check goes missing, which is where this
 				// stood for every tree until now.
-				if (by !== undefined) await by.ensure(request, options);
+				const answer = await by?.ensure(request, options);
+				// Where the provider says the tree is now wins over the record.
+				// World's provider once handed back a tree's container and now
+				// hands back the checkout inside it, and a record from before
+				// kept every later status, record and release running git in
+				// the container, where it is not a repository (2026-10-26).
+				const taken =
+					answer !== undefined && answer.path !== reusable.path
+						? { ...reusable, path: answer.path }
+						: reusable;
 				// Taking a tree is holding it, however it was obtained. A
 				// reused tree still carries whoever cut it, and that session
 				// is usually gone: without this, the tree this session is
@@ -269,11 +278,13 @@ export function createTreeBroker(
 				// the thing that must never happen. Held locally as well,
 				// since our own list is what makes this session's answer true
 				// whatever the record on disk says.
-				if (!trees.some((tree) => tree.path === reusable.path)) {
-					trees.push(reusable);
+				const mine = trees.findIndex((tree) => tree.path === reusable.path);
+				if (mine >= 0) trees.splice(mine, 1, taken);
+				else if (!trees.some((tree) => tree.path === taken.path)) {
+					trees.push(taken);
 				}
-				await memory?.rememberHeldByUs(reusable);
-				return reusable;
+				await memory?.rememberHeldByUs(taken);
+				return taken;
 			}
 
 			const choice = chooseTreeProvider(roster(), request.repo);
