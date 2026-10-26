@@ -1,5 +1,37 @@
 import { describe, expect, it } from "vitest";
-import { detectTitleViolations } from "../../../lib/core/title/index.ts";
+import {
+	detectTitleViolations,
+	toTitleCase,
+} from "../../../lib/core/title/index.ts";
+
+describe("toTitleCase", () => {
+	it("capitalises major words and leaves minor ones inside", () => {
+		expect(toTitleCase("store a result past 32 KB, not 256")).toBe(
+			"Store a Result Past 32 KB, Not 256",
+		);
+	});
+
+	it("capitalises a minor word that opens or closes the title", () => {
+		expect(toTitleCase("the queue it waits in")).toBe("The Queue It Waits In");
+	});
+
+	it("leaves code, paths, mixed case and capitals as written", () => {
+		expect(
+			toTitleCase("make `mesh_read` page for iOS in lib/mesh and NixOS"),
+		).toBe("Make `mesh_read` Page for iOS in lib/mesh and NixOS");
+	});
+
+	it("keeps punctuation around a word", () => {
+		expect(toTitleCase('say "hold" (once) plainly')).toBe(
+			'Say "Hold" (Once) Plainly',
+		);
+	});
+
+	it("gives a title the detector passes", () => {
+		const title = toTitleCase("bound mesh reads and results before they fill");
+		expect(detectTitleViolations(title)).toEqual([]);
+	});
+});
 
 describe("detectTitleViolations", () => {
 	it("passes a descriptive Title Case title", () => {
