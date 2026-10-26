@@ -243,6 +243,89 @@ describe("this session's peer", () => {
 		expect(peer.joined).toEqual([]);
 	});
 
+	describe("in an orchestration", () => {
+		const MISSION = "QEST-20261007-WCJQSG";
+		const SWARM = "QEST-20261026-SWARM1";
+		const LOOP = "QEST-20261025-QCXZEB";
+		const readme = (id: string, parent: string, marked = false) =>
+			`---\nid: ${id}\nkind: ${parent === "null" ? "quest" : "subquest"}\nparent: ${parent}\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-25\nupdated: 2026-10-25\n${marked ? "orchestrator: true\n" : ""}---\n# ${id}\n`;
+		const write = (quests: [string, string][], loaded: string) => {
+			for (const [id, text] of quests) {
+				mkdirSync(join(root, "quests", id), { recursive: true });
+				writeFileSync(join(root, "quests", id, "README.md"), text);
+			}
+			mkdirSync(join(root, "sessions"), { recursive: true });
+			writeFileSync(
+				join(root, "sessions", `${session}.json`),
+				JSON.stringify({ quest: loaded }),
+			);
+		};
+
+		it("joins the orchestration's group and names its orchestrator, found up the tree", () => {
+			write(
+				[
+					[MISSION, readme(MISSION, "null", true)],
+					[LOOP, readme(LOOP, MISSION)],
+				],
+				LOOP,
+			);
+			const at = surroundings();
+
+			const peer = localPeer(at);
+
+			expect(peer.scopes).toEqual([
+				"#orchestration/wcjqsg",
+				"#quest/wcjqsg/qcxzeb",
+			]);
+			expect(peer.orchestratedBy).toBe("WCJQSG");
+			expect(peer.orchestrates).toBeUndefined();
+			expect(createPresences(join(root, "presence")).of(session)).toMatchObject(
+				{ orchestratedBy: "WCJQSG" },
+			);
+		});
+
+		it("heads its own orchestration as a member of the one above", () => {
+			write(
+				[
+					[MISSION, readme(MISSION, "null", true)],
+					[SWARM, readme(SWARM, MISSION, true)],
+				],
+				SWARM,
+			);
+			const at = surroundings();
+
+			const peer = localPeer(at);
+
+			expect(peer.scopes).toEqual([
+				"#orchestration/swarm1",
+				"#orchestration/wcjqsg",
+				"#quest/wcjqsg/swarm1",
+			]);
+			expect(at.presences.of(session)).toMatchObject({
+				orchestratedBy: "WCJQSG",
+				orchestrates: "SWARM1",
+			});
+		});
+
+		it("leaves the role to the session already signing with the quest's address", () => {
+			write([[MISSION, readme(MISSION, "null", true)]], MISSION);
+			const at = surroundings();
+			at.presences.publish({
+				...presence({
+					session: "00000000-0000-0000-0000-000000000001",
+					addresses: ["WCJQSG", "00000001"],
+				}),
+				orchestrates: "WCJQSG",
+			});
+
+			const peer = localPeer(at);
+
+			expect(peer.signature).not.toBe("WCJQSG");
+			expect(peer.orchestrates).toBeUndefined();
+			expect(peer.scopes).toContain("#orchestration/wcjqsg");
+		});
+	});
+
 	it("is in the repository it runs in, with no quest", () => {
 		const checkout = join(root, "core.nix");
 		mkdirSync(join(checkout, ".git"), { recursive: true });

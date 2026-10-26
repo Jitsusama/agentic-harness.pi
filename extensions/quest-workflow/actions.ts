@@ -14,9 +14,17 @@ import {
  * landed here first because the quests under one parent needed new
  * titles the same evening, and a core release waits on a person.
  * `queue-first` and `queue-normal` came the same way, for one lab's
- * builds to go ahead of the rest that night.
+ * builds to go ahead of the rest that night. `orchestrate` and
+ * `unorchestrate` mark a quest whose session orchestrates the quests
+ * below it, while core is not published.
  */
-const LOCAL_ACTIONS = ["retitle", "queue-first", "queue-normal"] as const;
+const LOCAL_ACTIONS = [
+	"retitle",
+	"queue-first",
+	"queue-normal",
+	"orchestrate",
+	"unorchestrate",
+] as const;
 
 /** Every action the quest tool takes. */
 export const QUEST_ACTIONS = [...CORE_ACTIONS, ...LOCAL_ACTIONS] as const;

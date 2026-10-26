@@ -165,8 +165,40 @@ describe("routeByRule", () => {
 		]);
 	});
 
-	it("goes to the whole machine when no other peer is on the sender's work", () => {
-		expect(routeByRule("question", sender, everyone).to).toEqual([ALL]);
+	it("stays in the sender's own quest when no other peer is on its work, never the whole machine", () => {
+		expect(routeByRule("question", sender, everyone).to).toEqual([
+			"#quest/5gv2ah/luq49e",
+		]);
+	});
+
+	it("stays in the sender's orchestration before its quest when nobody hears either", () => {
+		const orchestrated = {
+			...sender,
+			scopes: [...sender.scopes, "#orchestration/5gv2ah"],
+		};
+		expect(routeByRule("fyi", orchestrated, everyone).to).toEqual([
+			"#orchestration/5gv2ah",
+		]);
+	});
+
+	it("goes to the orchestration when another peer in it hears", () => {
+		const orchestrated = {
+			...sender,
+			scopes: ["#orchestration/wcjqsg", "#quest/wcjqsg/luq49e"],
+		};
+		const head = presence(
+			"s-head",
+			["WCJQSG"],
+			["#orchestration/wcjqsg", "#quest/wcjqsg"],
+		);
+		expect(routeByRule("fyi", orchestrated, [...everyone, head]).to).toEqual([
+			"#orchestration/wcjqsg",
+		]);
+	});
+
+	it("falls back to the whole machine only for a sender on no work at all", () => {
+		const nowhere = { ...sender, scopes: [] };
+		expect(routeByRule("fyi", nowhere, everyone).to).toEqual([ALL]);
 	});
 
 	it("goes to the nearest quest above the sender's own that another peer hears", () => {
@@ -229,7 +261,7 @@ describe("routeOf", () => {
 		expect(
 			(await routeOf({ intent: "fyi", text: "x" }, sender, everyone, failing))
 				.to,
-		).toEqual([ALL]);
+		).toEqual(["#quest/5gv2ah/luq49e"]);
 	});
 
 	it("never goes to a peer that stopped the sender", async () => {
@@ -243,6 +275,6 @@ describe("routeOf", () => {
 					stopping,
 				])
 			).to,
-		).toEqual([ALL]);
+		).toEqual(["#quest/5gv2ah/luq49e"]);
 	});
 });

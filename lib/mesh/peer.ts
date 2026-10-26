@@ -19,12 +19,13 @@
  */
 
 import type { Owner } from "@jitsusama/agentic-harness.core/process";
-
+import type { Orchestration } from "../internal/quest/orchestration.ts";
 import {
 	addressesOf,
 	loadedAddress,
 	olderAddresses,
 	type QuestRecords,
+	questAddress,
 	signaturesOfOthers,
 	yieldsTo,
 } from "./address.ts";
@@ -54,6 +55,16 @@ export interface Peer {
 	readonly receiver: Receiver;
 	/** Whether it is in the middle of a run. */
 	readonly busy: boolean;
+	/**
+	 * The address of the orchestrator its quest answers to, when one is
+	 * above it.
+	 */
+	readonly orchestratedBy: string | undefined;
+	/**
+	 * The address of the orchestration it heads, when its quest
+	 * orchestrates and this is the session playing the role.
+	 */
+	readonly orchestrates: string | undefined;
 	/** What it waits on its person for, standing longest (see want.ts). */
 	readonly wants: Want | undefined;
 	/**
@@ -112,6 +123,29 @@ function titled(title: string | undefined): { title?: string } {
 	return title ? { title } : {};
 }
 
+/**
+ * What a peer says of the orchestrations it is in: the orchestrator its
+ * quest answers to, and the one it heads, which only the session signing
+ * with the orchestrating quest's address does. That is the session that
+ * had the quest first, since a later one leaves the address to it (see
+ * address.ts), so two sessions on one orchestrating quest never both
+ * play the role.
+ */
+export function orchestrationRoles(
+	orchestration: Orchestration,
+	signature: string | undefined,
+): { orchestratedBy?: string; orchestrates?: string } {
+	const heads = orchestration.heads
+		? questAddress(orchestration.heads)
+		: undefined;
+	return {
+		...(orchestration.by
+			? { orchestratedBy: questAddress(orchestration.by) }
+			: {}),
+		...(heads && heads === signature ? { orchestrates: heads } : {}),
+	};
+}
+
 /** This session's peer, with the groups it last joined. */
 export function localPeer(at: Surroundings): Peer {
 	// A peer carried on from an earlier session is the same peer: it takes
@@ -136,6 +170,7 @@ export function localPeer(at: Surroundings): Peer {
 		]),
 	];
 	let receiver: Receiver = { addresses, worksOn: "", owns: [] };
+	let roles: { orchestratedBy?: string; orchestrates?: string } = {};
 	let busy = false;
 	const wanting = new Map<WantKind, Want>();
 	const groups = () => [...new Set([...scopes, ...joined])].sort();
@@ -155,6 +190,7 @@ export function localPeer(at: Surroundings): Peer {
 			...(wanting.size > 0 ? { wants: longestStanding(wanting.values()) } : {}),
 			...(at.owner ? { owner: at.owner } : {}),
 			...titled(at.title?.()),
+			...roles,
 		};
 		const text = JSON.stringify(said);
 		if (text === published) return;
@@ -190,6 +226,7 @@ export function localPeer(at: Surroundings): Peer {
 		const work = workOf(at.session, joined, at.cwd, at.records);
 		scopes = [...work.scopes];
 		receiver = { addresses, worksOn: work.worksOn, owns: work.owns };
+		roles = orchestrationRoles(work.orchestration, addresses[0]);
 		publish();
 	};
 	refresh();
@@ -221,6 +258,12 @@ export function localPeer(at: Surroundings): Peer {
 		},
 		get busy() {
 			return busy;
+		},
+		get orchestratedBy() {
+			return roles.orchestratedBy;
+		},
+		get orchestrates() {
+			return roles.orchestrates;
 		},
 		get wants() {
 			return longestStanding(wanting.values());

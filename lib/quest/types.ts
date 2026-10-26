@@ -165,6 +165,18 @@ export interface QuestFrontMatter {
 	 * terminal's window title, in place of the id and the long title.
 	 */
 	short?: string;
+	/**
+	 * Whether the quest orchestrates: the live session that has it loaded
+	 * is the orchestrator of every quest below it, up to the next quest
+	 * below that orchestrates too.
+	 */
+	orchestrator?: boolean;
+	/**
+	 * The quest that orchestrates this one when it is not the nearest
+	 * orchestrating quest above it, as for work an orchestrator takes on
+	 * from outside its tree. It wins over the walk up `parent`.
+	 */
+	orchestratedBy?: string;
 	kind: QuestKind;
 	parent: string | null;
 	status: QuestStatus;

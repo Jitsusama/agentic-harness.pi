@@ -35,6 +35,27 @@ describe("a peer's scopes", () => {
 		}
 	});
 
+	it("give each orchestration it is in its group, named by the orchestrator's address", () => {
+		const scopes = scopesOf({
+			questChain: ["QEST-20261025-QCXZEB", "QEST-20261007-WCJQSG"],
+			repositories: [],
+			orchestrations: ["QEST-20261007-WCJQSG"],
+		});
+
+		expect(scopes).toEqual(["#orchestration/wcjqsg", "#quest/wcjqsg/qcxzeb"]);
+		for (const scope of scopes) expect(groupNamed(scope)).toBe(scope);
+	});
+
+	it("put a nested orchestrator in its own orchestration and the one above", () => {
+		expect(
+			scopesOf({
+				questChain: [],
+				repositories: [],
+				orchestrations: ["QEST-20261007-WCJQSG", "QEST-20261026-SWARM1"],
+			}),
+		).toEqual(["#orchestration/swarm1", "#orchestration/wcjqsg"]);
+	});
+
 	it("are none for a peer on no quest outside any repository", () => {
 		expect(scopesOf({ questChain: [], repositories: [] })).toEqual([]);
 	});
