@@ -35,6 +35,24 @@ into the system prompt of the next. They are also the watch-list
 the advisor reviews turns against: capture files a rule, the
 advisor enforces it.
 
+## Rules for One Kind of Work
+
+The resident block is read again on every turn, so a rule for one
+kind of work can say when it applies, by hand in `rules.json`:
+
+- `"when": {"skill": "aesthetic"}` keeps it out of the resident
+  block and says it when that skill's `SKILL.md` is read, the moment
+  that work starts.
+- `"when": {"file": "flake.nix"}` keeps it resident only in a
+  session whose working folder, or a folder above it, holds that
+  file.
+
+A rule with no `when` is resident everywhere. Core's store keeps the
+field when it files or removes other rules, and the advisor watches
+every rule whatever its `when`. A rule said with a skill is in the
+conversation rather than the prompt, so a compaction can drop it;
+the next read of the skill says it again.
+
 ## Category
 
 Integration: it bridges the session to a side model to produce
