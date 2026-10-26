@@ -275,7 +275,7 @@ export function createSurfaceManager(deps: {
 			execute: async (_id, params, _signal, _onUpdate, ctx) => {
 				const result = await helper.run(params, ctx);
 				if (result.isError)
-					throw new Error(joinTextContent(result) || "Helper failed.");
+					throw new Error(joinTextContent(result) || "The tool failed.");
 				return {
 					content: toAgentContent(result),
 					details: result.structuredContent,

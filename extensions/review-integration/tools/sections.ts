@@ -171,7 +171,7 @@ export function sectionsOf(
 	const missing = PR_FIELDS.filter((f) => fields[f] === undefined);
 	return {
 		kind: "refuse",
-		reason: `A proposal needs all four sections. This is missing ${missing.map((f) => LABEL[f]).join(", ")}.`,
+		reason: `A change needs all four sections. This is missing ${missing.map((f) => LABEL[f]).join(", ")}.`,
 	};
 }
 

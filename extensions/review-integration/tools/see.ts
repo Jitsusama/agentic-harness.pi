@@ -105,7 +105,7 @@ export function registerSeeTool(pi: ExtensionAPI): void {
 				],
 				{
 					description:
-						"What to read. change: the proposal and its body. diff: the whole diff. checks: what CI says. stack: what it sits on, with provenance. changes: siblings in the repo. threads: anchored conversation, numbered. reviews: verdicts people left. messages: top-level remarks. findings: what a review pass raised, not yet said to anybody. followup: where your own remarks stand now the change has moved on, worst first.",
+						"What to read. change: the change itself and its body. diff: the whole diff. checks: what CI says. stack: what it sits on, with provenance. changes: siblings in the repo. threads: anchored conversation, numbered. reviews: verdicts people left. messages: top-level remarks. findings: what a review pass raised, not yet said to anybody. followup: where your own remarks stand now the change has moved on, worst first.",
 				},
 			),
 			change: Type.Optional(

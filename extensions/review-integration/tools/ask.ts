@@ -1187,7 +1187,7 @@ async function askStack(
 	);
 	if (proposed.length === 0) {
 		return refuse(
-			"No change in this stack has a proposal on it, so there is nothing to read. A stack of branches nobody has proposed is still a stack, but it carries no bodies or diffs to review.",
+			"No branch in this stack has been proposed as a change, so there is nothing to read. A stack of branches nobody has proposed is still a stack, but it carries no bodies or diffs to review.",
 		);
 	}
 

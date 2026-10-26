@@ -239,7 +239,7 @@ export async function treePrune(
 	const listing = listTreesOnQuest(state.questDir);
 	if (!listing.ok) return refuse(listing.reason);
 	if (listing.trees.length === 0) {
-		return refuse("No trees on the loaded quest to prune.");
+		return refuse("No trees on the loaded quest to release.");
 	}
 	const target =
 		listing.trees.find(
@@ -295,7 +295,7 @@ export async function treePrune(
 			detectedAt,
 		});
 		return refuse(
-			`Tree prune blocked: ${message} Resolve the conflict and retry, or pass force:true after confirming with the user.`,
+			`Tree release blocked: ${message} Resolve the conflict and retry, or pass force:true after confirming with the person.`,
 		);
 	}
 	const removal = removeTreeFromQuest(state.questDir, target.path);

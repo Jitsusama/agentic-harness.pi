@@ -257,7 +257,7 @@ describe("formatFanOut", () => {
 		});
 
 		expect(text).toContain(
-			"Fan-out by quest (1 named, $3,653 unattributed, 33%)",
+			"Fleets by quest (1 named, $3,653 unattributed, 33%)",
 		);
 		expect(text).toContain("QEST-A");
 	});
@@ -282,7 +282,7 @@ describe("formatFanOut", () => {
 			slices: [{ key: "anthropic/claude-opus-5", cost: 11_180, runs: 3 }],
 		});
 
-		expect(text).toContain("Fan-out by model");
+		expect(text).toContain("Fleets by model");
 		expect(text).toContain("anthropic/claude-opus-5");
 		expect(text).toContain("3 runs");
 	});

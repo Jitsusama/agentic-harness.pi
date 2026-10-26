@@ -175,14 +175,14 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			"think/draft/build/conclude/retire stage machine. Read the quest " +
 			"convention skill for the README format.",
 		promptGuidelines: [
-			"Use action `create` to mint a new quest; a session with none loaded is put on it, and one already on a quest stays there. Use action `load` to switch to an existing one. The status bar shows the loaded quest at all times.",
+			"Use action `create` to mint a new quest; a session with none loaded is put on it, and one already on a quest stays there. Use action `load` to switch to an existing one. The status line shows the loaded quest at all times.",
 			"Edit a quest document's body with `journal` (add a Journey entry), `tick`/`untick` (a checkbox item) and `section` (replace one `##` section), not with edit or write: the workflow rewrites these files between reads, and hand edits miss. They act on the focused document, or the README when nothing is focused; `id` names any document or any quest's README, loaded or not, and `journal` takes a document's id as its quest's. Never load a quest just to write to it. Stage changes go through think/draft/build/conclude/retire.",
 			"Read a quest document with `show` rather than reading or grepping its file: its `id` gives the outline (sections and their sizes, open items, the next), `title` one section, `query` one item and its notes, by its number or first words. Plans grow past 400 KB.",
 			"`unload` puts a quest down and changes nothing on disk. `conclude` seals one for good (status, priority, documents, trees) and needs its `id`; never conclude to put a quest down. When unsure which was meant, unload.",
 			"`focus` and `unfocus` set or clear the focused document. While a plan is focused in think or draft, edits to already-tracked code in the quest's trees (any tree, while it tracks none) defer to build; the plan itself, attachments, any workspace and brand-new files still flow.",
 			"A quest folder holds only its README, its ID documents and attachments/ (cited charts, notes and summaries within the limits). Clones, raw data, labs, runs and builds go in the quest's workspace, ~/.cache/pi/agentic-harness.pi/quest-workspace/<ID>/, whose tmp/ is cleared at conclude and is $TMPDIR while the quest is loaded: use $TMPDIR or mktemp for temporary files, never a path named in /tmp. When a result says a call left a record out of shape, move the files where it says.",
-			"Stage transitions are think → draft → build → concluded (or retired). `think` accepts a kind on a fresh loop (default plan); `draft` scaffolds the document and mints its id; `build` lets you implement. With nothing in hand, `draft` given a note and a title thinks and drafts in one call. Concluding or retiring the focused document puts it down, and a finished document is never reopened: think or draft beside it starts a fresh loop.",
-			"A refused transition returns guidance and changes nothing. There is no human gate and no approval prompt.",
+			"Stage transitions are think → draft → build → concluded (or retired). `think` accepts a kind on a fresh loop (default plan); `draft` writes the document and mints its id; `build` lets you implement. With nothing in hand, `draft` given a note and a title thinks and drafts in one call. Concluding or retiring the focused document puts it down, and a finished document is never reopened: think or draft beside it starts a fresh loop.",
+			"A refused transition returns guidance and changes nothing. There is no gate for the person and no approval prompt.",
 		],
 		parameters: Type.Object({
 			action: StringEnum([...QUEST_ACTIONS], {
@@ -204,7 +204,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			title: Type.Optional(
 				Type.String({
 					description:
-						"create: the quest's human title (becomes the H1). draft: the document's title. section: the heading of the section to replace, or to add (a README's optional Milestones, Spirit, Outcomes or Context), without its emoji (e.g. Purpose). retitle: the new title, which replaces the H1 of the quest or document `id` names. show: the section to read.",
+						"create: the quest's title, as a person reads it (becomes the H1). draft: the document's title. section: the heading of the section to replace, or to add (a README's optional Milestones, Spirit, Outcomes or Context), without its emoji (e.g. Purpose). retitle: the new title, which replaces the H1 of the quest or document `id` names. show: the section to read.",
 				}),
 			),
 			parent: Type.Optional(
@@ -285,7 +285,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			name: Type.Optional(
 				Type.String({
 					description:
-						"who: filter Cast bullets by name substring. session-attach/session-rename: human label for the session entry.",
+						"who: filter Cast bullets by name substring. session-attach/session-rename: a label for the session entry, as a person reads it.",
 				}),
 			),
 			layout: Type.Optional(
@@ -350,7 +350,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			force: Type.Optional(
 				Type.Boolean({
 					description:
-						"tree-prune: override its safety refusals (dirty tree, unmerged branch, attached session), consenting to lose uncommitted work: confirm with the user first. restore: reopen the lost sessions (or those id names), a terminal each, rather than list them; confirm first too.",
+						"tree-prune: override its safety refusals (dirty tree, unmerged branch, attached session), consenting to lose uncommitted work: confirm with the person first. restore: reopen the lost sessions (or those id names), a terminal each, rather than list them; confirm first too.",
 				}),
 			),
 			dryRun: Type.Optional(

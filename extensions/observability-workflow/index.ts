@@ -111,7 +111,7 @@ export default function observabilityWorkflow(pi: ExtensionAPI) {
 		exposure: "deferred",
 		label: "Observe Runs",
 		description:
-			"Query subagent and council run telemetry: how a fan-out did " +
+			"Query subagent and council run telemetry: how a fleet did " +
 			"and what it cost. Pass a runId to summarize one run (subagent " +
 			"count, verify pass/fail, retries, warnings, tokens, cost, cache " +
 			"ratio); omit it for recent runs in the retention window plus the " +
