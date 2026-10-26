@@ -550,7 +550,11 @@ export function meshWorkflow(
 			};
 			const self: Self = { addresses: peer.addresses, pid: process.pid };
 			const listener = peer.listener;
-			const orchestrator = peer.orchestratedBy;
+			// Every address the orchestrator signs with, so a pivot under
+			// either its quest's or its session's is known as its own.
+			const orchestrator = peer.orchestratedBy
+				? addressesOf(peer.orchestratedBy)
+				: undefined;
 			const read = (id: string) => transport.read(id);
 			const everyone = presences.all();
 			const stopped = messages.map((message) =>

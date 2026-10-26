@@ -58,7 +58,7 @@ describe("the attention a pivot gets", () => {
 	const busy: Standing = {
 		receiver: { addresses: ["QCXZEB"], worksOn: "Agentic loop", owns: [] },
 		idle: false,
-		orchestrator: "WCJQSG",
+		orchestrator: ["WCJQSG", "P9R1KI"],
 	};
 
 	it("starts a turn, steered into a busy run, from its own orchestrator", () => {
@@ -68,10 +68,14 @@ describe("the attention a pivot gets", () => {
 		});
 	});
 
+	it("is its orchestrator's under any address that session signs with", () => {
+		expect(attend({ ...pivot, from: "P9R1KI" }, busy).attention).toBe("turn");
+	});
+
 	it("is only noted from another orchestrator, judged however it is", () => {
 		const other = {
 			...busy,
-			orchestrator: "P9R1KI",
+			orchestrator: ["Y9XISP"],
 			concern: "other" as const,
 		};
 		expect(attend(pivot, other).attention).toBe("note");
