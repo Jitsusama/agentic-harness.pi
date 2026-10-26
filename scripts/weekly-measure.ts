@@ -94,8 +94,7 @@ export async function measureWeek(opts: {
 	return out;
 }
 
-const USAGE =
-	"Usage: node scripts/weekly-measure.ts [--out <file>] [--top N]";
+const USAGE = "Usage: node scripts/weekly-measure.ts [--out <file>] [--top N]";
 
 /**
  * What in `args` is not an option the script takes, or the value one
