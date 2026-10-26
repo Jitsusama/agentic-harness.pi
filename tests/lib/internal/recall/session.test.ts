@@ -205,6 +205,19 @@ describe("a recall", () => {
 		expect(second.view.split("\n\n")).toHaveLength(3);
 	});
 
+	it("names only the next page's hits, however many more match", () => {
+		const log = Array.from({ length: 5_000 }, (_, i) =>
+			said(`b${i}`, `the gadget ${i}`),
+		);
+		const first = recall(log, { query: "gadget" });
+		if (first.kind !== "hits") throw new Error("expected hits");
+		expect(first.more).toContain("4990 more matching entries");
+		expect(first.more).toContain(
+			`and ${4_990 - PAGE_HITS} more in the stored hits`,
+		);
+		expect(first.more?.length).toBeLessThan(400);
+	});
+
 	it("keeps a page within its characters however few hits it holds", () => {
 		const log = Array.from({ length: 40 }, (_, i) =>
 			said(`a${i}`, `widget ${"w".repeat(800)}`),

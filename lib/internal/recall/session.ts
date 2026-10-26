@@ -340,6 +340,12 @@ export function recall(
 		};
 	}
 	const after = pages.slice(number).flat();
+	// The ids named are the next page's alone. This line is a trailer,
+	// kept whole past the page budget, and naming every later hit made
+	// a common word's search answer 220 KB of ids; the rest are in the
+	// stored hits.
+	const named = after.slice(0, PAGE_HITS).map((h) => h.id);
+	const unnamed = after.length - named.length;
 	return {
 		kind: "hits",
 		view: page.map(rendered).join("\n\n"),
@@ -349,7 +355,7 @@ export function recall(
 			: {
 					more:
 						`${after.length} more matching ${after.length === 1 ? "entry" : "entries"} ` +
-						`not shown. Read one by entryId (${after.map((h) => h.id).join(" ")}), ` +
+						`not shown. Read one by entryId (${named.join(" ")}${unnamed > 0 ? `, and ${unnamed} more in the stored hits` : ""}), ` +
 						`narrow the query, or ask for page ${number + 1}.`,
 				}),
 	};
