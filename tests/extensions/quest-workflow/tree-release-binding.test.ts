@@ -30,7 +30,7 @@ const envGuard = createEnvGuard();
 
 beforeEach(() => {
 	envGuard.enter();
-	tmpRoot = mkdtempSync(join(tmpdir(), "tree-prune-binding-"));
+	tmpRoot = mkdtempSync(join(tmpdir(), "tree-release-binding-"));
 	clearTreeProviders();
 });
 afterEach(() => {
@@ -39,7 +39,7 @@ afterEach(() => {
 	envGuard.leave();
 });
 
-describe("tree-prune provider binding", () => {
+describe("tree-release provider binding", () => {
 	it("dispatches to the tree's stored providerId, not resolution order", async () => {
 		const pruned: string[] = [];
 		const bound: TreeProvider = {
@@ -80,7 +80,7 @@ describe("tree-prune provider binding", () => {
 		});
 
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "tree-prune",
+			action: "tree-release",
 			target: treePath,
 		});
 		expect(result.ok).toBe(true);

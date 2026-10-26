@@ -74,7 +74,7 @@ describe("a tree a quest holds", () => {
 	it("is not released from here, and says how it is", async () => {
 		const { tree, run } = await workWithClaim();
 		const released = await run({ action: "release", tree });
-		expect(released.content[0]?.text).toContain("quest tree-prune");
+		expect(released.content[0]?.text).toContain("quest tree-release");
 		expect(released.details?.ok).not.toBe(true);
 	});
 

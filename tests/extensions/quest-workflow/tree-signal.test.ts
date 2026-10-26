@@ -104,7 +104,7 @@ describe("the quest tool's signal reaching the tree provider", () => {
 		expect(handed).toEqual([{ call: "create", signal }]);
 	});
 
-	it("is handed to the removal a tree-prune runs", async () => {
+	it("is handed to the removal a tree-release runs", async () => {
 		const handed = recording();
 		const { state, treePath } = await questWithTree();
 		const { signal } = new AbortController();
@@ -113,7 +113,7 @@ describe("the quest tool's signal reaching the tree provider", () => {
 			state,
 			fakePi(),
 			fakeCtx(tmpRoot),
-			{ action: "tree-prune", target: treePath },
+			{ action: "tree-release", target: treePath },
 			signal,
 		);
 

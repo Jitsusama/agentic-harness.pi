@@ -79,7 +79,7 @@ import {
 	treeAdopt,
 	treeExpand,
 	treeList,
-	treePrune,
+	treeRelease,
 } from "./verbs/tree-ops.ts";
 
 export type { QuestResult, QuestToolParams };
@@ -249,8 +249,8 @@ async function dispatch(
 			return treeAdopt(state, { ...params, cwd: params.cwd ?? ctx.cwd });
 		case "tree-list":
 			return treeList(state);
-		case "tree-prune":
-			return treePrune(state, params, signal);
+		case "tree-release":
+			return treeRelease(state, params, signal);
 		case "tree-expand":
 			return treeExpand(state, params);
 		case "expand":

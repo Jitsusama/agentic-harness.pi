@@ -94,7 +94,7 @@ so work in quest trees fell back to raw git. The tool now asks
 `work:tree-claims:v1` who holds the path, the same question `tidy`
 and `reclaim` ask, and acts on the deepest claimed tree that
 contains it. It keeps no record of such a tree, and `release`
-refuses it with `quest tree-prune` as the way back: one owner,
+refuses it with `quest tree-release` as the way back: one owner,
 one removal path.
 
 ## What It Will Not Do

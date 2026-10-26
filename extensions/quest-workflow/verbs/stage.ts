@@ -466,7 +466,7 @@ async function pruneAllTreesOnQuest(
 		// legacy or hand-registered trees with no origin marker, are
 		// references the quest does not own, so concluding the quest
 		// must never delete them; they are released deliberately with
-		// tree-prune.
+		// tree-release.
 		if (tree.origin !== "scaffolded") continue;
 		// Stopped: the rest are left standing rather than each handed a
 		// signal that has already fired.
@@ -938,7 +938,7 @@ async function sealLoadedQuest(
 				detectedAt,
 			});
 		}
-		message += ` ${count(blocked.length, "tree")} ${verb(blocked.length, "needs", "need")} manual resolution: ${blocked.map((b) => `${b.path}: ${b.reason}`).join("; ")}. Run \`tree-prune\` with its cwd once that is settled.`;
+		message += ` ${count(blocked.length, "tree")} ${verb(blocked.length, "needs", "need")} manual resolution: ${blocked.map((b) => `${b.path}: ${b.reason}`).join("; ")}. Run \`tree-release\` with its cwd once that is settled.`;
 	}
 	if (outside) message += ` ${outside}`;
 	const kept = await workspaceKept(state.questId, signal);

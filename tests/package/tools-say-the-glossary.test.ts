@@ -35,7 +35,6 @@ const OTHER_SENSE: Record<string, string> = {
 /** Names waiting on a rename by the harness's owner, each with the rename. */
 const WAITING: Record<string, string> = {
 	cost: "cost to spend, AI spend's word",
-	"quest tree-prune": "prune to release, as work already says",
 };
 
 const KEPT = [...Object.keys(OTHER_SENSE), ...Object.keys(WAITING)];

@@ -253,7 +253,7 @@ describe("tree-adopt", () => {
 		expect(adopted.ok).toBe(true);
 
 		const blocked = await handle(state, fakePi(), fakeCtx(repoRoot), {
-			action: "tree-prune",
+			action: "tree-release",
 			target: realpathSync(wt),
 		});
 		expect(blocked.ok).toBe(false);

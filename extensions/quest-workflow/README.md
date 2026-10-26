@@ -70,13 +70,13 @@ shipped and tested.
   `session-rename`, `session-audit` (report any session active on
   more than one quest).
 - **Working trees**: `tree-add`, `tree-adopt`, `tree-list`,
-  `tree-prune`, `tree-expand`. `tree-add` scaffolds a fresh
+  `tree-release`, `tree-expand`. `tree-add` scaffolds a fresh
   worktree the quest owns and auto-prunes on conclude; `tree-adopt`
   registers an existing tree the quest only references and never
   auto-prunes. Both accept a `cwd` parameter, so you scaffold or
   adopt from any session without changing its directory: point
   `cwd` at the repo to scaffold from, or at a path inside the tree
-  to adopt. `tree-prune` and `tree-expand` take `cwd` the same way,
+  to adopt. `tree-release` and `tree-expand` take `cwd` the same way,
   as a path inside the tree to act on; with several trees on the
   quest they refuse rather than pick one, and a path that names
   none of them is refused with the list.
@@ -105,8 +105,12 @@ shipped and tested.
 Destructive verbs take typed parameters, not free-form
 prose:
 
-- `tree-prune` takes `force: true` to override safety
+- `tree-release` takes `force: true` to override safety
   refusals.
+
+An action renamed to the glossary's word is still taken under
+its old name, so a skill or habit that says `tree-prune` gets
+`tree-release`; the schema offers only the new name.
 
 The `note` parameter is plain prose attached to a Journey
 entry; it never triggers behaviour.

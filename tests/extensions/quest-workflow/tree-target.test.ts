@@ -105,7 +105,7 @@ describe("the tree a prune acts on", () => {
 		const state = await questWithTrees([first, second]);
 
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "tree-prune",
+			action: "tree-release",
 			cwd: second,
 		});
 
@@ -121,7 +121,7 @@ describe("the tree a prune acts on", () => {
 		const state = await questWithTrees([first, second]);
 
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "tree-prune",
+			action: "tree-release",
 			cwd: join(second, "src", "lib"),
 		});
 
@@ -136,7 +136,7 @@ describe("the tree a prune acts on", () => {
 		const state = await questWithTrees([first, home]);
 
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "tree-prune",
+			action: "tree-release",
 			cwd: "~/.tree-target-never-created/second",
 		});
 
@@ -151,7 +151,7 @@ describe("the tree a prune acts on", () => {
 		const state = await questWithTrees([first, second]);
 
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "tree-prune",
+			action: "tree-release",
 			cwd: join(tmpRoot, "third"),
 		});
 
@@ -171,7 +171,7 @@ describe("the tree a prune acts on", () => {
 		const state = await questWithTrees([first, second]);
 
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "tree-prune",
+			action: "tree-release",
 		});
 
 		expect(result.ok).toBe(false);
@@ -185,7 +185,7 @@ describe("the tree a prune acts on", () => {
 		const state = await questWithTrees([only]);
 
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "tree-prune",
+			action: "tree-release",
 		});
 
 		expect(result.ok).toBe(true);
@@ -199,7 +199,7 @@ describe("the tree a prune acts on", () => {
 		const state = await questWithTrees([outer, inner]);
 
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "tree-prune",
+			action: "tree-release",
 			cwd: join(inner, "src"),
 		});
 
@@ -299,11 +299,11 @@ describe("quest calls in one parallel batch", () => {
 		const state = await questWithTrees([only, join(tmpRoot, "other")]);
 
 		const a = handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "tree-prune",
+			action: "tree-release",
 			cwd: only,
 		});
 		const b = handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "tree-prune",
+			action: "tree-release",
 			cwd: only,
 		});
 		await new Promise((resolve) => setTimeout(resolve, 20));
@@ -336,7 +336,7 @@ describe("quest calls in one parallel batch", () => {
 		const state = await questWithTrees([first, second]);
 
 		const holding = handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "tree-prune",
+			action: "tree-release",
 			cwd: first,
 		});
 		const controller = new AbortController();
@@ -344,7 +344,7 @@ describe("quest calls in one parallel batch", () => {
 			state,
 			fakePi(),
 			fakeCtx(tmpRoot),
-			{ action: "tree-prune", cwd: second },
+			{ action: "tree-release", cwd: second },
 			controller.signal,
 		);
 		controller.abort();

@@ -1,5 +1,5 @@
 /**
- * Tree-operation verbs: tree-add, tree-list, tree-prune,
+ * Tree-operation verbs: tree-add, tree-list, tree-release,
  * tree-expand. Each delegates to the resolved tree
  * provider (built-in git-worktree, or a downstream
  * provider like dev-tree for the World monorepo).
@@ -279,7 +279,7 @@ function expandHome(path: string): string {
 	return path;
 }
 
-export async function treePrune(
+export async function treeRelease(
 	state: QuestState,
 	params: QuestToolParams,
 	signal?: AbortSignal,
@@ -297,7 +297,7 @@ export async function treePrune(
 	const chosen = namedTree(
 		listing.trees,
 		params.cwd ?? params.target ?? params.ref,
-		"tree-prune",
+		"tree-release",
 	);
 	if (!chosen.ok) return refuse(chosen.reason);
 	const target = chosen.tree;
