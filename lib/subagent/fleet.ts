@@ -27,12 +27,12 @@ import {
 } from "node:fs/promises";
 import { join } from "node:path";
 import {
-	askedOnce,
-	type Owner,
-	ownerNow,
-	ownerStanding,
-	type ProcessFacts,
-} from "@jitsusama/agentic-harness.core/process";
+	askedOnceWithTicks,
+	type TickedOwner,
+	type TickFacts,
+	tickedOwnerNow,
+	tickedStanding,
+} from "../internal/process-ticks.ts";
 import { isDirectory, isNotFound, safeSegment } from "./errno.ts";
 
 /** A fleet that was dispatched, as the ledger holds it. */
@@ -81,9 +81,12 @@ export interface FleetRun {
 	 * A pid and when that process started, because a pid identifies
 	 * nothing on its own: the number comes round again, and a stranger
 	 * wearing it reads as the session still being there, which is the
-	 * reading that leaves an orphan running.
+	 * reading that leaves an orphan running. Its start in the kernel's
+	 * ticks too, where the machine keeps them, since core's start time
+	 * moves with every suspend and a fleet left running across one would
+	 * read as abandoned (lib/internal/process-ticks.ts).
 	 */
-	readonly owner?: Owner;
+	readonly owner?: TickedOwner;
 }
 
 /** How a fleet ended without its answers reaching anybody. */
@@ -156,7 +159,7 @@ export function stillHeld(runs: readonly FleetRun[], since: Date): Set<string> {
  */
 export async function abandonedFleets(
 	runs: readonly FleetRun[],
-	facts: ProcessFacts,
+	facts: TickFacts,
 ): Promise<readonly FleetRun[]> {
 	const abandoned: FleetRun[] = [];
 	// Asked once per session rather than once per fleet. Every fleet
@@ -170,7 +173,7 @@ export async function abandonedFleets(
 	// two fleets can name one pid with different start times, one
 	// stale and one live, and a verdict held by pid alone lets the
 	// stale one decide for the live one.
-	const once = askedOnce(facts);
+	const once = askedOnceWithTicks(facts);
 	for (const run of runs) {
 		if (run.open !== true) continue;
 		const owner = run.owner;
@@ -179,7 +182,7 @@ export async function abandonedFleets(
 		// would not say when the pid started, so liveness is the only
 		// evidence there is and it says somebody is there: it fails open,
 		// which is why it is the fallback rather than the rule.
-		if ((await ownerStanding(owner, once)) === "gone") abandoned.push(run);
+		if ((await tickedStanding(owner, once)) === "gone") abandoned.push(run);
 	}
 	return abandoned;
 }
@@ -197,14 +200,14 @@ export async function abandonedFleets(
  * identify reads as whatever wears that number next.
  */
 export async function whoIsWaiting(
-	facts: ProcessFacts,
+	facts: TickFacts,
 	pid: number = process.pid,
 ): Promise<FleetRun["owner"]> {
 	// The shared one. Kept as a name of its own because the caller
 	// here is asking a question in this module's vocabulary, and
 	// because the two spellings of an owner cannot be allowed to drift
 	// whatever they are called.
-	return await ownerNow(facts, pid);
+	return await tickedOwnerNow(facts, pid);
 }
 
 /** Which fleets nothing has read yet, and what could not be asked. */
@@ -604,6 +607,11 @@ function ownerIsWellFormed(value: unknown): boolean {
 		// that concludes a session is still alive.
 		owner.pid > 0 &&
 		typeof owner.startedAt === "number" &&
-		(owner.bootId === undefined || typeof owner.bootId === "string")
+		(owner.bootId === undefined || typeof owner.bootId === "string") &&
+		// Ticks decide over the start time when they are there, so a
+		// malformed count is refused for the same reason a pid is.
+		(owner.startTicks === undefined ||
+			(typeof owner.startTicks === "number" &&
+				Number.isSafeInteger(owner.startTicks)))
 	);
 }

@@ -49,6 +49,7 @@ import {
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { dataDir, stateDir } from "../../lib/internal/paths.ts";
 import { tellAwaited } from "../../lib/internal/priority/awaited.ts";
+import { tickedOwnerNow } from "../../lib/internal/process-ticks.ts";
 import { onConcluded } from "../../lib/internal/quest/concluded.ts";
 import { withQuestLock } from "../../lib/internal/quest/io.ts";
 import {
@@ -90,11 +91,7 @@ import {
 	ownLeases,
 	RUN_KINDS,
 } from "../../lib/mesh/lease.ts";
-import {
-	census,
-	machineBooted,
-	peerOwnerNow,
-} from "../../lib/mesh/liveness.ts";
+import { census, machineBooted } from "../../lib/mesh/liveness.ts";
 import {
 	asksEach,
 	clock,
@@ -975,7 +972,7 @@ export function meshWorkflow(
 			// Named on its presence so others can ask the machine whether this
 			// peer is still there; a peer the machine will not name is taken
 			// as there, which only costs a sender a line.
-			const owner = await peerOwnerNow().catch(() => undefined);
+			const owner = await tickedOwnerNow().catch(() => undefined);
 			const branch = (started.sessionManager.getBranch?.() ??
 				[]) as readonly Entry[];
 			const session = started.sessionManager.getSessionId();

@@ -14,6 +14,7 @@
  * looks the same either way. It is answered from who was waiting.
  */
 import { describe, expect, it } from "vitest";
+import type { TickFacts } from "../../../lib/internal/process-ticks.ts";
 import { abandonedFleets, type FleetRun } from "../../../lib/subagent/fleet.ts";
 import type { ProcessFacts } from "../../../lib/subagent/lease.ts";
 
@@ -181,5 +182,47 @@ describe("abandoned fleets", () => {
 		const abandoned = await abandonedFleets(runs, machine({}));
 
 		expect(abandoned).toEqual([]);
+	});
+
+	describe("across a suspend", () => {
+		// Suspends move the boot clock core works start times out from:
+		// four seconds over a hundred of them, twice core's tolerance.
+		const drift = 4000;
+		const owner = {
+			pid: 4242,
+			startedAt: BIRTHDAY,
+			bootId: "b",
+			startTicks: 77,
+		};
+		const resumed = (ticks: number, boot = "b"): TickFacts => ({
+			...machine({ 4242: BIRTHDAY + drift }),
+			bootId: () => boot,
+			startTicks: async () => ticks,
+		});
+
+		it("leaves a fleet whose session runs on", async () => {
+			const abandoned = await abandonedFleets(
+				[open("fleet-live", owner)],
+				resumed(77),
+			);
+
+			expect(abandoned).toEqual([]);
+		});
+
+		it("names one whose pid a new process wears", async () => {
+			const runs = [open("fleet-orphan", owner)];
+
+			const abandoned = await abandonedFleets(runs, resumed(78));
+
+			expect(abandoned.map((run) => run.id)).toEqual(["fleet-orphan"]);
+		});
+
+		it("names one from before the machine booted again", async () => {
+			const runs = [open("fleet-orphan", owner)];
+
+			const abandoned = await abandonedFleets(runs, resumed(77, "c"));
+
+			expect(abandoned.map((run) => run.id)).toEqual(["fleet-orphan"]);
+		});
 	});
 });

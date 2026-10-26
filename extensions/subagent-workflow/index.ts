@@ -42,6 +42,7 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { packageStateDir } from "../../lib/internal/package-state-dir.ts";
+import { tickFacts } from "../../lib/internal/process-ticks.ts";
 import { ReviewerArtifactsStore } from "../../lib/subagent/artifacts.ts";
 import {
 	registerSubagentDefaultExtension,
@@ -61,7 +62,6 @@ import {
 	whoIsWaiting,
 } from "../../lib/subagent/fleet.ts";
 import { getParentPiInstall } from "../../lib/subagent/install.ts";
-import { systemFacts } from "../../lib/subagent/lease.ts";
 import { recoverReviewerRuns } from "../../lib/subagent/recovery.ts";
 import { createSupervisorRunPi } from "../../lib/subagent/runpi/supervisor.ts";
 import { THINKING_LEVELS } from "../../lib/thinking/index.ts";
@@ -214,7 +214,7 @@ async function recordOrSay(
  */
 async function ourOwner(): Promise<FleetRun["owner"]> {
 	if (waiting !== undefined) return waiting;
-	waiting = await whoIsWaiting(systemFacts);
+	waiting = await whoIsWaiting(tickFacts);
 	return waiting;
 }
 
@@ -391,7 +391,7 @@ async function sweepFleetRuns(
 		// record, once. Only a decisive "gone" counts: a reading the
 		// machine would not settle changes nothing, so it can never undo
 		// what another session already proved.
-		for (const run of await abandonedFleets(before.runs, systemFacts)) {
+		for (const run of await abandonedFleets(before.runs, tickFacts)) {
 			await recordOrSay(
 				() => ledger.cutOff(run.id, "owner-gone"),
 				`could not record that ${run.id} was cut off when its session ended, so it stays held as open`,
