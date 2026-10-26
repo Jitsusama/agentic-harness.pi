@@ -7,7 +7,10 @@
  * It holds the week against the one before on four things: what was
  * spent and on what, the cache rewrites and their causes, the
  * always-on context each repository pays for on every turn, and the
- * tools whose calls failed most.
+ * tools whose calls failed most. It also says how much of the quest
+ * files sessions read with `read`, a share of the sessions active
+ * against the week before, since a quest file read whole is paid for again on every
+ * later turn and `quest show` answers the same in a fraction of it.
  */
 
 import { homedir } from "node:os";
@@ -33,6 +36,9 @@ export function weeks(now: number): { current: Week; prior: Week } {
 const within = (week: Week) =>
 	`timestamp >= '${week.from}' AND timestamp < '${week.to}'`;
 
+/** Which kind of quest file a read's path names. */
+const QUEST_FILE_KIND = `CASE WHEN path GLOB '*/plans/*' OR path GLOB '*/research/*' OR path GLOB '*/briefs/*' OR path GLOB '*/reports/*' THEN 'documents' WHEN path GLOB '*/README.md' THEN 'READMEs' WHEN path GLOB '*/JOURNEY.md' OR path GLOB '*/attachments/journey.md' THEN 'Journeys' ELSE 'other quest files' END`;
+
 /** The queries the audit asks the ledger, each for one week. */
 export const AUDIT_QUERIES = {
 	spend: (week: Week) =>
@@ -48,6 +54,8 @@ export const AUDIT_QUERIES = {
 	// pi's tool_search answers exactly NO_MATCH when it finds nothing.
 	searches: (week: Week) =>
 		`SELECT count(*) AS calls, count(DISTINCT session_id) AS sessions, coalesce(sum(result_chars = ${NO_MATCH.length}), 0) AS empty FROM tool_calls WHERE name = 'tool_search' AND ${within(week)}`,
+	questReads: (week: Week) =>
+		`SELECT ${QUEST_FILE_KIND} AS kind, count(*) AS calls, count(DISTINCT session_id) AS sessions, coalesce(sum(result_chars), 0) AS chars FROM tool_calls WHERE name = 'read' AND path LIKE '%/quest-workflow/quests/%' AND ${within(week)} GROUP BY 1 ORDER BY chars DESC`,
 	hidden: (week: Week, names: readonly string[]) =>
 		`SELECT name, count(*) AS calls, count(DISTINCT session_id) AS sessions FROM tool_calls WHERE ${within(week)} AND name IN (${names.map((name) => `'${name.replaceAll("'", "''")}'`).join(", ") || "''"}) GROUP BY name ORDER BY sessions DESC, calls DESC`,
 } as const;
@@ -110,6 +118,40 @@ export interface AuditInput {
 		readonly searches: Row;
 		readonly hidden: readonly Row[];
 	};
+	/** Quest files read with `read`, by kind, this week and the one before. */
+	readonly questReads?: {
+		readonly now: readonly Row[];
+		readonly before: readonly Row[];
+		/** The sessions active each week, whether they read a quest file or not. */
+		readonly active: { readonly now: number; readonly before: number };
+	};
+}
+
+/**
+ * How much of each kind of quest file sessions read, a session active
+ * that week, held against the week before. Divided by every active
+ * session, not only those that read the kind, so a busier week does
+ * not read as a worse one and a week where most sessions stopped
+ * reading reads as better.
+ */
+function questReadLines(
+	reads: NonNullable<AuditInput["questReads"]>,
+): string[] {
+	const { active } = reads;
+	const lines = [
+		`Quest files read with read, a share of the ${count(active.now, "session")} active:`,
+	];
+	if (reads.now.length === 0) lines.push("- none");
+	const share = (row: Row | undefined, sessions: number) =>
+		sessions > 0 ? num(row?.chars) / sessions : 0;
+	for (const row of reads.now) {
+		const before = reads.before.find((one) => one.kind === row.kind);
+		const now = share(row, active.now);
+		lines.push(
+			`- ${String(row.kind)}: ${thousands(num(row.chars))} characters, read in ${num(row.sessions)} of them, about ${thousands(Math.round(now))} a session${change(now, share(before, active.before))}.`,
+		);
+	}
+	return lines;
 }
 
 /**
@@ -195,6 +237,8 @@ export function formatAudit(input: AuditInput, limit: number): string {
 	}
 
 	if (input.loading) lines.push("", ...loadingLines(input.loading));
+
+	if (input.questReads) lines.push("", ...questReadLines(input.questReads));
 
 	lines.push("", "Tools whose calls failed most:");
 	if (input.errors.length === 0) lines.push("- none");
