@@ -675,8 +675,8 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		// nested QEST dir or a misplaced doc file gets recorded
 		// as a DiscoveryError and skipped from the index. The
 		// user needs to know those quests didn't load so they
-		// can run the migrator (or fix by hand) rather than
-		// noticing later that a quest "vanished."
+		// can move them back into place rather than noticing
+		// later that a quest "vanished."
 		const { errors } = discoverQuests(state.questsRoot);
 		// As one notice through the session's screen, never straight to
 		// the terminal, which pi is drawing (lib/ui/aside.ts).
@@ -688,7 +688,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 				...(errors.length > preview.length
 					? [`  and ${errors.length - preview.length} more`]
 					: []),
-				"Run `scripts/migrate-quests-canonical.ts --dry-run` to inspect, then drop --dry-run to apply.",
+				"Each is skipped until it is moved into the layout the quest-format skill describes.",
 			];
 			asideFor(ctx)(lines.join("\n"));
 		}

@@ -40,7 +40,7 @@ const DO_NOT_LOSE: Capability[] = [
 	{
 		name: "Single hierarchical model, documents under quests",
 		guards: [
-			"tests/scripts/migrate-quests-canonical.test.ts",
+			"tests/lib/quest/discovery-toc-mentions.test.ts",
 			"tests/lib/internal/quest/discovery-cache.test.ts",
 		],
 	},
