@@ -60,6 +60,8 @@ export interface Peer {
 	readonly receiver: Receiver;
 	/** Whether it is in the middle of a run. */
 	readonly busy: boolean;
+	/** Whether its person paused it, until they resume it or talk to it. */
+	readonly paused: boolean;
 	/**
 	 * The address of the orchestrator its quest answers to, when one is
 	 * above it.
@@ -85,6 +87,8 @@ export interface Peer {
 	refresh(): void;
 	/** Say whether it is in the middle of a run. */
 	setBusy(busy: boolean): void;
+	/** Say whether its person paused it. */
+	setPaused(paused: boolean): void;
 	/**
 	 * Say the step a run is on, such as the tool it is running. Said at
 	 * most once every STEP_MS, since the desktop watches presence and
@@ -136,11 +140,17 @@ export interface Surroundings {
 export const STEP_MS = 30_000;
 
 /**
- * What a peer is doing, as the desktop shows it: listening (idle),
- * busy (mid-run, since when and on what step), or waiting on its
- * person while idle.
+ * What a peer is doing, as the desktop shows it: paused by its person
+ * (over all else, since nothing runs until they resume it), busy
+ * (mid-run, since when and on what step), waiting on its person while
+ * idle, or listening.
  */
-export function stateOf(busy: boolean, waiting: boolean): PeerState {
+export function stateOf(
+	busy: boolean,
+	waiting: boolean,
+	paused = false,
+): PeerState {
+	if (paused) return "paused";
 	if (busy) return "busy";
 	return waiting ? "waiting" : "listening";
 }
@@ -186,6 +196,8 @@ export function localPeer(at: Surroundings): Peer {
 	const before = at.presences.of(at.session) ?? carried;
 	let joined = [...(before?.joined ?? before?.groups ?? [])].sort();
 	let stops: Stop[] = [...(before?.stops ?? [])];
+	// A pause outlasts a reload, as its person left it.
+	let paused = before?.state === "paused";
 	let scopes: string[] = [];
 	let addresses: string[] = [];
 	// Found once a start: reading every README on each refresh would
@@ -231,7 +243,7 @@ export function localPeer(at: Surroundings): Peer {
 			worksOn: receiver.worksOn,
 			owns: receiver.owns,
 			busy,
-			state: stateOf(busy, wanting.size > 0),
+			state: stateOf(busy, wanting.size > 0, paused),
 			...(busy && since ? { since } : {}),
 			...(busy && step ? { step: step.text } : {}),
 			...(wanting.size > 0 ? { wants: longestStanding(wanting.values()) } : {}),
@@ -306,6 +318,9 @@ export function localPeer(at: Surroundings): Peer {
 		get busy() {
 			return busy;
 		},
+		get paused() {
+			return paused;
+		},
 		get orchestratedBy() {
 			return roles.orchestratedBy;
 		},
@@ -334,6 +349,11 @@ export function localPeer(at: Surroundings): Peer {
 			step = undefined;
 			dropPending();
 			busy = running;
+			publish();
+		},
+		setPaused(now) {
+			if (paused === now) return;
+			paused = now;
 			publish();
 		},
 		setStep(text) {

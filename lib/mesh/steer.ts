@@ -12,7 +12,7 @@
  * file there under a temporary name and renames it to end in `.json`,
  * holding `{"text": "...", "at": "<ISO time>", "from": "joel"}`, and
  * an `id` when the writer wants to follow what becomes of it (see
- * talk.ts). The
+ * talk.ts). An `act` of `pause`, `resume` or `stop` needs no text. The
  * session going by that address takes it by renaming it again, so two
  * sessions looking at once deliver it once, then reads and removes it.
  * A file that is not a steer is set aside as `.bad`, never retried.
@@ -28,9 +28,28 @@ import {
 import { join } from "node:path";
 import { isTalkId } from "./talk.ts";
 
+/**
+ * What the person may do to a session besides talk: pause it after its
+ * current step, resume it, or stop the run in progress.
+ */
+export const STEER_ACTS = ["pause", "resume", "stop"] as const;
+
+/** One of STEER_ACTS. */
+export type SteerAct = (typeof STEER_ACTS)[number];
+
+function isSteerAct(value: unknown): value is SteerAct {
+	return (STEER_ACTS as readonly unknown[]).includes(value);
+}
+
 /** One thing the person said, as the inbox carries it. */
 export interface Steer {
+	/**
+	 * Their words; empty only for an act, and kept only beside `resume`,
+	 * since words would start the run a pause or stop is ending.
+	 */
 	readonly text: string;
+	/** What they did besides talk, when they did. */
+	readonly act?: SteerAct;
 	/** When it was written, as an ISO time, if the writer said. */
 	readonly at?: string;
 	/** Who wrote it, if the writer said; the launcher says "joel". */
@@ -66,14 +85,21 @@ export function steerFrom(raw: string, file: string): Steer | undefined {
 		return undefined;
 	}
 	if (typeof parsed !== "object" || parsed === null) return undefined;
-	const text = "text" in parsed ? parsed.text : undefined;
-	if (typeof text !== "string" || text.trim() === "") return undefined;
+	const act =
+		"act" in parsed && isSteerAct(parsed.act) ? parsed.act : undefined;
+	const said =
+		"text" in parsed && typeof parsed.text === "string"
+			? parsed.text.trim()
+			: "";
+	const text = act === "pause" || act === "stop" ? "" : said;
+	if (!act && text === "") return undefined;
 	const at = "at" in parsed && typeof parsed.at === "string" ? parsed.at : "";
 	const from =
 		"from" in parsed && typeof parsed.from === "string" ? parsed.from : "";
 	const id = "id" in parsed && isTalkId(parsed.id) ? parsed.id : undefined;
 	return {
-		text: text.trim(),
+		text,
+		...(act ? { act } : {}),
 		...(at ? { at } : {}),
 		...(from ? { from } : {}),
 		...(id ? { id } : {}),

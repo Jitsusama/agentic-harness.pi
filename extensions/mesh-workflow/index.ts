@@ -154,6 +154,7 @@ import {
 	reloading,
 	takeHeavyCalls,
 } from "./leases.ts";
+import { createPausing, RESUMED_TEXT } from "./pausing.ts";
 import { meshLines, type Shown } from "./render.ts";
 import { createSteering, type Steering, steerText } from "./steer.ts";
 import { assistantText, createTalks, ended, userText } from "./talks.ts";
@@ -432,6 +433,17 @@ export function meshWorkflow(
 		let steering: Steering | undefined;
 		// What became of each steer that asked to be followed (talks.ts).
 		const talks = createTalks({ session: () => peer?.session ?? "" });
+		// Pause, Resume and Stop from outside the window (pausing.ts).
+		const pausing = createPausing({
+			idle: () => ctx?.isIdle?.() ?? true,
+			abort: () => ctx?.abort?.(),
+			paused: () => peer?.paused ?? false,
+			setPaused: (paused) => peer?.setPaused(paused),
+			carryOn: () => pi.sendUserMessage(RESUMED_TEXT),
+			tell: (text) => {
+				if (ctx?.hasUI) ctx.ui.notify(text, "info");
+			},
+		});
 
 		/**
 		 * The person's words from outside the window, as their own message:
@@ -451,6 +463,12 @@ export function meshWorkflow(
 				root,
 				addresses: () => peer?.addresses ?? [],
 				deliver: (one, inbox) => {
+					// Resume with words is a talk; any other act is only the act.
+					if (one.act && !(one.act === "resume" && one.text)) {
+						pausing.act(one.act);
+						return;
+					}
+					pausing.talked();
 					const said = steerText(one);
 					talks.opened(one, inbox, said);
 					steered(said);
@@ -666,9 +684,11 @@ export function meshWorkflow(
 		/**
 		 * Messages in full, carrying whatever glances are waiting. A turn
 		 * takes whatever waits to act with it, since it is the turn they
-		 * were waiting for.
+		 * were waiting for. A session its person paused gets them without
+		 * a turn, to read once resumed.
 		 */
-		const note = (heeded: readonly Heeded[], turn: boolean, lead?: string) => {
+		const note = (heeded: readonly Heeded[], asked: boolean, lead?: string) => {
+			const turn = asked && !pausing.paused;
 			const all = turn ? [...heeded, ...unstopped(acts?.take() ?? [])] : heeded;
 			if (all.length === 0) return;
 			const messages = all.map(({ message }) => message);
@@ -937,7 +957,7 @@ export function meshWorkflow(
 		 */
 		const resumed = (ends: HoldEnd[]) => {
 			if (!ctx || ends.length === 0) return;
-			const turn = ctx.isIdle?.() ?? false;
+			const turn = (ctx.isIdle?.() ?? false) && !pausing.paused;
 			const carried = glances.take();
 			pi.sendMessage(
 				{
@@ -1098,11 +1118,13 @@ export function meshWorkflow(
 
 		// A glance reaches the model with its next turn: at the end of this
 		// step while a run goes on, where pi appends it after the step's
-		// tool results, or with the start of the next run while idle.
+		// tool results, or with the start of the next run while idle. A
+		// pause asked for mid-run lands here too, the turn's tools done.
 		pi.on("turn_end", async () => {
 			leasing.stillAnswering();
 			const message = glanceDigest();
 			if (message) pi.sendMessage(message, { triggerTurn: false });
+			pausing.turnEnded();
 		});
 		// A run started by something else takes what was waiting to act
 		// with it, in full, and the turn it waited for is never started.
@@ -1141,9 +1163,17 @@ export function meshWorkflow(
 			};
 		});
 
+		// The person typing in the window is at the desk: a pause ends, and
+		// what they typed is the run, never ended as it starts.
+		pi.on("input", async (event) => {
+			if (event.source === "interactive") pausing.talked();
+			return { action: "continue" };
+		});
 		// Whether a peer is mid-run is part of what others see of it.
 		pi.on("agent_start", async () => {
 			peer?.setBusy(true);
+			// Whatever woke a paused session, it sleeps on.
+			pausing.started();
 		});
 		// And the step it is on, by the tool it runs, for the desktop's Busy;
 		// a talk the person follows hears the step, its reply as it is

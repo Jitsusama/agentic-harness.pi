@@ -88,6 +88,20 @@ describe("the steer inbox", () => {
 		expect(steerFrom('{"text":"go","id":7}', "f")?.id).toBeUndefined();
 	});
 
+	it("reads an act with no text, and keeps words only beside resume", () => {
+		expect(steerFrom('{"act":"pause"}', "f")).toEqual({
+			text: "",
+			act: "pause",
+			file: "f",
+		});
+		expect(steerFrom('{"act":"stop","text":"now"}', "f")?.text).toBe("");
+		expect(steerFrom('{"act":"resume","text":"go on"}', "f")).toMatchObject({
+			act: "resume",
+			text: "go on",
+		});
+		expect(steerFrom('{"act":"reboot"}', "f")).toBeUndefined();
+	});
+
 	it("leaves a talk's replies folder in the inbox alone", () => {
 		const inbox = inboxOf(root, "wcjqsg");
 		mkdirSync(join(inbox, "replies"), { recursive: true });

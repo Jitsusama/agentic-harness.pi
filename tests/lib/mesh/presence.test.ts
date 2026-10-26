@@ -240,6 +240,19 @@ describe("this session's peer", () => {
 		}
 	});
 
+	it("is paused over all else, and still paused after a reload", () => {
+		const at = surroundings();
+		const peer = localPeer(at);
+		peer.setBusy(true);
+		peer.setPaused(true);
+		expect(at.presences.of(session)?.state).toBe("paused");
+
+		const reloaded = localPeer(at);
+		expect(reloaded.paused).toBe(true);
+		reloaded.setPaused(false);
+		expect(at.presences.of(session)?.state).toBe("listening");
+	});
+
 	it("is waiting when idle with a want standing, and busy while it runs", () => {
 		const at = surroundings();
 		const peer = localPeer(at);

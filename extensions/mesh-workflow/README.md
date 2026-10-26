@@ -69,8 +69,9 @@ and can answer a question or a gate left open on screen.
   desktop in one word: `listening` when idle, `busy` mid-run
   (with `since`, when the run began, and `step`, the tool it
   runs, said at most every 30 seconds so the watched folder
-  is not woken on every call), or `waiting` when idle with a
-  want standing.
+  is not woken on every call), `waiting` when idle with a
+  want standing, or `paused` when its person paused it, over
+  all the rest.
 - **Want:** what a peer waits on its person for: a question
   it asked, an approval it is held at, an unattended run
   that ended blocked, or something only they can do, said
@@ -614,6 +615,24 @@ afterwards, before the next talk opens, adds `came`, such as
 An inbox keeps its talks for 90 days or its newest 500,
 whichever keeps more, pruned as each opens
 ([`lib/mesh/talk.ts`](../../lib/mesh/talk.ts)).
+
+A steer may instead carry an `act`, with no text needed
+([`pausing.ts`](pausing.ts)):
+
+- `stop` ends the run in progress at once; the session stays
+  open and listening.
+- `pause` lets the run finish the turn it is on, tools and
+  all, then ends it. Until Resume, a talk or the person typing
+  in the window, any other run that starts is ended as it
+  starts, whatever started it, and mesh messages arrive
+  without a turn. Presence says `paused`, and a reload keeps
+  it.
+- `resume` clears the pause and has the session carry on
+  where it left off; with text, the text is the turn instead.
+
+An ended run ends away mode on every session, so a Stop, or a
+Pause landing mid-run, ends it too: pressing either says the
+person is at the desk.
 
 ## Retention
 

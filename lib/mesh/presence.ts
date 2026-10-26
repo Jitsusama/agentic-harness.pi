@@ -40,7 +40,7 @@ import { removeQuietly, removeStaged } from "./transport.ts";
 import { type Want, wantFrom } from "./want.ts";
 
 /** Every state a presence may say. */
-export const PEER_STATES = ["listening", "busy", "waiting"] as const;
+export const PEER_STATES = ["listening", "busy", "waiting", "paused"] as const;
 
 /** What a peer is doing, as its presence says. */
 export type PeerState = (typeof PEER_STATES)[number];
@@ -76,8 +76,9 @@ export interface Presence {
 	readonly busy: boolean;
 	/**
 	 * What it is doing, as the desktop shows it: `listening` when idle,
-	 * `busy` mid-run, `waiting` when idle with a want standing. Missing
-	 * from an older presence, where `busy` and `wants` say the same.
+	 * `busy` mid-run, `waiting` when idle with a want standing, `paused`
+	 * when its person paused it, over all the rest. Missing from an
+	 * older presence, where `busy` and `wants` say the same.
 	 */
 	readonly state?: PeerState;
 	/** When the run in progress began, as an ISO time, while busy. */

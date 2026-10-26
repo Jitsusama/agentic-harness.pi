@@ -3136,6 +3136,33 @@ describe("presence", () => {
 		await fire("agent_end");
 		expect(own()).toBe(false);
 	});
+
+	it("keeps a pause through a reload, until the person types in the window", async () => {
+		const presences = createPresences(join(paths.mesh, "presence"));
+		presences.publish({
+			session,
+			addresses: [],
+			groups: [],
+			worksOn: "",
+			owns: [],
+			busy: false,
+			state: "paused",
+			at: new Date().toISOString(),
+		});
+		let aborted = 0;
+		const { fire } = await startSession({}, { abort: () => aborted++ });
+		expect(presences.of(session)?.state).toBe("paused");
+
+		await fire("input", { source: "extension", text: "a job's report" });
+		await fire("agent_start");
+		expect(aborted).toBe(1);
+
+		await fire("agent_end");
+		await fire("input", { source: "interactive", text: "what now?" });
+		await fire("agent_start");
+		expect(aborted).toBe(1);
+		expect(presences.of(session)?.state).toBe("busy");
+	});
 });
 
 describe("retention", () => {
