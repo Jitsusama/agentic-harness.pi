@@ -146,10 +146,7 @@ describe("holding a proposal to the conventions", () => {
 	it("says one habit once rather than once per instance", () => {
 		const complaint = proposalComplaint(
 			"Close the Leaked Handle",
-			GOOD_BODY.replace(
-				"Close it.",
-				`a ${EMDASH} b ${EMDASH} c ${EMDASH} d`,
-			),
+			GOOD_BODY.replace("Close it.", `a ${EMDASH} b ${EMDASH} c ${EMDASH} d`),
 		);
 		const lines = (complaint ?? "").split("\n");
 
