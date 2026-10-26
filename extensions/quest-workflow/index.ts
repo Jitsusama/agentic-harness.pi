@@ -178,6 +178,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		promptGuidelines: [
 			"Use action `create` to mint a new quest; a session with none loaded is put on it, and one already on a quest stays there. Use action `load` to switch to an existing one. The status bar shows the loaded quest at all times.",
 			"Edit a quest document's body with `journal` (add a Journey entry), `tick`/`untick` (a checkbox item) and `section` (replace one `##` section), not with edit or write: the workflow rewrites these files between reads, and hand edits miss. They act on the focused document, or the README when nothing is focused; `id` names any document or any quest's README, loaded or not, and `journal` takes a document's id as its quest's. Never load a quest just to write to it. Stage changes go through think/draft/build/conclude/retire.",
+			"Read a quest document with `show` rather than reading or grepping its file: its `id` gives the outline (sections by size, open items, the next), `title` one section, `query` one item and its notes, by its number or first words. Plans grow past 400 KB.",
 			"`unload` puts a quest down and changes nothing on disk. `conclude` seals one for good (status, priority, documents, trees) and needs its `id`; never conclude to put a quest down. When unsure which was meant, unload.",
 			"`focus` and `unfocus` set or clear the focused document. While a plan is focused in think or draft, edits to already-tracked code in the quest's trees (any tree, while it tracks none) defer to build; the plan itself, attachments, any workspace and brand-new files still flow.",
 			"A quest folder holds only its README, its ID documents and attachments/ (cited charts, notes and summaries within the limits). Clones, raw data, labs, runs and builds go in the quest's workspace, ~/.cache/pi/agentic-harness.pi/quest-workspace/<ID>/, whose tmp/ is cleared at conclude and is $TMPDIR while the quest is loaded: use $TMPDIR or mktemp for temporary files, never a path named in /tmp. When a result says a call left a record out of shape, move the files where it says.",
@@ -186,7 +187,8 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		],
 		parameters: Type.Object({
 			action: StringEnum([...QUEST_ACTIONS], {
-				description: "The action to perform. `status` is an alias for `show`.",
+				description:
+					"The action to perform. `status` is an alias for `show`, which given a document's id answers its outline: sections by size, open items, the next.",
 			}),
 			id: Type.Optional(
 				Type.String({
@@ -203,7 +205,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			title: Type.Optional(
 				Type.String({
 					description:
-						"create: the quest's human title (becomes the H1). draft: the document's title. section: the heading of the section to replace, or to add (a README's optional Milestones, Spirit, Outcomes or Context), without its emoji (e.g. Purpose). retitle: the new title, which replaces the H1 of the quest or document `id` names.",
+						"create: the quest's human title (becomes the H1). draft: the document's title. section: the heading of the section to replace, or to add (a README's optional Milestones, Spirit, Outcomes or Context), without its emoji (e.g. Purpose). retitle: the new title, which replaces the H1 of the quest or document `id` names. show: the section to read.",
 				}),
 			),
 			parent: Type.Optional(
@@ -261,7 +263,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			query: Type.Optional(
 				Type.String({
 					description:
-						"find: free-text needle matched against title, id, body and alias values. locate: the needle to resolve when `id` is not given. tick/untick: the checkbox item, by its text or the start of it.",
+						"find: free-text needle matched against title, id, body and alias values. locate: the needle to resolve when `id` is not given. tick/untick, and show to read it with its notes: the checkbox item, by its number, its text or the start of it.",
 				}),
 			),
 			since: Type.Optional(

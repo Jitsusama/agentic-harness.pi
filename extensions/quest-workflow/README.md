@@ -150,7 +150,7 @@ while it waits its turn leaves without running.
   README's Journey section only points there; until the core
   fold, entries core's verbs append to the README are swept
   into the file after each quest action), `tick` and `untick` set a checkbox item by
-  its text or a unique start of it, and `section` replaces
+  its number, its text or a unique start of it, and `section` replaces
   one `##` section. Each reads and writes under the quest
   lock and leaves the front matter byte for byte, since the
   workflow rewrites these files between a hand edit's read
@@ -158,6 +158,15 @@ while it waits its turn leaves without running.
   workflow owns (a document's `stage`, `id`, `kind` or
   `quest`, a quest's `id`, `kind` or `status`) is refused
   with the verb that changes it.
+- Reads of a document's body: `show` given a document's id
+  answers its outline (each `##` section with its size, the
+  open checkbox items and the next), and with `title` one
+  section, or with `query` one item and the notes nested
+  under it, matched as `section` and `tick` match them. With
+  neither an id nor either of those, `show` projects the
+  quest as before. Plans grow past 400 KB, mostly as notes
+  under done items, and sessions hunted them with grep and
+  sed instead.
 - The gates are guards under the guard policy:
   `quest-record`, `quest-owned-fields` and
   `quest-plan-stage` block. `quest-temp` and

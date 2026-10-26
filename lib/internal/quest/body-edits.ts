@@ -1,11 +1,15 @@
 /**
  * Edits to the body of a quest document that leave its front matter
- * byte for byte as it was: ticking a checkbox, replacing a section.
+ * byte for byte as it was: ticking a checkbox, replacing a section;
+ * and the reads that find the same things without changing them: an
+ * outline, one section, one item with its notes.
  *
  * Pure text in, text out. The verbs that call these hold the quest
  * lock around the read and the write, which is the point of having
  * verbs at all: a hand edit read the file, the workflow rewrote it
- * underneath, and the edit then missed its anchor.
+ * underneath, and the edit then missed its anchor. The reads share the
+ * edits' matching, so what `show` finds is what `tick` and `section`
+ * change.
  */
 
 /** A document split where its front matter ends. */
@@ -74,22 +78,9 @@ export function setCheckbox(
 	if (items.length === 0) {
 		return { ok: false, reason: "The document has no checkbox items." };
 	}
-	const exact = items.filter((i) => normalise(i.text) === wanted);
-	const prefixed = items.filter((i) => normalise(i.text).startsWith(wanted));
-	const matches = exact.length > 0 ? exact : prefixed;
-	if (matches.length === 0) {
-		return {
-			ok: false,
-			reason: `No item reads "${item.trim()}". The items are:\n${listItems(items)}`,
-		};
-	}
-	if (matches.length > 1) {
-		return {
-			ok: false,
-			reason: `${matches.length} items fit "${item.trim()}"; name more of the one meant:\n${listItems(matches)}`,
-		};
-	}
-	const [match] = matches;
+	const found = findItem(items, item);
+	if (!found.ok) return found;
+	const { match } = found;
 	const parts = CHECKBOX.exec(lines[match.index]);
 	if (!parts) return { ok: false, reason: "The item could not be read." };
 	const mark = done ? "x" : " ";
@@ -104,6 +95,149 @@ export function setCheckbox(
 		changed: true,
 		line: lines[match.index],
 	};
+}
+
+/**
+ * The one item a caller names: by its exact text, else by a start only
+ * one item has. A bare number names the item it numbers, so `7` finds
+ * `7. Write the tests` and not `70. ...`.
+ */
+function findItem(
+	items: readonly Located[],
+	item: string,
+): { ok: true; match: Located } | EditRefused {
+	const wanted = normalise(item);
+	const numbered = /^\d+$/.test(wanted)
+		? items.filter((i) =>
+				new RegExp(`^${wanted}[.):]?(\\s|$)`).test(normalise(i.text)),
+			)
+		: [];
+	const exact = items.filter((i) => normalise(i.text) === wanted);
+	const prefixed = items.filter((i) => normalise(i.text).startsWith(wanted));
+	const matches =
+		numbered.length > 0 ? numbered : exact.length > 0 ? exact : prefixed;
+	if (matches.length === 0) {
+		return {
+			ok: false,
+			reason: `No item reads "${item.trim()}". The items are:\n${listItems(items)}`,
+		};
+	}
+	if (matches.length > 1) {
+		return {
+			ok: false,
+			reason: `${matches.length} items fit "${item.trim()}"; name more of the one meant:\n${listItems(matches)}`,
+		};
+	}
+	return { ok: true, match: matches[0] };
+}
+
+/** One checkbox item, as an outline lists it. */
+export interface OutlineItem {
+	/** Its text on its own line, without the checkbox. */
+	readonly text: string;
+	readonly done: boolean;
+	/** How far it is nested: 0 for a top-level item. */
+	readonly depth: number;
+}
+
+/** One `##` section, as an outline lists it. */
+export interface OutlineSection {
+	readonly heading: string;
+	/** Its size in bytes, heading included. */
+	readonly bytes: number;
+}
+
+/** What a document holds, without its prose. */
+export interface Outline {
+	readonly sections: readonly OutlineSection[];
+	readonly items: readonly OutlineItem[];
+}
+
+/** A document's sections with their sizes, and its checkbox items. */
+export function outlineOf(body: string): Outline {
+	const lines = body.split("\n");
+	const headings = secondLevelHeadings(lines);
+	const sections = headings.map((h, at) => ({
+		heading: h.text,
+		bytes: Buffer.byteLength(
+			lines.slice(h.index, headings[at + 1]?.index ?? lines.length).join("\n"),
+		),
+	}));
+	const items = checkboxLines(lines).map((i) => {
+		const parts = CHECKBOX.exec(lines[i.index]);
+		const indent = parts?.[1].match(/^\s*/)?.[0].replace(/\t/g, "  ").length;
+		return {
+			text: i.text,
+			done: parts?.[2] !== " ",
+			depth: Math.floor((indent ?? 0) / 2),
+		};
+	});
+	return { sections, items };
+}
+
+/** A read that found what it was asked for. */
+export interface ReadFound {
+	ok: true;
+	/** The heading or item line it found, as written. */
+	found: string;
+	/** What sits under it. */
+	text: string;
+}
+
+/**
+ * What sits under a `##` heading, up to the next one, matched as
+ * `replaceSection` matches it.
+ */
+export function sectionOf(
+	body: string,
+	heading: string,
+): ReadFound | EditRefused {
+	const wanted = headingWords(heading);
+	if (!wanted) return { ok: false, reason: "Name the section to read." };
+	const lines = body.split("\n");
+	const headings = secondLevelHeadings(lines);
+	const at = headings.findIndex((h) => headingWords(h.text) === wanted);
+	if (at === -1) {
+		const known = headings.map((h) => h.text).join(", ");
+		return {
+			ok: false,
+			reason: `No section is headed "${heading.trim()}".${known ? ` The sections are: ${known}.` : ""}`,
+		};
+	}
+	const end = headings[at + 1]?.index ?? lines.length;
+	const text = trimBlankEdges(lines.slice(headings[at].index + 1, end));
+	return { ok: true, found: headings[at].text, text: text.join("\n") };
+}
+
+/**
+ * One checkbox item with its notes: the lines under it nested deeper,
+ * up to the next line at its depth or a heading. Matched as
+ * `setCheckbox` matches it.
+ */
+export function itemOf(body: string, item: string): ReadFound | EditRefused {
+	if (!normalise(item)) return { ok: false, reason: "Name the item to read." };
+	const lines = body.split("\n");
+	const items = checkboxLines(lines);
+	if (items.length === 0) {
+		return { ok: false, reason: "The document has no checkbox items." };
+	}
+	const found = findItem(items, item);
+	if (!found.ok) return found;
+	const at = found.match.index;
+	const depth = indentOf(lines[at]);
+	let end = at + 1;
+	while (end < lines.length) {
+		const line = lines[end];
+		if (/^#{1,6}\s/.test(line)) break;
+		if (line.trim() !== "" && indentOf(line) <= depth) break;
+		end++;
+	}
+	const notes = trimBlankEdges(lines.slice(at + 1, end));
+	return { ok: true, found: lines[at].trim(), text: notes.join("\n") };
+}
+
+function indentOf(line: string): number {
+	return (line.match(/^\s*/)?.[0] ?? "").replace(/\t/g, "  ").length;
 }
 
 /** Sections that belong to a verb of their own and are never replaced. */

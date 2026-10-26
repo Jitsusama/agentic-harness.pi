@@ -30,7 +30,7 @@ import { findQuestEntry } from "./lifecycle.ts";
 import type { QuestState } from "./state.ts";
 import { aliasAdd, aliasRemove } from "./verbs/alias.ts";
 import { configReport } from "./verbs/config.ts";
-import { journal, retitle, section, tick } from "./verbs/document.ts";
+import { journal, read, retitle, section, tick } from "./verbs/document.ts";
 import {
 	create,
 	focus,
@@ -50,6 +50,7 @@ import {
 	locate,
 	recent,
 	restore,
+	subdirForDocumentId,
 	tree,
 	who,
 	workspace,
@@ -179,7 +180,12 @@ async function dispatch(
 			return unload(state);
 		case "show":
 		case "status":
-			return show(state, params);
+			// A document, a section or an item is read; a quest is projected.
+			return params.title?.trim() ||
+				params.query?.trim() ||
+				(params.id && subdirForDocumentId(params.id))
+				? read(state, params)
+				: show(state, params);
 		case "config":
 			return configReport();
 		case "list":
