@@ -18,6 +18,7 @@
  * belonged to the process that ended.
  */
 
+import type { TickedOwner } from "../internal/process-ticks.ts";
 import type { Orchestration } from "../internal/quest/orchestration.ts";
 import {
 	addressesOf,
@@ -30,12 +31,7 @@ import {
 } from "./address.ts";
 import type { Receiver } from "./attention.ts";
 import type { Listener } from "./message.ts";
-import {
-	type PeerOwner,
-	type Presence,
-	type Presences,
-	workOf,
-} from "./presence.ts";
+import { type Presence, type Presences, workOf } from "./presence.ts";
 import type { Stop } from "./stop.ts";
 import { longestStanding, type Want, type WantKind } from "./want.ts";
 
@@ -104,7 +100,7 @@ export interface Surroundings {
 	readonly records: QuestRecords;
 	readonly presences: Presences;
 	/** The process holding this session, when the machine would say. */
-	readonly owner?: PeerOwner;
+	readonly owner?: TickedOwner;
 	/**
 	 * The session this one carries on from, when pi rolled its log over
 	 * into a fresh one: the same peer under a new session id.

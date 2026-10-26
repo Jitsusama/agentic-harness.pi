@@ -23,36 +23,13 @@
 
 import { readFileSync } from "node:fs";
 import {
-	askedOnce,
-	ownerNow,
-	ownerStanding,
-	type ProcessFacts,
-	systemFacts,
-} from "@jitsusama/agentic-harness.core/process";
-import {
-	type StartTicks,
-	startTicksFromProc,
+	askedOnceWithTicks,
+	processKey,
+	type TickFacts,
+	tickedStanding,
+	tickFacts,
 } from "../internal/process-ticks.ts";
-import type { PeerOwner, Presence } from "./presence.ts";
-
-/** What the machine says about its processes, ticks included where it can. */
-export type PeerFacts = ProcessFacts & { readonly startTicks?: StartTicks };
-
-/** This machine's account of its processes. */
-export const peerFacts: PeerFacts = {
-	...systemFacts,
-	startTicks: startTicksFromProc,
-};
-
-/** This process, as a presence names it, with its start in ticks. */
-export async function peerOwnerNow(
-	facts: PeerFacts = peerFacts,
-): Promise<PeerOwner | undefined> {
-	const owner = await ownerNow(facts);
-	if (!owner) return undefined;
-	const startTicks = await facts.startTicks?.(owner.pid);
-	return startTicks === undefined ? owner : { ...owner, startTicks };
-}
+import type { Presence } from "./presence.ts";
 
 /**
  * When the machine booted, in milliseconds since the epoch, read from
@@ -84,38 +61,16 @@ export interface Census {
 /** Whether this peer is still on the mesh. */
 export async function livenessOf(
 	presence: Presence,
-	facts: PeerFacts = peerFacts,
+	facts: TickFacts = tickFacts,
 ): Promise<Liveness> {
 	const owner = presence.owner;
 	if (!owner) return "unknown";
-	const byTicks = await ticksStanding(owner, facts);
-	if (byTicks) return byTicks;
-	const standing = await ownerStanding(owner, facts);
+	const standing = await tickedStanding(owner, facts);
 	return standing === "running"
 		? "present"
 		: standing === "gone"
 			? "gone"
 			: "unknown";
-}
-
-/**
- * Whether the presence's process runs, by its start in ticks, when
- * the presence names its boot and ticks and the machine can say both;
- * nothing when it cannot be told that way.
- */
-async function ticksStanding(
-	owner: PeerOwner,
-	facts: PeerFacts,
-): Promise<Liveness | undefined> {
-	if (owner.startTicks === undefined || owner.bootId === undefined) {
-		return undefined;
-	}
-	const boot = facts.bootId?.();
-	if (boot === undefined || !facts.startTicks) return undefined;
-	if (boot !== owner.bootId) return "gone";
-	const ticks = await facts.startTicks(owner.pid);
-	if (ticks === undefined) return undefined;
-	return ticks === owner.startTicks ? "present" : "gone";
 }
 
 /**
@@ -125,18 +80,18 @@ async function ticksStanding(
  * One process holds one session at a time, so when a pi moves to
  * another session (a new one, a resumed one), the session it left is
  * gone even though its process runs on: of the presences one process
- * holds, only the one it published last is still there.
+ * holds, only the one it published last is still there. A process is
+ * told by its ticks where its presences carry them: each session start
+ * works core's start time out afresh, so after a suspend the sessions
+ * one pi held name it by different times.
  */
 export async function census(
 	everyone: readonly Presence[],
-	facts: PeerFacts = peerFacts,
+	facts: TickFacts = tickFacts,
 ): Promise<Census> {
-	const once: PeerFacts = {
-		...askedOnce(facts),
-		...(facts.startTicks ? { startTicks: facts.startTicks } : {}),
-	};
+	const once = askedOnceWithTicks(facts);
 	const holder = (one: Presence) =>
-		one.owner ? `${one.owner.pid}@${one.owner.startedAt}` : undefined;
+		one.owner ? processKey(one.owner) : undefined;
 	const latest = new Map<string, string>();
 	for (const one of everyone) {
 		const key = holder(one);

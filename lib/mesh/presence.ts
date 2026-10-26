@@ -25,7 +25,8 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
-import { isOwner, type Owner } from "@jitsusama/agentic-harness.core/process";
+import { isOwner } from "@jitsusama/agentic-harness.core/process";
+import { keepTicks, type TickedOwner } from "../internal/process-ticks.ts";
 import { parseQuestFrontMatter } from "../internal/quest/frontmatter.ts";
 import {
 	type Orchestration,
@@ -37,13 +38,6 @@ import { scopesOf } from "./scope.ts";
 import { type Stop, stopsFrom } from "./stop.ts";
 import { removeQuietly, removeStaged } from "./transport.ts";
 import { type Want, wantFrom } from "./want.ts";
-
-/**
- * The process holding a presence: core's account of it, and its start
- * in the kernel's ticks since boot where the machine keeps them, which
- * a suspend never moves (see liveness.ts).
- */
-export type PeerOwner = Owner & { readonly startTicks?: number };
 
 /** One peer, as it is seen on the mesh. */
 export interface Presence {
@@ -76,7 +70,7 @@ export interface Presence {
 	 */
 	readonly wants?: Want;
 	/** The process holding it, when the machine would say. */
-	readonly owner?: PeerOwner;
+	readonly owner?: TickedOwner;
 	/**
 	 * The terminal window title pi gives its session, exactly, so the
 	 * desktop can tell which window is this peer's without parsing it
@@ -350,15 +344,6 @@ export function createPresences(dir: string): Presences {
 	};
 }
 
-/** The owner a presence names, its ticks kept only when they are a count. */
-function peerOwnerFrom(owner: Owner): PeerOwner {
-	if (!("startTicks" in owner)) return owner;
-	const { startTicks, ...rest } = owner;
-	return typeof startTicks === "number" && Number.isSafeInteger(startTicks)
-		? { ...rest, startTicks }
-		: rest;
-}
-
 function read(path: string): Presence | undefined {
 	try {
 		return presenceFrom(JSON.parse(readFileSync(path, "utf8")));
@@ -390,7 +375,7 @@ function presenceFrom(value: unknown): Presence | undefined {
 		owns: strings(one.owns) ? one.owns : [],
 		busy: one.busy === true,
 		...(wantFrom(one.wants) ? { wants: wantFrom(one.wants) } : {}),
-		...(isOwner(one.owner) ? { owner: peerOwnerFrom(one.owner) } : {}),
+		...(isOwner(one.owner) ? { owner: keepTicks(one.owner) } : {}),
 		...(typeof one.title === "string" ? { title: one.title } : {}),
 		...(typeof one.orchestratedBy === "string"
 			? { orchestratedBy: one.orchestratedBy }

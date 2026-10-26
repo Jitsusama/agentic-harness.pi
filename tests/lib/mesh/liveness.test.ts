@@ -4,11 +4,13 @@
 import type { ProcessFacts } from "@jitsusama/agentic-harness.core/process";
 import { describe, expect, it } from "vitest";
 import {
+	type TickFacts,
+	tickedOwnerNow,
+} from "../../../lib/internal/process-ticks.ts";
+import {
 	census,
 	livenessOf,
 	machineBooted,
-	type PeerFacts,
-	peerOwnerNow,
 } from "../../../lib/mesh/liveness.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
 
@@ -70,7 +72,7 @@ function suspended(
 	ticks: Record<number, number>,
 	drift: number,
 	boot = "boot-1",
-): PeerFacts {
+): TickFacts {
 	return {
 		alive: (pid) => pid in ticks,
 		startedAt: async (pid) =>
@@ -124,9 +126,33 @@ describe("a peer's liveness across a suspend", () => {
 	});
 
 	it("names this process with its ticks", async () => {
-		const now = await peerOwnerNow(suspended({ [process.pid]: 77 }, 0));
+		const now = await tickedOwnerNow(suspended({ [process.pid]: 77 }, 0));
 
 		expect(now).toMatchObject({ pid: process.pid, startTicks: 77 });
+	});
+
+	it("leaves the session a pi moved on from, though its start time moved", async () => {
+		// Each session start works core's start time out afresh, so the
+		// session a pi left before the suspend and the one it holds now
+		// name it by different times, and only the ticks match.
+		const left = presence({
+			session: "s-left",
+			owner,
+			at: "2026-10-26T01:00:00.000Z",
+		});
+		const held = presence({
+			session: "s-held",
+			owner: { ...owner, startedAt: owner.startedAt + 4000 },
+			at: "2026-10-26T02:00:00.000Z",
+		});
+
+		const { present, gone } = await census(
+			[left, held],
+			suspended({ 40: 50 }, 4000),
+		);
+
+		expect(present.map((one) => one.session)).toEqual(["s-held"]);
+		expect(gone.map((one) => one.session)).toEqual(["s-left"]);
 	});
 });
 
