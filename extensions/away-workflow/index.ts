@@ -46,6 +46,7 @@ import { Type } from "@sinclair/typebox";
 import {
 	agree,
 	type MachineWord,
+	machineAwayPath,
 	publishMachineWord,
 	readMachineWord,
 	watchMachineWord,
@@ -234,10 +235,17 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 	 * over too, since sessions can be away from before the word was
 	 * shared, and they come back only on hearing it.
 	 */
-	const publishHere = (ctx: ExtensionContext) => {
+	const publishHere = (ctx: ExtensionContext, why: string) => {
 		if (!ctx.hasUI) return;
 		const word = readMachineWord();
-		if (!word || word.away) publishMachineWord(undefined);
+		if (!word || word.away) {
+			publishMachineWord(
+				undefined,
+				new Date(),
+				machineAwayPath(),
+				`${why} in pi ${process.pid} at ${ctx.cwd}`,
+			);
+		}
 	};
 
 	/** Do what this session must to agree with the machine's word. */
@@ -395,7 +403,7 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 		pendingCarry = undefined;
 		Object.assign(carrying, freshCarryOn());
 		if (isAway()) endAway(ctx);
-		publishHere(ctx);
+		publishHere(ctx, "typed");
 		if (readsLikeDeparture(event.text)) {
 			sayWithTurn(ctx, HINT_MESSAGE, DEPARTURE_HINT);
 		}
@@ -429,7 +437,7 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 		if (settledAborted(event) || finished.aborted) {
 			// Escape is the person, here, saying stop.
 			endAway(ctx);
-			publishHere(ctx);
+			publishHere(ctx, "stopped a run");
 			ctx.ui.notify("Away mode ended: you stopped the run.", "info");
 			return;
 		}
@@ -443,7 +451,7 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 			latest = ctx;
 			if (isAway()) {
 				endAway(ctx);
-				publishHere(ctx);
+				publishHere(ctx, "ran /away");
 				ctx.ui.notify("Away mode ended. Welcome back.", "info");
 				return;
 			}

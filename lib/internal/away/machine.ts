@@ -41,6 +41,11 @@ export interface MachineWord {
 	readonly away?: { readonly since: string; readonly goal?: string };
 	/** When this word was written, as an ISO timestamp. */
 	readonly at: string;
+	/**
+	 * What ended the absence and in which session, kept so an absence
+	 * that ended with nobody at the machine can be traced.
+	 */
+	readonly by?: string;
 }
 
 /** Where the machine's word is kept. */
@@ -79,7 +84,10 @@ export function readMachineWord(
 		const value: unknown = JSON.parse(text);
 		if (!isWord(value)) return undefined;
 		// JSON has no undefined, so a present person is stored as null.
-		return value.away ? value : { at: value.at };
+		if (value.away) return value;
+		return typeof value.by === "string"
+			? { at: value.at, by: value.by }
+			: { at: value.at };
 	} catch {
 		return undefined;
 	}
@@ -87,18 +95,20 @@ export function readMachineWord(
 
 /**
  * Say to every session that the person is away, with the absence's
- * start and goal, or that they are here when `away` is undefined.
- * Best-effort: a session that cannot write still keeps its own
+ * start and goal, or that they are here when `away` is undefined,
+ * with `by` saying what brought them back and where. Best-effort: a session that cannot write still keeps its own
  * absence, which is how it behaved before the word was shared.
  */
 export function publishMachineWord(
 	away: { since: string; goal?: string } | undefined,
 	now: Date = new Date(),
 	path: string = machineAwayPath(),
+	by?: string,
 ): void {
 	const word = {
 		away: away ? { since: away.since, goal: away.goal } : null,
 		at: now.toISOString(),
+		...(!away && by !== undefined ? { by } : {}),
 	};
 	const tmp = join(
 		dirname(path),

@@ -540,7 +540,10 @@ describe("across the machine", () => {
 
 		await here.fire("input", { text: "morning", source: "interactive" });
 
-		expect(readMachineWord()).toEqual({ at: expect.any(String) });
+		expect(readMachineWord()).toEqual({
+			at: expect.any(String),
+			by: expect.stringMatching(/^typed in pi \d+ at /),
+		});
 	});
 
 	it("leaves the machine alone in a session nobody is at", async () => {
