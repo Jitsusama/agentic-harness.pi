@@ -30,11 +30,14 @@ shipped and tested.
   separated batch), bulk `conclude` / `retire` (triggered
   by a comma-separated `id` set), and `undo`. All
   structural edits are atomic and journalled so `undo` can
-  reverse the last one. `reparent` and the sweep take a
-  `dryRun` preview; `undo` has none, and given one it
-  refuses and says what it would reverse. Every session
-  shares the one journal, so `undo` needs the `id` of a
-  quest the last change touched, and refuses otherwise.
+  reverse them. `reparent` and the sweep take a `dryRun`
+  preview; `undo` has none, and given one it refuses and
+  says what it would reverse. Every session shares the one
+  journal, and each entry says whose it is, so `undo`
+  reverses only the calling session's own newest change.
+  It refuses when the session has none, or when another
+  session has changed one of its quests since; an `id`, if
+  given, must be one that change touched.
 - **Dry runs**: an action that can't preview refuses
   `dryRun: true` and does nothing, rather than dropping it
   and acting for real. That includes `conclude` and

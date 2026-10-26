@@ -17,14 +17,16 @@
  * does less than the caller asked, or nothing; an ignored `dryRun` does
  * more, and destroys what the caller was trying to keep.
  *
- * An undo's `id` is held to it the same way, since undo reverses the
- * last structural change whatever it is named: see
+ * An undo's `id` is held to it the same way, since undo reverses this
+ * session's newest structural change whatever it is named: see
  * {@link refuseUndoElsewhere}.
  */
 
+import { UNDO_LEAVES } from "../../lib/core/quest/verbs/structural.ts";
 import {
 	type JournalEntry,
-	lastStructuralOp,
+	journalSession,
+	ownNewestStructuralOp,
 } from "../../lib/internal/quest/structural-journal.ts";
 import { count } from "../../lib/ui/count.ts";
 import { QUEST_ACTIONS } from "./actions.ts";
@@ -68,7 +70,7 @@ export function refuseIgnoredDryRun(
 	if (params.dryRun !== true || PREVIEWS.has(params.action)) return undefined;
 	if (!KNOWN.has(params.action)) return undefined;
 	if (params.action === "undo") {
-		const last = lastStructuralOp(questsRoot);
+		const last = ownNewest(questsRoot);
 		const would = last
 			? `Called without it, undo would reverse ${undoing(last)}`
 			: "Called without it, undo would find nothing to reverse.";
@@ -81,16 +83,21 @@ export function refuseIgnoredDryRun(
 	);
 }
 
+/** This session's newest journalled change, when it has one. */
+function ownNewest(questsRoot: string): JournalEntry | undefined {
+	const session = journalSession();
+	return session ? ownNewestStructuralOp(questsRoot, session) : undefined;
+}
+
 /**
- * The refusal for an undo naming no id, or an id the journal's last
- * change did not touch, or nothing. undo reverses that change whatever
- * it is given, and the journal is shared by every session on the machine
- * without saying whose each change was: on 24 October one given a plan's
- * id, meant for a section write, reopened another session's concluded
- * quest, and on 25 October one given no id reopened twelve. Naming the
- * quest is the caller saying the change is theirs to take back. Only
- * structural changes (status, priority, parent, order and the like) are
- * journalled, so a document's body writes are never undone.
+ * The refusal for an undo naming an id its session's newest change did
+ * not touch, or nothing. undo reverses only its own session's newest
+ * structural change, so an id is optional; one given is the caller
+ * saying which quest it means, and an undo that would land elsewhere is
+ * refused rather than taken. With no change of its own, undo itself
+ * says so. Only structural changes (status, priority, parent, order and
+ * the like) are journalled, so a document's body writes are never
+ * undone.
  */
 export function refuseUndoElsewhere(
 	params: QuestToolParams,
@@ -98,19 +105,13 @@ export function refuseUndoElsewhere(
 ): QuestResult | undefined {
 	if (params.action !== "undo") return undefined;
 	const id = params.id?.trim();
-	const last = lastStructuralOp(questsRoot);
-	// With nothing journalled, undo itself says there is nothing to undo.
-	if (!last) return undefined;
-	const bodyWrites =
-		"Writes by section, journal, tick, untick and retitle are not journalled, so undo never reverses them; restore those from a backup or write them again.";
-	if (!id) {
-		return refuse(
-			`Nothing was undone: name the quest as \`id\`. The last structural change may be another session's, since every session shares one journal. It is ${undoing(last)} ${bodyWrites} If that change is yours to take back, call undo again with one of the ids it names.`,
-		);
+	if (!id) return undefined;
+	const last = ownNewest(questsRoot);
+	if (!last || last.changes.some((change) => change.id === id)) {
+		return undefined;
 	}
-	if (last.changes.some((change) => change.id === id)) return undefined;
 	return refuse(
-		`Nothing was undone: undo reverses only the last structural change, and that one did not touch ${id}. It is ${undoing(last)} ${bodyWrites}`,
+		`Nothing was undone: undo reverses only this session's newest structural change, and that one did not touch ${id}. It is ${undoing(last)} ${UNDO_LEAVES}`,
 	);
 }
 

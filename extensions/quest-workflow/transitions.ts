@@ -21,6 +21,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { createMutex } from "../../lib/internal/async-mutex.ts";
 import { sayConcluded } from "../../lib/internal/quest/concluded.ts";
+import { setJournalSession } from "../../lib/internal/quest/structural-journal.ts";
 import type { QuestPriority } from "../../lib/quest/index.ts";
 import { suggestAction } from "./actions.ts";
 import { refuseIgnoredDryRun, refuseUndoElsewhere } from "./dry-run.ts";
@@ -62,6 +63,7 @@ import {
 	spawn,
 } from "./verbs/session.ts";
 import {
+	currentSessionId,
 	type QuestResult,
 	type QuestToolParams,
 	refuse,
@@ -155,6 +157,8 @@ async function dispatch(
 	params: QuestToolParams,
 	signal?: AbortSignal,
 ): Promise<QuestResult> {
+	// Whatever this call journals is this session's, for its own undo.
+	setJournalSession(currentSessionId(ctx, undefined));
 	const ignored = refuseIgnoredDryRun(params, state.questsRoot);
 	if (ignored) return ignored;
 	const elsewhere = refuseUndoElsewhere(params, state.questsRoot);

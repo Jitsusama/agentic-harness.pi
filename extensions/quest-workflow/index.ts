@@ -40,6 +40,7 @@ import {
 	discoverQuests,
 } from "../../lib/internal/quest/discovery.ts";
 import { formatRelativeAge } from "../../lib/internal/quest/session-liveness.ts";
+import { setJournalSession } from "../../lib/internal/quest/structural-journal.ts";
 import { offerShellEnvironment } from "../../lib/internal/shell/environment.ts";
 import {
 	registerBuiltinHandleTypes,
@@ -192,7 +193,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			id: Type.Optional(
 				Type.String({
 					description:
-						"Target id: the quest or document acted on, loaded or not (default: the focused document, else the README). For reparent, conclude, retire and restore: comma-separated for several. For conclude/retire: the loaded quest's id seals it in full, trees pruned; other quest ids run a reversible status sweep; a document id concludes just that document. For locate: any quest, document, alias or session id. For undo: required, a quest the last structural change touched; undo reverses that change, which may be another session's, and refuses with no id or one it did not touch.",
+						"Target id: the quest or document acted on, loaded or not (default: the focused document, else the README). For reparent, conclude, retire and restore: comma-separated for several. For conclude/retire: the loaded quest's id seals it in full, trees pruned; other quest ids run a reversible status sweep; a document id concludes just that document. For locate: any quest, document, alias or session id. For undo: optional, a quest this session's newest structural change touched; undo reverses only this session's own newest change, never another session's, and refuses when another session has changed one of its quests since.",
 				}),
 			),
 			url: Type.Optional(
@@ -670,6 +671,8 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
+		// What this session journals is its own, for its own undo.
+		setJournalSession(currentSessionId(ctx, undefined));
 		// Surface any layout-drift errors the discovery walk
 		// found. After the canonical-layout tightening, a
 		// nested QEST dir or a misplaced doc file gets recorded
