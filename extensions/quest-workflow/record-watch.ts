@@ -47,7 +47,11 @@ export class RecordWatch {
 	/** What the last continuation asked about, so it is never asked twice. */
 	private lastAsked: string | undefined;
 
-	constructor(private readonly roots: WatchRoots) {}
+	private readonly roots: WatchRoots;
+
+	constructor(roots: WatchRoots) {
+		this.roots = roots;
+	}
 
 	/** Note the quests a call could touch, reading any not yet seen. */
 	before(toolCallId: string, quests: readonly string[]): void {

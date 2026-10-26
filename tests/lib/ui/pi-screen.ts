@@ -27,10 +27,12 @@ export class VirtualTerminal implements Terminal {
 	readonly emulator: InstanceType<typeof xterm.Terminal>;
 	private onInput: ((data: string) => void) | undefined;
 
-	constructor(
-		readonly columns: number,
-		readonly rows: number,
-	) {
+	readonly columns: number;
+	readonly rows: number;
+
+	constructor(columns: number, rows: number) {
+		this.columns = columns;
+		this.rows = rows;
 		this.emulator = new xterm.Terminal({
 			cols: columns,
 			rows,
@@ -94,7 +96,11 @@ export class VirtualTerminal implements Terminal {
 
 /** A component that is just some lines. */
 export class Lines implements Component {
-	constructor(public lines: string[]) {}
+	lines: string[];
+
+	constructor(lines: string[]) {
+		this.lines = lines;
+	}
 	render(): string[] {
 		return this.lines;
 	}

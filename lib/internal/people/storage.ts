@@ -46,7 +46,11 @@ export class PeopleStorage {
 	private cache = new Map<string, IdentityDoc>();
 	private loaded = false;
 
-	constructor(private readonly dir: string) {}
+	private readonly dir: string;
+
+	constructor(dir: string) {
+		this.dir = dir;
+	}
 
 	/** Force a fresh re-read on next access. */
 	reload(): void {

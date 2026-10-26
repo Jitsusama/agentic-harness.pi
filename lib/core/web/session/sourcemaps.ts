@@ -32,7 +32,11 @@ export class SourceMapStore {
 	/** Which URL each stylesheet id belongs to. */
 	private readonly sheetUrls = new Map<string, string>();
 
-	constructor(private readonly wires: SessionWires) {}
+	private readonly wires: SessionWires;
+
+	constructor(wires: SessionWires) {
+		this.wires = wires;
+	}
 
 	/**
 	 * Note which map belongs to which script and stylesheet, from

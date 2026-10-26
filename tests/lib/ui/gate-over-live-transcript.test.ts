@@ -35,10 +35,12 @@ const ROWS = 45;
 class VirtualTerminal implements Terminal {
 	readonly emulator: InstanceType<typeof xterm.Terminal>;
 
-	constructor(
-		readonly columns: number,
-		readonly rows: number,
-	) {
+	readonly columns: number;
+	readonly rows: number;
+
+	constructor(columns: number, rows: number) {
+		this.columns = columns;
+		this.rows = rows;
 		this.emulator = new xterm.Terminal({
 			cols: columns,
 			rows,

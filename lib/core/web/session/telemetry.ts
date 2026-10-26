@@ -119,10 +119,13 @@ export class SessionTelemetry {
 	 */
 	private pending: Promise<void> = Promise.resolve();
 
-	constructor(
-		private readonly wires: SessionWires,
-		private readonly hooks: TelemetryHooks,
-	) {}
+	private readonly wires: SessionWires;
+	private readonly hooks: TelemetryHooks;
+
+	constructor(wires: SessionWires, hooks: TelemetryHooks) {
+		this.wires = wires;
+		this.hooks = hooks;
+	}
 
 	/**
 	 * Listen for everything the page says, from the moment it

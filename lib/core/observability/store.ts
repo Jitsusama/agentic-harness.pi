@@ -197,7 +197,11 @@ const LAUNCH_COLUMNS: ReadonlyArray<readonly [string, string]> = [
 ];
 
 class SqliteRunStore implements RunStore {
-	constructor(private readonly db: Db) {}
+	private readonly db: Db;
+
+	constructor(db: Db) {
+		this.db = db;
+	}
 
 	async recordRun(record: RunRecord): Promise<void> {
 		await this.db.run(

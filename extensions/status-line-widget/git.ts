@@ -142,11 +142,19 @@ export class Engine {
 	private spoke = false;
 	private readonly questions = new Map<string, string>();
 
+	private readonly program: string;
+	private readonly answered: (dir: string, state: GitState | false) => void;
+	private readonly readOperation?: (workdir: string) => Operation | null;
+
 	constructor(
-		private readonly program: string,
-		private readonly answered: (dir: string, state: GitState | false) => void,
-		private readonly readOperation?: (workdir: string) => Operation | null,
-	) {}
+		program: string,
+		answered: (dir: string, state: GitState | false) => void,
+		readOperation?: (workdir: string) => Operation | null,
+	) {
+		this.program = program;
+		this.answered = answered;
+		this.readOperation = readOperation;
+	}
 
 	ask(dir: string): void {
 		if (this.broken) return;

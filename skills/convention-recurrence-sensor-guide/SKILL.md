@@ -135,7 +135,7 @@ report to the state directory's `measure/` folder, named for
 the day the week ends:
 
 ```bash
-node --experimental-transform-types scripts/weekly-measure.ts [--out <file>] [--top N]
+node scripts/weekly-measure.ts [--out <file>] [--top N]
 ```
 
 It is what a weekly timer runs, and what each re-take reads.

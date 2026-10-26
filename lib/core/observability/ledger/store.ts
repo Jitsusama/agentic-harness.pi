@@ -558,7 +558,11 @@ const FILL_FACTS = `UPDATE turns SET ${FACT_COLUMNS.map(
 ).join(", ")} WHERE digest = ?`;
 
 class SqliteTurnStore implements TurnStore {
-	constructor(private readonly db: Db) {}
+	private readonly db: Db;
+
+	constructor(db: Db) {
+		this.db = db;
+	}
 
 	async recordTurns(turns: readonly TurnRecord[]): Promise<RecordOutcome> {
 		// Collapse the batch against itself first, then ask the table once

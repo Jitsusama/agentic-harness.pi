@@ -28,7 +28,11 @@ export class NetworkShaper {
 	/** Whether the interceptor is currently attached. */
 	private intercepting = false;
 
-	constructor(private readonly wires: SessionWires) {}
+	private readonly wires: SessionWires;
+
+	constructor(wires: SessionWires) {
+		this.wires = wires;
+	}
 
 	/** How the network is currently being bent. */
 	get current(): {

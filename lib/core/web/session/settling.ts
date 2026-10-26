@@ -69,11 +69,14 @@ export class PageSettler {
 	/** What the last settle saw, so a reader can qualify its answer. */
 	private last: Settled | undefined;
 
-	constructor(
-		private readonly wires: SessionWires,
-		/** The request log, for what may yet rewrite the page. */
-		private readonly requests: () => readonly NetworkRequest[],
-	) {}
+	private readonly wires: SessionWires;
+	/** The request log, for what may yet rewrite the page. */
+	private readonly requests: () => readonly NetworkRequest[];
+
+	constructor(wires: SessionWires, requests: () => readonly NetworkRequest[]) {
+		this.wires = wires;
+		this.requests = requests;
+	}
 
 	/** What the last settle saw, for a reader that wants to say so. */
 	get lastSeen(): Settled | undefined {
