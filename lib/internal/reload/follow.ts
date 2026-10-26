@@ -30,8 +30,14 @@
  */
 
 import { execFile } from "node:child_process";
-import { existsSync, type FSWatcher, statSync, watch } from "node:fs";
-import { join } from "node:path";
+import {
+	existsSync,
+	type FSWatcher,
+	lstatSync,
+	statSync,
+	watch,
+} from "node:fs";
+import { basename, dirname, join } from "node:path";
 
 /** How long a checkout must be still before its HEAD is read. */
 export const QUIET_MS = 3_000;
@@ -165,6 +171,16 @@ export interface Moved {
 /** Stops watching. */
 export type Unwatch = () => void;
 
+/** Whether a package root is a link, as an install of whole releases is. */
+function isLink(root: string): boolean {
+	try {
+		return lstatSync(root).isSymbolicLink();
+	} catch {
+		// A root that cannot be read is no link to follow.
+		return false;
+	}
+}
+
 // The HEAD each checkout was at when this code was loaded from it. Kept at
 // module level, which is exactly as long-lived as the code: pi reuses its
 // cached extension modules when a rollover or a resume replaces the
@@ -219,8 +235,17 @@ export async function watchHeads(
 		// Only the git directory, not refs/heads: moving the checked-out
 		// branch takes HEAD.lock there however it is moved (commit, merge,
 		// pull, even `git update-ref`), so a second watch adds nothing.
+		// An install named by a link moves by the link being renamed onto
+		// another release, in the folder that holds it, and the git
+		// directory watched through it is the old release's, which never
+		// moves again; so that folder is watched, for the link alone.
+		const link = isLink(root);
 		try {
-			const watcher = watch(dir, { persistent: false }, settle);
+			const watcher = link
+				? watch(dirname(root), { persistent: false }, (_kind, name) => {
+						if (name === null || String(name) === basename(root)) settle();
+					})
+				: watch(dir, { persistent: false }, settle);
 			watcher.on("error", () => watcher.close());
 			watchers.push(watcher);
 		} catch {
