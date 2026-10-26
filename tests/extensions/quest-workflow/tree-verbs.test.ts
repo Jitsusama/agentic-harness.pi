@@ -217,6 +217,26 @@ describe("tree-release", () => {
 		expect(fm?.pendingPrune).toBeUndefined();
 		expect(fm?.trees ?? []).toHaveLength(0);
 	});
+
+	it("drops the record of an adopted tree already gone, without force", async () => {
+		const state = buildState();
+		const q = await createQuest(state, "Feature G");
+		await handle(state, fakePi(), fakeCtx(repoRoot), {
+			action: "tree-adopt",
+			cwd: repoRoot,
+			force: true,
+		});
+		rmSync(repoRoot, { recursive: true, force: true });
+
+		const released = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "tree-release",
+			cwd: repoRoot,
+		});
+
+		expect(released.ok).toBe(true);
+		const fm = parseQuestFrontMatter(readFileSync(q.path, "utf8"))?.frontMatter;
+		expect(fm?.trees ?? []).toHaveLength(0);
+	});
 });
 
 describe("tree-release attached-session refusal", () => {
