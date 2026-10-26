@@ -1118,11 +1118,13 @@ export function meshWorkflow(
 
 		// A glance reaches the model with its next turn: at the end of this
 		// step while a run goes on, where pi appends it after the step's
-		// tool results, or with the start of the next run while idle.
+		// tool results, or with the start of the next run while idle. A
+		// pause asked for mid-run lands here too, the turn's tools done.
 		pi.on("turn_end", async () => {
 			leasing.stillAnswering();
 			const message = glanceDigest();
 			if (message) pi.sendMessage(message, { triggerTurn: false });
+			pausing.turnEnded();
 		});
 		// A run started by something else takes what was waiting to act
 		// with it, in full, and the turn it waited for is never started.
@@ -1166,9 +1168,6 @@ export function meshWorkflow(
 			peer?.setBusy(true);
 			// Whatever woke a paused session, it sleeps on.
 			pausing.started();
-		});
-		pi.on("turn_end", async () => {
-			pausing.turnEnded();
 		});
 		// And the step it is on, by the tool it runs, for the desktop's Busy;
 		// a talk the person follows hears the step, its reply as it is
