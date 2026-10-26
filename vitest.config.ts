@@ -38,6 +38,7 @@ const PROCESS_TESTS = [
 	"tests/extensions/review-starts-a-round-it-will-not-wait-for.test.ts",
 	"tests/extensions/subagent-workflow/fleet-outlives-its-session.test.ts",
 	"tests/lib/internal/reload/load-check.test.ts",
+	"tests/core/package/heavy-dependencies-load-on-use.test.ts",
 ];
 
 // Pi's loader rewrites the @sinclair/typebox imports onto its
@@ -71,7 +72,9 @@ export default defineConfig({
 				test: {
 					name: "unit",
 					include: ["tests/**/*.test.ts"],
-					exclude: PROCESS_TESTS,
+					// The browser tests have a lane of their own,
+					// vitest.browser.config.ts, since they need a real Chrome.
+					exclude: [...PROCESS_TESTS, "tests/core/browser/**"],
 					// Says which pi install this process belongs to before
 					// anything asks, so an upgrade of the pi running the
 					// session cannot fail tests that never spawn anything.
