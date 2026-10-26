@@ -3,8 +3,8 @@ import {
 	fanOutBy,
 	fanOutView,
 	summarizeFanOut,
-} from "../../../extensions/cost-workflow/fanout.ts";
-import { formatFanOut } from "../../../extensions/cost-workflow/report.ts";
+} from "../../../extensions/spend-workflow/fanout.ts";
+import { formatFanOut } from "../../../extensions/spend-workflow/report.ts";
 import type {
 	RunRecord,
 	SessionRecord,

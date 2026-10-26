@@ -1,12 +1,12 @@
 /**
- * Cost Workflow extension.
+ * Spend Workflow extension.
  *
  * The one place in this package that reasons about money. Cost is
  * derived from the session logs pi already writes rather than recorded a
  * second time, so there is a single writer of the truth and the ledger
  * can be rebuilt from scratch whenever its shape changes.
  *
- * The `cost` tool indexes those logs into a content-addressed store and
+ * The `spend` tool indexes those logs into a content-addressed store and
  * answers what was spent, grouped by repo, quest, document, model, day,
  * session, kind or thinking level. Fan-out is read from the run store beside it,
  * since subagents write no session log for the ledger to index.
@@ -164,7 +164,11 @@ export const COST_READING = "cost:reading";
  */
 const MARGINAL_WINDOW = 20;
 
-/** The name this extension carries its spend under when a log rolls over. */
+/**
+ * The name this extension carries its spend under when a log rolls over.
+ * Logs already written carry it under the extension's old name, so the
+ * name stays.
+ */
 const CARRY_NAME = "cost-workflow";
 
 /** Cost of an assistant turn, or zero for anything else. */
@@ -175,7 +179,7 @@ function assistantCost(message: { role: string }): number {
 	return 0;
 }
 
-export default function costWorkflow(pi: ExtensionAPI) {
+export default function spendWorkflow(pi: ExtensionAPI) {
 	let store: TurnStore | null = null;
 	let reader: LedgerReader | null = null;
 	let ledgerPath = "";
@@ -345,12 +349,12 @@ export default function costWorkflow(pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		name: "cost",
+		name: "spend",
 		// Called in 6 of 77 sessions from 8 October: loaded on demand.
 		exposure: "deferred",
-		label: "Cost",
+		label: "Spend",
 		description:
-			"Report what pi has actually cost, from the session logs it " +
+			"Report what pi has actually spent, from the session logs it " +
 			"already writes, with subagent fan-out from the run store beside " +
 			"it. Group by repo, quest, document, model, day, session, kind or " +
 			"thinking level, or omit a dimension for the overall total. Indexing is " +
@@ -363,7 +367,7 @@ export default function costWorkflow(pi: ExtensionAPI) {
 			"views.",
 		promptSnippet:
 			"When asked what something cost, what the spend is, or where the " +
-			"money went, read it from the ledger with the cost tool rather " +
+			"money went, read it from the ledger with the spend tool rather " +
 			"than estimating.",
 		parameters: Type.Object({
 			by: Type.Optional(

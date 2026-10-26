@@ -14,7 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { indexSessionLogs } from "../../../extensions/cost-workflow/indexer.ts";
+import { indexSessionLogs } from "../../../extensions/spend-workflow/indexer.ts";
 import {
 	earliest,
 	forgetLastReading,
@@ -25,7 +25,7 @@ import {
 	recordTurn,
 	type Sample,
 	useByQuest,
-} from "../../../extensions/cost-workflow/resources.ts";
+} from "../../../extensions/spend-workflow/resources.ts";
 import {
 	openLedgerReader,
 	openTurnStore,
@@ -96,7 +96,7 @@ describe("a turn's end", () => {
 		recordTurn("a.jsonl", { dir, read: () => reading(1000, 0) });
 		// A reload loads this module again, as a copy of its own.
 		vi.resetModules();
-		const copy = await import("../../../extensions/cost-workflow/resources.ts");
+		const copy = await import("../../../extensions/spend-workflow/resources.ts");
 		expect(copy.recordTurn).not.toBe(recordTurn);
 		const second = copy.recordTurn("a.jsonl", {
 			dir,

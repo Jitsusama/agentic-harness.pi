@@ -2,11 +2,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { AUDIT_QUERIES, weeks } from "../../../extensions/cost-workflow/audit";
+import { AUDIT_QUERIES, weeks } from "../../../extensions/spend-workflow/audit";
 import {
 	type AuditQuery,
 	gatherAudit,
-} from "../../../extensions/cost-workflow/audit-input";
+} from "../../../extensions/spend-workflow/audit-input";
 
 const NOW = Date.parse("2026-10-26T12:00:00Z");
 const { current, prior } = weeks(NOW);

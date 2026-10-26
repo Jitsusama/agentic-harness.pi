@@ -7,11 +7,11 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { formatAudit, weeks } from "../../../extensions/cost-workflow/audit.ts";
+import { formatAudit, weeks } from "../../../extensions/spend-workflow/audit.ts";
 import {
 	byRepo,
 	standingOf,
-} from "../../../extensions/cost-workflow/standing.ts";
+} from "../../../extensions/spend-workflow/standing.ts";
 
 function log(lines: unknown[]): string {
 	const dir = mkdtempSync(join(tmpdir(), "audit-"));

@@ -1,4 +1,4 @@
-# Cost Workflow
+# Spend Workflow
 
 The one place in this package that reasons about money.
 
@@ -18,7 +18,7 @@ first.
 
 ## What It Answers
 
-The `cost` tool reports the overall total, or spend grouped by repo,
+The `spend` tool reports the overall total, or spend grouped by repo,
 quest, model, day, session or kind. Each slice carries its turn count and
 its cost per turn, which is the figure worth watching: cost per turn is
 97 percent explained by the context resident when a turn runs, and it
@@ -26,7 +26,7 @@ varies more than fivefold between subjects.
 
 ## The Weekly Audit
 
-`cost` with `audit` answers "where did the week go, and what is worth
+`spend` with `audit` answers "where did the week go, and what is worth
 fixing" in one call, held against the week before:
 
 - **Spend:** the total, and what share went on cache reads, cache
@@ -59,7 +59,7 @@ out, since only a running pi knows which they are.
 
 ## Disk Is a Cost Too
 
-`cost` with `disk` reports what each quest holds on disk, heaviest
+`spend` with `disk` reports what each quest holds on disk, heaviest
 first: its workspace and the trees it scaffolded, never its record. A
 finished quest's workspace is counted as able to go now. Trees a
 finished quest left behind are named apart, since their prune was
@@ -74,7 +74,7 @@ rather than a flow of turns.
 
 ## So Are CPU, Disk I/O and Memory
 
-`cost` with `resources` reports the CPU time, the bytes read from and
+`spend` with `resources` reports the CPU time, the bytes read from and
 written to storage, and the most memory pi held, for each quest's
 sessions, heaviest CPU first. CPU is split between pi itself and what
 it ran: the commands, builds and subagents it started.
@@ -195,7 +195,7 @@ dependency, and it is DuckDB doing the retrospecting either way.
 
 ## Files
 
-- `index.ts`: registration, store lifecycle and the `cost` tool.
+- `index.ts`: registration, store lifecycle and the `spend` tool.
 - `indexer.ts`: walking pi's session directories incrementally.
 - `report.ts`: pure formatting, tested without loading pi.
 - `disk.ts`: the disk report, over `lib/internal/quest/footprint.ts`,

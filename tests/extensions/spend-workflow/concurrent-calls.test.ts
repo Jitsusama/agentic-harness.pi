@@ -1,5 +1,5 @@
 /**
- * Two `cost` calls at once.
+ * Two `spend` calls at once.
  *
  * Every call indexes the session logs before it answers, and parallel
  * tool calls or a codemode script's Promise.all start two at the same
@@ -12,7 +12,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import costWorkflow from "../../../extensions/cost-workflow/index.ts";
+import spendWorkflow from "../../../extensions/spend-workflow/index.ts";
 
 interface Tool {
 	execute(
@@ -80,8 +80,8 @@ function costTool(): Tool {
 		},
 		events: { on: () => () => {}, emit: () => {} },
 	};
-	costWorkflow(pi as never);
-	if (!found) throw new Error("the cost tool was not registered");
+	spendWorkflow(pi as never);
+	if (!found) throw new Error("the spend tool was not registered");
 	return found;
 }
 
