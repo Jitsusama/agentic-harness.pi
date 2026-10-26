@@ -205,13 +205,13 @@ treats the scratch folder and devices as first-class so ad-hoc
 work is never cornered. Writes to a `/dev` node (the
 discard sink, the standard streams) always flow. While a
 quest is loaded, commands run with `TMPDIR` pointing at its
-scratch folder's `tmp/`, which is cleared when the quest
-concludes or retires: use `$TMPDIR` or `mktemp`, never a
-path you name in `/tmp`, which is refused with that
-remedy. A write to any quest's scratch folder flows, so a
-note left in another quest's flows too. Write working
-material straight into the scratch folder rather than
-`tmp/` when it should outlive the session. In `think` or `draft`,
+scratch folder's `tmp/`, and with Go's caches in the scratch
+folder too. Use `$TMPDIR` or `mktemp`, never a path you name
+in `/tmp`, which is refused with that remedy. Concluding or
+retiring removes the whole scratch folder, so move what's
+worth keeping into `attachments/` first. A write to any
+quest's scratch folder flows, so a note left in another
+quest's flows too. In `think` or `draft`,
 only edits to tracked code in the quest's own trees wait
 for `build` (any tree, while the quest tracks none). In `build`, a write inside any tree the quest
 tracks flows; a write inside a git tree the quest does not

@@ -108,18 +108,18 @@ async function batch(size: number) {
 
 describe("sweeping quests by id", () => {
 	for (const action of ["conclude", "retire"] as const) {
-		it(`clears each quest's workspace tmp/ on ${action}, keeping the rest`, async () => {
+		it(`removes each quest's whole scratch folder on ${action}`, async () => {
 			const { state, ids, workspace, sweep } = await twoQuests();
 			const result = await sweep(action);
 			expect(result.ok).toBe(true);
 			for (const id of ids) {
 				expect(existsSync(workspace(id, "tmp"))).toBe(false);
-				expect(existsSync(workspace(id, "lab/results.csv"))).toBe(true);
+				expect(existsSync(workspace(id, "lab/results.csv"))).toBe(false);
 				const dir = join(state.questsRoot, id);
 				expect(readFileSync(harnessLogPath(dir), "utf8")).toContain(
-					"Cleared the scratch folder's tmp/.",
+					"Removed its scratch folder",
 				);
-				expect(journeyOf(dir)).not.toContain("Cleared the scratch folder");
+				expect(journeyOf(dir)).not.toContain("Removed its scratch folder");
 			}
 		});
 	}
