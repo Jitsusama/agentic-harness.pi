@@ -11,7 +11,7 @@
 import { automatedHeader, automatedText } from "../internal/automated.ts";
 
 const CARRY_ON =
-	"Carry on with the task you were working on from where you left off.";
+	"Carry on with what you were working on, from where you left off.";
 
 /** Why a resume after a compaction landed was sent. */
 const COMPACTED = "the context was compacted to keep this session affordable";

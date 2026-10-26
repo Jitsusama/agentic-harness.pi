@@ -476,7 +476,7 @@ export function meshWorkflow(
 				setAside: (inbox, names) => {
 					if (!ctx?.hasUI) return;
 					ctx.ui.notify(
-						`Steer: set aside ${names.join(", ")} in ${inbox}, which held no text to deliver.`,
+						`Talk: set aside ${names.join(", ")} in ${inbox}, which held no text to deliver.`,
 						"warning",
 					);
 				},

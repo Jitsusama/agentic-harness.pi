@@ -11,8 +11,8 @@
  * still needs, but not all of it is equally safe to let go. Its
  * workspace is raw material kept only in case it reopens, so it counts
  * as reclaimable. A tree it made that is still on disk is one whose
- * prune was refused when it ended, for work not yet merged or not yet
- * committed, so it is counted as left behind: only a prune, which
+ * release was refused when it ended, for work not yet merged or not yet
+ * committed, so it is counted as left behind: only a release, which
  * checks that its work is safe, may take it. A quest still under way
  * holds all of it. Trees a quest
  * adopted are the person's own checkouts, often shared by several

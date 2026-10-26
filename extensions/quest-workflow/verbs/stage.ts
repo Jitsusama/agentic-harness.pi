@@ -317,7 +317,7 @@ export function stageTransition(
 			scaffoldBody: body,
 		});
 		if (!path) {
-			return refuse("Failed to scaffold document; is a quest loaded?");
+			return refuse("Failed to write the document; is a quest loaded?");
 		}
 		state.documentId = id;
 		state.documentPath = path;

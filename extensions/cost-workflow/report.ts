@@ -126,7 +126,7 @@ export function formatFanOut(
 			? ""
 			: ` since ${new Date(summary.since).toISOString().slice(0, 10)}`;
 	const lines = [
-		`Fan-out, not in the total above: ${money(summary.cost)} over ` +
+		`Fleets, not in the total above: ${money(summary.cost)} over ` +
 			`${summary.runs.toLocaleString()} subagent ${noun} in the run store${since}`,
 	];
 	if (view?.dimension !== "kind") {
@@ -151,7 +151,7 @@ export function formatFanOut(
 				? ` (${total} named, ${money(blank.cost)} unattributed, ` +
 					`${((blank.cost / summary.cost) * 100).toFixed(0)}%)`
 				: "";
-		lines.push("", `Fan-out by ${view.dimension}${share}`);
+		lines.push("", `Fleets by ${view.dimension}${share}`);
 		for (const s of named) {
 			lines.push(
 				`  ${elide(s.key).padEnd(KEY_WIDTH)} ${money(s.cost).padStart(9)}` +

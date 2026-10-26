@@ -325,7 +325,7 @@ function enforceHome(
 		block: true,
 		outside,
 		reason:
-			"Quest workflow: this quest is in build, but this write lands outside every git working tree. Run `tree-add` to scaffold one (pass cwd to choose the repo, no need to change your session's directory), or write inside a git tree this quest works in. A write that belongs outside every tree (live machine config, a shared file) is noted for the quest when it goes ahead, and conclude names it. Do not unload the quest to bypass this.",
+			"Quest workflow: this quest is in build, but this write lands outside every git tree. Run `tree-add` to cut one (pass cwd to choose the repo, no need to change your session's directory), or write inside a git tree this quest works in. A write that belongs outside every tree (live machine config, a shared file) is noted for the quest when it goes ahead, and conclude names it. Do not unload the quest to bypass this.",
 	});
 	const adoptBlock = (root: string): QuestVerdict => ({
 		guard: GUARDS.questUntrackedTree.name,
