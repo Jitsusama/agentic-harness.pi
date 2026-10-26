@@ -26,6 +26,13 @@
 		"./compaction": "./lib/compaction/index.ts",
 		"./mcp": "./lib/mcp/index.ts",
 		"./jobs": "./lib/jobs/index.ts",
+		"./core/exec": "./lib/core/exec/index.ts",
+		"./core/quest": "./lib/core/quest/index.ts",
+		"./core/quest/config": "./lib/core/quest/config.ts",
+		"./core/result": "./lib/core/result/index.ts",
+		"./core/review": "./lib/core/review/index.ts",
+		"./core/tree": "./lib/core/tree/index.ts",
+		"./core/work": "./lib/core/work/index.ts",
 		"./ts-import-specifiers": "./scripts/ts-import-specifiers.ts"
 	},
 	"scripts": {
