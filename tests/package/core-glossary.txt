@@ -70,6 +70,8 @@ first in the queue and conclude.
 | orchestrator | a session whose quest holds other quests: it hands out their work and gathers what waits on Joel | steward | `orchestrator: true` |
 | orchestration | an orchestrator and every session on a quest below it | | `#orchestration/<address>` |
 | talk | Joel's words to an orchestrator or a session, typed in its field from outside its window | steer | `steer/<ADDRESS>/` |
+| pause | Joel stopping a session after its turn, from outside its window, until he resumes it, talks to it or types in it | | presence `paused` |
+| resume | Joel letting a paused session carry on where it left off | | |
 | waiting on | what a session can't go on without: Joel, an answer, or its turn in the queue | | |
 | Working on | the line a session tells its peers about its work | Works on | `worksOn` |
 | peer | another session on the same machine, reached over the mesh | instance, swarm | |
@@ -178,7 +180,7 @@ machine can sleep, lock, log out, reboot and power off.
 | charger | the power cable, and what it's plugged into | mains | AC |
 | Keep awake | the setting that keeps the machine from sleeping or locking while it's on | Caffeinate | |
 | sleep | the machine paused with its memory kept, until it wakes | suspend | `systemctl suspend`, s2idle |
-| wake | coming back from sleep | resume | |
+| wake | coming back from sleep | | |
 | log out | ending the desktop, back to the greeter | sign out | `session:` |
 | reboot | starting the machine again | restart | |
 | power off | turning the machine off | shut down | |

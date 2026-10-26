@@ -21,6 +21,9 @@ barrel, never from a file behind it.
 - **[`compaction/`](compaction/)**: when compacting pays, the
   contract a summary provider registers over the bus, and how a
   summary is asked for, sized and spliced in.
+- **[`glossary/`](glossary/)**: whether a name says core.nix's
+  glossary's words or a name it replaces, the matcher every
+  repository holds its names to.
 - **[`google/`](google/)**: Google Workspace clients, renderers and
   types, with `google/auth` for the interactive sign-in.
 - **[`guardian/`](guardian/)**: the guardian contract,
