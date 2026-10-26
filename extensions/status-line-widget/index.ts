@@ -157,7 +157,8 @@ export default function statusLine(pi: ExtensionAPI) {
 			// most often draws the same one, and fitting it measures every
 			// grapheme.
 			let fitted = { line: "", columns: -1, out: [""] };
-			const fit = (line: string, columns: number): string[] => {
+			// Named so a linter can't take it for a focused test's `fit`.
+			const fitToWidth = (line: string, columns: number): string[] => {
 				if (fitted.line !== line || fitted.columns !== columns) {
 					fitted = { line, columns, out: [truncateToWidth(line, columns)] };
 				}
@@ -211,11 +212,11 @@ export default function statusLine(pi: ExtensionAPI) {
 
 					const { left, right } = layout(facts, columns);
 					const leftText = paint(left, thinking);
-					if (right.length === 0) return fit(leftText, columns);
+					if (right.length === 0) return fitToWidth(leftText, columns);
 					const room = columns - width(left) - width(right);
 					const line =
 						leftText + " ".repeat(Math.max(2, room)) + paint(right, thinking);
-					return fit(line, columns);
+					return fitToWidth(line, columns);
 				},
 			};
 		});

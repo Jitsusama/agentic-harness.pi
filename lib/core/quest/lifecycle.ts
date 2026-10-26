@@ -30,7 +30,6 @@ import { nowYmd } from "../../internal/quest/dates.ts";
 import {
 	discoverQuests,
 	type QuestEntry,
-	siblingRanks,
 } from "../../internal/quest/discovery.ts";
 import type { QuestFieldLens } from "../../internal/quest/fields.ts";
 import { explainDocumentFrontMatter } from "../../internal/quest/frontmatter.ts";
@@ -46,7 +45,6 @@ import {
 } from "../../internal/quest/process-liveness.ts";
 import {
 	diffRanks,
-	nextRank,
 	type RankEntry,
 	after as rankAfter,
 	before as rankBefore,
@@ -67,7 +65,6 @@ import {
 	parseQuestDoc,
 	type QuestAlias,
 	type QuestFrontMatter,
-	type QuestPriority,
 	type QuestSession,
 	type QuestStatus,
 	serializeDocumentFrontMatter,
