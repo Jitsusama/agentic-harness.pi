@@ -252,7 +252,7 @@ async function setupViaDirect(
 	}
 
 	const cookieInput = await ctx.ui.editor(
-		"Enter your Slack session cookie (xoxd-...):",
+		"Enter your Slack sign-in cookie (xoxd-...):",
 		"",
 	);
 	if (!cookieInput) return null;

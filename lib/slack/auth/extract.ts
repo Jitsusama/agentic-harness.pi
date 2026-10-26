@@ -6,7 +6,7 @@
  * token and xoxd- cookie. This module extracts them.
  */
 
-/** Extracted browser session credentials. */
+/** Extracted browser sign-in credentials. */
 export interface BrowserCredentials {
 	token: string;
 	cookie: string;
@@ -55,7 +55,7 @@ export function isValidToken(token: string): boolean {
 	return /^xox[cpb]-/.test(token);
 }
 
-/** Validate that a cookie looks like a Slack session cookie. */
+/** Validate that a cookie looks like a Slack sign-in cookie. */
 export function isValidCookie(cookie: string): boolean {
 	return cookie.startsWith("xoxd-");
 }

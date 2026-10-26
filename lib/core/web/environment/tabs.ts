@@ -57,7 +57,7 @@ export function chooseTab(
 	if (tabs.length === 0) {
 		return {
 			refusal:
-				"There are no tabs open to switch to, which means the session " +
+				"There are no tabs open to switch to, which means the browser " +
 				"has no page at all rather than the wrong one.",
 		};
 	}

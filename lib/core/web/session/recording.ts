@@ -49,7 +49,7 @@ export function claimRecording(
 		const since = current.startedAt.toISOString().slice(11, 19);
 		return {
 			refusal:
-				`Session ${current.session} has been recording a trace since ` +
+				`Browser ${current.session} has been recording a trace since ` +
 				`${since}. The browser allows one at a time, so this one ` +
 				"cannot start until that finishes.",
 			held: current,
@@ -84,8 +84,8 @@ export function describeRecording(
 	if (recording === undefined) return undefined;
 	const whose =
 		recording.session === viewer
-			? "this session"
-			: `session ${recording.session}`;
+			? "this browser"
+			: `browser ${recording.session}`;
 	return (
 		`Tracing is on, started by ${whose} at ` +
 		`${recording.startedAt.toISOString().slice(11, 19)} ` +

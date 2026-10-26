@@ -121,7 +121,7 @@ export function renderSockets(sockets: readonly SocketRecord[]): string {
 		// Worth saying plainly. A socket that opened and said nothing
 		// and a recorder that was not listening look identical in an
 		// empty report, and they mean opposite things.
-		return "No websocket traffic. The page opened no sockets while this session was recording.";
+		return "No websocket traffic. The page opened no sockets while this browser was recording.";
 	}
 
 	const blocks = sockets.map((socket) => {

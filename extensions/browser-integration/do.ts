@@ -87,7 +87,9 @@ const parameters = Type.Object({
 		),
 	),
 	session: Type.Optional(
-		Type.String({ description: "Session name. Defaults to 'default'." }),
+		Type.String({
+			description: "Which browser, by name. Defaults to 'default'.",
+		}),
 	),
 	expression: Type.Optional(
 		Type.String({
@@ -327,7 +329,7 @@ const parameters = Type.Object({
 					"'frames' reports what the compositor did, for a page that " +
 					"scrolls or animates badly. Pass both for both. Tracing " +
 					"is browser-wide and only one can run at a time, so a " +
-					"second session asking is refused, and every page pays " +
+					"second browser asking is refused, and every page pays " +
 					"while it runs.",
 			},
 		),

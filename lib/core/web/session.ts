@@ -571,7 +571,7 @@ export class CookieSetupNeeded extends Error {
 	constructor() {
 		super(
 			"Chrome cookie injection is not set up. Run Chrome cookie " +
-				"setup, or open the session without cookies.",
+				"setup, or open the browser without cookies.",
 		);
 		this.name = "CookieSetupNeeded";
 	}
@@ -904,8 +904,8 @@ export class BrowserSession {
 				ok: false,
 				refusal:
 					direction === "back"
-						? "There is nothing behind this page in the session's " +
-							"history. It is where the session started."
+						? "There is nothing behind this page in the browser's " +
+							"history. It is where the browser started."
 						: "There is nothing ahead of this page. Going forward " +
 							"only works after going back.",
 			};
