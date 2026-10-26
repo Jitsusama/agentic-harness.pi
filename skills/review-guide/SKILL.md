@@ -140,15 +140,15 @@ being wrong is expensive.
 And nothing here replaces reading the code. A council that finds
 nothing is not a change with nothing wrong with it.
 
-## Check the Direction With the User Before a Council
+## Check the Direction With the Person Before a Council
 
 A council is told what is wrong with a change as written. It is not
 asked whether the change should exist in this shape at all, and a
 change heading the wrong way gets four careful readings of the wrong
-thing. The user can usually tell in a few seconds whether the
+thing. The person can usually tell in a few seconds whether the
 direction is right, and a round costs tens of dollars.
 
-So before a council on a change you wrote, show the user a short
+So before a council on a change you wrote, show the person a short
 check with the `ask` tool and wait for the answer:
 
 - what the change does and why, in two or three sentences
@@ -162,13 +162,13 @@ Offer to go ahead, to change direction first, or to skip the council.
 
 Ask even when a plan says to run the council after this step. The plan
 agreed that the change would be reviewed, not that the change turned
-out the way the user pictured it, and that is the question.
+out the way the person pictured it, and that is the question.
 
 This is a question, not a gate, and three cases do not ask it:
 
-- The user asked for a council on this change just now. That is the
+- The person asked for a council on this change just now. That is the
   answer.
-- The user said they are away or want the work to run unattended.
+- The person said they are away or want the work to run unattended.
   Waiting would stall the work for hours to save minutes, so write the
   same check into your report where they will read it, and go ahead.
 - The change is somebody else's. The direction is its author's to
@@ -669,7 +669,7 @@ somebody restacks it, so a finding recorded as "the second change"
 becomes a finding about something else the moment anything lands
 underneath.
 
-It needs a provider that reads stacks, and it needs proposals: a stack
+It needs a provider that reads stacks, and it needs changes: a stack
 of branches nobody has proposed is still a stack, but it carries no
 bodies or diffs to read. Both refusals say which.
 
@@ -925,7 +925,7 @@ and a recycled number makes an earlier conversation wrong.
 ## Never Assume GitHub
 
 The provider is resolved from configuration, then from
-provider claims, then from the shapes the user has mapped.
+provider claims, then from the shapes the person has mapped.
 A reference is a URL, an `owner/repo#number` short form, or
 a bare number inside a checkout.
 
@@ -991,7 +991,7 @@ naming a different change beside it is refused.
 4. `publish`.
 
 **Always plan before publishing, and say what will degrade
-before the user finds out from the result.** The plan names
+before the person finds out from the result.** The plan names
 what will land where it was aimed, what will land somewhere
 else and why, and what cannot land at all. A remark whose
 anchor is not in the diff spills into the body; a batch too
@@ -1025,7 +1025,7 @@ addresses exist.
 
 Anything that changes somebody else's change opens a
 confirmation gate. Describe what you are about to post
-before calling it, so the gate confirms a decision the user
+before calling it, so the gate confirms a decision the person
 already understands rather than presenting them with one.
 
 Without a UI the gate approves, so a tool running inside a

@@ -121,7 +121,7 @@ Figure out how to run tests from the project's context:
 - Check AGENTS.md or project documentation.
 - Look at package.json scripts, Makefile, Cargo.toml, etc.
 - Look at existing test files for patterns and conventions.
-- If unclear, ask the user.
+- If unclear, ask the person.
 
 ## Test File Conventions
 

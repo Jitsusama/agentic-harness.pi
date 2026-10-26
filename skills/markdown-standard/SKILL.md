@@ -13,7 +13,7 @@ description: >
 
 # Markdown Standard
 
-Markdown documents are read by humans first. The rules here keep
+Markdown documents are read by people first. The rules here keep
 the source legible in a plain text editor, the rendered output
 legible in a browser and the diff legible on a PR.
 

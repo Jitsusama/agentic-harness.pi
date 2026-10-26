@@ -8,7 +8,7 @@ description: >
   progress and deviation. Use when planning, designing before
   building, driving the plan tool, or writing a plan file. Works
   for code, investigation, writing and ops plans alike. Follow
-  the user's prose standard for any text in the plan.
+  the person's prose standard for any text in the plan.
 ---
 
 # Planning
@@ -24,7 +24,7 @@ kinds (plan, research, brief, report) that live under a loaded
 quest. The plan document is the single source of truth: it
 survives reloads, resumes and cold starts, and the workflow
 rehydrates from it. The tool is a tracker, not a gate. It
-never prompts the user; it only reflects where the work is
+never prompts the person; it only reflects where the work is
 and reminds you of the posture for each stage.
 
 A plan exists under a quest. If no quest is loaded when you
@@ -81,7 +81,7 @@ problem high level first, because a change up top invalidates the
 detail below it. Take one thread at a time rather than a wall of
 parallel points.
 
-Ask the user only when something genuinely blocks you, and ask in
+Ask the person only when something genuinely blocks you, and ask in
 plain conversation, one question at a time. There is no interview
 tool and no batch of questions. If you are explaining, analyzing
 or proposing, that is conversation, not a question.
@@ -175,7 +175,7 @@ stages.
 When build surfaces something the plan did not foresee, the
 response depends on what changes.
 
-- A change to the **spirit or the approach** needs the user's
+- A change to the **spirit or the approach** needs the person's
   consent. Stop, explain what you found and what you would
   change, and get their agreement before proceeding.
 - Anything **smaller**, you just do, and record it in Discovery &

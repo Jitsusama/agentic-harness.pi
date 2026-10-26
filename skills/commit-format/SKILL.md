@@ -5,7 +5,7 @@ description: >
   subject and body rules, and how to get the message into
   git. Use when writing a commit message. Pairs with
   git-commit-convention for when to commit and what belongs
-  in one. Follow the user's writing voice and prose style
+  in one. Follow the person's writing voice and prose style
   guides for body text.
 ---
 

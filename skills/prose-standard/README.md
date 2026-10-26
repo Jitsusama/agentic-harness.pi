@@ -19,6 +19,6 @@ any prose it produces feels authentic and consistent.
   placement covered by `code-style-standard`)
 - Title Case for all headings
 - Kind, bridge-building language when addressing people
-- Audience-specific strategies for human-facing and
+- Audience-specific strategies for people-facing and
   LLM-facing content
 - Applies to commit message bodies alongside `commit-format`

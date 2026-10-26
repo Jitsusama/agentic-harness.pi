@@ -15,9 +15,9 @@ description: >
 Access Slack through the `slack` tool. Translates natural
 language requests into structured API calls.
 
-When composing messages on behalf of the user (not just
-relaying information), follow the user's writing voice and
-prose style guides. The message should sound like the user
+When composing messages on behalf of the person (not just
+relaying information), follow the person's writing voice and
+prose style guides. The message should sound like the person
 wrote it.
 
 ## Authentication
@@ -31,7 +31,7 @@ The extension tracks the authenticated user's Slack handle in
 session state. Once populated, it's injected into agent context
 automatically so you always know who you're acting on behalf of.
 
-**First session**: call `get_user` with the user's handle early
+**First session**: call `get_user` with the person's handle early
 in the conversation to verify identity and populate the session
 state. Don't guess handles from project context; verify them.
 
@@ -41,13 +41,13 @@ Use the known handle for `from:` queries without re-verifying.
 ## Core Principle: Present Results, Don't Parrot
 
 After a tool call returns, **summarise the results conversationally**.
-Don't just say "here are the results", since the user already sees
+Don't just say "here are the results", since the person already sees
 the collapsed tool output. Add value by highlighting what matters:
 
 - Name the people involved and what they said
 - Call out the key topic or decision
 - Note dates/timing if relevant
-- Mention thread depth or follow-up if the user might want more
+- Mention thread depth or follow-up if the person might want more
 
 **Bad:** "Here are your last 5 messages to Chao Duan."
 **Good:** "Your last 5 messages to Chao Duan were yesterday evening,
@@ -106,7 +106,7 @@ instead. This is a Slack API limitation, not a tool limitation.
   messages the index doesn't match, and is unreliable for
   comprehensive queries. Only use `with:` when you need
   keyword filtering across all conversations (DMs, group
-  DMs and channels together) and tell the user the results
+  DMs and channels together) and tell the person the results
   include shared channel messages.
 
   To get the user ID, call `get_user` first if you only
@@ -121,7 +121,7 @@ instead. This is a Slack API limitation, not a tool limitation.
 ### "Last thread I started in [channel]"
 → `search_messages` with `from: "me"` and `channel: "channel-name"`
   Slack has no "thread parent only" operator. `is:thread`
-  matches replies too. To find threads the user *started*,
+  matches replies too. To find threads the person *started*,
   look for messages with `[N replies]` in the output: these
   are thread parents. Messages without a reply count are
   either top-level posts with no thread or replies within
@@ -135,7 +135,7 @@ instead. This is a Slack API limitation, not a tool limitation.
   Every message in tool results includes a `(ts:...)` value
   in its header line. Use that exact value. **Never fabricate
   or guess a timestamp**, because Slack timestamps are precise
-  identifiers, not derivable from human-readable dates.
+  identifiers, not derivable from readable dates.
 
 ### "Get that specific message from the thread"
 → `get_message` with `channel`, `ts` (the reply's ts) and
@@ -166,7 +166,7 @@ instead. This is a Slack API limitation, not a tool limitation.
 
 ### "Send [person/channel] a message saying ..."
 → `send_message` with `channel` and `text`
-- The user sees a confirmation gate before it sends
+- The person sees a confirmation gate before it sends
 
 ### "Start a group DM with [person] and [person]"
 → `send_message` with `channel` set to comma-separated user
@@ -201,10 +201,10 @@ instead. This is a Slack API limitation, not a tool limitation.
   the complete new text, not just the part that changed.
 - Cannot add or remove file attachments, because Slack's
   `chat.update` API only changes text and blocks. If the
-  user wants to swap attachments, delete the message and
+  person wants to swap attachments, delete the message and
   re-upload.
 - The confirmation gate shows the new text exactly as it
-  will appear after the edit. The user approves, rejects
+  will appear after the edit. The person approves, rejects
   or redirects with notes, the same flow as `send_message`.
 - Works on top-level messages and thread replies
   identically. Use the reply's own `ts`, not the thread
@@ -218,7 +218,7 @@ slack({ action: "edit_message", target: "https://...permalink...",
 ### "Reply to that thread with these messages ..." / "Send these as replies"
 → `reply_to_thread` with `channel`, `ts` and a `messages`
   array (same shape as `send_thread`)
-- Use this when the user has several thoughts that belong
+- Use this when the person has several thoughts that belong
   on an existing thread and you want to queue them up for
   a single review pass.
 - Mutually exclusive with `text`, `file_path`/`file_paths`
@@ -250,7 +250,7 @@ slack({ action: "edit_message", target: "https://...permalink...",
 - When `file_path` or `file_paths` is present on
   `send_message` or `reply_to_thread`, the file gets
   uploaded and shared alongside the message text.
-- This is the natural choice when the user wants both a
+- This is the natural choice when the person wants both a
   message and a file attachment in a single action.
 
 ### "Upload these files" / "Share all of these"
@@ -270,18 +270,18 @@ slack({ action: "edit_message", target: "https://...permalink...",
   before anything is sent. Rejecting or redirecting any
   single message halts the entire thread and nothing is
   sent.
-- When the user rejects or steers a message, their note
+- When the person rejects or redirects a message, their note
   tells you what to change. Rewrite the affected
   message(s) based on their feedback and resubmit the
   full `messages` array. Don't drop the rejected message;
   fix it. Don't resend only the rejected one; the whole
   thread must be reviewed together.
-- Every message must be reviewed. If the user submits
+- Every message must be reviewed. If the person submits
   early (Ctrl+Enter or Ctrl+S) without reviewing all tabs, the
   gate rejects with a note asking them to review
   everything.
 - The same `messages` array works on `reply_to_thread`
-  when the user wants to queue several replies on an
+  when the person wants to queue several replies on an
   existing thread instead of starting a new one. See
   the "Reply to that thread with these messages" entry
   above.
@@ -297,9 +297,9 @@ slack({ action: "send_thread", channel: "#team-updates",
 
 ### Ambiguous Date Ranges
 
-When the user says "last 3 months", "recently" or "this
+When the person says "last 3 months", "recently" or "this
 quarter", state the exact date range you're using (e.g.,
-"Searching from December 27 to today") so the user can
+"Searching from December 27 to today") so the person can
 correct it if it doesn't match their intent.
 
 ### "Messages I reacted to" / "Where did I react"
@@ -341,8 +341,8 @@ Structured parameters (`from`, `with`, `channel`, `after`,
 
 **No "starts with" operator**: Slack search matches a phrase
 anywhere in the message body, not just at the start. When
-the user asks for messages starting with a phrase, search
-for that phrase and tell the user that results include any
+the person asks for messages starting with a phrase, search
+for that phrase and tell the person that results include any
 message containing it. Post-filtering on returned text is
 approximate since message text in results may be truncated.
 
@@ -370,18 +370,18 @@ All identifier formats are resolved automatically:
 
 ### Remember Previous Results
 
-After `search_messages`, remember the message list. The user
+After `search_messages`, remember the message list. The person
 may say:
 - "Show me the thread for the first one" → use the permalink
   or channel + ts from the result
 - "What's the context for that third message" → get_thread
 - "Reply to that" → use channel + ts from the message
 
-After `list_messages` in a channel, the user may say:
+After `list_messages` in a channel, the person may say:
 - "What's that thread about" → get_thread with channel + ts
 - "Send a reply" → reply_to_thread
 
-After `get_user`, the user may ask:
+After `get_user`, the person may ask:
 - "Send them a message" → use the user ID as channel
 
 ### Thread Navigation
@@ -406,7 +406,7 @@ downloaded and returned as text content.
 
 **Other file types** are not downloaded but their URLs
 are rendered as markdown links (`📄 [name](url)`) so
-the user can access them manually.
+the person can access them manually.
 
 **Bulk fetches** (`list_messages`, `search_messages`)
 don't auto-download files; they show file references
@@ -420,7 +420,7 @@ the rendered text.
 
 ## Response Formatting
 
-When presenting results to the user:
+When presenting results to the person:
 
 1. **Lead with a summary**: "Found 5 messages from you to
    Chao Duan, all from yesterday evening."
@@ -445,7 +445,7 @@ fetches as many pages as needed.
 - **Specific count**: pass any number. `limit: 1000` fetches
   up to 1000, paging through internally.
 
-**When the user asks a question that requires comprehensive
+**When the person asks a question that requires comprehensive
 data** (e.g. "how many times did I ...", "find all messages
 about ...", "what did I say over the past N months"), **always
 pass `limit: 0`** with appropriate `oldest`/`latest` params.
@@ -459,11 +459,11 @@ whole set: count with a filter, project just the fields you
 need, group by author. That is the workflow for a comprehensive
 question. Fetch wide with `limit: 0`, then query the handle.
 Asking for a narrower window in order to fit the answer trades
-the accuracy the user asked for against a limit that no longer
+the accuracy the person asked for against a limit that no longer
 binds.
 
 For search results, when the total exceeds what was fetched,
-the output says so. Relay this to the user and offer to fetch
+the output says so. Relay this to the person and offer to fetch
 the rest with a higher limit.
 
 ## Efficiency: Minimise Tool Calls
@@ -543,9 +543,9 @@ hasmy::100: after:2025-03-20
 
 Run multiple `search_messages` calls with these queries.
 Deduplicate across results and filter by conversation `kind`
-if the user asks about DMs specifically.
+if the person asks about DMs specifically.
 
-**Warn the user** that this only covers common emojis. Custom
+**Warn the person** that this only covers common emojis. Custom
 or unusual reactions may be missed.
 
 ## Message Formatting
@@ -725,7 +725,7 @@ slack({ action: "send_message", channel: "team-updates",
         file_path: "/path/to/report.pdf" })
 ```
 The `send_message` and `reply_to_thread` approach is the
-natural choice when the user's intent is "send a message
+natural choice when the person's intent is "send a message
 with an attachment."
 
 **Thread reply with file:**
@@ -775,7 +775,7 @@ each message is sent.
 
 All file uploads show a confirmation gate before uploading.
 The gate displays file names, sizes and the destination
-channel or thread. The user can approve, reject or redirect.
+channel or thread. The person can approve, reject or redirect.
 
 `send_thread` uses a tabbed confirmation gate: one tab per
 message showing the text and any attached files. All
@@ -818,7 +818,7 @@ slack({ action: "get_thread", channel: "C0AJY0FLK8Q", ts: "1776349731.307559" })
 slack({ action: "get_thread", channel: "C0AJY0FLK8Q", ts: "1776348171.653739" })
 ```
 
-**DON'T** pass raw user IDs when the user gave a name:
+**DON'T** pass raw user IDs when the person gave a name:
 ```
 # ❌ Bad
 slack({ action: "get_user", user: "U08ME9KASG7" })
@@ -829,7 +829,7 @@ slack({ action: "get_user", user: "joel.gerber" })
 
 **DON'T** fall back to raw curl or shell commands when an API
 is blocked. Use the tool's search actions creatively instead.
-The user should never see curl scripts in the output.
+The person should never see curl scripts in the output.
 
 **DON'T** use `search_messages` to get channel history:
 ```

@@ -5,7 +5,7 @@ description: >
   body (Situation, Outcome, Acceptance), URI indexing and title
   conventions. Use when writing or editing a GitHub issue.
   Pairs with github-cli-convention for command syntax and
-  markdown-standard for markdown structure. Follow the user's
+  markdown-standard for markdown structure. Follow the person's
   writing voice and prose style guides for issue text.
 ---
 
