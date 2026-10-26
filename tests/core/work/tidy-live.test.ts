@@ -233,6 +233,28 @@ describe("reading worktree state from a real repository", () => {
 		);
 	});
 
+	it("passes over a bare repository's own record, and reads its trees", async () => {
+		// As World is laid out: a bare common dir with linked worktrees.
+		// The bare one has no work tree to ask the status of, and asking
+		// refused the whole survey.
+		const { local } = await repoWithRemote();
+		const bare = `${local}/.bare`;
+		await git(local, "clone", "-q", "--bare", local, bare);
+		await git(bare, "worktree", "add", "-q", `${local}/.wt/root`, "main");
+		await git(bare, "branch", "spent", "main");
+		await git(bare, "worktree", "add", "-q", `${local}/.wt/spent`, "spent");
+		const history = createGitHistory({ exec });
+
+		const trees = await history.worktrees(`${local}/.wt/root`, "main");
+
+		expect(trees.map((t) => t.path).sort()).toEqual(
+			[
+				realpathSync(`${local}/.wt/root`),
+				realpathSync(`${local}/.wt/spent`),
+			].sort(),
+		);
+	});
+
 	it("leaves a tree something still claims", async () => {
 		const { local } = await repoWithRemote();
 		const history = createGitHistory({ exec });
