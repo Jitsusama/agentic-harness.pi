@@ -1,5 +1,5 @@
 /**
- * Where a quest's Journey lives: `attachments/journey.md`, newest
+ * Where a quest's Journey lives: `JOURNEY.md` beside the README, newest
  * entry first, with the README's Journey section reduced to one line
  * that points at it.
  *
@@ -8,12 +8,12 @@
  * is for paid for its whole history. Kept apart, the README says what
  * the quest is and the Journey is read only when asked for.
  *
- * It sits under `attachments/` rather than at the quest's root because
- * the record shape and the backup only keep the README, ID documents
- * and cited attachments; the README's pointer is the citation that
- * keeps it backed up. At the core fold it becomes a top-level
- * `JOURNEY.md`, in one migration, with the backup taught the name in
- * the same step.
+ * It sat first in `attachments/journey.md`, while the record and the
+ * backup kept only the README, ID documents and cited attachments.
+ * Both now keep `JOURNEY.md` as part of the record, so it moved up
+ * beside the README. A file still at the old place is read as the
+ * newer part of the Journey, since only a session on older code
+ * writes there, and the next sweep folds it in.
  */
 
 import { readFileSync } from "node:fs";
@@ -21,10 +21,23 @@ import { join } from "node:path";
 import type { JourneyEntry } from "../../quest/types.ts";
 
 /** The Journey's path, relative to its quest's folder. */
-export const JOURNEY_FILE = "attachments/journey.md";
+export const JOURNEY_FILE = "JOURNEY.md";
+
+/** Where the Journey lived before it moved beside the README. */
+export const FORMER_JOURNEY_FILE = "attachments/journey.md";
+
+const pointerTo = (file: string) => `Kept in [${file}](${file}), newest first.`;
 
 /** The one line a README's Journey section holds. */
-export const JOURNEY_POINTER = `Kept in [${JOURNEY_FILE}](${JOURNEY_FILE}), newest first.`;
+export const JOURNEY_POINTER = pointerTo(JOURNEY_FILE);
+
+/** Whether a README line is the Journey's pointer, at either place. */
+export function isJourneyPointer(line: string): boolean {
+	const trimmed = line.trim();
+	return (
+		trimmed === JOURNEY_POINTER || trimmed === pointerTo(FORMER_JOURNEY_FILE)
+	);
+}
 
 /** The Journey file's own title. */
 export const JOURNEY_TITLE = "# 🌄 Journey";
@@ -42,17 +55,30 @@ export function journeyFilePath(questDir: string): string {
 	return join(questDir, JOURNEY_FILE);
 }
 
+/** The absolute path of the Journey's former file. */
+export function formerJourneyFilePath(questDir: string): string {
+	return join(questDir, FORMER_JOURNEY_FILE);
+}
+
 /**
  * The lines of a quest's Journey file below its title, with leading
- * blank lines dropped; empty when there is no file yet.
+ * blank lines dropped; empty when there is no file yet. A file still
+ * at the former place comes first, being newer.
  */
 export function readJourneyFile(questDir: string): string[] {
+	return [
+		...bodyAt(formerJourneyFilePath(questDir)),
+		...bodyAt(journeyFilePath(questDir)),
+	];
+}
+
+function bodyAt(path: string): string[] {
 	let text: string;
 	try {
-		text = readFileSync(journeyFilePath(questDir), "utf8");
+		text = readFileSync(path, "utf8");
 	} catch {
-		// No Journey file yet: a quest that has never been journaled
-		// since the move, which reads as an empty Journey.
+		// No file here: a quest that has never been journaled since the
+		// move, or one already moved, which reads as nothing.
 		return [];
 	}
 	return journeyBody(text);
@@ -99,7 +125,7 @@ export function questJourneyLines(questDir: string, readme: string): string[] {
 	// The pointer, and comment lines such as the citations the sweep
 	// carries, are the section's machinery rather than its entries.
 	const unswept = section.filter(
-		(l) => l.trim() !== JOURNEY_POINTER && !/^<!--.*-->$/.test(l.trim()),
+		(l) => !isJourneyPointer(l) && !/^<!--.*-->$/.test(l.trim()),
 	);
 	while (unswept.length > 0 && unswept[0].trim() === "") unswept.shift();
 	while (unswept.length > 0 && unswept[unswept.length - 1].trim() === "")

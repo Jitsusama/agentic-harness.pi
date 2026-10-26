@@ -2,9 +2,9 @@
  * A quest's record: what in a quest folder is kept, backed up and
  * protected, and what is not.
  *
- * The record is the README, the documents (an ID-named markdown file
- * directly in a kind folder), and one shared `attachments/` folder that
- * any document may cite. Everything else a quest makes (clones, raw
+ * The record is the README, the Journey beside it (`JOURNEY.md`), the
+ * documents (an ID-named markdown file directly in a kind folder), and
+ * one shared `attachments/` folder that any document may cite. Everything else a quest makes (clones, raw
  * data, labs, runs, builds) belongs in its workspace outside the quests
  * folder, so anything else found inside one is a stray.
  *
@@ -27,11 +27,15 @@ export const DOCUMENT_FOLDERS = [
 /** The folder a quest's attachments live in. */
 export const ATTACHMENTS_FOLDER = "attachments";
 
+/** The file a quest's Journey lives in, beside its README. */
+export const JOURNEY_FILE_NAME = "JOURNEY.md";
+
 /**
  * What a path is within a quest's record.
  *
  * - `quest`: the quest folder itself.
  * - `readme`: its README.
+ * - `journey`: its Journey, beside the README.
  * - `document`: an ID-named markdown file directly in a kind folder.
  * - `folder`: a kind folder or the attachments folder itself.
  * - `attachment`: anything beneath the attachments folder.
@@ -40,6 +44,7 @@ export const ATTACHMENTS_FOLDER = "attachments";
 export type RecordPlace =
 	| "quest"
 	| "readme"
+	| "journey"
 	| "document"
 	| "folder"
 	| "attachment"
@@ -91,6 +96,7 @@ function placeOf(segments: string[]): RecordPlace {
 		return name === undefined ? "folder" : "attachment";
 	}
 	if (top === "README.md" && name === undefined) return "readme";
+	if (top === JOURNEY_FILE_NAME && name === undefined) return "journey";
 	if (!isKindFolder(top)) return "stray";
 	if (name === undefined) return "folder";
 	if (deeper.length > 0 || !isDocumentName(name)) return "stray";

@@ -50,8 +50,17 @@ describe("judgeRecordWrite", () => {
 		}
 	});
 
+	it("sends a hand write to the Journey through quest journal", () => {
+		for (const via of ["tool", "bash"] as const) {
+			const refusal = judge({ path: q("JOURNEY.md"), via, exists: true });
+			expect(refusal?.rule, via).toBe("journey-by-hand");
+			expect(refusal?.reason, via).toContain("`quest journal`");
+		}
+	});
+
 	it("keeps documents, the README, record folders and the quest from being removed", () => {
 		const cases: [string, string][] = [
+			["JOURNEY.md", "document-removed"],
 			["plans/PLAN-20260924-RUE4Q4.md", "document-removed"],
 			["plans/*.md", "document-removed"],
 			["README.md", "document-removed"],
@@ -70,7 +79,9 @@ describe("judgeRecordWrite", () => {
 		const refusal = judge({ path: q("lab/results.csv") });
 		expect(refusal).toEqual({
 			rule: "stray",
-			reason: expect.stringContaining("README, its documents and attachments/"),
+			reason: expect.stringContaining(
+				"README, its JOURNEY.md, its documents and attachments/",
+			),
 			instead: `/cache/ws/${quest}/lab/results.csv`,
 		});
 		expect(refusal?.reason).toContain(`/cache/ws/${quest}/lab/results.csv`);

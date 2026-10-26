@@ -237,7 +237,7 @@ describe("applyRecordMigration", () => {
 
 	it("cites the review groups it kept from a Journey entry", () => {
 		migrate();
-		const journey = read(`${A}/attachments/journey.md`);
+		const journey = read(`${A}/JOURNEY.md`);
 		expect(journey).toMatch(
 			/^# .*Journey\n\n- \*\*2026-09-25\*\*: Moved working/,
 		);

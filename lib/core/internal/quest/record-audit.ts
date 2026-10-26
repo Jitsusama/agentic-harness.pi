@@ -73,6 +73,7 @@ export function auditQuestRecord(questDir: string): RecordAudit {
 					strays.push(place.rel);
 					break;
 				case "readme":
+				case "journey":
 				case "document":
 					if (stats.isFile()) {
 						documents.push({

@@ -220,6 +220,9 @@ describe("questRecordPath", () => {
 		const cases: [string, string][] = [
 			["", "quest"],
 			["README.md", "readme"],
+			["JOURNEY.md", "journey"],
+			["JOURNEY.md/x", "stray"],
+			["journey.md", "stray"],
 			["plans/PLAN-20260924-RUE4Q4.md", "document"],
 			["research/RSCH-20260923-MBRVN1.md", "document"],
 			["briefs/BRIF-20260901-AAAAAA.md", "document"],

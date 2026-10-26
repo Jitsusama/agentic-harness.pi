@@ -47,6 +47,7 @@ quest's kind subdirectory.
 questsRoot/
   QEST-20260603-AAA111/
     README.md
+    JOURNEY.md
     plans/
       PLAN-20260603-BBB222.md
     research/
@@ -73,6 +74,7 @@ errors and skips the offending entry:
 A quest folder holds the quest's record and nothing else:
 
 - the `README.md`;
+- the `JOURNEY.md` beside it, written by `quest journal`;
 - ID-named documents in `plans/`, `research/`, `briefs/`
   and `reports/`, minted by `quest draft`;
 - one `attachments/` folder, shared by every document in
@@ -257,7 +259,7 @@ order, with their canonical emoji glyphs:
 - `## 🎭 Cast`: the people involved, as role-prefix
   bullets (see below).
 - `## 🌄 Journey`: one line pointing at the quest's
-  Journey file, `attachments/journey.md`, where the dated
+  Journey file, `JOURNEY.md`, where the dated
   bullets live, newest at the top (see below).
 
 Four optional sections, added when there's something to
@@ -299,12 +301,11 @@ quests" without fuzzy regex on prose.
 
 ## Journey Entries
 
-The Journey lives in its own file,
-`attachments/journey.md`, so a session reading the README
-to learn what a quest is for doesn't pay for its whole
-history. The README's section holds only the pointer, and
-while the backup reads just the README and documents, a
-comment line naming the attachments the Journey cites.
+The Journey lives in its own file, `JOURNEY.md` beside the
+README, so a session reading the README to learn what a
+quest is for doesn't pay for its whole history. The README's
+section holds only the pointer, and for now a comment line
+naming the attachments the Journey cites.
 Write entries with the `journal` action, never by hand;
 `show` reads the newest back.
 

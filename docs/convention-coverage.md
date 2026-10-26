@@ -305,7 +305,7 @@ On-disk shape of a quest README and the documents under it.
 | Section emoji glyphs | Body Sections | ⚪ | Skill-only; the section extractor accepts the headings with or without an emoji prefix. |
 | Cast role-prefix bullets | Cast Bullets | ⚪ | The extractor only picks bullets that match the role-prefix pattern; non-matching bullets are silently ignored, so the rule is enforced by what gets indexed but not by a write gate. |
 | Journey entry shape (dated bullets, newest first) | Journey Entries | ⚪ | Skill-only. The extractor parses any `- **YYYY-MM-DD**: ...` bullet; ordering is the author's responsibility. |
-| Journey lives in `attachments/journey.md`, the README holding a pointer | Journey Entries | 🟢 | `journal` and every other writer, core's verbs included, go through `lib/internal/quest/append-journey.ts`, which writes the file and first moves anything left in the README's section into it. |
+| Journey lives in `JOURNEY.md` beside the README, the README holding a pointer | Journey Entries | 🟢 | `journal` and every other writer, core's verbs included, go through `lib/internal/quest/append-journey.ts`, which writes the file and first moves anything left in the README's section, or in the former `attachments/journey.md`, into it; the record gate refuses a hand write to `JOURNEY.md`. |
 | Inline link extraction | Inline Links and References | 🚫 | The library indexes what it finds; absence is silent. Skill-only. |
 | Prose voice | Voice | 🟢 | `prose-standard` covers it through the existing prose gate. |
 
