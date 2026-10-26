@@ -599,6 +599,22 @@ aside as `.bad`. It settles which folders it watches at every
 look, since a quest's address comes and goes with the quest
 ([`lib/mesh/steer.ts`](../../lib/mesh/steer.ts)).
 
+A steer that also carries an `id` (letters, digits, `.`, `-`
+and `_`, at most 64) opens a talk: what became of it goes, one
+JSON line per change with its `at`, into
+`steer/<ADDRESS>/replies/<id>.jsonl`, so the launcher can show
+it as it goes and keep its history after the session ends. The
+stages are `delivered` (with the person's words, `from` and
+`sentAt`), `reading` (its step and how long, at most every 30
+seconds), `replying` (the reply so far, at most every second),
+then `replied` with the whole reply or `failed` with why: the
+run was stopped or wrote nothing. A quest or document that ends
+afterwards, before the next talk opens, adds `came`, such as
+`{"stage": "came", "what": "plan concluded", "ref": "PLAN-..."}`.
+An inbox keeps its talks for 90 days or its newest 500,
+whichever keeps more, pruned as each opens
+([`lib/mesh/talk.ts`](../../lib/mesh/talk.ts)).
+
 ## Retention
 
 Nothing on the mesh is a record anyone is owed, and kept for

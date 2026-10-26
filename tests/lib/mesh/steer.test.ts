@@ -2,7 +2,13 @@
  * The steer inbox: what the person writes to a peer's folder is taken
  * once, oldest first, and what is not a steer is set aside.
  */
-import { mkdtempSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	renameSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -73,5 +79,20 @@ describe("the steer inbox", () => {
 			file: "f",
 		});
 		expect(steerFrom('["go"]', "f")).toBeUndefined();
+	});
+
+	it("keeps a talk id only when it can name a file in the replies folder", () => {
+		expect(steerFrom('{"text":"go","id":"t-01.a"}', "f")?.id).toBe("t-01.a");
+		expect(steerFrom('{"text":"go","id":"../x"}', "f")?.id).toBeUndefined();
+		expect(steerFrom('{"text":"go","id":".hidden"}', "f")?.id).toBeUndefined();
+		expect(steerFrom('{"text":"go","id":7}', "f")?.id).toBeUndefined();
+	});
+
+	it("leaves a talk's replies folder in the inbox alone", () => {
+		const inbox = inboxOf(root, "wcjqsg");
+		mkdirSync(join(inbox, "replies"), { recursive: true });
+		put(inbox, "1-a.json", JSON.stringify({ text: "go", id: "t1" }));
+		expect(takeSteers(inbox, "1").steers.map((one) => one.id)).toEqual(["t1"]);
+		expect(readdirSync(inbox)).toEqual(["replies"]);
 	});
 });
