@@ -159,6 +159,33 @@ describe("moving the Journey up beside the README", () => {
 		expect(existsSync(former())).toBe(false);
 	});
 
+	it("drops the pointer an older session filed as an entry", () => {
+		sweepJourney(questDir);
+		// An older session took the new pointer for an entry, moved it into
+		// the former file under its own entry and pointed the README back.
+		mkdirSync(join(questDir, "attachments"));
+		writeFileSync(
+			former(),
+			`${JOURNEY_TITLE}\n\n- **2026-06-03**: Stale write.\n${JOURNEY_POINTER}\n`,
+		);
+		writeFileSync(
+			join(questDir, "README.md"),
+			`# Title\n\n## 🌄 Journey\n\n${formerPointer}\n`,
+		);
+
+		expect(recentJourney(questDir, readme(), 5).map((e) => e.prose)).toEqual([
+			"Stale write.",
+			"Old place.",
+			"Created.",
+		]);
+		sweepJourney(questDir);
+
+		expect(journeyFile()).toBe(
+			`${JOURNEY_TITLE}\n\n- **2026-06-03**: Stale write.\n- **2026-06-02**: Old place.\n- **2026-06-01**: Created.\n`,
+		);
+		expect(readme()).toBe(`# Title\n\n## 🌄 Journey\n\n${JOURNEY_POINTER}\n`);
+	});
+
 	it("reads and sweeps both files merged by date, either holding the newest", () => {
 		writeFileSync(
 			join(questDir, JOURNEY_FILE),
