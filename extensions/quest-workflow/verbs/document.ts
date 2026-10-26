@@ -82,6 +82,12 @@ function stamp(state: QuestState, target: Address): void {
 const ITEM_CHARS = 160;
 
 /**
+ * How many open items an outline lists: enough to work from, and a
+ * plan with 300 open would otherwise answer some 50 KB inline.
+ */
+const OPEN_LISTED = 40;
+
+/**
  * Read a document without reading all of it: one section (`title`),
  * one checkbox item with its notes (`query`), or, with neither, its
  * outline: its sections and their sizes, its open items and the next.
@@ -96,7 +102,7 @@ export function read(state: QuestState, params: QuestToolParams): QuestResult {
 	try {
 		text = readFileSync(target.path, "utf8");
 	} catch (err) {
-		return refuse(`Cannot read ${shown}: ${(err as Error).message}`);
+		return refuse(`Cannot read ${shown}: ${reasonOf(err)}`);
 	}
 	const { head, body } = splitAtBody(text);
 	const name = target.documentId ?? target.questId;
@@ -133,10 +139,18 @@ export function read(state: QuestState, params: QuestToolParams): QuestResult {
 		lines.push(
 			"",
 			`Open, ${open.length} of ${outline.items.length} items:`,
-			...open.map(
-				(one) => `${"  ".repeat(one.depth)}- [ ] ${cut(one.text, ITEM_CHARS)}`,
-			),
+			...open
+				.slice(0, OPEN_LISTED)
+				.map(
+					(one) =>
+						`${"  ".repeat(one.depth)}- [ ] ${cut(one.text, ITEM_CHARS)}`,
+				),
 		);
+		if (open.length > OPEN_LISTED) {
+			lines.push(
+				`- and ${open.length - OPEN_LISTED} more; read the section that holds them with \`title\`.`,
+			);
+		}
 		if (open[0]) lines.push("", `Next: ${cut(open[0].text, ITEM_CHARS)}`);
 	}
 	lines.push(
@@ -148,6 +162,11 @@ export function read(state: QuestState, params: QuestToolParams): QuestResult {
 		sections: outline.sections,
 		open: open.map((one) => one.text),
 	});
+}
+
+/** What a failed read says, whatever was thrown. */
+function reasonOf(err: unknown): string {
+	return err instanceof Error ? err.message : String(err);
 }
 
 function cut(text: string, chars: number): string {
@@ -297,7 +316,7 @@ function editBody(
 		} catch (err) {
 			return {
 				ok: false as const,
-				reason: `Cannot read ${shown}: ${(err as Error).message}`,
+				reason: `Cannot read ${shown}: ${reasonOf(err)}`,
 			};
 		}
 		const { head, body } = splitAtBody(text);

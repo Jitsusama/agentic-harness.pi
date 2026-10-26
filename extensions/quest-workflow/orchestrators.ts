@@ -7,15 +7,13 @@
  * walking every quest README itself. The file is looked at again after
  * every quest action (a mark, a conclusion, a retitle, a reparent) and
  * at each session start, so a mark made by hand still reaches it, and
- * it is written only when the list changed.
+ * it is written only when the list changed. The quest index's pass
+ * (`keepDesktopListsCurrent`) writes it, from the same walk.
  */
 
 import { join } from "node:path";
 import { stateDir } from "../../lib/internal/paths.ts";
-import {
-	discoverQuests,
-	type QuestIndex,
-} from "../../lib/internal/quest/discovery.ts";
+import type { QuestIndex } from "../../lib/internal/quest/discovery.ts";
 import { orchestrates } from "../../lib/internal/quest/orchestration.ts";
 import { questAddress } from "../../lib/mesh/address.ts";
 import { writeWhenChanged } from "./desktop-file.ts";
@@ -32,19 +30,6 @@ export interface OrchestratorEntry {
 	readonly title: string;
 	/** The quest above it, when there is one. */
 	readonly parent?: string;
-}
-
-/**
- * Bring the list up to date with the quests as they stand. A list that
- * can't be written leaves the last one standing: no quest action waits
- * on it or fails for it.
- */
-export function keepOrchestratorsListed(questsRoot: string): void {
-	try {
-		writeOrchestrators(orchestratorsIn(discoverQuests(questsRoot).index));
-	} catch {
-		// The next quest action tries again.
-	}
 }
 
 /** Where the list is kept. */

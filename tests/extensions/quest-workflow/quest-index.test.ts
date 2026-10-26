@@ -2,11 +2,22 @@
  * The index of open quests the desktop reads, kept from the quests.
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { questsIn } from "../../../extensions/quest-workflow/quest-index";
+import { orchestratorsPath } from "../../../extensions/quest-workflow/orchestrators";
+import {
+	keepDesktopListsCurrent,
+	questIndexPath,
+	questsIn,
+} from "../../../extensions/quest-workflow/quest-index";
 import {
 	clearDiscoveryCache,
 	discoverQuests,
@@ -124,5 +135,32 @@ describe("the quests the desktop lists", () => {
 				updated: "2026-01-01T03:00:00Z",
 			},
 		]);
+	});
+
+	it("are written with the orchestrators from one pass over the store", async () => {
+		const state = mkdtempSync(join(tmpdir(), "quest-index-state-"));
+		const before = process.env.XDG_STATE_HOME;
+		process.env.XDG_STATE_HOME = state;
+		try {
+			quest(
+				MISSION,
+				"status: active\norchestrator: true",
+				"# Bootstrap optimus",
+			);
+
+			await keepDesktopListsCurrent(root);
+
+			const read = (path: string) => JSON.parse(readFileSync(path, "utf8"));
+			expect(read(orchestratorsPath()).orchestrators).toEqual([
+				{ quest: MISSION, address: "MISSON", title: "Bootstrap optimus" },
+			]);
+			expect(
+				read(questIndexPath()).quests.map((one: { id: string }) => one.id),
+			).toEqual([MISSION]);
+		} finally {
+			if (before === undefined) delete process.env.XDG_STATE_HOME;
+			else process.env.XDG_STATE_HOME = before;
+			rmSync(state, { recursive: true, force: true });
+		}
 	});
 });
