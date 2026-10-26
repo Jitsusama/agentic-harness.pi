@@ -78,7 +78,7 @@ export default function googleWorkspace(pi: ExtensionAPI) {
 			"Read the google-workspace skill for translating natural language to API actions.",
 			"Remember context from previous results - user may reference 'that email', 'the second one', etc.",
 			"Parse relative dates (today, tomorrow, next week) to ISO format.",
-			"Extract email addresses and infer domains (@shopify.com for first names).",
+			"Extract email addresses; for a first name alone, use the domain of the account the call runs as.",
 			"For replies, use send_email with reply_to parameter and extract recipient from context.",
 			"Confirmation gates allow editing - don't re-prompt for details user already provided.",
 			"To view another person's calendar, use list_events with their email as calendar_id. To find common free time across multiple people, use check_availability (includes your calendar automatically). Two-step scheduling: check_availability first, then create_event with the chosen slot.",

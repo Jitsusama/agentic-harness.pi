@@ -23,8 +23,9 @@ When the person makes a natural language request, extract the core intent and pa
 → `search_emails` with `query: "in:inbox"`, `limit: 10-25`
 
 ### "Find emails from [person]"
-→ `search_emails` with `query: "from:person@shopify.com"`
-- If the person says first name, add @shopify.com domain
+→ `search_emails` with `query: "from:person@example.com"`
+- If the person gives a first name alone, add the domain of the account
+  the call runs as
 - Extract email if provided explicitly
 
 ### "Find emails about [topic]"
@@ -186,7 +187,7 @@ user final say before invitations go out.
 → `list_files` with `owner: "me"`
 
 ### "Files [person] shared with me"
-→ `list_files` with `shared: true`, `owner: "person@shopify.com"`
+→ `list_files` with `shared: true`, `owner: "person@example.com"`
 
 ### "Files modified this quarter" / "Recent docs since March"
 → `list_files` with `modified_after: "YYYY-MM-DD"` (and optionally `modified_before`). Dates are YYYY-MM-DD; the API converts to RFC 3339 internally.
