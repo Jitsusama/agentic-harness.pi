@@ -2,12 +2,12 @@
  * Bounded, tiled screenshot capture.
  *
  * `preparePage` settles the page (capture-width viewport, lazy-content
- * scroll) so every representation is read from one state. `captureTiles`
- * then captures the page as an ordered stack of vertical bands rather than
- * one full-page image. Each band stays under the model provider's image
- * dimension limit, so a long page can never produce an image the model
- * rejects. A page taller than the tile budget is truncated and the caller
- * is told.
+ * scroll) so every representation is read after the page settles.
+ * `captureTiles` then captures the page as an ordered stack of vertical
+ * bands rather than one full-page image. Each band stays under the model
+ * provider's image dimension limit, so a long page can never produce an
+ * image the model rejects. A page taller than the tile budget is
+ * truncated and the caller is told.
  */
 
 import type { Page } from "puppeteer-core";
@@ -112,17 +112,19 @@ export interface TiledCapture {
 }
 
 /**
- * Settle the page into the state every representation is captured from:
+ * Settle the page before every representation is captured from it:
  * fix the viewport to the capture width, then scroll to the bottom so
  * lazy-loaded content renders, returning to the top. Call this once before
- * reading the DOM, inner text or screenshots so they all agree.
+ * reading the DOM, inner text or screenshots, so a page that has stopped
+ * changing reads the same in each.
  */
 export async function preparePage(page: Page): Promise<void> {
 	// One band tall, so every band can be captured inside the viewport.
 	await page.setViewport({ width: CAPTURE_WIDTH, height: BAND_HEIGHT });
 	await scrollToBottom(page);
 	// Let the resize reflow and any scroll-triggered lazy loads settle so
-	// the text, DOM and screenshots that follow agree on one rendered state.
+	// the text, DOM and screenshots that follow agree on a page that has
+	// stopped changing.
 	await pause(SETTLE_WAIT);
 }
 

@@ -5,11 +5,13 @@
  * Every read settles the page once (capture-width viewport, dynamic-content
  * wait, lazy-content scroll) and then snapshots article markdown (via
  * defuddle), the rendered inner text, the DOM and a bounded stack of
- * screenshot tiles from that one state. Artifacts are written to a private,
- * per-session directory keyed by process id, so a crashed session's
- * captures can be reaped without touching a live one. The caller turns the
- * returned paths into a pointer manifest so the model opens only what it
- * needs.
+ * screenshot tiles, one after another. The page's own scripts keep running
+ * between them, so a page still changing can differ across them; freezing
+ * it would stop the tiles' scrolling from loading lazy content.
+ * Artifacts are written to a private, per-session directory keyed by
+ * process id, so a crashed session's captures can be reaped without
+ * touching a live one. The caller turns the returned paths into a pointer
+ * manifest so the model opens only what it needs.
  */
 
 import * as fs from "node:fs";
@@ -363,8 +365,9 @@ const defaultCaptureDeps: CaptureDeps = {
 };
 
 /**
- * Navigate a prepared page and capture every representation from one
- * settled state: DOM, inner text, article and screenshot tiles. Relative
+ * Navigate a prepared page and capture every representation in one pass
+ * after it has settled: DOM, inner text, article and screenshot tiles. A
+ * page whose scripts still change it may differ between them. Relative
  * links resolve against the final redirected URL, and a missing document
  * body falls back to the document text so non-HTML pages still yield a
  * capture. Cancellation is honoured between the expensive steps.
@@ -390,7 +393,8 @@ export async function capturePage(
 
 	throwIfAborted(signal);
 
-	// Settle the page once so text, DOM and screenshots agree on one state.
+	// Settle the page once, so a page that stops changing reads the same in
+	// text, DOM and screenshots.
 	await deps.preparePage(page);
 
 	const html = await page.content();
