@@ -200,7 +200,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			title: Type.Optional(
 				Type.String({
 					description:
-						"create: the quest's human title (becomes the H1). draft: the document's title. section: the heading of the section to replace, without its emoji (e.g. Purpose). retitle: the new title, which replaces the H1 of the quest or document `id` names.",
+						"create: the quest's human title (becomes the H1). draft: the document's title. section: the heading of the section to replace, or to add (a README's optional Milestones, Spirit, Outcomes or Context), without its emoji (e.g. Purpose). retitle: the new title, which replaces the H1 of the quest or document `id` names.",
 				}),
 			),
 			parent: Type.Optional(

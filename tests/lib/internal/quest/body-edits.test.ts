@@ -139,6 +139,60 @@ describe("replacing a section", () => {
 		expect(result.ok).toBe(false);
 	});
 
+	describe("in a README", () => {
+		const README = [
+			"# A Quest",
+			"",
+			"## \u{1F4DC} Summary",
+			"",
+			"What it is.",
+			"",
+			"## \u{1F304} Journey",
+			"",
+			"See attachments/journey.md.",
+			"",
+			"## \u{1F3C6} Outcomes",
+			"",
+			"What landed.",
+			"",
+		].join("\n");
+
+		it("adds an optional section in its place, with its glyph", () => {
+			const result = replaceSection(
+				README,
+				"Spirit",
+				"The north star.",
+				"readme",
+			);
+			if (!result.ok) throw new Error(result.reason);
+			expect(result.added).toBe(true);
+			expect(result.body).toContain(
+				"See attachments/journey.md.\n\n## \u{1F525} Spirit\n\nThe north star.\n\n## \u{1F3C6} Outcomes",
+			);
+		});
+
+		it("adds the last one at the end", () => {
+			const result = replaceSection(README, "context", "Background.", "readme");
+			if (!result.ok) throw new Error(result.reason);
+			expect(result.body).toMatch(
+				/What landed\.\n\n## \u{1F3F0} Context\n\nBackground\.\n$/u,
+			);
+		});
+
+		it("refuses a heading the format does not name, saying what it can gain", () => {
+			const result = replaceSection(README, "Kept Outcomes", "x", "readme");
+			if (result.ok) throw new Error("expected a refusal");
+			expect(result.reason).toContain(
+				"A README gains only Milestones, Spirit, Outcomes, Context.",
+			);
+		});
+
+		it("never adds a mandatory section it lacks", () => {
+			const result = replaceSection(README, "Cast", "- **owner**: x", "readme");
+			expect(result.ok).toBe(false);
+		});
+	});
+
 	it("names the sections there are when the one asked for is not", () => {
 		const result = replaceSection(PLAN, "Outcomes", "x");
 		if (result.ok) throw new Error("expected a refusal");

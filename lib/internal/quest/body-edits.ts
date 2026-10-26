@@ -110,6 +110,33 @@ export function setCheckbox(
 const PROTECTED_SECTIONS: ReadonlySet<string> = new Set(["journey"]);
 
 /**
+ * A README's sections, in the quest format's order and with its
+ * glyphs (quest-format's Body Sections); the optional ones are added
+ * when there is something to say.
+ */
+const README_SECTIONS: readonly {
+	readonly heading: string;
+	readonly optional: boolean;
+}[] = [
+	{ heading: "📜 Summary", optional: false },
+	{ heading: "🧭 Purpose", optional: false },
+	{ heading: "🎭 Cast", optional: false },
+	{ heading: "🌄 Journey", optional: false },
+	{ heading: "🎯 Milestones", optional: true },
+	{ heading: "🔥 Spirit", optional: true },
+	{ heading: "🏆 Outcomes", optional: true },
+	{ heading: "🏰 Context", optional: true },
+];
+
+/**
+ * What to do with a heading the document does not have: refuse it,
+ * add it at the end (a plan or research document grows the sections
+ * its work needs), or, in a README, add one of the format's optional
+ * sections in its place.
+ */
+export type MissingSection = "refuse" | "append" | "readme";
+
+/**
  * Replace what sits under a named second-level heading, up to the
  * next one.
  *
@@ -119,18 +146,19 @@ const PROTECTED_SECTIONS: ReadonlySet<string> = new Set(["journey"]);
  * and leave the document with a shape nobody asked for. Journey is
  * append-only, and has `journal` for that.
  *
- * A heading the document does not have is added at its end when
- * `addMissing` is set. A README's sections are a closed set the
- * quest format names, so it refuses there; a plan or research
- * document grows the sections its work needs ("Kept Outcomes",
- * "People Waiting on Us"), and refusing those sent agents to hand
- * edits the lock exists to replace.
+ * A heading the document does not have is added at its end under
+ * `append`: a plan or research document grows the sections its work
+ * needs ("Kept Outcomes", "People Waiting on Us"), and refusing those
+ * sent agents to hand edits the lock exists to replace. A README's
+ * sections are a closed set the quest format names, so under `readme`
+ * only its optional sections are added, each in its place in the
+ * order and with its glyph, and any other heading is refused.
  */
 export function replaceSection(
 	body: string,
 	heading: string,
 	text: string,
-	addMissing = false,
+	missing: MissingSection = "refuse",
 ): EditApplied | EditRefused {
 	const wanted = headingWords(heading);
 	if (!wanted) return { ok: false, reason: "Name the section to replace." };
@@ -151,18 +179,51 @@ export function replaceSection(
 	const lines = body.split("\n");
 	const headings = secondLevelHeadings(lines);
 	const at = headings.findIndex((h) => headingWords(h.text) === wanted);
-	if (at === -1 && addMissing) {
-		const kept = body.replace(/\s*$/, "");
+	if (at === -1 && missing === "append") {
 		const title = heading.trim().replace(/^#+\s*/, "");
-		const section = trimBlankEdges(text.split("\n")).join("\n");
-		const result = `${kept}${kept ? "\n\n" : ""}## ${title}\n\n${section}\n`;
+		return {
+			ok: true,
+			body: appended(body, title, text),
+			changed: true,
+			added: true,
+		};
+	}
+	const place = README_SECTIONS.findIndex(
+		(one) => headingWords(one.heading) === wanted,
+	);
+	if (at === -1 && missing === "readme" && README_SECTIONS[place]?.optional) {
+		const after = headings.find(
+			(h) =>
+				README_SECTIONS.findIndex(
+					(one) => headingWords(one.heading) === headingWords(h.text),
+				) > place,
+		);
+		const title = README_SECTIONS[place].heading;
+		const result = after
+			? [
+					...lines.slice(0, after.index),
+					`## ${title}`,
+					"",
+					...trimBlankEdges(text.split("\n")),
+					"",
+					...lines.slice(after.index),
+				].join("\n")
+			: appended(body, title, text);
 		return { ok: true, body: result, changed: true, added: true };
 	}
 	if (at === -1) {
 		const known = headings.map((h) => h.text).join(", ");
+		const addable =
+			missing === "readme"
+				? ` A README gains only ${README_SECTIONS.filter((one) => one.optional)
+						.map((one) =>
+							headingWords(one.heading).replace(/^./, (c) => c.toUpperCase()),
+						)
+						.join(", ")}.`
+				: "";
 		return {
 			ok: false,
-			reason: `No section is headed "${heading.trim()}".${known ? ` The sections are: ${known}.` : ""}`,
+			reason: `No section is headed "${heading.trim()}".${known ? ` The sections are: ${known}.` : ""}${addable}`,
 		};
 	}
 	const start = headings[at].index + 1;
@@ -173,6 +234,13 @@ export function replaceSection(
 	const next = [...lines.slice(0, start), ...replacement, ...lines.slice(end)];
 	const result = next.join("\n");
 	return { ok: true, body: result, changed: result !== body };
+}
+
+/** The body with a section added at its end. */
+function appended(body: string, title: string, text: string): string {
+	const kept = body.replace(/\s*$/, "");
+	const section = trimBlankEdges(text.split("\n")).join("\n");
+	return `${kept}${kept ? "\n\n" : ""}## ${title}\n\n${section}\n`;
 }
 
 /** Lowercase and collapse space, so a match ignores how it was typed. */
