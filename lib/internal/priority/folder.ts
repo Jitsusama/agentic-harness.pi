@@ -86,6 +86,21 @@ export const HEARTBEAT_MS = 30_000;
 /** How long queue.json goes unwritten before nobody keeps the queue. */
 export const UNKEPT_MS = 120_000;
 
+/**
+ * The file in the queue folder listing the quests whose work goes first,
+ * as quest ids, written by quest-workflow from `queue: first` in their
+ * front matter.
+ */
+export const QUEUE_FIRST_FILE = "first.json";
+
+/** The quests whose work goes first, as the queue folder holds them. */
+function questsFirstIn(dir: string): ReadonlySet<string> {
+	const ids = parsed<unknown>(join(dir, QUEUE_FIRST_FILE));
+	return Array.isArray(ids)
+		? new Set(ids.filter((id): id is string => typeof id === "string"))
+		: NOBODY;
+}
+
 /** The machine's queue folder, in the account's runtime directory. */
 export function machineQueueDir(
 	env: NodeJS.ProcessEnv = process.env,
@@ -150,6 +165,10 @@ export interface QueueRecord {
 		readonly capped?: true;
 		/** A build that takes seconds, with a turn of its own. */
 		readonly quick?: true;
+		/** The quest its session had loaded as it asked. */
+		readonly quest?: string;
+		/** Its quest is marked `queue: first`, so it goes ahead of bulk. */
+		readonly first?: true;
 		/** Waiting, and another session waits on its owner, so it goes first. */
 		readonly awaited?: true;
 	}[];
@@ -458,7 +477,8 @@ export function queueFolder(
 					...given,
 					mostVms: given.mostVms ?? vmsFor(recorded(), now),
 				};
-				const next = nextTurn(standing, reading, now, ruled, awaited);
+				const first = questsFirstIn(dir);
+				const next = nextTurn(standing, reading, now, ruled, awaited, first);
 				const queue = next
 					? standing.map((job) =>
 							job.id === next.id
@@ -496,6 +516,7 @@ export function queueFolder(
 					shellOf,
 					ruled,
 					awaited,
+					first,
 				);
 				const shape = JSON.stringify({ ...record, at: "", heartbeat: 0 });
 				const due = !before || now - before.heartbeat * 1000 >= HEARTBEAT_MS;
@@ -519,6 +540,7 @@ export function queueRecord(
 	shellOf: (id: string) => number | undefined = () => undefined,
 	rules: Rules = RULES,
 	awaited: ReadonlySet<string> = NOBODY,
+	first: ReadonlySet<string> = NOBODY,
 ): QueueRecord {
 	const at = new Date(now).toISOString();
 	const day = at.slice(0, 10);
@@ -529,7 +551,7 @@ export function queueRecord(
 		waitsWithRoom(jobs, reading) && carried.minute !== minute
 			? { today: carried.today + 1, day, minute }
 			: carried;
-	const waiting = waitingInOrder(jobs, awaited);
+	const waiting = waitingInOrder(jobs, awaited, first);
 	return {
 		v: 1,
 		at,
@@ -567,6 +589,10 @@ export function queueRecord(
 					...(slice !== undefined ? { slice } : {}),
 					...(job.capped ? { capped: true as const } : {}),
 					...(job.quick ? { quick: true as const } : {}),
+					...(job.quest !== undefined ? { quest: job.quest } : {}),
+					...(job.quest !== undefined && first.has(job.quest)
+						? { first: true as const }
+						: {}),
 				};
 			},
 		),

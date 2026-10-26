@@ -17,6 +17,7 @@ import {
 	isKept,
 	machineQueueDir,
 	PID_MS,
+	QUEUE_FIRST_FILE,
 	type QueueRecord,
 	queueFolder,
 	readQueue,
@@ -76,6 +77,24 @@ const shellSays = (id: string, pid: number) => {
 };
 
 describe("the machine's queue folder", () => {
+	it("gives a quest put first its turn first, and says so", () => {
+		const queue = folder();
+		queue.ask(job("older", { since: new Date(NOW - 60_000).toISOString() }));
+		queue.ask(job("lab", { quest: "QEST-LAB" }));
+		writeFileSync(join(dir, QUEUE_FIRST_FILE), '["QEST-LAB"]\n');
+		shellSays("older", 300);
+		shellSays("lab", 301);
+
+		queue.keep({ ...ROOMY, availableGib: 5 }, NOW, () => undefined);
+
+		expect(queue.hasTurn("lab")).toBe(true);
+		expect(queue.hasTurn("older")).toBe(false);
+		expect(record().jobs.find((one) => one.id === "lab")).toMatchObject({
+			quest: "QEST-LAB",
+			first: true,
+		});
+	});
+
 	it("gives the first job its turn and shows the queue whole", () => {
 		const queue = folder();
 		queue.ask(job("first", { kind: "vm-test" }));

@@ -12,7 +12,7 @@ import {
 	statSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
@@ -21,6 +21,7 @@ import {
 	QUEST_WEIGHTS_FILE,
 	writeQuestWeights,
 } from "../../../extensions/quest-workflow/weights";
+import { QUEUE_FIRST_FILE } from "../../../lib/internal/priority/folder";
 import {
 	clearRefTypes,
 	registerBuiltinRefTypes,
@@ -72,6 +73,48 @@ afterEach(() => {
 	clearRefTypes();
 	envGuard.leave();
 	rmSync(tmpRoot, { recursive: true, force: true });
+});
+
+describe("a quest put first in the queue", () => {
+	const first = () =>
+		JSON.parse(readFileSync(join(jobs, QUEUE_FIRST_FILE), "utf8")) as string[];
+
+	it("is marked in its front matter and listed for the queue, loaded or not", async () => {
+		const s = state();
+		const lab = await act(s, { action: "create", title: "Lab" });
+		const other = await act(s, { action: "create", title: "Other" });
+		await act(s, { action: "load", id: other.id });
+
+		await act(s, { action: "queue-first", id: lab.id });
+		writeQuestWeights(questsRoot, jobs);
+
+		const readme = readFileSync(join(dirname(lab.path), "README.md"), "utf8");
+		expect(readme).toMatch(/^queue: first$/m);
+		expect(readme).toContain("Put first in the machine's queue");
+		expect(first()).toEqual([lab.id]);
+		expect(s.questId).toBe(other.id);
+
+		// A later write by another verb keeps the mark.
+		await act(s, { action: "load", id: lab.id });
+		await act(s, { action: "park" });
+		writeQuestWeights(questsRoot, jobs);
+		expect(first()).toEqual([lab.id]);
+
+		await act(s, { action: "queue-normal", id: lab.id });
+		writeQuestWeights(questsRoot, jobs);
+		expect(first()).toEqual([]);
+		expect(
+			readFileSync(join(dirname(lab.path), "README.md"), "utf8"),
+		).not.toMatch(/^queue:/m);
+	});
+
+	it("refuses without an id, since it always names whose work it moves", async () => {
+		const s = state();
+		const lab = await act(s, { action: "create", title: "Lab" });
+		await act(s, { action: "load", id: lab.id });
+		const result = await handle(s, pi, ctx(), { action: "queue-first" });
+		expect(result.ok).toBe(false);
+	});
 });
 
 describe("each quest's weight", () => {
@@ -139,7 +182,9 @@ describe("each quest's weight", () => {
 
 		writeQuestWeights(questsRoot, jobs);
 
-		expect(readdirSync(jobs)).toEqual([QUEST_WEIGHTS_FILE]);
+		expect(readdirSync(jobs).sort()).toEqual(
+			[QUEST_WEIGHTS_FILE, QUEUE_FIRST_FILE].sort(),
+		);
 	});
 
 	it("is not written where there is no quests root to read", () => {

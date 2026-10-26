@@ -99,8 +99,12 @@ so once its checks come from the cache it is a build again.
   it shows is cut at 120 characters.
   Timed work goes first, then quick work (below), then within each
   class the work of a session another is parked on (the mesh says
-  whose, from its wait leases), then the oldest; a job memory holds
-  back holds everyone behind it but quick work.
+  whose, from its wait leases), then the work of a quest put first
+  (`quest queue-first`, listed in `first.json` beside `queue.json`,
+  each job knowing its quest from the `PI_QUEST` its commands
+  carry), then the oldest; a job memory holds back holds everyone
+  behind it but quick work. `queue.json` gives each job's `quest`,
+  and marks it `first` when that quest is put first.
 - **Quick work** is a build that takes seconds: its last run of the
   same work took under a minute, or, never run, it builds checks named
   in full (`.#checks.<system>.<name>`), none a VM test's. The same work

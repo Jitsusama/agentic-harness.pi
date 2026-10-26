@@ -51,6 +51,7 @@ import {
 	who,
 	workspace,
 } from "./verbs/queries.ts";
+import { queueOrder } from "./verbs/queue.ts";
 import { priorityJump, priorityShift, reorder } from "./verbs/reorder.ts";
 import {
 	sessionAttach,
@@ -163,6 +164,10 @@ async function dispatch(
 			return section(state, params);
 		case "retitle":
 			return retitle(state, params);
+		case "queue-first":
+			return queueOrder(state, params, true);
+		case "queue-normal":
+			return queueOrder(state, params, false);
 		case "think":
 		case "draft":
 		case "build":

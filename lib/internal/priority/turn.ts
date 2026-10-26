@@ -23,6 +23,7 @@
  */
 
 import { randomBytes } from "node:crypto";
+import { offeredShellEnvironment } from "../shell/environment.ts";
 import { type QueueFolder, UNKEPT_MS } from "./folder.ts";
 import {
 	type Job,
@@ -68,6 +69,12 @@ const CAPPING = [
 	` __cores=$(sed -n 's/^cores = //p' "$__cap"); [ -n "$__cores" ] && export CARGO_BUILD_JOBS="$__cores";`,
 	` printf 'Runs beside a VM check, so its Nix builds are held to %s at once, of %s cores each, and cargo to %s jobs.\\n' "$(sed -n 's/^max-jobs = //p' "$__cap")" "$__cores" "$__cores" >&2; unset __cores __cap; }`,
 ].join("");
+
+/**
+ * The variable that names the quest a command's work is for, as
+ * quest-workflow offers it to every command (its `QUEST_ENV`).
+ */
+const QUEST_VARIABLE = "PI_QUEST";
 
 /** Seconds a wait lasts before the shell says it waited. */
 export const SAID_AFTER_S = 5;
@@ -127,12 +134,14 @@ export function queuedCommand(command: string): string {
 	// check's build does, is no seconds-long job, whatever the first is.
 	const quick =
 		needsGib <= NEEDS_GIB[kind] && queueing.folder.quickFor(kind, what);
+	const quest = offeredShellEnvironment()[QUEST_VARIABLE];
 	const job: Job = {
 		id: `${now.toString(36)}-${randomBytes(4).toString("hex")}`,
 		kind,
 		what,
 		needsGib,
 		...(quick ? { quick: true as const } : {}),
+		...(quest ? { quest } : {}),
 		owner: { session: queueing.session, pid: queueing.pid },
 		since: new Date(now).toISOString(),
 		cappable: true,
