@@ -239,6 +239,16 @@ describe("naming an item by its number", () => {
 		if (result.ok) throw new Error("expected a refusal");
 		expect(result.reason).toContain('No item reads "1"');
 	});
+
+	it("names at most twenty candidates in a refusal", () => {
+		const body = Array.from({ length: 30 }, (_, n) => `- [ ] Step ${n}`).join(
+			"\n",
+		);
+		const result = setCheckbox(body, "nothing like it", true);
+		if (result.ok) throw new Error("expected a refusal");
+		expect(result.reason).toContain("- Step 19\n- and 10 more");
+		expect(result.reason).not.toContain("Step 20");
+	});
 });
 
 describe("reading a document without all of it", () => {

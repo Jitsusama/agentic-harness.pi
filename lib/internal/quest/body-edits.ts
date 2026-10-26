@@ -451,8 +451,18 @@ function outsideFences(lines: readonly string[]): number[] {
 	return indices;
 }
 
+/** How many candidates a refusal names; a plan can hold hundreds. */
+const LISTED_ITEMS = 20;
+
 function listItems(items: readonly Located[]): string {
-	return items.map((i) => `- ${i.text}`).join("\n");
+	const listed = items.slice(0, LISTED_ITEMS).map((i) => `- ${i.text}`);
+	const more = items.length - listed.length;
+	if (more > 0) {
+		listed.push(
+			`- and ${more} more; \`show\` with the document's id lists the open ones.`,
+		);
+	}
+	return listed.join("\n");
 }
 
 function trimBlankEdges(lines: string[]): string[] {
