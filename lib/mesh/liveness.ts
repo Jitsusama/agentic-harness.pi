@@ -15,16 +15,44 @@
  * holds it, or an older harness wrote it) cannot be judged, and is taken
  * as there: telling a sender a peer is gone when it is not costs the
  * message, and the reverse costs a line.
+ *
+ * Within one boot a presence is judged by its process's start in the
+ * kernel's ticks, which nothing moves, rather than by core's start in
+ * wall-clock milliseconds, which a suspend moves (process-ticks.ts).
  */
 
 import { readFileSync } from "node:fs";
 import {
 	askedOnce,
+	ownerNow,
 	ownerStanding,
 	type ProcessFacts,
 	systemFacts,
 } from "@jitsusama/agentic-harness.core/process";
-import type { Presence } from "./presence.ts";
+import {
+	type StartTicks,
+	startTicksFromProc,
+} from "../internal/process-ticks.ts";
+import type { PeerOwner, Presence } from "./presence.ts";
+
+/** What the machine says about its processes, ticks included where it can. */
+export type PeerFacts = ProcessFacts & { readonly startTicks?: StartTicks };
+
+/** This machine's account of its processes. */
+export const peerFacts: PeerFacts = {
+	...systemFacts,
+	startTicks: startTicksFromProc,
+};
+
+/** This process, as a presence names it, with its start in ticks. */
+export async function peerOwnerNow(
+	facts: PeerFacts = peerFacts,
+): Promise<PeerOwner | undefined> {
+	const owner = await ownerNow(facts);
+	if (!owner) return undefined;
+	const startTicks = await facts.startTicks?.(owner.pid);
+	return startTicks === undefined ? owner : { ...owner, startTicks };
+}
 
 /**
  * When the machine booted, in milliseconds since the epoch, read from
@@ -56,15 +84,38 @@ export interface Census {
 /** Whether this peer is still on the mesh. */
 export async function livenessOf(
 	presence: Presence,
-	facts: ProcessFacts = systemFacts,
+	facts: PeerFacts = peerFacts,
 ): Promise<Liveness> {
-	if (!presence.owner) return "unknown";
-	const standing = await ownerStanding(presence.owner, facts);
+	const owner = presence.owner;
+	if (!owner) return "unknown";
+	const byTicks = await ticksStanding(owner, facts);
+	if (byTicks) return byTicks;
+	const standing = await ownerStanding(owner, facts);
 	return standing === "running"
 		? "present"
 		: standing === "gone"
 			? "gone"
 			: "unknown";
+}
+
+/**
+ * Whether the presence's process runs, by its start in ticks, when
+ * the presence names its boot and ticks and the machine can say both;
+ * nothing when it cannot be told that way.
+ */
+async function ticksStanding(
+	owner: PeerOwner,
+	facts: PeerFacts,
+): Promise<Liveness | undefined> {
+	if (owner.startTicks === undefined || owner.bootId === undefined) {
+		return undefined;
+	}
+	const boot = facts.bootId?.();
+	if (boot === undefined || !facts.startTicks) return undefined;
+	if (boot !== owner.bootId) return "gone";
+	const ticks = await facts.startTicks(owner.pid);
+	if (ticks === undefined) return undefined;
+	return ticks === owner.startTicks ? "present" : "gone";
 }
 
 /**
@@ -78,9 +129,12 @@ export async function livenessOf(
  */
 export async function census(
 	everyone: readonly Presence[],
-	facts: ProcessFacts = systemFacts,
+	facts: PeerFacts = peerFacts,
 ): Promise<Census> {
-	const once = askedOnce(facts);
+	const once: PeerFacts = {
+		...askedOnce(facts),
+		...(facts.startTicks ? { startTicks: facts.startTicks } : {}),
+	};
 	const holder = (one: Presence) =>
 		one.owner ? `${one.owner.pid}@${one.owner.startedAt}` : undefined;
 	const latest = new Map<string, string>();

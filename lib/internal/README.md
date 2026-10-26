@@ -68,6 +68,8 @@ may import from here, and any of it may change without notice.
   paths, by the XDG base directories.
 - **`process-global.ts`**: singletons shared across an extension's
   module instances.
+- **`process-ticks.ts`**: a process's start in the kernel's ticks
+  since boot, which no suspend or clock change moves.
 - **`project.ts`**: which project a checkout is, for settings keyed
   by project.
 - **`resources.ts`**: the CPU, disk and memory this pi process and

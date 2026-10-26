@@ -619,7 +619,12 @@ A presence names the process holding it (pid, start time and
 boot), and the core's process module says whether that process
 still runs, so a new process wearing an old pid is not taken
 for the peer. It is the answer the fleet sweep and review
-leases give too. There is no heartbeat: Skynet's showed a timer
+leases give too. Within one boot the presence's start in the
+kernel's ticks decides, where the machine keeps them: core's
+start time is wall-clock milliseconds, which suspends move, and
+after a 100-cycle suspend soak it had moved four seconds, past
+its two-second tolerance, so every peer read as ended. There is
+no heartbeat: Skynet's showed a timer
 becomes pressure to post, and one died unnoticed for an hour
 and forty-six minutes. A pi holds one session at a time, so of
 the presences one process holds, only its latest is there. A
