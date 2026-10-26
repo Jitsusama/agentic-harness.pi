@@ -99,9 +99,12 @@ describe("sweeping what core appended", () => {
 
 	it("says a failed sweep through what it is given, never the console", () => {
 		const said: string[] = [];
+		// A folder where the Journey file belongs, so reading it throws.
+		rmSync(join(questDir, JOURNEY_FILE), { force: true });
+		mkdirSync(join(questDir, JOURNEY_FILE), { recursive: true });
 		sweepAfterQuestAction(
 			"bump",
-			join(questDir, "no-such-quest"),
+			questDir,
 			[],
 			() => undefined,
 			(text) => said.push(text),
