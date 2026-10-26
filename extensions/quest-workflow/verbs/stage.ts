@@ -170,7 +170,7 @@ function sweepQuests(
 		if (id === state.questId) state.scratchDir = null;
 		if (!workspaceDirOf(defaultWorkspaceRoot(), id)) continue;
 		if (clearQuestWorkspaceTmp(defaultWorkspaceRoot(), id)) {
-			appendHarnessLog(entry.dir, "Cleared the workspace's tmp/ folder.");
+			appendHarnessLog(entry.dir, "Cleared the scratch folder's tmp/.");
 		}
 	}
 	return result;
@@ -686,7 +686,7 @@ export async function workspaceKept(
 	if (!dir) return undefined;
 	const size = await measure(dir);
 	if (!size) return undefined;
-	return `Its workspace still holds ${formatSize(size)}, kept in case the quest reopens; \`spend\` with disk lists what could go across quests.`;
+	return `Its scratch folder still holds ${formatSize(size)}, kept in case the quest reopens; \`spend\` with disk lists what could go across quests.`;
 }
 
 export async function concludeOrRetire(
@@ -882,7 +882,7 @@ async function sealLoadedQuest(
 		logHarnessEntry(state, "Reaped the managed scratch directory.");
 	}
 	if (clearedTmp) {
-		logHarnessEntry(state, "Cleared the workspace's tmp/ folder.");
+		logHarnessEntry(state, "Cleared the scratch folder's tmp/.");
 	}
 	// What the gates let through outside every tree, said once at the
 	// end, so the record shows everything the quest touched.

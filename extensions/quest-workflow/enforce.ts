@@ -139,7 +139,7 @@ function systemTempFunnel(
 		guard: GUARDS.questTemp.name,
 		block: true,
 		outside: inTemp,
-		reason: `Quest workflow: this names a path in system temp, which nothing reaps. Use $TMPDIR instead (mktemp already does), which points at the tmp/ folder of this quest's workspace, cleared when the quest concludes: ${dir}`,
+		reason: `Quest workflow: this names a path in system temp, which nothing reaps. Use $TMPDIR instead (mktemp already does), which points at the tmp/ in this quest's scratch folder, cleared when the quest concludes: ${dir}`,
 	};
 }
 
@@ -246,7 +246,7 @@ function enforcePhase(
 			return {
 				guard: GUARDS.questPlanStage.name,
 				block: true,
-				reason: `Quest workflow (plan ${state.documentStage}): this edits already-tracked code. Move to build to implement, or keep planning notes in the plan, the quest's attachments/ or its workspace.`,
+				reason: `Quest workflow (plan ${state.documentStage}): this edits already-tracked code. Move to build to implement, or keep planning notes in the plan, the quest's attachments/ or its scratch folder.`,
 			};
 		}
 		return;

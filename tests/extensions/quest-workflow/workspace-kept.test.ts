@@ -13,7 +13,7 @@ import type { Measure } from "../../../lib/internal/quest/footprint.ts";
 const ID = "QEST-20261001-AAAAAA";
 
 describe("workspaceKept", () => {
-	it("says what the workspace still holds and where to see what could go", async () => {
+	it("says what the scratch folder still holds and where to see what could go", async () => {
 		const asked: string[] = [];
 		const measure: Measure = async (path) => {
 			asked.push(path);
@@ -23,7 +23,7 @@ describe("workspaceKept", () => {
 		expect(asked).toHaveLength(1);
 		expect(asked[0]).toMatch(new RegExp(`${ID}$`));
 		expect(said).toBe(
-			"Its workspace still holds 2.5 GB, kept in case the quest reopens; `spend` with disk lists what could go across quests.",
+			"Its scratch folder still holds 2.5 GB, kept in case the quest reopens; `spend` with disk lists what could go across quests.",
 		);
 	});
 

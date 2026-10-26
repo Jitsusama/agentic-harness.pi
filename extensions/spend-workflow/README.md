@@ -60,10 +60,10 @@ out, since only a running pi knows which they are.
 ## Disk Is a Cost Too
 
 `spend` with `disk` reports what each quest holds on disk, heaviest
-first: its workspace and the trees it scaffolded, never its record. A
-finished quest's workspace is counted as able to go now. Trees a
-finished quest left behind are named apart, since their prune was
-refused for work not yet safe, and only a prune may take them. Trees
+first: its scratch folder and the trees it scaffolded, never its record.
+A finished quest's scratch folder is counted as able to go now. Trees a
+finished quest left behind are named apart, since their release was
+refused for work not yet safe, and only a release may take them. Trees
 quests adopted are your own checkouts, so they are measured once each
 and never counted as any quest's to free.
 

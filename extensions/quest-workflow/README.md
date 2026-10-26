@@ -1,6 +1,6 @@
 # quest-workflow
 
-The unified hierarchical workspace extension. Replaces the
+The quest extension: one hierarchy of quests. Replaces the
 old asks/sidequests/issues/PR-notes substrate with a single
 quest model: campaigns (quests), subquests under them and
 free-standing sidequests, with plan, research, brief and
@@ -133,12 +133,12 @@ while it waits its turn leaves without running.
   quest's trees defer to build, or in any tree while the
   quest tracks none. In `build`, writes flow inside any tree
   the quest tracks, into any quest's record and into any
-  quest's workspace; a write inside an untracked git tree
+  quest's scratch folder; a write inside an untracked git tree
   adopts that tree and goes ahead, and a homeless write is
   refused with `tree-add`. Across stages, `/dev` nodes
   always flow. The agent's commands run with `TMPDIR` set
-  to `/tmp/pi-quest-<ID>`, a link to the loaded quest's workspace
-  `tmp/`, which conclude and retire clear; a path named in
+  to `/tmp/pi-quest-<ID>`, a link to the loaded quest's scratch
+  folder's `tmp/`, which conclude and retire clear; a path named in
   system temp is refused with that remedy. Bash targets resolve as the shell
   would, so `~` is the home directory and a `cd` counts.
 - Sharing the machine by quest: the agent's commands and
@@ -181,7 +181,7 @@ while it waits its turn leaves without running.
   and its remedy, and the same write made again goes
   through as an override you see. Each path those let
   through, outside every tree, is noted in the quest's
-  workspace (`outside-writes.jsonl`), and `conclude` names
+  scratch folder (`outside-writes.jsonl`), and `conclude` names
   them in its message and Journey, so a quest accounts for
   everything it touched. `quest-untracked-tree`
   redirects by adopting the tree. A

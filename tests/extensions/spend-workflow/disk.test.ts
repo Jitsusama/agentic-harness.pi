@@ -86,7 +86,7 @@ describe("the disk report", () => {
 			"Quests hold 4.0 GB of their own on disk, and 2.0 GB of it could go now",
 		);
 		expect(text).toContain(
-			"- QEST-20261001-AAAAAA Quest QEST-20261001-AAAAAA [concluded]: 2.0 GB, all of it could go (workspace 2.0 GB)",
+			"- QEST-20261001-AAAAAA Quest QEST-20261001-AAAAAA [concluded]: 2.0 GB, all of it could go (scratch folder 2.0 GB)",
 		);
 		expect(text).toContain(
 			`[active]: 2.0 GB, still in use (a tree it made, 2.0 GB, at ${made})`,
@@ -110,7 +110,7 @@ describe("the disk report", () => {
 		expect(text).toContain("and 3.0 GB of it could go now");
 		expect(text).toContain("Finished quests also left 3.0 GB in trees");
 		expect(text).toContain(
-			`6.0 GB, 3.0 GB could go, and a prune decides the rest (workspace 3.0 GB; a tree it left behind, 3.0 GB, at ${left})`,
+			`6.0 GB, 3.0 GB could go, and a release decides the rest (scratch folder 3.0 GB; a tree it left behind, 3.0 GB, at ${left})`,
 		);
 	});
 

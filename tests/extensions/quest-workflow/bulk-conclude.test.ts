@@ -117,9 +117,9 @@ describe("sweeping quests by id", () => {
 				expect(existsSync(workspace(id, "lab/results.csv"))).toBe(true);
 				const dir = join(state.questsRoot, id);
 				expect(readFileSync(harnessLogPath(dir), "utf8")).toContain(
-					"Cleared the workspace's tmp/ folder.",
+					"Cleared the scratch folder's tmp/.",
 				);
-				expect(journeyOf(dir)).not.toContain("Cleared the workspace");
+				expect(journeyOf(dir)).not.toContain("Cleared the scratch folder");
 			}
 		});
 	}
