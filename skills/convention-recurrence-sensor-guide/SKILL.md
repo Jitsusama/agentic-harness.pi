@@ -128,3 +128,14 @@ wants a guard or a line in the standing context. Re-run it after
 the change lands, and compare that group's sessions per week
 against the sessions active, since a short week reads lower.
 The harness owner reviews each proposal.
+
+The weekly measure runs the sensor over the last seven days
+beside the `cost` tool's weekly audit, with no pi session, and writes one
+report to the state directory's `measure/` folder, named for
+the day the week ends:
+
+```bash
+node --experimental-transform-types scripts/weekly-measure.ts [--out <file>] [--top N]
+```
+
+It is what a weekly timer runs, and what each re-take reads.

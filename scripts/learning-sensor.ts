@@ -396,15 +396,14 @@ function sessionFiles(): string[] {
 	});
 }
 
-function main(): void {
-	const args = process.argv.slice(2);
-	const option = (name: string) => {
-		const index = args.indexOf(name);
-		return index >= 0 ? args[index + 1] : undefined;
-	};
-	const since = option("--since") ?? "1970-01-01";
-	const sinceMs = Date.parse(since);
-	const top = Number(option("--top") ?? 20);
+/**
+ * Read every session log from `sinceMs` on: what recurred, grouped,
+ * and how many sessions were active each ISO week.
+ */
+export function sense(sinceMs: number): {
+	groups: Group[];
+	active: Record<string, number>;
+} {
 	const sightings: Sighting[] = [];
 	const active = new Map<string, number>();
 	for (const file of sessionFiles()) {
@@ -413,10 +412,19 @@ function main(): void {
 		for (const week of scanned.weeks)
 			active.set(week, (active.get(week) ?? 0) + 1);
 	}
-	const groups = tally(sightings);
-	process.stdout.write(
-		renderReport(groups, Object.fromEntries(active), { since, top }),
-	);
+	return { groups: tally(sightings), active: Object.fromEntries(active) };
+}
+
+function main(): void {
+	const args = process.argv.slice(2);
+	const option = (name: string) => {
+		const index = args.indexOf(name);
+		return index >= 0 ? args[index + 1] : undefined;
+	};
+	const since = option("--since") ?? "1970-01-01";
+	const top = Number(option("--top") ?? 20);
+	const { groups, active } = sense(Date.parse(since));
+	process.stdout.write(renderReport(groups, active, { since, top }));
 	const json = option("--json");
 	if (json) writeFileSync(json, `${JSON.stringify(groups, null, 1)}\n`);
 }

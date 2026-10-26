@@ -61,7 +61,8 @@ import {
 	recordIndex,
 } from "../../lib/internal/session/rollover.ts";
 import { LEDGER_SCOPE } from "../../lib/ledger/index.ts";
-import { AUDIT_QUERIES, formatAudit, weeks } from "./audit.ts";
+import { formatAudit } from "./audit.ts";
+import { gatherAudit } from "./audit-input.ts";
 import { formatHoldings, measureQuests } from "./disk.ts";
 import { fanOutView, summarizeFanOut } from "./fanout.ts";
 import { indexSessionLogs, sessionsDir } from "./indexer.ts";
@@ -86,7 +87,6 @@ import {
 	recordTurn,
 	useByQuest,
 } from "./resources.ts";
-import { byRepo, logsSince, standingOf } from "./standing.ts";
 
 /** Where each session's per-turn resource figures are kept. */
 const resourcesDir = () => join(packageStateDir("observability"), "resources");
@@ -524,66 +524,15 @@ export default function costWorkflow(pi: ExtensionAPI) {
 
 			if (params.audit) {
 				const read = await openReader();
-				const { current, prior } = weeks(Date.now());
-				const rows = async (sql: string) => (await read.query(sql)).rows;
-				const logs = logsSince(sessionsDir(), Date.parse(current.from));
-				const prompts = (
-					await Promise.all(logs.map((path) => standingOf(path)))
-				).filter((one) => one !== undefined);
 				const deferred = pi
 					.getAllTools()
 					.filter((tool) => tool.exposure === "deferred")
 					.map((tool) => tool.name);
-				const [
-					now,
-					before,
-					rewrites,
-					reads,
-					errors,
-					sessions,
-					searches,
-					hidden,
-					questReadsNow,
-					questReadsBefore,
-					sessionsBefore,
-				] = await Promise.all([
-					rows(AUDIT_QUERIES.spend(current)),
-					rows(AUDIT_QUERIES.spend(prior)),
-					rows(AUDIT_QUERIES.rewrites(current)),
-					rows(AUDIT_QUERIES.readsByRepo(current)),
-					rows(AUDIT_QUERIES.errors(current)),
-					rows(AUDIT_QUERIES.sessions(current)),
-					rows(AUDIT_QUERIES.searches(current)),
-					rows(AUDIT_QUERIES.hidden(current, deferred)),
-					rows(AUDIT_QUERIES.questReads(current)),
-					rows(AUDIT_QUERIES.questReads(prior)),
-					rows(AUDIT_QUERIES.sessions(prior)),
-				]);
-				const text = formatAudit(
-					{
-						week: current,
-						spend: { now: now[0] ?? {}, before: before[0] ?? {} },
-						rewrites,
-						reads,
-						errors,
-						standing: byRepo(prompts),
-						unread: logs.length - prompts.length,
-						loading: {
-							sessions: Number(sessions[0]?.sessions ?? 0),
-							searches: searches[0] ?? {},
-							hidden,
-						},
-						questReads: {
-							now: questReadsNow,
-							before: questReadsBefore,
-							active: {
-								now: Number(sessions[0]?.sessions ?? 0),
-								before: Number(sessionsBefore[0]?.sessions ?? 0),
-							},
-						},
-					},
-					params.limit ?? 12,
+				const input = await gatherAudit(
+					async (sql) => (await read.query(sql)).rows,
+					{ now: Date.now(), sessionsDir: sessionsDir(), deferred },
 				);
+				const text = formatAudit(input, params.limit ?? 12);
 				return {
 					content: [{ type: "text", text }],
 					details: { ok: true, index },

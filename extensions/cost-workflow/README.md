@@ -52,6 +52,11 @@ fixing" in one call, held against the week before:
   and are left out; the learning sensor counts those.
 - **Failures:** the tools whose calls failed most, with their rates.
 
+`scripts/weekly-measure.ts` gathers the same audit with no pi session,
+as a timer does, beside the learning sensor's count for the week, and
+writes both as one report. Only the tools that load on demand are left
+out, since only a running pi knows which they are.
+
 ## Disk Is a Cost Too
 
 `cost` with `disk` reports what each quest holds on disk, heaviest
