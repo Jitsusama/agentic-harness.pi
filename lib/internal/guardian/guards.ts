@@ -78,6 +78,23 @@ export const GUARDS = {
 		groups: ["git"],
 		follows: ["commit", "pr", "issue"],
 	}),
+	stash: declare({
+		name: "stash",
+		class: "form",
+		description: "Refuses git stash saving work, pointing at a branch instead",
+		// A stash is undone by popping it, so the agent hears the remedy
+		// and a repeat goes ahead.
+		defaultMode: "redirect",
+		groups: ["git", "shell"],
+	}),
+	sleep: declare({
+		name: "sleep",
+		class: "form",
+		description:
+			"Refuses a sleep of ten seconds or more, pointing at background work",
+		defaultMode: "redirect",
+		groups: ["shell"],
+	}),
 	pr: declare({
 		name: "pr",
 		class: "approval",
