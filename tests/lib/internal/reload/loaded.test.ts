@@ -55,20 +55,30 @@ describe("saying which code runs", () => {
 		expect(isSwapped({ root: "/src/tree" })).toBe(true);
 	});
 
-	it("counts a release the install's link has left as the install, behind it", () => {
-		const releases = "/p/github.com/Jitsusama/agentic-harness.pi/releases";
+	it("counts a version the install's link has left as the install, behind it", () => {
+		const versions = "/p/github.com/Jitsusama/agentic-harness.pi/versions";
 		expect(
-			isSwapped({ root: `${releases}/aaa`, install: `${releases}/bbb` }),
+			isSwapped({ root: `${versions}/aaa`, install: `${versions}/bbb` }),
 		).toBe(false);
-		expect(isSwapped({ root: "/src/tree", install: `${releases}/bbb` })).toBe(
+		expect(isSwapped({ root: "/src/tree", install: `${versions}/bbb` })).toBe(
 			true,
 		);
 		expect(
 			isSwapped({
-				root: "/p/github.com/Jitsusama/neovim.pi/releases/aaa",
-				install: `${releases}/bbb`,
+				root: "/p/github.com/Jitsusama/neovim.pi/versions/aaa",
+				install: `${versions}/bbb`,
 			}),
 		).toBe(true);
+	});
+
+	it("counts a version in the former releases/ folder as the install too", () => {
+		const install = "/p/github.com/Jitsusama/agentic-harness.pi";
+		expect(
+			isSwapped({
+				root: `${install}/releases/aaa`,
+				install: `${install}/versions/bbb`,
+			}),
+		).toBe(false);
 	});
 
 	it("writes the home directory as ~", () => {
