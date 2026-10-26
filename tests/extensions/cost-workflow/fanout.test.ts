@@ -3,12 +3,12 @@ import {
 	fanOutBy,
 	fanOutView,
 	summarizeFanOut,
-} from "../../extensions/cost-workflow/fanout.ts";
-import { formatFanOut } from "../../extensions/cost-workflow/report.ts";
+} from "../../../extensions/cost-workflow/fanout.ts";
+import { formatFanOut } from "../../../extensions/cost-workflow/report.ts";
 import type {
 	RunRecord,
 	SessionRecord,
-} from "../../lib/core/observability/index.ts";
+} from "../../../lib/core/observability/index.ts";
 
 const DAY = Date.UTC(2026, 8, 22);
 
