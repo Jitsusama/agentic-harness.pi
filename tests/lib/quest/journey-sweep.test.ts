@@ -14,6 +14,7 @@ import {
 	FORMER_JOURNEY_FILE,
 	JOURNEY_FILE,
 	JOURNEY_POINTER,
+	JOURNEY_TITLE,
 	recentJourney,
 } from "../../../lib/internal/quest/journey";
 import {
@@ -138,10 +139,10 @@ describe("moving the Journey up beside the README", () => {
 		expect(existsSync(join(questDir, "attachments", "chart.png"))).toBe(true);
 	});
 
-	it("puts what an older session wrote at the old place above the new file", () => {
+	it("folds in what an older session wrote at the old place by date", () => {
 		sweepJourney(questDir);
 		mkdirSync(join(questDir, "attachments"));
-		writeFileSync(former(), "# 🌄 Journey\n\n- **2026-06-04**: Stale write.\n");
+		writeFileSync(former(), "# 🌄 Journey\n\n- **2026-06-03**: Stale write.\n");
 		appendJourneyByPath(questDir, "harness entry", { now: fixedNow });
 
 		expect(journeyFile()).toBe(
@@ -149,11 +150,44 @@ describe("moving the Journey up beside the README", () => {
 				"# 🌄 Journey",
 				"",
 				"- **2026-06-03**: harness entry",
-				"- **2026-06-04**: Stale write.",
+				"- **2026-06-03**: Stale write.",
 				"- **2026-06-02**: Old place.",
 				"- **2026-06-01**: Created.",
 				"",
 			].join("\n"),
+		);
+		expect(existsSync(former())).toBe(false);
+	});
+
+	it("reads and sweeps both files merged by date, either holding the newest", () => {
+		writeFileSync(
+			join(questDir, JOURNEY_FILE),
+			`${JOURNEY_TITLE}\n\n- **2026-06-05**: New code.\n  More of it.\n- **2026-06-03**: New, same day.\n- **2026-06-01**: Created.\n\n[a]: https://a\n`,
+		);
+		writeFileSync(
+			former(),
+			`${JOURNEY_TITLE}\n\n- **2026-06-04**: Old code.\n- **2026-06-03**: Old, same day.\n\n[a]: https://a\n[b]: https://b\n`,
+		);
+		const merged = [
+			"- **2026-06-05**: New code.",
+			"  More of it.",
+			"- **2026-06-04**: Old code.",
+			"- **2026-06-03**: New, same day.",
+			"- **2026-06-03**: Old, same day.",
+			"- **2026-06-01**: Created.",
+		];
+		expect(recentJourney(questDir, readme(), 9).map((e) => e.date)).toEqual([
+			"2026-06-05",
+			"2026-06-04",
+			"2026-06-03",
+			"2026-06-03",
+			"2026-06-01",
+		]);
+
+		sweepJourney(questDir);
+
+		expect(journeyFile()).toBe(
+			`${[JOURNEY_TITLE, "", ...merged, "", "[a]: https://a", "[b]: https://b"].join("\n")}\n`,
 		);
 		expect(existsSync(former())).toBe(false);
 	});

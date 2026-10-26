@@ -44,6 +44,7 @@ import {
 	JOURNEY_POINTER,
 	journeyBody,
 	journeyFilePath,
+	mergeJourneyBodies,
 	readmeJourneySection,
 	renderJourneyFile,
 } from "./journey.ts";
@@ -234,8 +235,8 @@ export function listAttachments(questDir: string): string[] {
 /**
  * Sweep a quest's README Journey into its file, putting `prepend` at
  * its head, the caller holding the quest's lock. A Journey file still
- * at its former place is folded in at the head too, as the newer part,
- * and removed once the file beside the README is written. Returns how
+ * at its former place is merged in by date, and removed once the file
+ * beside the README is written. Returns how
  * many README lines moved, or undefined when the quest has no README.
  */
 export function sweepJourneyUnlocked(
@@ -254,15 +255,17 @@ export function sweepJourneyUnlocked(
 	const formerPath = formerJourneyFilePath(questDir);
 	const current = textAt(filePath);
 	const former = textAt(formerPath);
-	// Only a session on older code writes the former file, so what it
-	// holds is newer than the file beside the README.
+	// A session still on older code writes the former file, so either
+	// may hold the newest entries: the two are merged by date.
 	const journey =
 		former === undefined
 			? current
-			: renderJourneyFile([
-					...journeyBody(former),
-					...(current === undefined ? [] : journeyBody(current)),
-				]);
+			: renderJourneyFile(
+					mergeJourneyBodies(
+						current === undefined ? [] : journeyBody(current),
+						journeyBody(former),
+					),
+				);
 	const plan = planJourneySweep(readme, {
 		journey,
 		prepend,
