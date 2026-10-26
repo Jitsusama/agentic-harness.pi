@@ -32,6 +32,7 @@
  * alone, so what is said stays in a potentially shared space.
  */
 
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -49,6 +50,8 @@ import {
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { dataDir, stateDir } from "../../lib/internal/paths.ts";
 import { tellAwaited } from "../../lib/internal/priority/awaited.ts";
+import { onConcluded } from "../../lib/internal/quest/concluded.ts";
+import { withQuestLock } from "../../lib/internal/quest/io.ts";
 import {
 	carriedBy,
 	ROLLOVER_CARRY,
@@ -153,7 +156,9 @@ import {
 } from "./leases.ts";
 import { meshLines, type Shown } from "./render.ts";
 import { createSteering, type Steering, steerText } from "./steer.ts";
+import { tellOrchestrator } from "./tells.ts";
 import { type Local, registerTools } from "./tools.ts";
+import { seedWaiting, type Waiting } from "./wait.ts";
 
 /**
  * The environment variable naming the classifier that judges messages
@@ -401,6 +406,19 @@ export function meshWorkflow(
 		const awaiting = createAwaiting();
 		let ctx: ExtensionContext | undefined;
 		let peer: Peer | undefined;
+		// What this session's quest has waiting on the person (wait.ts).
+		const waiting: Waiting | undefined = paths.waiting
+			? {
+					folder: paths.waiting,
+					quest: () =>
+						peer ? loadedQuest(peer.session, paths.sessions) : undefined,
+					window: () => (peer ? presences.of(peer.session)?.title : undefined),
+					locked: <T>(quest: string, change: () => T): T => {
+						const dir = join(paths.quests, quest);
+						return existsSync(dir) ? withQuestLock(dir, change) : change();
+					},
+				}
+			: undefined;
 		const wanting = new Map<WantKind, Want>();
 		let classifier: Promise<FoundClassifier> | undefined;
 		let stopWatching: (() => void) | undefined;
@@ -984,6 +1002,7 @@ export function meshWorkflow(
 				...(previous ? { previous } : {}),
 			});
 			for (const want of wanting.values()) peer.want(want);
+			if (waiting) seedWaiting(peer, waiting);
 			// Named to whatever this process starts, so a subagent knows whose
 			// hands it is.
 			env[MESH_SESSION_ENV] = peer.session;
@@ -1251,6 +1270,15 @@ export function meshWorkflow(
 			});
 		}
 
+		// A quest or document ended: its orchestrator hears it from the mesh,
+		// not from whether the session remembers to say so.
+		if (pi.events) {
+			onConcluded(pi.events, (event) => {
+				const message = tellOrchestrator(peer, transport, event);
+				if (message) seen.add(message.id);
+			});
+		}
+
 		// Heavy work is claimed by whatever places it, over pi's bus.
 		pi.events?.on(LEASE_EVENT, (data: unknown) => {
 			const event = leaseEventFrom(data);
@@ -1294,19 +1322,7 @@ export function meshWorkflow(
 						},
 						confirmEnd: (hold, text) =>
 							confirmEnd(ctx, hold, text, waitingOn(hold.id)),
-						...(paths.waiting
-							? {
-									waiting: {
-										folder: paths.waiting,
-										quest: () =>
-											peer
-												? loadedQuest(peer.session, paths.sessions)
-												: undefined,
-										window: () =>
-											peer ? presences.of(peer.session)?.title : undefined,
-									},
-								}
-							: {}),
+						...(waiting ? { waiting } : {}),
 					}
 				: undefined,
 		);

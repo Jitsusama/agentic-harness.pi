@@ -26,6 +26,29 @@ export interface Waiting {
 	quest(): string | undefined;
 	/** This session's window, by its exact title, if it has one. */
 	window(): string | undefined;
+	/**
+	 * Run a change to a quest's file under that quest's lock, so two
+	 * sessions on one quest never each drop the other's item. Left out,
+	 * the change runs as it is.
+	 */
+	locked?<T>(quest: string, change: () => T): T;
+}
+
+/**
+ * Say in presence what the file already holds for this session's quest,
+ * as a session starts or takes a quest over: the file outlives the
+ * session that wrote it, and presence otherwise says nothing until the
+ * next mesh_wait.
+ */
+export function seedWaiting(
+	peer: Peer,
+	waiting: Waiting,
+	now = new Date(),
+): void {
+	const quest = waiting.quest();
+	if (!quest) return;
+	const items = waitingOf(waiting.folder, quest);
+	if (items.length > 0) mirror(peer, items, now);
 }
 
 /** What mesh_wait is given. */
@@ -62,16 +85,23 @@ export function waitOnPerson(
 	const id = params.id.trim();
 	if (id === "")
 		return refused("Name the item with `id`, so it can be settled later.");
+	const locked = <T>(change: () => T): T =>
+		waiting.locked ? waiting.locked(quest, change) : change();
 	if (params.done) {
-		const held = waitingOf(waiting.folder, quest);
-		if (!held.some((one) => one.id === id)) {
+		const settled = locked(() => {
+			const held = waitingOf(waiting.folder, quest);
+			return held.some((one) => one.id === id)
+				? { items: settleWaiting(waiting.folder, quest, id, now), was: true }
+				: { items: held, was: false };
+		});
+		if (!settled.was) {
 			return {
 				text: `Nothing named ${id} waits for ${quest}; nothing changed.`,
-				items: held,
+				items: settled.items,
 				written: false,
 			};
 		}
-		const items = settleWaiting(waiting.folder, quest, id, now);
+		const items = settled.items;
 		mirror(peer, items, now);
 		return {
 			text: `${id} no longer waits on the person. ${remaining(items)}`,
@@ -96,7 +126,6 @@ export function waitOnPerson(
 			`Nothing was kept: minutes is a whole number of minutes, not ${params.minutes}.`,
 		);
 	}
-	const before = waitingOf(waiting.folder, quest);
 	const item: WaitingItem = {
 		id,
 		title: (params.title ?? "").trim(),
@@ -107,7 +136,10 @@ export function waitOnPerson(
 		quest,
 		ready: params.ready === true,
 	};
-	const items = addWaiting(waiting.folder, item, now);
+	const { before, items } = locked(() => ({
+		before: waitingOf(waiting.folder, quest),
+		items: addWaiting(waiting.folder, item, now),
+	}));
 	mirror(peer, items, before.length > 0 ? undefined : now);
 	const replaced = before.some((one) => one.id === id);
 	return {

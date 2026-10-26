@@ -35,6 +35,7 @@ import {
 	meshWorkflow,
 } from "../../../extensions/mesh-workflow/index.ts";
 import { awaitedNow } from "../../../lib/internal/priority/awaited.ts";
+import { QUEST_CONCLUDED } from "../../../lib/internal/quest/concluded.ts";
 import {
 	ROLLOVER_CARRY,
 	ROLLOVER_RECORD,
@@ -2055,6 +2056,67 @@ describe("a message that names no group", () => {
 		expect(said?.content[0]?.text).toContain(
 			"It named no group, so it goes to #quest/5gv2ah/7m6jkg:",
 		);
+	});
+
+	it("says in presence what the file already holds, as a session starts", async () => {
+		paths = { ...paths, waiting: join(root, "waiting") };
+		mkdirSync(paths.waiting ?? "", { recursive: true });
+		writeFileSync(
+			join(root, "waiting", "7M6JKG.json"),
+			JSON.stringify({
+				updated: "2026-10-26T03:00:00.000Z",
+				quest: "QEST-20261021-7M6JKG",
+				items: [
+					{
+						id: "look",
+						title: "Look at the sheet",
+						why: "His taste",
+						minutes: 1,
+						when: "now",
+						window: null,
+						quest: "QEST-20261021-7M6JKG",
+						ready: true,
+					},
+				],
+			}),
+		);
+
+		await startSession();
+
+		expect(
+			createPresences(join(paths.mesh, "presence")).of(session)?.wants,
+		).toMatchObject({ kind: "action", said: "Look at the sheet" });
+	});
+
+	it("tells the orchestrator when a quest or document ends", async () => {
+		onQuest();
+		writeFileSync(
+			join(paths.quests, "QEST-20261021-5GV2AH", "README.md"),
+			"---\nid: QEST-20261021-5GV2AH\nkind: quest\nparent: null\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\norchestrator: true\n---\n# QEST-20261021-5GV2AH\n",
+		);
+		const { emit } = await startSession();
+		const transport = folderTransport(join(paths.mesh, "messages"));
+
+		emit(QUEST_CONCLUDED, {
+			how: "concluded",
+			ids: ["PLAN-20261021-AAAAAA"],
+			said: "Now concluded on plan PLAN-20261021-AAAAAA (The Plan).",
+		});
+
+		const told = transport.read(transport.ids().at(-1) ?? "");
+		expect(told).toMatchObject({ to: ["@5GV2AH"], intent: "fyi" });
+		expect(told?.text).toContain("PLAN-20261021-AAAAAA concluded");
+		expect(told?.text).toContain("(The Plan)");
+	});
+
+	it("tells nobody of an ending when no orchestrator is above the quest", async () => {
+		onQuest();
+		const { emit } = await startSession();
+		const transport = folderTransport(join(paths.mesh, "messages"));
+
+		emit(QUEST_CONCLUDED, { how: "retired", ids: ["X"], said: "Retired." });
+
+		expect(transport.ids()).toEqual([]);
 	});
 
 	it("keeps what waits on the person where the launcher reads it, mirrored in presence", async () => {
