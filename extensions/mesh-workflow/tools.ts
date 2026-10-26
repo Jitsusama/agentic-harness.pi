@@ -535,10 +535,12 @@ async function send(
 			`Nobody else is in ${empty.join(", ")} yet; mesh_read shows it to whoever joins within the week it is kept.`,
 		);
 	}
+	// Only news answers by default: a question of its own asks, and a
+	// hold puts off, so neither is taken for the answer it was not.
 	const taken =
 		params.re === undefined &&
 		supersedes === undefined &&
-		params.intent !== "hold"
+		(params.intent === "fyi" || params.intent === "finding")
 			? questionTaken(at, to)
 			: undefined;
 	const re = answersNamed ?? taken?.id;

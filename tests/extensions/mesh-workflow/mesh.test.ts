@@ -886,6 +886,22 @@ describe("an answer", () => {
 		);
 	});
 
+	it("takes a question of its own to the asker for no answer", async () => {
+		peer("session-w", ["WCJQSG"], []);
+		const { sent, tools } = await startSession({}, { isIdle: () => true });
+		fromElsewhere({
+			intent: "question",
+			to: ["@7M6JKG"],
+			text: "review #778?",
+		});
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+
+		const said = await send(tools, "WCJQSG", "question", "who folds quest?");
+
+		expect(sentOut().at(-1)?.re).toBeUndefined();
+		expect(said).not.toContain("the question this peer took up");
+	});
+
 	it("names no question for an answer elsewhere, a hold, or one of two", async () => {
 		peer("session-w", ["WCJQSG"], []);
 		const { sent, tools } = await startSession({}, { isIdle: () => true });
