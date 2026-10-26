@@ -17,12 +17,12 @@ import {
 	readSync,
 } from "node:fs";
 import { join } from "node:path";
-import type { QuestSession } from "../../quest/types.ts";
 import {
 	type TerminalProbe,
 	type TerminalSessionHandle,
 	terminalHandleKey,
-} from "../../terminal/types.ts";
+} from "../../../terminal/types.ts";
+import type { QuestSession } from "../../quest/types.ts";
 import type { ProcessIdentity, ProcessProbe } from "./process-liveness.ts";
 
 /**

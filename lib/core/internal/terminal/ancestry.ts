@@ -17,7 +17,7 @@ import { execFile } from "node:child_process";
 import { readFileSync, readlinkSync } from "node:fs";
 import { basename } from "node:path";
 import { promisify } from "node:util";
-import type { TerminalPlatform } from "../../terminal/types.ts";
+import type { TerminalPlatform } from "../../../terminal/types.ts";
 
 const execFileAsync = promisify(execFile);
 

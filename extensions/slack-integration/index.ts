@@ -11,6 +11,16 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ThemeColor } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import {
+	signInFailure,
+	unattended,
+} from "../../lib/internal/away/unattended.ts";
+import { sessionGateDeps } from "../../lib/internal/gate/session-deps.ts";
+import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
+import { singleFlight } from "../../lib/internal/single-flight.ts";
+import { getLastEntry } from "../../lib/internal/state.ts";
+import { registerStandingContext } from "../../lib/prompt/index.ts";
+import { ensureAuthenticated } from "../../lib/slack/auth/ensure-auth.ts";
+import {
 	clearAllConfig,
 	displayNameForId,
 	formatAuthError,
@@ -21,17 +31,7 @@ import {
 	SlackApiError,
 	type SlackClient,
 	type SlackUser,
-} from "../../lib/core/slack/index.ts";
-import {
-	signInFailure,
-	unattended,
-} from "../../lib/internal/away/unattended.ts";
-import { sessionGateDeps } from "../../lib/internal/gate/session-deps.ts";
-import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
-import { singleFlight } from "../../lib/internal/single-flight.ts";
-import { getLastEntry } from "../../lib/internal/state.ts";
-import { registerStandingContext } from "../../lib/prompt/index.ts";
-import { ensureAuthenticated } from "../../lib/slack/auth/ensure-auth.ts";
+} from "../../lib/slack/index.ts";
 import { count } from "../../lib/ui/count.ts";
 import {
 	asText,

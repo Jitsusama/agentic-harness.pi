@@ -22,6 +22,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { appendJourneyByPath } from "../../internal/quest/append-journey.ts";
+import { identifyCurrentTerminal } from "../../terminal/index.ts";
 import {
 	type AliasIndex,
 	buildAliasIndex,
@@ -57,7 +58,6 @@ import {
 	top as rankTop,
 } from "../internal/quest/ranking.ts";
 import { isSealedStatus } from "../internal/quest/status.ts";
-import { identifyCurrentTerminal } from "../terminal/index.ts";
 import {
 	checkboxProgress,
 	type DocumentFrontMatter,

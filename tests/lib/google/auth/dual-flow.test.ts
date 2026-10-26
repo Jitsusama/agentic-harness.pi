@@ -8,7 +8,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AUTH_MESSAGES } from "../../../../lib/core/google/index.ts";
+import { AUTH_MESSAGES } from "../../../../lib/google/index.ts";
 import { until } from "../../../support/until.ts";
 import { type PiScreen, pinStdout, piScreen } from "../../ui/pi-screen.ts";
 
@@ -16,11 +16,11 @@ import { type PiScreen, pinStdout, piScreen } from "../../ui/pi-screen.ts";
 const handed: { poll?: AbortSignal; callback?: AbortSignal } = {};
 const device = { fails: false };
 
-vi.mock("../../../../lib/core/google/auth/browser.ts", () => ({
+vi.mock("../../../../lib/google/auth/browser.ts", () => ({
 	openInBrowser: () => undefined,
 }));
 
-vi.mock("../../../../lib/core/google/auth/oauth.ts", async (original) => ({
+vi.mock("../../../../lib/google/auth/oauth.ts", async (original) => ({
 	...(await original<object>()),
 	initiateDeviceFlow: async () => {
 		if (device.fails) throw new Error("invalid_client");
@@ -42,7 +42,7 @@ vi.mock("../../../../lib/core/google/auth/oauth.ts", async (original) => ({
 	},
 }));
 
-vi.mock("../../../../lib/core/google/auth/server.ts", () => ({
+vi.mock("../../../../lib/google/auth/server.ts", () => ({
 	waitForOAuthCallback: (_port: number, options?: { signal?: AbortSignal }) => {
 		handed.callback = options?.signal;
 		return untilStopped(options?.signal);

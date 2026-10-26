@@ -9,6 +9,7 @@
 
 import { basename } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { GateDeps } from "../../lib/gate/index.ts";
 import {
 	addReaction,
 	type DownloadedFile,
@@ -45,7 +46,7 @@ import {
 	slackGateDecision,
 	tableToBlock,
 	uploadFiles,
-} from "../../lib/core/slack/index.ts";
+} from "../../lib/slack/index.ts";
 import {
 	type ActionParams,
 	numberParam,
@@ -56,8 +57,7 @@ import {
 	stringParam,
 	type ToolContent,
 	type ToolResult,
-} from "../../lib/core/slack/types.ts";
-import type { GateDeps } from "../../lib/gate/index.ts";
+} from "../../lib/slack/types.ts";
 import { count, verb } from "../../lib/ui/count.ts";
 import { OUTCOME_GLYPH } from "../../lib/ui/outcome-glyphs.ts";
 import { boundedAnswer } from "./bounded.ts";

@@ -18,14 +18,14 @@ import {
 	searchEmails,
 	sendEmail,
 	unarchiveEmail,
-} from "../../../lib/core/google/index.ts";
+} from "../../../lib/google/index.ts";
 import {
 	type ActionParams,
 	getNumberParam,
 	getStringArrayParam,
 	getStringParam,
 	type ToolResult,
-} from "../../../lib/core/google/types.ts";
+} from "../../../lib/google/types.ts";
 import { OUTCOME_GLYPH } from "../../../lib/ui/outcome-glyphs.ts";
 import { confirmDeleteEmail, confirmSendEmail } from "../confirmation.ts";
 

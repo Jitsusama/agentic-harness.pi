@@ -25,7 +25,7 @@ import {
 import {
 	type TerminalSessionHandle,
 	terminalHandleKey,
-} from "../../../../lib/core/terminal/index.ts";
+} from "../../../../lib/terminal/index.ts";
 
 const near = (
 	driverId: string,

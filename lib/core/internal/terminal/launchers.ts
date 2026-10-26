@@ -18,7 +18,10 @@ import { spawn as nodeSpawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { TerminalLayout, TerminalPlatform } from "../../terminal/types.ts";
+import type {
+	TerminalLayout,
+	TerminalPlatform,
+} from "../../../terminal/types.ts";
 
 /** How a launcher starts on one platform. */
 export interface LauncherForm {

@@ -6,23 +6,23 @@
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { OAuth2Client } from "google-auth-library";
+import { holdScreen } from "../../ui/gate-queue.ts";
+import { frameTitle, promptSingle } from "../../ui/index.ts";
 import {
-	createOAuth2Client,
-	refreshTokenIfNeeded,
-	setCredentials,
-} from "../../core/google/auth/oauth.ts";
-import {
-	AUTH_MESSAGES,
 	getCredentials,
 	getDefaultAccount,
 	listAccounts,
 	type OAuthAppCredentials,
 	saveAccount,
 	storeCredentials,
-} from "../../core/google/index.ts";
-import { holdScreen } from "../../ui/gate-queue.ts";
-import { frameTitle, promptSingle } from "../../ui/index.ts";
+} from "./credentials.ts";
 import { authenticateWithFallback, type OAuthFlowResult } from "./dual-flow.ts";
+import { AUTH_MESSAGES } from "./errors.ts";
+import {
+	createOAuth2Client,
+	refreshTokenIfNeeded,
+	setCredentials,
+} from "./oauth.ts";
 import { ensureOAuthApp } from "./setup-wizard.ts";
 
 /**

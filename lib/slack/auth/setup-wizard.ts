@@ -12,18 +12,6 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { extractFromBrowser } from "../../core/slack/auth/browser-extract.ts";
-import { extractFromCurl } from "../../core/slack/auth/extract.ts";
-import {
-	getOAuthApp,
-	getToken,
-	hasOAuthApp,
-	hasToken,
-	type OAuthApp,
-	SlackClient,
-	storeOAuthApp,
-	storeToken,
-} from "../../core/slack/index.ts";
 import { holdScreen } from "../../ui/gate-queue.ts";
 import {
 	frameTitle,
@@ -31,6 +19,18 @@ import {
 	type ViewConfig,
 	viewWhile,
 } from "../../ui/index.ts";
+import { SlackClient } from "../api/client.ts";
+import type { OAuthApp } from "../types.ts";
+import { extractFromBrowser } from "./browser-extract.ts";
+import {
+	getOAuthApp,
+	getToken,
+	hasOAuthApp,
+	hasToken,
+	storeOAuthApp,
+	storeToken,
+} from "./credentials.ts";
+import { extractFromCurl } from "./extract.ts";
 
 /** Said whenever a person backs out of the wizard. */
 const SETUP_CANCELLED = "Setup cancelled. Run /slack-setup when ready.";

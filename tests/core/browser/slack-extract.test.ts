@@ -10,8 +10,8 @@
 
 import { execFileSync } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { extractFromBrowser } from "../../../lib/core/slack/auth/browser-extract.ts";
 import { isPidAlive } from "../../../lib/core/web/browser.ts";
+import { extractFromBrowser } from "../../../lib/slack/auth/browser-extract.ts";
 import { type Fixture, haveChrome, page, serve } from "./_harness.ts";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });

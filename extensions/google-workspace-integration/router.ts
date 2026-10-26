@@ -10,11 +10,11 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { OAuth2Client } from "google-auth-library";
 import { bounded as clocked } from "../../lib/clock/index.ts";
-import type { ActionParams, ToolResult } from "../../lib/core/google/types.ts";
 import {
 	boundedByDetails,
 	openSessionStore,
 } from "../../lib/core/result/index.ts";
+import type { ActionParams, ToolResult } from "../../lib/google/types.ts";
 import { GOOGLE_READ_WALL_MS } from "./limits.ts";
 import {
 	handleCheckAvailability,

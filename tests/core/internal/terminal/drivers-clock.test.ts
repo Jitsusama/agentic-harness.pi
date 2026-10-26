@@ -13,7 +13,7 @@ import { createKittyDriver } from "../../../../lib/core/internal/terminal/driver
 import { createTmuxDriver } from "../../../../lib/core/internal/terminal/drivers/tmux.ts";
 import { createWeztermDriver } from "../../../../lib/core/internal/terminal/drivers/wezterm.ts";
 import { createZellijDriver } from "../../../../lib/core/internal/terminal/drivers/zellij.ts";
-import type { TerminalSessionHandle } from "../../../../lib/core/terminal/index.ts";
+import type { TerminalSessionHandle } from "../../../../lib/terminal/index.ts";
 
 /** Longer than a call given up on should take to end. */
 const STILL_RUNNING_MS = 5000;

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../../../lib/core/slack/index.ts", async (importOriginal) => ({
+vi.mock("../../../lib/slack/index.ts", async (importOriginal) => ({
 	...(await importOriginal()),
 	getToken: vi.fn(() => null),
 	hasToken: vi.fn(() => false),
@@ -13,16 +13,12 @@ vi.mock("../../../lib/core/slack/index.ts", async (importOriginal) => ({
 	SlackClient: vi.fn(),
 }));
 
-import type { StoredToken } from "../../../lib/core/slack/index.ts";
-import {
-	getToken,
-	hasToken,
-	resolveUser,
-} from "../../../lib/core/slack/index.ts";
 import {
 	clearSlackClientCache,
 	slackResolver,
 } from "../../../lib/internal/people/resolvers/slack";
+import type { StoredToken } from "../../../lib/slack/index.ts";
+import { getToken, hasToken, resolveUser } from "../../../lib/slack/index.ts";
 
 /**
  * A stored credential, complete.

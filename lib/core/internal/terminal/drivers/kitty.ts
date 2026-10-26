@@ -30,7 +30,7 @@ import {
 	type TerminalSighting,
 	type TerminalTypeCapability,
 	terminalHandleKey,
-} from "../../../terminal/types.ts";
+} from "../../../../terminal/types.ts";
 import { locateBinary } from "../binaries.ts";
 import { runCli, TERMINAL_CLI_TIMEOUT_MS } from "../cli.ts";
 import { PROMPT_WAIT_MS, untilPromptShown } from "./shared.ts";
