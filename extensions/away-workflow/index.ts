@@ -59,6 +59,7 @@ import {
 	onAwayChange,
 	planProgress,
 	snapshot,
+	takeStoppedFromOutside,
 } from "../../lib/internal/away/state.ts";
 import { type Notice, notify } from "../../lib/internal/notify.ts";
 import { ownWants, sessionWants } from "../../lib/internal/session/wants.ts";
@@ -425,6 +426,7 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 		latest = ctx;
 		const finished = run;
 		run = NOTHING_RUN;
+		const fromOutside = takeStoppedFromOutside();
 		if (!isAway()) {
 			if (settledAborted(event)) return;
 			const asked = lastLine(finished.lastText);
@@ -435,6 +437,9 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 			return;
 		}
 		if (settledAborted(event) || finished.aborted) {
+			// A steer stopped it, not the person: they are still away, and
+			// the run stays stopped, as the steer asked.
+			if (fromOutside) return;
 			// Escape is the person, here, saying stop.
 			endAway(ctx);
 			publishHere(ctx, "stopped a run");

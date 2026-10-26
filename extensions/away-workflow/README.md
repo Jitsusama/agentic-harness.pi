@@ -89,7 +89,9 @@ Type anything. Your message goes through at once, since it might be
 and what was decided for you. Nothing held is approved by coming
 back: the agent deals with what you said, then makes again any held
 call still wanted, and you are asked in its own panel. Stopping a run
-with Escape also ends away mode.
+with Escape also ends away mode. A stop or pause sent to the session's
+steer inbox does not, since it comes from outside the window: the run
+stays stopped and the absence goes on.
 
 Coming back in any window brings every session back. One you did not
 type in is told you are back only when something waited there, and
