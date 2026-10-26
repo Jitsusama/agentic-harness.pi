@@ -40,6 +40,8 @@ export function formatProseBlock(violations: ProseViolation[]): string {
 		lines.push(
 			`- Non-Canadian spelling: ${[...spellings.values()].join(", ")}.`,
 			"  Use Canadian English spelling exclusively, per prose-standard.",
+			"  Where the word is a name (a command, a product, a field), put it",
+			"  in backticks and it is left as it is.",
 		);
 	}
 

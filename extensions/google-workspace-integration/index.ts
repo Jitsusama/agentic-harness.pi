@@ -10,7 +10,7 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type { OAuth2Client } from "google-auth-library";
-import { isAbort } from "../../lib/core/clock/index.ts";
+import { isAbort } from "../../lib/clock/index.ts";
 import {
 	clearAllConfig,
 	formatAuthError,

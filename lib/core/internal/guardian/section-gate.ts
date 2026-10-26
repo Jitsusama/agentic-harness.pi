@@ -6,7 +6,7 @@
  * read/persist wiring against a caller-supplied signature store.
  */
 
-import type { GateDeps } from "../../gate/index.ts";
+import type { GateDeps } from "../../../gate/index.ts";
 import type { GuardianResult } from "../../guardian/types.ts";
 import {
 	type SectionGateConfig,

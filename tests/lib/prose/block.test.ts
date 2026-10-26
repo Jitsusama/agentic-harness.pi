@@ -23,6 +23,8 @@ describe("formatProseBlock", () => {
 		expect(message).toContain("colour");
 		expect(message).toContain("behavior");
 		expect(message).toContain("behaviour");
+		// The way out for a name that only looks like a word.
+		expect(message).toContain("backticks");
 	});
 
 	it("points at the prose-standard skill", () => {

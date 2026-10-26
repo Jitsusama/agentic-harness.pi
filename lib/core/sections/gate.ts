@@ -6,7 +6,7 @@
  * sections share one behaviour.
  */
 
-import { decideGate, type GateDecision } from "../gate/index.ts";
+import { decideGate, type GateDecision } from "../../gate/index.ts";
 import { formatSectionBlock } from "./block.ts";
 import { detectSectionViolations, type SectionViolation } from "./detect.ts";
 import {

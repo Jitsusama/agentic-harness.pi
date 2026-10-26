@@ -12,9 +12,12 @@
  * its own state file). Each adapter supplies its own `GateDeps`.
  */
 
-import type { GateDeps } from "../../gate/index.ts";
+import type { GateDeps } from "../../../gate/index.ts";
+import {
+	detectProseViolations,
+	proseGateDecision,
+} from "../../../prose/index.ts";
 import type { GuardianResult } from "../../guardian/types.ts";
-import { detectProseViolations, proseGateDecision } from "../../prose/index.ts";
 
 export type { GateDeps };
 

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { violationSignature } from "../../../lib/core/gate/index.ts";
 import {
 	detectSlackViolations,
 	formatSlackBlock,
 	slackGateDecision,
 } from "../../../lib/core/slack/index.ts";
+import { violationSignature } from "../../../lib/gate/index.ts";
 
 describe("formatSlackBlock", () => {
 	it("returns an empty string when there are no violations", () => {

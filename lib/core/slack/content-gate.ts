@@ -6,7 +6,7 @@
  * sections and Slack share one behaviour.
  */
 
-import { decideGate, type GateDecision } from "../gate/index.ts";
+import { decideGate, type GateDecision } from "../../gate/index.ts";
 import { formatSlackBlock } from "./block-message.ts";
 import { detectSlackViolations } from "./detect.ts";
 

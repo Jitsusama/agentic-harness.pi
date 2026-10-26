@@ -23,7 +23,7 @@
 
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { abortError, WallClockExceeded } from "../../../clock/bound.ts";
+import { abortError, WallClockExceeded } from "../../../../clock/bound.ts";
 import { spawnExec } from "../../../exec/spawn.ts";
 import type {
 	CreateTreeInput,

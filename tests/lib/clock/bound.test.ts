@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import * as clock from "../../../lib/core/clock/index.ts";
+import * as clock from "../../../lib/clock/index.ts";
 import * as web from "../../../lib/core/web/bound.ts";
 
 // The race itself is covered in tests/web/bound.test.ts, where it was

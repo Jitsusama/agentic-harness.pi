@@ -18,4 +18,4 @@ export {
 	bounded,
 	isAbort,
 	WallClockExceeded,
-} from "../clock/bound.ts";
+} from "../../clock/bound.ts";

@@ -101,6 +101,30 @@ describe("detectProseViolations", () => {
 		expect(spellings).toHaveLength(1);
 	});
 
+	// Each of these was refused in a week of sessions, and none was
+	// prose: a branch, a tag, a flag, a handle and a commit scope.
+	it("leaves names alone that only look like words", () => {
+		const text = [
+			"fix(enroll): build the app from its Go module",
+			"Branch joel/hold-d159-catalog-only and jitsusama/optimus-enrollment-fixes.",
+			"The tag deploy/d159-catalog-guard marks the floor.",
+			"A check named enroll-builds-from-its-go-module lists the app.",
+			"Chromium converts colours when given --force-color-profile.",
+			"It wrote plain @colin.gray instead of a mention.",
+			"The retirement_catalog_only flag and catalog.json and color=auto stay.",
+		].join("\n");
+		expect(detectProseViolations(text)).toEqual([]);
+	});
+
+	it("still flags the word beside a name", () => {
+		const spellings = detectProseViolations(
+			"fix(enroll): enroll the color-coded catalog in @colin.gray's list",
+		).map((v) => v.found);
+		// A two-part hyphen compound is English (color-coded), so it is
+		// still read as prose; the scope and the handle are not.
+		expect(spellings).toEqual(["enroll", "color", "catalog"]);
+	});
+
 	it("flags a literal \\u2014 escape as an emdash", () => {
 		const violations = detectProseViolations(
 			"This is a pause \\u2014 a sneaky one.",
