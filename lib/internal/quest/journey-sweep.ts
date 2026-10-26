@@ -1,23 +1,19 @@
 /**
- * TEMPORARY: the core fold deletes this file.
+ * Keeps a README's Journey section down to its pointer. Two jobs:
  *
- * Keeps a README's Journey section down to its pointer while core and
- * the backup still expect the Journey in the README. Two jobs, both
- * gone at the fold:
- *
- * - Sweep. Core 0.16.2's own verbs (alias, reorder, reparent, undo,
- *   bulk conclude and retire) still append their entries to the
- *   README. The quest tool sweeps the quests an action touched once it
- *   has run, and the harness's own Journey writer sweeps as it writes,
- *   so the order holds: what core appended is newer than the file's
- *   head. The one-shot migration moves every README's whole Journey
- *   through the same planner.
+ * - Sweep. Every Journey entry is written through here
+ *   (`append-journey.ts`), which first moves anything still in the
+ *   README's section to the head of the file, so the new entry lands
+ *   above it: a scaffold's first entry, or one a session still running
+ *   older code appended. A quest is swept once more as it is created.
+ *   The one-shot migration moved every README's whole Journey through
+ *   the same planner.
  * - Carry citations. The record audit and the backup count only what
  *   the README and the ID documents cite, so an attachment cited only
  *   from the Journey would read as uncited and leave the backup. The
  *   README's section carries those citations in one comment line,
  *   folded to the widest folders it can name without citing anything
- *   new. At the fold the backup reads JOURNEY.md itself.
+ *   new, until the audit and the backup read the Journey file itself.
  *
  * Nothing is dropped. Every line of the section but the pointer and
  * the citations moves, verbatim and in order, to the head of the file;
@@ -272,66 +268,6 @@ export function sweepJourneyUnlocked(
 export function sweepJourney(questDir: string): number | undefined {
 	if (!existsSync(join(questDir, "README.md"))) return undefined;
 	return withQuestLock(questDir, () => sweepJourneyUnlocked(questDir));
-}
-
-/**
- * The quest-tool actions that run one of core's verbs, which append
- * to a README's Journey: alias-add and alias-remove, the rank and
- * priority verbs, reparent, undo, and conclude and retire of quests
- * other than the loaded one.
- */
-const CORE_JOURNALING_ACTIONS: ReadonlySet<string> = new Set([
-	"alias-add",
-	"alias-remove",
-	"top",
-	"bottom",
-	"bump",
-	"sink",
-	"before",
-	"after",
-	"renumber",
-	"promote",
-	"demote",
-	"drive",
-	"park",
-	"defer",
-	"reparent",
-	"undo",
-	"conclude",
-	"retire",
-]);
-
-/**
- * Sweep the quests a quest-tool action may have had core append to:
- * the loaded quest and each quest the action named by id. Any other
- * action, and a quest the resolver cannot find, is skipped, since
- * core wrote nothing there.
- */
-export function sweepAfterQuestAction(
-	action: string,
-	loadedDir: string | null | undefined,
-	ids: readonly string[],
-	resolve: (id: string) => string | undefined,
-	// Said through the session's screen, never the console, which lands
-	// in pi's editor (lib/ui/aside.ts).
-	say: (text: string) => void,
-): void {
-	if (!CORE_JOURNALING_ACTIONS.has(action)) return;
-	const dirs = new Set<string>();
-	if (loadedDir) dirs.add(loadedDir);
-	for (const id of ids) {
-		const dir = resolve(id);
-		if (dir) dirs.add(dir);
-	}
-	for (const dir of dirs) {
-		try {
-			sweepJourney(dir);
-		} catch (error) {
-			// A sweep that fails leaves the entries in the README, where
-			// every reader still finds them; the next sweep moves them.
-			say(`[quest] Journey sweep failed in ${dir}: ${error}`);
-		}
-	}
 }
 
 function labelOf(line: string): string {

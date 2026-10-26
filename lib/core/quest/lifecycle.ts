@@ -21,11 +21,11 @@ import {
 	readFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { appendJourneyByPath } from "../../internal/quest/append-journey.ts";
 import {
 	type AliasIndex,
 	buildAliasIndex,
 } from "../internal/quest/alias-index.ts";
-import { appendJourneyByPath } from "../internal/quest/append-journey.ts";
 import { nowYmd } from "../internal/quest/dates.ts";
 import {
 	discoverQuests,
