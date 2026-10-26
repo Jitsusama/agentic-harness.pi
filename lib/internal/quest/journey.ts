@@ -153,13 +153,19 @@ function bodyAt(path: string): string[] {
 	return journeyBody(text);
 }
 
-/** The lines of a Journey file's text below its title. */
+/**
+ * The lines of a Journey file's text below its title, leaving out any
+ * pointer line. A session still on the old code takes the new pointer
+ * in a README's Journey section for an entry and moves it into the
+ * former file, so a pointer found in a Journey file is never one of
+ * its entries.
+ */
 export function journeyBody(text: string): string[] {
 	const lines = text.replace(/\n+$/, "").split("\n");
 	let start = 0;
 	if (lines[0]?.startsWith("# ")) start = 1;
 	while (start < lines.length && lines[start].trim() === "") start++;
-	return lines.slice(start);
+	return lines.slice(start).filter((line) => !isJourneyPointer(line));
 }
 
 /** Render a Journey file from the lines below its title. */
