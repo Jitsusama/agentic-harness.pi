@@ -121,34 +121,31 @@ function truncateTrailer(source: string, limit: number): string {
 const WIDGET_INDENT_COLS = 1;
 
 /**
- * The session-name label pi sets on the terminal tab when a quest
- * loads. When a quest id is supplied, the stable short id (the
- * trailing segment of `QEST-YYYYMMDD-XXXXXX`) leads so a person
- * reading their terminal's tabs can identify the quest without a query; the id is
- * kept whole and only the Title Case title is truncated to fit
- * `SESSION_NAME_LIMIT`. With no id the title alone is used, and with
- * neither the result is `undefined`.
+ * Words of the title kept when a quest has no short name: enough to
+ * say what it is about, few enough to read at a glance in a window
+ * switcher.
+ */
+const FALLBACK_TITLE_WORDS = 3;
+
+/**
+ * The session name pi puts in the terminal's window title, which reads
+ * "π - <name> - <folder>". It says what the quest is about and never
+ * carries its id, which the status line already shows: the quest's
+ * short name as written, or failing that the first few words of its
+ * Title Case title, cut to `SESSION_NAME_LIMIT` with an ellipsis
+ * whenever words were dropped. With neither the result is `undefined`.
  */
 export function sessionNameFor(
 	title: string | null,
-	questId?: string,
+	shortName?: string,
 ): string | undefined {
-	const short = questId ? shortQuestId(questId) : undefined;
-	const cased = title ? titleCase(title) : undefined;
-	if (!short && !cased) return undefined;
-	if (!short) return truncateLabel(cased ?? "");
-	if (!cased) return short;
-	// The id anchors the label, so spend the remaining budget on the
-	// title and drop it entirely rather than crowd the id out.
-	const room = SESSION_NAME_LIMIT - short.length - 1;
-	if (room <= 0) return short;
-	return `${short} ${truncateLabel(cased, room)}`;
-}
-
-/** The stable short id: the trailing segment of a quest id. */
-function shortQuestId(questId: string): string {
-	const segments = questId.split("-");
-	return segments[segments.length - 1] || questId;
+	const short = shortName?.trim();
+	if (short) return short;
+	if (!title?.trim()) return undefined;
+	const words = titleCase(title.trim()).split(/\s+/);
+	const kept = words.slice(0, FALLBACK_TITLE_WORDS).join(" ");
+	if (kept.length > SESSION_NAME_LIMIT) return truncateLabel(kept);
+	return words.length > FALLBACK_TITLE_WORDS ? `${kept}\u2026` : kept;
 }
 
 /** Title Case text truncated to a budget, with an ellipsis when cut. */

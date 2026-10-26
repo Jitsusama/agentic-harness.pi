@@ -298,6 +298,7 @@ function parsePendingPrune(raw: unknown): PendingPrune[] {
  */
 const KNOWN_QUEST_KEYS = new Set<string>([
 	"id",
+	"short",
 	"kind",
 	"parent",
 	"status",
@@ -401,6 +402,8 @@ export function parseQuestFrontMatter(
 	if (pendingPrune.length > 0) frontMatter.pendingPrune = pendingPrune;
 	const scratchDir = asString(raw.scratchDir);
 	if (scratchDir) frontMatter.scratchDir = scratchDir;
+	const short = asString(raw.short)?.trim();
+	if (short) frontMatter.short = short;
 	const primaryPlanId = asString(raw.primaryPlanId);
 	if (primaryPlanId) frontMatter.primaryPlanId = primaryPlanId;
 	const verify = asString(raw.verify);
@@ -570,8 +573,9 @@ export function serializeReadable(
 
 /** Serialize a quest front-matter back to a `---` block. */
 export function serializeQuestFrontMatter(fm: QuestFrontMatter): string {
-	const payload: Record<string, unknown> = {
-		id: fm.id,
+	const payload: Record<string, unknown> = { id: fm.id };
+	if (fm.short) payload.short = fm.short;
+	Object.assign(payload, {
 		kind: fm.kind,
 		parent: fm.parent,
 		status: fm.status,
@@ -579,7 +583,7 @@ export function serializeQuestFrontMatter(fm: QuestFrontMatter): string {
 		rank: fm.rank,
 		started: fm.started,
 		updated: fm.updated,
-	};
+	});
 	if (fm.due) payload.due = fm.due;
 	if (fm.eta) payload.eta = fm.eta;
 	payload.aliases = fm.aliases.map((a) => ({ type: a.type, value: a.value }));

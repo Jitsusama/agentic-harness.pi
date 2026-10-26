@@ -18,43 +18,37 @@ describe("sessionNameFor", () => {
 		expect(sessionNameFor(null)).toBeUndefined();
 	});
 
-	it("preserves a title that fits within the limit", () => {
-		expect(sessionNameFor("Hello world")).toBe("Hello World");
+	it("uses the short name as written, ahead of the title", () => {
+		expect(
+			sessionNameFor(
+				"The Agentic Loop: Right Context, Readable Artifacts",
+				"Agentic loop",
+			),
+		).toBe("Agentic loop");
 	});
 
-	it("Title Cases each whitespace-separated word", () => {
+	it("never carries the quest id", () => {
+		const out = sessionNameFor("A Launcher That Feels Like Home", "Launcher");
+		expect(out).not.toMatch(/[A-Z0-9]{6}/);
+	});
+
+	it("falls back to the title when the short name is blank", () => {
+		expect(sessionNameFor("Hello world", "  ")).toBe("Hello World");
+	});
+
+	it("keeps a short title whole and Title Cased", () => {
 		expect(sessionNameFor("quest workflow ux")).toBe("Quest Workflow Ux");
 	});
 
-	it("preserves exactly twenty characters with no ellipsis", () => {
-		expect(sessionNameFor("Twenty Letters Total")).toBe("Twenty Letters Total");
-	});
-
-	it("truncates a longer title to nineteen characters plus an ellipsis", () => {
-		const out = sessionNameFor("Quest Workflow UX Iteration Plan") as string;
-		expect(out.length).toBe(20);
-		expect(out.endsWith("\u2026")).toBe(true);
-		expect(out).toBe("Quest Workflow UX I\u2026");
-	});
-
-	it("prefixes the stable short quest id when the id is supplied", () => {
-		expect(sessionNameFor("Alpha", "QEST-20260712-KE2P5K")).toBe(
-			"KE2P5K Alpha",
+	it("keeps the title's first three words and marks the cut", () => {
+		expect(sessionNameFor("Every Piece of Hardware, Supported")).toBe(
+			"Every Piece Of\u2026",
 		);
 	});
 
-	it("shows the short id alone when there is no title", () => {
-		expect(sessionNameFor(null, "QEST-20260712-KE2P5K")).toBe("KE2P5K");
-	});
-
-	it("keeps the short id whole and truncates only the title", () => {
-		const out = sessionNameFor(
-			"A Very Long Quest Title That Overflows",
-			"QEST-20260712-KE2P5K",
-		) as string;
-		expect(out.length).toBe(20);
-		expect(out.startsWith("KE2P5K ")).toBe(true);
-		expect(out.endsWith("\u2026")).toBe(true);
+	it("cuts three long words to twenty characters with an ellipsis", () => {
+		const out = sessionNameFor("Bootstrapping Optimus Comprehensively");
+		expect(out).toBe("Bootstrapping Optim\u2026");
 	});
 });
 

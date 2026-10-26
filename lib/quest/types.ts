@@ -159,6 +159,12 @@ export interface QuestSession {
 /** Frontmatter for a quest README. */
 export interface QuestFrontMatter {
 	id: string;
+	/**
+	 * The quest's short name: what it is about in two or three words,
+	 * such as "Agentic loop". It names the session, and so the
+	 * terminal's window title, in place of the id and the long title.
+	 */
+	short?: string;
 	kind: QuestKind;
 	parent: string | null;
 	status: QuestStatus;

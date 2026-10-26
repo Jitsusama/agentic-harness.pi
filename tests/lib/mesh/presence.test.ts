@@ -11,6 +11,7 @@ import {
 	createPresences,
 	type Presence,
 	repositoryName,
+	windowTitle,
 } from "../../../lib/mesh/presence.ts";
 
 let root: string;
@@ -140,6 +141,28 @@ describe("this session's peer", () => {
 		peer.setBusy(true);
 		expect(written.map((one) => one.busy)).toEqual([false, true]);
 		expect(kept.of(session)).toMatchObject({ busy: true });
+	});
+
+	it("says its window's title as pi sets it, and the new one after a rename", () => {
+		// The desktop finds a peer's window by this exact title, since the
+		// title itself no longer carries an address.
+		let name: string | undefined;
+		const at = {
+			...surroundings(),
+			title: () => windowTitle(name, "/home/someone/src/core.nix"),
+		};
+		const peer = localPeer(at);
+		expect(at.presences.of(session)?.title).toBe("\u03c0 - core.nix");
+
+		name = "Agentic loop";
+		peer.setBusy(true);
+
+		expect(at.presences.of(session)?.title).toBe(
+			"\u03c0 - Agentic loop - core.nix",
+		);
+		expect(createPresences(join(root, "presence")).of(session)?.title).toBe(
+			"\u03c0 - Agentic loop - core.nix",
+		);
 	});
 
 	it("is in its quest's group, named down from the root, and its repository's", () => {

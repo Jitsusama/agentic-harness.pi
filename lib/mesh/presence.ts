@@ -65,6 +65,12 @@ export interface Presence {
 	readonly wants?: Want;
 	/** The process holding it, when the machine would say. */
 	readonly owner?: Owner;
+	/**
+	 * The terminal window title pi gives its session, exactly, so the
+	 * desktop can tell which window is this peer's without parsing it
+	 * (see windowTitle).
+	 */
+	readonly title?: string;
 	/** When it last said so, as an ISO time. */
 	readonly at: string;
 }
@@ -81,6 +87,28 @@ export interface Presences {
 	forget(session: string): void;
 	/** Let go of what nothing has touched since this time. */
 	expire(before: number): void;
+}
+
+/**
+ * What pi puts before the rest of a window title. Pi keeps its own
+ * (APP_TITLE) out of its public exports; it is "π" unless a fork
+ * renames the app.
+ */
+const PI_TITLE = "\u03c0";
+
+/**
+ * The window title pi sets for a session, as pi composes it: its mark,
+ * the session's name when it has one, and the base name of the folder
+ * it runs in, joined by " - ".
+ */
+export function windowTitle(
+	sessionName: string | undefined,
+	cwd: string,
+): string {
+	const folder = basename(cwd);
+	return sessionName
+		? `${PI_TITLE} - ${sessionName} - ${folder}`
+		: `${PI_TITLE} - ${folder}`;
 }
 
 /** How much of the summary is said, which is enough to name the work. */
@@ -302,6 +330,7 @@ function presenceFrom(value: unknown): Presence | undefined {
 		busy: one.busy === true,
 		...(wantFrom(one.wants) ? { wants: wantFrom(one.wants) } : {}),
 		...(isOwner(one.owner) ? { owner: one.owner } : {}),
+		...(typeof one.title === "string" ? { title: one.title } : {}),
 		at: typeof one.at === "string" ? one.at : "",
 	};
 }

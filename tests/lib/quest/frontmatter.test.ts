@@ -259,6 +259,22 @@ describe("quest front-matter", () => {
 		);
 	});
 
+	it("round-trips a short name just under the id, and omits it when absent", () => {
+		const text = serializeQuestFrontMatter({
+			...SAMPLE_QUEST_FM,
+			short: "Agentic loop",
+		});
+		const parsed = parseQuestFrontMatter(`${text}\n# Title\n`);
+
+		expect(parsed?.frontMatter.short).toBe("Agentic loop");
+		expect(parsed?.frontMatter._extra).toBeUndefined();
+		expect(text.split("\n").slice(1, 3)).toEqual([
+			"id: QEST-20260603-AAA111",
+			"short: Agentic loop",
+		]);
+		expect(serializeQuestFrontMatter(SAMPLE_QUEST_FM)).not.toContain("short:");
+	});
+
 	it("accepts a session id given as a bare string", () => {
 		const text = [
 			"---",
