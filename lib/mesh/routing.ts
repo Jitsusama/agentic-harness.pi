@@ -154,7 +154,9 @@ export function routeQuestion(
 	const keys = new Map<string, string>(
 		candidates.map(({ group }, index) => [`g${index + 1}`, group]),
 	);
-	keys.set("all", ALL);
+	// The machine's group takes only holds (group.ts), so nothing else is
+	// offered it.
+	if (message.intent === "hold") keys.set("all", ALL);
 	const described = (group: string) =>
 		group === ALL
 			? "every session on the machine: only for a reboot, a switch, network or disk trouble, or a hold on heavy work"

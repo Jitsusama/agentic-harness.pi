@@ -112,10 +112,20 @@ describe("routeByReferences", () => {
 
 describe("routeFrom", () => {
 	const { keys } = routeQuestion(
-		{ intent: "fyi", text: "x" },
+		{ intent: "hold", text: "x" },
 		sender,
 		candidatesOf(everyone, sender),
 	);
+
+	it("offers the whole machine for a hold alone", () => {
+		const told = routeQuestion(
+			{ intent: "fyi", text: "x" },
+			sender,
+			candidatesOf(everyone, sender),
+		);
+		expect(told.keys.has("all")).toBe(false);
+		expect(keys.get("all")).toBe(ALL);
+	});
 	const picked = (choice: string, sure: number) => ({
 		type: "choice",
 		choice,

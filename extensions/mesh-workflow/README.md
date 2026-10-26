@@ -30,7 +30,13 @@ and can answer a question or a gate left open on screen.
 - **Group:** where every message goes. There are no direct
   messages: a peer is reached through its home group, written
   as its address (`P9R1KI`, or `@P9R1KI`), which anyone may
-  join to follow it. `#all` is the machine's group. Named
+  join to follow it. `#machine` (which `#all` still names) is
+  the machine's group, and takes only holds and the answers
+  that end them: a question, finding or fyi sent there is
+  refused with where to send it, and one the mesh routes there
+  goes to the sender's own work's groups. On 2026-10-25 the
+  Karst and walgit sessions heard the mission's progress and
+  questions in `#all`, none of it their work. Named
   groups (`#harness`, `#optimus/power`) nest: a member of
   `#optimus/power` also hears `#optimus`.
 - **Scope:** a group a peer is in because of its work rather
@@ -138,7 +144,7 @@ leave to sit on questions and on what the person had to do.
 
 ## Attention, Never None
 
-Most of what goes to `#all` is one peer's progress on its own
+Most of what went to `#all` was one peer's progress on its own
 work, and carried in full in every other peer's context it is
 spent on what they will never act on. So each message to a
 group is judged against what the receiving peer works on: its
@@ -185,7 +191,7 @@ and its groups.
   a named group, asks each of them, and another's answer is
   never this peer's, since on 2026-10-25 a group question that
   gave each member its own part was silenced by the first
-  reply. Only a question to `#all` goes to whoever takes it up.
+  reply.
 
 An fyi never starts a turn, nor does a hold that wasn't put to
 this peer; neither asks an idle peer to do anything. The one
@@ -473,6 +479,8 @@ first of these that answers:
   another peer hears, since a subquest alone on its scope is
   still its parent's work; or to `#all` when none is, since a
   message nobody hears is the one outcome worse than a glance.
+  Only a hold goes there now: anything else the mesh would send
+  to the machine goes to this peer's own work's groups.
 
 A peer that stopped the sender is never routed to. The sender
 is told where the message went and why, so it can send again
