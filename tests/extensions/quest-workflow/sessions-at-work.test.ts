@@ -8,7 +8,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { workspaceQuests } from "../../../extensions/quest-workflow/lookup";
+import { sessionsAtWork } from "../../../extensions/quest-workflow/lookup";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
 import { sessionsDir } from "../../../lib/internal/paths";
@@ -77,7 +77,7 @@ function attachSessions(id: string, sessionIds: string[]): void {
 // Write a session log with a current timestamp so deriveLiveness reads
 // it as live.
 function writeLiveSessionLog(sessionId: string): void {
-	const dir = join(sessionsDir(), "--workspace-test--");
+	const dir = join(sessionsDir(), "--sessions-test--");
 	mkdirSync(dir, { recursive: true });
 	writeFileSync(
 		join(dir, `2026-06-04T10-00-00-000Z_${sessionId}.jsonl`),
@@ -89,7 +89,7 @@ const envGuard = createEnvGuard();
 let savedHome: string | undefined;
 beforeEach(() => {
 	envGuard.enter();
-	tmpRoot = mkdtempSync(join(tmpdir(), "workspace-"));
+	tmpRoot = mkdtempSync(join(tmpdir(), "sessions-"));
 	savedHome = process.env.HOME;
 	process.env.HOME = tmpRoot;
 });
@@ -100,7 +100,7 @@ afterEach(() => {
 	envGuard.leave();
 });
 
-describe("workspaceQuests", () => {
+describe("sessionsAtWork", () => {
 	it("lists a quest with a live session and excludes one with no session activity", async () => {
 		const state = buildState();
 		const live = await createQuest(state, "Being Worked On");
@@ -110,7 +110,7 @@ describe("workspaceQuests", () => {
 		// idleOnly gets a session with no log file, so it is dead, not live.
 		attachSession(idleOnly, "sess-dead");
 
-		const entries = await workspaceQuests(state);
+		const entries = await sessionsAtWork(state);
 		expect(entries.map((e) => e.questId)).toEqual([live]);
 		expect(entries[0]).toMatchObject({
 			liveness: "live",
@@ -121,7 +121,7 @@ describe("workspaceQuests", () => {
 	it("returns empty when nothing is being worked on", async () => {
 		const state = buildState();
 		await createQuest(state, "Dormant");
-		expect(await workspaceQuests(state)).toEqual([]);
+		expect(await sessionsAtWork(state)).toEqual([]);
 	});
 
 	it("shows a crashed pane beside its live sibling as two rows", async () => {
@@ -130,7 +130,7 @@ describe("workspaceQuests", () => {
 		attachSessions(quest, ["sess-live", "sess-dead"]);
 		writeLiveSessionLog("sess-live");
 		// sess-dead has no log, so it derives dead by the recency fallback.
-		const entries = await workspaceQuests(state);
+		const entries = await sessionsAtWork(state);
 		expect(entries).toHaveLength(2);
 		expect(entries.every((e) => e.questId === quest)).toBe(true);
 		expect(entries.map((e) => e.sessionId)).toEqual(["sess-live", "sess-dead"]);
@@ -138,13 +138,13 @@ describe("workspaceQuests", () => {
 		expect(entries[1].liveness).toBe("dead");
 	});
 
-	it("is reachable through the workspace verb", async () => {
+	it("is reachable through the sessions verb", async () => {
 		const state = buildState();
 		const live = await createQuest(state, "Live Quest");
 		attachSession(live, "sess-live");
 		writeLiveSessionLog("sess-live");
 		const result = await handle(state, fakePi(), fakeCtx(), {
-			action: "workspace",
+			action: "sessions",
 		});
 		expect(result.ok).toBe(true);
 		if (!result.ok) throw new Error("unreachable");

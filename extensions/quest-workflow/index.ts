@@ -1,7 +1,7 @@
 /**
  * Quest Workflow Extension
  *
- * The unified hierarchical workspace: campaigns (quests),
+ * One hierarchy of work: campaigns (quests),
  * subquests under them, and free-standing sidequests, with
  * plan, research, brief and report documents nested
  * underneath. Subsumes the plan-workflow stage machine and

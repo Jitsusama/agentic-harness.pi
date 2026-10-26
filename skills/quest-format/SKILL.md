@@ -227,7 +227,7 @@ Field semantics:
   most the quest it is on even after a lost state or an
   earlier run left a straggler; it also drops any
   detached entry whose session log no longer exists. Liveness
-  is observed when read, never stored: `show`, `workspace` and
+  is observed when read, never stored: `show`, `sessions` and
   `recent` derive each session's state from a read-time probe
   of its recorded process and terminal, one of `live`, `idle`,
   `dead`, `detached`, `conflicted` or `unknown` (a session on

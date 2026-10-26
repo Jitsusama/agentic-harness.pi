@@ -300,7 +300,7 @@ mutates anything:
   session claimed by several quests collapses to the one its
   own log names as owner. Each row prints its
   `pi --session <id>` resume command.
-- `quest workspace` is the live view: one row per session,
+- `quest sessions` is the live view: one row per session,
   never collapsed per quest, so two live panes read as two
   rows and a crash shows beside its live sibling.
 - `quest restore` brings back the tabs something took away.
