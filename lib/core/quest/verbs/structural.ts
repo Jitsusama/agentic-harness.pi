@@ -5,7 +5,7 @@
  * can be trusted and reversed.
  */
 
-import { appendJourneyByPath } from "../../internal/quest/append-journey.ts";
+import { appendJourneyByPath } from "../../../internal/quest/append-journey.ts";
 import {
 	discoverQuests,
 	siblingRanks,

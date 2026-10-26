@@ -21,12 +21,9 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { createMutex } from "../../lib/internal/async-mutex.ts";
 import { sayConcluded } from "../../lib/internal/quest/concluded.ts";
-import { sweepAfterQuestAction } from "../../lib/internal/quest/journey-sweep.ts";
 import type { QuestPriority } from "../../lib/quest/index.ts";
-import { asideFor } from "../../lib/ui/aside.ts";
 import { suggestAction } from "./actions.ts";
 import { refuseIgnoredDryRun, refuseUndoElsewhere } from "./dry-run.ts";
-import { findQuestEntry } from "./lifecycle.ts";
 import type { QuestState } from "./state.ts";
 import { aliasAdd, aliasRemove } from "./verbs/alias.ts";
 import { configReport } from "./verbs/config.ts";
@@ -110,15 +107,6 @@ export function handle(
 			const actedOn = targetsOf(state, params);
 			const result = await dispatch(state, pi, ctx, params, signal);
 			tellConcluded(pi, params, actedOn, result);
-			// Until the core fold, core's verbs append to the README's
-			// Journey; move what they wrote into the Journey file.
-			sweepAfterQuestAction(
-				params.action,
-				state.questDir,
-				idsNamed(params.id),
-				(id) => findQuestEntry(state, id)?.dir,
-				asideFor(ctx),
-			);
 			return result;
 		},
 		{ signal },

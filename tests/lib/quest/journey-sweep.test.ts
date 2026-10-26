@@ -18,7 +18,6 @@ import {
 	CITATIONS_OPENING,
 	citationsLine,
 	planJourneySweep,
-	sweepAfterQuestAction,
 	sweepJourney,
 } from "../../../lib/internal/quest/journey-sweep";
 
@@ -36,7 +35,6 @@ const fixedNow = () => new Date("2026-06-03T12:00:00Z");
 const readme = () => readFileSync(join(questDir, "README.md"), "utf8");
 const journeyFile = () => readFileSync(join(questDir, JOURNEY_FILE), "utf8");
 /** Where a sweep says what went wrong, when a test does not ask. */
-const quiet = () => {};
 
 /**
  * What core 0.16.2's appendJourneyByPath does, kept here so the test
@@ -95,52 +93,6 @@ describe("sweeping what core appended", () => {
 		const before = { readme: readme(), file: journeyFile() };
 		expect(sweepJourney(questDir)).toBe(0);
 		expect({ readme: readme(), file: journeyFile() }).toEqual(before);
-	});
-
-	it("says a failed sweep through what it is given, never the console", () => {
-		const said: string[] = [];
-		// A folder where the Journey file belongs, so reading it throws.
-		rmSync(join(questDir, JOURNEY_FILE), { force: true });
-		mkdirSync(join(questDir, JOURNEY_FILE), { recursive: true });
-		sweepAfterQuestAction(
-			"bump",
-			questDir,
-			[],
-			() => undefined,
-			(text) => said.push(text),
-		);
-		expect(said).toEqual([expect.stringContaining("Journey sweep failed")]);
-	});
-
-	it("sweeps after a core verb's action, and not after any other", () => {
-		coreAppends("Moved from 2 to 1.", "2026-06-05");
-		sweepAfterQuestAction("show", questDir, [], () => undefined, quiet);
-		expect(readme()).toContain("Moved from 2 to 1.");
-		sweepAfterQuestAction("bump", questDir, [], () => undefined, quiet);
-		expect(readme()).not.toContain("Moved from 2 to 1.");
-		expect(journeyFile()).toContain("Moved from 2 to 1.");
-	});
-
-	it("sweeps a quest an action named by id", () => {
-		const other = mkdtempSync(join(tmpdir(), "journey-sweep-other-"));
-		try {
-			writeFileSync(
-				join(other, "README.md"),
-				"# Other\n\n## 🌄 Journey\n\n- **2026-06-05**: Reparented to top level.\n",
-			);
-			sweepAfterQuestAction(
-				"reparent",
-				undefined,
-				["QEST-X"],
-				(id) => (id === "QEST-X" ? other : undefined),
-				quiet,
-			);
-			expect(readFileSync(join(other, JOURNEY_FILE), "utf8")).toContain(
-				"Reparented to top level.",
-			);
-		} finally {
-			rmSync(other, { recursive: true, force: true });
-		}
 	});
 });
 
