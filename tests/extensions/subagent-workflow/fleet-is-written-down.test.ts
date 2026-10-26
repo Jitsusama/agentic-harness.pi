@@ -15,11 +15,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SubagentCancelledError } from "../../../extensions/subagent-workflow/cancellation.ts";
+import { tickFacts } from "../../../lib/internal/process-ticks.ts";
 import {
 	createFleetLedger,
 	type FleetRun,
 } from "../../../lib/subagent/fleet.ts";
-import { tickFacts } from "../../../lib/internal/process-ticks.ts";
 import type { RunPi } from "../../../lib/subagent/subagent.ts";
 import { activateWith } from "../support/review-extension.ts";
 

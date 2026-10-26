@@ -88,7 +88,8 @@ export interface Peer {
 	/**
 	 * Say the step a run is on, such as the tool it is running. Said at
 	 * most once every STEP_MS, since the desktop watches presence and
-	 * a run starts a tool every few seconds.
+	 * a run starts a tool every few seconds; the newest step said inside
+	 * that window is said when it ends.
 	 */
 	setStep(step: string): void;
 	/** Join a canonical group; answers whether it was new. */
@@ -202,6 +203,19 @@ export function localPeer(at: Surroundings): Peer {
 	// When the run in progress began, and the step it was last said on.
 	let since: string | undefined;
 	let step: { text: string; at: number } | undefined;
+	// The newest step said inside the window, said when the window ends,
+	// so a long tool started just after a short one is not hidden by it.
+	let pending: string | undefined;
+	let trailing: ReturnType<typeof setTimeout> | undefined;
+	const dropPending = () => {
+		if (trailing) clearTimeout(trailing);
+		trailing = undefined;
+		pending = undefined;
+	};
+	const sayStep = (text: string) => {
+		step = { text, at: now() };
+		publish();
+	};
 	const wanting = new Map<WantKind, Want>();
 	const groups = () => [...new Set([...scopes, ...joined])].sort();
 	// What was last published, less its time, so an unchanged presence is
@@ -318,15 +332,31 @@ export function localPeer(at: Surroundings): Peer {
 			if (running && !busy) since = new Date(now()).toISOString();
 			if (!running) since = undefined;
 			step = undefined;
+			dropPending();
 			busy = running;
 			publish();
 		},
 		setStep(text) {
-			if (!busy || step?.text === text) return;
-			const moment = now();
-			if (step && moment - step.at < STEP_MS) return;
-			step = { text, at: moment };
-			publish();
+			if (!busy) return;
+			if (step?.text === text) {
+				pending = undefined;
+				return;
+			}
+			const wait = step ? STEP_MS - (now() - step.at) : 0;
+			if (wait <= 0) {
+				dropPending();
+				sayStep(text);
+				return;
+			}
+			pending = text;
+			if (trailing) return;
+			trailing = setTimeout(() => {
+				const next = pending;
+				trailing = undefined;
+				pending = undefined;
+				if (busy && next !== undefined && next !== step?.text) sayStep(next);
+			}, wait);
+			trailing.unref?.();
 		},
 		join(group) {
 			if (joined.includes(group)) return false;

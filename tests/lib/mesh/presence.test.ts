@@ -12,7 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { localPeer, STEP_MS } from "../../../lib/mesh/peer.ts";
 import {
 	createPresences,
@@ -206,6 +206,38 @@ describe("this session's peer", () => {
 		expect(seen()).toMatchObject({ state: "listening" });
 		expect(seen()?.since).toBeUndefined();
 		expect(seen()?.step).toBeUndefined();
+	});
+
+	it("says a step begun inside the window once the window ends, unless the run ended first", () => {
+		// A long bash begun 5 s after a short read must not read as "read"
+		// for the whole of it.
+		vi.useFakeTimers();
+		try {
+			let clock = Date.parse("2026-10-26T06:00:00Z");
+			const at = { ...surroundings(), now: () => clock };
+			const peer = localPeer(at);
+			const step = () => at.presences.of(session)?.step;
+
+			peer.setBusy(true);
+			peer.setStep("read");
+			clock += 5_000;
+			vi.advanceTimersByTime(5_000);
+			peer.setStep("bash");
+			expect(step()).toBe("read");
+
+			clock += STEP_MS - 5_000;
+			vi.advanceTimersByTime(STEP_MS - 5_000);
+			expect(step()).toBe("bash");
+
+			clock += 1_000;
+			peer.setStep("edit");
+			peer.setBusy(false);
+			clock += STEP_MS;
+			vi.advanceTimersByTime(STEP_MS);
+			expect(step()).toBeUndefined();
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("is waiting when idle with a want standing, and busy while it runs", () => {

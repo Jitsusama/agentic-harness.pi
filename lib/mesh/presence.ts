@@ -39,6 +39,16 @@ import { type Stop, stopsFrom } from "./stop.ts";
 import { removeQuietly, removeStaged } from "./transport.ts";
 import { type Want, wantFrom } from "./want.ts";
 
+/** Every state a presence may say. */
+export const PEER_STATES = ["listening", "busy", "waiting"] as const;
+
+/** What a peer is doing, as its presence says. */
+export type PeerState = (typeof PEER_STATES)[number];
+
+function isPeerState(value: unknown): value is PeerState {
+	return (PEER_STATES as readonly unknown[]).includes(value);
+}
+
 /** One peer, as it is seen on the mesh. */
 export interface Presence {
 	/** The pi session id, which outlives the process. */
@@ -366,16 +376,6 @@ function read(path: string): Presence | undefined {
 }
 
 /** Presence read from outside, or nothing when it is not one. */
-/** What a peer is doing, as its presence says. */
-export type PeerState = (typeof PEER_STATES)[number];
-
-/** Every state a presence may say. */
-export const PEER_STATES = ["listening", "busy", "waiting"] as const;
-
-function isPeerState(value: unknown): value is PeerState {
-	return (PEER_STATES as readonly unknown[]).includes(value);
-}
-
 function presenceFrom(value: unknown): Presence | undefined {
 	if (typeof value !== "object" || value === null) return undefined;
 	const one = value as Record<string, unknown>;
