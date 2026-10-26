@@ -8,7 +8,32 @@ import {
 	groupsNamed,
 	hears,
 	isJoinable,
+	orchestratorNamed,
 } from "../../../lib/mesh/group.ts";
+
+describe("the orchestrator in `to`", () => {
+	it("is read as the address of the orchestrator above the sender's quest", () => {
+		expect(orchestratorNamed("orchestrator, #harness", "WCJQSG")).toEqual({
+			to: "WCJQSG, #harness",
+			missing: false,
+		});
+		expect(orchestratorNamed("@Orchestrator", "WCJQSG").to).toBe("WCJQSG");
+	});
+
+	it("is dropped, and said, for a sender with no orchestrator above it", () => {
+		expect(orchestratorNamed("orchestrator, 85PKB2", undefined)).toEqual({
+			to: "85PKB2",
+			missing: true,
+		});
+	});
+
+	it("leaves a `to` that does not name it as written", () => {
+		expect(orchestratorNamed("#harness", undefined)).toEqual({
+			to: "#harness",
+			missing: false,
+		});
+	});
+});
 
 describe("a group's name", () => {
 	it("is made canonical however it is typed", () => {
