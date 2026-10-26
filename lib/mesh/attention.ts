@@ -24,13 +24,15 @@
  *   what an idle peer should act on but need not drop everything for: a
  *   finding sent to it, or a question to a group about its work, which
  *   whichever peer answers first settles for the rest.
- * - wake: in full and a turn at once, for a question sent to this idle
- *   peer, or answering one it asked, since someone is waiting on it.
+ * - turn: in full and a turn at once, for a question or hold put to
+ *   this peer, idle or busy, or an answer to one it asked, since
+ *   someone is waiting on it. (Called wake until 2026-10-25, renamed
+ *   because on Joel's screen wake means resuming from sleep.)
  *
  * A message answering one this peer sent is taken as sent to it, since
  * it is, wherever it went. An fyi or a hold never takes a turn: neither
  * asks for anything an idle peer has to do. The exception is an answer
- * to a question this peer asked, which wakes it however it was sent,
+ * to a question this peer asked, which gets a turn however it was sent,
  * since the peer is waiting on it: an answer sent as an fyi would
  * otherwise sit until something else started a turn. Any other fyi more
  * than {@link FYI_MS} old when it reaches the peer is a glance, and so is
@@ -61,7 +63,7 @@ import { isHomeTo, type Message } from "./message.ts";
 import type { Presence } from "./presence.ts";
 
 /** How much of a peer a message gets. */
-export type Attention = "glance" | "note" | "act" | "wake";
+export type Attention = "glance" | "note" | "act" | "turn";
 
 /** Whose business a message is, from where its receiver stands. */
 export type Concern = "receiver" | "machine" | "other";
@@ -125,7 +127,7 @@ export const FYI_MS = 60 * 60 * 1000;
 export function attend(message: Message, at: Standing): Heed {
 	if (at.asked) {
 		return {
-			attention: "wake",
+			attention: "turn",
 			why: "answering this peer's question",
 			awaited: true,
 		};
@@ -155,10 +157,10 @@ export function attend(message: Message, at: Standing): Heed {
 			(home || at.askedEach) &&
 			(message.intent === "question" || message.intent === "hold")
 		) {
-			return { attention: "wake", why, addressed: true };
+			return { attention: "turn", why, addressed: true };
 		}
 		if (!at.idle) return { attention: "note", why };
-		if (message.intent === "question") return { attention: "wake", why };
+		if (message.intent === "question") return { attention: "turn", why };
 		if (message.intent === "finding") return { attention: "act", why };
 		return { attention: "note", why };
 	}

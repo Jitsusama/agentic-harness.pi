@@ -102,7 +102,7 @@ export interface Damper {
 	recover(turns: readonly Turn[], said: readonly Said[]): void;
 }
 
-const TURNS: readonly Attention[] = ["act", "wake"];
+const TURNS: readonly Attention[] = ["act", "turn"];
 
 export function createDamper(): Damper {
 	let turns: Turn[] = [];

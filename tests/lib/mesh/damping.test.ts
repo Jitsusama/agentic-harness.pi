@@ -30,7 +30,7 @@ function message(over: Partial<Message> = {}): Message {
 	};
 }
 
-const wake: Heed = { attention: "wake", why: "sent to this peer" };
+const turn: Heed = { attention: "turn", why: "sent to this peer" };
 const act: Heed = { attention: "act", why: "sent to this peer" };
 const at = 10 * HOUR_MS;
 
@@ -41,7 +41,7 @@ describe("a peer's turns", () => {
 			damper.started(["WCJQSG"], at);
 		}
 
-		expect(damper.damp(message(), wake, 0, at)).toEqual({
+		expect(damper.damp(message(), turn, 0, at)).toEqual({
 			attention: "note",
 			why: "sent to this peer, the hour's turns for WCJQSG spent",
 		});
@@ -53,7 +53,7 @@ describe("a peer's turns", () => {
 		for (let one = 0; one < MOST_TURNS_AN_HOUR; one += 1) {
 			damper.started(["WCJQSG"], at);
 		}
-		const awaited: Heed = { ...wake, awaited: true };
+		const awaited: Heed = { ...turn, awaited: true };
 
 		expect(damper.damp(message(), awaited, 1, at)).toEqual(awaited);
 		expect(
@@ -79,15 +79,15 @@ describe("a peer's turns", () => {
 			damper.started(["WCJQSG"], at);
 		}
 
-		expect(damper.damp(message(), wake, 0, at + HOUR_MS).attention).toBe(
-			"wake",
+		expect(damper.damp(message(), turn, 0, at + HOUR_MS).attention).toBe(
+			"turn",
 		);
 	});
 
 	it("are never started by an answer too deep in its thread", () => {
 		const damper = createDamper();
-		expect(damper.damp(message(), wake, MOST_REPLY_DEPTH, at)).toEqual(wake);
-		expect(damper.damp(message(), wake, MOST_REPLY_DEPTH + 1, at)).toEqual({
+		expect(damper.damp(message(), turn, MOST_REPLY_DEPTH, at)).toEqual(turn);
+		expect(damper.damp(message(), turn, MOST_REPLY_DEPTH + 1, at)).toEqual({
 			attention: "note",
 			why: "sent to this peer, an answer too deep in its thread",
 		});
@@ -103,7 +103,7 @@ describe("a peer's turns", () => {
 			[],
 		);
 
-		expect(damper.damp(message(), wake, 0, at).attention).toBe("note");
+		expect(damper.damp(message(), turn, 0, at).attention).toBe("note");
 	});
 });
 
@@ -116,12 +116,12 @@ describe("a repeat", () => {
 			id: "2-WCJQSG-7-bbbbbbbb",
 			text: " Who has  QEMU? ",
 		});
-		expect(damper.damp(again, wake, 0, at)).toEqual({
+		expect(damper.damp(again, turn, 0, at)).toEqual({
 			attention: "glance",
 			why: "sent to this peer, said already",
 		});
-		expect(damper.damp(message({ from: "P9R1KI" }), wake, 0, at)).toEqual(wake);
-		expect(damper.damp(again, wake, 0, at + HOUR_MS)).toEqual(wake);
+		expect(damper.damp(message({ from: "P9R1KI" }), turn, 0, at)).toEqual(turn);
+		expect(damper.damp(again, turn, 0, at + HOUR_MS)).toEqual(turn);
 	});
 
 	it("is not the same message handed again, as one let go comes back", () => {

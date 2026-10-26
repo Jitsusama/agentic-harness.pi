@@ -636,7 +636,7 @@ describe("a glance", () => {
 	});
 });
 
-describe("a wake", () => {
+describe("a turn", () => {
 	it("starts a turn at once for a question to an idle peer, and for nothing that asks nothing", async () => {
 		const { sent } = await startSession({}, { isIdle: () => true });
 
@@ -830,7 +830,7 @@ describe("a message never lost", () => {
 });
 
 describe("an answer", () => {
-	it("to this peer's own message wakes it, wherever it went", async () => {
+	it("to this peer's own message gets a turn, wherever it went", async () => {
 		const { sent, tools } = await startSession({}, { isIdle: () => true });
 		peer("session-w", ["WCJQSG"], []);
 		await send(tools, "all", "question", "who has qemu?");
@@ -843,7 +843,7 @@ describe("an answer", () => {
 		expect(sent[0]?.message.content).toMatch(/answering \[[0-9a-f]{8}\]/);
 	});
 
-	it("to this peer's question wakes it however it was sent, whatever the hour spent", async () => {
+	it("to this peer's question gets a turn however it was sent, whatever the hour spent", async () => {
 		const { sent, tools } = await startSession({}, { isIdle: () => true });
 		peer("session-w", ["WCJQSG"], []);
 		await send(tools, "all", "question", "who has qemu?");

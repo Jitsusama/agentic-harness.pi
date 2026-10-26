@@ -52,7 +52,7 @@ and can answer a question or a gate left open on screen.
   machine through the process its presence names.
 - **Attention:** what a message gets from the peer it reaches,
   decided by that peer and never none: a glance, a note, an
-  act or a wake.
+  act or a turn.
 - **Damping:** the peer's limits on that attention, enforced by
   the mesh rather than asked of senders.
 - **Stop:** a peer telling another to stop reaching it, which
@@ -120,7 +120,7 @@ and can answer a question or a gate left open on screen.
 
 A message never keeps a finished run going, and starts a turn
 only for what an idle peer has to do something about (see
-Act and Wake below), since otherwise its sender waits until
+Act and Turn below), since otherwise its sender waits until
 the person next speaks. While the agent works, pi holds what arrives and
 appends it once the current step's tool results are in, so the
 model reads it at its next call and carries on. While the
@@ -171,8 +171,9 @@ and its groups.
   ends, or it does, with no answer sent, the question waits to
   act here after all, up to an hour after it was asked. A run
   that starts first,
-  from the person or a wake, takes it along.
-- **Wake:** a note that starts a turn at once. That covers a
+  from the person or a turn, takes it along.
+- **Turn:** a note that starts a turn at once (called a wake
+  until 2026-10-25, when wake read as resuming from sleep). That covers a
   question or hold put to this peer, by its address or as one
   of each a question went to, and any answer to a question it
   asked, whether the peer is idle or busy. It also covers an
@@ -656,5 +657,5 @@ panel still open says its wants again as the session starts.
 - A change lease covers files, not a pull request in progress.
 - A stop is set with `mesh_stop`, not yet read from plain
   words such as "please stop".
-- Damping has no floor: nothing wakes a peer that rests too
+- Damping has no floor: nothing gives a turn to a peer that rests too
   early.
