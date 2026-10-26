@@ -1,5 +1,5 @@
 /**
- * The cost tool's disk report: what each quest holds on disk beside
+ * The spend tool's disk report: what each quest holds on disk beside
  * what it spent, and how much of it could go now.
  *
  * Money is one cost of a quest; the disk it fills is another, and the

@@ -1,6 +1,6 @@
 /**
  * Gathers what the weekly audit reports, from the ledger and the
- * session logs, so the `cost` tool and the weekly measure script ask
+ * session logs, so the `spend` tool and the weekly measure script ask
  * the same questions and print the same answer.
  */
 

@@ -60,7 +60,7 @@ import {
  */
 const MUST_BOUND = [
 	"browser-integration",
-	"cost-workflow",
+	"spend-workflow",
 	// Listed as small until one digest answered with 140,393 characters:
 	// its weekly trends grow with every row ever kept.
 	"observability-workflow",

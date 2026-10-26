@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	formatHoldings,
 	measureQuests,
-} from "../../../extensions/cost-workflow/disk.ts";
+} from "../../../extensions/spend-workflow/disk.ts";
 import { clearDiscoveryCache } from "../../../lib/internal/quest/discovery.ts";
 import {
 	formatSize,

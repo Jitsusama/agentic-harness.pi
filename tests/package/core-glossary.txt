@@ -26,8 +26,12 @@ The-glossary-names-each-thing-once holds every table to that: no word names two
 things in one context, and no replaced name is written for anything.
 No-name-says-a-replaced-word holds core's own names to it: no check's name
 and no `jitsusama.*` option's says a replaced name, but the ones
-`tests/names.py` lists as another sense of the word or as a rename still
-waiting on its owner, and that list only shrinks.
+`tests/names-kept.nix` keeps as another sense of the word or as a rename still
+waiting on its owner, and what it keeps only shrinks. A repository built on
+core holds its own names the same way, through `core.lib.namesSayTheGlossary`.
+A launcher row that names a thing gives its term as `Context/word`, and a
+place named for a context gives the context alone, as `Network`;
+the-launcher-names-each-thing-its-term holds the row's name to it.
 
 ## The Context Map
 
@@ -100,7 +104,9 @@ first in the queue and conclude.
 | judge | the model that consolidates a council's findings | | |
 | finding | something a review raised | | |
 | change | work put up for review | PR, pull request, proposal | |
-| AI spend | what agents have cost | cost, usage, tokens, bill, budget | spend-watch |
+| AI spend | what agents have cost | cost, usage, tokens, budget | spend-watch |
+| bill | what a provider charged for AI spend, as its feed reports it, rather than estimated from list prices | | |
+| AI proxy | the service a work machine's model calls go through, whose feed gives spend-watch its bill | model gateway, LLM gateway, LLM proxy | |
 | Claude plan | Joel's Claude subscription, whose allowances stop turns when spent | subscription | `claude-plan` |
 | allowance | how much of a Claude plan one window allows: five hours, or a week | limit | `5h`, `wk` |
 | person | the human a session works for | user, human, operator | |
@@ -187,10 +193,10 @@ machine can sleep, lock, log out, reboot and power off.
 | lid | the laptop's lid, whose closing puts it to sleep away from a desk | | `lid-docked` |
 | docked | the laptop at a desk with a monitor plugged in, kept awake with its lid shut | on a dock, at a desk | |
 | Bluetooth | the radio that reaches headphones, keyboards and mice | | BlueZ |
-| camera board | the part in the lid holding the built-in camera, which Dell fits in more than one kind | camera module | `jitsusama.dellXps14.cameraModule` |
+| camera board | the part in the lid holding the built-in camera, which Dell fits in more than one kind | camera module | `jitsusama.dellXps14.cameraBoard` |
 | image processor | the part turning the built-in camera's raw picture into an image | ISP, IPU | |
 | IR camera | the infrared camera beside the built-in camera, for signing in by face | | `ir-camera`, Howdy |
-| desk light | the light on the monitor, lit while a camera is in use | | Litra |
+| desk light | the light on the screen, lit while a camera is in use | | Litra |
 | console | the text screen the machine starts on, and the ones past Ctrl+Alt+F2 | | kmscon |
 | splash | the picture shown while the machine starts and stops | boot screen | Plymouth |
 | device check | the program that tells Joel a device stopped working | | `device-check`, smartd |
@@ -248,8 +254,9 @@ layer and set its light; its keys and shortcuts are listed inside it.
 
 ## Security
 
-What proves it's Joel or his agents, and keeps the disk sealed. Never a
-launcher place: each of its things shows where it's used.
+What proves it's Joel or his agents, keeps the disk sealed, and installs or
+recovers a machine from a stick. Never a launcher place: each of its things
+shows where it's used.
 
 | Word | Means | Not | In code |
 | ---- | ----- | --- | ------- |
@@ -263,6 +270,9 @@ launcher place: each of its things shows where it's used.
 | keyring | where passwords programs keep are held, opened at sign-in | | gnome-keyring |
 | greeter | what asks Joel to sign in when the machine starts | | greetd, tuigreet |
 | lock screen | what hides the desktop while Joel is away, until he signs in again | | swayidle |
+| stick | the USB stick the guide writes for one machine, to install or reinstall it | reinstall stick | |
+| repair stick | a stick written for no machine, to repair any | | |
+| writer | the machine writing a stick for another, which the guide shows beside the machine it's for | | `guide host` |
 
 ## The Library
 

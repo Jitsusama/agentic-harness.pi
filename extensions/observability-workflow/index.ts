@@ -18,7 +18,7 @@
  * anyone looked. Summaries are computed from the rows now,
  * so they cost a query instead of the evidence.
  *
- * It deliberately shows no cost of its own. `cost-workflow`
+ * It deliberately shows no cost of its own. `spend-workflow`
  * subscribes to the same recorder and folds fan-out into the
  * one money figure on the status line, because a council round
  * is the same money as the turn that asked for it and two

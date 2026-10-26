@@ -1,6 +1,6 @@
 /**
  * The weekly measure, run with no pi session, as a timer does: the
- * `cost` tool's weekly audit and the learning sensor's count over the
+ * `spend` tool's weekly audit and the learning sensor's count over the
  * same week, written as one report.
  *
  * The audit holds the week against the one before: spend, cache
@@ -27,12 +27,12 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { formatAudit } from "../extensions/cost-workflow/audit.ts";
-import { gatherAudit } from "../extensions/cost-workflow/audit-input.ts";
+import { formatAudit } from "../extensions/spend-workflow/audit.ts";
+import { gatherAudit } from "../extensions/spend-workflow/audit-input.ts";
 import {
 	indexSessionLogs,
 	sessionsDir,
-} from "../extensions/cost-workflow/indexer.ts";
+} from "../extensions/spend-workflow/indexer.ts";
 import {
 	openLedgerReader,
 	openTurnStore,

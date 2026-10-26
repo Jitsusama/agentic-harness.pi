@@ -16,12 +16,12 @@ import {
 	SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import costWorkflow, {
-	COST_READING,
-} from "../../../extensions/cost-workflow/index.ts";
 import rolloverWorkflow, {
 	COMMAND,
 } from "../../../extensions/rollover-workflow/index.ts";
+import spendWorkflow, {
+	COST_READING,
+} from "../../../extensions/spend-workflow/index.ts";
 import {
 	ROLLOVER_BYTES,
 	ROLLOVER_ENV,
@@ -65,7 +65,7 @@ beforeEach(() => {
 		},
 	};
 	rolloverWorkflow(pi as never);
-	costWorkflow(pi as never);
+	spendWorkflow(pi as never);
 	events.on(COST_READING, (data) => {
 		spend = (data as { session: number }).session;
 	});

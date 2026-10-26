@@ -8,7 +8,7 @@ import {
 	formatSlices,
 	formatTotal,
 	formatVerifierOutcomes,
-} from "../../../extensions/cost-workflow/report.ts";
+} from "../../../extensions/spend-workflow/report.ts";
 import type { RepeatedCall } from "../../../lib/core/observability/index.ts";
 
 describe("formatQueryAnswer", () => {

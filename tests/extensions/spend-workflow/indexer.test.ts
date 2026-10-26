@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { indexSessionLogs } from "../../../extensions/cost-workflow/indexer.ts";
+import { indexSessionLogs } from "../../../extensions/spend-workflow/indexer.ts";
 import { openTurnStore } from "../../../lib/core/observability/index.ts";
 
 let scratch: string | null = null;

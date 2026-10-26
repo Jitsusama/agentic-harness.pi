@@ -1,5 +1,5 @@
 /**
- * The cost tool's resource report: the CPU time, disk I/O and memory
+ * The spend tool's resource report: the CPU time, disk I/O and memory
  * each quest's sessions used, beside the money they spent.
  *
  * pi's logs say what every turn cost in tokens but nothing about what
