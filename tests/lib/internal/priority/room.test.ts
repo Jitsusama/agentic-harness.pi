@@ -202,6 +202,27 @@ describe("the machine's room", () => {
 		).toBe(3);
 	});
 
+	it("counts no VM for a compositor only asked something, as a system build asks niri to validate", () => {
+		const dir = proc(40);
+		const daemon = join(root, "cgroups", "build.slice/nix-daemon.service");
+		const running = (build: string, pid: string, argv: string[]) => {
+			mkdirSync(join(daemon, build), { recursive: true });
+			writeFileSync(join(daemon, build, "cgroup.procs"), `${pid}\n`);
+			mkdirSync(join(dir, pid));
+			writeFileSync(join(dir, pid, "comm"), `${argv[0]}\n`);
+			writeFileSync(join(dir, pid, "cmdline"), `${argv.join("\0")}\0`);
+		};
+		running("nix-build-uid-1", "101", ["niri", "validate", "-c", "config.kdl"]);
+		running("nix-build-uid-2", "201", [".niri-wrapped", "msg", "outputs"]);
+		running("nix-build-uid-3", "301", ["sway", "-C", "-c", "config"]);
+		// A nested niri running a session still has deadlines.
+		running("nix-build-uid-4", "401", [".niri-wrapped", "-c", "config.kdl"]);
+
+		expect(
+			readRoom([], { proc: dir, cgroups: join(root, "cgroups") }).vms,
+		).toBe(1);
+	});
+
 	it("says who asked for each Nix build, whether it has deadlines, and the most memory it held", () => {
 		const dir = proc(40);
 		const daemon = join(root, "cgroups", "build.slice/nix-daemon.service");
