@@ -18,6 +18,8 @@
  * their own copy of this module) all read the same policy.
  */
 
+import { isRecord } from "../internal/record.ts";
+
 /**
  * What a guard does when it fires.
  *
@@ -267,8 +269,4 @@ export function parseGuardSection(
 		parsed[key] = read;
 	}
 	return { ok: true, value: parsed };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

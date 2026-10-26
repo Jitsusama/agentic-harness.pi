@@ -15,6 +15,7 @@
  * layer chose it.
  */
 
+import { isRecord } from "../../lib/internal/record.ts";
 import {
 	isThinkingLevel,
 	type ThinkingLevel,
@@ -307,8 +308,4 @@ function isNameList(value: unknown): value is string[] {
 	return (
 		Array.isArray(value) && value.every((name) => typeof name === "string")
 	);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

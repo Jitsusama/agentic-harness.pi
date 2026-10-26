@@ -66,6 +66,7 @@ import {
 	type SummaryContributions,
 	withFileLists,
 } from "../../lib/compaction/index.ts";
+import { isRecord } from "../../lib/internal/record.ts";
 
 export type { CompactionAttempt } from "../../lib/compaction/index.ts";
 
@@ -701,10 +702,6 @@ function checkpoint(
 				: {}),
 		},
 	};
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**

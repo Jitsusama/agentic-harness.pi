@@ -14,6 +14,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { configDir } from "../../lib/internal/paths.ts";
+import { isRecord } from "../../lib/internal/record.ts";
 import { GLYPH } from "../../lib/ui/types.ts";
 
 /** The marks the line draws, by what they mean. */
@@ -68,10 +69,6 @@ export const DEFAULT_WHERE: Where = {
 /** Where the machine's description is kept. */
 export function whereFile(): string {
 	return join(configDir("status-line"), "where.json");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**
