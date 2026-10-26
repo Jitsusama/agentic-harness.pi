@@ -168,6 +168,13 @@ Field semantics:
   window's title reads `π - <short> - <folder>`; without
   one the title's first three words stand in. The id is
   never in the window title; the status line shows it.
+- `orchestrator`: optional, `true` when the quest's session
+  orchestrates every quest below it. Set and cleared with
+  the quest tool's `orchestrate` and `unorchestrate`, never
+  by hand.
+- `orchestratedBy`: optional quest id, for a quest outside
+  an orchestrator's tree that it has taken on. It wins over
+  the nearest orchestrating quest above.
 - `kind`: `quest`, `subquest` or `sidequest`. See
   quest-convention for choosing.
 - `parent`: the id of the parent quest when this is a

@@ -299,6 +299,8 @@ function parsePendingPrune(raw: unknown): PendingPrune[] {
 const KNOWN_QUEST_KEYS = new Set<string>([
 	"id",
 	"short",
+	"orchestrator",
+	"orchestratedBy",
 	"kind",
 	"parent",
 	"status",
@@ -404,6 +406,9 @@ export function parseQuestFrontMatter(
 	if (scratchDir) frontMatter.scratchDir = scratchDir;
 	const short = asString(raw.short)?.trim();
 	if (short) frontMatter.short = short;
+	if (raw.orchestrator === true) frontMatter.orchestrator = true;
+	const orchestratedBy = asString(raw.orchestratedBy)?.trim();
+	if (orchestratedBy) frontMatter.orchestratedBy = orchestratedBy;
 	const primaryPlanId = asString(raw.primaryPlanId);
 	if (primaryPlanId) frontMatter.primaryPlanId = primaryPlanId;
 	const verify = asString(raw.verify);
@@ -575,6 +580,8 @@ export function serializeReadable(
 export function serializeQuestFrontMatter(fm: QuestFrontMatter): string {
 	const payload: Record<string, unknown> = { id: fm.id };
 	if (fm.short) payload.short = fm.short;
+	if (fm.orchestrator) payload.orchestrator = true;
+	if (fm.orchestratedBy) payload.orchestratedBy = fm.orchestratedBy;
 	Object.assign(payload, {
 		kind: fm.kind,
 		parent: fm.parent,

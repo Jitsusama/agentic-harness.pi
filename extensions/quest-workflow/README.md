@@ -42,6 +42,12 @@ shipped and tested.
   the sweep previews. The list of actions that preview is
   in `dry-run.ts`.
 - **Aliases**: `alias-add`, `alias-remove`.
+- **Orchestration**: `orchestrate` and `unorchestrate` set or
+  clear the `orchestrator` mark on the quest `id` names, else
+  the loaded one. The session with a marked quest loaded
+  orchestrates every quest below it, up to the next marked one;
+  those sessions join `#orchestration/<address>` and name it in
+  presence as `orchestratedBy`, with nothing else wired.
 - **Sessions**: `session-attach`, `session-detach`,
   `session-rename`, `session-audit` (report any session active on
   more than one quest).

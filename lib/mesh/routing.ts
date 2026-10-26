@@ -17,9 +17,11 @@
  *   sender's own scopes that another peer is in, where peers on its
  *   work hear it; failing those, to the nearest quest above its own
  *   that another peer hears, since a subquest alone on its scope is
- *   still its parent's work; and to the whole machine when none is,
- *   since a message nobody hears is the one outcome worse than a
- *   glance.
+ *   still its parent's work; and when none is, to the sender's own
+ *   orchestration, quest or repository group, where it waits for
+ *   whoever joins, never the whole machine, whose sessions on other
+ *   work it does not concern. Only a sender on no work at all falls
+ *   back to the whole machine.
  *
  * The sender is told where it went and why, so it can say otherwise.
  * A peer that stopped the sender is never routed to.
@@ -30,6 +32,7 @@ import { mentions } from "./attention.ts";
 import { ALL, hears, homeOf } from "./group.ts";
 import type { Intent } from "./message.ts";
 import type { Presence } from "./presence.ts";
+import { isOrchestrationGroup } from "./scope.ts";
 import { stoppedBy } from "./stop.ts";
 
 /** Where a message goes, and why, for the sender to read. */
@@ -295,10 +298,32 @@ export function routeByRule(
 			why: "it named nowhere and no other peer is on this peer's own quest, so it goes to the nearest quest above it that another peer hears",
 		};
 	}
+	const own = narrowestOwn(sender.scopes);
+	if (own.length > 0) {
+		return {
+			to: own,
+			why: "it named nowhere and no other peer hears this peer's work now, so it waits in this peer's own group for whoever joins it, rather than reaching sessions whose work it is not",
+		};
+	}
 	return {
 		to: [ALL],
-		why: "it named nowhere and no other peer is on this peer's work, so the whole machine hears it, at the attention each gives it",
+		why: "it named nowhere and this peer works on nothing a group is kept for, so the whole machine hears it, at the attention each gives it",
 	};
+}
+
+/**
+ * The groups of a peer's own work a message falls back to when nobody
+ * else hears them: its orchestrations, else its quest, else its
+ * repositories. Never the whole machine, which carries only what
+ * touches every session, so a session on its own is not told the
+ * business of an orchestration it is not in.
+ */
+function narrowestOwn(scopes: readonly string[]): string[] {
+	const orchestrations = scopes.filter(isOrchestrationGroup);
+	if (orchestrations.length > 0) return orchestrations;
+	const quests = scopes.filter((scope) => scope.startsWith("#quest/"));
+	if (quests.length > 0) return quests;
+	return [...scopes];
 }
 
 /**

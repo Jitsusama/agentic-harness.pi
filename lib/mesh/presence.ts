@@ -27,6 +27,11 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { isOwner, type Owner } from "@jitsusama/agentic-harness.core/process";
 import { parseQuestFrontMatter } from "../internal/quest/frontmatter.ts";
+import {
+	type Orchestration,
+	orchestrationOf,
+} from "../internal/quest/orchestration.ts";
+import type { QuestFrontMatter } from "../quest/types.ts";
 import { loadedQuest, type QuestRecords } from "./address.ts";
 import { scopesOf } from "./scope.ts";
 import { type Stop, stopsFrom } from "./stop.ts";
@@ -71,6 +76,18 @@ export interface Presence {
 	 * (see windowTitle).
 	 */
 	readonly title?: string;
+	/**
+	 * The address of the orchestrator its quest answers to, when one is
+	 * above it (see internal/quest/orchestration.ts). The mesh resolves
+	 * "the orchestrator" from this alone.
+	 */
+	readonly orchestratedBy?: string;
+	/**
+	 * The address of the orchestration it heads, when its quest
+	 * orchestrates and it is the session playing the role: the one that
+	 * signs with the quest's address, which is the one that had it first.
+	 */
+	readonly orchestrates?: string;
 	/** When it last said so, as an ISO time. */
 	readonly at: string;
 }
@@ -120,6 +137,8 @@ export interface PeerWork {
 	readonly owns: readonly string[];
 	/** The groups the work puts it in (see scope.ts). */
 	readonly scopes: readonly string[];
+	/** Where its quest sits among orchestrations, by quest id. */
+	readonly orchestration: Orchestration;
 }
 
 /** How far up a quest's parents are followed, against a loop. */
@@ -145,8 +164,10 @@ export function workOf(
 			worksOn: `the work in ${cwd}`,
 			owns: [...new Set([...runsIn, ...here, ...named])],
 			scopes: scopesOf({ questChain: [], repositories: runsIn }),
+			orchestration: {},
 		};
 	}
+	const read = frontMatterReader(records, quest, parsed.frontMatter);
 	// Only a tree still checked out names its repository: one taken away
 	// since has no git config to read, and its folder's name is the
 	// broker's (worktree-github-...), which would make a group nobody
@@ -159,13 +180,40 @@ export function workOf(
 			.map(repositoryName),
 	);
 	const repositories = [...new Set([...trees, ...runsIn])];
+	const orchestration = orchestrationOf(quest, read);
 	return {
 		worksOn: describe(parsed.body),
 		owns: [...new Set([quest, ...repositories, ...here, ...named])],
 		scopes: scopesOf({
-			questChain: questChain(quest, parsed.frontMatter.parent, records),
+			questChain: questChain(quest, parsed.frontMatter.parent, read),
 			repositories,
+			orchestrations: [orchestration.by, orchestration.heads].filter(
+				(one): one is string => one !== undefined,
+			),
 		}),
+		orchestration,
+	};
+}
+
+/**
+ * Each quest's front matter, read once for one working out of presence,
+ * which reads the same parents for the quest chain and the orchestration.
+ */
+function frontMatterReader(
+	records: QuestRecords,
+	quest: string,
+	own: QuestFrontMatter,
+): (quest: string) => QuestFrontMatter | undefined {
+	const read = new Map<string, QuestFrontMatter | undefined>([[quest, own]]);
+	return (id) => {
+		if (!read.has(id)) {
+			const readme = readReadme(records.quests, id);
+			read.set(
+				id,
+				readme ? parseQuestFrontMatter(readme)?.frontMatter : undefined,
+			);
+		}
+		return read.get(id);
 	};
 }
 
@@ -173,16 +221,13 @@ export function workOf(
 function questChain(
 	quest: string,
 	parent: string | null | undefined,
-	records: QuestRecords,
+	read: (quest: string) => QuestFrontMatter | undefined,
 ): string[] {
 	const chain = [quest];
 	let next = parent;
 	while (next && !chain.includes(next) && chain.length <= MOST_PARENTS) {
 		chain.push(next);
-		const readme = readReadme(records.quests, next);
-		next = readme
-			? parseQuestFrontMatter(readme)?.frontMatter.parent
-			: undefined;
+		next = read(next)?.parent;
 	}
 	return chain;
 }
@@ -331,6 +376,12 @@ function presenceFrom(value: unknown): Presence | undefined {
 		...(wantFrom(one.wants) ? { wants: wantFrom(one.wants) } : {}),
 		...(isOwner(one.owner) ? { owner: one.owner } : {}),
 		...(typeof one.title === "string" ? { title: one.title } : {}),
+		...(typeof one.orchestratedBy === "string"
+			? { orchestratedBy: one.orchestratedBy }
+			: {}),
+		...(typeof one.orchestrates === "string"
+			? { orchestrates: one.orchestrates }
+			: {}),
 		at: typeof one.at === "string" ? one.at : "",
 	};
 }

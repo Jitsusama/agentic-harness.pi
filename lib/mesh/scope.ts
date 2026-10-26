@@ -11,6 +11,10 @@
  * - its quest, `#quest/<root>/.../<own>`, named down the quest's parent
  *   chain, so a message to `#quest/5gv2ah` reaches every peer on that
  *   quest or a quest under it, as nested groups do;
+ * - each orchestration it is in, `#orchestration/<address>`: the one
+ *   its quest answers to, and its own when its quest orchestrates, so
+ *   an orchestrator nested under another hears both and the sessions
+ *   under it hear only its own (see internal/quest/orchestration.ts);
  * - each repository its work is in, `#repo/<name>`;
  * - the machine, `#all`.
  *
@@ -28,6 +32,11 @@ export interface Work {
 	readonly questChain: readonly string[];
 	/** The names of the repositories its work is in. */
 	readonly repositories: readonly string[];
+	/**
+	 * The orchestrating quests it is in: the one above its quest, and its
+	 * quest when that orchestrates. Missing when it is in none.
+	 */
+	readonly orchestrations?: readonly string[];
 }
 
 /** The deepest quest group that is written out; deeper is very rare. */
@@ -44,12 +53,32 @@ export function scopesOf(work: Work): string[] {
 		.map(part)
 		.filter(Boolean)
 		.map((name) => `#repo/${name}`);
+	const orchestrations = (work.orchestrations ?? [])
+		.map((id) => part(questAddress(id)))
+		.filter(Boolean)
+		.map(orchestrationGroup);
 	return [
 		...new Set([
 			...(quest.length > 0 ? [`#quest/${quest.join("/")}`] : []),
+			...orchestrations,
 			...repositories,
 		]),
 	].sort();
+}
+
+/**
+ * The group of the orchestration an orchestrator's address heads:
+ * `#orchestration/wcjqsg`. Named by address rather than short name,
+ * since an address stays put while a short name changes and holds
+ * spaces.
+ */
+export function orchestrationGroup(address: string): string {
+	return `#orchestration/${part(address)}`;
+}
+
+/** Whether a group is an orchestration's. */
+export function isOrchestrationGroup(group: string): boolean {
+	return group.startsWith("#orchestration/");
 }
 
 /**

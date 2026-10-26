@@ -39,6 +39,7 @@ import {
 	unfocus,
 	unload,
 } from "./verbs/lifecycle.ts";
+import { orchestrate } from "./verbs/orchestrate.ts";
 import {
 	ancestors,
 	expand,
@@ -168,6 +169,10 @@ async function dispatch(
 			return queueOrder(state, params, true);
 		case "queue-normal":
 			return queueOrder(state, params, false);
+		case "orchestrate":
+			return orchestrate(state, params, true);
+		case "unorchestrate":
+			return orchestrate(state, params, false);
 		case "think":
 		case "draft":
 		case "build":
