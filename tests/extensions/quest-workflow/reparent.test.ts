@@ -8,7 +8,7 @@ import {
 	clearRefTypes,
 	registerBuiltinRefTypes,
 } from "../../../lib/refs/index";
-import { createEnvGuard, refused, succeeded } from "./_helpers";
+import { createEnvGuard, journeyOf, refused, succeeded } from "./_helpers";
 
 let tmpRoot: string;
 
@@ -53,10 +53,6 @@ function parentOf(id: string): string {
 
 function statusOf(id: string): string {
 	return fieldOf(id, "status");
-}
-
-function readReadme(id: string): string {
-	return readFileSync(join(tmpRoot, "quests", id, "README.md"), "utf8");
 }
 
 // Simulate an out-of-band edit: rewrite the parent frontmatter line
@@ -527,7 +523,9 @@ describe("reparent verb", () => {
 		expect(statusOf(a.id)).toBe("active");
 		// The original "Concluded the quest (bulk)." entry must not stand
 		// uncontradicted on a quest that now reads active.
-		expect(readReadme(a.id)).toMatch(/Reverted the conclude \(undo\)\./);
+		expect(journeyOf(join(tmpRoot, "quests", a.id))).toMatch(
+			/Reverted the conclude \(undo\)\./,
+		);
 	});
 
 	it("moves a quest back to top level with parent=null", async () => {

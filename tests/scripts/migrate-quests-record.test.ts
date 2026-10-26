@@ -237,8 +237,10 @@ describe("applyRecordMigration", () => {
 
 	it("cites the review groups it kept from a Journey entry", () => {
 		migrate();
-		const journey = read(`${A}/README.md`).split("## 🌄 Journey")[1];
-		expect(journey).toMatch(/^\n\n- \*\*2026-09-25\*\*: Moved working/);
+		const journey = read(`${A}/attachments/journey.md`);
+		expect(journey).toMatch(
+			/^# .*Journey\n\n- \*\*2026-09-25\*\*: Moved working/,
+		);
 		expect(journey).toContain("`attachments/HANDOFF.md`");
 		expect(journey).toContain("`attachments/research/portfolio/`");
 		expect(auditQuestRecord(join(questsRoot, A)).uncited).toEqual([]);

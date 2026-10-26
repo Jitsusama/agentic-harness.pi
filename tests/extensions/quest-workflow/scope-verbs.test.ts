@@ -6,7 +6,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { recordOutsideWrites } from "../../../extensions/quest-workflow/outside-writes";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
@@ -16,7 +16,7 @@ import {
 	clearRefTypes,
 	registerBuiltinRefTypes,
 } from "../../../lib/refs/index";
-import { createEnvGuard, succeeded } from "./_helpers";
+import { createEnvGuard, journeyOf, succeeded } from "./_helpers";
 
 let tmpRoot: string;
 
@@ -260,7 +260,7 @@ describe("conclude / retire scope", () => {
 		const said = "Outside its trees it wrote 2 paths: /etc/a, /etc/b.";
 		if (!result.ok) throw new Error(result.guidance);
 		expect(result.message).toContain(said);
-		expect(readFileSync(a.path, "utf8")).toContain(said);
+		expect(journeyOf(dirname(a.path))).toContain(said);
 	});
 
 	it("cascades on conclude: resets priority to someday and seals documents", async () => {

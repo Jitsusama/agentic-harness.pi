@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { questVerdicts } from "../../../extensions/quest-workflow/enforce";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
-import { createEnvGuard, refused, succeeded } from "./_helpers";
+import { createEnvGuard, journeyOf, refused, succeeded } from "./_helpers";
 
 let tmpRoot: string;
 const envGuard = createEnvGuard();
@@ -153,11 +153,9 @@ describe("journal", () => {
 	it("adds a dated entry to the quest's Journey", async () => {
 		const { state, run } = await questWithPlan();
 		succeeded(await run({ action: "journal", note: "Landed the verbs." }));
-		const readme = readFileSync(
-			join(state.questDir ?? "", "README.md"),
-			"utf8",
+		expect(journeyOf(state.questDir ?? "")).toMatch(
+			/^- \*\*\d{4}-\d{2}-\d{2}\*\*: Landed the verbs\./,
 		);
-		expect(readme).toMatch(/- \*\*\d{4}-\d{2}-\d{2}\*\*: Landed the verbs\./);
 	});
 
 	it("writes to the quest `id` names, not the loaded one", async () => {
@@ -175,12 +173,8 @@ describe("journal", () => {
 		);
 
 		expect(result.message).toBe(`Added to ${other}'s Journey.`);
-		expect(readFileSync(join(otherDir, "README.md"), "utf8")).toContain(
-			"Noted elsewhere.",
-		);
-		expect(readFileSync(join(loadedDir, "README.md"), "utf8")).not.toContain(
-			"Noted elsewhere.",
-		);
+		expect(journeyOf(otherDir)).toContain("Noted elsewhere.");
+		expect(journeyOf(loadedDir)).not.toContain("Noted elsewhere.");
 		expect(state.questId).toBe(loaded);
 	});
 
@@ -213,12 +207,8 @@ describe("journal", () => {
 			await run({ action: "journal", id: other.planId, note: "Via plan." }),
 		);
 
-		expect(readFileSync(join(other.dir, "README.md"), "utf8")).toContain(
-			"Via plan.",
-		);
-		expect(
-			readFileSync(join(state.questDir ?? "", "README.md"), "utf8"),
-		).not.toContain("Via plan.");
+		expect(journeyOf(other.dir)).toContain("Via plan.");
+		expect(journeyOf(state.questDir ?? "")).not.toContain("Via plan.");
 	});
 });
 
@@ -283,9 +273,7 @@ describe("documents of a quest this session has not loaded", () => {
 
 		expect(result.message).toContain(`It belongs to ${other.id}`);
 		expect(readFileSync(other.planPath, "utf8")).toMatch(/stage: concluded/);
-		expect(readFileSync(join(other.dir, "README.md"), "utf8")).toContain(
-			`Concluded plan ${other.planId}.`,
-		);
+		expect(journeyOf(other.dir)).toContain(`Concluded plan ${other.planId}.`);
 		expect(readFileSync(join(state.questDir ?? "", "README.md"), "utf8")).toBe(
 			ownReadme,
 		);
@@ -320,7 +308,7 @@ describe("retitle", () => {
 		expect(result.message).toContain("Verbs That Say What They Do");
 		expect(after).toMatch(/^# Verbs That Say What They Do$/m);
 		expect(after).not.toMatch(/^# Verb Quest$/m);
-		expect(after).toContain(
+		expect(journeyOf(state.questDir ?? "")).toContain(
 			'Retitled from "Verb Quest" to "Verbs That Say What They Do".',
 		);
 		expect(state.questTitle).toBe("Verbs That Say What They Do");
@@ -338,9 +326,9 @@ describe("retitle", () => {
 		expect(plan).toMatch(/^# Verbs, Planned$/m);
 		expect(plan).not.toMatch(/^# Verb Plan$/m);
 		expect(plan).toContain("## Work\n\n- [ ] First item");
-		expect(
-			readFileSync(join(state.questDir ?? "", "README.md"), "utf8"),
-		).toContain(`Retitled ${planId} from "Verb Plan" to "Verbs, Planned".`);
+		expect(journeyOf(state.questDir ?? "")).toContain(
+			`Retitled ${planId} from "Verb Plan" to "Verbs, Planned".`,
+		);
 	});
 
 	it("renames a quest this session has not loaded, and stays put", async () => {

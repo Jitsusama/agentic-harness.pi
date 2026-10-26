@@ -91,7 +91,10 @@ Journey log to record that the work is waiting.
 
 Status is not where you write narrative. The narrative lives
 in the Journey log: dated bullets, newest first, recording
-what happened and why.
+what happened and why. It lives in the quest's
+`attachments/journey.md`, apart from the README; read it
+only when the history matters, since `show` already gives
+the newest entries.
 
 When asked "what is happening on QEST-X", the tool
 synthesises a paragraph from frontmatter plus recent

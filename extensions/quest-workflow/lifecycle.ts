@@ -25,9 +25,11 @@ import {
 	findQuestEntry,
 	focusDocument,
 	refreshProgress,
+	stampQuestUpdated,
 	unfocusDocument,
 } from "@jitsusama/agentic-harness.core/quest/lifecycle";
 import { sessionsDir } from "../../lib/internal/paths.ts";
+import { appendJourneyByPath } from "../../lib/internal/quest/append-journey.ts";
 import { discoverQuests } from "../../lib/internal/quest/discovery.ts";
 import { mutateQuestFrontMatter } from "../../lib/internal/quest/mutate.ts";
 import { questIdForCwd } from "../../lib/internal/quest/resolve-cwd.ts";
@@ -41,7 +43,6 @@ import type { QuestState } from "./state.ts";
 
 export {
 	addAliasesToLoaded,
-	appendJourneyEntry,
 	attachCurrentSession,
 	attachSessionToLoaded,
 	buildQuestsAliasIndex,
@@ -80,6 +81,23 @@ export {
 	type WorktreeInventoryEntry,
 	writeDocumentStage,
 } from "@jitsusama/agentic-harness.core/quest/lifecycle";
+
+/**
+ * Add an entry to the loaded quest's Journey and stamp it updated.
+ * The harness's own rather than core's, which still writes into the
+ * README: this one writes the Journey file (see
+ * lib/internal/quest/journey.ts).
+ */
+export function appendJourneyEntry(state: QuestState, prose: string): void {
+	if (!state.questDir) return;
+	if (!appendJourneyByPath(state.questDir, prose)) {
+		console.warn(
+			`[quest] failed to add a Journey entry to ${state.questDir}; README missing or unreadable.`,
+		);
+		return;
+	}
+	stampQuestUpdated(state);
+}
 
 /**
  * Mark a session detached on the loaded quest as its process shuts

@@ -20,9 +20,11 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { createMutex } from "../../lib/internal/async-mutex.ts";
+import { sweepAfterQuestAction } from "../../lib/internal/quest/journey-sweep.ts";
 import type { QuestPriority } from "../../lib/quest/index.ts";
 import { suggestAction } from "./actions.ts";
 import { refuseIgnoredDryRun, refuseUndoElsewhere } from "./dry-run.ts";
+import { findQuestEntry } from "./lifecycle.ts";
 import type { QuestState } from "./state.ts";
 import { aliasAdd, aliasRemove } from "./verbs/alias.ts";
 import { configReport } from "./verbs/config.ts";
@@ -98,9 +100,28 @@ export function handle(
 	params: QuestToolParams,
 	signal?: AbortSignal,
 ): Promise<QuestResult> {
-	return turns.runExclusive(() => dispatch(state, pi, ctx, params, signal), {
-		signal,
-	});
+	return turns.runExclusive(
+		async () => {
+			const result = await dispatch(state, pi, ctx, params, signal);
+			// Until the core fold, core's verbs append to the README's
+			// Journey; move what they wrote into the Journey file.
+			sweepAfterQuestAction(
+				params.action,
+				state.questDir,
+				idsNamed(params.id),
+				(id) => findQuestEntry(state, id)?.dir,
+			);
+			return result;
+		},
+		{ signal },
+	);
+}
+
+function idsNamed(id: string | undefined): string[] {
+	return (id ?? "")
+		.split(",")
+		.map((one) => one.trim())
+		.filter((one) => one.length > 0);
 }
 
 async function dispatch(

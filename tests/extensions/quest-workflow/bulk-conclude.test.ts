@@ -13,6 +13,7 @@ import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
 import { defaultWorkspaceRoot } from "../../../extensions/quest-workflow/workspace";
 import { ensureQuestScratchDir } from "../../../lib/internal/quest/scratch";
+import { journeyOf } from "./_helpers";
 
 let root: string;
 let savedCache: string | undefined;
@@ -113,11 +114,9 @@ describe("sweeping quests by id", () => {
 			for (const id of ids) {
 				expect(existsSync(workspace(id, "tmp"))).toBe(false);
 				expect(existsSync(workspace(id, "lab/results.csv"))).toBe(true);
-				const readme = readFileSync(
-					join(state.questsRoot, id, "README.md"),
-					"utf8",
+				expect(journeyOf(join(state.questsRoot, id))).toContain(
+					"Cleared the workspace's tmp/ folder.",
 				);
-				expect(readme).toContain("Cleared the workspace's tmp/ folder.");
 			}
 		});
 	}
