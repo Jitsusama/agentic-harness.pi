@@ -99,12 +99,21 @@ Every path, file and command a guide or doc names exists. One
 fact has one home; a second place that needs it links to the
 first.
 
+A change updates, in the same change, every doc, README and
+agent direction it makes stale: a moved file's mentions, a
+renamed command, a rule it changes, a guide's map when it adds
+a folder. Its description says which it updated, or that none
+needed it.
+
 Why: an agent reads AGENTS.md on every session, so every stale
 line costs every session, and a guide naming something removed
-sends work the wrong way. A fact kept in two places drifts.
+sends work the wrong way. A fact kept in two places drifts. A
+doc left for later is left for good, since the next reader
+can't tell it went stale.
 
 Held by: a check that every path and command named in the
-repository's markdown resolves.
+repository's markdown resolves, and at review for what a check
+can't see, such as a rule's wording.
 
 ## 4. Every File Is Linted at Its Strictest
 
@@ -233,7 +242,10 @@ TypeScript, and the sweep (below) for half-migrations.
 After each wave of merges, a sweep reads what landed against
 these rules: stale paths, files no linter reads, new embedded
 programs, sleeps, copied helpers, debris left by work that
-moved on. It fixes what is its own, and sends the rest to the
+moved on. It runs each repository's checks, then reads its
+AGENTS.md and its nested guides against the tree as it now
+stands, since a guide can be true in every path and still
+describe a repository that moved on. It fixes what is its own, and sends the rest to the
 owner of that part of the repository. The checks above keep
 most of it from landing at all; the sweep catches what no check
 can.
