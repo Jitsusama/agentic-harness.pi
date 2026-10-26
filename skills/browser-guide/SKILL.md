@@ -14,11 +14,11 @@ description: >
 
 # Driving a Browser
 
-Four tools share one set of named, persistent sessions.
+Four tools share one set of named, persistent browsers.
 
 | Tool | For |
 |---|---|
-| `browser_go` | Where the session is, and the conditions it runs under |
+| `browser_go` | Where the browser is, and the conditions it runs under |
 | `browser_see` | Reading. Never changes the page |
 | `browser_do` | Changing the page |
 | `browser_check` | Forming a verdict |
@@ -29,7 +29,7 @@ is `go` because it changes the conditions rather than the page.
 
 ## Start Here
 
-`browser_go` with a `url` opens a session and navigates in one
+`browser_go` with a `url` opens a browser and navigates in one
 step. There is no separate setup call.
 
 ```
@@ -42,12 +42,12 @@ mean. `browser_go url:...` is a navigate. `browser_see` with no
 arguments is the page. Only reach for `kind` when the arguments
 alone are ambiguous.
 
-Sessions are named and persist across calls. Pass `session` only
-when you want more than one open at once; otherwise everything
-lands in `default`.
+Browsers are named and persist across calls. Pass a name as
+`session` only when you want more than one open at once;
+otherwise everything lands in `default`.
 
-If you named a session when you navigated and then leave `session`
-off a later call, the only open session is used and the answer
+If you named a browser when you navigated and then leave `session`
+off a later call, the only open browser is used and the answer
 says which. With several open, the call is refused and the names
 are listed, because reading a verdict without knowing which page
 it judged is how the wrong page gets fixed. A name you pass is
@@ -119,7 +119,7 @@ intents. This is the whole surface, so nothing has to be guessed
 at or rebuilt. A gate keeps it complete: a kind that ships without
 appearing here fails the suite.
 
-**`browser_go`**, which puts a session somewhere and sets its
+**`browser_go`**, which puts a browser somewhere and sets its
 conditions: `kind:"open"`, `kind:"navigate"`, `kind:"close"`,
 `kind:"reload"`, `kind:"back"`, `kind:"forward"`,
 `kind:"dialogs"`, `kind:"emulate"`, `kind:"storage"`,
@@ -203,7 +203,7 @@ did not answer is named as not reported rather than dropped, so
 silence and a value never look alike. `browser_do kind:"eval"`
 interrogates the page directly.
 
-Reach for `eval` last. A session that spends most of its
+Reach for `eval` last. An agent that spends most of its
 `browser_do` calls on `eval` is reporting a gap in these tools:
 the expressions say which surface is missing, and rebuilding
 something this package already ships is the common case. One real
@@ -340,7 +340,7 @@ the answer arrives.
 - Lists take `limit` and report the true total regardless of how
   many are shown. If the total surprises you, that is the finding
 - Screenshots never come back inline. They are written to the
-  session bundle and the answer carries the path. `see status`
+  browser's bundle and the answer carries the path. `see status`
   lists everything written
 - A shot takes the viewport by default, the whole scrollable page
   with `fullPage`, and one element cropped to its own box with
@@ -388,7 +388,7 @@ follow the handle.
 `navigate`, `open`, `close`, `reload`, `back`, `forward`. All six
 answer with the page they landed on, so you do not need a `see`
 call to confirm where you are. Going back past the first
-navigation lands on the blank page the session opened with, and
+navigation lands on the blank page the browser opened with, and
 says so.
 
 A navigation that never arrives is reported, not thrown: being
@@ -411,15 +411,15 @@ request log under `filter: failed`.
   believes it is offline and is not will report the wrong thing
 - `storage`: read, write or clear cookies, local and session
   storage, and the clipboard. `save` writes everything that keeps
-  a session signed in to a file, and `load` puts it back in a
-  session that never signed in, which is how you test behind a
+  a browser signed in to a file, and `load` puts it back in a
+  browser that never signed in, which is how you test behind a
   login without repeating the login. Cookies apply anywhere; the
   DOM stores belong to an origin, so navigate there first and
   reload after. When you are not on that origin it restores the
   cookies, writes nothing else, and says so, rather than
   reporting a success that leaves you signed out
 - `tabs`: list the tabs open, or pass `tab` to switch to one. A
-  session drives one tab, so a page that opened another with
+  browser drives one tab, so a page that opened another with
   `target=_blank` or `window.open`, as sign-in and payment flows
   do, is live and unreachable until you switch. The tab you leave
   stays open. The browser makes a new tab on its own schedule, so
@@ -515,7 +515,7 @@ request log under `filter: failed`.
 - `requests` takes `body` to fetch one response body on demand,
   and `har` to export the whole conversation
 - `status` is the one to reach for when behaviour makes no
-  sense: it reports what the session is pretending to be, what
+  sense: it reports what the browser is pretending to be, what
   it is intercepting, how it answers dialogs, and whether the
   page has crashed. What it is pretending is checked against the
   page rather than recited, so a `not landed` line means an
@@ -568,10 +568,10 @@ cannot ask why something was slow after it has already happened;
 bracket the action that causes it instead.
 
 **Tracing is browser-wide and only one can run at a time.** A
-second session asking while another records is refused, and told
-which session is holding it. The action still runs: losing the
+second browser asking while another records is refused, and told
+which browser is holding it. The action still runs: losing the
 trace never costs you the thing you asked for. While a recording
-runs, every session's `see kind:"status"` says so and names who
+runs, every browser's `see kind:"status"` says so and names who
 started it, because every page in the browser is being
 instrumented and paying for it.
 
@@ -620,7 +620,7 @@ reach is conditional too: a sidebar that only exists above a
 thousand pixels can be unreachable there and invisible below, so
 sweep `health` before believing a single-width pass.
 
-A check needs a page. On a session that has not navigated, or one
+A check needs a page. On a browser that has not navigated, or one
 that has stepped back past its first navigation, the call is
 refused rather than answered: a blank page has no lang, no
 landmark and no heading, so judging it would report four failures
@@ -696,21 +696,21 @@ compared. Say so.
 `go emulate` reports divergence between what you asked for and
 what the browser actually did. Read that part.
 
-## Sessions and Cleanup
+## Browsers and Cleanup
 
-A session lives until you close it, the pi session ends, or it
+A browser lives until you close it, the session ends, or it
 goes half an hour without being used. Idle means no activity, so
 a long check is never closed underneath itself. Close one when a
 piece of work is done and another is starting against a different site, so
 state, storage and emulation do not leak between them.
 
-If a session does lapse, the refusal says so rather than claiming
+If a browser does lapse, the refusal says so rather than claiming
 the name was never used. That distinction matters: it means your
 navigation, storage and emulation are gone and need setting up
 again, not that you mistyped.
 
 A tab can also crash, which is not the same as lapsing. The
-session replaces the tab and keeps its name, its cookies and
+browser replaces the tab and keeps its name, its cookies and
 everything it has recorded, so the logs, requests and downloads
 from before the crash are still there and the next call lands on
 the replacement. What is gone is the page: whatever it held in
@@ -720,5 +720,5 @@ that says why the page you were on is now blank.
 
 Artifacts (screenshots, HAR archives, downloads, baselines) stay
 on disk and are listed by `see status`. Baselines deliberately
-survive between sessions, since a baseline that vanished would
+survive the browser that made them, since a baseline that vanished would
 compare against nothing every time.

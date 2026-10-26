@@ -47,7 +47,7 @@ const RECENT_HISTORY = 5;
 /** The session, in one reading. */
 export function renderStatus(status: SessionStatus): string {
 	const lines = [
-		`Session '${status.name}'`,
+		`Browser '${status.name}'`,
 		`  at ${status.url || "nowhere yet"}`,
 		...(status.title ? [`  titled ${status.title}`] : []),
 		"",

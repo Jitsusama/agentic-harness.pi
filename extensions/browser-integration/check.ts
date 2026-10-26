@@ -186,7 +186,9 @@ const parameters = Type.Object({
 		}),
 	),
 	session: Type.Optional(
-		Type.String({ description: "Session name. Defaults to 'default'." }),
+		Type.String({
+			description: "Which browser, by name. Defaults to 'default'.",
+		}),
 	),
 	baseline: Type.Optional(
 		Type.String({
@@ -250,7 +252,7 @@ const parameters = Type.Object({
 				"with the median per metric and the spread beside it, and " +
 				"a rating that differed between loads is called out, since " +
 				"a single headless load drifts. Defaults to 1, which " +
-				"measures the load the session already paid for; sampling " +
+				"measures the load the browser already paid for; sampling " +
 				"reloads the page between readings.",
 		}),
 	),
@@ -352,7 +354,7 @@ export function registerCheck(
 					return refusal(
 						name,
 						kind,
-						`Session '${name}' has nothing loaded, so there is nothing ` +
+						`Browser '${name}' has nothing loaded, so there is nothing ` +
 							"to judge. A blank page fails rules about lang, " +
 							"landmarks and headings, which would say nothing about " +
 							"your page. Navigate with browser_go first.",
@@ -449,7 +451,7 @@ async function runOnce(
 				measured:
 					"Emulated prefers-reduced-motion: reduce, reloaded so the " +
 					"page decided its motion under the preference, and read " +
-					"what was still moving. The session's emulation was put " +
+					"what was still moving. The browser's emulation was put " +
 					"back afterwards.",
 			}),
 			findings,

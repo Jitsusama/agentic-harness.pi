@@ -52,27 +52,27 @@ describe("describeRecording", () => {
 		expect(describeRecording(undefined, "checkout")).toBeUndefined();
 	});
 
-	it("tells a bystander which session is costing them", () => {
+	it("tells a bystander which browser is costing them", () => {
 		const claim = claimRecording("checkout", ["async"]);
 		const recording = held(claim);
 		if (recording === undefined) throw new Error("expected the permit");
 
 		const text = describeRecording(recording, "search");
 
-		expect(text).toContain("session checkout");
+		expect(text).toContain("browser checkout");
 		// The point of saying it in a bystander's status at all.
 		expect(text).toMatch(/every page/i);
 	});
 
-	it("speaks plainly to the session that started it", () => {
+	it("speaks plainly to the browser that started it", () => {
 		const claim = claimRecording("checkout", ["frames"]);
 		const recording = held(claim);
 		if (recording === undefined) throw new Error("expected the permit");
 
 		const text = describeRecording(recording, "checkout");
 
-		expect(text).toContain("this session");
-		expect(text).not.toContain("session checkout");
+		expect(text).toContain("this browser");
+		expect(text).not.toContain("browser checkout");
 	});
 
 	it("names the profiles being recorded", () => {

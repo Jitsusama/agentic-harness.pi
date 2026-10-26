@@ -39,9 +39,9 @@ import { captureTiles, preparePage, type TiledCapture } from "./screenshot.ts";
 export class AuthSetupNeeded extends Error {
 	constructor() {
 		super(
-			"This page requires authentication. Ask the user to run " +
+			"This page requires authentication. Ask the person to run " +
 				"Chrome cookie setup to enable access using their Chrome " +
-				"browser sessions, then retry.",
+				"sign-ins, then retry.",
 		);
 		this.name = "AuthSetupNeeded";
 	}

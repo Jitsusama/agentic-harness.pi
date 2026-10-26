@@ -76,22 +76,22 @@ export function sessionInPlay(
 	if (open.length === 1 && open[0] !== undefined) {
 		return {
 			name: open[0],
-			note: `Using session '${open[0]}', the only one open.`,
+			note: `Using browser '${open[0]}', the only one open.`,
 		};
 	}
 	return { candidates: open };
 }
 
-/** Say which sessions are open, when the choice has to be made. */
+/** Say which browsers are open, when the choice has to be made. */
 export function chooseSession(candidates: readonly string[]): string {
 	if (candidates.length === 0) {
 		return (
-			"No session is open. Navigate somewhere with browser_go " +
+			"No browser is open. Navigate somewhere with browser_go " +
 			"first, and this will act on it."
 		);
 	}
 	return (
-		`Several sessions are open: ${candidates.join(", ")}. Name the ` +
+		`Several browsers are open: ${candidates.join(", ")}. Name the ` +
 		"one to act on, since picking for you could report on the " +
 		"wrong page."
 	);
@@ -104,12 +104,12 @@ export function missingSession(
 ): string {
 	if (departure === "idle") {
 		return (
-			`Session '${name}' was closed after sitting idle, so its page, ` +
+			`Browser '${name}' was closed after sitting idle, so its page, ` +
 			`storage and emulation are gone. ${opens}`
 		);
 	}
 	if (departure === "closed") {
-		return `Session '${name}' was closed earlier. ${opens}`;
+		return `Browser '${name}' was closed earlier. ${opens}`;
 	}
-	return `No session '${name}'. ${opens}`;
+	return `No browser '${name}'. ${opens}`;
 }

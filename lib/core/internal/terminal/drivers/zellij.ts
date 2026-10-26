@@ -158,7 +158,7 @@ export function createZellijDriver(
 			const session = request.near?.scope ?? env().ZELLIJ_SESSION_NAME;
 			if (!session) {
 				throw new Error(
-					"zellij has no session to open into: this session is not inside zellij",
+					"zellij has no session to open into: this pi is not inside zellij",
 				);
 			}
 			const printed = (

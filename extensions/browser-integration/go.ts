@@ -57,11 +57,11 @@ const parameters = Type.Object({
 			],
 			{
 				description:
-					"open: start a session (optionally at a url). " +
-					"navigate: go to a url, opening a session when none is live. " +
-					"close: dispose the session. " +
+					"open: start a browser (optionally at a url). " +
+					"navigate: go to a url, opening a browser when none is live. " +
+					"close: dispose the browser. " +
 					"reload: fetch the current page again. " +
-					"back and forward: step through the session's history. " +
+					"back and forward: step through the browser's history. " +
 					"dialogs: decide how alerts and confirms get answered, and " +
 					"read back the ones already seen. " +
 					"emulate: be a different visitor, by device, viewport, media " +
@@ -69,7 +69,7 @@ const parameters = Type.Object({
 					"tabs: list the tabs open, or switch to one. " +
 					"storage: read, write or clear what the page has kept, or " +
 					"save the signed-in state to a file and load it back in " +
-					"another session. " +
+					"another browser. " +
 					"network: mock, block, throttle or go offline, and " +
 					"clear to undo all of it. " +
 					"Defaults to navigate with a url, open without one.",
@@ -77,7 +77,9 @@ const parameters = Type.Object({
 		),
 	),
 	session: Type.Optional(
-		Type.String({ description: "Session name. Defaults to 'default'." }),
+		Type.String({
+			description: "Which browser, by name. Defaults to 'default'.",
+		}),
 	),
 	url: Type.Optional(Type.String({ description: "URL for open or navigate." })),
 	mock: Type.Optional(
@@ -151,9 +153,9 @@ const parameters = Type.Object({
 	save: Type.Optional(
 		Type.String({
 			description:
-				"For storage: write everything keeping this session signed " +
+				"For storage: write everything keeping this browser signed " +
 				"in, cookies and both DOM stores, to this file path. Sign " +
-				"in once and every later session can wear it.",
+				"in once and every later browser can wear it.",
 		}),
 	),
 	load: Type.Optional(
@@ -169,7 +171,7 @@ const parameters = Type.Object({
 			description:
 				"For storage: empty the named store instead of reading. " +
 				"For network: drop every rule and the throttle, since " +
-				"rules otherwise accumulate for the session's life.",
+				"rules otherwise accumulate for the browser's life.",
 		}),
 	),
 	device: Type.Optional(
@@ -276,9 +278,9 @@ const parameters = Type.Object({
 	cookies: Type.Optional(
 		Type.Boolean({
 			description:
-				"Carry your own Chrome cookies into this session, for sites " +
-				"you are already signed in to. Applies when the session is " +
-				"first opened. Defaults to false: a session is a clean user.",
+				"Carry your own Chrome cookies into this browser, for sites " +
+				"you are already signed in to. Applies when the browser is " +
+				"first opened. Defaults to false: a browser is a clean user.",
 		}),
 	),
 });
@@ -505,7 +507,7 @@ async function saveSignedIn(
 		`Saved ${count(state.cookies.length, "cookie")}, ` +
 		`${count(state.local.length, "local entry")} and ` +
 		`${count(state.session.length, "session entry")} for ` +
-		`${state.origin} to ${path}. Load it in another session after ` +
+		`${state.origin} to ${path}. Load it in another browser after ` +
 		"navigating to that origin, then reload so the page reads it."
 	);
 }
@@ -531,7 +533,7 @@ async function loadSignedIn(
 		return (
 			`Restored ${count(landed.cookies, "cookie")}, which apply ` +
 			`everywhere. The stored entries belong to ${state.origin} and ` +
-			`this session is on ${landed.wrongOrigin}, so none were ` +
+			`this browser is on ${landed.wrongOrigin}, so none were ` +
 			"written. Navigate to that origin and load it again."
 		);
 	}
@@ -550,17 +552,17 @@ export function registerGo(pi: ExtensionAPI, registry: SessionRegistry): void {
 		...BROWSER_EXPOSURE,
 		label: "Browser Go",
 		description:
-			"Put a browser session somewhere. kind 'navigate' goes to a url and " +
-			"opens a session if none is live; kind 'open' starts a session, with " +
+			"Put a browser somewhere. kind 'navigate' goes to a url and " +
+			"opens a browser if none is live; kind 'open' starts one, with " +
 			"a url if you have one; kind 'close' disposes it. Passing just a url " +
 			"navigates. Navigating returns the page's accessibility outline, so " +
-			"you see where you landed. Each session gets its own cookies and " +
-			"storage, so two named sessions are two independent users. " +
+			"you see where you landed. Each browser gets its own cookies and " +
+			"storage, so two named browsers are two independent users. " +
 			"A javascript dialog stops the page until it is answered, so " +
-			"sessions dismiss them by default; kind 'dialogs' changes that " +
+			"browsers dismiss them by default; kind 'dialogs' changes that " +
 			"and reports the ones already raised.",
 		promptSnippet:
-			"browser_go puts a browser session somewhere and sets the " +
+			"browser_go puts a browser somewhere and sets the " +
 			"conditions it runs under: navigate, open, close, reload, " +
 			"back, forward, emulate a device, shape the network, read " +
 			"storage, reach a tab the page opened, answer dialogs. Read " +
@@ -583,7 +585,7 @@ export function registerGo(pi: ExtensionAPI, registry: SessionRegistry): void {
 				return answer(
 					name,
 					kind,
-					closed ? `Closed session '${name}'.` : `No session '${name}'.`,
+					closed ? `Closed browser '${name}'.` : `No browser '${name}'.`,
 				);
 			}
 
@@ -633,7 +635,7 @@ export function registerGo(pi: ExtensionAPI, registry: SessionRegistry): void {
 					// outline of nothing reads like a fault, so it is named.
 					const landed =
 						moved.url === "about:blank"
-							? "This is the blank page the session started on, " +
+							? "This is the blank page the browser started on, " +
 								"before its first navigation."
 							: await pageView(session);
 					return answer(
@@ -700,7 +702,7 @@ export function registerGo(pi: ExtensionAPI, registry: SessionRegistry): void {
 				}
 
 				if (!params.url) {
-					return answer(name, kind, `Opened session '${name}'.`);
+					return answer(name, kind, `Opened browser '${name}'.`);
 				}
 				const { status, failure } = await session.navigate(params.url);
 				if (failure) return refusal(name, kind, arrivalFailed(failure));

@@ -514,7 +514,7 @@ or "@chao.duan, @xiao.li, @henrique.andrade").
 ## Enterprise Grid Limitations
 
 Some Slack APIs are blocked on enterprise workspaces even
-with browser session tokens:
+with browser sign-in tokens:
 
 - **`reactions.list`**: blocked (`not_allowed_token_type`).
   Cannot list all messages a user reacted to.

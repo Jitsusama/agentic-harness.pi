@@ -41,7 +41,7 @@ const POLL_INTERVAL_MS = 1000;
 /** Default timeout: 5 minutes to allow for SSO, 2FA, workspace selection. */
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
 
-/** Extracted browser session credentials. */
+/** Extracted browser sign-in credentials. */
 export interface BrowserCredentials {
 	token: string;
 	cookie: string;
@@ -180,7 +180,7 @@ async function pollForCredentials(
 		"Timed out waiting for Slack credentials. " +
 			"Make sure you are logged into Slack in the browser window, " +
 			"and that you have clicked into a specific workspace: a fresh " +
-			"browser profile has no session yet, so app.slack.com shows a " +
+			"browser profile has not signed in yet, so app.slack.com shows a " +
 			"workspace picker after sign-in rather than opening one directly, " +
 			"and nothing here is extractable until a workspace is open.",
 	);

@@ -330,7 +330,7 @@ const parameters = Type.Object({
 					"frames and shadow content included, for nodes matching " +
 					"a tag, attribute, class or text. downloads: files the " +
 					"page handed " +
-					"back. status: where this session stands, " +
+					"back. status: where this browser stands, " +
 					"including what it is pretending to be. announcements: " +
 					"what the page " +
 					"said out loud through its live regions. focus: which " +
@@ -360,7 +360,9 @@ const parameters = Type.Object({
 		),
 	),
 	session: Type.Optional(
-		Type.String({ description: "Session name. Defaults to 'default'." }),
+		Type.String({
+			description: "Which browser, by name. Defaults to 'default'.",
+		}),
 	),
 	within: Type.Optional(
 		Type.String({
@@ -588,7 +590,7 @@ export function registerSee(pi: ExtensionAPI, registry: SessionRegistry): void {
 		...BROWSER_EXPOSURE,
 		label: "Browser See",
 		description:
-			"Read the current state of a browser session without changing it. " +
+			"Read the current state of a browser without changing it. " +
 			"kind 'page' (the default) returns the page's accessibility outline: " +
 			"the roles and names of everything on screen, which is how you name " +
 			"elements when you act on them. kind 'reading' narrates the same " +

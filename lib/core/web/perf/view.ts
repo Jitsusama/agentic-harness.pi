@@ -53,7 +53,7 @@ export function renderVitals(
 				standing: "warn",
 				headline: "Nothing was measured.",
 				measured:
-					"Observers are installed when a page opens, so a session " +
+					"Observers are installed when a page opens, so a browser " +
 					"that has not navigated since has nothing to report.",
 			},
 			"",

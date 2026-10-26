@@ -349,7 +349,7 @@ animation past the five second line fail 2.2.2, scroll-driven
 motion fails 2.3.3 at AAA, and a brief fade is left alone,
 because the preference asks for less motion, not none. It
 reloads the page, so run it before driving state a reload would
-lose, and it restores the session's emulation afterwards.
+lose, and it restores the browser's emulation afterwards.
 
 ## What the Tools Refuse to Decide, and Why
 

@@ -6,12 +6,12 @@ accessible name.
 
 ## What It Does
 
-Four tools share one session registry, each named for what the
+Four tools share one registry of named browsers, each named for what the
 caller is doing.
 
-### `browser_go` puts a session somewhere
+### `browser_go` puts a browser somewhere
 
-`navigate` to a URL (opening a session when none is live),
+`navigate` to a URL (opening a browser when none is live),
 `open` one, `close` it, `reload`, or step `back` and `forward`.
 Beyond location, it decides the conditions the page runs under:
 
@@ -35,7 +35,7 @@ Beyond location, it decides the conditions the page runs under:
   and was handed
 - `shot`: a screenshot to disk, never inline
 - `vitals`: what the page cost, from the browser's observers
-- `status`: where the session actually stands
+- `status`: where the browser actually stands
 
 ### `browser_do` changes the page
 
@@ -99,9 +99,9 @@ The extension registers the tools; the skills teach the method.
 
 ## Shape
 
-- `index.ts` registers the four tools and the session registry
+- `index.ts` registers the four tools and the browser registry
 - `go.ts`, `see.ts`, `do.ts`, `check.ts`: one file per verb
-- `registry.ts`: named sessions, their turns and their lifetimes
+- `registry.ts`: named browsers, their turns and their lifetimes
 - `limits.ts`: how long a call may ask the page to keep at something
 - `result.ts`: the one answer shape all four return
 - `render.ts`: how calls and results read in the transcript
@@ -115,24 +115,24 @@ registration, parameter schemas, rendering and refusals.
 ## Notes
 
 Screenshots and archives never return inline. They go to a
-session bundle directory and the answer carries the paths, since
+browser's bundle directory and the answer carries the paths, since
 a large image in a transcript costs more than it explains.
 `see status` lists everything written, because a file in an
 unnamed temporary directory is unopenable.
 
-Calls on one session take turns, so two parallel calls never act
-on the same page at once; calls on different sessions run side by
+Calls on one browser take turns, so two parallel calls never act
+on the same page at once; calls on different browsers run side by
 side. Escape stops a call at once, whether it is waiting its turn
 or running. A running call's browser work cannot be stopped
-part-way, so the next call on that session waits for it to finish.
+part-way, so the next call on that browser waits for it to finish.
 That is why a wait, a long press and a profile are bounded at two
 minutes, two minutes and one minute, and a keyboard walk at 4000
 stops; an ask beyond a bound is refused rather than shortened.
-`browser_go close` takes no turn, so it can put down a session
-whose call is stuck. A session is never reaped while a call on it
+`browser_go close` takes no turn, so it can put down a browser
+whose call is stuck. A browser is never reaped while a call on it
 runs, and its idle clock starts over when the call finishes.
 
-Each session gets its own browser context. Anything context
+Each browser gets its own browser context. Anything context
 shaped, downloads and clipboard permissions among them, carries
 that context's id: without it Chrome silently cancels the
 operation and reports nothing wrong.

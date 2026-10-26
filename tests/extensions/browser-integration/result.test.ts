@@ -68,7 +68,7 @@ describe("missingSession", () => {
 	it("does not imply the caller invented the name", () => {
 		// The old wording, "No session 'gs'", sent a reader looking
 		// for a typo that was never there.
-		expect(missingSession("gs", "idle", OPENS)).not.toContain("No session");
+		expect(missingSession("gs", "idle", OPENS)).not.toContain("No browser");
 	});
 
 	it("distinguishes one closed on purpose from one that lapsed", () => {
@@ -78,7 +78,7 @@ describe("missingSession", () => {
 
 	it("still says plainly when no such session was ever opened", () => {
 		expect(missingSession("typo", undefined, OPENS)).toContain(
-			"No session 'typo'",
+			"No browser 'typo'",
 		);
 	});
 

@@ -72,7 +72,7 @@ async function showStatus(ctx: ExtensionContext): Promise<void> {
 			"auth.test",
 		);
 
-		const authMode = token.cookie ? "browser session" : "OAuth";
+		const authMode = token.cookie ? "browser sign-in" : "OAuth";
 
 		await view(ctx, {
 			content: (theme) => [
