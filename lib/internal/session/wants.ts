@@ -27,8 +27,12 @@ import type { EventBus } from "@earendil-works/pi-coding-agent";
 /** Said on the bus when a want starts, changes or ends. */
 export const SESSION_WANTS = "session:wants:v1";
 
-/** What a session can be waiting on its person for. */
-export type WantKind = "question" | "approval" | "blocked";
+/**
+ * What a session can be waiting on its person for: an answer, an
+ * approval, an unattended run that ended blocked, or something only he
+ * can do (a login, a look, a yes), said with mesh_wait.
+ */
+export type WantKind = "question" | "approval" | "blocked" | "action";
 
 /** What `SESSION_WANTS` carries: a want standing, or one kind ended. */
 export type WantEvent =
@@ -41,7 +45,12 @@ export type WantEvent =
 	  }
 	| { readonly kind: WantKind; readonly said: null };
 
-const KINDS: ReadonlySet<string> = new Set(["question", "approval", "blocked"]);
+const KINDS: ReadonlySet<string> = new Set([
+	"question",
+	"approval",
+	"blocked",
+	"action",
+]);
 
 /** Whether a payload is a want, as this version says one. */
 function isWant(data: unknown): data is WantEvent {

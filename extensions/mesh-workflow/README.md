@@ -64,8 +64,9 @@ and can answer a question or a gate left open on screen.
   whether it is mid-run, what it waits on its person for, and
   the process holding it.
 - **Want:** what a peer waits on its person for: a question
-  it asked, an approval it is held at, or an unattended run
-  that ended blocked.
+  it asked, an approval it is held at, an unattended run
+  that ended blocked, or something only they can do, said
+  with `mesh_wait`.
 - **Liveness:** whether a peer is still there, asked of the
   machine through the process its presence names.
 - **Attention:** what a message gets from the peer it reaches,
@@ -133,6 +134,13 @@ and can answer a question or a gate left open on screen.
   the group, joins on receipt, and may leave.
 - `mesh_stop`: stop a peer reaching this one, or with `lift`,
   lift that stop. The stopped peer is told, with why.
+- `mesh_wait`: say that this session's quest has something
+  waiting on the person that only they can do, or with `done`
+  that it no longer waits. It is kept in
+  `~/.local/state/mission/waiting/<ADDRESS>.json`, the file the
+  launcher's Waiting on you reads (the shape core.nix's
+  `mission-wait` wrote), so it outlives the session; presence
+  mirrors it as an `action` want.
 
 ## Context, Not a Prompt
 
