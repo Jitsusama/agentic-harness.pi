@@ -127,7 +127,7 @@ loops wants a better answer or an automatic fix, and a habit
 wants a guard or a line in the standing context. Re-run it after
 the change lands, and compare that group's sessions per week
 against the sessions active, since a short week reads lower.
-The harness owner reviews each proposal.
+The harness owner reviews each suggested change.
 
 The weekly measure runs the sensor over the last seven days
 beside the `spend` tool's weekly audit, with no pi session, and writes one

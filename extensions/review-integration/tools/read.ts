@@ -395,7 +395,7 @@ function describeCapabilities(
 					? " · reports branching stacks"
 					: " · chains only, so siblings may not show"
 		}`,
-		`   proposals: ${caps.proposals ? "yes" : "no"}`,
+		`   reads changes: ${caps.proposals ? "yes" : "no"}`,
 	];
 	// Checks get their own line when the provider reports them, because
 	// reading CI and retriggering it are different permissions and the

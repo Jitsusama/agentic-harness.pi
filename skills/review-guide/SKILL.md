@@ -575,7 +575,7 @@ reviewer that does not know a project files findings asking why it is
 not built some other way. They arrive as quoted material inside the
 prompt, attributed to the repo, rather than as instruction sitting
 above the round's own. When the change under review edits that file,
-the reviewer is told so and reads it as a proposal rather than a rule.
+the reviewer is told so and reads it as a suggestion rather than a rule.
 
 That distinction is not decoration. A pi child reads the context files
 in its working directory, and a reviewer's working directory is a tree
