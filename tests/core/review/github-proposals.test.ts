@@ -3,7 +3,7 @@ import {
 	type ChangeRef,
 	createGitHubProvider,
 } from "../../../lib/core/review/index.ts";
-import { callMatching, fakeExec, type Reply } from "../support/fake-exec.ts";
+import { callMatching, fakeExec, type Reply } from "../../support/fake-exec.ts";
 
 const repo = { key: "github:Shopify/world" };
 const ref: ChangeRef = {

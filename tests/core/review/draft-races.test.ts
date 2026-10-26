@@ -24,7 +24,7 @@ import {
 	type ReviewTarget,
 	type Thread,
 } from "../../../lib/core/review/index.ts";
-import { stubProvider } from "./support/stub-provider.ts";
+import { stubProvider } from "../../support/stub-provider.ts";
 
 const changeOf = (id: string): ChangeRef => ({
 	provider: "forge",

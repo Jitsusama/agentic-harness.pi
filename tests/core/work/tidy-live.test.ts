@@ -18,7 +18,7 @@ import {
 	orphanedTrees,
 	tidyPlan,
 } from "../../../lib/core/work/index.ts";
-import { disposeRepo, freshRepo, git } from "../support/git-fixture.ts";
+import { disposeRepo, freshRepo, git } from "../../support/git-fixture.ts";
 
 /** An exec over real processes, shaped the way the library expects. */
 const exec = (command: string, args: readonly string[]) =>

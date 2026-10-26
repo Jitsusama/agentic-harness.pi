@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createGitWorktreeProvider } from "../../../lib/core/internal/tree/providers/git-worktree.ts";
-import { disposeRepo, freshRepo, git } from "../support/git-fixture.ts";
+import { disposeRepo, freshRepo, git } from "../../support/git-fixture.ts";
 
 let repoRoot: string;
 

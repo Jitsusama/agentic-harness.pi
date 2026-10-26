@@ -11,7 +11,7 @@ import { existsSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { afterEach, describe, expect, it } from "vitest";
 import { reclaimTrees } from "../../../lib/core/work/reclaim.ts";
-import { disposeRepo, freshRepo, git } from "../support/git-fixture.ts";
+import { disposeRepo, freshRepo, git } from "../../support/git-fixture.ts";
 
 const exec = (command: string, args: readonly string[]) =>
 	new Promise<{ code: number; stdout: string; stderr: string }>((done) =>

@@ -12,8 +12,8 @@ import {
 	type ReviewEngine,
 	registerReviewProvider,
 } from "../../../lib/core/review/index.ts";
-import { fakeExec, type Reply } from "../support/fake-exec.ts";
-import { stubProvider } from "./support/stub-provider.ts";
+import { fakeExec, type Reply } from "../../support/fake-exec.ts";
+import { stubProvider } from "../../support/stub-provider.ts";
 
 const pullJson = JSON.stringify({
 	number: 123,

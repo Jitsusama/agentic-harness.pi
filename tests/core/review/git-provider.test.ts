@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createGitProvider } from "../../../lib/core/review/index.ts";
-import { callMatching, fakeExec, type Reply } from "../support/fake-exec.ts";
+import { callMatching, fakeExec, type Reply } from "../../support/fake-exec.ts";
 
 function provider(replies: Reply[]) {
 	const { exec, calls } = fakeExec(replies);

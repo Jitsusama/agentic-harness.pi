@@ -25,7 +25,7 @@ import {
 	createTreeBroker,
 	treeRequestFrom,
 } from "../../../lib/core/work/index.ts";
-import { disposeRepo, freshRepo } from "../support/git-fixture.ts";
+import { disposeRepo, freshRepo } from "../../support/git-fixture.ts";
 
 /** Real exec, since the point is that git actually agrees. */
 const exec = async (command: string, args: readonly string[]) => {

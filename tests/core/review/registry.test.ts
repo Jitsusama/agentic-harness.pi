@@ -6,7 +6,7 @@ import {
 	registerReviewProvider,
 	unregisterReviewProvider,
 } from "../../../lib/core/review/index.ts";
-import { stubProvider } from "./support/stub-provider.ts";
+import { stubProvider } from "../../support/stub-provider.ts";
 
 afterEach(() => clearReviewProviders());
 

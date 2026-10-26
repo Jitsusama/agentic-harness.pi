@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { RepoLocator } from "../../../lib/core/review/index.ts";
 import { createGitTreeProvider } from "../../../lib/core/work/providers/git.ts";
 import { type TreeRequest, treeIdentity } from "../../../lib/core/work/tree.ts";
-import { fakeExec } from "../support/fake-exec.ts";
+import { fakeExec } from "../../support/fake-exec.ts";
 
 const checkedOut: RepoLocator = {
 	key: "github:Shopify/world",

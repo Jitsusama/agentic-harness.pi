@@ -34,7 +34,7 @@ import {
 	renderDraft,
 	setVerdict,
 } from "../../../lib/core/review/index.ts";
-import { disposeRepo, freshRepo, git } from "../support/git-fixture.ts";
+import { disposeRepo, freshRepo, git } from "../../support/git-fixture.ts";
 
 /** Real exec, since the point is that git actually agrees. */
 const exec: Exec = async (command, args) => {
