@@ -10,10 +10,12 @@
  *
  * A name is split into words at underscores, hyphens, dots, spaces and capitals, and a
  * plural counts as its word. A replaced name inside a longer term passes ("line" inside
- * "status line"), and so does one the glossary spells on its own in code ("the
- * `backlight` program"). Most replaced names are ordinary English, so each repository
- * keeps the names that use one in another sense, or wait on a rename, and a kept name it
- * no longer has fails, so what's kept only shrinks.
+ * "status line"), and so does one the row replacing it spells on its own as its code's
+ * (`pressure` for filling). Another row's code doesn't count: the `backlight` program is a
+ * screen's brightness, so backlight for the keyboard's light still fails. Most replaced
+ * names are ordinary English, so each repository keeps the names that use one in another
+ * sense, or wait on a rename, and a kept name it no longer has fails, so what's kept only
+ * shrinks.
  */
 
 /** One row of the glossary: its word, the names it replaces, and how code spells it. */
@@ -99,11 +101,13 @@ function held(
 function replaced(name: string, things: Thing[]): string[] {
 	const words = tokens(name);
 	const terms = things.map((thing) => tokens(thing.word));
-	const code = things.flatMap((thing) =>
-		[...thing.code.matchAll(/`([^`]+)`/g)].map(([, span]) => tokens(span)),
-	);
 	const out: string[] = [];
 	for (const thing of things) {
+		// Only the row's own code: another row's program can share the word in
+		// another sense, and its names are kept as such where they're used.
+		const code = [...thing.code.matchAll(/`([^`]+)`/g)].map(([, span]) =>
+			tokens(span),
+		);
 		for (const old of thing.replaces) {
 			const oldWords = tokens(old);
 			if (code.some((span) => same(span, oldWords))) continue;
