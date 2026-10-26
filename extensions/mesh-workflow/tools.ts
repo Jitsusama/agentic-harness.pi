@@ -317,6 +317,14 @@ async function send(
 	const ownReplaced = replaced && sentBy(replaced, self) ? replaced : undefined;
 	const target = orchestratorNamed(params.to ?? "", at.peer.orchestratedBy);
 	const named = groupsNamed(target.to);
+	// Meant for one recipient that is not there: routed by rule, it would
+	// land in a group that may have nobody listening.
+	if (target.missing && named.length === 0) {
+		return answer(
+			"Not sent: no orchestrator is above this peer's quest. Tell the person in your reply, or name the peers it is for by address.",
+			{ sent: false } satisfies SendDetails,
+		);
+	}
 	const unnamed = named.filter((group) => groupNamed(group) === undefined);
 	const said = [
 		target.missing
