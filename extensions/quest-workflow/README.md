@@ -47,7 +47,10 @@ shipped and tested.
   the loaded one. The session with a marked quest loaded
   orchestrates every quest below it, up to the next marked one;
   those sessions join `#orchestration/<address>` and name it in
-  presence as `orchestratedBy`, with nothing else wired.
+  presence as `orchestratedBy`, with nothing else wired. Each
+  of those sessions starts with the marked quest's Context
+  section in its prompt, as its standing rules, and is told
+  once when that section changes.
 - **Sessions**: `session-attach`, `session-detach`,
   `session-rename`, `session-audit` (report any session active on
   more than one quest).
