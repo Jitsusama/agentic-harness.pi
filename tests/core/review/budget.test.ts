@@ -39,7 +39,7 @@ import {
 } from "../../../lib/core/review/budget.ts";
 
 // Held equal to the pi adapter's own subagent runner default
-// (`DEFAULT_RUN_PI_TIMEOUT_MS`, 45 minutes) — see the rationale on
+// (`DEFAULT_RUN_PI_TIMEOUT_MS`, 45 minutes); see the rationale on
 // `REVIEWER_BACKSTOP_MS` in budget.ts for why this is inlined here
 // rather than imported from a runner this library has no opinion
 // about.

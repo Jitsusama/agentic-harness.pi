@@ -88,6 +88,9 @@ const GLYPH_BEARING = [
 	"lib/gate/decision.ts",
 	"tests/lib/prose/detect.test.ts",
 	"tests/lib/prose/block.test.ts",
+	// Core's copies of the same two, until the prose domain has one copy.
+	"tests/core/prose/detect.test.ts",
+	"tests/core/prose/block.test.ts",
 	"tests/scripts/convention-recurrence.test.ts",
 ];
 

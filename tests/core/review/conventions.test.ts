@@ -28,6 +28,12 @@ const RETIRED_BODY = [
 ].join("\n");
 
 /** A body with the four sanctioned sections, each in its shape. */
+/**
+ * The glyph these cases put into a body to break the prose standard,
+ * spelled as an escape so this file keeps the standard itself.
+ */
+const EMDASH = "\u2014";
+
 const GOOD_BODY = composePrBody({
 	tldr: "A leaked file handle is now closed when the parser finishes.",
 	problem: "The handle is never closed.",
@@ -112,7 +118,7 @@ describe("holding a proposal to the conventions", () => {
 	it("refuses prose violations in the body", () => {
 		const complaint = proposalComplaint(
 			"Close the Leaked Handle",
-			GOOD_BODY.replace("Close it.", "Close it — properly."),
+			GOOD_BODY.replace("Close it.", `Close it ${EMDASH} properly.`),
 		);
 
 		expect(complaint).toContain("prose-standard");
@@ -126,7 +132,7 @@ describe("holding a proposal to the conventions", () => {
 		// round trip was another chance for something else to go wrong.
 		const complaint = proposalComplaint(
 			"fix(review): close the handle",
-			`${GOOD_BODY.replace("Close it.", "Close it — properly.")}\n\n### 📝 Notes\n\nExtra.`,
+			`${GOOD_BODY.replace("Close it.", `Close it ${EMDASH} properly.`)}\n\n### 📝 Notes\n\nExtra.`,
 		);
 		const at = (needle: string) => (complaint ?? "").indexOf(needle);
 
@@ -140,7 +146,10 @@ describe("holding a proposal to the conventions", () => {
 	it("says one habit once rather than once per instance", () => {
 		const complaint = proposalComplaint(
 			"Close the Leaked Handle",
-			GOOD_BODY.replace("Close it.", "a — b — c — d"),
+			GOOD_BODY.replace(
+				"Close it.",
+				`a ${EMDASH} b ${EMDASH} c ${EMDASH} d`,
+			),
 		);
 		const lines = (complaint ?? "").split("\n");
 

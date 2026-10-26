@@ -4,7 +4,7 @@
  * connectShared() exists for a caller that is not the process that
  * launched Chrome: a stateless-per-invocation CLI has no processGlobal
  * state to find getBrowser()'s singleton in, so it needs a different way
- * in — the DevTools WebSocket endpoint the launching process published
+ * in: the DevTools WebSocket endpoint the launching process published
  * to disk. This is a real-Chrome test rather than a unit test because
  * the thing being proven is that Chrome actually accepts a second,
  * independent DevTools connection over the port while the launching
