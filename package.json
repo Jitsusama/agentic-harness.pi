@@ -14,6 +14,7 @@
 		"./slack/auth": "./lib/slack/auth/index.ts",
 		"./google": "./lib/google/index.ts",
 		"./google/auth": "./lib/google/auth/index.ts",
+		"./glossary": "./lib/glossary/index.ts",
 		"./clock": "./lib/clock/index.ts",
 		"./command": "./lib/command/index.ts",
 		"./subagent": "./lib/subagent/index.ts",
