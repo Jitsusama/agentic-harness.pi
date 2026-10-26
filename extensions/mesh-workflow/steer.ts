@@ -18,8 +18,8 @@ export interface SteeringHost {
 	readonly root: string;
 	/** The addresses this peer goes by now. */
 	readonly addresses: () => readonly string[];
-	/** Says to the session what the person wrote. */
-	readonly deliver: (steer: Steer) => void;
+	/** Says to the session what the person wrote, and in which inbox. */
+	readonly deliver: (steer: Steer, inbox: string) => void;
 	/** Says on screen that a file was set aside, and which. */
 	readonly setAside: (inbox: string, names: readonly string[]) => void;
 }
@@ -44,7 +44,7 @@ export function createSteering(host: SteeringHost): Steering {
 			// An inbox that cannot be read now is read at the next look.
 			return;
 		}
-		for (const steer of taken.steers) host.deliver(steer);
+		for (const steer of taken.steers) host.deliver(steer, inbox);
 		if (taken.bad.length > 0) host.setAside(inbox, taken.bad);
 	};
 

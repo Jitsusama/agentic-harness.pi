@@ -10,7 +10,9 @@
  *
  * Each peer address has a folder, `<root>/<ADDRESS>/`. A writer puts a
  * file there under a temporary name and renames it to end in `.json`,
- * holding `{"text": "...", "at": "<ISO time>", "from": "joel"}`. The
+ * holding `{"text": "...", "at": "<ISO time>", "from": "joel"}`, and
+ * an `id` when the writer wants to follow what becomes of it (see
+ * talk.ts). The
  * session going by that address takes it by renaming it again, so two
  * sessions looking at once deliver it once, then reads and removes it.
  * A file that is not a steer is set aside as `.bad`, never retried.
@@ -24,6 +26,7 @@ import {
 	unlinkSync,
 } from "node:fs";
 import { join } from "node:path";
+import { isTalkId } from "./talk.ts";
 
 /** One thing the person said, as the inbox carries it. */
 export interface Steer {
@@ -32,6 +35,8 @@ export interface Steer {
 	readonly at?: string;
 	/** Who wrote it, if the writer said; the launcher says "joel". */
 	readonly from?: string;
+	/** The talk it opens, when the writer gave one (see talk.ts). */
+	readonly id?: string;
 	/** The file it came in, for what is said about it on screen. */
 	readonly file: string;
 }
@@ -66,10 +71,12 @@ export function steerFrom(raw: string, file: string): Steer | undefined {
 	const at = "at" in parsed && typeof parsed.at === "string" ? parsed.at : "";
 	const from =
 		"from" in parsed && typeof parsed.from === "string" ? parsed.from : "";
+	const id = "id" in parsed && isTalkId(parsed.id) ? parsed.id : undefined;
 	return {
 		text: text.trim(),
 		...(at ? { at } : {}),
 		...(from ? { from } : {}),
+		...(id ? { id } : {}),
 		file,
 	};
 }

@@ -156,6 +156,7 @@ import {
 } from "./leases.ts";
 import { meshLines, type Shown } from "./render.ts";
 import { createSteering, type Steering, steerText } from "./steer.ts";
+import { assistantText, createTalks, ended } from "./talks.ts";
 import { tellOrchestrator } from "./tells.ts";
 import { type Local, registerTools } from "./tools.ts";
 import { seedWaiting, type Waiting } from "./wait.ts";
@@ -429,6 +430,8 @@ export function meshWorkflow(
 		let front = createReadFront();
 		let lookClock: ReturnType<typeof setInterval> | undefined;
 		let steering: Steering | undefined;
+		// What became of each steer that asked to be followed (talks.ts).
+		const talks = createTalks({ session: () => peer?.session ?? "" });
 
 		/**
 		 * The person's words from outside the window, as their own message:
@@ -447,7 +450,10 @@ export function meshWorkflow(
 			steering = createSteering({
 				root,
 				addresses: () => peer?.addresses ?? [],
-				deliver: (one) => steered(steerText(one)),
+				deliver: (one, inbox) => {
+					talks.opened(one, inbox);
+					steered(steerText(one));
+				},
 				setAside: (inbox, names) => {
 					if (!ctx?.hasUI) return;
 					ctx.ui.notify(
@@ -1138,9 +1144,21 @@ export function meshWorkflow(
 		pi.on("agent_start", async () => {
 			peer?.setBusy(true);
 		});
-		// And the step it is on, by the tool it runs, for the desktop's Busy.
+		// And the step it is on, by the tool it runs, for the desktop's Busy;
+		// a talk the person follows hears the step, its reply as it is
+		// written, and the reply once the run settles.
 		pi.on("tool_execution_start", async (event) => {
 			peer?.setStep(event.toolName);
+			talks.step(event.toolName);
+		});
+		pi.on("message_update", async (event) => {
+			talks.writing(assistantText(event.message));
+		});
+		pi.on("message_end", async (event) => {
+			talks.wrote(assistantText(event.message));
+		});
+		pi.on("agent_settled", async (event) => {
+			talks.settled(event.aborted);
 		});
 		pi.on("agent_end", async () => {
 			lookAgain();
@@ -1285,6 +1303,8 @@ export function meshWorkflow(
 					presences.all(),
 				);
 				if (message) seen.add(message.id);
+				// And the talk that asked for it hears what came of it.
+				for (const ref of event.ids) talks.came(ended(ref, event.how), ref);
 			});
 		}
 
