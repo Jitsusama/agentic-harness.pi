@@ -130,11 +130,11 @@ export function recordBreakage(
 	return [
 		...audit.strays.map((rel) => ({
 			key: `stray:${rel}`,
-			line: `${rel} is not part of the record. Move it to the workspace: ${join(workspace, rel)}`,
+			line: `${rel} is not part of the record. Move it to the scratch folder: ${join(workspace, rel)}`,
 		})),
 		...audit.attachments.map(({ rel, problem }) => ({
 			key: `attachment:${rel}:${problem.reason}`,
-			line: `${rel} is ${problem.detail}. Move it to the workspace: ${join(workspace, rel.replace(/^attachments\//, ""))}`,
+			line: `${rel} is ${problem.detail}. Move it to the scratch folder: ${join(workspace, rel.replace(/^attachments\//, ""))}`,
 		})),
 		...audit.broken.map(({ document, target }) => ({
 			key: `broken:${document}:${target}`,

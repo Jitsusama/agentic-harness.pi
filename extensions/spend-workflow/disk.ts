@@ -50,7 +50,7 @@ function holdingLine(holding: QuestHolding): string {
 	const own = ownOf(holding);
 	const parts: string[] = [];
 	if (holding.workspace) {
-		parts.push(`workspace ${formatSize(holding.workspace)}`);
+		parts.push(`scratch folder ${formatSize(holding.workspace)}`);
 	}
 	const made = holding.finished ? "a tree it left behind" : "a tree it made";
 	for (const tree of holding.made) {
@@ -66,7 +66,7 @@ function holdingLine(holding: QuestHolding): string {
 	const verdict = !holding.finished
 		? "still in use"
 		: holding.made.length > 0
-			? `${formatSize(free)} could go, and a prune decides the rest`
+			? `${formatSize(free)} could go, and a release decides the rest`
 			: "all of it could go";
 	const title = holding.title ? ` ${holding.title}` : "";
 	return `- ${holding.id}${title} [${holding.status}]: ${formatSize(own)}, ${verdict} (${parts.join("; ")})`;
@@ -82,7 +82,7 @@ export function formatHoldings(holdings: Holdings, limit: number): string {
 	const left = sum(quests.map(leftBehindOf));
 	const adopted = sum(holdings.adopted.map((a) => a.size));
 	const lines = [
-		`Quests hold ${formatSize(own)} of their own on disk, and ${formatSize(free)} of it could go now: the workspaces of finished quests.`,
+		`Quests hold ${formatSize(own)} of their own on disk, and ${formatSize(free)} of it could go now: the scratch folders of finished quests.`,
 	];
 	if (left.bytes > 0 || !left.complete) {
 		lines.push(

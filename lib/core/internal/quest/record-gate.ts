@@ -147,7 +147,7 @@ function judgeWrite(
 			rule: "attachment",
 			reason:
 				`${rel} is ${problem.detail}, and attachments hold only text and ` +
-				`images a document cites. Put it in the quest's workspace instead: ${instead}`,
+				`images a document cites. Put it in the quest's scratch folder instead: ${instead}`,
 			instead,
 		};
 	}
@@ -159,7 +159,7 @@ function judgeWrite(
 		reason:
 			`${rel} is not part of ${place.quest}'s record, which holds only its ` +
 			"README, its JOURNEY.md, its documents and attachments/. Put it in the quest's " +
-			`workspace instead: ${instead}` +
+			`scratch folder instead: ${instead}` +
 			(citable
 				? `. If a document will cite it, ${ATTACHMENTS_FOLDER}/${basename(rel)} is its place.`
 				: ""),

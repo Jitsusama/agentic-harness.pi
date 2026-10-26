@@ -70,7 +70,7 @@ errors and skips the offending entry:
   instead of inside `plans/`, `research/`, `briefs/`
   or `reports/`
 
-## The Record and the Workspace
+## The Record and the Scratch Folder
 
 A quest folder holds the quest's record and nothing else:
 
@@ -94,15 +94,15 @@ long for the document itself. Each must be a regular file
 no databases, archives, packs, `.jsonl`, logs, traces or
 dumps. SVG counts as text.
 
-Everything else belongs in the quest's workspace, at
+Everything else belongs in the quest's scratch folder, at
 `$XDG_CACHE_HOME/pi/agentic-harness.pi/quest-workspace/<ID>/`
 (`~/.cache/…` by default): clones, raw data, labs, runs,
 builds and downloads. Its `tmp/` folder is the agent's
 `TMPDIR` while the quest is loaded, and is cleared when
-the quest concludes or retires. The rest of the workspace
-outlives the conclusion for a while, then the disk guard
-reclaims it. The workspace is never backed up, so nothing
-a later reader needs may live only there.
+the quest concludes or retires. The rest of the scratch
+folder outlives the conclusion for a while, then the disk
+guard reclaims it. The scratch folder is never backed up,
+so nothing a later reader needs may live only there.
 
 Cite what the record stands on. An attachment counts as
 cited when a document or the README mentions its path
@@ -116,7 +116,7 @@ Cite raw data by provenance rather than by copy: say
 where it came from and how to get it again (the query,
 the command, the commit), and attach the summary the
 document actually uses. A 40 MiB trace belongs in the
-workspace; the table of its five slowest spans belongs in
+scratch folder; the table of its five slowest spans belongs in
 `attachments/`. From a plan, one folder down:
 
 ```markdown

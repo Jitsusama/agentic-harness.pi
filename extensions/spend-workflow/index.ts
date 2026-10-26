@@ -424,7 +424,7 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 			disk: Type.Optional(
 				Type.Boolean({
 					description:
-						"Report what each quest holds on disk (its workspace and the " +
+						"Report what each quest holds on disk (its scratch folder and the " +
 						"trees it made) and how much could go now, heaviest first, " +
 						"instead of a spend report. It walks directories at low " +
 						"priority, so it can take up to a minute.",
