@@ -27,11 +27,10 @@ const ROOT = join(import.meta.dirname, "..", "..");
  * stopped.
  */
 const BLOCK_SOURCES = [
-	// The detection logic (and its block messages) now lives in
-	// agentic-harness.core, pinned by pnpm-lock.yaml rather than
-	// tracked in this repo; read it from the installed dependency.
-	"node_modules/@jitsusama/agentic-harness.core/dist/github-cli/index.js",
-	"node_modules/@jitsusama/agentic-harness.core/dist/git-cli/index.js",
+	// The detection logic and its block messages, folded in from
+	// agentic-harness.core.
+	"lib/core/github-cli/index.ts",
+	"lib/core/git-cli/index.ts",
 ];
 
 /** Telling the reader to go and read something, in the shapes people write it. */

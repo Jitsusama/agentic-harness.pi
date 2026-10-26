@@ -19,8 +19,8 @@
 import {
 	recordRunEverywhere,
 	runRecordFrom,
-} from "@jitsusama/agentic-harness.core/observability";
-import { count as grouped } from "@jitsusama/agentic-harness.core/result";
+} from "../../lib/core/observability/index.ts";
+import { count as grouped } from "../../lib/core/result/index.ts";
 import { ReviewerArtifactsStore } from "../../lib/subagent/artifacts.ts";
 import { UNFINISHED } from "../../lib/subagent/reviewer-error.ts";
 import type {

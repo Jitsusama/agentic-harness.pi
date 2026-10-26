@@ -16,13 +16,14 @@ import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, sep } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { type Exec, spawnExec } from "@jitsusama/agentic-harness.core/exec";
-import { complaintsAbout } from "@jitsusama/agentic-harness.core/guardian/commit-format";
-import { runProseGate } from "@jitsusama/agentic-harness.core/guardian/prose-gate";
+import { Type } from "@sinclair/typebox";
+import { type Exec, spawnExec } from "../../../lib/core/exec/index.ts";
+import { complaintsAbout } from "../../../lib/core/internal/guardian/commit-format.ts";
+import { runProseGate } from "../../../lib/core/internal/guardian/prose-gate.ts";
 import {
 	citeListing,
 	openSessionStore,
-} from "@jitsusama/agentic-harness.core/result";
+} from "../../../lib/core/result/index.ts";
 import {
 	blocksRepoint,
 	cautionsFrom,
@@ -47,8 +48,7 @@ import {
 	treeRequestFrom,
 	WORK_TREE_CLAIMS,
 	type WorkHistory,
-} from "@jitsusama/agentic-harness.core/work";
-import { Type } from "@sinclair/typebox";
+} from "../../../lib/core/work/index.ts";
 import { sessionGateDeps } from "../../../lib/internal/gate/session-deps.ts";
 import {
 	duMeasure,

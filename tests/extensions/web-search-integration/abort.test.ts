@@ -13,20 +13,20 @@ const reads = vi.hoisted(() => ({
 	webSearch: vi.fn(),
 }));
 
-vi.mock("@jitsusama/agentic-harness.core/web/reader", () => ({
+vi.mock("../../../lib/core/web/reader.ts", () => ({
 	AuthSetupNeeded: class AuthSetupNeeded extends Error {},
 	cleanupSessionBundles: vi.fn(),
 	readPage: reads.readPage,
 	reapAbandonedBundles: vi.fn(),
 }));
-vi.mock("@jitsusama/agentic-harness.core/web/search", () => ({
+vi.mock("../../../lib/core/web/search.ts", () => ({
 	webSearch: reads.webSearch,
 }));
-vi.mock("@jitsusama/agentic-harness.core/web/browser", () => ({
+vi.mock("../../../lib/core/web/browser.ts", () => ({
 	closeBrowser: vi.fn(),
 	killBrowserSync: vi.fn(),
 }));
-vi.mock("@jitsusama/agentic-harness.core/web/cookies", () => ({
+vi.mock("../../../lib/core/web/cookies/index.ts", () => ({
 	hasCachedKey: () => false,
 	KeyringSetupNeeded: class KeyringSetupNeeded extends Error {},
 	StaleKeyError: class StaleKeyError extends Error {},

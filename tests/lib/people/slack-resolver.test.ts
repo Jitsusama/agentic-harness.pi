@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@jitsusama/agentic-harness.core/slack", async (importOriginal) => ({
+vi.mock("../../../lib/core/slack/index.ts", async (importOriginal) => ({
 	...(await importOriginal()),
 	getToken: vi.fn(() => null),
 	hasToken: vi.fn(() => false),
@@ -13,12 +13,12 @@ vi.mock("@jitsusama/agentic-harness.core/slack", async (importOriginal) => ({
 	SlackClient: vi.fn(),
 }));
 
-import type { StoredToken } from "@jitsusama/agentic-harness.core/slack";
+import type { StoredToken } from "../../../lib/core/slack/index.ts";
 import {
 	getToken,
 	hasToken,
 	resolveUser,
-} from "@jitsusama/agentic-harness.core/slack";
+} from "../../../lib/core/slack/index.ts";
 import {
 	clearSlackClientCache,
 	slackResolver,

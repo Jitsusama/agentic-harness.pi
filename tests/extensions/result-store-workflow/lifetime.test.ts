@@ -10,9 +10,9 @@
 
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { sessionResultDir } from "@jitsusama/agentic-harness.core/result";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import resultStore from "../../../extensions/result-store-workflow/index.ts";
+import { sessionResultDir } from "../../../lib/core/result/index.ts";
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
 

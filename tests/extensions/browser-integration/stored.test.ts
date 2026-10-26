@@ -1,13 +1,3 @@
-import {
-	cleanupSessionResults,
-	createResultStore,
-	offerQueryTool,
-	sessionResultDir,
-	withdrawQueryTool,
-} from "@jitsusama/agentic-harness.core/result";
-import type { AxNode } from "@jitsusama/agentic-harness.core/web/a11y";
-import { renderAxOutline } from "@jitsusama/agentic-harness.core/web/a11y";
-import type { Observation } from "@jitsusama/agentic-harness.core/web/session";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	bodyAnswer,
@@ -16,6 +6,16 @@ import {
 	pageAnswer,
 	storageAnswer,
 } from "../../../extensions/browser-integration/stored.ts";
+import {
+	cleanupSessionResults,
+	createResultStore,
+	offerQueryTool,
+	sessionResultDir,
+	withdrawQueryTool,
+} from "../../../lib/core/result/index.ts";
+import type { AxNode } from "../../../lib/core/web/a11y/index.ts";
+import { renderAxOutline } from "../../../lib/core/web/a11y/index.ts";
+import type { Observation } from "../../../lib/core/web/session.ts";
 
 /**
  * A page like the one that caused this: rows of listitems, each

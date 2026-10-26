@@ -1,10 +1,6 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-	clearTreeProviders,
-	registerBuiltinTreeProviders,
-} from "@jitsusama/agentic-harness.core/tree";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	type QuestVerdict,
@@ -13,6 +9,10 @@ import {
 import { applyQuestGuards } from "../../../extensions/quest-workflow/guard";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
+import {
+	clearTreeProviders,
+	registerBuiltinTreeProviders,
+} from "../../../lib/core/tree/index.ts";
 import { forgetRedirects } from "../../../lib/guardian/apply.ts";
 import {
 	restoreSessionModes,

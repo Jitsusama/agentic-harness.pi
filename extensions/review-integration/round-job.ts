@@ -17,7 +17,7 @@
  */
 
 import type { EventBus } from "@earendil-works/pi-coding-agent";
-import { withCallSignal } from "@jitsusama/agentic-harness.core/exec";
+import { withCallSignal } from "../../lib/core/exec/index.ts";
 import { findJobHost, type Job, jobStopOf } from "../../lib/jobs/index.ts";
 
 /**

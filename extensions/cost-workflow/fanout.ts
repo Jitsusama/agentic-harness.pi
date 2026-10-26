@@ -12,7 +12,7 @@
 import type {
 	RunRecord,
 	SessionRecord,
-} from "@jitsusama/agentic-harness.core/observability";
+} from "../../lib/core/observability/index.ts";
 
 /** One group of fan-out runs and what they cost. */
 export interface FanOutSlice {

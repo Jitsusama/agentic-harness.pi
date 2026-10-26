@@ -11,7 +11,7 @@ import { join, resolve } from "node:path";
 import {
 	getTreeProvider,
 	resolveTreeProvider,
-} from "@jitsusama/agentic-harness.core/tree";
+} from "../../../lib/core/tree/index.ts";
 import { discoverQuests } from "../../../lib/internal/quest/discovery.ts";
 import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter.ts";
 import {

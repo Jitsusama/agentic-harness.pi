@@ -12,6 +12,8 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { extractFromBrowser } from "../../core/slack/auth/browser-extract.ts";
+import { extractFromCurl } from "../../core/slack/auth/extract.ts";
 import {
 	getOAuthApp,
 	getToken,
@@ -21,9 +23,7 @@ import {
 	SlackClient,
 	storeOAuthApp,
 	storeToken,
-} from "@jitsusama/agentic-harness.core/slack";
-import { extractFromBrowser } from "@jitsusama/agentic-harness.core/slack/auth/browser-extract";
-import { extractFromCurl } from "@jitsusama/agentic-harness.core/slack/auth/extract";
+} from "../../core/slack/index.ts";
 import { holdScreen } from "../../ui/gate-queue.ts";
 import {
 	frameTitle,

@@ -11,6 +11,7 @@
  * because a parameter the call does not have is not a mode.
  */
 
+import { Type } from "@sinclair/typebox";
 import {
 	composePrBody,
 	PR_FIELDS,
@@ -19,8 +20,7 @@ import {
 	type PrFields,
 	readPrFields,
 	reviseFields,
-} from "@jitsusama/agentic-harness.core/sections";
-import { Type } from "@sinclair/typebox";
+} from "../../../lib/core/sections/index.ts";
 import { count } from "../../../lib/ui/count.ts";
 
 /** The four section fields, as a call may carry any of them. */

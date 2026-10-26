@@ -9,12 +9,12 @@ import type {
 	ExtensionContext,
 	Theme,
 } from "@earendil-works/pi-coding-agent";
-import { readCommitFile } from "@jitsusama/agentic-harness.core/guardian/commit-file";
+import { readCommitFile } from "../../lib/core/internal/guardian/commit-file.ts";
 import {
 	type CommitValidation,
 	validate,
-} from "@jitsusama/agentic-harness.core/guardian/commit-format";
-import { runProseGate } from "@jitsusama/agentic-harness.core/guardian/prose-gate";
+} from "../../lib/core/internal/guardian/commit-format.ts";
+import { runProseGate } from "../../lib/core/internal/guardian/prose-gate.ts";
 import {
 	ALLOW,
 	approvalUnder,

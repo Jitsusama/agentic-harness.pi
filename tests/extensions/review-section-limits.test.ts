@@ -9,15 +9,12 @@
  * enough to cost a refused turn in about one TL;DR in seven.
  */
 
-import {
-	PR_SECTIONS,
-	PR_SHAPE,
-} from "@jitsusama/agentic-harness.core/sections";
 import { describe, expect, it } from "vitest";
 import {
 	SECTION_DESCRIPTIONS,
 	stackSections,
 } from "../../extensions/review-integration/tools/sections.ts";
+import { PR_SECTIONS, PR_SHAPE } from "../../lib/core/sections/index.ts";
 
 const FIELDS = ["tldr", "problem", "solution", "validation"] as const;
 

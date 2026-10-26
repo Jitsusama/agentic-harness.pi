@@ -37,11 +37,11 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { describe, expect, it } from "vitest";
 import {
 	boundedByDetails,
 	createResultStore,
-} from "@jitsusama/agentic-harness.core/result";
-import { describe, expect, it } from "vitest";
+} from "../../lib/core/result/index.ts";
 
 /**
  * Extensions whose tools can answer with a payload larger than a
@@ -106,14 +106,10 @@ function sourceFiles(dir: string): string[] {
 
 /**
  * Whether a source file imports the shared result machinery,
- * either the local library or the agentic-harness.core module it
- * was extracted to.
+ * either the local library or core's, folded into `lib/core`.
  */
 function importsResultLibrary(source: string): boolean {
-	return (
-		source.includes("lib/result/") ||
-		source.includes("agentic-harness.core/result")
-	);
+	return source.includes("lib/result/") || source.includes("lib/core/result/");
 }
 
 /** Whether an extension reaches the shared result machinery. */

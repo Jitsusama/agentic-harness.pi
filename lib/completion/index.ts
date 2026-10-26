@@ -4,7 +4,7 @@
  *
  * The mechanism itself (resolve a model and its auth, run one
  * completion or a bounded tool-using loop) lives in
- * agentic-harness.core, which takes the actual model call as an
+ * core (`lib/core/completion`), which takes the actual model call as an
  * injected `complete` function rather than running one itself.
  * This module is the pi-specific half of that port: it resolves
  * `completeSimple` from pi-ai's compat subpath and wraps core's
@@ -26,7 +26,7 @@ import {
 	type InvestigationResult,
 	type SideCompletionRequest,
 	type SideCompletionResult,
-} from "@jitsusama/agentic-harness.core/completion";
+} from "../core/completion/index.ts";
 
 export type {
 	CompletionMessage,
@@ -36,13 +36,13 @@ export type {
 	LoopTool,
 	SideCompletionRequest,
 	SideCompletionResult,
-} from "@jitsusama/agentic-harness.core/completion";
+} from "../core/completion/index.ts";
 export {
 	looksLikeGlm,
 	type ModelRef,
 	type ModelTarget,
 	pickModel,
-} from "@jitsusama/agentic-harness.core/completion";
+} from "../core/completion/index.ts";
 
 const COMPAT_SPECIFIER = "@earendil-works/pi-ai/compat";
 

@@ -27,7 +27,7 @@ import {
 	ISSUE_SECTIONS,
 	PR_SECTIONS,
 	PR_SHAPE,
-} from "@jitsusama/agentic-harness.core/sections";
+} from "../../lib/core/sections/index.ts";
 
 /**
  * The PR shape in one line, from the same limits the gate holds a

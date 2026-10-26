@@ -7,16 +7,16 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-	clearTreeProviders,
-	registerBuiltinTreeProviders,
-} from "@jitsusama/agentic-harness.core/tree";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { enforceQuest } from "../../../extensions/quest-workflow/enforce";
 import { questTempDir } from "../../../extensions/quest-workflow/scratch";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
 import { defaultWorkspaceRoot } from "../../../extensions/quest-workflow/workspace";
+import {
+	clearTreeProviders,
+	registerBuiltinTreeProviders,
+} from "../../../lib/core/tree/index.ts";
 import { ensureQuestScratchDir } from "../../../lib/internal/quest/scratch";
 import { addTreeToQuest } from "../../../lib/internal/quest/trees";
 import { freshRepo } from "../../support/git-fixture.ts";

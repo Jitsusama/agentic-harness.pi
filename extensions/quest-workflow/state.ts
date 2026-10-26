@@ -6,4 +6,4 @@
 export {
 	createQuestState,
 	type QuestState,
-} from "@jitsusama/agentic-harness.core/quest/state";
+} from "../../lib/core/quest/state.ts";

@@ -34,7 +34,7 @@ import {
 	type AskProgressEntry,
 	type AskRound,
 	trackAskProgress,
-} from "@jitsusama/agentic-harness.core/review";
+} from "../../lib/core/review/index.ts";
 import { AGENT_GLYPH } from "../../lib/ui/agent-glyphs.ts";
 import {
 	type Board,

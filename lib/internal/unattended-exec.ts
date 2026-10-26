@@ -22,7 +22,7 @@ import {
 	EXIT_TIMED_OUT,
 	type Exec,
 	spawnExec,
-} from "@jitsusama/agentic-harness.core/exec";
+} from "../core/exec/index.ts";
 
 /**
  * How long one command may run when its caller names no clock.

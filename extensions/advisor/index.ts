@@ -23,6 +23,8 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { Type } from "@sinclair/typebox";
+import { runInvestigation } from "../../lib/completion/index.ts";
 import {
 	advisorCharter,
 	channelFor,
@@ -34,18 +36,16 @@ import {
 	parseFindings,
 	reviewPrompt,
 	saveAdvisorEnabled,
-} from "@jitsusama/agentic-harness.core/advisor";
+} from "../../lib/core/advisor/index.ts";
 import {
 	condenseTranscript,
 	openRuleStore,
 	type RuleStore,
-} from "@jitsusama/agentic-harness.core/governance";
+} from "../../lib/core/governance/index.ts";
 import {
 	recordRunEverywhere,
 	runRecordFrom,
-} from "@jitsusama/agentic-harness.core/observability";
-import { Type } from "@sinclair/typebox";
-import { runInvestigation } from "../../lib/completion/index.ts";
+} from "../../lib/core/observability/index.ts";
 import { dataDir } from "../../lib/internal/paths.ts";
 import { entriesToTurns } from "../../lib/internal/transcript.ts";
 import { asText, renderToolCall } from "../../lib/ui/index.ts";

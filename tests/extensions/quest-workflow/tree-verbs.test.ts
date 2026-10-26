@@ -7,13 +7,13 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-	clearTreeProviders,
-	registerBuiltinTreeProviders,
-} from "@jitsusama/agentic-harness.core/tree";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
+import {
+	clearTreeProviders,
+	registerBuiltinTreeProviders,
+} from "../../../lib/core/tree/index.ts";
 import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter";
 import { clearUrlFetchers } from "../../../lib/quest/index";
 import {

@@ -8,6 +8,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Type } from "@sinclair/typebox";
 import {
 	ACTION_VIEW_BUDGET_BYTES,
 	MAX_OUTLINE_BUDGET_BYTES,
@@ -17,7 +18,7 @@ import {
 	renderFocus,
 	type Skeleton,
 	type TreeScope,
-} from "@jitsusama/agentic-harness.core/web/a11y";
+} from "../../lib/core/web/a11y/index.ts";
 import {
 	type PseudoState,
 	renderAnimations,
@@ -29,21 +30,21 @@ import {
 	renderTrace,
 	renderVariants,
 	renderVisibility,
-} from "@jitsusama/agentic-harness.core/web/element";
-import { renderStatus } from "@jitsusama/agentic-harness.core/web/environment";
+} from "../../lib/core/web/element/index.ts";
+import { renderStatus } from "../../lib/core/web/environment/index.ts";
 import {
 	measure,
 	renderHeap,
 	renderHotspots,
 	renderLayers,
 	renderVitals,
-} from "@jitsusama/agentic-harness.core/web/perf";
+} from "../../lib/core/web/perf/index.ts";
 import type {
 	BrowserSession,
 	Inspection,
 	Observation,
 	Shot,
-} from "@jitsusama/agentic-harness.core/web/session";
+} from "../../lib/core/web/session.ts";
 import {
 	describeNode,
 	describeStyles,
@@ -52,11 +53,11 @@ import {
 	isElement,
 	type Query,
 	tally,
-} from "@jitsusama/agentic-harness.core/web/snapshot";
+} from "../../lib/core/web/snapshot/index.ts";
 import {
 	describeRefusal,
 	parseTarget,
-} from "@jitsusama/agentic-harness.core/web/target";
+} from "../../lib/core/web/target/index.ts";
 import {
 	anyUrlShortened,
 	type NetworkRequest,
@@ -65,8 +66,7 @@ import {
 	renderRequests,
 	renderSockets,
 	strandedByCrash,
-} from "@jitsusama/agentic-harness.core/web/telemetry";
-import { Type } from "@sinclair/typebox";
+} from "../../lib/core/web/telemetry/index.ts";
 import { count } from "../../lib/ui/count.ts";
 import { BROWSER_EXPOSURE } from "./exposure.ts";
 import { beyondBound, MAX_PROFILE_MS } from "./limits.ts";

@@ -33,10 +33,6 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-	runCouncil,
-	startCouncil,
-} from "@jitsusama/agentic-harness.core/review";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	forgetWorkLayer,
@@ -44,6 +40,7 @@ import {
 	treeForRound,
 	watchForWorkLayer,
 } from "../../extensions/review-integration/work.ts";
+import { runCouncil, startCouncil } from "../../lib/core/review/index.ts";
 import { freshRepo } from "../support/git-fixture.ts";
 
 let home: string;

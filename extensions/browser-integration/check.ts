@@ -9,11 +9,12 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { type Static, Type } from "@sinclair/typebox";
 import {
 	analyseWalk,
 	MAX_LISTED_FINDINGS,
 	renderWalk,
-} from "@jitsusama/agentic-harness.core/web/a11y";
+} from "../../lib/core/web/a11y/index.ts";
 import {
 	type A11yFinding,
 	analyseMotion,
@@ -37,29 +38,28 @@ import {
 	targetFindings,
 	widthsToSweep,
 	withinBar,
-} from "@jitsusama/agentic-harness.core/web/audit";
-import { renderComparison } from "@jitsusama/agentic-harness.core/web/compare";
+} from "../../lib/core/web/audit/index.ts";
+import { renderComparison } from "../../lib/core/web/compare/index.ts";
 import {
 	analyseTypography,
 	renderInventory,
 	renderTypography,
 	takeInventory,
-} from "@jitsusama/agentic-harness.core/web/design";
+} from "../../lib/core/web/design/index.ts";
 import {
 	judgeHydration,
 	renderHydration,
-} from "@jitsusama/agentic-harness.core/web/hydration";
+} from "../../lib/core/web/hydration/index.ts";
 import {
 	measureSamples,
 	renderVitals,
 	type Vitals,
-} from "@jitsusama/agentic-harness.core/web/perf";
-import type { BrowserSession } from "@jitsusama/agentic-harness.core/web/session";
+} from "../../lib/core/web/perf/index.ts";
+import type { BrowserSession } from "../../lib/core/web/session.ts";
 import {
 	describeRefusal,
 	parseTarget,
-} from "@jitsusama/agentic-harness.core/web/target";
-import { type Static, Type } from "@sinclair/typebox";
+} from "../../lib/core/web/target/index.ts";
 import { BROWSER_EXPOSURE } from "./exposure.ts";
 import { beyondBound, MAX_WALK_STOPS } from "./limits.ts";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.ts";

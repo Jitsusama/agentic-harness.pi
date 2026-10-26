@@ -17,7 +17,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	type DestructiveMatch,
 	detectDestructiveCommand,
-} from "@jitsusama/agentic-harness.core/guardian/history-gate";
+} from "../../lib/core/internal/guardian/history-gate.ts";
 import {
 	ALLOW,
 	approvalUnder,

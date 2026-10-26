@@ -1,12 +1,12 @@
 /**
  * Resolving which scope currently applies. This is pi-specific
  * (it reads pi's own session log for a loaded quest); scope
- * serialization itself lives in agentic-harness.core and is
- * re-exported from ./index.js.
+ * serialization itself lives in core (`lib/core/memory`) and is
+ * re-exported from ./index.ts.
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { Scope } from "@jitsusama/agentic-harness.core/memory";
+import type { Scope } from "../core/memory/index.ts";
 import { getLastEntry } from "../internal/state.ts";
 
 /**

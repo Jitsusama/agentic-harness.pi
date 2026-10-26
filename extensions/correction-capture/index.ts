@@ -21,6 +21,8 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Type } from "@sinclair/typebox";
+import { runSideCompletion } from "../../lib/completion/index.ts";
 import {
 	condenseTranscript,
 	distillSystemPrompt,
@@ -30,9 +32,7 @@ import {
 	type RuleStore,
 	renderRulesBlock,
 	type Turn,
-} from "@jitsusama/agentic-harness.core/governance";
-import { Type } from "@sinclair/typebox";
-import { runSideCompletion } from "../../lib/completion/index.ts";
+} from "../../lib/core/governance/index.ts";
 import { dataDir } from "../../lib/internal/paths.ts";
 import { entriesToTurns } from "../../lib/internal/transcript.ts";
 import { registerPromptContributor } from "../../lib/prompt/index.ts";

@@ -7,12 +7,12 @@
  * once more; an editor's backend is left to its editor.
  */
 
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	clearLspBackends,
 	type LspBackend,
 	registerLspBackend,
-} from "@jitsusama/agentic-harness.core/lsp";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+} from "../../../lib/core/lsp/index.ts";
 
 interface Tool {
 	execute(
@@ -45,7 +45,7 @@ function backendAnswering(answer: () => Promise<unknown[]>): LspBackend {
 	} as unknown as LspBackend;
 }
 
-vi.mock("@jitsusama/agentic-harness.core/lsp", async (original) => ({
+vi.mock("../../../lib/core/lsp/index.ts", async (original) => ({
 	...(await original<object>()),
 	createStandaloneBackend: () =>
 		backendAnswering(scripts.shift() ?? (async () => [])),

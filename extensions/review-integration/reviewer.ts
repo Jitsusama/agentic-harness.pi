@@ -19,14 +19,14 @@ import { join } from "node:path";
 import {
 	recordRunEverywhere,
 	runRecordFrom,
-} from "@jitsusama/agentic-harness.core/observability";
+} from "../../lib/core/observability/index.ts";
 import type {
 	AskAnswer,
 	AskLimit,
 	AskRun,
 	AskStop,
-} from "@jitsusama/agentic-harness.core/review";
-import { budgetForLimit } from "@jitsusama/agentic-harness.core/review";
+} from "../../lib/core/review/index.ts";
+import { budgetForLimit } from "../../lib/core/review/index.ts";
 import type {
 	PiInstall,
 	ProcessFacts,

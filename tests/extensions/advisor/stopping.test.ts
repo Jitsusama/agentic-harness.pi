@@ -40,13 +40,13 @@ vi.mock("../../../lib/completion/index.ts", () => ({
 	),
 }));
 
-vi.mock("@jitsusama/agentic-harness.core/advisor", async (original) => ({
+vi.mock("../../../lib/core/advisor/index.ts", async (original) => ({
 	...(await original<object>()),
 	loadAdvisorEnabled: () => true,
 	isSubstantiveTurn: () => true,
 }));
 
-vi.mock("@jitsusama/agentic-harness.core/observability", async (original) => ({
+vi.mock("../../../lib/core/observability/index.ts", async (original) => ({
 	...(await original<object>()),
 	recordRunEverywhere: vi.fn(),
 }));

@@ -8,4 +8,4 @@ export {
 	bulkConcludeOrRetire,
 	reparent,
 	undo,
-} from "@jitsusama/agentic-harness.core/quest/verbs/structural";
+} from "../../../lib/core/quest/verbs/structural.ts";

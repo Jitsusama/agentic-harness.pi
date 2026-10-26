@@ -9,9 +9,9 @@
  * never updates, so a session could close under a call still using it.
  */
 
-import type { BrowserSession } from "@jitsusama/agentic-harness.core/web/session";
 import { describe, expect, it } from "vitest";
 import { createSessionRegistry } from "../../../extensions/browser-integration/registry.ts";
+import type { BrowserSession } from "../../../lib/core/web/session.ts";
 
 /** Long enough that a call nothing held back would plainly have run. */
 const SETTLED_WITHIN_MS = 200;

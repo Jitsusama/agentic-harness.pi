@@ -6,7 +6,7 @@ import type {
 	RegretReport,
 	RepeatedCall,
 	VerifierOutcome,
-} from "@jitsusama/agentic-harness.core/observability";
+} from "../../lib/core/observability/index.ts";
 import type { FanOutSummary, FanOutView } from "./fanout.ts";
 
 /** What indexing a corpus of session logs did. */

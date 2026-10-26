@@ -3,6 +3,7 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { OAuth2Client } from "google-auth-library";
 import {
 	archiveEmail,
 	createDraft,
@@ -17,15 +18,14 @@ import {
 	searchEmails,
 	sendEmail,
 	unarchiveEmail,
-} from "@jitsusama/agentic-harness.core/google";
+} from "../../../lib/core/google/index.ts";
 import {
 	type ActionParams,
 	getNumberParam,
 	getStringArrayParam,
 	getStringParam,
 	type ToolResult,
-} from "@jitsusama/agentic-harness.core/google/types";
-import type { OAuth2Client } from "google-auth-library";
+} from "../../../lib/core/google/types.ts";
 import { OUTCOME_GLYPH } from "../../../lib/ui/outcome-glyphs.ts";
 import { confirmDeleteEmail, confirmSendEmail } from "../confirmation.ts";
 

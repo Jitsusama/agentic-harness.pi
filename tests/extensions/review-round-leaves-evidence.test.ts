@@ -21,23 +21,23 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type {
-	AskAnswer,
-	CouncilDeps,
-	Finding,
-	Roster,
-} from "@jitsusama/agentic-harness.core/review";
-import {
-	roundAnswer,
-	runCouncil,
-	runSummary,
-	staleRuntimeAdvisory,
-} from "@jitsusama/agentic-harness.core/review";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	answerFromReviewer,
 	keepAnswer,
 } from "../../extensions/review-integration/reviewer.ts";
+import type {
+	AskAnswer,
+	CouncilDeps,
+	Finding,
+	Roster,
+} from "../../lib/core/review/index.ts";
+import {
+	roundAnswer,
+	runCouncil,
+	runSummary,
+	staleRuntimeAdvisory,
+} from "../../lib/core/review/index.ts";
 import type { RunReviewerResult } from "../../lib/subagent/index.ts";
 
 /** The seven that were asked, named as that round named them. */

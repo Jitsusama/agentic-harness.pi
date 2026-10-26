@@ -22,16 +22,6 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type {
-	AskAnswer,
-	AskRun,
-	Finding,
-} from "@jitsusama/agentic-harness.core/review";
-import {
-	collectRound,
-	runSummary,
-	stoppedNotes,
-} from "@jitsusama/agentic-harness.core/review";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	answerLeftBehind,
@@ -40,6 +30,16 @@ import {
 	heldByLiveSupervisor,
 	whyNotYet,
 } from "../../extensions/review-integration/reviewer.ts";
+import type {
+	AskAnswer,
+	AskRun,
+	Finding,
+} from "../../lib/core/review/index.ts";
+import {
+	collectRound,
+	runSummary,
+	stoppedNotes,
+} from "../../lib/core/review/index.ts";
 import type { ProcessFacts } from "../../lib/subagent/index.ts";
 import {
 	ReviewerArtifactsStore,

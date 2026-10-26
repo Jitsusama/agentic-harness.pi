@@ -7,9 +7,9 @@
  * subject, which does take judgement, is still the caller's to fix.
  */
 
-import { complaintsAbout } from "@jitsusama/agentic-harness.core/guardian/commit-format";
 import { describe, expect, it } from "vitest";
 import { recordMessage } from "../../extensions/work-integration/tools/message.ts";
+import { complaintsAbout } from "../../lib/core/internal/guardian/commit-format.ts";
 
 const LONG =
 	"A body line that runs a little past the seventy-two column limit for no reason.";

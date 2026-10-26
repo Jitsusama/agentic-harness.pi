@@ -1,4 +1,4 @@
-import type { CallScope } from "@jitsusama/agentic-harness.core/observability";
+import type { CallScope } from "../core/observability/index.ts";
 
 /**
  * Which tools in the corpus retrieve information, and which ones write

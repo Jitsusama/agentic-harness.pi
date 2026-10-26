@@ -6,7 +6,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, statfsSync } from "node:fs";
 import { dirname } from "node:path";
-import { questWorkspace } from "@jitsusama/agentic-harness.core/quest/workspace";
+import { questWorkspace } from "../../lib/core/internal/quest/workspace.ts";
 import { isId, prefixOf } from "../../lib/internal/quest/id.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace-root.ts";
 

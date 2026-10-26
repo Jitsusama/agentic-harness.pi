@@ -12,15 +12,16 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Type } from "@sinclair/typebox";
 import {
 	citeListing,
 	openSessionStore,
-} from "@jitsusama/agentic-harness.core/result";
+} from "../../../lib/core/result/index.ts";
 import type {
 	BoundTarget,
 	Decision,
 	Finding,
-} from "@jitsusama/agentic-harness.core/review";
+} from "../../../lib/core/review/index.ts";
 import {
 	createDecisionLedger,
 	createFindingStore,
@@ -34,8 +35,7 @@ import {
 	reactables,
 	sinceLastVisit,
 	tallyReceptions,
-} from "@jitsusama/agentic-harness.core/review";
-import { Type } from "@sinclair/typebox";
+} from "../../../lib/core/review/index.ts";
 import { count } from "../../../lib/ui/index.ts";
 import { CHECKS_POLL_MS, unsettled, watchChecks } from "../checks-job.ts";
 import { REVIEW_COMMANDS } from "../commands.ts";

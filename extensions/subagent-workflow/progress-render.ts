@@ -24,7 +24,7 @@
 
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { matchesKey } from "@earendil-works/pi-tui";
-import { count as grouped } from "@jitsusama/agentic-harness.core/result";
+import { count as grouped } from "../../lib/core/result/index.ts";
 import { AGENT_GLYPH } from "../../lib/ui/agent-glyphs.ts";
 import {
 	type Board,

@@ -22,7 +22,7 @@ import {
 	createReviewEngine,
 	type ReviewEngine,
 	registerReviewProvider,
-} from "@jitsusama/agentic-harness.core/review";
+} from "../../lib/core/review/index.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
 import { reviewExec } from "./commands.ts";
 import { loadReviewConfig } from "./config.ts";

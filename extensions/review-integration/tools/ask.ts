@@ -28,6 +28,7 @@ import type {
 	Theme,
 } from "@earendil-works/pi-coding-agent";
 import type { Text } from "@earendil-works/pi-tui";
+import { Type } from "@sinclair/typebox";
 import {
 	type AnswerContext,
 	type AnswerLine,
@@ -78,8 +79,7 @@ import {
 	type Thread,
 	type ThreadAudit,
 	touchedBy,
-} from "@jitsusama/agentic-harness.core/review";
-import { Type } from "@sinclair/typebox";
+} from "../../../lib/core/review/index.ts";
 import {
 	type ConfigLoadResult,
 	loadPackageConfig,

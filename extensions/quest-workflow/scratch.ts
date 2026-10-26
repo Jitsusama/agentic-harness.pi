@@ -26,7 +26,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import { questWorkspace } from "@jitsusama/agentic-harness.core/quest/workspace";
+import { questWorkspace } from "../../lib/core/internal/quest/workspace.ts";
 import {
 	btrfsFolders,
 	makeWorkspace,

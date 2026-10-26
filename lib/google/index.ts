@@ -9,5 +9,5 @@
  * OAuth flow.
  */
 
-export * from "@jitsusama/agentic-harness.core/google";
+export * from "../core/google/index.ts";
 export { ensureAuthenticated } from "./auth/index.ts";

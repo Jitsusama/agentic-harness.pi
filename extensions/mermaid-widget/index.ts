@@ -24,11 +24,11 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { Type } from "@sinclair/typebox";
 import {
 	MermaidRenderError,
 	renderMermaid,
-} from "@jitsusama/agentic-harness.core/web/mermaid";
-import { Type } from "@sinclair/typebox";
+} from "../../lib/core/web/mermaid.ts";
 import { drawInto, firstText } from "../../lib/ui/index.ts";
 import { mermaidContent } from "./content.ts";
 

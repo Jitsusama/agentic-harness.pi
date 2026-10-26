@@ -4,12 +4,12 @@
  */
 
 import { createEventBus } from "@earendil-works/pi-coding-agent";
-import type { ChecksRollup } from "@jitsusama/agentic-harness.core/review";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	MAX_FAILED_LOOKS,
 	watchChecks,
 } from "../../extensions/review-integration/checks-job.ts";
+import type { ChecksRollup } from "../../lib/core/review/index.ts";
 import {
 	announceJobHost,
 	type Job,

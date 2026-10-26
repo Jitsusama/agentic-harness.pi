@@ -2,6 +2,7 @@
  * Drive action handlers.
  */
 
+import type { OAuth2Client } from "google-auth-library";
 import {
 	type DocTab,
 	getDocComments,
@@ -16,15 +17,14 @@ import {
 	renderFileList,
 	renderSheet,
 	renderSlides,
-} from "@jitsusama/agentic-harness.core/google";
+} from "../../../lib/core/google/index.ts";
 import {
 	type ActionParams,
 	getBooleanParam,
 	getNumberParam,
 	getStringParam,
 	type ToolResult,
-} from "@jitsusama/agentic-harness.core/google/types";
-import type { OAuth2Client } from "google-auth-library";
+} from "../../../lib/core/google/types.ts";
 
 /** Search and list Google Drive files with optional filters. */
 export async function handleListFiles(

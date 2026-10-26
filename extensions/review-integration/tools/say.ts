@@ -19,8 +19,8 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { BoundTarget } from "@jitsusama/agentic-harness.core/review";
 import { Type } from "@sinclair/typebox";
+import type { BoundTarget } from "../../../lib/core/review/index.ts";
 import { batchRefusal, runBatch, type SayItem } from "./batch.ts";
 import {
 	type Answer,

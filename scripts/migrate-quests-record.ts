@@ -48,17 +48,17 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
+import { defaultWorkspaceRoot } from "../extensions/quest-workflow/workspace.ts";
 import {
 	ATTACHMENTS_FOLDER,
 	attachmentProblem,
 	DOCUMENT_FOLDERS,
-} from "@jitsusama/agentic-harness.core/quest/record";
+} from "../lib/core/internal/quest/record.ts";
 import {
 	attachmentFileAt,
 	auditQuestRecord,
-} from "@jitsusama/agentic-harness.core/quest/record-audit";
-import { questWorkspace } from "@jitsusama/agentic-harness.core/quest/workspace";
-import { defaultWorkspaceRoot } from "../extensions/quest-workflow/workspace.ts";
+} from "../lib/core/internal/quest/record-audit.ts";
+import { questWorkspace } from "../lib/core/internal/quest/workspace.ts";
 import { dataDir } from "../lib/internal/paths.ts";
 import { appendJourneyByPath } from "../lib/internal/quest/append-journey.ts";
 import { atomicWriteFile, withQuestLock } from "../lib/internal/quest/io.ts";

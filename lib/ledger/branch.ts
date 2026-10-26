@@ -1,9 +1,9 @@
+import { isResumeText } from "../compaction/resume.ts";
 import type {
 	CompactionFacts,
 	TurnFacts,
 	TurnPrecedent,
-} from "@jitsusama/agentic-harness.core/observability";
-import { isResumeText } from "../compaction/resume.ts";
+} from "../core/observability/index.ts";
 import { isAutomatedText } from "../internal/automated.ts";
 
 /**

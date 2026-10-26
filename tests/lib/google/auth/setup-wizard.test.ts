@@ -14,7 +14,7 @@ import { type PiScreen, pinStdout, piScreen } from "../../ui/pi-screen.ts";
 const stored: unknown[] = [];
 
 // Never the real credential store: a test must not sign anybody out.
-vi.mock("@jitsusama/agentic-harness.core/google", async (original) => ({
+vi.mock("../../../../lib/core/google/index.ts", async (original) => ({
 	...(await original<object>()),
 	hasOAuthApp: () => false,
 	getOAuthApp: () => undefined,

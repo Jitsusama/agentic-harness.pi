@@ -12,7 +12,7 @@ import {
 	hasToken,
 	type OAuthApp,
 	SlackClient,
-} from "@jitsusama/agentic-harness.core/slack";
+} from "../../lib/core/slack/index.ts";
 import { ensureSetup } from "../../lib/slack/auth/setup-wizard.ts";
 import { view } from "../../lib/ui/index.ts";
 

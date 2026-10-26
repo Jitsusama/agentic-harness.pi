@@ -4,17 +4,17 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { OAuth2Client } from "google-auth-library";
+import {
+	createOAuth2Client,
+	setCredentials,
+} from "../../lib/core/google/auth/oauth.ts";
 import {
 	listAccounts,
 	saveAccount,
 	setDefaultAccount,
 	storeCredentials,
-} from "@jitsusama/agentic-harness.core/google";
-import {
-	createOAuth2Client,
-	setCredentials,
-} from "@jitsusama/agentic-harness.core/google/auth/oauth";
-import type { OAuth2Client } from "google-auth-library";
+} from "../../lib/core/google/index.ts";
 import { authenticateWithFallback } from "../../lib/google/auth/dual-flow.ts";
 import { frameTitle, view } from "../../lib/ui/index.ts";
 

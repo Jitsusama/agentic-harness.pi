@@ -27,7 +27,7 @@ import {
 	refreshProgress,
 	stampQuestUpdated,
 	unfocusDocument,
-} from "@jitsusama/agentic-harness.core/quest/lifecycle";
+} from "../../lib/core/quest/lifecycle.ts";
 import { sessionsDir } from "../../lib/internal/paths.ts";
 import { appendJourneyByPath } from "../../lib/internal/quest/append-journey.ts";
 import { discoverQuests } from "../../lib/internal/quest/discovery.ts";
@@ -80,7 +80,7 @@ export {
 	unloadQuest,
 	type WorktreeInventoryEntry,
 	writeDocumentStage,
-} from "@jitsusama/agentic-harness.core/quest/lifecycle";
+} from "../../lib/core/quest/lifecycle.ts";
 
 /**
  * Add an entry to the loaded quest's Journey and stamp it updated.

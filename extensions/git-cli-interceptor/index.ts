@@ -27,7 +27,7 @@ import {
 	detectAmendViolation,
 	detectCompoundViolation,
 	detectUnquotedCommitHeredoc,
-} from "@jitsusama/agentic-harness.core/git-cli";
+} from "../../lib/core/git-cli/index.ts";
 import { refusalUnder } from "../../lib/guardian/apply.ts";
 import type { GuardianBlock } from "../../lib/guardian/index.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";

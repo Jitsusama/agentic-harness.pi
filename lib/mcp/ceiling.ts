@@ -1,4 +1,4 @@
-import { MINTED_HANDLE_SHAPE } from "@jitsusama/agentic-harness.core/result";
+import { MINTED_HANDLE_SHAPE } from "../core/result/index.ts";
 import { count } from "../ui/count.ts";
 import { joinTextContent, spillToFile } from "./content.ts";
 import type { McpContent, McpToolResult } from "./types.ts";

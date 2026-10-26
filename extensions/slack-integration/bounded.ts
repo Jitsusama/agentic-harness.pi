@@ -16,7 +16,7 @@
 import {
 	boundedByDetails,
 	openSessionStore,
-} from "@jitsusama/agentic-harness.core/result";
+} from "../../lib/core/result/index.ts";
 
 /** How a caller asks Slack for a smaller answer. */
 const NARROWING =

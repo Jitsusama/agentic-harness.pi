@@ -20,8 +20,8 @@ import type {
 	ConversationFacet,
 	Reaction,
 	Thread,
-} from "@jitsusama/agentic-harness.core/review";
-import { isReactableRefusal } from "@jitsusama/agentic-harness.core/review";
+} from "../../../lib/core/review/index.ts";
+import { isReactableRefusal } from "../../../lib/core/review/index.ts";
 import { GUARDS } from "../../../lib/internal/guardian/guards.ts";
 import { confirmBatch, type GateItem, REDIRECT_QUOTE_WIDTH } from "../gate.ts";
 import {

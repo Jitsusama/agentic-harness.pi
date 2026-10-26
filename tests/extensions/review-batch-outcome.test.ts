@@ -10,12 +10,9 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type {
-	BoundTarget,
-	Thread,
-} from "@jitsusama/agentic-harness.core/review";
 import { describe, expect, it } from "vitest";
 import { runBatch } from "../../extensions/review-integration/tools/batch.ts";
+import type { BoundTarget, Thread } from "../../lib/core/review/index.ts";
 
 /** A ctx whose gate approves everything, as it does with nobody to ask. */
 const HEADLESS = { hasUI: false, ui: {} } as unknown as ExtensionContext;

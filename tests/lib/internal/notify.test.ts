@@ -1,5 +1,5 @@
-import type { Exec } from "@jitsusama/agentic-harness.core/exec";
 import { describe, expect, it } from "vitest";
+import type { Exec } from "../../../lib/core/exec/index.ts";
 import { notify, notifyCommand } from "../../../lib/internal/notify.ts";
 
 /** An exec that records what it was asked to run and answers `code`. */

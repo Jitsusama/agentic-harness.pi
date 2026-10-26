@@ -20,7 +20,7 @@ import type {
 	BoundTarget,
 	ChangeRef,
 	Proposal,
-} from "@jitsusama/agentic-harness.core/review";
+} from "../../lib/core/review/index.ts";
 import { count } from "../../lib/ui/count.ts";
 
 /** The provider a range's change names, which no host answers to. */

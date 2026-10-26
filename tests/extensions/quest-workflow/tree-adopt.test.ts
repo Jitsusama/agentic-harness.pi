@@ -9,13 +9,13 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import {
-	clearTreeProviders,
-	registerBuiltinTreeProviders,
-} from "@jitsusama/agentic-harness.core/tree";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
+import {
+	clearTreeProviders,
+	registerBuiltinTreeProviders,
+} from "../../../lib/core/tree/index.ts";
 import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter";
 import { addTreeToQuest } from "../../../lib/internal/quest/trees";
 import { freshRepo } from "../../support/git-fixture.ts";

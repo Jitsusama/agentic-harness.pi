@@ -1,14 +1,14 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { TreeProvider } from "@jitsusama/agentic-harness.core/tree";
-import {
-	clearTreeProviders,
-	registerTreeProvider,
-} from "@jitsusama/agentic-harness.core/tree";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
+import type { TreeProvider } from "../../../lib/core/tree/index.ts";
+import {
+	clearTreeProviders,
+	registerTreeProvider,
+} from "../../../lib/core/tree/index.ts";
 import { addTreeToQuest } from "../../../lib/internal/quest/trees";
 import { createEnvGuard } from "./_helpers";
 

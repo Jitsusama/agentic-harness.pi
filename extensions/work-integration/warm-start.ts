@@ -22,7 +22,7 @@ import {
 	statSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import type { Exec } from "@jitsusama/agentic-harness.core/exec";
+import type { Exec } from "../../lib/core/exec/index.ts";
 
 /** What warming a tree needs from the machine. */
 export interface WarmStartSeams {

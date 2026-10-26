@@ -12,7 +12,7 @@ export {
 	type CheckCommandSources,
 	type ResolvedCheck,
 	resolveCheckCommand,
-} from "@jitsusama/agentic-harness.core/verify";
+} from "../core/verify/index.ts";
 export {
 	type CheckRun,
 	type CheckRunVerdict,

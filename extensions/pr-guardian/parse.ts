@@ -12,4 +12,4 @@ export {
 	isPrCommand,
 	type PrCommand,
 	parsePrCommand,
-} from "@jitsusama/agentic-harness.core/github/cli";
+} from "../../lib/core/internal/github/cli.ts";

@@ -17,7 +17,7 @@ import { type PiScreen, pinStdout, piScreen } from "../../ui/pi-screen.ts";
 const extraction: { calls: number; signal?: AbortSignal } = { calls: 0 };
 
 // Never the real credential store: a test must not sign anybody out.
-vi.mock("@jitsusama/agentic-harness.core/slack", async (original) => ({
+vi.mock("../../../../lib/core/slack/index.ts", async (original) => ({
 	...(await original<object>()),
 	hasToken: () => false,
 	getToken: () => undefined,
@@ -27,7 +27,7 @@ vi.mock("@jitsusama/agentic-harness.core/slack", async (original) => ({
 	storeOAuthApp: () => undefined,
 }));
 
-vi.mock("@jitsusama/agentic-harness.core/slack/auth/browser-extract", () => ({
+vi.mock("../../../../lib/core/slack/auth/browser-extract.ts", () => ({
 	extractFromBrowser: (
 		_url?: string,
 		_timeout?: number,

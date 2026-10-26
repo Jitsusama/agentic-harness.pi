@@ -1,0 +1,201 @@
+/**
+ * Asking the browser about one element.
+ *
+ * Page sources rather than functions, for the same reason the
+ * accessibility observer is: the compiler wraps named inner
+ * bindings in a __name helper the page has never heard of, so
+ * a serialized function that declares helpers of its own
+ * throws on arrival.
+ */
+
+/**
+ * Who receives a click at a point, when it is not the element
+ * being asked about.
+ *
+ * Runs with the element as its receiver and the hit node as its
+ * only argument. Anything the element contains counts as
+ * itself, since a click there still reaches it. Returns a short
+ * description of the obstruction, or null when there is none.
+ */
+/**
+ * Stop an element's own text from painting, and put it back.
+ *
+ * Runs with the element as its receiver. Only colour and shadow are
+ * touched, because neither affects layout: the glyphs still occupy
+ * the same pixels and simply leave no mark, which is what lets two
+ * shots of the same region be subtracted from one another.
+ *
+ * The element's own inline values are remembered on the node itself
+ * rather than in the caller, so a restore still works if the caller
+ * lost track of what it changed. An element with no inline colour of
+ * its own is restored by removing the property, not by writing an
+ * empty string over it, since those differ once a stylesheet has an
+ * opinion.
+ */
+/**
+ * Whether an element paints text of its own.
+ *
+ * Its own text nodes only, not its descendants'. A card wrapping a
+ * paragraph is a surface being looked at; the paragraph is the thing
+ * being read. Judging the card as text would compare its colour,
+ * which nothing there paints, against the wrong criterion.
+ */
+/**
+ * The element that paints this node.
+ *
+ * A `StaticText` target resolves to a DOM text node, which is the
+ * honest answer to what was named but has no style, no class list
+ * and no `getBoundingClientRect`. Anything that wants to read or
+ * change how the text is painted has to work on the element holding
+ * it. Without this, hiding a paragraph's text quietly did nothing
+ * and the contrast measurement concluded there was no text there.
+ */
+export const PAINTING_ELEMENT_PROBE = `function () {
+  return this.nodeType === 3 ? this.parentElement : this;
+}`;
+
+export const OWN_TEXT_PROBE = `function () {
+  var kids = this.childNodes || [];
+  for (var i = 0; i < kids.length; i++) {
+    var node = kids[i];
+    if (node.nodeType === 3 && (node.textContent || "").trim()) return true;
+  }
+  return false;
+}`;
+
+export const HIDE_TEXT = `function (hidden) {
+  var KEY = "__piHiddenText";
+  if (hidden) {
+    if (!this[KEY]) {
+      this[KEY] = {
+        color: this.style.getPropertyValue("color"),
+        colorPriority: this.style.getPropertyPriority("color"),
+        shadow: this.style.getPropertyValue("text-shadow"),
+        shadowPriority: this.style.getPropertyPriority("text-shadow")
+      };
+    }
+    this.style.setProperty("color", "transparent", "important");
+    this.style.setProperty("text-shadow", "none", "important");
+    return true;
+  }
+  var had = this[KEY];
+  if (!had) return false;
+  this.style.removeProperty("color");
+  this.style.removeProperty("text-shadow");
+  if (had.color) {
+    this.style.setProperty("color", had.color, had.colorPriority);
+  }
+  if (had.shadow) {
+    this.style.setProperty("text-shadow", had.shadow, had.shadowPriority);
+  }
+  delete this[KEY];
+  return true;
+}`;
+
+/**
+ * Select everything in a text field, the way the field itself
+ * offers to.
+ *
+ * Runs with the element as its receiver. Used instead of a
+ * triple click so that clearing a field does not need an
+ * unobstructed centre, and instead of a select-all shortcut so
+ * there is no platform to guess at.
+ */
+export const SELECT_TEXT_PROBE = `function () {
+  if (typeof this.select === "function") {
+    this.select();
+    return true;
+  }
+  return false;
+}`;
+
+/**
+ * What an element says, holds, and is tagged with.
+ *
+ * Runs with the element as its receiver. Text is trimmed and
+ * capped, because a container's textContent can be the whole
+ * page and the question being asked is almost always about a
+ * short piece of it. Only data attributes and a handful of
+ * state attributes are returned: the rest are either already in
+ * the accessibility tree or noise.
+ */
+export const CONTENT_PROBE = `function () {
+  var text = (this.textContent || "").replace(/\\s+/g, " ").trim();
+  if (text.length > 400) text = text.slice(0, 400) + "...";
+  var attributes = [];
+  var names = this.getAttributeNames ? this.getAttributeNames() : [];
+  for (var at = 0; at < names.length; at++) {
+    var name = names[at];
+    if (name.indexOf("data-") === 0 || name === "disabled" ||
+        name === "readonly" || name === "open" || name === "hidden" ||
+        name === "contenteditable" || name === "autocomplete" ||
+        name === "inputmode" || name === "type" || name === "name") {
+      attributes.push([name, this.getAttribute(name)]);
+    }
+  }
+  var held;
+  if (typeof this.value === "string") held = this.value;
+  return { text: text, value: held, attributes: attributes };
+}`;
+
+/**
+ * What is painted over the element's own centre, if anything.
+ *
+ * The whole question is answered in the page, deliberately. It was
+ * once split: the centre came from the box model out here and the
+ * hit test from `DOM.getNodeForLocation` over there. Those two are
+ * not in the same coordinate space once the page has scrolled, and
+ * a scrolled page reported whatever happened to sit at the wrong
+ * point as an occluder. Every target the driver had to scroll to
+ * became unclickable, blamed on a paragraph elsewhere on the page.
+ * `getBoundingClientRect` and `elementFromPoint` are both viewport
+ * space by definition, so asking for both together is what makes
+ * the answer sound, not merely what makes it shorter.
+ *
+ * The hit is asked of the element's own root, not of the document.
+ * `document.elementFromPoint` retargets a hit inside a shadow tree
+ * to the host, so an element in a shadow root was reported as
+ * covered by the very host that contains it. A host that covers
+ * something else is still named as itself, which is the useful
+ * answer: the component is what is in the way.
+ *
+ * A point off the viewport reads as nothing here, where the
+ * protocol call answered with whatever node it found instead. That
+ * difference is the safety: an unanswerable question now returns no
+ * occluder rather than a confident wrong one.
+ *
+ * With `alsoCorners`, the corners are tried after the centre, which
+ * is what a full inspection wants: an element clipped at one edge
+ * is worth reporting even though a click at its middle would land.
+ * The readiness poll asks for the centre alone, since that is where
+ * a click is aimed and it runs on every pass.
+ */
+export const OCCLUDER_PROBE = `function (alsoCorners) {
+  var box = this.getBoundingClientRect();
+  if (!box.width || !box.height) return null;
+
+  var inset = 2;
+  var points = [[box.left + box.width / 2, box.top + box.height / 2]];
+  if (alsoCorners) {
+    points.push([box.left + inset, box.top + inset]);
+    points.push([box.right - inset, box.top + inset]);
+    points.push([box.left + inset, box.bottom - inset]);
+    points.push([box.right - inset, box.bottom - inset]);
+  }
+
+  var root = this.getRootNode();
+  var from = root.elementFromPoint ? root : document;
+  for (var at = 0; at < points.length; at++) {
+    var x = points[at][0];
+    var y = points[at][1];
+    var hit = from.elementFromPoint(x, y);
+    if (!hit || hit === this || this.contains(hit)) continue;
+    var described = hit.nodeName.toLowerCase();
+    if (hit.id) described += " id=" + hit.id;
+    else if (hit.classList && hit.classList.length) {
+      described += " class=" + hit.classList[0];
+    }
+    return described;
+  }
+  return null;
+}`;

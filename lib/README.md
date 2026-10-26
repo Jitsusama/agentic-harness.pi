@@ -1,10 +1,10 @@
 # Library
 
 Reusable TypeScript code for Pi extensions, in three layers by who
-may import it. Much of it now lives in
-[agentic-harness.core][core], which is host-neutral; a module here
-that only re-exports core says so in its `index.ts`, and stays so
-that what consumers import keeps working.
+may import it, plus [`core/`](core/), the code of
+[agentic-harness.core][core] folded in as it was. A module here that
+only re-exports core says so in its `index.ts`, and stays so that
+what consumers import keeps working.
 
 ## Public Modules
 
@@ -84,5 +84,12 @@ Two have no barrel yet, and are imported file by file.
 alone, with no barrels; its [README](internal/README.md) says what
 each part is for. Nothing outside the package may import it, and it
 changes without notice.
+
+## Core
+
+[`core/`](core/) is agentic-harness.core's code, brought in whole
+so that one package holds the harness; its
+[README](core/README.md) says how it is laid out and what comes
+next. Extensions import it by relative path, like any module here.
 
 [core]: https://github.com/Jitsusama/agentic-harness.core

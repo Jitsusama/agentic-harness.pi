@@ -18,7 +18,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	type TreeClaims,
 	WORK_TREE_CLAIMS,
-} from "@jitsusama/agentic-harness.core/work";
+} from "../../lib/core/work/index.ts";
 import { discoverQuests } from "../../lib/internal/quest/discovery.ts";
 import { isSealedStatus } from "../../lib/internal/quest/status.ts";
 

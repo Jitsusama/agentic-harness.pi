@@ -7,8 +7,8 @@
  * tool that asked waiting on it.
  */
 
-import { AUTH_MESSAGES } from "@jitsusama/agentic-harness.core/google";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AUTH_MESSAGES } from "../../../../lib/core/google/index.ts";
 import { until } from "../../../support/until.ts";
 import { type PiScreen, pinStdout, piScreen } from "../../ui/pi-screen.ts";
 
@@ -16,36 +16,33 @@ import { type PiScreen, pinStdout, piScreen } from "../../ui/pi-screen.ts";
 const handed: { poll?: AbortSignal; callback?: AbortSignal } = {};
 const device = { fails: false };
 
-vi.mock("@jitsusama/agentic-harness.core/google/auth/browser", () => ({
+vi.mock("../../../../lib/core/google/auth/browser.ts", () => ({
 	openInBrowser: () => undefined,
 }));
 
-vi.mock(
-	"@jitsusama/agentic-harness.core/google/auth/oauth",
-	async (original) => ({
-		...(await original<object>()),
-		initiateDeviceFlow: async () => {
-			if (device.fails) throw new Error("invalid_client");
-			return {
-				device_code: "DEVICE",
-				user_code: "ABCD-EFGH",
-				verification_url: "https://www.google.com/device",
-				interval: 5,
-			};
-		},
-		pollForDeviceAuthorization: (
-			_config: unknown,
-			_code: string,
-			_interval: number,
-			signal?: AbortSignal,
-		) => {
-			handed.poll = signal;
-			return untilStopped(signal);
-		},
-	}),
-);
+vi.mock("../../../../lib/core/google/auth/oauth.ts", async (original) => ({
+	...(await original<object>()),
+	initiateDeviceFlow: async () => {
+		if (device.fails) throw new Error("invalid_client");
+		return {
+			device_code: "DEVICE",
+			user_code: "ABCD-EFGH",
+			verification_url: "https://www.google.com/device",
+			interval: 5,
+		};
+	},
+	pollForDeviceAuthorization: (
+		_config: unknown,
+		_code: string,
+		_interval: number,
+		signal?: AbortSignal,
+	) => {
+		handed.poll = signal;
+		return untilStopped(signal);
+	},
+}));
 
-vi.mock("@jitsusama/agentic-harness.core/google/auth/server", () => ({
+vi.mock("../../../../lib/core/google/auth/server.ts", () => ({
 	waitForOAuthCallback: (_port: number, options?: { signal?: AbortSignal }) => {
 		handed.callback = options?.signal;
 		return untilStopped(options?.signal);

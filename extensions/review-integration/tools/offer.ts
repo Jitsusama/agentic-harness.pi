@@ -16,7 +16,8 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { Exec } from "@jitsusama/agentic-harness.core/exec";
+import { Type } from "@sinclair/typebox";
+import type { Exec } from "../../../lib/core/exec/index.ts";
 import type {
 	AuthoringIntent,
 	BoundTarget,
@@ -24,7 +25,7 @@ import type {
 	FieldEdit,
 	Proposal,
 	SetEdit,
-} from "@jitsusama/agentic-harness.core/review";
+} from "../../../lib/core/review/index.ts";
 import {
 	fillProposal,
 	misnamedPeople,
@@ -32,13 +33,12 @@ import {
 	proposalComplaint,
 	retargetPlan,
 	retargetRoute,
-} from "@jitsusama/agentic-harness.core/review";
-import { composePrBody } from "@jitsusama/agentic-harness.core/sections";
+} from "../../../lib/core/review/index.ts";
+import { composePrBody } from "../../../lib/core/sections/index.ts";
 import {
 	createGitRebaser,
 	createGitStacks,
-} from "@jitsusama/agentic-harness.core/work";
-import { Type } from "@sinclair/typebox";
+} from "../../../lib/core/work/index.ts";
 import { GUARDS } from "../../../lib/internal/guardian/guards.ts";
 import { count } from "../../../lib/ui/index.ts";
 import { REVIEW_COMMANDS } from "../commands.ts";

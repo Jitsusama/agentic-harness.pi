@@ -45,7 +45,7 @@ import {
 	slackGateDecision,
 	tableToBlock,
 	uploadFiles,
-} from "@jitsusama/agentic-harness.core/slack";
+} from "../../lib/core/slack/index.ts";
 import {
 	type ActionParams,
 	numberParam,
@@ -56,7 +56,7 @@ import {
 	stringParam,
 	type ToolContent,
 	type ToolResult,
-} from "@jitsusama/agentic-harness.core/slack/types";
+} from "../../lib/core/slack/types.ts";
 import type { GateDeps } from "../../lib/gate/index.ts";
 import { count, verb } from "../../lib/ui/count.ts";
 import { OUTCOME_GLYPH } from "../../lib/ui/outcome-glyphs.ts";

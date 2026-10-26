@@ -9,4 +9,4 @@ export {
 	priorityJump,
 	priorityShift,
 	reorder,
-} from "@jitsusama/agentic-harness.core/quest/verbs/reorder";
+} from "../../../lib/core/quest/verbs/reorder.ts";

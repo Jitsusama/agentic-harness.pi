@@ -1,4 +1,3 @@
-import type { RepeatedCall } from "@jitsusama/agentic-harness.core/observability";
 import { describe, expect, it } from "vitest";
 import {
 	formatIndexOutcome,
@@ -10,6 +9,7 @@ import {
 	formatTotal,
 	formatVerifierOutcomes,
 } from "../../extensions/cost-workflow/report.ts";
+import type { RepeatedCall } from "../../lib/core/observability/index.ts";
 
 describe("formatQueryAnswer", () => {
 	const answer = {

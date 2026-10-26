@@ -8,13 +8,13 @@
 
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { isAbort } from "@jitsusama/agentic-harness.core/clock";
+import { Type } from "@sinclair/typebox";
+import type { OAuth2Client } from "google-auth-library";
+import { isAbort } from "../../lib/core/clock/index.ts";
 import {
 	clearAllConfig,
 	formatAuthError,
-} from "@jitsusama/agentic-harness.core/google";
-import { Type } from "@sinclair/typebox";
-import type { OAuth2Client } from "google-auth-library";
+} from "../../lib/core/google/index.ts";
 import { ensureAuthenticated } from "../../lib/google/auth/ensure-auth.ts";
 import { ensureOAuthApp } from "../../lib/google/auth/setup-wizard.ts";
 import {

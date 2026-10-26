@@ -25,7 +25,7 @@
  * of it puts notifications on the developer's desktop.
  */
 
-import { type Exec, spawnExec } from "@jitsusama/agentic-harness.core/exec";
+import { type Exec, spawnExec } from "../core/exec/index.ts";
 
 /** How much the notification asks of the person. */
 export type Urgency = "low" | "normal" | "critical";

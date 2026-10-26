@@ -15,5 +15,5 @@ export {
 	getDefaultAccount,
 	listAccounts,
 	type OAuthAppCredentials,
-} from "@jitsusama/agentic-harness.core/google";
+} from "../../core/google/index.ts";
 export { ensureAuthenticated } from "./ensure-auth.ts";

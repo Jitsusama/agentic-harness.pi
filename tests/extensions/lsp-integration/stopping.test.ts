@@ -1,11 +1,11 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import lspIntegration from "../../../extensions/lsp-integration/index.ts";
+import { LSP_CALL_WALL_MS } from "../../../extensions/lsp-integration/limits.ts";
 import {
 	clearLspBackends,
 	type LspBackend,
 	registerLspBackend,
-} from "@jitsusama/agentic-harness.core/lsp";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import lspIntegration from "../../../extensions/lsp-integration/index.ts";
-import { LSP_CALL_WALL_MS } from "../../../extensions/lsp-integration/limits.ts";
+} from "../../../lib/core/lsp/index.ts";
 
 /**
  * What the lsp tool does when its language server will not answer.

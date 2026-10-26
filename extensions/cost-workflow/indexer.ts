@@ -9,7 +9,7 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import type { TurnStore } from "@jitsusama/agentic-harness.core/observability";
+import type { TurnStore } from "../../lib/core/observability/index.ts";
 import { readTurns, SCAN_VERSION } from "../../lib/ledger/index.ts";
 import type { IndexOutcome } from "./report.ts";
 

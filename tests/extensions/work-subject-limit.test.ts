@@ -8,10 +8,10 @@
  * to the one core enforces.
  */
 
-import { validate } from "@jitsusama/agentic-harness.core/guardian/commit-format";
 import { describe, expect, it } from "vitest";
 import workIntegration from "../../extensions/work-integration/index.ts";
 import { SUBJECT_LIMIT } from "../../extensions/work-integration/tools/tree.ts";
+import { validate } from "../../lib/core/internal/guardian/commit-format.ts";
 import { activateWith, toolNamed } from "./support/review-extension.ts";
 
 /** A conventional subject of exactly this many characters. */

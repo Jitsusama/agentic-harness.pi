@@ -5,8 +5,8 @@
  *
  * Public entry point. Guardians and interceptors pull from here to
  * detect, enforce and rewrite commands without reconstructing them.
- * The implementation lives in agentic-harness.core (shared with
- * the Claude Code adapter); this re-exports it so existing local
+ * The implementation lives in core (`lib/core/command`); this
+ * re-exports it so existing local
  * imports keep working unchanged.
  */
 
@@ -24,11 +24,11 @@ export type {
 	SimpleCommand,
 	Span,
 	Word,
-} from "@jitsusama/agentic-harness.core/command";
+} from "../core/command/index.ts";
 export {
 	applyEdits,
 	effectiveCwd,
 	findFlag,
 	findFlags,
 	tokenize,
-} from "@jitsusama/agentic-harness.core/command";
+} from "../core/command/index.ts";
