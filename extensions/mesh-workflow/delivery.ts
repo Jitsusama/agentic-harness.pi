@@ -60,6 +60,8 @@ export const ASKS: Readonly<Record<Intent, string>> = {
 	finding:
 		"A finding: if you own what it is about, check it against the source before you act on it, then note it in your plan or journal and act on it in its turn; if you do not own it, let it go. No reply.",
 	fyi: "An fyi: context only. No reply and no action.",
+	pivot:
+		"A pivot: your orchestrator changes what you are doing. Put down what it names, take up what it says, and once you have changed course, answer it with mesh_send, re set to its id, saying what you put down. Your orchestrator sees who has.",
 };
 
 /**

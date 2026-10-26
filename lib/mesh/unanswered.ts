@@ -10,7 +10,9 @@
  * anything in its thread: the orchestrator's first use of this view
  * listed 21 questions, most settled by an answer to a follow-up. One
  * the asker withdrew (`supersedes`) or moved on from, by asking again in
- * answer to it, is closed.
+ * answer to it, is closed. An orchestrator sees only those of its own
+ * orchestration ({@link withinOrchestration}), since the rest of the
+ * mesh is not its to unstick.
  */
 
 import type { Message } from "./message.ts";
@@ -25,6 +27,21 @@ const MOST_THREAD_DEPTH = 20;
 export interface Open {
 	readonly message: Message;
 	readonly waitingOn: readonly string[];
+}
+
+/**
+ * The open questions that concern an orchestration: asked by one of its
+ * sessions, or waiting on one. `members` holds every address they go by.
+ */
+export function withinOrchestration(
+	open: readonly Open[],
+	members: ReadonlySet<string>,
+): Open[] {
+	return open.filter(
+		({ message, waitingOn }) =>
+			members.has(message.from) ||
+			waitingOn.some((address) => members.has(address)),
+	);
 }
 
 /**

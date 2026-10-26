@@ -2270,6 +2270,18 @@ describe("a message that names no group", () => {
 		expect(narrowed).toContain("`orchestrator` reached nobody");
 	});
 
+	it("refuses a pivot from a session that heads no orchestration", async () => {
+		onQuest();
+		peer("session-q", ["5GV2AH"], ["#quest/5gv2ah/7m6jkg", "#harness"]);
+		const { tools } = await startSession();
+		const transport = folderTransport(join(paths.mesh, "messages"));
+
+		const refused = await send(tools, "5GV2AH", "pivot", "Drop it.");
+
+		expect(refused).toContain("Not sent: only an orchestrator sends a pivot");
+		expect(transport.ids()).toEqual([]);
+	});
+
 	it("keeps the machine's group for holds and the answers that end them", async () => {
 		onQuest();
 		peer("session-q", ["5GV2AH"], ["#quest/5gv2ah/7m6jkg", "#harness"]);

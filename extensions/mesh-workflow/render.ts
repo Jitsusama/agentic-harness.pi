@@ -40,7 +40,10 @@ export function meshLines(
 		messages.length > 0
 			? messages.map((message) =>
 					renderNarrationLine(SOURCE, said(message), theme, {
-						level: message.intent === "hold" ? "warn" : "info",
+						level:
+							message.intent === "hold" || message.intent === "pivot"
+								? "warn"
+								: "info",
 					}),
 				)
 			: [renderNarrationLine(SOURCE, opening(content), theme)];

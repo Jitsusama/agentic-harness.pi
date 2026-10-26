@@ -555,6 +555,11 @@ export function meshWorkflow(
 			};
 			const self: Self = { addresses: peer.addresses, pid: process.pid };
 			const listener = peer.listener;
+			// Every address the orchestrator signs with, so a pivot under
+			// either its quest's or its session's is known as its own.
+			const orchestrator = peer.orchestratedBy
+				? addressesOf(peer.orchestratedBy)
+				: undefined;
 			const read = (id: string) => transport.read(id);
 			const everyone = presences.all();
 			const stopped = messages.map((message) =>
@@ -584,6 +589,7 @@ export function meshWorkflow(
 					asked: answeringAt(asked, at),
 					askedEach: asksEach(message, listener),
 					now: Date.now(),
+					...(orchestrator ? { orchestrator } : {}),
 					...(concerns[at] ? { concern: concerns[at] } : {}),
 				});
 				// What a starting peer catches up on rides the first prompt.
