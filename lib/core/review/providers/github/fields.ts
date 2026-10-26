@@ -2,7 +2,7 @@
  * Fields two GitHub readers both need.
  *
  * There are two places that turn a REST pull request into a
- * {@link Proposal}: the proposals facet, which reads changes, and the
+ * {@link Change}: the changes facet, which reads them, and the
  * authoring facet, which reads back the change it just wrote. They are
  * near-duplicates and predate this file, and merging them is a real
  * refactor rather than a detail of adding a field.

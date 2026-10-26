@@ -206,6 +206,8 @@ export {
 export type {
 	AuthoringCapabilities,
 	Capabilities,
+	CapabilitiesSayingProposals,
+	ChangeCapabilities,
 	ConversationCapabilities,
 	PersonForm,
 	ProposalCapabilities,
@@ -216,6 +218,7 @@ export type {
 } from "./capabilities.ts";
 export type {
 	Actor,
+	Change,
 	ChangeRef,
 	ChangeState,
 	Proposal,
@@ -371,7 +374,10 @@ export type {
 export { fillProposal } from "./propose-from.ts";
 export type {
 	AuthoringFacet,
+	ChangeDraft,
+	ChangeEdit,
 	ChangeFilter,
+	ChangesFacet,
 	ConversationFacet,
 	FieldEdit,
 	LocalBranch,
@@ -382,6 +388,7 @@ export type {
 	ProposalsFacet,
 	RepoProbe,
 	ReviewProvider,
+	ReviewProviderSayingProposals,
 	SetEdit,
 	StackingFacet,
 } from "./provider.ts";

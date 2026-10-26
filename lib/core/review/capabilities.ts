@@ -118,8 +118,8 @@ export interface StackingCapabilities {
 	fanOut: boolean;
 }
 
-/** What a provider's proposals facet can do. */
-export interface ProposalCapabilities {
+/** What a provider's changes facet can do. */
+export interface ChangeCapabilities {
 	/** Fetch the change's commits into a local repo. */
 	fetchAsRef: boolean;
 	/** Report CI state for a change. */
@@ -221,8 +221,25 @@ export interface AuthoringCapabilities {
 
 /** Everything a provider declares about itself, per repo. */
 export interface Capabilities {
-	proposals?: ProposalCapabilities;
+	changes?: ChangeCapabilities;
 	stacking?: StackingCapabilities;
 	conversation?: ConversationCapabilities;
 	authoring?: AuthoringCapabilities;
 }
+
+/**
+ * The name {@link ChangeCapabilities} had before the glossary said change.
+ *
+ * @deprecated Use {@link ChangeCapabilities}.
+ */
+export type ProposalCapabilities = ChangeCapabilities;
+
+/**
+ * What a provider written before the glossary said change declares,
+ * its changes facet's capabilities still under `proposals`.
+ *
+ * @deprecated Declare {@link Capabilities}' `changes`.
+ */
+export type CapabilitiesSayingProposals = Omit<Capabilities, "changes"> & {
+	proposals?: ChangeCapabilities;
+};

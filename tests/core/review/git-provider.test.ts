@@ -59,7 +59,7 @@ describe("what a bare repo can honestly do", () => {
 
 	it("hosts no proposals, so it cannot list or check them", () => {
 		const { git } = provider([]);
-		expect(git.capabilities(repo).proposals).toBeUndefined();
+		expect(git.capabilities(repo).changes).toBeUndefined();
 	});
 });
 

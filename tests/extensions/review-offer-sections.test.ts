@@ -10,9 +10,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { forgetRefusals } from "../../extensions/review-integration/tools/resubmit.ts";
 import {
 	type AuthoringCapabilities,
+	type Change,
 	clearReviewProviders,
 	clearTargetBindings,
-	type Proposal,
 	type RepoLocator,
 	registerReviewProvider,
 } from "../../lib/core/review/index.ts";
@@ -58,7 +58,7 @@ const SECTIONS = {
 function recordingProvider(current: string = composePrBody(SECTIONS)) {
 	const proposed: { body: string; title?: string }[] = [];
 	const edited: (string | undefined)[] = [];
-	const existing: Proposal = {
+	const existing: Change = {
 		ref: { provider: "meteorite", repo: world, id: "7", label: "shop/world#7" },
 		title: "Merge Short Commit Ids",
 		body: current,
@@ -81,7 +81,7 @@ function recordingProvider(current: string = composePrBody(SECTIONS)) {
 		}),
 		capabilities: { authoring: CAN_AUTHOR },
 		facets: {
-			proposals: {
+			changes: {
 				fetch: async () => existing,
 				diff: unused("diff a change"),
 			},

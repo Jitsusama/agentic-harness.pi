@@ -16,7 +16,7 @@
  * guess as fact.
  */
 
-import type { Proposal } from "./change.ts";
+import type { Change } from "./change.ts";
 
 /**
  * Where a stack's shape came from. `authoritative` means the
@@ -40,7 +40,7 @@ export interface StackNode {
 	 */
 	forkPoint?: string;
 	/** The proposal on this node, when one exists. */
-	proposal?: Proposal;
+	proposal?: Change;
 	/**
 	 * True when the parent has moved since this node last
 	 * agreed with it, where the provider can tell.

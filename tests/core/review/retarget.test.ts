@@ -9,16 +9,16 @@
 
 import { describe, expect, it } from "vitest";
 import type {
-	Proposal,
+	Change,
 	Stack,
 	StackNode,
 } from "../../../lib/core/review/index.ts";
 import { retargetPlan, retargetRoute } from "../../../lib/core/review/index.ts";
 
 /** A proposal that targets `base`, with the rest filled in plausibly. */
-function proposedOnto(base: string): Proposal {
+function proposedOnto(base: string): Change {
 	return {
-		ref: { kind: "proposal", id: base, label: `#${base}` },
+		ref: { kind: "change", id: base, label: `#${base}` },
 		title: "Something",
 		body: "",
 		state: "open",
@@ -26,7 +26,7 @@ function proposedOnto(base: string): Proposal {
 		author: { id: "1", login: "someone" },
 		base,
 		head: "whatever",
-	} as unknown as Proposal;
+	} as unknown as Change;
 }
 
 function stackOf(...nodes: StackNode[]): Stack {

@@ -12,7 +12,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { ChangeRef, Proposal } from "../../../lib/core/review/change.ts";
+import type { Change, ChangeRef } from "../../../lib/core/review/change.ts";
 import {
 	createVisitLog,
 	describeVisit,
@@ -45,7 +45,7 @@ function scratch(): string {
 }
 
 /** A proposal sitting at a commit. */
-function at(commit?: string): Proposal {
+function at(commit?: string): Change {
 	return {
 		ref: REF,
 		title: "A change",
@@ -54,7 +54,7 @@ function at(commit?: string): Proposal {
 		base: "main",
 		head: "topic",
 		...(commit === undefined ? {} : { headCommit: commit }),
-	} as Proposal;
+	} as Change;
 }
 
 describe("recording that you reviewed something", () => {

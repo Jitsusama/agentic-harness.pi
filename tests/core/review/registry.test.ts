@@ -23,6 +23,40 @@ describe("the review provider registry", () => {
 		expect(getReviewProvider("github")).toBeUndefined();
 	});
 
+	it("reads a provider still naming its changes facet proposals", async () => {
+		// Another package's provider may predate the glossary's change.
+		const { capabilities, ...rest } = stubProvider({
+			id: "older",
+			priority: 50,
+		});
+		const facet = {
+			fetch: async () => {
+				throw new Error("not fetched here");
+			},
+			diff: async () => "the diff",
+		};
+		registerReviewProvider({
+			...rest,
+			capabilities: (repo) => ({
+				...capabilities(repo),
+				proposals: { fetchAsRef: false, checks: false, list: false },
+			}),
+			proposals: facet,
+		});
+
+		const found = getReviewProvider("older");
+		const said = found?.capabilities({ key: "local:/src/app" });
+
+		expect(found?.changes).toBe(facet);
+		expect(said?.changes).toEqual({
+			fetchAsRef: false,
+			checks: false,
+			list: false,
+		});
+		expect(said).not.toHaveProperty("proposals");
+		expect(getReviewProvider("older")).toBe(found);
+	});
+
 	it("replaces a provider registered under the same id", () => {
 		registerReviewProvider(stubProvider({ id: "github", priority: 100 }));
 		registerReviewProvider(stubProvider({ id: "github", priority: 10 }));

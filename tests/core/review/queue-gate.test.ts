@@ -53,7 +53,7 @@ async function proposalWith(pullRequest: unknown) {
 		{ when: ["api", "graphql"], stdout: graphql(pullRequest) },
 	]);
 	const provider = createGitHubProvider({ exec });
-	const proposal = await provider.proposals?.fetch(CHANGE);
+	const proposal = await provider.changes?.fetch(CHANGE);
 	if (!proposal) throw new Error("the provider read no proposal");
 	return proposal;
 }
@@ -97,7 +97,7 @@ describe("reading a merge queue through the provider", () => {
 		const { exec } = fakeExec([
 			{ when: ["api", "repos/Shopify/world/pulls/42"], stdout: REST },
 		]);
-		const proposal = await createGitHubProvider({ exec }).proposals?.fetch(
+		const proposal = await createGitHubProvider({ exec }).changes?.fetch(
 			CHANGE,
 		);
 

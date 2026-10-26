@@ -15,9 +15,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	type AuthoringCapabilities,
+	type Change,
 	clearReviewProviders,
 	clearTargetBindings,
-	type Proposal,
 	registerReviewProvider,
 } from "../../lib/core/review/index.ts";
 import { stubProvider } from "../support/stub-provider.ts";
@@ -45,7 +45,7 @@ const unused = (method: string) => async (): Promise<never> => {
 	throw new Error(`this test never asks a provider to ${method}`);
 };
 
-const proposal: Proposal = {
+const proposal: Change = {
 	ref: {
 		provider: "meteorite",
 		repo: { key: "meteorite:shop/world" },
@@ -77,7 +77,7 @@ function backend(outcome: { kind: "merged" | "enqueued" }) {
 		}),
 		capabilities: { authoring: CAN_MERGE },
 		facets: {
-			proposals: {
+			changes: {
 				fetch: async () => proposal,
 				diff: unused("diff a change"),
 			},

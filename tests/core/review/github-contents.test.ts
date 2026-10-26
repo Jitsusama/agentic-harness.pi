@@ -25,7 +25,7 @@ describe("reading a file at a commit", () => {
 	it("hands back the decoded file", async () => {
 		const { provider: gh } = provider(contents("package main\n"));
 
-		const text = await gh.proposals?.fileAt?.(ref, "main.go", "abc123");
+		const text = await gh.changes?.fileAt?.(ref, "main.go", "abc123");
 
 		expect(text).toBe("package main\n");
 	});
@@ -33,7 +33,7 @@ describe("reading a file at a commit", () => {
 	it("asks for the path at the commit it was given", async () => {
 		const { provider: gh, calls } = provider(contents("x"));
 
-		await gh.proposals?.fileAt?.(ref, "cmd/replica.go", "deadbeef");
+		await gh.changes?.fileAt?.(ref, "cmd/replica.go", "deadbeef");
 
 		const asked = calls.map((c) => c.args.join(" ")).join(" ");
 		expect(asked).toContain("repos/o/r/contents/cmd/replica.go");
@@ -49,7 +49,7 @@ describe("reading a file at a commit", () => {
 			JSON.stringify({ encoding: "base64", content: wrapped }),
 		);
 
-		expect(await gh.proposals?.fileAt?.(ref, "f", "c")).toBe("a".repeat(200));
+		expect(await gh.changes?.fileAt?.(ref, "f", "c")).toBe("a".repeat(200));
 	});
 
 	it("says which file and commit it could not read", async () => {
@@ -58,7 +58,7 @@ describe("reading a file at a commit", () => {
 		const { provider: gh } = provider("", 1);
 
 		await expect(
-			gh.proposals?.fileAt?.(ref, "gone.go", "abc123"),
+			gh.changes?.fileAt?.(ref, "gone.go", "abc123"),
 		).rejects.toThrow(/gone\.go.*abc123|abc123.*gone\.go/s);
 	});
 
@@ -67,7 +67,7 @@ describe("reading a file at a commit", () => {
 		// returning an empty string would look like an empty file.
 		const { provider: gh } = provider(JSON.stringify([{ name: "a.go" }]));
 
-		await expect(gh.proposals?.fileAt?.(ref, "cmd", "abc")).rejects.toThrow(
+		await expect(gh.changes?.fileAt?.(ref, "cmd", "abc")).rejects.toThrow(
 			/no content|not a file/i,
 		);
 	});

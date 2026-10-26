@@ -27,7 +27,7 @@ import { abortError, WallClockExceeded } from "../../../../clock/bound.ts";
 import { spawnExec } from "../../../exec/spawn.ts";
 import type {
 	CreateTreeInput,
-	PruneTreeInput,
+	ReleaseTreeInput,
 	TreeHandle,
 	TreeProvider,
 } from "../../../tree/types.ts";
@@ -49,8 +49,8 @@ export const TREE_WALL_MS = 10 * 60 * 1000;
 const TIDY_WALL_MS = 10_000;
 
 /**
- * How long refreshing the default branch before a prune may take. Short
- * and best effort: offline, the prune judges against what it last saw.
+ * How long refreshing the default branch before a release may take. Short
+ * and best effort: offline, the release judges against what it last saw.
  */
 const FETCH_WALL_MS = 15_000;
 
@@ -326,7 +326,7 @@ async function contentAlreadyIn(
 	return Boolean(mergedTree && targetTree && mergedTree === targetTree);
 }
 
-/** What a prune learned about a branch against the default branch. */
+/** What a release learned about a branch against the default branch. */
 interface MergeState {
 	unmerged: boolean;
 	comparedAgainst: string | undefined;
@@ -346,7 +346,7 @@ interface MergeState {
  * since that is what a squash merge leaves. If neither
  * comparison succeeds the function returns true and lets
  * the caller surface the lack of a target: silently
- * returning false would let a force-less prune destroy
+ * returning false would let a force-less release destroy
  * unmerged work in a repo with no origin remote.
  */
 async function hasUnmergedCommits(
@@ -395,7 +395,7 @@ async function hasUnmergedCommits(
 		};
 	}
 	// No comparison target. Fail safe: claim unmerged so a
-	// non-force prune refuses with a clear message, and let
+	// non-force release refuses with a clear message, and let
 	// the caller force when they know better.
 	return { unmerged: true, comparedAgainst: undefined };
 }
@@ -425,7 +425,7 @@ export function createGitWorktreeProvider(
 			const treePath = join(repoRoot, WORKTREES_DIR, input.name);
 			if (existsSync(treePath)) {
 				throw new Error(
-					`A tree already exists at ${treePath}. Pick a different name or prune the existing one first.`,
+					`A tree already exists at ${treePath}. Pick a different name or release the existing one first.`,
 				);
 			}
 			const op = operation(`cutting ${treePath}`, wallMs, input.signal);
@@ -483,12 +483,12 @@ export function createGitWorktreeProvider(
 				providerId: PROVIDER_ID,
 			};
 		},
-		async prune(input: PruneTreeInput): Promise<void> {
+		async release(input: ReleaseTreeInput): Promise<void> {
 			const treePath = resolve(input.path);
 			const op = operation(`pruning ${treePath}`, wallMs, input.signal);
 			try {
 				assertRunning(op);
-				await pruneTree(op, treePath, input.force === true);
+				await releaseTree(op, treePath, input.force === true);
 			} finally {
 				op.end();
 			}
@@ -513,7 +513,7 @@ export function createGitWorktreeProvider(
  * unless forced. A stop part way leaves the tree where it was
  * unless `git worktree remove` itself was the call stopped.
  */
-async function pruneTree(
+async function releaseTree(
 	op: Operation,
 	treePath: string,
 	force: boolean,
@@ -523,7 +523,7 @@ async function pruneTree(
 		// may still be around. Walk up looking for the
 		// containing repo so we can run
 		// `git worktree prune` against it. When we
-		// can't find it, treat the prune as already
+		// can't find it, treat the release as already
 		// done.
 		let ancestor = dirname(treePath);
 		while (ancestor !== dirname(ancestor)) {
@@ -548,7 +548,7 @@ async function pruneTree(
 	if (!force) {
 		if (await isDirty(op, treePath)) {
 			throw new Error(
-				`Tree at ${treePath} has uncommitted changes. Commit, stash or force-prune.`,
+				`Tree at ${treePath} has uncommitted changes. Commit them, or release it with force.`,
 			);
 		}
 		if (branch) {
@@ -563,7 +563,7 @@ async function pruneTree(
 					? `against ${comparedAgainst}`
 					: "and no default-branch comparison target exists (no origin remote, no local main/master)";
 				throw new Error(
-					`Branch ${branch} has commits not merged ${target}. Push and merge first, or force-prune.`,
+					`Branch ${branch} has commits not merged ${target}. Push and merge first, or release it with force.`,
 				);
 			}
 		}

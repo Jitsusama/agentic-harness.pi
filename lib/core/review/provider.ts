@@ -15,12 +15,15 @@
  */
 
 import type { Anchor } from "./anchor.ts";
-import type { Capabilities } from "./capabilities.ts";
+import type {
+	Capabilities,
+	CapabilitiesSayingProposals,
+} from "./capabilities.ts";
 import type {
 	Actor,
+	Change,
 	ChangeRef,
 	ChangeState,
-	Proposal,
 	RepoLocator,
 } from "./change.ts";
 import type { ChecksRollup, RerunOutcome } from "./checks.ts";
@@ -53,12 +56,12 @@ export interface ChangeFilter {
 }
 
 /** Reading hosted changes. */
-export interface ProposalsFacet {
-	fetch(ref: ChangeRef): Promise<Proposal>;
+export interface ChangesFacet {
+	fetch(ref: ChangeRef): Promise<Change>;
 	/** Unified diff in git's dialect. */
 	diff(ref: ChangeRef): Promise<string>;
 	checks?(ref: ChangeRef): Promise<ChecksRollup>;
-	list?(repo: RepoLocator, filter: ChangeFilter): Promise<Proposal[]>;
+	list?(repo: RepoLocator, filter: ChangeFilter): Promise<Change[]>;
 	/**
 	 * Materialize the change's commits in a local repo and
 	 * return the ref they landed on. This is what lets a
@@ -172,7 +175,7 @@ export type SetEdit<T> =
 	| { action: "clear" };
 
 /** What to change about a proposal. */
-export interface ProposalEdit {
+export interface ChangeEdit {
 	title?: FieldEdit<string>;
 	body?: FieldEdit<string>;
 	base?: FieldEdit<string>;
@@ -188,7 +191,7 @@ export interface ProposalEdit {
 }
 
 /** What to propose. */
-export interface ProposalDraft {
+export interface ChangeDraft {
 	repo: RepoLocator;
 	base: string;
 	head: string;
@@ -268,10 +271,10 @@ export type MergeOutcome =
  * through.
  */
 export interface AuthoringFacet {
-	propose(draft: ProposalDraft): Promise<Proposal>;
+	propose(draft: ChangeDraft): Promise<Change>;
 	/** Propose a whole stack in dependency order. */
-	proposeStack?(drafts: ProposalDraft[]): Promise<Proposal[]>;
-	edit(ref: ChangeRef, edit: ProposalEdit): Promise<Proposal>;
+	proposeStack?(drafts: ChangeDraft[]): Promise<Change[]>;
+	edit(ref: ChangeRef, edit: ChangeEdit): Promise<Change>;
 	setDraft?(ref: ChangeRef, draft: boolean): Promise<void>;
 	close(ref: ChangeRef, comment?: string): Promise<void>;
 	reopen?(ref: ChangeRef): Promise<void>;
@@ -310,8 +313,45 @@ export interface ReviewProvider {
 	/** What this provider can do for this repo. */
 	capabilities(repo: RepoLocator): Capabilities;
 
-	proposals?: ProposalsFacet;
+	changes?: ChangesFacet;
 	stacking?: StackingFacet;
 	conversation?: ConversationFacet;
 	authoring?: AuthoringFacet;
 }
+
+/**
+ * The name {@link ChangesFacet} had before the glossary said change.
+ *
+ * @deprecated Use {@link ChangesFacet}.
+ */
+export type ProposalsFacet = ChangesFacet;
+
+/**
+ * The name {@link ChangeEdit} had before the glossary said change.
+ *
+ * @deprecated Use {@link ChangeEdit}.
+ */
+export type ProposalEdit = ChangeEdit;
+
+/**
+ * The name {@link ChangeDraft} had before the glossary said change.
+ *
+ * @deprecated Use {@link ChangeDraft}.
+ */
+export type ProposalDraft = ChangeDraft;
+
+/**
+ * A provider written before the glossary said change, whose changes
+ * facet and its capabilities are still named `proposals`. Providers
+ * from other packages may arrive in this shape, so the registry takes
+ * one and hands it out saying `changes`.
+ *
+ * @deprecated Write {@link ReviewProvider}'s `changes`.
+ */
+export type ReviewProviderSayingProposals = Omit<
+	ReviewProvider,
+	"changes" | "capabilities"
+> & {
+	proposals?: ChangesFacet;
+	capabilities(repo: RepoLocator): CapabilitiesSayingProposals;
+};

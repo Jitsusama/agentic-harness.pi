@@ -49,7 +49,7 @@ describe("how big the change is", () => {
 			},
 		]);
 
-		const proposal = await gh.proposals?.fetch(ref);
+		const proposal = await gh.changes?.fetch(ref);
 
 		expect(proposal?.additions).toBe(13841);
 		expect(proposal?.deletions).toBe(11215);
@@ -67,7 +67,7 @@ describe("how big the change is", () => {
 			},
 		]);
 
-		const proposal = await gh.proposals?.fetch(ref);
+		const proposal = await gh.changes?.fetch(ref);
 
 		expect(proposal?.author.id).toBe("ghost");
 	});
@@ -79,7 +79,7 @@ describe("how big the change is", () => {
 			{ when: ["repos/Shopify/world/pulls/123"], stdout: pullJson },
 		]);
 
-		const proposal = await gh.proposals?.fetch(ref);
+		const proposal = await gh.changes?.fetch(ref);
 
 		expect(proposal?.additions).toBeUndefined();
 		expect(proposal?.changedFiles).toBeUndefined();
@@ -91,7 +91,7 @@ describe("reading a pull request", () => {
 		const { provider: gh, calls } = provider([
 			{ when: ["repos/Shopify/world/pulls/123"], stdout: pullJson },
 		]);
-		const proposal = await gh.proposals?.fetch(ref);
+		const proposal = await gh.changes?.fetch(ref);
 		expect(callMatching(calls, "api")?.command).toBe("gh");
 		expect(proposal?.title).toBe("Teach the widget to fly");
 		expect(proposal?.state).toBe("open");
@@ -112,7 +112,7 @@ describe("reading a pull request", () => {
 		const { provider: gh } = provider([
 			{ when: ["pulls/123"], stdout: merged },
 		]);
-		expect((await gh.proposals?.fetch(ref))?.state).toBe("merged");
+		expect((await gh.changes?.fetch(ref))?.state).toBe("merged");
 	});
 
 	it("reads a closed pull request that never merged as closed", async () => {
@@ -124,13 +124,13 @@ describe("reading a pull request", () => {
 		const { provider: gh } = provider([
 			{ when: ["pulls/123"], stdout: closed },
 		]);
-		expect((await gh.proposals?.fetch(ref))?.state).toBe("closed");
+		expect((await gh.changes?.fetch(ref))?.state).toBe("closed");
 	});
 
 	it("keeps draft as a flag beside the state, not as a state", async () => {
 		const draft = JSON.stringify({ ...JSON.parse(pullJson), draft: true });
 		const { provider: gh } = provider([{ when: ["pulls/123"], stdout: draft }]);
-		const proposal = await gh.proposals?.fetch(ref);
+		const proposal = await gh.changes?.fetch(ref);
 		expect(proposal?.draft).toBe(true);
 		expect(proposal?.state).toBe("open");
 	});
@@ -139,7 +139,7 @@ describe("reading a pull request", () => {
 		const { provider: gh } = provider([
 			{ when: ["pulls/123"], code: 1, stderr: "gh: not found" },
 		]);
-		await expect(gh.proposals?.fetch(ref)).rejects.toThrow(/not found/);
+		await expect(gh.changes?.fetch(ref)).rejects.toThrow(/not found/);
 	});
 });
 
@@ -149,7 +149,7 @@ describe("reading the diff", () => {
 		const { provider: gh, calls } = provider([
 			{ when: ["diff", "123"], stdout: diff },
 		]);
-		expect(await gh.proposals?.diff(ref)).toBe(diff);
+		expect(await gh.changes?.diff(ref)).toBe(diff);
 		expect(callMatching(calls, "diff")?.args).toContain("Shopify/world");
 	});
 });
@@ -168,7 +168,7 @@ describe("reading checks", () => {
 		const { provider: gh } = provider([
 			{ when: ["statusCheckRollup"], stdout: rollup },
 		]);
-		const checks = await gh.proposals?.checks?.(ref);
+		const checks = await gh.changes?.checks?.(ref);
 		expect(checks?.checks.map((entry) => entry.name)).toEqual([
 			"build",
 			"flaky",
@@ -191,14 +191,14 @@ describe("reading checks", () => {
 		const { provider: gh } = provider([
 			{ when: ["statusCheckRollup"], stdout: running },
 		]);
-		expect((await gh.proposals?.checks?.(ref))?.state).toBe("pending");
+		expect((await gh.changes?.checks?.(ref))?.state).toBe("pending");
 	});
 
 	it("says nothing has reported rather than claiming success", async () => {
 		const { provider: gh } = provider([
 			{ when: ["statusCheckRollup"], stdout: '{"statusCheckRollup":[]}' },
 		]);
-		const checks = await gh.proposals?.checks?.(ref);
+		const checks = await gh.changes?.checks?.(ref);
 		expect(checks?.state).toBe("unreported");
 		expect(checks?.checks).toEqual([]);
 	});
@@ -223,7 +223,7 @@ describe("listing changes", () => {
 		const { provider: gh, calls } = provider([
 			{ when: ["pr", "list"], stdout: listJson },
 		]);
-		const found = await gh.proposals?.list?.(repo, { state: "open" });
+		const found = await gh.changes?.list?.(repo, { state: "open" });
 		expect(found?.[0].title).toBe("One");
 		expect(found?.[0].state).toBe("open");
 		expect(found?.[0].ref.id).toBe("1");
@@ -234,7 +234,7 @@ describe("listing changes", () => {
 		const { provider: gh, calls } = provider([
 			{ when: ["pr", "list"], stdout: "[]" },
 		]);
-		await gh.proposals?.list?.(repo, { head: "topic", limit: 5 });
+		await gh.changes?.list?.(repo, { head: "topic", limit: 5 });
 		const args = callMatching(calls, "list")?.args.join(" ");
 		expect(args).toContain("topic");
 		expect(args).toContain("5");
@@ -244,7 +244,7 @@ describe("listing changes", () => {
 describe("materializing a change locally", () => {
 	it("fetches the pull ref and reports where it landed", async () => {
 		const { provider: gh, calls } = provider([{ when: ["fetch"] }]);
-		const landed = await gh.proposals?.fetchAsRef?.(ref, "/src/world");
+		const landed = await gh.changes?.fetchAsRef?.(ref, "/src/world");
 		expect(landed).toContain("123");
 		const fetch = callMatching(calls, "fetch");
 		expect(fetch?.command).toBe("git");

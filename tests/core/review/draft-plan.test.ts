@@ -18,7 +18,7 @@ import {
 } from "../../../lib/core/review/index.ts";
 
 const target: ReviewTarget = {
-	kind: "proposal",
+	kind: "change",
 	change: {
 		provider: "meteorite",
 		repo: { key: "gitstream:shop/world" },

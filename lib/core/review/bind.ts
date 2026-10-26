@@ -73,7 +73,7 @@ export function clearTargetBindings(): void {
 
 /** The repo a target is about. */
 function repoOf(target: ReviewTarget): RepoLocator {
-	return target.kind === "proposal" ? target.change.repo : target.repo;
+	return target.kind === "change" ? target.change.repo : target.repo;
 }
 
 /**
@@ -273,7 +273,7 @@ export function resolveTarget(
 		};
 	}
 
-	if (target.kind === "proposal") {
+	if (target.kind === "change") {
 		const provider = getReviewProvider(target.change.provider);
 		if (!provider) {
 			return {

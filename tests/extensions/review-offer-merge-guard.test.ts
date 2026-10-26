@@ -16,9 +16,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	type AuthoringCapabilities,
+	type Change,
 	clearReviewProviders,
 	clearTargetBindings,
-	type Proposal,
 	registerReviewProvider,
 } from "../../lib/core/review/index.ts";
 import { stubProvider } from "../support/stub-provider.ts";
@@ -55,7 +55,7 @@ const unused = (method: string) => async (): Promise<never> => {
  * registry and a stub sharing an id is silently replaced by one that talks to
  * the network.
  */
-const proposal: Proposal = {
+const proposal: Change = {
 	ref: {
 		provider: "meteorite",
 		repo: { key: "meteorite:shop/world" },
@@ -88,7 +88,7 @@ function mergingProvider() {
 		}),
 		capabilities: { authoring: CAN_MERGE },
 		facets: {
-			proposals: {
+			changes: {
 				fetch: async () => proposal,
 				diff: unused("diff a change"),
 			},

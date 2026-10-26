@@ -15,10 +15,10 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	type AuthoringCapabilities,
+	type Change,
+	type ChangeDraft,
 	clearReviewProviders,
 	clearTargetBindings,
-	type Proposal,
-	type ProposalDraft,
 	type RepoLocator,
 	registerReviewProvider,
 } from "../../lib/core/review/index.ts";
@@ -60,7 +60,7 @@ const unused = (method: string) => async (): Promise<never> => {
 
 /** A provider that records the drafts it was asked to open. */
 function recordingProvider(options: { editFails?: boolean } = {}) {
-	const asked: ProposalDraft[][] = [];
+	const asked: ChangeDraft[][] = [];
 	const edits: { id: string; body?: string }[] = [];
 	const provider = stubProvider({
 		id: "meteorite",
@@ -80,7 +80,7 @@ function recordingProvider(options: { editFails?: boolean } = {}) {
 					});
 					return madeFrom(ref.id, "");
 				},
-				proposeStack: async (drafts: ProposalDraft[]): Promise<Proposal[]> => {
+				proposeStack: async (drafts: ChangeDraft[]): Promise<Change[]> => {
 					asked.push(drafts);
 					return drafts.map((draft, at) =>
 						madeFrom(String(at + 1), draft.head),
@@ -93,7 +93,7 @@ function recordingProvider(options: { editFails?: boolean } = {}) {
 }
 
 /** A proposal as a backend would answer with one. */
-function madeFrom(id: string, head: string): Proposal {
+function madeFrom(id: string, head: string): Change {
 	return {
 		ref: {
 			provider: "meteorite",

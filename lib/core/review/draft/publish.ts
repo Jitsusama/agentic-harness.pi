@@ -158,7 +158,7 @@ export async function publishPlan(
 ): Promise<PublishOutcome> {
 	if (plan.ops.length === 0) return { ok: true, outcomes: [] };
 
-	if (plan.target.kind !== "proposal") {
+	if (plan.target.kind !== "change") {
 		return allFailed(
 			plan,
 			"this target is not hosted anywhere, so there is no change " +

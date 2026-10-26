@@ -28,7 +28,7 @@ import type { RepoLocator } from "./change.ts";
 import type { ReviewProvider } from "./provider.ts";
 
 /** Which facets carry capabilities that promise a method. */
-type FacetName = "proposals" | "conversation" | "authoring";
+type FacetName = "changes" | "conversation" | "authoring";
 
 /**
  * Which method has to exist for each capability that promises one.
@@ -67,10 +67,10 @@ export const BACKED_BY: ReadonlyArray<{
 	/** The facet requires this method, so its presence says nothing. */
 	mandatory?: true;
 }> = [
-	{ facet: "proposals", capability: "checks", method: "checks" },
+	{ facet: "changes", capability: "checks", method: "checks" },
 
-	{ facet: "proposals", capability: "list", method: "list" },
-	{ facet: "proposals", capability: "fetchAsRef", method: "fetchAsRef" },
+	{ facet: "changes", capability: "list", method: "list" },
+	{ facet: "changes", capability: "fetchAsRef", method: "fetchAsRef" },
 	{ facet: "authoring", capability: "rerunChecks", method: "rerun" },
 	{ facet: "conversation", capability: "unresolve", method: "unresolve" },
 	{

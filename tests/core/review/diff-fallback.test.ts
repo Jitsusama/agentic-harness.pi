@@ -91,7 +91,7 @@ function capped(options: { fetchAsRef?: false; base?: string } = {}) {
 				id: input,
 				label: `o/r#${input}`,
 			}),
-			facets: { proposals: proposals as never },
+			facets: { changes: proposals as never },
 		}),
 	};
 }

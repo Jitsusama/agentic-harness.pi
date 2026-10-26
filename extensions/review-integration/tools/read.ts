@@ -377,7 +377,7 @@ function describeCapabilities(
 	// what it could do to a change here rather than to one that exists.
 	const subject = !("target" in bound)
 		? `this checkout, ${bound.repo.key}`
-		: bound.target.kind === "proposal"
+		: bound.target.kind === "change"
 			? bound.target.change.label
 			: `a ${bound.target.kind} in ${bound.repo.key}`;
 	const lines = [
@@ -395,13 +395,13 @@ function describeCapabilities(
 					? " · reports branching stacks"
 					: " · chains only, so siblings may not show"
 		}`,
-		`   reads changes: ${caps.proposals ? "yes" : "no"}`,
+		`   reads changes: ${caps.changes ? "yes" : "no"}`,
 	];
 	// Checks get their own line when the provider reports them, because
 	// reading CI and retriggering it are different permissions and the
 	// difference decides whether a red build is something you can act on
 	// from here or something you have to leave for a shell.
-	if (caps.proposals?.checks) {
+	if (caps.changes?.checks) {
 		lines.push(
 			`   checks: reported${
 				caps.authoring?.rerunChecks

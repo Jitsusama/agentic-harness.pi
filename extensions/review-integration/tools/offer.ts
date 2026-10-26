@@ -21,9 +21,9 @@ import type { Exec } from "../../../lib/core/exec/index.ts";
 import type {
 	AuthoringIntent,
 	BoundTarget,
+	Change,
 	CheckoutFacts,
 	FieldEdit,
-	Proposal,
 	SetEdit,
 } from "../../../lib/core/review/index.ts";
 import {
@@ -520,9 +520,8 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 				const queue =
 					ASKS_THE_QUEUE.has(params.action) &&
 					bound.capabilities.authoring?.refusesWhileEnqueued &&
-					bound.target.kind === "proposal"
-						? (await bound.provider.proposals?.fetch(bound.target.change))
-								?.queue
+					bound.target.kind === "change"
+						? (await bound.provider.changes?.fetch(bound.target.change))?.queue
 						: undefined;
 
 				// Asked before anything is sent, and asked of this repo
@@ -597,7 +596,7 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 						if (revising === undefined) {
 							return edit(ctx, change, authoring, params, caution);
 						}
-						const current = await bound.provider.proposals?.fetch(change);
+						const current = await bound.provider.changes?.fetch(change);
 						if (current === undefined) {
 							return refuse(
 								`The ${bound.provider.id} provider cannot read this change's description, so there is nothing to keep the other sections from. Give all four sections to replace it.`,
@@ -1036,7 +1035,7 @@ async function proposeStack(
  */
 async function annotateStack(
 	authoring: NonNullable<BoundTarget["provider"]["authoring"]>,
-	made: Proposal[],
+	made: Change[],
 	drafts: { body: string }[],
 ): Promise<string | undefined> {
 	if (made.length < 2) return undefined;
@@ -1068,7 +1067,7 @@ async function annotateStack(
  * and the top nothing above, so each keeps only the segments pointing
  * somewhere rather than printing a dangling arrow.
  */
-function withStackNote(body: string, made: Proposal[], at: number): string {
+function withStackNote(body: string, made: Change[], at: number): string {
 	const below = at > 0 ? made[at - 1]?.ref.label : undefined;
 	const above = at < made.length - 1 ? made[at + 1]?.ref.label : undefined;
 	const segments = [
@@ -1296,7 +1295,7 @@ async function propose(
 		bound.capabilities.authoring?.reviewersAt === "creation" &&
 		(params.reviewers?.length ?? 0) > 0;
 
-	const made: Proposal = await authoring.propose({
+	const made: Change = await authoring.propose({
 		repo: bound.repo,
 		base,
 		head,

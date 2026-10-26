@@ -13,7 +13,7 @@ import {
 } from "../../../lib/core/review/index.ts";
 
 const hosted: ReviewTarget = {
-	kind: "proposal",
+	kind: "change",
 	change: {
 		provider: "meteorite",
 		repo: { key: "gitstream:shop/world" },
@@ -112,6 +112,19 @@ describe("the draft store", () => {
 		await store.save(emptyDraft("elsewhere", other));
 		const found = await store.forTarget(hosted);
 		expect(found.map((entry) => entry.id)).toEqual(["here"]);
+	});
+
+	it("reads a draft saved while a hosted change's kind was proposal", async () => {
+		const saved = {
+			...emptyDraft("old", hosted),
+			target: { ...hosted, kind: "proposal" },
+		};
+		await writeFile(join(root, "old.json"), JSON.stringify(saved), "utf8");
+
+		expect((await store.load("old"))?.target).toEqual(hosted);
+		expect((await store.forTarget(hosted)).map((entry) => entry.id)).toEqual([
+			"old",
+		]);
 	});
 
 	it("removes a draft", async () => {

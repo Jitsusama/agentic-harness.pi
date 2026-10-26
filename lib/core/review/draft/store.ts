@@ -60,7 +60,7 @@ async function readDraft(path: string): Promise<DraftState | undefined> {
 		const text = await readFile(path, "utf8");
 		const parsed: unknown = JSON.parse(text);
 		if (!isDraftState(parsed)) return undefined;
-		return parsed;
+		return withCurrentKind(parsed);
 	} catch {
 		// A missing file is the common case, and a half-written
 		// or hand-edited one should not take the listing down.
@@ -79,6 +79,16 @@ function isDraftState(value: unknown): value is DraftState {
 		typeof candidate.target === "object" &&
 		candidate.target !== null
 	);
+}
+
+/**
+ * A draft saved while a hosted change's target kind was named
+ * proposal, read with the kind it has now.
+ */
+function withCurrentKind(state: DraftState): DraftState {
+	const kind: string = state.target.kind;
+	if (kind !== "proposal" || !("change" in state.target)) return state;
+	return { ...state, target: { kind: "change", change: state.target.change } };
 }
 
 /** The summary of a draft. */

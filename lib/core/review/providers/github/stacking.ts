@@ -16,23 +16,23 @@
  */
 
 import type { Exec } from "../../../exec/index.ts";
-import type { ChangeRef, Proposal } from "../../change.ts";
+import type { Change, ChangeRef } from "../../change.ts";
 import type { LocalBranch, StackingFacet } from "../../provider.ts";
 import type { Stack, StackNode } from "../../stack.ts";
-import { githubProposals } from "./proposals.ts";
+import { githubChanges } from "./changes.ts";
 
 /** How far to walk in each direction before giving up. */
 const MAX_DEPTH = 8;
 
 /** Build the stacking facet. */
 export function githubStacking(exec: Exec): StackingFacet {
-	const proposals = githubProposals(exec);
+	const proposals = githubChanges(exec);
 
 	/** The single open change whose head is this branch. */
 	async function byHead(
 		ref: ChangeRef,
 		branch: string,
-	): Promise<Proposal | undefined> {
+	): Promise<Change | undefined> {
 		const found = await proposals.list?.(ref.repo, {
 			state: "open",
 			head: branch,
@@ -41,7 +41,7 @@ export function githubStacking(exec: Exec): StackingFacet {
 	}
 
 	/** Every open change based on this branch. */
-	async function byBase(ref: ChangeRef, branch: string): Promise<Proposal[]> {
+	async function byBase(ref: ChangeRef, branch: string): Promise<Change[]> {
 		return (
 			(await proposals.list?.(ref.repo, { state: "open", base: branch })) ?? []
 		);
@@ -58,7 +58,7 @@ export function githubStacking(exec: Exec): StackingFacet {
 
 			// Upwards: follow base to the change whose head it is.
 			const seen = new Set<string>([cursorProposal.head]);
-			const ancestors: Proposal[] = [];
+			const ancestors: Change[] = [];
 			let climbing = cursorProposal.base;
 			for (let depth = 0; depth < MAX_DEPTH; depth++) {
 				const parent = await byHead(subject, climbing);
@@ -70,7 +70,7 @@ export function githubStacking(exec: Exec): StackingFacet {
 
 			// Downwards: every change based on a branch we hold,
 			// breadth first, so a fan-out reports both sides.
-			const descendants: { proposal: Proposal; parent: string }[] = [];
+			const descendants: { proposal: Change; parent: string }[] = [];
 			let frontier = [cursorProposal.head];
 			for (let depth = 0; depth < MAX_DEPTH && frontier.length > 0; depth++) {
 				const next: string[] = [];

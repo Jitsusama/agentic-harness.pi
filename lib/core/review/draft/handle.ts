@@ -82,7 +82,7 @@ function tail(): string {
  */
 function newDraftId(target: ReviewTarget): string {
 	const subject =
-		target.kind === "proposal"
+		target.kind === "change"
 			? target.change.id
 			: target.kind === "range"
 				? target.head

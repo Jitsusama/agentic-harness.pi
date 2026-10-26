@@ -21,7 +21,7 @@
 
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ChangeRef, Proposal } from "./change.ts";
+import type { Change, ChangeRef } from "./change.ts";
 import { changeKey } from "./keys.ts";
 
 /** A review you posted, and the change as it stood then. */
@@ -136,7 +136,7 @@ export function createVisitLog(dir: string): VisitLog {
  */
 export function sinceLastVisit(
 	visit: Visit | undefined,
-	proposal: Proposal,
+	proposal: Change,
 ): SinceLastVisit {
 	if (visit === undefined) return { kind: "never" };
 	if (visit.commit === undefined) {

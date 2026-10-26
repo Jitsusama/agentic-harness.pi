@@ -49,7 +49,7 @@ describe("tree-release provider binding", () => {
 			// reach it.
 			appliesTo: () => false,
 			create: async () => ({ path: "", providerId: "bound" }),
-			prune: async ({ path }) => {
+			release: async ({ path }) => {
 				pruned.push(path);
 			},
 		};
@@ -58,7 +58,7 @@ describe("tree-release provider binding", () => {
 			priority: 1,
 			appliesTo: () => true,
 			create: async () => ({ path: "", providerId: "wrong" }),
-			prune: async () => {
+			release: async () => {
 				throw new Error("resolution picked the wrong provider");
 			},
 		};

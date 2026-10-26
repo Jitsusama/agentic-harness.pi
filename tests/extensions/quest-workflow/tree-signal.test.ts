@@ -47,8 +47,8 @@ function recording() {
 			handed.push({ call: "create", ...(signal ? { signal } : {}) });
 			return { path: join(repoRoot, name), providerId: "recording" };
 		},
-		prune: async ({ signal }) => {
-			handed.push({ call: "prune", ...(signal ? { signal } : {}) });
+		release: async ({ signal }) => {
+			handed.push({ call: "release", ...(signal ? { signal } : {}) });
 		},
 	};
 	registerTreeProvider(provider);
@@ -118,7 +118,7 @@ describe("the quest tool's signal reaching the tree provider", () => {
 		);
 
 		expect(result.ok).toBe(true);
-		expect(handed).toEqual([{ call: "prune", signal }]);
+		expect(handed).toEqual([{ call: "release", signal }]);
 	});
 
 	it("is handed to the removals retiring a quest runs", async () => {
@@ -135,7 +135,7 @@ describe("the quest tool's signal reaching the tree provider", () => {
 		);
 
 		expect(result.ok).toBe(true);
-		expect(handed).toEqual([{ call: "prune", signal }]);
+		expect(handed).toEqual([{ call: "release", signal }]);
 	});
 
 	it("leaves the quest unsealed when retiring it is stopped mid-prune", async () => {
@@ -148,7 +148,7 @@ describe("the quest tool's signal reaching the tree provider", () => {
 			priority: 100,
 			appliesTo: () => true,
 			create: async () => ({ path: "", providerId: "recording" }),
-			prune: async () => {
+			release: async () => {
 				stop.abort();
 				throw new Error("git worktree remove was stopped");
 			},

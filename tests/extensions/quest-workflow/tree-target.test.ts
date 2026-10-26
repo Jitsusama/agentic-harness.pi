@@ -60,7 +60,7 @@ function recordingProvider(): Recorder {
 		priority: 100,
 		appliesTo: () => true,
 		create: async () => ({ path: "", providerId: "recording" }),
-		prune: async ({ path }) => {
+		release: async ({ path }) => {
 			seen.pruned.push(path);
 		},
 		expand: async (input) => {
@@ -232,7 +232,7 @@ describe("the tree an expand acts on", () => {
 			priority: 100,
 			appliesTo: () => false,
 			create: async () => ({ path: "", providerId: "recording" }),
-			prune: async () => {},
+			release: async () => {},
 			expand: async ({ path }: { path: string }) => {
 				expanded.push(path);
 			},
@@ -242,7 +242,7 @@ describe("the tree an expand acts on", () => {
 			priority: 1,
 			appliesTo: () => true,
 			create: async () => ({ path: "", providerId: "wrong" }),
-			prune: async () => {},
+			release: async () => {},
 		});
 		const only = join(tmpRoot, "only");
 		const state = await questWithTrees([only]);
@@ -290,7 +290,7 @@ describe("quest calls in one parallel batch", () => {
 			priority: 100,
 			appliesTo: () => true,
 			create: async () => ({ path: "", providerId: "recording" }),
-			prune: async ({ path }) => {
+			release: async ({ path }) => {
 				pruned.push(path);
 				await gate;
 			},
@@ -326,7 +326,7 @@ describe("quest calls in one parallel batch", () => {
 			priority: 100,
 			appliesTo: () => true,
 			create: async () => ({ path: "", providerId: "recording" }),
-			prune: async ({ path }) => {
+			release: async ({ path }) => {
 				pruned.push(path);
 				await gate;
 			},

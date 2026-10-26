@@ -1,7 +1,7 @@
 /**
  * Public types for the tree library.
  *
- * A `TreeProvider` knows how to create and prune a working
+ * A `TreeProvider` knows how to create and release a working
  * directory for a stream of code-bearing work. Pluggable
  * per repo root: the built-in `git-worktree` provider
  * handles ordinary git repos at
@@ -20,9 +20,9 @@ export interface TreeHandle {
 	repoRoot?: string;
 	/**
 	 * Id of the provider that created the tree. Lets the
-	 * prune side pick the right provider back up even if
+	 * release side pick the right provider back up even if
 	 * the active provider changed between create and
-	 * prune.
+	 * release.
 	 */
 	providerId: string;
 }
@@ -45,9 +45,9 @@ export interface CreateTreeInput {
 	signal?: AbortSignal;
 }
 
-/** Input for `TreeProvider.prune`. */
-export interface PruneTreeInput {
-	/** Absolute path to the tree to prune. */
+/** Input for `TreeProvider.release`. */
+export interface ReleaseTreeInput {
+	/** Absolute path to the tree to release. */
 	path: string;
 	/**
 	 * When true, ignore safety checks (dirty working
@@ -80,11 +80,11 @@ export interface TreeProvider {
 	/** Create a tree. Returns the handle to persist. */
 	create(input: CreateTreeInput): Promise<TreeHandle>;
 	/**
-	 * Prune a tree. Providers throw on safety conflicts
-	 * (dirty state, unmerged branch) unless `force` is
-	 * true.
+	 * Release a tree, removing it from disk. Providers throw on
+	 * safety conflicts (dirty state, unmerged branch) unless
+	 * `force` is true.
 	 */
-	prune(input: PruneTreeInput): Promise<void>;
+	release(input: ReleaseTreeInput): Promise<void>;
 	/**
 	 * Optional: list trees the provider knows about under
 	 * a given repo root. Helpful for reconciling
@@ -92,3 +92,22 @@ export interface TreeProvider {
 	 */
 	list?(repoRoot: string): Promise<TreeHandle[]>;
 }
+
+/**
+ * The name `ReleaseTreeInput` had before the glossary said release.
+ *
+ * @deprecated Use {@link ReleaseTreeInput}.
+ */
+export type PruneTreeInput = ReleaseTreeInput;
+
+/**
+ * A provider written before the glossary said release, whose method
+ * is still `prune`. Another package's provider may arrive in this
+ * shape, from its own pinned copy of the harness, so the registry
+ * takes it and reads its `prune` as `release`.
+ *
+ * @deprecated Write {@link TreeProvider}'s `release`.
+ */
+export type TreeProviderSayingPrune = Omit<TreeProvider, "release"> & {
+	prune(input: ReleaseTreeInput): Promise<void>;
+};

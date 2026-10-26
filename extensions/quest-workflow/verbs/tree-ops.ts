@@ -346,7 +346,7 @@ export async function treeRelease(
 		);
 	}
 	try {
-		await provider.prune({
+		await provider.release({
 			path: target.path,
 			force,
 			...(signal ? { signal } : {}),

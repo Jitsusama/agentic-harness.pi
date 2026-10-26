@@ -16,10 +16,7 @@ export interface StubOptions {
 	claimRepo?: (probe: RepoProbe) => RepoLocator | null;
 	capabilities?: Capabilities;
 	facets?: Partial<
-		Pick<
-			ReviewProvider,
-			"proposals" | "stacking" | "conversation" | "authoring"
-		>
+		Pick<ReviewProvider, "changes" | "stacking" | "conversation" | "authoring">
 	>;
 }
 
