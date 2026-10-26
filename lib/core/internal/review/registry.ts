@@ -5,8 +5,8 @@
  * `createGlobalSymbolRegistry` helper.
  */
 
-import type { ReviewProvider } from "../../review/provider.ts";
 import { createGlobalSymbolRegistry } from "../../../internal/registry/global-symbol-registry.ts";
+import type { ReviewProvider } from "../../review/provider.ts";
 
 const registry = createGlobalSymbolRegistry<ReviewProvider>({
 	slot: "pi:agentic-harness:review-providers",
