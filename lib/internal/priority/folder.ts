@@ -15,8 +15,9 @@
  *   hears every change, and it carries a heartbeat in epoch seconds, so
  *   a reader can tell a queue nobody keeps any more.
  * - `<id>.capped`: given beside a VM check, so the shell runs the work
- *   with `capped.conf`, the Nix settings {@link CAPPED_NIX} holds,
- *   first in `NIX_USER_CONF_FILES`.
+ *   with the Nix settings it holds, first in `NIX_USER_CONF_FILES`: a
+ *   quick job's {@link QUICK_NIX}, or else {@link CAPPED_NIX}, which
+ *   `capped.conf` holds too for a shell an older harness started.
  * - `<id>.began`: written by its shell as the work begins, after the
  *   wait, so its time limit can start there (clock.ts).
  * - `<id>.end`: its shell's exit status, written as the shell exits,
@@ -52,6 +53,7 @@ import {
 	type Outcome,
 	outcomeOf,
 	outcomesIn,
+	quickAfter,
 	vmsFor,
 } from "./outcome.ts";
 import {
@@ -61,6 +63,7 @@ import {
 	type Kind,
 	needsGibOf,
 	nextTurn,
+	QUICK_NIX,
 	type RoomLeft,
 	RULES,
 	type Rules,
@@ -145,6 +148,8 @@ export interface QueueRecord {
 		readonly slice?: string;
 		/** Started beside a VM check, with its Nix builds capped. */
 		readonly capped?: true;
+		/** A build that takes seconds, with a turn of its own. */
+		readonly quick?: true;
 		/** Waiting, and another session waits on its owner, so it goes first. */
 		readonly awaited?: true;
 	}[];
@@ -181,6 +186,11 @@ export interface QueueFolder {
 	 * builds ran (outcome.ts's `kindAfter`).
 	 */
 	kindFor(kind: Kind, what: string): Kind;
+	/**
+	 * Whether work of `kind` takes seconds, by its last run or what it
+	 * builds (outcome.ts's `quickAfter`).
+	 */
+	quickFor(kind: Kind, what: string): boolean;
 	/** Whether queue.json is older than its heartbeat allows. */
 	isDue(now: number): boolean;
 	/**
@@ -415,6 +425,10 @@ export function queueFolder(
 			return kindAfter(kind, what, recorded());
 		},
 
+		quickFor(kind, what) {
+			return quickAfter(kind, what, recorded());
+		},
+
 		isDue(now) {
 			try {
 				return now - statSync(join(dir, "queue.json")).mtimeMs >= HEARTBEAT_MS;
@@ -456,12 +470,19 @@ export function queueFolder(
 					const turn = queue.find((job) => job.id === next.id) as Job;
 					replace(path(next.id, "job"), `${JSON.stringify(turn)}\n`);
 					if (turn.capped) {
+						const settings = ({
+							maxJobs,
+							cores,
+						}: {
+							readonly maxJobs: number;
+							readonly cores: number;
+						}) => `max-jobs = ${maxJobs}\ncores = ${cores}\n`;
 						const cap = capFor(recorded(), now);
+						replace(join(dir, "capped.conf"), settings(cap));
 						replace(
-							join(dir, "capped.conf"),
-							`max-jobs = ${cap.maxJobs}\ncores = ${cap.cores}\n`,
+							path(next.id, "capped"),
+							settings(turn.quick ? QUICK_NIX : cap),
 						);
-						replace(path(next.id, "capped"), "");
 					}
 					replace(path(next.id, "turn"), cgroupFor(turn) ?? "");
 				}
@@ -545,6 +566,7 @@ export function queueRecord(
 						: {}),
 					...(slice !== undefined ? { slice } : {}),
 					...(job.capped ? { capped: true as const } : {}),
+					...(job.quick ? { quick: true as const } : {}),
 				};
 			},
 		),

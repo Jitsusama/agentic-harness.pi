@@ -249,6 +249,13 @@ describe("heavy work waiting for its turn", () => {
 			env: { ...env, NIX_USER_CONF_FILES: "/mine.conf" },
 		});
 		expect(own.stdout.toString()).toBe(`${dir}/capped.conf:/mine.conf\n`);
+		// A quick job's own settings, held tighter, come before capped.conf.
+		writeFileSync(join(dir, "j3.capped"), "max-jobs = 1\ncores = 1\n");
+		const quick = spawnSync("bash", ["-c", `${wait?.("j3")}\n${show}`], {
+			env: { ...env, NIX_USER_CONF_FILES: "/mine.conf" },
+		});
+		expect(quick.stdout.toString()).toBe(`${dir}/j3.capped:/mine.conf\n`);
+		expect(quick.stderr.toString()).toContain("of 1 cores each");
 		rmSync(join(dir, "j3.capped"));
 		const uncapped = spawnSync("bash", ["-c", `${wait?.("j3")}\n${show}`], {
 			env,

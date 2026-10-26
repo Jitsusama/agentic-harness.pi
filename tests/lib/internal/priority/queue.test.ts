@@ -455,6 +455,37 @@ describe("whose turn it is", () => {
 		).toBe("check");
 	});
 
+	it("starts quick work ahead of other bulk, past a job held back, one at a time", () => {
+		const quick = job("quick", { quick: true, since: startedAgo(1) });
+		expect(nextTurn([job("build"), quick], ROOMY, NOW)?.id).toBe("quick");
+		const big = job("big", { what: "changed-checks --build --no-vm" });
+		const room = { ...ROOMY, availableGib: 10 };
+		expect(nextTurn([big, job("build")], room, NOW)).toBeUndefined();
+		expect(nextTurn([big, quick], room, NOW)?.id).toBe("quick");
+		const another = { ...quick, id: "another", started: startedAgo(RAMP_MS) };
+		expect(nextTurn([another, big, quick], room, NOW)).toBeUndefined();
+		expect(nextTurn([another, quick], room, NOW)?.id).toBe("quick");
+	});
+
+	it("gives quick work a turn of its own beside a VM check, whatever the CPU", () => {
+		const check = job("check", {
+			kind: "vm-check",
+			started: startedAgo(RAMP_MS),
+		});
+		const quick = job("quick", { quick: true });
+		expect(nextTurn([check, job("build"), quick], BUSY, NOW)).toEqual({
+			...quick,
+			capped: true,
+		});
+		const beside = job("beside", { started: startedAgo(RAMP_MS) });
+		expect(nextTurn([check, beside, quick], ROOMY, NOW)?.id).toBe("quick");
+		const running = { ...quick, id: "running", started: startedAgo(RAMP_MS) };
+		expect(nextTurn([check, running, quick], ROOMY, NOW)?.id).toBe(undefined);
+		expect(nextTurn([check, running, job("build")], ROOMY, NOW)?.id).toBe(
+			"build",
+		);
+	});
+
 	it("counts a wait as wasted only when its memory stands free", () => {
 		const waiting = [job("vm", { kind: "vm-test" })];
 		expect(waitsWithRoom(waiting, ROOMY)).toBe(true);

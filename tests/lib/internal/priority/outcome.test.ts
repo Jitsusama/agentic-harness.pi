@@ -12,7 +12,10 @@ import {
 	type Outcome,
 	outcomeOf,
 	outcomesIn,
+	QUICK_S,
+	quickAfter,
 	vmsFor,
+	workKey,
 } from "../../../../lib/internal/priority/outcome.ts";
 import {
 	FEWER_VMS,
@@ -42,6 +45,41 @@ beforeEach(() => {
 	dir = mkdtempSync(join(tmpdir(), "outcomes-"));
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+describe("work that takes seconds", () => {
+	const ran = (what: string, ranS: number): Outcome =>
+		outcome({ kind: "build", what, ranS });
+
+	it("knows work again whatever flake reference or wrapper it came with", () => {
+		expect(
+			workKey(
+				'nix build --no-link "git+file://$PWD?rev=$rev#checks.x86_64-linux.b" .#checks.x86_64-linux.a',
+			),
+		).toBe(workKey('nix build "path:$T#checks.x86_64-linux.a" .#checks.x.b'));
+		expect(workKey("timeout 600 direnv exec . cargo test -p walgit")).toBe(
+			workKey("cargo test -p walgit"),
+		);
+	});
+
+	it("is a build whose last run was quick, or that builds checks and no VM", () => {
+		const check = "nix build .#checks.x86_64-linux.formatting";
+		expect(quickAfter("build", check, [])).toBe(true);
+		expect(quickAfter("build", check, [ran(check, QUICK_S)])).toBe(false);
+		expect(
+			quickAfter("build", check, [ran(check, QUICK_S), ran(check, 4)]),
+		).toBe(true);
+		expect(quickAfter("build", "cargo test", [])).toBe(false);
+		expect(quickAfter("build", "cargo test", [ran("cargo test", 9)])).toBe(
+			true,
+		);
+		expect(
+			quickAfter("build", "nix build .#checks.x86_64-linux.vm-desktop", []),
+		).toBe(false);
+		expect(quickAfter("vm-check", check, [ran(check, 4)])).toBe(false);
+		const waited = outcome({ kind: "build", what: check, ranS: undefined });
+		expect(quickAfter("build", check, [ran(check, 600), waited])).toBe(false);
+	});
+});
 
 describe("how heavy work ended", () => {
 	it("says how long a job waited and ran, and how it exited", () => {

@@ -24,7 +24,13 @@
 
 import { randomBytes } from "node:crypto";
 import { type QueueFolder, UNKEPT_MS } from "./folder.ts";
-import { type Job, kindOf, needsGibOfCommand, whatOf } from "./queue.ts";
+import {
+	type Job,
+	kindOf,
+	NEEDS_GIB,
+	needsGibOfCommand,
+	whatOf,
+} from "./queue.ts";
 import type { Reading } from "./room.ts";
 
 /** What a session's queue is kept with, set while the session runs. */
@@ -45,8 +51,10 @@ export interface Queueing {
  * inside a loop or a script no flag reaches; an inline `NIX_CONFIG`
  * with access tokens leaves it, as one naming max-jobs would not. Said
  * in the output, so a VM check failing beside it can be traced to it.
- * The settings themselves are the queue's, read from the file, since a
- * VM failing beside a capped build lowers them.
+ * The settings themselves are the queue's, read from the job's own
+ * `.capped`, since a quick job is held tighter than a build and a VM
+ * failing beside a capped build lowers them; a `.capped` left empty, as
+ * a session on an older harness writes it, means `capped.conf`.
  *
  * cargo is held to the same cores, through `CARGO_BUILD_JOBS`: the cap
  * reached only Nix, so a cargo build given its turn beside a VM check
@@ -55,9 +63,10 @@ export interface Queueing {
  */
 const CAPPING = [
 	'[ -e "$__queue/$__job.capped" ] && {',
-	` export NIX_USER_CONF_FILES="$__queue/capped.conf:\${NIX_USER_CONF_FILES:-\${XDG_CONFIG_HOME:-$HOME/.config}/nix/nix.conf:$(printf '%s' "\${XDG_CONFIG_DIRS:-/etc/xdg}" | sed 's#:#/nix/nix.conf:#g; s#$#/nix/nix.conf#')}";`,
-	` __cores=$(sed -n 's/^cores = //p' "$__queue/capped.conf"); [ -n "$__cores" ] && export CARGO_BUILD_JOBS="$__cores";`,
-	` printf 'Runs beside a VM check, so its Nix builds are held to %s at once, of %s cores each, and cargo to %s jobs.\\n' "$(sed -n 's/^max-jobs = //p' "$__queue/capped.conf")" "$__cores" "$__cores" >&2; unset __cores; }`,
+	' __cap="$__queue/$__job.capped"; [ -s "$__cap" ] || __cap="$__queue/capped.conf";',
+	` export NIX_USER_CONF_FILES="$__cap:\${NIX_USER_CONF_FILES:-\${XDG_CONFIG_HOME:-$HOME/.config}/nix/nix.conf:$(printf '%s' "\${XDG_CONFIG_DIRS:-/etc/xdg}" | sed 's#:#/nix/nix.conf:#g; s#$#/nix/nix.conf#')}";`,
+	` __cores=$(sed -n 's/^cores = //p' "$__cap"); [ -n "$__cores" ] && export CARGO_BUILD_JOBS="$__cores";`,
+	` printf 'Runs beside a VM check, so its Nix builds are held to %s at once, of %s cores each, and cargo to %s jobs.\\n' "$(sed -n 's/^max-jobs = //p' "$__cap")" "$__cores" "$__cores" >&2; unset __cores __cap; }`,
 ].join("");
 
 /** Seconds a wait lasts before the shell says it waited. */
@@ -113,11 +122,17 @@ export function queuedCommand(command: string): string {
 	const now = queueing.now?.() ?? Date.now();
 	const what = whatOf(command);
 	const kind = queueing.folder.kindFor(read, what);
+	const needsGib = needsGibOfCommand(kind, command);
+	// A step past the one named that needs more, as changed-checks after a
+	// check's build does, is no seconds-long job, whatever the first is.
+	const quick =
+		needsGib <= NEEDS_GIB[kind] && queueing.folder.quickFor(kind, what);
 	const job: Job = {
 		id: `${now.toString(36)}-${randomBytes(4).toString("hex")}`,
 		kind,
 		what,
-		needsGib: needsGibOfCommand(kind, command),
+		needsGib,
+		...(quick ? { quick: true as const } : {}),
 		owner: { session: queueing.session, pid: queueing.pid },
 		since: new Date(now).toISOString(),
 		cappable: true,
