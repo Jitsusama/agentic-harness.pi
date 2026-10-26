@@ -174,7 +174,7 @@ function readReferenceMappings(
  *
  * Pure: the section is handed in already read, so this has no
  * opinion about where the package config file lives or how it is
- * loaded from disk — that is a host adapter's job.
+ * loaded from disk: that is a host adapter's job.
  */
 export function parseReviewSection(section: unknown): LoadedReviewConfig {
 	if (section === undefined) return { config: {}, problems: [] };

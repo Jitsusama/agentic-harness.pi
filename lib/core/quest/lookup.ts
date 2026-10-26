@@ -1,7 +1,7 @@
 /**
  * Read-only projections over the quest tree: find, who, links,
  * tree, expand, ancestors, locate and a lean show. Pure functions
- * over discoverQuests' index — no I/O beyond the read discovery
+ * over discoverQuests' index, with no I/O beyond the read discovery
  * already does, no host coupling.
  *
  * Deliberately excluded, and left to each adapter: anything keyed

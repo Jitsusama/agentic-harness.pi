@@ -2,7 +2,7 @@
  * Running the resolved check command and shaping its output for an
  * agent to read: strip terminal control sequences, cap a runaway
  * tail, and report pass/fail. This is the "on request" layer only
- * (a `verify` tool a skill or CLI subcommand exposes) — the fast,
+ * (a `verify` tool a skill or CLI subcommand exposes): the fast,
  * turn-boundary auto-verify layer pi also has depends on a resident
  * LSP backend pi keeps running, which has no equivalent here, so
  * it stays pi-only rather than being approximated badly.

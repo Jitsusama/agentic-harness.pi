@@ -54,7 +54,7 @@ function hashString(text: string): string {
  * recognized as the same violation, and the artifact is folded
  * in (as a hash) so the same violation shape in two different
  * bodies signs differently. Without the artifact scope, every
- * single-emdash body collapses to the signature `emdash:—`, so
+ * single-emdash body collapses to the signature `emdash:` and the dash, so
  * blocking one artifact would relent the next unrelated one on
  * its first fire. The relent is meant to break a loop on the
  * identical resubmission, not to wave through a fresh artifact

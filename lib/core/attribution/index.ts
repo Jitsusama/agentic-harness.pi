@@ -2,8 +2,8 @@
  * Public API for the `attribution` domain: making AI involvement
  * in commits, PRs and issues transparent, however a host chooses
  * to realize it. Two genuinely different mechanisms live here
- * because the one thing that differs per adapter — how a commit
- * gets marked as AI-driven, given each host's own capabilities —
+ * because the one thing that differs per adapter (how a commit
+ * gets marked as AI-driven, given each host's own capabilities)
  * is a real port (`CommitHookOptions`), not a reflexive one.
  */
 

@@ -168,7 +168,7 @@ function formatAttendeeStatus(
 		case "accepted":
 			return " ✓";
 		case "declined":
-			return " ✗";
+			return " ✕";
 		case "tentative":
 			return " ❓";
 		case "needsAction":

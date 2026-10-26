@@ -9,8 +9,8 @@
  * call, a marker file a Claude Code hook can only write to disk,
  * ...) is the one thing that genuinely differs per adapter, so it's
  * the one thing this module takes as a parameter rather than
- * assuming. Everything else — idempotent install, chaining any
- * hook the repo already had, never adding a second AI co-author —
+ * assuming. Everything else (idempotent install, chaining any
+ * hook the repo already had, never adding a second AI co-author)
  * is host-agnostic and shared.
  */
 

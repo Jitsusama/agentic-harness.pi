@@ -46,7 +46,7 @@ function errorPage(error: string): string {
   <style>${PAGE_STYLES}</style>
 </head>
 <body>
-  <h1>✗ Slack Authentication Failed</h1>
+  <h1>✕ Slack Authentication Failed</h1>
   <p>Error: ${escapeHtml(error || "Unknown error")}</p>
   <p>Please try again.</p>
 </body>

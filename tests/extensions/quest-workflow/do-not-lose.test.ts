@@ -35,9 +35,7 @@ interface Capability {
 const DO_NOT_LOSE: Capability[] = [
 	{
 		name: "One tool with one verb surface",
-		guards: [
-			"lib/core/quest/actions.ts",
-		],
+		guards: ["lib/core/quest/actions.ts"],
 	},
 	{
 		name: "Single hierarchical model, documents under quests",
@@ -48,9 +46,7 @@ const DO_NOT_LOSE: Capability[] = [
 	},
 	{
 		name: "Four-kind stage machine and focus loop",
-		guards: [
-			"lib/core/quest/machine.ts",
-		],
+		guards: ["lib/core/quest/machine.ts"],
 	},
 	{
 		name: "Discipline gate with honest-by-destination classification",
