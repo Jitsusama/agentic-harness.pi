@@ -46,31 +46,31 @@ export function periods(
 	};
 }
 
-const within = (week: Period) =>
-	`timestamp >= '${week.from}' AND timestamp < '${week.to}'`;
+const within = (period: Period) =>
+	`timestamp >= '${period.from}' AND timestamp < '${period.to}'`;
 
 /** Which kind of quest file a read's path names. */
-const QUEST_FILE_KIND = `CASE WHEN path GLOB '*/plans/*' OR path GLOB '*/research/*' OR path GLOB '*/briefs/*' OR path GLOB '*/reports/*' THEN 'documents' WHEN path GLOB '*/README.md' THEN 'READMEs' WHEN path GLOB '*/JOURNEY.md' OR path GLOB '*/attachments/journey.md' THEN 'Journeys' ELSE 'other quest files' END`;
+const QUEST_FILE_KIND = `CASE WHEN path GLOB '*/plans/*' OR path GLOB '*/research/*' OR path GLOB '*/briefs/*' OR path GLOB '*/reports/*' THEN 'documents' WHEN path GLOB '*/README.md' THEN 'READMEs' WHEN path GLOB '*/JOURNEY.md' OR path GLOB '*/attachments/journey.md' THEN 'Journeys' WHEN path GLOB '*/attachments/*' THEN 'attachments' ELSE 'other quest files' END`;
 
 /** The queries the audit asks the ledger, each for one period. */
 export const AUDIT_QUERIES = {
-	spend: (week: Period) =>
-		`SELECT count(*) AS turns, coalesce(sum(cost), 0) AS cost, coalesce(sum(cost_cache_read), 0) AS reads, coalesce(sum(cost_cache_write), 0) AS writes, coalesce(sum(cost_output), 0) AS output FROM turn_facts WHERE kind = 'assistant' AND ${within(week)}`,
-	rewrites: (week: Period) =>
-		`SELECT cause, count(*) AS times, coalesce(sum(excess_cost), 0) AS cost FROM misses WHERE ${within(week)} GROUP BY cause ORDER BY cost DESC`,
-	readsByRepo: (week: Period) =>
-		`SELECT coalesce(repo, cwd, '(no repository)') AS repo, count(*) AS turns, coalesce(sum(cost_cache_read), 0) AS cost, coalesce(sum(tokens_cache_read), 0) AS tokens FROM turn_facts WHERE kind = 'assistant' AND ${within(week)} GROUP BY 1`,
-	errors: (week: Period) =>
-		`SELECT name, count(*) AS calls, sum(is_error) AS failed FROM tool_calls WHERE ${within(week)} GROUP BY name HAVING sum(is_error) > 0 ORDER BY failed DESC LIMIT 8`,
-	sessions: (week: Period) =>
-		`SELECT count(DISTINCT session_id) AS sessions FROM turn_facts WHERE kind = 'assistant' AND ${within(week)}`,
+	spend: (period: Period) =>
+		`SELECT count(*) AS turns, coalesce(sum(cost), 0) AS cost, coalesce(sum(cost_cache_read), 0) AS reads, coalesce(sum(cost_cache_write), 0) AS writes, coalesce(sum(cost_output), 0) AS output FROM turn_facts WHERE kind = 'assistant' AND ${within(period)}`,
+	rewrites: (period: Period) =>
+		`SELECT cause, count(*) AS times, coalesce(sum(excess_cost), 0) AS cost FROM misses WHERE ${within(period)} GROUP BY cause ORDER BY cost DESC`,
+	readsByRepo: (period: Period) =>
+		`SELECT coalesce(repo, cwd, '(no repository)') AS repo, count(*) AS turns, coalesce(sum(cost_cache_read), 0) AS cost, coalesce(sum(tokens_cache_read), 0) AS tokens FROM turn_facts WHERE kind = 'assistant' AND ${within(period)} GROUP BY 1`,
+	errors: (period: Period) =>
+		`SELECT name, count(*) AS calls, sum(is_error) AS failed FROM tool_calls WHERE ${within(period)} GROUP BY name HAVING sum(is_error) > 0 ORDER BY failed DESC LIMIT 8`,
+	sessions: (period: Period) =>
+		`SELECT count(DISTINCT session_id) AS sessions FROM turn_facts WHERE kind = 'assistant' AND ${within(period)}`,
 	// pi's tool_search answers exactly NO_MATCH when it finds nothing.
-	searches: (week: Period) =>
-		`SELECT count(*) AS calls, count(DISTINCT session_id) AS sessions, coalesce(sum(result_chars = ${NO_MATCH.length}), 0) AS empty FROM tool_calls WHERE name = 'tool_search' AND ${within(week)}`,
-	questReads: (week: Period) =>
-		`SELECT ${QUEST_FILE_KIND} AS kind, count(*) AS calls, count(DISTINCT session_id) AS sessions, coalesce(sum(result_chars), 0) AS chars FROM tool_calls WHERE name = 'read' AND path LIKE '%/quest-workflow/quests/%' AND ${within(week)} GROUP BY 1 ORDER BY chars DESC`,
-	hidden: (week: Period, names: readonly string[]) =>
-		`SELECT name, count(*) AS calls, count(DISTINCT session_id) AS sessions FROM tool_calls WHERE ${within(week)} AND name IN (${names.map((name) => `'${name.replaceAll("'", "''")}'`).join(", ") || "''"}) GROUP BY name ORDER BY sessions DESC, calls DESC`,
+	searches: (period: Period) =>
+		`SELECT count(*) AS calls, count(DISTINCT session_id) AS sessions, coalesce(sum(result_chars = ${NO_MATCH.length}), 0) AS empty FROM tool_calls WHERE name = 'tool_search' AND ${within(period)}`,
+	questReads: (period: Period) =>
+		`SELECT ${QUEST_FILE_KIND} AS kind, count(*) AS calls, count(DISTINCT session_id) AS sessions, coalesce(sum(result_chars), 0) AS chars FROM tool_calls WHERE name = 'read' AND path LIKE '%/quest-workflow/quests/%' AND ${within(period)} GROUP BY 1 ORDER BY chars DESC`,
+	hidden: (period: Period, names: readonly string[]) =>
+		`SELECT name, count(*) AS calls, count(DISTINCT session_id) AS sessions FROM tool_calls WHERE ${within(period)} AND name IN (${names.map((name) => `'${name.replaceAll("'", "''")}'`).join(", ") || "''"}) GROUP BY name ORDER BY sessions DESC, calls DESC`,
 } as const;
 
 /** What pi's tool_search answers when nothing matched. */
@@ -144,10 +144,10 @@ export interface AuditInput {
 
 /**
  * How much of each kind of quest file sessions read, a session active
- * that week, held against the week before. Divided by every active
- * session, not only those that read the kind, so a busier week does
- * not read as a worse one and a week where most sessions stopped
- * reading reads as better.
+ * in the period, held against the period before. Divided by every
+ * active session, not only those that read the kind, so a busier day
+ * or week does not read as a worse one, and one where most sessions
+ * stopped reading reads as better.
  */
 function questReadLines(
 	reads: NonNullable<AuditInput["questReads"]>,
