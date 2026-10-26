@@ -214,16 +214,12 @@ describe("an undo given an id", () => {
 
 	// On 25 October an undo with no id, meant for the caller's own section
 	// write, reopened twelve quests another session had just concluded.
-	it("refuses an undo with no id, saying what it would undo", async () => {
-		const { run, otherId, snapshot } = await world();
-		const before = snapshot();
+	it("undoes its own last change with no id, since it can reach no other", async () => {
+		const { run, otherId } = await world();
 
-		const result = refused(await run({ action: "undo" }));
+		succeeded(await run({ action: "undo" }));
 
-		expect(result.guidance).toContain("`id`");
-		expect(result.guidance).toContain(otherId);
-		expect(result.guidance).toContain("conclude");
-		expect(snapshot()).toEqual(before);
+		expect(read(readmeOf(otherId))).not.toContain("status: concluded");
 	});
 
 	it("undoes the last change when the id is one it touched", async () => {

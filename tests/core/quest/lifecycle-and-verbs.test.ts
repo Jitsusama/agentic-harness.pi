@@ -46,6 +46,7 @@ import {
 import { mintId } from "../../../lib/internal/quest/id.ts";
 import { atomicWriteFile } from "../../../lib/internal/quest/io.ts";
 import { scaffoldQuestReadme } from "../../../lib/internal/quest/scaffold.ts";
+import { setJournalSession } from "../../../lib/internal/quest/structural-journal.ts";
 import type { QuestFrontMatter } from "../../../lib/quest/index.ts";
 
 let tmpRoot: string;
@@ -100,9 +101,12 @@ function loadIntoState(state: QuestState, fm: QuestFrontMatter): void {
 
 beforeEach(() => {
 	tmpRoot = mkdtempSync(join(tmpdir(), "core-quest-lifecycle-"));
+	// Undo takes back only its own session's changes.
+	setJournalSession("a-session");
 });
 
 afterEach(() => {
+	setJournalSession(undefined);
 	rmSync(tmpRoot, { recursive: true, force: true });
 });
 

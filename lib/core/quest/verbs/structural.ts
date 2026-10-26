@@ -18,9 +18,12 @@ import {
 	planStatusChange,
 } from "../../../internal/quest/structural.ts";
 import {
-	dropLastStructuralOp,
+	changedSince,
+	dropStructuralOp,
 	type JournalChange,
-	lastStructuralOp,
+	type JournalEntry,
+	journalSession,
+	ownNewestStructuralOp,
 	recordStructuralOp,
 } from "../../../internal/quest/structural-journal.ts";
 import type { QuestFrontMatter } from "../../../quest/index.ts";
@@ -261,6 +264,9 @@ export function bulkConcludeOrRetire(
 	const liveChildren: string[] = [];
 	for (const id of sealedIds) {
 		for (const childId of index.children.get(id) ?? []) {
+			// The index was read before the sweep, so a child sealed in it
+			// still reads live there.
+			if (sealedIds.has(childId)) continue;
 			const child = index.quests.get(childId);
 			if (child && !isSealedStatus(child.doc.frontMatter.status)) {
 				liveChildren.push(childId);
@@ -341,10 +347,40 @@ function revertField(
 	return { ok: true };
 }
 
+/** What undo never reverses, said wherever it refuses. */
+export const UNDO_LEAVES =
+	"Writes by section, journal, tick, untick and retitle are not journalled, so undo never reverses them; restore those from a backup or write them again.";
+
+/** What an entry did, as a refusal names it. */
+function described(entry: JournalEntry): string {
+	const quests = [...new Set(entry.changes.map((change) => change.id))];
+	return `the ${entry.op} of ${quests.join(", ")} at ${entry.ts}`;
+}
+
+/**
+ * Reverse this session's own newest structural change. It refuses when
+ * the session is unknown or has made none, and when another session has
+ * since changed one of the same quests, since reverting then would undo
+ * what that session built on. Another session's change is never reached.
+ */
 export function undo(state: QuestState): QuestResult {
-	const last = lastStructuralOp(state.questsRoot);
-	if (!last) {
-		return refuse("Nothing to undo; the structural journal is empty.");
+	const session = journalSession();
+	if (!session) {
+		return refuse(
+			`Nothing was undone: this session is not known, so no change can be told for its own. ${UNDO_LEAVES}`,
+		);
+	}
+	const last = ownNewestStructuralOp(state.questsRoot, session);
+	if (!last?.entry) {
+		return refuse(
+			`Nothing to undo: this session has made no structural change that undo can take back. Another session's changes are theirs to undo. ${UNDO_LEAVES}`,
+		);
+	}
+	const since = changedSince(state.questsRoot, last);
+	if (since.length > 0) {
+		return refuse(
+			`Nothing was undone: this session's newest change is ${described(last)}, and another session has changed the same quests since (${since.map(described).join("; ")}). Reverting it would undo what that change built on, so set what you want with the verbs that set it.`,
+		);
 	}
 	const { index } = discoverQuests(state.questsRoot);
 	// Quests, not changes: a sweep journals a quest's priority and its
@@ -383,10 +419,7 @@ export function undo(state: QuestState): QuestResult {
 	// the journal so the skipped changes survive as the operation's
 	// residue. A later undo can reverse them once the divergence
 	// resolves, instead of the partial undo swallowing them for good.
-	dropLastStructuralOp(state.questsRoot);
-	if (skippedChanges.length > 0) {
-		recordStructuralOp(state.questsRoot, last.op, skippedChanges);
-	}
+	dropStructuralOp(state.questsRoot, last.entry, skippedChanges);
 	const note =
 		skipped.size > 0
 			? ` (skipped ${count(skipped.size, "quest")} missing or changed since: ${[...skipped].join(", ")})`
