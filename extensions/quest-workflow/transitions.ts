@@ -23,6 +23,7 @@ import { createMutex } from "../../lib/internal/async-mutex.ts";
 import { sayConcluded } from "../../lib/internal/quest/concluded.ts";
 import { sweepAfterQuestAction } from "../../lib/internal/quest/journey-sweep.ts";
 import type { QuestPriority } from "../../lib/quest/index.ts";
+import { asideFor } from "../../lib/ui/aside.ts";
 import { suggestAction } from "./actions.ts";
 import { refuseIgnoredDryRun, refuseUndoElsewhere } from "./dry-run.ts";
 import { findQuestEntry } from "./lifecycle.ts";
@@ -115,6 +116,7 @@ export function handle(
 				state.questDir,
 				idsNamed(params.id),
 				(id) => findQuestEntry(state, id)?.dir,
+				asideFor(ctx),
 			);
 			return result;
 		},

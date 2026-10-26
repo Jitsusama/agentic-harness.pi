@@ -19,10 +19,23 @@
  *   index from a session that reloaded onto this code;
  * - loads the ones a skill names when the model reads that skill, since
  *   reading the skill is the moment it is about to use them.
+ *
+ * It also lists a skill only where the person says it applies
+ * (skills.ts), so a session outside the World monorepo does not read
+ * World's skills on every turn.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import {
+	getSection,
+	loadPackageConfig,
+} from "../../lib/internal/config/loader.ts";
 import { loadable, loadableIndex, namedIn } from "./loadable.ts";
+import {
+	parseLoadoutSettings,
+	type SkillPlaces,
+	skillsHere,
+} from "./skills.ts";
 
 /** pi's built-in tool that finds and declares undeclared tools. */
 const TOOL_SEARCH = "tool_search";
@@ -42,12 +55,29 @@ function isSkillRead(event: {
 	);
 }
 
+/**
+ * Where each skill applies, from the package config's `loadout`
+ * section; nothing, and so every skill everywhere, when the config is
+ * missing or its section does not parse.
+ */
+async function skillPlaces(): Promise<SkillPlaces> {
+	const loaded = await loadPackageConfig();
+	if (!loaded.ok) return {};
+	return getSection(loaded.config, LOADOUT_SLUG, parseLoadoutSettings).value
+		.skills;
+}
+
+/** The package config section this extension reads. */
+const LOADOUT_SLUG = "loadout";
+
 export default function loadoutWorkflow(pi: ExtensionAPI) {
 	const waiting = () =>
 		loadable(pi.getAllTools(), new Set(pi.getActiveTools()));
 	// Every deferred tool, loaded or not, so the section stays the same
 	// after a tool is loaded.
 	let index: string | undefined;
+	// Where each skill applies, read once at start from the package config.
+	let places: SkillPlaces = {};
 
 	pi.on("before_agent_start", async (event) => {
 		// pi offers every tool's snippet and rules here, declared or not.
@@ -56,10 +86,19 @@ export default function loadoutWorkflow(pi: ExtensionAPI) {
 			guidelines: event.systemPromptOptions.toolGuidelines ?? {},
 		});
 		if (index) event.systemPromptOptions.sections[INDEX_SECTION] = index;
+		const skills = event.systemPromptOptions.skills;
+		if (skills) {
+			event.systemPromptOptions.skills = skillsHere(
+				skills,
+				places,
+				event.systemPromptOptions.cwd,
+			);
+		}
 		return undefined;
 	});
 
 	pi.on("session_start", async () => {
+		places = await skillPlaces();
 		const active = pi.getActiveTools();
 		const registered = pi
 			.getAllTools()

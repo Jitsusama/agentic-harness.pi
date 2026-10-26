@@ -27,6 +27,30 @@ declaration.
 - **Loads what a skill names.** When the model reads a `SKILL.md` that
   names a deferred tool by its whole name, that tool, and the rest of
   its namespace, is declared, and the read says so.
+- **Lists a skill only where it applies**, when the package config
+  says where. A skill left out of the list can still be read by its
+  path.
+
+## Listing Skills Where They Apply
+
+The skills list is read again on every turn too: 25,668 characters,
+a fifth of a fresh session, on 25 October. The `loadout` section of
+the package config (`~/.config/pi/agentic-harness.pi/config.json`)
+names skills, or name prefixes ending in `*`, and the folders a
+session must run under for them to be listed:
+
+```json
+{
+  "sections": {
+    "loadout": { "skills": { "shopify-world-*": ["~/world"] } }
+  }
+}
+```
+
+The most specific key wins, so `shopify-vault-guide` can be listed
+everywhere beside `shopify-*` listed in one place. A skill no key
+names is listed everywhere, as is every skill when the section is
+missing. The config is read when a session starts.
 
 ## Making a Tool Load on Demand
 

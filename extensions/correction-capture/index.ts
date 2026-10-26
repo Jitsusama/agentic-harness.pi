@@ -13,6 +13,9 @@
  * one session is standing guidance in the next, and they are the
  * watch-list the advisor reviews turns against. There is no
  * command; you drive it by talking.
+ *
+ * A rule that says when it applies (when.ts) rides the resident block
+ * only where it does, or is said when the skill it names is read.
  */
 
 import { mkdirSync } from "node:fs";
@@ -35,6 +38,7 @@ import { entriesToTurns } from "../../lib/internal/transcript.ts";
 import { registerPromptContributor } from "../../lib/prompt/index.ts";
 import { count } from "../../lib/ui/count.ts";
 import { asText, drawInto, renderToolCall } from "../../lib/ui/index.ts";
+import { residentRules, rulesForSkill, skillRead } from "./when.ts";
 
 /** Captured lessons sit just below the enforced conventions. */
 const GOVERNANCE_ORDER = 1;
@@ -47,6 +51,18 @@ interface CaptureDetails {
 
 function isDetails(d: unknown): d is CaptureDetails {
 	return typeof d === "object" && d !== null && "action" in d;
+}
+
+/** The rules captured for a skill's work, as a read appends them. */
+function sayForSkill(
+	skill: string,
+	rules: readonly { text: string }[],
+): string {
+	return [
+		"",
+		`[Learned conventions for work with ${skill}, captured from past corrections; follow them as standing guidance:]`,
+		...rules.map((rule) => `- ${rule.text}`),
+	].join("\n");
 }
 
 export default function correctionCapture(pi: ExtensionAPI) {
@@ -67,9 +83,26 @@ export default function correctionCapture(pi: ExtensionAPI) {
 	registerPromptContributor({
 		id: "governance-rules",
 		order: GOVERNANCE_ORDER,
-		async contribute() {
-			return renderRulesBlock(ruleStore().list());
+		async contribute(ctx) {
+			return renderRulesBlock(residentRules(ruleStore().list(), ctx.cwd));
 		},
+	});
+
+	// A rule for one skill's work is said as that skill is read, the
+	// moment the work starts, rather than on every turn.
+	pi.on("tool_result", async (event) => {
+		if (event.isError || event.toolName !== "read") return undefined;
+		const path = event.input.path;
+		const skill = typeof path === "string" ? skillRead(path) : undefined;
+		if (!skill) return undefined;
+		const rules = rulesForSkill(ruleStore().list(), skill);
+		if (rules.length === 0) return undefined;
+		return {
+			content: [
+				...event.content,
+				{ type: "text", text: sayForSkill(skill, rules) },
+			],
+		};
 	});
 
 	pi.registerTool({
