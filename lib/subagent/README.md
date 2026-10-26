@@ -118,6 +118,9 @@ companion skill.
   written before anything is spawned, so that window is
   the beginning of every run, and reading it as gone
   cancels a job another session dispatched moments ago.
+- `runpi/`: the two runners that start pi as a child, and
+  the supervisor process with the readers it shares with
+  the parent:
 - `runpi/spawn.ts`: fire-and-forget runner. Cheapest path.
 - `runpi/supervisor.ts`: durable runner. Each call writes
   a request file, spawns `supervisor.mjs` detached and

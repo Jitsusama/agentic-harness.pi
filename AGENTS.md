@@ -36,8 +36,9 @@ a rule covers.
 - `.pi/skills/`: project-local skills for developing this
   package (not shipped to consumers)
 
-Every folder says what goes in it: a README.md, or an entry
-file whose first line is a comment, as
+Every folder says what goes in it: a README.md, an entry file
+whose first line is a comment, or a bullet in its parent's
+README opening with its name and a colon, as
 `tests/package/every-folder-says-what-it-holds.test.ts` holds.
 A new folder gets its note in the change that makes it.
 
