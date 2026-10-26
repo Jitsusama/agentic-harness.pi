@@ -5,7 +5,7 @@
  * provider like dev-tree for the World monorepo).
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import {
@@ -301,6 +301,10 @@ export async function treeRelease(
 	);
 	if (!chosen.ok) return refuse(chosen.reason);
 	const target = chosen.tree;
+	// A tree whose folder is already gone, given back some other way,
+	// leaves only its record, and dropping that deletes nothing, so no
+	// consent is asked for.
+	const gone = !existsSync(target.path);
 	// `force` is a typed boolean parameter. The agent flips
 	// it only after confirming destructive intent with the
 	// user. We deliberately do NOT key off a `note` string
@@ -311,20 +315,20 @@ export async function treeRelease(
 	// adopted or unmarked (legacy, hand-registered) tree is a shared
 	// checkout the tool did not create, so deleting it needs explicit,
 	// confirmed consent rather than a mistyped target.
-	if (target.origin !== "scaffolded" && !force) {
+	if (target.origin !== "scaffolded" && !force && !gone) {
 		const kind = target.origin ?? "unmarked";
 		return refuse(
-			`Tree at ${displayPath(target.path)} is ${kind}, not scaffolded by the tool. Pruning it would delete a shared checkout; pass force:true after confirming with the user.`,
+			`Tree at ${displayPath(target.path)} is ${kind}, not scaffolded by the tool. Releasing it would delete a shared checkout; pass force:true after confirming with the person.`,
 		);
 	}
 	const sessions = readSessionsFromQuest(state);
 	const attached = sessions.filter(
 		(s) => s.cwd && isWithin(s.cwd, target.path),
 	);
-	if (attached.length > 0 && !force) {
+	if (attached.length > 0 && !force && !gone) {
 		const names = attached.map((s) => s.name ?? s.id).join(", ");
 		return refuse(
-			`Tree at ${displayPath(target.path)} has an attached ${noun(attached.length, "session")} (${names}). Detach them with \`session-detach\` before pruning, or pass force:true after confirming with the user.`,
+			`Tree at ${displayPath(target.path)} has an attached ${noun(attached.length, "session")} (${names}). Detach them with \`session-detach\` before releasing it, or pass force:true after confirming with the person.`,
 		);
 	}
 	// Prefer the provider that created the tree, recorded as its
@@ -336,6 +340,7 @@ export async function treeRelease(
 		resolveTreeProvider(target.repoRoot ?? target.path) ??
 		resolveTreeProvider(process.cwd());
 	if (!provider) {
+		if (gone) return forgetTree(state, target.path);
 		return refuse(
 			`No tree provider applies to ${target.repoRoot ?? target.path}.`,
 		);
@@ -347,6 +352,9 @@ export async function treeRelease(
 			...(signal ? { signal } : {}),
 		});
 	} catch (error) {
+		// The provider found nothing to remove; git forgets its own note
+		// of the worktree at its next `git worktree prune`.
+		if (gone) return forgetTree(state, target.path);
 		const message = error instanceof Error ? error.message : String(error);
 		const detectedAt = new Date().toISOString();
 		setPendingPrune(state.questDir, {
@@ -361,12 +369,25 @@ export async function treeRelease(
 	const removal = removeTreeFromQuest(state.questDir, target.path);
 	if (!removal.ok) return refuse(removal.reason);
 	setPendingPrune(state.questDir, null, { clearPath: target.path });
-	logHarnessEntry(state, `Pruned tree at ${target.path}.`);
+	logHarnessEntry(state, `Released tree at ${target.path}.`);
 	// The tilde form for the person reading; the absolute path stays in details,
 	// which is what a caller acts on.
-	return ok(`Tree at ${displayPath(target.path)} pruned.`, {
+	return ok(`Tree at ${displayPath(target.path)} released.`, {
 		path: target.path,
 	});
+}
+
+/** Drop the record of a tree whose folder is already gone. */
+function forgetTree(state: QuestState, path: string): QuestResult {
+	if (!state.questDir) return refuse("Load a quest first.");
+	const removal = removeTreeFromQuest(state.questDir, path);
+	if (!removal.ok) return refuse(removal.reason);
+	setPendingPrune(state.questDir, null, { clearPath: path });
+	logHarnessEntry(state, `Forgot tree at ${path}, already gone.`);
+	return ok(
+		`Tree at ${displayPath(path)} was already gone, so only its record was dropped.`,
+		{ path },
+	);
 }
 
 export async function treeExpand(
