@@ -222,7 +222,8 @@ describe("tools that can answer big must bound their answers", () => {
 			// Two sentences: what was queued, and what to do next. A tree that
 			// fails to load lists its failures, one line per extension.
 			"reload-workflow",
-			// One line sent, or at most fifty short messages read.
+			// One line sent, or the newest messages that fit in 12 KB read,
+			// with `before` to read on rather than a stored remainder.
 			"mesh-workflow",
 			// One line per job the session holds, or one line saying a stop.
 			"job-workflow",

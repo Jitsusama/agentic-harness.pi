@@ -1465,6 +1465,46 @@ describe("sending", () => {
 		expect(text.indexOf("third")).toBeGreaterThan(text.indexOf("second"));
 	});
 
+	it("keeps the newest that fit its budget, and says how to read on", async () => {
+		const { tools } = await startSession();
+		const sent = Array.from({ length: 10 }, (_, at) =>
+			fromElsewhere({ text: `message ${at} ${"long words ".repeat(200)}` }),
+		);
+
+		const read = await tools.get("mesh_read")?.execute("call-1", {});
+		const text = read?.content[0]?.text ?? "";
+		const cut =
+			/(\d+) older messages left out to keep this short; mesh_read with before (\w+) reads on\./.exec(
+				text,
+			);
+
+		expect(Buffer.byteLength(text, "utf8")).toBeLessThan(13_000);
+		expect(text).toContain("message 9 ");
+		expect(text).not.toContain("message 0 ");
+		const left = Number(cut?.[1]);
+		expect(cut?.[2]).toBe(sent[left]?.id.slice(-8));
+
+		const on = await tools
+			.get("mesh_read")
+			?.execute("call-2", { before: cut?.[2] });
+		const older = on?.content[0]?.text ?? "";
+		expect(older).toContain(`message ${left - 1} `);
+		expect(older).not.toContain(`message ${left} `);
+	});
+
+	it("says so when asked to read before a message nobody sent", async () => {
+		const { tools } = await startSession();
+		fromElsewhere({ text: "only" });
+
+		const read = await tools
+			.get("mesh_read")
+			?.execute("call-1", { before: "ffffffff" });
+
+		expect(read?.content[0]?.text).toBe(
+			"No message has the id ffffffff, so there is nothing to read before it. mesh_read shows each message's id in brackets.",
+		);
+	});
+
 	it("lists every question on the mesh still waiting on a peer it named", async () => {
 		const { tools } = await startSession();
 		peer("session-y", ["Y2YBTS"], []);
