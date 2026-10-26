@@ -37,14 +37,20 @@ import { idNamed, mayReplace, sentBy } from "../../lib/mesh/thread.ts";
 import type { Transport } from "../../lib/mesh/transport.ts";
 import { UNANSWERED_WITHIN_MS, unanswered } from "../../lib/mesh/unanswered.ts";
 import type { WantKind } from "../../lib/mesh/want.ts";
+import { count } from "../../lib/ui/count.ts";
 import { leasesText } from "./leases.ts";
 import { type Waiting, waitOnPerson } from "./wait.ts";
 
-/**
- * The most messages one mesh_read hands back. Messages are short by
- * request, so this keeps the answer to a few thousand characters.
- */
+/** The most messages one mesh_read hands back. */
 const MOST_READ = 50;
+
+/**
+ * The most one mesh_read answer spends on messages, newest kept first.
+ * Messages are short by request, yet with their receipts fifty came to
+ * 30 KB, and seven answers between 24 and 26 October ran past 20 KB.
+ * What is left out is read on with `before`, rather than stored.
+ */
+const READ_BUDGET_BYTES = 12_288;
 
 /** What the tools act through, once the session has started. */
 export interface Local {
@@ -154,6 +160,12 @@ export function registerTools(
 			count: Type.Optional(
 				Type.Number({
 					description: `How many of the latest to show; default 15, at most ${MOST_READ}`,
+				}),
+			),
+			before: Type.Optional(
+				Type.String({
+					description:
+						"A message's id, as shown in brackets: read only what came before it, to read on where an answer stopped",
 				}),
 			),
 			unanswered: Type.Optional(
@@ -678,7 +690,7 @@ function reach(
 
 async function read(
 	at: Local,
-	params: { count?: number; unanswered?: boolean },
+	params: { count?: number; unanswered?: boolean; before?: string },
 ): Promise<Answer> {
 	if (params.unanswered) return answer(await openText(at));
 	const wanted = Math.min(
@@ -688,8 +700,15 @@ async function read(
 	// Newest first, reading only until enough are found: what is shown,
 	// not the mesh's whole week.
 	const ids = at.transport.ids();
+	const before = params.before ? idNamed(params.before, ids) : undefined;
+	if (params.before && before === undefined) {
+		return answer(
+			`No message has the id ${params.before}, so there is nothing to read before it. mesh_read shows each message's id in brackets.`,
+		);
+	}
+	const from = before === undefined ? ids.length : ids.indexOf(before);
 	const latest: Message[] = [];
-	for (let index = ids.length - 1; index >= 0; index--) {
+	for (let index = from - 1; index >= 0; index--) {
 		if (latest.length >= wanted) break;
 		const message = at.transport.read(ids[index] as string);
 		if (
@@ -705,22 +724,47 @@ async function read(
 	const receipt = receipts(at, present);
 	const withdrawn = withdrawals(latest);
 	const state = questionStates(at, latest, ids, present, withdrawn);
+	const shown = withinBudget(
+		latest.map((message) =>
+			[
+				line(message),
+				withdrawn.get(message.id) ?? "",
+				receipt(message),
+				state.get(message.id) ?? "",
+			]
+				.filter(Boolean)
+				.join("\n  "),
+		),
+	);
+	const left = latest.length - shown.length;
+	const oldest = latest[left];
+	const rest =
+		left > 0 && oldest
+			? `\n${capitalized(count(left, "older message"))} left out to keep this short; mesh_read with before ${shortId(oldest)} reads on.`
+			: "";
 	const text =
 		latest.length > 0
-			? latest
-					.map((message) =>
-						[
-							line(message),
-							withdrawn.get(message.id) ?? "",
-							receipt(message),
-							state.get(message.id) ?? "",
-						]
-							.filter(Boolean)
-							.join("\n  "),
-					)
-					.join("\n")
-			: "Nothing on the mesh yet.";
+			? `${shown.join("\n")}${rest}`
+			: before === undefined
+				? "Nothing on the mesh yet."
+				: "Nothing this peer hears came before that.";
 	return answer(`This peer is ${at.peer.addresses.join(" or ")}.\n${text}`);
+}
+
+/**
+ * The newest of these rendered messages that fit
+ * {@link READ_BUDGET_BYTES}, oldest first, and always the newest one.
+ */
+function withinBudget(rendered: readonly string[]): string[] {
+	const kept: string[] = [];
+	let spent = 0;
+	for (const one of [...rendered].reverse()) {
+		const bytes = Buffer.byteLength(one, "utf8") + 1;
+		if (kept.length > 0 && spent + bytes > READ_BUDGET_BYTES) break;
+		kept.unshift(one);
+		spent += bytes;
+	}
+	return kept;
 }
 
 /**

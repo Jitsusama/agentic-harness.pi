@@ -128,7 +128,9 @@ and can answer a question or a gate left open on screen.
   says which peers have it and which not yet, and under each
   one withdrawn, what replaced it. Under each question it
   asked, it says who answered and in which message, who is
-  answering, or for how long it has gone unanswered.
+  answering, or for how long it has gone unanswered. It keeps
+  the newest that fit in 12 KB, at most 50, and names the
+  oldest shown, so `before` with that id reads on.
 - `mesh_join`, `mesh_leave` and `mesh_groups`: the groups this
   peer is in, and who is in each. `mesh_groups` also lists
   each other peer still there, one line each, saying whether
