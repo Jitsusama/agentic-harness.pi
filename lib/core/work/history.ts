@@ -252,7 +252,9 @@ export function createGitHistory(deps: { exec: Exec }): WorkHistory {
 				let commit: string | undefined;
 				let branch: string | undefined;
 				let gone = false;
+				let bare = false;
 				for (const line of record.split("\n")) {
+					if (line === "bare") bare = true;
 					if (line.startsWith("worktree ")) path = line.slice(9).trim();
 					if (line.startsWith("HEAD ")) commit = line.slice(5).trim();
 					if (line.startsWith("branch ")) {
@@ -267,7 +269,10 @@ export function createGitHistory(deps: { exec: Exec }): WorkHistory {
 				// nothing on disk to reclaim; `git worktree prune` is what clears
 				// that. Asking its status failed instead, and one such record
 				// stopped the survey of every other tree beside it.
-				if (!path || gone) continue;
+				// A bare repository's own record is its common dir, with no work
+				// tree to ask the status of and nothing checked out to reclaim.
+				// Asking failed, and refused the survey of World's 125 trees.
+				if (!path || gone || bare) continue;
 				// Asked per tree, because a dirty tree is the one refusal here
 				// that cannot be recovered from and no listing reports it.
 				const state = await this.status(path);
