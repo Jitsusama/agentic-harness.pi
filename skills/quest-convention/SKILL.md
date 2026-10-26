@@ -162,7 +162,9 @@ in hand, `draft` given a note and a title thinks and
 drafts in one call, and so does `draft` with a new title
 while a document in draft or build is focused: that one
 is put down where it stands, and `focus` takes it up
-again. The kind is a
+again. `think` with a kind likewise starts a fresh loop
+beside the focused document; `think` with no kind sends
+the focused document back to think. The kind is a
 provisional intent until `draft` mints the id, so a wrong
 kind chosen at think is fixable by passing `kind` to
 `draft`. A stage transition persists to the document file
