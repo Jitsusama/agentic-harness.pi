@@ -23,6 +23,7 @@ import {
 	sameProcess,
 	systemFacts,
 } from "../core/process/index.ts";
+import { type TickFacts, tickedStanding } from "../internal/process-ticks.ts";
 import type { ReviewerArtifactsStore } from "./artifacts.ts";
 
 // Re-exported rather than moved out of sight. These were defined here
@@ -60,6 +61,16 @@ export interface LeaseRecord {
 	readonly supervisorStartedAt?: number | null;
 	readonly childPid?: number | null;
 	readonly childStartedAt?: number | null;
+	/**
+	 * Each process's start in the kernel's ticks since boot, and which
+	 * boot, where the machine keeps them. Core's start in milliseconds
+	 * moves with every suspend, so after a day of them a live
+	 * supervisor read as a stranger and was taken for gone; the ticks
+	 * never move within a boot.
+	 */
+	readonly supervisorStartTicks?: number | null;
+	readonly childStartTicks?: number | null;
+	readonly bootId?: string | null;
 	readonly completedAt?: string | null;
 	readonly updatedAt?: string | null;
 	readonly state?: string;
@@ -84,7 +95,7 @@ export async function supervisorStanding(
 	store: ReviewerArtifactsStore,
 	runId: string,
 	reviewerId: string,
-	facts: ProcessFacts,
+	facts: TickFacts,
 	now: number = Date.now(),
 ): Promise<SupervisorStanding> {
 	const { leasePath } = store.paths(runId, reviewerId);
@@ -120,6 +131,15 @@ export async function supervisorStanding(
 
 	const recorded = lease.supervisorStartedAt;
 	if (typeof recorded === "number") {
+		const byTicks = await standingOf(
+			pid,
+			recorded,
+			lease.supervisorStartTicks,
+			lease,
+			facts,
+		);
+		if (byTicks === "running") return { kind: "running", pid, sinceMs };
+		if (byTicks === "gone") return { kind: "gone" };
 		const observed = await facts.startedAt(pid);
 		if (observed !== undefined) {
 			return sameProcess(observed, recorded)
@@ -130,6 +150,29 @@ export async function supervisorStanding(
 	return sinceMs > HEARTBEAT_STALE_MS
 		? { kind: "gone" }
 		: { kind: "running", pid, sinceMs };
+}
+
+/**
+ * Whether a process a lease names still runs, judged by its ticks:
+ * nothing when the lease has no ticks or boot for it, so the caller's
+ * own account decides, as for every lease written before ticks were.
+ */
+export async function standingOf(
+	pid: number,
+	startedAt: number,
+	startTicks: number | null | undefined,
+	lease: Pick<LeaseRecord, "bootId">,
+	facts: TickFacts,
+): Promise<"running" | "gone" | undefined> {
+	if (typeof startTicks !== "number" || !Number.isSafeInteger(startTicks)) {
+		return undefined;
+	}
+	if (typeof lease.bootId !== "string") return undefined;
+	const standing = await tickedStanding(
+		{ pid, startedAt, bootId: lease.bootId, startTicks },
+		facts,
+	);
+	return standing === "unknown" ? undefined : standing;
 }
 
 /**

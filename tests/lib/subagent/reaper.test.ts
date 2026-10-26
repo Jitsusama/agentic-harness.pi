@@ -102,6 +102,36 @@ describe("reaping a reviewer whose supervisor died", () => {
 		]);
 	});
 
+	it("reaps the child its ticks name, though a suspend moved its start", async () => {
+		// The milliseconds moved four seconds over a night of suspends,
+		// past the tolerance; the ticks the lease kept did not.
+		const store = await orphan({ childStartTicks: 77_000, bootId: "boot-1" });
+		const { deps, signals } = machine({ startedAt: SPAWNED + 4_000 });
+		const ticking: ReaperDeps = {
+			...deps,
+			bootId: () => "boot-1",
+			startTicks: async (pid) => (pid === CHILD ? 77_000 : undefined),
+		};
+
+		await recoverReviewerRuns(store, ticking);
+
+		expect(signals).toEqual([{ pid: CHILD, signal: "SIGTERM" }]);
+	});
+
+	it("spares a child whose ticks name another process, though its milliseconds match", async () => {
+		const store = await orphan({ childStartTicks: 77_000, bootId: "boot-1" });
+		const { deps, signals } = machine({ startedAt: SPAWNED });
+		const ticking: ReaperDeps = {
+			...deps,
+			bootId: () => "boot-1",
+			startTicks: async (pid) => (pid === CHILD ? 91_000 : undefined),
+		};
+
+		await recoverReviewerRuns(store, ticking);
+
+		expect(signals).toEqual([]);
+	});
+
 	it("spares a pid the machine has since given to somebody else", async () => {
 		// The recycled pid, which is the whole reason for the guard: the
 		// process wearing this number today started long after ours did.
