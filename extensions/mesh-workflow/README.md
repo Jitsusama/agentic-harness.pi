@@ -172,19 +172,26 @@ and its groups.
   act here after all, up to an hour after it was asked. A run
   that starts first,
   from the person or a wake, takes it along.
-- **Wake:** a note that starts a turn at once, for a question
-  sent to this idle peer or answering one it sent, and for any
-  answer to a question it asked. A question sent to several
-  peers, or to a named group, asks each of them: it wakes
-  every idle one, and another's answer is never this peer's,
-  since on 2026-10-25 a group question that gave each member
-  its own part was silenced by the first reply. Only a
-  question to `#all` goes to whoever takes it up.
+- **Wake:** a note that starts a turn at once. That covers a
+  question or hold put to this peer, by its address or as one
+  of each a question went to, and any answer to a question it
+  asked, whether the peer is idle or busy. It also covers an
+  answer to one it sent, while idle. A busy peer
+  has it steered into the run under way, read after the
+  current tool, since a note waits for the model's current call
+  to end, and when that call was the run's last, it waited for
+  the person to speak. A question sent to several peers, or to
+  a named group, asks each of them, and another's answer is
+  never this peer's, since on 2026-10-25 a group question that
+  gave each member its own part was silenced by the first
+  reply. Only a question to `#all` goes to whoever takes it up.
 
-An fyi or a hold never starts a turn; neither asks an idle
-peer to do anything. The one exception is an answer to a
-question this peer asked, which it is waiting on however the
-answer was sent. Any other fyi more than an hour old when it
+An fyi never starts a turn, nor does a hold that wasn't put to
+this peer; neither asks an idle peer to do anything. The one
+exception is an answer to a question this peer asked, which
+it is waiting on however the answer was sent. What a peer
+catches up on as it starts is noted, since it rides the first
+prompt. Any other fyi more than an hour old when it
 reaches a peer, as after a reload, is a glance wherever it
 went, since what it told has moved on (Skynet's register gives
 an fyi an hour). So is a hold more than two hours old, the
@@ -237,6 +244,11 @@ afford, so no sender and no conversation wears it out:
   counts. Depth and repeats still hold it back, so two peers
   cannot ask and answer each other past them. Nor is an
   awaited fyi glanced for its sender's news.
+- **Addressed:** a question or hold put to this peer starts its
+  turn past the hour's turns in the same way, and the turn
+  still counts. The orchestrator, whom every quest asks, spent
+  its twelve early on 2026-10-25 and left questions waiting for
+  the person.
 
 A damped message is never dropped: one that would have started
 a turn is noted instead. The model is never told; the screen

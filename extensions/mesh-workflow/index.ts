@@ -507,7 +507,7 @@ export function meshWorkflow(
 			const raisedAll: Heed[] = messages.map((message, at) => {
 				// Stopped is absolute: a line, never more, whatever it is.
 				if (stopped[at]) return { attention: "glance", why: STOPPED };
-				const worth = attend(message, {
+				const judged = attend(message, {
 					receiver,
 					idle,
 					answers: answeringAt(answering, at),
@@ -516,6 +516,11 @@ export function meshWorkflow(
 					now: Date.now(),
 					...(concerns[at] ? { concern: concerns[at] } : {}),
 				});
+				// What a starting peer catches up on rides the first prompt.
+				const worth: Heed =
+					starting && judged.attention === "wake"
+						? { attention: "note", why: judged.why }
+						: judged;
 				const replaced = replacedBy(message);
 				// A withdrawal reaches in full everyone who heard what it
 				// withdraws, and what it withdraws is never handed over after it.
@@ -684,7 +689,10 @@ export function meshWorkflow(
 						},
 					};
 				}
-				if (!idle)
+				// A busy peer reads a note once the model's current call ends,
+				// which may be the run's last, leaving it for the person to
+				// speak. What this peer waits on or is asked is steered in.
+				if (!idle && !heed.awaited && !heed.addressed)
 					return { message, heed: { attention: "note", why: heed.why } };
 				const held = damper.damp(message, heed, depthOf(message, read));
 				if (held.attention !== heed.attention) damped.push(held.why);

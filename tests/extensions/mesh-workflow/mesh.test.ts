@@ -1030,9 +1030,9 @@ describe("damping", () => {
 
 		for (let one = 1; one <= MOST_TURNS_FROM_ONE + 1; one += 1) {
 			fromElsewhere({
-				intent: "question",
+				intent: "finding",
 				to: ["@7M6JKG"],
-				text: `why ${one}?`,
+				text: `the cache is poisoned, ${one}`,
 			});
 			await vi.waitFor(() => expect(sent).toHaveLength(one));
 		}
@@ -1046,12 +1046,46 @@ describe("damping", () => {
 		expect(sent.at(-1)?.message.content).not.toContain("spent");
 	});
 
+	it("starts a turn for every question put to this peer, past the hour's share", async () => {
+		const { sent } = await startSession({}, { isIdle: () => true });
+
+		for (let one = 1; one <= MOST_TURNS_FROM_ONE + 1; one += 1) {
+			fromElsewhere({
+				intent: "question",
+				to: ["@7M6JKG"],
+				text: `why ${one}?`,
+			});
+			await vi.waitFor(() => expect(sent).toHaveLength(one));
+		}
+
+		expect(sent.map((one) => one.options)).toEqual(
+			Array.from({ length: MOST_TURNS_FROM_ONE + 1 }, () => ({
+				triggerTurn: true,
+			})),
+		);
+	});
+
+	it("steers a question put to a busy peer into its run", async () => {
+		const { sent } = await startSession({}, { isIdle: () => false });
+
+		fromElsewhere({ intent: "question", to: ["@7M6JKG"], text: "why?" });
+		fromElsewhere({ to: ["@7M6JKG"], text: "rebooting at 01:00" });
+
+		await vi.waitFor(() => expect(sent).toHaveLength(2));
+		expect(sent.map((one) => one.options)).toEqual([
+			{ triggerTurn: true },
+			{ triggerTurn: false },
+		]);
+	});
+
 	it("remembers the hour's turns across a reload", async () => {
 		const turns = Array.from({ length: MOST_TURNS_FROM_ONE }, (_, one) => ({
 			type: "custom_message",
 			customType: NOTED,
 			details: {
-				messages: [fromElsewhere({ intent: "question", text: `why ${one}?` })],
+				messages: [
+					fromElsewhere({ intent: "finding", text: `poisoned ${one}` }),
+				],
 				glanced: [],
 				at: Date.now(),
 				turn: true,
@@ -1063,7 +1097,7 @@ describe("damping", () => {
 		);
 		const { sent } = await startSession({}, { isIdle: () => true }, turns);
 
-		fromElsewhere({ intent: "question", to: ["@7M6JKG"], text: "and now?" });
+		fromElsewhere({ intent: "finding", to: ["@7M6JKG"], text: "and now" });
 
 		await vi.waitFor(() => expect(sent).toHaveLength(1));
 		expect(sent[0]?.options).toEqual({ triggerTurn: false });

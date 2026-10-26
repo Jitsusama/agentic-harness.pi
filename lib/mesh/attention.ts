@@ -98,6 +98,13 @@ export interface Heed {
 	 * damping does not hold it to the hour's turns.
 	 */
 	readonly awaited?: boolean;
+	/**
+	 * A question or hold put to this peer, by its own address or as one
+	 * of each a question went to. It gets its turn whatever the hour has
+	 * spent, and a busy peer has it steered into the run under way, since
+	 * one held to the end of a run waits for the person to speak.
+	 */
+	readonly addressed?: boolean;
 }
 
 /**
@@ -117,10 +124,11 @@ export const FYI_MS = 60 * 60 * 1000;
 /** The attention one message gets from a peer standing like this. */
 export function attend(message: Message, at: Standing): Heed {
 	if (at.asked) {
-		const why = "answering this peer's question";
-		return at.idle
-			? { attention: "wake", why, awaited: true }
-			: { attention: "note", why };
+		return {
+			attention: "wake",
+			why: "answering this peer's question",
+			awaited: true,
+		};
 	}
 	if (
 		message.intent === "fyi" &&
@@ -143,6 +151,12 @@ export function attend(message: Message, at: Standing): Heed {
 			: home
 				? "sent to this peer"
 				: "asked of each peer it went to";
+		if (
+			(home || at.askedEach) &&
+			(message.intent === "question" || message.intent === "hold")
+		) {
+			return { attention: "wake", why, addressed: true };
+		}
 		if (!at.idle) return { attention: "note", why };
 		if (message.intent === "question") return { attention: "wake", why };
 		if (message.intent === "finding") return { attention: "act", why };
