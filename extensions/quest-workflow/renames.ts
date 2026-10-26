@@ -13,6 +13,7 @@ import type { QuestAction } from "./actions.ts";
  */
 const RENAMED_ACTIONS: Readonly<Record<string, QuestAction>> = {
 	"tree-prune": "tree-release",
+	workspace: "sessions",
 };
 
 /**

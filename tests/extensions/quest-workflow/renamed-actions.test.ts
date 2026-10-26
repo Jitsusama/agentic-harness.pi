@@ -10,9 +10,17 @@ describe("a renamed quest action", () => {
 		});
 	});
 
+	it("takes `workspace` as `sessions`, leaving workspace to niri", () => {
+		expect(withRenamedAction({ action: "workspace" })).toEqual({
+			action: "sessions",
+		});
+	});
+
 	it("is offered only under its new name", () => {
 		expect(QUEST_ACTIONS).toContain("tree-release");
 		expect(QUEST_ACTIONS).not.toContain("tree-prune");
+		expect(QUEST_ACTIONS).toContain("sessions");
+		expect(QUEST_ACTIONS).not.toContain("workspace");
 	});
 
 	it("leaves every other call as it was", () => {

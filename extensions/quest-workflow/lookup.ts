@@ -408,7 +408,7 @@ export function ancestorsOf(
 }
 
 /** A quest currently being worked on, with its liveliest session. */
-export interface WorkspaceEntry {
+export interface SessionAtWork {
 	questId: string;
 	title: string | null;
 	kind: string;
@@ -436,15 +436,15 @@ function livenessRank(liveness: SessionLiveness): number {
 }
 
 /**
- * The live workspace: one row per non-detached session of every quest
+ * The sessions at work: one row per non-detached session of every quest
  * that has active work, so two live panes on one quest read as two
  * rows and a crashed pane shows beside its live sibling rather than
  * being collapsed away. A quest with no live or idle session is left
  * out entirely. Rows are ordered live first, then by recency.
  */
-export async function workspaceQuests(
+export async function sessionsAtWork(
 	state: QuestState,
-): Promise<WorkspaceEntry[]> {
+): Promise<SessionAtWork[]> {
 	const { index } = discoverQuests(state.questsRoot);
 	// One snapshot across every quest's sessions: derivation is keyed
 	// by session id, so a single store walk and probe pass serves all
@@ -453,7 +453,7 @@ export async function workspaceQuests(
 		(entry) => entry.doc.frontMatter.sessions,
 	);
 	const snapshot = await buildSessionSnapshot(allSessions);
-	const entries: WorkspaceEntry[] = [];
+	const entries: SessionAtWork[] = [];
 	for (const entry of index.quests.values()) {
 		const fm = entry.doc.frontMatter;
 		const views = fm.sessions

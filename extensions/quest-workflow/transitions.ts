@@ -48,10 +48,10 @@ import {
 	locate,
 	recent,
 	restore,
+	sessions,
 	subdirForDocumentId,
 	tree,
 	who,
-	workspace,
 } from "./verbs/queries.ts";
 import { queueOrder } from "./verbs/queue.ts";
 import { priorityJump, priorityShift, reorder } from "./verbs/reorder.ts";
@@ -278,8 +278,8 @@ async function dispatch(
 			return locate(state, params);
 		case "ancestors":
 			return ancestors(state, params);
-		case "workspace":
-			return workspace(state);
+		case "sessions":
+			return sessions(state);
 		case "recent":
 			return recent(state);
 		case "restore":

@@ -28,9 +28,9 @@ import {
 	locateOwner,
 	recentSessions,
 	resolveRefQuery,
+	sessionsAtWork,
 	type TreeNode,
 	treeAll,
-	workspaceQuests,
 } from "../lookup.ts";
 import {
 	type ListingDetails,
@@ -217,16 +217,17 @@ export function locate(
 	return ok(lines.join("\n"), { hits });
 }
 
-export async function workspace(state: QuestState): Promise<QuestResult> {
-	const entries = await workspaceQuests(state);
+/** The sessions at work right now, one row each, live first. */
+export async function sessions(state: QuestState): Promise<QuestResult> {
+	const entries = await sessionsAtWork(state);
 	if (entries.length === 0) {
-		return ok("No quests are being worked on right now.", { workspace: [] });
+		return ok("No quests are being worked on right now.", { sessions: [] });
 	}
 	const lines = entries.map((e) => {
 		const where = e.cwd ? ` ${e.cwd}` : "";
-		return `${workspaceMark(e.liveness)} ${e.questId} ${e.title ?? ""} [${e.status}]${where}`.trimEnd();
+		return `${livenessMark(e.liveness)} ${e.questId} ${e.title ?? ""} [${e.status}]${where}`.trimEnd();
 	});
-	return ok(lines.join("\n"), { workspace: entries });
+	return ok(lines.join("\n"), { sessions: entries });
 }
 
 /**
@@ -457,7 +458,7 @@ export async function recent(state: QuestState): Promise<QuestResult> {
 	const lines = rows.map((r) => {
 		const where = r.cwd ? ` ${r.cwd}` : "";
 		const resume = r.cwd ? `  → pi --session ${r.sessionId}` : "";
-		return `${workspaceMark(r.liveness)} ${r.questId} ${r.title ?? ""} [${r.liveness}]${where}${resume}`.trimEnd();
+		return `${livenessMark(r.liveness)} ${r.questId} ${r.title ?? ""} [${r.liveness}]${where}${resume}`.trimEnd();
 	});
 	// Say what was cut. The cap used to trim silently, so a listing
 	// that was missing the session you wanted looked exactly like a
@@ -470,7 +471,7 @@ export async function recent(state: QuestState): Promise<QuestResult> {
 }
 
 /** Glyph for a workspace row's liveness. */
-function workspaceMark(liveness: string): string {
+function livenessMark(liveness: string): string {
 	switch (liveness) {
 		case "live":
 			return "\u25cf"; // filled circle
