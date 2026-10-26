@@ -17,6 +17,9 @@
  *   the peer is waiting on it and is the one that asked. Depth and
  *   repeats still hold it back, so two peers cannot ask and answer
  *   each other past them.
+ * - Addressed: a question or hold put to this peer is let past the
+ *   hour's turns the same way. The orchestrator, which everyone asks,
+ *   spent its twelve early and left questions waiting for the person.
  * - Depth: an answer more than {@link MOST_REPLY_DEPTH} deep never
  *   starts a turn, which ends two peers answering each other's answers.
  * - Repeats: what a sender already said, word for word, within the
@@ -137,7 +140,7 @@ export function createDamper(): Damper {
 			const why =
 				depth > MOST_REPLY_DEPTH
 					? "an answer too deep in its thread"
-					: heed.awaited
+					: heed.awaited || heed.addressed
 						? undefined
 						: turns.length >= MOST_TURNS_AN_HOUR
 							? "the hour's turns spent"
