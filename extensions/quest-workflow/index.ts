@@ -98,6 +98,7 @@ import {
 	stopHeartbeat,
 	trackSession,
 } from "./session-registry.ts";
+import { STANDING_RULES, standingRules } from "./standing-rules.ts";
 import { createQuestState, type QuestState } from "./state.ts";
 import { handle, type QuestToolParams } from "./transitions.ts";
 import { currentSessionId, isPersistedSession } from "./verbs/shared.ts";
@@ -786,6 +787,12 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 	// a later change said as a message, so a quest action never rewrites
 	// the cached conversation.
 	registerStandingContext(pi, QUEST_CONTEXT, () => renderQuestContext(state));
+
+	// The rules the orchestrator above this quest sets for every quest
+	// below it, so a session starts with them rather than reading that
+	// quest's whole README.
+	const rulesFor = standingRules(() => state.questsRoot);
+	registerStandingContext(pi, STANDING_RULES, () => rulesFor(state.questId));
 }
 
 /** The minimal render component pi's setWidget callback form returns. */
