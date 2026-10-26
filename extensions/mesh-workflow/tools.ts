@@ -153,7 +153,7 @@ export function registerTools(
 			unanswered: Type.Optional(
 				Type.Boolean({
 					description:
-						"true to list every question on the mesh still waiting on an answer from a peer it named, from the last three hours, rather than the latest messages",
+						"true to list every question on the mesh still waiting on an answer from a peer it named, from the last two hours, rather than the latest messages",
 				}),
 			),
 		}),
