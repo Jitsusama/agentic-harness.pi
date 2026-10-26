@@ -65,7 +65,12 @@ and can answer a question or a gate left open on screen.
 - **Presence:** what a peer publishes about itself: its
   addresses, its groups, what it works on and what it owns,
   whether it is mid-run, what it waits on its person for, and
-  the process holding it.
+  the process holding it. Its `state` says the same for the
+  desktop in one word: `listening` when idle, `busy` mid-run
+  (with `since`, when the run began, and `step`, the tool it
+  runs, said at most every 30 seconds so the watched folder
+  is not woken on every call), or `waiting` when idle with a
+  want standing.
 - **Want:** what a peer waits on its person for: a question
   it asked, an approval it is held at, an unattended run
   that ended blocked, or something only they can do, said

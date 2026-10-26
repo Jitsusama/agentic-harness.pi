@@ -65,6 +65,19 @@ export interface Presence {
 	/** Whether it is in the middle of a run, as of when it last said. */
 	readonly busy: boolean;
 	/**
+	 * What it is doing, as the desktop shows it: `listening` when idle,
+	 * `busy` mid-run, `waiting` when idle with a want standing. Missing
+	 * from an older presence, where `busy` and `wants` say the same.
+	 */
+	readonly state?: PeerState;
+	/** When the run in progress began, as an ISO time, while busy. */
+	readonly since?: string;
+	/**
+	 * The step the run is on, such as the tool it runs, while busy. Said
+	 * at most every 30 seconds, so it can lag the run by that much.
+	 */
+	readonly step?: string;
+	/**
 	 * What it is waiting on its person for, standing longest, while any
 	 * want stands (see want.ts).
 	 */
@@ -353,6 +366,16 @@ function read(path: string): Presence | undefined {
 }
 
 /** Presence read from outside, or nothing when it is not one. */
+/** What a peer is doing, as its presence says. */
+export type PeerState = (typeof PEER_STATES)[number];
+
+/** Every state a presence may say. */
+export const PEER_STATES = ["listening", "busy", "waiting"] as const;
+
+function isPeerState(value: unknown): value is PeerState {
+	return (PEER_STATES as readonly unknown[]).includes(value);
+}
+
 function presenceFrom(value: unknown): Presence | undefined {
 	if (typeof value !== "object" || value === null) return undefined;
 	const one = value as Record<string, unknown>;
@@ -374,6 +397,9 @@ function presenceFrom(value: unknown): Presence | undefined {
 		worksOn: typeof one.worksOn === "string" ? one.worksOn : "",
 		owns: strings(one.owns) ? one.owns : [],
 		busy: one.busy === true,
+		...(isPeerState(one.state) ? { state: one.state } : {}),
+		...(typeof one.since === "string" ? { since: one.since } : {}),
+		...(typeof one.step === "string" ? { step: one.step } : {}),
 		...(wantFrom(one.wants) ? { wants: wantFrom(one.wants) } : {}),
 		...(isOwner(one.owner) ? { owner: keepTicks(one.owner) } : {}),
 		...(typeof one.title === "string" ? { title: one.title } : {}),

@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { localPeer } from "../../../lib/mesh/peer.ts";
+import { localPeer, STEP_MS } from "../../../lib/mesh/peer.ts";
 import {
 	createPresences,
 	type Presence,
@@ -178,6 +178,48 @@ describe("this session's peer", () => {
 		peer.setBusy(true);
 		expect(written.map((one) => one.busy)).toEqual([false, true]);
 		expect(kept.of(session)).toMatchObject({ busy: true });
+	});
+
+	it("says what it is doing: since when a run began, and its step at most every 30 s", () => {
+		let clock = Date.parse("2026-10-26T06:00:00Z");
+		const at = { ...surroundings(), now: () => clock };
+		const peer = localPeer(at);
+		const seen = () => at.presences.of(session);
+
+		expect(seen()).toMatchObject({ state: "listening" });
+		peer.setBusy(true);
+		peer.setStep("bash");
+		expect(seen()).toMatchObject({
+			state: "busy",
+			since: "2026-10-26T06:00:00.000Z",
+			step: "bash",
+		});
+
+		clock += STEP_MS - 1;
+		peer.setStep("edit");
+		expect(seen()?.step).toBe("bash");
+		clock += 1;
+		peer.setStep("edit");
+		expect(seen()?.step).toBe("edit");
+
+		peer.setBusy(false);
+		expect(seen()).toMatchObject({ state: "listening" });
+		expect(seen()?.since).toBeUndefined();
+		expect(seen()?.step).toBeUndefined();
+	});
+
+	it("is waiting when idle with a want standing, and busy while it runs", () => {
+		const at = surroundings();
+		const peer = localPeer(at);
+		peer.want({
+			kind: "action",
+			said: "a login",
+			since: "2026-10-26T06:00:00Z",
+		});
+
+		expect(at.presences.of(session)?.state).toBe("waiting");
+		peer.setBusy(true);
+		expect(at.presences.of(session)?.state).toBe("busy");
 	});
 
 	it("says its window's title as pi sets it, and the new one after a rename", () => {
