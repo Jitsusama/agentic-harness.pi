@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+	itemOf,
+	outlineOf,
 	replaceSection,
+	sectionOf,
 	setCheckbox,
 	splitAtBody,
 } from "../../../../lib/internal/quest/body-edits";
@@ -197,5 +200,108 @@ describe("replacing a section", () => {
 		const result = replaceSection(PLAN, "Outcomes", "x");
 		if (result.ok) throw new Error("expected a refusal");
 		expect(result.reason).toContain("Work, 🎯 Purpose, 📜 Journey");
+	});
+});
+
+const NUMBERED = [
+	"# Steps",
+	"",
+	"## Work",
+	"",
+	"- [x] 7. **Write the tests**",
+	"  - Landed as #12, with:",
+	"",
+	"    a long note kept with its item",
+	"  - [ ] 7a. a nested follow-up",
+	"- [ ] 70. Ship it",
+	"",
+	"Prose after the list.",
+	"",
+	"## Notes",
+	"",
+	"Some notes.",
+	"",
+].join("\n");
+
+describe("naming an item by its number", () => {
+	it("finds the item it numbers, not one whose number starts the same", () => {
+		const result = setCheckbox(NUMBERED, "70", true);
+		if (!result.ok) throw new Error(result.reason);
+		expect(result.line).toBe("- [x] 70. Ship it");
+		const seven = setCheckbox(NUMBERED, "7", false);
+		if (!seven.ok) throw new Error(seven.reason);
+		expect(seven.line).toBe("- [ ] 7. **Write the tests**");
+	});
+
+	it("refuses a number no item carries, rather than matching a time", () => {
+		const body = "- [ ] 12:00 run failed\n- [ ] Ship it\n";
+		const result = setCheckbox(body, "1", true);
+		if (result.ok) throw new Error("expected a refusal");
+		expect(result.reason).toContain('No item reads "1"');
+	});
+
+	it("names at most twenty candidates in a refusal", () => {
+		const body = Array.from({ length: 30 }, (_, n) => `- [ ] Step ${n}`).join(
+			"\n",
+		);
+		const result = setCheckbox(body, "nothing like it", true);
+		if (result.ok) throw new Error("expected a refusal");
+		expect(result.reason).toContain("- Step 19\n- and 10 more");
+		expect(result.reason).not.toContain("Step 20");
+	});
+});
+
+describe("reading a document without all of it", () => {
+	it("outlines its sections by size and its items with their depth", () => {
+		const outline = outlineOf(NUMBERED);
+		expect(outline.sections.map((one) => one.heading)).toEqual([
+			"Work",
+			"Notes",
+		]);
+		expect(outline.sections[1].bytes).toBe(
+			Buffer.byteLength("## Notes\n\nSome notes.\n"),
+		);
+		const wrapped = outlineOf(
+			"- [ ] Battery: idle watts at\n  fixed brightness\n  - [ ] nested\n",
+		);
+		expect(wrapped.items.map((one) => one.text)).toEqual([
+			"Battery: idle watts at fixed brightness",
+			"nested",
+		]);
+		expect(outline.items).toEqual([
+			{ text: "7. **Write the tests**", done: true, depth: 0 },
+			{ text: "7a. a nested follow-up", done: false, depth: 1 },
+			{ text: "70. Ship it", done: false, depth: 0 },
+		]);
+	});
+
+	it("reads one section, matched as a replacement matches it", () => {
+		const found = sectionOf(PLAN, "purpose");
+		if (!found.ok) throw new Error(found.reason);
+		expect(found).toEqual({
+			ok: true,
+			found: "🎯 Purpose",
+			text: "Old purpose.",
+		});
+		const missing = sectionOf(PLAN, "Outcomes");
+		if (missing.ok) throw new Error("expected a refusal");
+		expect(missing.reason).toContain("Work, 🎯 Purpose, 📜 Journey");
+	});
+
+	it("reads one item with the notes nested under it, and no further", () => {
+		const found = itemOf(NUMBERED, "7");
+		if (!found.ok) throw new Error(found.reason);
+		expect(found.found).toBe("- [x] 7. **Write the tests**");
+		expect(found.text).toBe(
+			[
+				"  - Landed as #12, with:",
+				"",
+				"    a long note kept with its item",
+				"  - [ ] 7a. a nested follow-up",
+			].join("\n"),
+		);
+		const last = itemOf(NUMBERED, "70. ship");
+		if (!last.ok) throw new Error(last.reason);
+		expect(last.text).toBe("");
 	});
 });

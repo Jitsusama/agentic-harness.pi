@@ -17,7 +17,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { appendJourneyByPath } from "../../../lib/internal/quest/append-journey.ts";
 import {
+	itemOf,
+	outlineOf,
 	replaceSection,
+	sectionOf,
 	setCheckbox,
 	splitAtBody,
 } from "../../../lib/internal/quest/body-edits.ts";
@@ -73,6 +76,82 @@ function stamp(state: QuestState, target: Address): void {
 	}
 	// An identity transform: the write stamps `updated` and nothing else.
 	mutateQuestFrontMatter(target.questDir, (fm) => fm);
+}
+
+/** How much of an item's line an outline shows. */
+const ITEM_CHARS = 160;
+
+/**
+ * Read a document without reading all of it: one section (`title`),
+ * one checkbox item with its notes (`query`), or, with neither, its
+ * outline: its sections and their sizes, its open items and the next.
+ * Plans grow past 400 KB, mostly as notes under done items, and
+ * sessions hunted them with grep and sed some 3,000 times in a week.
+ */
+export function read(state: QuestState, params: QuestToolParams): QuestResult {
+	const target = addressOf(state, params.id, { focused: true });
+	if ("refusal" in target) return refuse(target.refusal);
+	const shown = displayPath(target.path);
+	let text: string;
+	try {
+		text = readFileSync(target.path, "utf8");
+	} catch (err) {
+		return refuse(`Cannot read ${shown}: ${(err as Error).message}`);
+	}
+	const { head, body } = splitAtBody(text);
+	const name = target.documentId ?? target.questId;
+	const heading = params.title?.trim();
+	const item = params.query?.trim();
+	if (heading || item) {
+		const found = heading ? sectionOf(body, heading) : itemOf(body, item ?? "");
+		if (!found.ok) return refuse(found.reason);
+		const lines = heading
+			? [`${name}, section ${found.found}:`, ""]
+			: [`${name}, item:`, "", found.found];
+		if (found.text) lines.push(found.text);
+		else if (heading) lines.push("(nothing under it)");
+		return ok(lines.join("\n"), {
+			document: name,
+			found: found.found,
+			text: found.text,
+		});
+	}
+	const outline = outlineOf(body);
+	const open = outline.items.filter((one) => !one.done);
+	const title = /^#[ \t]+(.+)$/m.exec(body)?.[1].trim();
+	const stage = /^stage:\s*(\S+)/m.exec(head)?.[1];
+	const lines = [
+		`${name}: ${title ?? "(untitled)"}`,
+		`  ${[stage, `${Buffer.byteLength(text).toLocaleString("en-CA")} bytes`].filter(Boolean).join(", ")}; ${shown}`,
+		"",
+		"Sections, with their sizes in bytes:",
+		...outline.sections.map(
+			(one) => `- ${one.heading} (${one.bytes.toLocaleString("en-CA")})`,
+		),
+	];
+	if (outline.items.length > 0) {
+		lines.push(
+			"",
+			`Open, ${open.length} of ${outline.items.length} items:`,
+			...open.map(
+				(one) => `${"  ".repeat(one.depth)}- [ ] ${cut(one.text, ITEM_CHARS)}`,
+			),
+		);
+		if (open[0]) lines.push("", `Next: ${cut(open[0].text, ITEM_CHARS)}`);
+	}
+	lines.push(
+		"",
+		"Read one section with `title`, or one item and its notes with `query` (its number or its first words); `tick` and `section` change them.",
+	);
+	return ok(lines.join("\n"), {
+		document: name,
+		sections: outline.sections,
+		open: open.map((one) => one.text),
+	});
+}
+
+function cut(text: string, chars: number): string {
+	return text.length <= chars ? text : `${text.slice(0, chars - 3)}...`;
 }
 
 /** Mark a checkbox item done (`tick`) or not done (`untick`). */
