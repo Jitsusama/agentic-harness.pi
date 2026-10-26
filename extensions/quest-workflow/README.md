@@ -146,7 +146,7 @@ while it waits its turn leaves without running.
   the machine's queue reads (see priority-workflow).
 - Edits to a document's body: `journal` adds a dated
   Journey entry, to the quest `id` names or else the loaded
-  one, at the head of its `attachments/journey.md` (the
+  one, at the head of its `JOURNEY.md` (the
   README's Journey section only points there, and every
   Journey writer, core's verbs included, writes the file),
   `tick` and `untick` set a checkbox item by

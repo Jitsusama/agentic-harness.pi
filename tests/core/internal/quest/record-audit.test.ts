@@ -96,6 +96,17 @@ describe("auditQuestRecord", () => {
 		]);
 	});
 
+	it("keeps the Journey and counts what it cites", () => {
+		put("attachments/notes.md");
+		put(
+			"JOURNEY.md",
+			"# Journey\n\n- **2026-09-24**: See attachments/notes.md.\n",
+		);
+		const audit = auditQuestRecord(questDir);
+		expect(audit.strays).toEqual([]);
+		expect(audit.uncited).not.toContain("attachments/notes.md");
+	});
+
 	it("calls a record with only uncited attachments sound", () => {
 		put("plans/PLAN-20260924-RUE4Q4.md", "See `attachments/runs/`.\n");
 		put("attachments/lonely.md");

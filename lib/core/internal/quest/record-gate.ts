@@ -44,6 +44,7 @@ export interface RecordRefusal {
 		| "document-by-hand"
 		| "document-by-bash"
 		| "document-removed"
+		| "journey-by-hand"
 		| "stray"
 		| "attachment";
 	readonly reason: string;
@@ -71,6 +72,7 @@ function judgeRemoval(place: QuestRecordPath): RecordRefusal | undefined {
 	const kept =
 		kind === "document" ||
 		kind === "readme" ||
+		kind === "journey" ||
 		kind === "folder" ||
 		kind === "quest" ||
 		(kind === "stray" && isKindFolderPattern(rel));
@@ -80,7 +82,7 @@ function judgeRemoval(place: QuestRecordPath): RecordRefusal | undefined {
 		rule: "document-removed",
 		reason:
 			`This removes ${what}, which is part of ${place.quest}'s record. ` +
-			"Documents, the README and the record's folders leave only through " +
+			"Documents, the README, the Journey and the record's folders leave only through " +
 			"`quest retire`, which keeps what was written.",
 	};
 }
@@ -92,6 +94,16 @@ function judgeWrite(
 ): RecordRefusal | undefined {
 	const { place: kind, rel } = place;
 	if (kind === "quest" || kind === "folder") return undefined;
+
+	if (kind === "journey") {
+		return {
+			rule: "journey-by-hand",
+			reason:
+				`This writes into ${rel}, ${place.quest}'s Journey. Add an entry ` +
+				"with `quest journal` instead, which dates it, puts it at the head " +
+				"and writes under the quest's lock.",
+		};
+	}
 
 	if (kind === "document" || kind === "readme") {
 		if (write.via === "bash") {
@@ -135,7 +147,7 @@ function judgeWrite(
 		rule: "stray",
 		reason:
 			`${rel} is not part of ${place.quest}'s record, which holds only its ` +
-			"README, its documents and attachments/. Put it in the quest's " +
+			"README, its JOURNEY.md, its documents and attachments/. Put it in the quest's " +
 			`workspace instead: ${instead}` +
 			(citable
 				? `. If a document will cite it, ${ATTACHMENTS_FOLDER}/${basename(rel)} is its place.`

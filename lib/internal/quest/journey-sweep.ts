@@ -7,13 +7,14 @@
  *   above it: a scaffold's first entry, or one a session still running
  *   older code appended. A quest is swept once more as it is created.
  *   The one-shot migration moved every README's whole Journey through
- *   the same planner.
- * - Carry citations. The record audit and the backup count only what
- *   the README and the ID documents cite, so an attachment cited only
- *   from the Journey would read as uncited and leave the backup. The
- *   README's section carries those citations in one comment line,
- *   folded to the widest folders it can name without citing anything
- *   new, until the audit and the backup read the Journey file itself.
+ *   the same planner. A Journey file left at its former place,
+ *   `attachments/journey.md`, is folded in here too.
+ * - Carry citations. The backup counts only what the README and the
+ *   ID documents cite, so an attachment cited only from the Journey
+ *   would leave the backup. The README's section carries those
+ *   citations in one comment line, folded to the widest folders it
+ *   can name without citing anything new, until the backup reads
+ *   `JOURNEY.md` as the record audit already does.
  *
  * Nothing is dropped. Every line of the section but the pointer and
  * the citations moves, verbatim and in order, to the head of the file;
@@ -30,15 +31,20 @@ import {
 	mkdirSync,
 	readdirSync,
 	readFileSync,
+	rmdirSync,
+	rmSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { attachmentCitations } from "../../core/internal/quest/record.ts";
 import { atomicWriteFile, withQuestLock } from "./io.ts";
 import {
+	formerJourneyFilePath,
+	isJourneyPointer,
 	JOURNEY_FILE,
 	JOURNEY_POINTER,
 	journeyBody,
 	journeyFilePath,
+	mergeJourneyBodies,
 	readmeJourneySection,
 	renderJourneyFile,
 } from "./journey.ts";
@@ -100,7 +106,7 @@ export function planJourneySweep(
 		...lines.slice(section.end),
 	];
 	const isMachinery = (l: string) =>
-		l.trim() === JOURNEY_POINTER || l.startsWith(CITATIONS_OPENING);
+		isJourneyPointer(l) || l.startsWith(CITATIONS_OPENING);
 	const moving = section.lines.filter((l) => !isMachinery(l));
 	const movingDefinitions = moving.filter((l) => DEFINITION.test(l));
 	const movingContent = trimBlank(moving.filter((l) => !DEFINITION.test(l)));
@@ -228,8 +234,10 @@ export function listAttachments(questDir: string): string[] {
 
 /**
  * Sweep a quest's README Journey into its file, putting `prepend` at
- * its head, the caller holding the quest's lock. Returns how many
- * lines moved, or undefined when the quest has no README.
+ * its head, the caller holding the quest's lock. A Journey file still
+ * at its former place is merged in by date, and removed once the file
+ * beside the README is written. Returns how
+ * many README lines moved, or undefined when the quest has no README.
  */
 export function sweepJourneyUnlocked(
 	questDir: string,
@@ -244,9 +252,20 @@ export function sweepJourneyUnlocked(
 		return undefined;
 	}
 	const filePath = journeyFilePath(questDir);
-	const journey = existsSync(filePath)
-		? readFileSync(filePath, "utf8")
-		: undefined;
+	const formerPath = formerJourneyFilePath(questDir);
+	const current = textAt(filePath);
+	const former = textAt(formerPath);
+	// A session still on older code writes the former file, so either
+	// may hold the newest entries: the two are merged by date.
+	const journey =
+		former === undefined
+			? current
+			: renderJourneyFile(
+					mergeJourneyBodies(
+						current === undefined ? [] : journeyBody(current),
+						journeyBody(former),
+					),
+				);
 	const plan = planJourneySweep(readme, {
 		journey,
 		prepend,
@@ -255,13 +274,28 @@ export function sweepJourneyUnlocked(
 			attachments: listAttachments(questDir),
 		},
 	});
-	if (!plan) return 0;
-	if (plan.journey !== journey) {
+	const next = plan?.journey ?? journey;
+	// Written before anything is removed, so a crash between the two
+	// leaves entries twice rather than losing them.
+	if (next !== undefined && next !== current) {
 		mkdirSync(dirname(filePath), { recursive: true });
-		atomicWriteFile(filePath, plan.journey);
+		atomicWriteFile(filePath, next);
 	}
-	if (plan.readme !== readme) atomicWriteFile(readmePath, plan.readme);
-	return plan.moved;
+	if (plan && plan.readme !== readme) atomicWriteFile(readmePath, plan.readme);
+	if (former !== undefined) {
+		rmSync(formerPath, { force: true });
+		try {
+			rmdirSync(dirname(formerPath));
+		} catch {
+			// attachments/ still holds other files, which is the common
+			// case: only an emptied folder goes with the old Journey.
+		}
+	}
+	return plan?.moved ?? 0;
+}
+
+function textAt(path: string): string | undefined {
+	return existsSync(path) ? readFileSync(path, "utf8") : undefined;
 }
 
 /** Sweep a quest's README Journey into its file, under its lock. */

@@ -1,4 +1,5 @@
 import {
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -10,8 +11,10 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { appendJourneyByPath } from "../../../lib/internal/quest/append-journey";
 import {
+	FORMER_JOURNEY_FILE,
 	JOURNEY_FILE,
 	JOURNEY_POINTER,
+	JOURNEY_TITLE,
 	recentJourney,
 } from "../../../lib/internal/quest/journey";
 import {
@@ -93,6 +96,100 @@ describe("sweeping what core appended", () => {
 		const before = { readme: readme(), file: journeyFile() };
 		expect(sweepJourney(questDir)).toBe(0);
 		expect({ readme: readme(), file: journeyFile() }).toEqual(before);
+	});
+});
+
+describe("moving the Journey up beside the README", () => {
+	const formerPointer = `Kept in [${FORMER_JOURNEY_FILE}](${FORMER_JOURNEY_FILE}), newest first.`;
+	const former = () => join(questDir, FORMER_JOURNEY_FILE);
+
+	beforeEach(() => {
+		writeFileSync(
+			join(questDir, "README.md"),
+			`# Title\n\n## 🌄 Journey\n\n${formerPointer}\n`,
+		);
+		mkdirSync(join(questDir, "attachments"));
+		writeFileSync(
+			former(),
+			"# 🌄 Journey\n\n- **2026-06-02**: Old place.\n- **2026-06-01**: Created.\n",
+		);
+	});
+
+	it("reads a Journey still at the old place", () => {
+		expect(recentJourney(questDir, readme(), 5).map((e) => e.prose)).toEqual([
+			"Old place.",
+			"Created.",
+		]);
+	});
+
+	it("moves it up, points the README there and removes the emptied folder", () => {
+		expect(sweepJourney(questDir)).toBe(0);
+
+		expect(journeyFile()).toBe(
+			"# 🌄 Journey\n\n- **2026-06-02**: Old place.\n- **2026-06-01**: Created.\n",
+		);
+		expect(readme()).toBe(`# Title\n\n## 🌄 Journey\n\n${JOURNEY_POINTER}\n`);
+		expect(existsSync(join(questDir, "attachments"))).toBe(false);
+	});
+
+	it("keeps attachments/ when it holds anything else", () => {
+		writeFileSync(join(questDir, "attachments", "chart.png"), "png");
+		sweepJourney(questDir);
+		expect(existsSync(former())).toBe(false);
+		expect(existsSync(join(questDir, "attachments", "chart.png"))).toBe(true);
+	});
+
+	it("folds in what an older session wrote at the old place by date", () => {
+		sweepJourney(questDir);
+		mkdirSync(join(questDir, "attachments"));
+		writeFileSync(former(), "# 🌄 Journey\n\n- **2026-06-03**: Stale write.\n");
+		appendJourneyByPath(questDir, "harness entry", { now: fixedNow });
+
+		expect(journeyFile()).toBe(
+			[
+				"# 🌄 Journey",
+				"",
+				"- **2026-06-03**: harness entry",
+				"- **2026-06-03**: Stale write.",
+				"- **2026-06-02**: Old place.",
+				"- **2026-06-01**: Created.",
+				"",
+			].join("\n"),
+		);
+		expect(existsSync(former())).toBe(false);
+	});
+
+	it("reads and sweeps both files merged by date, either holding the newest", () => {
+		writeFileSync(
+			join(questDir, JOURNEY_FILE),
+			`${JOURNEY_TITLE}\n\n- **2026-06-05**: New code.\n  More of it.\n- **2026-06-03**: New, same day.\n- **2026-06-01**: Created.\n\n[a]: https://a\n`,
+		);
+		writeFileSync(
+			former(),
+			`${JOURNEY_TITLE}\n\n- **2026-06-04**: Old code.\n- **2026-06-03**: Old, same day.\n\n[a]: https://a\n[b]: https://b\n`,
+		);
+		const merged = [
+			"- **2026-06-05**: New code.",
+			"  More of it.",
+			"- **2026-06-04**: Old code.",
+			"- **2026-06-03**: New, same day.",
+			"- **2026-06-03**: Old, same day.",
+			"- **2026-06-01**: Created.",
+		];
+		expect(recentJourney(questDir, readme(), 9).map((e) => e.date)).toEqual([
+			"2026-06-05",
+			"2026-06-04",
+			"2026-06-03",
+			"2026-06-03",
+			"2026-06-01",
+		]);
+
+		sweepJourney(questDir);
+
+		expect(journeyFile()).toBe(
+			`${[JOURNEY_TITLE, "", ...merged, "", "[a]: https://a", "[b]: https://b"].join("\n")}\n`,
+		);
+		expect(existsSync(former())).toBe(false);
 	});
 });
 

@@ -6,7 +6,7 @@
  * quest the alias index points it at.
  *
  * The entry goes to the head of the quest's Journey file
- * (`attachments/journey.md`), newest first; the README keeps one
+ * (`JOURNEY.md`, beside the README), newest first; the README keeps one
  * line pointing at it. See `journey.ts`.
  */
 
