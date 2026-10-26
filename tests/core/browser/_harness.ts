@@ -2,7 +2,7 @@
  * A real browser and a real server, shared by the suites that
  * need both.
  *
- * Every test under tests/browser drives Chrome, because the
+ * Every test under tests/core/browser drives Chrome, because the
  * faults in this layer are not about what the code computes but
  * about what the browser does with it. A unit test cannot fail on
  * an override the browser ignored, an event that arrived on the
