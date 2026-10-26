@@ -165,12 +165,12 @@ describe("the shared table", () => {
 			"authoring.rerunChecks",
 			"authoring.reviewersAt",
 			"authoring.setDraft",
+			"changes.checks",
+			"changes.fetchAsRef",
+			"changes.list",
 			"conversation.fileLevelComments",
 			"conversation.reactions",
 			"conversation.unresolve",
-			"proposals.checks",
-			"proposals.fetchAsRef",
-			"proposals.list",
 		]);
 	});
 });
