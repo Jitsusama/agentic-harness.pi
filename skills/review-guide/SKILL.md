@@ -748,12 +748,12 @@ What protects a started round instead is that each reviewer writes its
 findings down as it forms them.
 
 When the job-workflow extension is loaded, a started round is also
-held as a background job. Its answer says so and names the job, and
+held in the background. Its answer says so and names its id, and
 when no reviewer is left running you receive a message saying to run
 `review_ask collect` with the round's id. Do not poll in the meantime;
 get on with something else or end your turn. The message only tells
 you the round is ready: it does not collect, because a collect racing
-yours would file the same findings twice. Stopping the job, from
+yours would file the same findings twice. Stopping it, from
 `/jobs` or the `jobs` tool, stops the round the way `review_ask stop`
 does. The session
 ending stops only the watching, since the round survives it.

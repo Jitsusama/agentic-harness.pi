@@ -92,7 +92,7 @@ export async function rollOverNow(
 		return "This session keeps no log, so there is none to roll over.";
 	const jobs = findJobHost(pi.events)?.pending?.() ?? 0;
 	if (jobs > 0) {
-		return "Not rolled over: background jobs are running, and switching logs would end them.";
+		return "Not rolled over: background work is running, and switching logs would end it.";
 	}
 	const carry: Carry = { carried: {} };
 	pi.events.emit(ROLLOVER_CARRY, carry);

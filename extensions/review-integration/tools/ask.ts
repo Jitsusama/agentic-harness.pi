@@ -944,7 +944,7 @@ async function startRound(
 							`Finish it with review_ask collect once they are done. Until then it reads as opened and never settled, which is what it is.`,
 						]
 					: [
-							`Held as job ${watched.id}: you will be told when no reviewer is left running, so do not poll. Collect it then. /jobs stops it.`,
+							`Held in the background as ${watched.id}: you will be told when no reviewer is left running, so do not poll. Collect it then. /jobs stops it.`,
 						]),
 			answerFor(run, [...warnings, ...kept], tree.caveat),
 		].join("\n"),

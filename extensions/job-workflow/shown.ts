@@ -14,7 +14,7 @@
  * words twice is theirs to send twice.
  */
 
-import { OUTBOX_HEADER } from "./outbox.ts";
+import { isOutboxMessage } from "./outbox.ts";
 
 /** What the session has shown, and whether a prompt is a repeat of it. */
 export interface ShownReports {
@@ -28,11 +28,11 @@ export interface ShownReports {
 export function shownReports(history: Iterable<string>): ShownReports {
 	const shown = new Set<string>();
 	const add = (text: string) => {
-		if (text.startsWith(OUTBOX_HEADER)) shown.add(text);
+		if (isOutboxMessage(text)) shown.add(text);
 	};
 	for (const text of history) add(text);
 	return {
 		add,
-		again: (text) => text.startsWith(OUTBOX_HEADER) && shown.has(text),
+		again: (text) => isOutboxMessage(text) && shown.has(text),
 	};
 }

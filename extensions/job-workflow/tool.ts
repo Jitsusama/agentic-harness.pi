@@ -68,26 +68,28 @@ export function registerJobsTool(
 		name: "jobs",
 		// Wanted only when a job has to go: loaded on demand.
 		exposure: "deferred",
-		label: "Jobs",
+		label: "Background work",
 		description:
-			"List this session's background jobs, or stop one. A command " +
-			"handed off to the background, a background fleet and a watched " +
-			"review round are each a job, named by the id the hand-off gave " +
-			"(j1, j2 ...). Stop a job here rather than killing its shell: " +
-			"this kills the shell's whole process group, so what it started " +
-			"(a nix build, a VM) goes too, and its place in the machine queue " +
-			"is freed. Only this session's jobs are listed.",
+			"List this session's background work, or stop one piece of it. A " +
+			"background command (a command handed off to the background), a " +
+			"background fleet and a watched review round are each named by the " +
+			"id the hand-off gave (j1, j2 ...). Stop a background command here " +
+			"rather than killing its shell: this kills the shell's whole process " +
+			"group, so what it started (a nix build, a VM) goes too, and its " +
+			"place in the machine queue is freed. Only this session's background " +
+			"work is listed.",
 		// What the index of tools that load on demand says of it, so a job
 		// that has to go is stopped here and not by killing its shell.
 		promptSnippet:
-			"List this session's background jobs, or stop one by id; stop a job here, never by killing its shell.",
+			"List this session's background commands, fleets and review rounds, or stop one by id; stop a background command here, never by killing its shell.",
 		parameters: Type.Object({
 			action: Type.Union([Type.Literal("list"), Type.Literal("stop")], {
-				description: "list: every job held. stop: stop the job named by id.",
+				description:
+					"list: everything held in the background. stop: stop the one named by id.",
 			}),
 			id: Type.Optional(
 				Type.String({
-					description: "For stop: the job's id, as the hand-off named it.",
+					description: "For stop: its id, as the hand-off named it.",
 				}),
 			),
 		}),
@@ -105,12 +107,12 @@ export function registerJobsTool(
 			if (params.action === "list") {
 				const entries = jobs?.list() ?? [];
 				if (entries.length === 0)
-					return answer("No background jobs in this session.");
+					return answer("No background work in this session.");
 				return answer(entries.map(line).join("\n"));
 			}
 			if (params.id === undefined || params.id.trim() === "") {
 				return answer(
-					"Nothing was stopped: stop needs the job's id. Call jobs list to see them.",
+					"Nothing was stopped: stop needs an id. Call jobs list to see them.",
 					true,
 				);
 			}
@@ -119,21 +121,21 @@ export function registerJobsTool(
 			const outcome = stopIn(jobs, id);
 			if (outcome === "unknown") {
 				return answer(
-					`Nothing was stopped: this session holds no job ${id}. Call jobs list to see the ones it does; a job another session started is that session's to stop.`,
+					`Nothing was stopped: this session holds nothing in the background as ${id}. Call jobs list to see what it does hold; what another session started is that session's to stop.`,
 					true,
 				);
 			}
 			if (outcome === "finished") {
 				return answer(
-					`Nothing was stopped: job ${id} has already finished, and its result is on its way as a message of its own.`,
+					`Nothing was stopped: ${id} has already finished, and its result is on its way as a message of its own.`,
 					true,
 				);
 			}
 			const what = entry ? ` (${entry.spec.kind}: ${entry.spec.label})` : "";
-			const stopped = `Stopped ${id}${what}. Its work was told to stop; a shell job's whole process group is killed, grandchildren included.`;
+			const stopped = `Stopped ${id}${what}. Its work was told to stop; a background command's whole process group is killed, grandchildren included.`;
 			if (outcome === "stopped-as-person") {
 				return answer(
-					`${stopped} This session's jobs came over a reload from older code, so a message saying the person stopped it follows; that message is this stop, not another.`,
+					`${stopped} This session's background work came over a reload from older code, so a message saying the person stopped it follows; that message is this stop, not another.`,
 				);
 			}
 			return answer(`${stopped} Nothing more will be said about it.`);

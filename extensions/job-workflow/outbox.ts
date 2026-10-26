@@ -70,10 +70,25 @@ export interface Outbox {
 export const PROMPT_WAIT_MS = 30_000;
 
 /** How the message opens, so the model and the person know nobody typed it. */
-export const OUTBOX_HEADER = automatedHeader("background jobs are reporting");
+export const OUTBOX_HEADER = automatedHeader("background work is reporting");
 
-/** A job's tag in the message, which is how its landing is recognised. */
-const tag = (jobId: string) => `[job ${jobId}]`;
+/**
+ * The header older code sent. A result sent just before a reload is
+ * seen by the code that loads after it, so both are recognised.
+ */
+const OLDER_HEADER = automatedHeader("background jobs are reporting");
+
+/** Whether a message is the outbox's, from this code or older. */
+export function isOutboxMessage(text: string): boolean {
+	return text.startsWith(OUTBOX_HEADER) || text.startsWith(OLDER_HEADER);
+}
+
+/** A result's tag in the message, which is how its landing is recognised. */
+const tag = (jobId: string) => `[${jobId}]`;
+
+/** Whether a message says this result, under this code's tag or older code's. */
+const says = (text: string, jobId: string) =>
+	text.includes(tag(jobId)) || text.includes(`[job ${jobId}]`);
 
 /** The message that says these results. */
 function compose(results: readonly JobResult[]): string {
@@ -131,8 +146,8 @@ export function createOutbox(options: OutboxOptions): Outbox {
 			trySend();
 		},
 		seen(text) {
-			if (!text.startsWith(OUTBOX_HEADER)) return;
-			const said = (result: JobResult) => text.includes(tag(result.jobId));
+			if (!isOutboxMessage(text)) return;
+			const said = (result: JobResult) => says(text, result.jobId);
 			out = out.filter((result) => !said(result));
 			for (let i = queued.length - 1; i >= 0; i--) {
 				const result = queued[i];

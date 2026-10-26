@@ -181,7 +181,7 @@ describe("a command still running when the time comes", () => {
 			result.content[0]?.type === "text" ? result.content[0].text : "";
 
 		expect(specs).toEqual([{ kind: "shell", label: "pnpm test" }]);
-		expect(text).toContain("in the background as job j1");
+		expect(text).toContain("as background command j1");
 		expect(text).toContain("do not run it again");
 		expect(text).toContain("ran 40 of 300");
 		// The way to stop it that takes its children with it, not a kill.
@@ -361,7 +361,7 @@ describe("what decides whether a command moves", () => {
 		const result = await running;
 		const text =
 			result.content[0]?.type === "text" ? result.content[0].text : "";
-		expect(text).toContain("in the background as job j1");
+		expect(text).toContain("as background command j1");
 		expect(specs).toHaveLength(1);
 		command.end(said("up"));
 	});

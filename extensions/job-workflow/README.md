@@ -1,9 +1,15 @@
 # Job Workflow
 
-Hosts background jobs: work a tool hands off so it can return at once,
+Hosts background work: work a tool hands off so it can return at once,
 whose result is said to the model when the session can take it. The
 editor stays yours while the work runs, and the model hears about it
 without you typing anything or it polling.
+
+In the code each piece is a job. What the model and the person read
+names it by what it is: a background command (a shell command handed
+off), a background fleet or a watched review round, and "background
+work" for them all, since the machine's glossary keeps "job" for work
+run below the desktop. The tool keeps its name, `jobs`.
 
 ## How a Producer Uses It
 
@@ -52,7 +58,9 @@ that run without `before_agent_start`, so it would go out on the base
 system prompt and rewrite the whole cache twice.
 
 Everything ready goes in one message, which opens with a line saying
-nobody typed it and tags each result `[job <id>]`. A result leaves the
+nobody typed it and tags each result with its id, as `[j1]`. Older
+code's `[job j1]` tag and header are still recognised, since a result
+sent just before a reload is seen after it. A result leaves the
 outbox only once a user message carrying its tag is seen in the
 session, so a send that went nowhere is sent again at the next idle
 moment rather than lost, and a result is said once however often its

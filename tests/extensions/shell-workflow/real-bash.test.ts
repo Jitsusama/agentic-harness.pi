@@ -117,7 +117,7 @@ describe("a real command handed off", () => {
 				bash.execute("t3", { command }, signal, onUpdate, undefined as never),
 		});
 
-		expect(textOf(result)).toContain("job j1");
+		expect(textOf(result)).toContain("background command j1");
 		expect(running(marker)).toBe(true);
 
 		controller.abort(jobStopReason("person"));
@@ -155,7 +155,7 @@ describe("a real command handed off", () => {
 			run: (signal, onUpdate) =>
 				bash.execute("t5", { command }, signal, onUpdate, undefined as never),
 		});
-		expect(textOf(result)).toContain("job j1");
+		expect(textOf(result)).toContain("background command j1");
 		await until(() => running(piped) && running(nested));
 
 		const stopped = await runtime.tool("jobs", { action: "stop", id: "j1" });
@@ -185,13 +185,13 @@ describe("a real command handed off", () => {
 			run: (signal, onUpdate) =>
 				bash.execute("t4", { command }, signal, onUpdate, undefined as never),
 		});
-		expect(textOf(result)).toContain("in the background as job j1");
+		expect(textOf(result)).toContain("as background command j1");
 		await until(() => running(marker));
 
 		const next = await reloadJobs(events, first);
 		expect(running(marker)).toBe(true);
 		await until(() => next.said.length > 0, 15_000);
-		expect(next.said[0]).toContain("[job j1]");
+		expect(next.said[0]).toContain("[j1]");
 		expect(next.said[0]).toContain("exited 0");
 		expect(next.said[0]).toContain("finished");
 		expect(first.said).toEqual([]);

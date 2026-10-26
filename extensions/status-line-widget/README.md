@@ -80,7 +80,7 @@ never carries the colour.
 | ---- | ---- | ------ |
 | `⚑`, muted | guard modes are overridden this session | `/guards` |
 | `☾`, muted, or warning with a count | away; the count is calls held for your return | listed when you come back |
-| `⧗`, muted | background jobs are running | `/jobs` |
+| `⧗`, muted | background work is running | `/jobs` |
 | `✕`, error, with attempts | verification fails | the verify tool |
 
 A quest says nothing here: its kind and status glyphs lead its own

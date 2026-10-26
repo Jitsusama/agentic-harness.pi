@@ -48,7 +48,7 @@ describe("a reload", () => {
 		job.finish({ summary: "exited 0 after 50 minutes" });
 		expect(first.said).toEqual([]);
 		expect(next.said).toHaveLength(1);
-		expect(next.said[0]).toContain(`[job ${job.id}]`);
+		expect(next.said[0]).toContain(`[${job.id}]`);
 		expect(next.said[0]).toContain("exited 0 after 50 minutes");
 	});
 
@@ -155,7 +155,7 @@ describe("a reload", () => {
 		await mine.fire("session_start", { reason: "reload" });
 
 		expect(await mine.tool("jobs", { action: "list" })).toMatch(
-			/No background jobs/,
+			/No background work/,
 		);
 		expect(await other.tool("jobs", { action: "list" })).toContain(
 			job?.id ?? "?",
