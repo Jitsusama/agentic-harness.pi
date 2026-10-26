@@ -1,19 +1,21 @@
 /**
- * Google Workspace authentication: one-call auth entry point,
- * credential state and error formatting.
- *
- * Credential state and error formatting come from
- * agentic-harness.core, which owns everything about Google auth
- * that does not need a UI. `ensureAuthenticated` is the one piece
- * that does: it runs the setup wizard and/or device/web OAuth flow
- * against pi's own view/prompt primitives, so it stays here.
+ * Google Workspace authentication: credential state, error
+ * formatting, and `ensureAuthenticated`, which runs the setup
+ * wizard and the device or web sign-in when no account is ready.
  */
 
 export {
-	formatAuthError,
+	clearAllConfig,
 	getCredentials,
 	getDefaultAccount,
+	getOAuthApp,
+	hasOAuthApp,
 	listAccounts,
 	type OAuthAppCredentials,
-} from "../../core/google/index.ts";
+	saveAccount,
+	setDefaultAccount,
+	storeCredentials,
+	storeOAuthApp,
+} from "./credentials.ts";
 export { ensureAuthenticated } from "./ensure-auth.ts";
+export { AUTH_MESSAGES, formatAuthError } from "./errors.ts";

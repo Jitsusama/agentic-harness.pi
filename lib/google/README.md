@@ -4,11 +4,9 @@ Google Workspace API clients, authentication and renderers for
 Pi extensions. Covers Gmail, Calendar, Drive, Docs, Sheets and
 Slides.
 
-The API clients, renderers, credential storage and error formatting
-are pi-agnostic and live in `agentic-harness.core`'s `google`
-library; this package re-exports all of it. The one thing that
-stays here is `ensureAuthenticated`: the interactive setup wizard
-and device/web OAuth flow need Pi's UI to run.
+It holds the API clients, renderers, credential storage and error
+formatting, and `ensureAuthenticated`, which runs the interactive
+setup wizard and the device or web OAuth flow in Pi's UI.
 
 ## Getting Started
 
@@ -32,12 +30,11 @@ const rendered = renderEventList(events);
 
 ## Sub-Modules
 
-- **`agentic-harness.core/google`**: API functions for all six
-  Google services, renderers, and credential state readers
-  (`getCredentials`, `getDefaultAccount`, `listAccounts`) plus
-  `formatAuthError`. Deeper subpaths (`.../google/auth/oauth`,
-  `.../google/auth/browser`, etc.) exist for the pieces the setup
-  wizard and device/web flow need directly.
-- **`./auth`**: `ensureAuthenticated`, the one-call entry point that
-  bridges the setup wizard and the device/web OAuth flow through
-  Pi's interactive UI.
+- **`./apis`** and **`./renderers`**: API functions for all six
+  Google services, and how their answers are shown.
+- **`./auth`**: credential state readers (`getCredentials`,
+  `getDefaultAccount`, `listAccounts`), `formatAuthError`, and
+  `ensureAuthenticated`, the one-call entry point that bridges the
+  setup wizard and the device or web OAuth flow through Pi's
+  interactive UI. The OAuth client, callback server and browser
+  opener beside it are what that flow is built from.

@@ -6,7 +6,7 @@ import {
 import {
 	type TerminalSessionHandle,
 	terminalHandleKey,
-} from "../../../../lib/core/terminal/index.ts";
+} from "../../../../lib/terminal/index.ts";
 
 const HOST = "host-a";
 const SOCK = "/sock/gui-1";

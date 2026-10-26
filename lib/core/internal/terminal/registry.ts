@@ -6,7 +6,7 @@
  */
 
 import { createGlobalSymbolRegistry } from "../../../internal/registry/global-symbol-registry.ts";
-import type { TerminalDriver } from "../../terminal/types.ts";
+import type { TerminalDriver } from "../../../terminal/types.ts";
 
 const registry = createGlobalSymbolRegistry<TerminalDriver>({
 	slot: "pi:agentic-harness:terminal-drivers",

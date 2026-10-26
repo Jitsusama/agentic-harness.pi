@@ -4,19 +4,19 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import {
-	ERRORS,
-	isValidClientId,
-	isValidClientSecret,
-} from "../../core/google/auth/setup-instructions.ts";
+import { holdScreen } from "../../ui/gate-queue.ts";
+import { frameTitle, promptSingle } from "../../ui/index.ts";
 import {
 	getOAuthApp,
 	hasOAuthApp,
 	type OAuthAppCredentials,
 	storeOAuthApp,
-} from "../../core/google/index.ts";
-import { holdScreen } from "../../ui/gate-queue.ts";
-import { frameTitle, promptSingle } from "../../ui/index.ts";
+} from "./credentials.ts";
+import {
+	ERRORS,
+	isValidClientId,
+	isValidClientSecret,
+} from "./setup-instructions.ts";
 
 /**
  * Check if OAuth app is configured, and if not, run the setup wizard.

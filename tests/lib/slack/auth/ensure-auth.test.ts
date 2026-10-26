@@ -19,18 +19,18 @@ vi.mock("../../../../lib/slack/auth/setup-wizard.ts", () => ({
 }));
 
 // Never the real credential store: a test must not sign anybody out.
-vi.mock("../../../../lib/core/slack/index.ts", async (original) => ({
+vi.mock("../../../../lib/slack/auth/credentials.ts", async (original) => ({
 	...(await original<object>()),
 	hasToken: () => false,
 	getToken: () => undefined,
 	storeToken: () => undefined,
 }));
 
-vi.mock("../../../../lib/core/slack/auth/browser.ts", () => ({
+vi.mock("../../../../lib/slack/auth/browser.ts", () => ({
 	openInBrowser: () => undefined,
 }));
 
-vi.mock("../../../../lib/core/slack/auth/server.ts", () => ({
+vi.mock("../../../../lib/slack/auth/server.ts", () => ({
 	waitForOAuthCallback: (_port: number, options?: { signal?: AbortSignal }) => {
 		handed.callback = options?.signal;
 		return new Promise((_, reject) => {

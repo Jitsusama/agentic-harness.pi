@@ -5,17 +5,17 @@
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { OAuth2Client } from "google-auth-library";
+import { authenticateWithFallback } from "../../lib/google/auth/dual-flow.ts";
 import {
 	createOAuth2Client,
 	setCredentials,
-} from "../../lib/core/google/auth/oauth.ts";
+} from "../../lib/google/auth/oauth.ts";
 import {
 	listAccounts,
 	saveAccount,
 	setDefaultAccount,
 	storeCredentials,
-} from "../../lib/core/google/index.ts";
-import { authenticateWithFallback } from "../../lib/google/auth/dual-flow.ts";
+} from "../../lib/google/index.ts";
 import { frameTitle, view } from "../../lib/ui/index.ts";
 
 interface OAuthConfig {

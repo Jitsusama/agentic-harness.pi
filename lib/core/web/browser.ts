@@ -24,7 +24,7 @@ import type {
 	Page,
 	Target,
 } from "puppeteer-core";
-import { processGlobal } from "../internal/process-global.ts";
+import { processGlobal } from "../../internal/process-global.ts";
 import { abortError, type Bounds, bounded } from "./bound.ts";
 import { resolveChromePath } from "./chrome.ts";
 import { CookieJar, cookieData } from "./jar.ts";

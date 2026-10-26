@@ -10,7 +10,7 @@ import {
 	type TerminalProbe,
 	type TerminalSessionHandle,
 	terminalHandleKey,
-} from "../../../../lib/core/terminal/index.ts";
+} from "../../../../lib/terminal/index.ts";
 
 const NOW = new Date("2026-06-04T12:00:00.000Z");
 const RECENT = "2026-06-04T11:58:00.000Z";

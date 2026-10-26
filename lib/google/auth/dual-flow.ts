@@ -5,16 +5,16 @@
 
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { Credentials } from "google-auth-library";
-import { openInBrowser } from "../../core/google/auth/browser.ts";
-import type { OAuth2Config } from "../../core/google/auth/oauth.ts";
+import { frameTitle, viewWhile } from "../../ui/index.ts";
+import { openInBrowser } from "./browser.ts";
+import { AUTH_MESSAGES } from "./errors.ts";
+import type { OAuth2Config } from "./oauth.ts";
 import {
 	initiateDeviceFlow,
 	pollForDeviceAuthorization,
 	SCOPES,
-} from "../../core/google/auth/oauth.ts";
-import { waitForOAuthCallback } from "../../core/google/auth/server.ts";
-import { AUTH_MESSAGES } from "../../core/google/index.ts";
-import { frameTitle, viewWhile } from "../../ui/index.ts";
+} from "./oauth.ts";
+import { waitForOAuthCallback } from "./server.ts";
 
 /** Result of an OAuth flow. */
 export interface OAuthFlowResult {

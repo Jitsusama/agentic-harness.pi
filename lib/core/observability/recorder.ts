@@ -1,4 +1,4 @@
-import { processGlobal } from "../internal/process-global.ts";
+import { processGlobal } from "../../internal/process-global.ts";
 import type { RunCost, RunRecord, RunTokens } from "./types.ts";
 
 /** A sink that persists a run record. */

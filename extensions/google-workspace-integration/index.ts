@@ -11,12 +11,9 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type { OAuth2Client } from "google-auth-library";
 import { isAbort } from "../../lib/clock/index.ts";
-import {
-	clearAllConfig,
-	formatAuthError,
-} from "../../lib/core/google/index.ts";
 import { ensureAuthenticated } from "../../lib/google/auth/ensure-auth.ts";
 import { ensureOAuthApp } from "../../lib/google/auth/setup-wizard.ts";
+import { clearAllConfig, formatAuthError } from "../../lib/google/index.ts";
 import {
 	signInFailure,
 	unattended,

@@ -5,7 +5,7 @@
  * which prints and always works.
  */
 
-import type { TerminalDriver } from "../../terminal/types.ts";
+import type { TerminalDriver } from "../../../terminal/types.ts";
 import { fallback } from "./drivers/fallback.ts";
 import { kitty } from "./drivers/kitty.ts";
 import { tmux } from "./drivers/tmux.ts";

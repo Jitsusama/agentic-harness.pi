@@ -2,14 +2,13 @@
  * Side completions: run a one-shot completion against a model
  * from the registry, off the agent's own loop.
  *
- * The mechanism itself (resolve a model and its auth, run one
- * completion or a bounded tool-using loop) lives in
- * core (`lib/core/completion`), which takes the actual model call as an
- * injected `complete` function rather than running one itself.
- * This module is the pi-specific half of that port: it resolves
- * `completeSimple` from pi-ai's compat subpath and wraps core's
- * functions so callers keep the two-argument call they had before
- * the port.
+ * The advisor and correction capture both need a cheap second
+ * model to distill or judge without disturbing the doer. The
+ * mechanism (resolve a model and its auth, run one completion or a
+ * bounded tool-using loop) takes the model call as an injected
+ * `complete` function, which keeps it testable without a model.
+ * This barrel supplies pi's own: it resolves `completeSimple` from
+ * pi-ai's compat subpath, so callers make the two-argument call.
  *
  * The compat subpath holds `completeSimple` in pi 0.80.x. The
  * specifier is held in a variable so the typechecker treats the
@@ -18,35 +17,41 @@
  */
 
 import {
-	type CompatModule,
-	type CompletionRegistry,
-	runInvestigation as coreRunInvestigation,
-	runSideCompletion as coreRunSideCompletion,
 	type InvestigationRequest,
 	type InvestigationResult,
+	runInvestigation as runInvestigationWith,
+} from "./investigate.ts";
+import {
+	runSideCompletion as runSideCompletionWith,
 	type SideCompletionRequest,
 	type SideCompletionResult,
-} from "../core/completion/index.ts";
+} from "./side.ts";
+import type { CompatModule, CompletionRegistry } from "./types.ts";
 
 export type {
-	CompletionMessage,
-	CompletionRegistry,
 	InvestigationRequest,
 	InvestigationResult,
 	LoopTool,
-	SideCompletionRequest,
-	SideCompletionResult,
-} from "../core/completion/index.ts";
+} from "./investigate.ts";
 export {
+	isModelUnreachable,
 	looksLikeGlm,
 	type ModelRef,
 	type ModelTarget,
 	pickModel,
-} from "../core/completion/index.ts";
+	rankModels,
+} from "./resolve.ts";
+export type { SideCompletionRequest, SideCompletionResult } from "./side.ts";
+export type {
+	CompatModule,
+	CompleteSimple,
+	CompletionHeaders,
+	CompletionMessage,
+	CompletionRegistry,
+} from "./types.ts";
 
 const COMPAT_SPECIFIER = "@earendil-works/pi-ai/compat";
 
-/** Resolve completeSimple from pi-ai's compat subpath, once per call. */
 async function completeSimple(
 	...args: Parameters<CompatModule["completeSimple"]>
 ): ReturnType<CompatModule["completeSimple"]> {
@@ -56,18 +61,18 @@ async function completeSimple(
 	return run(...args);
 }
 
-/** Run a one-shot side completion, resolving pi's own completion backend. */
+/** Run one completion off the agent's loop, through pi's own model call. */
 export async function runSideCompletion(
 	registry: CompletionRegistry,
 	request: SideCompletionRequest,
 ): Promise<SideCompletionResult> {
-	return coreRunSideCompletion(registry, request, completeSimple);
+	return runSideCompletionWith(registry, request, completeSimple);
 }
 
-/** Run a bounded, tool-using investigation, resolving pi's own completion backend. */
+/** Run a bounded tool-using loop off the agent's loop, through pi's own model call. */
 export async function runInvestigation(
 	registry: CompletionRegistry,
 	request: InvestigationRequest,
 ): Promise<InvestigationResult> {
-	return coreRunInvestigation(registry, request, completeSimple);
+	return runInvestigationWith(registry, request, completeSimple);
 }

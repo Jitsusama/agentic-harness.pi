@@ -17,13 +17,13 @@
  * `@` or a hint of `"handle"`.
  */
 
+import type { Identity, PersonResolver } from "../../../people/types.ts";
 import {
 	getToken,
 	hasToken,
 	resolveUser,
 	SlackClient,
-} from "../../../core/slack/index.ts";
-import type { Identity, PersonResolver } from "../../../people/types.ts";
+} from "../../../slack/index.ts";
 
 let cachedClient: SlackClient | undefined;
 

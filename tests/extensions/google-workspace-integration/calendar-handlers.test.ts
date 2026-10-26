@@ -2,7 +2,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { OAuth2Client } from "google-auth-library";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../../../lib/core/google/index.ts", async (importOriginal) => ({
+vi.mock("../../../lib/google/index.ts", async (importOriginal) => ({
 	...(await importOriginal()),
 	createEvent: vi.fn(),
 	deleteEvent: vi.fn(),
@@ -14,7 +14,7 @@ vi.mock("../../../lib/core/google/index.ts", async (importOriginal) => ({
 }));
 
 import { handleCreateEvent } from "../../../extensions/google-workspace-integration/router/calendar-handlers";
-import { createEvent } from "../../../lib/core/google/index.ts";
+import { createEvent } from "../../../lib/google/index.ts";
 
 const mockedCreateEvent = vi.mocked(createEvent);
 

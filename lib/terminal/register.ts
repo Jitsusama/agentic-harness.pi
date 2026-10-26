@@ -1,0 +1,40 @@
+/**
+ * Terminal driver registration. Mirrors the refs and people
+ * libraries: explicit registration for built-ins, free
+ * functions for ad-hoc driver registration, an opt-out
+ * clear for tests.
+ */
+
+import { BUILTIN_TERMINAL_DRIVERS } from "../core/internal/terminal/builtins.ts";
+import {
+	clear,
+	register,
+	unregister,
+} from "../core/internal/terminal/registry.ts";
+import type { TerminalDriver } from "./types.ts";
+
+/**
+ * Register a terminal driver. Overwrites any previously
+ * registered driver with the same id.
+ */
+export function registerTerminalDriver(driver: TerminalDriver): void {
+	register(driver);
+}
+
+/** Remove a driver from the registry. Idempotent. */
+export function unregisterTerminalDriver(id: string): void {
+	unregister(id);
+}
+
+/**
+ * Seed the registry with the built-in drivers: `wezterm`,
+ * `tmux` and `fallback`. Idempotent.
+ */
+export function registerBuiltinTerminalDrivers(): void {
+	for (const driver of BUILTIN_TERMINAL_DRIVERS) register(driver);
+}
+
+/** Empty the registry. Intended for tests. */
+export function clearTerminalDrivers(): void {
+	clear();
+}

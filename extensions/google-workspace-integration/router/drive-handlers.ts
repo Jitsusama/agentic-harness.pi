@@ -17,14 +17,14 @@ import {
 	renderFileList,
 	renderSheet,
 	renderSlides,
-} from "../../../lib/core/google/index.ts";
+} from "../../../lib/google/index.ts";
 import {
 	type ActionParams,
 	getBooleanParam,
 	getNumberParam,
 	getStringParam,
 	type ToolResult,
-} from "../../../lib/core/google/types.ts";
+} from "../../../lib/google/types.ts";
 
 /** Search and list Google Drive files with optional filters. */
 export async function handleListFiles(
