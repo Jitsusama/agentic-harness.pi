@@ -287,6 +287,42 @@ function isTimed(comm: string): boolean {
 }
 
 /**
+ * Arguments with which a compositor answers and exits rather than
+ * running a session: niri's `validate`, `msg`, `completions` and
+ * `panic`, and sway's checks of its config and its version.
+ */
+const ASKS_AND_EXITS = new Set([
+	"validate",
+	"msg",
+	"completions",
+	"panic",
+	"-C",
+	"--validate",
+	"-v",
+	"--version",
+	"-h",
+	"--help",
+	"--get-socketpath",
+]);
+
+/**
+ * Whether a process in a Nix build is a check with deadlines: a name in
+ * {@link TIMED}, unless it is a compositor only asked something. A
+ * system build runs `niri validate` on its greeter's config, and while
+ * that counted, every system build caught at it waited as a VM check
+ * for as long as 14 minutes, though it ran under two.
+ */
+function runsTimed(proc: string, pid: string, comm: string): boolean {
+	if (!isTimed(comm)) return false;
+	const bare = comm.startsWith(".") ? comm.slice(1) : comm;
+	if (!/^(?:niri|sway)(?:-wrapped)?$/.test(bare)) return true;
+	const argv = text(join(proc, pid, "cmdline"))
+		.split("\0")
+		.slice(1);
+	return !argv.some((argument) => ASKS_AND_EXITS.has(argument));
+}
+
+/**
  * The Nix builds the daemon runs, in order of their cgroups' names, and
  * whether a qemu runs in each, which {@link vmsIn} counts already.
  */
@@ -304,7 +340,9 @@ function buildsIn(kernel: Kernel): (BuildSeen & { qemu: boolean })[] {
 			const asker = askerOf(pids, kernel.proc);
 			return {
 				...(asker !== undefined ? { asker } : {}),
-				timed: qemu || comms.some(isTimed),
+				timed:
+					qemu ||
+					pids.some((pid, at) => runsTimed(kernel.proc, pid, comms[at])),
 				memoryPeak: number(join(daemon, build, "memory.peak")),
 				qemu,
 			};
