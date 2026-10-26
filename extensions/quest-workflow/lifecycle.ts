@@ -88,15 +88,14 @@ export {
  * README: this one writes the Journey file (see
  * lib/internal/quest/journey.ts).
  */
-export function appendJourneyEntry(state: QuestState, prose: string): void {
-	if (!state.questDir) return;
-	if (!appendJourneyByPath(state.questDir, prose)) {
-		console.warn(
-			`[quest] failed to add a Journey entry to ${state.questDir}; README missing or unreadable.`,
-		);
-		return;
-	}
+export function appendJourneyEntry(state: QuestState, prose: string): boolean {
+	if (!state.questDir) return false;
+	// A quest with no README is one discovery reports at session start,
+	// through the screen; saying it again here would go to the console,
+	// which lands in pi's editor (lib/ui/aside.ts).
+	if (!appendJourneyByPath(state.questDir, prose)) return false;
 	stampQuestUpdated(state);
+	return true;
 }
 
 /**

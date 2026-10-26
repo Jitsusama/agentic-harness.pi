@@ -312,6 +312,9 @@ export function sweepAfterQuestAction(
 	loadedDir: string | null | undefined,
 	ids: readonly string[],
 	resolve: (id: string) => string | undefined,
+	// Said through the session's screen, never the console, which lands
+	// in pi's editor (lib/ui/aside.ts).
+	say: (text: string) => void,
 ): void {
 	if (!CORE_JOURNALING_ACTIONS.has(action)) return;
 	const dirs = new Set<string>();
@@ -326,7 +329,7 @@ export function sweepAfterQuestAction(
 		} catch (error) {
 			// A sweep that fails leaves the entries in the README, where
 			// every reader still finds them; the next sweep moves them.
-			console.warn(`[quest] Journey sweep failed in ${dir}: ${error}`);
+			say(`[quest] Journey sweep failed in ${dir}: ${error}`);
 		}
 	}
 }
