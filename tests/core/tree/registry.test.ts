@@ -44,28 +44,6 @@ describe("tree provider registry", () => {
 		expect(getTreeProvider("a")).toBeUndefined();
 	});
 
-	it("releases through a provider still saying prune", async () => {
-		// Another package's provider registers from its own pinned copy of
-		// the harness, and may predate the glossary's release.
-		const released: string[] = [];
-		registerTreeProvider({
-			id: "older",
-			priority: 50,
-			appliesTo: () => true,
-			async create(): Promise<TreeHandle> {
-				return { path: "/stub/older", providerId: "older" };
-			},
-			async prune({ path }): Promise<void> {
-				released.push(path);
-			},
-		});
-
-		await getTreeProvider("older")?.release({ path: "/a" });
-		await resolveTreeProvider("/anywhere")?.release({ path: "/b" });
-
-		expect(released).toEqual(["/a", "/b"]);
-	});
-
 	it("seeds the built-in git-worktree provider", () => {
 		registerBuiltinTreeProviders();
 		const found = getTreeProvider("git-worktree");

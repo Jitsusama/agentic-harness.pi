@@ -206,11 +206,9 @@ export {
 export type {
 	AuthoringCapabilities,
 	Capabilities,
-	CapabilitiesSayingProposals,
 	ChangeCapabilities,
 	ConversationCapabilities,
 	PersonForm,
-	ProposalCapabilities,
 	RetargetScope,
 	ReviewersAt,
 	StackingCapabilities,
@@ -221,7 +219,6 @@ export type {
 	Change,
 	ChangeRef,
 	ChangeState,
-	Proposal,
 	RepoLocator,
 	ReviewTarget,
 } from "./change.ts";
@@ -383,12 +380,8 @@ export type {
 	LocalBranch,
 	MergeOutcome,
 	MergeRequest,
-	ProposalDraft,
-	ProposalEdit,
-	ProposalsFacet,
 	RepoProbe,
 	ReviewProvider,
-	ReviewProviderSayingProposals,
 	SetEdit,
 	StackingFacet,
 } from "./provider.ts";

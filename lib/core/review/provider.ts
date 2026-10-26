@@ -15,10 +15,7 @@
  */
 
 import type { Anchor } from "./anchor.ts";
-import type {
-	Capabilities,
-	CapabilitiesSayingProposals,
-} from "./capabilities.ts";
+import type { Capabilities } from "./capabilities.ts";
 import type {
 	Actor,
 	Change,
@@ -318,40 +315,3 @@ export interface ReviewProvider {
 	conversation?: ConversationFacet;
 	authoring?: AuthoringFacet;
 }
-
-/**
- * The name {@link ChangesFacet} had before the glossary said change.
- *
- * @deprecated Use {@link ChangesFacet}.
- */
-export type ProposalsFacet = ChangesFacet;
-
-/**
- * The name {@link ChangeEdit} had before the glossary said change.
- *
- * @deprecated Use {@link ChangeEdit}.
- */
-export type ProposalEdit = ChangeEdit;
-
-/**
- * The name {@link ChangeDraft} had before the glossary said change.
- *
- * @deprecated Use {@link ChangeDraft}.
- */
-export type ProposalDraft = ChangeDraft;
-
-/**
- * A provider written before the glossary said change, whose changes
- * facet and its capabilities are still named `proposals`. Providers
- * from other packages may arrive in this shape, so the registry takes
- * one and hands it out saying `changes`.
- *
- * @deprecated Write {@link ReviewProvider}'s `changes`.
- */
-export type ReviewProviderSayingProposals = Omit<
-	ReviewProvider,
-	"changes" | "capabilities"
-> & {
-	proposals?: ChangesFacet;
-	capabilities(repo: RepoLocator): CapabilitiesSayingProposals;
-};
