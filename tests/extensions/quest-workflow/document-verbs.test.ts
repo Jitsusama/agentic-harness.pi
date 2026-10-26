@@ -131,6 +131,26 @@ describe("section", () => {
 		);
 	});
 
+	it("adds an optional section the README does not have yet", async () => {
+		const { state, run } = await questWithPlan();
+		const added = succeeded(
+			await run({
+				action: "section",
+				id: state.questId ?? "",
+				title: "Spirit",
+				body: "Fewer places, one feel.",
+			}),
+		);
+		expect(added.message).toContain("Added the Spirit section");
+		const readme = readFileSync(
+			join(state.questDir ?? "", "README.md"),
+			"utf8",
+		);
+		expect(readme).toMatch(
+			/## \u{1F525} Spirit\n\nFewer places, one feel\.\n/u,
+		);
+	});
+
 	it("edits the README when named by the quest's id", async () => {
 		const { state, run } = await questWithPlan();
 		succeeded(

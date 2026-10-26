@@ -94,8 +94,9 @@ export function tick(
 }
 
 /**
- * Replace the body of one `##` section, or add it at the end of a
- * document other than the README, whose sections are a closed set.
+ * Replace the body of one `##` section, or add it: at the end of a
+ * document other than the README, and in a README, whose sections are
+ * a closed set, only one of the format's optional sections, in its place.
  */
 export function section(
 	state: QuestState,
@@ -112,10 +113,11 @@ export function section(
 	return editBody(
 		state,
 		params,
-		(body, readme) => replaceSection(body, heading, text, !readme),
+		(body, readme) =>
+			replaceSection(body, heading, text, readme ? "readme" : "append"),
 		{
 			changed: (path, _line, added) =>
-				`${added ? "Added" : "Replaced"} the ${heading} section ${added ? "at the end of" : "of"} ${path}.`,
+				`${added ? "Added" : "Replaced"} the ${heading} section ${added ? "to" : "of"} ${path}.`,
 			unchanged: (path) =>
 				`The ${heading} section of ${path} already reads that way.`,
 		},
