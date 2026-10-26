@@ -33,26 +33,34 @@ export interface Loaded {
 }
 
 /**
- * The install a release folder belongs to: a package installed whole
- * into `<install>/releases/<commit>` and named by a `current` link
+ * The folders an installed version sits in: `versions/`, and `releases/`,
+ * where core.nix's pi-packages kept them until that word was left to
+ * giving a tree back. A session started before the move runs from the
+ * second until it reloads.
+ */
+const VERSION_FOLDERS: ReadonlySet<string> = new Set(["versions", "releases"]);
+
+/**
+ * The install a version folder belongs to: a package installed whole
+ * into `<install>/versions/<commit>` and named by a `current` link
  * beside them (core.nix's pi-packages), or nothing for any other folder.
  */
-export function releasesOf(root: string): string | undefined {
+export function installOfVersion(root: string): string | undefined {
 	const parent = dirname(root);
-	return basename(parent) === "releases" ? dirname(parent) : undefined;
+	return VERSION_FOLDERS.has(basename(parent)) ? dirname(parent) : undefined;
 }
 
 /**
  * Whether the session runs something other than the install its settings
- * name. A release the install's link has since left is still the install,
+ * name. A version the install's link has since left is still the install,
  * only behind it: the session follows it, rather than being held as one
  * running a tree on purpose.
  */
 export function isSwapped(loaded: Pick<Loaded, "root" | "install">): boolean {
 	if (loaded.install === loaded.root) return false;
 	if (loaded.install === undefined) return true;
-	const releases = releasesOf(loaded.root);
-	return releases === undefined || releases !== releasesOf(loaded.install);
+	const install = installOfVersion(loaded.root);
+	return install === undefined || install !== installOfVersion(loaded.install);
 }
 
 function git(

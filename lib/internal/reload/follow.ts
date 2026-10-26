@@ -171,7 +171,7 @@ export interface Moved {
 /** Stops watching. */
 export type Unwatch = () => void;
 
-/** Whether a package root is a link, as an install of whole releases is. */
+/** Whether a package root is a link, as an install of whole versions is. */
 function isLink(root: string): boolean {
 	try {
 		return lstatSync(root).isSymbolicLink();
@@ -236,8 +236,8 @@ export async function watchHeads(
 		// branch takes HEAD.lock there however it is moved (commit, merge,
 		// pull, even `git update-ref`), so a second watch adds nothing.
 		// An install named by a link moves by the link being renamed onto
-		// another release, in the folder that holds it, and the git
-		// directory watched through it is the old release's, which never
+		// another version, in the folder that holds it, and the git
+		// directory watched through it is the old version's, which never
 		// moves again; so that folder is watched, for the link alone.
 		const link = isLink(root);
 		try {
