@@ -828,13 +828,13 @@ async function openText(at: Local, now = Date.now()): Promise<string> {
 			])
 		: undefined;
 	const open = members ? withinOrchestration(all, members) : all;
-	const where = members ? "in this orchestration" : "on the mesh";
+	const where = members ? " in this orchestration" : "";
 	const elsewhere =
 		all.length > open.length
 			? ` ${all.length - open.length} more elsewhere on the mesh are left out.`
 			: "";
 	if (open.length === 0) {
-		return `No question ${where} is waiting on an answer.${elsewhere}`;
+		return `No question ${members ? "in this orchestration" : "on the mesh"} is waiting on an answer.${elsewhere}`;
 	}
 	const lines = open.slice(-MOST_READ).map(({ message, waitingOn }) => {
 		const minutes = Math.round((now - Date.parse(message.at)) / 60_000);
@@ -850,7 +850,7 @@ async function openText(at: Local, now = Date.now()): Promise<string> {
 		open.length > MOST_READ
 			? ` (the newest ${MOST_READ} of ${open.length} shown)`
 			: "";
-	return `${open.length} ${open.length === 1 ? "question is" : "questions are"} ${where} waiting on an answer, oldest first${more}:${elsewhere}\n${lines.join("\n")}`;
+	return `${open.length} ${open.length === 1 ? "question is" : "questions are"}${where} waiting on an answer, oldest first${more}:${elsewhere}\n${lines.join("\n")}`;
 }
 
 /** How much of an open question's text its line shows. */
