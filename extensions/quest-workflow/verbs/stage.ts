@@ -208,6 +208,20 @@ function pinPrimaryPlanIfUnset(questDir: string, planId: string): void {
  * "draft from think" 45 times in a week, and the next call
  * was `unfocus` nearly every time, so the verb does that step
  * itself and says so.
+ *
+ * The same holds for `draft` given a title while a document already
+ * drafted or in build is focused: a title names a new document, since
+ * the focused one has its H1, so that one is put down where it stands
+ * and the new one drafted beside it. Of 40 "draft from think"
+ * refusals from 2026-10-19 to 2026-10-26, 39 were exactly that.
+ *
+ * And for `think` given a kind: a kind is chosen for a fresh loop, so
+ * it too names a new document. It used to send the focused one back
+ * to think, which in that week happened 35 times out of 36 with a
+ * note about some other document; the next `build` was refused, or
+ * the next `draft` re-drafted the old plan in place of minting the
+ * new one. A `think` with no kind still sends the focused document
+ * back to think.
  */
 export function stageTransition(
 	state: QuestState,
@@ -222,8 +236,20 @@ export function stageTransition(
 	}
 	const terminal =
 		state.documentStage === "concluded" || state.documentStage === "retired";
-	if (terminal && (action === "think" || action === "draft")) {
-		const left = `${state.documentKind} ${state.documentId} stays ${state.documentStage}, and this starts a fresh loop beside it.`;
+	const namesNewDocument =
+		(action === "draft" && Boolean(params.title?.trim())) ||
+		(action === "think" && Boolean(params.kind?.trim()));
+	const besideActive =
+		namesNewDocument &&
+		Boolean(state.documentId) &&
+		(state.documentStage === "draft" || state.documentStage === "build");
+	if (
+		(terminal && (action === "think" || action === "draft")) ||
+		besideActive
+	) {
+		const left = besideActive
+			? `${state.documentKind} ${state.documentId} stays in ${state.documentStage}, put down; \`focus\` takes it up again. This ${action === "draft" ? "drafts a new document" : "starts a fresh loop"} beside it.`
+			: `${state.documentKind} ${state.documentId} stays ${state.documentStage}, and this starts a fresh loop beside it.`;
 		unfocusDocument(state);
 		const result = stageTransition(state, action, params, ctx);
 		return result.ok

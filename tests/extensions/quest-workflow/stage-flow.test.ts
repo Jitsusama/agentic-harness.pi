@@ -136,6 +136,114 @@ describe("document stage flow", () => {
 		expect(readFileSync(first, "utf8")).toContain("stage: concluded");
 	});
 
+	it("drafts a titled document beside one in build, leaving that one in build", async () => {
+		const state = buildState();
+		await handle(state, fakePi(), fakeCtx(), {
+			action: "create",
+			kind: "quest",
+			title: "Beside",
+		});
+		await handle(state, fakePi(), fakeCtx(), {
+			action: "draft",
+			note: "the plan",
+			title: "The Plan",
+		});
+		await handle(state, fakePi(), fakeCtx(), { action: "build" });
+		const plan = state.documentPath as string;
+		const planId = state.documentId;
+
+		const beside = await handle(state, fakePi(), fakeCtx(), {
+			action: "draft",
+			kind: "research",
+			note: "a question the plan raised",
+			title: "The Question",
+		});
+
+		expect(beside.ok && beside.message).toContain(
+			`${planId} stays in build, put down`,
+		);
+		expect(state.documentStage).toBe("draft");
+		expect(state.documentKind).toBe("research");
+		expect(state.documentId).not.toBe(planId);
+		expect(readFileSync(plan, "utf8")).toContain("stage: build");
+	});
+
+	it("thinks with a kind beside a plan in build, leaving that one in build", async () => {
+		const state = buildState();
+		await handle(state, fakePi(), fakeCtx(), {
+			action: "create",
+			kind: "quest",
+			title: "Think Beside",
+		});
+		await handle(state, fakePi(), fakeCtx(), {
+			action: "draft",
+			note: "the plan",
+			title: "The Plan",
+		});
+		await handle(state, fakePi(), fakeCtx(), { action: "build" });
+		const plan = state.documentPath as string;
+		const planId = state.documentId;
+
+		const beside = await handle(state, fakePi(), fakeCtx(), {
+			action: "think",
+			kind: "research",
+			note: "a question the plan raised",
+		});
+
+		expect(beside.ok && beside.message).toContain(
+			`${planId} stays in build, put down`,
+		);
+		expect(state.documentStage).toBe("think");
+		expect(state.documentKind).toBe("research");
+		expect(state.documentId).toBeNull();
+		expect(readFileSync(plan, "utf8")).toContain("stage: build");
+	});
+
+	it("sends the focused document back to think when think has no kind", async () => {
+		const state = buildState();
+		await handle(state, fakePi(), fakeCtx(), {
+			action: "create",
+			kind: "quest",
+			title: "Back To Think",
+		});
+		await handle(state, fakePi(), fakeCtx(), {
+			action: "draft",
+			note: "the plan",
+			title: "The Plan",
+		});
+		await handle(state, fakePi(), fakeCtx(), { action: "build" });
+		const planId = state.documentId;
+
+		const back = await handle(state, fakePi(), fakeCtx(), {
+			action: "think",
+			note: "the plan met something it did not expect",
+		});
+
+		expect(back.ok).toBe(true);
+		expect(state.documentStage).toBe("think");
+		expect(state.documentId).toBe(planId);
+	});
+
+	it("still refuses draft from build with no title, since nothing new is named", async () => {
+		const state = buildState();
+		await handle(state, fakePi(), fakeCtx(), {
+			action: "create",
+			kind: "quest",
+			title: "No Title",
+		});
+		await handle(state, fakePi(), fakeCtx(), {
+			action: "draft",
+			note: "the plan",
+			title: "The Plan",
+		});
+		await handle(state, fakePi(), fakeCtx(), { action: "build" });
+
+		const again = await handle(state, fakePi(), fakeCtx(), { action: "draft" });
+
+		expect(again.ok).toBe(false);
+		expect(state.documentStage).toBe("build");
+	});
+
 	it("does not advance the stage in memory when the disk write fails", async () => {
 		const state = buildState();
 		await handle(state, fakePi(), fakeCtx(), {
