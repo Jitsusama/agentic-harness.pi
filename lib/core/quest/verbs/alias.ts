@@ -4,12 +4,12 @@
  * through the refs registry.
  */
 
+import { parseRef } from "../../../refs/index.ts";
 import {
 	buildAliasIndex,
 	lookupAliasDetail,
 } from "../../internal/quest/alias-index.ts";
 import { discoverQuests } from "../../internal/quest/discovery.ts";
-import { parseRef } from "../../refs/index.ts";
 import type { QuestAlias } from "../index.ts";
 import {
 	addAliasesToLoaded,

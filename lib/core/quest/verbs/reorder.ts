@@ -5,7 +5,7 @@
  * (cross-bucket priority moves).
  */
 
-import { count } from "../../ui/count.ts";
+import { count } from "../../../ui/count.ts";
 import type { QuestPriority } from "../index.ts";
 import {
 	appendJourneyEntry,

@@ -15,7 +15,7 @@
  * it had shifted once, enormously.
  */
 
-import { count } from "../../ui/count.ts";
+import { count } from "../../../ui/count.ts";
 
 /** Where a metric falls against the published thresholds. */
 export type Rating = "good" | "needs-improvement" | "poor";

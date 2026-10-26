@@ -13,6 +13,8 @@ import {
 	removeTreeFromQuest,
 	setPendingPrune,
 } from "../../../internal/quest/trees.ts";
+import { count, noun } from "../../../ui/count.ts";
+import { displayPath } from "../../../ui/path.ts";
 import { discoverQuests } from "../../internal/quest/discovery.ts";
 import { parseQuestFrontMatter } from "../../internal/quest/frontmatter.ts";
 import {
@@ -23,8 +25,6 @@ import {
 } from "../../internal/quest/git-signals.ts";
 import { isSealedStatus } from "../../internal/quest/status.ts";
 import { getTreeProvider, resolveTreeProvider } from "../../tree/index.ts";
-import { count, noun } from "../../ui/count.ts";
-import { displayPath } from "../../ui/path.ts";
 import type { QuestSession } from "../index.ts";
 import { appendJourneyEntry, inventoryWorktrees } from "../lifecycle.ts";
 import type { QuestState } from "../state.ts";

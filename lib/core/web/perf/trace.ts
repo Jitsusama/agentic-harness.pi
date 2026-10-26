@@ -21,7 +21,7 @@
  * process, not a lookup.
  */
 
-import { count } from "../../ui/count.ts";
+import { count } from "../../../ui/count.ts";
 
 /** One event as the tracing protocol sends it. */
 export interface RawTraceEvent {

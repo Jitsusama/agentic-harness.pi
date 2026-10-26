@@ -16,7 +16,7 @@ import type { QuestFrontMatter } from "../../../lib/core/quest/types.ts";
 import {
 	clearRefTypes,
 	registerBuiltinRefTypes,
-} from "../../../lib/core/refs/index.ts";
+} from "../../../lib/refs/index.ts";
 
 let root: string;
 

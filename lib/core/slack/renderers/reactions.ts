@@ -2,7 +2,7 @@
  * Format reaction data as readable text.
  */
 
-import { count } from "../../ui/count.ts";
+import { count } from "../../../ui/count.ts";
 import type { MessageReactions, ReactedMessage } from "../api/reactions.ts";
 import { displayNameForId } from "../resolvers/user.ts";
 import { formatSlackText } from "./message.ts";

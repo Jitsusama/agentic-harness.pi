@@ -12,7 +12,7 @@ import {
 import {
 	clearRefTypes,
 	registerBuiltinRefTypes,
-} from "../../../lib/core/refs/index.ts";
+} from "../../../lib/refs/index.ts";
 
 const SAMPLE_README = [
 	"---",

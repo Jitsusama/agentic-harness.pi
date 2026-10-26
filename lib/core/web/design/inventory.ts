@@ -13,7 +13,7 @@
  * judgment is a person's.
  */
 
-import { count } from "../../ui/count.ts";
+import { count } from "../../../ui/count.ts";
 import { deltaE, type Rgba } from "../audit/colour.ts";
 import { renderVerdict } from "../audit/verdict.ts";
 

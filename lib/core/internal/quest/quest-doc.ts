@@ -18,13 +18,13 @@
  * directly.
  */
 
+import { parseAllRefs } from "../../../refs/index.ts";
 import type {
 	CastEntry,
 	JourneyEntry,
 	QuestDoc,
 	QuestFrontMatter,
 } from "../../quest/types.ts";
-import { parseAllRefs } from "../../refs/index.ts";
 import { parseQuestFrontMatter } from "./frontmatter.ts";
 import { findIds, findIdsWithRelation, type IdMention } from "./id.ts";
 

@@ -6,7 +6,7 @@
  */
 
 import type { LspBackendEntry } from "../../lsp/types.ts";
-import { createGlobalSymbolRegistry } from "../registry/global-symbol-registry.ts";
+import { createGlobalSymbolRegistry } from "../../../internal/registry/global-symbol-registry.ts";
 
 const registry = createGlobalSymbolRegistry<LspBackendEntry>({
 	slot: "pi:agentic-harness:lsp-backends",

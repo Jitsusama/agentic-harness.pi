@@ -2,7 +2,7 @@
  * Format search results as readable text.
  */
 
-import { count } from "../../ui/count.ts";
+import { count } from "../../../ui/count.ts";
 import type { SlackFileResult } from "../api/search.ts";
 
 /** Render file search results. */

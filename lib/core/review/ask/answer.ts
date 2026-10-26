@@ -13,14 +13,14 @@
  * said and in what order.
  */
 
-import { count as group } from "../../result/counts.ts";
 // The leaf, not the barrel. `lib/ui/index.ts` re-exports the panel,
 // which imports pi's TUI at module scope, and an ESM re-export
 // evaluates what it re-exports from: one convenient import here would
 // put pi's runtime in the module graph of a library that has never
 // needed it. Every other `count` consumer in `lib/` takes the leaf
 // for the same reason.
-import { count } from "../../ui/count.ts";
+import { count } from "../../../ui/count.ts";
+import { count as group } from "../../result/counts.ts";
 import type { AskRun, RunSummary } from "./run.ts";
 import {
 	failureLines,

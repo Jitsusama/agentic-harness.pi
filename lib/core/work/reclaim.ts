@@ -16,8 +16,8 @@
  * work trunk cannot vouch for stay where they are.
  */
 
+import { displayPath } from "../../ui/path.ts";
 import { type Exec, run } from "../exec/index.ts";
-import { displayPath } from "../ui/path.ts";
 import type { Reclaimable } from "./tidy.ts";
 
 /** What became of one tree. */

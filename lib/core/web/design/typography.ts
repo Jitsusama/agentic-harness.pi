@@ -21,7 +21,7 @@
  * disclosure is not laid out at all.
  */
 
-import { count } from "../../ui/count.ts";
+import { count } from "../../../ui/count.ts";
 import { renderVerdict } from "../audit/verdict.ts";
 
 /** One text-bearing block, as the page measured it. */

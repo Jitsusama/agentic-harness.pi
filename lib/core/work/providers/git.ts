@@ -17,9 +17,9 @@
 
 import { statfs } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { displayPath } from "../../../ui/path.ts";
 import { type Exec, run } from "../../exec/index.ts";
 import { withoutCredentials } from "../../remote/index.ts";
-import { displayPath } from "../../ui/path.ts";
 import { fullRefRefusal } from "../author.ts";
 import type { TreeProvider } from "../broker.ts";
 import { type TreeRequest, treeIdentity, treeSource } from "../tree.ts";

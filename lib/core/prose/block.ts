@@ -5,7 +5,7 @@
  * the retry is informed, not a guess.
  */
 
-import { count } from "../ui/count.ts";
+import { count } from "../../ui/count.ts";
 import type { ProseViolation } from "./detect.ts";
 
 /** Format prose violations into a block message, or "" if none. */
