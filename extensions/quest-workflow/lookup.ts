@@ -14,6 +14,7 @@ import {
 	type QuestEntry,
 	type QuestIndex,
 } from "../../lib/internal/quest/discovery.ts";
+import { recentJourney } from "../../lib/internal/quest/journey.ts";
 import {
 	type SessionSummary,
 	summariseSessions,
@@ -120,11 +121,11 @@ export function buildRowExpansion(entry: QuestEntry): QuestRowExpansion {
 		id: d.doc.frontMatter.id,
 		stage: d.doc.frontMatter.stage,
 	}));
-	const recentJourney = extractJourneyEntries(body, 3);
+	const journey = recentJourney(entry.dir, body, 3);
 	const summary = firstSummaryLine(body);
 	return summary
-		? { summary, cast, documents, recentJourney }
-		: { cast, documents, recentJourney };
+		? { summary, cast, documents, recentJourney: journey }
+		: { cast, documents, recentJourney: journey };
 }
 
 function parseDate(input?: string): Date | undefined {
@@ -1041,7 +1042,7 @@ export async function showQuestById(
 	if (!me) return undefined;
 	const links = linksForQuest(index, questId, {});
 	const { cast, unresolved } = await resolveCast(extractCast(me.doc.body));
-	const journey = extractJourneyEntries(me.doc.body, 5);
+	const journey = recentJourney(me.dir, me.doc.body, 5);
 	return {
 		frontMatter: me.doc.frontMatter,
 		title: me.doc.title ?? null,
@@ -1072,28 +1073,6 @@ function milestoneCounts(body: string): { total: number; done: number } {
 		if (m[1].toLowerCase() === "x") done++;
 	}
 	return { total, done };
-}
-
-/** Pull recent Journey bullets from a quest's body. */
-export function extractJourneyEntries(
-	body: string,
-	limit: number,
-): { date: string; prose: string }[] {
-	const journeyHeading =
-		/##\s+(?:[\u{1F300}-\u{1FFFF}]\s+)?Journey\s*\n([\s\S]*?)(?=\n##\s|$)/u;
-	const m = journeyHeading.exec(body);
-	if (!m) return [];
-	const section = m[1];
-	const bullets = section.split(/\n(?=- \*\*)/);
-	const out: { date: string; prose: string }[] = [];
-	for (const bullet of bullets) {
-		const match = /^-\s+\*\*([\d-]+)\*\*:\s*([\s\S]*)$/.exec(bullet.trim());
-		if (match) {
-			out.push({ date: match[1], prose: match[2].trim() });
-			if (out.length >= limit) break;
-		}
-	}
-	return out;
 }
 
 export interface TreeNode {

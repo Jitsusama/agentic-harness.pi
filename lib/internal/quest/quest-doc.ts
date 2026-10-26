@@ -27,6 +27,7 @@ import type {
 import { parseAllRefs } from "../../refs/index.ts";
 import { parseQuestFrontMatter } from "./frontmatter.ts";
 import { findIds, findIdsWithRelation, type IdMention } from "./id.ts";
+import { journeyEntriesFrom } from "./journey.ts";
 
 const SECTION_HEADERS = {
 	summary: /^##\s+(?:[\u{1F300}-\u{1FFFF}]\s+)?Summary\s*$/u,
@@ -164,26 +165,14 @@ export function extractCast(body: string): CastEntry[] {
 	return bullets;
 }
 
-/** Parse the Journey section's dated entries. */
+/**
+ * Parse the dated entries in a body's Journey section. A quest's
+ * Journey lives in its own file now (`journey.ts`), so a README's
+ * section holds only entries not yet swept there; read a quest's
+ * whole Journey with `recentJourney`.
+ */
 export function extractJourney(body: string): JourneyEntry[] {
-	const lines = extractSection(body, "journey");
-	const entries: JourneyEntry[] = [];
-	const dateRegex = /^-\s+\*\*(\d{4}-\d{2}-\d{2})\*\*\s*:\s*(.*)$/;
-	const continuationRegex = /^\s+/;
-	let current: JourneyEntry | undefined;
-	for (const line of lines) {
-		const m = dateRegex.exec(line);
-		if (m) {
-			if (current) entries.push(current);
-			current = { date: m[1], prose: m[2].trim() };
-			continue;
-		}
-		if (current && (continuationRegex.test(line) || line.trim() === "")) {
-			if (line.trim()) current.prose += `\n${line.trim()}`;
-		}
-	}
-	if (current) entries.push(current);
-	return entries;
+	return journeyEntriesFrom(extractSection(body, "journey"));
 }
 
 /** Count Milestones section checkboxes. */

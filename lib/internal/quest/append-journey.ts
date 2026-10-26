@@ -1,67 +1,40 @@
 /**
- * Append a Journey bullet to a quest README at a known
- * path. Pure file operation, no extension state involved.
- * The extension's `appendJourneyEntry` wraps this for the
- * loaded-quest case; a caller holding a path uses this
- * directly so it can write to any quest the alias index
- * points it at. That caller used to be named here as the
- * PR-sidequest bridge, which no longer exists.
+ * Add a Journey entry to a quest at a known path. Pure file
+ * operation, no extension state involved. The extension's
+ * `appendJourneyEntry` wraps this for the loaded-quest case; a
+ * caller holding a path uses this directly so it can write to any
+ * quest the alias index points it at.
+ *
+ * The entry goes to the head of the quest's Journey file
+ * (`attachments/journey.md`), newest first; the README keeps one
+ * line pointing at it. See `journey.ts`.
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { nowYmd } from "./dates.ts";
-import { atomicWriteFile, withQuestLock } from "./io.ts";
+import { withQuestLock } from "./io.ts";
+import { sweepJourneyUnlocked } from "./journey-sweep.ts";
 
 /**
- * Append a Journey bullet to `<questDir>/README.md`. When
- * the Journey section is missing, append the whole section
- * with the bullet inside. `now` is injected so tests can
- * pin the date stamp.
+ * Add a dated entry to the head of a quest's Journey. Anything
+ * still in the README's Journey section is swept into the file
+ * first, so the new entry lands above it and the README is left
+ * holding its pointer. `now` is injected so tests can pin the date
+ * stamp.
  *
- * Returns `true` on success, `false` when the README is
- * missing or unreadable so callers can log instead of
- * silently dropping the journal entry.
+ * Returns `true` on success, `false` when the README is missing so
+ * callers can log instead of silently dropping the entry.
  */
 export function appendJourneyByPath(
 	questDir: string,
 	prose: string,
 	opts?: { now?: () => Date },
 ): boolean {
-	const path = join(questDir, "README.md");
-	return withQuestLock(questDir, () => {
-		let text: string;
-		try {
-			text = readFileSync(path, "utf8");
-		} catch {
-			return false;
-		}
-		const date = nowYmd(opts?.now);
-		const bullet = `- **${date}**: ${prose.trim()}`;
-		const journeyHeading = /^##\s+(?:[\u{1F300}-\u{1FFFF}]\s+)?Journey\s*$/mu;
-		const match = journeyHeading.exec(text);
-		let newText: string;
-		if (match) {
-			const lines = text.split("\n");
-			let lineIdx = 0;
-			let charCount = 0;
-			for (let i = 0; i < lines.length; i++) {
-				if (charCount + lines[i].length + 1 > match.index) {
-					lineIdx = i;
-					break;
-				}
-				charCount += lines[i].length + 1;
-			}
-			let insertAt = lineIdx + 1;
-			while (insertAt < lines.length && lines[insertAt].trim() === "") {
-				insertAt++;
-			}
-			lines.splice(insertAt, 0, bullet);
-			newText = lines.join("\n");
-		} else {
-			newText = `${text.replace(/\n*$/, "\n")}\n## 🌄 Journey\n\n${bullet}\n`;
-		}
-		atomicWriteFile(path, newText);
-		return true;
-	});
+	if (!existsSync(join(questDir, "README.md"))) return false;
+	const bullet = `- **${nowYmd(opts?.now)}**: ${prose.trim()}`;
+	return withQuestLock(
+		questDir,
+		() => sweepJourneyUnlocked(questDir, [bullet]) !== undefined,
+	);
 }

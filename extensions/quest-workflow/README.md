@@ -117,7 +117,10 @@ while it waits its turn leaves without running.
   quest reads both; elsewhere nothing reads them.
 - Edits to a document's body: `journal` adds a dated
   Journey entry, to the quest `id` names or else the loaded
-  one, `tick` and `untick` set a checkbox item by
+  one, at the head of its `attachments/journey.md` (the
+  README's Journey section only points there; until the core
+  fold, entries core's verbs append to the README are swept
+  into the file after each quest action), `tick` and `untick` set a checkbox item by
   its text or a unique start of it, and `section` replaces
   one `##` section. Each reads and writes under the quest
   lock and leaves the front matter byte for byte, since the

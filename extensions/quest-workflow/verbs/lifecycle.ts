@@ -24,6 +24,7 @@ import {
 } from "../../../lib/internal/quest/discovery.ts";
 import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter.ts";
 import { atomicWriteFile } from "../../../lib/internal/quest/io.ts";
+import { sweepJourney } from "../../../lib/internal/quest/journey-sweep.ts";
 import { nextRank } from "../../../lib/internal/quest/ranking.ts";
 import { questIdForCwd } from "../../../lib/internal/quest/resolve-cwd.ts";
 import { formatRelativeAge } from "../../../lib/internal/quest/session-liveness.ts";
@@ -314,6 +315,9 @@ export async function create(
 	}
 	mkdirSync(dir, { recursive: true });
 	atomicWriteFile(path, body);
+	// The scaffold writes its first entry into the README, as core's
+	// does; move it to the Journey file so the quest is born in shape.
+	sweepJourney(dir);
 	if (seededAlias) {
 		const seededUrl = urlForRef(seededAlias) ?? url ?? "";
 		appendJourneyByPath(

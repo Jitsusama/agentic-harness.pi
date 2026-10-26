@@ -1,6 +1,7 @@
 /**
  * Shared helpers for quest-workflow tests: a defensive
- * env-isolation guard, and two that narrow a result.
+ * env-isolation guard, two that narrow a result, and one
+ * that reads a quest's Journey.
  *
  * The workflow no longer reads `QUEST_WORKFLOW_ROOT` (the
  * quests root comes from the package config, and tests pass
@@ -10,7 +11,18 @@
  * runs.
  */
 
+import { readFileSync } from "node:fs";
 import type { QuestResult } from "../../../extensions/quest-workflow/verbs/shared";
+import { questJourneyLines } from "../../../lib/internal/quest/journey";
+
+/**
+ * A quest's whole Journey as text, newest first: whatever its
+ * README's section still holds, then its Journey file.
+ */
+export function journeyOf(questDir: string): string {
+	const readme = readFileSync(`${questDir}/README.md`, "utf8");
+	return questJourneyLines(questDir, readme).join("\n");
+}
 
 const VAR = "QUEST_WORKFLOW_ROOT";
 

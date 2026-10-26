@@ -1,6 +1,7 @@
 import {
-	mkdirSync,
+	existsSync,
 	mkdtempSync,
+	readdirSync,
 	readFileSync,
 	rmSync,
 	writeFileSync,
@@ -9,6 +10,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { appendJourneyByPath } from "../../../lib/internal/quest/append-journey";
+import {
+	JOURNEY_FILE,
+	JOURNEY_POINTER,
+	recentJourney,
+} from "../../../lib/internal/quest/journey";
 
 let questDir: string;
 
@@ -22,93 +28,99 @@ afterEach(() => {
 
 const fixedNow = () => new Date("2026-06-03T12:00:00Z");
 
-function readReadme(): string {
+function readme(): string {
 	return readFileSync(join(questDir, "README.md"), "utf8");
+}
+
+function journeyFile(): string {
+	return readFileSync(join(questDir, JOURNEY_FILE), "utf8");
+}
+
+function writeReadme(lines: string[]): void {
+	writeFileSync(join(questDir, "README.md"), lines.join("\n"));
 }
 
 describe("appendJourneyByPath", () => {
 	it("returns false when the README is missing", () => {
 		const ok = appendJourneyByPath(questDir, "anything", { now: fixedNow });
 		expect(ok).toBe(false);
+		expect(existsSync(join(questDir, JOURNEY_FILE))).toBe(false);
 	});
 
-	it("scaffolds a Journey section when the README has none", () => {
-		writeFileSync(
-			join(questDir, "README.md"),
-			"---\nid: QEST-test\n---\n\n# Title\n\nSummary.\n",
-		);
+	it("writes the entry to the Journey file and points the README at it", () => {
+		writeReadme([
+			"---",
+			"id: QEST-test",
+			"---",
+			"",
+			"# Title",
+			"",
+			"Summary.",
+			"",
+		]);
 		const ok = appendJourneyByPath(questDir, "started the work", {
 			now: fixedNow,
 		});
 		expect(ok).toBe(true);
-		const text = readReadme();
-		expect(text).toMatch(/##\s+\u{1F304}\s+Journey/u);
-		expect(text).toContain("- **2026-06-03**: started the work");
+		expect(journeyFile()).toBe(
+			"# 🌄 Journey\n\n- **2026-06-03**: started the work\n",
+		);
+		expect(readme()).toMatch(
+			/## 🌄 Journey\n\nKept in \[attachments\/journey\.md\]/,
+		);
+		expect(readme()).not.toContain("started the work");
 	});
 
-	it("inserts at the top of an existing Journey section", () => {
-		writeFileSync(
-			join(questDir, "README.md"),
+	it("puts each new entry first", () => {
+		writeReadme(["---", "id: QEST-test", "---", "", "# Title", ""]);
+		appendJourneyByPath(questDir, "first", { now: fixedNow });
+		appendJourneyByPath(questDir, "second", { now: fixedNow });
+		expect(recentJourney(questDir, readme(), 5).map((e) => e.prose)).toEqual([
+			"second",
+			"first",
+		]);
+	});
+
+	it("moves a README's old entries into the file below the new one", () => {
+		writeReadme([
+			"---",
+			"id: QEST-test",
+			"---",
+			"",
+			"# Title",
+			"",
+			"## 🌄 Journey",
+			"",
+			"- **2026-06-02**: earlier entry",
+			"  carried on here",
+			"- **2026-06-01**: earliest entry",
+			"",
+		]);
+		appendJourneyByPath(questDir, "newer entry", { now: fixedNow });
+		expect(journeyFile()).toBe(
 			[
-				"---",
-				"id: QEST-test",
-				"---",
+				"# 🌄 Journey",
 				"",
-				"# Title",
-				"",
-				"## 🌄 Journey",
-				"",
+				"- **2026-06-03**: newer entry",
 				"- **2026-06-02**: earlier entry",
+				"  carried on here",
+				"- **2026-06-01**: earliest entry",
 				"",
 			].join("\n"),
 		);
-		const ok = appendJourneyByPath(questDir, "newer entry", {
-			now: fixedNow,
-		});
-		expect(ok).toBe(true);
-		const lines = readReadme().split("\n");
-		const journeyIdx = lines.findIndex((l) =>
-			/##\s+\u{1F304}\s+Journey/u.test(l),
+		expect(readme()).toBe(
+			`---\nid: QEST-test\n---\n\n# Title\n\n## 🌄 Journey\n\n${JOURNEY_POINTER}\n`,
 		);
-		const firstBullet = lines
-			.slice(journeyIdx + 1)
-			.find((l) => l.startsWith("- **"));
-		expect(firstBullet).toContain("newer entry");
-	});
-
-	it("handles a Journey heading without any existing entries", () => {
-		writeFileSync(
-			join(questDir, "README.md"),
-			[
-				"---",
-				"id: QEST-test",
-				"---",
-				"",
-				"# Title",
-				"",
-				"## 🌄 Journey",
-				"",
-			].join("\n"),
-		);
-		const ok = appendJourneyByPath(questDir, "first ever", {
-			now: fixedNow,
-		});
-		expect(ok).toBe(true);
-		const text = readReadme();
-		expect(text).toContain("- **2026-06-03**: first ever");
 	});
 
 	it("writes atomically inside the quest lock (no .tmp- leftovers)", () => {
-		writeFileSync(
-			join(questDir, "README.md"),
-			"---\nid: QEST-test\n---\n\n# Title\n",
-		);
-		mkdirSync(join(questDir, "plans"), { recursive: true });
+		writeReadme(["---", "id: QEST-test", "---", "", "# Title", ""]);
 		appendJourneyByPath(questDir, "first", { now: fixedNow });
 		appendJourneyByPath(questDir, "second", { now: fixedNow });
-		const remaining = require("node:fs")
-			.readdirSync(questDir)
-			.filter((n: string) => n.includes(".tmp-"));
-		expect(remaining).toHaveLength(0);
+		const leftovers = [
+			...readdirSync(questDir),
+			...readdirSync(join(questDir, "attachments")),
+		].filter((n) => n.includes(".tmp-") || n === ".quest.lock");
+		expect(leftovers).toHaveLength(0);
 	});
 });

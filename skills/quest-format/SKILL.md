@@ -249,8 +249,9 @@ order, with their canonical emoji glyphs:
 - `## 🧭 Purpose`: why now, what good looks like, scope.
 - `## 🎭 Cast`: the people involved, as role-prefix
   bullets (see below).
-- `## 🌄 Journey`: dated bullets logging progress over
-  time. Newest at the top.
+- `## 🌄 Journey`: one line pointing at the quest's
+  Journey file, `attachments/journey.md`, where the dated
+  bullets live, newest at the top (see below).
 
 Four optional sections, added when there's something to
 say:
@@ -291,10 +292,19 @@ quests" without fuzzy regex on prose.
 
 ## Journey Entries
 
+The Journey lives in its own file,
+`attachments/journey.md`, so a session reading the README
+to learn what a quest is for doesn't pay for its whole
+history. The README's section holds only the pointer, and
+while the backup reads just the README and documents, a
+comment line naming the attachments the Journey cites.
+Write entries with the `journal` action, never by hand;
+`show` reads the newest back.
+
 Journey bullets are dated and chronological, newest first:
 
 ```markdown
-## 🌄 Journey
+# 🌄 Journey
 
 - **2026-06-04**: Reproduced the 401 locally with a stale
   auth token. Filed shop/world#47282 with the trace.
