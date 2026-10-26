@@ -104,6 +104,7 @@ import {
 import { STANDING_RULES, standingRules } from "./standing-rules.ts";
 import { createQuestState, type QuestState } from "./state.ts";
 import { handle, type QuestToolParams } from "./transitions.ts";
+import { cutReadAdvice } from "./verbs/document.ts";
 import { currentSessionId, isPersistedSession } from "./verbs/shared.ts";
 import { keepQuestWeights } from "./weights.ts";
 import { defaultWorkspaceRoot } from "./workspace.ts";
@@ -286,7 +287,7 @@ const QUEST_PARAMETERS = Type.Object({
 	force: Type.Optional(
 		Type.Boolean({
 			description:
-				"tree-release: override its safety refusals (dirty tree, unmerged branch, attached session), consenting to lose uncommitted work: confirm with the person first. restore: reopen the lost sessions (or those id names), a terminal each, rather than list them; confirm first too.",
+				"tree-release: override its safety refusals (dirty tree, unmerged branch, attached session), consenting to lose uncommitted work: confirm with the person first. section: replace a large section with a body that drops most of it, on purpose. restore: reopen the lost sessions (or those id names), a terminal each, rather than list them; confirm first too.",
 		}),
 	),
 	dryRun: Type.Optional(
@@ -408,8 +409,9 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 							text: result.message,
 							details: result.details,
 							narrowing:
+								cutReadAdvice(params as QuestToolParams) ??
 								"Page with 'limit' and 'offset', or narrow with " +
-								"'find', 'status' or 'priority'.",
+									"'find', 'status' or 'priority'.",
 						}),
 					},
 				],

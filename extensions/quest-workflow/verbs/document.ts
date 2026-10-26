@@ -17,6 +17,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { appendJourneyByPath } from "../../../lib/internal/quest/append-journey.ts";
 import {
+	type EditRefused,
 	itemOf,
 	outlineOf,
 	replaceSection,
@@ -76,6 +77,37 @@ function stamp(state: QuestState, target: Address): void {
 	}
 	// An identity transform: the write stamps `updated` and nothing else.
 	mutateQuestFrontMatter(target.questDir, (fm) => fm);
+}
+
+/**
+ * How large a section must be before `section` checks what a new body
+ * drops. A smaller one is read whole, so its rewrite was written from
+ * all of it.
+ */
+const GUARDED_SECTION_BYTES = 2_048;
+
+/** The share of a guarded section a new body may drop without `force`. */
+const MOST_DROPPED = 0.5;
+
+/**
+ * What a read of one section or item says when it is cut to fit: where
+ * the rest is, since paging and filtering don't reach inside a section,
+ * and what a write built from the cut view would lose.
+ */
+const CUT_SECTION_ADVICE =
+	"The whole section is stored: read its $.text with result_query. " +
+	"A section written back from this cut view loses everything cut.";
+
+/**
+ * What a cut answer to this call should advise, when the call reads one
+ * section or item of a document; otherwise nothing, and a listing's
+ * paging advice applies.
+ */
+export function cutReadAdvice(params: QuestToolParams): string | undefined {
+	const reads = params.action === "show" || params.action === "status";
+	return reads && (params.title?.trim() || params.query?.trim())
+		? CUT_SECTION_ADVICE
+		: undefined;
 }
 
 /** How much of an item's line an outline shows. */
@@ -164,6 +196,36 @@ export function read(state: QuestState, params: QuestToolParams): QuestResult {
 	});
 }
 
+/**
+ * A refusal when a new body would drop most of a large section. A read
+ * of a section past the answer's budget is cut, and a body built from
+ * that read silently took everything cut with it: 12 of a plan's 25
+ * Discovery entries on 26 October. `force` shrinks one on purpose.
+ */
+function droppingMost(
+	body: string,
+	heading: string,
+	text: string,
+	force: boolean,
+): EditRefused | undefined {
+	if (force) return undefined;
+	const found = sectionOf(body, heading);
+	if (!found.ok) return undefined;
+	const before = Buffer.byteLength(found.text);
+	const after = Buffer.byteLength(text.trim());
+	if (before < GUARDED_SECTION_BYTES || after >= before * (1 - MOST_DROPPED)) {
+		return undefined;
+	}
+	return {
+		ok: false,
+		reason:
+			`This would replace the ${found.found} section's ${before.toLocaleString("en-CA")} bytes with ${after.toLocaleString("en-CA")}, dropping most of it, and nothing was changed. ` +
+			"A section read with `show` is cut past its budget, so a body built from that read loses the rest: " +
+			"read the whole section from the stored result, or add an entry with `journal`. " +
+			"Pass force: true to shrink it on purpose.",
+	};
+}
+
 /** What a failed read says, whatever was thrown. */
 function reasonOf(err: unknown): string {
 	return err instanceof Error ? err.message : String(err);
@@ -212,6 +274,7 @@ export function section(
 		state,
 		params,
 		(body, readme) =>
+			droppingMost(body, heading, text, params.force === true) ??
 			replaceSection(body, heading, text, readme ? "readme" : "append"),
 		{
 			changed: (path, _line, added) =>

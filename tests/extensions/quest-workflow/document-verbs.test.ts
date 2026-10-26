@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { questVerdicts } from "../../../extensions/quest-workflow/enforce";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
+import { cutReadAdvice } from "../../../extensions/quest-workflow/verbs/document";
 import { createEnvGuard, journeyOf, refused, succeeded } from "./_helpers";
 
 let tmpRoot: string;
@@ -103,6 +104,63 @@ describe("section", () => {
 		expect(text).not.toContain("Old notes.");
 	});
 
+	it("refuses a body that drops most of a large section, and changes nothing", async () => {
+		const { run, planPath } = await questWithPlan();
+		const entries = Array.from(
+			{ length: 25 },
+			(_, n) => `- Entry ${n}: ${"what was learned ".repeat(8)}`,
+		).join("\n");
+		succeeded(await run({ action: "section", title: "Notes", body: entries }));
+		const before = readFileSync(planPath, "utf8");
+
+		const cut = entries.split("\n").slice(0, 12).join("\n");
+		const result = await run({ action: "section", title: "Notes", body: cut });
+
+		expect(refused(result).guidance).toContain("dropping most of it");
+		expect(readFileSync(planPath, "utf8")).toBe(before);
+	});
+
+	it("shrinks a large section when told to with force", async () => {
+		const { run, planPath } = await questWithPlan();
+		const entries = Array.from(
+			{ length: 25 },
+			(_, n) => `- Entry ${n}: ${"what was learned ".repeat(8)}`,
+		).join("\n");
+		succeeded(await run({ action: "section", title: "Notes", body: entries }));
+
+		succeeded(
+			await run({
+				action: "section",
+				title: "Notes",
+				body: "- One entry left.",
+				force: true,
+			}),
+		);
+
+		expect(readFileSync(planPath, "utf8")).toContain(
+			"## Notes\n\n- One entry left.\n",
+		);
+	});
+
+	it("lets a body that keeps most of a large section through", async () => {
+		const { run, planPath } = await questWithPlan();
+		const entries = Array.from(
+			{ length: 25 },
+			(_, n) => `- Entry ${n}: ${"what was learned ".repeat(8)}`,
+		).join("\n");
+		succeeded(await run({ action: "section", title: "Notes", body: entries }));
+
+		succeeded(
+			await run({
+				action: "section",
+				title: "Notes",
+				body: `${entries}\n- Entry 25: one more.`,
+			}),
+		);
+
+		expect(readFileSync(planPath, "utf8")).toContain("- Entry 25: one more.");
+	});
+
 	it("adds a section a plan does not have yet, at its end", async () => {
 		const { run, planPath } = await questWithPlan();
 		const added = succeeded(
@@ -166,6 +224,19 @@ describe("section", () => {
 			"utf8",
 		);
 		expect(readme).toMatch(/## .*Purpose\n\nWhy this quest exists\.\n/);
+	});
+});
+
+describe("a cut read of one section", () => {
+	it("points at the stored section rather than at paging", () => {
+		const advice = cutReadAdvice({ action: "show", title: "Notes" });
+		expect(advice).toContain("$.text");
+		expect(advice).toContain("loses everything cut");
+	});
+
+	it("leaves a listing's advice to it", () => {
+		expect(cutReadAdvice({ action: "show" })).toBeUndefined();
+		expect(cutReadAdvice({ action: "list" })).toBeUndefined();
 	});
 });
 
