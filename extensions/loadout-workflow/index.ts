@@ -76,7 +76,7 @@ export default function loadoutWorkflow(pi: ExtensionAPI) {
 	// Every deferred tool, loaded or not, so the section stays the same
 	// after a tool is loaded.
 	let index: string | undefined;
-	// Where each skill applies, read once a start from the package config.
+	// Where each skill applies, read once at start from the package config.
 	let places: SkillPlaces = {};
 
 	pi.on("before_agent_start", async (event) => {

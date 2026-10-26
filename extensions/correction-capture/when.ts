@@ -64,7 +64,12 @@ export function rulesForSkill<R extends object>(
 	});
 }
 
-/** The skill a read path names, when it is a skill's instructions. */
+/**
+ * The skill a read path names, when it is a skill's instructions. The
+ * name is the skill's folder, which matches the name in its front
+ * matter for every skill today; a skill whose two differ is matched by
+ * its folder.
+ */
 export function skillRead(path: string): string | undefined {
 	if (basename(path) !== "SKILL.md") return undefined;
 	return basename(dirname(path)) || undefined;
