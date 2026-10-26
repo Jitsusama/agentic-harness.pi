@@ -70,6 +70,9 @@ describe("reading a tool's answer", () => {
 
 describe("reading a tool call for habits", () => {
 	it("names each habit a shell command shows", () => {
+		expect(habits("perl -pi -e 's/a/b/' lib/x.ts")).toEqual([
+			"tracked file edited from the shell",
+		]);
 		expect(habits("sed -i 's/a/b/' lib/x.ts")).toEqual([
 			"tracked file edited from the shell",
 		]);
@@ -100,6 +103,8 @@ describe("reading a tool call for habits", () => {
 			"echo nice work",
 			'echo "$(cat $t/comm) | nice $17"',
 			"cd $TMPDIR && sed -i 's/a/b/' probe.mjs",
+			"sed -i 's#a#b#' $TMPDIR/hookprobe.mjs && node x",
+			"perl -pi -e 's/a/b/' /tmp/x.ts",
 			"grep -n x ~/.local/share/pi/agentic-harness.pi/quest-workflow/quests/QEST-1/README.md tests/plans/a.ts",
 			"grep -rn sleep lib",
 		]) {

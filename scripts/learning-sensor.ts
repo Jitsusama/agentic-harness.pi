@@ -63,8 +63,12 @@ const QUEST_DOCUMENT =
 	/quest-workflow\/quests\/[^\s'"]*\/(plans|research|briefs|reports)\//;
 const BUILD_OUTPUT_CUT =
 	/\b(vitest|pnpm\s+(test|lint|typecheck|exec)|npm\s+test|cargo\s+(test|build|clippy)|nix\s+(build|flake\s+check)|go\s+test|make)\b[^;\n]*\|\s*(tail|head)\b/;
-const SHELL_EDIT =
-	/\bsed\s+(-[a-zA-Z]*i|--in-place)|\bperl\s+-[a-zA-Z]*i|\b(cat|printf|echo)\b[^|;&\n]*>>?\s*(?!\/tmp|\$TMPDIR|~\/\.cache)[^\s;|&]+\.(ts|md|nix|rs)\b/;
+// An in-place sed or perl, its script, then a file outside scratch.
+const IN_PLACE_EDIT =
+	/\b(sed\s+(-[a-zA-Z]*i\S*|--in-place)|perl\s+-[a-zA-Z]*i\S*(\s+-e)?)\s+('[^']*'|"[^"]*"|[^\s-]\S*)\s+(?!["']?(\/tmp|\$TMPDIR|~\/\.cache))\S/;
+// Text appended or written into a source file outside scratch.
+const REDIRECT_EDIT =
+	/\b(cat|printf|echo)\b[^|;&\n]*>>?\s*(?!\/tmp|\$TMPDIR|~\/\.cache)[^\s;|&]+\.(ts|md|nix|rs)\b/;
 // A command run in scratch space edits nothing tracked.
 const IN_SCRATCH = /(^|[;&|]\s*)cd\s+("?\$TMPDIR|\/tmp|~\/\.cache)/;
 
@@ -72,7 +76,8 @@ const IN_SCRATCH = /(^|[;&|]\s*)cd\s+("?\$TMPDIR|\/tmp|~\/\.cache)/;
 export const HABITS: readonly Habit[] = [
 	{
 		key: "tracked file edited from the shell",
-		test: (_, c) => SHELL_EDIT.test(c) && !IN_SCRATCH.test(c),
+		test: (_, c) =>
+			(IN_PLACE_EDIT.test(c) || REDIRECT_EDIT.test(c)) && !IN_SCRATCH.test(c),
 	},
 	{
 		key: "git stash run directly",
