@@ -31,7 +31,7 @@ import {
 import type { QuestSession, QuestTree } from "../../../lib/quest/index.ts";
 import { count, noun } from "../../../lib/ui/count.ts";
 import { displayPath } from "../../../lib/ui/path.ts";
-import { appendJourneyEntry, inventoryWorktrees } from "../lifecycle.ts";
+import { inventoryWorktrees, logHarnessEntry } from "../lifecycle.ts";
 import type { QuestState } from "../state.ts";
 import {
 	ok,
@@ -105,7 +105,7 @@ export async function treeAdd(
 		};
 		const result = addTreeToQuest(state.questDir, tree);
 		if (!result.ok) return refuse(result.reason);
-		appendJourneyEntry(
+		logHarnessEntry(
 			state,
 			`Added ${handle.providerId} tree at ${handle.path}.`,
 		);
@@ -179,7 +179,7 @@ export function treeAdopt(
 	// path is the one thing in it that cannot be wrapped. A tilde is a
 	// courtesy for a reader, and the Journey has no other kind of
 	// audience: nothing reads a path back out of it.
-	appendJourneyEntry(state, `Adopted tree at ${displayPath(root)}.`);
+	logHarnessEntry(state, `Adopted tree at ${displayPath(root)}.`);
 	return ok(`Adopted tree at ${root}; it will not be auto-pruned.`, { tree });
 }
 
@@ -361,7 +361,7 @@ export async function treePrune(
 	const removal = removeTreeFromQuest(state.questDir, target.path);
 	if (!removal.ok) return refuse(removal.reason);
 	setPendingPrune(state.questDir, null, { clearPath: target.path });
-	appendJourneyEntry(state, `Pruned tree at ${target.path}.`);
+	logHarnessEntry(state, `Pruned tree at ${target.path}.`);
 	// The tilde form for the person reading; the absolute path stays in details,
 	// which is what a caller acts on.
 	return ok(`Tree at ${displayPath(target.path)} pruned.`, {
@@ -411,7 +411,7 @@ export async function treeExpand(
 	}
 	try {
 		await expander.call(provider, { path: target.path, zone });
-		appendJourneyEntry(state, `Expanded ${target.path} with zone ${zone}.`);
+		logHarnessEntry(state, `Expanded ${target.path} with zone ${zone}.`);
 		return ok(`Zone ${zone} added to ${displayPath(target.path)}.`, { zone });
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);

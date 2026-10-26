@@ -48,6 +48,7 @@ questsRoot/
   QEST-20260603-AAA111/
     README.md
     JOURNEY.md
+    harness.log
     plans/
       PLAN-20260603-BBB222.md
     research/
@@ -75,6 +76,11 @@ A quest folder holds the quest's record and nothing else:
 
 - the `README.md`;
 - the `JOURNEY.md` beside it, written by `quest journal`;
+- `harness.log`, the harness's own bookkeeping (trees
+  added, adopted and pruned, aliases linked, tmp/
+  cleared), one timestamped line each and the newest
+  2,000 kept; only the harness writes it, and the
+  Journey keeps what was done;
 - ID-named documents in `plans/`, `research/`, `briefs/`
   and `reports/`, minted by `quest draft`;
 - one `attachments/` folder, shared by every document in

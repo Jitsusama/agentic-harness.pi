@@ -27,6 +27,7 @@ import {
 	parseQuestFrontMatter,
 } from "../../../lib/internal/quest/frontmatter.ts";
 import { isWithin } from "../../../lib/internal/quest/git-signals.ts";
+import { appendHarnessLog } from "../../../lib/internal/quest/harness-log.ts";
 import { mutateQuestFrontMatter } from "../../../lib/internal/quest/mutate.ts";
 import { reapQuestScratchDir } from "../../../lib/internal/quest/scratch.ts";
 import { isSealedStatus } from "../../../lib/internal/quest/status.ts";
@@ -56,6 +57,7 @@ import {
 	autoFocusSaid,
 	createDocument,
 	focusDocument,
+	logHarnessEntry,
 	refreshProgress,
 	sealQuestDocuments,
 	setLoadedStatus,
@@ -163,12 +165,12 @@ function sweepQuests(
 		if (
 			reapQuestScratchDir(entry.dir, entry.doc.frontMatter.scratchDir ?? null)
 		) {
-			appendJourneyByPath(entry.dir, "Reaped the managed scratch directory.");
+			appendHarnessLog(entry.dir, "Reaped the managed scratch directory.");
 		}
 		if (id === state.questId) state.scratchDir = null;
 		if (!workspaceDirOf(defaultWorkspaceRoot(), id)) continue;
 		if (clearQuestWorkspaceTmp(defaultWorkspaceRoot(), id)) {
-			appendJourneyByPath(entry.dir, "Cleared the workspace's tmp/ folder.");
+			appendHarnessLog(entry.dir, "Cleared the workspace's tmp/ folder.");
 		}
 	}
 	return result;
@@ -874,13 +876,13 @@ async function sealLoadedQuest(
 			: `Retired the quest: ${params.reason?.trim()}.`,
 	);
 	for (const path of pruned) {
-		appendJourneyEntry(state, `Pruned tree at ${path}.`);
+		logHarnessEntry(state, `Pruned tree at ${path}.`);
 	}
 	if (reapedScratch) {
-		appendJourneyEntry(state, "Reaped the managed scratch directory.");
+		logHarnessEntry(state, "Reaped the managed scratch directory.");
 	}
 	if (clearedTmp) {
-		appendJourneyEntry(state, "Cleared the workspace's tmp/ folder.");
+		logHarnessEntry(state, "Cleared the workspace's tmp/ folder.");
 	}
 	// What the gates let through outside every tree, said once at the
 	// end, so the record shows everything the quest touched.

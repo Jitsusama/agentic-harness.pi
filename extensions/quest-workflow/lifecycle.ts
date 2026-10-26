@@ -31,6 +31,7 @@ import {
 import { sessionsDir } from "../../lib/internal/paths.ts";
 import { appendJourneyByPath } from "../../lib/internal/quest/append-journey.ts";
 import { discoverQuests } from "../../lib/internal/quest/discovery.ts";
+import { appendHarnessLog } from "../../lib/internal/quest/harness-log.ts";
 import { mutateQuestFrontMatter } from "../../lib/internal/quest/mutate.ts";
 import { questIdForCwd } from "../../lib/internal/quest/resolve-cwd.ts";
 import {
@@ -96,6 +97,15 @@ export function appendJourneyEntry(state: QuestState, prose: string): boolean {
 	if (!appendJourneyByPath(state.questDir, prose)) return false;
 	stampQuestUpdated(state);
 	return true;
+}
+
+/**
+ * Note bookkeeping the harness did for the loaded quest in its
+ * harness log, which keeps it out of the Journey sessions read.
+ */
+export function logHarnessEntry(state: QuestState, text: string): boolean {
+	if (!state.questDir) return false;
+	return appendHarnessLog(state.questDir, text);
 }
 
 /**

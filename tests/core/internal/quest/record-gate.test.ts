@@ -58,9 +58,18 @@ describe("judgeRecordWrite", () => {
 		}
 	});
 
+	it("keeps hand writes out of the harness log", () => {
+		for (const via of ["tool", "bash"] as const) {
+			const refusal = judge({ path: q("harness.log"), via, exists: true });
+			expect(refusal?.rule, via).toBe("log-by-hand");
+			expect(refusal?.reason, via).toContain("`quest journal`");
+		}
+	});
+
 	it("keeps documents, the README, record folders and the quest from being removed", () => {
 		const cases: [string, string][] = [
 			["JOURNEY.md", "document-removed"],
+			["harness.log", "document-removed"],
 			["plans/PLAN-20260924-RUE4Q4.md", "document-removed"],
 			["plans/*.md", "document-removed"],
 			["README.md", "document-removed"],
