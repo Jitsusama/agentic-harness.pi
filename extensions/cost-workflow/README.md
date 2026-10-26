@@ -43,10 +43,12 @@ fixing" in one call, held against the week before:
   directory.
 - **Quest files read:** how much of each kind of quest file
   (documents, READMEs, Journeys, the rest) sessions read with `read`,
-  a session's share against the week before's, since a file read whole
-  is paid for again on every later turn and `quest show` answers in a
-  fraction of it. A share a session, so a busier week does not read as
-  a worse one. Shell reads of quest files carry no path in the ledger
+  a share of every session active that week against the week before's,
+  since a file read whole is paid for again on every later turn and
+  `quest show` answers in a fraction of it. Divided by every active
+  session, not only those that read, so a busier week does not read as
+  a worse one, and a week where most sessions stopped reading reads as
+  better. Shell reads of quest files carry no path in the ledger
   and are left out; the learning sensor counts those.
 - **Failures:** the tools whose calls failed most, with their rates.
 
