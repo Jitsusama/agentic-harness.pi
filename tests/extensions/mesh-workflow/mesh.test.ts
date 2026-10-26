@@ -948,6 +948,27 @@ describe("an answer", () => {
 		);
 	});
 
+	it("goes back to whoever asked when it answers and names nowhere", async () => {
+		const { tools } = await startSession();
+		peer("session-w", ["WCJQSG"], []);
+		const asked = fromElsewhere({
+			intent: "question",
+			to: ["@7M6JKG"],
+			text: "are you there?",
+		});
+
+		const answer = await tools.get("mesh_send")?.execute("call-1", {
+			intent: "fyi",
+			text: "PONG",
+			re: asked.id.slice(-8),
+		});
+
+		const transport = folderTransport(join(paths.mesh, "messages"));
+		const sent = transport.ids().map((id) => transport.read(id));
+		expect(sent.find((one) => one?.text === "PONG")?.to).toEqual(["@WCJQSG"]);
+		expect(answer?.content[0]?.text).not.toContain("It named no group");
+	});
+
 	it("goes without its reply when the message it answers is not there", async () => {
 		const { tools } = await startSession();
 		peer("session-w", ["WCJQSG"], []);
@@ -1115,6 +1136,43 @@ describe("damping", () => {
 			type: GLANCE,
 			data: { why: "sent to this peer, said already" },
 		});
+	});
+});
+
+describe("a message caught half written", () => {
+	it("is taken once it reads, not lost", async () => {
+		const { sent } = await startSession(
+			{},
+			{},
+			[],
+			undefined,
+			undefined,
+			undefined,
+			20,
+		);
+		const dir = join(paths.mesh, "messages");
+		const id = `${Date.now()}-TESTER-1-c0ffee00`;
+		writeFileSync(join(dir, `${id}.json`), "");
+		await new Promise((done) => setTimeout(done, 60));
+		writeFileSync(
+			join(dir, `${id}.json`),
+			JSON.stringify({
+				v: 1,
+				id,
+				at: new Date().toISOString(),
+				from: "TESTER",
+				to: ["@7M6JKG"],
+				intent: "fyi",
+				text: "written at last",
+				pid: process.pid + 1,
+			}),
+		);
+
+		await vi.waitFor(() =>
+			expect(sent.map((one) => one.message.content).join()).toContain(
+				"written at last",
+			),
+		);
 	});
 });
 

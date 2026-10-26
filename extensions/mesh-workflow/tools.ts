@@ -347,6 +347,18 @@ async function send(
 		params.re === undefined && ownReplaced === undefined
 			? namedAtStart(params.text, at.peer.session, everyone).map(homeOf)
 			: [];
+	// An answer that names nowhere goes back to whoever asked: routed by
+	// what it says, a live check's PONG went to #all on 2026-10-25 and
+	// never reached the peer waiting on it.
+	const asker = answersNamed ? at.transport.read(answersNamed) : undefined;
+	if (
+		chosen.length === 0 &&
+		asker &&
+		!sentBy(asker, self) &&
+		groupsNamed(params.to ?? "").length === 0
+	) {
+		chosen.push(homeOf(asker.from));
+	}
 	const aimed =
 		meant.length > 0 && !sameGroups(chosen, meant) ? meant : undefined;
 	if (aimed) {
