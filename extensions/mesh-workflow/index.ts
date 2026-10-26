@@ -90,10 +90,17 @@ import {
 import { census, machineBooted } from "../../lib/mesh/liveness.ts";
 import {
 	asksEach,
+	clock,
 	isHomeTo,
 	type Message,
 	reaches,
+	shortId,
 } from "../../lib/mesh/message.ts";
+import {
+	ASK_AGAIN_MS,
+	createAwaiting,
+	createOwing,
+} from "../../lib/mesh/owed.ts";
 import { localPeer, type Peer } from "../../lib/mesh/peer.ts";
 import { createPresences } from "../../lib/mesh/presence.ts";
 import { createReadFront } from "../../lib/mesh/reading.ts";
@@ -377,6 +384,10 @@ export function meshWorkflow(
 		// Questions this peer left to the peer answering them, by id, kept
 		// until answered so one let go reaches this peer after all.
 		const left = new Map<string, Left>();
+		// Answers this peer owes and is owed, so a question put to it is
+		// asked again and one it put is said to be stuck (lib/mesh/owed.ts).
+		const owing = createOwing();
+		const awaiting = createAwaiting();
 		let ctx: ExtensionContext | undefined;
 		let peer: Peer | undefined;
 		const wanting = new Map<WantKind, Want>();
@@ -621,16 +632,22 @@ export function meshWorkflow(
 		 * takes whatever waits to act with it, since it starts the turn they
 		 * were waiting for.
 		 */
-		const note = (heeded: readonly Heeded[], wake: boolean) => {
+		const note = (heeded: readonly Heeded[], wake: boolean, lead?: string) => {
 			const all = wake ? [...heeded, ...unstopped(acts?.take() ?? [])] : heeded;
 			if (all.length === 0) return;
 			const messages = all.map(({ message }) => message);
 			if (wake) leasing.answering(messages);
+			for (const { message, heed } of all) {
+				if (wake && heed.addressed && message.intent === "question") {
+					owing.owe(message);
+				}
+			}
 			const carried = glances.take();
+			const content = noted(messages, carried);
 			pi.sendMessage(
 				{
 					customType: NOTED,
-					content: noted(messages, carried),
+					content: lead ? `${lead}\n\n${content}` : content,
 					display: true,
 					details: delivered(messages, carried, {
 						turn: wake,
@@ -741,6 +758,7 @@ export function meshWorkflow(
 				!sentBy(message, { addresses: peer.addresses, pid: process.pid })
 			) {
 				answered.add(message.re);
+				awaiting.answered(message.re, addressesOf(message.from));
 			}
 			if (!message || !reaches(message, peer.listener, process.pid)) {
 				return undefined;
@@ -788,9 +806,60 @@ export function meshWorkflow(
 			}
 		};
 
+		/** The addresses of the peer signing as this, as far as presence says. */
+		const addressesOf = (from: string): readonly string[] =>
+			presences.all().find((one) => one.addresses.includes(from))
+				?.addresses ?? [from];
+
+		/**
+		 * Questions put to this peer that it hasn't answered, handed again
+		 * with a turn; and questions it put that are stuck, said on screen
+		 * and to its model, once each.
+		 */
+		const chase = () => {
+			const again = owing.due();
+			if (again.length > 0) {
+				const minutes = Math.round(ASK_AGAIN_MS / 60_000);
+				note(
+					again.map(({ message }) => ({
+						message,
+						heed: {
+							attention: "wake",
+							why: "asked again, unanswered",
+							addressed: true,
+						},
+					})),
+					true,
+					`Asked again: ${again.length === 1 ? "this question was" : "these questions were"} put to you at least ${minutes} minutes ago and you have sent no answer. Answer now with mesh_send, re set to its id, or say when you will.`,
+				);
+			}
+			const stuck = awaiting.stuck();
+			if (stuck.length === 0) return;
+			const lines = stuck.map(
+				({ message, waitingOn }) =>
+					`Your question [${shortId(message)}] from ${clock(message)} has had no answer from ${waitingOn.join(", ")}. It has been put to them again; mesh_groups says what each is doing.`,
+			);
+			if (ctx?.hasUI) {
+				ctx.ui.notify(
+					`Mesh: no answer yet from ${[...new Set(stuck.flatMap((one) => one.waitingOn))].join(", ")}`,
+					"warning",
+				);
+			}
+			pi.sendMessage(
+				{
+					customType: NOTED,
+					content: lines.join("\n\n"),
+					display: true,
+					details: delivered([], []),
+				},
+				{ triggerTurn: false },
+			);
+		};
+
 		/** Messages the watcher never reported, taken as it would have. */
 		const lookAgain = () => {
 			if (!peer) return;
+			chase();
 			// Who is still there changes without a message saying so: a
 			// quest's address left to a peer that ended is taken back.
 			void countLive().then(() => {
@@ -1197,6 +1266,8 @@ export function meshWorkflow(
 						queue: () => queueJobs(env),
 						sent: (message) => {
 							seen.add(message.id);
+							if (message.re !== undefined) owing.paid(message.re);
+							awaiting.asked(message, peer?.addresses ?? []);
 							leasing.sent(message);
 							watchWaits();
 						},
