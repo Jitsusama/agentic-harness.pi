@@ -9,6 +9,7 @@ import {
 	tickedOwnerNow,
 } from "../../../lib/internal/process-ticks.ts";
 import {
+	CARRIED_FOR_MS,
 	census,
 	livenessOf,
 	machineBooted,
@@ -62,6 +63,19 @@ describe("a peer's liveness", () => {
 
 	it("cannot be told for a presence that names no process", async () => {
 		expect(await livenessOf(presence(), machine({}))).toBe("unknown");
+	});
+
+	// A mycelium node touches a carried session's file each minute; one
+	// killed and never run again would otherwise leave it there for ever.
+	it("is there for a session elsewhere while its node touched it within three minutes", async () => {
+		const now = 10 * 60 * 1000;
+		const carried = (ago: number) =>
+			presence({ machine: "equilibrius", carriedAt: now - ago });
+
+		expect(await livenessOf(carried(60_000), machine({}), now)).toBe("present");
+		expect(
+			await livenessOf(carried(CARRIED_FOR_MS + 1), machine({}), now),
+		).toBe("gone");
 	});
 });
 

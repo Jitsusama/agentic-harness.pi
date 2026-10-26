@@ -21,6 +21,7 @@ import {
 	readdirSync,
 	readFileSync,
 	renameSync,
+	statSync,
 	writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
@@ -119,6 +120,12 @@ export interface Presence {
 	 * taken out, since only its own machine can judge its process.
 	 */
 	readonly machine?: string;
+	/**
+	 * When the node carrying a session elsewhere last touched its file, in
+	 * milliseconds since the epoch: it does so each minute while its link
+	 * stands (see liveness.ts).
+	 */
+	readonly carriedAt?: number;
 	/** When it last said so, as an ISO time. */
 	readonly at: string;
 }
@@ -376,7 +383,10 @@ export function createPresences(dir: string): Presences {
 
 function read(path: string): Presence | undefined {
 	try {
-		return presenceFrom(JSON.parse(readFileSync(path, "utf8")));
+		const one = presenceFrom(JSON.parse(readFileSync(path, "utf8")));
+		return one?.machine === undefined
+			? one
+			: { ...one, carriedAt: statSync(path).mtimeMs };
 	} catch {
 		return undefined;
 	}

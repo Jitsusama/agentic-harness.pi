@@ -19,6 +19,13 @@
  * Within one boot a presence is judged by its process's start in the
  * kernel's ticks, which nothing moves, rather than by core's start in
  * wall-clock milliseconds, which a suspend moves (process-ticks.ts).
+ *
+ * A session on another machine is the one exception: its process is
+ * that machine's to judge, so the mycelium node carrying it here takes
+ * the process out and touches its file each minute while its link
+ * stands. It is there while its file was touched within
+ * {@link CARRIED_FOR_MS}, and gone after, so a node killed and never
+ * run again leaves no session that seems there for ever.
  */
 
 import { readFileSync } from "node:fs";
@@ -58,11 +65,24 @@ export interface Census {
 	readonly gone: readonly Presence[];
 }
 
+/**
+ * How long a session elsewhere stays there after its node last touched
+ * its file: three of the node's minutes, so one late touch is no end.
+ */
+export const CARRIED_FOR_MS = 3 * 60 * 1000;
+
 /** Whether this peer is still on the mesh. */
 export async function livenessOf(
 	presence: Presence,
 	facts: TickFacts = tickFacts,
+	now: number = Date.now(),
 ): Promise<Liveness> {
+	if (presence.machine !== undefined) {
+		return presence.carriedAt !== undefined &&
+			now - presence.carriedAt > CARRIED_FOR_MS
+			? "gone"
+			: "present";
+	}
 	const owner = presence.owner;
 	if (!owner) return "unknown";
 	const standing = await tickedStanding(owner, facts);
