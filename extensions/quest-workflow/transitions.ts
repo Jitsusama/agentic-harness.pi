@@ -20,6 +20,7 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { createMutex } from "../../lib/internal/async-mutex.ts";
+import { sayConcluded } from "../../lib/internal/quest/concluded.ts";
 import { sweepAfterQuestAction } from "../../lib/internal/quest/journey-sweep.ts";
 import type { QuestPriority } from "../../lib/quest/index.ts";
 import { suggestAction } from "./actions.ts";
@@ -104,7 +105,9 @@ export function handle(
 ): Promise<QuestResult> {
 	return turns.runExclusive(
 		async () => {
+			const actedOn = targetsOf(state, params);
 			const result = await dispatch(state, pi, ctx, params, signal);
+			tellConcluded(pi, params, actedOn, result);
 			// Until the core fold, core's verbs append to the README's
 			// Journey; move what they wrote into the Journey file.
 			sweepAfterQuestAction(
@@ -117,6 +120,34 @@ export function handle(
 		},
 		{ signal },
 	);
+}
+
+/** What a call acts on: the ids it names, else the focused document or quest. */
+function targetsOf(state: QuestState, params: QuestToolParams): string[] {
+	const named = idsNamed(params.id);
+	if (named.length > 0) return named;
+	const here = state.documentId ?? state.questId;
+	return here ? [here] : [];
+}
+
+/**
+ * Say on the bus that something was concluded or retired, so the mesh
+ * can tell the session's orchestrator (lib/internal/quest/concluded.ts).
+ * A refusal or a dry run ended nothing, and says nothing.
+ */
+function tellConcluded(
+	pi: ExtensionAPI,
+	params: QuestToolParams,
+	ids: readonly string[],
+	result: QuestResult,
+): void {
+	if (params.action !== "conclude" && params.action !== "retire") return;
+	if (!result.ok || params.dryRun === true || !pi.events) return;
+	sayConcluded(pi.events, {
+		how: params.action === "conclude" ? "concluded" : "retired",
+		ids,
+		said: result.message,
+	});
 }
 
 function idsNamed(id: string | undefined): string[] {
