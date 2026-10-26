@@ -232,6 +232,13 @@ describe("naming an item by its number", () => {
 		if (!seven.ok) throw new Error(seven.reason);
 		expect(seven.line).toBe("- [ ] 7. **Write the tests**");
 	});
+
+	it("refuses a number no item carries, rather than matching a time", () => {
+		const body = "- [ ] 12:00 run failed\n- [ ] Ship it\n";
+		const result = setCheckbox(body, "1", true);
+		if (result.ok) throw new Error("expected a refusal");
+		expect(result.reason).toContain('No item reads "1"');
+	});
 });
 
 describe("reading a document without all of it", () => {
@@ -244,6 +251,13 @@ describe("reading a document without all of it", () => {
 		expect(outline.sections[1].bytes).toBe(
 			Buffer.byteLength("## Notes\n\nSome notes.\n"),
 		);
+		const wrapped = outlineOf(
+			"- [ ] Battery: idle watts at\n  fixed brightness\n  - [ ] nested\n",
+		);
+		expect(wrapped.items.map((one) => one.text)).toEqual([
+			"Battery: idle watts at fixed brightness",
+			"nested",
+		]);
 		expect(outline.items).toEqual([
 			{ text: "7. **Write the tests**", done: true, depth: 0 },
 			{ text: "7a. a nested follow-up", done: false, depth: 1 },

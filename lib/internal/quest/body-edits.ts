@@ -107,15 +107,16 @@ function findItem(
 	item: string,
 ): { ok: true; match: Located } | EditRefused {
 	const wanted = normalise(item);
-	const numbered = /^\d+$/.test(wanted)
+	const exact = items.filter((i) => normalise(i.text) === wanted);
+	const prefixed = items.filter((i) => normalise(i.text).startsWith(wanted));
+	// A number names only the item it numbers, never one starting `12:00`.
+	const matches = /^\d+$/.test(wanted)
 		? items.filter((i) =>
 				new RegExp(`^${wanted}[.):]?(\\s|$)`).test(normalise(i.text)),
 			)
-		: [];
-	const exact = items.filter((i) => normalise(i.text) === wanted);
-	const prefixed = items.filter((i) => normalise(i.text).startsWith(wanted));
-	const matches =
-		numbered.length > 0 ? numbered : exact.length > 0 ? exact : prefixed;
+		: exact.length > 0
+			? exact
+			: prefixed;
 	if (matches.length === 0) {
 		return {
 			ok: false,
@@ -133,7 +134,10 @@ function findItem(
 
 /** One checkbox item, as an outline lists it. */
 export interface OutlineItem {
-	/** Its text on its own line, without the checkbox. */
+	/**
+	 * Its text without the checkbox, with the lines it wraps onto joined
+	 * to it, so an item written over several lines reads whole.
+	 */
 	readonly text: string;
 	readonly done: boolean;
 	/** How far it is nested: 0 for a top-level item. */
@@ -166,8 +170,14 @@ export function outlineOf(body: string): Outline {
 	const items = checkboxLines(lines).map((i) => {
 		const parts = CHECKBOX.exec(lines[i.index]);
 		const indent = parts?.[1].match(/^\s*/)?.[0].replace(/\t/g, "  ").length;
+		const wrapped: string[] = [i.text];
+		for (const line of lines.slice(i.index + 1)) {
+			if (!line.trim() || indentOf(line) <= (indent ?? 0)) break;
+			if (/^\s*([-*+]|\d+[.)])\s/.test(line)) break;
+			wrapped.push(line.trim());
+		}
 		return {
-			text: i.text,
+			text: wrapped.join(" "),
 			done: parts?.[2] !== " ",
 			depth: Math.floor((indent ?? 0) / 2),
 		};

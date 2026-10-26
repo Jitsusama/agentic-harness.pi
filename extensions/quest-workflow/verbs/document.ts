@@ -105,11 +105,11 @@ export function read(state: QuestState, params: QuestToolParams): QuestResult {
 	if (heading || item) {
 		const found = heading ? sectionOf(body, heading) : itemOf(body, item ?? "");
 		if (!found.ok) return refuse(found.reason);
-		const lines = [
-			`${name}, ${heading ? `section ${found.found}` : found.found}:`,
-			"",
-			found.text || "(nothing under it)",
-		];
+		const lines = heading
+			? [`${name}, section ${found.found}:`, ""]
+			: [`${name}, item:`, "", found.found];
+		if (found.text) lines.push(found.text);
+		else if (heading) lines.push("(nothing under it)");
 		return ok(lines.join("\n"), {
 			document: name,
 			found: found.found,
@@ -124,7 +124,7 @@ export function read(state: QuestState, params: QuestToolParams): QuestResult {
 		`${name}: ${title ?? "(untitled)"}`,
 		`  ${[stage, `${Buffer.byteLength(text).toLocaleString("en-CA")} bytes`].filter(Boolean).join(", ")}; ${shown}`,
 		"",
-		"Sections, by size:",
+		"Sections, with their sizes in bytes:",
 		...outline.sections.map(
 			(one) => `- ${one.heading} (${one.bytes.toLocaleString("en-CA")})`,
 		),
