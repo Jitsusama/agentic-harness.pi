@@ -94,6 +94,23 @@ describe("presences", () => {
 				.sort(),
 		).toEqual(["s-1", "s-2"]);
 	});
+
+	// As a mycelium node writes a session that runs on another machine.
+	it("say which machine a session elsewhere runs on", () => {
+		writeFileSync(
+			join(root, "s-3.json"),
+			JSON.stringify({
+				...presence({ session: "s-3" }),
+				machine: "equilibrius",
+			}),
+			"utf8",
+		);
+
+		const read = createPresences(root).of("s-3");
+		expect(read?.machine).toBe("equilibrius");
+		expect(read?.owner).toBeUndefined();
+		expect(createPresences(root).of("s-1")?.machine).toBeUndefined();
+	});
 });
 
 describe("this session's peer", () => {

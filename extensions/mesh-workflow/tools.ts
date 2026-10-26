@@ -1242,7 +1242,8 @@ function peersText(present: readonly Presence[], peer: Peer): string {
 		const work = one.worksOn.replace(/\s+/g, " ").trim();
 		const cut =
 			work.length > WORK_CHARS ? `${work.slice(0, WORK_CHARS - 3)}...` : work;
-		return [`${address}, ${one.busy ? "busy" : "idle"}: ${cut}`];
+		const where = one.machine ? ` on ${one.machine}` : "";
+		return [`${address}${where}, ${one.busy ? "busy" : "idle"}: ${cut}`];
 	});
 	return lines.length > 0 ? `\nPeers:\n${lines.join("\n")}` : "";
 }

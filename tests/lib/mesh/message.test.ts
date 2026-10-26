@@ -76,6 +76,15 @@ describe("who a message reaches", () => {
 		expect(reaches(message(), listener, 2)).toBe(true);
 	});
 
+	// A mycelium node carries another machine's sessions here; a hold
+	// before this machine restarts is none of theirs.
+	it("is never a session on another machine, for the machine's group", () => {
+		const elsewhere = { ...listener, machine: "equilibrius" };
+		expect(reaches(message(), elsewhere, 2)).toBe(false);
+		expect(reaches(message({ to: [ALL, "@7M6JKG"] }), elsewhere, 2)).toBe(true);
+		expect(reaches(message({ to: ["#harness"] }), elsewhere, 2)).toBe(true);
+	});
+
 	it("is a peer, through any of its home groups", () => {
 		expect(reaches(message({ to: ["@24B025FE"] }), listener, 2)).toBe(true);
 		expect(reaches(message({ to: ["@OVAE1I"] }), listener, 2)).toBe(false);
