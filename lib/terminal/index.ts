@@ -8,4 +8,4 @@
  * `agentic-harness.pi/terminal` stays what consumers import.
  */
 
-export * from "@jitsusama/agentic-harness.core/terminal";
+export * from "../core/terminal/index.ts";

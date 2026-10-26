@@ -7,7 +7,6 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { BrowserSession } from "@jitsusama/agentic-harness.core/web/session";
 import { describe, expect, it } from "vitest";
 import { registerCheck } from "../../../extensions/browser-integration/check.ts";
 import { registerDo } from "../../../extensions/browser-integration/do.ts";
@@ -17,6 +16,7 @@ import {
 	DEFAULT_SESSION,
 } from "../../../extensions/browser-integration/registry.ts";
 import { registerSee } from "../../../extensions/browser-integration/see.ts";
+import type { BrowserSession } from "../../../lib/core/web/session.ts";
 
 /** Long enough that a call nothing held back would plainly have run. */
 const SETTLED_WITHIN_MS = 200;

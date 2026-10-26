@@ -8,14 +8,11 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { runProseGate } from "@jitsusama/agentic-harness.core/guardian/prose-gate";
-import { runRedirectGate } from "@jitsusama/agentic-harness.core/guardian/redirect-gate";
-import { runSectionGate } from "@jitsusama/agentic-harness.core/guardian/section-gate";
-import { runTitleGate } from "@jitsusama/agentic-harness.core/guardian/title-gate";
-import {
-	PR_SECTIONS,
-	PR_SHAPE,
-} from "@jitsusama/agentic-harness.core/sections";
+import { runProseGate } from "../../lib/core/internal/guardian/prose-gate.ts";
+import { runRedirectGate } from "../../lib/core/internal/guardian/redirect-gate.ts";
+import { runSectionGate } from "../../lib/core/internal/guardian/section-gate.ts";
+import { runTitleGate } from "../../lib/core/internal/guardian/title-gate.ts";
+import { PR_SECTIONS, PR_SHAPE } from "../../lib/core/sections/index.ts";
 import { refusalUnder } from "../../lib/guardian/apply.ts";
 import type {
 	CommandGuardian,

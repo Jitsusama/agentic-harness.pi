@@ -7,7 +7,7 @@
 import {
 	QUEST_ACTIONS as CORE_ACTIONS,
 	suggestAction as suggestCoreAction,
-} from "@jitsusama/agentic-harness.core/quest/actions";
+} from "../../lib/core/quest/actions.ts";
 
 /**
  * Verbs this package has that core's registry does not yet. `retitle`

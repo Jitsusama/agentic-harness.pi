@@ -11,6 +11,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Type } from "@sinclair/typebox";
 import {
 	type Anchor,
 	type BoundTarget,
@@ -34,8 +35,7 @@ import {
 	type Thread,
 	targetKey,
 	type Verdict,
-} from "@jitsusama/agentic-harness.core/review";
-import { Type } from "@sinclair/typebox";
+} from "../../../lib/core/review/index.ts";
 import {
 	type AsyncMutex,
 	createMutex,

@@ -5,6 +5,12 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { OAuth2Client } from "google-auth-library";
+import {
+	createOAuth2Client,
+	refreshTokenIfNeeded,
+	setCredentials,
+} from "../../core/google/auth/oauth.ts";
 import {
 	AUTH_MESSAGES,
 	getCredentials,
@@ -13,13 +19,7 @@ import {
 	type OAuthAppCredentials,
 	saveAccount,
 	storeCredentials,
-} from "@jitsusama/agentic-harness.core/google";
-import {
-	createOAuth2Client,
-	refreshTokenIfNeeded,
-	setCredentials,
-} from "@jitsusama/agentic-harness.core/google/auth/oauth";
-import type { OAuth2Client } from "google-auth-library";
+} from "../../core/google/index.ts";
 import { holdScreen } from "../../ui/gate-queue.ts";
 import { frameTitle, promptSingle } from "../../ui/index.ts";
 import { authenticateWithFallback, type OAuthFlowResult } from "./dual-flow.ts";

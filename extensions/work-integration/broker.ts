@@ -26,7 +26,7 @@ import {
 	registerTreeProvider,
 	type TreeBroker,
 	WORK_PUBLISH_CHECK,
-} from "@jitsusama/agentic-harness.core/work";
+} from "../../lib/core/work/index.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
 import { unattendedExec } from "../../lib/internal/unattended-exec.ts";
 

@@ -34,9 +34,9 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { resolveLspBackend } from "@jitsusama/agentic-harness.core/lsp";
-import { findProject, runVerify } from "@jitsusama/agentic-harness.core/verify";
 import { Type } from "@sinclair/typebox";
+import { resolveLspBackend } from "../../lib/core/lsp/index.ts";
+import { findProject, runVerify } from "../../lib/core/verify/index.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace-root.ts";
 import { getLastEntry } from "../../lib/internal/state.ts";
 import {

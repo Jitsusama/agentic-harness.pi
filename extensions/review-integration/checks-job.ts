@@ -15,8 +15,8 @@
  */
 
 import type { EventBus } from "@earendil-works/pi-coding-agent";
-import { withCallSignal } from "@jitsusama/agentic-harness.core/exec";
-import type { ChecksRollup } from "@jitsusama/agentic-harness.core/review";
+import { withCallSignal } from "../../lib/core/exec/index.ts";
+import type { ChecksRollup } from "../../lib/core/review/index.ts";
 import { findJobHost, type Job } from "../../lib/jobs/index.ts";
 
 /** How often to look. CI takes minutes; a tighter loop is cost with no reader. */

@@ -14,6 +14,8 @@
  * those two is a label somebody loses.
  */
 
+import { afterEach, describe, expect, it } from "vitest";
+import { editPanel } from "../../extensions/review-integration/tools/offer.ts";
 import {
 	type AuthoringCapabilities,
 	clearReviewProviders,
@@ -21,10 +23,8 @@ import {
 	type Proposal,
 	type RepoLocator,
 	registerReviewProvider,
-} from "@jitsusama/agentic-harness.core/review";
-import { composePrBody } from "@jitsusama/agentic-harness.core/sections";
-import { afterEach, describe, expect, it } from "vitest";
-import { editPanel } from "../../extensions/review-integration/tools/offer.ts";
+} from "../../lib/core/review/index.ts";
+import { composePrBody } from "../../lib/core/sections/index.ts";
 import { stubProvider } from "../support/stub-provider.ts";
 import { activate, HEADLESS, toolNamed } from "./support/review-extension.ts";
 

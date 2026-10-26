@@ -10,7 +10,7 @@
  * rewritten mid-replay, so those are named as the one thing left to do.
  */
 
-import type { Settling } from "@jitsusama/agentic-harness.core/work";
+import type { Settling } from "../../../lib/core/work/index.ts";
 import { count } from "../../../lib/ui/count.ts";
 import { GLYPH } from "../render.ts";
 

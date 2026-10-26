@@ -8,8 +8,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
-import { auditQuestRecord } from "@jitsusama/agentic-harness.core/quest/record-audit";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { auditQuestRecord } from "../../lib/core/internal/quest/record-audit.ts";
 import {
 	applyRecordMigration,
 	planRecordMigration,

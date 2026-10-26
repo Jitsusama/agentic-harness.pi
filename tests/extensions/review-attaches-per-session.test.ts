@@ -24,9 +24,9 @@ import {
 import { readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ChangeRef } from "@jitsusama/agentic-harness.core/review";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { attachments } from "../../extensions/review-integration/engine.ts";
+import type { ChangeRef } from "../../lib/core/review/index.ts";
 import { activate } from "./support/review-extension.ts";
 
 let root: string;

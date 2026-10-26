@@ -15,7 +15,7 @@ import {
 	isToolCallEventType,
 	type ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
-import { checkGithubCli } from "@jitsusama/agentic-harness.core/github-cli";
+import { checkGithubCli } from "../../lib/core/github-cli/index.ts";
 import { refusalUnder } from "../../lib/guardian/apply.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 

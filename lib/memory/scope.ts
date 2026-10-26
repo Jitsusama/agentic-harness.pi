@@ -6,7 +6,7 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { Scope } from "@jitsusama/agentic-harness.core/memory";
+import type { Scope } from "../core/memory/index.ts";
 import { getLastEntry } from "../internal/state.ts";
 
 /**

@@ -17,10 +17,7 @@
 
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type {
-	Participant,
-	Roster,
-} from "@jitsusama/agentic-harness.core/review";
+import type { Participant, Roster } from "../../lib/core/review/index.ts";
 
 /**
  * What a reviewer is given to read with: enough to follow the change

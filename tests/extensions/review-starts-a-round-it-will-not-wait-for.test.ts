@@ -14,17 +14,6 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createEventBus } from "@earendil-works/pi-coding-agent";
-import type {
-	AskAnswer,
-	AskRun,
-	ChangeRef,
-	Finding,
-} from "@jitsusama/agentic-harness.core/review";
-import {
-	collectRound,
-	createRunStore,
-	startCouncil,
-} from "@jitsusama/agentic-harness.core/review";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	answerLeftBehind,
@@ -33,6 +22,17 @@ import {
 	whyNotYet,
 } from "../../extensions/review-integration/reviewer.ts";
 import { watchStartedRound } from "../../extensions/review-integration/round-job.ts";
+import type {
+	AskAnswer,
+	AskRun,
+	ChangeRef,
+	Finding,
+} from "../../lib/core/review/index.ts";
+import {
+	collectRound,
+	createRunStore,
+	startCouncil,
+} from "../../lib/core/review/index.ts";
 import { announceJobHost, jobStopReason } from "../../lib/jobs/index.ts";
 import {
 	ReviewerArtifactsStore,

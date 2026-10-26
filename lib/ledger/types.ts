@@ -3,12 +3,12 @@ import type {
 	SessionRecord,
 	ToolCallRecord,
 	TurnRecord,
-} from "@jitsusama/agentic-harness.core/observability";
+} from "../core/observability/index.ts";
 
 export type {
 	DroppedCallRecord,
 	ToolCallRecord,
-} from "@jitsusama/agentic-harness.core/observability";
+} from "../core/observability/index.ts";
 
 /**
  * What a scan saw, so any aggregate built on it can state its own

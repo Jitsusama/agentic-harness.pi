@@ -20,10 +20,10 @@ export type {
 	RecallQuery,
 	RetainInput,
 	Scope,
-} from "@jitsusama/agentic-harness.core/memory";
+} from "../core/memory/index.ts";
 export {
 	memoryDbPath,
 	openMemoryStore,
 	serializeScope,
-} from "@jitsusama/agentic-harness.core/memory";
+} from "../core/memory/index.ts";
 export { resolveScope } from "./scope.ts";

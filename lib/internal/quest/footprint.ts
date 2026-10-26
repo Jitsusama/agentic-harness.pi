@@ -31,7 +31,7 @@
 
 import { existsSync } from "node:fs";
 import { join, sep } from "node:path";
-import { type Exec, spawnExec } from "@jitsusama/agentic-harness.core/exec";
+import { type Exec, spawnExec } from "../../core/exec/index.ts";
 import type { QuestTree } from "../../quest/types.ts";
 
 /** How much a path holds. */

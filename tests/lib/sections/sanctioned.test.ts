@@ -1,10 +1,10 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
 import {
 	ISSUE_SECTIONS,
 	PR_SECTIONS,
-} from "@jitsusama/agentic-harness.core/sections";
-import { describe, expect, it } from "vitest";
+} from "../../../lib/core/sections/index.ts";
 
 /**
  * Read the level-3 headings inside a skill's "## Body Structure"

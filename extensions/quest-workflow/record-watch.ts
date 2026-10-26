@@ -15,11 +15,11 @@
  */
 
 import { join } from "node:path";
-import { questRecordPath } from "@jitsusama/agentic-harness.core/quest/record";
+import { questRecordPath } from "../../lib/core/internal/quest/record.ts";
 import {
 	auditQuestRecord,
 	type RecordAudit,
-} from "@jitsusama/agentic-harness.core/quest/record-audit";
+} from "../../lib/core/internal/quest/record-audit.ts";
 import { recordWritesOf } from "./enforce.ts";
 import type { QuestState } from "./state.ts";
 import { workspaceDirOf } from "./workspace.ts";

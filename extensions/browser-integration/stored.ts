@@ -18,22 +18,19 @@ import {
 	cite,
 	citeListing,
 	openSessionStore,
-} from "@jitsusama/agentic-harness.core/result";
+} from "../../lib/core/result/index.ts";
 import {
 	type AxNode,
 	type BudgetedOutline,
 	describeStates,
 	withinOutlineBudget,
-} from "@jitsusama/agentic-harness.core/web/a11y";
+} from "../../lib/core/web/a11y/index.ts";
 import {
 	type CookieRecord,
 	renderStorage,
 	type StorageSnapshot,
-} from "@jitsusama/agentic-harness.core/web/environment";
-import type {
-	Inspection,
-	Observation,
-} from "@jitsusama/agentic-harness.core/web/session";
+} from "../../lib/core/web/environment/index.ts";
+import type { Inspection, Observation } from "../../lib/core/web/session.ts";
 
 /** A node as a caller queries it: their vocabulary, not the protocol's. */
 interface StoredNode {

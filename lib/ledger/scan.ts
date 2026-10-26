@@ -5,7 +5,7 @@ import type {
 	RunTokens,
 	TurnKind,
 	TurnRecord,
-} from "@jitsusama/agentic-harness.core/observability";
+} from "../core/observability/index.ts";
 import { BranchWalk } from "./branch.ts";
 import { SessionCollector } from "./session.ts";
 import type { DroppedCallRecord, LedgerScan, ToolCallRecord } from "./types.ts";

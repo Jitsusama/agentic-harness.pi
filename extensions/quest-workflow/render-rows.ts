@@ -25,4 +25,4 @@ export {
 	renderRowBrief,
 	renderRowExpanded,
 	renderRowGlyph,
-} from "@jitsusama/agentic-harness.core/quest/render-rows";
+} from "../../lib/core/quest/render-rows.ts";

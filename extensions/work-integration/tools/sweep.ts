@@ -15,7 +15,7 @@
  * committed on purpose, since then nothing is being swept.
  */
 
-import type { ChangedPath } from "@jitsusama/agentic-harness.core/work";
+import type { ChangedPath } from "../../../lib/core/work/index.ts";
 import { count } from "../../../lib/ui/index.ts";
 
 /**

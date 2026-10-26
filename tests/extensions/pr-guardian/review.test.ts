@@ -2,10 +2,10 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { composePrBody } from "@jitsusama/agentic-harness.core/sections";
 import { describe, expect, it } from "vitest";
 import type { PrCommand } from "../../../extensions/pr-guardian/parse.ts";
 import { createPrGuardian } from "../../../extensions/pr-guardian/review.ts";
+import { composePrBody } from "../../../lib/core/sections/index.ts";
 
 /** A fake pi/ctx pair with no UI and an empty signature store. */
 function noUiContext(): { pi: ExtensionAPI; ctx: ExtensionContext } {

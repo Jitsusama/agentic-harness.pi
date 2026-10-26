@@ -9,12 +9,12 @@
  */
 
 import { readdir } from "node:fs/promises";
-import { chartersOnDisk } from "@jitsusama/agentic-harness.core/review";
 import { describe, expect, it } from "vitest";
 import {
 	BUILT_IN_ROSTER,
 	builtInPersonaDir,
 } from "../../extensions/review-integration/roster.ts";
+import { chartersOnDisk } from "../../lib/core/review/index.ts";
 
 describe("the personas the package ships", () => {
 	it("all read as personas", async () => {

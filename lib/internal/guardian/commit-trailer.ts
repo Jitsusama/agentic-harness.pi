@@ -6,9 +6,9 @@
  * noreply@pi.dev) is pi's, not shared.
  */
 
-export { formatModelName } from "@jitsusama/agentic-harness.core/attribution";
+export { formatModelName } from "../../core/attribution/index.ts";
 
-import { formatModelName } from "@jitsusama/agentic-harness.core/attribution";
+import { formatModelName } from "../../core/attribution/index.ts";
 
 /** Build the Co-Authored-By trailer line for a commit. */
 export function coAuthorTrailer(modelId: string | null): string {

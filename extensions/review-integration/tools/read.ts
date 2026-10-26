@@ -11,6 +11,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Type } from "@sinclair/typebox";
 import {
 	type BoundTarget,
 	changeInPlay,
@@ -18,8 +19,7 @@ import {
 	type ServingRepo,
 	stackStep,
 	unbackedDeclarations,
-} from "@jitsusama/agentic-harness.core/review";
-import { Type } from "@sinclair/typebox";
+} from "../../../lib/core/review/index.ts";
 import { displayPath } from "../../../lib/ui/index.ts";
 import { attachments, reviewEngine } from "../engine.ts";
 import { GLYPH } from "../render.ts";

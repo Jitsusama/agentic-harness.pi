@@ -5,7 +5,6 @@
  */
 
 import { rmSync } from "node:fs";
-import { sessionResultDir } from "@jitsusama/agentic-harness.core/result";
 import { afterEach, describe, expect, it } from "vitest";
 import sessionRecall, {
 	RECALL_NOTE,
@@ -14,6 +13,7 @@ import {
 	newContributions,
 	SUMMARY_CONTRIBUTIONS,
 } from "../../../lib/compaction/index.ts";
+import { sessionResultDir } from "../../../lib/core/result/index.ts";
 import { PAGE_HITS } from "../../../lib/internal/recall/session.ts";
 
 interface Tool {

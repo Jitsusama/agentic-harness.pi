@@ -8,9 +8,9 @@
  * somebody else read the comment.
  */
 
-import type { PublishPlan } from "@jitsusama/agentic-harness.core/review";
 import { describe, expect, it } from "vitest";
 import { proseComplaint } from "../../extensions/review-integration/render.ts";
+import type { PublishPlan } from "../../lib/core/review/index.ts";
 
 /** A plan carrying one review with the given body and comment bodies. */
 function planWith(body: string, ...comments: string[]): PublishPlan {

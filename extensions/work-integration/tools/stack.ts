@@ -14,7 +14,7 @@ import {
 	type ReplayResult,
 	type StackedBranch,
 	type WorkStacks,
-} from "@jitsusama/agentic-harness.core/work";
+} from "../../../lib/core/work/index.ts";
 import { GLYPH } from "../render.ts";
 import { settlingLines } from "./settling.ts";
 import { type Answer, refuse, say } from "./shared.ts";

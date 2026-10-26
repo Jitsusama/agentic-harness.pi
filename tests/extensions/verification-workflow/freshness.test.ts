@@ -1,14 +1,14 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import verificationWorkflow from "../../../extensions/verification-workflow/index.ts";
 import {
 	clearLspBackends,
 	type Diagnostic,
 	type LspBackend,
 	registerLspBackend,
-} from "@jitsusama/agentic-harness.core/lsp";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import verificationWorkflow from "../../../extensions/verification-workflow/index.ts";
+} from "../../../lib/core/lsp/index.ts";
 import {
 	currentVerificationFailure,
 	provideVerificationCheck,

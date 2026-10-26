@@ -1,7 +1,3 @@
-import type {
-	RunRecord,
-	SessionRecord,
-} from "@jitsusama/agentic-harness.core/observability";
 import { describe, expect, it } from "vitest";
 import {
 	fanOutBy,
@@ -9,6 +5,10 @@ import {
 	summarizeFanOut,
 } from "../../extensions/cost-workflow/fanout.ts";
 import { formatFanOut } from "../../extensions/cost-workflow/report.ts";
+import type {
+	RunRecord,
+	SessionRecord,
+} from "../../lib/core/observability/index.ts";
 
 const DAY = Date.UTC(2026, 8, 22);
 

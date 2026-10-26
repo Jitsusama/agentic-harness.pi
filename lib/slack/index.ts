@@ -8,5 +8,5 @@
  * that needs pi's UI to run the setup wizard and/or OAuth flow.
  */
 
-export * from "@jitsusama/agentic-harness.core/slack";
+export * from "../core/slack/index.ts";
 export { ensureAuthenticated } from "./auth/index.ts";

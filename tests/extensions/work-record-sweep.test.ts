@@ -10,11 +10,6 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ChangedPath } from "@jitsusama/agentic-harness.core/work";
-import {
-	type TreeClaims,
-	WORK_TREE_CLAIMS,
-} from "@jitsusama/agentic-harness.core/work";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { forgetTreeBroker } from "../../extensions/work-integration/broker.ts";
 import workIntegration from "../../extensions/work-integration/index.ts";
@@ -22,6 +17,11 @@ import {
 	SWEEP_LIMIT,
 	sweepObjection,
 } from "../../extensions/work-integration/tools/sweep.ts";
+import type { ChangedPath } from "../../lib/core/work/index.ts";
+import {
+	type TreeClaims,
+	WORK_TREE_CLAIMS,
+} from "../../lib/core/work/index.ts";
 import { disposeRepo, freshRepo, git } from "../support/git-fixture.ts";
 import {
 	activateWith,

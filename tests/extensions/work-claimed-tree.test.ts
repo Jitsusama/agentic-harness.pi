@@ -10,13 +10,13 @@
 import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-	type TreeClaims,
-	WORK_TREE_CLAIMS,
-} from "@jitsusama/agentic-harness.core/work";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { forgetTreeBroker } from "../../extensions/work-integration/broker.ts";
 import workIntegration from "../../extensions/work-integration/index.ts";
+import {
+	type TreeClaims,
+	WORK_TREE_CLAIMS,
+} from "../../lib/core/work/index.ts";
 import { disposeRepo, freshRepo } from "../support/git-fixture.ts";
 import {
 	activateWith,

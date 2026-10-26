@@ -16,9 +16,9 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { queueRefusal } from "@jitsusama/agentic-harness.core/review";
-import type { PublishReview } from "@jitsusama/agentic-harness.core/work";
-import { WORK_PUBLISH_CHECK } from "@jitsusama/agentic-harness.core/work";
+import { queueRefusal } from "../../lib/core/review/index.ts";
+import type { PublishReview } from "../../lib/core/work/index.ts";
+import { WORK_PUBLISH_CHECK } from "../../lib/core/work/index.ts";
 import { reviewEngine } from "./engine.ts";
 
 /**

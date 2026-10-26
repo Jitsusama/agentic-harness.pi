@@ -13,24 +13,21 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import {
-	closeBrowser,
-	killBrowserSync,
-} from "@jitsusama/agentic-harness.core/web/browser";
+import { Type } from "@sinclair/typebox";
+import { closeBrowser, killBrowserSync } from "../../lib/core/web/browser.ts";
 import {
 	hasCachedKey,
 	KeyringSetupNeeded,
 	StaleKeyError,
 	setupChromeKey,
-} from "@jitsusama/agentic-harness.core/web/cookies";
+} from "../../lib/core/web/cookies/index.ts";
 import {
 	AuthSetupNeeded,
 	cleanupSessionBundles,
 	readPage,
 	reapAbandonedBundles,
-} from "@jitsusama/agentic-harness.core/web/reader";
-import { webSearch as doSearch } from "@jitsusama/agentic-harness.core/web/search";
-import { Type } from "@sinclair/typebox";
+} from "../../lib/core/web/reader.ts";
+import { webSearch as doSearch } from "../../lib/core/web/search.ts";
 import { count } from "../../lib/ui/count.ts";
 import { asText, drawInto, renderToolCall } from "../../lib/ui/index.ts";
 import { formatManifest } from "./manifest.ts";

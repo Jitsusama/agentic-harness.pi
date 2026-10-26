@@ -25,21 +25,15 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type {
-	RepoLocator,
-	TreeRead,
-} from "@jitsusama/agentic-harness.core/review";
-import {
-	checkoutFor,
-	whatItRead,
-} from "@jitsusama/agentic-harness.core/review";
+import type { RepoLocator, TreeRead } from "../../lib/core/review/index.ts";
+import { checkoutFor, whatItRead } from "../../lib/core/review/index.ts";
 import {
 	satisfies,
 	treeRequestFrom,
 	WORK_READY,
 	WORK_REQUEST,
 	type WorkApi,
-} from "@jitsusama/agentic-harness.core/work";
+} from "../../lib/core/work/index.ts";
 import { REVIEW_COMMANDS } from "./commands.ts";
 import { loadReviewConfig } from "./config.ts";
 

@@ -5,16 +5,16 @@
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
+	ERRORS,
+	isValidClientId,
+	isValidClientSecret,
+} from "../../core/google/auth/setup-instructions.ts";
+import {
 	getOAuthApp,
 	hasOAuthApp,
 	type OAuthAppCredentials,
 	storeOAuthApp,
-} from "@jitsusama/agentic-harness.core/google";
-import {
-	ERRORS,
-	isValidClientId,
-	isValidClientSecret,
-} from "@jitsusama/agentic-harness.core/google/auth/setup-instructions";
+} from "../../core/google/index.ts";
 import { holdScreen } from "../../ui/gate-queue.ts";
 import { frameTitle, promptSingle } from "../../ui/index.ts";
 

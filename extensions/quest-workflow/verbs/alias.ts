@@ -6,4 +6,4 @@
 export {
 	aliasAdd,
 	aliasRemove,
-} from "@jitsusama/agentic-harness.core/quest/verbs/alias";
+} from "../../../lib/core/quest/verbs/alias.ts";

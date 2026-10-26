@@ -31,7 +31,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { auditQuestRecord } from "@jitsusama/agentic-harness.core/quest/record-audit";
+import { auditQuestRecord } from "../lib/core/internal/quest/record-audit.ts";
 import { dataDir } from "../lib/internal/paths.ts";
 import { isId, prefixOf } from "../lib/internal/quest/id.ts";
 import {

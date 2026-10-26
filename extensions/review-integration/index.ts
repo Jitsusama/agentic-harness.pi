@@ -28,7 +28,7 @@ import {
 	type ReviewProvider,
 	type ReviewSubstrateApi,
 	registerReviewProvider,
-} from "@jitsusama/agentic-harness.core/review";
+} from "../../lib/core/review/index.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import {
 	ReviewerArtifactsStore,

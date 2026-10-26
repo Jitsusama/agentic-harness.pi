@@ -15,4 +15,4 @@ export {
 	resolveQuestsRoot,
 	type SectionParse,
 	summarizeQuestConfig,
-} from "@jitsusama/agentic-harness.core/quest/config";
+} from "../../lib/core/quest/config.ts";

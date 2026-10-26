@@ -9,7 +9,7 @@
  * from it is judgement, and the shape check after this still refuses it.
  */
 
-import { wrapBody } from "@jitsusama/agentic-harness.core/guardian/commit-format";
+import { wrapBody } from "../../../lib/core/internal/guardian/commit-format.ts";
 
 /** What `work record` commits and checks. */
 export interface RecordMessage {

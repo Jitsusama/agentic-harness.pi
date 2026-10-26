@@ -6,8 +6,8 @@
  * tool's gate could take the screen and the code panel queued behind it.
  */
 
-import { AUTH_MESSAGES } from "@jitsusama/agentic-harness.core/google";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AUTH_MESSAGES } from "../../../../lib/core/google/index.ts";
 import { promptSingle } from "../../../../lib/ui/panel.ts";
 import { type PiScreen, pinStdout, piScreen } from "../../ui/pi-screen.ts";
 
@@ -18,7 +18,7 @@ vi.mock("../../../../lib/google/auth/setup-wizard.ts", () => ({
 }));
 
 // Never the real credential store: a test must not sign anybody out.
-vi.mock("@jitsusama/agentic-harness.core/google", async (original) => ({
+vi.mock("../../../../lib/core/google/index.ts", async (original) => ({
 	...(await original<object>()),
 	getCredentials: () => undefined,
 	getDefaultAccount: () => undefined,
@@ -27,39 +27,36 @@ vi.mock("@jitsusama/agentic-harness.core/google", async (original) => ({
 	listAccounts: () => [],
 }));
 
-vi.mock("@jitsusama/agentic-harness.core/google/auth/browser", () => ({
+vi.mock("../../../../lib/core/google/auth/browser.ts", () => ({
 	openInBrowser: () => undefined,
 }));
 
-vi.mock(
-	"@jitsusama/agentic-harness.core/google/auth/oauth",
-	async (original) => ({
-		...(await original<object>()),
-		initiateDeviceFlow: () =>
-			new Promise((resolve) => {
-				deviceCode.fetched = () =>
-					resolve({
-						device_code: "DEVICE",
-						user_code: "ABCD-EFGH",
-						verification_url: "https://www.google.com/device",
-						interval: 5,
-					});
-			}),
-		pollForDeviceAuthorization: (
-			_config: unknown,
-			_code: string,
-			_interval: number,
-			signal?: AbortSignal,
-		) =>
-			new Promise((_, reject) => {
-				signal?.addEventListener(
-					"abort",
-					() => reject(new DOMException("stopped", "AbortError")),
-					{ once: true },
-				);
-			}),
-	}),
-);
+vi.mock("../../../../lib/core/google/auth/oauth.ts", async (original) => ({
+	...(await original<object>()),
+	initiateDeviceFlow: () =>
+		new Promise((resolve) => {
+			deviceCode.fetched = () =>
+				resolve({
+					device_code: "DEVICE",
+					user_code: "ABCD-EFGH",
+					verification_url: "https://www.google.com/device",
+					interval: 5,
+				});
+		}),
+	pollForDeviceAuthorization: (
+		_config: unknown,
+		_code: string,
+		_interval: number,
+		signal?: AbortSignal,
+	) =>
+		new Promise((_, reject) => {
+			signal?.addEventListener(
+				"abort",
+				() => reject(new DOMException("stopped", "AbortError")),
+				{ once: true },
+			);
+		}),
+}));
 
 const { ensureAuthenticated } = await import(
 	"../../../../lib/google/auth/ensure-auth.ts"

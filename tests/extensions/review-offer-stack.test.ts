@@ -12,6 +12,7 @@
  * body would put the wrong text on a change nobody reread.
  */
 
+import { afterEach, describe, expect, it } from "vitest";
 import {
 	type AuthoringCapabilities,
 	clearReviewProviders,
@@ -20,9 +21,8 @@ import {
 	type ProposalDraft,
 	type RepoLocator,
 	registerReviewProvider,
-} from "@jitsusama/agentic-harness.core/review";
-import { composePrBody } from "@jitsusama/agentic-harness.core/sections";
-import { afterEach, describe, expect, it } from "vitest";
+} from "../../lib/core/review/index.ts";
+import { composePrBody } from "../../lib/core/sections/index.ts";
 import { stubProvider } from "../support/stub-provider.ts";
 import { activate, HEADLESS, toolNamed } from "./support/review-extension.ts";
 

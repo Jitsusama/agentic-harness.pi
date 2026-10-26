@@ -24,10 +24,8 @@ import type {
 	AgentToolResult,
 	ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
-import {
-	bounded,
-	WallClockExceeded,
-} from "@jitsusama/agentic-harness.core/clock";
+import { Type } from "@sinclair/typebox";
+import { bounded, WallClockExceeded } from "../../lib/core/clock/index.ts";
 import {
 	createStandaloneBackend,
 	formatCodeActions,
@@ -42,12 +40,8 @@ import {
 	type StandaloneBackend,
 	toBackendEntry,
 	unregisterLspBackend,
-} from "@jitsusama/agentic-harness.core/lsp";
-import {
-	citeListing,
-	openSessionStore,
-} from "@jitsusama/agentic-harness.core/result";
-import { Type } from "@sinclair/typebox";
+} from "../../lib/core/lsp/index.ts";
+import { citeListing, openSessionStore } from "../../lib/core/result/index.ts";
 import { LSP_CALL_WALL_MS } from "./limits.ts";
 
 const STANDALONE = "standalone";

@@ -14,8 +14,8 @@ import type {
 	ExtensionAPI,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { withCallSignal } from "@jitsusama/agentic-harness.core/exec";
 import type { TSchema } from "@sinclair/typebox";
+import { withCallSignal } from "../../lib/core/exec/index.ts";
 
 /** `pi`, with every tool registered through it run under its call's signal. */
 export function withToolCallSignals(pi: ExtensionAPI): ExtensionAPI {

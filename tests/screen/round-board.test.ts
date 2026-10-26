@@ -22,7 +22,6 @@ import type {
 	ExtensionContext,
 	Theme,
 } from "@earendil-works/pi-coding-agent";
-import type { AskRound } from "@jitsusama/agentic-harness.core/review";
 import { Type } from "@sinclair/typebox";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import panelLifecycle from "../../extensions/panel-lifecycle-workflow/index.ts";
@@ -35,6 +34,7 @@ import {
 	renderAnswer,
 	say,
 } from "../../extensions/review-integration/tools/shared.ts";
+import type { AskRound } from "../../lib/core/review/index.ts";
 import { bootPi, type PiSession, sleep, strip, waitFor } from "./pi-session.ts";
 
 /** The model every reviewer here shares, so it is named once in the title. */

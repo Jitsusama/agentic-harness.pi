@@ -13,10 +13,6 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-	openLedgerReader,
-	openTurnStore,
-} from "@jitsusama/agentic-harness.core/observability";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { indexSessionLogs } from "../../../extensions/cost-workflow/indexer.ts";
 import {
@@ -30,6 +26,10 @@ import {
 	type Sample,
 	useByQuest,
 } from "../../../extensions/cost-workflow/resources.ts";
+import {
+	openLedgerReader,
+	openTurnStore,
+} from "../../../lib/core/observability/index.ts";
 import type { Counters } from "../../../lib/internal/resources.ts";
 
 let scratch: string;

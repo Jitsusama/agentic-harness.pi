@@ -18,4 +18,4 @@ export {
 	stripHeredocBodies,
 	stripShellData,
 	unquote,
-} from "@jitsusama/agentic-harness.core/shell";
+} from "../core/shell/index.ts";

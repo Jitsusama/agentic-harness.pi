@@ -1,6 +1,6 @@
-import { composePrBody } from "@jitsusama/agentic-harness.core/sections";
 import { describe, expect, it } from "vitest";
 import { auditPublished } from "../../../extensions/pr-guardian/audit.ts";
+import { composePrBody } from "../../../lib/core/sections/index.ts";
 
 const SECTIONS = {
 	tldr: "Merging with a short commit id now works the first time.",

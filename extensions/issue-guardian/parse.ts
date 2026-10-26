@@ -12,4 +12,4 @@ export {
 	type IssueCommand,
 	isIssueCommand,
 	parseIssueCommand,
-} from "@jitsusama/agentic-harness.core/github/cli";
+} from "../../lib/core/internal/github/cli.ts";

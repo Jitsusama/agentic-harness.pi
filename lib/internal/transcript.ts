@@ -14,7 +14,7 @@
  * extension that imports a sibling cannot be installed without it.
  */
 
-import type { Turn } from "@jitsusama/agentic-harness.core/governance";
+import type { Turn } from "../core/governance/index.ts";
 
 /** A content block that may carry text. */
 interface TextBlock {

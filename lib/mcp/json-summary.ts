@@ -11,14 +11,14 @@
 import {
 	type JsonSummaryOptions,
 	summarizeJson,
-} from "@jitsusama/agentic-harness.core/result";
+} from "../core/result/index.ts";
 import type { SpillTarget } from "./ceiling.ts";
 import type { McpContent } from "./types.ts";
 
 export {
 	type JsonSummaryOptions,
 	summarizeJson,
-} from "@jitsusama/agentic-harness.core/result";
+} from "../core/result/index.ts";
 
 /** Inputs for turning an oversized JSON payload into a summary plus a stored handle. */
 export interface JsonSummaryContentOptions {

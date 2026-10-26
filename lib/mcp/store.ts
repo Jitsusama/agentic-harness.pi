@@ -13,4 +13,4 @@ export {
 	HandleExpiredError,
 	type ResultStore,
 	type StoredResult,
-} from "@jitsusama/agentic-harness.core/result";
+} from "../core/result/index.ts";

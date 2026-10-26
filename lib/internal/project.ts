@@ -10,7 +10,7 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { resolveRepo } from "@jitsusama/agentic-harness.core/review";
+import { resolveRepo } from "../core/review/index.ts";
 
 const run = promisify(execFile);
 

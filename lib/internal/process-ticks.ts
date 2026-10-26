@@ -24,7 +24,7 @@ import {
 	ownerStanding,
 	type ProcessFacts,
 	systemFacts,
-} from "@jitsusama/agentic-harness.core/process";
+} from "../core/process/index.ts";
 
 /** A process's start in ticks since boot; nothing when it cannot be read. */
 export type StartTicks = (pid: number) => Promise<number | undefined>;

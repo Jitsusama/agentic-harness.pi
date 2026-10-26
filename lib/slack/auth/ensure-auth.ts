@@ -10,20 +10,20 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { openInBrowser } from "../../core/slack/auth/browser.ts";
+import {
+	buildAuthUrl,
+	CALLBACK_PORT,
+	exchangeCodeForToken,
+} from "../../core/slack/auth/oauth.ts";
+import { waitForOAuthCallback } from "../../core/slack/auth/server.ts";
 import {
 	getToken,
 	hasToken,
 	type OAuthApp,
 	SlackClient,
 	storeToken,
-} from "@jitsusama/agentic-harness.core/slack";
-import { openInBrowser } from "@jitsusama/agentic-harness.core/slack/auth/browser";
-import {
-	buildAuthUrl,
-	CALLBACK_PORT,
-	exchangeCodeForToken,
-} from "@jitsusama/agentic-harness.core/slack/auth/oauth";
-import { waitForOAuthCallback } from "@jitsusama/agentic-harness.core/slack/auth/server";
+} from "../../core/slack/index.ts";
 import { frameTitle, type ViewConfig, viewWhile } from "../../ui/index.ts";
 import { ensureSetup } from "./setup-wizard.ts";
 

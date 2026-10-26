@@ -4,16 +4,16 @@
  */
 
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { AUTH_MESSAGES } from "@jitsusama/agentic-harness.core/google";
-import { openInBrowser } from "@jitsusama/agentic-harness.core/google/auth/browser";
-import type { OAuth2Config } from "@jitsusama/agentic-harness.core/google/auth/oauth";
+import type { Credentials } from "google-auth-library";
+import { openInBrowser } from "../../core/google/auth/browser.ts";
+import type { OAuth2Config } from "../../core/google/auth/oauth.ts";
 import {
 	initiateDeviceFlow,
 	pollForDeviceAuthorization,
 	SCOPES,
-} from "@jitsusama/agentic-harness.core/google/auth/oauth";
-import { waitForOAuthCallback } from "@jitsusama/agentic-harness.core/google/auth/server";
-import type { Credentials } from "google-auth-library";
+} from "../../core/google/auth/oauth.ts";
+import { waitForOAuthCallback } from "../../core/google/auth/server.ts";
+import { AUTH_MESSAGES } from "../../core/google/index.ts";
 import { frameTitle, viewWhile } from "../../ui/index.ts";
 
 /** Result of an OAuth flow. */

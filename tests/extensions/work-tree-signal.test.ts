@@ -18,14 +18,14 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { forgetTreeBroker } from "../../extensions/work-integration/broker.ts";
+import workIntegration from "../../extensions/work-integration/index.ts";
 import {
 	registerTreeProvider,
 	type TreeProvider,
 	unregisterTreeProvider,
-} from "@jitsusama/agentic-harness.core/work";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { forgetTreeBroker } from "../../extensions/work-integration/broker.ts";
-import workIntegration from "../../extensions/work-integration/index.ts";
+} from "../../lib/core/work/index.ts";
 import { disposeRepo, freshRepo, git } from "../support/git-fixture.ts";
 import {
 	activateWith,

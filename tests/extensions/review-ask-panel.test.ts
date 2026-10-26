@@ -15,15 +15,15 @@
  */
 
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import {
-	type AskProgressEntry,
-	trackAskProgress,
-} from "@jitsusama/agentic-harness.core/review";
 import { describe, expect, it } from "vitest";
 import {
 	roundBoard,
 	watchRound,
 } from "../../extensions/review-integration/progress.ts";
+import {
+	type AskProgressEntry,
+	trackAskProgress,
+} from "../../lib/core/review/index.ts";
 import { boardLines } from "../../lib/ui/board.ts";
 
 /**

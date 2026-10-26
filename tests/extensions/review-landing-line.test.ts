@@ -8,12 +8,9 @@
  * substrate has shipped that exact defect three times, so the reader gets its own test.
  */
 
-import type {
-	Landability,
-	Proposal,
-} from "@jitsusama/agentic-harness.core/review";
 import { describe, expect, it } from "vitest";
 import { proposalLine } from "../../extensions/review-integration/render.ts";
+import type { Landability, Proposal } from "../../lib/core/review/index.ts";
 
 function change(landing?: Landability): Proposal {
 	return {

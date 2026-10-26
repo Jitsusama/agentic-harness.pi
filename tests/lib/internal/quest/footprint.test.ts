@@ -1,8 +1,8 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Exec } from "@jitsusama/agentic-harness.core/exec";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { Exec } from "../../../../lib/core/exec/index.ts";
 import {
 	duMeasure,
 	leftBehindOf,

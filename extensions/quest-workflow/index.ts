@@ -22,12 +22,12 @@ import type {
 	ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
 import { keyHint, SessionManager } from "@earendil-works/pi-coding-agent";
+import { Type } from "@sinclair/typebox";
 import {
 	boundedByDetails,
 	openSessionStore,
-} from "@jitsusama/agentic-harness.core/result";
-import { registerBuiltinTreeProviders } from "@jitsusama/agentic-harness.core/tree";
-import { Type } from "@sinclair/typebox";
+} from "../../lib/core/result/index.ts";
+import { registerBuiltinTreeProviders } from "../../lib/core/tree/index.ts";
 import { setProgressSource } from "../../lib/internal/away/state.ts";
 import {
 	getSection,

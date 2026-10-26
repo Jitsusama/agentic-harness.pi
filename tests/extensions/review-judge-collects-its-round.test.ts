@@ -9,17 +9,17 @@
  */
 
 import { mkdirSync, writeFileSync } from "node:fs";
-import {
-	type AskRun,
-	type ChangeRef,
-	createRunStore,
-} from "@jitsusama/agentic-harness.core/review";
 import { describe, expect, it } from "vitest";
 import {
 	runArtifactDir,
 	runDir,
 } from "../../extensions/review-integration/engine.ts";
 import { collectFinished } from "../../extensions/review-integration/tools/ask.ts";
+import {
+	type AskRun,
+	type ChangeRef,
+	createRunStore,
+} from "../../lib/core/review/index.ts";
 import { ReviewerArtifactsStore } from "../../lib/subagent/index.ts";
 
 const change: ChangeRef = {

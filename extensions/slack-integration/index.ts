@@ -9,6 +9,7 @@
 
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ThemeColor } from "@earendil-works/pi-coding-agent";
+import { Type } from "@sinclair/typebox";
 import {
 	clearAllConfig,
 	displayNameForId,
@@ -20,8 +21,7 @@ import {
 	SlackApiError,
 	type SlackClient,
 	type SlackUser,
-} from "@jitsusama/agentic-harness.core/slack";
-import { Type } from "@sinclair/typebox";
+} from "../../lib/core/slack/index.ts";
 import {
 	signInFailure,
 	unattended,

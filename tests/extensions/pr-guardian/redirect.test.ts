@@ -16,14 +16,14 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import {
-	clearReviewProviders,
-	registerReviewProvider,
-} from "@jitsusama/agentic-harness.core/review";
-import { composePrBody } from "@jitsusama/agentic-harness.core/sections";
 import { afterEach, describe, expect, it } from "vitest";
 import type { PrCommand } from "../../../extensions/pr-guardian/parse.ts";
 import { createPrGuardian } from "../../../extensions/pr-guardian/review.ts";
+import {
+	clearReviewProviders,
+	registerReviewProvider,
+} from "../../../lib/core/review/index.ts";
+import { composePrBody } from "../../../lib/core/sections/index.ts";
 import { stubProvider } from "../../support/stub-provider.ts";
 
 const cleanBody = composePrBody({

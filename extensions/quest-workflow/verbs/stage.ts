@@ -11,9 +11,9 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	auditQuestRecord,
 	isRecordSound,
-} from "@jitsusama/agentic-harness.core/quest/record-audit";
-import { clearQuestWorkspaceTmp } from "@jitsusama/agentic-harness.core/quest/workspace";
-import { resolveTreeProvider } from "@jitsusama/agentic-harness.core/tree";
+} from "../../../lib/core/internal/quest/record-audit.ts";
+import { clearQuestWorkspaceTmp } from "../../../lib/core/internal/quest/workspace.ts";
+import { resolveTreeProvider } from "../../../lib/core/tree/index.ts";
 import { appendJourneyByPath } from "../../../lib/internal/quest/append-journey.ts";
 import { nowYmd } from "../../../lib/internal/quest/dates.ts";
 import { discoverQuests } from "../../../lib/internal/quest/discovery.ts";

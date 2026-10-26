@@ -26,7 +26,7 @@ import {
 	type InvestigationResult,
 	type SideCompletionRequest,
 	type SideCompletionResult,
-} from "@jitsusama/agentic-harness.core/completion";
+} from "../core/completion/index.ts";
 
 export type {
 	CompletionMessage,
@@ -36,13 +36,13 @@ export type {
 	LoopTool,
 	SideCompletionRequest,
 	SideCompletionResult,
-} from "@jitsusama/agentic-harness.core/completion";
+} from "../core/completion/index.ts";
 export {
 	looksLikeGlm,
 	type ModelRef,
 	type ModelTarget,
 	pickModel,
-} from "@jitsusama/agentic-harness.core/completion";
+} from "../core/completion/index.ts";
 
 const COMPAT_SPECIFIER = "@earendil-works/pi-ai/compat";
 

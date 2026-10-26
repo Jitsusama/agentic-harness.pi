@@ -36,7 +36,7 @@ import {
 	readFileSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { attachmentCitations } from "@jitsusama/agentic-harness.core/quest/record";
+import { attachmentCitations } from "../../core/internal/quest/record.ts";
 import { atomicWriteFile, withQuestLock } from "./io.ts";
 import {
 	JOURNEY_FILE,

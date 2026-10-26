@@ -12,4 +12,4 @@ export {
 	type TransitionInput,
 	type TransitionResult,
 	transition,
-} from "@jitsusama/agentic-harness.core/quest/machine";
+} from "../../lib/core/quest/machine.ts";

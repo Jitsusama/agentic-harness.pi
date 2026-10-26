@@ -24,11 +24,11 @@ export type {
 	SimpleCommand,
 	Span,
 	Word,
-} from "@jitsusama/agentic-harness.core/command";
+} from "../core/command/index.ts";
 export {
 	applyEdits,
 	effectiveCwd,
 	findFlag,
 	findFlags,
 	tokenize,
-} from "@jitsusama/agentic-harness.core/command";
+} from "../core/command/index.ts";

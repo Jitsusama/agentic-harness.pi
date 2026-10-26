@@ -39,12 +39,12 @@ import type {
 	PublishPlan,
 	Stack,
 	Thread,
-} from "@jitsusama/agentic-harness.core/review";
+} from "../../lib/core/review/index.ts";
 import {
 	anchorable,
 	describeAnchor,
 	standsAt,
-} from "@jitsusama/agentic-harness.core/review";
+} from "../../lib/core/review/index.ts";
 import { detectProseViolations } from "../../lib/prose/index.ts";
 import {
 	languageFromPath,

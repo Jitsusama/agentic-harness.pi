@@ -8,16 +8,13 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { bounded as clocked } from "@jitsusama/agentic-harness.core/clock";
-import type {
-	ActionParams,
-	ToolResult,
-} from "@jitsusama/agentic-harness.core/google/types";
+import type { OAuth2Client } from "google-auth-library";
+import { bounded as clocked } from "../../lib/core/clock/index.ts";
+import type { ActionParams, ToolResult } from "../../lib/core/google/types.ts";
 import {
 	boundedByDetails,
 	openSessionStore,
-} from "@jitsusama/agentic-harness.core/result";
-import type { OAuth2Client } from "google-auth-library";
+} from "../../lib/core/result/index.ts";
 import { GOOGLE_READ_WALL_MS } from "./limits.ts";
 import {
 	handleCheckAvailability,

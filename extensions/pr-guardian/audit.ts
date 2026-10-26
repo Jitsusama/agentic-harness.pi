@@ -24,7 +24,7 @@ import {
 	PR_SECTIONS,
 	PR_SHAPE,
 	violationSignature,
-} from "@jitsusama/agentic-harness.core/sections";
+} from "../../lib/core/sections/index.ts";
 import { isPrCommand, parsePrCommand } from "./parse.ts";
 
 /** The custom message type the audit speaks with. */

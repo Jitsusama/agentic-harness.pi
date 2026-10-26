@@ -20,11 +20,8 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import {
-	citeListing,
-	openSessionStore,
-} from "@jitsusama/agentic-harness.core/result";
 import { Type } from "@sinclair/typebox";
+import { citeListing, openSessionStore } from "../../lib/core/result/index.ts";
 import {
 	type Fact,
 	type MemoryStore,

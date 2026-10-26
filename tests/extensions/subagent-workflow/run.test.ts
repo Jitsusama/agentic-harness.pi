@@ -1,5 +1,3 @@
-import type { RunRecord } from "@jitsusama/agentic-harness.core/observability";
-import { registerRunRecorder } from "@jitsusama/agentic-harness.core/observability";
 import { describe, expect, it, vi } from "vitest";
 import { FleetCancellationRegistry } from "../../../extensions/subagent-workflow/cancellation";
 import type {
@@ -14,6 +12,8 @@ import {
 	locateArtifacts,
 	summarizeStderrTail,
 } from "../../../extensions/subagent-workflow/run";
+import type { RunRecord } from "../../../lib/core/observability/index.ts";
+import { registerRunRecorder } from "../../../lib/core/observability/index.ts";
 import { UNFINISHED } from "../../../lib/subagent/reviewer-error";
 import type {
 	RunPi,

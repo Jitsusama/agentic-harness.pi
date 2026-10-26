@@ -33,16 +33,16 @@ import type { ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import {
 	classifyBashWrite,
 	resolveBashWrites,
-} from "@jitsusama/agentic-harness.core/quest/bash-write";
+} from "../../lib/core/internal/quest/bash-write.ts";
 import {
 	judgeRecordWrite,
 	type RecordWrite,
-} from "@jitsusama/agentic-harness.core/quest/record-gate";
-import { ensureQuestWorkspaceTmp } from "@jitsusama/agentic-harness.core/quest/workspace";
+} from "../../lib/core/internal/quest/record-gate.ts";
+import { ensureQuestWorkspaceTmp } from "../../lib/core/internal/quest/workspace.ts";
 import {
 	classifyWrite,
 	type WriteClassification,
-} from "@jitsusama/agentic-harness.core/quest/write-classifier";
+} from "../../lib/core/internal/quest/write-classifier.ts";
 import { GUARDS } from "../../lib/internal/guardian/guards.ts";
 import {
 	canonicalPath,

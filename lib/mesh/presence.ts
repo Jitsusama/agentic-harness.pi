@@ -25,7 +25,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
-import { isOwner } from "@jitsusama/agentic-harness.core/process";
+import { isOwner } from "../core/process/index.ts";
 import { keepTicks, type TickedOwner } from "../internal/process-ticks.ts";
 import { parseQuestFrontMatter } from "../internal/quest/frontmatter.ts";
 import {

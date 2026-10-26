@@ -25,16 +25,13 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import {
-	citeListing,
-	openSessionStore,
-} from "@jitsusama/agentic-harness.core/result";
 import { Type } from "@sinclair/typebox";
 import {
 	answerCompactionStatus,
 	isSummaryContributions,
 	SUMMARY_CONTRIBUTIONS,
 } from "../../lib/compaction/index.ts";
+import { citeListing, openSessionStore } from "../../lib/core/result/index.ts";
 import {
 	PAGE_CHARS,
 	RECALL_TOOL,

@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("../../../lib/google/auth/ensure-auth.ts", () => ({
 	ensureAuthenticated: async () => ({}),
 }));
-vi.mock("@jitsusama/agentic-harness.core/google", async (original) => ({
+vi.mock("../../../lib/core/google/index.ts", async (original) => ({
 	...(await original<object>()),
 	searchEmails: () => new Promise(() => {}),
 	archiveEmail: () => new Promise(() => {}),

@@ -32,6 +32,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { Type } from "@sinclair/typebox";
 import {
 	openRunStore,
 	type RunRecord,
@@ -39,12 +40,8 @@ import {
 	type RunStore,
 	type RunSummary,
 	registerRunRecorder,
-} from "@jitsusama/agentic-harness.core/observability";
-import {
-	citeListing,
-	openSessionStore,
-} from "@jitsusama/agentic-harness.core/result";
-import { Type } from "@sinclair/typebox";
+} from "../../lib/core/observability/index.ts";
+import { citeListing, openSessionStore } from "../../lib/core/result/index.ts";
 import { packageStateDir } from "../../lib/internal/package-state-dir.ts";
 import { repoOf } from "../../lib/ledger/index.ts";
 

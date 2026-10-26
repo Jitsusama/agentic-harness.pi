@@ -9,18 +9,18 @@
  * somewhere to fix it is the last mile nobody walks.
  */
 
-import {
-	type HeldTree,
-	type TreeRequest,
-	treeIdentity,
-	WORK_READY,
-} from "@jitsusama/agentic-harness.core/work";
 import { describe, expect, it } from "vitest";
 import {
 	forgetWorkLayer,
 	treeForFixing,
 	watchForWorkLayer,
 } from "../../extensions/review-integration/work.ts";
+import {
+	type HeldTree,
+	type TreeRequest,
+	treeIdentity,
+	WORK_READY,
+} from "../../lib/core/work/index.ts";
 
 const REPO = { key: "github:acme/widgets", localPath: "/src/widgets" };
 

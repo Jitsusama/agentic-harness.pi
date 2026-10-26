@@ -8,7 +8,6 @@
 
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { BoundTarget } from "@jitsusama/agentic-harness.core/review";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	RANGE_PROVIDER,
@@ -16,6 +15,7 @@ import {
 	rangeProposal,
 } from "../../extensions/review-integration/range.ts";
 import { reviewedChange } from "../../extensions/review-integration/tools/shared.ts";
+import type { BoundTarget } from "../../lib/core/review/index.ts";
 import { disposeRepo, freshRepo, git } from "../support/git-fixture.ts";
 
 let repo: string;

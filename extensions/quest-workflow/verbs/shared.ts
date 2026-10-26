@@ -22,7 +22,7 @@ export {
 	type QuestResult,
 	type QuestToolParams,
 	refuse,
-} from "@jitsusama/agentic-harness.core/quest/verbs/shared";
+} from "../../../lib/core/quest/verbs/shared.ts";
 
 /**
  * Read the current pi session id off the tool context.

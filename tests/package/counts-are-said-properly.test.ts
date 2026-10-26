@@ -42,8 +42,16 @@ const SHORTCUT = /[a-z]\(s\)(?=[\s:.$\\"'`]|$)/;
  */
 const TERNARY_PLURAL = /\?\s*(""\s*:\s*"s"|"s"\s*:\s*"")/;
 
-/** The file that explains the anti-pattern has to be able to write it. */
-const EXPLAINS_ITSELF = join("lib", "ui", "count.ts");
+/**
+ * The files that explain the anti-pattern have to be able to write it:
+ * the harness's and core's copy folded beside it, until the two are one.
+ */
+const EXPLAINERS = [
+	join("lib", "ui", "count.ts"),
+	join("lib", "core", "ui", "count.ts"),
+];
+const explainsItself = (path: string) =>
+	EXPLAINERS.some((file) => path.endsWith(file));
 
 function sourcesUnder(dir: string): string[] {
 	const found: string[] = [];
@@ -74,7 +82,7 @@ describe("a count and its noun", () => {
 						// An arrow function parameter named s is not a plural.
 						.filter(({ line }) => !line.includes("(s) =>"))
 						// The file that explains the anti-pattern has to write it.
-						.filter(() => !path.endsWith(EXPLAINS_ITSELF))
+						.filter(() => !explainsItself(path))
 						.map(({ line, at }) => `${at}: ${line.trim()}`)
 				);
 			})
@@ -96,7 +104,7 @@ describe("a count and its noun", () => {
 						.filter(({ line }) => TERNARY_PLURAL.test(line))
 						// `noun` and `verb` are where the decision is supposed to
 						// live, so the file holding them has to write it once.
-						.filter(() => !path.endsWith(EXPLAINS_ITSELF))
+						.filter(() => !explainsItself(path))
 						.map(({ line, at }) => `${at}: ${line.trim()}`)
 				);
 			})

@@ -16,13 +16,13 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
-import { retryWouldRepeat } from "@jitsusama/agentic-harness.core/review";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	answerFromReviewer,
 	keepAnswer,
 	reviewerRunner,
 } from "../../extensions/review-integration/reviewer.ts";
+import { retryWouldRepeat } from "../../lib/core/review/index.ts";
 import type { RunReviewerResult } from "../../lib/subagent/index.ts";
 
 /** A runner outcome, with the fields a caller always gets. */

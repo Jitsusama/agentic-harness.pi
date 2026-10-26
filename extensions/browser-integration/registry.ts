@@ -10,11 +10,11 @@
  * reaped underneath itself.
  */
 
-import { closeBrowser } from "@jitsusama/agentic-harness.core/web/browser";
+import { closeBrowser } from "../../lib/core/web/browser.ts";
 import {
 	BrowserSession,
 	type SessionOptions,
-} from "@jitsusama/agentic-harness.core/web/session";
+} from "../../lib/core/web/session.ts";
 import {
 	type AsyncMutex,
 	createMutex,

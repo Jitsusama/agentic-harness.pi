@@ -11,7 +11,7 @@ import {
 	DEFAULT_MAX_MATCHES,
 	type QueryOptions,
 	queryStored,
-} from "@jitsusama/agentic-harness.core/result";
+} from "../core/result/index.ts";
 import {
 	DEFAULT_RESULT_CEILING_BYTES,
 	enforceResultCeiling,
@@ -19,7 +19,7 @@ import {
 import type { ResultStore } from "./store.ts";
 import type { McpContent } from "./types.ts";
 
-export type { QueryOptions } from "@jitsusama/agentic-harness.core/result";
+export type { QueryOptions } from "../core/result/index.ts";
 
 /**
  * Run a JSONPath expression against a stored JSON payload and return the matched

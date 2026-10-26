@@ -9,7 +9,13 @@
 
 import { readFile, writeFile } from "node:fs/promises";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { count } from "@jitsusama/agentic-harness.core/web/audit/verdict";
+import { Type } from "@sinclair/typebox";
+import { KnownDevices } from "puppeteer-core";
+import { count } from "../../lib/core/web/audit/verdict.ts";
+import {
+	deviceEmulation,
+	noSuchDevice,
+} from "../../lib/core/web/environment/devices.ts";
 import {
 	type EmulationState,
 	type NetworkRule,
@@ -20,18 +26,12 @@ import {
 	type ThrottleConditions,
 	throttleNames,
 	throttleProfile,
-} from "@jitsusama/agentic-harness.core/web/environment";
-import {
-	deviceEmulation,
-	noSuchDevice,
-} from "@jitsusama/agentic-harness.core/web/environment/devices";
+} from "../../lib/core/web/environment/index.ts";
 import {
 	type BrowserSession,
 	CookieSetupNeeded,
-} from "@jitsusama/agentic-harness.core/web/session";
-import { renderDialogs } from "@jitsusama/agentic-harness.core/web/telemetry";
-import { Type } from "@sinclair/typebox";
-import { KnownDevices } from "puppeteer-core";
+} from "../../lib/core/web/session.ts";
+import { renderDialogs } from "../../lib/core/web/telemetry/index.ts";
 import { BROWSER_EXPOSURE } from "./exposure.ts";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.ts";
 import { renderBrowserCall, renderBrowserResult } from "./render.ts";

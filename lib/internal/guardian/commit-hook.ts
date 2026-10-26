@@ -15,10 +15,10 @@ import {
 	ensureCommitHook as ensureCommitHookWith,
 	type HookInstall,
 	installCommitHook as installCommitHookWith,
-} from "@jitsusama/agentic-harness.core/attribution";
+} from "../../core/attribution/index.ts";
 
-export type { HookInstall } from "@jitsusama/agentic-harness.core/attribution";
-export { repoRootOf } from "@jitsusama/agentic-harness.core/attribution";
+export type { HookInstall } from "../../core/attribution/index.ts";
+export { repoRootOf } from "../../core/attribution/index.ts";
 
 /** Pi's own commit-hook options: gated on the PI_CO_AUTHOR env var. */
 const PI_OPTIONS: CommitHookOptions = {

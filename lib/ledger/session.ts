@@ -1,4 +1,4 @@
-import type { SessionRecord } from "@jitsusama/agentic-harness.core/observability";
+import type { SessionRecord } from "../core/observability/index.ts";
 
 /** Where a per-host checkout tree begins, as `src/{host}/{owner}/{repo}`. */
 const CHECKOUT_MARKER = "/src/";

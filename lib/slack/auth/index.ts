@@ -12,10 +12,10 @@
 export type {
 	OAuthApp,
 	StoredToken,
-} from "@jitsusama/agentic-harness.core/slack";
+} from "../../core/slack/index.ts";
 export {
 	formatAuthError,
 	getToken,
 	hasToken,
-} from "@jitsusama/agentic-harness.core/slack";
+} from "../../core/slack/index.ts";
 export { ensureAuthenticated } from "./ensure-auth.ts";

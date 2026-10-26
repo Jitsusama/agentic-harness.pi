@@ -8,4 +8,4 @@
 export {
 	type GhFooterInsertion,
 	insertGhBodyFooter,
-} from "@jitsusama/agentic-harness.core/attribution";
+} from "../../core/attribution/index.ts";

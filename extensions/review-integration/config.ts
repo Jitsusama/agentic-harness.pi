@@ -11,8 +11,8 @@
  * or how it is read from disk. This module supplies both.
  */
 
-import type { LoadedReviewConfig } from "@jitsusama/agentic-harness.core/review";
-import { parseReviewSection } from "@jitsusama/agentic-harness.core/review";
+import type { LoadedReviewConfig } from "../../lib/core/review/index.ts";
+import { parseReviewSection } from "../../lib/core/review/index.ts";
 import { loadPackageConfig } from "../../lib/internal/config/loader.ts";
 
 /** Section key for this extension in the package config. */

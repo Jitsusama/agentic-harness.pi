@@ -12,12 +12,9 @@
  * different claim from "this anchor has come loose".
  */
 
-import {
-	type Anchor,
-	parseUnifiedDiff,
-} from "@jitsusama/agentic-harness.core/review";
 import { describe, expect, it } from "vitest";
 import { anchorView } from "../../extensions/review-integration/render.ts";
+import { type Anchor, parseUnifiedDiff } from "../../lib/core/review/index.ts";
 import { plainTheme } from "../lib/ui/fake-theme.ts";
 
 const diff = parseUnifiedDiff(`diff --git a/pkg/policy.go b/pkg/policy.go

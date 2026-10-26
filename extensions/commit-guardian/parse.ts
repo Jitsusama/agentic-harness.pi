@@ -5,14 +5,14 @@
  */
 
 import { resolve } from "node:path";
+import { effectiveCwd, tokenize } from "../../lib/command/index.ts";
 import {
 	findGitCommand,
 	isGitCommitCommand,
-} from "@jitsusama/agentic-harness.core/guardian/commit-shell";
-import { effectiveCwd, tokenize } from "../../lib/command/index.ts";
+} from "../../lib/core/internal/guardian/commit-shell.ts";
 import { unquote } from "../../lib/shell/index.ts";
 
-export { extractMessage } from "@jitsusama/agentic-harness.core/guardian/commit-shell";
+export { extractMessage } from "../../lib/core/internal/guardian/commit-shell.ts";
 
 /**
  * Detect whether a bash command contains a git commit. Routes

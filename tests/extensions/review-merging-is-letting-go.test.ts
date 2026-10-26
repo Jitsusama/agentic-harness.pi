@@ -12,14 +12,14 @@
  * the state in which it is still yours to watch.
  */
 
+import { afterEach, describe, expect, it } from "vitest";
 import {
 	type AuthoringCapabilities,
 	clearReviewProviders,
 	clearTargetBindings,
 	type Proposal,
 	registerReviewProvider,
-} from "@jitsusama/agentic-harness.core/review";
-import { afterEach, describe, expect, it } from "vitest";
+} from "../../lib/core/review/index.ts";
 import { stubProvider } from "../support/stub-provider.ts";
 import { activate, HEADLESS, toolNamed } from "./support/review-extension.ts";
 

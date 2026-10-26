@@ -1,8 +1,9 @@
 /**
  * Liveness: whether a peer is still on the mesh, asked of the machine.
  */
-import type { ProcessFacts } from "@jitsusama/agentic-harness.core/process";
+
 import { describe, expect, it } from "vitest";
+import type { ProcessFacts } from "../../../lib/core/process/index.ts";
 import {
 	type TickFacts,
 	tickedOwnerNow,
