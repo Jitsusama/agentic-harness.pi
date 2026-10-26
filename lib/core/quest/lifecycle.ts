@@ -350,17 +350,18 @@ export function sealQuestDocuments(
 	return sealed;
 }
 
-/** Append a Journey entry to the loaded quest's README. */
-export function appendJourneyEntry(state: QuestState, prose: string): void {
-	if (!state.questDir) return;
-	const ok = appendJourneyByPath(state.questDir, prose);
-	if (!ok) {
-		console.warn(
-			`[quest] failed to append Journey entry to ${state.questDir}; README missing or unreadable.`,
-		);
-		return;
-	}
+/**
+ * Append a Journey entry to the loaded quest's README; answers whether
+ * it was appended. A verb's Journey line is its housekeeping, so a
+ * README that can't be read leaves the verb's own answer standing, and
+ * nothing is written to the console, where it would land in pi's
+ * editor.
+ */
+export function appendJourneyEntry(state: QuestState, prose: string): boolean {
+	if (!state.questDir) return false;
+	if (!appendJourneyByPath(state.questDir, prose)) return false;
 	stampQuestUpdated(state);
+	return true;
 }
 
 /** Update the loaded quest's `updated` frontmatter to today. */
