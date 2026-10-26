@@ -33,11 +33,21 @@
  * the daemon's builds are looked in, so Joel's own niri never counts.
  * It is read from what runs rather than from the check's name, which
  * says what a check proves, not where it runs.
+ *
+ * Memory pressure is as the programs not held at their own limit feel
+ * it. A cgroup over its own memory.high is throttled by design and
+ * stalls, and a stall counts in every cgroup above it and the machine's
+ * figure too: on 26 October a git walk in background.slice, over that
+ * slice's 4 GiB, put the machine at 82% stalled while app.slice,
+ * session.slice, system.slice and the Nix daemon's builds all read 0,
+ * and nine jobs waited on it for twenty minutes with nothing running.
+ * A machine short of memory stalls the others too, so it still holds
+ * the queue.
  */
 
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Room } from "./queue.ts";
+import { MOST_MEMORY_PRESSURE, type Room } from "./queue.ts";
 
 const GIB = 1024 ** 3;
 
@@ -115,7 +125,12 @@ export function readRoom(
 	const builds = buildsIn(kernel);
 	return {
 		availableGib: Math.max(0, available - kept) / GIB,
-		memoryPressure: memory,
+		// No cgroup stalls more than the whole machine, so the walk, 6 ms
+		// over optimus's 171 cgroups, is only made when it could matter.
+		memoryPressure:
+			memory >= MOST_MEMORY_PRESSURE
+				? (memoryPressureFelt(kernel.cgroups) ?? memory)
+				: memory,
 		vms:
 			vmsIn(kernel.proc) +
 			builds.filter((build) => build.timed && !build.qemu).length,
@@ -190,8 +205,43 @@ function meminfo(proc: string, field: string): number | undefined {
 
 /** The share of time some task stalled, avg10, in percent. */
 function pressure(proc: string, kind: string): number {
-	const some = /^some avg10=([\d.]+)/m.exec(text(join(proc, "pressure", kind)));
+	return stalled(join(proc, "pressure", kind));
+}
+
+/** The share of time some task stalled, avg10, from a pressure file. */
+function stalled(path: string): number {
+	const some = /^some avg10=([\d.]+)/m.exec(text(path));
 	return some ? Number(some[1]) : 0;
+}
+
+/** How deep a cgroup held at its own limit is looked for, as floors are. */
+const HELD_DEPTH = FLOOR_DEPTH;
+
+/**
+ * Memory pressure as the cgroups not held at their own memory.high
+ * feel it: the most any of them stalls, each read where the walk ends.
+ * Nothing when no cgroup is held, so the machine's own figure stands.
+ */
+export function memoryPressureFelt(cgroups: string): number | undefined {
+	let held = false;
+	const felt = (dir: string, depth: number): number => {
+		if (depth > 0 && overOwnHigh(dir)) {
+			held = true;
+			return 0;
+		}
+		const below = depth < HELD_DEPTH ? entries(dir) : [];
+		if (below.length === 0) return stalled(join(dir, "memory.pressure"));
+		return Math.max(...below.map((child) => felt(join(dir, child), depth + 1)));
+	};
+	const most = felt(cgroups, 0);
+	return held ? most : undefined;
+}
+
+/** Whether a cgroup holds more than its own memory.high lets it. */
+function overOwnHigh(cgroup: string): boolean {
+	const high = text(join(cgroup, "memory.high")).trim();
+	if (!/^\d+$/.test(high)) return false;
+	return number(join(cgroup, "memory.current")) >= Number(high);
 }
 
 /** A VM's process name, cut to the kernel's 15 characters. */

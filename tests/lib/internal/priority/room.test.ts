@@ -31,6 +31,7 @@ function cgroup(path: string, min: number, anon = 0, file = 0) {
 function proc(
 	availableGib: number,
 	swap?: { readonly totalGib: number; readonly freeGib: number },
+	memoryStalled = "4.00",
 ) {
 	const dir = join(root, "proc");
 	mkdirSync(join(dir, "pressure"), { recursive: true });
@@ -44,7 +45,7 @@ function proc(
 	);
 	for (const [kind, avg] of [
 		["cpu", "1.50"],
-		["memory", "4.00"],
+		["memory", memoryStalled],
 		["io", "0.25"],
 	]) {
 		writeFileSync(
@@ -84,6 +85,52 @@ describe("the machine's room", () => {
 		expect(reading.pressure).toEqual({ cpu: 1.5, memory: 4, io: 0.25 });
 		expect(reading.cores).toBe(2);
 		expect(reading.cpuPressure).toBe(1.5);
+	});
+
+	describe("memory pressure", () => {
+		/** A cgroup stalled this much, holding this much against its high. */
+		function stalls(path: string, avg: number, high = "max", current = 0) {
+			const dir = join(root, "cgroups", path);
+			mkdirSync(dir, { recursive: true });
+			writeFileSync(
+				join(dir, "memory.pressure"),
+				`some avg10=${avg.toFixed(2)} avg60=0.00 avg300=0.00 total=1\n`,
+			);
+			writeFileSync(join(dir, "memory.high"), `${high}\n`);
+			writeFileSync(join(dir, "memory.current"), `${current}\n`);
+		}
+		const user = "user.slice/user-1000.slice/user@1000.service";
+		const read = () =>
+			readRoom([], {
+				proc: proc(40, undefined, "82.00"),
+				cgroups: join(root, "cgroups"),
+			});
+
+		it("leaves out a cgroup stalled at its own limit", () => {
+			// A walk over background.slice's 4 GiB, and nobody else stalled.
+			stalls(`${user}/background.slice`, 86, `${4 * GIB}`, 4.4 * GIB);
+			stalls(`${user}/app.slice`, 0);
+			stalls("system.slice", 0);
+
+			const reading = read();
+
+			expect(reading.memoryPressure).toBe(0);
+			expect(reading.pressure.memory).toBe(82);
+		});
+
+		it("still holds the queue when others stall as well", () => {
+			stalls(`${user}/background.slice`, 86, `${4 * GIB}`, 4.4 * GIB);
+			stalls(`${user}/app.slice`, 30);
+
+			expect(read().memoryPressure).toBe(30);
+		});
+
+		it("is the machine's figure when no cgroup is at its limit", () => {
+			stalls(`${user}/background.slice`, 86, `${4 * GIB}`, 1 * GIB);
+			stalls(`${user}/app.slice`, 0);
+
+			expect(read().memoryPressure).toBe(82);
+		});
 	});
 
 	it("counts no more memory than the swap left", () => {
