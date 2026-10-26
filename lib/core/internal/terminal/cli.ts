@@ -40,11 +40,11 @@ export interface CliCall {
 
 /** A cli that failed, with what it said on the way out. */
 export class TerminalCliError extends Error {
-	constructor(
-		message: string,
-		readonly stderr: string,
-	) {
+	readonly stderr: string;
+
+	constructor(message: string, stderr: string) {
 		super(message);
+		this.stderr = stderr;
 		this.name = "TerminalCliError";
 	}
 }

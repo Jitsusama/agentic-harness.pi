@@ -632,15 +632,27 @@ export class BrowserSession {
 		},
 	});
 
+	readonly name: string;
+	// The page and its protocol channel are replaced wholesale when the
+	// tab crashes, so neither can be readonly.
+	private page: Page;
+	private cdp: CDPSession;
+	private readonly context: BrowserContext;
+	private readonly options: SessionOptions;
+
 	private constructor(
-		readonly name: string,
-		// The page and its protocol channel are replaced wholesale
-		// when the tab crashes, so neither can be readonly.
-		private page: Page,
-		private cdp: CDPSession,
-		private readonly context: BrowserContext,
-		private readonly options: SessionOptions,
-	) {}
+		name: string,
+		page: Page,
+		cdp: CDPSession,
+		context: BrowserContext,
+		options: SessionOptions,
+	) {
+		this.name = name;
+		this.page = page;
+		this.cdp = cdp;
+		this.context = context;
+		this.options = options;
+	}
 
 	/** Wall clock time of the last operation. See ready(). */
 	private usedAt = Date.now();

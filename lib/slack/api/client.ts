@@ -46,13 +46,15 @@ export interface SlackClientOptions {
  * backpressure (e.g. reducing concurrency) before retrying.
  */
 export class RateLimitError extends Error {
-	constructor(
-		/** The Slack API method that was rate limited. */
-		public readonly method: string,
-		/** How many rate limit responses were received. */
-		public readonly hitCount: number,
-	) {
+	/** The Slack API method that was rate limited. */
+	readonly method: string;
+	/** How many rate limit responses were received. */
+	readonly hitCount: number;
+
+	constructor(method: string, hitCount: number) {
 		super(`Slack API rate limited ${hitCount} times for ${method}`);
+		this.method = method;
+		this.hitCount = hitCount;
 		this.name = "RateLimitError";
 	}
 }
@@ -65,12 +67,12 @@ export class RateLimitError extends Error {
  * from transient ones without parsing error message strings.
  */
 export class SlackApiError extends Error {
-	constructor(
-		/** The Slack API error code (e.g. "not_in_channel"). */
-		public readonly errorCode: string,
-		message: string,
-	) {
+	/** The Slack API error code (e.g. "not_in_channel"). */
+	readonly errorCode: string;
+
+	constructor(errorCode: string, message: string) {
 		super(message);
+		this.errorCode = errorCode;
 		this.name = "SlackApiError";
 	}
 }
@@ -111,11 +113,19 @@ function uploadable(body: Buffer): Uint8Array<ArrayBuffer> {
 }
 
 export class SlackClient {
+	private readonly token: string;
+	private readonly cookie?: string;
+	private readonly options: SlackClientOptions;
+
 	constructor(
-		private readonly token: string,
-		private readonly cookie?: string,
-		private readonly options: SlackClientOptions = {},
-	) {}
+		token: string,
+		cookie?: string,
+		options: SlackClientOptions = {},
+	) {
+		this.token = token;
+		this.cookie = cookie;
+		this.options = options;
+	}
 
 	/** The caller's signal joined to one request's clock. */
 	private bounded(

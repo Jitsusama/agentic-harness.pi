@@ -146,11 +146,14 @@ class HeadlessTerminal implements Terminal {
 	private onInput?: (data: string) => void;
 	private onResize?: () => void;
 
-	constructor(
-		private cols: number,
-		private lines: number,
-		readonly kitty: boolean,
-	) {
+	private cols: number;
+	private lines: number;
+	readonly kitty: boolean;
+
+	constructor(cols: number, lines: number, kitty: boolean) {
+		this.cols = cols;
+		this.lines = lines;
+		this.kitty = kitty;
 		this.emulator = new xterm.Terminal({
 			cols,
 			rows: lines,

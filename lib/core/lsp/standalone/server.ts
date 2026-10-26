@@ -142,12 +142,22 @@ export class StandaloneServer {
 	private gone = false;
 	private readonly goneListeners = new Set<() => void>();
 
+	readonly serverName: string;
+	readonly root: string;
+	private readonly child: ChildProcess;
+	private readonly connection: MessageConnection;
+
 	private constructor(
-		readonly serverName: string,
-		readonly root: string,
-		private readonly child: ChildProcess,
-		private readonly connection: MessageConnection,
-	) {}
+		serverName: string,
+		root: string,
+		child: ChildProcess,
+		connection: MessageConnection,
+	) {
+		this.serverName = serverName;
+		this.root = root;
+		this.child = child;
+		this.connection = connection;
+	}
 
 	/** Spawn a server, run the initialize handshake and return it ready. */
 	static async start(

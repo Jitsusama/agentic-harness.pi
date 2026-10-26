@@ -9,6 +9,7 @@
 		"skipLibCheck": true,
 		"esModuleInterop": true,
 		"isolatedModules": true,
+		"erasableSyntaxOnly": true,
 		"resolveJsonModule": true,
 		"types": ["node"],
 		"paths": {

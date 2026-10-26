@@ -137,7 +137,11 @@ function scoreMatch(identity: Identity, query: string): number {
 }
 
 class StoreImpl implements PeopleStore {
-	constructor(private readonly storage: PeopleStorage) {}
+	private readonly storage: PeopleStorage;
+
+	constructor(storage: PeopleStorage) {
+		this.storage = storage;
+	}
 
 	private mustGet(id: string) {
 		const doc = this.storage.get(id);

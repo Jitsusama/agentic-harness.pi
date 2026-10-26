@@ -19,11 +19,10 @@
  * directory, named for the day the week ends, unless `--out` names a
  * file. The path is printed.
  *
- * The ledger's classes use TypeScript parameter properties, which
- * Node's default type stripping refuses, so run it with the transform:
+ * Node runs it as it stands, stripping the types; the project's
+ * tsconfig refuses the syntax stripping can't take, so it stays so:
  *
- *   node --experimental-transform-types scripts/weekly-measure.ts
- *     [--out <file>] [--top N]
+ *   node scripts/weekly-measure.ts [--out <file>] [--top N]
  */
 
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -96,7 +95,7 @@ export async function measureWeek(opts: {
 }
 
 const USAGE =
-	"Usage: node --experimental-transform-types scripts/weekly-measure.ts [--out <file>] [--top N]";
+	"Usage: node scripts/weekly-measure.ts [--out <file>] [--top N]";
 
 /**
  * What in `args` is not an option the script takes, or the value one

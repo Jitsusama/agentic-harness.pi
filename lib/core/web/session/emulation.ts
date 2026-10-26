@@ -58,10 +58,13 @@ export class EmulationController {
 	 */
 	private refused: string[] = [];
 
-	constructor(
-		private readonly wires: SessionWires,
-		private readonly hooks: EmulationHooks,
-	) {}
+	private readonly wires: SessionWires;
+	private readonly hooks: EmulationHooks;
+
+	constructor(wires: SessionWires, hooks: EmulationHooks) {
+		this.wires = wires;
+		this.hooks = hooks;
+	}
 
 	/** What this session has asked the browser to pretend. */
 	get asked(): EmulationState {

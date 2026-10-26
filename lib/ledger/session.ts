@@ -50,7 +50,11 @@ export class SessionCollector {
 	private first: string | null = null;
 	private last: string | null = null;
 
-	constructor(private readonly sessionId: string) {}
+	private readonly sessionId: string;
+
+	constructor(sessionId: string) {
+		this.sessionId = sessionId;
+	}
 
 	/**
 	 * Take the working directory from a session's header entry. Every log
