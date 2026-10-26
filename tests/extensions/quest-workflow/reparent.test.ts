@@ -413,6 +413,25 @@ describe("reparent verb", () => {
 		expect(statusOf(child.id)).toBe("active");
 	});
 
+	it("names no child as live that the same sweep sealed", async () => {
+		const state = buildState();
+		const parent = await createQuest(state, "Parent");
+		const child = await createQuest(state, "Child");
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "reparent",
+			id: child.id,
+			parent: parent.id,
+		});
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "conclude",
+			id: `${parent.id},${child.id}`,
+		});
+
+		expect(succeeded(result).message).not.toContain("live child");
+		expect(statusOf(child.id)).toBe("concluded");
+	});
+
 	it("bulk conclude previews under dryRun without writing", async () => {
 		const state = buildState();
 		const a = await createQuest(state, "A");
