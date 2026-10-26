@@ -138,7 +138,7 @@ describe("tree-list", () => {
 	});
 });
 
-describe("tree-prune", () => {
+describe("tree-release", () => {
 	it("prunes a clean tree and clears the frontmatter entry", async () => {
 		const state = buildState();
 		const q = await createQuest(state, "Feature P");
@@ -150,7 +150,7 @@ describe("tree-prune", () => {
 		const treePath = (succeeded(added).details as { tree: { path: string } })
 			.tree.path;
 		const pruned = await handle(state, fakePi(), fakeCtx(repoRoot), {
-			action: "tree-prune",
+			action: "tree-release",
 			target: treePath,
 		});
 		expect(pruned.ok).toBe(true);
@@ -171,7 +171,7 @@ describe("tree-prune", () => {
 			.tree.path;
 		writeFileSync(join(treePath, "scratch.txt"), "dirty\n");
 		const pruned = await handle(state, fakePi(), fakeCtx(repoRoot), {
-			action: "tree-prune",
+			action: "tree-release",
 			target: treePath,
 		});
 		expect(pruned.ok).toBe(false);
@@ -196,7 +196,7 @@ describe("tree-prune", () => {
 		// Non-force prune first: the refusal records a
 		// pendingPrune entry against this tree's path.
 		const blocked = await handle(state, fakePi(), fakeCtx(repoRoot), {
-			action: "tree-prune",
+			action: "tree-release",
 			target: treePath,
 		});
 		expect(blocked.ok).toBe(false);
@@ -207,7 +207,7 @@ describe("tree-prune", () => {
 
 		// Force-prune second: succeeds and clears the entry.
 		const pruned = await handle(state, fakePi(), fakeCtx(repoRoot), {
-			action: "tree-prune",
+			action: "tree-release",
 			target: treePath,
 			force: true,
 		});
@@ -219,7 +219,7 @@ describe("tree-prune", () => {
 	});
 });
 
-describe("tree-prune attached-session refusal", () => {
+describe("tree-release attached-session refusal", () => {
 	it("refuses when a session is attached inside the tree", async () => {
 		const state = buildState();
 		await createQuest(state, "Feature S");
@@ -238,7 +238,7 @@ describe("tree-prune attached-session refusal", () => {
 		);
 		expect(attachResult.ok).toBe(true);
 		const pruned = await handle(state, fakePi(), fakeCtx(repoRoot), {
-			action: "tree-prune",
+			action: "tree-release",
 			target: treePath,
 		});
 		expect(pruned.ok).toBe(false);

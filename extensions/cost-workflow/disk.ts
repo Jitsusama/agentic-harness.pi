@@ -86,7 +86,7 @@ export function formatHoldings(holdings: Holdings, limit: number): string {
 	];
 	if (left.bytes > 0 || !left.complete) {
 		lines.push(
-			`Finished quests also left ${formatSize(left)} in trees whose release was refused when they ended. Load the quest and run quest tree-prune to take each, once its work is merged or saved.`,
+			`Finished quests also left ${formatSize(left)} in trees whose release was refused when they ended. Load the quest and run quest tree-release to take each, once its work is merged or saved.`,
 		);
 	}
 	if (holdings.adopted.length > 0) {

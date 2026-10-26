@@ -232,10 +232,10 @@ raw git.
 
 The two origins are released differently. A tree the tool cut is
 the tool's to remove: it is released when the quest concludes or
-retires, and a manual `tree-prune` removes it freely. An
+retires, and a manual `tree-release` removes it freely. An
 adopted (or legacy, unmarked) tree is a shared checkout the
 tool did not create, so it is never released by itself, and a
-manual `tree-prune` refuses unless you pass `force: true` after
+manual `tree-release` refuses unless you pass `force: true` after
 confirming with the person. Once its quest is concluded or retired, an
 adopted tree is no longer the quest's to hold: `work tidy`
 and `work reclaim` judge it as any tree nothing holds, taking

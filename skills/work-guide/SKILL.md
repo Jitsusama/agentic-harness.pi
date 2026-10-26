@@ -76,7 +76,7 @@ this moves the work along inside it. Name a quest's tree by its
 path, or any path inside it, as `tree:`; the work tool asks who
 holds it rather than keeping a record of its own. The one thing
 it will not do there is `release`: the quest gives its trees
-back with `quest tree-prune`.
+back with `quest tree-release`.
 
 **Holding one tree means you can stop naming it.** Every action
 but `tree`, `snapshot` and `trees` works on a held tree, and

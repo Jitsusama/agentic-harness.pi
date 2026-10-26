@@ -525,7 +525,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 			tree: Type.Optional(
 				Type.String({
 					description:
-						"Which held tree to act on, by key or path; a path inside a quest's tree works too, except for release, which is quest tree-prune. Every action but tree, snapshot and trees needs one. Leave it out only when you hold exactly one; holding several, it is refused, since these commit and push.",
+						"Which held tree to act on, by key or path; a path inside a quest's tree works too, except for release, which is quest tree-release. Every action but tree, snapshot and trees needs one. Leave it out only when you hold exactly one; holding several, it is refused, since these commit and push.",
 				}),
 			),
 			subject: Type.Optional(
@@ -1041,7 +1041,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 				// keeps its record and knows what pruning it means.
 				if (found.providerId === CLAIMED_PROVIDER) {
 					return refuse(
-						`${GLYPH.refused} ${found.path} is held by a quest, not by this tool. Give it back with quest tree-prune, passing it as cwd.`,
+						`${GLYPH.refused} ${found.path} is held by a quest, not by this tool. Give it back with quest tree-release, passing it as cwd.`,
 					);
 				}
 

@@ -22,7 +22,7 @@ import type {
 	ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
 import { keyHint, SessionManager } from "@earendil-works/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
+import { type Static, Type } from "@sinclair/typebox";
 import {
 	boundedByDetails,
 	openSessionStore,
@@ -84,6 +84,7 @@ import { recentSessionHints, showLoaded } from "./lookup.ts";
 import { sayPeersOnStartup } from "./peers.ts";
 import { keepDesktopListsCurrent } from "./quest-index.ts";
 import { questsTouchedBy, RecordWatch } from "./record-watch.ts";
+import { withRenamedAction } from "./renames.ts";
 import { formatQuestList, renderWidget } from "./render.ts";
 import {
 	collapseListingPreview,
@@ -117,6 +118,198 @@ interface BeforeSettleResult {
 	}[];
 	continue?: boolean;
 }
+
+/** The quest tool's arguments, which pi checks each call against. */
+const QUEST_PARAMETERS = Type.Object({
+	action: StringEnum([...QUEST_ACTIONS], {
+		description:
+			"The action to perform. `status` is an alias for `show`, which given a document's id answers its outline: sections and their sizes, open items, the next.",
+	}),
+	id: Type.Optional(
+		Type.String({
+			description:
+				"Target id: the quest or document acted on, loaded or not (default: the focused document, else the README). For reparent, conclude, retire and restore: comma-separated for several. For conclude/retire: the loaded quest's id seals it in full, trees pruned; other quest ids run a reversible status sweep; a document id concludes just that document. For locate: any quest, document, alias or session id. For undo: optional, a quest this session's newest structural change touched; undo reverses only this session's own newest change, never another session's, and refuses when another session has changed one of its quests since.",
+		}),
+	),
+	url: Type.Optional(
+		Type.String({
+			description:
+				"create: seed a new quest from this URL (Slack thread, GitHub PR or issue). The tool fetches and parses the source.",
+		}),
+	),
+	title: Type.Optional(
+		Type.String({
+			description:
+				"create: the quest's title, as a person reads it (becomes the H1). draft: the document's title. section: the heading of the section to replace, or to add (a README's optional Milestones, Spirit, Outcomes or Context), without its emoji (e.g. Purpose). retitle: the new title, which replaces the H1 of the quest or document `id` names. show: the section to read.",
+		}),
+	),
+	parent: Type.Optional(
+		Type.String({
+			description:
+				"create: parent quest id when minting a subquest. reparent: the new parent quest id, or `null` to move the targets to top level.",
+		}),
+	),
+	kind: Type.Optional(
+		Type.String({
+			description:
+				"create and reclassify: quest, subquest or sidequest. think, or draft to override think's choice: plan, research, brief or report.",
+		}),
+	),
+	note: Type.Optional(
+		Type.String({
+			description:
+				"think: what this document is about, or what sent you back to thinking. create: optional Summary prose. journal: the Journey entry to add; the date is put in front of it.",
+		}),
+	),
+	body: Type.Optional(
+		Type.String({
+			description:
+				"section: the section's new text, without its heading. It may not hold a `## ` heading of its own.",
+		}),
+	),
+	reason: Type.Optional(
+		Type.String({
+			description: "retire: why the document is being abandoned.",
+		}),
+	),
+	priority: Type.Optional(
+		Type.String({
+			description:
+				"create: initial priority bucket (driving, active, queued, bench, someday). Defaults to active. find: filter by priority.",
+		}),
+	),
+	status: Type.Optional(
+		Type.String({
+			description:
+				"find: filter by status (active, paused, blocked, concluded, retired).",
+		}),
+	),
+	target: Type.Optional(
+		Type.String({
+			description: "before/after: the quest id to position against.",
+		}),
+	),
+	ref: Type.Optional(
+		Type.String({
+			description:
+				"alias-add/alias-remove: the alias in `type:value` form (e.g. `github-pr:shop/world#47281`). Both accept a comma-separated list to add or remove several at once. tree-expand: the zone to add (e.g. system/gitstream).",
+		}),
+	),
+	query: Type.Optional(
+		Type.String({
+			description:
+				"find: free-text needle matched against title, id, body and alias values. locate: the needle to resolve when `id` is not given. tick/untick, and show to read it with its notes: the checkbox item, by its number, its text or the start of it.",
+		}),
+	),
+	since: Type.Optional(
+		Type.String({
+			description:
+				"find: only quests updated on or after this date (YYYY-MM-DD or ISO).",
+		}),
+	),
+	until: Type.Optional(
+		Type.String({
+			description: "find: only quests updated on or before this date.",
+		}),
+	),
+	role: Type.Optional(
+		Type.String({
+			description:
+				"who: filter Cast bullets by role (owner, reviewer, originator, ...).",
+		}),
+	),
+	name: Type.Optional(
+		Type.String({
+			description:
+				"who: filter Cast bullets by name substring. session-attach/session-rename: a label for the session entry, as a person reads it.",
+		}),
+	),
+	layout: Type.Optional(
+		Type.String({
+			description:
+				"spawn and restore: window, tab or pane. Defaults to the person's terminal setting, else tab; spawn-* takes its suffix.",
+		}),
+	),
+	terminal: Type.Optional(
+		Type.String({
+			description:
+				"spawn and restore: kitty, wezterm, tmux, zellij, foot, alacritty, ghostty or one configured. Defaults to the person's setting, else the terminal the session sits in.",
+		}),
+	),
+	nesting: Type.Optional(
+		Type.String({
+			description:
+				"spawn and restore: for pi in nested terminals, innermost (the default, the one the person sees) or outermost.",
+		}),
+	),
+	command: Type.Optional(
+		Type.String({
+			description:
+				"spawn: the command to run, `pi` by default. It runs detached, past every guard, so spawn only what the user authorized.",
+		}),
+	),
+	cwd: Type.Optional(
+		Type.String({
+			description:
+				"Working directory: where spawn starts, the repo tree-add cuts from, a path inside the tree tree-adopt registers, or which tree tree-release and tree-expand act on when the quest has several. Defaults: spawn takes the quest's newest tree, else a recent session's folder, else a tree's repo, else home, never a quest folder; the rest take the loaded quest's directory or the pi cwd.",
+		}),
+	),
+	sessionId: Type.Optional(
+		Type.String({
+			description:
+				"session-*: target session id when not the current pi session.",
+		}),
+	),
+	field: Type.Optional(
+		Type.String({
+			description:
+				"find: which date drives since/until (started, updated, due, eta). Defaults to updated.",
+		}),
+	),
+	refType: Type.Optional(
+		Type.String({
+			description:
+				"find: only quests carrying an alias of this type (e.g. github-pr).",
+		}),
+	),
+	pattern: Type.Optional(
+		Type.String({
+			description: "links: substring filter on the link's value or URL.",
+		}),
+	),
+	scope: Type.Optional(
+		Type.String({
+			description:
+				"conclude/retire: 'quest' or 'document', which wins over what the id's shape implies. With no id it acts on the focused document, and refuses when nothing is focused.",
+		}),
+	),
+	force: Type.Optional(
+		Type.Boolean({
+			description:
+				"tree-release: override its safety refusals (dirty tree, unmerged branch, attached session), consenting to lose uncommitted work: confirm with the person first. restore: reopen the lost sessions (or those id names), a terminal each, rather than list them; confirm first too.",
+		}),
+	),
+	dryRun: Type.Optional(
+		Type.Boolean({
+			description:
+				"reparent, and conclude/retire of quests not loaded here: say what would change, writing nothing. spawn and restore: say what would open where, and which setting chose it, opening nothing. Every other action, and conclude/retire of the loaded quest or a document, refuses it and does nothing.",
+		}),
+	),
+	limit: Type.Optional(
+		Type.Integer({
+			description:
+				"list/find/who: maximum rows in the listing. Defaults to 25.",
+			minimum: 1,
+		}),
+	),
+	offset: Type.Optional(
+		Type.Integer({
+			description:
+				"list/find/who: skip the first N rows before rendering. Use with limit for pagination.",
+			minimum: 0,
+		}),
+	),
+});
 
 export default async function questWorkflow(pi: ExtensionAPI) {
 	declareGuards(
@@ -185,196 +378,11 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			"Stage transitions are think → draft → build → concluded (or retired). `think` accepts a kind on a fresh loop (default plan); `draft` writes the document and mints its id; `build` lets you implement. With nothing in hand, `draft` given a note and a title thinks and drafts in one call. Concluding or retiring the focused document puts it down, and a finished document is never reopened: think or draft beside it starts a fresh loop.",
 			"A refused transition returns guidance and changes nothing. Nobody approves a transition and nothing prompts for one.",
 		],
-		parameters: Type.Object({
-			action: StringEnum([...QUEST_ACTIONS], {
-				description:
-					"The action to perform. `status` is an alias for `show`, which given a document's id answers its outline: sections and their sizes, open items, the next.",
-			}),
-			id: Type.Optional(
-				Type.String({
-					description:
-						"Target id: the quest or document acted on, loaded or not (default: the focused document, else the README). For reparent, conclude, retire and restore: comma-separated for several. For conclude/retire: the loaded quest's id seals it in full, trees pruned; other quest ids run a reversible status sweep; a document id concludes just that document. For locate: any quest, document, alias or session id. For undo: optional, a quest this session's newest structural change touched; undo reverses only this session's own newest change, never another session's, and refuses when another session has changed one of its quests since.",
-				}),
-			),
-			url: Type.Optional(
-				Type.String({
-					description:
-						"create: seed a new quest from this URL (Slack thread, GitHub PR or issue). The tool fetches and parses the source.",
-				}),
-			),
-			title: Type.Optional(
-				Type.String({
-					description:
-						"create: the quest's title, as a person reads it (becomes the H1). draft: the document's title. section: the heading of the section to replace, or to add (a README's optional Milestones, Spirit, Outcomes or Context), without its emoji (e.g. Purpose). retitle: the new title, which replaces the H1 of the quest or document `id` names. show: the section to read.",
-				}),
-			),
-			parent: Type.Optional(
-				Type.String({
-					description:
-						"create: parent quest id when minting a subquest. reparent: the new parent quest id, or `null` to move the targets to top level.",
-				}),
-			),
-			kind: Type.Optional(
-				Type.String({
-					description:
-						"create and reclassify: quest, subquest or sidequest. think, or draft to override think's choice: plan, research, brief or report.",
-				}),
-			),
-			note: Type.Optional(
-				Type.String({
-					description:
-						"think: what this document is about, or what sent you back to thinking. create: optional Summary prose. journal: the Journey entry to add; the date is put in front of it.",
-				}),
-			),
-			body: Type.Optional(
-				Type.String({
-					description:
-						"section: the section's new text, without its heading. It may not hold a `## ` heading of its own.",
-				}),
-			),
-			reason: Type.Optional(
-				Type.String({
-					description: "retire: why the document is being abandoned.",
-				}),
-			),
-			priority: Type.Optional(
-				Type.String({
-					description:
-						"create: initial priority bucket (driving, active, queued, bench, someday). Defaults to active. find: filter by priority.",
-				}),
-			),
-			status: Type.Optional(
-				Type.String({
-					description:
-						"find: filter by status (active, paused, blocked, concluded, retired).",
-				}),
-			),
-			target: Type.Optional(
-				Type.String({
-					description: "before/after: the quest id to position against.",
-				}),
-			),
-			ref: Type.Optional(
-				Type.String({
-					description:
-						"alias-add/alias-remove: the alias in `type:value` form (e.g. `github-pr:shop/world#47281`). Both accept a comma-separated list to add or remove several at once. tree-expand: the zone to add (e.g. system/gitstream).",
-				}),
-			),
-			query: Type.Optional(
-				Type.String({
-					description:
-						"find: free-text needle matched against title, id, body and alias values. locate: the needle to resolve when `id` is not given. tick/untick, and show to read it with its notes: the checkbox item, by its number, its text or the start of it.",
-				}),
-			),
-			since: Type.Optional(
-				Type.String({
-					description:
-						"find: only quests updated on or after this date (YYYY-MM-DD or ISO).",
-				}),
-			),
-			until: Type.Optional(
-				Type.String({
-					description: "find: only quests updated on or before this date.",
-				}),
-			),
-			role: Type.Optional(
-				Type.String({
-					description:
-						"who: filter Cast bullets by role (owner, reviewer, originator, ...).",
-				}),
-			),
-			name: Type.Optional(
-				Type.String({
-					description:
-						"who: filter Cast bullets by name substring. session-attach/session-rename: a label for the session entry, as a person reads it.",
-				}),
-			),
-			layout: Type.Optional(
-				Type.String({
-					description:
-						"spawn and restore: window, tab or pane. Defaults to the person's terminal setting, else tab; spawn-* takes its suffix.",
-				}),
-			),
-			terminal: Type.Optional(
-				Type.String({
-					description:
-						"spawn and restore: kitty, wezterm, tmux, zellij, foot, alacritty, ghostty or one configured. Defaults to the person's setting, else the terminal the session sits in.",
-				}),
-			),
-			nesting: Type.Optional(
-				Type.String({
-					description:
-						"spawn and restore: for pi in nested terminals, innermost (the default, the one the person sees) or outermost.",
-				}),
-			),
-			command: Type.Optional(
-				Type.String({
-					description:
-						"spawn: the command to run, `pi` by default. It runs detached, past every guard, so spawn only what the user authorized.",
-				}),
-			),
-			cwd: Type.Optional(
-				Type.String({
-					description:
-						"Working directory: where spawn starts, the repo tree-add cuts from, a path inside the tree tree-adopt registers, or which tree tree-prune and tree-expand act on when the quest has several. Defaults: spawn takes the quest's newest tree, else a recent session's folder, else a tree's repo, else home, never a quest folder; the rest take the loaded quest's directory or the pi cwd.",
-				}),
-			),
-			sessionId: Type.Optional(
-				Type.String({
-					description:
-						"session-*: target session id when not the current pi session.",
-				}),
-			),
-			field: Type.Optional(
-				Type.String({
-					description:
-						"find: which date drives since/until (started, updated, due, eta). Defaults to updated.",
-				}),
-			),
-			refType: Type.Optional(
-				Type.String({
-					description:
-						"find: only quests carrying an alias of this type (e.g. github-pr).",
-				}),
-			),
-			pattern: Type.Optional(
-				Type.String({
-					description: "links: substring filter on the link's value or URL.",
-				}),
-			),
-			scope: Type.Optional(
-				Type.String({
-					description:
-						"conclude/retire: 'quest' or 'document', which wins over what the id's shape implies. With no id it acts on the focused document, and refuses when nothing is focused.",
-				}),
-			),
-			force: Type.Optional(
-				Type.Boolean({
-					description:
-						"tree-prune: override its safety refusals (dirty tree, unmerged branch, attached session), consenting to lose uncommitted work: confirm with the person first. restore: reopen the lost sessions (or those id names), a terminal each, rather than list them; confirm first too.",
-				}),
-			),
-			dryRun: Type.Optional(
-				Type.Boolean({
-					description:
-						"reparent, and conclude/retire of quests not loaded here: say what would change, writing nothing. spawn and restore: say what would open where, and which setting chose it, opening nothing. Every other action, and conclude/retire of the loaded quest or a document, refuses it and does nothing.",
-				}),
-			),
-			limit: Type.Optional(
-				Type.Integer({
-					description:
-						"list/find/who: maximum rows in the listing. Defaults to 25.",
-					minimum: 1,
-				}),
-			),
-			offset: Type.Optional(
-				Type.Integer({
-					description:
-						"list/find/who: skip the first N rows before rendering. Use with limit for pagination.",
-					minimum: 0,
-				}),
-			),
-		}),
+		parameters: QUEST_PARAMETERS,
+		// pi checks what this returns against the schema next, as it
+		// does for its own edit tool's rewritten arguments.
+		prepareArguments: (args) =>
+			withRenamedAction(args) as Static<typeof QUEST_PARAMETERS>,
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 			const result = await handle(
 				state,

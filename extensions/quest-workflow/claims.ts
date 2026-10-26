@@ -29,7 +29,7 @@ import { isSealedStatus } from "../../lib/internal/quest/status.ts";
  * one hands them to the working layer's own judgement, which reclaims a
  * tree only when it is clean and trunk holds its branch, and reports
  * the rest rather than taking them. Claiming them for good, waiting on
- * a `tree-prune` nobody runs once a quest is over, kept 102 finished
+ * a `tree-release` nobody runs once a quest is over, kept 102 finished
  * trees on one machine's disk, none of them ever offered back.
  */
 export function answerTreeClaims(pi: ExtensionAPI, questsRoot: string): void {
