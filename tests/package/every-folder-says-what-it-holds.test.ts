@@ -7,9 +7,11 @@
  * to it guessing whether it belongs. So every folder carries a note: a
  * README.md, an AGENTS.md or a SKILL.md, or an entry file whose first line is
  * a comment (its index.ts, a .ts file inside it of its own name, or one beside
- * it of its name, as `lib/mesh.ts` would be for `lib/mesh/`). A top-level
- * folder may instead be described in AGENTS.md's Structure, and a folder in a
- * skill named in its SKILL.md, since a skill's reader reads that first.
+ * it of its name, as `lib/mesh.ts` would be for `lib/mesh/`). A folder may
+ * instead be described where its parent's reader already looks: in a bullet
+ * of the parent's note that opens with the folder's name and a colon, as
+ * lib/README.md describes each library, or, for a folder in a skill,
+ * anywhere in its SKILL.md.
  *
  * Tests mirror the source: `tests/extensions/<name>/` holds the tests of
  * `extensions/<name>/`, `tests/lib/<path>/` those of `lib/<path>/`, and
@@ -52,12 +54,9 @@ const HELD =
 	"85PKB2's PLAN-20261025-LES0F4 rewrites this area and owns its shape until it lands";
 const FOLDED =
 	"folded in from agentic-harness.core (#749, #753, #767, #769, #770); notes come as the fold settles";
-const OWN = "the harness's own; notes come in batches, a folder a line";
 
 const WAITING: Record<string, string> = {
 	"extensions/quest-workflow/verbs": HELD,
-	"lib/internal/quest": HELD,
-	"lib/mesh": HELD,
 	"lib/core/internal": FOLDED,
 	"lib/core/internal/github": FOLDED,
 	"lib/core/internal/guardian": FOLDED,
@@ -80,31 +79,6 @@ const WAITING: Record<string, string> = {
 	"lib/core/sections": FOLDED,
 	"lib/core/title": FOLDED,
 	"lib/core/work/providers": FOLDED,
-	"extensions/review-integration/personas": OWN,
-	"lib/classifier": OWN,
-	"lib/compaction/selection": OWN,
-	"lib/gate": OWN,
-	"lib/internal/away": OWN,
-	"lib/internal/config": OWN,
-	"lib/internal/gate": OWN,
-	"lib/internal/github": OWN,
-	"lib/internal/guardian": OWN,
-	"lib/internal/install": OWN,
-	"lib/internal/people": OWN,
-	"lib/internal/priority": OWN,
-	"lib/internal/recall": OWN,
-	"lib/internal/refs": OWN,
-	"lib/internal/registry": OWN,
-	"lib/internal/reload": OWN,
-	"lib/internal/session": OWN,
-	"lib/internal/shell": OWN,
-	"lib/internal/stray": OWN,
-	"lib/internal/verification": OWN,
-	"lib/mcp/frontend": OWN,
-	"lib/mcp/render": OWN,
-	"lib/mcp/surface": OWN,
-	"lib/prose": OWN,
-	"lib/subagent/runpi": OWN,
 };
 
 function foldersUnder(dir: string): string[] {
@@ -124,22 +98,29 @@ function opensWithAComment(file: string): boolean {
 	return COMMENT.test(first);
 }
 
-/** The top-level folders AGENTS.md's Structure describes, by their names. */
-const STRUCTURED = new Set(
-	[
-		...(readFileSync(join(ROOT, "AGENTS.md"), "utf8")
-			.split("\n## Structure\n")[1]
-			?.split("\n## ")[0]
-			.matchAll(/^- `([a-z.-]+)\/`:/gm) ?? []),
-	].map((match) => match[1]),
-);
+/**
+ * Whether a note in the folder's parent describes it in a bullet that opens
+ * with its name and a colon: `- \`away/\`:`, `- **\`away/\`**:` or
+ * `- **[\`away/\`](away/)**:`.
+ */
+function described(path: string, name: string): boolean {
+	const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	const bullet = new RegExp(
+		`^\\s*- (\\*\\*)?\\[?\`${escaped}/\`(\\]\\([^)]*\\))?(\\*\\*)?:`,
+		"m",
+	);
+	return NOTES.some((note) => {
+		const file = join(dirname(path), note);
+		return existsSync(file) && bullet.test(readFileSync(file, "utf8"));
+	});
+}
 
 /** Whether a folder carries a note of its own. */
 function notes(folder: string): boolean {
 	const path = join(ROOT, folder);
 	const name = basename(folder);
 	if (NOTES.some((note) => existsSync(join(path, note)))) return true;
-	if (STRUCTURED.has(folder)) return true;
+	if (described(path, name)) return true;
 	const skill = join(dirname(path), "SKILL.md");
 	if (existsSync(skill) && readFileSync(skill, "utf8").includes(`${name}/`))
 		return true;
@@ -181,7 +162,7 @@ describe("the package's folders", () => {
 		const silent = folders.filter((f) => !says(f) && !waits(f));
 		expect(
 			silent,
-			`these folders don't say what they hold: give each a README.md, or an index.ts or a file of its name whose first line is a comment saying what goes in it:\n${silent.join("\n")}`,
+			`these folders don't say what they hold: give each a README.md, an index.ts or a file of its name whose first line is a comment saying what goes in it, or a bullet in its parent's README opening with its name and a colon:\n${silent.join("\n")}`,
 		).toEqual([]);
 	});
 

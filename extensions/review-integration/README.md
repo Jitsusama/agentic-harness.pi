@@ -333,6 +333,13 @@ const bound = await engine.resolve("Shopify/world#2000970");
 const threads = await bound.conversation?.threads(bound.target.change);
 ```
 
+## Folders
+
+- `personas/`: the persona charters the package ships, one
+  Markdown file each. Every `.md` in it is read as a charter, so
+  what the folder holds is said here rather than in a README
+  there.
+
 ## Joy
 
 The renderings use one glyph per concept, always the same one,
