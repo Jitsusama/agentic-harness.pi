@@ -16,7 +16,7 @@
  */
 
 import { isAbsolute, join, posix, relative, resolve, sep } from "node:path";
-import { isId, prefixOf } from "./id.ts";
+import { isId, prefixOf } from "../../../internal/quest/id.ts";
 
 /** The folders a quest's documents live in, one per kind. */
 export const DOCUMENT_FOLDERS = [

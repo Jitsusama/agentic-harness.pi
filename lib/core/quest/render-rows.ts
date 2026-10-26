@@ -19,8 +19,8 @@
  * single uniform "... and N more" hint.
  */
 
+import type { QuestKind, QuestStatus } from "../../quest/index.ts";
 import { count } from "../../ui/count.ts";
-import type { QuestKind, QuestStatus } from "./index.ts";
 
 const KIND_GLYPHS: Record<QuestKind, string> = {
 	quest: "\u25c6", // ◆

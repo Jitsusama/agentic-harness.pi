@@ -15,21 +15,19 @@
 
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { parseRef, urlForRef } from "../../../refs/index.ts";
-import { displayPath } from "../../../ui/path.ts";
 import {
 	buildAliasIndex,
 	lookupAliasDetail,
-} from "../../internal/quest/alias-index.ts";
-import { nowYmd } from "../../internal/quest/dates.ts";
+} from "../../../internal/quest/alias-index.ts";
+import { nowYmd } from "../../../internal/quest/dates.ts";
 import {
 	discoverQuests,
 	siblingRanks,
-} from "../../internal/quest/discovery.ts";
-import { parseQuestFrontMatter } from "../../internal/quest/frontmatter.ts";
-import { atomicWriteFile } from "../../internal/quest/io.ts";
-import { nextRank } from "../../internal/quest/ranking.ts";
-import { isSealedStatus } from "../../internal/quest/status.ts";
+} from "../../../internal/quest/discovery.ts";
+import { parseQuestFrontMatter } from "../../../internal/quest/frontmatter.ts";
+import { atomicWriteFile } from "../../../internal/quest/io.ts";
+import { nextRank } from "../../../internal/quest/ranking.ts";
+import { isSealedStatus } from "../../../internal/quest/status.ts";
 import {
 	fetchUrlHints,
 	mintId,
@@ -38,7 +36,9 @@ import {
 	type QuestKind,
 	type QuestPriority,
 	scaffoldQuestReadme,
-} from "../index.ts";
+} from "../../../quest/index.ts";
+import { parseRef, urlForRef } from "../../../refs/index.ts";
+import { displayPath } from "../../../ui/path.ts";
 import {
 	appendJourneyEntry,
 	ensureQuestsRoot,

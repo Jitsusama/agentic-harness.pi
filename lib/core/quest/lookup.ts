@@ -14,13 +14,12 @@
  * what's here.
  */
 
-import { urlForRef, whyRefHasNoUrl } from "../../refs/index.ts";
 import {
 	discoverQuests,
 	type QuestDocumentEntry,
 	type QuestEntry,
 	type QuestIndex,
-} from "../internal/quest/discovery.ts";
+} from "../../internal/quest/discovery.ts";
 import {
 	type CastEntry,
 	extractCast,
@@ -28,7 +27,8 @@ import {
 	projectQuestForShow,
 	type QuestFrontMatter,
 	type QuestShowProjection,
-} from "./index.ts";
+} from "../../quest/index.ts";
+import { urlForRef, whyRefHasNoUrl } from "../../refs/index.ts";
 import type { QuestState } from "./state.ts";
 
 export interface FindParams {

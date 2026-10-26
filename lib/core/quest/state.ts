@@ -13,14 +13,14 @@
  * and the discipline gates without re-reading on every turn.
  */
 
-import { DEFAULT_SESSION_RETENTION_DAYS } from "./config.ts";
-import type { Stage } from "./machine.ts";
 import type {
 	DocumentKind,
 	QuestKind,
 	QuestPriority,
 	QuestStatus,
-} from "./types.ts";
+} from "../../quest/types.ts";
+import { DEFAULT_SESSION_RETENTION_DAYS } from "./config.ts";
+import type { Stage } from "./machine.ts";
 
 /** Runtime state for the loaded quest and focused document. */
 export interface QuestState {

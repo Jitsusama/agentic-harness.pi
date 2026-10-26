@@ -14,10 +14,6 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mintId } from "../../../lib/core/internal/quest/id.ts";
-import { atomicWriteFile } from "../../../lib/core/internal/quest/io.ts";
-import { scaffoldQuestReadme } from "../../../lib/core/internal/quest/scaffold.ts";
-import type { QuestFrontMatter } from "../../../lib/core/quest/index.ts";
 import {
 	addAliasesToLoaded,
 	appendJourneyEntry,
@@ -47,6 +43,10 @@ import {
 	reparent,
 	undo,
 } from "../../../lib/core/quest/verbs/structural.ts";
+import { mintId } from "../../../lib/internal/quest/id.ts";
+import { atomicWriteFile } from "../../../lib/internal/quest/io.ts";
+import { scaffoldQuestReadme } from "../../../lib/internal/quest/scaffold.ts";
+import type { QuestFrontMatter } from "../../../lib/quest/index.ts";
 
 let tmpRoot: string;
 

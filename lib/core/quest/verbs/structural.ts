@@ -6,25 +6,25 @@
  */
 
 import { appendJourneyByPath } from "../../../internal/quest/append-journey.ts";
-import { count, verb } from "../../../ui/count.ts";
 import {
 	discoverQuests,
 	siblingRanks,
-} from "../../internal/quest/discovery.ts";
-import { lensForField } from "../../internal/quest/fields.ts";
-import { nextRank } from "../../internal/quest/ranking.ts";
-import { isSealedStatus } from "../../internal/quest/status.ts";
+} from "../../../internal/quest/discovery.ts";
+import { lensForField } from "../../../internal/quest/fields.ts";
+import { nextRank } from "../../../internal/quest/ranking.ts";
+import { isSealedStatus } from "../../../internal/quest/status.ts";
 import {
 	planReparent,
 	planStatusChange,
-} from "../../internal/quest/structural.ts";
+} from "../../../internal/quest/structural.ts";
 import {
 	dropLastStructuralOp,
 	type JournalChange,
 	lastStructuralOp,
 	recordStructuralOp,
-} from "../../internal/quest/structural-journal.ts";
-import type { QuestFrontMatter } from "../index.ts";
+} from "../../../internal/quest/structural-journal.ts";
+import type { QuestFrontMatter } from "../../../quest/index.ts";
+import { count, verb } from "../../../ui/count.ts";
 import {
 	sealQuestDocuments,
 	setQuestFieldByDir,

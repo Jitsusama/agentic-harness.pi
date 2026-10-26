@@ -5,6 +5,7 @@ import {
 	readdirSync,
 	readFileSync,
 	rmSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -71,6 +72,38 @@ describe("withQuestLock", () => {
 			});
 		await Promise.all([bumpOnce(), bumpOnce(), bumpOnce()]);
 		expect(readFileSync(counter, "utf8")).toBe("3");
+	});
+
+	it("waits on a fresh lock that has no owner written yet", () => {
+		// A holder creates the lock and then writes its pid, so for a
+		// moment every lock is empty. Reading that as abandoned took a
+		// live lock out from under its holder.
+		const questDir = join(dir, "QEST-20260603-CCC333");
+		mkdirSync(questDir, { recursive: true });
+		writeFileSync(join(questDir, ".quest.lock"), "");
+
+		expect(() =>
+			withQuestLock(questDir, () => {
+				atomicWriteFile(join(questDir, "ok.txt"), "y");
+			}),
+		).toThrow(/Timed out/);
+		expect(existsSync(join(questDir, "ok.txt"))).toBe(false);
+	}, 15_000);
+
+	it("steals an ownerless lock once it is older than any write takes", () => {
+		const questDir = join(dir, "QEST-20260603-DDD444");
+		mkdirSync(questDir, { recursive: true });
+		const lock = join(questDir, ".quest.lock");
+		writeFileSync(lock, "");
+		const old = new Date(Date.now() - 60_000);
+		utimesSync(lock, old, old);
+
+		withQuestLock(questDir, () => {
+			atomicWriteFile(join(questDir, "ok.txt"), "y");
+		});
+
+		expect(existsSync(join(questDir, "ok.txt"))).toBe(true);
+		expect(readdirSync(questDir).sort()).toEqual(["ok.txt"]);
 	});
 
 	it("steals an obviously stale lock from a dead owner", () => {

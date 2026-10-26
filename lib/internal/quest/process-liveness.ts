@@ -10,6 +10,7 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { hostname } from "node:os";
 
@@ -57,21 +58,6 @@ export interface ProbeProcessDeps {
 }
 
 /**
- * Classify a recorded process. A recorded host that is not the local
- * host is unknown (we cannot see it). Otherwise the OS inspection
- * decides: no such pid is gone, a pid held by a process with a
- * different start token is gone (reuse), a matching token is
- * matching, and anything the inspection could not determine is
- * unknown.
- */
-/**
- * Read a live pid's OS start token. Uses `ps -o lstart=`, present on
- * macOS and Linux, which yields a stable per-process start timestamp
- * that distinguishes a pid from a later reuse. A pid no process holds
- * is gone; a missing `ps` or any other failure is unknown, so an
- * inability to probe never reads as death.
- */
-/**
  * How long one `ps` or `sysctl` probe may take.
  *
  * These run synchronously, so while one waits nothing in pi renders or
@@ -82,6 +68,13 @@ export interface ProbeProcessDeps {
  */
 export const PROBE_TIMEOUT_MS = 3000;
 
+/**
+ * Read a live pid's OS start token. Uses `ps -o lstart=`, present on
+ * macOS and Linux, which yields a stable per-process start timestamp
+ * that distinguishes a pid from a later reuse. A pid no process holds
+ * is gone; a missing `ps` or any other failure is unknown, so an
+ * inability to probe never reads as death.
+ */
 function readStartToken(pid: number): ProcessInspection {
 	try {
 		const stdout = execFileSync("ps", ["-o", "lstart=", "-p", String(pid)], {
@@ -171,14 +164,28 @@ export function identityFromInspection(
 		: undefined;
 }
 
+/** Memoized identity of this process, once one has been read. */
+let processIdentityCache: ProcessIdentity | undefined;
+
 /**
  * Identity of the currently running pi process, for capture onto the
  * session it is attached to. Undefined when the OS reader could not
  * read a real start token: a session then carries no process identity
  * and its liveness falls back to recency, rather than a synthetic
  * token that a later probe would read as a dead mismatch.
+ *
+ * A process's own start token cannot change while it runs, so the
+ * first real reading is remembered: a session start attaches more
+ * than once and each reading is a synchronous `ps`. A failed reading
+ * is not remembered, so a transient failure is retried next time.
  */
 export function currentProcessIdentity(): ProcessIdentity | undefined {
+	processIdentityCache ??= readProcessIdentity();
+	return processIdentityCache;
+}
+
+/** Read this process's identity from the OS. */
+function readProcessIdentity(): ProcessIdentity | undefined {
 	const identity = identityFromInspection(
 		hostname(),
 		process.pid,
@@ -266,6 +273,18 @@ export function currentBootToken(): string | undefined {
 	return bootTokenCache.token;
 }
 
+/** Id minted once per pi process, identifying which process holds a session lease. */
+const INSTANCE_ID = randomUUID();
+
+/**
+ * The current pi process's instance id, stable for the life of the
+ * process. Stored on a session at attach so a later shutdown detaches
+ * only when the same instance still owns it.
+ */
+export function currentInstanceId(): string {
+	return INSTANCE_ID;
+}
+
 /** The always-on local floor: this host plus the OS start-token reader. */
 export function localProcessDeps(): ProbeProcessDeps {
 	const localBootToken = currentBootToken();
@@ -297,6 +316,14 @@ export function sameStart(a: string, b: string): boolean {
 	return Math.abs(at - bt) <= START_TOLERANCE_MS;
 }
 
+/**
+ * Classify a recorded process. A recorded host that is not the local
+ * host is unknown (we cannot see it). Otherwise the OS inspection
+ * decides: no such pid is gone, a pid held by a process with a
+ * different start token is gone (reuse), a matching token is
+ * matching, and anything the inspection could not determine is
+ * unknown.
+ */
 export function probeProcess(
 	id: ProcessIdentity,
 	deps: ProbeProcessDeps,

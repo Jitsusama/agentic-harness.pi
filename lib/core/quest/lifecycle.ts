@@ -21,30 +21,29 @@ import {
 	readFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { appendJourneyByPath } from "../../internal/quest/append-journey.ts";
-import { identifyCurrentTerminal } from "../../terminal/index.ts";
 import {
 	type AliasIndex,
 	buildAliasIndex,
-} from "../internal/quest/alias-index.ts";
-import { nowYmd } from "../internal/quest/dates.ts";
+} from "../../internal/quest/alias-index.ts";
+import { appendJourneyByPath } from "../../internal/quest/append-journey.ts";
+import { nowYmd } from "../../internal/quest/dates.ts";
 import {
 	discoverQuests,
 	type QuestEntry,
 	siblingRanks,
-} from "../internal/quest/discovery.ts";
-import type { QuestFieldLens } from "../internal/quest/fields.ts";
-import { explainDocumentFrontMatter } from "../internal/quest/frontmatter.ts";
+} from "../../internal/quest/discovery.ts";
+import type { QuestFieldLens } from "../../internal/quest/fields.ts";
+import { explainDocumentFrontMatter } from "../../internal/quest/frontmatter.ts";
 import {
 	atomicWriteFile,
 	atomicWriteUnderLock,
 	withQuestLock,
-} from "../internal/quest/io.ts";
-import { mutateQuestFrontMatter } from "../internal/quest/mutate.ts";
+} from "../../internal/quest/io.ts";
+import { mutateQuestFrontMatter } from "../../internal/quest/mutate.ts";
 import {
 	currentInstanceId,
 	currentProcessIdentity,
-} from "../internal/quest/process-liveness.ts";
+} from "../../internal/quest/process-liveness.ts";
 import {
 	diffRanks,
 	nextRank,
@@ -56,8 +55,8 @@ import {
 	renumber as rankRenumber,
 	sink as rankSink,
 	top as rankTop,
-} from "../internal/quest/ranking.ts";
-import { isSealedStatus } from "../internal/quest/status.ts";
+} from "../../internal/quest/ranking.ts";
+import { isSealedStatus } from "../../internal/quest/status.ts";
 import {
 	checkboxProgress,
 	type DocumentFrontMatter,
@@ -72,7 +71,8 @@ import {
 	type QuestSession,
 	type QuestStatus,
 	serializeDocumentFrontMatter,
-} from "./index.ts";
+} from "../../quest/index.ts";
+import { identifyCurrentTerminal } from "../../terminal/index.ts";
 import type { Stage } from "./machine.ts";
 import type { QuestState } from "./state.ts";
 

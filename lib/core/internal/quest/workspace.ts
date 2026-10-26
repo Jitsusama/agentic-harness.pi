@@ -14,7 +14,7 @@
 
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { isId, prefixOf } from "./id.ts";
+import { isId, prefixOf } from "../../../internal/quest/id.ts";
 
 /** A quest's workspace folder and its `tmp/`. */
 export interface QuestWorkspace {
