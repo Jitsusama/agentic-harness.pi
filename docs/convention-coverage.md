@@ -96,8 +96,8 @@ The `quest-format` and `quest-convention` tables below mark several
 rules 🟢 because the strict front-matter parser rejects an unknown
 value. That is read-side only: the parser drops a malformed record
 to `undefined`, so the write still lands on disk and the record
-turns invisible rather than being blocked. The Phase 0 baseline
-(`scripts/quest-store-baseline.ts`, run 2026-07-04) measured the
+turns invisible rather than being blocked. The Phase 0 baseline,
+a one-off read of the store on 2026-07-04, measured the
 resulting drift across 361 quests. These are the mechanically
 checkable behaviours the rework will newly enforce, each mapped to
 its phase and root cause. They stay 🔴 until the phase lands, then
