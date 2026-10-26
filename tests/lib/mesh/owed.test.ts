@@ -47,6 +47,17 @@ describe("answers owed", () => {
 		expect(owing.due(asked + ASK_AGAIN_MS)).toEqual([]);
 	});
 
+	it("owes nothing for a question handed over again after its answer", () => {
+		// A question that waited through a stalled run rides into a later
+		// turn too, after the peer has answered it.
+		const owing = createOwing();
+		owing.owe(question(), asked);
+		owing.paid(question().id, asked + 1000);
+		owing.owe(question(), asked + 2000);
+
+		expect(owing.due(asked + 2000 + ASK_AGAIN_MS)).toEqual([]);
+	});
+
 	it("asks again only so often, and only within the hour", () => {
 		const owing = createOwing();
 		owing.owe(question(), asked);
