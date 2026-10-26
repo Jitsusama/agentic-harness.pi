@@ -18,6 +18,7 @@ const STAND_IN = readGlossary(
 		"| person | the human | user | |",
 		"| brightness | how bright a screen is | | the `backlight` program |",
 		"| light | the keyboard's light | backlight | |",
+		"| filling | a disk filling up | pressure | `pressure` |",
 		"",
 		"Prose between tables is not a row.",
 		"",
@@ -38,6 +39,7 @@ describe("the glossary matcher", () => {
 			"person",
 			"brightness",
 			"light",
+			"filling",
 		]);
 		expect(STAND_IN[0].replaces).toEqual(["line"]);
 	});
@@ -47,6 +49,7 @@ describe("the glossary matcher", () => {
 		["a replaced name in an action", "mesh lines"],
 		["a replaced name made plural", "people users"],
 		["a replaced name in camel case", "lineRate"],
+		["a replaced name another row spells as code", "keyboard_backlight"],
 	])("refuses %s", (_, name) => {
 		expect(drift(STAND_IN, [name, ...KEPT], KEPT)).not.toEqual([]);
 	});
@@ -57,8 +60,8 @@ describe("the glossary matcher", () => {
 		]);
 	});
 
-	it("lets through a replaced name inside a term, in code, or inside another word", () => {
-		const beside = ["the_status_line", "backlight", "userspace", ...KEPT];
+	it("lets through a replaced name inside a term, in its own row's code, or inside another word", () => {
+		const beside = ["the_status_line", "pressure_band", "userspace", ...KEPT];
 		expect(drift(STAND_IN, beside, KEPT)).toEqual([]);
 	});
 
