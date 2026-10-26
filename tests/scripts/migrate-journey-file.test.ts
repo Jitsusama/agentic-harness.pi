@@ -81,8 +81,10 @@ describe("migrate-journey-file", () => {
 		expect(readFileSync(join(root, A, JOURNEY_FILE), "utf8")).toContain(
 			"- **2026-01-02 (night)**: An odd date the parser skips.",
 		);
-		expect(readFileSync(join(root, A, "README.md"), "utf8")).toContain(
-			"attachments/runs -->",
+		// No problem means nothing went uncited: the record reads what
+		// JOURNEY.md cites, so the README carries no citations line.
+		expect(readFileSync(join(root, A, "README.md"), "utf8")).not.toContain(
+			"Cited from the Journey",
 		);
 		expect(migrateQuest(join(root, A)).problems).toEqual([]);
 		expect(planQuest(join(root, A)).movedLines).toBe(0);

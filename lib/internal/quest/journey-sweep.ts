@@ -1,23 +1,20 @@
 /**
- * Keeps a README's Journey section down to its pointer. Two jobs:
+ * Keeps a README's Journey section down to its pointer. Every Journey
+ * entry is written through here (`append-journey.ts`), which first
+ * moves anything still in the README's section to the head of the
+ * file, so the new entry lands above it: a scaffold's first entry, or
+ * one a session still running older code appended. A quest is swept
+ * once more as it is created. The one-shot migration moved every
+ * README's whole Journey through the same planner. A Journey file left
+ * at its former place, `attachments/journey.md`, is folded in here too.
  *
- * - Sweep. Every Journey entry is written through here
- *   (`append-journey.ts`), which first moves anything still in the
- *   README's section to the head of the file, so the new entry lands
- *   above it: a scaffold's first entry, or one a session still running
- *   older code appended. A quest is swept once more as it is created.
- *   The one-shot migration moved every README's whole Journey through
- *   the same planner. A Journey file left at its former place,
- *   `attachments/journey.md`, is folded in here too.
- * - Carry citations. The backup counts only what the README and the
- *   ID documents cite, so an attachment cited only from the Journey
- *   would leave the backup. The README's section carries those
- *   citations in one comment line, folded to the widest folders it
- *   can name without citing anything new, until the backup reads
- *   `JOURNEY.md` as the record audit already does.
+ * The section once also carried a comment line naming the attachments
+ * only the Journey cited, because the backup counted only what the
+ * README and ID documents cite. The backup and the record audit now
+ * both read what `JOURNEY.md` cites, so a sweep drops that line.
  *
  * Nothing is dropped. Every line of the section but the pointer and
- * the citations moves, verbatim and in order, to the head of the file;
+ * the former citations line moves, verbatim and in order, to the head of the file;
  * the file is written before the README, so a crash between the two
  * duplicates lines rather than losing them. Reference-style link
  * definitions go with the lines that use them: a definition the rest
@@ -27,20 +24,16 @@
 
 import {
 	existsSync,
-	lstatSync,
 	mkdirSync,
-	readdirSync,
 	readFileSync,
 	rmdirSync,
 	rmSync,
 } from "node:fs";
-import { basename, dirname, join } from "node:path";
-import { attachmentCitations } from "../../core/internal/quest/record.ts";
+import { dirname, join } from "node:path";
 import { atomicWriteFile, withQuestLock } from "./io.ts";
 import {
 	formerJourneyFilePath,
 	isJourneyPointer,
-	JOURNEY_FILE,
 	JOURNEY_POINTER,
 	journeyBody,
 	journeyFilePath,
@@ -49,7 +42,7 @@ import {
 	renderJourneyFile,
 } from "./journey.ts";
 
-/** How the citations line opens, which is how a sweep finds it. */
+/** How the former citations line opens, which is how a sweep drops it. */
 export const CITATIONS_OPENING =
 	"<!-- Cited from the Journey, kept here so the backup keeps them:";
 
@@ -59,12 +52,6 @@ const DEFINITION = /^ {0,3}\[([^\]]+)\]:\s/;
 // copies a definition that was not needed, which costs a line.
 const FULL_REFERENCE = /\]\[([^\]]+)\]/g;
 const SHORTCUT_REFERENCE = /\[([^\]]+)\](?![(:]|\[[^\]])/g;
-// What ends a bare mention for the citation scan, so a path holding
-// one is written as a link instead.
-const MENTION_BREAK = /[\s`'"()<>[\]|,;]/;
-// Files the backup skips: the quest lock, macOS litter, atomic-write
-// temporaries.
-const MACHINERY = /^(\.quest\.lock|\.DS_Store|\..+\.tmp-\d+-.*)$/;
 
 /** What a sweep would write, or undefined when it has nothing to do. */
 export interface SweepPlan {
@@ -80,11 +67,6 @@ export interface SweepInput {
 	journey?: string;
 	/** New entries to put at the very head of the Journey. */
 	prepend?: readonly string[];
-	/**
-	 * The quest's id and its attachments, quest-relative, for the
-	 * citations line. Left out, the line is kept as it stands.
-	 */
-	citations?: { quest: string; attachments: readonly string[] };
 }
 
 /**
@@ -135,20 +117,11 @@ export function planJourneySweep(
 	}
 	const journey = renderJourneyFile(body);
 
-	const citations = input.citations
-		? citationsLine(
-				input.citations.quest,
-				journey,
-				[...outside, ...kept].join("\n"),
-				input.citations.attachments,
-			)
-		: section.lines.find((l) => l.startsWith(CITATIONS_OPENING));
 	const tail = lines.slice(section.end);
 	const replaced = [
 		...lines.slice(0, section.start + 1),
 		"",
 		JOURNEY_POINTER,
-		...(citations ? ["", citations] : []),
 		...(kept.length > 0 ? ["", ...kept] : []),
 		...(tail.length > 0 ? ["", ...tail] : [""]),
 	];
@@ -161,75 +134,6 @@ export function planJourneySweep(
 			(l) => l.trim() !== "",
 		).length,
 	};
-}
-
-/**
- * The comment line naming the attachments only the Journey cites, or
- * undefined when the README already cites all it does. Each run of
- * them is folded to the widest folder whose every attachment is cited
- * already, so the line cites nothing the Journey and README did not.
- */
-export function citationsLine(
-	quest: string,
-	journey: string,
-	restOfReadme: string,
-	attachments: readonly string[],
-): string | undefined {
-	const citedBy = (rel: string, text: string) =>
-		new Set(
-			attachmentCitations(
-				quest,
-				[{ rel, text }],
-				[...attachments],
-			).cited.keys(),
-		);
-	const fromReadme = citedBy("README.md", restOfReadme);
-	const need = [...citedBy(JOURNEY_FILE, journey)].filter(
-		(a) => a !== JOURNEY_FILE && !fromReadme.has(a),
-	);
-	if (need.length === 0) return undefined;
-	const allowed = new Set([...need, ...fromReadme, JOURNEY_FILE]);
-	const named = new Set<string>();
-	for (const path of need.sort()) {
-		const segments = path.split("/");
-		let chosen = path;
-		// Folders below attachments/ itself, widest first.
-		for (let depth = 2; depth < segments.length; depth++) {
-			const folder = segments.slice(0, depth).join("/");
-			const under = attachments.filter((a) => a.startsWith(`${folder}/`));
-			if (under.every((a) => allowed.has(a))) {
-				chosen = folder;
-				break;
-			}
-		}
-		named.add(chosen);
-	}
-	const written = [...named]
-		.sort()
-		.map((p) => (MENTION_BREAK.test(p) ? `[](<${p}>)` : p));
-	return `${CITATIONS_OPENING} ${written.join(" ")} -->`;
-}
-
-/**
- * Every attachment under a quest, quest-relative, as the backup lists
- * them: machinery skipped, and a symlink or checkout listed rather
- * than entered.
- */
-export function listAttachments(questDir: string): string[] {
-	const found: string[] = [];
-	const walk = (dir: string, rel: string) => {
-		for (const name of readdirSync(dir).sort()) {
-			if (MACHINERY.test(name)) continue;
-			const path = join(dir, name);
-			const relPath = `${rel}/${name}`;
-			const stats = lstatSync(path);
-			if (stats.isDirectory() && name !== ".git") walk(path, relPath);
-			else found.push(relPath);
-		}
-	};
-	const top = join(questDir, "attachments");
-	if (existsSync(top) && lstatSync(top).isDirectory()) walk(top, "attachments");
-	return found;
 }
 
 /**
@@ -266,14 +170,7 @@ export function sweepJourneyUnlocked(
 						journeyBody(former),
 					),
 				);
-	const plan = planJourneySweep(readme, {
-		journey,
-		prepend,
-		citations: {
-			quest: basename(questDir),
-			attachments: listAttachments(questDir),
-		},
-	});
+	const plan = planJourneySweep(readme, { journey, prepend });
 	const next = plan?.journey ?? journey;
 	// Written before anything is removed, so a crash between the two
 	// leaves entries twice rather than losing them.
