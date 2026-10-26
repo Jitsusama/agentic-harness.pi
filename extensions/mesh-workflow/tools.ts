@@ -168,6 +168,8 @@ export function registerTools(
 
 	pi.registerTool({
 		name: "mesh_join",
+		// Called in 2 of 40 sessions from 18 October: loaded on demand.
+		exposure: "deferred",
 		label: "Mesh",
 		description:
 			"Join a mesh group, so this peer hears what is sent to it and to the groups it is part of, and bring other peers into it without asking them. This peer is already in its quest's and repository's groups. Join, or make, a group for work shared beyond those (#harness, #optimus/power), not every group there is; join a peer's address to follow its home group.",
@@ -193,6 +195,8 @@ export function registerTools(
 
 	pi.registerTool({
 		name: "mesh_leave",
+		// Called in 1 of 40 sessions from 18 October: loaded on demand.
+		exposure: "deferred",
 		label: "Mesh",
 		description:
 			"Leave a mesh group this peer joined and no longer works on, so its messages stop reaching it. The groups its work puts it in are left with the work.",
@@ -204,6 +208,8 @@ export function registerTools(
 
 	pi.registerTool({
 		name: "mesh_stop",
+		// Called in 1 of 40 sessions from 18 October: loaded on demand.
+		exposure: "deferred",
 		label: "Mesh",
 		description:
 			"Stop a peer reaching this one, when what it sends keeps costing this peer more than it gives. Until this peer lifts it, the stopped peer's messages reach it only as one-line glances, never in full and never as a turn, and its sends to this peer's home group are refused. The stopped peer is told, with why. Only this peer can lift it.",

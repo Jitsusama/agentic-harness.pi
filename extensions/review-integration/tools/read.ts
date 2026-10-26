@@ -59,6 +59,9 @@ async function asksAboutCheckout(params: TargetParams): Promise<boolean> {
 export function registerReviewTool(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "review",
+		// Called in 14 of 66 sessions from 18 October, and the review-guide
+		// skill names it, so it loads when that is read.
+		exposure: "deferred",
 		label: "Review",
 		description:
 			"Say what you are working on, so no other call has to repeat it: attach a change, detach it, step up or down the stack it sits in, or ask what its provider can do. Call with no action to report what is attached.",

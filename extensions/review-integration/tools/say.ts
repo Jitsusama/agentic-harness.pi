@@ -37,6 +37,9 @@ import {
 export function registerSayTool(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "review_say",
+		// Called in 16 of 69 sessions from 18 October, and the review-guide
+		// skill names it, so it loads when that is read.
+		exposure: "deferred",
 		label: "Review Say",
 		description:
 			"Say something on a change, straight away: reply into a thread, resolve or reopen one, react to a comment, start a thread on a line, or post a top-level message. Several at once through items, behind one gate. Reading the conversation is review_see.",

@@ -566,6 +566,9 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 
 	pi.registerTool({
 		name: "subagent",
+		// Called in 22 of 68 sessions from 18 October, and the
+		// subagent-fleet-guide skill names it, so it loads when that is read.
+		exposure: "deferred",
 		label: "Subagent Fleet",
 		description:
 			"Fan N pi subagents out concurrently. Each gets its own pi " +
