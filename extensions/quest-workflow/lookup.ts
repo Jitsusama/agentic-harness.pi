@@ -55,6 +55,12 @@ import {
 } from "./session-registry.ts";
 import type { QuestState } from "./state.ts";
 
+/**
+ * The alias type that once mirrored each tree's path. Trees are no
+ * longer mirrored, so the lookups answer it from `trees` themselves.
+ */
+const TREE_REF_TYPE = "git-worktree";
+
 export interface FindParams {
 	query?: string;
 	since?: string;
@@ -154,6 +160,7 @@ export function matchesQuery(entry: QuestEntry, q: string): boolean {
 		fm.id,
 		entry.doc.body,
 		...fm.aliases.map((a) => a.value),
+		...(fm.trees ?? []).map((t) => t.path),
 	]
 		.join("\n")
 		.toLowerCase();
@@ -223,6 +230,9 @@ export function findQuestEntries(
 		}
 		if (params.refType) {
 			const types = new Set(fm.aliases.map((a) => a.type));
+			// A tree's path was once mirrored as a git-worktree alias, so
+			// asking for that type still finds every quest with a tree.
+			if ((fm.trees ?? []).length > 0) types.add(TREE_REF_TYPE);
 			if (!types.has(params.refType)) continue;
 		}
 		const lastActivity =
@@ -277,7 +287,7 @@ export function getQuestEntry(
 export interface LocateHit {
 	questId: string;
 	questTitle: string | null;
-	matchKind: "quest" | "document" | "alias" | "session";
+	matchKind: "quest" | "document" | "alias" | "tree" | "session";
 	/** The concrete thing that matched: a doc path, alias ref or id. */
 	detail?: string;
 }
@@ -285,7 +295,8 @@ export interface LocateHit {
 /**
  * Inverse index: resolve a needle to the quest that owns it. The
  * needle may be a quest id, a document id, an alias ref (either
- * `type:value` or a bare value) or a session id. Returns one hit
+ * `type:value` or a bare value), a tree's path (bare, or as the
+ * `git-worktree:<path>` alias that once mirrored it) or a session id. Returns one hit
  * per match, so a needle that resolves to several quests (a session
  * id left on more than one after divergence, say) surfaces them all
  * rather than hiding the ambiguity behind a single answer.
@@ -320,6 +331,23 @@ export function locateOwner(state: QuestState, needle: string): LocateHit[] {
 					questTitle: title,
 					matchKind: "alias",
 					detail: ref,
+				});
+			}
+		}
+		for (const t of fm.trees ?? []) {
+			const ref = `${TREE_REF_TYPE}:${t.path}`;
+			const mirrored = fm.aliases.some(
+				(a) => a.type === TREE_REF_TYPE && a.value === t.path,
+			);
+			// A quest the migration has not reached still carries the old
+			// alias, which answered above; one hit per tree is enough.
+			if (mirrored) continue;
+			if (t.path === trimmed || ref === trimmed) {
+				hits.push({
+					questId: fm.id,
+					questTitle: title,
+					matchKind: "tree",
+					detail: t.path,
 				});
 			}
 		}

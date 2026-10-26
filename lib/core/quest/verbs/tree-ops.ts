@@ -7,6 +7,12 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import {
+	addTreeToQuest,
+	listTreesOnQuest,
+	removeTreeFromQuest,
+	setPendingPrune,
+} from "../../../internal/quest/trees.ts";
 import { discoverQuests } from "../../internal/quest/discovery.ts";
 import { parseQuestFrontMatter } from "../../internal/quest/frontmatter.ts";
 import {
@@ -16,12 +22,6 @@ import {
 	isWithin,
 } from "../../internal/quest/git-signals.ts";
 import { isSealedStatus } from "../../internal/quest/status.ts";
-import {
-	addTreeToQuest,
-	listTreesOnQuest,
-	removeTreeFromQuest,
-	setPendingPrune,
-} from "../../internal/quest/trees.ts";
 import { getTreeProvider, resolveTreeProvider } from "../../tree/index.ts";
 import { count, noun } from "../../ui/count.ts";
 import { displayPath } from "../../ui/path.ts";

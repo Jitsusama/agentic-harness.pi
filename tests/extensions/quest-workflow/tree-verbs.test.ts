@@ -98,11 +98,8 @@ describe("tree-add", () => {
 		expect(existsSync(tree.path)).toBe(true);
 		const fm = parseQuestFrontMatter(readFileSync(q.path, "utf8"))?.frontMatter;
 		expect(fm?.trees?.[0].path).toBe(tree.path);
-		expect(
-			fm?.aliases.some(
-				(a) => a.type === "git-worktree" && a.value === tree.path,
-			),
-		).toBe(true);
+		// The path lives in trees alone; only the branch is mirrored.
+		expect(fm?.aliases.some((a) => a.type === "git-worktree")).toBe(false);
 		expect(
 			fm?.aliases.some(
 				(a) => a.type === "git-branch" && a.value === "feature-x",

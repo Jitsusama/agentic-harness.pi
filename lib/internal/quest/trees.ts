@@ -2,10 +2,14 @@
  * Quest tree operations. Pure file-and-frontmatter
  * helpers; the extension wires them to a loaded quest.
  *
- * Trees live on a quest's frontmatter `trees:` array.
- * Aliases mirror each tree as `git-worktree:<path>` and
- * `git-branch:<branch>` so the cwd-walk auto-attach can
- * find the quest from inside the tree.
+ * Trees live on a quest's frontmatter `trees:` array, and
+ * a tree's branch is mirrored as a `git-branch:<branch>`
+ * alias so a change on that branch finds its quest. A tree's
+ * path is not mirrored: the cwd resolver and the lookups read
+ * `trees` itself, and a `git-worktree:<path>` alias repeated
+ * it (884 of them on the store, migrated away by
+ * scripts/drop-worktree-aliases.ts). Removing a tree still
+ * removes an old one.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -64,7 +68,7 @@ function removeAlias(aliases: QuestAlias[], alias: QuestAlias): boolean {
 	return aliases.length !== before;
 }
 
-/** Append a tree to the quest's `trees:` list with its aliases. */
+/** Append a tree to the quest's `trees:` list, with its branch's alias. */
 export function addTreeToQuest(
 	questDir: string,
 	tree: QuestTree,
@@ -80,7 +84,6 @@ export function addTreeToQuest(
 			addedFlag = true;
 			const nextTrees = [...trees, tree];
 			const nextAliases = [...fm.aliases];
-			ensureAlias(nextAliases, { type: "git-worktree", value: tree.path });
 			if (tree.branch) {
 				ensureAlias(nextAliases, { type: "git-branch", value: tree.branch });
 			}
