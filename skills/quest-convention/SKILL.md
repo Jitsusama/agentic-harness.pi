@@ -3,7 +3,7 @@ name: quest-convention
 description: >
   Operational conventions for the quest system: when to use
   a quest versus a subquest versus a sidequest, when to
-  scaffold a plan or research document, how to reorder
+  draft a plan or research document, how to reorder
   priorities, when to add optional sections, when to
   conclude versus retire, the resuscitate pattern. Use
   when driving the quest tool, deciding kind, promoting or
@@ -115,7 +115,7 @@ or "create a sidequest for this PR". The tool's
    resolved through the people registry) and first
    Journey entry (the quoted source content).
 
-Confirm the proposed scaffold before committing.
+Confirm the proposed quest before creating it.
 Adjustments happen through prose; there is no form.
 
 When the URL fetch fails, the tool falls back to seeding
@@ -128,10 +128,10 @@ usually filing a follow-up or a subquest for later or for
 another session: `load` the new quest to work on it here,
 or `spawn` it a session of its own.
 
-## When to Scaffold a Document
+## When to Draft a Document
 
 Plans, research, briefs and reports live as documents
-under a quest. Scaffold one when:
+under a quest. Draft one when:
 
 - **Plan**: there is implementation work substantial
   enough to think through before doing. The
@@ -213,16 +213,16 @@ tracks flows; a write inside a git tree the quest does not
 track is refused with guidance to register it through
 `tree-adopt`, so the quest comes to account for every tree
 its code lives in. Both `tree-adopt` and `tree-add` accept
-a `cwd` parameter, so you adopt or scaffold a tree from any
+a `cwd` parameter, so you adopt or cut a tree from any
 session without changing your session's directory: point
 `cwd` at a path inside the tree to adopt, or at the repo to
-scaffold from.
+cut from.
 
 Quest cuts the tree; the `work` tool moves the work along
 inside it. That boundary is worth stating because both tools
 can produce a worktree and only one of them remembers it for
-longer than a session. A tree a quest owns is scaffolded with
-`tree-add`, recorded in frontmatter and pruned on conclude, so
+longer than a session. A tree a quest owns is cut with
+`tree-add`, recorded in frontmatter and released on conclude, so
 it is still findable next week. `work tree` records against the
 session instead, which is the right lifetime for an errand and
 the wrong one for a quest. Once the tree exists, quest has no
@@ -230,17 +230,17 @@ verbs for branching, committing, pushing, rebasing or stacking,
 and `work` has all of them: reach for it there rather than for
 raw git.
 
-The two origins prune differently. A scaffolded tree is the
-tool's to remove: it auto-prunes when the quest concludes or
+The two origins are released differently. A tree the tool cut is
+the tool's to remove: it is released when the quest concludes or
 retires, and a manual `tree-prune` removes it freely. An
 adopted (or legacy, unmarked) tree is a shared checkout the
-tool did not create, so it is never auto-pruned and a manual
-prune refuses unless you pass `force: true` after confirming
-with the user. Once its quest is concluded or retired, an
+tool did not create, so it is never released by itself, and a
+manual `tree-prune` refuses unless you pass `force: true` after
+confirming with the person. Once its quest is concluded or retired, an
 adopted tree is no longer the quest's to hold: `work tidy`
 and `work reclaim` judge it as any tree nothing holds, taking
 it only when it is clean and trunk holds its branch. Name the
-tree to prune or expand with `cwd`, a path inside it: a quest
+tree to release or expand with `cwd`, a path inside it: a quest
 with several trees refuses rather than guess, and a path that
 names none of them is refused too. The `tree-list` inventory
 flags any recorded tree whose directory has gone missing on
@@ -248,12 +248,12 @@ disk, so a stale entry is visible rather than trusted.
 
 The two origins also magnetize differently. A fresh session,
 and an id-less `quest load`, resolve a quest from the cwd only
-through the quest's own directory and the trees it scaffolded.
+through the quest's own directory and the trees it cut.
 An adopted tree never auto-loads, because a checkout adopted
 by several quests cannot say which one you meant; load such a
 quest by id instead. For the same reason `tree-adopt` warns
-and requires `force: true` before binding a quest to a
-repository's main working tree or to a path another quest
+and requires `force: true` before tying a quest to a
+repository's main checkout or to a path another quest
 already tracks. Adoption stays first-class: it is the
 deliberate way to account for a shared checkout, the guard
 only stops it happening by accident.
@@ -314,7 +314,7 @@ mutates anything:
   `force` reopens the lost ones, and `id` (session ids or
   unique prefixes, comma-separated) narrows it to named
   sessions from either list, which `force` then reopens.
-  Confirm with the user before `force`, since it opens a
+  Confirm with the person before `force`, since it opens a
   terminal per session. The listing says which terminal and
   layout `force` would use; pass `layout` (window, tab or
   pane), `terminal` or `nesting` to change it for this call,
@@ -402,7 +402,7 @@ so routine edits go through verbs that hold the quest lock:
   such section gets it added at its end. A README's
   sections are a closed set: one of its four optional
   sections (Milestones, Spirit, Outcomes, Context) is
-  added in its place, with its glyph, and any other
+  added in its place, with its emoji, and any other
   heading it lacks is refused. Journey is never replaced,
   only added to.
 
@@ -454,9 +454,9 @@ you at the schema.
 ## Disambiguation
 
 When `quest find` returns more than one match, ask the
-user. Surface the top three (ranked by recency of
+person. Surface the top three (ranked by recency of
 `updated`) with the quest's title and a one-line summary.
-The user picks by number ("the second one") or by saying
+The person picks by number ("the second one") or by saying
 the title. Avoid menus: everything stays prose.
 
 ## People Resolution
@@ -472,7 +472,7 @@ queries can answer without fuzzy regex.
 Unresolved subjects fall back according to the
 fallback setting: `silent` keeps the bare name, `warn`
 records it but flags the gap in tool results, `ask`
-surfaces it for the agent to query the user. Default is
+surfaces it for the agent to ask the person. Default is
 `warn`.
 
 ## Migration from the Old Substrate

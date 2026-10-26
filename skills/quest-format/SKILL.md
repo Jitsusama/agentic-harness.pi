@@ -3,7 +3,7 @@ name: quest-format
 description: >
   Structure of a quest README and the documents that live
   under it: frontmatter shape, the four core and four
-  optional body sections, emoji glyphs, ID format,
+  optional body sections, emoji, ID format,
   alias notation, Cast bullets and Journey entries. Use
   when writing or editing a quest README, a plan, research,
   brief or report document under a quest. Pairs with
@@ -33,7 +33,7 @@ Every quest and document carries a stable id of the form
 
 The directory holding a quest is named exactly `{id}`. No
 slug, no friendly suffix. The H1 of the README carries the
-human-readable title.
+title, as a person reads it.
 
 ## File Layout
 
@@ -201,7 +201,7 @@ Field semantics:
   list as sessions attach. A bare string is read as an
   id-only session for compatibility with older files.
   Only persisted sessions are recorded: an ephemeral
-  `pi --no-session` run (a subagent or council fan-out)
+  `pi --no-session` run (a subagent, or a council's reviewer)
   is never attached, so it cannot leave a log-less
   phantom. An attached session may also carry a captured
   identity so its liveness can be probed rather than
@@ -217,7 +217,7 @@ Field semantics:
   detaching the session from any other quest that still
   lists it active, so one session reads `active` on at
   most the quest it is on even after a lost state or an
-  earlier run left a straggler; it also prunes any
+  earlier run left a straggler; it also drops any
   detached entry whose session log no longer exists. Liveness
   is observed when read, never stored: `show`, `workspace` and
   `recent` derive each session's state from a read-time probe
@@ -249,7 +249,7 @@ updated: 2026-06-03
 ## Body Sections
 
 Every quest README has four mandatory sections, in this
-order, with their canonical emoji glyphs:
+order, with their canonical emoji:
 
 - `## 📜 Summary`: one paragraph, being what this quest is and
   why it exists.
@@ -264,7 +264,7 @@ Four optional sections, added when there's something to
 say:
 
 - `## 🎯 Milestones`: GitHub task-list bullets that drive
-  the status bar's progress glyph.
+  the status line's progress mark.
 - `## 🔥 Spirit`: the stable north star that survives
   deviation.
 - `## 🏆 Outcomes`: what landed when this quest
@@ -350,7 +350,7 @@ bare id stays a reference; no schema change is needed.
 ## Document Templates
 
 Each document kind has a starting set of sections that
-the scaffolding writes. The author overwrites the guidance
+`draft` writes. The author overwrites the guidance
 text immediately.
 
 - **plan**: Spirit, Context, Approach, Work, Open
@@ -366,6 +366,6 @@ GitHub task-list checkboxes are parsed.
 
 ## Voice
 
-Quest content is human prose. Follow the prose-standard
+Quest content is prose for people. Follow the prose-standard
 skill for voice, spelling and punctuation rules across
 every section.
