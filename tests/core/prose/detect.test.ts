@@ -1,0 +1,162 @@
+import { describe, expect, it } from "vitest";
+import { detectProseViolations } from "../../../lib/core/prose/index.ts";
+
+describe("detectProseViolations", () => {
+	it("finds nothing in clean Canadian prose", () => {
+		expect(
+			detectProseViolations("The colour of the centre reflects our behaviour."),
+		).toEqual([]);
+	});
+
+	it("flags an emdash", () => {
+		const violations = detectProseViolations(
+			"This is a pause — a dramatic one.",
+		);
+		expect(violations).toHaveLength(1);
+		expect(violations[0].kind).toBe("emdash");
+	});
+
+	it("flags American spelling with a Canadian suggestion", () => {
+		const violations = detectProseViolations("Pick a color for the behavior.");
+		const spellings = violations.filter((v) => v.kind === "spelling");
+		expect(spellings.map((v) => v.found).sort()).toEqual(["behavior", "color"]);
+		const colour = spellings.find((v) => v.found === "color");
+		expect(colour?.suggestion).toBe("colour");
+	});
+
+	it("flags the common American forms the old list missed", () => {
+		const text =
+			"The defense used gray fiber, a traveler canceled the catalog, and we modeled and labeled a liter of offense.";
+		const found = new Set(
+			detectProseViolations(text)
+				.filter((v) => v.kind === "spelling")
+				.map((v) => v.found),
+		);
+		for (const word of [
+			"defense",
+			"gray",
+			"fiber",
+			"traveler",
+			"canceled",
+			"catalog",
+			"modeled",
+			"labeled",
+			"liter",
+			"offense",
+		]) {
+			expect(found).toContain(word);
+		}
+	});
+
+	it("suggests the Canadian form for a doubled-consonant verb", () => {
+		const v = detectProseViolations("We canceled it.").find(
+			(x) => x.found === "canceled",
+		);
+		expect(v?.suggestion).toBe("cancelled");
+	});
+
+	it("leaves the deliberately-excluded words alone", () => {
+		const clean =
+			"The license and practice ran the program, opened a dialog, and used aluminum.";
+		expect(
+			detectProseViolations(clean).filter((v) => v.kind === "spelling"),
+		).toEqual([]);
+	});
+
+	it("flags -ise spellings but leaves Canadian -ize alone", () => {
+		expect(
+			detectProseViolations("We organise the data.")
+				.filter((v) => v.kind === "spelling")
+				.map((v) => v.suggestion),
+		).toEqual(["organize"]);
+		expect(detectProseViolations("We organize the data.")).toEqual([]);
+	});
+
+	it("does not flag false-positive lookalikes", () => {
+		// surprise, noise, size, otherwise, wise must never be touched
+		expect(
+			detectProseViolations(
+				"The size of the noise was a surprise; otherwise it was wise.",
+			),
+		).toEqual([]);
+	});
+
+	it("ignores code fences, inline code and URLs", () => {
+		const text = [
+			"Use the `color` property here.",
+			"```css",
+			"color: red;",
+			"```",
+			"See https://example.com/color/center for more.",
+		].join("\n");
+		expect(detectProseViolations(text)).toEqual([]);
+	});
+
+	it("still flags prose spelling outside code", () => {
+		const text = "The `color` property sets the color of the text.";
+		const spellings = detectProseViolations(text).filter(
+			(v) => v.kind === "spelling",
+		);
+		// Only the prose "color" outside the backticks is flagged.
+		expect(spellings).toHaveLength(1);
+	});
+
+	// Each of these was refused in a week of sessions, and none was
+	// prose: a branch, a tag, a flag, a handle and a commit scope.
+	it("leaves names alone that only look like words", () => {
+		const text = [
+			"fix(enroll): build the app from its Go module",
+			"Branch joel/hold-d159-catalog-only and jitsusama/optimus-enrollment-fixes.",
+			"The tag deploy/d159-catalog-guard marks the floor.",
+			"A check named enroll-builds-from-its-go-module lists the app.",
+			"Chromium converts colours when given --force-color-profile.",
+			"It wrote plain @colin.gray instead of a mention.",
+			"The retirement_catalog_only flag and catalog.json and color=auto stay.",
+		].join("\n");
+		expect(detectProseViolations(text)).toEqual([]);
+	});
+
+	it("still flags the word beside a name", () => {
+		const spellings = detectProseViolations(
+			"fix(enroll): enroll the color-coded catalog in @colin.gray's list",
+		).map((v) => v.found);
+		// A two-part hyphen compound is English (color-coded), so it is
+		// still read as prose; the scope and the handle are not.
+		expect(spellings).toEqual(["enroll", "color", "catalog"]);
+	});
+
+	it("flags a literal \\u2014 escape as an emdash", () => {
+		const violations = detectProseViolations(
+			"This is a pause \\u2014 a sneaky one.",
+		);
+		expect(violations).toHaveLength(1);
+		expect(violations[0].kind).toBe("emdash");
+	});
+
+	it("flags curly quotes with a straight-quote suggestion", () => {
+		const violations = detectProseViolations(
+			"She said \u201Chello\u201D and it\u2019s fine.",
+		);
+		const curly = violations.filter((v) => v.kind === "curly-quote");
+		// Open and close curly double-quotes are two violations, plus
+		// the curly apostrophe: three in total.
+		expect(curly.map((v) => v.suggestion).sort()).toEqual(['"', '"', "'"]);
+	});
+
+	it("flags the Unicode ellipsis with a three-period suggestion", () => {
+		const violations = detectProseViolations("Wait for it\u2026 done.");
+		const ellipsis = violations.filter((v) => v.kind === "ellipsis");
+		expect(ellipsis).toHaveLength(1);
+		expect(ellipsis[0].suggestion).toBe("...");
+	});
+
+	it("ignores curly quotes and ellipsis inside code", () => {
+		const text = [
+			"`it\u2019s` and `a\u2026b`",
+			"```",
+			"x = \u201Cy\u201D",
+			"```",
+		].join("\n");
+		expect(detectProseViolations(text)).toEqual([]);
+	});
+});
