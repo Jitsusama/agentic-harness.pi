@@ -173,6 +173,58 @@ export function kindAfter(
 	return kind;
 }
 
+/** Seconds a build's last run took, under which its next counts as quick. */
+export const QUICK_S = 60;
+
+/** A flake check named in full, as `.#checks.x86_64-linux.formatting`. */
+const CHECK_NAMED = /#checks\.[\w-]+\.([\w-]+)/g;
+
+/**
+ * What work is, so it is known again whatever flake reference or wrapper
+ * it came with: the checks it names, or else its command past `timeout`
+ * and `direnv exec`. The same checks were asked for as `.#checks...`,
+ * `path:$T#checks...` and `git+file://$PWD?rev=$rev#checks...`.
+ */
+export function workKey(what: string): string {
+	const checks = checksNamed(what);
+	if (checks.length > 0) return `checks:${checks.join(",")}`;
+	return what.replace(
+		/^[\s(]*(?:timeout\s+\d+\s+)?(?:direnv\s+exec\s+\S+\s+)?/,
+		"",
+	);
+}
+
+/** The checks a command names in full, sorted, each once. */
+function checksNamed(what: string): string[] {
+	return [
+		...new Set([...what.matchAll(CHECK_NAMED)].map((match) => match[1])),
+	].sort();
+}
+
+/**
+ * Whether a build takes seconds, so it gets the queue's quick turn: its
+ * last run that had its turn took under {@link QUICK_S}, or, with none,
+ * it builds checks named in full and none is a VM test's. Of 458 builds
+ * from 24 October this called quick, 367 were (80%) and 24 ran over five
+ * minutes; a slow run makes the next one bulk again. It found 316 of the
+ * 746 minutes the quick ones waited.
+ */
+export function quickAfter(
+	kind: Kind,
+	what: string,
+	outcomes: readonly Outcome[],
+): boolean {
+	if (kind !== "build") return false;
+	const key = workKey(what);
+	for (let at = outcomes.length - 1; at >= 0; at -= 1) {
+		const outcome = outcomes[at];
+		if (outcome.ranS === undefined || workKey(outcome.what) !== key) continue;
+		return outcome.ranS < QUICK_S && !outcome.ranTimed;
+	}
+	const checks = checksNamed(what);
+	return checks.length > 0 && !checks.some((name) => name.startsWith("vm-"));
+}
+
 /**
  * Whether an exit says the work failed, rather than that it was stopped
  * (128 and past, a signal) or never found (126, 127).

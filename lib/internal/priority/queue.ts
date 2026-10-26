@@ -21,11 +21,12 @@
  *   on the machine as well as in the queue, since a command can pick
  *   its check from a variable the queue can't read, and a session on
  *   older code runs its VMs outside the queue.
- * - **Order**: timed work before bulk, then work another session waits
- *   on (see awaited.ts), then the oldest first. A job its
- *   limit holds back lets the next one past; a job memory holds back
- *   holds everyone behind it, so a big job is never starved by small
- *   ones slipping in.
+ * - **Order**: timed work before bulk, quick work before the rest of
+ *   bulk, then work another session waits on (see awaited.ts), then the
+ *   oldest first. A job its limit holds back lets the next one past; a
+ *   job memory holds back holds everyone behind it but quick work, one
+ *   quick job at a time, so a big job is never starved by small ones
+ *   slipping in and a check of seconds never waits on it.
  * - **One at a time, a little apart**: memory is read a moment after
  *   it is taken, and everyone reacting at once to one reading is what
  *   makes a group overshoot and swing back, so turns are given out one
@@ -243,6 +244,13 @@ export interface Job {
 	 * its driver, none of which is a Nix build's.
 	 */
 	readonly ownPeakBytes?: number;
+	/**
+	 * A build its last run, or failing one what it builds, says takes
+	 * seconds (outcome.ts's `quickAfter`): it goes ahead of other bulk
+	 * work, past a job held back, and has a turn of its own beside a VM
+	 * check, at {@link QUICK_NIX}.
+	 */
+	readonly quick?: true;
 }
 
 /** What the machine has left, as the queue reads it. */
@@ -285,7 +293,16 @@ export function waitingInOrder(
 		);
 }
 
-const rank = (job: Job) => (CLASS_OF[job.kind] === "timed" ? 0 : 1);
+const rank = (job: Job) =>
+	CLASS_OF[job.kind] === "timed" ? 0 : isQuick(job) ? 1 : 2;
+
+/**
+ * Whether a job takes the quick turn: a build marked quick whose shell
+ * reads its own cap, which a shell an older harness started can't.
+ */
+function isQuick(job: Job): boolean {
+	return job.quick === true && job.kind === "build" && job.cappable === true;
+}
 
 /**
  * How the queue gives turns beyond memory, while the machine lacks the
@@ -332,6 +349,24 @@ export const MOST_CPU_PRESSURE_BESIDE_VMS = 10;
  */
 export const CAPPED_NIX = { maxJobs: 2, cores: 4 } as const;
 
+/**
+ * How many quick jobs run beside a VM check at once, beside the one
+ * capped build, whatever the CPU pressure. From 24 October to 26 October,
+ * 86 builds that then ran under a minute had waited over two: 69 of
+ * them, 361 minutes, while a VM check ran, when only one build may start
+ * beside it and only under {@link MOST_CPU_PRESSURE_BESIDE_VMS}, and the
+ * pressure sat at 40 to 70. One at a time is also how many may pass a
+ * job that is held back.
+ */
+export const QUICK_AT_ONCE = 1;
+
+/**
+ * The Nix settings a quick job beside a VM check runs with: one build
+ * on two cores, an eighth of the machine, against the capped build's
+ * eight. A text check needs one.
+ */
+export const QUICK_NIX = { maxJobs: 1, cores: 2 } as const;
+
 export const RULES: Rules = { buildsWaitForVmChecks: true };
 
 /**
@@ -353,15 +388,33 @@ export function nextTurn(
 	);
 	if (now - last < SPREAD_MS) return undefined;
 	if (room.memoryPressure >= MOST_MEMORY_PRESSURE) return undefined;
-	const { growing, vms, builds } = standing(jobs, room, now, rules);
-	for (const job of waitingInOrder(jobs, awaited)) {
+	const { growing, vms, builds, quick } = standing(jobs, room, now, rules);
+	const fits = (job: Job) => room.availableGib - growing >= needsGibOf(job);
+	const waiting = waitingInOrder(jobs, awaited);
+	// Quick work passes older work, one job at a time: it ends in seconds,
+	// so what it passes waits seconds longer, never starved by a stream.
+	const passes = (job: Job) =>
+		waiting.some(
+			(other) =>
+				!isQuick(other) && Date.parse(other.since) < Date.parse(job.since),
+		);
+	let held = false;
+	for (const job of waiting) {
+		if (isQuick(job)) {
+			const queuedPast = passes(job) && quick.running >= QUICK_AT_ONCE;
+			if (quick.left < 1 || queuedPast || !fits(job)) continue;
+			return Number.isFinite(quick.left) ? { ...job, capped: true } : job;
+		}
+		if (held) continue;
 		if (isVm(job) && vms >= (rules.mostVms ?? MOST_VMS)) continue;
 		// Only bulk work is behind a build, and it all waits with it.
-		if (job.kind === "build" && builds < 1) return undefined;
-		if (job.kind === "build" && Number.isFinite(builds) && !job.cappable) {
-			return undefined;
+		const ruledOut =
+			job.kind === "build" &&
+			(builds < 1 || (Number.isFinite(builds) && !job.cappable));
+		if (ruledOut || !fits(job)) {
+			held = true;
+			continue;
 		}
-		if (room.availableGib - growing < needsGibOf(job)) return undefined;
 		return job.kind === "build" && Number.isFinite(builds)
 			? { ...job, capped: true }
 			: job;
@@ -370,15 +423,21 @@ export function nextTurn(
 }
 
 /**
- * What running work holds: memory still growing, VMs, and how many
- * builds may start beside a VM check (all of them, with none running).
+ * What running work holds: memory still growing, VMs, how many builds
+ * may start beside a VM check (all of them, with none running), and how
+ * many quick jobs run and may start.
  */
 function standing(
 	jobs: readonly Job[],
 	room: Room,
 	now: number,
 	rules: Rules,
-): { growing: number; vms: number; builds: number } {
+): {
+	growing: number;
+	vms: number;
+	builds: number;
+	quick: { running: number; left: number };
+} {
 	const running = jobs.filter((job) => job.started !== undefined);
 	const growing = running
 		.filter((job) => now - Date.parse(job.started as string) < RAMP_MS)
@@ -390,13 +449,22 @@ function standing(
 	const checking =
 		rules.buildsWaitForVmChecks &&
 		(running.some((job) => job.kind === "vm-check") || room.vms > tests);
-	const beside = running.filter((job) => job.kind === "build").length;
+	const quickRunning = running.filter(isQuick).length;
+	const beside = running.filter(
+		(job) => job.kind === "build" && !isQuick(job),
+	).length;
 	const builds = !checking
 		? Number.POSITIVE_INFINITY
 		: room.cpuPressure < MOST_CPU_PRESSURE_BESIDE_VMS
 			? Math.max(0, BUILDS_BESIDE_VMS - beside)
 			: 0;
-	return { growing, vms, builds };
+	const quick = {
+		running: quickRunning,
+		left: checking
+			? Math.max(0, QUICK_AT_ONCE - quickRunning)
+			: Number.POSITIVE_INFINITY,
+	};
+	return { growing, vms, builds, quick };
 }
 
 /** How many more VMs and builds could start now. */

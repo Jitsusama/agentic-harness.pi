@@ -97,9 +97,26 @@ so once its checks come from the cache it is a build again.
   command that builds `changed-checks` and then runs it from
   `$out/bin` needs the tool's memory, not the build's, and the `what`
   it shows is cut at 120 characters.
-  Timed work goes first, then within each class the work of a session
-  another is parked on (the mesh says whose, from its wait leases),
-  then the oldest; a job memory holds back holds everyone behind it.
+  Timed work goes first, then quick work (below), then within each
+  class the work of a session another is parked on (the mesh says
+  whose, from its wait leases), then the oldest; a job memory holds
+  back holds everyone behind it but quick work.
+- **Quick work** is a build that takes seconds: its last run of the
+  same work took under a minute, or, never run, it builds checks named
+  in full (`.#checks.<system>.<name>`), none a VM test's. The same work
+  is the same checks whatever flake reference names them, or else the
+  same command past `timeout` and `direnv exec`. A command with a
+  heavier step after it is never quick. It goes ahead of other bulk
+  work and past a job held back, one quick job at a time while older
+  work waits, so a stream of them never starves it. Beside a VM check
+  it has a turn of its own, beside the one capped build and whatever
+  the CPU pressure, at `max-jobs = 1` and `cores = 2`. From 24 to 26
+  October, 69 of the 86 builds that ran under a minute after waiting
+  over two waited while a VM check ran, 361 minutes between them,
+  with CPU pressure at 40 to 70 against the capped build's 10. Of 458
+  builds that rule calls quick, 367 were, and 24 ran over five
+  minutes; a slow run makes the next bulk again. `queue.json` marks
+  the job `quick`.
 - **Only work is read:** a quoted single word, such as a quoted flake
   reference, counts as part of the command. A step that only looks for
   something, such as `pgrep`, `ps`, `grep`, `systemctl` or `echo`,
@@ -119,7 +136,10 @@ so once its checks come from the cache it is a build again.
   most about 8 cores, or `cores = 2` after a VM failed beside one. The cap is a settings file put first in
   `NIX_USER_CONF_FILES`, ahead of the files Nix reads anyway, so the
   person's nix.conf still holds and an inline `NIX_CONFIG` can't drop
-  it; the daemon honours it since the account is a trusted user.
+  it; the daemon honours it since the account is a trusted user. Each
+  job reads its settings from its own `<id>.capped`, so quick work can
+  be held tighter; an empty one, as an older harness writes, means
+  `capped.conf`.
   cargo is held to the same cores through `CARGO_BUILD_JOBS`, which a
   `-j` on the command still overrides. The call's output says it ran
   capped, and `queue.json` marks the job

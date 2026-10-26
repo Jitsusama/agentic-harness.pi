@@ -177,6 +177,9 @@ describe("the machine's queue folder", () => {
 			{ isRunning: (pid) => running.has(pid), cgroupOf: () => undefined },
 			() => ({ buildsWaitForVmChecks: false }),
 		);
+		expect(readFileSync(join(dir, "build.capped"), "utf8")).toBe(
+			"max-jobs = 2\ncores = 4\n",
+		);
 		free.ask(job("other"));
 		shellSays("other", 603);
 		free.keep(ROOMY, NOW + 3_000, () => undefined);
@@ -185,6 +188,16 @@ describe("the machine's queue folder", () => {
 		running.delete(602);
 		free.keep(ROOMY, NOW + 6_000, () => undefined);
 		expect(existsSync(join(dir, "build.capped"))).toBe(false);
+		// Quick work has a turn of its own beside the check, held tighter,
+		// however busy the CPU is.
+		held.ask(job("quick", { quick: true }));
+		shellSays("quick", 604);
+		held.keep({ ...ROOMY, cpuPressure: 50 }, NOW + 9_000, () => undefined);
+		expect(held.hasTurn("quick")).toBe(true);
+		expect(readFileSync(join(dir, "quick.capped"), "utf8")).toBe(
+			"max-jobs = 1\ncores = 2\n",
+		);
+		expect(record().jobs.find((one) => one.id === "quick")?.quick).toBe(true);
 	});
 
 	it("gives up jobs whose shell or session has ended", () => {
