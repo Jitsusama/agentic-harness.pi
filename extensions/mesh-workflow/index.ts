@@ -156,7 +156,7 @@ import {
 } from "./leases.ts";
 import { meshLines, type Shown } from "./render.ts";
 import { createSteering, type Steering, steerText } from "./steer.ts";
-import { assistantText, createTalks, ended } from "./talks.ts";
+import { assistantText, createTalks, ended, userText } from "./talks.ts";
 import { tellOrchestrator } from "./tells.ts";
 import { type Local, registerTools } from "./tools.ts";
 import { seedWaiting, type Waiting } from "./wait.ts";
@@ -451,8 +451,9 @@ export function meshWorkflow(
 				root,
 				addresses: () => peer?.addresses ?? [],
 				deliver: (one, inbox) => {
-					talks.opened(one, inbox);
-					steered(steerText(one));
+					const said = steerText(one);
+					talks.opened(one, inbox, said);
+					steered(said);
 				},
 				setAside: (inbox, names) => {
 					if (!ctx?.hasUI) return;
@@ -1155,6 +1156,9 @@ export function meshWorkflow(
 			talks.writing(assistantText(event.message));
 		});
 		pi.on("message_end", async (event) => {
+			// The steer's own message, once in the conversation, is what
+			// takes its talk into the run that answers it.
+			talks.heard(userText(event.message));
 			talks.wrote(assistantText(event.message));
 		});
 		pi.on("agent_settled", async (event) => {

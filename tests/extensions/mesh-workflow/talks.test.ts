@@ -8,10 +8,14 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	assistantText,
+	CAME_MS,
 	createTalks,
 	ended,
 	READING_MS,
+	type Talks,
+	userText,
 } from "../../../extensions/mesh-workflow/talks.ts";
+import type { Steer } from "../../../lib/mesh/steer.ts";
 import { talkFile } from "../../../lib/mesh/talk.ts";
 
 let inbox: string;
@@ -28,6 +32,15 @@ afterEach(() => {
 
 const talks = () => createTalks({ session: () => "s1", now: () => clock });
 
+/** The message a steer is delivered as, standing in for steerText. */
+const said = (steer: Steer) => `[Steered]\n\n${steer.text}`;
+
+/** A steer delivered, and its message reaching the conversation. */
+function take(following: Talks, steer: Steer): void {
+	following.opened(steer, inbox, said(steer));
+	following.heard(said(steer));
+}
+
 function stages(id: string): Array<Record<string, unknown>> {
 	return readFileSync(talkFile(inbox, id), "utf8")
 		.trim()
@@ -40,10 +53,13 @@ describe("a talk a session follows", () => {
 	it("goes from delivered through reading and replying to replied", () => {
 		const following = talks();
 		following.wrote("said before the steer came");
-		following.opened(
-			{ text: "how is it going?", from: "joel", at: "t0", id: "t1", file: "f" },
-			inbox,
-		);
+		take(following, {
+			text: "how is it going?",
+			from: "joel",
+			at: "t0",
+			id: "t1",
+			file: "f",
+		});
 		clock += 5_000;
 		following.step("bash");
 		clock += READING_MS - 1;
@@ -71,11 +87,32 @@ describe("a talk a session follows", () => {
 		]);
 	});
 
+	it("waits for the run that takes its steer, not the one ending as it came", () => {
+		// A busy session's steer is read after the current tool; a run in
+		// its last turn can end first, and pi starts a new run for it.
+		const following = talks();
+		const steer = { text: "status?", id: "t1", file: "f" };
+		following.opened(steer, inbox, said(steer));
+		following.step("bash");
+		following.writing("Done with the build");
+		following.wrote("Done with the build.");
+		following.settled(false);
+		expect(stages("t1").map(({ stage }) => stage)).toEqual(["delivered"]);
+
+		following.heard(`Some words first.\n\n${said(steer)}`);
+		following.wrote("All green.");
+		following.settled(false);
+		expect(stages("t1")).toEqual([
+			{ stage: "delivered", session: "s1", text: "status?" },
+			{ stage: "replied", text: "All green." },
+		]);
+	});
+
 	it("fails when the run is stopped or writes nothing", () => {
 		const following = talks();
-		following.opened({ text: "a", id: "t1", file: "f" }, inbox);
+		take(following, { text: "a", id: "t1", file: "f" });
 		following.settled(true);
-		following.opened({ text: "b", id: "t2", file: "f" }, inbox);
+		take(following, { text: "b", id: "t2", file: "f" });
 		following.settled(false);
 
 		expect(stages("t1").at(-1)).toEqual({ stage: "failed", why: "stopped" });
@@ -85,16 +122,18 @@ describe("a talk a session follows", () => {
 		});
 	});
 
-	it("hears what came of it until the next talk opens", () => {
+	it("hears what came of it within the hour, until the next talk opens", () => {
 		const following = talks();
-		following.opened({ text: "a", id: "t1", file: "f" }, inbox);
+		take(following, { text: "a", id: "t1", file: "f" });
 		following.wrote("On it.");
 		following.settled(false);
 		following.came(
 			ended("PLAN-20261026-ABCDEF", "concluded"),
 			"PLAN-20261026-ABCDEF",
 		);
-		following.opened({ text: "b", id: "t2", file: "f" }, inbox);
+		clock += CAME_MS;
+		following.came("quest concluded", "QEST-20261026-LATERQ");
+		take(following, { text: "b", id: "t2", file: "f" });
 		following.came("quest retired");
 
 		expect(stages("t1").at(-1)).toEqual({
@@ -102,35 +141,35 @@ describe("a talk a session follows", () => {
 			what: "plan concluded",
 			ref: "PLAN-20261026-ABCDEF",
 		});
+		expect(stages("t1")).toHaveLength(3);
 		expect(stages("t2").at(-1)).toEqual({
 			stage: "came",
 			what: "quest retired",
 		});
-		expect(stages("t1")).toHaveLength(3);
 	});
 
 	it("is not opened by a steer without an id", () => {
 		const following = talks();
-		following.opened({ text: "a", file: "f" }, inbox);
+		take(following, { text: "a", file: "f" });
 		following.settled(false);
 		expect(existsSync(join(inbox, "replies"))).toBe(false);
 	});
 });
 
-describe("an assistant message's text", () => {
-	it("joins its text parts and ignores everything else", () => {
-		expect(
-			assistantText({
-				role: "assistant",
-				content: [
-					{ type: "thinking", thinking: "hm" },
-					{ type: "text", text: "Hello " },
-					{ type: "toolCall", name: "bash" },
-					{ type: "text", text: "there" },
-				],
-			}),
-		).toBe("Hello there");
-		expect(assistantText({ role: "user", content: "hi" })).toBe("");
+describe("a message's text", () => {
+	it("joins its text parts for its own role and ignores everything else", () => {
+		const message = {
+			role: "assistant",
+			content: [
+				{ type: "thinking", thinking: "hm" },
+				{ type: "text", text: "Hello " },
+				{ type: "toolCall", name: "bash" },
+				{ type: "text", text: "there" },
+			],
+		};
+		expect(assistantText(message)).toBe("Hello there");
+		expect(userText(message)).toBe("");
+		expect(userText({ role: "user", content: "hi" })).toBe("hi");
 		expect(assistantText(null)).toBe("");
 	});
 });
