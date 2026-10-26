@@ -139,8 +139,10 @@ while it waits its turn leaves without running.
   refused with `tree-add`. Across stages, `/dev` nodes
   always flow. The agent's commands run with `TMPDIR` set
   to `/tmp/pi-quest-<ID>`, a link to the loaded quest's scratch
-  folder's `tmp/`, which conclude and retire clear; a path named in
-  system temp is refused with that remedy. Bash targets resolve as the shell
+  folder's `tmp/`, and `GOCACHE` and `GOMODCACHE` in the scratch
+  folder's `cache/`. Conclude and retire remove the whole scratch
+  folder, unless a process still works in it, which leaves it to the
+  disk guard; a path named in system temp is refused with that remedy. Bash targets resolve as the shell
   would, so `~` is the home directory and a `cd` counts.
 - Sharing the machine by quest: the agent's commands and
   subagents carry `PI_QUEST`, the loaded quest's id, and on

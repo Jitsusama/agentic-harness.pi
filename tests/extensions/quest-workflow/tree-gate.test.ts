@@ -457,7 +457,7 @@ describe("workspace funnel", () => {
 		expect(verdict?.reason).toContain(join(workspaceOf(state), "tmp"));
 	});
 
-	it("clears the workspace's tmp/ on conclude and keeps the rest", async () => {
+	it("removes the whole workspace on conclude, and says what it held", async () => {
 		const state = buildState();
 		await createQuestWithPlan(state);
 		await handle(state, fakePi(), fakeCtx(repoRoot), { action: "build" });
@@ -470,8 +470,10 @@ describe("workspace funnel", () => {
 			id: state.questId ?? "",
 		});
 		expect(concluded.ok).toBe(true);
-		expect(existsSync(join(workspace, "tmp"))).toBe(false);
-		expect(existsSync(join(workspace, "lab", "results.csv"))).toBe(true);
+		expect(existsSync(workspace)).toBe(false);
+		if (concluded.ok) {
+			expect(concluded.message).toContain("Removed its scratch folder");
+		}
 	});
 
 	it("still reaps a scratch dir recorded before workspaces", async () => {

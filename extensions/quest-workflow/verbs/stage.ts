@@ -12,7 +12,7 @@ import {
 	auditQuestRecord,
 	isRecordSound,
 } from "../../../lib/core/internal/quest/record-audit.ts";
-import { clearQuestWorkspaceTmp } from "../../../lib/core/internal/quest/workspace.ts";
+import { removeQuestWorkspace } from "../../../lib/core/internal/quest/workspace.ts";
 import { resolveTreeProvider } from "../../../lib/core/tree/index.ts";
 import { appendJourneyByPath } from "../../../lib/internal/quest/append-journey.ts";
 import { nowYmd } from "../../../lib/internal/quest/dates.ts";
@@ -69,6 +69,7 @@ import {
 import { type TransitionAction, transition } from "../machine.ts";
 import { outsideWritesSaid, readOutsideWrites } from "../outside-writes.ts";
 import { recordBreakage } from "../record-watch.ts";
+import { dropTempLink } from "../scratch.ts";
 import type { QuestState } from "../state.ts";
 import { defaultWorkspaceRoot, workspaceDirOf } from "../workspace.ts";
 import { type Address, addressOf } from "./address.ts";
@@ -125,11 +126,11 @@ function describeHeld(held: HeldQuest[]): string {
  * so one untidy quest neither slips through nor stalls the batch. A
  * retire is abandoned as it stands, as it is one quest at a time.
  */
-function sweepQuests(
+async function sweepQuests(
 	state: QuestState,
 	action: "conclude" | "retire",
 	params: QuestToolParams,
-): QuestResult {
+): Promise<QuestResult> {
 	const targets = (params.id ?? "")
 		.split(",")
 		.map((t) => t.trim())
@@ -168,10 +169,8 @@ function sweepQuests(
 			appendHarnessLog(entry.dir, "Reaped the managed scratch directory.");
 		}
 		if (id === state.questId) state.scratchDir = null;
-		if (!workspaceDirOf(defaultWorkspaceRoot(), id)) continue;
-		if (clearQuestWorkspaceTmp(defaultWorkspaceRoot(), id)) {
-			appendHarnessLog(entry.dir, "Cleared the scratch folder's tmp/.");
-		}
+		const said = await scratchRemoved(id);
+		if (said) appendHarnessLog(entry.dir, said);
 	}
 	return result;
 }
@@ -694,25 +693,37 @@ function concludeElsewhere(
 const CONCLUDE_MEASURE_MS = 5_000;
 
 /**
- * What a sealed quest's workspace still holds, said so the person knows
- * what the quest leaves on disk: its tmp/ is cleared, and the rest stays
- * in case the quest reopens. Nothing when it has no workspace.
+ * Remove a sealed quest's scratch folder, its caches and builds with it,
+ * and say what that freed: a cache goes with its owner, not with its
+ * age. One a process still works in stays for the disk guard. Nothing
+ * when it has no scratch folder.
  */
-export async function workspaceKept(
+export async function scratchRemoved(
 	questId: string | null,
 	signal?: AbortSignal,
 	measure: Measure = duMeasure({
 		deadlineMs: CONCLUDE_MEASURE_MS,
 		...(signal ? { signal } : {}),
 	}),
+	root: string = defaultWorkspaceRoot(),
+	users?: (dir: string) => readonly number[],
 ): Promise<string | undefined> {
-	const dir = questId
-		? workspaceDirOf(defaultWorkspaceRoot(), questId)
-		: undefined;
-	if (!dir) return undefined;
+	const dir = questId ? workspaceDirOf(root, questId) : undefined;
+	if (!questId || !dir) return undefined;
 	const size = await measure(dir);
-	if (!size) return undefined;
-	return `Its scratch folder still holds ${formatSize(size)}, kept in case the quest reopens; \`spend\` with disk lists what could go across quests.`;
+	const removal = removeQuestWorkspace(root, questId, users);
+	const held = size ? `, which held ${formatSize(size)}` : "";
+	if (removal.removed) {
+		dropTempLink(questId);
+		return `Removed its scratch folder${held}.`;
+	}
+	if (removal.why === "in use") {
+		return `Left its scratch folder${held}, since a process still works in it; the disk guard takes it once nothing does.`;
+	}
+	if (removal.why === "stuck") {
+		return `Could not remove all of its scratch folder${held}; the disk guard takes what is left.`;
+	}
+	return undefined;
 }
 
 export async function concludeOrRetire(
@@ -885,16 +896,10 @@ async function sealLoadedQuest(
 		}
 		recordStructuralOp(state.questsRoot, action, changes);
 	}
-	// Clear the workspace's tmp/ once the quest is sealing, and any
-	// scratch dir recorded before workspaces existed: both are throwaway
-	// by definition, so they go with the quest. The rest of the workspace
-	// stays for the disk guard to compress and later reclaim, since a
-	// quest is sometimes reopened. Best-effort, never fatal.
+	// Reap any scratch dir recorded before workspaces existed; the
+	// workspace itself goes at the end, once what it records is read.
 	const reapedScratch = reapQuestScratchDir(state.questDir, state.scratchDir);
 	state.scratchDir = null;
-	const clearedTmp =
-		workspaceDirOf(defaultWorkspaceRoot(), state.questId) !== undefined &&
-		clearQuestWorkspaceTmp(defaultWorkspaceRoot(), state.questId ?? "");
 	appendJourneyEntry(
 		state,
 		action === "conclude"
@@ -906,9 +911,6 @@ async function sealLoadedQuest(
 	}
 	if (reapedScratch) {
 		logHarnessEntry(state, "Reaped the managed scratch directory.");
-	}
-	if (clearedTmp) {
-		logHarnessEntry(state, "Cleared the scratch folder's tmp/.");
 	}
 	// What the gates let through outside every tree, said once at the
 	// end, so the record shows everything the quest touched.
@@ -967,8 +969,11 @@ async function sealLoadedQuest(
 		message += ` ${count(blocked.length, "tree")} ${verb(blocked.length, "needs", "need")} manual resolution: ${blocked.map((b) => `${b.path}: ${b.reason}`).join("; ")}. Run \`tree-release\` with its cwd once that is settled.`;
 	}
 	if (outside) message += ` ${outside}`;
-	const kept = await workspaceKept(state.questId, signal);
-	if (kept) message += ` ${kept}`;
+	const removed = await scratchRemoved(state.questId, signal);
+	if (removed) {
+		logHarnessEntry(state, removed);
+		message += ` ${removed}`;
+	}
 	return ok(message, {
 		scope: "quest",
 		action,

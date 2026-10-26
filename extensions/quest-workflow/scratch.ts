@@ -1,7 +1,8 @@
 /**
- * Where the agent's commands put temporary files while a quest is
- * loaded: its workspace's `tmp/`, which conclude clears, rather than
- * the system temp directory, which nothing reaps.
+ * Where the agent's commands put temporary files and Go's caches while
+ * a quest is loaded: its workspace, which conclude removes, rather than
+ * the system temp directory or the account's caches, which no quest
+ * owns and so nothing reaps.
  *
  * The gate used to refuse every write to `/tmp` and name the workspace
  * instead, and 69 refusals in a week were that: one retry each, for a
@@ -83,9 +84,13 @@ export const QUEST_ENV = "PI_QUEST";
 
 /**
  * What the loaded quest's commands carry: the quest's id, which the
- * machine reads to share CPU and disk by quest, and its `TMPDIR`.
- * The id stays when the temp folder can't be made, since a command
- * that keeps its files elsewhere still does the quest's work.
+ * machine reads to share CPU and disk by quest, its `TMPDIR`, and Go's
+ * build and module caches in its workspace, so they go with the quest.
+ * Left to themselves they sit in the account, where on 26 October they
+ * held 6.1 GB that no quest owned. Cargo's needs no variable: its build
+ * folder is in the project, so a tree's goes with the tree. The id
+ * stays when the temp folder can't be made, since a command that keeps
+ * its files elsewhere still does the quest's work.
  */
 export function questCommandEnvironment(
 	workspaceRoot: string,
@@ -99,7 +104,39 @@ export function questCommandEnvironment(
 	} catch {
 		tmp = undefined;
 	}
-	return { [QUEST_ENV]: questId, ...(tmp ? { TMPDIR: tmp } : {}) };
+	// Go's caches only beside a TMPDIR: a workspace that could not be
+	// made for one could not hold them either.
+	const dir = tmp ? workspaceDirOf(workspaceRoot, questId) : undefined;
+	return {
+		[QUEST_ENV]: questId,
+		...(tmp ? { TMPDIR: tmp } : {}),
+		...(dir
+			? {
+					GOCACHE: path.join(dir, "cache", "go-build"),
+					GOMODCACHE: path.join(dir, "cache", "go-mod"),
+				}
+			: {}),
+	};
+}
+
+/**
+ * Take away a quest's short link once its workspace is gone, when it is
+ * still ours and points there.
+ */
+export function dropTempLink(
+	questId: string,
+	linkRoot: string = systemTemp(),
+): void {
+	const link = path.join(linkRoot, `${TEMP_LINK_PREFIX}${questId}`);
+	try {
+		const stat = lstatSync(link);
+		if (!stat.isSymbolicLink()) return;
+		if (process.getuid && stat.uid !== process.getuid()) return;
+		if (!readlinkSync(link).includes(questId)) return;
+		unlinkSync(link);
+	} catch {
+		// No link, or one gone since: nothing to take away.
+	}
 }
 
 /**

@@ -1,9 +1,10 @@
 /**
  * The loaded quest's TMPDIR: a short link to its workspace's tmp/, so
- * temporary files are reaped at conclude and socket paths stay short.
+ * temporary files go at conclude and socket paths stay short.
  */
 
 import {
+	existsSync,
 	lstatSync,
 	mkdirSync,
 	mkdtempSync,
@@ -16,6 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	dropTempLink,
 	questCommandEnvironment,
 	questTempDir,
 	TEMP_LINK_PREFIX,
@@ -105,10 +107,12 @@ describe("a quest's TMPDIR", () => {
 describe("what a quest's commands carry", () => {
 	// The machine shares CPU and disk by quest: what sorts a command
 	// into its quest's cgroup reads the quest from its environment.
-	it("names the quest and its TMPDIR", () => {
+	it("names the quest, its TMPDIR and Go's caches in its scratch folder", () => {
 		expect(questCommandEnvironment(workspaces, QUEST, links)).toEqual({
 			PI_QUEST: QUEST,
 			TMPDIR: join(links, `${TEMP_LINK_PREFIX}${QUEST}`),
+			GOCACHE: join(workspaces, QUEST, "cache", "go-build"),
+			GOMODCACHE: join(workspaces, QUEST, "cache", "go-mod"),
 		});
 	});
 
@@ -118,6 +122,23 @@ describe("what a quest's commands carry", () => {
 		expect(questCommandEnvironment(workspaces, QUEST, links)).toEqual({
 			PI_QUEST: QUEST,
 		});
+	});
+
+	it("takes away its link once the scratch folder is gone, and only its own", () => {
+		const link = questTempDir(workspaces, QUEST, links) ?? "";
+		const other = "QEST-20260101-OTHERS";
+		symlinkSync(
+			join(workspaces, "elsewhere"),
+			join(links, `${TEMP_LINK_PREFIX}${other}`),
+		);
+
+		dropTempLink(QUEST, links);
+		dropTempLink("QEST-20260101-NOLINK", links);
+
+		expect(existsSync(link)).toBe(false);
+		expect(
+			lstatSync(join(links, `${TEMP_LINK_PREFIX}${other}`)).isSymbolicLink(),
+		).toBe(true);
 	});
 
 	it("is nothing without a quest", () => {
