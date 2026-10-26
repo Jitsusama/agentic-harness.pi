@@ -11,7 +11,19 @@
  * Each detector reads the command as the guardians do, with heredoc
  * bodies and quoted data stripped, so a script or a message that only
  * mentions one of these is never caught.
+ *
+ * A fourth came later from the same sensor: a tracked file edited from
+ * the shell, by a redirect, `tee`, `sed -i` or `perl -i`, seen in 45
+ * sessions from 2026-10-19 to 2026-10-26, against a rule Joel captured
+ * after a language server kept answering from a file the shell had
+ * rewritten under it.
  */
+
+import {
+	type CommandPlace,
+	resolveBashWrites,
+} from "../core/internal/quest/bash-write.ts";
+import { isTracked } from "./quest/git-signals.ts";
 
 /**
  * The programs whose output is a build's or a test run's: what the
@@ -53,6 +65,27 @@ const STASH_SAVE =
 export function stashRefusal(stripped: string): string | undefined {
 	if (!STASH_SAVE.test(stripped)) return undefined;
 	return "git stash keeps work where no other session and no quest can see it, in a list every worktree of the repo shares. Keep it on a branch instead: work's branch action, then record, or copy the file aside into $TMPDIR.";
+}
+
+/**
+ * The files git tracks that a command rewrites from the shell: the
+ * targets of its redirects, `tee`, `sed -i` and `perl -i`, placed in
+ * the directory each part of the command runs in. A target whose place
+ * the command does not say is left out rather than guessed, and so is
+ * anything git does not track: a new file, scratch, `/dev/null`.
+ */
+export function trackedShellEdits(
+	command: string,
+	place: CommandPlace,
+	tracked: (path: string) => boolean = isTracked,
+): string[] {
+	return resolveBashWrites(command, place).paths.filter(tracked);
+}
+
+/** Why a command that rewrites tracked files from the shell is refused. */
+export function shellEditRefusal(files: readonly string[]): string {
+	const named = files.map((file) => `\`${file}\``).join(", ");
+	return `This rewrites ${named} from the shell, which git tracks. Use the edit tool for a change in place, or write for a whole file: a shell rewrite skips the edit path, and the language server goes on answering from what it last read.`;
 }
 
 /** A sleep and its length, with an optional unit. */

@@ -1,6 +1,6 @@
 # Shell Habit Interceptor
 
-Catches three shell habits the harness's standing rules forbid, as the
+Catches four shell habits the harness's standing rules forbid, as the
 command runs, since saying the rules in the prompt did not stop them.
 On the first day of 2026-W44, 14 of 17 active sessions cut build or
 test output with tail or head, 13 waited with sleep, and 5 ran
@@ -16,8 +16,14 @@ test output with tail or head, 13 waited with sleep, and 5 ran
   (`list`, `show`, `pop`, `apply`) goes ahead.
 - **`sleep`** refuses a sleep of ten seconds or more, pointing at
   `background: true`. A short sleep between polls goes ahead.
+- **`shell-edit`** refuses a redirect, `tee`, `sed -i` or `perl -i`
+  onto a file git tracks, pointing at the edit and write tools. A shell
+  rewrite skips the edit path and leaves the language server answering
+  from a stale copy; the learning sensor saw it in 45 sessions in the
+  week to 2026-10-26. Each target is placed where the command's own
+  `cd` puts it, and a new file, scratch or `/dev/null` goes ahead.
 
-Both guards redirect: the agent hears what to do instead, and sending
+Each guard redirects: the agent hears what to do instead, and sending
 the same command again goes ahead. Each reads the command with heredoc
 bodies and quoted text stripped, so a script or a message that only
 mentions one of these is left alone. The detectors are in
