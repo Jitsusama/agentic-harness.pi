@@ -511,6 +511,23 @@ describe("a tree remembers which session cut it", () => {
 		]);
 	});
 
+	it("names this pi session on a tree it holds, and not once it lets go", async () => {
+		// A session resumed after a restart runs in a new process, so the
+		// session id is what still says the tree is its own.
+		const memory = createTreeMemory(join(root, "cut"), {
+			session: () => "ours",
+		});
+		const facts = { alive: () => true, startedAt: async () => 5000 };
+		memory.remember({ ...tree("shared"), sessions: ["theirs"] });
+
+		await memory.rememberHeldByUs(tree("shared"), facts);
+		const holding = memory.recall()[0]?.sessions;
+		await memory.forgetUsAsHolder(tree("shared").path, facts);
+
+		expect(holding).toEqual(["theirs", "ours"]);
+		expect(memory.recall()[0]?.sessions).toEqual(["theirs"]);
+	});
+
 	it("does not let one stale record answer for a live one", async () => {
 		// Two records naming one pid with different start times, which is
 		// what a recycled pid looks like from here. Caching the verdict
