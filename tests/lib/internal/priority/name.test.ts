@@ -50,7 +50,16 @@ describe("the plain name of what a job builds", () => {
 		).toBe("a and 1 more");
 	});
 
+	it("names a whole system's set for the set, not the system", () => {
+		// Seen live on 26 October: changed-checks' evaluation of every
+		// check was named x86_64-linux.
+		expect(
+			workNameIn(["nix eval --json .#checks.x86_64-linux --apply 'x: 1'"]),
+		).toBe("checks");
+	});
+
 	it("names nothing a command doesn't build from a flake", () => {
+		expect(workNameIn(["bash -c 'nix build; #rebuild later'"])).toBeUndefined();
 		expect(workNameIn(["cargo test -p walgit"])).toBeUndefined();
 		expect(workNameIn([])).toBeUndefined();
 	});

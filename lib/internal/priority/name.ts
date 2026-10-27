@@ -11,8 +11,11 @@
  * are the expanded ones; read from `what`, only those written out.
  */
 
-/** An installable's attribute path, after the flake's `#`. */
-const INSTALLABLE = /#([\w"+-]+(?:\.[\w"+-]+)*)/g;
+/**
+ * An installable's attribute path, after the flake's `#`. Never a `#`
+ * starting a word, which is a shell comment, not a flake's fragment.
+ */
+const INSTALLABLE = /(?<=\S)#([\w"+-]+(?:\.[\w"+-]+)*)/g;
 
 /** Outputs keyed by system, whose name is the part after it. */
 const PER_SYSTEM = new Set([
@@ -56,7 +59,9 @@ export function workNameIn(commands: readonly string[]): string | undefined {
 function nameOf(path: readonly string[]): string | undefined {
 	const [output, key, name] = path;
 	if (output === undefined || output === "") return undefined;
-	if (PER_SYSTEM.has(output)) return name ?? key;
+	// A whole system's set, as an evaluation of every check asks for, is
+	// named for the set: its system is no name anybody chose.
+	if (PER_SYSTEM.has(output)) return name ?? output;
 	if (PER_HOST.has(output)) return key;
 	return path.join(".");
 }
