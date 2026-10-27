@@ -22,20 +22,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-/**
- * Room for a test that runs a few dozen real git commands on a loaded
- * machine: at a load of 23 they passed in under a second each alone, and
- * took over vitest's five seconds beside other work.
- */
-const REAL_GIT_MS = 30_000;
-
 import {
 	createGitPublisher,
 	createGitRebaser,
 	createGitStacks,
 	type RestackOutcome,
 } from "../../../lib/core/work/index.ts";
-import { disposeRepo, freshRepo, git } from "../../support/git-fixture.ts";
+import {
+	disposeRepo,
+	freshRepo,
+	git,
+	REAL_GIT_MS,
+} from "../../support/git-fixture.ts";
 
 /** An exec over real processes, shaped the way the library expects. */
 const exec = (command: string, args: readonly string[]) =>
