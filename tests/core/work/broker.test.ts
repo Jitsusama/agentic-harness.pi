@@ -70,6 +70,7 @@ function remembering(held: HeldTree, others: number[]): TreeMemory {
 		otherHolders: async (path) => (path === held.path ? owners : []),
 		forgetUsAsHolder: async () => {},
 		whileUnheld: async () => undefined,
+		holdWhileUnheld: async () => undefined,
 	};
 }
 

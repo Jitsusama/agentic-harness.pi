@@ -14,6 +14,7 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
+	listTreeProviders,
 	type TreeClaims,
 	WORK_TREE_CLAIMS,
 } from "../../lib/core/work/index.ts";
@@ -73,6 +74,7 @@ async function sweepOnce(pi: ExtensionAPI): Promise<void> {
 			claims: claims.paths,
 			lockPath: join(dir, "sweep.lock"),
 			wentWithFinishedWork: inFinishedQuest,
+			providers: listTreeProviders,
 		});
 		line = said(outcome);
 	} catch (error) {

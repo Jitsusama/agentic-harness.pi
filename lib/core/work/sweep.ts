@@ -21,6 +21,9 @@
  * is only moved aside and its record forgotten; the removal, which for
  * a tree with a build in it takes seconds, runs after. A session that
  * then asks for the tree finds no record and no folder, and cuts afresh.
+ *
+ * A tree another provider cut, such as a World dev tree, goes through
+ * that provider, and only once it says nothing would be lost.
  */
 
 import { randomBytes } from "node:crypto";
@@ -38,7 +41,7 @@ import {
 import { basename, dirname, join, resolve } from "node:path";
 import type { Exec } from "../exec/index.ts";
 import { type ProcessFacts, systemFacts } from "../process/index.ts";
-import type { HeldTree } from "./broker.ts";
+import type { HeldTree, TreeProvider } from "./broker.ts";
 import { createGitHistory } from "./history.ts";
 import type { TreeMemory } from "./memory.ts";
 import { orphanedTrees } from "./tidy.ts";
@@ -67,6 +70,12 @@ export interface SweepDeps {
 	 * left from it may go too. Without it, every such tree is kept.
 	 */
 	wentWithFinishedWork?(gitDir: string): boolean;
+	/**
+	 * The providers loaded, for trees a provider other than git cut,
+	 * which go through that provider's own release. Without it, or for a
+	 * provider that can't say whether a tree is spent, every one is kept.
+	 */
+	providers?(): readonly TreeProvider[];
 }
 
 /** A tree the sweep took back, with the branch it leaves behind. */
@@ -86,7 +95,7 @@ export interface SweepOutcome {
 	/** Why it did nothing at all, when another sweep was running. */
 	skipped?: string;
 	taken: SweptTree[];
-	/** Git wouldn't remove it, and it is back where it was. */
+	/** Git or its provider wouldn't remove it, and it is back where it was. */
 	refused: LeftTree[];
 	/** Reclaim's rules keep it, or it couldn't be judged. */
 	kept: LeftTree[];
@@ -95,8 +104,10 @@ export interface SweepOutcome {
 /**
  * Take back every git worktree the broker cut whose recorded sessions
  * have all ended and that reclaim's rules would take: clean, and merged
- * into trunk or, detached, at a commit some ref holds. Says what it
- * took, what git refused and what it kept, tree by tree.
+ * into trunk or, detached, at a commit some ref holds. Then every other
+ * provider's unshareable tree whose provider says it is spent, through
+ * that provider. Says what it took, what was refused and what it kept,
+ * tree by tree.
  */
 export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 	const outcome: SweepOutcome = { taken: [], refused: [], kept: [] };
@@ -130,6 +141,14 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 				unattributed: [...unattributed].map(resolved),
 				outcome,
 			});
+		}
+		const others = deps.memory
+			.recall()
+			.filter(
+				(tree) => tree.providerId !== GIT_WORKTREE && !heldPaths.has(tree.path),
+			);
+		for (const tree of others) {
+			await releaseThroughProvider(deps, facts, tree, remembered, outcome);
 		}
 	} finally {
 		release();
@@ -170,6 +189,80 @@ async function byRepository(
 		repositories.set(main, [...(repositories.get(main) ?? []), tree]);
 	}
 	return { byMain: repositories, orphans };
+}
+
+/**
+ * Take a tree another provider cut, through that provider, once it says
+ * nothing would be lost.
+ *
+ * Such a tree can't be moved aside first: its provider finds it by
+ * where it stands, and may have more to undo than the folder, as World
+ * resets a tree's processes and datastores. So instead this session
+ * becomes its only holder under the record's lock, which makes the
+ * broker hand it to nobody else, and the removal runs after. A
+ * shareable tree is never taken that way, since another session may
+ * join one whoever holds it.
+ */
+async function releaseThroughProvider(
+	deps: SweepDeps,
+	facts: ProcessFacts,
+	tree: HeldTree,
+	remembered: readonly string[],
+	outcome: SweepOutcome,
+): Promise<void> {
+	const keep = (why: string): void => {
+		outcome.kept.push({ path: tree.path, why });
+	};
+	if (covered(resolved(tree.path), remembered)) {
+		keep("something still holds it");
+		return;
+	}
+	if (tree.identity.shareable) {
+		keep("it is shareable, so a session could join it while it is removed");
+		return;
+	}
+	const provider = deps.providers?.().find((one) => one.id === tree.providerId);
+	if (provider?.whyKept === undefined) {
+		keep(`${tree.providerId} can't say whether it is spent`);
+		return;
+	}
+	let why: string | undefined;
+	try {
+		why = await provider.whyKept(tree);
+	} catch (error) {
+		why = `${tree.providerId} couldn't judge it: ${messageOf(error)}`;
+	}
+	if (why !== undefined) {
+		keep(why);
+		return;
+	}
+	const before = await deps.memory.holdWhileUnheld(tree.path, facts);
+	if (before === undefined) {
+		keep("a session took it up again");
+		return;
+	}
+	try {
+		await provider.release(tree);
+		deps.memory.forget(tree.path);
+		outcome.taken.push({ path: tree.path });
+	} catch (error) {
+		// Whatever the provider left stands where it was, and goes back to
+		// the sessions that held it, for the next sweep to judge again.
+		deps.memory.remember(before);
+		outcome.refused.push({ path: tree.path, why: messageOf(error) });
+	}
+}
+
+/**
+ * Whether a path is one something wants, or inside or around one: a
+ * claim may name a tree's checkout where its record names the folder
+ * holding it.
+ */
+function covered(path: string, wanted: readonly string[]): boolean {
+	return wanted.some(
+		(one) =>
+			one === path || one.startsWith(`${path}/`) || path.startsWith(`${one}/`),
+	);
 }
 
 /**

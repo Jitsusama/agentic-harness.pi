@@ -118,6 +118,12 @@ no longer read it. Once that quest has finished and the tree's
 sessions have ended, its folder goes too. A tree whose repository
 went any other way is kept.
 
+A tree another provider cut, such as a World dev tree, goes through
+that provider's own release, and only once the provider says nothing
+would be lost. While it is removed, its record names the sweeping
+session, so no other session is handed it. A shareable tree, or one
+whose provider can't judge it, is kept.
+
 ## What It Will Not Do
 
 **It will not clone.** A repo known only by remote is refused,
