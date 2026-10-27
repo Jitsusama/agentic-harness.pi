@@ -189,8 +189,27 @@ function usable(written: Written): written is Required<Written> {
  * store is shaped this way: two sessions cutting trees at once both write, and
  * the loser of a read-modify-write race on a single index is a tree nobody can
  * find. Separate files cannot collide, since the name is the tree's own key.
+ *
+ * Given `session`, each tree this session takes up names it by its pi
+ * session id too, which the sweep reads to keep a resumed session's trees.
  */
-export function createTreeMemory(dir: string): TreeMemory {
+export function createTreeMemory(
+	dir: string,
+	known: { session?: () => string | undefined } = {},
+): TreeMemory {
+	/** The record's sessions, with this one added or, `leaving`, taken out. */
+	function sessionsWith(
+		tree: HeldTree | undefined,
+		leaving = false,
+	): { sessions?: string[] } {
+		const ours = known.session?.();
+		const before = (Array.isArray(tree?.sessions) ? tree.sessions : []).filter(
+			(one): one is string => typeof one === "string" && one !== ours,
+		);
+		const after = leaving || ours === undefined ? before : [...before, ours];
+		return after.length > 0 ? { sessions: after } : {};
+	}
+
 	const fileFor = (key: string): string =>
 		join(dir, `${key.replaceAll("/", "-")}.json`);
 
@@ -284,7 +303,7 @@ export function createTreeMemory(dir: string): TreeMemory {
 				// without one is right: it reads as unattributable, which is
 				// held, and a tree wrongly held costs disk where a tree
 				// wrongly reclaimed costs work.
-				this.remember(held);
+				this.remember({ ...held, ...sessionsWith(held) });
 				return;
 			}
 			// Added to whoever else holds it rather than replacing them. A
@@ -295,12 +314,16 @@ export function createTreeMemory(dir: string): TreeMemory {
 			// written under the record's lock, since another session adding
 			// itself between the two would otherwise be written out again.
 			await underLock(held.identity.key, async () => {
-				const before = (
-					this.recall().find((tree) => tree.path === held.path)?.owners ??
-					held.owners ??
-					[]
-				).filter((one) => isOwner(one) && !sameOwner(one, us));
-				this.remember({ ...held, owners: [...before, us] });
+				const found = this.recall().find((tree) => tree.path === held.path);
+				const before = (found?.owners ?? held.owners ?? []).filter(
+					(one) => isOwner(one) && !sameOwner(one, us),
+				);
+				const { sessions: _, ...rest } = held;
+				this.remember({
+					...rest,
+					owners: [...before, us],
+					...sessionsWith(found ?? held),
+				});
 			});
 		},
 
@@ -353,9 +376,11 @@ export function createTreeMemory(dir: string): TreeMemory {
 			await underLock(found.identity.key, async () => {
 				const tree = this.recall().find((one) => one.path === path);
 				if (tree === undefined) return;
+				const { sessions: _, ...rest } = tree;
 				this.remember({
-					...tree,
+					...rest,
 					owners: named(tree).filter((owner) => !sameOwner(owner, us)),
+					...sessionsWith(tree, true),
 				});
 			});
 		},
@@ -397,7 +422,8 @@ export function createTreeMemory(dir: string): TreeMemory {
 					owners.map((owner) => ownerStanding(owner, once)),
 				);
 				if (stands.some((one) => one !== "gone")) return;
-				this.remember({ ...tree, owners: [us] });
+				const { sessions: _, ...rest } = tree;
+				this.remember({ ...rest, owners: [us] });
 				before = tree;
 			});
 			return before;

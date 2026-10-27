@@ -47,6 +47,13 @@ export interface HeldTree {
 	 * which every reader here treats as still held.
 	 */
 	owners?: Owner[];
+	/**
+	 * The pi sessions holding it, by session id, which outlives the
+	 * process: a session resumed after a restart runs in a new process
+	 * and still holds the trees its last one cut. Absent from a record
+	 * written before this existed, or by a broker that knows no session.
+	 */
+	sessions?: string[];
 }
 
 /**

@@ -76,6 +76,19 @@ export interface SweepDeps {
 	 * provider that can't say whether a tree is spent, every one is kept.
 	 */
 	providers?(): readonly TreeProvider[];
+	/**
+	 * The pi sessions running now, by session id. A tree a running
+	 * session holds is kept, whichever process that session now runs in.
+	 */
+	liveSessions?(): Promise<ReadonlySet<string>>;
+	/** The working folders of every process running now. */
+	standingIn?(): readonly string[];
+	/**
+	 * When this boot began, in milliseconds since the epoch. A tree whose
+	 * record names no session is kept once its git has moved since then,
+	 * since a session that resumed in a new process may be working in it.
+	 */
+	bootedAt?: number;
 }
 
 /** A tree the sweep took back, with the branch it leaves behind. */
@@ -115,7 +128,8 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 	if (typeof release === "string") return { ...outcome, skipped: release };
 	try {
 		const facts = deps.facts ?? systemFacts;
-		const held = await deps.memory.heldNow(facts);
+		const inUse = await stillInUse(deps, deps.memory.recall());
+		const held = [...(await deps.memory.heldNow(facts)), ...inUse];
 		const heldPaths = new Set(held.map((tree) => tree.path));
 		const ended = deps.memory
 			.recall()
@@ -154,6 +168,73 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 		release();
 	}
 	return outcome;
+}
+
+/**
+ * The trees something is working in, whatever their owners say: one a
+ * running session holds, one a running process stands in, and one with
+ * no session named whose git has moved since this boot began.
+ *
+ * An owner names a process, and a session outlives its process: after a
+ * restart a resumed session runs in a new one and goes on using its
+ * trees by path. Its record then names only the old process, which
+ * reads as ended, so without this the sweep took a tree from a session
+ * still using it.
+ */
+async function stillInUse(
+	deps: SweepDeps,
+	trees: readonly HeldTree[],
+): Promise<HeldTree[]> {
+	const live = (await deps.liveSessions?.()) ?? new Set<string>();
+	const standing = (deps.standingIn?.() ?? []).map(resolved);
+	return trees.filter((tree) => {
+		const sessions = Array.isArray(tree.sessions) ? tree.sessions : [];
+		if (sessions.some((one) => live.has(one))) return true;
+		const path = resolved(tree.path);
+		if (standing.some((one) => one === path || one.startsWith(`${path}/`))) {
+			return true;
+		}
+		return (
+			sessions.length === 0 &&
+			deps.bootedAt !== undefined &&
+			gitMovedSince(tree.path, deps.bootedAt)
+		);
+	});
+}
+
+/** What git rewrites in a tree's own git folder as it is used. */
+const MOVES_WITH_USE = ["HEAD", "index", join("logs", "HEAD")] as const;
+
+/**
+ * Whether a tree's git has moved since `since`: a checkout, a commit, a
+ * fetch into it or a status that refreshed its index. A tree whose
+ * checkout is a `src` folder inside it is read there.
+ */
+function gitMovedSince(path: string, since: number): boolean {
+	const checkout = existsSync(join(path, ".git")) ? path : join(path, "src");
+	const gitDir = gitDirOf(checkout);
+	if (gitDir === undefined) return false;
+	return MOVES_WITH_USE.some((one) => {
+		try {
+			return statSync(join(gitDir, one)).mtimeMs > since;
+		} catch {
+			// Not every tree has each of these; one missing says nothing.
+			return false;
+		}
+	});
+}
+
+/** The git folder of a checkout, whether `.git` is one or points at one. */
+function gitDirOf(checkout: string): string | undefined {
+	const dotGit = join(checkout, ".git");
+	try {
+		if (statSync(dotGit).isDirectory()) return dotGit;
+		const said = /^gitdir: (.+)$/m.exec(readFileSync(dotGit, "utf8"))?.[1];
+		return said === undefined ? undefined : resolve(checkout, said.trim());
+	} catch {
+		// No checkout here, so there is no git to have moved.
+		return undefined;
+	}
 }
 
 /**

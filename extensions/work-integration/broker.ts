@@ -68,6 +68,14 @@ export function registerBuiltinTreeProviders(_pi: ExtensionAPI): void {
 
 let broker: TreeBroker | undefined;
 
+/** The pi session this process runs, which each tree it takes up names. */
+let session: string | undefined;
+
+/** Say which pi session this process now runs, for the trees it takes up. */
+export function treesHeldBySession(id: string | undefined): void {
+	session = id;
+}
+
 /** The session's broker, built on first use. */
 export function treeBroker(): TreeBroker {
 	if (!broker) {
@@ -78,7 +86,7 @@ export function treeBroker(): TreeBroker {
 			// trees still on disk, and without this the next one cannot see
 			// them, cannot push what is committed in them, and cannot release
 			// them either.
-			memory: createTreeMemory(treeRecordDir()),
+			memory: createTreeMemory(treeRecordDir(), { session: () => session }),
 		});
 	}
 	return broker;

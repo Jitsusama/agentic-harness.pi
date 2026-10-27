@@ -22,6 +22,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { Owner, ProcessFacts } from "../../../lib/core/process/index.ts";
 import type { HeldTree, TreeProvider } from "../../../lib/core/work/broker.ts";
 import { createTreeMemory } from "../../../lib/core/work/memory.ts";
+import type { SweepDeps } from "../../../lib/core/work/sweep.ts";
 import { sweepEndedTrees } from "../../../lib/core/work/sweep.ts";
 import { disposeRepo, freshRepo, git } from "../../support/git-fixture.ts";
 
@@ -200,7 +201,22 @@ async function setUp() {
 		lostClone,
 		elsewhereTree,
 		sweepWith,
+		sweepKnowing,
 	};
+
+	/** Sweep, told what `known` says of the sessions and processes now. */
+	function sweepKnowing(
+		known: Pick<SweepDeps, "liveSessions" | "standingIn" | "bootedAt">,
+	) {
+		return sweepEndedTrees({
+			exec,
+			memory,
+			claims: [],
+			lockPath,
+			facts: machine,
+			...known,
+		});
+	}
 }
 
 describe("sweeping the trees whose sessions have ended", () => {
@@ -318,6 +334,80 @@ describe("trees whose repository is gone", () => {
 			{ path: tree, why: "its repository is gone" },
 		]);
 		expect(existsSync(tree)).toBe(true);
+	});
+});
+
+describe("trees a session still uses, whatever their owners say", () => {
+	/** Name `sessions` on a tree's record, as a broker that knows them does. */
+	function heldBy(
+		memory: ReturnType<typeof createTreeMemory>,
+		path: string,
+		sessions: string[],
+	): void {
+		const record = memory.recall().find((one) => one.path === path);
+		if (record !== undefined) memory.remember({ ...record, sessions });
+	}
+
+	it("keeps one a running session holds, though its process ended", async () => {
+		// A session resumed after a restart runs in a new process; its
+		// record still names the old one.
+		const { memory, cut, sweepKnowing } = await setUp();
+		const tree = await cut("done", ["-b", "done", "@", "main"]);
+		heldBy(memory, tree, ["resumed"]);
+
+		const outcome = await sweepKnowing({
+			liveSessions: async () => new Set(["resumed"]),
+		});
+
+		expect(outcome.taken).toEqual([]);
+		expect(existsSync(tree)).toBe(true);
+	});
+
+	it("takes one whose sessions have all ended too", async () => {
+		const { memory, cut, sweepKnowing } = await setUp();
+		const tree = await cut("done", ["-b", "done", "@", "main"]);
+		heldBy(memory, tree, ["ended"]);
+
+		const outcome = await sweepKnowing({
+			liveSessions: async () => new Set(["another"]),
+		});
+
+		expect(outcome.taken).toEqual([{ path: tree, branch: "done" }]);
+	});
+
+	it("keeps one a running process stands in", async () => {
+		const { cut, sweepKnowing } = await setUp();
+		const tree = await cut("done", ["-b", "done", "@", "main"]);
+		mkdirSync(join(tree, "deep"));
+
+		const outcome = await sweepKnowing({
+			standingIn: () => ["/", join(tree, "deep")],
+		});
+
+		expect(outcome.taken).toEqual([]);
+		expect(existsSync(tree)).toBe(true);
+	});
+
+	it("keeps one naming no session whose git moved since the boot", async () => {
+		// The record names its process alone, as every record written
+		// before sessions were named does, so use since the boot is all
+		// that can tell a resumed session is in it.
+		const { cut, sweepKnowing } = await setUp();
+		const tree = await cut("done", ["-b", "done", "@", "main"]);
+
+		const outcome = await sweepKnowing({ bootedAt: Date.now() - 60_000 });
+
+		expect(outcome.taken).toEqual([]);
+		expect(existsSync(tree)).toBe(true);
+	});
+
+	it("takes one naming no session whose git hasn't moved since", async () => {
+		const { cut, sweepKnowing } = await setUp();
+		const tree = await cut("done", ["-b", "done", "@", "main"]);
+
+		const outcome = await sweepKnowing({ bootedAt: Date.now() + 60_000 });
+
+		expect(outcome.taken).toEqual([{ path: tree, branch: "done" }]);
 	});
 });
 

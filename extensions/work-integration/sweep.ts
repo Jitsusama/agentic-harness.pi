@@ -10,7 +10,7 @@
  * beside the trees' records, one JSON line a sweep.
  */
 
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, mkdirSync, readdirSync, readlinkSync } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
@@ -27,6 +27,8 @@ import { dataDir, stateDir } from "../../lib/internal/paths.ts";
 import { discoverQuests } from "../../lib/internal/quest/discovery.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace-root.ts";
 import { unattendedExec } from "../../lib/internal/unattended-exec.ts";
+import { census, machineBooted } from "../../lib/mesh/liveness.ts";
+import { createPresences } from "../../lib/mesh/presence.ts";
 import { treeRecordDir } from "./broker.ts";
 
 /** How long after a session starts its first sweep runs. */
@@ -75,6 +77,9 @@ async function sweepOnce(pi: ExtensionAPI): Promise<void> {
 			lockPath: join(dir, "sweep.lock"),
 			wentWithFinishedWork: inFinishedQuest,
 			providers: listTreeProviders,
+			liveSessions,
+			standingIn,
+			...bootedAt(),
 		});
 		line = said(outcome);
 	} catch (error) {
@@ -112,6 +117,43 @@ function inFinishedQuest(gitDir: string): boolean {
 	const { index } = discoverQuests(join(dataDir("quest-workflow"), "quests"));
 	const status = index.quests.get(id)?.doc.frontMatter.status;
 	return status !== undefined && FINISHED.has(status);
+}
+
+/** The pi sessions on the mesh now, by session id. */
+async function liveSessions(): Promise<ReadonlySet<string>> {
+	const presences = createPresences(
+		join(stateDir("mesh-workflow"), "presence"),
+	);
+	const { present } = await census(presences.all());
+	return new Set(present.map((one) => one.session));
+}
+
+/**
+ * The working folder of every process the kernel lists, which on a
+ * machine without `/proc` is none.
+ */
+function standingIn(): string[] {
+	let pids: string[];
+	try {
+		pids = readdirSync("/proc").filter((name) => /^\d+$/.test(name));
+	} catch {
+		// No /proc, as on macOS: the other guards still stand.
+		return [];
+	}
+	return pids.flatMap((pid) => {
+		try {
+			return [readlinkSync(join("/proc", pid, "cwd"))];
+		} catch {
+			// Ended since the listing, or another user's: nothing to read.
+			return [];
+		}
+	});
+}
+
+/** When this boot began, where the machine will say. */
+function bootedAt(): { bootedAt?: number } {
+	const at = machineBooted();
+	return at === undefined ? {} : { bootedAt: at };
 }
 
 /** A sweep's outcome as its log line holds it. */
