@@ -97,6 +97,21 @@ contains it. It keeps no record of such a tree, and `release`
 refuses it with `quest tree-release` as the way back: one owner,
 one removal path.
 
+## Trees Whose Sessions Have Ended
+
+Three minutes after a session starts, and every hour after, it
+takes back the git worktrees whose recorded sessions have all
+ended, by `reclaim`'s rules: clean, and merged into trunk or,
+detached, at a commit some ref holds. On 26 October, 185 such trees
+sat on one machine, 48 of them reclaimable. It looks again under
+the tree's record lock before acting, so a session that took the
+tree up since is seen. Under that lock it only moves the tree aside
+and forgets its record; the removal comes after. A tree claimed
+over `work:tree-claims:v1`, one whose record names nobody, and one
+the broker never cut are left alone, and no branch is deleted.
+One sweep runs at a time on a machine. Each writes a JSON line to
+`sweep.log` in the work state folder.
+
 ## What It Will Not Do
 
 **It will not clone.** A repo known only by remote is refused,

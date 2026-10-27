@@ -96,6 +96,25 @@ export interface TreeMemory {
 	otherHolders(path: string, facts?: ProcessFacts): Promise<readonly Owner[]>;
 	/** Take this session off a tree's record, leaving the record. */
 	forgetUsAsHolder(path: string, facts?: ProcessFacts): Promise<void>;
+	/**
+	 * Run `take` on a tree only while every session its record names has
+	 * ended, and forget the record once `take` says the tree is out of
+	 * the way.
+	 *
+	 * Judged again under the record's lock, the one a session taking the
+	 * tree up writes its claim under, so a session that took it up since
+	 * the caller looked is seen and the tree is left alone. That lock is
+	 * held for milliseconds by everyone else and taken over at thirty
+	 * seconds, so `take` must be quick: a move, never a removal. A record
+	 * that names nobody is never taken, since nothing can say it is spent.
+	 * Answers the record it forgot, so a caller whose next step fails can
+	 * write it back, or nothing when `take` didn't run or didn't take it.
+	 */
+	whileUnheld(
+		path: string,
+		take: () => Promise<boolean>,
+		facts?: ProcessFacts,
+	): Promise<HeldTree | undefined>;
 }
 
 /** How many times a listing the directory changed under is read again. */
@@ -322,6 +341,27 @@ export function createTreeMemory(dir: string): TreeMemory {
 					owners: named(tree).filter((owner) => !sameOwner(owner, us)),
 				});
 			});
+		},
+
+		async whileUnheld(path, take, facts = systemFacts) {
+			const found = this.recall().find((one) => one.path === path);
+			if (found === undefined) return undefined;
+			let taken: HeldTree | undefined;
+			await underLock(found.identity.key, async () => {
+				const tree = this.recall().find((one) => one.path === path);
+				if (tree === undefined) return;
+				const owners = named(tree);
+				if (owners.length === 0) return;
+				const once = askedOnce(facts);
+				const stands = await Promise.all(
+					owners.map((owner) => ownerStanding(owner, once)),
+				);
+				if (stands.some((one) => one !== "gone")) return;
+				if (!(await take())) return;
+				this.forget(path);
+				taken = tree;
+			});
+			return taken;
 		},
 
 		async heldNow(facts = systemFacts) {
