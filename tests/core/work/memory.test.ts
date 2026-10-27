@@ -515,7 +515,7 @@ describe("a tree remembers which session cut it", () => {
 		// A session resumed after a restart runs in a new process, so the
 		// session id is what still says the tree is its own.
 		const memory = createTreeMemory(join(root, "cut"), {
-			session: () => "ours",
+			sessions: () => ["ours"],
 		});
 		const facts = { alive: () => true, startedAt: async () => 5000 };
 		memory.remember({ ...tree("shared"), sessions: ["theirs"] });
@@ -526,6 +526,20 @@ describe("a tree remembers which session cut it", () => {
 
 		expect(holding).toEqual(["theirs", "ours"]);
 		expect(memory.recall()[0]?.sessions).toEqual(["theirs"]);
+	});
+
+	it("names a subagent's fleet session beside its own, once each", async () => {
+		// A lane's own session ends with its job, while the session that
+		// ran it goes on and sends the next job into the same tree.
+		const memory = createTreeMemory(join(root, "cut"), {
+			sessions: () => ["lane", "runner"],
+		});
+		const facts = { alive: () => true, startedAt: async () => 5000 };
+		memory.remember({ ...tree("lane-tree"), sessions: ["runner"] });
+
+		await memory.rememberHeldByUs(tree("lane-tree"), facts);
+
+		expect(memory.recall()[0]?.sessions).toEqual(["lane", "runner"]);
 	});
 
 	it("does not let one stale record answer for a live one", async () => {

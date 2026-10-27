@@ -190,23 +190,24 @@ function usable(written: Written): written is Required<Written> {
  * the loser of a read-modify-write race on a single index is a tree nobody can
  * find. Separate files cannot collide, since the name is the tree's own key.
  *
- * Given `session`, each tree this session takes up names it by its pi
- * session id too, which the sweep reads to keep a resumed session's trees.
+ * Given `sessions`, each tree this session takes up names them by pi
+ * session id too: its own, and in a subagent the session that ran it. The
+ * sweep reads them to keep a tree any of them still holds.
  */
 export function createTreeMemory(
 	dir: string,
-	known: { session?: () => string | undefined } = {},
+	known: { sessions?: () => readonly string[] } = {},
 ): TreeMemory {
-	/** The record's sessions, with this one added or, `leaving`, taken out. */
+	/** The record's sessions, with ours added or, `leaving`, taken out. */
 	function sessionsWith(
 		tree: HeldTree | undefined,
 		leaving = false,
 	): { sessions?: string[] } {
-		const ours = known.session?.();
+		const ours = known.sessions?.() ?? [];
 		const before = (Array.isArray(tree?.sessions) ? tree.sessions : []).filter(
-			(one): one is string => typeof one === "string" && one !== ours,
+			(one): one is string => typeof one === "string" && !ours.includes(one),
 		);
-		const after = leaving || ours === undefined ? before : [...before, ours];
+		const after = leaving ? before : [...before, ...ours];
 		return after.length > 0 ? { sessions: after } : {};
 	}
 
