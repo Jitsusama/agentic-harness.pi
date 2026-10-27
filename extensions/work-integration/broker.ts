@@ -29,6 +29,7 @@ import {
 } from "../../lib/core/work/index.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
 import { unattendedExec } from "../../lib/internal/unattended-exec.ts";
+import { createFleetLedger } from "../../lib/subagent/index.ts";
 
 /** Where trees this package cuts are put. */
 export function treeDir(): string {
@@ -68,12 +69,36 @@ export function registerBuiltinTreeProviders(_pi: ExtensionAPI): void {
 
 let broker: TreeBroker | undefined;
 
-/** The pi session this process runs, which each tree it takes up names. */
-let session: string | undefined;
+/**
+ * The pi sessions each tree this process takes up names: its own, and
+ * in a subagent the session that ran its fleet.
+ */
+let sessions: readonly string[] = [];
 
-/** Say which pi session this process now runs, for the trees it takes up. */
-export function treesHeldBySession(id: string | undefined): void {
-	session = id;
+/**
+ * Say which pi session this process now runs, for the trees it takes up.
+ *
+ * A subagent's own session ends with its job, while the session that ran
+ * it goes on and may send another job back into the same tree, as a
+ * lane does; so its trees name that session too, read from the fleet's
+ * record by the run id the supervisor hands every job.
+ */
+export async function treesHeldBySession(
+	id: string | undefined,
+	runId: string | undefined = process.env.SUBAGENT_RUN_ID,
+): Promise<void> {
+	sessions = id === undefined ? [] : [id];
+	if (runId === undefined) return;
+	try {
+		const { runs } = await createFleetLedger(
+			join(stateDir("subagent-workflow"), "fleets"),
+		).everyFleet();
+		const ran = runs.find((one) => one.id === runId)?.session;
+		if (ran !== undefined && ran !== id) sessions = [...sessions, ran];
+	} catch {
+		// A ledger that won't read leaves the trees naming this session
+		// alone, as they did before subagents' trees named their fleet's.
+	}
 }
 
 /** The session's broker, built on first use. */
@@ -86,7 +111,7 @@ export function treeBroker(): TreeBroker {
 			// trees still on disk, and without this the next one cannot see
 			// them, cannot push what is committed in them, and cannot release
 			// them either.
-			memory: createTreeMemory(treeRecordDir(), { session: () => session }),
+			memory: createTreeMemory(treeRecordDir(), { sessions: () => sessions }),
 		});
 	}
 	return broker;

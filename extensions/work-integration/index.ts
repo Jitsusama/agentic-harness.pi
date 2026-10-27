@@ -89,7 +89,7 @@ export default function workIntegration(pi: ExtensionAPI) {
 	pi.on("session_start", (_event, ctx) => {
 		// Each tree taken up from here on names the session as well as the
 		// process, so a session resumed after a restart keeps its trees.
-		treesHeldBySession(ctx.sessionManager.getSessionId());
+		void treesHeldBySession(ctx.sessionManager.getSessionId());
 		// A new session must not inherit the last one's providers or
 		// its broker: the trees on disk outlive the session, but which
 		// provider would be chosen for one is a question of the
