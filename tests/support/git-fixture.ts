@@ -31,8 +31,25 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { vi } from "vitest";
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * Room for a test or hook that drives real git on a busy machine.
+ *
+ * Each git command is a process, and spawns are what slows most under
+ * load: at a load average of 78, 104 of the 290 tests that use this
+ * fixture took over a second and three ran past vitest's five, every
+ * one of them passing alone. Five seconds there measures the machine,
+ * not the code, so a file that imports this fixture gets thirty. It is
+ * set here rather than in each file because using real git is what
+ * earns it, and a new file using the fixture should not have to learn
+ * that by failing.
+ */
+export const REAL_GIT_MS = 30_000;
+
+vi.setConfig({ testTimeout: REAL_GIT_MS, hookTimeout: REAL_GIT_MS });
 
 /** Run git in a directory, returning stdout. */
 export async function git(cwd: string, ...args: string[]): Promise<string> {

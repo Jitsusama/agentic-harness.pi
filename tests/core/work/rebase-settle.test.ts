@@ -19,15 +19,14 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-/**
- * Room for a test that halts and resumes a real rebase on a loaded
- * machine, which took over vitest's five seconds at a load of 23.
- */
-const REAL_GIT_MS = 30_000;
-
 import { spawnExec } from "../../../lib/core/exec/index.ts";
 import { createGitRebaser } from "../../../lib/core/work/rebase.ts";
-import { disposeRepo, freshRepo, git } from "../../support/git-fixture.ts";
+import {
+	disposeRepo,
+	freshRepo,
+	git,
+	REAL_GIT_MS,
+} from "../../support/git-fixture.ts";
 
 let repo: string;
 
