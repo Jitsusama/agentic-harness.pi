@@ -91,10 +91,38 @@ async function setUp() {
 		return path;
 	}
 
-	const sweep = (claims: readonly string[] = []) =>
-		sweepEndedTrees({ exec, memory, claims, lockPath, facts: machine });
+	const sweep = (
+		claims: readonly string[] = [],
+		wentWithFinishedWork?: (gitDir: string) => boolean,
+	) =>
+		sweepEndedTrees({
+			exec,
+			memory,
+			claims,
+			lockPath,
+			facts: machine,
+			...(wentWithFinishedWork ? { wentWithFinishedWork } : {}),
+		});
 
-	return { main, memory, lockPath, cut, sweep };
+	/** A snapshot cut from a clone that is then deleted, as conclude does. */
+	async function lostClone(
+		key: string,
+	): Promise<{ tree: string; clone: string }> {
+		const clone = await freshRepo("sweep-clone");
+		dirs.push(clone);
+		const tree = join(state, key);
+		await git(clone, "worktree", "add", "-q", "--detach", tree, "main");
+		memory.remember({
+			identity: { key, shareable: true },
+			path: tree,
+			providerId: "git-worktree",
+			owners: [ENDED],
+		});
+		disposeRepo(clone);
+		return { tree, clone };
+	}
+
+	return { main, memory, lockPath, cut, sweep, lostClone };
 }
 
 describe("sweeping the trees whose sessions have ended", () => {
@@ -187,6 +215,31 @@ describe("sweeping the trees whose sessions have ended", () => {
 		expect(after.skipped).toBeUndefined();
 		expect(after.taken.map((one) => one.path)).toEqual([tree]);
 		expect(existsSync(lockPath)).toBe(false);
+	});
+});
+
+describe("trees whose repository is gone", () => {
+	it("takes one whose clone went with finished work", async () => {
+		const { memory, sweep, lostClone } = await setUp();
+		const { tree, clone } = await lostClone("lost");
+
+		const outcome = await sweep([], (gitDir) => gitDir.startsWith(clone));
+
+		expect(outcome.taken).toEqual([{ path: tree }]);
+		expect(existsSync(tree)).toBe(false);
+		expect(memory.recall().map((one) => one.path)).not.toContain(tree);
+	});
+
+	it("keeps one whose clone went for any other reason", async () => {
+		const { sweep, lostClone } = await setUp();
+		const { tree } = await lostClone("lost");
+
+		const outcome = await sweep([], () => false);
+
+		expect(outcome.kept).toEqual([
+			{ path: tree, why: "its repository is gone" },
+		]);
+		expect(existsSync(tree)).toBe(true);
 	});
 });
 
