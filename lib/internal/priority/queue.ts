@@ -434,6 +434,68 @@ export function nextTurn(
 }
 
 /**
+ * Why a job waits: `memory`, the memory it needs isn't free; `vms`, the
+ * VMs allowed at once are running; `behind`, a VM check runs and builds
+ * beside one are at their limit; `order`, jobs ahead of it come first.
+ */
+export type WaitReason = "memory" | "vms" | "behind" | "order";
+
+/**
+ * Why each waiting job waits, by its id, judged by {@link nextTurn}'s
+ * own rules in its own order, so the two never disagree. A job that
+ * would start is waiting on the order: it gets its turn when the queue
+ * next gives one, or after the one ahead of it.
+ */
+export function waitReasons(
+	jobs: readonly Job[],
+	room: Room,
+	now: number,
+	rules: Rules = RULES,
+	awaited: ReadonlySet<string> = NOBODY,
+	first: ReadonlySet<string> = NOBODY,
+): Map<string, WaitReason> {
+	const reasons = new Map<string, WaitReason>();
+	const waiting = waitingInOrder(jobs, awaited, first);
+	if (room.memoryPressure >= MOST_MEMORY_PRESSURE) {
+		for (const job of waiting) reasons.set(job.id, "memory");
+		return reasons;
+	}
+	const { growing, vms, builds, quick } = standing(jobs, room, now, rules);
+	const fits = (job: Job) => room.availableGib - growing >= needsGibOf(job);
+	const passes = (job: Job) =>
+		waiting.some(
+			(other) =>
+				!isQuick(other) && Date.parse(other.since) < Date.parse(job.since),
+		);
+	let held = false;
+	let given = false;
+	for (const job of waiting) {
+		const reason = ((): WaitReason => {
+			if (isQuick(job)) {
+				if (quick.left < 1) return "behind";
+				if (passes(job) && quick.running >= QUICK_AT_ONCE) return "order";
+				if (!fits(job)) return "memory";
+				given = true;
+				return "order";
+			}
+			if (held || given) return "order";
+			if (isVm(job) && vms >= (rules.mostVms ?? MOST_VMS)) return "vms";
+			const ruledOut =
+				job.kind === "build" &&
+				(builds < 1 || (Number.isFinite(builds) && !job.cappable));
+			if (ruledOut || !fits(job)) {
+				held = true;
+				return ruledOut ? "behind" : "memory";
+			}
+			given = true;
+			return "order";
+		})();
+		reasons.set(job.id, reason);
+	}
+	return reasons;
+}
+
+/**
  * What running work holds: memory still growing, VMs, how many builds
  * may start beside a VM check (all of them, with none running), and how
  * many quick jobs run and may start.

@@ -43,6 +43,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { awaitedNow, NOBODY } from "./awaited.ts";
+import { workNameIn } from "./name.ts";
 import {
 	besideNow,
 	capFor,
@@ -55,6 +56,7 @@ import {
 	outcomesIn,
 	peakGibAfter,
 	quickAfter,
+	ranSAfter,
 	vmsFor,
 } from "./outcome.ts";
 import {
@@ -70,7 +72,9 @@ import {
 	type Rules,
 	roomLeft,
 	roomSaid,
+	type WaitReason,
 	waitingInOrder,
+	waitReasons,
 	waitsWithRoom,
 } from "./queue.ts";
 import type { BuildSeen, Reading } from "./room.ts";
@@ -172,6 +176,15 @@ export interface QueueRecord {
 		readonly first?: true;
 		/** Waiting, and another session waits on its owner, so it goes first. */
 		readonly awaited?: true;
+		/**
+		 * What it builds, by name, such as a check's: read from a running
+		 * job's own processes, or from `what` where it is written out.
+		 */
+		readonly name?: string;
+		/** How many seconds the same work took the last time it ran. */
+		readonly lastRanS?: number;
+		/** Why it waits, while it waits. */
+		readonly waitingOn?: WaitReason;
 	}[];
 	/** Minutes some job waited today though the memory it needed was free. */
 	readonly wasted: {
@@ -190,6 +203,12 @@ export interface Processes {
 	 * can't be read. A reader that never can leaves it out.
 	 */
 	memoryPeakOf?(cgroup: string): number | undefined;
+	/**
+	 * The command line of each process in a cgroup, for naming what a job
+	 * runs now. A reader that can't leaves it out, and the name then comes
+	 * from what the job was asked with.
+	 */
+	commandsIn?(cgroup: string): readonly string[];
 }
 
 /** The machine's queue folder. */
@@ -527,6 +546,7 @@ export function queueFolder(
 					ruled,
 					awaited,
 					first,
+					recorded(),
 				);
 				const shape = JSON.stringify({ ...record, at: "", heartbeat: 0 });
 				const due = !before || now - before.heartbeat * 1000 >= HEARTBEAT_MS;
@@ -546,11 +566,12 @@ export function queueRecord(
 	reading: Reading,
 	now: number,
 	before: QueueRecord | undefined,
-	processes: Pick<Processes, "cgroupOf">,
+	processes: Pick<Processes, "cgroupOf" | "commandsIn">,
 	shellOf: (id: string) => number | undefined = () => undefined,
 	rules: Rules = RULES,
 	awaited: ReadonlySet<string> = NOBODY,
 	first: ReadonlySet<string> = NOBODY,
+	outcomes: readonly Outcome[] = [],
 ): QueueRecord {
 	const at = new Date(now).toISOString();
 	const day = at.slice(0, 10);
@@ -562,6 +583,7 @@ export function queueRecord(
 			? { today: carried.today + 1, day, minute }
 			: carried;
 	const waiting = waitingInOrder(jobs, awaited, first);
+	const reasons = waitReasons(jobs, reading, now, rules, awaited, first);
 	return {
 		v: 1,
 		at,
@@ -581,6 +603,13 @@ export function queueRecord(
 					job.started !== undefined && shell !== undefined
 						? processes.cgroupOf(shell)
 						: undefined;
+				const name =
+					(slice !== undefined
+						? workNameIn(processes.commandsIn?.(slice) ?? [])
+						: undefined) ?? workNameIn([job.what]);
+				const lastRanS = ranSAfter(job.what, outcomes);
+				const waitingOn =
+					job.started === undefined ? reasons.get(job.id) : undefined;
 				return {
 					id: job.id,
 					class: CLASS_OF[job.kind],
@@ -603,6 +632,9 @@ export function queueRecord(
 					...(job.quest !== undefined && first.has(job.quest)
 						? { first: true as const }
 						: {}),
+					...(name !== undefined ? { name } : {}),
+					...(lastRanS !== undefined ? { lastRanS } : {}),
+					...(waitingOn !== undefined ? { waitingOn } : {}),
 				};
 			},
 		),

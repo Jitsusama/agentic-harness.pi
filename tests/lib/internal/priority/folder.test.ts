@@ -141,8 +141,37 @@ describe("the machine's queue folder", () => {
 				memoryGib: 4,
 				since: new Date(NOW - 1_000).toISOString(),
 				place: 1,
+				waitingOn: "order",
 			},
 		]);
+	});
+
+	it("names what each job builds, from its processes while it runs", () => {
+		// Y2YBTS's launcher can't read a name from a loop's `what`, so a
+		// running job's is read from its processes, where it is expanded.
+		const loop = "for c in a b; do nix build .#checks.x86_64-linux.$c; done";
+		const queue = queueFolder(dir, {
+			isRunning: (pid) => running.has(pid),
+			cgroupOf: (pid) => `/work-${pid}.scope`,
+			commandsIn: (cgroup) =>
+				cgroup === "/work-200.scope"
+					? [`bash -c ${loop}`, "nix build .#checks.x86_64-linux.b"]
+					: [],
+		});
+		queue.ask(job("loop", { what: loop }));
+		queue.ask(
+			job("named", { what: "nix build .#checks.x86_64-linux.formatting" }),
+		);
+		shellSays("loop", 200);
+		queue.keep(ROOMY, NOW, () => undefined);
+		const [loopJob, namedJob] = record().jobs;
+		expect(loopJob).toMatchObject({ id: "loop", state: "running", name: "b" });
+		expect(namedJob).toMatchObject({
+			id: "named",
+			state: "waiting",
+			name: "formatting",
+			waitingOn: "order",
+		});
 	});
 
 	it("gives the turn to work a session waits on, as the mesh tells it", () => {

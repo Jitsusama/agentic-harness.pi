@@ -31,6 +31,7 @@ import { jobsProcs, placeChildren } from "../../lib/internal/priority/place.ts";
 import { CLASS_OF, type Job } from "../../lib/internal/priority/queue.ts";
 import {
 	cgroupOf,
+	commandsIn,
 	floorsIn,
 	isRunning,
 	KERNEL,
@@ -89,7 +90,12 @@ function keepQueue(pi: ExtensionAPI, own: string | undefined) {
 	// Until VM tests run timed, a build waits while a VM check runs.
 	const folder = queueFolder(
 		dir,
-		{ isRunning, cgroupOf, memoryPeakOf: (cgroup) => memoryPeakOf(cgroup) },
+		{
+			isRunning,
+			cgroupOf,
+			memoryPeakOf: (cgroup) => memoryPeakOf(cgroup),
+			commandsIn: (cgroup) => commandsIn(cgroup),
+		},
 		() => ({ buildsWaitForVmChecks: !hasTimed() }),
 		join(stateDir("priority-workflow"), "outcomes.jsonl"),
 	);

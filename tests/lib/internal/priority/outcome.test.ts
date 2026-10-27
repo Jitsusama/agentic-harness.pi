@@ -17,6 +17,7 @@ import {
 	QUICK_S,
 	quickAfter,
 	RUNS_READ,
+	ranSAfter,
 	TELLING_S,
 	vmsFor,
 	workKey,
@@ -83,6 +84,32 @@ describe("work that takes seconds", () => {
 		expect(quickAfter("vm-check", check, [ran(check, 4)])).toBe(false);
 		const waited = outcome({ kind: "build", what: check, ranS: undefined });
 		expect(quickAfter("build", check, [ran(check, 600), waited])).toBe(false);
+	});
+});
+
+describe("how long work took last time", () => {
+	const check = "nix build .#checks.x86_64-linux.formatting > $TMPDIR/a.log";
+
+	it("is the latest run that had its turn, wherever its output went", () => {
+		const runs = [
+			outcome({ what: check, ranS: 300, exit: 0 }),
+			outcome({
+				what: "nix build .#checks.x86_64-linux.formatting > b",
+				ranS: 240,
+				exit: 0,
+			}),
+			outcome({ what: check, ranS: undefined }),
+		];
+		expect(ranSAfter(check, runs)).toBe(240);
+	});
+
+	it("passes over a failure too quick to say how long the work takes", () => {
+		const runs = [
+			outcome({ what: check, ranS: 300, exit: 0 }),
+			outcome({ what: check, ranS: TELLING_S - 1, exit: 1 }),
+		];
+		expect(ranSAfter(check, runs)).toBe(300);
+		expect(ranSAfter("cargo test", runs)).toBeUndefined();
 	});
 });
 
