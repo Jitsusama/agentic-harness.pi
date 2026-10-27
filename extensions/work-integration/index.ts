@@ -3,7 +3,8 @@
  *
  * Hosts the working layer: owns the tree provider registry for a
  * session, registers the plain-git provider this package ships,
- * and exposes the `work` tool.
+ * and exposes the `work` tool. Takes back, a while after a session
+ * starts and hourly, the trees whose sessions have all ended.
  *
  * Providers register over the event bus rather than by importing
  * the registry, so a specialised one can live in another package
@@ -30,6 +31,7 @@ import {
 	registerBuiltinTreeProviders,
 	treeBroker,
 } from "./broker.ts";
+import { registerTreeSweeps } from "./sweep.ts";
 import { registerWorkTool } from "./tools.ts";
 
 /**
@@ -53,6 +55,8 @@ export default function workIntegration(pi: ExtensionAPI) {
 	registerBuiltinTreeProviders(pi);
 
 	registerWorkTool(pi);
+
+	registerTreeSweeps(pi);
 
 	const api: WorkApi = {
 		registerTreeProvider(provider: TreeProvider) {
