@@ -11,7 +11,7 @@
  */
 
 import { appendFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, relative, sep } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	type TreeClaims,
@@ -22,7 +22,9 @@ import {
 	type SweepOutcome,
 	sweepEndedTrees,
 } from "../../lib/core/work/sweep.ts";
-import { stateDir } from "../../lib/internal/paths.ts";
+import { dataDir, stateDir } from "../../lib/internal/paths.ts";
+import { discoverQuests } from "../../lib/internal/quest/discovery.ts";
+import { questWorkspacesRoot } from "../../lib/internal/quest/workspace-root.ts";
 import { unattendedExec } from "../../lib/internal/unattended-exec.ts";
 import { treeRecordDir } from "./broker.ts";
 
@@ -70,6 +72,7 @@ async function sweepOnce(pi: ExtensionAPI): Promise<void> {
 			memory: createTreeMemory(treeRecordDir()),
 			claims: claims.paths,
 			lockPath: join(dir, "sweep.lock"),
+			wentWithFinishedWork: inFinishedQuest,
 		});
 		line = said(outcome);
 	} catch (error) {
@@ -90,6 +93,23 @@ async function sweepOnce(pi: ExtensionAPI): Promise<void> {
 		// The log is for reading afterwards; a sweep that can't write it
 		// has still done what it did, and a timer has nobody to tell.
 	}
+}
+
+/** The statuses a quest has once its work is done. */
+const FINISHED = new Set(["concluded", "retired"]);
+
+/**
+ * Whether a git folder lay in the scratch folder of a quest that has
+ * concluded or retired. Conclude takes the whole scratch folder, and a
+ * clone in it goes too, leaving the trees cut from it with nothing.
+ */
+function inFinishedQuest(gitDir: string): boolean {
+	const within = relative(questWorkspacesRoot(), gitDir);
+	if (within.startsWith("..") || isAbsolute(within)) return false;
+	const id = within.split(sep)[0];
+	const { index } = discoverQuests(join(dataDir("quest-workflow"), "quests"));
+	const status = index.quests.get(id)?.doc.frontMatter.status;
+	return status !== undefined && FINISHED.has(status);
 }
 
 /** A sweep's outcome as its log line holds it. */

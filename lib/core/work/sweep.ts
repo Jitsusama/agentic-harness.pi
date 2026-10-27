@@ -26,6 +26,7 @@
 import { randomBytes } from "node:crypto";
 import {
 	closeSync,
+	existsSync,
 	openSync,
 	readFileSync,
 	realpathSync,
@@ -34,7 +35,7 @@ import {
 	statSync,
 	writeSync,
 } from "node:fs";
-import { basename, dirname } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import type { Exec } from "../exec/index.ts";
 import { type ProcessFacts, systemFacts } from "../process/index.ts";
 import type { HeldTree } from "./broker.ts";
@@ -60,6 +61,12 @@ export interface SweepDeps {
 	/** The file that keeps two sweeps from running at once. */
 	lockPath: string;
 	facts?: ProcessFacts;
+	/**
+	 * Whether a repository that is gone went with work that has finished,
+	 * named by the git folder a tree's `.git` file points at, so a tree
+	 * left from it may go too. Without it, every such tree is kept.
+	 */
+	wentWithFinishedWork?(gitDir: string): boolean;
 }
 
 /** A tree the sweep took back, with the branch it leaves behind. */
@@ -113,7 +120,11 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 				.map((tree) => tree.path),
 			...deps.claims,
 		].map(resolved);
-		for (const [main, trees] of await byRepository(deps.exec, ended, outcome)) {
+		const repositories = await byRepository(deps, ended, outcome);
+		for (const tree of repositories.orphans) {
+			await takeOrphan(deps, facts, tree, outcome);
+		}
+		for (const [main, trees] of repositories.byMain) {
 			await sweepRepository(deps, facts, main, trees, {
 				remembered,
 				unattributed: [...unattributed].map(resolved),
@@ -126,15 +137,19 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 	return outcome;
 }
 
-/** Each repository's main checkout, with its ended trees. */
+/**
+ * Each repository's main checkout, with its ended trees, and the trees
+ * whose repository went with finished work.
+ */
 async function byRepository(
-	exec: Exec,
+	deps: SweepDeps,
 	trees: readonly HeldTree[],
 	outcome: SweepOutcome,
-): Promise<Map<string, HeldTree[]>> {
+): Promise<{ byMain: Map<string, HeldTree[]>; orphans: HeldTree[] }> {
 	const repositories = new Map<string, HeldTree[]>();
+	const orphans: HeldTree[] = [];
 	for (const tree of trees) {
-		const common = await exec("git", [
+		const common = await deps.exec("git", [
 			"-C",
 			tree.path,
 			"rev-parse",
@@ -142,14 +157,93 @@ async function byRepository(
 			"--git-common-dir",
 		]);
 		if (common.code !== 0) {
-			outcome.kept.push({ path: tree.path, why: "its repository is gone" });
+			const gitDir = goneGitDir(tree.path);
+			if (gitDir !== undefined && deps.wentWithFinishedWork?.(gitDir)) {
+				orphans.push(tree);
+			} else {
+				outcome.kept.push({ path: tree.path, why: "its repository is gone" });
+			}
 			continue;
 		}
 		const dir = common.stdout.trim();
 		const main = basename(dir) === ".git" ? dirname(dir) : dir;
 		repositories.set(main, [...(repositories.get(main) ?? []), tree]);
 	}
-	return repositories;
+	return { byMain: repositories, orphans };
+}
+
+/**
+ * The git folder a worktree's `.git` file points at, when that folder
+ * is gone, or nothing for a tree whose repository still stands or that
+ * isn't a worktree at all.
+ */
+function goneGitDir(path: string): string | undefined {
+	try {
+		const said = /^gitdir: (.+)$/m.exec(
+			readFileSync(join(path, ".git"), "utf8"),
+		)?.[1];
+		if (said === undefined) return undefined;
+		const gitDir = resolve(path, said.trim());
+		return existsSync(gitDir) ? undefined : gitDir;
+	} catch {
+		// No `.git` file, or a `.git` folder: not a worktree of a lost clone.
+		return undefined;
+	}
+}
+
+/**
+ * Take a tree whose repository went with finished work: its commits
+ * went with the clone, and git can no longer read it, so only its
+ * folder is left. Moved aside under its record's lock, as
+ * {@link takeBack} does, then removed.
+ */
+async function takeOrphan(
+	deps: SweepDeps,
+	facts: ProcessFacts,
+	tree: HeldTree,
+	outcome: SweepOutcome,
+): Promise<void> {
+	const aside = `${tree.path}.going-${randomBytes(4).toString("hex")}`;
+	let moveRefused: string | undefined;
+	const forgotten = await deps.memory.whileUnheld(
+		tree.path,
+		async () => {
+			try {
+				renameSync(tree.path, aside);
+				return true;
+			} catch (error) {
+				moveRefused = messageOf(error);
+				return false;
+			}
+		},
+		facts,
+	);
+	if (forgotten === undefined) {
+		if (moveRefused !== undefined) {
+			outcome.refused.push({ path: tree.path, why: moveRefused });
+		} else {
+			outcome.kept.push({ path: tree.path, why: "a session took it up again" });
+		}
+		return;
+	}
+	try {
+		rmSync(aside, { recursive: true, force: true });
+		outcome.taken.push({ path: tree.path });
+	} catch (error) {
+		// Read-only module caches refuse a plain removal. What is left goes
+		// back where it was, with its record, for the next sweep.
+		const why = messageOf(error);
+		try {
+			renameSync(aside, tree.path);
+			deps.memory.remember(forgotten);
+			outcome.refused.push({ path: tree.path, why });
+		} catch (back) {
+			outcome.refused.push({
+				path: tree.path,
+				why: `${why}; what is left is at ${aside}: ${messageOf(back)}`,
+			});
+		}
+	}
 }
 
 /** Reclaim's rules over one repository's ended trees, and acting on them. */

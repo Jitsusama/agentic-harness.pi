@@ -112,6 +112,12 @@ the broker never cut are left alone, and no branch is deleted.
 One sweep runs at a time on a machine. Each writes a JSON line to
 `sweep.log` in the work state folder.
 
+A tree cut from a clone in a quest's scratch folder outlives the
+clone, which goes when the quest concludes or retires, and git can
+no longer read it. Once that quest has finished and the tree's
+sessions have ended, its folder goes too. A tree whose repository
+went any other way is kept.
+
 ## What It Will Not Do
 
 **It will not clone.** A repo known only by remote is refused,
