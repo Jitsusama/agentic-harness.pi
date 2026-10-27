@@ -77,6 +77,17 @@ export interface TreeProvider extends TreeProviderInfo {
 	 * that means deleting it, leaving it, or nothing at all.
 	 */
 	release(held: HeldTree, options?: TreeCallOptions): Promise<void>;
+	/**
+	 * Why a tree whose sessions have all ended must stay, or nothing
+	 * when releasing it loses nothing its repository can't give back:
+	 * no uncommitted change or new file, and its commit held by a branch
+	 * or a remote. Asked by the sweep of a provider whose trees aren't
+	 * plain git worktrees; one without it keeps every such tree.
+	 */
+	whyKept?(
+		held: HeldTree,
+		options?: TreeCallOptions,
+	): Promise<string | undefined>;
 }
 
 /**

@@ -115,6 +115,23 @@ export interface TreeMemory {
 		take: () => Promise<boolean>,
 		facts?: ProcessFacts,
 	): Promise<HeldTree | undefined>;
+	/**
+	 * Make this session a tree's only holder, but only while every session
+	 * its record names has ended, judged under the record's lock as
+	 * {@link whileUnheld} judges it.
+	 *
+	 * For a tree that can't be moved aside before it is removed: while
+	 * the record names a running session, the broker hands the tree to
+	 * nobody else, so a removal that takes minutes can run outside the
+	 * lock. Never for a shareable tree, which another session may join
+	 * whoever holds it. Answers the record as it was, so a caller whose
+	 * removal fails can put it back, or nothing when the tree is held, or
+	 * when the machine won't say when this session started.
+	 */
+	holdWhileUnheld(
+		path: string,
+		facts?: ProcessFacts,
+	): Promise<HeldTree | undefined>;
 }
 
 /** How many times a listing the directory changed under is read again. */
@@ -362,6 +379,28 @@ export function createTreeMemory(dir: string): TreeMemory {
 				taken = tree;
 			});
 			return taken;
+		},
+
+		async holdWhileUnheld(path, facts = systemFacts) {
+			const found = this.recall().find((one) => one.path === path);
+			if (found === undefined) return undefined;
+			const us = await ownerNow(facts);
+			if (us === undefined) return undefined;
+			let before: HeldTree | undefined;
+			await underLock(found.identity.key, async () => {
+				const tree = this.recall().find((one) => one.path === path);
+				if (tree === undefined) return;
+				const owners = named(tree);
+				if (owners.length === 0) return;
+				const once = askedOnce(facts);
+				const stands = await Promise.all(
+					owners.map((owner) => ownerStanding(owner, once)),
+				);
+				if (stands.some((one) => one !== "gone")) return;
+				this.remember({ ...tree, owners: [us] });
+				before = tree;
+			});
+			return before;
 		},
 
 		async heldNow(facts = systemFacts) {

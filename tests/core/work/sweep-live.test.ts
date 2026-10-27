@@ -13,12 +13,14 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	realpathSync,
+	rmSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Owner, ProcessFacts } from "../../../lib/core/process/index.ts";
+import type { HeldTree, TreeProvider } from "../../../lib/core/work/broker.ts";
 import { createTreeMemory } from "../../../lib/core/work/memory.ts";
 import { sweepEndedTrees } from "../../../lib/core/work/sweep.ts";
 import { disposeRepo, freshRepo, git } from "../../support/git-fixture.ts";
@@ -46,6 +48,45 @@ const machine: ProcessFacts = {
 	startedAt: async (pid) =>
 		pid === RUNNING.pid ? RUNNING.startedAt : undefined,
 };
+
+/** When this test's own process started, as {@link machineWithUs} says. */
+const US_STARTED = 3000;
+
+/** {@link machine}, where this test's own process runs too. */
+const machineWithUs: ProcessFacts = {
+	alive: (pid) => pid === RUNNING.pid || pid === process.pid,
+	startedAt: async (pid) =>
+		pid === RUNNING.pid
+			? RUNNING.startedAt
+			: pid === process.pid
+				? US_STARTED
+				: undefined,
+};
+
+/** The id of a provider other than git's. */
+const ELSEWHERE = "elsewhere";
+
+/**
+ * A provider other than git's, saying `why` it keeps a tree and
+ * releasing one with `release`, which removes the folder unless told
+ * otherwise.
+ */
+function elsewhere(
+	why: string | undefined,
+	release: (held: HeldTree) => Promise<void> = async (held) =>
+		rmSync(held.path, { recursive: true, force: true }),
+): TreeProvider {
+	return {
+		id: ELSEWHERE,
+		specificity: 0,
+		appliesTo: () => false,
+		ensure: async () => {
+			throw new Error("the sweep never cuts a tree");
+		},
+		release,
+		whyKept: async () => why,
+	};
+}
 
 /** A pid no process can have, for a lock whose holder has ended. */
 const NO_SUCH_PID = 2_147_483_646;
@@ -122,7 +163,44 @@ async function setUp() {
 		return { tree, clone };
 	}
 
-	return { main, memory, lockPath, cut, sweep, lostClone };
+	/** A tree another provider cut: a folder, and the broker's record. */
+	function elsewhereTree(
+		key: string,
+		how: { shareable?: boolean; owners?: readonly Owner[] } = {},
+	): string {
+		const path = join(state, key);
+		mkdirSync(join(path, "src"), { recursive: true });
+		writeFileSync(join(path, "src", "file"), "committed\n");
+		memory.remember({
+			identity: { key, shareable: how.shareable ?? false },
+			path,
+			providerId: ELSEWHERE,
+			owners: [...(how.owners ?? [ENDED])],
+		});
+		return path;
+	}
+
+	/** Sweep with `provider` loaded, on a machine where this test runs. */
+	const sweepWith = (provider: TreeProvider, claims: readonly string[] = []) =>
+		sweepEndedTrees({
+			exec,
+			memory,
+			claims,
+			lockPath,
+			facts: machineWithUs,
+			providers: () => [provider],
+		});
+
+	return {
+		main,
+		memory,
+		lockPath,
+		cut,
+		sweep,
+		lostClone,
+		elsewhereTree,
+		sweepWith,
+	};
 }
 
 describe("sweeping the trees whose sessions have ended", () => {
@@ -240,6 +318,86 @@ describe("trees whose repository is gone", () => {
 			{ path: tree, why: "its repository is gone" },
 		]);
 		expect(existsSync(tree)).toBe(true);
+	});
+});
+
+describe("trees another provider cut", () => {
+	it("takes a spent one through its provider, holding it meanwhile", async () => {
+		const { memory, elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-tree");
+		let holders: unknown;
+		const provider = elsewhere(undefined, async (held) => {
+			holders = memory.recall().find((one) => one.path === tree)?.owners;
+			rmSync(held.path, { recursive: true, force: true });
+		});
+
+		const outcome = await sweepWith(provider);
+
+		expect(holders).toEqual([{ pid: process.pid, startedAt: US_STARTED }]);
+		expect(outcome.taken).toEqual([{ path: tree }]);
+		expect(existsSync(tree)).toBe(false);
+		expect(memory.recall().map((one) => one.path)).not.toContain(tree);
+	});
+
+	it("keeps one its provider says to keep", async () => {
+		const { elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-tree");
+
+		const outcome = await sweepWith(elsewhere("it has uncommitted changes"));
+
+		expect(outcome.kept).toContainEqual({
+			path: tree,
+			why: "it has uncommitted changes",
+		});
+		expect(existsSync(tree)).toBe(true);
+	});
+
+	it("keeps a shareable one, which a session could join mid-removal", async () => {
+		const { elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-snapshot", { shareable: true });
+
+		const outcome = await sweepWith(elsewhere(undefined));
+
+		expect(outcome.taken).toEqual([]);
+		expect(existsSync(tree)).toBe(true);
+	});
+
+	it("keeps one a quest claims by the checkout inside it", async () => {
+		const { elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-tree");
+
+		const outcome = await sweepWith(elsewhere(undefined), [join(tree, "src")]);
+
+		expect(outcome.kept).toContainEqual({
+			path: tree,
+			why: "something still holds it",
+		});
+		expect(existsSync(tree)).toBe(true);
+	});
+
+	it("never takes a running session's", async () => {
+		const { elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-tree", { owners: [RUNNING] });
+
+		const outcome = await sweepWith(elsewhere(undefined));
+
+		expect(outcome.taken).toEqual([]);
+		expect(existsSync(tree)).toBe(true);
+	});
+
+	it("gives the record back to its sessions when the release fails", async () => {
+		const { memory, elsewhereTree, sweepWith } = await setUp();
+		const tree = elsewhereTree("dev-tree");
+		const provider = elsewhere(undefined, async () => {
+			throw new Error("dev refused");
+		});
+
+		const outcome = await sweepWith(provider);
+
+		expect(outcome.refused).toEqual([{ path: tree, why: "dev refused" }]);
+		expect(memory.recall().find((one) => one.path === tree)?.owners).toEqual([
+			ENDED,
+		]);
 	});
 });
 
