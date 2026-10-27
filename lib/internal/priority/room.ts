@@ -178,6 +178,22 @@ export function memoryPeakOf(
 	return /^\d+$/.test(peak) ? Number(peak) : undefined;
 }
 
+/**
+ * The command line of every process in a cgroup and those under it,
+ * each with its arguments joined by spaces, so what a job runs now can
+ * be read with its shell's variables already expanded.
+ */
+export function commandsIn(cgroup: string, kernel: Kernel = KERNEL): string[] {
+	return pidsUnder(join(kernel.cgroups, cgroup))
+		.map((pid) =>
+			text(join(kernel.proc, pid, "cmdline"))
+				.split("\0")
+				.join(" ")
+				.trim(),
+		)
+		.filter((command) => command !== "");
+}
+
 /** The memory a cgroup's programs hold as their own, from memory.stat. */
 function anonIn(cgroup: string): number {
 	const anon = /^anon (\d+)$/m.exec(text(join(cgroup, "memory.stat")));

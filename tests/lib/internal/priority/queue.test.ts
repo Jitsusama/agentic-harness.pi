@@ -7,6 +7,7 @@ import {
 	type Job,
 	kindOf,
 	MOST_CPU_PRESSURE_BESIDE_VMS,
+	MOST_MEMORY_PRESSURE,
 	MOST_VMS,
 	needsGibOf,
 	nextTurn,
@@ -15,6 +16,7 @@ import {
 	roomSaid,
 	SPREAD_MS,
 	waitingInOrder,
+	waitReasons,
 	waitsWithRoom,
 	whatOf,
 } from "../../../../lib/internal/priority/queue.ts";
@@ -36,6 +38,58 @@ function job(id: string, over: Partial<Job> = {}): Job {
 }
 
 const startedAgo = (ms: number) => new Date(NOW - ms).toISOString();
+
+describe("why each job waits", () => {
+	const long = startedAgo(RAMP_MS + 60_000);
+	const older = (id: string, ms: number, over: Partial<Job> = {}) =>
+		job(id, { since: startedAgo(ms), ...over });
+
+	it("says memory when the memory a job needs isn't free, and order behind it", () => {
+		const jobs = [older("big", 9_000), older("next", 8_000)];
+		const tight = { ...ROOMY, availableGib: 1 };
+		expect(nextTurn(jobs, tight, NOW)).toBeUndefined();
+		expect(Object.fromEntries(waitReasons(jobs, tight, NOW))).toEqual({
+			big: "memory",
+			next: "order",
+		});
+	});
+
+	it("says memory for everyone while the machine is short of it", () => {
+		const jobs = [older("a", 9_000)];
+		const pressed = { ...ROOMY, memoryPressure: MOST_MEMORY_PRESSURE };
+		expect(waitReasons(jobs, pressed, NOW).get("a")).toBe("memory");
+	});
+
+	it("says vms when the VMs allowed at once are running", () => {
+		const running = Array.from({ length: MOST_VMS }, (_, at) =>
+			job(`vm${at}`, { kind: "vm-test", started: long }),
+		);
+		const jobs = [...running, older("vm", 9_000, { kind: "vm-test" })];
+		expect(waitReasons(jobs, ROOMY, NOW).get("vm")).toBe("vms");
+	});
+
+	it("says behind when builds beside a VM check are at their limit", () => {
+		const jobs = [
+			job("check", { kind: "vm-check", started: long }),
+			older("build", 9_000),
+			older("after", 8_000),
+		];
+		expect(nextTurn(jobs, BUSY, NOW)).toBeUndefined();
+		expect(Object.fromEntries(waitReasons(jobs, BUSY, NOW))).toEqual({
+			build: "behind",
+			after: "order",
+		});
+	});
+
+	it("says order for the job given the next turn and those after it", () => {
+		const jobs = [older("a", 9_000), older("b", 8_000)];
+		expect(nextTurn(jobs, ROOMY, NOW)?.id).toBe("a");
+		expect(Object.fromEntries(waitReasons(jobs, ROOMY, NOW))).toEqual({
+			a: "order",
+			b: "order",
+		});
+	});
+});
 
 describe("the kind of heavy work a command runs", () => {
 	it("reads each kind from the command", () => {

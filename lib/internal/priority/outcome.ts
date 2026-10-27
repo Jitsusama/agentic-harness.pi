@@ -284,6 +284,27 @@ export function quickAfter(
 }
 
 /**
+ * How many seconds the same work took the last time it had its turn, or
+ * nothing with no such run. Found by {@link workKey}, so a run that sent
+ * its output somewhere else still counts, and a failure inside
+ * {@link TELLING_S} is passed over, since it says nothing of how long
+ * the work takes.
+ */
+export function ranSAfter(
+	what: string,
+	outcomes: readonly Outcome[],
+): number | undefined {
+	const key = workKey(what);
+	for (let at = outcomes.length - 1; at >= 0; at -= 1) {
+		const outcome = outcomes[at];
+		if (outcome.ranS === undefined || workKey(outcome.what) !== key) continue;
+		if (failed(outcome.exit) && outcome.ranS < TELLING_S) continue;
+		return outcome.ranS;
+	}
+	return undefined;
+}
+
+/**
  * Whether an exit says the work failed, rather than that it was stopped
  * (128 and past, a signal) or never found (126, 127).
  */
