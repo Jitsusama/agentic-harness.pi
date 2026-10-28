@@ -126,6 +126,10 @@ import {
 	SUBAGENT_READY,
 	SUBAGENT_REGISTER_DEFAULT_EXTENSION,
 } from "../../lib/subagent/events.ts";
+import {
+	identifyCurrentTerminal,
+	type TerminalSessionHandle,
+} from "../../lib/terminal/index.ts";
 import { expandable } from "../../lib/ui/expandable.ts";
 import { type Acts, createActs, SETTLING, type Settling } from "./acts.ts";
 import {
@@ -1038,6 +1042,7 @@ export function meshWorkflow(
 					),
 				...(owner ? { owner } : {}),
 				...(previous ? { previous } : {}),
+				...terminalOf(),
 			});
 			for (const want of wanting.values()) peer.want(want);
 			if (waiting) seedWaiting(peer, waiting);
@@ -1410,6 +1415,20 @@ const CARRY_NAME = "mesh";
 function previousSession(carried: unknown): string | undefined {
 	const session = (carried as { session?: unknown } | undefined)?.session;
 	return typeof session === "string" && session !== "" ? session : undefined;
+}
+
+/**
+ * The terminal window this session runs in, for its presence, or nothing
+ * when no driver names one. A driver that fails to say costs only the
+ * field: the desktop then finds this peer by its title, as before.
+ */
+function terminalOf(): { terminal?: TerminalSessionHandle } {
+	try {
+		const terminal = identifyCurrentTerminal();
+		return terminal ? { terminal } : {};
+	} catch {
+		return {};
+	}
 }
 
 /** A message with the attention it gets here. */

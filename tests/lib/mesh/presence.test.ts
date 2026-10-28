@@ -314,6 +314,39 @@ describe("this session's peer", () => {
 		);
 	});
 
+	it("names the terminal window it runs in, as read back from its file", () => {
+		// The desktop raises a peer's window by this, since titles can be
+		// cut, shared or overridden.
+		const terminal = {
+			driverId: "kitty",
+			kind: "kitty-window",
+			hostId: "optimus",
+			value: "8",
+			scope: "unix:@kitty-318380",
+		};
+		localPeer({ ...surroundings(), terminal });
+
+		expect(
+			createPresences(join(root, "presence")).of(session)?.terminal,
+		).toEqual(terminal);
+	});
+
+	it("reads a presence whose terminal is malformed as naming none", () => {
+		const dir = join(root, "presence");
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(
+			join(dir, `${presence().session}.json`),
+			JSON.stringify({
+				...presence(),
+				terminal: { driverId: "kitty", value: 8 },
+			}),
+		);
+
+		expect(
+			createPresences(dir).of(presence().session)?.terminal,
+		).toBeUndefined();
+	});
+
 	it("is in its quest's group, named down from the root, and its repository's", () => {
 		const readme = (id: string, parent: string, trees = "") =>
 			`---\nid: ${id}\nkind: subquest\nparent: ${parent}\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\n${trees}---\n# ${id}\n`;
