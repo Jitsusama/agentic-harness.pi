@@ -30,6 +30,13 @@ declaration.
 - **Lists a skill only where it applies**, when the package config
   says where. A skill left out of the list can still be read by its
   path.
+- **Waits for the session's MCP servers after a reload.** The first
+  run after a reload or a restart waits, for at most 10 seconds, until
+  every MCP server the session had has registered its tools again.
+  Without the wait, pi built that run's prompt before the servers
+  connected: a server's summary, the tools loaded from it and its line
+  in the index dropped out, and came back later, rewriting the cache
+  each time. A session that had no MCP server never waits.
 
 ## Listing Skills Where They Apply
 
