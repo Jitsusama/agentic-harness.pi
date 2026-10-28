@@ -181,11 +181,11 @@ describe("what git is in the middle of", () => {
 });
 
 describe("pi's status line as the window narrows", () => {
-	it("gives up the session's total first, marking that something is hidden", () => {
+	it("gives up the session's total first, leaving no mark in its place", () => {
 		const full = widthAt(facts(), 300);
 
 		expect(read(facts(), full - 1)).toBe(
-			"dotfiles/modules/neovim  claude-opus-5-5 T high | ◑ 45.2k ∂ $0.04  B jitsusama/status-line-language  …",
+			"dotfiles/modules/neovim  claude-opus-5-5 T high | ◑ 45.2k ∂ $0.04  B jitsusama/status-line-language",
 		);
 	});
 
@@ -198,15 +198,15 @@ describe("pi's status line as the window narrows", () => {
 
 		expect(seen).toEqual([
 			"dotfiles/modules/neovim  claude-opus-5-5 T high | ◑ 45.2k ∂ $0.04 Σ $1.23  B jitsusama/status-line-language",
-			"dotfiles/modules/neovim  claude-opus-5-5 T high | ◑ 45.2k ∂ $0.04  B jitsusama/status-line-language  …",
-			"dotfiles/modules/neovim  claude-opus-5-5 T high | ◑ 45.2k ∂ $0.04  B jitsus…anguage  …",
-			"dotfiles/…/neovim  claude-opus-5-5 T high | ◑ 45.2k ∂ $0.04  B jitsus…anguage  …",
-			"dotfiles/…/neovim  claude-opus-5-5 T high | ◑ 23% ∂ $0.04  B jitsus…anguage  …",
-			"dotfiles/…/neovim  opus-5-5 T high | ◑ 23% ∂ $0.04  B jitsus…anguage  …",
-			"dotfiles/…/neovim  opus-5-5 | ◑ 23% ∂ $0.04  B jitsus…anguage  …",
-			"dotfiles/…/neovim  opus-5-5 | ◑ 23% ∂ $0.04  B  …",
-			"…/neovim  opus-5-5 | ◑ 23% ∂ $0.04  B  …",
-			"…/neovim | ◑ 23% ∂ $0.04  B  …",
+			"dotfiles/modules/neovim  claude-opus-5-5 T high | ◑ 45.2k ∂ $0.04  B jitsusama/status-line-language",
+			"dotfiles/modules/neovim  claude-opus-5-5 T high | ◑ 45.2k ∂ $0.04  B jitsus…anguage",
+			"dotfiles/…/neovim  claude-opus-5-5 T high | ◑ 45.2k ∂ $0.04  B jitsus…anguage",
+			"dotfiles/…/neovim  claude-opus-5-5 T high | ◑ 23% ∂ $0.04  B jitsus…anguage",
+			"dotfiles/…/neovim  opus-5-5 T high | ◑ 23% ∂ $0.04  B jitsus…anguage",
+			"dotfiles/…/neovim  opus-5-5 | ◑ 23% ∂ $0.04  B jitsus…anguage",
+			"dotfiles/…/neovim  opus-5-5 | ◑ 23% ∂ $0.04  B",
+			"…/neovim  opus-5-5 | ◑ 23% ∂ $0.04  B",
+			"…/neovim | ◑ 23% ∂ $0.04  B",
 			"neovim",
 		]);
 	});
@@ -262,7 +262,7 @@ describe("pi's status line as the window narrows", () => {
 			"dotfiles/…/neovim  claude-opus-5-5 | ◑ 23% ∂ $0.04",
 			"dotfiles/…/neovim  opus-5-5 | ◑ 23% ∂ $0.04",
 			"…/neovim  opus-5-5 | ◑ 23% ∂ $0.04",
-			"…/neovim | ◑ 23% ∂ $0.04  …",
+			"…/neovim | ◑ 23% ∂ $0.04",
 			"neovim",
 		]);
 		expect(STEPS[0]).toBe("total");

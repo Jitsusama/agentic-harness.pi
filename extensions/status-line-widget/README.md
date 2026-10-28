@@ -8,7 +8,7 @@ time as the terminal narrows.
 ## Layout
 
 ```
-dotfiles/modules/neovim  rebase ◆◈◇  claude-opus-5-5 high     ⚑  ◑ 45.2k ∂ $0.04 Σ $1.23  main ●
+dotfiles/modules/neovim  rebase ◆◈◇  claude-opus-5-5 high     ⚑  ◑ 45.2k ∂ $0.04 Σ $1.23  main *
 └──────────────────────── left ─────────────────────────┘     └──────────── right ─────────────┘
 ```
 
@@ -32,7 +32,10 @@ each reads with its own.
 - The panel's height, only while it isn't the usual one.
 - Context, marginal cost and session total, as one meter.
 - The branch, muted, with a mark for unsaved work and one for unpushed.
-- The more mark, whenever something has given way.
+
+A field that gives way goes without a trace. A mark saying only that
+something is missing would be one more to learn, and a wider window shows
+the field again.
 
 ## Where It Learns the Folder and Git
 
@@ -44,7 +47,7 @@ when it is set), so the two agree:
 {
   "engine": "/path/to/gitstatusd",
   "roots": ["zone.nix", ".git"],
-  "marks": { "branch": "\uf418", "unsaved": "●", "unpushed": "\uf431" }
+  "marks": { "branch": "\uf418", "unsaved": "*", "unpushed": "\uf431" }
 }
 ```
 
