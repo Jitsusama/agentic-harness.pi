@@ -34,6 +34,7 @@ import {
 	orchestrationOf,
 } from "../internal/quest/orchestration.ts";
 import type { QuestFrontMatter } from "../quest/types.ts";
+import type { TerminalSessionHandle } from "../terminal/index.ts";
 import { loadedQuest, type QuestRecords } from "./address.ts";
 import { scopesOf } from "./scope.ts";
 import { type Stop, stopsFrom } from "./stop.ts";
@@ -102,6 +103,14 @@ export interface Presence {
 	 * (see windowTitle).
 	 */
 	readonly title?: string;
+	/**
+	 * The terminal window it runs in, as the driver that drew it names it:
+	 * for kitty, the window's id and kitty's remote-control socket. The
+	 * desktop finds and raises a peer's window by this, since a title can
+	 * be cut, shared or overridden. Missing when pi runs in no terminal a
+	 * driver knows, and from an older presence.
+	 */
+	readonly terminal?: TerminalSessionHandle;
 	/**
 	 * The address of the orchestrator its quest answers to, when one is
 	 * above it (see internal/quest/orchestration.ts). The mesh resolves
@@ -392,6 +401,19 @@ function read(path: string): Presence | undefined {
 	}
 }
 
+/** Whether a value read from a presence file is a terminal handle. */
+function isTerminalHandle(value: unknown): value is TerminalSessionHandle {
+	if (typeof value !== "object" || value === null) return false;
+	const one = value as Record<string, unknown>;
+	return (
+		typeof one.driverId === "string" &&
+		typeof one.kind === "string" &&
+		typeof one.hostId === "string" &&
+		typeof one.value === "string" &&
+		(one.scope === undefined || typeof one.scope === "string")
+	);
+}
+
 /** Presence read from outside, or nothing when it is not one. */
 function presenceFrom(value: unknown): Presence | undefined {
 	if (typeof value !== "object" || value === null) return undefined;
@@ -420,6 +442,7 @@ function presenceFrom(value: unknown): Presence | undefined {
 		...(wantFrom(one.wants) ? { wants: wantFrom(one.wants) } : {}),
 		...(isOwner(one.owner) ? { owner: keepTicks(one.owner) } : {}),
 		...(typeof one.title === "string" ? { title: one.title } : {}),
+		...(isTerminalHandle(one.terminal) ? { terminal: one.terminal } : {}),
 		...(typeof one.orchestratedBy === "string"
 			? { orchestratedBy: one.orchestratedBy }
 			: {}),

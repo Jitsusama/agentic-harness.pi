@@ -20,6 +20,7 @@
 
 import type { TickedOwner } from "../internal/process-ticks.ts";
 import type { Orchestration } from "../internal/quest/orchestration.ts";
+import type { TerminalSessionHandle } from "../terminal/index.ts";
 import {
 	addressesOf,
 	loadedAddress,
@@ -137,6 +138,8 @@ export interface Surroundings {
 	 * a rename reaches presence with the next thing the peer says.
 	 */
 	readonly title?: () => string | undefined;
+	/** The terminal window this session runs in, when a driver names one. */
+	readonly terminal?: TerminalSessionHandle;
 	/** The clock, in milliseconds; the system's unless a test sets one. */
 	readonly now?: () => number;
 }
@@ -254,6 +257,7 @@ export function localPeer(at: Surroundings): Peer {
 			...(wanting.size > 0 ? { wants: longestStanding(wanting.values()) } : {}),
 			...(at.owner ? { owner: at.owner } : {}),
 			...titled(at.title?.()),
+			...(at.terminal ? { terminal: at.terminal } : {}),
 			...roles,
 		};
 		const text = JSON.stringify(said);
