@@ -1,5 +1,24 @@
 import { cpus } from "node:os";
+import { join } from "node:path";
 import { defineConfig } from "vitest/config";
+
+/**
+ * The files whose change reaches every test, so `--changed` runs them all.
+ *
+ * Named by absolute path rather than left to vitest's default globs
+ * (`**\/package.json/**`), because a glob's `**` does not cross a folder
+ * whose name starts with a dot, and every tree the work broker cuts
+ * sits under `~/.local/state`. There a dependency bump matched nothing
+ * and `pnpm test:changed` ran no tests at all. The setup folder is here
+ * too, since no test imports a setup file, so the import graph never
+ * reaches one.
+ */
+const RERUN_EVERYTHING = [
+	"package.json",
+	"pnpm-lock.yaml",
+	"vitest.config.ts",
+	"tests/setup/**",
+].map((file) => join(import.meta.dirname, file));
 
 // Several suites spawn real OS processes: the reviewer supervisor
 // launches node two levels deep, and the LSP suite starts its own
@@ -60,6 +79,7 @@ export default defineConfig({
 	test: {
 		environment: "node",
 		clearMocks: true,
+		forceRerunTriggers: RERUN_EVERYTHING,
 		globalSetup: ["./tests/setup/temp-root.ts"],
 		// Only the ceiling is ours to set: vitest 4 dropped the floor
 		// option and sizes the pool itself underneath the cap. The

@@ -37,9 +37,18 @@ Run the suite with:
 ```sh
 pnpm test            # everything, about 94s
 pnpm test:unit       # only the unit project, about 26s
+pnpm test:changed    # the tests this branch's changes reach
 pnpm test:watch      # re-run on save
 pnpm test:coverage   # v8 coverage report
 ```
+
+`pnpm test:changed` follows the import graph from every file the
+branch changed since `origin/main`, whether committed, staged or only
+edited, to the tests that import it, across both projects. It is the
+check to run before a merge. A new file counts only once git knows it
+(`git add -N` is enough), and a change to `package.json`, the
+lockfile, the vitest config or a setup file reaches every test, so it
+runs them all.
 
 New library modules should ship with tests that assert
 **observable behaviour through the public API**, never
