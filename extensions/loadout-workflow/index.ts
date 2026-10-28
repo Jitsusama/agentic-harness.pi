@@ -20,6 +20,10 @@
  * - loads the ones a skill names when the model reads that skill, since
  *   reading the skill is the moment it is about to use them.
  *
+ * Before a session's first run after a reload or a restart, it waits
+ * for the MCP servers the session had to connect again (servers.ts), so
+ * that run's prompt and tools read as they did before.
+ *
  * It also lists a skill only where the person says it applies
  * (skills.ts), so a session outside the World monorepo does not read
  * World's skills on every turn.
@@ -31,6 +35,11 @@ import {
 	loadPackageConfig,
 } from "../../lib/internal/config/loader.ts";
 import { loadable, loadableIndex, namedIn } from "./loadable.ts";
+import {
+	serversRegistered,
+	serversTheSessionHad,
+	untilServersReturn,
+} from "./servers.ts";
 import {
 	parseLoadoutSettings,
 	type SkillPlaces,
@@ -78,8 +87,14 @@ export default function loadoutWorkflow(pi: ExtensionAPI) {
 	let index: string | undefined;
 	// Where each skill applies, read once at start from the package config.
 	let places: SkillPlaces = {};
+	// Whether this runtime's first run has waited for the session's servers.
+	let waited = false;
 
-	pi.on("before_agent_start", async (event) => {
+	pi.on("before_agent_start", async (event, ctx) => {
+		if (!waited) {
+			waited = true;
+			await serversBack(ctx?.sessionManager?.getBranch?.() ?? []);
+		}
 		// pi offers every tool's snippet and rules here, declared or not.
 		index ??= loadableIndex(loadable(pi.getAllTools(), new Set()), {
 			snippets: event.systemPromptOptions.toolSnippets ?? {},
@@ -96,6 +111,17 @@ export default function loadoutWorkflow(pi: ExtensionAPI) {
 		}
 		return undefined;
 	});
+
+	/**
+	 * Wait for the MCP servers the branch had before this runtime. This
+	 * handler runs before pi's own MCP extension writes its section,
+	 * since pi loads its built-in extensions after the packages.
+	 */
+	async function serversBack(branch: readonly unknown[]): Promise<void> {
+		const wanted = serversTheSessionHad(branch);
+		if (wanted.length === 0) return;
+		await untilServersReturn(wanted, () => serversRegistered(pi.getAllTools()));
+	}
 
 	pi.on("session_start", async () => {
 		places = await skillPlaces();
