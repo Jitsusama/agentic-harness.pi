@@ -32,7 +32,15 @@ it does:
   `panel-lifecycle-workflow`, `job-workflow`,
   `session-recall-workflow`, `install-check-workflow`,
   `reload-workflow`, `rollover-workflow`, `shell-workflow`,
-  `mesh-workflow`, `priority-workflow`, `stray-output-workflow`.
+  `mesh-workflow`, `priority-workflow`, `stray-output-workflow`,
+  `model-retry-workflow`.
+
+  `model-retry-workflow` asks the model again when a call failed
+  for a moment and pi's own retries, 14 seconds of them, ran out:
+  30 seconds later, doubling to 5 minutes, for 6 tries. It uses
+  pi's own judgement of what is worth retrying, and says each try
+  through job-workflow. A session left on a timed-out turn sat idle
+  until somebody noticed.
 
   `stray-output-workflow` keeps writes off pi's screen while its TUI
   holds the terminal. pi guards neither stream in interactive mode, and

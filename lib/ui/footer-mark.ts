@@ -37,6 +37,8 @@ export const FOOTER_GLYPH = {
 	swapped: "\u21c4",
 	// A Claude plan's allowance: the spark Claude Code draws for itself.
 	plan: "\u273b",
+	// A model call failed for a moment, and the session will ask again.
+	retrying: "\u21bb",
 } as const;
 
 /** What a footer mark is called. */

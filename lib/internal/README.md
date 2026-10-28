@@ -60,6 +60,10 @@ may import from here, and any of it may change without notice.
 - **`claude-plan.ts`**: where a Claude plan's five-hour and weekly
   windows stand, read from what the Claude Code provider says after
   each turn, and the footer's words for them.
+- **`model-failure.ts`**: whether a failed model call is one a
+  later try could get past, by pi's own judgement, and the wait
+  before each try, for `model-retry-workflow` and the compaction
+  summary.
 - **`notify.ts`**: reaching the person at the machine through a
   desktop notification. It decides how; the mesh decides when.
   `PI_NOTIFY=off` silences it.

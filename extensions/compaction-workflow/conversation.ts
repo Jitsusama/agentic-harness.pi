@@ -32,7 +32,6 @@ import type {
 	Model,
 	Usage,
 } from "@earendil-works/pi-ai";
-import * as piAi from "@earendil-works/pi-ai";
 import { completeSimple } from "@earendil-works/pi-ai/compat";
 import {
 	convertToLlm,
@@ -51,6 +50,7 @@ import {
 	summaryInstruction,
 } from "../../lib/compaction/index.ts";
 import { cachePrices } from "../../lib/internal/cache-prices.ts";
+import { isTransientFailure } from "../../lib/internal/model-failure.ts";
 import { processGlobal } from "../../lib/internal/process-global.ts";
 import {
 	keepingRequests,
@@ -84,14 +84,6 @@ const WINDOW_MARGIN_TOKENS = 4_000;
 
 /** No summary worth having is written in less room than this. */
 const MIN_SUMMARY_ROOM_TOKENS = 16_000;
-
-/**
- * Errors pi-ai calls transient, for a pi from before it exported its
- * own classifier: a dropped or reset stream, an overloaded or
- * rate-limited provider, a server error.
- */
-const TRANSIENT_ERROR =
-	/overloaded|rate.?limit|too many requests|\b429\b|\b5\d\d\b|stream ended|message_stop|econnreset|socket hang up|timed? ?out|network|fetch failed/i;
 
 type Planned =
 	| {
@@ -270,16 +262,6 @@ function neededRoom(request: CompactionRequest): number {
 	);
 }
 
-/** Whether a failed reply is one a second call could get past. */
-function retryable(reply: AssistantMessage): boolean {
-	const classify = (piAi as Record<string, unknown>).isRetryableAssistantError;
-	if (typeof classify === "function") return Boolean(classify(reply));
-	return (
-		reply.stopReason === "error" &&
-		TRANSIENT_ERROR.test(reply.errorMessage ?? "")
-	);
-}
-
 /** Reading the context back from cache, and writing the summary. */
 function priced(request: CompactionRequest, model: Model<Api>): number {
 	const cache = cachePrices(
@@ -357,7 +339,7 @@ async function writeFrom(
 		return {
 			ok: false,
 			reason: read.reason,
-			...(retryable(reply) ? { retryable: true } : {}),
+			...(isTransientFailure(reply) ? { retryable: true } : {}),
 		};
 	}
 	const usage: Usage = reply.usage;
