@@ -25,6 +25,7 @@ import {
 } from "../../lib/core/work/sweep.ts";
 import { dataDir, stateDir } from "../../lib/internal/paths.ts";
 import { discoverQuests } from "../../lib/internal/quest/discovery.ts";
+import { sessionsNobodyClosed } from "../../lib/internal/quest/loaded.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace-root.ts";
 import { unattendedExec } from "../../lib/internal/unattended-exec.ts";
 import { census, machineBooted } from "../../lib/mesh/liveness.ts";
@@ -119,13 +120,21 @@ function inFinishedQuest(gitDir: string): boolean {
 	return status !== undefined && FINISHED.has(status);
 }
 
-/** The pi sessions on the mesh now, by session id. */
+/**
+ * The sessions that still hold their trees, by session id: those on
+ * the mesh now, and those nobody closed, which restore brings back.
+ */
 async function liveSessions(): Promise<ReadonlySet<string>> {
 	const presences = createPresences(
 		join(stateDir("mesh-workflow"), "presence"),
 	);
-	const { present } = await census(presences.all());
-	return new Set(present.map((one) => one.session));
+	const [{ present }, unclosed] = await Promise.all([
+		census(presences.all()),
+		// A session the machine's shutdown or a closed window took away is
+		// one restore brings back, and it comes back to the trees it had.
+		sessionsNobodyClosed(),
+	]);
+	return new Set([...present.map((one) => one.session), ...unclosed]);
 }
 
 /**
