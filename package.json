@@ -43,6 +43,7 @@
 		"load-check": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/load-check.ts --production",
 		"test": "vitest run",
 		"test:unit": "vitest run --project unit",
+		"test:changed": "vitest run --changed origin/main",
 		"test:browser": "vitest run --config vitest.browser.config.ts",
 		"test:watch": "vitest",
 		"test:coverage": "vitest run --coverage"

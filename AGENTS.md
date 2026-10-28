@@ -155,6 +155,7 @@ pnpm lint            # no errors and no warnings, before committing
 pnpm typecheck       # tsc over the whole project, which reports nothing
 pnpm test            # everything, about 94 s
 pnpm test:unit       # the unit project, about 26 s
+pnpm test:changed    # the tests this branch's changes reach, before a merge
 pnpm exec vitest run <paths>   # the tests a change touches, as you go
 ```
 
