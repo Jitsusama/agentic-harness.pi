@@ -52,7 +52,7 @@ function areasOf(space: string, members: readonly LoadableTool[]): string[] {
 		const area = bare.split("_")[0];
 		if (area) areas.add(area);
 	}
-	return [...areas];
+	return [...areas].sort();
 }
 
 /** The longest a tool's purpose runs in the index. */
@@ -82,10 +82,16 @@ export function loadable(
  * forgotten: a namespace on one line with its tools, any other tool on
  * a line of its own. Nothing when there is nothing to load.
  *
- * A namespace of more than `MOST_NAMED` tools is said as a count and
- * the areas its names cover, since `tool_search` finds the one wanted.
- * Naming every tool of the Tool Gateway's MCP server, 306 of them, ran
- * to 17,430 characters on every turn.
+ * A namespace of more than `MOST_NAMED` tools is said as the areas its
+ * names cover, since `tool_search` finds the one wanted. Naming every
+ * tool of the Tool Gateway's MCP server, 306 of them, ran to 17,430
+ * characters on every turn.
+ *
+ * The line says no count and keeps its areas in order, because the index
+ * is part of the system prompt, and a prompt that changes mid-session
+ * rewrites the whole cache. The gateway's tools come and go while a
+ * session runs (311 to 354 in one evening), so a count changed the
+ * prompt each time; the areas change only when a new one appears.
  */
 export function loadableIndex(
 	tools: readonly LoadableTool[],
@@ -109,7 +115,7 @@ export function loadableIndex(
 		}
 		const areas = areasOf(space, members).join(", ");
 		lines.push(
-			`${head}: ${members.length} tools, covering ${areas}. Find one with \`tool_search\`.`,
+			`${head}: tools covering ${areas}. Find one with \`tool_search\`.`,
 		);
 	}
 	for (const tool of tools) {

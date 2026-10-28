@@ -72,7 +72,7 @@ describe("the index of tools that load on demand", () => {
 		expect(index).toContain("tool_search");
 	});
 
-	it("says a large namespace as a count and its areas, not every name", () => {
+	it("says a large namespace as its areas, not every name", () => {
 		const gateway = { name: "mcp__gw" };
 		const many: LoadableTool[] = Array.from({ length: 30 }, (_, i) => ({
 			name: `mcp__gw__${i % 2 ? "github" : "vault"}_tool_${i}`,
@@ -84,9 +84,27 @@ describe("the index of tools that load on demand", () => {
 		const index = loadableIndex(many);
 
 		expect(index).toContain(
-			"- mcp__gw: 30 tools, covering vault, github. Find one with `tool_search`.",
+			"- mcp__gw: tools covering github, vault. Find one with `tool_search`.",
 		);
 		expect(index).not.toContain("mcp__gw__vault_tool_0");
+	});
+
+	it("reads the same when a large namespace gains tools in an area it had", () => {
+		// The index is in the system prompt, so any change to it rewrites
+		// the session's whole cache.
+		const gateway = { name: "mcp__gw" };
+		const tools = (count: number, first: string): LoadableTool[] =>
+			Array.from({ length: count }, (_, i) => ({
+				name: `mcp__gw__${i % 2 ? first : "vault"}_tool_${i}`,
+				description: "A tool.",
+				exposure: "deferred",
+				namespace: gateway,
+			}));
+
+		const before = loadableIndex(tools(30, "github"));
+		const after = loadableIndex(tools(42, "github").reverse());
+
+		expect(after).toBe(before);
 	});
 
 	it("keeps a hidden tool's when-to-use line and trigger rules in view", () => {
