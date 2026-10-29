@@ -41,6 +41,8 @@ export interface QuestToolParams {
 	nesting?: string;
 	/** spawn: the machine to start the session on, held by its mycelium node. */
 	machine?: string;
+	/** spawn: what the machine must be, as `kind=value`, for the node to choose. */
+	needs?: string[];
 	command?: string;
 	cwd?: string;
 	sessionId?: string;

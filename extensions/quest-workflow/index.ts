@@ -249,6 +249,12 @@ const QUEST_PARAMETERS = Type.Object({
 				"spawn: the machine to start the session on, by the name its mycelium node gives it (this one, or one its links reach). The node starts it held there, in the same folder under that machine's home, or its home; the window opened here joins it, and closing that window leaves it running. restore refuses it.",
 		}),
 	),
+	needs: Type.Optional(
+		Type.Array(Type.String(), {
+			description:
+				"spawn: what the machine must be, each as kind=value (machine, system, arch, reach, accelerator), such as reach=home or system=macos. The mycelium node chooses the machine among those its realm links, ranking down one on battery or short of memory or disk, and the session starts held there as with machine, which counts as one more need. dryRun asks the node only where. restore refuses it.",
+		}),
+	),
 	command: Type.Optional(
 		Type.String({
 			description:

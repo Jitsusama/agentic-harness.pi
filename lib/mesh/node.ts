@@ -21,6 +21,12 @@ import { connect } from "node:net";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
 import { isRecord } from "../internal/record.ts";
+import {
+	type Need,
+	needOnTheWire,
+	type PlaceAnswer,
+	placedFrom,
+} from "./placement.ts";
 
 /** What a node says of a session it holds. */
 export type Held = "busy" | "idle" | "ended" | "unreachable";
@@ -62,10 +68,45 @@ export async function sessionsAt(
  */
 export const START_PATIENCE_MS = 45_000;
 
+/**
+ * How long a placement has to answer: the node measures its own machine
+ * afresh and the others from what their links last said, which takes
+ * well under a second even on a loaded machine.
+ */
+export const PLACE_PATIENCE_MS = 5000;
+
+/**
+ * Asks the node serving `socket` where work needing `needs` goes, without
+ * starting anything, answering the machine it chose or its reasons.
+ */
+export async function placeAt(
+	socket: string | undefined,
+	needs: readonly Need[],
+	patience: number = PLACE_PATIENCE_MS,
+): Promise<PlaceAnswer> {
+	if (socket === undefined) {
+		return {
+			ok: false,
+			reason: "no mycelium realm is named here, so there is no node to ask",
+		};
+	}
+	const asked = { Place: { needs: needs.map(needOnTheWire) } };
+	const line = await askAt(socket, asked, patience);
+	if (line === undefined) {
+		return { ok: false, reason: `no mycelium node answered at ${socket}` };
+	}
+	return placedFrom(line);
+}
+
 /** A program to start held on a machine, through the node. */
 export interface NodeStart {
 	/** The machine it must start on, as its node names it. */
 	readonly machine: string;
+	/**
+	 * What else it needs of that machine, which the node checks again as
+	 * it starts it, so a machine that changed since it was chosen refuses.
+	 */
+	readonly needs?: readonly Need[];
 	/**
 	 * The folder it begins in there: a full path, or one within that
 	 * machine's home. Its node begins it in its home when this names none
@@ -109,7 +150,14 @@ export async function startAt(
 	}
 	const asked = {
 		Start: {
-			work: { needs: [{ machine: start.machine }] },
+			work: {
+				needs: [
+					...(start.needs ?? [])
+						.filter((need) => need.kind !== "machine")
+						.map(needOnTheWire),
+					{ machine: start.machine },
+				],
+			},
 			...(start.folder !== undefined ? { folder: start.folder } : {}),
 			command: start.command,
 		},

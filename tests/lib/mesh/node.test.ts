@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	nodeSocket,
+	placeAt,
 	sessionsAt,
 	sessionsFrom,
 	startAt,
@@ -148,6 +149,30 @@ describe("asking the node to start a session held", () => {
 		expect(answer).toEqual({ ok: true, started });
 	});
 
+	it("asks for what else the machine must be, with the machine pinned", async () => {
+		const asked: unknown[] = [];
+		const socket = await serving((line) => {
+			asked.push(JSON.parse(line));
+			return '{"Err":"refused"}';
+		});
+
+		await startAt(socket, {
+			...start,
+			needs: [
+				{ kind: "reach", value: "home" },
+				{ kind: "machine", value: "equilibrius" },
+			],
+		});
+
+		expect(asked).toMatchObject([
+			{
+				Start: {
+					work: { needs: [{ reach: "home" }, { machine: "equilibrius" }] },
+				},
+			},
+		]);
+	});
+
 	it("hears the node's reason when nothing starts", () => {
 		expect(
 			startedFrom('{"Err":"nowhere: optimus isn\'t equilibrius"}'),
@@ -172,6 +197,32 @@ describe("asking the node to start a session held", () => {
 	it("takes an answer it can't read as not started", () => {
 		const answer = startedFrom('{"Ok":{"Started":{"machine":"x"}}}');
 		expect(answer.ok).toBe(false);
+	});
+});
+
+describe("asking the node where work goes", () => {
+	it("asks as the node's wire says and hears the machine it chose", async () => {
+		const asked: unknown[] = [];
+		const socket = await serving((line) => {
+			asked.push(JSON.parse(line));
+			return JSON.stringify({
+				Ok: { Placement: { placed: { machine: "optimus", passed: [] } } },
+			});
+		});
+
+		const answer = await placeAt(socket, [{ kind: "reach", value: "home" }]);
+
+		expect(asked).toEqual([{ Place: { needs: [{ reach: "home" }] } }]);
+		expect(answer).toEqual({ ok: true, machine: "optimus" });
+	});
+
+	it("says why when no node answers, or none is named", async () => {
+		const none = join(root, "none.sock");
+		expect(await placeAt(none, [])).toEqual({
+			ok: false,
+			reason: `no mycelium node answered at ${none}`,
+		});
+		expect((await placeAt(undefined, [])).ok).toBe(false);
 	});
 });
 
