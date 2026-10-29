@@ -104,6 +104,40 @@ interface Ledger {
 	issued: number;
 }
 
+/** The findings one round raised: a run's, or those written by hand. */
+export interface FindingRound {
+	/** The run's id, or nothing for findings written by hand. */
+	readonly runId?: string;
+	readonly findings: readonly Finding[];
+}
+
+/**
+ * A change's findings by the round that raised them, the newest round
+ * first and each round's findings in the order raised. A round is as new
+ * as the newest finding in it, since numbers climb as findings land and
+ * a run's id need not sort by time (a judge's and a council's differ in
+ * kind). Read oldest first, a change reviewed sixteen times showed its
+ * first round's findings and cut the newest round's, which then read as
+ * findings on code thirteen commits gone (19AMVE, 29 October).
+ */
+export function byRoundNewestFirst(
+	findings: readonly Finding[],
+): FindingRound[] {
+	const rounds = new Map<string, Finding[]>();
+	for (const finding of findings) {
+		const key = finding.origin.kind === "hand" ? "" : finding.origin.runId;
+		rounds.set(key, [...(rounds.get(key) ?? []), finding]);
+	}
+	const newest = (round: readonly Finding[]) =>
+		Math.max(...round.map((finding) => finding.id));
+	return [...rounds.entries()]
+		.map(([key, round]) => ({
+			...(key === "" ? {} : { runId: key }),
+			findings: [...round].sort((a, b) => a.id - b.id),
+		}))
+		.sort((a, b) => newest(b.findings) - newest(a.findings));
+}
+
 /** Findings on disk, one file per change. */
 export function createFindingStore(root: string): FindingStore {
 	async function read(change: ChangeRef): Promise<Ledger> {

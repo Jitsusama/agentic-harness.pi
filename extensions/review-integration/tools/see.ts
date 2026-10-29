@@ -17,6 +17,10 @@ import {
 	citeListing,
 	openSessionStore,
 } from "../../../lib/core/result/index.ts";
+import {
+	byRoundNewestFirst,
+	type FindingRound,
+} from "../../../lib/core/review/finding.ts";
 import type {
 	BoundTarget,
 	Decision,
@@ -532,14 +536,24 @@ async function seeFindings(bound: BoundTarget): Promise<Answer> {
 		]),
 	);
 
+	// The newest round first, under a line naming it, so a budget that cuts
+	// the listing cuts the oldest rounds, never the one just run.
+	const rounds = byRoundNewestFirst(findings);
+	const newestFirst = rounds.flatMap((round) => round.findings);
+	const view = rounds
+		.map((round, at) =>
+			[
+				roundLine(round, at === 0),
+				...round.findings.map((finding) =>
+					findingLine(finding, queued.get(finding.id), decided.get(finding.id)),
+				),
+			].join("\n"),
+		)
+		.join("\n\n");
 	return say(
 		citeListing(openSessionStore(), {
-			view: findings
-				.map((finding) =>
-					findingLine(finding, queued.get(finding.id), decided.get(finding.id)),
-				)
-				.join("\n"),
-			records: findings,
+			view,
+			records: newestFirst,
 			unit: "findings",
 			narrowing: "Query the stored result for a finding's full discussion.",
 		}),
@@ -550,6 +564,18 @@ async function seeFindings(bound: BoundTarget): Promise<Answer> {
 			decided: decided.size,
 		},
 	);
+}
+
+/** The line naming a round above its findings. */
+function roundLine(round: FindingRound, newest: boolean): string {
+	const ids = round.findings.map((finding) => finding.id);
+	const span =
+		ids.length === 1
+			? `F${ids[0]}`
+			: `F${Math.min(...ids)} to F${Math.max(...ids)}`;
+	const count = `${ids.length} finding${ids.length === 1 ? "" : "s"}`;
+	const name = round.runId ?? "written by hand";
+	return `${newest ? "Newest round" : "Earlier round"}: ${name}, ${count} (${span})`;
 }
 
 /**

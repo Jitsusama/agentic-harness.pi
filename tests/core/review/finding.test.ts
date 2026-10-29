@@ -5,10 +5,49 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Anchor } from "../../../lib/core/review/anchor.ts";
 import type { ChangeRef } from "../../../lib/core/review/change.ts";
 import {
+	byRoundNewestFirst,
 	createFindingStore,
 	type Finding,
 	type FindingStore,
 } from "../../../lib/core/review/finding.ts";
+
+describe("a change's findings by round", () => {
+	const raised = (id: number, origin: Finding["origin"]): Finding => ({
+		id,
+		anchor: { subject: "change" } as Anchor,
+		label: "issue",
+		subject: `finding ${id}`,
+		discussion: "",
+		origin,
+	});
+	const reviewer = (runId: string) => ({
+		kind: "reviewer" as const,
+		runId,
+		reviewerId: "a",
+	});
+
+	it("puts the newest round first, by its newest finding, whatever its run is called", () => {
+		const rounds = byRoundNewestFirst([
+			raised(1, reviewer("council-20261026T154044")),
+			raised(2, { kind: "judge", runId: "judge-x", reviewerId: "j" }),
+			raised(3, { kind: "hand" }),
+			raised(5, reviewer("council-20261029T170328")),
+			raised(4, reviewer("council-20261029T170328")),
+		]);
+
+		expect(rounds.map((round) => round.runId)).toEqual([
+			"council-20261029T170328",
+			undefined,
+			"judge-x",
+			"council-20261026T154044",
+		]);
+		expect(rounds[0]?.findings.map((finding) => finding.id)).toEqual([4, 5]);
+	});
+
+	it("holds nothing for a change nobody has reviewed", () => {
+		expect(byRoundNewestFirst([])).toEqual([]);
+	});
+});
 
 function change(label: string): ChangeRef {
 	return {
