@@ -8,7 +8,8 @@
  * gitstatusd's protocol, the files or folders that mark a root, and the
  * marks its prompt draws. Without it the line still works: a folder is told
  * from the nearest `.git`, and the branch comes from pi itself, with no
- * marks for unsaved or unpushed work.
+ * mark for unpushed work. A mark the line doesn't draw, such as a
+ * prompt's `unsaved`, is left unread.
  */
 
 import { readFileSync } from "node:fs";
@@ -21,8 +22,6 @@ import { GLYPH } from "../../lib/ui/types.ts";
 export interface Marks {
 	/** Before a branch's name; empty draws the name alone. */
 	readonly branch: string;
-	/** Work in the tree not yet committed. */
-	readonly unsaved: string;
 	/** Commits not yet pushed. */
 	readonly unpushed: string;
 	/** Where a name is cut short. */
@@ -44,14 +43,13 @@ export interface Where {
 }
 
 /**
- * The marks for a machine that names none. Plain characters for the two
+ * The marks for a machine that names none. A plain character for the one
  * that only an engine can show, since an engine without marks is a machine
  * configured by hand, and a geometric mark in place of its own would be a
  * guess at its font.
  */
 export const DEFAULT_MARKS: Marks = {
 	branch: "",
-	unsaved: "*",
 	unpushed: "^",
 	more: GLYPH.ellipsis,
 	complete: GLYPH.complete,

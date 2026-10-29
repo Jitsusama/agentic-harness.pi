@@ -69,19 +69,11 @@ describe("an engine's answer", () => {
 			state: {
 				workdir: "/w/src",
 				branch: "main",
-				unsaved: false,
 				conflicted: false,
 				ahead: false,
 				op: null,
 			},
 		});
-	});
-
-	it("counts staged, unstaged and untracked work as unsaved", () => {
-		for (const counts of [{ staged: 1 }, { unstaged: 3 }, { untracked: 1 }]) {
-			const { state } = parseAnswer(answer("1", counts), none);
-			expect((state as GitState).unsaved).toBe(true);
-		}
 	});
 
 	it("marks a conflict and unpushed commits", () => {
@@ -196,7 +188,6 @@ describe("the engine, kept running", () => {
 				{
 					workdir: dir,
 					branch: "main",
-					unsaved: true,
 					conflicted: false,
 					ahead: true,
 					op: null,
