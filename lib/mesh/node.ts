@@ -31,8 +31,9 @@ export type NodeSessions = ReadonlyMap<string, Held>;
 export type AskNode = () => Promise<NodeSessions | undefined>;
 
 /**
- * How long a node has to answer: it answers from what it holds, in well
- * under a millisecond, so a second is only ever spent on one that hangs.
+ * How long a node has to answer: it answers from what it holds, as
+ * optimus's did in 74 ms under load, so a second is only ever spent on
+ * one that hangs.
  */
 export const NODE_PATIENCE_MS = 1000;
 
