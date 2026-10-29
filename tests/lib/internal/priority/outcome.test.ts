@@ -8,6 +8,7 @@ import {
 	failed,
 	HEADROOM,
 	keepOutcome,
+	kindAfter,
 	MOST_OUTCOME_BYTES,
 	NOTHING_BESIDE,
 	type Outcome,
@@ -84,6 +85,70 @@ describe("work that takes seconds", () => {
 		expect(quickAfter("vm-check", check, [ran(check, 4)])).toBe(false);
 		const waited = outcome({ kind: "build", what: check, ranS: undefined });
 		expect(quickAfter("build", check, [ran(check, 600), waited])).toBe(false);
+	});
+});
+
+describe("work that runs VMs, whatever it is named", () => {
+	const built = (what: string, ranTimed: boolean): Outcome =>
+		outcome({
+			kind: "build",
+			what,
+			ranS: 600,
+			...(ranTimed ? { ranTimed: true as const } : {}),
+		});
+	const bluetooth =
+		"direnv exec . nix build --no-link -L .#checks.x86_64-linux.bluetooth-sits-out-hibernation > $TMPDIR/bt.log 2>&1";
+
+	it("waits as a VM check when the same checks last ran one, however it was asked", () => {
+		const again =
+			'nix build --no-link "path:$T#checks.x86_64-linux.bluetooth-sits-out-hibernation" > $W/bt2.log';
+
+		expect(kindAfter("build", again, [built(bluetooth, true)])).toBe(
+			"vm-check",
+		);
+		// From the cache the next time, it is a build again.
+		expect(
+			kindAfter("build", again, [built(bluetooth, true), built(again, false)]),
+		).toBe("build");
+	});
+
+	it("knows a check that ran a VM built alone, in any command that names it", () => {
+		// 28 October: the net built VM checks named like this one beside its
+		// others as a build, and seven VMs ran with no VM turn while twenty
+		// VM tests waited.
+		const arrival =
+			"direnv exec . nix build --no-link -L $c.an-arrival-is-said-once-each-time > $TMPDIR/r-arr.log 2>&1";
+		const net =
+			"nix build --no-link --keep-going $c.quickshell-passes-qmllint $c.an-arrival-is-said-once-each-time";
+		const named =
+			"nix build --no-link .#checks.x86_64-linux.an-arrival-is-said-once-each-time";
+
+		expect(kindAfter("build", net, [built(arrival, true)])).toBe("vm-check");
+		expect(kindAfter("build", named, [built(arrival, true)])).toBe("vm-check");
+		expect(quickAfter("build", named, [built(arrival, true)])).toBe(false);
+		expect(
+			kindAfter("build", "nix build $c.formatting", [built(arrival, true)]),
+		).toBe("build");
+	});
+
+	it("learns nothing of each check from a run of several that ran a VM", () => {
+		const both =
+			"nix build $c.an-arrival-is-said-once-each-time $c.quickshell-passes-qmllint";
+
+		expect(
+			kindAfter("build", "nix build $c.quickshell-passes-qmllint", [
+				built(both, true),
+			]),
+		).toBe("build");
+	});
+
+	it("goes by a check's latest run alone", () => {
+		const cached = bluetooth.replace("bt.log", "bt3.log");
+		const net = "nix build $c.bluetooth-sits-out-hibernation $c.formatting";
+
+		expect(
+			kindAfter("build", net, [built(bluetooth, true), built(cached, false)]),
+		).toBe("build");
 	});
 });
 

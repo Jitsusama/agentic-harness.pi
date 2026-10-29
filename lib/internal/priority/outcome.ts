@@ -153,11 +153,17 @@ export function outcomeOf(
 }
 
 /**
- * The kind work asked for as `kind` waits as, by how its last run went:
+ * The kind work asked for as `kind` waits as, by how earlier runs went:
  * a build whose Nix builds ran a VM or another check with deadlines
  * waits as a VM check, since its name need not say so, as `nix flake
- * check`'s does not. Only a run that had its turn counts, and only the
- * latest: once its checks come from the cache, it is a build again.
+ * check`'s does not. The same work's latest run that had its turn says,
+ * known again by {@link workKey}; once its checks come from the cache,
+ * it is a build again. Work never run waits as a VM check when it asks
+ * for a check that ran one built alone ({@link checksRunningVms}).
+ *
+ * On 28 October the integration net built VM checks whose names don't
+ * say so as a build, and seven VMs ran with no VM turn while twenty VM
+ * tests waited from 23:04 to past 00:48.
  */
 export function kindAfter(
 	kind: Kind,
@@ -165,12 +171,42 @@ export function kindAfter(
 	outcomes: readonly Outcome[],
 ): Kind {
 	if (kind !== "build") return kind;
+	const key = workKey(what);
 	for (let at = outcomes.length - 1; at >= 0; at -= 1) {
 		const outcome = outcomes[at];
-		if (outcome.what !== what || outcome.started === undefined) continue;
+		if (outcome.started === undefined || workKey(outcome.what) !== key) {
+			continue;
+		}
 		return outcome.ranTimed ? "vm-check" : kind;
 	}
-	return kind;
+	const running = checksRunningVms(outcomes);
+	return checksAsked(what).some((check) => running.has(check))
+		? "vm-check"
+		: kind;
+}
+
+/**
+ * The checks known to run a VM or another check with deadlines: each
+ * check whose latest run that had its turn, asking for it alone, ran
+ * one. A run of several that ran one says nothing of which, and a check
+ * whose latest run came from the cache is known as no VM until it runs
+ * again.
+ */
+export function checksRunningVms(outcomes: readonly Outcome[]): Set<string> {
+	const decided = new Map<string, boolean>();
+	for (let at = outcomes.length - 1; at >= 0; at -= 1) {
+		const outcome = outcomes[at];
+		if (outcome.started === undefined) continue;
+		const asked = checksAsked(outcome.what);
+		const [only] = asked;
+		if (asked.length !== 1 || only === undefined || decided.has(only)) {
+			continue;
+		}
+		decided.set(only, outcome.ranTimed === true);
+	}
+	return new Set(
+		[...decided].filter(([, timed]) => timed).map(([check]) => check),
+	);
 }
 
 /** Seconds a build's last run took, under which its next counts as quick. */
@@ -260,6 +296,23 @@ function checksNamed(what: string): string[] {
 }
 
 /**
+ * A check asked for as an attribute of a variable holding a flake's
+ * checks, as `$c.formatting` is, the way the integration net asks.
+ */
+const CHECK_ASKED = /\$\{?\w+\}?\.([\w-]+)/g;
+
+/**
+ * The checks a command asks for, named in full or as an attribute of a
+ * variable, sorted, each once. Only for knowing a check again: a check
+ * asked for through a variable may be in any flake, so it never makes
+ * work quick.
+ */
+function checksAsked(what: string): string[] {
+	const asked = [...what.matchAll(CHECK_ASKED)].map((match) => match[1]);
+	return [...new Set([...checksNamed(what), ...asked])].sort();
+}
+
+/**
  * Whether a build takes seconds, so it gets the queue's quick turn: its
  * last run that had its turn took under {@link QUICK_S}, or, with none,
  * it builds checks named in full and none is a VM test's. Of 458 builds
@@ -280,7 +333,11 @@ export function quickAfter(
 		return outcome.ranS < QUICK_S && !outcome.ranTimed;
 	}
 	const checks = checksNamed(what);
-	return checks.length > 0 && !checks.some((name) => name.startsWith("vm-"));
+	const running = checksRunningVms(outcomes);
+	return (
+		checks.length > 0 &&
+		!checks.some((name) => name.startsWith("vm-") || running.has(name))
+	);
 }
 
 /**
