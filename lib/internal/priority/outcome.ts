@@ -28,6 +28,8 @@ import {
 	type Job,
 	type Kind,
 	MOST_VMS,
+	type WaitedOn,
+	type WaitReason,
 } from "./queue.ts";
 
 /** What ran beside a job, the most at once while it ran. */
@@ -75,6 +77,13 @@ export interface Outcome {
 	readonly planned?: "vm-check" | "build" | "failed";
 	/** Why its plan said nothing, when it didn't. */
 	readonly planFailed?: string;
+	/**
+	 * Seconds of `waitedS` spent on each reason, as the queue judged it
+	 * while it waited, when its keepers noted them.
+	 */
+	readonly waitedOn?: WaitedOn;
+	/** It waited as quick work, with a turn of its own. */
+	readonly quick?: true;
 }
 
 /** How large the outcome file grows before it keeps its newer half. */
@@ -121,6 +130,48 @@ export function mostBeside(seen: Beside, now: Beside): Beside {
 	};
 }
 
+/**
+ * `job` waiting on `reason` as of `now`, the stretch it waited on another
+ * closed into its {@link Job.waitedOnMs}; `job` itself when the reason
+ * held, so a steady queue writes nothing. The first stretch starts when
+ * it asked.
+ */
+export function waitNoted(job: Job, reason: WaitReason, now: number): Job {
+	const was = job.waitingSince;
+	if (was?.reason === reason) return job;
+	return {
+		...job,
+		...(was ? { waitedOnMs: closed(job.waitedOnMs, was, now) } : {}),
+		waitingSince: {
+			reason,
+			at: was ? new Date(now).toISOString() : job.since,
+		},
+	};
+}
+
+/** `so`, with the stretch since `was` added to its reason, up to `until`. */
+function closed(
+	so: WaitedOn | undefined,
+	was: NonNullable<Job["waitingSince"]>,
+	until: number,
+): WaitedOn {
+	const ms = Math.max(0, until - Date.parse(was.at));
+	return { ...so, [was.reason]: (so?.[was.reason] ?? 0) + ms };
+}
+
+/** Seconds `job` waited on each reason, up to `until`, if any were noted. */
+function waitedOnOf(job: Job, until: number): WaitedOn | undefined {
+	const was = job.waitingSince;
+	const ms = was ? closed(job.waitedOnMs, was, until) : job.waitedOnMs;
+	if (ms === undefined) return undefined;
+	return Object.fromEntries(
+		Object.entries(ms).map(([reason, spent]) => [
+			reason,
+			Math.round(spent / 1000),
+		]),
+	);
+}
+
 /** How `job` ended at `ended`, its shell having said `exit`. */
 export function outcomeOf(
 	job: Job,
@@ -131,6 +182,7 @@ export function outcomeOf(
 	const started =
 		job.started !== undefined ? Date.parse(job.started) : undefined;
 	const seconds = (ms: number) => Math.max(0, Math.round(ms / 1000));
+	const waitedOn = waitedOnOf(job, started ?? ended);
 	return {
 		v: 1,
 		id: job.id,
@@ -155,6 +207,8 @@ export function outcomeOf(
 			: {}),
 		...(job.planned !== undefined ? { planned: job.planned } : {}),
 		...(job.planFailed !== undefined ? { planFailed: job.planFailed } : {}),
+		...(waitedOn !== undefined ? { waitedOn } : {}),
+		...(job.quick ? { quick: true as const } : {}),
 	};
 }
 

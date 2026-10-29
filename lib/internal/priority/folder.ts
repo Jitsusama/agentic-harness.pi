@@ -58,6 +58,7 @@ import {
 	quickAfter,
 	ranSAfter,
 	vmsFor,
+	waitNoted,
 } from "./outcome.ts";
 import { withPlan } from "./plan.ts";
 import {
@@ -454,6 +455,26 @@ export function queueFolder(
 		});
 	};
 
+	/**
+	 * Notes in each waiting job why it waits, as `reasons` judge it,
+	 * writing its file only when the reason changed, so its outcome can say
+	 * what held it and a steady queue writes nothing.
+	 */
+	const noteWaits = (
+		queue: Job[],
+		reasons: ReadonlyMap<string, WaitReason>,
+		now: number,
+	): Job[] =>
+		queue.map((job) => {
+			const reason = reasons.get(job.id);
+			if (job.started !== undefined || reason === undefined) return job;
+			const noted = waitNoted(job, reason, now);
+			if (noted !== job) {
+				replace(path(job.id, "job"), `${JSON.stringify(noted)}\n`);
+			}
+			return noted;
+		});
+
 	/** A planning job as its plan leaves it, kept once that changed it. */
 	const planned = (job: Job, now: number): Job => {
 		if (!job.planning) return job;
@@ -531,13 +552,18 @@ export function queueFolder(
 				};
 				const first = questsFirstIn(dir);
 				const next = nextTurn(standing, reading, now, ruled, awaited, first);
-				const queue = next
+				const turned = next
 					? standing.map((job) =>
 							job.id === next.id
 								? { ...next, started: new Date(now).toISOString() }
 								: job,
 						)
 					: standing;
+				const queue = noteWaits(
+					turned,
+					waitReasons(turned, reading, now, ruled, awaited, first),
+					now,
+				);
 				if (next) {
 					const turn = queue.find((job) => job.id === next.id) as Job;
 					replace(path(next.id, "job"), `${JSON.stringify(turn)}\n`);

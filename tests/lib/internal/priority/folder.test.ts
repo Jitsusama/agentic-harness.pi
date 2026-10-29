@@ -499,6 +499,52 @@ describe("the machine's queue folder", () => {
 		);
 	});
 
+	it("keeps what each job waited on, writing its file only as the reason changes", () => {
+		const file = join(dir, "..", "state", "outcomes.jsonl");
+		const queue = queueFolder(
+			dir,
+			{ isRunning: (pid) => running.has(pid), cgroupOf: () => undefined },
+			undefined,
+			file,
+		);
+		queue.ask(job("test", { kind: "vm-test" }));
+		shellSays("test", 701);
+		const full = { ...ROOMY, vms: MOST_VMS };
+		const jobFile = join(dir, "test.job");
+
+		queue.keep(full, NOW, () => undefined);
+		const noted = readFileSync(jobFile, "utf8");
+		queue.keep(full, NOW + 9_000, () => undefined);
+		expect(readFileSync(jobFile, "utf8")).toBe(noted);
+		queue.keep(
+			{ ...full, memoryPressure: MOST_MEMORY_PRESSURE },
+			NOW + 19_000,
+			() => undefined,
+		);
+		queue.keep(ROOMY, NOW + 24_000, () => undefined);
+		expect(queue.hasTurn("test")).toBe(true);
+		writeFileSync(join(dir, "test.end"), "0\n");
+		utimesSync(
+			join(dir, "test.end"),
+			(NOW + 30_000) / 1000,
+			(NOW + 30_000) / 1000,
+		);
+		running.delete(701);
+		queue.keep(ROOMY, NOW + 31_000, () => undefined);
+
+		const [kept] = readFileSync(file, "utf8")
+			.trim()
+			.split("\n")
+			.map((line) => JSON.parse(line));
+		// Asked a second before the first look: 20 s on a VM slot, then 5 s
+		// on memory until its turn.
+		expect(kept).toMatchObject({
+			id: "test",
+			waitedS: 25,
+			waitedOn: { vms: 20, memory: 5 },
+		});
+	});
+
 	it("records the most memory a job's own commands held, from its scope", () => {
 		const file = join(dir, "..", "state", "outcomes.jsonl");
 		const GIB = 1024 ** 3;
