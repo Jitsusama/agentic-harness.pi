@@ -42,6 +42,8 @@ export interface Beside {
 	readonly cappedBuilds: number;
 	/** CPU pressure, avg10, in percent. */
 	readonly cpuPressure: number;
+	/** The build slots of builders elsewhere that stood, when any did. */
+	readonly offloadBuilds?: number;
 }
 
 /** How one job ended. */
@@ -112,7 +114,11 @@ export const NOTHING_BESIDE: Beside = {
 export function besideNow(
 	job: Job,
 	running: readonly Job[],
-	machine: { readonly vms: number; readonly cpuPressure: number },
+	machine: {
+		readonly vms: number;
+		readonly cpuPressure: number;
+		readonly offload?: { readonly builds: number };
+	},
 ): Beside {
 	const builds = running.filter(
 		(other) => other.id !== job.id && other.kind === "build",
@@ -122,6 +128,7 @@ export function besideNow(
 		builds: builds.length,
 		cappedBuilds: builds.filter((other) => other.capped).length,
 		cpuPressure: machine.cpuPressure,
+		...(machine.offload ? { offloadBuilds: machine.offload.builds } : {}),
 	};
 }
 
@@ -132,6 +139,14 @@ export function mostBeside(seen: Beside, now: Beside): Beside {
 		builds: Math.max(seen.builds, now.builds),
 		cappedBuilds: Math.max(seen.cappedBuilds, now.cappedBuilds),
 		cpuPressure: Math.max(seen.cpuPressure, now.cpuPressure),
+		...(seen.offloadBuilds !== undefined || now.offloadBuilds !== undefined
+			? {
+					offloadBuilds: Math.max(
+						seen.offloadBuilds ?? 0,
+						now.offloadBuilds ?? 0,
+					),
+				}
+			: {}),
 	};
 }
 

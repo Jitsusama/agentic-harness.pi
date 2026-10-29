@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	floorsIn,
 	memoryPeakOf,
+	offloadIn,
 	readRoom,
 } from "../../../../lib/internal/priority/room.ts";
 
@@ -272,6 +273,47 @@ describe("the machine's room", () => {
 			{ asker: "/jobs.slice/work-71.scope", timed: false, memoryPeak: GIB },
 			{ timed: true, memoryPeak: 0 },
 		]);
+	});
+});
+
+describe("a builder elsewhere, from Nix's machines file", () => {
+	const aquifer =
+		"ssh-ng://nix@builder.example x86_64-linux /run/keys/builder 32 2 kvm,nixos-test,big-parallel benchmark c3NoLWVkMjU1MTkgQUFBQQ==";
+
+	it("counts a builder's slots for builds, and for VMs where it runs them", () => {
+		expect(offloadIn(`${aquifer}\n`)).toEqual({ builds: 32, vms: 32 });
+	});
+
+	it("counts no VMs for a builder without kvm, and one slot where none is said", () => {
+		expect(offloadIn("ssh://b x86_64-linux - - 1 big-parallel")).toEqual({
+			builds: 1,
+			vms: 0,
+		});
+		expect(offloadIn("ssh://b x86_64-linux")).toEqual({ builds: 1, vms: 0 });
+	});
+
+	it("adds up builders whether on lines or between semicolons, skipping comments", () => {
+		const file = `# the offload daemon's\n${aquifer};ssh://two x86_64-linux - 4 1 kvm\n`;
+		expect(offloadIn(file)).toEqual({ builds: 36, vms: 36 });
+	});
+
+	it("counts none for another system, or an empty file", () => {
+		expect(offloadIn("ssh://mac aarch64-darwin - 8 1 -")).toBeUndefined();
+		expect(offloadIn("")).toBeUndefined();
+		expect(offloadIn("\n   \n")).toBeUndefined();
+	});
+
+	it("is read with the room, and absent while no file stands", () => {
+		const kernel = { proc: proc(8), cgroups: join(root, "cgroups") };
+		mkdirSync(kernel.cgroups, { recursive: true });
+		const machines = join(root, "machines");
+		expect(readRoom([], { ...kernel, machines }).offload).toBeUndefined();
+
+		writeFileSync(machines, `${aquifer}\n`);
+		expect(readRoom([], { ...kernel, machines }).offload).toEqual({
+			builds: 32,
+			vms: 32,
+		});
 	});
 });
 

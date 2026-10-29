@@ -69,6 +69,7 @@ import {
 	type Kind,
 	needsGibOf,
 	nextTurn,
+	type Offload,
 	type Pressed,
 	pressedPast,
 	QUICK_NIX,
@@ -160,6 +161,8 @@ export interface QueueRecord {
 		readonly vms: number;
 		/** The queue's pressure limits the machine is at or past now. */
 		readonly over: readonly Pressed[];
+		/** The slots of builders elsewhere, counted as room here while they stand. */
+		readonly offload?: Offload;
 	};
 	/** How many more VMs and builds would get their turns now. */
 	readonly room: RoomLeft;
@@ -669,6 +672,7 @@ export function queueRecord(
 			pressure: reading.pressure,
 			vms: reading.vms,
 			over: pressedPast(reading),
+			...(reading.offload ? { offload: reading.offload } : {}),
 		},
 		room: roomLeft(jobs, reading, now, rules),
 		quiet: null,
