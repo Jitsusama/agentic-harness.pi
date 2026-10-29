@@ -249,7 +249,10 @@ is a build, never a VM check.
   lock, and rewrites `queue.json` whole on each change and at least
   every 30 seconds, with a `heartbeat` in epoch seconds. The launcher
   reads that file, and it counts the minutes a job waited today while
-  the memory it needed stood free.
+  the memory it needed stood free. A session whose code gives turns by
+  older rules (`RULES_VERSION`, in `rules.json` beside the jobs) leaves
+  keeping to a newer one while that one has kept in the last minute:
+  on 29 October sessions five installs behind kept the queue unpaced.
 - **What others may read:** mycelium's node reads `queue.json` from
   outside the harness to say what its machine can take. Its `v`, `at`,
   `heartbeat`, `machine` and `room` are that contract: a change to any

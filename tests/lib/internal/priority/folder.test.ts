@@ -22,6 +22,7 @@ import {
 	queueFolder,
 	readQueue,
 } from "../../../../lib/internal/priority/folder.ts";
+import { NEWER_KEEPER_MS } from "../../../../lib/internal/priority/keeper.ts";
 import {
 	FAILURES_TO_LOWER_VMS,
 	keepOutcome,
@@ -55,11 +56,12 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(join(dir, ".."), { recursive: true, force: true }));
 
-const folder = () =>
-	queueFolder(dir, {
-		isRunning: (pid) => running.has(pid),
-		cgroupOf: (pid) => `/jobs.slice/jobs.service#${pid}`,
-	});
+const processes = {
+	isRunning: (pid: number) => running.has(pid),
+	cgroupOf: (pid: number) => `/jobs.slice/jobs.service#${pid}`,
+};
+
+const folder = () => queueFolder(dir, processes);
 
 function job(id: string, over: Partial<Job> = {}): Job {
 	return {
@@ -82,6 +84,34 @@ const shellSays = (id: string, pid: number) => {
 };
 
 describe("the machine's queue folder", () => {
+	it("leaves keeping to a session on newer rules while that one keeps", () => {
+		// 18:00 on 29 October: sessions on code from before VM starts were
+		// paced kept the queue, and six VMs started in 2.5 minutes.
+		const newer = queueFolder(dir, processes, undefined, undefined, 2);
+		const older = queueFolder(dir, processes, undefined, undefined, 1);
+		newer.keep(ROOMY, NOW, () => undefined);
+
+		older.ask(job("build"));
+		older.keep(ROOMY, NOW + 1_000, () => undefined);
+		expect(older.hasTurn("build")).toBe(false);
+		newer.keep(ROOMY, NOW + 2_000, () => undefined);
+		expect(newer.hasTurn("build")).toBe(true);
+	});
+
+	it("keeps on older rules once no newer session has kept for a minute", () => {
+		// As after the install is rolled back.
+		queueFolder(dir, processes, undefined, undefined, 2).keep(
+			ROOMY,
+			NOW,
+			() => undefined,
+		);
+		const older = queueFolder(dir, processes, undefined, undefined, 1);
+		const later = NOW + NEWER_KEEPER_MS;
+		older.ask(job("next", { since: new Date(later - 1_000).toISOString() }));
+		older.keep(ROOMY, later, () => undefined);
+		expect(older.hasTurn("next")).toBe(true);
+	});
+
 	it("holds a job while it plans, then queues it as what its plan found", () => {
 		const queue = folder();
 		queue.ask(job("cached", { kind: "vm-check", planning: true }));

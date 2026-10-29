@@ -44,6 +44,7 @@ import {
 import { join } from "node:path";
 import { runtimeDir } from "../paths.ts";
 import { awaitedNow, NOBODY } from "./awaited.ts";
+import { mayKeep } from "./keeper.ts";
 import { workNameIn } from "./name.ts";
 import {
 	besideNow,
@@ -77,6 +78,7 @@ import {
 	QUICK_NIX,
 	type RoomLeft,
 	RULES,
+	RULES_VERSION,
 	type Rules,
 	roomLeft,
 	roomSaid,
@@ -287,6 +289,7 @@ export function queueFolder(
 	processes: Processes,
 	rules: () => Rules = () => RULES,
 	outcomes?: string,
+	version: number = RULES_VERSION,
 ): QueueFolder {
 	const path = (id: string, ending: string) => join(dir, `${id}.${ending}`);
 	const ensure = () => mkdirSync(dir, { recursive: true });
@@ -566,6 +569,8 @@ export function queueFolder(
 		keep(reading, now, cgroupFor) {
 			ensure();
 			locked(now, () => {
+				// A session on older rules leaves turns to a newer one.
+				if (!mayKeep(dir, version, now)) return;
 				const standing = noteBeside(
 					jobs()
 						.filter((job) => {
