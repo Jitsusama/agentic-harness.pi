@@ -66,6 +66,8 @@ import {
 	type Kind,
 	needsGibOf,
 	nextTurn,
+	type Pressed,
+	pressedPast,
 	QUICK_NIX,
 	type RoomLeft,
 	RULES,
@@ -140,7 +142,8 @@ export function readQueue(
 /**
  * The whole queue, as queue.json holds it. mycelium's node reads `v`,
  * `at`, `heartbeat`, `machine` and `room` from outside the harness, so a
- * change to any of those five bumps `v`; the rest may change freely.
+ * change to any of those five bumps `v`; a field added to them doesn't,
+ * and the rest may change freely.
  */
 export interface QueueRecord {
 	readonly v: 1;
@@ -152,6 +155,8 @@ export interface QueueRecord {
 		readonly availableGib: number;
 		readonly pressure: Reading["pressure"];
 		readonly vms: number;
+		/** The queue's pressure limits the machine is at or past now. */
+		readonly over: readonly Pressed[];
 	};
 	/** How many more VMs and builds would get their turns now. */
 	readonly room: RoomLeft;
@@ -597,6 +602,7 @@ export function queueRecord(
 			availableGib: Math.round(reading.availableGib * 10) / 10,
 			pressure: reading.pressure,
 			vms: reading.vms,
+			over: pressedPast(reading),
 		},
 		room: roomLeft(jobs, reading, now, rules),
 		quiet: null,

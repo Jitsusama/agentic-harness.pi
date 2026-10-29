@@ -28,7 +28,12 @@ import {
 	NOTHING_BESIDE,
 	outcomeOf,
 } from "../../../../lib/internal/priority/outcome.ts";
-import { type Job, MOST_VMS } from "../../../../lib/internal/priority/queue.ts";
+import {
+	type Job,
+	MOST_CPU_PRESSURE_BESIDE_VMS,
+	MOST_MEMORY_PRESSURE,
+	MOST_VMS,
+} from "../../../../lib/internal/priority/queue.ts";
 import type { Reading } from "../../../../lib/internal/priority/room.ts";
 
 const NOW = Date.parse("2026-10-22T16:00:30Z");
@@ -95,6 +100,25 @@ describe("the machine's queue folder", () => {
 		});
 	});
 
+	it("says which of its pressure limits the machine is past, so a full queue reads apart", () => {
+		const queue = folder();
+		queue.ask(job("waits"));
+
+		queue.keep(
+			{ ...ROOMY, memoryPressure: MOST_MEMORY_PRESSURE, cpuPressure: 40 },
+			NOW,
+			() => undefined,
+		);
+		expect(record().machine.over).toEqual(["memory", "cpu"]);
+
+		queue.keep(
+			{ ...ROOMY, cpuPressure: MOST_CPU_PRESSURE_BESIDE_VMS - 1 },
+			NOW + 60_000,
+			() => undefined,
+		);
+		expect(record().machine.over).toEqual([]);
+	});
+
 	it("gives the first job its turn and shows the queue whole", () => {
 		const queue = folder();
 		queue.ask(job("first", { kind: "vm-test" }));
@@ -113,6 +137,7 @@ describe("the machine's queue folder", () => {
 			availableGib: 40,
 			pressure: ROOMY.pressure,
 			vms: 0,
+			over: [],
 		});
 		// The VM started holds 6 GiB while it grows; the build waits.
 		expect(shown.room).toEqual({ vms: MOST_VMS - 1, builds: 0 });
