@@ -456,7 +456,8 @@ export function meshWorkflow(
 		/**
 		 * Whether the turn a note would start is put off for a waiting
 		 * reload. If no reload takes it within the hold, the note's own turn
-		 * starts once the session is idle; a run under way reads it anyway.
+		 * starts then; a run under way by then reads the note, so the turn is
+		 * taken and nothing more is started.
 		 */
 		const putOffTurn = (): boolean => {
 			if (!holdTurn()) return false;
@@ -469,11 +470,7 @@ export function meshWorkflow(
 					// A stale context: the reload landed, and its landing took the turn.
 					return;
 				}
-				if (!idle) {
-					setTimeout(due, HOLD_FOR_RELOAD_MS).unref?.();
-					return;
-				}
-				if (!takeOwedTurn()) return;
+				if (!takeOwedTurn() || !idle) return;
 				try {
 					pi.sendMessage(
 						{
