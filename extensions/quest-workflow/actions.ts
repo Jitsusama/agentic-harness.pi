@@ -16,7 +16,9 @@ import {
  * `queue-first` and `queue-normal` came the same way, for one lab's
  * builds to go ahead of the rest that night. `orchestrate` and
  * `unorchestrate` mark a quest whose session orchestrates the quests
- * below it, while core is not published.
+ * below it, while core is not published. `need-add` and `need-remove`
+ * say what a quest needs of a machine, in mycelium's words, which core
+ * knows nothing of.
  */
 const LOCAL_ACTIONS = [
 	"retitle",
@@ -24,6 +26,8 @@ const LOCAL_ACTIONS = [
 	"queue-normal",
 	"orchestrate",
 	"unorchestrate",
+	"need-add",
+	"need-remove",
 ] as const;
 
 /** Every action the quest tool takes. */

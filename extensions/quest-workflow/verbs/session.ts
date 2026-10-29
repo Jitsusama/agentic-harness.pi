@@ -39,6 +39,7 @@ import {
 } from "../lookup.ts";
 import type { QuestState } from "../state.ts";
 import { terminalOptions } from "../terminal.ts";
+import { needsOf } from "./needs.ts";
 import {
 	currentSessionId,
 	ok,
@@ -312,10 +313,14 @@ export async function spawn(
 	const currentId = currentSessionId(ctx, undefined);
 	// A session's history is saved on its own machine, so one started on
 	// another starts fresh; which machine that is may be the node's to
-	// choose, by what the session needs of it.
+	// choose, by what the session needs of it. A machine or needs the
+	// call names replace what the quest says it needs, never add to it.
+	const named = params.machine?.trim() || undefined;
 	const chosen = await machineFor(
-		params.machine?.trim() || undefined,
-		params.needs ?? [],
+		named,
+		named !== undefined || params.needs !== undefined
+			? (params.needs ?? [])
+			: needsOf(fm),
 	);
 	if (!chosen.ok) return refuse(chosen.refusal);
 	const { machine, needs } = chosen;

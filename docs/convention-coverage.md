@@ -301,6 +301,7 @@ On-disk shape of a quest README and the documents under it.
 | `status` enum (active, paused, blocked, concluded, retired) | Frontmatter | 🟢 | Same parser rejects unknown values. |
 | `priority` enum (driving, active, queued, bench, someday) | Frontmatter | 🟢 | Same parser rejects unknown values. |
 | Alias format `type:value` matching the refs registry | Frontmatter | 🚫 | The parser accepts any `type:value` pair; the refs registry decides at lookup time. Unregistered types simply have no URL. |
+| `needs` words are `kind=value` the node takes | Frontmatter | 🟢 | `need-add` and `need-remove` (`extensions/quest-workflow/verbs/needs.ts`) read each word with `needFrom` (`lib/mesh/placement.ts`) and refuse one it does not take, with its reason. A hand edit is not refused, but `spawn` reads the list through `machineFor`, which refuses a bad word the same way. Pinned by `tests/extensions/quest-workflow/needs.test.ts`, and for spawn by `spawn-held.test.ts`. |
 | Four mandatory body sections (Summary, Purpose, Cast, Journey) | Body Sections | ⚪ | Skill-only for v1; convention drift would land here first. A content gate over quest READMEs can land later if drift shows up. |
 | Section emoji glyphs | Body Sections | ⚪ | Skill-only; the section extractor accepts the headings with or without an emoji prefix. |
 | Cast role-prefix bullets | Cast Bullets | ⚪ | The extractor only picks bullets that match the role-prefix pattern; non-matching bullets are silently ignored, so the rule is enforced by what gets indexed but not by a write gate. |

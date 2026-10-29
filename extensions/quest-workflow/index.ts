@@ -193,7 +193,7 @@ const QUEST_PARAMETERS = Type.Object({
 	ref: Type.Optional(
 		Type.String({
 			description:
-				"alias-add/alias-remove: the alias in `type:value` form (e.g. `github-pr:shop/world#47281`). Both accept a comma-separated list to add or remove several at once. tree-expand: the zone to add (e.g. system/gitstream).",
+				"alias-add/alias-remove: the alias in `type:value` form (e.g. `github-pr:shop/world#47281`). Both accept a comma-separated list to add or remove several at once. need-add/need-remove: what the quest's sessions need of a machine, as kind=value (machine, system, arch, reach, accelerator), such as reach=home; comma-separated for several, on the quest `id` names or the loaded one. tree-expand: the zone to add (e.g. system/gitstream).",
 		}),
 	),
 	query: Type.Optional(
@@ -252,7 +252,7 @@ const QUEST_PARAMETERS = Type.Object({
 	needs: Type.Optional(
 		Type.Array(Type.String(), {
 			description:
-				"spawn: what the machine must be, each as kind=value (machine, system, arch, reach, accelerator), such as reach=home or system=macos. The mycelium node chooses the machine among those its realm links, ranking down one on battery or short of memory or disk, and the session starts held there as with machine, which counts as one more need. dryRun asks the node only where. restore refuses it.",
+				"spawn: what the machine must be, each as kind=value (machine, system, arch, reach, accelerator), such as reach=home or system=macos. The mycelium node chooses the machine among those its realm links, ranking down one on battery or short of memory or disk, and the session starts held there as with machine, which counts as one more need. Given neither this nor machine, spawn places by the quest's own needs (need-add), if it says any. dryRun asks the node only where. restore refuses it.",
 		}),
 	),
 	command: Type.Optional(
