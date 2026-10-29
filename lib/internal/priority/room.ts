@@ -45,7 +45,7 @@
  * the queue.
  */
 
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { MOST_MEMORY_PRESSURE, type Offload, type Room } from "./queue.ts";
 
@@ -85,6 +85,8 @@ export interface Kernel {
 	 * `builders = @<file>` reads; absent where none is kept.
 	 */
 	readonly machines?: string;
+	/** The Nix daemon's folder of builder slot locks, where it keeps one. */
+	readonly nixLoad?: string;
 }
 
 export const KERNEL: Kernel = {
@@ -93,6 +95,7 @@ export const KERNEL: Kernel = {
 	// Written by 5FWIUS's offload daemon while a builder stands, emptied
 	// when it goes.
 	machines: "/run/nix-offload/machines",
+	nixLoad: "/nix/var/nix/current-load",
 };
 
 /** The system the builders' slots are counted for: this machine's. */
@@ -107,10 +110,22 @@ const VM_FEATURES: ReadonlySet<string> = new Set(["kvm", "nixos-test"]);
  * hostKey`, `-` for a field left empty. A builder of this machine's
  * system adds its maxJobs to builds, and to VMs too where its features
  * say it runs VMs. Nothing when the file names none.
+ *
+ * A builder named on several lines counts once, by its largest maxJobs:
+ * Nix locks a builder's slots by its URI, so lines that differ only in
+ * what they take share one set of slots (5FWIUS, who names the lent
+ * builder once for VM tests and once for big builds).
+ *
+ * Only slots free now count, by `busy`: once every slot of a builder is
+ * taken, Nix builds here, so counting a full builder's maxJobs as room
+ * let ten VM checks start with its eight slots taken, and five qemu ran
+ * here at a 19% memory stall (5FWIUS, 14:27 on 29 October).
  */
-export function offloadIn(text: string): Offload | undefined {
-	let builds = 0;
-	let vms = 0;
+export function offloadIn(
+	text: string,
+	busy: (uri: string, slot: number) => boolean = () => false,
+): Offload | undefined {
+	const builders = new Map<string, { builds: number; vms: number }>();
 	for (const entry of text.split(/[\n;]/)) {
 		const fields = entry.replace(/#.*/, "").trim().split(/\s+/);
 		const [uri, systems, , jobs, , features] = fields;
@@ -118,23 +133,69 @@ export function offloadIn(text: string): Offload | undefined {
 		if (!(systems ?? "-").split(",").includes(OFFLOAD_SYSTEM)) continue;
 		const slots = Number.parseInt(jobs ?? "", 10);
 		const count = Number.isFinite(slots) && slots > 0 ? slots : 1;
-		builds += count;
-		if ((features ?? "-").split(",").some((one) => VM_FEATURES.has(one))) {
-			vms += count;
-		}
+		const runsVms = (features ?? "-")
+			.split(",")
+			.some((one) => VM_FEATURES.has(one));
+		const seen = builders.get(uri) ?? { builds: 0, vms: 0 };
+		builders.set(uri, {
+			builds: Math.max(seen.builds, count),
+			vms: Math.max(seen.vms, runsVms ? count : 0),
+		});
 	}
-	return builds > 0 ? { builds, vms } : undefined;
+	let builds = 0;
+	let vms = 0;
+	for (const [uri, one] of builders) {
+		const free = (slots: number) =>
+			Array.from({ length: slots }, (_, slot) => slot).filter(
+				(slot) => !busy(uri, slot),
+			).length;
+		builds += free(one.builds);
+		vms += free(one.vms);
+	}
+	return builders.size > 0 ? { builds, vms } : undefined;
 }
 
 /** The builders standing now, from the machines file, or none. */
 function offloadOf(kernel: Kernel): Offload | undefined {
 	if (kernel.machines === undefined) return undefined;
+	let text: string;
 	try {
-		return offloadIn(readFileSync(kernel.machines, "utf8"));
+		text = readFileSync(kernel.machines, "utf8");
 	} catch {
 		// No file: no builder stands.
 		return undefined;
 	}
+	return offloadIn(text, slotsBusy(kernel));
+}
+
+/**
+ * Whether a builder's slot is building now, by the lock Nix holds on its
+ * file in the daemon's current-load folder while it builds there,
+ * `<uri with / as _>-<slot>`, as the kernel's lock table shows it. Only
+ * the file's inode need be read, so it takes no permission to its
+ * contents. A slot whose file can't be read is free, as on a machine
+ * that keeps no such folder.
+ */
+export function slotsBusy(
+	kernel: Pick<Kernel, "proc" | "nixLoad">,
+): (uri: string, slot: number) => boolean {
+	if (kernel.nixLoad === undefined) return () => false;
+	const load = kernel.nixLoad;
+	const held = new Set(
+		text(join(kernel.proc, "locks"))
+			.split("\n")
+			.map((line) => line.trim().split(/\s+/)[5]?.split(":")[2])
+			.filter((inode): inode is string => inode !== undefined),
+	);
+	return (uri, slot) => {
+		try {
+			const file = join(load, `${uri.replaceAll("/", "_")}-${slot}`);
+			return held.has(String(statSync(file).ino));
+		} catch {
+			// No lock file yet: nothing has built in that slot.
+			return false;
+		}
+	};
 }
 
 /** How deep floors are looked for: user.slice/user-N/user@N/app.slice. */

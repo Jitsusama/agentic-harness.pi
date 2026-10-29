@@ -190,7 +190,7 @@ export function needsGibOf(
  * of 241 failed. CPU pressure is what slowed them (x1.52 past 75), which
  * the cap on builds beside VM checks already answers. So six run at
  * once, while the machine isn't stalling for the person (see
- * {@link vmsAllowed}), and {@link FEWER_VMS} while the outcomes say six
+ * {@link vmsAllowedHere}), and {@link FEWER_VMS} while the outcomes say six
  * is too many (see vmsFor in outcome.ts).
  */
 export const MOST_VMS = 6;
@@ -211,9 +211,9 @@ export const FEWER_VMS = 5;
 export const MOST_FLOORS_PRESSURE = 1;
 
 /**
- * How many VMs may run now: the rule's most on this machine while it
- * isn't stalling for the person, and none more here while it is, plus
- * the VM slots of any builder elsewhere, whatever this machine feels.
+ * How many VMs may run on this machine itself now: the rule's most while
+ * it isn't stalling for the person, and none while it is. A builder's
+ * free VM slots come on top, for VM checks alone (see {@link vmWaits}).
  *
  * Stalling is the person's own programs waiting on memory past
  * {@link MOST_FLOORS_PRESSURE}, or CPU pressure at
@@ -225,13 +225,30 @@ export const MOST_FLOORS_PRESSURE = 1;
  * waits on `vms`, which is what lends one. Running VMs finish; only new
  * ones wait. Where no floor is read, only CPU counts.
  */
-function vmsAllowed(room: Room, rules: Rules): number {
-	const most = rules.mostVms ?? MOST_VMS;
+function vmsAllowedHere(room: Room, rules: Rules): number {
 	const stalling =
 		floorsWait(room) || room.cpuPressure >= MOST_CPU_PRESSURE_BESIDE_VMS;
-	const here = stalling ? 0 : most;
-	// A VM on a builder elsewhere takes none of the person's memory here.
-	return here + (room.offload?.vms ?? 0);
+	return stalling ? 0 : (rules.mostVms ?? MOST_VMS);
+}
+
+/**
+ * Whether a VM job must wait for a VM slot. A VM check is a Nix build,
+ * which Nix sends to a builder elsewhere while one has a slot free, so
+ * it starts on a free builder slot or on this machine's own VM room. A
+ * VM test runs its own qemu here, from its shell, so only this
+ * machine's room counts for it: counted against a builder's room, it
+ * started while the person's programs stalled.
+ */
+function vmWaits(
+	job: Job,
+	at: { readonly vmsHere: number; readonly vmsElsewhere: number },
+	room: Room,
+	rules: Rules,
+): boolean {
+	const noRoomHere = at.vmsHere >= vmsAllowedHere(room, rules);
+	return job.kind === "vm-test"
+		? noRoomHere
+		: noRoomHere && at.vmsElsewhere < 1;
 }
 
 /**
@@ -378,7 +395,9 @@ export interface Room {
  * admitted build would land on this machine.
  */
 export interface Offload {
+	/** Slots free now for builds. */
 	readonly builds: number;
+	/** Of those, the slots free now on builders that run VMs. */
 	readonly vms: number;
 }
 
@@ -554,7 +573,12 @@ export function nextTurn(
 	);
 	if (now - last < SPREAD_MS) return undefined;
 	if (room.memoryPressure >= MOST_MEMORY_PRESSURE) return undefined;
-	const { growing, vms, builds, quick } = standing(jobs, room, now, rules);
+	const { growing, vmsHere, vmsElsewhere, builds, quick } = standing(
+		jobs,
+		room,
+		now,
+		rules,
+	);
 	const fits = (job: Job) => room.availableGib - growing >= needsGibOf(job);
 	const waiting = waitingInOrder(jobs, awaited, first);
 	// Quick work passes older work, one job at a time: it ends in seconds,
@@ -572,7 +596,9 @@ export function nextTurn(
 			return Number.isFinite(quick.left) ? { ...job, capped: true } : job;
 		}
 		if (held) continue;
-		if (isVm(job) && vms >= vmsAllowed(room, rules)) continue;
+		if (isVm(job) && vmWaits(job, { vmsHere, vmsElsewhere }, room, rules)) {
+			continue;
+		}
 		// Only bulk work is behind a build, and it all waits with it.
 		const ruledOut =
 			job.kind === "build" &&
@@ -621,7 +647,12 @@ export function waitReasons(
 		for (const job of waiting) reasons.set(job.id, "memory");
 		return reasons;
 	}
-	const { growing, vms, builds, quick } = standing(jobs, room, now, rules);
+	const { growing, vmsHere, vmsElsewhere, builds, quick } = standing(
+		jobs,
+		room,
+		now,
+		rules,
+	);
 	const fits = (job: Job) => room.availableGib - growing >= needsGibOf(job);
 	const passes = (job: Job) =>
 		waiting.some(
@@ -640,7 +671,9 @@ export function waitReasons(
 				return "order";
 			}
 			if (held || given) return "order";
-			if (isVm(job) && vms >= vmsAllowed(room, rules)) return "vms";
+			if (isVm(job) && vmWaits(job, { vmsHere, vmsElsewhere }, room, rules)) {
+				return "vms";
+			}
 			const ruledOut =
 				job.kind === "build" &&
 				(builds < 1 || (Number.isFinite(builds) && !job.cappable));
@@ -668,7 +701,10 @@ function standing(
 	rules: Rules,
 ): {
 	growing: number;
-	vms: number;
+	/** VMs running on this machine itself: its VM tests, or its qemu. */
+	vmsHere: number;
+	/** A builder's VM slots free and not yet spoken for. */
+	vmsElsewhere: number;
 	builds: number;
 	quick: { running: number; left: number };
 } {
@@ -676,10 +712,17 @@ function standing(
 	const growing = running
 		.filter((job) => now - Date.parse(job.started as string) < RAMP_MS)
 		.reduce((sum, job) => sum + needsGibOf(job), 0);
-	// A VM just given its turn may not have started its qemu yet, and one
-	// the machine shows may be outside the queue: the larger count holds.
-	const vms = Math.max(running.filter(isVm).length, room.vms);
 	const tests = running.filter((job) => job.kind === "vm-test").length;
+	// A VM check just given its turn is still evaluating: it holds no
+	// builder slot and runs no qemu yet, so it counts against both, and
+	// the machine's qemu count holds VMs outside the queue.
+	const justStarted = running.filter(
+		(job) =>
+			job.kind === "vm-check" &&
+			now - Date.parse(job.started as string) < RAMP_MS,
+	).length;
+	const vmsHere = Math.max(tests + justStarted, room.vms);
+	const vmsElsewhere = Math.max(0, (room.offload?.vms ?? 0) - justStarted);
 	const checking =
 		rules.buildsWaitForVmChecks &&
 		(running.some((job) => job.kind === "vm-check") || room.vms > tests);
@@ -698,14 +741,14 @@ function standing(
 			: 0;
 	const builds = !checking
 		? Number.POSITIVE_INFINITY
-		: Math.max(0, here + (room.offload?.builds ?? 0) - beside);
+		: Math.max(0, here - beside) + (room.offload?.builds ?? 0);
 	const quick = {
 		running: quickRunning,
 		left: checking
 			? Math.max(0, QUICK_AT_ONCE - quickRunning)
 			: Number.POSITIVE_INFINITY,
 	};
-	return { growing, vms, builds, quick };
+	return { growing, vmsHere, vmsElsewhere, builds, quick };
 }
 
 /** How many more VMs and builds could start now. */
@@ -725,7 +768,12 @@ export function roomLeft(
 	rules: Rules = RULES,
 ): RoomLeft {
 	if (room.memoryPressure >= MOST_MEMORY_PRESSURE) return { vms: 0, builds: 0 };
-	const { growing, vms, builds } = standing(jobs, room, now, rules);
+	const { growing, vmsHere, vmsElsewhere, builds } = standing(
+		jobs,
+		room,
+		now,
+		rules,
+	);
 	const waiting = waitingInOrder(jobs);
 	const free =
 		room.availableGib -
@@ -734,7 +782,9 @@ export function roomLeft(
 	const fits = (kind: Kind) => Math.max(0, Math.floor(free / NEEDS_GIB[kind]));
 	const slots = Math.max(
 		0,
-		vmsAllowed(room, rules) - vms - waiting.filter(isVm).length,
+		Math.max(0, vmsAllowedHere(room, rules) - vmsHere) +
+			vmsElsewhere -
+			waiting.filter(isVm).length,
 	);
 	// A build waiting is held by memory or the rule, and so is the next.
 	const buildWaits = waiting.some((job) => job.kind === "build");

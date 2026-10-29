@@ -375,15 +375,17 @@ describe("the machine's queue folder", () => {
 		}
 		queue.ask(job("held", { kind: "vm-test" }));
 		shellSays("held", 403);
-		queue.keep(ROOMY, NOW, () => undefined);
+		// Their qemu runs here, as the machine's count shows.
+		const running = { ...ROOMY, vms: MOST_VMS };
+		queue.keep(running, NOW, () => undefined);
 		expect(record().wasted.today).toBe(1);
-		queue.keep(ROOMY, NOW + 10_000, () => undefined);
+		queue.keep(running, NOW + 10_000, () => undefined);
 		expect(record().wasted.today).toBe(1);
-		queue.keep(ROOMY, NOW + 60_000, () => undefined);
+		queue.keep(running, NOW + 60_000, () => undefined);
 		expect(record().wasted.today).toBe(2);
 		queue.keep(TIGHT, NOW + 120_000, () => undefined);
 		expect(record().wasted.today).toBe(2);
-		queue.keep(ROOMY, Date.parse("2026-10-23T00:00:10Z"), () => undefined);
+		queue.keep(running, Date.parse("2026-10-23T00:00:10Z"), () => undefined);
 		expect(record().wasted).toEqual({
 			today: 1,
 			day: "2026-10-23",
