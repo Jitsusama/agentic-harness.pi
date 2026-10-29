@@ -25,8 +25,16 @@ export interface GitState {
 	readonly workdir: string;
 	/** The local branch, or the commit's first seven characters. */
 	readonly branch: string;
+	/** Changes in the tree not yet staged. */
+	readonly unstaged: boolean;
+	/** Changes staged and not yet committed. */
+	readonly staged: boolean;
+	/** Files git doesn't track. */
+	readonly untracked: boolean;
 	readonly conflicted: boolean;
-	readonly ahead: boolean;
+	/** Commits the branch has that its upstream doesn't, and the reverse. */
+	readonly ahead: number;
+	readonly behind: number;
 	readonly op: Operation | null;
 }
 
@@ -94,8 +102,10 @@ export function operation(dir: string | null): Operation | null {
 
 /**
  * One answer: its id, and the folder's state, or false outside a
- * repository. Counts come from the index's size on, and only whether each
- * is above zero is drawn.
+ * repository. Counts come from the index's size on. Of the tree's changes
+ * only whether each kind is there is drawn; the commits ahead and behind
+ * are drawn as their counts. An engine that didn't count says -1, read as
+ * none.
  */
 export function parseAnswer(
 	record: string,
@@ -113,8 +123,12 @@ export function parseAnswer(
 		state: {
 			workdir,
 			branch: local !== "" ? local : (fields[3] ?? "").slice(0, 7),
+			unstaged: count(11) > 0,
+			staged: count(10) > 0,
+			untracked: count(13) > 0,
 			conflicted: count(12) > 0,
-			ahead: count(14) > 0,
+			ahead: Math.max(count(14), 0),
+			behind: Math.max(count(15), 0),
 			op: readOperation(workdir),
 		},
 	};

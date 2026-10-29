@@ -1,14 +1,14 @@
 # Status Line Extension
 
 pi's one line along the bottom, in the language of a shell prompt: where
-pi is working, told from its root, and the branch at the right with its
-marks. Each field shows only while it's true, and they give way a step at a
+pi is working, told from its root, and the branch at the right with git's
+notation for its changes. Each field shows only while it's true, and they give way a step at a
 time as the terminal narrows.
 
 ## Layout
 
 ```
-dotfiles/modules/neovim  rebase ◆◈◇  claude-opus-5-5 high     ⚑  ◑ 45.2k ∂ $0.04 Σ $1.23  main *
+dotfiles/modules/neovim  rebase ◆◈◇  claude-opus-5-5 high     ⚑  ◑ 45.2k ∂ $0.04 Σ $1.23  main *? ↑2
 └──────────────────────── left ─────────────────────────┘     └──────────── right ─────────────┘
 ```
 
@@ -31,8 +31,11 @@ each reads with its own.
 - Each extension's status, whole.
 - The panel's height, only while it isn't the usual one.
 - Context, marginal cost and session total, as one meter.
-- The branch, muted, with a mark for commits not yet pushed. Work not
-  yet committed has no mark.
+- The branch, muted, then git's notation, as its short status and the
+  usual prompts write it: `*` for changes not staged, `+` for staged and
+  `?` for untracked files, run together, then `↑N` for commits ahead of
+  its upstream and `↓N` for behind, run together. A tree clean and in
+  step shows the branch alone.
 
 A field that gives way goes without a trace. A mark saying only that
 something is missing would be one more to learn, and a wider window shows
@@ -48,7 +51,7 @@ when it is set), so the two agree:
 {
   "engine": "/path/to/gitstatusd",
   "roots": ["zone.nix", ".git"],
-  "marks": { "branch": "\uf418", "unpushed": "\uf431" }
+  "marks": { "branch": "\uf418" }
 }
 ```
 
@@ -60,13 +63,14 @@ when it is set), so the two agree:
   again.
 - `roots` are the files or folders that mark a root; the nearest folder
   holding any of them names it.
-- `marks` are drawn by meaning: `branch`, `unpushed`, `more`,
-  `complete`, `active`, `pending` and `thinking`. A mark left out takes the
-  package's own, an empty one draws the words alone, and one the line
-  doesn't draw, such as a prompt's `unsaved`, is left unread.
+- `marks` are drawn by meaning: `branch`, `more`, `complete`, `active`,
+  `pending` and `thinking`. A mark left out takes the package's own, an
+  empty one draws the words alone, and one the line doesn't draw, such as
+  a prompt's `unsaved` or `unpushed`, is left unread. Git's notation is
+  git's own, not a mark, so no machine changes it.
 
 Without the file a folder is told from the nearest `.git`, and the branch
-is pi's own, with no marks.
+is pi's own, with no notation.
 
 ## What an Extension Puts Here
 
@@ -104,7 +108,7 @@ before, until the line fits:
 5. The model takes its short name (`claude-sonnet-4-20250514` to
    `sonnet-4`).
 6. How hard it thinks goes.
-7. The branch goes to its mark, keeping the marks after it.
+7. The branch goes to its mark, keeping git's notation after it.
 8. What git is in the middle of goes to its mark.
 9. The path goes to the folder's name.
 10. The model goes.

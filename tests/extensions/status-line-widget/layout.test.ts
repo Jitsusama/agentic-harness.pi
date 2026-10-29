@@ -22,15 +22,18 @@ import { DEFAULT_MARKS } from "../../../extensions/status-line-widget/where.ts";
 const MARKS = {
 	...DEFAULT_MARKS,
 	branch: "B",
-	unpushed: "U",
 	thinking: "T",
 };
 
 const CLEAN: GitState = {
 	workdir: "/w/src",
 	branch: "jitsusama/status-line-language",
+	unstaged: false,
+	staged: false,
+	untracked: false,
 	conflicted: false,
-	ahead: false,
+	ahead: 0,
+	behind: 0,
 	op: null,
 };
 
@@ -106,11 +109,35 @@ describe("pi's status line at its full width", () => {
 		expect(read(facts({ thinking: "off" }), 200)).not.toContain("T");
 	});
 
-	it("marks unpushed work after the branch", () => {
-		const git = { ...CLEAN, ahead: true };
+	it("writes the tree's changes and the upstream in git's notation after the branch", () => {
+		const git = {
+			...CLEAN,
+			unstaged: true,
+			staged: true,
+			untracked: true,
+			ahead: 2,
+			behind: 1,
+		};
 
 		expect(
-			read(facts({ git }), 200).endsWith("B jitsusama/status-line-language U"),
+			read(facts({ git }), 200).endsWith(
+				"B jitsusama/status-line-language *+? \u21912\u21931",
+			),
+		).toBe(true);
+	});
+
+	it("writes only what holds, in git's order", () => {
+		const ending = (over: Partial<GitState>) =>
+			read(facts({ git: { ...CLEAN, ...over } }), 200).split("language")[1];
+
+		expect(ending({ untracked: true, unstaged: true })).toBe(" *?");
+		expect(ending({ staged: true })).toBe(" +");
+		expect(ending({ behind: 4 })).toBe(" \u21934");
+	});
+
+	it("writes nothing after the branch when the tree is clean and in step", () => {
+		expect(
+			read(facts(), 200).endsWith("B jitsusama/status-line-language"),
 		).toBe(true);
 	});
 
@@ -213,7 +240,10 @@ describe("pi's status line as the window narrows", () => {
 			panel: "■",
 			git: {
 				...CLEAN,
-				ahead: true,
+				unstaged: true,
+				untracked: true,
+				ahead: 12,
+				behind: 3,
 				op: { name: "rebase", at: 2, of: 5 },
 			},
 		});

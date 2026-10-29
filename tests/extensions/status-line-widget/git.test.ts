@@ -37,6 +37,7 @@ function answer(
 		conflicted?: number;
 		untracked?: number;
 		ahead?: number;
+		behind?: number;
 	},
 	branch = "main",
 ): string {
@@ -56,7 +57,7 @@ function answer(
 		String(counts.conflicted ?? 0),
 		String(counts.untracked ?? 0),
 		String(counts.ahead ?? 0),
-		"0",
+		String(counts.behind ?? 0),
 	].join("\x1f");
 }
 
@@ -69,20 +70,59 @@ describe("an engine's answer", () => {
 			state: {
 				workdir: "/w/src",
 				branch: "main",
+				unstaged: false,
+				staged: false,
+				untracked: false,
 				conflicted: false,
-				ahead: false,
+				ahead: 0,
+				behind: 0,
 				op: null,
 			},
 		});
 	});
 
-	it("marks a conflict and unpushed commits", () => {
+	it("tells unstaged, staged and untracked work apart", () => {
+		const read = (counts: Parameters<typeof answer>[1]) =>
+			parseAnswer(answer("1", counts), none).state;
+
+		expect(read({ unstaged: 3 })).toMatchObject({
+			unstaged: true,
+			staged: false,
+			untracked: false,
+		});
+		expect(read({ staged: 1 })).toMatchObject({
+			unstaged: false,
+			staged: true,
+			untracked: false,
+		});
+		expect(read({ untracked: 2 })).toMatchObject({
+			unstaged: false,
+			staged: false,
+			untracked: true,
+		});
+	});
+
+	it("counts commits ahead and behind, and a conflict", () => {
 		const { state } = parseAnswer(
-			answer("1", { conflicted: 1, ahead: 2 }),
+			answer("1", { conflicted: 1, ahead: 2, behind: 3 }),
 			none,
 		);
 
-		expect(state).toMatchObject({ conflicted: true, ahead: true });
+		expect(state).toMatchObject({ conflicted: true, ahead: 2, behind: 3 });
+	});
+
+	it("reads an engine that didn't count as nothing there", () => {
+		const { state } = parseAnswer(
+			answer("1", { staged: -1, unstaged: -1, untracked: -1, ahead: -1 }),
+			none,
+		);
+
+		expect(state).toMatchObject({
+			unstaged: false,
+			staged: false,
+			untracked: false,
+			ahead: 0,
+		});
 	});
 
 	it("names a detached head by its commit's first seven characters", () => {
@@ -188,8 +228,12 @@ describe("the engine, kept running", () => {
 				{
 					workdir: dir,
 					branch: "main",
+					unstaged: true,
+					staged: false,
+					untracked: false,
 					conflicted: false,
-					ahead: true,
+					ahead: 1,
+					behind: 0,
 					op: null,
 				},
 			],
