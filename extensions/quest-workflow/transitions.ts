@@ -283,9 +283,9 @@ async function dispatch(
 		case "recent":
 			return recent(state);
 		case "restore":
-			if (params.machine !== undefined) {
+			if (params.machine !== undefined || params.needs !== undefined) {
 				return refuse(
-					"restore reopens sessions on this machine, where pi saved their history, so it can't take a machine. To start a quest's session on another machine, use spawn with machine.",
+					"restore reopens sessions on this machine, where pi saved their history, so it can't take a machine or needs. To start a quest's session on another machine, use spawn with machine or needs.",
 				);
 			}
 			// Listing is the default and acting needs force: reopening a

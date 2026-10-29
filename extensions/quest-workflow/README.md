@@ -109,7 +109,19 @@ shipped and tested.
   on its own machine. A dry run asks the node nothing. A held
   session's terminal is its holder, not kitty, so a session it
   spawns in turn opens a new window rather than a tab. `restore`
-  refuses `machine`: it reopens this machine's saved sessions.
+  refuses `machine` and `needs`: it reopens this machine's saved
+  sessions.
+- **Spawn where it fits**: `spawn` with `needs`, each in
+  mycelium's own `kind=value` words (`reach=home`,
+  `system=macos`), asks the node where such work goes before
+  anything else, since resuming holds only on this machine. The
+  node chooses among the machines its realm links, ranking down
+  one on battery or short of memory or disk, and the session
+  starts held there as above, the chosen machine named in the
+  start so a machine that changed in between refuses rather than
+  taking it. `machine` beside `needs` is one more need. A
+  refusal gives the node's reasons for each machine; a dry run
+  asks only where it would go.
 - **Queries**: `find`, `who`, `links`, `locate` (the inverse
   index: resolve a document id, alias ref or session id to the
   quest that owns it), `ancestors` (trace a quest's parent chain

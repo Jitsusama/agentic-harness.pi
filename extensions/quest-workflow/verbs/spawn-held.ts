@@ -9,6 +9,11 @@
  * no terminal driver knows of mycelium. A held session's own terminal is
  * its holder rather than kitty, so a session it spawns in turn opens a
  * new window rather than a tab beside it.
+ *
+ * Spawn can also say what the machine must be rather than which it is:
+ * the node is asked where that goes first, since spawn must know the
+ * machine to choose between resuming here and starting fresh, and the
+ * start then names the machine chosen. A dry run asks only where.
  */
 
 import { hostname } from "node:os";
@@ -17,9 +22,16 @@ import { shellQuote } from "../../../lib/core/internal/terminal/drivers/shared.t
 import {
 	type NodeStarted,
 	nodeSocket,
+	placeAt,
 	type StartAnswer,
 	startAt,
 } from "../../../lib/mesh/node.ts";
+import {
+	type Need,
+	needFrom,
+	needWords,
+	type PlaceAnswer,
+} from "../../../lib/mesh/placement.ts";
 import {
 	describePlan,
 	type OpenedTerminal,
@@ -32,6 +44,8 @@ import {
 export interface HeldSpawn {
 	/** The machine to start on, as its node names it. */
 	readonly machine: string;
+	/** What the machine was chosen for, if the node chose it. */
+	readonly needs: readonly Need[];
 	/** The shell command the session runs, as spawn resolved it. */
 	readonly command: string;
 	/** The folder spawn resolved, on this machine. */
@@ -60,6 +74,57 @@ export type StartOnNode = (
 ) => Promise<StartAnswer>;
 
 const askTheNode: StartOnNode = (start) => startAt(nodeSocket(), start);
+
+/** How spawn asks a node where work goes; the machine's node by default. */
+export type PlaceOnNode = (needs: readonly Need[]) => Promise<PlaceAnswer>;
+
+const askWhere: PlaceOnNode = (needs) => placeAt(nodeSocket(), needs);
+
+/** The machine a spawn starts on, and what it was chosen for. */
+export type Chosen =
+	| { readonly ok: false; readonly refusal: string }
+	| {
+			readonly ok: true;
+			readonly machine: string | undefined;
+			readonly needs: readonly Need[];
+	  };
+
+/**
+ * The machine a spawn asking `machine` and needing `words` starts on:
+ * the one asked when it needs nothing more, else wherever the node
+ * places work needing all of them, the machine asked among them.
+ */
+export async function machineFor(
+	machine: string | undefined,
+	words: readonly string[],
+	place: PlaceOnNode = askWhere,
+): Promise<Chosen> {
+	const needs: Need[] = [];
+	for (const word of words) {
+		const read = needFrom(word.trim());
+		if (!read.ok) return { ok: false, refusal: `${read.reason}.` };
+		needs.push(read.need);
+	}
+	if (needs.length === 0) return { ok: true, machine, needs };
+	const all: Need[] =
+		machine === undefined
+			? needs
+			: [...needs, { kind: "machine", value: machine }];
+	const answer = await place(all);
+	if (!answer.ok) {
+		return {
+			ok: false,
+			refusal: `Nothing was started, since mycelium's node placed it nowhere: ${answer.reason}.`,
+		};
+	}
+	return { ok: true, machine: answer.machine, needs };
+}
+
+/** What a spawn's machine was chosen for, as a sentence, or nothing. */
+function chosenFor(asked: HeldSpawn): string {
+	if (asked.needs.length === 0) return "";
+	return `The node chose ${asked.machine} for ${asked.needs.map(needWords).join(", ")}. `;
+}
 
 /** Whether `machine` names this one, as its node names it by default. */
 export function isThisMachine(
@@ -123,9 +188,10 @@ export async function spawnHeld(
 		return {
 			ok: true,
 			planned: true,
-			message: `Would ask ${asked.machine}'s mycelium node to start a held session in ${where}, running: ${asked.command}; then open a ${planned.plan.layout} through ${describePlan(planned.plan)} on the words it answers. Nothing was started.`,
+			message: `${chosenFor(asked)}Would ask ${asked.machine}'s mycelium node to start a held session in ${where}, running: ${asked.command}; then open a ${planned.plan.layout} through ${describePlan(planned.plan)} on the words it answers. Nothing was started.`,
 			details: {
 				machine: asked.machine,
+				needs: asked.needs.map(needWords),
 				folder: folder ?? null,
 				command: asked.command,
 				plan: planned.plan,
@@ -134,6 +200,7 @@ export async function spawnHeld(
 	}
 	const answer = await start({
 		machine: asked.machine,
+		needs: asked.needs,
 		...(folder !== undefined ? { folder } : {}),
 		command: heldWords(asked.command, asked.questId),
 	});
@@ -174,9 +241,10 @@ async function joined(
 	return {
 		ok: true,
 		planned: false,
-		message: `Started a held session on ${started.machine} (${held}) and opened a ${opened.plan.layout} joined to it through ${describePlan(opened.plan)}. Closing the window leaves it running; join it again with: ${line}.${noted}`,
+		message: `${chosenFor(asked)}Started a held session on ${started.machine} (${held}) and opened a ${opened.plan.layout} joined to it through ${describePlan(opened.plan)}. Closing the window leaves it running; join it again with: ${line}.${noted}`,
 		details: {
 			machine: started.machine,
+			needs: asked.needs.map(needWords),
 			held: started.held,
 			folder: started.folder,
 			attach: started.attach,

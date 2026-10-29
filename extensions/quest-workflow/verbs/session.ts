@@ -46,7 +46,7 @@ import {
 	type QuestToolParams,
 	refuse,
 } from "./shared.ts";
-import { isThisMachine, spawnHeld } from "./spawn-held.ts";
+import { isThisMachine, machineFor, spawnHeld } from "./spawn-held.ts";
 
 /**
  * Repair session-to-quest membership across the store, in two
@@ -311,8 +311,14 @@ export async function spawn(
 	// fresh pi and surfaces the choice rather than guessing.
 	const currentId = currentSessionId(ctx, undefined);
 	// A session's history is saved on its own machine, so one started on
-	// another starts fresh.
-	const machine = params.machine?.trim() || undefined;
+	// another starts fresh; which machine that is may be the node's to
+	// choose, by what the session needs of it.
+	const chosen = await machineFor(
+		params.machine?.trim() || undefined,
+		params.needs ?? [],
+	);
+	if (!chosen.ok) return refuse(chosen.refusal);
+	const { machine, needs } = chosen;
 	const resume =
 		machine === undefined || isThisMachine(machine)
 			? pickResumeSession(sessions.filter((s) => s.id !== currentId))
@@ -343,6 +349,7 @@ export async function spawn(
 	if (machine !== undefined) {
 		const held = await spawnHeld({
 			machine,
+			needs,
 			command,
 			cwd,
 			home: homedir(),

@@ -4,10 +4,13 @@ import {
 	heldWords,
 	isThisMachine,
 	joinLine,
+	machineFor,
+	type PlaceOnNode,
 	type StartOnNode,
 	spawnHeld,
 } from "../../../extensions/quest-workflow/verbs/spawn-held.ts";
 import type { NodeStart } from "../../../lib/mesh/node.ts";
+import type { Need } from "../../../lib/mesh/placement.ts";
 import { fakeDriver } from "../../lib/terminal/fakes.ts";
 
 // The configured path points at a binary that exists on any POSIX
@@ -51,6 +54,7 @@ const equilibrius = {
 function asked(kitty: ReturnType<typeof fakeDriver>, dryRun = false) {
 	return {
 		machine: "equilibrius",
+		needs: [],
 		command: "pi",
 		cwd: "/home/joel/src/core.nix",
 		home: "/home/joel",
@@ -109,6 +113,7 @@ describe("spawning on a machine", () => {
 		expect(starts).toEqual([
 			{
 				machine: "equilibrius",
+				needs: [],
 				folder: "src/core.nix",
 				command: heldWords("pi", "QEST-20261013-4UHC5Q"),
 			},
@@ -150,5 +155,74 @@ describe("spawning on a machine", () => {
 				"Nothing was started on equilibrius: no link reaches equilibrius now.",
 		});
 		expect(kitty.calls.spawned).toEqual([]);
+	});
+
+	it("names what the node chose the machine for, and starts with those needs", async () => {
+		const kitty = fakeDriver("kitty");
+		const { asked: starts, start } = node(equilibrius);
+		const home: Need = { kind: "reach", value: "home" };
+		const outcome = await spawnHeld({ ...asked(kitty), needs: [home] }, start);
+		expect(starts[0]?.needs).toEqual([home]);
+		expect(outcome.ok && outcome.message).toContain(
+			"The node chose equilibrius for reach=home. Started a held session",
+		);
+	});
+});
+
+describe("the machine a spawn starts on", () => {
+	/** A node placing everything on `answer`, keeping what it was asked. */
+	function placing(answer: Awaited<ReturnType<PlaceOnNode>>) {
+		const asked: (readonly Need[])[] = [];
+		const place: PlaceOnNode = async (needs) => {
+			asked.push(needs);
+			return answer;
+		};
+		return { asked, place };
+	}
+
+	it("is the one asked, with the node not asked, when nothing more is needed", async () => {
+		const { asked, place } = placing({ ok: true, machine: "optimus" });
+		expect(await machineFor("equilibrius", [], place)).toEqual({
+			ok: true,
+			machine: "equilibrius",
+			needs: [],
+		});
+		expect(await machineFor(undefined, [], place)).toEqual({
+			ok: true,
+			machine: undefined,
+			needs: [],
+		});
+		expect(asked).toEqual([]);
+	});
+
+	it("is where the node places what is needed, the machine asked among it", async () => {
+		const { asked, place } = placing({ ok: true, machine: "equilibrius" });
+		const chosen = await machineFor("equilibrius", ["system=macos"], place);
+		expect(chosen).toEqual({
+			ok: true,
+			machine: "equilibrius",
+			needs: [{ kind: "system", value: "macos" }],
+		});
+		expect(asked).toEqual([
+			[
+				{ kind: "system", value: "macos" },
+				{ kind: "machine", value: "equilibrius" },
+			],
+		]);
+	});
+
+	it("refuses with the node's reasons, or the words that aren't a need", async () => {
+		const { asked, place } = placing({
+			ok: false,
+			reason: "no machine takes it: optimus lacks reach=home",
+		});
+		expect(await machineFor(undefined, ["reach=home"], place)).toEqual({
+			ok: false,
+			refusal:
+				"Nothing was started, since mycelium's node placed it nowhere: no machine takes it: optimus lacks reach=home.",
+		});
+		const bad = await machineFor(undefined, ["home"], place);
+		expect(!bad.ok && bad.refusal).toContain('"home" is not a need');
+		expect(asked).toHaveLength(1);
 	});
 });
