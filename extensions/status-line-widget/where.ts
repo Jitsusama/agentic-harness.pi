@@ -25,7 +25,7 @@ export interface Marks {
 	readonly unsaved: string;
 	/** Commits not yet pushed. */
 	readonly unpushed: string;
-	/** Something cut short, or more hidden. */
+	/** Where a name is cut short. */
 	readonly more: string;
 	/** A step of git's work done, under way, and still to come. */
 	readonly complete: string;

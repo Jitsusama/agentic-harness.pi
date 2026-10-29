@@ -9,7 +9,9 @@
  * work and one for unpushed. Fields are two spaces apart and a mark sits
  * one space from its words, so each reads with its own. Each field shows
  * only while it's true, and they give way a step at a time as the window
- * narrows, the folder's name standing last.
+ * narrows, the folder's name standing last. A field that gives way goes
+ * without a trace: a mark saying only that something is missing is one to
+ * learn, and the wider window shows it again.
  */
 
 import { visibleWidth } from "@earendil-works/pi-tui";
@@ -172,7 +174,6 @@ export function draw(
 	const { marks } = facts;
 	const left: Piece[] = [];
 	const right: Piece[] = [];
-	let lost = false;
 
 	if (on.has("nameshort") && facts.place.parts.length > 0) {
 		const parts = [...facts.place.parts];
@@ -185,16 +186,12 @@ export function draw(
 	if (facts.git) putOperation(left, facts.git, marks, on.has("opshort"));
 
 	const thinks = facts.thinking !== "" && facts.thinking !== "off";
-	if (on.has("model")) {
-		lost = true;
-	} else {
+	if (!on.has("model")) {
 		const model = on.has("modelshort")
 			? shortenModel(facts.model)
 			: facts.model;
 		left.push({ role: "muted", text: `${GAP}${model}` });
-		if (thinks && on.has("thinking")) {
-			lost = true;
-		} else if (thinks) {
+		if (thinks && !on.has("thinking")) {
 			left.push({ role: "text", text: " " });
 			if (marks.thinking !== "") {
 				left.push({ role: "thinking", text: marks.thinking });
@@ -218,8 +215,8 @@ export function draw(
 		...(on.has("share") ? facts.contextShare : facts.context),
 	];
 	if (facts.rate) meter.push({ role: "muted", text: ` ${facts.rate}` });
-	if (facts.total && on.has("total")) lost = true;
-	else if (facts.total) meter.push({ role: "muted", text: ` ${facts.total}` });
+	if (facts.total && !on.has("total"))
+		meter.push({ role: "muted", text: ` ${facts.total}` });
 	field(meter);
 
 	const branch = facts.git ? facts.git.branch : facts.branch;
@@ -227,9 +224,7 @@ export function draw(
 		const pieces: Piece[] = [];
 		const glyph = marks.branch;
 		if (glyph !== "") pieces.push({ role: "muted", text: glyph });
-		if (on.has("branchglyph")) {
-			lost = true;
-		} else {
+		if (!on.has("branchglyph")) {
 			const name = on.has("branchshort")
 				? middle(branch, 14, marks.more)
 				: branch;
@@ -250,7 +245,6 @@ export function draw(
 		field(pieces);
 	}
 
-	if (lost) field([{ role: "muted", text: marks.more }]);
 	return { left, right };
 }
 
