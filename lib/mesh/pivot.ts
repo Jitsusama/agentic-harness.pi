@@ -26,7 +26,10 @@ export type PivotTargets =
 export function pivotTargets(
 	orchestrates: string | undefined,
 	named: readonly string[],
-	present: readonly Pick<Presence, "addresses" | "orchestratedBy">[],
+	present: readonly Pick<
+		Presence,
+		"addresses" | "orchestratedBy" | "orchestrates"
+	>[],
 ): PivotTargets {
 	if (orchestrates === undefined) {
 		return {
@@ -43,9 +46,42 @@ export function pivotTargets(
 	);
 	const outside = named.filter((group) => group !== own && !under.has(group));
 	if (outside.length > 0) {
+		const ask = outside
+			.map((group) => whoToAsk(group, present))
+			.filter((line): line is string => line !== undefined);
 		return {
-			refused: `a pivot goes only to this orchestration, ${own}, or the sessions in it, and ${outside.join(", ")} ${outside.length === 1 ? "is" : "are"} outside it`,
+			refused: `a pivot goes only to this orchestration, ${own}, or the sessions in it, and ${outside.join(", ")} ${outside.length === 1 ? "is" : "are"} outside it${ask.length > 0 ? `. ${ask.join(". ")}` : ""}`,
 		};
 	}
 	return { to: named };
+}
+
+/**
+ * Who to ask instead about a session in another orchestration: its
+ * orchestrator, since only Joel or a session's own orchestrator turns
+ * it, and orchestrators coordinate as equals, by question. Nothing when
+ * no present peer says whose it is.
+ */
+function whoToAsk(
+	group: string,
+	present: readonly Pick<
+		Presence,
+		"addresses" | "orchestratedBy" | "orchestrates"
+	>[],
+): string | undefined {
+	const target = present.find((one) =>
+		one.addresses.map(homeOf).includes(group),
+	);
+	if (!target) return undefined;
+	if (target.orchestrates !== undefined) {
+		return `${group} is an orchestrator; ask it with a question`;
+	}
+	if (target.orchestratedBy === undefined) return undefined;
+	const orchestrator = present.find(
+		(one) => one.orchestrates === target.orchestratedBy,
+	);
+	const by = orchestrator?.addresses[0];
+	return by
+		? `${group} is in ${by}'s orchestration; send it to ${by} as a question`
+		: `${group} is in ${target.orchestratedBy}'s orchestration, whose orchestrator isn't on the mesh now; send it to ${orchestrationGroup(target.orchestratedBy)} as a question`;
 }
