@@ -129,7 +129,12 @@ is a build, never a VM check.
   pressure is at 70% or more: on 29 October VMs kept getting slots while
   Joel's desktop stalled, so nothing waited and no cloud builder was lent.
   A VM held so waits on `vms`, the wait that lends one, and a builder's
-  VM slots still take it. It is five for a day once at least
+  VM slots still take it. VMs start here one at a time: the next only
+  a minute or more after the last, and once every VM started in the
+  last five minutes has held its memory within 128 MiB for 15 s. A
+  stall shows seconds after the memory causing it, so four VMs that
+  started within three minutes on 29 October all got in before any
+  one's memory showed. It is five for a day once at least
   three VMs that had passed with fewer failed with six or more running,
   twice as often as VMs failed with fewer: one failure is not a
   rate, and 623 runs failed no more often beside eight VMs than beside

@@ -18,6 +18,9 @@ import {
 	roomLeft,
 	roomSaid,
 	SPREAD_MS,
+	VM_SETTLE_MS,
+	VM_SPREAD_MS,
+	VM_STEADY_MS,
 	waitingInOrder,
 	waitReasons,
 	waitsWithRoom,
@@ -443,6 +446,28 @@ describe("a builder elsewhere", () => {
 		expect(nextTurn([build], late, NOW)?.id).toBe("build");
 	});
 
+	it("starts VMs one at a time here, each once the last has settled", () => {
+		// 16:28 to 16:31 on 29 October: four VMs in before any one's memory
+		// showed, and six ran at a 17.6% stall.
+		const next = job("next", { kind: "vm-check" });
+		const just = job("just", { kind: "vm-test", started: startedAgo(30_000) });
+		expect(nextTurn([just, next], ROOMY, NOW)).toBeUndefined();
+		expect(waitReasons([just, next], ROOMY, NOW).get("next")).toBe("vms");
+
+		const minute = startedAgo(VM_SPREAD_MS + 1_000);
+		const growing = { ...just, started: minute, grewAt: startedAgo(5_000) };
+		expect(nextTurn([growing, next], ROOMY, NOW)).toBeUndefined();
+
+		const steady = { ...growing, grewAt: startedAgo(VM_STEADY_MS) };
+		expect(nextTurn([steady, next], ROOMY, NOW)?.id).toBe("next");
+
+		// A long test still growing past its first minutes holds nobody.
+		const old = { ...growing, started: startedAgo(VM_SETTLE_MS) };
+		expect(nextTurn([old, next], ROOMY, NOW)?.id).toBe("next");
+		// Builds aren't paced.
+		expect(nextTurn([just, job("build")], ROOMY, NOW)?.id).toBe("build");
+	});
+
 	it("counts a full builder as no room, since Nix then builds here", () => {
 		// 14:27 on 29 October: the lent builder's eight slots all building,
 		// and VM checks counted against them ran their qemu here.
@@ -753,8 +778,14 @@ describe("whose turn it is", () => {
 describe("the room left", () => {
 	it("counts what would start now, past what runs and waits", () => {
 		expect(roomLeft([], ROOMY, NOW)).toEqual({ vms: MOST_VMS, builds: 10 });
+		// A VM just started leaves no VM room until it settles.
 		const running = job("vm", { kind: "vm-test", started: startedAgo(1) });
 		expect(roomLeft([running, job("next")], ROOMY, NOW)).toEqual({
+			vms: 0,
+			builds: 0,
+		});
+		const settled = { ...running, started: startedAgo(VM_SPREAD_MS) };
+		expect(roomLeft([settled, job("next")], ROOMY, NOW)).toEqual({
 			vms: MOST_VMS - 1,
 			builds: 0,
 		});

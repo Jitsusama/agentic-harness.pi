@@ -65,6 +65,7 @@ import { withPlan } from "./plan.ts";
 import {
 	CLASS_OF,
 	type Class,
+	GREW_BYTES,
 	isVm,
 	type Job,
 	type Kind,
@@ -471,8 +472,13 @@ export function queueFolder(
 				ownNow === undefined
 					? job.ownPeakBytes
 					: Math.max(job.ownPeakBytes ?? 0, ownNow);
+			// Memory still growing holds the next VM back (queue.ts's
+			// vmSettling); a creep under a step is no growth.
+			const total = peak + (own ?? 0);
+			const grew = total - (job.grewTo ?? 0) >= GREW_BYTES;
 			const noted: Job = {
 				...job,
+				...(grew ? { grewAt: new Date(now).toISOString(), grewTo: total } : {}),
 				beside: most,
 				...(ranTimed ? { ranTimed: true } : {}),
 				...(vmSince !== undefined ? { vmSince } : {}),

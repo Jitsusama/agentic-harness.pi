@@ -159,11 +159,10 @@ describe("the machine's queue folder", () => {
 			vms: 0,
 			over: [],
 		});
-		// The VM started holds 6 GiB while it grows; the build waits.
-		expect(shown.room).toEqual({ vms: MOST_VMS - 1, builds: 0 });
-		expect(readFileSync(join(dir, "room"), "utf8")).toBe(
-			`${MOST_VMS - 1} more VM tests`,
-		);
+		// The VM started holds 6 GiB while it grows, so the build waits, and
+		// no other VM starts until it settles.
+		expect(shown.room).toEqual({ vms: 0, builds: 0 });
+		expect(readFileSync(join(dir, "room"), "utf8")).toBe("");
 		expect(shown.jobs).toEqual([
 			{
 				id: "first",
