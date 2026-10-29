@@ -1,9 +1,10 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	RESTORE_FILE_VERSION,
+	type RestoreFile,
 	restoreFileOf,
 	restoreFilePath,
 	writeRestoreFile,
@@ -94,6 +95,52 @@ describe("the restore file", () => {
 		expect(file.sessions.map((entry) => entry.id)).toEqual(["left"]);
 	});
 
+	it("offers a window on another machine's session by its attach, beside this machine's sessions", () => {
+		const attach = [
+			"ssh",
+			"-t",
+			"equilibrius",
+			"mycelium",
+			"attach",
+			"9f2c1a07",
+		];
+		const asked: (string | undefined)[] = [];
+		const file = restoreFileOf([], "now", undefined, undefined, (lastBoot) => {
+			asked.push(lastBoot);
+			return {
+				boot: "last",
+				windows: [
+					{
+						id: "01a19000-mac1",
+						address: "SAK9FZ",
+						title: "π - Steer Across Machines",
+						machine: "equilibrius",
+						attach,
+						cwd: "/home/me",
+					},
+				],
+			};
+		});
+
+		// No local session was lost, so the note names the boot.
+		expect(asked).toEqual([undefined]);
+		expect(file).toEqual({
+			v: RESTORE_FILE_VERSION,
+			boot: "last",
+			sessions: [
+				{
+					id: "01a19000-mac1",
+					address: "SAK9FZ",
+					title: "π - Steer Across Machines",
+					cwd: "/home/me",
+					lostAt: "",
+					machine: "equilibrius",
+					attach,
+				},
+			],
+		});
+	});
+
 	it("is written whole where the launcher looks, its folder made if need be", () => {
 		const home = mkdtempSync(join(tmpdir(), "restore-file-"));
 		dirs.push(home);
@@ -106,5 +153,24 @@ describe("the restore file", () => {
 			v: RESTORE_FILE_VERSION,
 			sessions: [],
 		});
+	});
+
+	it("leaves the file alone when it would say the same, so its watcher isn't woken", () => {
+		const home = mkdtempSync(join(tmpdir(), "restore-file-"));
+		dirs.push(home);
+		const path = restoreFilePath(home);
+		const file: RestoreFile = {
+			v: RESTORE_FILE_VERSION,
+			boot: "last",
+			sessions: [],
+		};
+		writeRestoreFile(path, file);
+		const first = statSync(path).ino;
+
+		writeRestoreFile(path, file);
+		expect(statSync(path).ino).toBe(first);
+
+		writeRestoreFile(path, { ...file, boot: "another" });
+		expect(statSync(path).ino).not.toBe(first);
 	});
 });

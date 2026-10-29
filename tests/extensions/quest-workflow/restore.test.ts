@@ -204,6 +204,50 @@ describe("restore verb", () => {
 		expect((await restoreNow()).message).toContain("pi --session 'sess-A'");
 	});
 
+	it("lists a window joined to another machine's session with the words that rejoin it", async () => {
+		// The note the timer wrote in the boot that ended, read in this one
+		// before this boot has written its own.
+		const stateDir = join(
+			process.env.XDG_STATE_HOME ?? "",
+			"pi",
+			"agentic-harness.pi",
+			"quest-workflow",
+		);
+		mkdirSync(stateDir, { recursive: true });
+		writeFileSync(
+			join(stateDir, "windows-elsewhere.json"),
+			JSON.stringify({
+				v: 1,
+				boot: "a-boot-that-has-since-ended",
+				windows: [
+					{
+						id: "01a19000-mac1",
+						address: "SAK9FZ",
+						title: "Steer Across Machines",
+						quest: "QEST-20261029-SAK9FZ",
+						machine: "equilibrius",
+						attach: [
+							"ssh",
+							"-t",
+							"equilibrius",
+							"mycelium",
+							"attach",
+							"9f2c1a07",
+						],
+						cwd: "/home/me",
+					},
+				],
+			}),
+		);
+
+		const result = await restoreNow();
+
+		expect(result.message).toContain("No session here was running");
+		expect(result.message).toContain(
+			"QEST-20261029-SAK9FZ on equilibrius: ssh -t equilibrius mycelium attach 9f2c1a07",
+		);
+	});
+
 	it("offers back a session lost with its terminal", async () => {
 		saveRecord(lostSession("sess-A", "QEST-1"));
 		const result = await restoreNow();

@@ -26,7 +26,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { sessionsDir } from "../../lib/internal/paths.ts";
+import { sessionsDir, stateDir } from "../../lib/internal/paths.ts";
 import { atomicWriteFile } from "../../lib/internal/quest/io.ts";
 import { sessionRegistryDir } from "../../lib/internal/quest/loaded.ts";
 import {
@@ -61,6 +61,11 @@ import {
 	wasLost,
 	wronglyEnded,
 } from "../../lib/internal/quest/session-registry.ts";
+import {
+	readWindowsNote,
+	windowsNotePath,
+	windowsToReopen,
+} from "../../lib/internal/quest/windows-elsewhere.ts";
 import type { QuestSession } from "../../lib/quest/index.ts";
 import {
 	describePlan,
@@ -607,11 +612,14 @@ export function refreshRestoreFile(
 		join(homedir(), ".local", "state"),
 ): void {
 	try {
+		const thisBoot = currentProcessIdentity()?.bootToken;
+		const note = readWindowsNote(windowsNotePath(stateDir("quest-workflow")));
 		const file = restoreFileOf(
 			loadRecords(),
-			currentProcessIdentity()?.bootToken,
+			thisBoot,
 			(questId) => questTitle(questsRoot, questId),
 			savedSessions(),
+			(lastBoot) => windowsToReopen(note, thisBoot, lastBoot),
 		);
 		writeRestoreFile(restoreFilePath(stateHome), file);
 	} catch {

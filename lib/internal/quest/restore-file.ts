@@ -15,7 +15,7 @@
  * left open ended at its last heartbeat, as a probe would decide.
  */
 
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { questAddress, sessionAddress } from "../../mesh/address.ts";
 import { atomicWriteFile } from "./io.ts";
@@ -24,6 +24,7 @@ import {
 	lastBootSessions,
 	type SessionRecord,
 } from "./session-registry.ts";
+import type { BootWindows } from "./windows-elsewhere.ts";
 
 /** The version of the file's shape. */
 export const RESTORE_FILE_VERSION = 1;
@@ -39,6 +40,14 @@ export interface RestoreEntry {
 	readonly cwd: string;
 	/** When it was last seen running. */
 	readonly lostAt: string;
+	/**
+	 * For a session another machine holds, which kept running through
+	 * this machine's power-off: that machine, and the words that join it,
+	 * run in place of `pi --session` (windows-elsewhere.ts). `cwd` is then
+	 * the window's folder here.
+	 */
+	readonly machine?: string;
+	readonly attach?: readonly string[];
 }
 
 /** The whole file. */
@@ -69,6 +78,9 @@ export function restoreFileOf(
 	thisBoot: string | undefined,
 	titleOf: (questId: string) => string | undefined = () => undefined,
 	saved: (sessionId: string) => boolean = () => true,
+	/** What the windows note says was left, read by `windowsToReopen`. */
+	elsewhere: (lastBoot: string | undefined) => BootWindows | undefined = () =>
+		undefined,
 ): RestoreFile {
 	const records = stored.map(({ record, heartbeatAt }) => {
 		const boot = record.process?.bootToken;
@@ -82,12 +94,29 @@ export function restoreFileOf(
 			: record;
 	});
 	const found = lastBootSessions(records, thisBoot);
+	const joins = elsewhere(found.boot);
+	const boot = found.boot ?? joins?.boot;
 	return {
 		v: RESTORE_FILE_VERSION,
-		...(found.boot !== undefined ? { boot: found.boot } : {}),
-		sessions: found.offered
-			.filter((record) => saved(record.sessionId))
-			.map((record) => entryOf(record, titleOf)),
+		...(boot !== undefined ? { boot } : {}),
+		sessions: [
+			...found.offered
+				.filter((record) => saved(record.sessionId))
+				.map((record) => entryOf(record, titleOf)),
+			...(joins?.windows ?? []).map(
+				(window): RestoreEntry => ({
+					id: window.id,
+					address: window.address,
+					title: window.title,
+					...(window.quest ? { quest: window.quest } : {}),
+					cwd: window.cwd,
+					// Still running there: lost here only with the boot.
+					lostAt: "",
+					machine: window.machine,
+					attach: window.attach,
+				}),
+			),
+		],
 	};
 }
 
@@ -108,8 +137,18 @@ function entryOf(
 	};
 }
 
-/** Write the file whole, by rename, so a reader never sees half of it. */
+/**
+ * Write the file whole, by rename, so a reader never sees half of it,
+ * and only when it says something new: a timer rewrites it each minute,
+ * and the launcher wakes for every change to it.
+ */
 export function writeRestoreFile(path: string, file: RestoreFile): void {
+	const text = `${JSON.stringify(file, null, 2)}\n`;
+	try {
+		if (readFileSync(path, "utf8") === text) return;
+	} catch {
+		// No file yet: this is the first.
+	}
 	mkdirSync(dirname(path), { recursive: true });
-	atomicWriteFile(path, `${JSON.stringify(file, null, 2)}\n`);
+	atomicWriteFile(path, text);
 }
