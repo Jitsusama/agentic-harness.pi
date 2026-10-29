@@ -19,10 +19,13 @@
  */
 
 import {
+	type Dirent,
 	mkdirSync,
 	readdirSync,
 	readFileSync,
 	renameSync,
+	rmSync,
+	statSync,
 	unlinkSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -105,6 +108,83 @@ export function steerFrom(raw: string, file: string): Steer | undefined {
 		...(id ? { id } : {}),
 		file,
 	};
+}
+
+/**
+ * Let go of the inboxes of addresses nobody answers now. Each session
+ * makes one for its own address and one for its quest's the first time
+ * it looks, so without this the folder grew by two for every session
+ * the machine ever ran: 118 on 2026-10-29, when a burst of ten in six
+ * minutes set the launcher, which lists them, crash-looping.
+ *
+ * An empty inbox goes once it is older than `quietSince`, so a session
+ * that has just made its own, ahead of publishing who it is, keeps it.
+ * One holding anything, such as a steer for a session that may yet be
+ * restored or a talk's replies, goes once nothing in it has changed
+ * since `keptSince`. Returns the addresses let go.
+ */
+export function forgetInboxes(
+	root: string,
+	answered: ReadonlySet<string>,
+	quietSince: number,
+	keptSince: number,
+): string[] {
+	let names: string[];
+	try {
+		names = readdirSync(root);
+	} catch {
+		return [];
+	}
+	const forgotten: string[] = [];
+	for (const name of names) {
+		if (answered.has(name)) continue;
+		const inbox = join(root, name);
+		const last = lastChange(inbox);
+		if (last === undefined) continue;
+		if (last.at >= (last.empty ? quietSince : keptSince)) continue;
+		try {
+			rmSync(inbox, { recursive: true, force: true });
+			forgotten.push(name);
+		} catch {
+			// Left for the next sweep, which tries again.
+		}
+	}
+	return forgotten;
+}
+
+/**
+ * When anything in a folder last changed, and whether it holds no file
+ * at all; undefined when it is not a folder that can be read.
+ */
+function lastChange(dir: string): { at: number; empty: boolean } | undefined {
+	let at: number;
+	let entries: Dirent[];
+	try {
+		const own = statSync(dir);
+		if (!own.isDirectory()) return undefined;
+		at = own.mtimeMs;
+		entries = readdirSync(dir, { withFileTypes: true });
+	} catch {
+		return undefined;
+	}
+	let empty = true;
+	for (const entry of entries) {
+		const path = join(dir, entry.name);
+		if (entry.isDirectory()) {
+			const inner = lastChange(path);
+			if (!inner) continue;
+			at = Math.max(at, inner.at);
+			empty &&= inner.empty;
+			continue;
+		}
+		empty = false;
+		try {
+			at = Math.max(at, statSync(path).mtimeMs);
+		} catch {
+			// Gone as it was read, as a steer taken meanwhile is: still not empty.
+		}
+	}
+	return { at, empty };
 }
 
 /**

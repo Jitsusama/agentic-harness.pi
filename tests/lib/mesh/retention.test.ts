@@ -149,6 +149,42 @@ describe("the sweep", () => {
 		expect(at.transport.ids()).not.toContain(old);
 	});
 
+	it("lets go of steer inboxes nobody answers, and never one a present peer does", async () => {
+		const inboxes = join(root, "steer");
+		/** An inbox made this long ago, holding a file of that age when given one. */
+		const inbox = (address: string, ago: number, file?: string) => {
+			const dir = join(inboxes, address);
+			mkdirSync(join(dir, "replies"), { recursive: true });
+			if (file) aged(join(dir, file), "{}", ago);
+			const at = new Date(now - ago);
+			utimesSync(join(dir, "replies"), at, at);
+			utimesSync(dir, at, at);
+		};
+		inbox("QUIET", 3 * DAY); // a present peer's, however old
+		inbox("QSTADR", 3 * DAY); // its quest's
+		inbox("ENDED", 2 * 60 * 60 * 1000); // an ended session's, empty
+		inbox("JUSTMADE", 60 * 1000); // made ahead of its presence
+		inbox("WAITING", 3 * DAY, "1-steer.json"); // a steer for a session restored later
+		inbox("LONGGONE", KEEP_MS + 1000, "replies/talk-1.jsonl");
+		const at = { ...kept(), inboxes };
+		at.presences.publish({
+			...presence("quiet", now),
+			addresses: ["QUIET", "QSTADR"],
+		});
+
+		await sweep(at, now, async (everyone) => ({
+			present: [...everyone],
+			gone: [],
+		}));
+
+		expect(readdirSync(inboxes).sort()).toEqual([
+			"JUSTMADE",
+			"QSTADR",
+			"QUIET",
+			"WAITING",
+		]);
+	});
+
 	it("keeps an ended peer that stopped another for the week it keeps messages", async () => {
 		const at = kept();
 		const stopping = (session: string, ago: number): Presence => ({

@@ -18,7 +18,11 @@
  *   it stopped another peer, since the stop lives in its presence and a
  *   session restored within the week would otherwise come back without
  *   it, while what the stopped peer sent is still there to reach it;
- * - a peer's leases, once none of them stands.
+ * - a peer's leases, once none of them stands;
+ * - a steer inbox no present peer answers: an empty one an hour after
+ *   it was made, one holding anything a week after it last changed,
+ *   since a session restored within the week takes up its address and
+ *   whatever steer still waits there.
  *
  * Any peer sweeps, at most once an hour, off its own turn: each removal
  * is of a file only the sweep would take, so peers sweeping at once
@@ -28,6 +32,7 @@
 import type { Board } from "./lease.ts";
 import { type Census, census } from "./liveness.ts";
 import type { Presence, Presences } from "./presence.ts";
+import { forgetInboxes } from "./steer.ts";
 import type { Transport } from "./transport.ts";
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -46,6 +51,8 @@ export interface Kept {
 	readonly transport: Transport;
 	readonly presences: Presences;
 	readonly board: Board;
+	/** The steer inboxes' folder, one per address, when the mesh has one. */
+	readonly inboxes?: string;
 }
 
 /** Let go of everything past its time, as of now. */
@@ -58,7 +65,11 @@ export async function sweep(
 	kept.transport.expire(now - KEEP_MS);
 	kept.board.expire(now);
 	kept.presences.expire(now - KEEP_MS);
-	const { gone } = await ended(kept.presences.all());
+	const { present, gone } = await ended(kept.presences.all());
+	if (kept.inboxes !== undefined) {
+		const answered = new Set(present.flatMap((one) => one.addresses));
+		forgetInboxes(kept.inboxes, answered, now - HOUR_MS, now - KEEP_MS);
+	}
 	for (const one of gone) {
 		const at = Date.parse(one.at);
 		const lasts = (one.stops?.length ?? 0) > 0 ? KEEP_MS : ENDED_MS;

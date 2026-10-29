@@ -329,7 +329,12 @@ export function meshWorkflow(
 		const damper = createDamper();
 		const board = createBoard(join(paths.mesh, "leases"));
 		// Lets go of what is past its time, at most hourly, off the turn.
-		const tidy = sweeper({ transport, presences, board });
+		const tidy = sweeper({
+			transport,
+			presences,
+			board,
+			...(paths.steer !== undefined ? { inboxes: paths.steer } : {}),
+		});
 		let own: OwnLeases | undefined;
 		// Heavy work that ended before this runtime had its leases to release.
 		const unowned: LeaseEvent[] = [];
