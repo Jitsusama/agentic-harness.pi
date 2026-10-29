@@ -189,9 +189,9 @@ export function needsGibOf(
  * x1.08 with 5 to 6, x1.01 with 7 to 9 and x1.00 with 10 or more, and 6
  * of 241 failed. CPU pressure is what slowed them (x1.52 past 75), which
  * the cap on builds beside VM checks already answers. So six run at
- * once, the two past {@link VMS_WHATEVER_FLOORS_FEEL} only while the
- * person's own programs wait on no memory, and {@link FEWER_VMS} while
- * the outcomes say six is too many (see vmsFor in outcome.ts).
+ * once, while the machine isn't stalling for the person (see
+ * {@link vmsAllowed}), and {@link FEWER_VMS} while the outcomes say six
+ * is too many (see vmsFor in outcome.ts).
  */
 export const MOST_VMS = 6;
 
@@ -202,28 +202,34 @@ export const MOST_VMS = 6;
 export const FEWER_VMS = 5;
 
 /**
- * How many VMs start whatever the person's own programs feel. Past it a
- * VM starts only while the programs a memory floor keeps, app.slice's
- * among them, stall on memory no more than {@link MOST_FLOORS_PRESSURE}:
- * their windows were paged out overnight on 28 October with 5 GiB of
+ * Memory pressure (avg10, percent) the programs a memory floor keeps,
+ * app.slice's among them, may feel while a VM starts on this machine.
+ * Their windows were paged out overnight on 28 October with 5 GiB of
  * app.slice in swap, and each VM more pages them deeper (5FWIUS). That
  * reads 0 until his programs wait, so it costs nothing until then.
  */
-export const VMS_WHATEVER_FLOORS_FEEL = 4;
-
-/** Memory pressure (avg10, percent) a floor's programs may feel beside VMs past the first few. */
 export const MOST_FLOORS_PRESSURE = 1;
 
 /**
- * How many VMs may run now: the rule's most, or no more than
- * {@link VMS_WHATEVER_FLOORS_FEEL} while the person's own programs wait
- * on memory. Where no floor is read, there is nobody's memory to guard.
+ * How many VMs may run now: the rule's most on this machine while it
+ * isn't stalling for the person, and none more here while it is, plus
+ * the VM slots of any builder elsewhere, whatever this machine feels.
+ *
+ * Stalling is the person's own programs waiting on memory past
+ * {@link MOST_FLOORS_PRESSURE}, or CPU pressure at
+ * {@link MOST_CPU_PRESSURE_BESIDE_VMS}, past which VMs ran slow. It once
+ * held only VMs past the fourth, and a count held none: at 13:53 on 29
+ * October Joel's machine was "running like crap" with app.slice stalled
+ * 5% and load 49, while VMs kept getting slots below the count, so
+ * nothing waited and no cloud builder was lent (P9R1KI). A VM held now
+ * waits on `vms`, which is what lends one. Running VMs finish; only new
+ * ones wait. Where no floor is read, only CPU counts.
  */
 function vmsAllowed(room: Room, rules: Rules): number {
 	const most = rules.mostVms ?? MOST_VMS;
-	const here = floorsWait(room)
-		? Math.min(most, VMS_WHATEVER_FLOORS_FEEL)
-		: most;
+	const stalling =
+		floorsWait(room) || room.cpuPressure >= MOST_CPU_PRESSURE_BESIDE_VMS;
+	const here = stalling ? 0 : most;
 	// A VM on a builder elsewhere takes none of the person's memory here.
 	return here + (room.offload?.vms ?? 0);
 }

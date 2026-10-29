@@ -17,7 +17,6 @@ import {
 	roomLeft,
 	roomSaid,
 	SPREAD_MS,
-	VMS_WHATEVER_FLOORS_FEEL,
 	waitingInOrder,
 	waitReasons,
 	waitsWithRoom,
@@ -71,21 +70,34 @@ describe("why each job waits", () => {
 		expect(waitReasons(jobs, ROOMY, NOW).get("vm")).toBe("vms");
 	});
 
-	it("starts VMs past the unguarded few only while the person's programs wait on nothing", () => {
-		const running = Array.from({ length: VMS_WHATEVER_FLOORS_FEEL }, (_, at) =>
-			job(`vm${at}`, { kind: "vm-test", started: long }),
-		);
-		const jobs = [...running, older("vm", 9_000, { kind: "vm-test" })];
+	it("starts no VM here while the person's programs wait on memory, even the first", () => {
+		// 13:53 on 29 October: app.slice stalled 5%, and VMs below the count
+		// kept starting, so nothing waited and no builder was lent.
+		const jobs = [older("vm", 9_000, { kind: "vm-test" })];
 		const calm = { ...ROOMY, floorsPressure: 0 };
 		const waiting = { ...ROOMY, floorsPressure: MOST_FLOORS_PRESSURE + 0.5 };
 
-		expect(MOST_VMS).toBeGreaterThan(VMS_WHATEVER_FLOORS_FEEL);
 		expect(nextTurn(jobs, calm, NOW)?.id).toBe("vm");
 		expect(nextTurn(jobs, waiting, NOW)).toBeUndefined();
 		expect(waitReasons(jobs, waiting, NOW).get("vm")).toBe("vms");
-		expect(roomLeft(running, waiting, NOW).vms).toBe(0);
+		expect(roomLeft([], waiting, NOW).vms).toBe(0);
 		// Where no floor is read there is nobody's memory to guard.
 		expect(nextTurn(jobs, ROOMY, NOW)?.id).toBe("vm");
+	});
+
+	it("starts no VM here while CPU pressure is past its line, and builds still go", () => {
+		const vm = older("vm", 9_000, { kind: "vm-test" });
+		expect(nextTurn([vm], BUSY, NOW)).toBeUndefined();
+		expect(waitReasons([vm], BUSY, NOW).get("vm")).toBe("vms");
+		expect(nextTurn([vm, older("build", 8_000)], BUSY, NOW)?.id).toBe("build");
+	});
+
+	it("gives a VM held here a builder's VM slot", () => {
+		const vm = older("vm", 9_000, { kind: "vm-test" });
+		const stalled = { ...ROOMY, floorsPressure: MOST_FLOORS_PRESSURE + 4 };
+		const lent = { ...stalled, offload: { builds: 32, vms: 32 } };
+		expect(nextTurn([vm], stalled, NOW)).toBeUndefined();
+		expect(nextTurn([vm], lent, NOW)?.id).toBe("vm");
 	});
 
 	it("says behind when builds beside a VM check are at their limit", () => {
@@ -727,8 +739,9 @@ describe("the room left", () => {
 			vms: MOST_VMS - 1,
 			builds: 1,
 		});
+		// Past the CPU line no build starts beside it, and no VM here either.
 		expect(roomLeft([check], BUSY, NOW)).toEqual({
-			vms: MOST_VMS - 1,
+			vms: 0,
 			builds: 0,
 		});
 		expect(roomLeft([check, job("build")], BUSY, NOW)).toEqual({

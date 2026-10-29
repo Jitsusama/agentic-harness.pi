@@ -124,9 +124,12 @@ is a build, never a VM check.
 
 - **A turn** comes when the memory left past the floors core.nix keeps
   for the person's programs covers the job's need, memory pressure is
-  under 10%, and fewer than six VMs run, or four while the person's
-  programs stall on memory more than 1% of the time: past four, more
-  VMs page what they hold out. It is five for a day once at least
+  under 10%, and fewer than six VMs run. No VM starts here at all while
+  the person's programs stall on memory more than 1% of the time, or CPU
+  pressure is at 70% or more: on 29 October VMs kept getting slots while
+  Joel's desktop stalled, so nothing waited and no cloud builder was lent.
+  A VM held so waits on `vms`, the wait that lends one, and a builder's
+  VM slots still take it. It is five for a day once at least
   three VMs that had passed with fewer failed with six or more running,
   twice as often as VMs failed with fewer: one failure is not a
   rate, and 623 runs failed no more often beside eight VMs than beside
