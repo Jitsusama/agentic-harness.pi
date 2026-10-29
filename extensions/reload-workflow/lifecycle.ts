@@ -17,6 +17,7 @@ import {
 	type Loaded,
 	readLoaded,
 } from "../../lib/internal/reload/loaded.ts";
+import { sayLoaded, unsayLoaded } from "../../lib/internal/reload/said.ts";
 import {
 	installRoot,
 	type PackageSettings,
@@ -64,6 +65,29 @@ export async function whatRuns(settings: PackageSettings): Promise<Loaded> {
 		install = undefined;
 	}
 	return readLoaded(PACKAGE_ROOT, install);
+}
+
+/** Where this process keeps the file it said what it loaded in. */
+const SAID_FILE = Symbol.for("agentic-harness.reload.said-file");
+
+/**
+ * Tell pi-packages which code this pi runs, so it removes a version once
+ * no pi runs it (lib/internal/reload/said.ts), and take it back as the
+ * process ends. Each load says it again; the process's one file is taken
+ * back once, whichever load wrote it last.
+ */
+export function tellPiPackages(settings: PackageSettings): void {
+	let install: string | undefined;
+	try {
+		install = installRoot(settings, PACKAGE_NAME);
+	} catch {
+		// Settings pi cannot read name no install; a version still says so.
+		install = undefined;
+	}
+	const file = sayLoaded(PACKAGE_ROOT, install);
+	if (file === undefined || Reflect.get(globalThis, SAID_FILE) === file) return;
+	Reflect.set(globalThis, SAID_FILE, file);
+	process.once("exit", () => unsayLoaded(file));
 }
 
 /** Show the mark while the session runs something other than the install. */
