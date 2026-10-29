@@ -86,6 +86,22 @@ describe("the node's placement read", () => {
 		});
 	});
 
+	it("names a taint by its key, or by nothing it can read, where it says no why", () => {
+		const refused = placedFrom(
+			placement({
+				refused: {
+					misses: [
+						{ machine: "a", because: [{ refuses: { key: "fleets" } }] },
+						{ machine: "b", because: [{ rather_not: {} }] },
+					],
+				},
+			}),
+		);
+		expect(!refused.ok && refused.reason).toBe(
+			"no machine takes it: a refuses it (fleets); b would rather not (?)",
+		);
+	});
+
 	it("says when only a machine out of reach would do", () => {
 		expect(
 			placedFrom(

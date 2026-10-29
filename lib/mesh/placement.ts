@@ -149,5 +149,6 @@ function wordsOf(need: unknown): string {
 /** A taint the node sent back, by why it was set. */
 function whyOf(taint: unknown): string {
 	if (!isRecord(taint)) return "?";
-	return typeof taint.why === "string" ? taint.why : String(taint.key);
+	if (typeof taint.why === "string") return taint.why;
+	return typeof taint.key === "string" ? taint.key : "?";
 }

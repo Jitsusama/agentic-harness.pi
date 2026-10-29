@@ -105,6 +105,15 @@ export async function machineFor(
 		if (!read.ok) return { ok: false, refusal: `${read.reason}.` };
 		needs.push(read.need);
 	}
+	const other = needs.find(
+		(need) => need.kind === "machine" && need.value !== machine,
+	);
+	if (machine !== undefined && other !== undefined) {
+		return {
+			ok: false,
+			refusal: `machine names ${machine} but needs names ${needWords(other)}, and a session starts on one machine; name it once.`,
+		};
+	}
 	if (needs.length === 0) return { ok: true, machine, needs };
 	const all: Need[] =
 		machine === undefined

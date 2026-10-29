@@ -223,6 +223,10 @@ describe("the machine a spawn starts on", () => {
 		});
 		const bad = await machineFor(undefined, ["home"], place);
 		expect(!bad.ok && bad.refusal).toContain('"home" is not a need');
+		const torn = await machineFor("optimus", ["machine=equilibrius"], place);
+		expect(!torn.ok && torn.refusal).toBe(
+			"machine names optimus but needs names machine=equilibrius, and a session starts on one machine; name it once.",
+		);
 		expect(asked).toHaveLength(1);
 	});
 });
