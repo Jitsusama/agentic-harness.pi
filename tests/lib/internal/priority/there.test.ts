@@ -15,83 +15,133 @@ import {
 } from "../../../../lib/internal/priority/queue.ts";
 import {
 	builderReady,
-	checkBuildOf,
+	checkBuildsOf,
+	flakeThere,
 	githubRepoOf,
 	parseRemoteChecks,
 	type Repository,
 	repositoryAt,
 	sentThere,
 } from "../../../../lib/internal/priority/there.ts";
+import { stepsOf } from "../../../../lib/internal/shell/steps.ts";
+import { count } from "../../../../lib/ui/index.ts";
 
+const HOME = "/home/someone";
+const TREE = `${HOME}/trees/core`;
 const HEAD = "7e39b08d2e8c94b5a86e8d590977d9291cf5f662";
-const READY: Repository = {
-	atTop: true,
-	clean: true,
-	pushed: true,
-	head: HEAD,
-	origin: "git@github.com:Owner/public.git",
-};
-const REPOS = ["Owner/public"];
-const VM = ".#checks.x86_64-linux.vm-desktop-works";
+const FLAKE = `github:Owner/public/${HEAD}`;
+const VM = "checks.x86_64-linux.vm-desktop-works";
 
-describe("sending VM checks to the builder by commit", () => {
-	it("sends a lone VM check build of a named public repository", () => {
-		expect(sentThere(`nix build --no-link -L ${VM}`, READY, REPOS)).toBe(
-			`nix-offload there -L github:Owner/public/${HEAD} checks.x86_64-linux.vm-desktop-works`,
+/** `command` as sent, every build it finds going to FLAKE. */
+function sent(command: string, cwd = TREE): string | undefined {
+	const builds = checkBuildsOf(stepsOf(command, cwd, HOME) ?? [], HOME);
+	if (builds.length === 0) return undefined;
+	return sentThere(
+		command,
+		builds.map((build) => ({ build, flake: FLAKE })),
+	);
+}
+
+const SAID = (checks: number) =>
+	`printf '%s\\n' 'remote-check: ${count(checks, "check", "checks")} sent to the lent builder by commit, nothing uploaded' >&2; `;
+
+describe("finding the VM check builds a command could send", () => {
+	it("sends the forms sessions write, each step in its own place", () => {
+		// The commonest form on 29 October, 161 times in a day's logs.
+		expect(
+			sent(
+				`K=${TREE}; cd $K && nix build -L --no-link "git+file://$PWD#${VM}" > $TMPDIR/x.log 2>&1; echo "exit $?"`,
+				"/elsewhere",
+			),
+		).toBe(
+			`${SAID(1)}K=${TREE}; cd $K && nix-offload there -L ${FLAKE} ${VM} > $TMPDIR/x.log 2>&1; echo "exit $?"`,
 		);
+		expect(
+			sent(
+				`cd ${TREE} && direnv exec . nix build --no-link --keep-going .#${VM} .#checks.x86_64-linux.formatting`,
+				"/elsewhere",
+			),
+		).toBe(
+			`${SAID(2)}cd ${TREE} && nix-offload there --keep-going ${FLAKE} ${VM} checks.x86_64-linux.formatting`,
+		);
+		expect(
+			sent(`G=${TREE}; timeout 600 nix build --no-link "path:$G#${VM}"`),
+		).toBe(`${SAID(1)}G=${TREE}; timeout 600 nix-offload there ${FLAKE} ${VM}`);
 	});
 
-	it("keeps the flags it passes on and the command's redirections", () => {
-		const command = `direnv exec . nix build --no-link --keep-going '${VM}' .#checks.x86_64-linux.formatting >$TMPDIR/x.log 2>&1`;
-		expect(sentThere(command, READY, REPOS)).toBe(
-			`nix-offload there --keep-going github:Owner/public/${HEAD} checks.x86_64-linux.vm-desktop-works checks.x86_64-linux.formatting >$TMPDIR/x.log 2>&1`,
+	it("names the flake's folder, and whether it builds untracked files too", () => {
+		const [git] = checkBuildsOf(
+			stepsOf(`nix build --no-link .#${VM}`, TREE, HOME) ?? [],
+			HOME,
 		);
+		expect(git).toMatchObject({ flake: TREE, whole: false });
+		const [path] = checkBuildsOf(
+			stepsOf(`nix build --no-link path:${TREE}/#${VM}`, "/x", HOME) ?? [],
+			HOME,
+		);
+		expect(path).toMatchObject({ flake: TREE, whole: true });
 	});
 
 	it("leaves a build that isn't a VM check here, where it takes seconds", () => {
-		const command = "nix build --no-link .#checks.x86_64-linux.formatting";
-		expect(sentThere(command, READY, REPOS)).toBeUndefined();
+		expect(
+			sent("nix build --no-link .#checks.x86_64-linux.formatting"),
+		).toBeUndefined();
 	});
 
-	it("runs as written what it can't send whole", () => {
+	it("runs as written a build it can't send whole", () => {
 		for (const command of [
 			// An out-link, which something here may read.
-			`nix build ${VM}`,
+			`nix build .#${VM}`,
 			// A flag that changes what is built or where.
-			`nix build --no-link --rebuild ${VM}`,
-			`nix build --no-link --builders '' ${VM}`,
-			// Another flake, or a check named through a variable.
-			`nix build --no-link path:/elsewhere#checks.x86_64-linux.vm-a`,
-			`nix build --no-link .#checks.x86_64-linux.$c`,
-			// More than one step.
-			`cd sub && nix build --no-link ${VM}`,
-			`nix build --no-link ${VM}; echo done`,
-			`nix build --no-link ${VM} | tee x.log`,
+			`nix build --no-link --rebuild .#${VM}`,
+			`nix build --no-link --builders '' .#${VM}`,
+			// A check named through what the command alone can't say.
+			`for c in a b; do nix build --no-link .#checks.x86_64-linux.vm-$c; done`,
+			`cd $(mktemp -d) && nix build --no-link .#${VM}`,
+			// Piped, or in a subshell.
+			`nix build --no-link .#${VM} | tee x.log`,
+			`(nix build --no-link .#${VM})`,
+			// Two flakes in one build.
+			`nix build --no-link .#${VM} path:/other#${VM}`,
 		]) {
-			expect(checkBuildOf(command), command).toBeUndefined();
+			expect(sent(command), command).toBeUndefined();
 		}
 	});
 
-	it("sends nothing from a tree the builder couldn't build as it stands", () => {
-		const command = `nix build --no-link ${VM}`;
-		expect(
-			sentThere(command, { ...READY, clean: false }, REPOS),
-		).toBeUndefined();
-		expect(
-			sentThere(command, { ...READY, pushed: false }, REPOS),
-		).toBeUndefined();
-		expect(
-			sentThere(command, { ...READY, atTop: false }, REPOS),
-		).toBeUndefined();
+	it("gives what it sends no turn in the machine queue here", () => {
+		const command = sent(`nix build --no-link .#${VM}`) ?? "";
+		expect(command).toContain("nix-offload there");
+		expect(kindOf(command)).toBeUndefined();
+	});
+});
+
+describe("whether a repository's build may go", () => {
+	const READY: Repository = {
+		atTop: true,
+		clean: true,
+		pushed: true,
+		head: HEAD,
+		origin: "git@github.com:Owner/public.git",
+	};
+	const REPOS = ["Owner/public"];
+
+	it("goes from a clean, pushed top folder of a named repository", () => {
+		expect(flakeThere(READY, REPOS)).toBe(FLAKE);
+		expect(flakeThere(READY, ["owner/PUBLIC"])).toBe(FLAKE);
 	});
 
-	it("sends only repositories named, which none are by default", () => {
-		const command = `nix build --no-link ${VM}`;
+	it("stays when the builder couldn't build the tree as it stands", () => {
+		expect(flakeThere({ ...READY, clean: false }, REPOS)).toBeUndefined();
+		expect(flakeThere({ ...READY, pushed: false }, REPOS)).toBeUndefined();
+		expect(flakeThere({ ...READY, atTop: false }, REPOS)).toBeUndefined();
+	});
+
+	it("goes only for repositories named, which none are by default", () => {
 		const other = { ...READY, origin: "git@github.com:Owner/private.git" };
-		expect(sentThere(command, other, REPOS)).toBeUndefined();
-		expect(sentThere(command, READY, [])).toBeUndefined();
+		expect(flakeThere(other, REPOS)).toBeUndefined();
+		expect(flakeThere(READY, [])).toBeUndefined();
 		const notGithub = { ...READY, origin: "git@example.com:Owner/public.git" };
-		expect(sentThere(command, notGithub, REPOS)).toBeUndefined();
+		expect(flakeThere(notGithub, REPOS)).toBeUndefined();
 		expect(parseRemoteChecks(undefined)).toEqual({ ok: true, value: [] });
 		expect(parseRemoteChecks({ repos: ["Owner/public"] })).toEqual({
 			ok: true,
@@ -111,16 +161,9 @@ describe("sending VM checks to the builder by commit", () => {
 			githubRepoOf("https://github.com/Jitsusama/agentic-harness.pi.git"),
 		).toBe("Jitsusama/agentic-harness.pi");
 	});
-
-	it("gives what it sends no turn in the machine queue here", () => {
-		const sent = sentThere(`nix build --no-link ${VM}`, READY, REPOS) ?? "";
-		expect(
-			kindOf(`printf '%s\\n' 'remote-check: sent' >&2; ${sent}`),
-		).toBeUndefined();
-	});
 });
 
-describe("the repository a command runs in", () => {
+describe("the repository a flake is in", () => {
 	let root: string;
 	const git = (cwd: string, ...args: string[]) =>
 		execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
@@ -153,6 +196,8 @@ describe("the repository a command runs in", () => {
 		const pushed = await repositoryAt(tree);
 		expect(pushed).toMatchObject({ clean: true, pushed: true });
 		expect(pushed?.head).toBe(git(tree, "rev-parse", "HEAD"));
+		// A path: flake builds the folder whole, untracked files too.
+		expect(await repositoryAt(tree, true)).toMatchObject({ clean: false });
 
 		writeFileSync(join(tree, "flake.nix"), "{ changed = 1; }\n");
 		expect(await repositoryAt(tree)).toMatchObject({ clean: false });

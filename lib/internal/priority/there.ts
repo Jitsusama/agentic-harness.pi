@@ -9,15 +9,18 @@
  * with 4 KB sent (5FWIUS, 29 October). `nix-offload there` does that,
  * and builds here instead when no builder can be reached.
  *
- * This module reads a command and the repository it runs in and says
- * what to run instead, or nothing; the interceptor asks git and the
- * builder's files.
+ * This module finds the steps of a command that build VM checks, and
+ * says what each becomes; the interceptor asks git and the builder's
+ * files whether it may.
  */
 
 import { execFile } from "node:child_process";
 import { readFileSync, realpathSync } from "node:fs";
+import { isAbsolute } from "node:path";
 import { promisify } from "node:util";
+import { count } from "../../ui/index.ts";
 import { isRecord } from "../record.ts";
+import { expandWith, type Step, wordsOf } from "../shell/steps.ts";
 import { kindOf, LENDING_WAIT_MS } from "./queue.ts";
 import { KERNEL, type Kernel, lendingSinceIn, offloadIn } from "./room.ts";
 
@@ -32,21 +35,32 @@ export const LEND_POLL_MS = 2_000;
 /** How long each git question may take before the command runs as written. */
 const GIT_MS = 3_000;
 
-/** A `nix build` of checks that may be sent by commit. */
+/** A step's `nix build` of checks that may be sent by commit. */
 export interface CheckBuild {
+	/** The step it is, to be rewritten where it stands. */
+	readonly step: Step;
+	/** The folder of the flake it builds. */
+	readonly flake: string;
+	/**
+	 * It builds the folder as it is (`path:`), untracked files and all,
+	 * so the commit stands for it only when there are none.
+	 */
+	readonly whole: boolean;
 	/** Each check's attribute, as `checks.<system>.<name>`. */
 	readonly attributes: readonly string[];
 	readonly printLogs: boolean;
 	readonly keepGoing: boolean;
-	/** The command's own redirections, kept as written. */
+	/** Words run before it, as `timeout 600`, kept as written. */
+	readonly before: readonly string[];
+	/** The step's own redirections, kept as written. */
 	readonly redirections: readonly string[];
 }
 
-/** What the repository a command runs in says of itself. */
+/** What the repository a flake is in says of itself. */
 export interface Repository {
-	/** The command runs in the repository's top folder. */
+	/** The flake is the repository's top folder. */
 	readonly atTop: boolean;
-	/** No tracked file differs from HEAD. */
+	/** No file differs from HEAD, untracked ones counted where asked. */
 	readonly clean: boolean;
 	/** A remote branch contains HEAD, so the builder can fetch it. */
 	readonly pushed: boolean;
@@ -56,8 +70,8 @@ export interface Repository {
 	readonly origin: string;
 }
 
-/** A word that is a check of the flake in this folder. */
-const CHECK = /^(['"]?)\.#(checks\.[\w-]+\.[\w.+-]+)\1$/;
+/** An installable naming a check: a flake's folder, by a scheme or none. */
+const CHECK = /^(git\+file:\/\/|path:)?([^#]*)#(checks\.[\w-]+\.[\w.+-]+)$/;
 
 /** Flags that change nothing about what is built or where it lands. */
 const PRINT_LOGS = new Set(["-L", "--print-build-logs"]);
@@ -69,53 +83,90 @@ const REDIRECTION = /^(?:\d?>>?|&>>?)\S+$/;
 /** A redirection whose target is the next word. */
 const REDIRECTS_TO = /^(?:\d?>>?|&>>?)$/;
 
-/**
- * Anything past one plain step: a pipe, a chain, a substitution, a
- * glob, or another line. Its `$` is allowed only in a redirection.
- */
-const MORE_THAN_ONE_STEP = /[;|&`()<\n*?]|\$\(/;
+/** A duration `timeout` takes, as `600` or `10m`. */
+const DURATION = /^\d+(?:\.\d+)?[smhd]?$/;
 
 /**
- * The checks a command builds, when it is one `nix build --no-link` of
- * checks of the flake in its folder, optionally run under
- * `direnv exec .`, with no flag that changes what is built. Nothing
- * otherwise: a command doing more runs as written.
+ * The steps that build VM checks and could be sent: each a
+ * `nix build --no-link` of checks of one flake whose folder is known,
+ * optionally under `timeout <duration>` or `direnv exec .`, with no flag
+ * that changes what is built. A step doing more runs as written.
  */
-export function checkBuildOf(command: string): CheckBuild | undefined {
-	const words = command.trim().split(/\s+/);
-	const plain = words.filter(
-		(word, at) =>
-			!REDIRECTION.test(word) &&
-			!REDIRECTS_TO.test(word) &&
-			!REDIRECTS_TO.test(words[at - 1] ?? ""),
-	);
-	const steps = plain.join(" ");
-	if (MORE_THAN_ONE_STEP.test(steps) || steps.includes("$")) return undefined;
-	let rest = plain;
+export function checkBuildsOf(
+	steps: readonly Step[],
+	home: string,
+): CheckBuild[] {
+	return steps.flatMap((step) => {
+		const build = checkBuildOf(step, home);
+		return build ? [build] : [];
+	});
+}
+
+function checkBuildOf(step: Step, home: string): CheckBuild | undefined {
+	if (step.piped || kindOf(step.text) !== "vm-check") return undefined;
+	const all = wordsOf(step.text);
+	const redirections: string[] = [];
+	const words: string[] = [];
+	for (let at = 0; at < all.length; at++) {
+		const word = all[at] ?? "";
+		if (REDIRECTS_TO.test(word)) {
+			redirections.push(word, all[++at] ?? "");
+		} else if (REDIRECTION.test(word)) redirections.push(word);
+		else words.push(word);
+	}
+	const before: string[] = [];
+	let rest = words;
+	if (rest[0] === "timeout" && DURATION.test(rest[1] ?? "")) {
+		before.push(...rest.slice(0, 2));
+		rest = rest.slice(2);
+	}
 	if (rest[0] === "direnv" && rest[1] === "exec" && rest[2] === ".") {
 		rest = rest.slice(3);
 	}
 	if (rest[0] !== "nix" || rest[1] !== "build") return undefined;
+	const expand = expandWith(step.vars, step.cwd, home);
 	const attributes: string[] = [];
+	const flakes = new Set<string>();
+	let whole = false;
 	let noLink = false;
 	let printLogs = false;
 	let keepGoing = false;
 	for (const word of rest.slice(2)) {
-		const check = CHECK.exec(word);
-		if (check?.[2]) attributes.push(check[2]);
-		else if (word === "--no-link") noLink = true;
+		if (word === "--no-link") noLink = true;
 		else if (PRINT_LOGS.has(word)) printLogs = true;
 		else if (KEEP_GOING.has(word)) keepGoing = true;
-		else return undefined;
+		else {
+			const check = CHECK.exec(expand(word) ?? "");
+			const folder = check ? folderOf(check[2] ?? "", step.cwd) : undefined;
+			if (!check?.[3] || folder === undefined) return undefined;
+			if (check[1] === "path:") whole = true;
+			attributes.push(check[3]);
+			flakes.add(folder);
+		}
 	}
-	if (!noLink || attributes.length === 0) return undefined;
-	const redirections = words.filter(
-		(word, at) =>
-			REDIRECTION.test(word) ||
-			REDIRECTS_TO.test(word) ||
-			REDIRECTS_TO.test(words[at - 1] ?? ""),
-	);
-	return { attributes, printLogs, keepGoing, redirections };
+	const [flake] = flakes;
+	if (!noLink || flake === undefined || flakes.size > 1) return undefined;
+	return {
+		step,
+		flake,
+		whole,
+		attributes,
+		printLogs,
+		keepGoing,
+		before,
+		redirections,
+	};
+}
+
+/** A flake's folder, as written beside its `#`, or nothing unknown. */
+function folderOf(
+	written: string,
+	cwd: string | undefined,
+): string | undefined {
+	const folder = written === "" || written === "." ? cwd : written;
+	return folder !== undefined && isAbsolute(folder)
+		? folder.replace(/\/+$/, "") || "/"
+		: undefined;
 }
 
 /**
@@ -128,14 +179,6 @@ export function githubRepoOf(url: string): string | undefined {
 			url.trim(),
 		);
 	return match?.[1];
-}
-
-/**
- * The VM checks a command builds and could send, read from it alone, so
- * a command that couldn't go asks git nothing.
- */
-export function vmChecksOf(command: string): CheckBuild | undefined {
-	return kindOf(command) === "vm-check" ? checkBuildOf(command) : undefined;
 }
 
 /**
@@ -167,24 +210,27 @@ export function parseRemoteChecks(
 }
 
 /**
- * What git says of the repository `cwd` is in, or nothing when it isn't
- * one or git doesn't answer in time.
+ * What git says of the repository `folder` is in, counting untracked
+ * files as changes when `whole`, or nothing when it isn't one or git
+ * doesn't answer in time.
  */
 export async function repositoryAt(
-	cwd: string,
+	folder: string,
+	whole = false,
 ): Promise<Repository | undefined> {
 	const git = async (...args: string[]) =>
-		(await run("git", args, { cwd, timeout: GIT_MS })).stdout.trim();
+		(await run("git", args, { cwd: folder, timeout: GIT_MS })).stdout.trim();
 	try {
+		const untracked = whole ? "normal" : "no";
 		const [top, status, head, remotes, origin] = await Promise.all([
 			git("rev-parse", "--show-toplevel"),
-			git("status", "--porcelain", "--untracked-files=no"),
+			git("status", "--porcelain", `--untracked-files=${untracked}`),
 			git("rev-parse", "HEAD"),
 			git("branch", "-r", "--contains", "HEAD"),
 			git("remote", "get-url", "origin"),
 		]);
 		return {
-			atTop: realpathSync(top) === realpathSync(cwd),
+			atTop: realpathSync(top) === realpathSync(folder),
 			clean: status === "",
 			pushed: remotes !== "",
 			head,
@@ -194,6 +240,62 @@ export async function repositoryAt(
 		// Not a repository, no origin, or git too slow: run it as written.
 		return undefined;
 	}
+}
+
+/**
+ * The flake the builder fetches for a build of `repository`, as
+ * `github:Owner/repo/<rev>`, or nothing when it may not go: the flake
+ * isn't the repository's top folder, the tree differs from its pushed
+ * commit, or the repository isn't one `repos` names. A private one the
+ * builder couldn't fetch, and none named sends nothing.
+ */
+export function flakeThere(
+	repository: Repository,
+	repos: readonly string[],
+): string | undefined {
+	if (!repository.atTop || !repository.clean || !repository.pushed) {
+		return undefined;
+	}
+	const repo = githubRepoOf(repository.origin);
+	if (!repo) return undefined;
+	const named = repos.some((one) => one.toLowerCase() === repo.toLowerCase());
+	return named ? `github:${repo}/${repository.head}` : undefined;
+}
+
+/** The `nix-offload there` step building `build` from `flake`. */
+export function thereStep(build: CheckBuild, flake: string): string {
+	return [
+		...build.before,
+		"nix-offload there",
+		...(build.printLogs ? ["-L"] : []),
+		...(build.keepGoing ? ["--keep-going"] : []),
+		flake,
+		...build.attributes,
+		...build.redirections,
+	].join(" ");
+}
+
+/**
+ * `command` with each build sent there in its own step's place, the
+ * space around each kept, and a line first on stderr saying so.
+ */
+export function sentThere(
+	command: string,
+	sends: readonly { readonly build: CheckBuild; readonly flake: string }[],
+): string {
+	let out = command;
+	const latestFirst = [...sends].sort(
+		(a, b) => b.build.step.start - a.build.step.start,
+	);
+	for (const { build, flake } of latestFirst) {
+		const { start, end, text } = build.step;
+		const lead = /^\s*/.exec(text)?.[0] ?? "";
+		const trail = /\s*$/.exec(text)?.[0] ?? "";
+		out = `${out.slice(0, start)}${lead}${thereStep(build, flake)}${trail}${out.slice(end)}`;
+	}
+	const checks = sends.flatMap(({ build }) => build.attributes).length;
+	const said = `remote-check: ${count(checks, "check", "checks")} sent to the lent builder by commit, nothing uploaded`;
+	return `printf '%s\\n' '${said}' >&2; ${out}`;
 }
 
 /** Whether a builder stands now, by the offload daemon's machines file. */
@@ -225,40 +327,4 @@ export async function builderReady(
 		if (signal?.aborted) return false;
 		await new Promise((done) => setTimeout(done, pollMs));
 	}
-}
-
-/** The `nix-offload there` command building `build` from `flake`. */
-export function thereCommand(build: CheckBuild, flake: string): string {
-	return [
-		"nix-offload there",
-		...(build.printLogs ? ["-L"] : []),
-		...(build.keepGoing ? ["--keep-going"] : []),
-		flake,
-		...build.attributes,
-		...build.redirections,
-	].join(" ");
-}
-
-/**
- * The command to run instead of `command`, sending its VM checks to the
- * builder by commit, or nothing. Only VM checks go: a quick check here
- * takes seconds, where a set of them took about 28 s on the builder.
- * `repos` names the public repositories, as `Owner/repo`; a private one
- * the builder couldn't fetch, and none named sends nothing.
- */
-export function sentThere(
-	command: string,
-	repository: Repository,
-	repos: readonly string[],
-): string | undefined {
-	const build = vmChecksOf(command);
-	if (!build) return undefined;
-	if (!repository.atTop || !repository.clean || !repository.pushed) {
-		return undefined;
-	}
-	const repo = githubRepoOf(repository.origin);
-	if (!repo) return undefined;
-	const named = repos.some((one) => one.toLowerCase() === repo.toLowerCase());
-	if (!named) return undefined;
-	return thereCommand(build, `github:${repo}/${repository.head}`);
 }
