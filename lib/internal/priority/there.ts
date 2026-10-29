@@ -46,6 +46,11 @@ export interface CheckBuild {
 	 * so the commit stands for it only when there are none.
 	 */
 	readonly whole: boolean;
+	/**
+	 * The commit it is pinned to with `?rev=`, as a ref to read in a
+	 * folder, so what the tree holds now doesn't matter.
+	 */
+	readonly pin?: Pin;
 	/** Each check's attribute, as `checks.<system>.<name>`. */
 	readonly attributes: readonly string[];
 	readonly printLogs: boolean;
@@ -55,6 +60,19 @@ export interface CheckBuild {
 	/** The step's own redirections, kept as written. */
 	readonly redirections: readonly string[];
 }
+
+/** A ref naming the commit a build is pinned to, and where to read it. */
+export interface Pin {
+	readonly ref: string;
+	readonly folder: string;
+}
+
+/**
+ * A flake's pin: a variable that holds a commit, a commit written out,
+ * or `git rev-parse` written in place.
+ */
+const REV =
+	/\?rev=(?:\$\{?(\w+)\}?|([0-9a-fA-F]{7,40})|\$\((git(?:\s+-C\s+[^\s()]+)?\s+rev-parse\s+[^\s()-][^\s()]*)\))(?=#|"|'|$)/;
 
 /** What the repository a flake is in says of itself. */
 export interface Repository {
@@ -103,7 +121,11 @@ export function checkBuildsOf(
 }
 
 function checkBuildOf(step: Step, home: string): CheckBuild | undefined {
-	if (step.piped || kindOf(step.text) !== "vm-check") return undefined;
+	// Piped, its log reads as the build's would; in the background, the
+	// shell can't be counted on to wait for it.
+	// A pin written in place has spaces, which the queue reads as prose.
+	const unpinned = step.text.replace(new RegExp(REV.source, "g"), "");
+	if (step.background || kindOf(unpinned) !== "vm-check") return undefined;
 	const all = wordsOf(step.text);
 	const redirections: string[] = [];
 	const words: string[] = [];
@@ -127,6 +149,8 @@ function checkBuildOf(step: Step, home: string): CheckBuild | undefined {
 	const expand = expandWith(step.vars, step.cwd, home);
 	const attributes: string[] = [];
 	const flakes = new Set<string>();
+	const pins = new Set<string>();
+	let pin: Pin | undefined;
 	let whole = false;
 	let noLink = false;
 	let printLogs = false;
@@ -136,26 +160,71 @@ function checkBuildOf(step: Step, home: string): CheckBuild | undefined {
 		else if (PRINT_LOGS.has(word)) printLogs = true;
 		else if (KEEP_GOING.has(word)) keepGoing = true;
 		else {
-			const check = CHECK.exec(expand(word) ?? "");
+			const rev = REV.exec(word);
+			const check = CHECK.exec(expand(word.replace(REV, "")) ?? "");
 			const folder = check ? folderOf(check[2] ?? "", step.cwd) : undefined;
 			if (!check?.[3] || folder === undefined) return undefined;
 			if (check[1] === "path:") whole = true;
+			if (rev) {
+				const read = pinOf(rev, step, folder, home);
+				if (!read || check[1] !== "git+file://") return undefined;
+				pin = read;
+			}
+			pins.add(rev ? `${pin?.folder}\0${pin?.ref}` : "");
 			attributes.push(check[3]);
 			flakes.add(folder);
 		}
 	}
 	const [flake] = flakes;
-	if (!noLink || flake === undefined || flakes.size > 1) return undefined;
+	const once = flakes.size === 1 && pins.size === 1;
+	if (!noLink || flake === undefined || !once) return undefined;
 	return {
 		step,
 		flake,
 		whole,
+		...(pin ? { pin } : {}),
 		attributes,
 		printLogs,
 		keepGoing,
 		before,
 		redirections,
 	};
+}
+
+/**
+ * The commit a `?rev=` names: written out, read in the flake's folder;
+ * or a variable set from `git [-C <folder>] rev-parse <ref>` earlier in
+ * the command, read where that ran. Nothing for any other variable.
+ */
+function pinOf(
+	rev: RegExpExecArray,
+	step: Step,
+	flake: string,
+	home: string,
+): Pin | undefined {
+	const [, name, written, inline] = rev;
+	if (written) return { ref: written, folder: flake };
+	const substitution = inline
+		? { command: inline, cwd: step.cwd, vars: step.vars }
+		: name
+			? step.substituted.get(name)
+			: undefined;
+	if (!substitution) return undefined;
+	const expand = expandWith(substitution.vars, substitution.cwd, home);
+	const words = wordsOf(substitution.command).map(expand);
+	if (words.some((word) => word === undefined)) return undefined;
+	const [git, ...args] = words as string[];
+	let folder = substitution.cwd;
+	if (args[0] === "-C") {
+		folder = args[1] && isAbsolute(args[1]) ? args[1] : undefined;
+		args.splice(0, 2);
+	}
+	const [verb, ref, ...more] = args;
+	if (git !== "git" || verb !== "rev-parse" || !ref || more.length > 0) {
+		return undefined;
+	}
+	if (ref.startsWith("-") || folder === undefined) return undefined;
+	return { ref, folder };
 }
 
 /** A flake's folder, as written beside its `#`, or nothing unknown. */
@@ -212,22 +281,33 @@ export function parseRemoteChecks(
 /**
  * What git says of the repository `folder` is in, counting untracked
  * files as changes when `whole`, or nothing when it isn't one or git
- * doesn't answer in time.
+ * doesn't answer in time. A build `pin`ned to a commit is of that
+ * commit, so it is clean whatever the tree holds, and pushed when a
+ * remote branch has it.
  */
 export async function repositoryAt(
 	folder: string,
-	whole = false,
+	{ whole = false, pin }: { whole?: boolean; pin?: Pin } = {},
 ): Promise<Repository | undefined> {
-	const git = async (...args: string[]) =>
-		(await run("git", args, { cwd: folder, timeout: GIT_MS })).stdout.trim();
+	const git = async (cwd: string, ...args: string[]) =>
+		(await run("git", args, { cwd, timeout: GIT_MS })).stdout.trim();
 	try {
+		const head = pin
+			? await git(pin.folder, "rev-parse", "--verify", `${pin.ref}^{commit}`)
+			: await git(folder, "rev-parse", "HEAD");
 		const untracked = whole ? "normal" : "no";
-		const [top, status, head, remotes, origin] = await Promise.all([
-			git("rev-parse", "--show-toplevel"),
-			git("status", "--porcelain", `--untracked-files=${untracked}`),
-			git("rev-parse", "HEAD"),
-			git("branch", "-r", "--contains", "HEAD"),
-			git("remote", "get-url", "origin"),
+		const [top, status, remotes, origin] = await Promise.all([
+			git(folder, "rev-parse", "--show-toplevel"),
+			pin
+				? Promise.resolve("")
+				: git(
+						folder,
+						"status",
+						"--porcelain",
+						`--untracked-files=${untracked}`,
+					),
+			git(folder, "branch", "-r", "--contains", head),
+			git(folder, "remote", "get-url", "origin"),
 		]);
 		return {
 			atTop: realpathSync(top) === realpathSync(folder),

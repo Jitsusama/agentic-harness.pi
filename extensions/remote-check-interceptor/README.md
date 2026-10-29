@@ -26,14 +26,21 @@ when all of these hold:
   earlier in the command and its `cd`s;
 - that folder is the repository's top, no tracked file differs from
   HEAD (nor an untracked one, for `path:`, which builds them too),
-  and a remote branch contains HEAD;
+  and a remote branch contains HEAD. A `git+file://` flake pinned
+  with `?rev=` is of that commit, whatever the tree holds, so only
+  the commit need be pushed: written out, set earlier as
+  `R=$(git rev-parse <ref>)`, or written in place as
+  `?rev=$(git rev-parse <ref>)`, which is the one command the
+  reader runs, and it only reads;
 - origin is a GitHub repository named in config;
 - a builder stands in `/run/nix-offload/machines`. While one is
   being lent, the call waits for it, for at most the queue's three
   minutes from the lend's start.
 
-A step that is piped, in a subshell or loop, or names its check
-through something only running it would show, runs as written.
+A piped step is sent too, since `nix-offload there` prints the
+build's log as `nix build` would. A step in the background, in a
+subshell or loop, or naming its check through something only
+running it would show, runs as written.
 Its redirections are kept, and the call prints
 `remote-check: N checks sent to the lent builder by commit` on
 stderr first. Anything else runs as written, through the machine queue,

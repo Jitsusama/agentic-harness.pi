@@ -16,11 +16,26 @@ export interface Step {
 	readonly start: number;
 	readonly end: number;
 	readonly text: string;
-	/** It is one side of a pipe, or runs in the background. */
+	/** It is one side of a pipe. */
 	readonly piped: boolean;
+	/** It runs in the background, after a lone `&`. */
+	readonly background: boolean;
 	/** The folder it runs in, or nothing when that can't be known. */
 	readonly cwd: string | undefined;
 	/** The plain variables set before it, as the shell will expand them. */
+	readonly vars: ReadonlyMap<string, string>;
+	/**
+	 * The variables set before it from a command's output, as
+	 * `R=$(git rev-parse HEAD)` sets one: the command, and the folder and
+	 * variables it ran with, so a reader can tell what it said.
+	 */
+	readonly substituted: ReadonlyMap<string, Substitution>;
+}
+
+/** A command whose output set a variable, and what it ran with. */
+export interface Substitution {
+	readonly command: string;
+	readonly cwd: string | undefined;
 	readonly vars: ReadonlyMap<string, string>;
 }
 
@@ -28,15 +43,12 @@ export interface Step {
 export type Expand = (word: string) => string | undefined;
 
 /** A separator at the top level: `;`, a newline, `&&`, `||`, `|` or `&`. */
-function separatorAt(
-	command: string,
-	at: number,
-): { readonly length: number; readonly piped: boolean } | undefined {
+function separatorAt(command: string, at: number): Separator | undefined {
 	const two = command.slice(at, at + 2);
-	if (two === "&&" || two === "||") return { length: 2, piped: false };
+	if (two === "&&" || two === "||") return { length: 2, kind: "chain" };
 	const one = command[at];
-	if (one === ";" || one === "\n") return { length: 1, piped: false };
-	if (one === "|") return { length: 1, piped: true };
+	if (one === ";" || one === "\n") return { length: 1, kind: "chain" };
+	if (one === "|") return { length: 1, kind: "pipe" };
 	// `&` alone, not a redirection's `>&`, `&>` or `<&`.
 	if (
 		one === "&" &&
@@ -44,9 +56,23 @@ function separatorAt(
 		command[at - 1] !== "<" &&
 		command[at + 1] !== ">"
 	) {
-		return { length: 1, piped: true };
+		return { length: 1, kind: "background" };
 	}
 	return undefined;
+}
+
+/** How a separator joins the steps either side of it. */
+interface Separator {
+	readonly length: number;
+	readonly kind: "chain" | "pipe" | "background";
+}
+
+/** Where a step starts and ends, and how it is joined to its neighbours. */
+interface Span {
+	readonly start: number;
+	readonly end: number;
+	readonly piped: boolean;
+	readonly background: boolean;
 }
 
 /**
@@ -54,11 +80,9 @@ function separatorAt(
  * and `{...}` keep their separators inside. Nothing for a command
  * holding a heredoc, whose body would read as steps.
  */
-function spansOf(
-	command: string,
-): { start: number; end: number; piped: boolean }[] | undefined {
+function spansOf(command: string): Span[] | undefined {
 	if (/<<-?\s*['"]?\w/.test(command)) return undefined;
-	const spans: { start: number; end: number; piped: boolean }[] = [];
+	const spans: Span[] = [];
 	let start = 0;
 	let quote: "'" | '"' | undefined;
 	let depth = 0;
@@ -83,29 +107,46 @@ function spansOf(
 		if (depth > 0) continue;
 		const separator = separatorAt(command, at);
 		if (!separator) continue;
-		spans.push({ start, end: at, piped: pipedBefore || separator.piped });
-		pipedBefore = separator.piped;
+		spans.push({
+			start,
+			end: at,
+			piped: pipedBefore || separator.kind === "pipe",
+			background: separator.kind === "background",
+		});
+		pipedBefore = separator.kind === "pipe";
 		start = at + separator.length;
 		at = start - 1;
 	}
-	spans.push({ start, end: command.length, piped: pipedBefore });
+	spans.push({
+		start,
+		end: command.length,
+		piped: pipedBefore,
+		background: false,
+	});
 	return spans;
 }
 
 /**
- * The words of a step as the shell splits them, quotes kept, so a
- * single-quoted word is known not to expand.
+ * The words of a step as the shell splits them, quotes and `$(...)`
+ * kept whole, so a single-quoted word is known not to expand.
  */
 export function wordsOf(text: string): string[] {
 	const words: string[] = [];
 	let word = "";
 	let quote: "'" | '"' | undefined;
+	let depth = 0;
 	for (let at = 0; at < text.length; at++) {
 		const char = text[at] ?? "";
 		if (quote) {
 			word += char;
 			if (char === "\\" && quote === '"') word += text[++at] ?? "";
 			else if (char === quote) quote = undefined;
+			continue;
+		}
+		if (char === "$" && text[at + 1] === "(") depth++;
+		else if (char === ")" && depth > 0) depth--;
+		if (depth > 0 && /\s/.test(char)) {
+			word += char;
 			continue;
 		}
 		if (/\s/.test(char)) {
@@ -166,6 +207,9 @@ export function expandWith(
 /** `NAME=value`, as a step setting a variable writes it. */
 const ASSIGNMENT = /^([A-Za-z_]\w*)=(.*)$/s;
 
+/** A value that is one command's output, as `$(git rev-parse HEAD)`. */
+const SUBSTITUTION = /^"?\$\(([^()`]*)\)"?$/;
+
 /**
  * The steps of `command`, run from `cwd`, each with the folder it runs
  * in and the variables set before it. Nothing for a command holding a
@@ -179,11 +223,18 @@ export function stepsOf(
 	const spans = spansOf(command);
 	if (!spans) return undefined;
 	const vars = new Map<string, string>();
+	const substituted = new Map<string, Substitution>();
 	let here: string | undefined = cwd;
 	const steps: Step[] = [];
 	for (const span of spans) {
 		const text = command.slice(span.start, span.end);
-		steps.push({ ...span, text, cwd: here, vars: new Map(vars) });
+		steps.push({
+			...span,
+			text,
+			cwd: here,
+			vars: new Map(vars),
+			substituted: new Map(substituted),
+		});
 		const words = wordsOf(text);
 		const expand = expandWith(vars, here, home);
 		const first = words[0] === "export" ? words.slice(1) : words;
@@ -191,8 +242,17 @@ export function stepsOf(
 			for (const word of first) {
 				const [, name = "", value = ""] = ASSIGNMENT.exec(word) ?? [];
 				const expanded = expand(value);
+				const output = SUBSTITUTION.exec(value)?.[1];
+				substituted.delete(name);
 				if (expanded === undefined) vars.delete(name);
 				else vars.set(name, expanded);
+				if (output !== undefined) {
+					substituted.set(name, {
+						command: output,
+						cwd: here,
+						vars: new Map(vars),
+					});
+				}
 			}
 		} else if (words[0] === "cd" && !span.piped) {
 			const to = words[1] === undefined ? home : expand(words[1]);

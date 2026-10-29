@@ -31,8 +31,30 @@ describe("a command's steps", () => {
 			false,
 			true,
 			true,
-			true,
+			false,
 		]);
+		expect(steps.map((step) => step.background)).toEqual([
+			false,
+			false,
+			false,
+			false,
+			true,
+			false,
+		]);
+	});
+
+	it("keeps what a variable was set from, with the folder it ran in", () => {
+		const steps =
+			stepsOf(
+				"cd /t && R=$(git rev-parse 9a6eebb0); nix build x",
+				"/w",
+				HOME,
+			) ?? [];
+		expect(steps[2]?.substituted.get("R")).toMatchObject({
+			command: "git rev-parse 9a6eebb0",
+			cwd: "/t",
+		});
+		expect(steps[2]?.vars.has("R")).toBe(false);
 	});
 
 	it("keeps a redirection's ampersand inside its step", () => {
@@ -85,6 +107,10 @@ describe("a word as the shell expands it", () => {
 	});
 
 	it("splits words as the shell does, quotes kept", () => {
+		expect(wordsOf("R=$(git rev-parse x) y")).toEqual([
+			"R=$(git rev-parse x)",
+			"y",
+		]);
 		expect(wordsOf(`nix build "a b" 'c d' e\\ f`)).toEqual([
 			"nix",
 			"build",

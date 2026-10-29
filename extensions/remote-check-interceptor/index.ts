@@ -76,8 +76,11 @@ async function flakesThere(
 	const asked = new Map<string, Promise<Repository | undefined>>();
 	const sends: { build: CheckBuild; flake: string }[] = [];
 	for (const build of builds) {
-		const key = `${build.flake}\0${build.whole}`;
-		const repository = asked.get(key) ?? repositoryAt(build.flake, build.whole);
+		const pin = build.pin ? `${build.pin.folder}\0${build.pin.ref}` : "";
+		const key = `${build.flake}\0${build.whole}\0${pin}`;
+		const repository =
+			asked.get(key) ??
+			repositoryAt(build.flake, { whole: build.whole, pin: build.pin });
 		asked.set(key, repository);
 		const found = await repository;
 		const flake = found ? flakeThere(found, repos) : undefined;
