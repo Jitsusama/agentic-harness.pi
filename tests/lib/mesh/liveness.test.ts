@@ -9,11 +9,11 @@ import {
 	tickedOwnerNow,
 } from "../../../lib/internal/process-ticks.ts";
 import {
-	CARRIED_FOR_MS,
 	census,
 	livenessOf,
 	machineBooted,
 } from "../../../lib/mesh/liveness.ts";
+import type { AskNode, Held } from "../../../lib/mesh/node.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
 
 /** A machine on which these pids run, started at these times. */
@@ -64,18 +64,76 @@ describe("a peer's liveness", () => {
 	it("cannot be told for a presence that names no process", async () => {
 		expect(await livenessOf(presence(), machine({}))).toBe("unknown");
 	});
+});
 
-	// A mycelium node touches a carried session's file each minute; one
-	// killed and never run again would otherwise leave it there for ever.
-	it("is there for a session elsewhere while its node touched it within three minutes", async () => {
-		const now = 10 * 60 * 1000;
-		const carried = (ago: number) =>
-			presence({ machine: "equilibrius", carriedAt: now - ago });
+/** A node holding these sessions, counting how often it is asked. */
+function node(held: Record<string, Held> | undefined): AskNode & {
+	asked: () => number;
+} {
+	let asked = 0;
+	return Object.assign(
+		async () => {
+			asked++;
+			return held && new Map(Object.entries(held));
+		},
+		{ asked: () => asked },
+	);
+}
 
-		expect(await livenessOf(carried(60_000), machine({}), now)).toBe("present");
+describe("a session elsewhere's liveness", () => {
+	const carried = presence({ session: "far", machine: "equilibrius" });
+
+	it("is present while the node carrying it holds it busy or idle", async () => {
 		expect(
-			await livenessOf(carried(CARRIED_FOR_MS + 1), machine({}), now),
+			await livenessOf(carried, machine({}), node({ far: "busy" })),
+			"a busy session",
+		).toBe("present");
+		expect(
+			await livenessOf(carried, machine({}), node({ far: "idle" })),
+			"an idle session",
+		).toBe("present");
+	});
+
+	it("is gone once the node says it ended, or holds it no more", async () => {
+		expect(
+			await livenessOf(carried, machine({}), node({ far: "ended" })),
+			"an ended session",
 		).toBe("gone");
+		expect(
+			await livenessOf(carried, machine({}), node({})),
+			"a session the node doesn't hold",
+		).toBe("gone");
+	});
+
+	// A dropped link, or a node a switch is restarting, says nothing of
+	// whether the session runs, so its leases and holds stand.
+	it("can't be told while its machine is out of reach, or no node answers", async () => {
+		expect(
+			await livenessOf(carried, machine({}), node({ far: "unreachable" })),
+			"a session out of reach",
+		).toBe("unknown");
+		expect(
+			await livenessOf(carried, machine({}), node(undefined)),
+			"no node answering",
+		).toBe("unknown");
+	});
+
+	it("asks the node once a census, and not at all for sessions here", async () => {
+		const asking = node({ far: "busy", near: "idle" });
+		const other = presence({ session: "near", machine: "equilibrius" });
+		const here = presence({
+			session: "here",
+			owner: { pid: 40, startedAt: 1000 },
+		});
+
+		const { present } = await census([carried, other], machine({}), asking);
+		await census([here], machine({ 40: 1000 }), asking);
+
+		expect(present.map((one) => one.session)).toEqual(["far", "near"]);
+		expect(
+			asking.asked(),
+			"one ask for two sessions elsewhere, none for one here",
+		).toBe(1);
 	});
 });
 
