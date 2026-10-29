@@ -237,7 +237,14 @@ is a build, never a VM check.
   held (`ownPeakBytes`, its shell's scope's `memory.peak`: the `nix`
   client's evaluation, cargo, or a VM test run from its driver). Nothing
   yet sizes a turn by either; they are there to measure what the fixed
-  sizes should be. The shell writes its exit status as it exits; a
+  sizes should be. It says too what the wait was spent on, in seconds
+  for each reason the queue gave while it waited (`waitedOn`: `order`,
+  `vms`, `memory`, `behind` or `planning`), and whether it waited as
+  quick work (`quick`), so a change to the turn rules can rest on what
+  held work back rather than on how long it waited. The keepers note a
+  job's reason each time it changes, so its file is written only then,
+  and the last stretch counts to the reason seen last, at most a
+  keeper's look, two seconds, from the truth. The shell writes its exit status as it exits; a
   shell killed outright, or work that sets its own EXIT trap, leaves
   none. The file keeps its newer half past 2 MiB, about a month of
   work. A VM that failed (exit 1 to 125) beside a capped build in the

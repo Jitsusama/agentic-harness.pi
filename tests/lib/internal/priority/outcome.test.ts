@@ -21,6 +21,7 @@ import {
 	ranSAfter,
 	TELLING_S,
 	vmsFor,
+	waitNoted,
 	workKey,
 } from "../../../../lib/internal/priority/outcome.ts";
 import {
@@ -288,6 +289,40 @@ describe("how heavy work ended", () => {
 		expect(gaveUp.waitedS).toBe(60);
 		expect(gaveUp).not.toHaveProperty("ranS");
 		expect(gaveUp).not.toHaveProperty("exit");
+	});
+
+	it("says what a job waited on, each stretch closed where its reason changed", () => {
+		// Asked a minute ago: 20 s on a VM slot, then 5 s on memory, then
+		// back on a VM slot until its turn 30 s ago.
+		const asked = NOW - 60_000;
+		let waiting = waitNoted(job({ quick: true }), "vms", asked + 2_000);
+		expect(waitNoted(waiting, "vms", asked + 10_000)).toBe(waiting);
+		waiting = waitNoted(waiting, "memory", asked + 20_000);
+		waiting = waitNoted(waiting, "vms", asked + 25_000);
+		const started = new Date(NOW - 30_000).toISOString();
+
+		const ended = outcomeOf({ ...waiting, started }, NOW, 0);
+
+		expect(ended).toMatchObject({
+			waitedS: 30,
+			waitedOn: { vms: 25, memory: 5 },
+			quick: true,
+		});
+	});
+
+	it("closes the last stretch where a job gave up waiting", () => {
+		const waiting = waitNoted(job(), "order", NOW - 58_000);
+
+		const gaveUp = outcomeOf(waiting, NOW, undefined);
+
+		expect(gaveUp.waitedOn).toEqual({ order: 60 });
+		expect(gaveUp).not.toHaveProperty("quick");
+	});
+
+	it("says nothing of what a job waited on when no keeper noted it", () => {
+		const started = new Date(NOW - 30_000).toISOString();
+
+		expect(outcomeOf(job({ started }), NOW, 0)).not.toHaveProperty("waitedOn");
 	});
 
 	it("counts a failure only when the work said so", () => {

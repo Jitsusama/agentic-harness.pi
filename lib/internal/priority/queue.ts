@@ -311,7 +311,21 @@ export interface Job {
 	readonly planned?: "vm-check" | "build" | "failed";
 	/** Why its plan said nothing, when it didn't. */
 	readonly planFailed?: string;
+	/**
+	 * Why it waits now, as {@link waitReasons} last judged it, and since
+	 * when: its time asking, for the first. Kept once its turn comes, so
+	 * its outcome closes the stretch there.
+	 */
+	readonly waitingSince?: {
+		readonly reason: WaitReason;
+		readonly at: string;
+	};
+	/** How long it waited on each reason before its current one, in ms. */
+	readonly waitedOnMs?: WaitedOn;
 }
+
+/** Time spent waiting on each reason, those it never waited on left out. */
+export type WaitedOn = Readonly<Partial<Record<WaitReason, number>>>;
 
 /** What the machine has left, as the queue reads it. */
 export interface Room {
