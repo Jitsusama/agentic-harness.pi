@@ -5,8 +5,9 @@
  * On the left: where pi is working, told from its root; what git is in the
  * middle of; and the model, with how hard it thinks. On the right: what
  * extensions say, the panel's height when it isn't the usual one, context
- * and money as one meter, and the branch, muted, with a mark for unsaved
- * work and one for unpushed. Fields are two spaces apart and a mark sits
+ * and money as one meter, and the branch, muted, with a mark for commits
+ * not yet pushed. Work not yet committed has no mark, since none tried for
+ * it read plainly at the end of the line. Fields are two spaces apart and a mark sits
  * one space from its words, so each reads with its own. Each field shows
  * only while it's true, and they give way a step at a time as the window
  * narrows, the folder's name standing last. A field that gives way goes
@@ -229,12 +230,6 @@ export function draw(
 				? middle(branch, 14, marks.more)
 				: branch;
 			pieces.push({ role: "muted", text: glyph !== "" ? ` ${name}` : name });
-		}
-		if (facts.git?.unsaved) {
-			pieces.push({
-				role: "text",
-				text: `${pieces.length > 0 ? " " : ""}${marks.unsaved}`,
-			});
 		}
 		if (facts.git?.ahead) {
 			pieces.push({

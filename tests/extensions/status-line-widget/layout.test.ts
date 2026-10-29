@@ -22,7 +22,6 @@ import { DEFAULT_MARKS } from "../../../extensions/status-line-widget/where.ts";
 const MARKS = {
 	...DEFAULT_MARKS,
 	branch: "B",
-	unsaved: "●",
 	unpushed: "U",
 	thinking: "T",
 };
@@ -30,7 +29,6 @@ const MARKS = {
 const CLEAN: GitState = {
 	workdir: "/w/src",
 	branch: "jitsusama/status-line-language",
-	unsaved: false,
 	conflicted: false,
 	ahead: false,
 	op: null,
@@ -108,13 +106,11 @@ describe("pi's status line at its full width", () => {
 		expect(read(facts({ thinking: "off" }), 200)).not.toContain("T");
 	});
 
-	it("marks unsaved and unpushed work after the branch", () => {
-		const git = { ...CLEAN, unsaved: true, ahead: true };
+	it("marks unpushed work after the branch", () => {
+		const git = { ...CLEAN, ahead: true };
 
 		expect(
-			read(facts({ git }), 200).endsWith(
-				"B jitsusama/status-line-language ● U",
-			),
+			read(facts({ git }), 200).endsWith("B jitsusama/status-line-language U"),
 		).toBe(true);
 	});
 
@@ -217,7 +213,6 @@ describe("pi's status line as the window narrows", () => {
 			panel: "■",
 			git: {
 				...CLEAN,
-				unsaved: true,
 				ahead: true,
 				op: { name: "rebase", at: 2, of: 5 },
 			},

@@ -31,7 +31,8 @@ each reads with its own.
 - Each extension's status, whole.
 - The panel's height, only while it isn't the usual one.
 - Context, marginal cost and session total, as one meter.
-- The branch, muted, with a mark for unsaved work and one for unpushed.
+- The branch, muted, with a mark for commits not yet pushed. Work not
+  yet committed has no mark.
 
 A field that gives way goes without a trace. A mark saying only that
 something is missing would be one more to learn, and a wider window shows
@@ -47,7 +48,7 @@ when it is set), so the two agree:
 {
   "engine": "/path/to/gitstatusd",
   "roots": ["zone.nix", ".git"],
-  "marks": { "branch": "\uf418", "unsaved": "*", "unpushed": "\uf431" }
+  "marks": { "branch": "\uf418", "unpushed": "\uf431" }
 }
 ```
 
@@ -59,9 +60,10 @@ when it is set), so the two agree:
   again.
 - `roots` are the files or folders that mark a root; the nearest folder
   holding any of them names it.
-- `marks` are drawn by meaning: `branch`, `unsaved`, `unpushed`, `more`,
+- `marks` are drawn by meaning: `branch`, `unpushed`, `more`,
   `complete`, `active`, `pending` and `thinking`. A mark left out takes the
-  package's own, and an empty one draws the words alone.
+  package's own, an empty one draws the words alone, and one the line
+  doesn't draw, such as a prompt's `unsaved`, is left unread.
 
 Without the file a folder is told from the nearest `.git`, and the branch
 is pi's own, with no marks.

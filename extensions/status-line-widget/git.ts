@@ -25,7 +25,6 @@ export interface GitState {
 	readonly workdir: string;
 	/** The local branch, or the commit's first seven characters. */
 	readonly branch: string;
-	readonly unsaved: boolean;
 	readonly conflicted: boolean;
 	readonly ahead: boolean;
 	readonly op: Operation | null;
@@ -114,7 +113,6 @@ export function parseAnswer(
 		state: {
 			workdir,
 			branch: local !== "" ? local : (fields[3] ?? "").slice(0, 7),
-			unsaved: count(10) + count(11) + count(13) > 0,
 			conflicted: count(12) > 0,
 			ahead: count(14) > 0,
 			op: readOperation(workdir),
