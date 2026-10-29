@@ -490,6 +490,18 @@ export const QUICK_AT_ONCE = 1;
  */
 export const QUICK_NIX = { maxJobs: 1, cores: 2 } as const;
 
+/**
+ * How long a job marked quick runs before it stops holding the quick
+ * turn and counts as the build it is: twice the minute that makes work
+ * quick (outcome.ts's `QUICK_S`), so a slow look at a loaded machine
+ * doesn't count. Quick is learned from the last run, and a build whose
+ * last run came from the cache can rebuild for hours: on 29 October a
+ * kernel build learned as quick held the one quick turn from 06:19Z,
+ * and quick jobs waited 254 of their 302 minutes since 02:00Z behind
+ * it, one for 45.8 minutes.
+ */
+export const QUICK_OUTRUN_MS = 120_000;
+
 export const RULES: Rules = { buildsWaitForVmChecks: true };
 
 /**
@@ -641,9 +653,11 @@ function standing(
 	const checking =
 		rules.buildsWaitForVmChecks &&
 		(running.some((job) => job.kind === "vm-check") || room.vms > tests);
-	const quickRunning = running.filter(isQuick).length;
+	const stillQuick = (job: Job) =>
+		isQuick(job) && now - Date.parse(job.started as string) < QUICK_OUTRUN_MS;
+	const quickRunning = running.filter(stillQuick).length;
 	const beside = running.filter(
-		(job) => job.kind === "build" && !isQuick(job),
+		(job) => job.kind === "build" && !stillQuick(job),
 	).length;
 	const builds = !checking
 		? Number.POSITIVE_INFINITY

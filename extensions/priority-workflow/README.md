@@ -149,8 +149,11 @@ is a build, never a VM check.
   over two waited while a VM check ran, 361 minutes between them,
   with CPU pressure at 40 to 70 against the capped build's 10. Of 458
   builds that rule calls quick, 367 were, and 24 ran over five
-  minutes; a slow run makes the next bulk again. `queue.json` marks
-  the job `quick`.
+  minutes; a slow run makes the next bulk again. One that runs past two
+  minutes stops holding the quick turn and counts as the build it is:
+  on 29 October a kernel build learned as quick from a cached run
+  rebuilt for hours, and quick jobs waited 254 of their 302 minutes
+  that night behind it. `queue.json` marks the job `quick`.
 - **Only work is read:** a quoted single word, such as a quoted flake
   reference, counts as part of the command. A step that only looks for
   something, such as `pgrep`, `ps`, `grep`, `systemctl` or `echo`,
