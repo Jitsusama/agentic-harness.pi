@@ -85,6 +85,13 @@ export const INSTALL_GRACE_MS = 5 * 60_000;
  * reloaded the moment the lockfile looked current found 15 of them
  * missing. With no `.modules.yaml` an install is under way, or never
  * finished. A checkout with no lockfile has nothing to wait for.
+ *
+ * A root that is a link moves onto another folder rather than in place:
+ * pi-packages builds, installs and checks each version in a folder of
+ * its own before it moves the `current` link onto it, so that install
+ * always predates the move, and waiting for one after it held every
+ * session the whole grace on 29 October. Its own install record newer
+ * than its own lockfile is enough.
  */
 export function dependenciesReady(
 	root: string,
@@ -106,7 +113,9 @@ export function dependenciesReady(
 		return false;
 	}
 	if (installed < lock) return false;
-	if (movedAt === undefined || installed >= movedAt) return true;
+	if (movedAt === undefined || installed >= movedAt || isLink(root)) {
+		return true;
+	}
 	return now - movedAt >= INSTALL_GRACE_MS;
 }
 
