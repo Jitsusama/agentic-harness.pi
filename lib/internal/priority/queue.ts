@@ -241,11 +241,15 @@ function vmsAllowedHere(room: Room, rules: Rules): number {
  */
 function vmWaits(
 	job: Job,
-	at: { readonly vmsHere: number; readonly vmsElsewhere: number },
+	at: {
+		readonly vmsHere: number;
+		readonly vmsElsewhere: number;
+		readonly vmSettling: boolean;
+	},
 	room: Room,
 	rules: Rules,
 ): boolean {
-	const noRoomHere = at.vmsHere >= vmsAllowedHere(room, rules);
+	const noRoomHere = at.vmSettling || at.vmsHere >= vmsAllowedHere(room, rules);
 	return job.kind === "vm-test"
 		? noRoomHere
 		: noRoomHere && at.vmsElsewhere < 1;
@@ -356,6 +360,48 @@ export interface Job {
 	 * only built.
 	 */
 	readonly vmSince?: string;
+	/**
+	 * When the memory its builds and its own commands held last rose by
+	 * {@link GREW_BYTES} or more, and to how much, in bytes.
+	 */
+	readonly grewAt?: string;
+	readonly grewTo?: number;
+}
+
+/** The least rise in a job's memory that counts as its still growing. */
+export const GREW_BYTES = 128 * 1024 ** 2;
+
+/**
+ * The least time between two VMs starting here. A pressure stall shows
+ * seconds after the memory that causes it, so a stall read at each start
+ * let four VMs in within three minutes, 16:28 to 16:31 on 29 October,
+ * before any one's memory showed: six ran at a 17.6% stall and load 107
+ * (P9R1KI). One at a time, each seen to settle, never a burst.
+ */
+export const VM_SPREAD_MS = 60_000;
+
+/** How long a new VM's memory must hold still before the next may start. */
+export const VM_STEADY_MS = 15_000;
+
+/**
+ * How long after its start a VM may hold the next back while its memory
+ * grows. Past it, a long test's late growth holds nobody.
+ */
+export const VM_SETTLE_MS = 5 * 60_000;
+
+/**
+ * Whether a VM started lately is still settling: started within
+ * {@link VM_SPREAD_MS}, or within {@link VM_SETTLE_MS} and its memory
+ * rose within {@link VM_STEADY_MS}.
+ */
+export function vmSettling(jobs: readonly Job[], now: number): boolean {
+	return jobs.some((job) => {
+		if (!isVm(job) || job.started === undefined) return false;
+		const age = now - Date.parse(job.started);
+		if (age < VM_SPREAD_MS) return true;
+		if (age >= VM_SETTLE_MS || job.grewAt === undefined) return false;
+		return now - Date.parse(job.grewAt) < VM_STEADY_MS;
+	});
 }
 
 /** Time spent waiting on each reason, those it never waited on left out. */
@@ -578,7 +624,7 @@ export function nextTurn(
 	);
 	if (now - last < SPREAD_MS) return undefined;
 	if (room.memoryPressure >= MOST_MEMORY_PRESSURE) return undefined;
-	const { growing, vmsHere, vmsElsewhere, builds, quick } = standing(
+	const { growing, vmsHere, vmsElsewhere, settling, builds, quick } = standing(
 		jobs,
 		room,
 		now,
@@ -601,7 +647,10 @@ export function nextTurn(
 			return Number.isFinite(quick.left) ? { ...job, capped: true } : job;
 		}
 		if (held || waitsForLending(job, room, now)) continue;
-		if (isVm(job) && vmWaits(job, { vmsHere, vmsElsewhere }, room, rules)) {
+		if (
+			isVm(job) &&
+			vmWaits(job, { vmsHere, vmsElsewhere, vmSettling: settling }, room, rules)
+		) {
 			continue;
 		}
 		// Only bulk work is behind a build, and it all waits with it.
@@ -685,7 +734,7 @@ export function waitReasons(
 		for (const job of waiting) reasons.set(job.id, "memory");
 		return reasons;
 	}
-	const { growing, vmsHere, vmsElsewhere, builds, quick } = standing(
+	const { growing, vmsHere, vmsElsewhere, settling, builds, quick } = standing(
 		jobs,
 		room,
 		now,
@@ -710,7 +759,15 @@ export function waitReasons(
 			}
 			if (waitsForLending(job, room, now)) return "lending";
 			if (held || given) return "order";
-			if (isVm(job) && vmWaits(job, { vmsHere, vmsElsewhere }, room, rules)) {
+			if (
+				isVm(job) &&
+				vmWaits(
+					job,
+					{ vmsHere, vmsElsewhere, vmSettling: settling },
+					room,
+					rules,
+				)
+			) {
 				return "vms";
 			}
 			const ruledOut =
@@ -744,6 +801,8 @@ function standing(
 	vmsHere: number;
 	/** A builder's VM slots free and not yet spoken for. */
 	vmsElsewhere: number;
+	/** A VM started lately is still settling (see {@link vmSettling}). */
+	settling: boolean;
 	builds: number;
 	quick: { running: number; left: number };
 } {
@@ -787,7 +846,14 @@ function standing(
 			? Math.max(0, QUICK_AT_ONCE - quickRunning)
 			: Number.POSITIVE_INFINITY,
 	};
-	return { growing, vmsHere, vmsElsewhere, builds, quick };
+	return {
+		growing,
+		vmsHere,
+		vmsElsewhere,
+		settling: vmSettling(running, now),
+		builds,
+		quick,
+	};
 }
 
 /** How many more VMs and builds could start now. */
@@ -807,7 +873,7 @@ export function roomLeft(
 	rules: Rules = RULES,
 ): RoomLeft {
 	if (room.memoryPressure >= MOST_MEMORY_PRESSURE) return { vms: 0, builds: 0 };
-	const { growing, vmsHere, vmsElsewhere, builds } = standing(
+	const { growing, vmsHere, vmsElsewhere, settling, builds } = standing(
 		jobs,
 		room,
 		now,
@@ -821,7 +887,7 @@ export function roomLeft(
 	const fits = (kind: Kind) => Math.max(0, Math.floor(free / NEEDS_GIB[kind]));
 	const slots = Math.max(
 		0,
-		Math.max(0, vmsAllowedHere(room, rules) - vmsHere) +
+		(settling ? 0 : Math.max(0, vmsAllowedHere(room, rules) - vmsHere)) +
 			vmsElsewhere -
 			waiting.filter(isVm).length,
 	);
