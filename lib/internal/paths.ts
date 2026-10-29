@@ -26,11 +26,20 @@
  * would silently yield a cwd-relative path and write files
  * next to wherever the user happened to be standing.
  *
+ * A few consumers keep what belongs to a realm rather than to the
+ * machine: the quest store and its records, the mesh, and the steer
+ * inboxes. A session in a realm other than its machine's home realm
+ * finds theirs under `<xdg-root>/pi/agentic-harness.pi/realms/<name>/`
+ * (see realm.ts); everything else is the machine's, whichever realm
+ * asks.
+ *
  * None of these helpers create the directory. Callers are
  * responsible for `mkdir -p` when they first write.
  */
+import { readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { realmSegments } from "./realm.ts";
 
 /** Brand string used to scope paths to this pi package. */
 const PACKAGE_DIR = "agentic-harness.pi";
@@ -57,14 +66,50 @@ const XDG_TABLE = {
 
 type XdgKind = keyof typeof XDG_TABLE;
 
-function xdgPath(kind: XdgKind, slug: string): string {
+/**
+ * The consumers whose folders are the realm's own: what one realm's
+ * sessions say to each other, the quests they work and the person's
+ * words to them. The machine queue, trees, reviews and caches stay the
+ * machine's, since both realms share its cores and disk.
+ */
+const REALM_SLUGS: ReadonlySet<string> = new Set([
+	"quest-workflow",
+	"mesh-workflow",
+	"steer",
+]);
+
+function xdgRoot(kind: XdgKind): string {
 	const { envVar, defaultSuffix } = XDG_TABLE[kind];
 	const override = process.env[envVar];
-	const root =
-		override && override.length > 0
-			? override
-			: join(homedir(), ...defaultSuffix);
-	return join(root, "pi", PACKAGE_DIR, slug);
+	return override && override.length > 0
+		? override
+		: join(homedir(), ...defaultSuffix);
+}
+
+function xdgPath(kind: XdgKind, slug: string): string {
+	const realm = REALM_SLUGS.has(slug) ? realmSegments() : [];
+	return join(xdgRoot(kind), "pi", PACKAGE_DIR, ...realm, slug);
+}
+
+/**
+ * A realm's own folder for `slug` in every realm this machine keeps one
+ * for, the home realm's first. For what the machine has once and any
+ * realm's sessions may hold, as a work tree is: counting only its own
+ * realm's quests and sessions, a sweep in one realm would take another
+ * realm's trees as nobody's.
+ */
+export function everyRealmsDir(kind: "data" | "state", slug: string): string[] {
+	const root = join(xdgRoot(kind), "pi", PACKAGE_DIR);
+	let others: string[] = [];
+	try {
+		others = readdirSync(join(root, "realms"), { withFileTypes: true })
+			.filter((entry) => entry.isDirectory())
+			.map((entry) => join(root, "realms", entry.name, slug))
+			.sort();
+	} catch {
+		// No other realm has kept anything here.
+	}
+	return [join(root, slug), ...others];
 }
 
 /**

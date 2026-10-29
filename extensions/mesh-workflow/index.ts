@@ -53,6 +53,7 @@ import { tellAwaited } from "../../lib/internal/priority/awaited.ts";
 import { tickedOwnerNow } from "../../lib/internal/process-ticks.ts";
 import { onConcluded } from "../../lib/internal/quest/concluded.ts";
 import { withQuestLock } from "../../lib/internal/quest/io.ts";
+import { meshRefusal, sessionRealm } from "../../lib/internal/realm.ts";
 import {
 	createReloadHold,
 	HOLD_FOR_RELOAD_MS,
@@ -321,6 +322,15 @@ export function meshWorkflow(
 	return (pi: ExtensionAPI) => {
 		// Not a peer: a subagent is its parent's hands (see hand.ts).
 		if (isSubagent(env)) return;
+		// A realm name no folder may carry would put this peer where no
+		// node and no other session looks: say so, and stay off the mesh.
+		const refused = meshRefusal(sessionRealm(env));
+		if (refused !== undefined) {
+			pi.on("session_start", (_event, ctx) => {
+				if (ctx.hasUI) ctx.ui.notify(refused, "warning");
+			});
+			return;
+		}
 		registerHands(pi.events);
 		declareGuards(GUARDS.meshEndHold);
 		const transport: Transport = folderTransport(join(paths.mesh, "messages"));

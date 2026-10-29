@@ -10,6 +10,7 @@
 import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { realmSegments } from "../internal/realm.ts";
 
 /** Honours XDG_STATE_HOME; falls back to ~/.local/state per the XDG spec. */
 function xdgStateRoot(): string {
@@ -19,9 +20,19 @@ function xdgStateRoot(): string {
 		: join(homedir(), ".local", "state");
 }
 
-/** The memory database path, creating its parent directory if needed. */
+/**
+ * The memory database path, creating its parent directory if needed: the
+ * session's realm's own, so a project's facts from one realm never reach
+ * a session in another (see lib/internal/realm.ts).
+ */
 export async function memoryDbPath(): Promise<string> {
-	const path = join(xdgStateRoot(), "agentic-harness", "memory", "memory.db");
+	const path = join(
+		xdgStateRoot(),
+		"agentic-harness",
+		...realmSegments(),
+		"memory",
+		"memory.db",
+	);
 	await mkdir(dirname(path), { recursive: true });
 	return path;
 }
