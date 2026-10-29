@@ -12,6 +12,7 @@ import {
 	MOST_VMS,
 	needsGibOf,
 	nextTurn,
+	QUICK_OUTRUN_MS,
 	RAMP_MS,
 	roomLeft,
 	roomSaid,
@@ -596,6 +597,25 @@ describe("whose turn it is", () => {
 		expect(nextTurn([check, running, job("build")], ROOMY, NOW)?.id).toBe(
 			"build",
 		);
+	});
+
+	it("lets quick work past a job marked quick that has run past quick work's time, which counts as a build", () => {
+		const check = job("check", {
+			kind: "vm-check",
+			started: startedAgo(RAMP_MS),
+		});
+		// Learned as quick from a cached run, it is rebuilding for real.
+		const outrun = job("kernel", {
+			quick: true,
+			started: startedAgo(QUICK_OUTRUN_MS),
+		});
+		const quick = job("quick", { quick: true });
+
+		expect(nextTurn([check, outrun, quick], ROOMY, NOW)?.id).toBe("quick");
+		expect(
+			nextTurn([check, outrun, job("build")], ROOMY, NOW),
+			"it holds the one build beside a VM check",
+		).toBeUndefined();
 	});
 
 	it("counts a wait as wasted only when its memory stands free", () => {
