@@ -142,6 +142,20 @@ describe("ledger views", () => {
 		await Promise.all([reader.close(), store.close()]);
 	});
 
+	it("dates a turn by the machine's own day, not UTC's", async () => {
+		// Half past nine on a local evening, which is the next day in UTC
+		// anywhere west of Greenwich.
+		const evening = new Date(2026, 9, 28, 21, 30).toISOString();
+		const { store, reader } = await ledger([turn({ timestamp: evening })]);
+
+		const answer = await reader.query("SELECT day FROM turn_facts");
+		const slices = await store.costBy("day");
+
+		expect(answer.rows).toEqual([{ day: "2026-10-28" }]);
+		expect(slices.map((slice) => slice.key)).toEqual(["2026-10-28"]);
+		await Promise.all([reader.close(), store.close()]);
+	});
+
 	it("attributes each miss to what came before it", async () => {
 		const { store, reader } = await ledger([
 			turn(),

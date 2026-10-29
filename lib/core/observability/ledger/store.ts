@@ -289,7 +289,7 @@ DROP VIEW IF EXISTS turn_facts;
 
 CREATE VIEW turn_facts AS
 SELECT t.digest, t.entry_id, t.session_id, t.timestamp,
-	substr(t.timestamp, 1, 10) AS day,
+	date(t.timestamp, 'localtime') AS day,
 	t.kind, t.model, t.thinking_level,
 	t.tokens_input + t.tokens_cache_read + t.tokens_cache_write AS context,
 	t.tokens_input, t.tokens_output, t.tokens_cache_read,
@@ -429,7 +429,9 @@ const GROUP_BY: Record<CostDimension, string> = {
 	model: "turns.model",
 	session: "turns.session_id",
 	kind: "turns.kind",
-	day: "substr(turns.timestamp, 1, 10)",
+	// The machine's own day, as the person lives it: a UTC day ends in
+	// the evening west of Greenwich, splitting one evening's work in two.
+	day: "date(turns.timestamp, 'localtime')",
 	// A left join, and coalesced to the empty string, so spend whose
 	// session named no repo or quest stays a visible slice. An inner join
 	// would drop it, and every share would then be a fraction of a total
