@@ -32,6 +32,32 @@ describe("where a pivot may go", () => {
 		expect("refused" in sent && sent.refused).toContain("@N10TYF is outside");
 	});
 
+	it("names the orchestrator to ask when the session is in another's orchestration", () => {
+		// Four orchestrators share optimus; one turns another's sessions
+		// only through it, as equals.
+		const machine = [
+			...present,
+			{ addresses: ["WJATIN"], orchestrates: "WJATIN" },
+			{ addresses: ["19AMVE"], orchestratedBy: "WJATIN" },
+			{ addresses: ["OA9O3L"], orchestratedBy: "GONEAA" },
+		];
+		const refusal = (to: string) => {
+			const sent = pivotTargets("WCJQSG", [to], machine);
+			return "refused" in sent ? sent.refused : "";
+		};
+
+		expect(refusal("@19AMVE")).toContain(
+			"@19AMVE is in WJATIN's orchestration; send it to WJATIN as a question",
+		);
+		expect(refusal("@WJATIN")).toContain(
+			"@WJATIN is an orchestrator; ask it with a question",
+		);
+		expect(refusal("@OA9O3L")).toContain(
+			"send it to #orchestration/goneaa as a question",
+		);
+		expect(refusal("@N10TYF")).not.toContain("as a question");
+	});
+
 	it("is refused to the whole machine", () => {
 		expect(pivotTargets("WCJQSG", ["#machine"], present)).toHaveProperty(
 			"refused",
