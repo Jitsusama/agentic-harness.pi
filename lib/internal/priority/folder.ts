@@ -64,6 +64,7 @@ import { withPlan } from "./plan.ts";
 import {
 	CLASS_OF,
 	type Class,
+	isVm,
 	type Job,
 	type Kind,
 	needsGibOf,
@@ -81,7 +82,7 @@ import {
 	waitReasons,
 	waitsWithRoom,
 } from "./queue.ts";
-import type { BuildSeen, Reading } from "./room.ts";
+import { type BuildSeen, isVmCommand, type Reading } from "./room.ts";
 
 /** How long a shell has to say its pid before its job is given up. */
 export const PID_MS = 30_000;
@@ -422,12 +423,30 @@ export function queueFolder(
 	};
 
 	/**
-	 * Notes in each running job the most that ran beside it, whether its
-	 * builds ran a check with deadlines, and the most memory they and its
-	 * own commands held, writing its file only when that grew, so a steady
-	 * queue writes nothing.
+	 * Whether a running VM job runs a VM of its own now: a build with
+	 * deadlines it asked for, or a qemu in its shell's cgroup, as a VM
+	 * test run from its driver has.
 	 */
-	const noteBeside = (standing: Job[], reading: Reading): Job[] => {
+	const runsVm = (job: Job, builds: readonly BuildSeen[]): boolean => {
+		if (builds.some((build) => build.timed)) return true;
+		const shell = shellOf(job.id);
+		const own = shell !== undefined ? processes.cgroupOf(shell) : undefined;
+		if (own === undefined) return false;
+		return (processes.commandsIn?.(own) ?? []).some(isVmCommand);
+	};
+
+	/**
+	 * Notes in each running job the most that ran beside it, whether its
+	 * builds ran a check with deadlines, when a VM job's own VM was first
+	 * seen, and the most memory its builds and its own commands held,
+	 * writing its file only when that changed, so a steady queue writes
+	 * nothing.
+	 */
+	const noteBeside = (
+		standing: Job[],
+		reading: Reading,
+		now: number,
+	): Job[] => {
 		const running = standing.filter((job) => job.started !== undefined);
 		return standing.map((job) => {
 			if (job.started === undefined) return job;
@@ -437,6 +456,11 @@ export function queueFolder(
 			const held = builds.reduce((sum, build) => sum + build.memoryPeak, 0);
 			const peak = Math.max(job.buildsPeakBytes ?? 0, held);
 			const ranTimed = job.ranTimed || builds.some((build) => build.timed);
+			const vmSince =
+				job.vmSince ??
+				(isVm(job) && runsVm(job, builds)
+					? new Date(now).toISOString()
+					: undefined);
 			const ownNow = ownPeakOf(job);
 			const own =
 				ownNow === undefined
@@ -446,6 +470,7 @@ export function queueFolder(
 				...job,
 				beside: most,
 				...(ranTimed ? { ranTimed: true } : {}),
+				...(vmSince !== undefined ? { vmSince } : {}),
 				...(peak > 0 ? { buildsPeakBytes: peak } : {}),
 				...(own !== undefined ? { ownPeakBytes: own } : {}),
 			};
@@ -540,6 +565,7 @@ export function queueFolder(
 						})
 						.map((job) => planned(job, now)),
 					reading,
+					now,
 				);
 				sweep(now);
 				const awaited = standing.some((job) => job.started === undefined)

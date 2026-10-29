@@ -244,7 +244,10 @@ is a build, never a VM check.
   held work back rather than on how long it waited. The keepers note a
   job's reason each time it changes, so its file is written only then,
   and the last stretch counts to the reason seen last, at most a
-  keeper's look, two seconds, from the truth. The shell writes its exit status as it exits; a
+  keeper's look, two seconds, from the truth. A VM job says how long
+  it ran before a VM of its own was seen (`vmAfterS`): a build with
+  deadlines it asked Nix for, or a qemu in its own cgroup. That is the
+  time it held a VM slot while it only built. The shell writes its exit status as it exits; a
   shell killed outright, or work that sets its own EXIT trap, leaves
   none. The file keeps its newer half past 2 MiB, about a month of
   work. A VM that failed (exit 1 to 125) beside a capped build in the

@@ -84,6 +84,11 @@ export interface Outcome {
 	readonly waitedOn?: WaitedOn;
 	/** It waited as quick work, with a turn of its own. */
 	readonly quick?: true;
+	/**
+	 * Seconds a VM job ran before a VM of its own was seen, holding a VM
+	 * slot while it only built; nothing when none was seen.
+	 */
+	readonly vmAfterS?: number;
 }
 
 /** How large the outcome file grows before it keeps its newer half. */
@@ -183,6 +188,10 @@ export function outcomeOf(
 		job.started !== undefined ? Date.parse(job.started) : undefined;
 	const seconds = (ms: number) => Math.max(0, Math.round(ms / 1000));
 	const waitedOn = waitedOnOf(job, started ?? ended);
+	const vmAfterS =
+		started !== undefined && job.vmSince !== undefined
+			? seconds(Date.parse(job.vmSince) - started)
+			: undefined;
 	return {
 		v: 1,
 		id: job.id,
@@ -209,6 +218,7 @@ export function outcomeOf(
 		...(job.planFailed !== undefined ? { planFailed: job.planFailed } : {}),
 		...(waitedOn !== undefined ? { waitedOn } : {}),
 		...(job.quick ? { quick: true as const } : {}),
+		...(vmAfterS !== undefined ? { vmAfterS } : {}),
 	};
 }
 

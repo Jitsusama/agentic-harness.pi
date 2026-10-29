@@ -322,6 +322,13 @@ export interface Job {
 	};
 	/** How long it waited on each reason before its current one, in ms. */
 	readonly waitedOnMs?: WaitedOn;
+	/**
+	 * When a VM of its own was first seen running: a build with deadlines
+	 * it asked Nix for, or a qemu in its own cgroup. A VM job holds a VM
+	 * slot from its turn, so the time before this is a slot held while it
+	 * only built.
+	 */
+	readonly vmSince?: string;
 }
 
 /** Time spent waiting on each reason, those it never waited on left out. */
