@@ -188,8 +188,9 @@ describe("glyph ownership across the package", () => {
 			"agent-glyphs": /[\u25e6\u2192\u2713\u2212\u2715]/,
 			// The footer: marks outside every geometric family, since the
 			// footer sits beside all of them at once, plus the shared cross
-			// for a failed anything, and Claude's own spark for its plan.
-			"footer-mark": /[\u2691\u263e\u29d7\u2715\u21c4\u273b]/,
+			// for a failed anything, Claude's own spark for its plan, and the
+			// turning arrow for a turn being tried again.
+			"footer-mark": /[\u2691\u263e\u29d7\u2715\u21c4\u273b\u21bb]/,
 		};
 
 		const strays: string[] = [];

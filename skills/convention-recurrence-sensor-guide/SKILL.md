@@ -27,13 +27,20 @@ tracks the fix. There is no separate instrumentation to trust.
 ## Running It
 
 ```bash
-node scripts/convention-recurrence.ts [--since YYYY-MM-DD]
+node scripts/convention-recurrence.ts [--since YYYY-MM-DD] [--here]
 ```
 
 Node strips the TypeScript types and runs the file directly; no
 build step is involved. A `MODULE_TYPELESS_PACKAGE_JSON` warning
 on stderr is benign, the output is on stdout. `--since` limits
 the scan to logs on or after a date.
+
+Both sensors also read the sessions whose logs the backup has
+removed from the machine, reading each back from Drive through
+session-backup's index and deleting the copy once it's read. A
+copy takes a second or two, so `--here` reads only the machine's
+logs, the last 90 days, for a quick look. Each says on stderr
+how many logs on Drive went unread, and why.
 
 The output is a tab-separated table, one row per ISO week, one
 column per category. Each cell is the number of distinct
@@ -103,7 +110,7 @@ The gate blocks, and the mistakes no gate catches, are what the
 learning sensor counts:
 
 ```bash
-node scripts/learning-sensor.ts [--since YYYY-MM-DD] [--top N] [--json <file>]
+node scripts/learning-sensor.ts [--since YYYY-MM-DD] [--top N] [--json <file>] [--here]
 ```
 
 It writes a markdown report to stdout: the sessions active each

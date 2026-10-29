@@ -39,6 +39,25 @@ ls -lt ~/.pi/agent/sessions/--*repo-name*--/
 Files are named `{timestamp}_{uuid}.jsonl`. Use `ls -lt`
 to find the most recent.
 
+## Older Logs, on Drive
+
+Where core.nix's session-backup runs, a log is deleted from
+the machine 90 days after its last write, once Drive holds
+its sealed copy. The backup keeps one row per log it sent in
+`~/.local/state/session-backup/index.jsonl`: `name` (the
+Drive object), `id`, `folder`, `started`, `ended`, `title`,
+`quest`, `models`, `turns`, `cost` and `bytes`. Read the index
+to pick the sessions you need, then read each one back:
+
+```bash
+session-backup fetch NAME --to "$TMPDIR/log.jsonl"
+```
+
+Delete each copy once it's read; copies don't outlive the
+work. `session-backup status` says how many logs still have no
+row. In TypeScript, `lib/internal/session-logs.ts` does all
+of this for a span.
+
 ## Extraction Approach
 
 After reading the format docs, write a single Python
