@@ -164,9 +164,13 @@ is a build, never a VM check.
   cgroup: the queue gates memory, not CPU, and a VM check runs in the
   daemon beside any build that starts, which is how an all-core kernel
   build broke a camera subtest's timing. Holding every build instead
-  left five waiting up to 24 minutes with the CPU 72% idle. So one
+  left five waiting up to 24 minutes with the CPU 72% idle, and a limit
+  of 10% held 41 builds five minutes or more from 22:00 on 28 October,
+  though over 741 VM runs builds beside raised no failures and VMs
+  slowed only past 70% (x1.27). So one
   build at a time starts beside a VM check, while CPU pressure is under
-  10%, and its Nix builds run at `max-jobs = 2` and `cores = 4`, at
+  70% and the person's own programs don't stall on memory, and its Nix
+  builds run at `max-jobs = 2` and `cores = 4`, at
   most about 8 cores, or `cores = 2` after a VM failed beside one. The cap is a settings file put first in
   `NIX_USER_CONF_FILES`, ahead of the files Nix reads anyway, so the
   person's nix.conf still holds and an inline `NIX_CONFIG` can't drop

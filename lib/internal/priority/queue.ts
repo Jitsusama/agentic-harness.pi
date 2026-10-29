@@ -221,10 +221,19 @@ export const MOST_FLOORS_PRESSURE = 1;
  */
 function vmsAllowed(room: Room, rules: Rules): number {
 	const most = rules.mostVms ?? MOST_VMS;
-	return room.floorsPressure !== undefined &&
+	return floorsWait(room) ? Math.min(most, VMS_WHATEVER_FLOORS_FEEL) : most;
+}
+
+/**
+ * Whether the person's own programs, those a memory floor keeps, stall
+ * on memory past {@link MOST_FLOORS_PRESSURE}. Where no floor is read,
+ * there is nobody's memory to guard.
+ */
+function floorsWait(room: Room): boolean {
+	return (
+		room.floorsPressure !== undefined &&
 		room.floorsPressure > MOST_FLOORS_PRESSURE
-		? Math.min(most, VMS_WHATEVER_FLOORS_FEEL)
-		: most;
+	);
 }
 
 /** Memory pressure (avg10, percent) past which no job starts. */
@@ -380,7 +389,8 @@ export interface Rules {
 	 * thirds of one core, held five builds for up to 24 minutes while the
 	 * CPU sat 72% idle. So {@link BUILDS_BESIDE_VMS} build at a time starts
 	 * beside one while CPU pressure is under
-	 * {@link MOST_CPU_PRESSURE_BESIDE_VMS}, and the rest wait. Pressure is
+	 * {@link MOST_CPU_PRESSURE_BESIDE_VMS} and the person's own programs
+	 * don't stall on memory, and the rest wait. Pressure is
 	 * read seconds late, and nothing slows a daemon build once it runs, so
 	 * that build is capped as it starts (see {@link CAPPED_NIX}).
 	 *
@@ -398,8 +408,17 @@ export interface Rules {
 /** How many builds run beside a VM check at once. */
 export const BUILDS_BESIDE_VMS = 1;
 
-/** CPU pressure (avg10, percent) past which no build starts beside one. */
-export const MOST_CPU_PRESSURE_BESIDE_VMS = 10;
+/**
+ * CPU pressure (avg10, percent) past which no build starts beside one.
+ * It was 10, which only 9 of 741 VM runs from 24 to 29 October ever
+ * saw, so builds waited for every VM: from 22:00 on 28 October, 41
+ * waited five minutes or more, 485 minutes in all. Over those runs,
+ * builds beside raised no failures (3.8% with one, 3.2% with four or
+ * more), and VMs ran at their usual time up to 70 (x1.00 at 40 to 70),
+ * slowing past it (x1.27). The build beside stays capped, and builds
+ * run at idle priority, below the person's programs (5FWIUS).
+ */
+export const MOST_CPU_PRESSURE_BESIDE_VMS = 70;
 
 /** A pressure limit the queue holds work back at, by what presses. */
 export type Pressed = "memory" | "cpu";
@@ -607,7 +626,7 @@ function standing(
 	).length;
 	const builds = !checking
 		? Number.POSITIVE_INFINITY
-		: room.cpuPressure < MOST_CPU_PRESSURE_BESIDE_VMS
+		: room.cpuPressure < MOST_CPU_PRESSURE_BESIDE_VMS && !floorsWait(room)
 			? Math.max(0, BUILDS_BESIDE_VMS - beside)
 			: 0;
 	const quick = {

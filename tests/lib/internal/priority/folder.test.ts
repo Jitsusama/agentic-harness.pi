@@ -121,7 +121,11 @@ describe("the machine's queue folder", () => {
 		queue.ask(job("waits"));
 
 		queue.keep(
-			{ ...ROOMY, memoryPressure: MOST_MEMORY_PRESSURE, cpuPressure: 40 },
+			{
+				...ROOMY,
+				memoryPressure: MOST_MEMORY_PRESSURE,
+				cpuPressure: MOST_CPU_PRESSURE_BESIDE_VMS,
+			},
 			NOW,
 			() => undefined,
 		);
@@ -252,7 +256,11 @@ describe("the machine's queue folder", () => {
 		};
 		const held = folder();
 		ask(held);
-		held.keep({ ...ROOMY, cpuPressure: 10 }, NOW, () => undefined);
+		held.keep(
+			{ ...ROOMY, cpuPressure: MOST_CPU_PRESSURE_BESIDE_VMS },
+			NOW,
+			() => undefined,
+		);
 		expect(held.hasTurn("build")).toBe(false);
 		held.keep(ROOMY, NOW, () => undefined);
 		expect(held.hasTurn("build")).toBe(true);
@@ -281,7 +289,11 @@ describe("the machine's queue folder", () => {
 		// however busy the CPU is.
 		held.ask(job("quick", { quick: true }));
 		shellSays("quick", 604);
-		held.keep({ ...ROOMY, cpuPressure: 50 }, NOW + 9_000, () => undefined);
+		held.keep(
+			{ ...ROOMY, cpuPressure: MOST_CPU_PRESSURE_BESIDE_VMS },
+			NOW + 9_000,
+			() => undefined,
+		);
 		expect(held.hasTurn("quick")).toBe(true);
 		expect(readFileSync(join(dir, "quick.capped"), "utf8")).toBe(
 			"max-jobs = 1\ncores = 2\n",
