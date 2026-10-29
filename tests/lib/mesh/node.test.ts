@@ -232,7 +232,9 @@ describe("where the node's socket is", () => {
 		writeFileSync(join(root, "state", "mycelium", "realm"), `${name}\n`);
 	};
 
-	it("is in the login's runtime folder, for the realm the node last ran in", () => {
+	it("is in the login's runtime folder, for the session's own realm though the node first kept another", () => {
+		// A machine in two realms runs a node for each, and the kept realm
+		// is only the first's: a personal session asks the personal node.
 		realm("work");
 
 		expect(
@@ -240,6 +242,17 @@ describe("where the node's socket is", () => {
 				XDG_RUNTIME_DIR: "/run/user/1000",
 				XDG_STATE_HOME: join(root, "state"),
 				MYCELIUM_REALM: "personal",
+			}),
+		).toBe("/run/user/1000/mycelium/personal.sock");
+	});
+
+	it("is for the realm the node kept when the session names none", () => {
+		realm("work");
+
+		expect(
+			nodeSocket({
+				XDG_RUNTIME_DIR: "/run/user/1000",
+				XDG_STATE_HOME: join(root, "state"),
 			}),
 		).toBe("/run/user/1000/mycelium/work.sock");
 	});

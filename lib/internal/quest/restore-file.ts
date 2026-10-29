@@ -18,6 +18,7 @@
 import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { questAddress, sessionAddress } from "../../mesh/address.ts";
+import { realmSegments, type SessionRealm, sessionRealm } from "../realm.ts";
 import { atomicWriteFile } from "./io.ts";
 import {
 	closeRecord,
@@ -64,9 +65,19 @@ export interface SeenRecord {
 	readonly heartbeatAt: string;
 }
 
-/** Where the file lives, under the state home. */
-export function restoreFilePath(stateHome: string): string {
-	return join(stateHome, "pi", "restore.json");
+/**
+ * Where the file lives, under the state home: pi's own folder for the
+ * machine's home realm, as the launcher has always read it, and the
+ * harness's folder for that realm for any other (see realm.ts).
+ */
+export function restoreFilePath(
+	stateHome: string,
+	realm: SessionRealm = sessionRealm(),
+): string {
+	const own = realmSegments(realm);
+	return own.length === 0
+		? join(stateHome, "pi", "restore.json")
+		: join(stateHome, "pi", "agentic-harness.pi", ...own, "restore.json");
 }
 
 /**

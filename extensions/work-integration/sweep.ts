@@ -23,7 +23,7 @@ import {
 	type SweepOutcome,
 	sweepEndedTrees,
 } from "../../lib/core/work/sweep.ts";
-import { dataDir, stateDir } from "../../lib/internal/paths.ts";
+import { everyRealmsDir, stateDir } from "../../lib/internal/paths.ts";
 import { discoverQuests } from "../../lib/internal/quest/discovery.ts";
 import { sessionsNobodyClosed } from "../../lib/internal/quest/loaded.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace-root.ts";
@@ -115,9 +115,13 @@ function inFinishedQuest(gitDir: string): boolean {
 	const within = relative(questWorkspacesRoot(), gitDir);
 	if (within.startsWith("..") || isAbsolute(within)) return false;
 	const id = within.split(sep)[0];
-	const { index } = discoverQuests(join(dataDir("quest-workflow"), "quests"));
-	const status = index.quests.get(id)?.doc.frontMatter.status;
-	return status !== undefined && FINISHED.has(status);
+	// Scratch folders are the machine's, and their quest may be any realm's.
+	for (const dir of everyRealmsDir("data", "quest-workflow")) {
+		const { index } = discoverQuests(join(dir, "quests"));
+		const status = index.quests.get(id)?.doc.frontMatter.status;
+		if (status !== undefined) return FINISHED.has(status);
+	}
+	return false;
 }
 
 /**
@@ -125,16 +129,24 @@ function inFinishedQuest(gitDir: string): boolean {
  * the mesh now, and those nobody closed, which restore brings back.
  */
 async function liveSessions(): Promise<ReadonlySet<string>> {
-	const presences = createPresences(
-		join(stateDir("mesh-workflow"), "presence"),
+	// Every realm's sessions: the trees they hold are the machine's.
+	const everyone = everyRealmsDir("state", "mesh-workflow").flatMap((dir) =>
+		createPresences(join(dir, "presence")).all(),
 	);
 	const [{ present }, unclosed] = await Promise.all([
-		census(presences.all()),
+		census(everyone),
 		// A session the machine's shutdown or a closed window took away is
 		// one restore brings back, and it comes back to the trees it had.
-		sessionsNobodyClosed(),
+		Promise.all(
+			everyRealmsDir("state", "quest-workflow").map((dir) =>
+				sessionsNobodyClosed(join(dir, "sessions")),
+			),
+		),
 	]);
-	return new Set([...present.map((one) => one.session), ...unclosed]);
+	return new Set([
+		...present.map((one) => one.session),
+		...unclosed.flatMap((ids) => [...ids]),
+	]);
 }
 
 /**

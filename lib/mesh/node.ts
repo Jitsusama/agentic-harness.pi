@@ -11,8 +11,10 @@
  *
  * The node serves one socket per realm, in the login's runtime folder, or
  * on a Mac in the account's own temporary folder, which a session's
- * `TMPDIR` need not name, since a quest moves that. The realm is the one
- * the node last ran in, as it keeps it, else the one the login names.
+ * `TMPDIR` need not name, since a quest moves that. The realm is the
+ * session's own, as `MYCELIUM_REALM` names it, since a machine in two
+ * realms runs a node for each; else the one the node last ran in, as it
+ * keeps it.
  */
 
 import { execFileSync } from "node:child_process";
@@ -273,14 +275,17 @@ export function nodeSocket(
 }
 
 function realmOf(env: NodeJS.ProcessEnv): string | undefined {
+	// The session's own first: the node's kept realm is the machine's
+	// first, and a session in its second realm would ask the wrong node.
+	if (env.MYCELIUM_REALM) return env.MYCELIUM_REALM;
 	const state = env.XDG_STATE_HOME || join(homedir(), ".local", "state");
 	try {
 		const kept = readFileSync(join(state, "mycelium", "realm"), "utf8").trim();
 		if (kept) return kept;
 	} catch {
-		// No node has run here yet: the login's realm, if it names one.
+		// No node has run here yet, and the login names no realm.
 	}
-	return env.MYCELIUM_REALM || undefined;
+	return undefined;
 }
 
 let darwinTemporary: string | undefined;

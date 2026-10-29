@@ -9,7 +9,13 @@
  * would pass against exactly that system.
  */
 
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	renameSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -119,6 +125,45 @@ describe("answering who holds a tree", () => {
 			pi.events.emit(WORK_TREE_CLAIMS, claims);
 
 			expect(claims.paths, status).toEqual(["/src/repo/.worktrees/waiting"]);
+		}
+	});
+
+	it("claims another realm's quests' trees too, since the machine's trees are shared", () => {
+		// A personal session sweeping trees must still see the work
+		// realm's quests holding theirs, and the other way round.
+		const data = process.env.XDG_DATA_HOME ?? "";
+		const personal = join(
+			data,
+			"pi",
+			"agentic-harness.pi",
+			"realms",
+			"personal",
+			"quest-workflow",
+		);
+		mkdirSync(personal, { recursive: true });
+		const theirs = questsRootHolding("/src/core/.worktrees/personal");
+		renameSync(theirs, join(personal, "quests"));
+		try {
+			const pi = bus();
+			answerTreeClaims(
+				pi as never,
+				questsRootHolding("/src/repo/.worktrees/mine"),
+			);
+
+			const claims: TreeClaims = { paths: [] };
+			pi.events.emit(WORK_TREE_CLAIMS, claims);
+
+			expect(claims.paths).toEqual(
+				expect.arrayContaining([
+					"/src/repo/.worktrees/mine",
+					"/src/core/.worktrees/personal",
+				]),
+			);
+		} finally {
+			rmSync(join(data, "pi", "agentic-harness.pi", "realms"), {
+				recursive: true,
+				force: true,
+			});
 		}
 	});
 

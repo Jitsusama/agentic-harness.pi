@@ -14,11 +14,13 @@
  * side importing the other.
  */
 
+import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	type TreeClaims,
 	WORK_TREE_CLAIMS,
 } from "../../lib/core/work/index.ts";
+import { everyRealmsDir } from "../../lib/internal/paths.ts";
 import { discoverQuests } from "../../lib/internal/quest/discovery.ts";
 import { isSealedStatus } from "../../lib/internal/quest/status.ts";
 
@@ -35,11 +37,21 @@ import { isSealedStatus } from "../../lib/internal/quest/status.ts";
 export function answerTreeClaims(pi: ExtensionAPI, questsRoot: string): void {
 	pi.events.on(WORK_TREE_CLAIMS, (data: unknown) => {
 		const claims = data as TreeClaims;
-		const { index } = discoverQuests(questsRoot);
-		for (const entry of index.quests.values()) {
-			if (isSealedStatus(entry.doc.frontMatter.status)) continue;
-			for (const tree of entry.doc.frontMatter.trees ?? []) {
-				claims.paths.push(tree.path);
+		// Trees are the machine's, so every realm's quests claim them: a
+		// sweep in one realm would otherwise take another's as nobody's.
+		const stores = new Set([
+			questsRoot,
+			...everyRealmsDir("data", "quest-workflow").map((dir) =>
+				join(dir, "quests"),
+			),
+		]);
+		for (const store of stores) {
+			const { index } = discoverQuests(store);
+			for (const entry of index.quests.values()) {
+				if (isSealedStatus(entry.doc.frontMatter.status)) continue;
+				for (const tree of entry.doc.frontMatter.trees ?? []) {
+					claims.paths.push(tree.path);
+				}
 			}
 		}
 	});
