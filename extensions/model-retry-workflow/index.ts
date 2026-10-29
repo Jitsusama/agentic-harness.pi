@@ -33,8 +33,12 @@ export default function modelRetryWorkflow(pi: ExtensionAPI) {
 		retrier.started();
 	});
 
-	pi.on("input", async () => {
-		retrier.typed();
+	// Only the person's own typing starts the count again. A try is said
+	// through pi as an extension's message, as a mesh message or a steer
+	// is, and counting those as typing kept every try the first: one
+	// session tried over 260 times in six hours without a network.
+	pi.on("input", async (event) => {
+		if (event.source !== "extension") retrier.typed();
 		return { action: "continue" };
 	});
 
