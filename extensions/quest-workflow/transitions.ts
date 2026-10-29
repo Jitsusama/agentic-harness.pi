@@ -283,6 +283,11 @@ async function dispatch(
 		case "recent":
 			return recent(state);
 		case "restore":
+			if (params.machine !== undefined) {
+				return refuse(
+					"restore reopens sessions on this machine, where pi saved their history, so it can't take a machine. To start a quest's session on another machine, use spawn with machine.",
+				);
+			}
 			// Listing is the default and acting needs force: reopening a
 			// dozen tabs is too large a side effect to fire from a verb
 			// the user may have run to look. Naming sessions with id picks

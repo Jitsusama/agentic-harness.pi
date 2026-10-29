@@ -39,6 +39,8 @@ export interface QuestToolParams {
 	terminal?: string;
 	/** spawn and restore: innermost or outermost, for a nested session. */
 	nesting?: string;
+	/** spawn: the machine to start the session on, held by its mycelium node. */
+	machine?: string;
 	command?: string;
 	cwd?: string;
 	sessionId?: string;
