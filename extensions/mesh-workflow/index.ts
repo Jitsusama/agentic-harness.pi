@@ -48,7 +48,7 @@ import {
 } from "../../lib/classifier/jev.ts";
 import { stoppingFromOutside } from "../../lib/internal/away/state.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
-import { dataDir, stateDir } from "../../lib/internal/paths.ts";
+import { dataDir, everyRealmsDir, stateDir } from "../../lib/internal/paths.ts";
 import { tellAwaited } from "../../lib/internal/priority/awaited.ts";
 import { tickedOwnerNow } from "../../lib/internal/process-ticks.ts";
 import { onConcluded } from "../../lib/internal/quest/concluded.ts";
@@ -78,6 +78,7 @@ import {
 	mentions,
 	type Receiver,
 } from "../../lib/mesh/attention.ts";
+import { type Crossings, cross } from "../../lib/mesh/crossing.ts";
 import {
 	caughtUp,
 	createDamper,
@@ -338,6 +339,17 @@ export function meshWorkflow(
 		const glances = createGlances();
 		const damper = createDamper();
 		const board = createBoard(join(paths.mesh, "leases"));
+		const crossings: Crossings = {
+			others: () =>
+				everyRealmsDir("state", "mesh-workflow")
+					.filter((dir) => dir !== paths.mesh && existsSync(dir))
+					.map((dir) => ({
+						dir,
+						transport: folderTransport(join(dir, "messages")),
+					})),
+			notes: join(paths.mesh, "crossings"),
+			pid: process.pid,
+		};
 		// Lets go of what is past its time, at most hourly, off the turn.
 		const tidy = sweeper({
 			transport,
@@ -1470,6 +1482,13 @@ export function meshWorkflow(
 							awaiting.asked(message, peer?.addresses ?? []);
 							leasing.sent(message);
 							watchWaits();
+							// A machine hold reaches the machine's other realms too.
+							try {
+								cross(message, crossings, (id) => transport.read(id));
+							} catch {
+								// Sent here already; another realm's mesh that can't be
+								// written to misses this one hold, and its holds lapse.
+							}
 						},
 						confirmEnd: (hold, text) =>
 							confirmEnd(ctx, hold, text, waitingOn(hold.id)),
