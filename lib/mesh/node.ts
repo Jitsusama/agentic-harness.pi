@@ -17,11 +17,11 @@
  * keeps it.
  */
 
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { connect } from "node:net";
-import { homedir, platform } from "node:os";
+import { homedir } from "node:os";
 import { join } from "node:path";
+import { runtimeDir } from "../internal/paths.ts";
 import { isRecord } from "../internal/record.ts";
 import {
 	type Need,
@@ -270,7 +270,7 @@ export function nodeSocket(
 ): string | undefined {
 	const realm = realmOf(env);
 	if (!realm) return undefined;
-	const base = env.XDG_RUNTIME_DIR || accountTemporary();
+	const base = runtimeDir(env);
 	return base ? join(base, "mycelium", `${realm}.sock`) : undefined;
 }
 
@@ -286,22 +286,4 @@ function realmOf(env: NodeJS.ProcessEnv): string | undefined {
 		// No node has run here yet, and the login names no realm.
 	}
 	return undefined;
-}
-
-let darwinTemporary: string | undefined;
-
-/** A Mac account's own temporary folder, where its node's socket goes. */
-function accountTemporary(): string | undefined {
-	if (platform() !== "darwin") return undefined;
-	if (darwinTemporary === undefined) {
-		try {
-			darwinTemporary = execFileSync("getconf", ["DARWIN_USER_TEMP_DIR"], {
-				encoding: "utf8",
-			}).trim();
-		} catch {
-			// The system won't say, so no node's socket can be found.
-			darwinTemporary = "";
-		}
-	}
-	return darwinTemporary || undefined;
 }

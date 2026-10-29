@@ -36,8 +36,9 @@
  * None of these helpers create the directory. Callers are
  * responsible for `mkdir -p` when they first write.
  */
+import { execFileSync } from "node:child_process";
 import { readdirSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, platform } from "node:os";
 import { join } from "node:path";
 import { realmSegments } from "./realm.ts";
 
@@ -110,6 +111,32 @@ export function everyRealmsDir(kind: "data" | "state", slug: string): string[] {
 		// No other realm has kept anything here.
 	}
 	return [join(root, slug), ...others];
+}
+
+let darwinTemporary: string | undefined;
+
+/**
+ * The login's own runtime folder, for sockets and queues that last only
+ * as long as the login: `XDG_RUNTIME_DIR`, or on a Mac, which has none,
+ * the account's own temporary folder, which a session's `TMPDIR` need
+ * not name since a quest moves that. Nothing where neither is known.
+ */
+export function runtimeDir(
+	env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+	if (env.XDG_RUNTIME_DIR) return env.XDG_RUNTIME_DIR;
+	if (platform() !== "darwin") return undefined;
+	if (darwinTemporary === undefined) {
+		try {
+			darwinTemporary = execFileSync("getconf", ["DARWIN_USER_TEMP_DIR"], {
+				encoding: "utf8",
+			}).trim();
+		} catch {
+			// The system won't say, so there is no runtime folder to name.
+			darwinTemporary = "";
+		}
+	}
+	return darwinTemporary || undefined;
 }
 
 /**

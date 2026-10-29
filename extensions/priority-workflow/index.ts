@@ -16,7 +16,10 @@
  * test or a benchmark waits in its shell for its turn, and timed work
  * then runs in the cgroup `TIMED_CGROUP` names, or in jobs while there
  * is none. Every session keeps the queue a little at a time, so it goes
- * on while any session runs. Off Linux, nothing changes.
+ * on while any session runs. A Mac keeps the same queue, in its
+ * account's temporary folder, by its own room reading
+ * (lib/internal/priority/room-darwin.ts), and places nothing, since it
+ * has no cgroups. Elsewhere, nothing changes.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -28,7 +31,11 @@ import {
 	queueFolder,
 } from "../../lib/internal/priority/folder.ts";
 import { jobsProcs, placeChildren } from "../../lib/internal/priority/place.ts";
-import { CLASS_OF, type Job } from "../../lib/internal/priority/queue.ts";
+import {
+	CLASS_OF,
+	type Job,
+	type Rules,
+} from "../../lib/internal/priority/queue.ts";
 import {
 	cgroupOf,
 	commandsIn,
@@ -36,8 +43,10 @@ import {
 	isRunning,
 	KERNEL,
 	memoryPeakOf,
+	type Reading,
 	readRoom,
 } from "../../lib/internal/priority/room.ts";
+import { darwinRoom } from "../../lib/internal/priority/room-darwin.ts";
 import { queueHeavyWork } from "../../lib/internal/priority/turn.ts";
 
 /** How often a session keeps the queue. */
@@ -55,10 +64,63 @@ function ownCgroup(): string | undefined {
 }
 
 export default function priorityWorkflow(pi: ExtensionAPI) {
+	if (process.platform === "darwin") {
+		// A Mac takes turns too, with its own room reading and no cgroups:
+		// a session there already runs at Utility QoS from its launchd job,
+		// so its work needs no placing (G9, 20KSI7 and 5FWIUS).
+		keepQueue(pi, macMachine());
+		return;
+	}
 	if (process.platform !== "linux") return;
 	const own = ownCgroup();
 	placeWork(pi, own);
-	keepQueue(pi, own);
+	keepQueue(pi, linuxMachine(own));
+}
+
+/** What the queue reads of the machine it keeps, on each kind of machine. */
+interface Machine {
+	readonly processes: Parameters<typeof queueFolder>[1];
+	readonly room: () => Reading;
+	readonly cgroupFor: (job: Job) => string | undefined;
+	readonly rules: () => Rules;
+}
+
+function linuxMachine(own: string | undefined): Machine {
+	const timedProcs = own ? jobsProcs(own, process.env.TIMED_CGROUP) : undefined;
+	const timed = timedProcs ? dirname(timedProcs) : undefined;
+	const hasTimed = () => timed !== undefined && existsSync(timed);
+	let floors: string[] = [];
+	let floorsAt = -Infinity;
+	return {
+		processes: {
+			isRunning,
+			cgroupOf,
+			memoryPeakOf: (cgroup) => memoryPeakOf(cgroup),
+			commandsIn: (cgroup) => commandsIn(cgroup),
+		},
+		room: () => {
+			const now = Date.now();
+			if (now - floorsAt >= FLOORS_MS) {
+				floors = floorsIn(KERNEL.cgroups);
+				floorsAt = now;
+			}
+			return readRoom(floors);
+		},
+		cgroupFor: (job) =>
+			CLASS_OF[job.kind] === "timed" && hasTimed() ? timed : undefined,
+		// Until VM tests run timed, a build waits while a VM check runs.
+		rules: () => ({ buildsWaitForVmChecks: !hasTimed() }),
+	};
+}
+
+function macMachine(): Machine {
+	return {
+		// No cgroups to say what a job's processes are or held.
+		processes: { isRunning, cgroupOf: () => undefined },
+		room: darwinRoom(),
+		cgroupFor: () => undefined,
+		rules: () => ({ buildsWaitForVmChecks: true }),
+	};
 }
 
 function placeWork(pi: ExtensionAPI, own: string | undefined) {
@@ -79,37 +141,16 @@ function placeWork(pi: ExtensionAPI, own: string | undefined) {
 	});
 }
 
-function keepQueue(pi: ExtensionAPI, own: string | undefined) {
+function keepQueue(pi: ExtensionAPI, machine: Machine) {
 	const dir = machineQueueDir();
 	if (!dir) return;
-	const timedProcs = own ? jobsProcs(own, process.env.TIMED_CGROUP) : undefined;
-	const timed = timedProcs ? dirname(timedProcs) : undefined;
-	const hasTimed = () => timed !== undefined && existsSync(timed);
-	const cgroupFor = (job: Job) =>
-		CLASS_OF[job.kind] === "timed" && hasTimed() ? timed : undefined;
-	// Until VM tests run timed, a build waits while a VM check runs.
+	const { room, cgroupFor } = machine;
 	const folder = queueFolder(
 		dir,
-		{
-			isRunning,
-			cgroupOf,
-			memoryPeakOf: (cgroup) => memoryPeakOf(cgroup),
-			commandsIn: (cgroup) => commandsIn(cgroup),
-		},
-		() => ({ buildsWaitForVmChecks: !hasTimed() }),
+		machine.processes,
+		machine.rules,
 		join(stateDir("priority-workflow"), "outcomes.jsonl"),
 	);
-
-	let floors: string[] = [];
-	let floorsAt = -Infinity;
-	const room = () => {
-		const now = Date.now();
-		if (now - floorsAt >= FLOORS_MS) {
-			floors = floorsIn(KERNEL.cgroups);
-			floorsAt = now;
-		}
-		return readRoom(floors);
-	};
 
 	let timer: ReturnType<typeof setInterval> | undefined;
 	let undo: (() => void) | undefined;
