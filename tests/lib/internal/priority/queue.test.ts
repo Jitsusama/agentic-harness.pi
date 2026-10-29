@@ -7,6 +7,7 @@ import {
 	type Job,
 	kindOf,
 	MOST_CPU_PRESSURE_BESIDE_VMS,
+	MOST_FLOORS_PRESSURE,
 	MOST_MEMORY_PRESSURE,
 	MOST_VMS,
 	needsGibOf,
@@ -15,6 +16,7 @@ import {
 	roomLeft,
 	roomSaid,
 	SPREAD_MS,
+	VMS_WHATEVER_FLOORS_FEEL,
 	waitingInOrder,
 	waitReasons,
 	waitsWithRoom,
@@ -66,6 +68,23 @@ describe("why each job waits", () => {
 		);
 		const jobs = [...running, older("vm", 9_000, { kind: "vm-test" })];
 		expect(waitReasons(jobs, ROOMY, NOW).get("vm")).toBe("vms");
+	});
+
+	it("starts VMs past the unguarded few only while the person's programs wait on nothing", () => {
+		const running = Array.from({ length: VMS_WHATEVER_FLOORS_FEEL }, (_, at) =>
+			job(`vm${at}`, { kind: "vm-test", started: long }),
+		);
+		const jobs = [...running, older("vm", 9_000, { kind: "vm-test" })];
+		const calm = { ...ROOMY, floorsPressure: 0 };
+		const waiting = { ...ROOMY, floorsPressure: MOST_FLOORS_PRESSURE + 0.5 };
+
+		expect(MOST_VMS).toBeGreaterThan(VMS_WHATEVER_FLOORS_FEEL);
+		expect(nextTurn(jobs, calm, NOW)?.id).toBe("vm");
+		expect(nextTurn(jobs, waiting, NOW)).toBeUndefined();
+		expect(waitReasons(jobs, waiting, NOW).get("vm")).toBe("vms");
+		expect(roomLeft(running, waiting, NOW).vms).toBe(0);
+		// Where no floor is read there is nobody's memory to guard.
+		expect(nextTurn(jobs, ROOMY, NOW)?.id).toBe("vm");
 	});
 
 	it("says behind when builds beside a VM check are at their limit", () => {

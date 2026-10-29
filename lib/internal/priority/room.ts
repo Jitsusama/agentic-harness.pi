@@ -136,6 +136,15 @@ export function readRoom(
 			builds.filter((build) => build.timed && !build.qemu).length,
 		builds: builds.map(({ qemu: _, ...seen }) => seen),
 		cpuPressure: cpu,
+		// The person's own programs, as the floors keep them, so VMs past
+		// the first few wait while those programs wait on memory.
+		...(floors.length > 0
+			? {
+					floorsPressure: Math.max(
+						...floors.map((floor) => stalled(join(floor, "memory.pressure"))),
+					),
+				}
+			: {}),
 		cores: cores(kernel.proc),
 		pressure: {
 			cpu,

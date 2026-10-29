@@ -142,6 +142,21 @@ describe("work that runs VMs, whatever it is named", () => {
 		).toBe("build");
 	});
 
+	it("learns nothing from a command the log cut, which may name more", () => {
+		// whatOf cuts a command at 120 characters, so a batch whose second
+		// check falls past the cut would read as the first check alone.
+		const cut =
+			"nix build --no-link .#checks.x86_64-linux.quickshell-passes-qmllint .#checks.x86_64-linux.the-launcher-finds-th...";
+		const lint =
+			"nix build --no-link .#checks.x86_64-linux.quickshell-passes-qmllint";
+
+		expect(kindAfter("build", lint, [built(cut, true)])).toBe("build");
+		expect(workKey(cut)).not.toBe(workKey(lint));
+		// Nor is work the log cut quick for the checks it shows.
+		expect(quickAfter("build", cut, [])).toBe(false);
+		expect(quickAfter("build", lint, [])).toBe(true);
+	});
+
 	it("goes by a check's latest run alone", () => {
 		const cached = bluetooth.replace("bt.log", "bt3.log");
 		const net = "nix build $c.bluetooth-sits-out-hibernation $c.formatting";

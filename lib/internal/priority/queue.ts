@@ -179,16 +179,53 @@ export function needsGibOf(
  * with 6 or more beside, 2.2%, 91 runs; nor did failures rise with CPU
  * pressure, 20 of 623 at none to past 60. The counts are the machine's
  * qemu, so a test with two machines counts twice, and a limit of three
- * jobs has had eight qemu beside it. So four run at once, and {@link FEWER_VMS} while the
- * outcomes say four is too many (see vmsFor in outcome.ts).
+ * jobs has had eight qemu beside it. So four ran at once.
+ *
+ * Four held work back as well. From 22:00 on 28 October VM work waited
+ * in 268 of 269 minutes, all four slots full in 177 of them, and VM
+ * checks waited a median 35 minutes. Run beside more VMs, the same work
+ * took no longer: of 191 runs of 26 commands run three times or more,
+ * each against its own median took x0.90 with 3 to 4 qemu beside it,
+ * x1.08 with 5 to 6, x1.01 with 7 to 9 and x1.00 with 10 or more, and 6
+ * of 241 failed. CPU pressure is what slowed them (x1.52 past 75), which
+ * the cap on builds beside VM checks already answers. So six run at
+ * once, the two past {@link VMS_WHATEVER_FLOORS_FEEL} only while the
+ * person's own programs wait on no memory, and {@link FEWER_VMS} while
+ * the outcomes say six is too many (see vmsFor in outcome.ts).
  */
-export const MOST_VMS = 4;
+export const MOST_VMS = 6;
 
 /**
  * How many VMs run at once for a day while they fail more often at
  * {@link MOST_VMS} than with fewer.
  */
-export const FEWER_VMS = 3;
+export const FEWER_VMS = 5;
+
+/**
+ * How many VMs start whatever the person's own programs feel. Past it a
+ * VM starts only while the programs a memory floor keeps, app.slice's
+ * among them, stall on memory no more than {@link MOST_FLOORS_PRESSURE}:
+ * their windows were paged out overnight on 28 October with 5 GiB of
+ * app.slice in swap, and each VM more pages them deeper (5FWIUS). That
+ * reads 0 until his programs wait, so it costs nothing until then.
+ */
+export const VMS_WHATEVER_FLOORS_FEEL = 4;
+
+/** Memory pressure (avg10, percent) a floor's programs may feel beside VMs past the first few. */
+export const MOST_FLOORS_PRESSURE = 1;
+
+/**
+ * How many VMs may run now: the rule's most, or no more than
+ * {@link VMS_WHATEVER_FLOORS_FEEL} while the person's own programs wait
+ * on memory. Where no floor is read, there is nobody's memory to guard.
+ */
+function vmsAllowed(room: Room, rules: Rules): number {
+	const most = rules.mostVms ?? MOST_VMS;
+	return room.floorsPressure !== undefined &&
+		room.floorsPressure > MOST_FLOORS_PRESSURE
+		? Math.min(most, VMS_WHATEVER_FLOORS_FEEL)
+		: most;
+}
 
 /** Memory pressure (avg10, percent) past which no job starts. */
 export const MOST_MEMORY_PRESSURE = 10;
@@ -268,6 +305,12 @@ export interface Room {
 	readonly vms: number;
 	/** CPU pressure, avg10, in percent. */
 	readonly cpuPressure: number;
+	/**
+	 * Memory pressure, avg10, in percent, the most any memory floor's
+	 * programs feel: the person's own, as app.slice holds them. Nothing
+	 * where no floor is read.
+	 */
+	readonly floorsPressure?: number;
 }
 
 const VMS: ReadonlySet<Kind> = new Set(["vm-test", "vm-check"]);
@@ -438,7 +481,7 @@ export function nextTurn(
 			return Number.isFinite(quick.left) ? { ...job, capped: true } : job;
 		}
 		if (held) continue;
-		if (isVm(job) && vms >= (rules.mostVms ?? MOST_VMS)) continue;
+		if (isVm(job) && vms >= vmsAllowed(room, rules)) continue;
 		// Only bulk work is behind a build, and it all waits with it.
 		const ruledOut =
 			job.kind === "build" &&
@@ -500,7 +543,7 @@ export function waitReasons(
 				return "order";
 			}
 			if (held || given) return "order";
-			if (isVm(job) && vms >= (rules.mostVms ?? MOST_VMS)) return "vms";
+			if (isVm(job) && vms >= vmsAllowed(room, rules)) return "vms";
 			const ruledOut =
 				job.kind === "build" &&
 				(builds < 1 || (Number.isFinite(builds) && !job.cappable));
@@ -587,7 +630,7 @@ export function roomLeft(
 	const fits = (kind: Kind) => Math.max(0, Math.floor(free / NEEDS_GIB[kind]));
 	const slots = Math.max(
 		0,
-		(rules.mostVms ?? MOST_VMS) - vms - waiting.filter(isVm).length,
+		vmsAllowed(room, rules) - vms - waiting.filter(isVm).length,
 	);
 	// A build waiting is held by memory or the rule, and so is the next.
 	const buildWaits = waiting.some((job) => job.kind === "build");

@@ -196,7 +196,7 @@ export function checksRunningVms(outcomes: readonly Outcome[]): Set<string> {
 	const decided = new Map<string, boolean>();
 	for (let at = outcomes.length - 1; at >= 0; at -= 1) {
 		const outcome = outcomes[at];
-		if (outcome.started === undefined) continue;
+		if (outcome.started === undefined || isCut(outcome.what)) continue;
 		const asked = checksAsked(outcome.what);
 		const [only] = asked;
 		if (asked.length !== 1 || only === undefined || decided.has(only)) {
@@ -231,7 +231,7 @@ const REDIRECTION = /\s*(?:\d|&)?>>?\s*(?:&\d|\S+)/g;
  * so the same command was never known again.
  */
 export function workKey(what: string): string {
-	const checks = checksNamed(what);
+	const checks = isCut(what) ? [] : checksNamed(what);
 	if (checks.length > 0) return `checks:${checks.join(",")}`;
 	return what
 		.replace(/^[\s(]*(?:timeout\s+\d+\s+)?(?:direnv\s+exec\s+\S+\s+)?/, "")
@@ -288,6 +288,16 @@ export function peakGibAfter(
 	return Math.max(1, Math.ceil((Math.max(...peaks) * HEADROOM) / GIB));
 }
 
+/**
+ * Whether the log cut a command short, as `whatOf` does past 120
+ * characters. What it names past the cut is lost, so it is never read
+ * as asking for only the checks it shows: a batch cut after its first
+ * check would read as that check alone.
+ */
+function isCut(what: string): boolean {
+	return what.endsWith("...");
+}
+
 /** The checks a command names in full, sorted, each once. */
 function checksNamed(what: string): string[] {
 	return [
@@ -335,6 +345,7 @@ export function quickAfter(
 	const checks = checksNamed(what);
 	const running = checksRunningVms(outcomes);
 	return (
+		!isCut(what) &&
 		checks.length > 0 &&
 		!checks.some((name) => name.startsWith("vm-") || running.has(name))
 	);
