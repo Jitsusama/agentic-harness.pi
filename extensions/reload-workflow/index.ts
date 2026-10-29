@@ -42,6 +42,7 @@ import {
 	PACKAGE_NAME,
 	PACKAGE_ROOT,
 	startRuntime,
+	tellPiPackages,
 	whatRuns,
 } from "./lifecycle.ts";
 import {
@@ -92,6 +93,7 @@ export default function reloadWorkflow(pi: ExtensionAPI) {
 	};
 
 	pi.on("session_start", async (event, ctx) => {
+		tellPiPackages(settings);
 		await startRuntime(pi, ctx, event.reason, settings, (loaded) => {
 			running = loaded;
 		});
