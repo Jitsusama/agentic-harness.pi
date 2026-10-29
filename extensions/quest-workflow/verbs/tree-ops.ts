@@ -23,6 +23,10 @@ import {
 } from "../../../lib/internal/quest/git-signals.ts";
 import { isSealedStatus } from "../../../lib/internal/quest/status.ts";
 import {
+	treePlace,
+	treesHere,
+} from "../../../lib/internal/quest/tree-place.ts";
+import {
 	addTreeToQuest,
 	listTreesOnQuest,
 	removeTreeFromQuest,
@@ -205,7 +209,9 @@ function pathAdoptedByAnotherQuest(
 		// checkout instead, because the only quest that could release it
 		// is the one that is over.
 		if (isSealedStatus(fm.status)) continue;
-		for (const tree of fm.trees ?? []) {
+		// Another machine's tree that reads as this path is no claim on
+		// the checkout here.
+		for (const tree of treesHere(fm.trees ?? [])) {
 			if (canonicalPath(tree.path) === target) return fm.id;
 		}
 	}
@@ -232,10 +238,50 @@ export function treeList(state: QuestState): QuestResult {
 	}
 	const result = listTreesOnQuest(state.questDir);
 	if (!result.ok) return refuse(result.reason);
-	return ok(`${count(result.trees.length, "tree")} on the loaded quest.`, {
+	const trees = result.trees.map((tree) => ({
+		...tree,
+		place: treePlace(tree),
+	}));
+	const elsewhere = trees.filter((t) => t.place === "elsewhere").length;
+	const unplaced = trees.filter((t) => t.place === "unplaced").length;
+	const notes = [
+		...(elsewhere > 0 ? [`${elsewhere} on another machine`] : []),
+		...(unplaced > 0 ? [`${unplaced} not on this machine`] : []),
+	];
+	const noted = notes.length > 0 ? ` (${notes.join(", ")})` : "";
+	return ok(`${count(trees.length, "tree")} on the loaded quest${noted}.`, {
 		scope: "quest",
-		trees: result.trees,
+		trees,
 	});
+}
+
+/**
+ * The quest's trees with this machine's first, so a path that two
+ * machines' trees both read as resolves to the one here.
+ */
+function hereFirst(trees: QuestTree[]): QuestTree[] {
+	const here = treesHere(trees);
+	return [...here, ...trees.filter((tree) => !here.includes(tree))];
+}
+
+/**
+ * Why a verb that changes a tree may not act on this one, or undefined
+ * when it is this machine's. An unplaced tree may be another machine's,
+ * seen through a shared quest, or gone; only `force` lets it go.
+ */
+function notOursToChange(
+	tree: QuestTree,
+	verb: string,
+	force: boolean,
+): string | undefined {
+	const place = treePlace(tree);
+	if (place === "elsewhere") {
+		return `Tree at ${displayPath(tree.path)} is on ${tree.host}, not this machine; only ${tree.host} can ${verb} it.`;
+	}
+	if (place === "unplaced" && !force) {
+		return `Tree at ${displayPath(tree.path)} names no machine and isn't on this one: it may be another machine's, through a shared quest, or gone. Pass force:true once the person confirms it's gone, and only its record is dropped.`;
+	}
+	return undefined;
 }
 
 /**
@@ -295,12 +341,14 @@ export async function treeRelease(
 	// `ref` is accepted for the prune alone, because it is what this
 	// verb matched on before `cwd` named the tree.
 	const chosen = namedTree(
-		listing.trees,
+		hereFirst(listing.trees),
 		params.cwd ?? params.target ?? params.ref,
 		"tree-release",
 	);
 	if (!chosen.ok) return refuse(chosen.reason);
 	const target = chosen.tree;
+	const refused = notOursToChange(target, "release", params.force === true);
+	if (refused) return refuse(refused);
 	// A tree whose folder is already gone, given back some other way,
 	// leaves only its record, and dropping that deletes nothing, so no
 	// consent is asked for.
@@ -405,12 +453,14 @@ export async function treeExpand(
 		return refuse("No trees on the loaded quest. Run tree-add first.");
 	}
 	const chosen = namedTree(
-		listing.trees,
+		hereFirst(listing.trees),
 		params.cwd ?? params.target,
 		"tree-expand",
 	);
 	if (!chosen.ok) return refuse(chosen.reason);
 	const target = chosen.tree;
+	const refused = notOursToChange(target, "expand", false);
+	if (refused) return refuse(refused);
 	// The provider that made the tree, as a prune finds it, so an
 	// expand cannot reach a different provider that happens to win
 	// resolution today.

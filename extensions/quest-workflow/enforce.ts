@@ -61,6 +61,7 @@ import {
 	ownedFieldChanges,
 	type QuestFileKind,
 } from "../../lib/internal/quest/owned-fields.ts";
+import { treesHere } from "../../lib/internal/quest/tree-place.ts";
 import { listTreesOnQuest } from "../../lib/internal/quest/trees.ts";
 import type { QuestState } from "./state.ts";
 import { defaultWorkspaceRoot, workspaceDirOf } from "./workspace.ts";
@@ -311,7 +312,9 @@ function trackedTreePaths(state: QuestState): string[] {
 	// quest that adopted a subdirectory of a repo still matches a write
 	// anywhere in that repo. Fall back to the raw path for a tracked
 	// path that is not inside a git tree.
-	return result.trees.map((t) => trackedTreeRoot(t.path));
+	// Only this machine's: another machine's tree, seen through a shared
+	// quest, can read as a path here that is some other checkout.
+	return treesHere(result.trees).map((t) => trackedTreeRoot(t.path));
 }
 
 function enforceHome(

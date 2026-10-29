@@ -21,6 +21,17 @@ import type {
 } from "../../quest/types.ts";
 import { parseQuestFrontMatter } from "./frontmatter.ts";
 import { mutateQuestFrontMatter } from "./mutate.ts";
+import { placedHere, treePlace } from "./tree-place.ts";
+
+/**
+ * Whether a listed tree is the one at `path` on this machine. A path
+ * alone no longer names a tree: the share writes each path for the
+ * machine reading it, so another machine's tree on the same branch
+ * reads as the same path here.
+ */
+function isHereAt(tree: QuestTree, path: string): boolean {
+	return tree.path === path && treePlace(tree) === "here";
+}
 
 /** Path to a quest's README. */
 function questReadme(questDir: string): string {
@@ -68,7 +79,10 @@ function removeAlias(aliases: QuestAlias[], alias: QuestAlias): boolean {
 	return aliases.length !== before;
 }
 
-/** Append a tree to the quest's `trees:` list, with its branch's alias. */
+/**
+ * Append a tree to the quest's `trees:` list, with its branch's alias,
+ * naming this machine as its own unless the caller named one.
+ */
 export function addTreeToQuest(
 	questDir: string,
 	tree: QuestTree,
@@ -80,9 +94,9 @@ export function addTreeToQuest(
 			const trees = fm.trees ?? [];
 			// Already there: no change at all, rather than a rewrite that
 			// stamps `updated` for a quest nothing happened to.
-			if (trees.some((t) => t.path === tree.path)) return undefined;
+			if (trees.some((t) => isHereAt(t, tree.path))) return undefined;
 			addedFlag = true;
-			const nextTrees = [...trees, tree];
+			const nextTrees = [...trees, tree.host ? tree : placedHere(tree)];
 			const nextAliases = [...fm.aliases];
 			if (tree.branch) {
 				ensureAlias(nextAliases, { type: "git-branch", value: tree.branch });
@@ -95,7 +109,10 @@ export function addTreeToQuest(
 	return { ok: true, added: addedFlag };
 }
 
-/** Remove a tree (by path) from the quest's `trees:` list. */
+/**
+ * Remove this machine's tree at `path` from the quest's `trees:` list,
+ * leaving any other machine's tree that reads as the same path.
+ */
 export function removeTreeFromQuest(
 	questDir: string,
 	path: string,
@@ -105,10 +122,14 @@ export function removeTreeFromQuest(
 		questDir,
 		(fm) => {
 			const trees = fm.trees ?? [];
-			const target = trees.find((t) => t.path === path);
+			const target =
+				trees.find((t) => isHereAt(t, path)) ??
+				// An unplaced tree is let go only by a caller that already
+				// asked for consent (tree-release's force).
+				trees.find((t) => t.path === path && treePlace(t) === "unplaced");
 			if (!target) return undefined;
 			removedFlag = true;
-			const nextTrees = trees.filter((t) => t.path !== path);
+			const nextTrees = trees.filter((t) => t !== target);
 			const nextAliases = [...fm.aliases];
 			removeAlias(nextAliases, { type: "git-worktree", value: path });
 			if (target.branch) {

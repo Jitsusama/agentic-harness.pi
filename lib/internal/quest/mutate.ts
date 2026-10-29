@@ -23,6 +23,7 @@ import {
 	type JournalChange,
 	recordStructuralOp,
 } from "./structural-journal.ts";
+import { withHostsBackfilled } from "./tree-place.ts";
 
 /** Outcome of a mutation attempt. */
 export type MutateResult =
@@ -89,8 +90,13 @@ export function mutateQuestFrontMatter(
 		if (!next) {
 			return { ok: true as const, fm: parsed.frontMatter, changes: [] };
 		}
+		// A tree from before trees named their machine is named this one's
+		// while its folder is here, so a quest shared later can tell whose
+		// it is (tree-place.ts). Only a write already under way does it.
+		const trees = next.trees ? withHostsBackfilled(next.trees) : undefined;
+		const placed = trees ? { ...next, trees } : next;
 		const stamped: QuestFrontMatter =
-			opts.stampUpdated === false ? next : { ...next, updated: nowYmd() };
+			opts.stampUpdated === false ? placed : { ...placed, updated: nowYmd() };
 		// Write-time validation: refuse a mutation that would produce a
 		// record the strict parser cannot read back, so an out-of-vocab
 		// value is blocked instead of written to invisible drift. Shared
