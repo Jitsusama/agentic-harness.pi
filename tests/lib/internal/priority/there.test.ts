@@ -69,6 +69,47 @@ describe("finding the VM check builds a command could send", () => {
 		).toBe(`${SAID(1)}G=${TREE}; timeout 600 nix-offload there ${FLAKE} ${VM}`);
 	});
 
+	it("sends a build pinned to a commit, piped or not", () => {
+		// 106 of the 180 commands #886 couldn't read on 29 October.
+		const command = `K=${TREE}; cd $K && R=$(git rev-parse 9a6eebb0); nix build -L --no-link "git+file://$PWD?rev=$R#${VM}" 2>&1 | tail -20`;
+		const steps = stepsOf(command, "/elsewhere", HOME) ?? [];
+		const [build] = checkBuildsOf(steps, HOME);
+		expect(build).toMatchObject({
+			flake: TREE,
+			pin: { ref: "9a6eebb0", folder: TREE },
+		});
+		expect(sent(command, "/elsewhere")).toBe(
+			`${SAID(1)}K=${TREE}; cd $K && R=$(git rev-parse 9a6eebb0); nix-offload there -L ${FLAKE} ${VM} 2>&1 | tail -20`,
+		);
+		const [written] = checkBuildsOf(
+			stepsOf(
+				`nix build --no-link "git+file://${TREE}?rev=86a1f2e#${VM}"`,
+				"/x",
+				HOME,
+			) ?? [],
+			HOME,
+		);
+		expect(written?.pin).toEqual({ ref: "86a1f2e", folder: TREE });
+		const [elsewhere] = checkBuildsOf(
+			stepsOf(
+				`S=$(git -C ${TREE} rev-parse HEAD); nix build --no-link "git+file://${TREE}?rev=$S#${VM}"`,
+				"/x",
+				HOME,
+			) ?? [],
+			HOME,
+		);
+		expect(elsewhere?.pin).toEqual({ ref: "HEAD", folder: TREE });
+		const [inline] = checkBuildsOf(
+			stepsOf(
+				`cd ${TREE} && nix build --no-link "git+file://$PWD?rev=$(git rev-parse HEAD)#${VM}"`,
+				"/x",
+				HOME,
+			) ?? [],
+			HOME,
+		);
+		expect(inline?.pin).toEqual({ ref: "HEAD", folder: TREE });
+	});
+
 	it("names the flake's folder, and whether it builds untracked files too", () => {
 		const [git] = checkBuildsOf(
 			stepsOf(`nix build --no-link .#${VM}`, TREE, HOME) ?? [],
@@ -98,9 +139,12 @@ describe("finding the VM check builds a command could send", () => {
 			// A check named through what the command alone can't say.
 			`for c in a b; do nix build --no-link .#checks.x86_64-linux.vm-$c; done`,
 			`cd $(mktemp -d) && nix build --no-link .#${VM}`,
-			// Piped, or in a subshell.
-			`nix build --no-link .#${VM} | tee x.log`,
+			// In the background, or in a subshell.
+			`nix build --no-link .#${VM} &`,
 			`(nix build --no-link .#${VM})`,
+			// Pinned to what only running something else would say.
+			`R=$(cat rev); nix build --no-link "git+file://$PWD?rev=$R#${VM}"`,
+			`nix build --no-link "git+file://$PWD?rev=$R#${VM}"`,
 			// Two flakes in one build.
 			`nix build --no-link .#${VM} path:/other#${VM}`,
 		]) {
@@ -197,13 +241,34 @@ describe("the repository a flake is in", () => {
 		expect(pushed).toMatchObject({ clean: true, pushed: true });
 		expect(pushed?.head).toBe(git(tree, "rev-parse", "HEAD"));
 		// A path: flake builds the folder whole, untracked files too.
-		expect(await repositoryAt(tree, true)).toMatchObject({ clean: false });
+		expect(await repositoryAt(tree, { whole: true })).toMatchObject({
+			clean: false,
+		});
 
 		writeFileSync(join(tree, "flake.nix"), "{ changed = 1; }\n");
 		expect(await repositoryAt(tree)).toMatchObject({ clean: false });
 		mkdirSync(join(tree, "sub"));
 		expect(await repositoryAt(join(tree, "sub"))).toMatchObject({
 			atTop: false,
+		});
+	});
+
+	it("is of the commit a build is pinned to, whatever the tree holds", async () => {
+		const tree = join(root, "tree");
+		const first = git(tree, "rev-parse", "HEAD");
+		git(tree, "push", "-q", "origin", "HEAD");
+		writeFileSync(join(tree, "flake.nix"), "{ changed = 1; }\n");
+		git(tree, "commit", "-qam", "second, unpushed");
+		writeFileSync(join(tree, "flake.nix"), "{ changed = 2; }\n");
+
+		const pin = (ref: string) => ({ pin: { ref, folder: tree } });
+		expect(await repositoryAt(tree, pin(first.slice(0, 8)))).toMatchObject({
+			head: first,
+			clean: true,
+			pushed: true,
+		});
+		expect(await repositoryAt(tree, pin("HEAD"))).toMatchObject({
+			pushed: false,
 		});
 	});
 
