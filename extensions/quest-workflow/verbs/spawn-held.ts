@@ -167,7 +167,7 @@ async function joined(
 	} catch (err) {
 		return {
 			ok: false,
-			refusal: `The session started held (${held}), but its window didn't open: ${(err as Error).message}. Join it from a terminal with: ${line}`,
+			refusal: `The session started held (${held}), but its window didn't open: ${err instanceof Error ? err.message : String(err)}. Join it from a terminal with: ${line}`,
 		};
 	}
 	const noted = opened.notes.map((note) => ` Note: ${note}.`).join("");
