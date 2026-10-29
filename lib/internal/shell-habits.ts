@@ -17,12 +17,16 @@
  * sessions from 2026-10-19 to 2026-10-26, against a rule Joel captured
  * after a language server kept answering from a file the shell had
  * rewritten under it.
+ *
+ * A fifth came from the machine queue's own log: VM work chained after
+ * a build in one call, which holds a VM slot through the build.
  */
 
 import {
 	type CommandPlace,
 	resolveBashWrites,
 } from "../core/internal/quest/bash-write.ts";
+import { heavySteps, isVm, KIND_SAID } from "./priority/queue.ts";
 import { isTracked } from "./quest/git-signals.ts";
 
 /**
@@ -102,6 +106,29 @@ const SECONDS: Record<string, number> = {
 	h: 3600,
 	d: 86_400,
 };
+
+/**
+ * Why a command whose heavy steps mix VM work with other heavy work is
+ * refused, or nothing; it prints the split, each step a call of its own,
+ * the VM work last. The machine queue gives a call one turn, as its
+ * heaviest step, for the call's whole length, so a build or changed-checks
+ * run before a VM test holds a VM slot the whole time: on 28 October 32
+ * of 41 VM-test jobs did, 9.6 of 10.6 slot hours. One build naming VM
+ * checks among others is one step, and passes.
+ */
+export function mixedTurnRefusal(command: string): string | undefined {
+	const steps = heavySteps(command);
+	const vms = steps.filter((one) => isVm(one));
+	const rest = steps.filter((one) => !isVm(one));
+	if (vms.length === 0 || rest.length === 0) return undefined;
+	const split = [...rest, ...vms].map(
+		(one, at) => `${at + 1}. \`${one.step}\` (${KIND_SAID[one.kind]})`,
+	);
+	return [
+		"This call runs VM work beside other heavy work, and the machine queue gives a call one turn, as its heaviest, for its whole length: the other steps would hold a VM slot that VM tests wait for. Run each in its own call, with background: true, the VM work last:",
+		...split,
+	].join("\n");
+}
 
 /**
  * Why a command that waits with a long sleep is refused, or nothing.

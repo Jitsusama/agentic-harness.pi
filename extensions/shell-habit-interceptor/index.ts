@@ -12,8 +12,10 @@
  *
  * `stash` refuses git stash saving work, `sleep` a sleep of ten
  * seconds or more, and `shell-edit` a redirect, `tee`, `sed -i` or
- * `perl -i` onto a file git tracks, each naming what to do instead. All
- * three redirect, so a repeat of the same command goes ahead.
+ * `perl -i` onto a file git tracks, each naming what to do instead.
+ * `mixed-turn` refuses VM work chained after a build in one call, which
+ * would hold a VM slot through the build, printing the call split in
+ * two. All four redirect, so a repeat of the same command goes ahead.
  */
 
 import { homedir } from "node:os";
@@ -26,6 +28,7 @@ import {
 import { refusalUnder } from "../../lib/guardian/apply.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import {
+	mixedTurnRefusal,
 	shellEditRefusal,
 	sleepRefusal,
 	stashRefusal,
@@ -35,7 +38,7 @@ import {
 import { stripHeredocBodies, stripShellData } from "../../lib/shell/index.ts";
 
 export default function shellHabitInterceptor(pi: ExtensionAPI) {
-	declareGuards(GUARDS.stash, GUARDS.sleep, GUARDS.shellEdit);
+	declareGuards(GUARDS.stash, GUARDS.sleep, GUARDS.shellEdit, GUARDS.mixedTurn);
 	pi.on(
 		"tool_call",
 		async (event, ctx): Promise<ToolCallEventResult | undefined> => {
@@ -58,6 +61,16 @@ export default function shellHabitInterceptor(pi: ExtensionAPI) {
 					GUARDS.sleep.name,
 					{ block: true, reason: sleep },
 					"A long sleep",
+					command,
+				);
+				if (refused) return refused;
+			}
+			const mixed = mixedTurnRefusal(command);
+			if (mixed) {
+				const refused = refusalUnder(
+					GUARDS.mixedTurn.name,
+					{ block: true, reason: mixed },
+					"VM work chained after a build",
 					command,
 				);
 				if (refused) return refused;

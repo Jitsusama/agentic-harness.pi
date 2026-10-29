@@ -2,6 +2,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+	mixedTurnRefusal,
 	shellEditRefusal,
 	sleepRefusal,
 	stashRefusal,
@@ -157,5 +158,68 @@ describe("a tracked file rewritten from the shell", () => {
 		const reason = shellEditRefusal(["/r/a.ts", "/r/b.ts"]);
 		expect(reason).toContain("`/r/a.ts`, `/r/b.ts`");
 		expect(reason).toContain("Use the edit tool");
+	});
+});
+
+describe("a VM run chained after other heavy work", () => {
+	// 28 October: 32 of 41 VM-test jobs held their VM slot through a build
+	// or changed-checks run before the VM, 9.6 of 10.6 slot hours.
+	it("refuses changed-checks then subtests, printing the split with the VM last", () => {
+		const reason = mixedTurnRefusal(
+			"nix develop -c run-subtests vm-desktop-launcher-answers warmth > $L/s.log 2>&1 && nix develop -c changed-checks --no-vm > $L/cc.log 2>&1",
+		);
+
+		expect(reason).toBeDefined();
+		expect(reason).toContain("own call");
+		const listed = (reason ?? "")
+			.split("\n")
+			.filter((line) => /^\d\./.test(line));
+		expect(listed).toEqual([
+			"1. `nix develop -c changed-checks --no-vm > $L/cc.log 2>&1` (a build)",
+			"2. `nix develop -c run-subtests vm-desktop-launcher-answers warmth > $L/s.log 2>&1` (a VM test)",
+		]);
+	});
+
+	it("refuses a lint build then a VM check's build", () => {
+		expect(
+			mixedTurnRefusal(
+				"nix build .#checks.x86_64-linux.formatting\nnix build .#checks.x86_64-linux.vm-desktop-works",
+			),
+		).toContain("(a VM check)");
+	});
+
+	it("refuses building a test's driver and then running it", () => {
+		expect(
+			mixedTurnRefusal(
+				"nix build .#checks.x86_64-linux.vm-desktop-works.driver && ./result/bin/nixos-test-driver",
+			),
+		).toBeDefined();
+	});
+
+	it("lets through builds alone, VMs alone, and one build naming VM checks among others", () => {
+		expect(
+			mixedTurnRefusal(
+				"cd ~/src/core.nix && changed-checks --no-vm > $L/cc.log 2>&1",
+			),
+		).toBeUndefined();
+		expect(
+			mixedTurnRefusal(
+				"run-subtests vm-desktop-launcher-answers warmth; run-subtests vm-desktop-starts-clean",
+			),
+		).toBeUndefined();
+		expect(
+			mixedTurnRefusal(
+				"nix build --keep-going .#checks.x86_64-linux.formatting .#checks.x86_64-linux.vm-desktop-works",
+			),
+		).toBeUndefined();
+		expect(mixedTurnRefusal("git status && ls")).toBeUndefined();
+	});
+
+	it("reads a heredoc's words as words, not steps", () => {
+		expect(
+			mixedTurnRefusal(
+				"git commit -F - <<'EOF'\nfix: run-subtests after changed-checks\nEOF\nchanged-checks --no-vm",
+			),
+		).toBeUndefined();
 	});
 });

@@ -790,6 +790,21 @@ export function stepOf(command: string): string {
 }
 
 /**
+ * Each step of a command that runs heavy work, in order, as written,
+ * with its kind. The queue gives the whole command one turn, as the
+ * heaviest of these, so a VM step beside a build makes the build hold a
+ * VM slot (shell-habits.ts refuses that).
+ */
+export function heavySteps(
+	command: string,
+): { readonly step: string; readonly kind: Kind }[] {
+	return stepsOf(command).flatMap((step) => {
+		const kind = kindOf(step);
+		return kind === undefined ? [] : [{ step, kind }];
+	});
+}
+
+/**
  * The memory a command of `kind` is held to need, in GiB: its heaviest
  * step's, not its first's. Y9XISP's on 24 October built changed-checks
  * and then ran it, and was held to the build's 4 GiB while the tool
