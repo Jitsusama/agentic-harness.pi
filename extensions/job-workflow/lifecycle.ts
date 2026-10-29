@@ -17,6 +17,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { createReloadHold } from "../../lib/internal/reload/hold.ts";
 import {
 	announceJobHost,
 	JOBS_FINISHED,
@@ -134,11 +135,14 @@ function freshSession(pi: ExtensionAPI, ctx: ExtensionContext): JobSession {
 	// on hearing one.
 	let unsaid: JobFinished[] | undefined;
 
+	// A result waits a moment for a reload that is waiting, which this
+	// session carries across and says from the new runtime (hold.ts).
+	const holdForReload = createReloadHold();
 	const outbox = createOutbox({
 		send: (text) => runtime.pi.sendUserMessage(text),
 		idle: () => {
 			try {
-				return runtime.ctx.isIdle();
+				return runtime.ctx.isIdle() && !holdForReload();
 			} catch {
 				// A stale context after a reload: not a moment to send.
 				return false;
