@@ -25,6 +25,10 @@ export const SCOPES = [
 
 	// Slides - read-only
 	"https://www.googleapis.com/auth/presentations.readonly",
+
+	// Meet - make a meeting space and manage only the ones made here,
+	// so a new meeting's link can be had without opening Meet
+	"https://www.googleapis.com/auth/meetings.space.created",
 ];
 
 /** OAuth2 client configuration. */

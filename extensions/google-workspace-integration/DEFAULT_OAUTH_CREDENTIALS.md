@@ -24,6 +24,7 @@ industry best practices used by:
    - Google Docs API
    - Google Sheets API
    - Google Slides API
+   - Google Meet REST API
 
 ### 2. Create OAuth 2.0 Credentials
 
@@ -44,6 +45,7 @@ industry best practices used by:
    - `.../auth/documents.readonly`
    - `.../auth/spreadsheets.readonly`
    - `.../auth/presentations.readonly`
+   - `.../auth/meetings.space.created`
 4. Add test users if not published
 
 ### 4. Add Credentials to Extension
