@@ -14,17 +14,25 @@
  * an invented-section rebuke) rather than trying to catch every
  * phrasing. A trend that bends is the goal, not a precise census.
  *
+ * A session whose log the backup has removed from the machine is read
+ * back from Drive, through session-backup's index, and the copy removed
+ * once read; `--here` reads only the machine's logs, for a quick look.
+ *
  * Run it directly (Node strips the types):
  *
- *   node scripts/convention-recurrence.ts [--since YYYY-MM-DD]
+ *   node scripts/convention-recurrence.ts [--since YYYY-MM-DD] [--here]
  *
  * See the convention-recurrence-sensor-guide skill for the
  * method and how to read the output.
  */
 
-import { readdirSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
+import { sessionsDir } from "../lib/internal/paths.ts";
+import {
+	backupIndexPath,
+	readAway,
+	sessionLogs,
+} from "../lib/internal/session-logs.ts";
 
 /** The recurring convention-correction categories. */
 export type ConventionCategory =
@@ -114,10 +122,16 @@ function userText(message: unknown): string | null {
 	return parts.length > 0 ? parts.join("\n") : null;
 }
 
-/** Scan one session file for classified correction events. */
-function scanSession(path: string, sinceMs: number): CorrectionEvent[] {
+/**
+ * Scan one session file for classified correction events. `sessionId`
+ * names it, its path unless it was read back from Drive.
+ */
+function scanSession(
+	path: string,
+	sinceMs: number,
+	sessionId = path,
+): CorrectionEvent[] {
 	const events: CorrectionEvent[] = [];
-	const sessionId = path;
 	let raw: string;
 	try {
 		raw = readFileSync(path, "utf8");
@@ -154,28 +168,27 @@ function scanSession(path: string, sinceMs: number): CorrectionEvent[] {
 	return events;
 }
 
-/** Find every session JSONL under the pi sessions directory. */
-function sessionFiles(): string[] {
-	const root = join(homedir(), ".pi", "agent", "sessions");
-	const files: string[] = [];
-	let dirs: string[];
-	try {
-		dirs = readdirSync(root);
-	} catch {
-		return files;
-	}
-	for (const dir of dirs) {
-		let inner: string[];
-		try {
-			inner = readdirSync(join(root, dir));
-		} catch {
-			continue;
-		}
-		for (const name of inner) {
-			if (name.endsWith(".jsonl")) files.push(join(root, dir, name));
-		}
-	}
-	return files;
+/**
+ * Every correction from `sinceMs` on, in the machine's logs and, unless
+ * `hereOnly`, those read back from Drive; and what went unread, and why.
+ */
+function corrections(
+	sinceMs: number,
+	hereOnly: boolean,
+): { events: CorrectionEvent[]; unread: number; why?: string } {
+	const logs = sessionLogs(sinceMs, {
+		sessionsDir: sessionsDir(),
+		indexPath: backupIndexPath(),
+	});
+	const here = logs.here.flatMap((file) => scanSession(file, sinceMs));
+	const away = readAway(hereOnly ? [] : logs.away, (path, log) =>
+		scanSession(path, sinceMs, log.name),
+	);
+	const events = [...here, ...away.read.flat()];
+	const unread = hereOnly ? logs.away.length : away.unread;
+	return away.why === undefined
+		? { events, unread }
+		: { events, unread, why: away.why };
 }
 
 /** Print a week-by-category table of distinct sessions per cell. */
@@ -194,23 +207,27 @@ function main(): void {
 	// week -> category -> set of session ids (count distinct
 	// sessions, so a session that gripes ten times counts once).
 	const byWeek = new Map<string, Map<ConventionCategory, Set<string>>>();
-	for (const file of sessionFiles()) {
-		for (const event of scanSession(
-			file,
-			Number.isNaN(sinceMs) ? 0 : sinceMs,
-		)) {
-			let row = byWeek.get(event.week);
-			if (!row) {
-				row = new Map();
-				byWeek.set(event.week, row);
-			}
-			let cell = row.get(event.category);
-			if (!cell) {
-				cell = new Set();
-				row.set(event.category, cell);
-			}
-			cell.add(event.sessionId);
+	const found = corrections(
+		Number.isNaN(sinceMs) ? 0 : sinceMs,
+		process.argv.includes("--here"),
+	);
+	for (const event of found.events) {
+		let row = byWeek.get(event.week);
+		if (!row) {
+			row = new Map();
+			byWeek.set(event.week, row);
 		}
+		let cell = row.get(event.category);
+		if (!cell) {
+			cell = new Set();
+			row.set(event.category, cell);
+		}
+		cell.add(event.sessionId);
+	}
+	if (found.unread > 0) {
+		process.stderr.write(
+			`${found.unread} logs on Drive only went unread${found.why ? `: ${found.why}` : ""}\n`,
+		);
 	}
 
 	const weeks = [...byWeek.keys()].sort();

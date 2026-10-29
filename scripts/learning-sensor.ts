@@ -25,20 +25,30 @@
  *
  * A log last written before the window opened is not read at all, so
  * a day's count reads a day's logs rather than every log since March.
+ * A session whose log the backup has removed from the machine is read
+ * back from Drive, through session-backup's index, and the copy removed
+ * once read; `--here` reads only the machine's logs, for a quick look,
+ * since each copy takes a second or two.
  *
  * Run it directly (Node strips the types):
  *
  *   node scripts/learning-sensor.ts [--since YYYY-MM-DD] [--by day]
- *     [--top N] [--json <file>]
+ *     [--top N] [--json <file>] [--here]
  *
  * See the convention-recurrence-sensor-guide skill for the method
  * and how the output feeds proposals.
  */
 
-import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { readFileSync, writeFileSync } from "node:fs";
+import { basename } from "node:path";
 import type { Span } from "../extensions/spend-workflow/audit.ts";
+import { sessionsDir } from "../lib/internal/paths.ts";
+import {
+	backupIndexPath,
+	type FetchLog,
+	readAway,
+	sessionLogs,
+} from "../lib/internal/session-logs.ts";
 import { sleepRefusal } from "../lib/internal/shell-habits.ts";
 import { stripShellData } from "../lib/shell/index.ts";
 import { isoWeek } from "./convention-recurrence.ts";
@@ -346,13 +356,16 @@ function callsOf(content: unknown): ToolCall[] {
 	);
 }
 
-/** Read one session file: its sightings and the periods it was active. */
+/**
+ * Read one session file: its sightings and the periods it was active.
+ * `session` names it, its file name unless it was read back from Drive.
+ */
 function scanSession(
 	path: string,
 	sinceMs: number,
 	by: Span,
+	session = basename(path),
 ): { sightings: Sighting[]; periods: Set<string> } {
-	const session = basename(path);
 	const sightings: Sighting[] = [];
 	const periods = new Set<string>();
 	let raw: string;
@@ -392,60 +405,70 @@ function scanSession(
 	return { sightings, periods };
 }
 
-/** Whether a log was written since `sinceMs`, so it can hold a sighting. */
-function writtenSince(path: string, sinceMs: number): boolean {
-	try {
-		return statSync(path).mtimeMs >= sinceMs;
-	} catch {
-		// Removed since it was listed: nothing to read.
-		return false;
-	}
-}
-
-function sessionFiles(sinceMs: number): string[] {
-	const root = join(homedir(), ".pi", "agent", "sessions");
-	let dirs: string[];
-	try {
-		dirs = readdirSync(root);
-	} catch {
-		// No sessions yet: nothing to count.
-		return [];
-	}
-	return dirs.flatMap((dir) => {
-		try {
-			return readdirSync(join(root, dir))
-				.filter((name) => name.endsWith(".jsonl"))
-				.map((name) => join(root, dir, name))
-				.filter((path) => writtenSince(path, sinceMs));
-		} catch {
-			// A file beside the session folders, not a folder.
-			return [];
-		}
-	});
+/** Where `sense` reads, and how it reads a log on Drive only back. */
+export interface Sources {
+	readonly sessionsDir: string;
+	readonly indexPath: string;
+	/** Leave the logs on Drive only unread, for a quick look. */
+	readonly hereOnly?: boolean;
+	readonly fetch?: FetchLog;
 }
 
 /**
- * Read every session log from `sinceMs` on: what recurred, grouped,
- * and how many sessions were active each period, ISO week unless
- * `by` says day.
+ * Read every session log from `sinceMs` on, those on Drive only read
+ * back unless `hereOnly`: what recurred, grouped, how many sessions were
+ * active each period, ISO week unless `by` says day, and how many logs on
+ * Drive only couldn't be read back, and why.
  */
 export function sense(
 	sinceMs: number,
 	by: Span = "week",
+	sources: Sources = {
+		sessionsDir: sessionsDir(),
+		indexPath: backupIndexPath(),
+	},
 ): {
 	groups: Group[];
 	active: Record<string, number>;
+	read: { here: number; away: number; unread: number; why?: string };
 } {
 	const since = Number.isNaN(sinceMs) ? 0 : sinceMs;
 	const sightings: Sighting[] = [];
 	const active = new Map<string, number>();
-	for (const file of sessionFiles(since)) {
-		const scanned = scanSession(file, since, by);
+	const logs = sessionLogs(since, sources);
+	const scans = logs.here.map((file) => scanSession(file, since, by));
+	const away = readAway(
+		sources.hereOnly ? [] : logs.away,
+		(path, log) => scanSession(path, since, by, log.name),
+		sources.fetch,
+	);
+	for (const scanned of [...scans, ...away.read]) {
 		sightings.push(...scanned.sightings);
 		for (const period of scanned.periods)
 			active.set(period, (active.get(period) ?? 0) + 1);
 	}
-	return { groups: tally(sightings), active: Object.fromEntries(active) };
+	const read = {
+		here: scans.length,
+		away: away.read.length,
+		unread: sources.hereOnly ? logs.away.length : away.unread,
+	};
+	return {
+		groups: tally(sightings),
+		active: Object.fromEntries(active),
+		read: away.why === undefined ? read : { ...read, why: away.why },
+	};
+}
+
+/** What a run read, for the person watching it. */
+export function readLine(read: {
+	here: number;
+	away: number;
+	unread: number;
+	why?: string;
+}): string {
+	const said = `read ${read.here} logs on the machine and ${read.away} read back from Drive`;
+	if (read.unread === 0) return said;
+	return `${said}; ${read.unread} on Drive only went unread${read.why ? `: ${read.why}` : ""}`;
 }
 
 function main(): void {
@@ -457,8 +480,13 @@ function main(): void {
 	const since = option("--since") ?? "1970-01-01";
 	const top = Number(option("--top") ?? 20);
 	const by: Span = option("--by") === "day" ? "day" : "week";
-	const { groups, active } = sense(Date.parse(since), by);
+	const { groups, active, read } = sense(Date.parse(since), by, {
+		sessionsDir: sessionsDir(),
+		indexPath: backupIndexPath(),
+		hereOnly: args.includes("--here"),
+	});
 	process.stdout.write(renderReport(groups, active, { since, top }));
+	process.stderr.write(`${readLine(read)}\n`);
 	const json = option("--json");
 	if (json) writeFileSync(json, `${JSON.stringify(groups, null, 1)}\n`);
 }
