@@ -573,9 +573,8 @@ function roundLine(round: FindingRound, newest: boolean): string {
 		ids.length === 1
 			? `F${ids[0]}`
 			: `F${Math.min(...ids)} to F${Math.max(...ids)}`;
-	const count = `${ids.length} finding${ids.length === 1 ? "" : "s"}`;
 	const name = round.runId ?? "written by hand";
-	return `${newest ? "Newest round" : "Earlier round"}: ${name}, ${count} (${span})`;
+	return `${newest ? "Newest round" : "Earlier round"}: ${name}, ${count(ids.length, "finding", "findings")} (${span})`;
 }
 
 /**
