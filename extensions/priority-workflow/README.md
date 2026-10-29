@@ -170,6 +170,14 @@ so once its checks come from the cache it is a build again.
   every 30 seconds, with a `heartbeat` in epoch seconds. The launcher
   reads that file, and it counts the minutes a job waited today while
   the memory it needed stood free.
+- **What others may read:** mycelium's node reads `queue.json` from
+  outside the harness to say what its machine can take. Its `v`, `at`,
+  `heartbeat`, `machine` and `room` are that contract: a change to any
+  of them bumps `v`, and the rest of the file may change without one.
+  A `heartbeat` over two minutes old means nobody keeps the queue, so
+  no harness session runs there. `room` says whether heavy work would
+  start now, not whether the machine can take another session; that is
+  `machine.availableGib` and its `pressure`.
 - **The room left** is in `queue.json` as `room` (how many more VMs and
   builds would start now) and, as words, in `room`. When a call's heavy
   work has run a minute or more, its shell says that room as it ends,
