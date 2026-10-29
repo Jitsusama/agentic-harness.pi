@@ -906,7 +906,7 @@ but you. A remark is something you have decided to say. Keeping
 those apart is the whole point of the findings surface:
 
 ```
-review_see findings              what was raised, numbered [F#]
+review_see findings              what was raised, numbered [F#], newest round first
 review_draft decide finding:3 settle:"promote"
 review_draft decide finding:4 settle:"dismiss"
 review_draft plan                what publishing would do
