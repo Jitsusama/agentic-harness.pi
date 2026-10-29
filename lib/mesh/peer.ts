@@ -218,6 +218,7 @@ export function localPeer(at: Surroundings): Peer {
 	];
 	let receiver: Receiver = { addresses, worksOn: "", owns: [] };
 	let roles: { orchestratedBy?: string; orchestrates?: string } = {};
+	let quest: string | undefined;
 	let busy = false;
 	const now = at.now ?? Date.now;
 	// When the run in progress began, and the step it was last said on.
@@ -250,6 +251,7 @@ export function localPeer(at: Surroundings): Peer {
 			...(stops.length > 0 ? { stops } : {}),
 			worksOn: receiver.worksOn,
 			owns: receiver.owns,
+			...(quest ? { quest } : {}),
 			busy,
 			state: stateOf(busy, wanting.size > 0, paused),
 			...(busy && since ? { since } : {}),
@@ -295,6 +297,7 @@ export function localPeer(at: Surroundings): Peer {
 		scopes = [...work.scopes];
 		receiver = { addresses, worksOn: work.worksOn, owns: work.owns };
 		roles = orchestrationRoles(work.orchestration, addresses[0]);
+		quest = work.quest;
 		publish();
 	};
 	refresh();
