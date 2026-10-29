@@ -34,10 +34,12 @@ import {
 	existsSync,
 	type FSWatcher,
 	lstatSync,
+	realpathSync,
 	statSync,
 	watch,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { installOfVersion } from "./loaded.ts";
 
 /** How long a checkout must be still before its HEAD is read. */
 export const QUIET_MS = 3_000;
@@ -181,6 +183,30 @@ export interface Moved {
 export type Unwatch = () => void;
 
 /** Whether a package root is a link, as an install of whole versions is. */
+/**
+ * The move of an install named by a link onto another version than the
+ * one `running` is, read from the link itself rather than heard, or
+ * nothing. A watch can be lost without a word: from 14:06 to 19:00 on
+ * 29 October nine sessions ran one version while the link moved on five
+ * times, and one of them no longer watched the link's folder at all.
+ * A version is named by its commit, so the folders' names say the move.
+ */
+export function missedMove(running: string, link: string): Moved | undefined {
+	if (!isLink(link)) return undefined;
+	if (installOfVersion(running) !== dirname(link)) return undefined;
+	let now: string;
+	let was: string;
+	try {
+		now = realpathSync(link);
+		was = realpathSync(running);
+	} catch {
+		// A link onto nothing, or a version gone: nothing to come up to.
+		return undefined;
+	}
+	if (now === was) return undefined;
+	return { root: link, from: basename(running), to: basename(now) };
+}
+
 function isLink(root: string): boolean {
 	try {
 		return lstatSync(root).isSymbolicLink();

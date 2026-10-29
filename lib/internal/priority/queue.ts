@@ -605,6 +605,14 @@ export const QUICK_OUTRUN_MS = 120_000;
 export const RULES: Rules = { buildsWaitForVmChecks: true };
 
 /**
+ * The version of how this code gives turns. Raise it with every change
+ * to who gets a turn when, so a session on older code leaves keeping the
+ * queue to one on this (keeper.ts). 1: VM starts paced (#884), builder
+ * slots counted free (#881), slow builds held for a lend (#882, #883).
+ */
+export const RULES_VERSION = 1;
+
+/**
  * The job to start now, if any: the first waiting in order that its
  * kind's limit and the memory left both let in. Nothing within
  * {@link SPREAD_MS} of the last turn given.

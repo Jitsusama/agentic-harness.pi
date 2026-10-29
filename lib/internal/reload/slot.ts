@@ -35,6 +35,8 @@ export interface ReloadSlot {
 	request?: ReloadRequest;
 	/** The request has been handed to the command. */
 	dispatched?: boolean;
+	/** When the session's own request was handed to the command, epoch ms. */
+	dispatchedAt?: number;
 	/**
 	 * The command's reload is under way. A runtime that starts while this
 	 * is unset was started by something else (pi's own `/reload`, a new
