@@ -35,6 +35,11 @@ loads the install and the install is `main`.
   - It waits for a moment that loses nothing: an idle session at
     once, a busy one when its run ends, and either only once
     `pnpm install` has followed a move that changed the lockfile.
+    A pi-packages version is built whole in a folder of its own
+    before its `current` link moves, so a root that is a link is
+    ready as soon as its own install is newer than its lockfile; on
+    29 October sessions had waited five minutes for an install
+    that had already finished.
     Background work is no reason to wait: it keeps running
     through a reload, and their results arrive in the reloaded
     session (see [job-workflow](../job-workflow/#through-a-reload)).
@@ -44,12 +49,22 @@ loads the install and the install is `main`.
   - Every reload, whoever asked, waits until the session has been
     idle for a second with nothing queued, since a run a compaction
     cut short is resumed just after it ends.
+  - In a busy session the harness's own deliveries filled every
+    such second: on 29 October a reload waited 35 minutes while
+    background results and mesh notes started each next run. So
+    while a reload waits, a background result waits up to ten
+    seconds after a run ends, and a mesh note is said without the
+    turn it would start, which the landing starts instead, or mesh
+    itself ten seconds on (`lib/internal/reload/hold.ts`). A
+    compaction's resume is never held, since nothing would say it
+    again.
   - Afterwards one line in the model's context, not shown, says it
     reloaded and everything that came in by then: a merged pull
     request by its number and title, anything else by its subject.
     The person sees which code runs in the status bar; shown, one
     notice per install filled idle sessions with eight in an hour.
-    It never starts a turn.
+    It starts a turn only when a delivery put its turn off for the
+    reload.
   - A session running a tree is never moved, and only a session
     somebody sits at follows: not a subagent, nor a print-mode run.
     `PI_FOLLOW_INSTALL=off` turns it off.
