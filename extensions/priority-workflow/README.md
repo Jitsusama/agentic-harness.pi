@@ -183,11 +183,16 @@ from 23:04 to past 00:48.
 - **What others may read:** mycelium's node reads `queue.json` from
   outside the harness to say what its machine can take. Its `v`, `at`,
   `heartbeat`, `machine` and `room` are that contract: a change to any
-  of them bumps `v`, and the rest of the file may change without one.
-  A `heartbeat` over two minutes old means nobody keeps the queue, so
-  no harness session runs there. `room` says whether heavy work would
-  start now, not whether the machine can take another session; that is
-  `machine.availableGib` and its `pressure`.
+  of them bumps `v`, a field added to them doesn't, and the rest of the
+  file may change without one. A `heartbeat` over two minutes old means
+  nobody keeps the queue, so no harness session runs there. `room` says
+  whether heavy work would start now, not whether the machine can take
+  another session; that is `machine.availableGib` and its `pressure`.
+  `machine.over` names the queue's own pressure limits the machine is
+  at or past now, `memory` (no job starts) and `cpu` (no build starts
+  beside a VM check), so a reader never applies the limits itself, and
+  `room` at 0 with `over` empty reads as a full queue, not a pressed
+  machine.
 - **The room left** is in `queue.json` as `room` (how many more VMs and
   builds would start now) and, as words, in `room`. When a call's heavy
   work has run a minute or more, its shell says that room as it ends,

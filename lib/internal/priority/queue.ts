@@ -349,6 +349,27 @@ export const BUILDS_BESIDE_VMS = 1;
 /** CPU pressure (avg10, percent) past which no build starts beside one. */
 export const MOST_CPU_PRESSURE_BESIDE_VMS = 10;
 
+/** A pressure limit the queue holds work back at, by what presses. */
+export type Pressed = "memory" | "cpu";
+
+/**
+ * The queue's pressure limits the machine is at or past now: `memory`
+ * at {@link MOST_MEMORY_PRESSURE}, where no job starts, and `cpu` at
+ * {@link MOST_CPU_PRESSURE_BESIDE_VMS}, where no build starts beside a
+ * VM check. The queue's verdict rather than its numbers, so a reader
+ * outside it, as mycelium's node is, never applies the rules again.
+ */
+export function pressedPast(
+	room: Pick<Room, "memoryPressure" | "cpuPressure">,
+): Pressed[] {
+	return [
+		...(room.memoryPressure >= MOST_MEMORY_PRESSURE ? ["memory" as const] : []),
+		...(room.cpuPressure >= MOST_CPU_PRESSURE_BESIDE_VMS
+			? ["cpu" as const]
+			: []),
+	];
+}
+
 /**
  * The Nix settings a build beside a VM check runs with: at most about 8
  * of the 16 cores, which leaves at least 8 for qemu. P9R1KI's estimate,
