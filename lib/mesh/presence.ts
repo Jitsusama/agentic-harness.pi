@@ -74,6 +74,13 @@ export interface Presence {
 	readonly worksOn: string;
 	/** What it owns by name: its quest, its repositories, its groups. */
 	readonly owns: readonly string[];
+	/**
+	 * The quest it has loaded, by id, so a reader such as the machine's
+	 * mycelium node says which quest a session is on without picking it
+	 * out of what it owns. Missing while it has none, and from an older
+	 * presence.
+	 */
+	readonly quest?: string;
 	/** Whether it is in the middle of a run, as of when it last said. */
 	readonly busy: boolean;
 	/**
@@ -182,6 +189,8 @@ const SUMMARY_CHARS = 240;
 export interface PeerWork {
 	readonly worksOn: string;
 	readonly owns: readonly string[];
+	/** The quest it has loaded, by id, when its README can be read. */
+	readonly quest?: string;
 	/** The groups the work puts it in (see scope.ts). */
 	readonly scopes: readonly string[];
 	/** Where its quest sits among orchestrations, by quest id. */
@@ -229,6 +238,7 @@ export function workOf(
 	const repositories = [...new Set([...trees, ...runsIn])];
 	const orchestration = orchestrationOf(quest, read);
 	return {
+		quest,
 		worksOn: describe(parsed.body),
 		owns: [...new Set([quest, ...repositories, ...here, ...named])],
 		scopes: scopesOf({
@@ -435,6 +445,7 @@ function presenceFrom(value: unknown): Presence | undefined {
 		...(stopsFrom(one.stops).length > 0 ? { stops: stopsFrom(one.stops) } : {}),
 		worksOn: typeof one.worksOn === "string" ? one.worksOn : "",
 		owns: strings(one.owns) ? one.owns : [],
+		...(typeof one.quest === "string" ? { quest: one.quest } : {}),
 		busy: one.busy === true,
 		...(isPeerState(one.state) ? { state: one.state } : {}),
 		...(typeof one.since === "string" ? { since: one.since } : {}),

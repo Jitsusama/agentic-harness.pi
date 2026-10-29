@@ -429,6 +429,23 @@ describe("this session's peer", () => {
 			);
 		});
 
+		it("says the quest it has loaded, by id, and none while it has none", () => {
+			write([[LOOP, readme(LOOP, "null")]], LOOP);
+			const at = surroundings();
+
+			localPeer(at);
+
+			expect(at.presences.of(session)?.quest).toBe(LOOP);
+
+			writeFileSync(
+				join(root, "sessions", `${session}.json`),
+				JSON.stringify({}),
+			);
+			localPeer(at);
+
+			expect(at.presences.of(session)?.quest).toBeUndefined();
+		});
+
 		it("keeps a question its run ends on for its orchestrator, and still shows an approval", () => {
 			write(
 				[
