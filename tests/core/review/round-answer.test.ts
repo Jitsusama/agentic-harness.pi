@@ -302,6 +302,27 @@ describe("what a round says when it is over", () => {
 		expect(lines.length).toBeGreaterThan(1);
 	});
 
+	it("reads a round where everyone answered and found nothing as zero, not a failure", () => {
+		// Carried in from QEST-20260705-F1R33X: a round whose reviewers all
+		// answered with no findings once read as a failed round.
+		const lines = said(
+			roundAnswer(
+				run({
+					outcomes: [
+						{ participantId: "hawk", findingIds: [] },
+						{ participantId: "owl", findingIds: [] },
+					],
+				}),
+			),
+		);
+
+		expect(lines[0]).toContain("2/2 answered");
+		expect(lines[0]).toContain("0 findings");
+		expect(lines[0]).not.toContain("failed");
+		expect(lines.some((line) => line.startsWith("[failed]"))).toBe(false);
+		expect(lines.join("\n")).not.toContain("Nobody answered");
+	});
+
 	it("does not blame failures when there were none", () => {
 		// An open round nobody has answered yet has failed at nothing.
 		// Telling its reader the failures are the whole story invents
