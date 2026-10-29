@@ -23,10 +23,12 @@
  * A session on another machine is the one exception: its process is
  * that machine's to judge, so the mycelium node carrying it here takes
  * the process out, and is asked instead (node.ts). It is there while the
- * node holds it busy or idle, and gone once the node says it ended, its
- * machine is out of reach, or holds it no more. With no node answering,
- * nothing carries it here, so it is gone too, and a node killed and never
- * run again leaves no session that seems there.
+ * node holds it busy or idle, and gone once the node says it ended or
+ * holds it no more. While its machine is out of reach, or no node
+ * answers, as while a switch restarts the node, it can't be told, and is
+ * taken as there: a link that drops says nothing of whether a session
+ * runs, and judging it gone would let go of its leases and holds and tell
+ * its senders it ended.
  */
 
 import { readFileSync } from "node:fs";
@@ -74,8 +76,14 @@ export async function livenessOf(
 	node: AskNode = askNode,
 ): Promise<Liveness> {
 	if (presence.machine !== undefined) {
-		const held = (await node())?.get(presence.session);
-		return held === "busy" || held === "idle" ? "present" : "gone";
+		const held = await node();
+		if (held === undefined) return "unknown";
+		const state = held.get(presence.session);
+		return state === "busy" || state === "idle"
+			? "present"
+			: state === "unreachable"
+				? "unknown"
+				: "gone";
 	}
 	const owner = presence.owner;
 	if (!owner) return "unknown";

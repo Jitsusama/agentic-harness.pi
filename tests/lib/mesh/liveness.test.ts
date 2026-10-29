@@ -94,27 +94,28 @@ describe("a session elsewhere's liveness", () => {
 		).toBe("present");
 	});
 
-	it("is gone once the node says it ended or its machine is out of reach", async () => {
+	it("is gone once the node says it ended, or holds it no more", async () => {
 		expect(
 			await livenessOf(carried, machine({}), node({ far: "ended" })),
 			"an ended session",
 		).toBe("gone");
 		expect(
-			await livenessOf(carried, machine({}), node({ far: "unreachable" })),
-			"a session out of reach",
-		).toBe("gone");
-	});
-
-	// A node killed and never run again leaves its sessions' files behind.
-	it("is gone when the node holds it no more, or no node answers", async () => {
-		expect(
 			await livenessOf(carried, machine({}), node({})),
 			"a session the node doesn't hold",
 		).toBe("gone");
+	});
+
+	// A dropped link, or a node a switch is restarting, says nothing of
+	// whether the session runs, so its leases and holds stand.
+	it("can't be told while its machine is out of reach, or no node answers", async () => {
+		expect(
+			await livenessOf(carried, machine({}), node({ far: "unreachable" })),
+			"a session out of reach",
+		).toBe("unknown");
 		expect(
 			await livenessOf(carried, machine({}), node(undefined)),
 			"no node answering",
-		).toBe("gone");
+		).toBe("unknown");
 	});
 
 	it("asks the node once a census, and not at all for sessions here", async () => {
