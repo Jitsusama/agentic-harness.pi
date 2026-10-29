@@ -150,6 +150,7 @@ describe("an action that cannot honour a dry run", () => {
 		{ action: "think", kind: "plan", note: "another" },
 		{ action: "unfocus" },
 		{ action: "alias-add", ref: "github-pr:a/b#1" },
+		{ action: "need-add", ref: "reach=home" },
 		{ action: "park" },
 	])("refuses $action and writes nothing", async (params) => {
 		const { run, snapshot } = await world();

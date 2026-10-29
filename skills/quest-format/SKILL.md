@@ -240,6 +240,16 @@ Field semantics:
   preference to a project script. Use it to scope the
   check to the subdirectory or zone the quest touches,
   e.g. `verify: pnpm test lib/lsp`.
+- `needs`: optional list of what the quest's sessions need
+  of a machine, each in mycelium's `kind=value` words
+  (`reach=home`, `system=macos`; the kinds are `machine`,
+  `system`, `arch`, `reach` and `accelerator`). Set and
+  cleared with the quest tool's `need-add` and
+  `need-remove`, which refuse a word the node would not
+  take, never by hand. `spawn` given neither a machine nor
+  needs places the session where the node puts work with
+  these. A subquest says its own: it takes none from its
+  parent.
 
 Documents under a quest carry their own smaller
 frontmatter:

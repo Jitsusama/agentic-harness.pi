@@ -122,6 +122,14 @@ shipped and tested.
   taking it. `machine` beside `needs` is one more need. A
   refusal gives the node's reasons for each machine; a dry run
   asks only where it would go.
+- **What a quest needs of a machine**: `need-add` and
+  `need-remove` keep a quest's `needs` in its front matter, in
+  the same `kind=value` words, each checked as the node reads
+  it, on the quest `id` names or the loaded one. `spawn` given
+  neither `machine` nor `needs` places by the spawned quest's
+  own needs; either one named replaces them. A quest with none
+  starts here, as before, and a subquest takes none from its
+  parent.
 - **Queries**: `find`, `who`, `links`, `locate` (the inverse
   index: resolve a document id, alias ref or session id to the
   quest that owns it), `ancestors` (trace a quest's parent chain

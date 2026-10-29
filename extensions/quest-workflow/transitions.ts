@@ -39,6 +39,7 @@ import {
 	unfocus,
 	unload,
 } from "./verbs/lifecycle.ts";
+import { needAdd, needRemove } from "./verbs/needs.ts";
 import { orchestrate } from "./verbs/orchestrate.ts";
 import {
 	ancestors,
@@ -200,6 +201,10 @@ async function dispatch(
 			return queueOrder(state, params, true);
 		case "queue-normal":
 			return queueOrder(state, params, false);
+		case "need-add":
+			return needAdd(state, params);
+		case "need-remove":
+			return needRemove(state, params);
 		case "orchestrate":
 			return orchestrate(state, params, true);
 		case "unorchestrate":
