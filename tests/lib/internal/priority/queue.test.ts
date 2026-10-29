@@ -515,6 +515,21 @@ describe("whose turn it is", () => {
 		);
 	});
 
+	it("starts a build beside a VM check on a busy machine, but not while the person's programs stall on memory", () => {
+		const check = job("check", {
+			kind: "vm-check",
+			started: startedAgo(RAMP_MS),
+		});
+		const night = { ...ROOMY, cpuPressure: 68, floorsPressure: 0 };
+		expect(nextTurn([check, job("build")], night, NOW)).toEqual({
+			...job("build"),
+			capped: true,
+		});
+		const stalled = { ...night, floorsPressure: MOST_FLOORS_PRESSURE + 0.5 };
+		expect(nextTurn([check, job("build")], stalled, NOW)).toBeUndefined();
+		expect(nextTurn([job("build")], stalled, NOW)?.id).toBe("build");
+	});
+
 	it("holds the checks behind a build that waits for a check", () => {
 		const check = job("check", {
 			kind: "vm-check",
