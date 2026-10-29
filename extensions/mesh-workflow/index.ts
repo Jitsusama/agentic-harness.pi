@@ -54,6 +54,12 @@ import { tickedOwnerNow } from "../../lib/internal/process-ticks.ts";
 import { onConcluded } from "../../lib/internal/quest/concluded.ts";
 import { withQuestLock } from "../../lib/internal/quest/io.ts";
 import {
+	createReloadHold,
+	HOLD_FOR_RELOAD_MS,
+	oweTurnToReload,
+	takeOwedTurn,
+} from "../../lib/internal/reload/hold.ts";
+import {
 	carriedBy,
 	ROLLOVER_CARRY,
 } from "../../lib/internal/session/rollover.ts";
@@ -190,6 +196,13 @@ export const MESH_ENV = "PI_MESH";
  * network having gone, which must not leave a message undelivered.
  */
 const JUDGE_MS = 2500;
+
+/**
+ * What starts the turn a note put off for a reload, when no reload came
+ * to start it.
+ */
+const TURN_PUT_OFF =
+	"The mesh messages above reached you while a reload of your harness waited. Act on them now.";
 
 /**
  * How far back a peer that has never read anything catches up.
@@ -437,6 +450,43 @@ export function meshWorkflow(
 		// How far the read marker may move: only past what was handed over.
 		let front = createReadFront();
 		let lookClock: ReturnType<typeof setInterval> | undefined;
+		// A turn a note would start waits for a reload that is waiting: the
+		// note is said now, without it, and the landing starts it (hold.ts).
+		const holdTurn = createReloadHold();
+		/**
+		 * Whether the turn a note would start is put off for a waiting
+		 * reload. If no reload takes it within the hold, the note's own turn
+		 * starts then; a run under way by then reads the note, so the turn is
+		 * taken and nothing more is started.
+		 */
+		const putOffTurn = (): boolean => {
+			if (!holdTurn()) return false;
+			oweTurnToReload();
+			const due = () => {
+				let idle = false;
+				try {
+					idle = ctx?.isIdle?.() ?? false;
+				} catch {
+					// A stale context: the reload landed, and its landing took the turn.
+					return;
+				}
+				if (!takeOwedTurn() || !idle) return;
+				try {
+					pi.sendMessage(
+						{
+							customType: NOTED,
+							content: TURN_PUT_OFF,
+							display: false,
+						},
+						{ triggerTurn: true },
+					);
+				} catch {
+					// A stale pi: a reload replaced it, and its landing starts the turn.
+				}
+			};
+			setTimeout(due, HOLD_FOR_RELOAD_MS).unref?.();
+			return true;
+		};
 		let steering: Steering | undefined;
 		// What became of each steer that asked to be followed (talks.ts).
 		const talks = createTalks({ session: () => peer?.session ?? "" });
@@ -717,6 +767,7 @@ export function meshWorkflow(
 			}
 			const carried = glances.take();
 			const content = noted(messages, carried, peer?.orchestratedBy);
+			const putOff = turn && putOffTurn();
 			pi.sendMessage(
 				{
 					customType: NOTED,
@@ -727,7 +778,7 @@ export function meshWorkflow(
 						why: all.map(({ heed }) => heed.why),
 					}),
 				},
-				{ triggerTurn: turn },
+				{ triggerTurn: turn && !putOff },
 			);
 			handedOver(messages);
 			damper.handed(messages);
@@ -976,6 +1027,7 @@ export function meshWorkflow(
 			if (!ctx || ends.length === 0) return;
 			const turn = (ctx.isIdle?.() ?? false) && !pausing.paused;
 			const carried = glances.take();
+			const putOff = turn && putOffTurn();
 			pi.sendMessage(
 				{
 					customType: NOTED,
@@ -986,7 +1038,7 @@ export function meshWorkflow(
 						why: ends.map(({ how }) => `a hold this peer waited on, ${how}`),
 					}),
 				},
-				{ triggerTurn: turn },
+				{ triggerTurn: turn && !putOff },
 			);
 			if (turn) damper.started(ends.map(({ hold }) => hold.from));
 		};

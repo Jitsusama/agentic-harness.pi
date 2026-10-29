@@ -176,6 +176,7 @@ beforeEach(() => {
 	slot.performing = undefined;
 	slot.landed = undefined;
 	slot.unsaid = undefined;
+	slot.turnOwed = undefined;
 });
 
 afterEach(() => {
@@ -397,6 +398,21 @@ describe("a reload that lands as the session is replaced", () => {
 		expect(now.hidden[0]).toContain(
 			"Reloaded between runs, because the install moved: feat: y.",
 		);
+	});
+
+	it("starts the turn a delivery put off for it, whoever asked", async () => {
+		runningTheInstall();
+		const now = runtime();
+		await now.start("startup");
+		reloadSlot().turnOwed = true;
+
+		reloadSlot().landed?.({ reason: "feat: z", by: "self" });
+		await until("a turn is started", () => reported.length > 0);
+
+		expect(reported[0]).toContain("because the install moved: feat: z.");
+		expect(reported[0]).toContain("Act on what reached you while it waited.");
+		expect(now.hidden).toEqual([]);
+		expect(reloadSlot().turnOwed).toBeUndefined();
 	});
 
 	it("keeps a landing its replaced runtime could not say for the next one", async () => {

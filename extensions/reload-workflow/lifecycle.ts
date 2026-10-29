@@ -10,6 +10,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { takeOwedTurn } from "../../lib/internal/reload/hold.ts";
 import {
 	describeLoaded,
 	homely,
@@ -130,15 +131,23 @@ export function landedText(landed: ReloadLanded, loaded: Loaded): string {
  * told quietly too: shown to the person, one notice per install filled
  * idle sessions until Joel could not see what each was for (8 a session
  * in under an hour on 22 October), and the status bar already says
- * which code runs. Nothing carries on that was not already going to.
+ * which code runs. Nothing carries on that was not already going to,
+ * but a turn a delivery put off so the reload could go first starts
+ * here, whoever asked (hold.ts).
  */
 export function sayLanded(
 	pi: ExtensionAPI,
 	landed: ReloadLanded,
 	loaded: Loaded,
 ): void {
-	const text = landedText(landed, loaded);
-	const host = landed.by === "agent" ? findJobHost(pi.events) : undefined;
+	const owed = takeOwedTurn();
+	const said = landedText(landed, loaded);
+	const text =
+		owed && landed.by !== "agent"
+			? `${said} Act on what reached you while it waited.`
+			: said;
+	const host =
+		owed || landed.by === "agent" ? findJobHost(pi.events) : undefined;
 	if (host) {
 		host
 			.start({ kind: "reload", label: "the reload you asked for" })

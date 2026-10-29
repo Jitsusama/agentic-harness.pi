@@ -48,6 +48,11 @@ export interface ReloadSlot {
 	 * a command that finds this set does nothing.
 	 */
 	performing?: boolean;
+	/**
+	 * A delivery that would have started a turn was said without one, to
+	 * let a waiting reload go first (hold.ts): the landing starts it.
+	 */
+	turnOwed?: boolean;
 	/** Left by the newest runtime: say that a reload landed. */
 	landed?: (landed: ReloadLanded) => void;
 	/**
