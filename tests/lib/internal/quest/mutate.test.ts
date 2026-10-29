@@ -5,7 +5,7 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mutateQuestFrontMatter } from "../../../../lib/internal/quest/mutate";
@@ -44,6 +44,31 @@ afterEach(() => {
 });
 
 describe("mutateQuestFrontMatter", () => {
+	it("names this machine on a tree from before machines were named, while its folder is here", () => {
+		const here = join(root, "a-tree");
+		mkdirSync(here);
+		const gone = join(root, "a-tree-elsewhere-or-gone");
+		writeQuest({
+			...BASE,
+			trees: `\n  - path: ${here}\n    providerId: git-worktree\n  - path: ${gone}\n    providerId: git-worktree`,
+		});
+
+		const result = mutateQuestFrontMatter(questDir, (fm) => ({
+			...fm,
+			priority: "driving",
+		}));
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.fm.trees?.map((tree) => tree.host)).toEqual([
+			hostname(),
+			undefined,
+		]);
+		expect(readFileSync(join(questDir, "README.md"), "utf8")).toContain(
+			`host: ${hostname()}`,
+		);
+	});
+
 	it("applies a valid field change and reports the diff", () => {
 		const result = mutateQuestFrontMatter(questDir, (fm) => ({
 			...fm,

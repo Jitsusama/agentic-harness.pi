@@ -14,6 +14,7 @@ import { homedir } from "node:os";
 import { sep } from "node:path";
 import type { QuestTree } from "../../quest/types.ts";
 import type { SessionView } from "./session-liveness.ts";
+import { treePlace } from "./tree-place.ts";
 
 /** The resolved working directory and how it was chosen. */
 export interface ResolvedCwd {
@@ -59,8 +60,11 @@ export function resolveSpawnCwd(opts: {
 	};
 
 	// Newest tree first: the trees array is appended to, so the
-	// last entry is the most recently added.
-	const trees = [...opts.trees].reverse();
+	// last entry is the most recently added. Never another machine's,
+	// which a shared quest lists too: its folder and repo are there.
+	const trees = opts.trees
+		.filter((tree) => treePlace(tree, { exists }) !== "elsewhere")
+		.reverse();
 	for (const tree of trees) {
 		if (exists(tree.path)) {
 			return { cwd: tree.path, source: "tree", ...(healed ? { healed } : {}) };

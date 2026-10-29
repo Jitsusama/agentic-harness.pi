@@ -55,6 +55,7 @@ import {
 	top as rankTop,
 } from "../../internal/quest/ranking.ts";
 import { isSealedStatus } from "../../internal/quest/status.ts";
+import { type TreePlace, treePlace } from "../../internal/quest/tree-place.ts";
 import {
 	checkboxProgress,
 	type DocumentFrontMatter,
@@ -417,6 +418,8 @@ export interface WorktreeInventoryEntry {
 	questTitle: string | null;
 	/** Whether the tree's directory still exists on disk. */
 	exists: boolean;
+	/** Whether it is this machine's, another's, or can't be told. */
+	place: TreePlace;
 }
 
 /**
@@ -438,6 +441,7 @@ export function inventoryWorktrees(
 				questId: fm.id,
 				questTitle: quest.doc.title ?? null,
 				exists: existsSync(tree.path),
+				place: treePlace(tree),
 			};
 			if (tree.branch) entry.branch = tree.branch;
 			entries.push(entry);

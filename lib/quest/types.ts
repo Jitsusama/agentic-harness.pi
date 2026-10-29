@@ -83,6 +83,13 @@ export interface QuestTree {
 	 * guard on deletion.
 	 */
 	origin?: "scaffolded" | "adopted";
+	/**
+	 * The machine the tree was cut or adopted on, as `hostname()` names
+	 * it. A quest shared between machines lists both machines' trees,
+	 * and only this one acts on its own (see `treePlace`). Absent on a
+	 * tree recorded before machines were named.
+	 */
+	host?: string;
 }
 
 /**

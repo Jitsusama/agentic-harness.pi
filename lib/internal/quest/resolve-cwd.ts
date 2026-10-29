@@ -16,6 +16,7 @@ import { realpathSync } from "node:fs";
 import { sep } from "node:path";
 import type { QuestIndex } from "./discovery.ts";
 import { isSealedStatus } from "./status.ts";
+import { treePlace } from "./tree-place.ts";
 
 /**
  * Resolve symlinks so /var and /private/var, and bind mounts in a
@@ -79,6 +80,9 @@ export function questIdForCwd(
 		const live = !isSealedStatus(fm.status);
 		for (const tree of fm.trees ?? []) {
 			if (tree.origin !== "scaffolded") continue;
+			// Another machine's tree can read as this path through a shared
+			// quest and say nothing about the folder here.
+			if (treePlace(tree) === "elsewhere") continue;
 			const real = canonical(tree.path);
 			if (!isUnder(target, real)) continue;
 			if (

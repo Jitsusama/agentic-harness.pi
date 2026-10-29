@@ -5,8 +5,8 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { hostname, tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
@@ -15,6 +15,7 @@ import {
 	registerBuiltinTreeProviders,
 } from "../../../lib/core/tree/index.ts";
 import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter";
+import { mutateQuestFrontMatter } from "../../../lib/internal/quest/mutate";
 import { clearUrlFetchers } from "../../../lib/quest/index";
 import {
 	clearRefTypes,
@@ -236,6 +237,113 @@ describe("tree-release", () => {
 		expect(released.ok).toBe(true);
 		const fm = parseQuestFrontMatter(readFileSync(q.path, "utf8"))?.frontMatter;
 		expect(fm?.trees ?? []).toHaveLength(0);
+	});
+});
+
+describe("a quest shared with another machine", () => {
+	// As the share shows optimus's quest on a Mac: one tree the Mac cut,
+	// one optimus cut, whose path reads as a folder the Mac hasn't got,
+	// and one from before trees named their machine.
+	const theirs = "/Users/someone/.local/state/work/trees/their-branch";
+	const legacy = "/Users/someone/.local/state/work/trees/from-before";
+	async function sharedQuest(state: ReturnType<typeof buildState>) {
+		const q = await createQuest(state, "Shared");
+		await handle(state, fakePi(), fakeCtx(repoRoot), {
+			action: "tree-add",
+			name: "ours",
+			cwd: repoRoot,
+		});
+		const written = mutateQuestFrontMatter(dirname(q.path), (fm) => ({
+			...fm,
+			trees: [
+				...(fm.trees ?? []),
+				{
+					path: theirs,
+					providerId: "git-worktree",
+					origin: "scaffolded",
+					host: "far-machine",
+				},
+				{ path: legacy, providerId: "git-worktree", origin: "scaffolded" },
+			],
+		}));
+		if (!written.ok) throw new Error(written.guidance);
+		return q;
+	}
+	const treesOf = (path: string) =>
+		parseQuestFrontMatter(readFileSync(path, "utf8"))?.frontMatter.trees ?? [];
+
+	it("lists every tree, saying which aren't this machine's", async () => {
+		const state = buildState();
+		await sharedQuest(state);
+
+		const listed = succeeded(
+			await handle(state, fakePi(), fakeCtx(repoRoot), { action: "tree-list" }),
+		);
+
+		expect(listed.message).toMatch(
+			/3 trees .*1 on another machine, 1 not on this machine/,
+		);
+		const places = (listed.details as { trees: { place: string }[] }).trees.map(
+			(tree) => tree.place,
+		);
+		expect(places).toEqual(["here", "elsewhere", "unplaced"]);
+	});
+
+	it("names this machine on the tree it cuts", async () => {
+		const state = buildState();
+		const q = await sharedQuest(state);
+
+		expect(treesOf(q.path)[0]?.host).toBe(hostname());
+	});
+
+	it("never releases another machine's tree, nor drops its record", async () => {
+		const state = buildState();
+		const q = await sharedQuest(state);
+
+		const released = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "tree-release",
+			cwd: theirs,
+			force: true,
+		});
+
+		expect(released.ok).toBe(false);
+		if (!released.ok) expect(released.guidance).toMatch(/is on far-machine/);
+		expect(treesOf(q.path).map((tree) => tree.path)).toContain(theirs);
+	});
+
+	it("asks for force before dropping a tree it can't place", async () => {
+		const state = buildState();
+		const q = await sharedQuest(state);
+
+		const asked = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "tree-release",
+			cwd: legacy,
+		});
+		expect(asked.ok).toBe(false);
+		if (!asked.ok) expect(asked.guidance).toMatch(/names no machine/);
+		expect(treesOf(q.path).map((tree) => tree.path)).toContain(legacy);
+
+		const dropped = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "tree-release",
+			cwd: legacy,
+			force: true,
+		});
+		expect(dropped.ok).toBe(true);
+		expect(treesOf(q.path).map((tree) => tree.path)).not.toContain(legacy);
+	});
+
+	it("retires pruning only this machine's trees, leaving the rest listed", async () => {
+		const state = buildState();
+		const q = await sharedQuest(state);
+
+		const retired = await handle(state, fakePi(), fakeCtx(repoRoot), {
+			action: "retire",
+			id: q.id,
+			reason: "testing a shared quest's trees",
+		});
+
+		expect(retired.ok).toBe(true);
+		expect(treesOf(q.path).map((tree) => tree.path)).toEqual([theirs, legacy]);
 	});
 });
 

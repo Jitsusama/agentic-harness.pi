@@ -35,6 +35,7 @@ import {
 	type JournalChange,
 	recordStructuralOp,
 } from "../../../lib/internal/quest/structural-journal.ts";
+import { treesHere } from "../../../lib/internal/quest/tree-place.ts";
 import {
 	listTreesOnQuest,
 	removeTreeFromQuest,
@@ -486,7 +487,9 @@ async function pruneAllTreesOnQuest(
 	if (!state.questDir) return { pruned, blocked };
 	const listing = listTreesOnQuest(state.questDir);
 	if (!listing.ok) return { pruned, blocked };
-	for (const tree of listing.trees) {
+	// Only this machine's: another machine's trees, seen through a
+	// shared quest, stay listed in the sealed README for that machine.
+	for (const tree of treesHere(listing.trees)) {
 		// Only auto-prune trees the tool scaffolded. Adopted trees, and
 		// legacy or hand-registered trees with no origin marker, are
 		// references the quest does not own, so concluding the quest
