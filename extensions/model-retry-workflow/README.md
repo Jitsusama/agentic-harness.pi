@@ -26,8 +26,9 @@ idle until somebody noticed and told it to carry on.
   is, and a ↻ mark in the footer while it waits, with the try's
   number from the second on. After the sixth fails, a notice says so
   and the session rests.
-- **What ends it.** Typing anything, or pressing Escape on a run,
-  starts the count again from nothing. Any run that starts while it
+- **What ends it.** Typing anything yourself, or pressing Escape on a
+  run, starts the count again from nothing. A message an extension
+  sends, the harness's own try among them, doesn't. Any run that starts while it
   waits, such as a mesh message waking the session, takes the try's
   place; if that run fails too, the wait goes on from where it was.
 
