@@ -22,10 +22,11 @@
  *
  * A session on another machine is the one exception: its process is
  * that machine's to judge, so the mycelium node carrying it here takes
- * the process out and touches its file each minute while its link
- * stands. It is there while its file was touched within
- * {@link CARRIED_FOR_MS}, and gone after, so a node killed and never
- * run again leaves no session that seems there for ever.
+ * the process out, and is asked instead (node.ts). It is there while the
+ * node holds it busy or idle, and gone once the node says it ended, its
+ * machine is out of reach, or holds it no more. With no node answering,
+ * nothing carries it here, so it is gone too, and a node killed and never
+ * run again leaves no session that seems there.
  */
 
 import { readFileSync } from "node:fs";
@@ -36,6 +37,7 @@ import {
 	tickedStanding,
 	tickFacts,
 } from "../internal/process-ticks.ts";
+import { type AskNode, askNode } from "./node.ts";
 import type { Presence } from "./presence.ts";
 
 /**
@@ -65,23 +67,15 @@ export interface Census {
 	readonly gone: readonly Presence[];
 }
 
-/**
- * How long a session elsewhere stays there after its node last touched
- * its file: three of the node's minutes, so one late touch is no end.
- */
-export const CARRIED_FOR_MS = 3 * 60 * 1000;
-
 /** Whether this peer is still on the mesh. */
 export async function livenessOf(
 	presence: Presence,
 	facts: TickFacts = tickFacts,
-	now: number = Date.now(),
+	node: AskNode = askNode,
 ): Promise<Liveness> {
 	if (presence.machine !== undefined) {
-		return presence.carriedAt !== undefined &&
-			now - presence.carriedAt > CARRIED_FOR_MS
-			? "gone"
-			: "present";
+		const held = (await node())?.get(presence.session);
+		return held === "busy" || held === "idle" ? "present" : "gone";
 	}
 	const owner = presence.owner;
 	if (!owner) return "unknown";
@@ -103,13 +97,20 @@ export async function livenessOf(
  * holds, only the one it published last is still there. A process is
  * told by its ticks where its presences carry them: each session start
  * works core's start time out afresh, so after a suspend the sessions
- * one pi held name it by different times.
+ * one pi held name it by different times. The node is asked once too,
+ * and only when a session elsewhere is listed.
  */
 export async function census(
 	everyone: readonly Presence[],
 	facts: TickFacts = tickFacts,
+	node: AskNode = askNode,
 ): Promise<Census> {
 	const once = askedOnceWithTicks(facts);
+	let asked: ReturnType<AskNode> | undefined;
+	const nodeOnce: AskNode = () => {
+		asked ??= node();
+		return asked;
+	};
 	const holder = (one: Presence) =>
 		one.owner ? processKey(one.owner) : undefined;
 	const latest = new Map<string, string>();
@@ -124,7 +125,10 @@ export async function census(
 	const judged = await Promise.all(
 		everyone.map(
 			async (one) =>
-				[one, left(one) ? "gone" : await livenessOf(one, once)] as const,
+				[
+					one,
+					left(one) ? "gone" : await livenessOf(one, once, nodeOnce),
+				] as const,
 		),
 	);
 	return {
