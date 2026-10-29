@@ -92,8 +92,8 @@ describe("why each job waits", () => {
 		expect(nextTurn([vm, older("build", 8_000)], BUSY, NOW)?.id).toBe("build");
 	});
 
-	it("gives a VM held here a builder's VM slot", () => {
-		const vm = older("vm", 9_000, { kind: "vm-test" });
+	it("gives a VM check held here a builder's VM slot", () => {
+		const vm = older("vm", 9_000, { kind: "vm-check" });
 		const stalled = { ...ROOMY, floorsPressure: MOST_FLOORS_PRESSURE + 4 };
 		const lent = { ...stalled, offload: { builds: 32, vms: 32 } };
 		expect(nextTurn([vm], stalled, NOW)).toBeUndefined();
@@ -399,7 +399,7 @@ describe("a builder elsewhere", () => {
 	const full = { ...ROOMY, vms: MOST_VMS };
 	const withVms = { builds: 4, vms: 2 };
 
-	it("gives a waiting VM check its turn on the builder's VM slots, and no more", () => {
+	it("gives a waiting VM check a builder's free VM slot, and none once they're spoken for", () => {
 		const waiting = job("vm-next", { kind: "vm-check" });
 		expect(nextTurn([...vmsRunning, waiting], full, NOW)).toBeUndefined();
 		expect(
@@ -411,13 +411,32 @@ describe("a builder elsewhere", () => {
 			"vm-next",
 		);
 
-		const both = [
+		// Two given their turns this minute are still evaluating, so they
+		// hold no slot's lock yet, but the two free slots are theirs.
+		const evaluating = [
 			...vmsRunning,
-			job("vm-there-1", { kind: "vm-check", started: long }),
-			job("vm-there-2", { kind: "vm-check", started: long }),
+			job("vm-there-1", { kind: "vm-check", started: startedAgo(20_000) }),
+			job("vm-there-2", { kind: "vm-check", started: startedAgo(10_000) }),
 			waiting,
 		];
-		expect(nextTurn(both, standing, NOW)).toBeUndefined();
+		expect(nextTurn(evaluating, standing, NOW)).toBeUndefined();
+	});
+
+	it("counts a full builder as no room, since Nix then builds here", () => {
+		// 14:27 on 29 October: the lent builder's eight slots all building,
+		// and VM checks counted against them ran their qemu here.
+		const waiting = job("vm-next", { kind: "vm-check" });
+		const busy = { ...full, offload: { builds: 0, vms: 0 } };
+		expect(nextTurn([...vmsRunning, waiting], busy, NOW)).toBeUndefined();
+	});
+
+	it("gives a VM test none of a builder's slots, since its qemu runs here", () => {
+		const test = job("vm-next", { kind: "vm-test" });
+		const lent = { ...full, offload: { builds: 8, vms: 8 } };
+		expect(nextTurn([...vmsRunning, test], lent, NOW)).toBeUndefined();
+		expect(waitReasons([...vmsRunning, test], lent, NOW).get("vm-next")).toBe(
+			"vms",
+		);
 	});
 
 	it("counts no VM slots for a builder that can't run VMs", () => {
@@ -438,8 +457,10 @@ describe("a builder elsewhere", () => {
 		const oneSlot = { ...pressed, offload: { builds: 1, vms: 0 } };
 		expect(nextTurn([...checking, build], oneSlot, NOW)?.id).toBe("build");
 
+		// Once a build there takes the slot, the builder reads it busy.
 		const there = job("there", { started: long, capped: true });
-		expect(nextTurn([...checking, there, build], oneSlot, NOW)).toBeUndefined();
+		const taken = { ...pressed, offload: { builds: 0, vms: 0 } };
+		expect(nextTurn([...checking, there, build], taken, NOW)).toBeUndefined();
 	});
 
 	it("leaves the one build here beside a VM check when the machine has room", () => {
@@ -452,8 +473,9 @@ describe("a builder elsewhere", () => {
 		expect(
 			nextTurn([...checking, running[0] as Job, job("next")], calm, NOW)?.id,
 		).toBe("next");
+		const taken = { ...calm, offload: { builds: 0, vms: 0 } };
 		expect(
-			nextTurn([...checking, ...running, job("next")], calm, NOW),
+			nextTurn([...checking, ...running, job("next")], taken, NOW),
 		).toBeUndefined();
 	});
 });
@@ -735,7 +757,9 @@ describe("the room left", () => {
 			kind: "vm-check",
 			started: startedAgo(RAMP_MS),
 		});
-		expect(roomLeft([check], ROOMY, NOW)).toEqual({
+		// Its qemu runs here, as the machine's count shows.
+		const here = { ...ROOMY, vms: 1 };
+		expect(roomLeft([check], here, NOW)).toEqual({
 			vms: MOST_VMS - 1,
 			builds: 1,
 		});

@@ -196,15 +196,20 @@ is a build, never a VM check.
   `capped.conf`.
 - **A builder elsewhere counts as room here** while Nix's machines
   file `/run/nix-offload/machines` names one, as the offload daemon
-  writes it while an on-demand builder stands. An `x86_64-linux`
-  builder's maxJobs adds that many builds beside a VM check, whatever
-  this machine's CPU pressure, and, where its features include `kvm`
-  or `nixos-test`, that many VMs, whatever the person's programs feel,
-  since work there takes neither from this machine. No more than its
-  own slots are counted: the queue can't choose where a build runs,
-  Nix takes a free builder slot first and otherwise builds here.
-  `queue.json` says the builder's room under `machine.offload`, and
-  each outcome's `beside.offloadBuilds` says one stood.
+  writes it while an on-demand builder stands. Only an `x86_64-linux`
+  builder's slots free now count, read from the locks the Nix daemon
+  holds on `/nix/var/nix/current-load/<uri>-<slot>` while a slot
+  builds, and a builder named on several lines counts once. Each free
+  slot adds a build beside a VM check, whatever this machine's CPU
+  pressure, and where its features include `kvm` or `nixos-test`, room
+  for a VM check, whatever the person's programs feel. A VM check given
+  its turn in the last minute holds a slot before Nix locks it. The
+  queue can't choose where a build runs: Nix takes a free builder slot
+  first and otherwise builds here, so a full builder counts as none. A
+  VM test from `run-subtests` runs its qemu here, so only this
+  machine's room counts for it. `queue.json` says the free slots under
+  `machine.offload`, and each outcome's `beside.offloadBuilds` says one
+  stood.
   cargo is held to the same cores through `CARGO_BUILD_JOBS`, which a
   `-j` on the command still overrides. The call's output says it ran
   capped, and `queue.json` marks the job

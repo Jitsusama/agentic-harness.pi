@@ -297,6 +297,17 @@ describe("a builder elsewhere, from Nix's machines file", () => {
 		expect(offloadIn(file)).toEqual({ builds: 36, vms: 36 });
 	});
 
+	it("counts a builder named on several lines once, by its largest maxJobs", () => {
+		// The lent builder, once for VM tests and once for big builds only:
+		// Nix locks its slots by URI, so both lines share its eight.
+		const lent = [
+			"ssh-ng://nix-offload x86_64-linux /etc/nix/offload_ed25519 8 1 kvm,nixos-test,benchmark - AAAA",
+			"ssh-ng://nix-offload x86_64-linux /etc/nix/offload_ed25519 8 1 big-parallel big-parallel AAAA",
+		].join("\n");
+		expect(offloadIn(lent)).toEqual({ builds: 8, vms: 8 });
+		expect(offloadIn(`${lent}\n${aquifer}`)).toEqual({ builds: 40, vms: 40 });
+	});
+
 	it("counts none for another system, or an empty file", () => {
 		expect(offloadIn("ssh://mac aarch64-darwin - 8 1 -")).toBeUndefined();
 		expect(offloadIn("")).toBeUndefined();
