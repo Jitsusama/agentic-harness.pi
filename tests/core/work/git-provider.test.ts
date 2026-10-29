@@ -219,6 +219,54 @@ describe("createGitTreeProvider", () => {
 		expect(addition(calls)).toBeUndefined();
 	});
 
+	it("refuses a worktree from a checkout that mirrors its remote", async () => {
+		// pi-packages keeps each package as a mirror, and its timed fetch
+		// deleted a branch made there while a tree was working on it.
+		const { exec, calls } = fakeExec([
+			{
+				when: ["--get-regexp", "mirror"],
+				stdout: "remote.origin.mirror true\n",
+			},
+			...ok,
+		]);
+		const provider = createGitTreeProvider({ exec, stateDir: "/state" });
+
+		await expect(provider.ensure(worktree())).rejects.toThrow(
+			/is a mirror.*Cut the worktree from a working checkout/,
+		);
+		expect(addition(calls)).toBeUndefined();
+	});
+
+	it("still pins a snapshot from a checkout that mirrors its remote", async () => {
+		const { exec, calls } = fakeExec([
+			{
+				when: ["--get-regexp", "mirror"],
+				stdout: "remote.origin.mirror true\n",
+			},
+			...ok,
+		]);
+		const provider = createGitTreeProvider({ exec, stateDir: "/state" });
+
+		await provider.ensure(snapshot());
+
+		expect(addition(calls)?.args).toContain("--detach");
+	});
+
+	it("cuts a worktree where a remote says it is not a mirror", async () => {
+		const { exec, calls } = fakeExec([
+			{
+				when: ["--get-regexp", "mirror"],
+				stdout: "remote.origin.mirror false\n",
+			},
+			...ok,
+		]);
+		const provider = createGitTreeProvider({ exec, stateDir: "/state" });
+
+		await provider.ensure(worktree());
+
+		expect(addition(calls)).toBeDefined();
+	});
+
 	it("works on a local branch of that name when there is one", async () => {
 		const { exec, calls } = fakeExec([
 			{ when: ["rev-parse", "HEAD"], code: 128 },

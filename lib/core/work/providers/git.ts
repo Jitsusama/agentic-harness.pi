@@ -93,6 +93,26 @@ function cutFailure(said: string, request: TreeRequest): string {
 	return `Cutting a tree for ${request.purpose} failed: ${words}`;
 }
 
+/**
+ * Whether the checkout has a remote it mirrors, as pi-packages keeps
+ * its copy of each package. A branch made there lasted until the next
+ * timed fetch, which deleted it under the tree working on it.
+ */
+async function mirrors(
+	git: (...args: string[]) => ReturnType<Exec>,
+): Promise<boolean> {
+	const said = await git(
+		"config",
+		"--type=bool",
+		"--get-regexp",
+		"^remote\\..*\\.mirror$",
+	);
+	return (
+		said.code === 0 &&
+		said.stdout.split("\n").some((line) => line.trim().endsWith(" true"))
+	);
+}
+
 /** What statfs reports for a btrfs filesystem. */
 const BTRFS_MAGIC = 0x9123683e;
 
@@ -254,6 +274,11 @@ export function createGitTreeProvider(deps: {
 				}
 				at = ["--detach", path, request.commit];
 			} else {
+				if (await mirrors(git)) {
+					throw new Error(
+						`${displayPath(source.path)} is a mirror: every fetch makes its branches match its remote's, so a branch made in a tree cut from it is gone at the next one, and git commits the whole tree as a new history in its place. Cut the worktree from a working checkout of ${request.repo.key}, or take a snapshot to read it.`,
+					);
+				}
 				at = await branchArgs(git, path, request.branch, request.baseBranch);
 			}
 			// git fills an empty directory as readily as it makes one. A
