@@ -12,24 +12,31 @@ does that.
 
 ## What It Sends
 
-A bash call is rewritten into
+Each step of a bash call that builds VM checks is rewritten, in its
+own place, into
 `nix-offload there [-L] [--keep-going] github:<owner>/<repo>/<rev> <checks>`
 when all of these hold:
 
-- it is one `nix build --no-link` of `.#checks.<system>.<name>`,
-  optionally under `direnv exec .`, with no flag past `-L`,
-  `--print-build-logs`, `--keep-going` or `-k`, and the machine
-  queue reads it as a VM check;
-- it runs in the repository's top folder, no tracked file differs
-  from HEAD, and a remote branch contains HEAD;
+- it is a `nix build --no-link` of one flake's checks, optionally
+  under `timeout <duration>` or `direnv exec .`, with no flag past
+  `-L`, `--print-build-logs`, `--keep-going` or `-k`, and the
+  machine queue reads it as a VM check;
+- the flake's folder is known from the command alone: `.#`,
+  `git+file://$PWD#` or `path:$T#`, following plain variables set
+  earlier in the command and its `cd`s;
+- that folder is the repository's top, no tracked file differs from
+  HEAD (nor an untracked one, for `path:`, which builds them too),
+  and a remote branch contains HEAD;
 - origin is a GitHub repository named in config;
 - a builder stands in `/run/nix-offload/machines`. While one is
   being lent, the call waits for it, for at most the queue's three
   minutes from the lend's start.
 
-Its redirections are kept, and it prints
-`remote-check: sent to the lent builder by commit <rev>` on stderr
-first. Anything else runs as written, through the machine queue,
+A step that is piped, in a subshell or loop, or names its check
+through something only running it would show, runs as written.
+Its redirections are kept, and the call prints
+`remote-check: N checks sent to the lent builder by commit` on
+stderr first. Anything else runs as written, through the machine queue,
 whose wait for VM room is what lends a builder. If the builder
 can't be reached when the command runs, `nix-offload there` builds
 here instead and says so; that build takes no turn in the queue.
