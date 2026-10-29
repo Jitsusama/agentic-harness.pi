@@ -30,8 +30,18 @@ is born there. pi itself stays where it was started.
   run their first command by then, so what they forked stayed behind.
   `shell-workflow` has the shell write its own pid first, and then all
   200 shells' commands ran in the cgroup.
-- **Nothing to set up elsewhere.** Without `JOBS_CGROUP`, off Linux, or
-  outside a user manager, nothing changes. A setting naming a cgroup that
+- **A Mac takes turns too, and places nothing.** It keeps the same queue,
+  in the account's temporary folder, where its mycelium node looks, under
+  the same turn rules. Its room comes from its kernel's own terms
+  (`lib/internal/priority/room-darwin.ts`). Memory waits at
+  `kern.memorystatus_vm_pressure_level` warning or worse, while it swaps
+  out, or under 20% available. CPU pressure is load past the cores, and
+  VMs are its Virtualization.framework or qemu guests. A Mac has no
+  cgroups, and a session there already runs at Utility QoS from its
+  launchd job, so no job is moved or capped by cgroup, and memory peaks
+  go unrecorded.
+- **Nothing to set up elsewhere.** Without `JOBS_CGROUP`, off Linux and
+  macOS, or outside a user manager, nothing changes. A setting naming a cgroup that
   isn't there is said once, at session start. A child that exits before
   it can move is skipped, and so is one spawned while the cgroup is gone
   for a moment, as it is while systemd starts it again; a cgroup that

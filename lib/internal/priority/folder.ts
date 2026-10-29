@@ -42,6 +42,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { runtimeDir } from "../paths.ts";
 import { awaitedNow, NOBODY } from "./awaited.ts";
 import { workNameIn } from "./name.ts";
 import {
@@ -116,7 +117,8 @@ function questsFirstIn(dir: string): ReadonlySet<string> {
 export function machineQueueDir(
 	env: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
-	const runtime = env.XDG_RUNTIME_DIR;
+	// A Mac's is its account's temporary folder, where its node looks too.
+	const runtime = runtimeDir(env);
 	return runtime ? join(runtime, "jobs") : undefined;
 }
 
