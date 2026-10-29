@@ -36,7 +36,10 @@ import {
 	probeProcess,
 } from "../../lib/internal/quest/process-liveness.ts";
 import { extractSectionParagraph } from "../../lib/internal/quest/quest-doc.ts";
-import { resolveSpawnCwd } from "../../lib/internal/quest/reopen.ts";
+import {
+	resolveSpawnCwd,
+	sessionToReopen,
+} from "../../lib/internal/quest/reopen.ts";
 import {
 	activityFromIndex,
 	buildLivenessSnapshot,
@@ -80,8 +83,16 @@ export interface QuestIndexEntry {
 	/** The address of the orchestrator it answers to, when one is above it. */
 	readonly orchestrator?: string;
 	readonly documents: readonly QuestIndexDocument[];
-	/** Its sessions still attached, by id. */
+	/**
+	 * Its sessions still running, by id: attached and not found dead, so a
+	 * README entry left reading active after its process went is not one.
+	 */
 	readonly sessions: readonly string[];
+	/**
+	 * The session a closed quest is reopened in, and the folder it ran in:
+	 * its newest saved session, absent when that one's folder is gone.
+	 */
+	readonly resume?: { readonly id: string; readonly cwd: string };
 	/** The folder a new session for it opens in. */
 	readonly start: string;
 	readonly updated: string;
@@ -158,13 +169,19 @@ export function questsIn(
 			if (isOpen(fm.status)) {
 				const by = orchestrationOf(id, read).by;
 				const summary = extractSectionParagraph(entry.doc.body, "summary");
+				const sessions = fm.sessions.map((s) => deriveLiveness(s, snapshot));
 				const start = resolveSpawnCwd({
 					questDir: entry.dir,
 					store,
 					...(home ? { home } : {}),
 					trees: fm.trees ?? [],
-					sessions: fm.sessions.map((s) => deriveLiveness(s, snapshot)),
+					sessions,
 				}).cwd;
+				const resume = sessionToReopen({
+					questDir: entry.dir,
+					store,
+					sessions,
+				});
 				found.push({
 					id,
 					address: questAddress(id),
@@ -183,9 +200,10 @@ export function questsIn(
 						title: doc.title ?? doc.frontMatter.id,
 						stage: doc.frontMatter.stage,
 					})),
-					sessions: fm.sessions
-						.filter((s) => s.status !== "detached")
+					sessions: sessions
+						.filter((s) => s.liveness !== "detached" && s.liveness !== "dead")
 						.map((s) => s.id),
+					...(resume ? { resume } : {}),
 					start,
 					updated: fm.updated,
 				});

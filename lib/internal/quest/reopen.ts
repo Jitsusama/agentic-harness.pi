@@ -129,6 +129,40 @@ export function pickResumeSession(
 	return undefined;
 }
 
+/**
+ * The session a closed quest picks up from: its most recently active
+ * one that pi saved, when its folder still exists and isn't in the
+ * quest store. Detached sessions count, unlike `pickResumeSession`,
+ * because a session a power-off or a closed window ended is exactly
+ * what reopening means to continue. Undefined when the newest one's
+ * folder is gone, rather than reaching back to an older session, whose
+ * work is staler still: the caller starts the quest afresh instead.
+ *
+ * 2026-10-29: the launcher resumed the last README entry not marked
+ * detached, which for 19AMVE was a month-old session whose pid had long
+ * died and whose folder was gone, and kitty opened it in $HOME.
+ */
+export function sessionToReopen(opts: {
+	questDir: string;
+	/** The quest store's root; a folder anywhere under it is skipped. */
+	store?: string;
+	sessions: SessionView[];
+	exists?: (p: string) => boolean;
+}): { id: string; cwd: string } | undefined {
+	const exists = opts.exists ?? existsSync;
+	const inStore = (p: string) =>
+		[opts.questDir, opts.store].some(
+			(root) => root !== undefined && (p === root || p.startsWith(root + sep)),
+		);
+	// No activity means pi has no log of it, so there is nothing to resume.
+	const newest = [...opts.sessions]
+		.filter((session) => session.lastActivity !== undefined)
+		.sort(byActivityDesc)[0];
+	const cwd = newest?.cwd;
+	if (!newest || !cwd || inStore(cwd) || !exists(cwd)) return undefined;
+	return { id: newest.id, cwd };
+}
+
 /** A session projected for display in the `show` view. */
 export interface SessionSummary {
 	id: string;

@@ -95,6 +95,7 @@ import {
 import { questCommandEnvironment } from "./scratch.ts";
 import {
 	endReasonForShutdown,
+	handOverSession,
 	lostSessionCount,
 	recordSessionEnd,
 	refreshRestoreFile,
@@ -804,10 +805,28 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		const ended = endReasonForShutdown(event.reason);
 		if (sid && ended) recordSessionEnd(sid, ended);
 		// A swap hands the process to another conversation, so a later
-		// signal is no longer this session's to take. A quit keeps
-		// following it: pi reports a signal as a quit, and the listener
-		// that runs right after this is what corrects the record.
-		if (ended === "swapped") setSignalStampSession(undefined);
+		// signal is no longer this session's to take: it is the
+		// successor's, whose record is opened now in case its own start
+		// never comes. A quit keeps following this one: pi reports a
+		// signal as a quit, and the listener that runs right after this is
+		// what corrects the record.
+		if (ended === "swapped") {
+			const sessionFile = ctx.sessionManager.getSessionFile();
+			const successor =
+				sid && isPersistedSession(ctx) && ctx.hasUI
+					? handOverSession(
+							{
+								sessionId: sid,
+								cwd: ctx.cwd,
+								...(state.questId ? { questId: state.questId } : {}),
+								...(sessionFile ? { sessionFile } : {}),
+								...captureSessionIdentity(),
+							},
+							event.targetSessionFile,
+						)
+					: undefined;
+			if (!successor) setSignalStampSession(undefined);
+		}
 		// Mark this session detached on the loaded quest so its
 		// liveness reads correctly after the process exits. Only when
 		// something ended, for the same reason as the record: a reload
