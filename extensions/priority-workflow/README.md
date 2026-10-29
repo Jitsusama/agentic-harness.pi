@@ -80,9 +80,19 @@ does not, so the queue also learns it from what ran. While a job runs,
 the Nix builds it asked for are found by their worker, which the daemon
 names after its client's pid, and that client runs in the job shell's
 cgroup. A build running qemu, NixOS's test driver, systemd-nspawn, niri
-or sway marks the job, and the next time the same command is asked for
-it waits as a vm-check. Only the latest run that had its turn decides,
-so once its checks come from the cache it is a build again.
+or sway marks the job, and the next time the same work is asked for it
+waits as a vm-check: the same checks however the flake is named, or
+the same command with any log. Only the latest run that had its turn
+decides, so once its checks come from the cache it is a build again.
+A check that ran one when it was built alone, named in full or as
+`$c.name` the way the integration net asks, is known by name: any
+other work asking for it waits as a vm-check too, and is never quick.
+A run of several checks that ran one teaches nothing of which, since
+nothing in a daemon build says which check it is for. So work that
+builds VM checks whose names don't say so, beside others, should run
+them as VM work of its own: on 28 October the integration net did
+not, and seven VMs ran with no VM turn while twenty VM tests waited
+from 23:04 to past 00:48.
 
 - **A turn** comes when the memory left past the floors core.nix keeps
   for the person's programs covers the job's need, memory pressure is
