@@ -243,6 +243,12 @@ const QUEST_PARAMETERS = Type.Object({
 				"spawn and restore: for pi in nested terminals, innermost (the default, the one the person sees) or outermost.",
 		}),
 	),
+	machine: Type.Optional(
+		Type.String({
+			description:
+				"spawn: the machine to start the session on, by the name its mycelium node gives it (this one, or one its links reach). The node starts it held there, in the same folder under that machine's home, or its home; the window opened here joins it, and closing that window leaves it running. restore refuses it.",
+		}),
+	),
 	command: Type.Optional(
 		Type.String({
 			description:

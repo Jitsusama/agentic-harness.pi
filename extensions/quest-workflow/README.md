@@ -96,6 +96,20 @@ shipped and tested.
   instead, says so, and stops offering it once a session is
   running in its place. See the terminal library's README for
   the settings.
+- **Spawn on a machine**: `spawn` with `machine` asks this
+  machine's mycelium node to start the session held on that
+  machine, through that machine's own node when it is another,
+  then opens the usual terminal here on the words the node
+  answers that join it. Closing that window leaves the session
+  running, and the words join it again from any terminal; the
+  answer names the machine and the held id. On another machine
+  it begins in the same folder under that machine's home, or in
+  its home when there is none there or the folder is outside
+  home, and it starts fresh, since a session's history is saved
+  on its own machine. A dry run asks the node nothing. A held
+  session's terminal is its holder, not kitty, so a session it
+  spawns in turn opens a new window rather than a tab. `restore`
+  refuses `machine`: it reopens this machine's saved sessions.
 - **Queries**: `find`, `who`, `links`, `locate` (the inverse
   index: resolve a document id, alias ref or session id to the
   quest that owns it), `ancestors` (trace a quest's parent chain

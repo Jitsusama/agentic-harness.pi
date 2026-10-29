@@ -11,6 +11,8 @@ import {
 	nodeSocket,
 	sessionsAt,
 	sessionsFrom,
+	startAt,
+	startedFrom,
 } from "../../../lib/mesh/node.ts";
 
 let root: string;
@@ -101,6 +103,75 @@ describe("asking the node who is there", () => {
 		);
 
 		expect(held && [...held.keys()]).toEqual(["ok"]);
+	});
+});
+
+describe("asking the node to start a session held", () => {
+	const start = {
+		machine: "equilibrius",
+		folder: "src/core.nix",
+		command: ["pi"],
+	};
+
+	it("asks as the node's wire says and hears where and how to join it", async () => {
+		const asked: unknown[] = [];
+		const started = {
+			machine: "equilibrius",
+			held: "c97b4852",
+			folder: "/Users/joel/src/core.nix",
+			attach: [
+				"ssh",
+				"-t",
+				"--",
+				"equilibrius",
+				"mycelium",
+				"attach",
+				"c97b4852",
+			],
+		};
+		const socket = await serving((line) => {
+			asked.push(JSON.parse(line));
+			return JSON.stringify({ Ok: { Started: started } });
+		});
+
+		const answer = await startAt(socket, start);
+
+		expect(asked).toEqual([
+			{
+				Start: {
+					work: { needs: [{ machine: "equilibrius" }] },
+					folder: "src/core.nix",
+					command: ["pi"],
+				},
+			},
+		]);
+		expect(answer).toEqual({ ok: true, started });
+	});
+
+	it("hears the node's reason when nothing starts", () => {
+		expect(
+			startedFrom('{"Err":"nowhere: optimus isn\'t equilibrius"}'),
+		).toEqual({
+			ok: false,
+			reason: "nowhere: optimus isn't equilibrius",
+		});
+	});
+
+	it("says why when no node answers, or none is named", async () => {
+		const none = join(root, "none.sock");
+		expect(await startAt(none, start)).toEqual({
+			ok: false,
+			reason: `no mycelium node answered at ${none}`,
+		});
+		expect(await startAt(undefined, start)).toEqual({
+			ok: false,
+			reason: "no mycelium realm is named here, so there is no node to ask",
+		});
+	});
+
+	it("takes an answer it can't read as not started", () => {
+		const answer = startedFrom('{"Ok":{"Started":{"machine":"x"}}}');
+		expect(answer.ok).toBe(false);
 	});
 });
 

@@ -4,6 +4,7 @@
  * window via the registered terminal driver.
  */
 
+import { homedir } from "node:os";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	pickResumeSession,
@@ -45,6 +46,7 @@ import {
 	type QuestToolParams,
 	refuse,
 } from "./shared.ts";
+import { isThisMachine, spawnHeld } from "./spawn-held.ts";
 
 /**
  * Repair session-to-quest membership across the store, in two
@@ -308,7 +310,13 @@ export async function spawn(
 	// several are concurrently live; in that case spawn starts a
 	// fresh pi and surfaces the choice rather than guessing.
 	const currentId = currentSessionId(ctx, undefined);
-	const resume = pickResumeSession(sessions.filter((s) => s.id !== currentId));
+	// A session's history is saved on its own machine, so one started on
+	// another starts fresh.
+	const machine = params.machine?.trim() || undefined;
+	const resume =
+		machine === undefined || isThisMachine(machine)
+			? pickResumeSession(sessions.filter((s) => s.id !== currentId))
+			: undefined;
 	const { command, resumedSessionId } = resolveSpawnCommand(
 		params.command,
 		resume,
@@ -332,6 +340,30 @@ export async function spawn(
 		{ questId: questIdForSpawn, cwd },
 	);
 	if (!read.ok) return refuse(read.refusal);
+	if (machine !== undefined) {
+		const held = await spawnHeld({
+			machine,
+			command,
+			cwd,
+			home: homedir(),
+			questId: questIdForSpawn,
+			...(read.layout ? { layout: read.layout } : {}),
+			options: read.options,
+		});
+		if (!held.ok) return refuse(held.refusal);
+		const resumed = held.planned
+			? undefined
+			: params.command?.trim()
+				? undefined
+				: resumeMessage(resume, sessions, now);
+		return ok(resumed ? `${held.message} ${resumed}` : held.message, {
+			...held.details,
+			cwd,
+			command,
+			resumedSessionId,
+			autoloadQuestId: questIdForSpawn,
+		});
+	}
 	// The command is typed into a login shell the terminal opens, so the
 	// person's startup files put the right pi on PATH; handed to the
 	// terminal directly it would run without them.
