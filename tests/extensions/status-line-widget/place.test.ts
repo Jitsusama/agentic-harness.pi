@@ -82,26 +82,29 @@ describe("what the machine says to tell it by", () => {
 			JSON.stringify({
 				engine: "/bin/git-engine",
 				roots: ["zone.nix", ".git"],
-				marks: { unpushed: "↑", branch: 7 },
+				marks: { more: "~", branch: 7 },
 			}),
 		);
 		const where = readWhere(join(dir, "where.json"));
 
 		expect(where.engine).toBe("/bin/git-engine");
 		expect(where.roots).toEqual(["zone.nix", ".git"]);
-		expect(where.marks.unpushed).toBe("↑");
+		expect(where.marks.more).toBe("~");
 		expect(where.marks.branch).toBe(DEFAULT_WHERE.marks.branch);
 	});
 
-	it("leaves unread a mark the line doesn't draw, as a prompt's unsaved is", () => {
+	it("leaves unread a mark the line doesn't draw, as a prompt's unsaved and unpushed are", () => {
 		writeFileSync(
 			join(dir, "where.json"),
-			JSON.stringify({ marks: { unsaved: "●", unpushed: "↑" } }),
+			JSON.stringify({
+				marks: { unsaved: "●", unpushed: "", more: "~" },
+			}),
 		);
 		const where = readWhere(join(dir, "where.json"));
 
 		expect(where.marks).not.toHaveProperty("unsaved");
-		expect(where.marks.unpushed).toBe("↑");
+		expect(where.marks).not.toHaveProperty("unpushed");
+		expect(where.marks.more).toBe("~");
 	});
 
 	it("keeps the default roots over an empty list, which would tell nothing", () => {

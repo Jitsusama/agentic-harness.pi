@@ -5,9 +5,8 @@
  * On the left: where pi is working, told from its root; what git is in the
  * middle of; and the model, with how hard it thinks. On the right: what
  * extensions say, the panel's height when it isn't the usual one, context
- * and money as one meter, and the branch, muted, with a mark for commits
- * not yet pushed. Work not yet committed has no mark, since none tried for
- * it read plainly at the end of the line. Fields are two spaces apart and a mark sits
+ * and money as one meter, and the branch, muted, with git's notation for
+ * its changes and its upstream. Fields are two spaces apart and a mark sits
  * one space from its words, so each reads with its own. Each field shows
  * only while it's true, and they give way a step at a time as the window
  * narrows, the folder's name standing last. A field that gives way goes
@@ -231,10 +230,10 @@ export function draw(
 				: branch;
 			pieces.push({ role: "muted", text: glyph !== "" ? ` ${name}` : name });
 		}
-		if (facts.git?.ahead) {
+		for (const group of facts.git ? notation(facts.git) : []) {
 			pieces.push({
 				role: "text",
-				text: `${pieces.length > 0 ? " " : ""}${marks.unpushed}`,
+				text: `${pieces.length > 0 ? " " : ""}${group}`,
 			});
 		}
 		field(pieces);
@@ -242,6 +241,30 @@ export function draw(
 
 	return { left, right };
 }
+
+/**
+ * What the tree holds and how the branch stands with its upstream, in the
+ * notation git's own short status and the usual prompts use: `*` for
+ * changes not staged, `+` for staged, `?` for untracked files, together,
+ * then `↑N` ahead of its upstream and `↓N` behind, together. Nothing
+ * when the tree is clean and in step, so there is never a mark to explain.
+ */
+export function notation(git: GitState): string[] {
+	const changes = [
+		git.unstaged ? "*" : "",
+		git.staged ? "+" : "",
+		git.untracked ? "?" : "",
+	].join("");
+	const upstream = [
+		git.ahead > 0 ? `${AHEAD}${git.ahead}` : "",
+		git.behind > 0 ? `${BEHIND}${git.behind}` : "",
+	].join("");
+	return [changes, upstream].filter((group) => group !== "");
+}
+
+/** The arrows for commits ahead of an upstream and behind it. */
+const AHEAD = "↑";
+const BEHIND = "↓";
 
 /**
  * The line at a width: each step taken in turn until both sides fit with a
