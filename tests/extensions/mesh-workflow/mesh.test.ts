@@ -36,6 +36,7 @@ import {
 } from "../../../extensions/mesh-workflow/index.ts";
 import { awaitedNow } from "../../../lib/internal/priority/awaited.ts";
 import { QUEST_CONCLUDED } from "../../../lib/internal/quest/concluded.ts";
+import { reloadSlot } from "../../../lib/internal/reload/slot.ts";
 import {
 	ROLLOVER_CARRY,
 	ROLLOVER_RECORD,
@@ -651,6 +652,24 @@ describe("a turn", () => {
 		fromElsewhere({ intent: "fyi", to: ["@7M6JKG"], text: "done here" });
 		await vi.waitFor(() => expect(sent).toHaveLength(2));
 		expect(sent[1]?.options).toEqual({ triggerTurn: false });
+	});
+
+	it("puts a question's turn off for a waiting reload, owing it to the landing", async () => {
+		const slot = reloadSlot();
+		slot.request = { reason: "the install moved", by: "self" };
+		try {
+			const { sent } = await startSession({}, { isIdle: () => true });
+
+			fromElsewhere({ intent: "question", to: ["@7M6JKG"], text: "why?" });
+
+			await vi.waitFor(() => expect(sent).toHaveLength(1));
+			expect(sent[0]?.options).toEqual({ triggerTurn: false });
+			expect(JSON.stringify(sent[0]?.message)).toContain("why?");
+			expect(slot.turnOwed).toBe(true);
+		} finally {
+			slot.request = undefined;
+			slot.turnOwed = undefined;
+		}
 	});
 
 	it("never starts a turn for what it catches up on at start", async () => {

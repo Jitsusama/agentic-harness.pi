@@ -18,6 +18,12 @@
  *
  * A message that resumes a run cut short, as a compaction's does, is
  * not one to hold: nothing would say it again after the reload.
+ *
+ * A delivery the new runtime would say without a turn, as mesh's
+ * catch-up does, is said now instead, without its turn, and the turn is
+ * owed to the reload's landing ({@link oweTurnToReload}). If no reload
+ * takes it within the hold, the delivery starts the turn itself
+ * ({@link takeOwedTurn}).
  */
 
 import { reloadSlot } from "./slot.ts";
@@ -50,4 +56,20 @@ export function createReloadHold(now: () => number = Date.now): ReloadHold {
 		if (since === undefined || gap) since = at;
 		return at - since < HOLD_FOR_RELOAD_MS;
 	};
+}
+
+/** A turn was put off for the waiting reload: its landing starts one. */
+export function oweTurnToReload(): void {
+	reloadSlot().turnOwed = true;
+}
+
+/**
+ * Whether a turn is still owed, taking it: the landing asks, and so does
+ * the delivery that put it off, once its hold has passed.
+ */
+export function takeOwedTurn(): boolean {
+	const slot = reloadSlot();
+	if (slot.turnOwed !== true) return false;
+	slot.turnOwed = undefined;
+	return true;
 }
