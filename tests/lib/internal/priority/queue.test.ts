@@ -379,6 +379,73 @@ describe("the kind of heavy work a command runs", () => {
 	});
 });
 
+describe("a builder elsewhere", () => {
+	const long = startedAgo(60 * 60 * 1000);
+	const vmsRunning = Array.from({ length: MOST_VMS }, (_, i) =>
+		job(`vm-${i}`, { kind: "vm-check", started: long }),
+	);
+	const full = { ...ROOMY, vms: MOST_VMS };
+	const withVms = { builds: 4, vms: 2 };
+
+	it("gives a waiting VM check its turn on the builder's VM slots, and no more", () => {
+		const waiting = job("vm-next", { kind: "vm-check" });
+		expect(nextTurn([...vmsRunning, waiting], full, NOW)).toBeUndefined();
+		expect(
+			waitReasons([...vmsRunning, waiting], full, NOW).get("vm-next"),
+		).toBe("vms");
+
+		const standing = { ...full, offload: withVms };
+		expect(nextTurn([...vmsRunning, waiting], standing, NOW)?.id).toBe(
+			"vm-next",
+		);
+
+		const both = [
+			...vmsRunning,
+			job("vm-there-1", { kind: "vm-check", started: long }),
+			job("vm-there-2", { kind: "vm-check", started: long }),
+			waiting,
+		];
+		expect(nextTurn(both, standing, NOW)).toBeUndefined();
+	});
+
+	it("counts no VM slots for a builder that can't run VMs", () => {
+		const waiting = job("vm-next", { kind: "vm-check" });
+		const buildsOnly = { ...full, offload: { builds: 8, vms: 0 } };
+		expect(nextTurn([...vmsRunning, waiting], buildsOnly, NOW)).toBeUndefined();
+	});
+
+	it("starts builds beside a VM check on its slots whatever this machine's CPU pressure", () => {
+		const checking = [job("vm", { kind: "vm-check", started: long })];
+		const pressed = { ...BUSY, vms: 1 };
+		const build = job("build");
+		expect(nextTurn([...checking, build], pressed, NOW)).toBeUndefined();
+		expect(waitReasons([...checking, build], pressed, NOW).get("build")).toBe(
+			"behind",
+		);
+
+		const oneSlot = { ...pressed, offload: { builds: 1, vms: 0 } };
+		expect(nextTurn([...checking, build], oneSlot, NOW)?.id).toBe("build");
+
+		const there = job("there", { started: long, capped: true });
+		expect(nextTurn([...checking, there, build], oneSlot, NOW)).toBeUndefined();
+	});
+
+	it("leaves the one build here beside a VM check when the machine has room", () => {
+		const checking = [job("vm", { kind: "vm-check", started: long })];
+		const calm = { ...ROOMY, vms: 1, offload: { builds: 1, vms: 0 } };
+		const running = [
+			job("here", { started: long, capped: true }),
+			job("there", { started: long, capped: true }),
+		];
+		expect(
+			nextTurn([...checking, running[0] as Job, job("next")], calm, NOW)?.id,
+		).toBe("next");
+		expect(
+			nextTurn([...checking, ...running, job("next")], calm, NOW),
+		).toBeUndefined();
+	});
+});
+
 describe("whose turn it is", () => {
 	it("starts timed work first, then the oldest", () => {
 		const jobs = [

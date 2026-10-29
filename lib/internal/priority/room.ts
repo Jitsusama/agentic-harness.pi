@@ -47,7 +47,7 @@
 
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { MOST_MEMORY_PRESSURE, type Room } from "./queue.ts";
+import { MOST_MEMORY_PRESSURE, type Offload, type Room } from "./queue.ts";
 
 const GIB = 1024 ** 3;
 
@@ -80,9 +80,62 @@ export interface BuildSeen {
 export interface Kernel {
 	readonly proc: string;
 	readonly cgroups: string;
+	/**
+	 * The Nix machines file naming builders elsewhere, which Nix's
+	 * `builders = @<file>` reads; absent where none is kept.
+	 */
+	readonly machines?: string;
 }
 
-export const KERNEL: Kernel = { proc: "/proc", cgroups: "/sys/fs/cgroup" };
+export const KERNEL: Kernel = {
+	proc: "/proc",
+	cgroups: "/sys/fs/cgroup",
+	// Written by 5FWIUS's offload daemon while a builder stands, emptied
+	// when it goes.
+	machines: "/run/nix-offload/machines",
+};
+
+/** The system the builders' slots are counted for: this machine's. */
+const OFFLOAD_SYSTEM = "x86_64-linux";
+
+/** A builder's features, any of which says it can run a VM check. */
+const VM_FEATURES: ReadonlySet<string> = new Set(["kvm", "nixos-test"]);
+
+/**
+ * The builders' room in a Nix machines file: per line (or `;`-separated
+ * entry), `uri systems key maxJobs speedFactor features mandatory
+ * hostKey`, `-` for a field left empty. A builder of this machine's
+ * system adds its maxJobs to builds, and to VMs too where its features
+ * say it runs VMs. Nothing when the file names none.
+ */
+export function offloadIn(text: string): Offload | undefined {
+	let builds = 0;
+	let vms = 0;
+	for (const entry of text.split(/[\n;]/)) {
+		const fields = entry.replace(/#.*/, "").trim().split(/\s+/);
+		const [uri, systems, , jobs, , features] = fields;
+		if (!uri) continue;
+		if (!(systems ?? "-").split(",").includes(OFFLOAD_SYSTEM)) continue;
+		const slots = Number.parseInt(jobs ?? "", 10);
+		const count = Number.isFinite(slots) && slots > 0 ? slots : 1;
+		builds += count;
+		if ((features ?? "-").split(",").some((one) => VM_FEATURES.has(one))) {
+			vms += count;
+		}
+	}
+	return builds > 0 ? { builds, vms } : undefined;
+}
+
+/** The builders standing now, from the machines file, or none. */
+function offloadOf(kernel: Kernel): Offload | undefined {
+	if (kernel.machines === undefined) return undefined;
+	try {
+		return offloadIn(readFileSync(kernel.machines, "utf8"));
+	} catch {
+		// No file: no builder stands.
+		return undefined;
+	}
+}
 
 /** How deep floors are looked for: user.slice/user-N/user@N/app.slice. */
 const FLOOR_DEPTH = 5;
@@ -123,7 +176,9 @@ export function readRoom(
 	const memory = pressure(kernel.proc, "memory");
 	const cpu = pressure(kernel.proc, "cpu");
 	const builds = buildsIn(kernel);
+	const offload = offloadOf(kernel);
 	return {
+		...(offload ? { offload } : {}),
 		availableGib: Math.max(0, available - kept) / GIB,
 		// No cgroup stalls more than the whole machine, so the walk, 6 ms
 		// over optimus's 171 cgroups, is only made when it could matter.

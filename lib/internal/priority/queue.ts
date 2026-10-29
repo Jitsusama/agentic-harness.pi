@@ -221,7 +221,11 @@ export const MOST_FLOORS_PRESSURE = 1;
  */
 function vmsAllowed(room: Room, rules: Rules): number {
 	const most = rules.mostVms ?? MOST_VMS;
-	return floorsWait(room) ? Math.min(most, VMS_WHATEVER_FLOORS_FEEL) : most;
+	const here = floorsWait(room)
+		? Math.min(most, VMS_WHATEVER_FLOORS_FEEL)
+		: most;
+	// A VM on a builder elsewhere takes none of the person's memory here.
+	return here + (room.offload?.vms ?? 0);
 }
 
 /**
@@ -350,6 +354,26 @@ export interface Room {
 	 * where no floor is read.
 	 */
 	readonly floorsPressure?: number;
+	/** A builder elsewhere Nix sends work to, while one stands. */
+	readonly offload?: Offload;
+}
+
+/**
+ * The room of the builders elsewhere that Nix may send this machine's
+ * builds to, from its machines file: their slots for builds, and for VM
+ * checks where they can run VMs. While one stands, the queue counts its
+ * slots as room of this machine's own, so work waiting here goes there.
+ * Without this, the queue held that work for optimus's room alone, and
+ * nothing reached the builder (5FWIUS, 29 October).
+ *
+ * The queue can't choose where a build runs: Nix's build hook takes a
+ * free slot on a builder that matches first and otherwise builds here.
+ * So no more is counted than the builder's own slots; past them, an
+ * admitted build would land on this machine.
+ */
+export interface Offload {
+	readonly builds: number;
+	readonly vms: number;
 }
 
 const VMS: ReadonlySet<Kind> = new Set(["vm-test", "vm-check"]);
@@ -659,11 +683,16 @@ function standing(
 	const beside = running.filter(
 		(job) => job.kind === "build" && !stillQuick(job),
 	).length;
+	// Beside a VM check: the one capped build here while the machine has
+	// the CPU and the person's memory to spare, and a builder's slots
+	// whatever this machine feels, since a build there presses neither.
+	const here =
+		room.cpuPressure < MOST_CPU_PRESSURE_BESIDE_VMS && !floorsWait(room)
+			? BUILDS_BESIDE_VMS
+			: 0;
 	const builds = !checking
 		? Number.POSITIVE_INFINITY
-		: room.cpuPressure < MOST_CPU_PRESSURE_BESIDE_VMS && !floorsWait(room)
-			? Math.max(0, BUILDS_BESIDE_VMS - beside)
-			: 0;
+		: Math.max(0, here + (room.offload?.builds ?? 0) - beside);
 	const quick = {
 		running: quickRunning,
 		left: checking

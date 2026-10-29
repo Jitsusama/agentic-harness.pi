@@ -181,6 +181,17 @@ is a build, never a VM check.
   job reads its settings from its own `<id>.capped`, so quick work can
   be held tighter; an empty one, as an older harness writes, means
   `capped.conf`.
+- **A builder elsewhere counts as room here** while Nix's machines
+  file `/run/nix-offload/machines` names one, as the offload daemon
+  writes it while an on-demand builder stands. An `x86_64-linux`
+  builder's maxJobs adds that many builds beside a VM check, whatever
+  this machine's CPU pressure, and, where its features include `kvm`
+  or `nixos-test`, that many VMs, whatever the person's programs feel,
+  since work there takes neither from this machine. No more than its
+  own slots are counted: the queue can't choose where a build runs,
+  Nix takes a free builder slot first and otherwise builds here.
+  `queue.json` says the builder's room under `machine.offload`, and
+  each outcome's `beside.offloadBuilds` says one stood.
   cargo is held to the same cores through `CARGO_BUILD_JOBS`, which a
   `-j` on the command still overrides. The call's output says it ran
   capped, and `queue.json` marks the job
