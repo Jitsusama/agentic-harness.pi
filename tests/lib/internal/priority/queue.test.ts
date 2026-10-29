@@ -423,28 +423,24 @@ describe("a builder elsewhere", () => {
 		expect(nextTurn(evaluating, standing, NOW)).toBeUndefined();
 	});
 
-	it("holds big work for a builder being lent, a few minutes at most, and lets the rest go", () => {
+	it("holds slow builds for a builder being lent, a few minutes at most, and lets the rest go", () => {
 		// A nix build started while the builder boots keeps a hook that
 		// found none, and runs wholly here (15:48 on 29 October).
 		const lending = { ...ROOMY, lendingSince: NOW - 30_000 };
-		const check = job("check", { kind: "vm-check" });
 		const build = job("build");
-		expect(nextTurn([check], lending, NOW)).toBeUndefined();
 		expect(nextTurn([build], lending, NOW)).toBeUndefined();
-		expect(waitReasons([check, build], lending, NOW)).toEqual(
-			new Map([
-				["check", "lending"],
-				["build", "lending"],
-			]),
-		);
+		expect(waitReasons([build], lending, NOW).get("build")).toBe("lending");
 
+		// The builder takes no VM work, and quick builds stay here.
+		const check = job("check", { kind: "vm-check" });
 		const quick = job("quick", { quick: true });
 		const test = job("test", { kind: "vm-test" });
-		expect(nextTurn([check, quick], lending, NOW)?.id).toBe("quick");
-		expect(nextTurn([check, test], lending, NOW)?.id).toBe("test");
+		expect(nextTurn([build, check], lending, NOW)?.id).toBe("check");
+		expect(nextTurn([build, quick], lending, NOW)?.id).toBe("quick");
+		expect(nextTurn([build, test], lending, NOW)?.id).toBe("test");
 
 		const late = { ...ROOMY, lendingSince: NOW - LENDING_WAIT_MS };
-		expect(nextTurn([check], late, NOW)?.id).toBe("check");
+		expect(nextTurn([build], late, NOW)?.id).toBe("build");
 	});
 
 	it("counts a full builder as no room, since Nix then builds here", () => {

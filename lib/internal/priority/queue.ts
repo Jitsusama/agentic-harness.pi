@@ -645,15 +645,18 @@ export const LENDING_WAIT_MS = 180_000;
  * the build hook it starts with, and a hook that found no builder then
  * never offloads, so a build started while the builder boots ran wholly
  * here: 2HN63P's guide-recover at 15:48 on 29 October (5FWIUS, from
- * Nix's source). A VM check, or a build no quicker than its last run says,
- * waits for it; a quick one goes, since the builder takes only big work.
+ * Nix's source). A build no quicker than its last run says waits for it;
+ * a quick one goes, since the builder takes only big work. A VM check
+ * goes too: through the hook its inputs' upload took 16.7 of 17 minutes
+ * against a minute here, so the lent builder takes no VM work (5FWIUS,
+ * 16:23 on 29 October).
  */
 function waitsForLending(job: Job, room: Room, now: number): boolean {
 	return (
 		room.lendingSince !== undefined &&
 		now - room.lendingSince < LENDING_WAIT_MS &&
 		!isQuick(job) &&
-		(job.kind === "vm-check" || job.kind === "build")
+		job.kind === "build"
 	);
 }
 

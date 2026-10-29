@@ -210,13 +210,15 @@ is a build, never a VM check.
   machine's room counts for it. `queue.json` says the free slots under
   `machine.offload`, and each outcome's `beside.offloadBuilds` says one
   stood.
-- **Big work waits a few minutes for a builder being lent**, while
-  `/run/nix-offload/lending` names one and no builder stands yet. A VM
-  check, or a build no quicker than its last run, waits on `lending`,
-  for at most three minutes from that file's change. A `nix build`
+- **Slow builds wait a few minutes for a builder being lent**, while
+  `/run/nix-offload/lending` names one and no builder stands yet. A
+  build no quicker than its last run waits on `lending`, for at most
+  three minutes from that file's change. A `nix build`
   keeps the build hook it started with, and one that found no builder
   never offloads, so work started during the builder's boot ran wholly
-  here. Quick builds and VM tests still go.
+  here. Quick builds and VM work still go: through the hook a VM
+  check's uploads took 16.7 minutes against a minute's run here, so
+  the lent builder takes none.
   cargo is held to the same cores through `CARGO_BUILD_JOBS`, which a
   `-j` on the command still overrides. The call's output says it ran
   capped, and `queue.json` marks the job
