@@ -20,7 +20,7 @@ it does:
   and modify or block them silently, without a review gate.
   `attribution-interceptor`, `edit-escape-interceptor`,
   `git-cli-interceptor`, `github-cli-interceptor`,
-  `shell-habit-interceptor`
+  `remote-check-interceptor`, `shell-habit-interceptor`
 
 - **Workflows** (`*-workflow`): orchestrate a multi-step or
   session-wide process with state and stages. This covers
