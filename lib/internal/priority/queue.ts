@@ -1005,8 +1005,12 @@ export function kindOf(command: string): Kind | undefined {
 		.replace(HEREDOC, "\n")
 		// A pipe or a semicolon inside the word is its own, as in
 		// `pgrep -af 'run-subtests|changed-checks'`, and splits no step.
+		// Spaces only inside a `$(...)`, as in a flake pinned with
+		// `?rev=$(git rev-parse HEAD)`, still make one word.
 		.replace(QUOTED, (quoted) =>
-			/\s/.test(quoted) ? "''" : quoted.slice(1, -1).replace(/[|;&]/g, " "),
+			/\s/.test(quoted.replace(/\$\([^()]*\)/g, ""))
+				? "''"
+				: quoted.slice(1, -1).replace(/[|;&]/g, " "),
 		)
 		.split(SEGMENTS)
 		.filter((step) => !LOOKS.test(step.replace(ASSIGNMENTS, "")))

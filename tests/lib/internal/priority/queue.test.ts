@@ -156,6 +156,12 @@ describe("the kind of heavy work a command runs", () => {
 			"build",
 		);
 		expect(kindOf('nix eval --json "path:$W#checks"')).toBe("build");
+		// A pin's spaces sit inside its `$(...)`: still one word, still work.
+		expect(
+			kindOf(
+				'nix build --no-link "git+file://$C?rev=$(git rev-parse HEAD)#checks.x86_64-linux.vm-a"',
+			),
+		).toBe("vm-check");
 		// One check's evaluation, or a file the tool is named for, is not.
 		expect(
 			kindOf("nix eval --raw .#checks.x86_64-linux.foo.drvPath"),
