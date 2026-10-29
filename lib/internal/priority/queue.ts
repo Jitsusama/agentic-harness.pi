@@ -293,6 +293,15 @@ export interface Job {
 	 * its commands carry, so a quest marked `queue: first` goes ahead.
 	 */
 	readonly quest?: string;
+	/**
+	 * Its shell is asking Nix what it will build (plan.ts), so it has no
+	 * place in line until the plan is read or plan.ts's `PLAN_MS` passes.
+	 */
+	readonly planning?: true;
+	/** What its plan made it, or that the plan said nothing. */
+	readonly planned?: "vm-check" | "build" | "failed";
+	/** Why its plan said nothing, when it didn't. */
+	readonly planFailed?: string;
 }
 
 /** What the machine has left, as the queue reads it. */
@@ -324,7 +333,7 @@ export function isVm(job: Pick<Job, "kind">): boolean {
  * The jobs waiting, in the order they get their turns: within each
  * class, those of the sessions `awaited` names first, then those of the
  * quests `first` names. Never ahead of its class, so only bulk work is
- * ever behind a build.
+ * ever behind a build. A job still planning has no place yet.
  */
 export function waitingInOrder(
 	jobs: readonly Job[],
@@ -335,7 +344,7 @@ export function waitingInOrder(
 	const putFirst = (job: Job) =>
 		job.quest !== undefined && first.has(job.quest) ? 0 : 1;
 	return jobs
-		.filter((job) => job.started === undefined)
+		.filter((job) => job.started === undefined && !job.planning)
 		.sort(
 			(one, other) =>
 				rank(one) - rank(other) ||
@@ -500,9 +509,10 @@ export function nextTurn(
 /**
  * Why a job waits: `memory`, the memory it needs isn't free; `vms`, the
  * VMs allowed at once are running; `behind`, a VM check runs and builds
- * beside one are at their limit; `order`, jobs ahead of it come first.
+ * beside one are at their limit; `order`, jobs ahead of it come first;
+ * `planning`, its shell is asking Nix what it will build.
  */
-export type WaitReason = "memory" | "vms" | "behind" | "order";
+export type WaitReason = "memory" | "vms" | "behind" | "order" | "planning";
 
 /**
  * Why each waiting job waits, by its id, judged by {@link nextTurn}'s
@@ -519,6 +529,11 @@ export function waitReasons(
 	first: ReadonlySet<string> = NOBODY,
 ): Map<string, WaitReason> {
 	const reasons = new Map<string, WaitReason>();
+	for (const job of jobs) {
+		if (job.started === undefined && job.planning) {
+			reasons.set(job.id, "planning");
+		}
+	}
 	const waiting = waitingInOrder(jobs, awaited, first);
 	if (room.memoryPressure >= MOST_MEMORY_PRESSURE) {
 		for (const job of waiting) reasons.set(job.id, "memory");
@@ -685,6 +700,9 @@ const KINDS: readonly (readonly [RegExp, Kind])[] = [
 		"vm-test",
 	],
 	[/\bnix\s+build\b[^\n]*\.driver\b/, "build"],
+	// A dry run only evaluates: one naming a VM check waited 16th in line
+	// for a VM slot on 29 October.
+	[/\bnix\s+build\b[^\n]*\s--dry-run\b/, "build"],
 	[
 		/\bnix(?:\s+--?\S+)*\s+(?:build|flake\s+check)\b[^\n]*(?:\bvm-|\.vm\b|nixosTests|vmTest)/,
 		"vm-check",
@@ -819,8 +837,8 @@ export function needsGibOfCommand(kind: Kind, command: string): number {
 	);
 }
 
-/** A command's steps, each whole, never a line of a heredoc. */
-function stepsOf(command: string): string[] {
+/** A command's steps, in order, each whole, never a line of a heredoc. */
+export function stepsOf(command: string): string[] {
 	return command
 		.replace(HEREDOC, "\n")
 		.split(STEPS)

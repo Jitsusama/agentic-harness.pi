@@ -71,6 +71,10 @@ export interface Outcome {
 	readonly buildsPeakBytes?: number;
 	/** The most memory its own commands held, in bytes, from its scope. */
 	readonly ownPeakBytes?: number;
+	/** What its plan made it before its turn (plan.ts), when it had one. */
+	readonly planned?: "vm-check" | "build" | "failed";
+	/** Why its plan said nothing, when it didn't. */
+	readonly planFailed?: string;
 }
 
 /** How large the outcome file grows before it keeps its newer half. */
@@ -149,6 +153,8 @@ export function outcomeOf(
 		...(job.ownPeakBytes !== undefined
 			? { ownPeakBytes: job.ownPeakBytes }
 			: {}),
+		...(job.planned !== undefined ? { planned: job.planned } : {}),
+		...(job.planFailed !== undefined ? { planFailed: job.planFailed } : {}),
 	};
 }
 

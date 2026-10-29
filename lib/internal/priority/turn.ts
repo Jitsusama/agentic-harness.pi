@@ -25,6 +25,7 @@
 import { randomBytes } from "node:crypto";
 import { offeredShellEnvironment } from "../shell/environment.ts";
 import { type QueueFolder, UNKEPT_MS } from "./folder.ts";
+import { planFor, planLines } from "./plan.ts";
 import {
 	type Job,
 	kindOf,
@@ -138,6 +139,12 @@ export function queuedCommand(command: string): string {
 	const quick =
 		needsGib <= NEEDS_GIB[kind] && queueing.folder.quickFor(kind, what);
 	const quest = offeredShellEnvironment()[QUEST_VARIABLE];
+	// A build of checks is asked what it will build before its turn, since
+	// its text can't say whether a VM runs (plan.ts); quick work is cached.
+	const plan =
+		!quick && (kind === "build" || kind === "vm-check")
+			? planFor(command)
+			: undefined;
 	const job: Job = {
 		id: `${now.toString(36)}-${randomBytes(4).toString("hex")}`,
 		kind,
@@ -145,6 +152,7 @@ export function queuedCommand(command: string): string {
 		needsGib,
 		...(quick ? { quick: true as const } : {}),
 		...(quest ? { quest } : {}),
+		...(plan ? { planning: true as const } : {}),
 		owner: { session: queueing.session, pid: queueing.pid },
 		since: new Date(now).toISOString(),
 		cappable: true,
@@ -156,7 +164,7 @@ export function queuedCommand(command: string): string {
 		// A queue that can't be written to holds nobody's work back.
 		return command;
 	}
-	return `${wait(job.id)}\n${command}`;
+	return `${wait(job.id, plan ? planLines(plan) : [])}\n${command}`;
 }
 
 /**
@@ -168,12 +176,14 @@ export function waitsForTurn(
 	dir: string,
 	saidAfterS: number = SAID_AFTER_S,
 	roomSaidAfterS: number = ROOM_SAID_AFTER_S,
-): ((id: string) => string) | undefined {
+): ((id: string, plan?: readonly string[]) => string) | undefined {
 	if (dir.includes("'")) return undefined;
-	return (id) =>
+	return (id, plan = []) =>
 		[
 			`__queue='${dir}' __job='${id}' __since=$SECONDS`,
 			`printf '%s\\n' "$$" 2>/dev/null > "$__queue/$__job.pid"`,
+			// What it will build, asked before its place in line is given.
+			...plan,
 			// It waits while nobody has given up its job and somebody keeps the
 			// queue, by queue.json's age. Nobody writes that while the machine
 			// sleeps, so a clock that jumped gives the keepers a grace to

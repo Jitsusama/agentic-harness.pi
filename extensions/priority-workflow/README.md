@@ -94,11 +94,31 @@ them as VM work of its own: on 28 October the integration net did
 not, and seven VMs ran with no VM turn while twenty VM tests waited
 from 23:04 to past 00:48.
 
+What was learned is only a first guess for one `nix build` of checks
+named in full, after nothing but `cd`s: before its place in line, its
+shell asks Nix what it will build (`nix build --dry-run`, which leaves
+out what the store or a cache has) and reads those derivations' system
+features (`nix derivation show`). One needing `kvm` or `nixos-test`
+runs a VM, whatever its name, so the job waits as a vm-check; none, or
+nothing to build, and it waits as a build. The plan runs in the job's
+own shell, in jobs, never in the person's programs, within 60 s, and
+`queue.json` says `waitingOn: "planning"` meanwhile. When Nix can't
+say, or no plan comes within 90 s, the job keeps the learned kind, and
+its outcome records `planned: "failed"` with why. A loop over `$c`,
+anything assigned in the call, and `nix flake check` aren't planned:
+their text can't be asked before they run, and a flake's checks are
+known to run VMs. Nothing can make a VM wait once the daemon has
+started it, and a pre-build hook that waited would stall all of its
+client's builds, so the plan comes before the turn. A dry run itself
+is a build, never a VM check.
+
 - **A turn** comes when the memory left past the floors core.nix keeps
   for the person's programs covers the job's need, memory pressure is
-  under 10%, and fewer than four VMs run. It is three for a day once at
-  least three VMs that had passed with fewer failed beside three
-  others, twice as often as VMs failed with fewer: one failure is not a
+  under 10%, and fewer than six VMs run, or four while the person's
+  programs stall on memory more than 1% of the time: past four, more
+  VMs page what they hold out. It is five for a day once at least
+  three VMs that had passed with fewer failed with six or more running,
+  twice as often as VMs failed with fewer: one failure is not a
   rate, and 623 runs failed no more often beside eight VMs than beside
   one. The VMs are counted from the
   machine's processes as well as the queue, so a check picked from a
