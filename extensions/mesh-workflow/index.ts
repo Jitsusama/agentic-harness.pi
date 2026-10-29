@@ -101,6 +101,7 @@ import {
 	reaches,
 	shortId,
 } from "../../lib/mesh/message.ts";
+import { nodeSocket } from "../../lib/mesh/node.ts";
 import {
 	ASK_AGAIN_MS,
 	createAwaiting,
@@ -108,6 +109,7 @@ import {
 } from "../../lib/mesh/owed.ts";
 import { localPeer, type Peer } from "../../lib/mesh/peer.ts";
 import { createPresences, windowTitle } from "../../lib/mesh/presence.ts";
+import { keepPresent } from "../../lib/mesh/present.ts";
 import { createReadFront } from "../../lib/mesh/reading.ts";
 import { sweeper } from "../../lib/mesh/retention.ts";
 import type { Judge } from "../../lib/mesh/routing.ts";
@@ -1011,6 +1013,9 @@ export function meshWorkflow(
 				return;
 			}
 			ctx = started;
+			// The node hears this process end the moment it does, crash or
+			// not; a reload keeps the one connection it already holds.
+			keepPresent(() => nodeSocket(env));
 			// Named on its presence so others can ask the machine whether this
 			// peer is still there; a peer the machine will not name is taken
 			// as there, which only costs a sender a line.

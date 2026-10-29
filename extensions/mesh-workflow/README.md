@@ -78,6 +78,10 @@ and can answer a question or a gate left open on screen.
   with `mesh_wait`.
 - **Liveness:** whether a peer is still there, asked of the
   machine through the process its presence names.
+- **Present:** a session's one connection to its machine's
+  mycelium node, held open while its process runs, so the
+  node hears it end the moment it does, a crash included. A
+  reload keeps it; `--no-session` runs make none.
 - **Attention:** what a message gets from the peer it reaches,
   decided by that peer and never none: a glance, a note, an
   act or a turn.
