@@ -138,6 +138,12 @@ export function pickResumeSession(
  * folder is gone, rather than reaching back to an older session, whose
  * work is staler still: the caller starts the quest afresh instead.
  *
+ * A quest's README keeps every session that ever worked on it, so one
+ * that moved on to another quest is still listed, and may be the newest
+ * because it is running there now. `stillOn` says whether a session was
+ * last on this quest; one that wasn't is passed over, or reopening this
+ * quest would open a second pi on another quest's conversation.
+ *
  * 2026-10-29: the launcher resumed the last README entry not marked
  * detached, which for 19AMVE was a month-old session whose pid had long
  * died and whose folder was gone, and kitty opened it in $HOME.
@@ -147,6 +153,7 @@ export function sessionToReopen(opts: {
 	/** The quest store's root; a folder anywhere under it is skipped. */
 	store?: string;
 	sessions: SessionView[];
+	stillOn?: (sessionId: string) => boolean;
 	exists?: (p: string) => boolean;
 }): { id: string; cwd: string } | undefined {
 	const exists = opts.exists ?? existsSync;
@@ -155,8 +162,11 @@ export function sessionToReopen(opts: {
 			(root) => root !== undefined && (p === root || p.startsWith(root + sep)),
 		);
 	// No activity means pi has no log of it, so there is nothing to resume.
+	const stillOn = opts.stillOn ?? (() => true);
 	const newest = [...opts.sessions]
-		.filter((session) => session.lastActivity !== undefined)
+		.filter(
+			(session) => session.lastActivity !== undefined && stillOn(session.id),
+		)
 		.sort(byActivityDesc)[0];
 	const cwd = newest?.cwd;
 	if (!newest || !cwd || inStore(cwd) || !exists(cwd)) return undefined;

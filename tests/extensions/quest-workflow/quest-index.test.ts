@@ -158,7 +158,11 @@ describe("the quests the desktop lists", () => {
 				Object.keys(activity).map((id) => [id, { process: "gone" }]),
 			),
 		});
-		const listedFor = (sessions: string[], snapshot: LivenessSnapshot) => {
+		const listedFor = (
+			sessions: string[],
+			snapshot: LivenessSnapshot,
+			lastQuestOf?: (sessionId: string) => string | undefined,
+		) => {
 			quest(
 				MISSION,
 				["status: active", "orchestrator: true", "sessions:", ...sessions].join(
@@ -171,6 +175,7 @@ describe("the quests the desktop lists", () => {
 				snapshot,
 				root,
 				"/home/someone",
+				lastQuestOf,
 			)[0];
 		};
 
@@ -205,6 +210,27 @@ describe("the quests the desktop lists", () => {
 			);
 
 			expect(listed).not.toHaveProperty("resume");
+		});
+
+		it("passes over a session that moved on to another quest, however recent", () => {
+			// It is still in this quest's README, and newest because it runs
+			// elsewhere now: reopening it here would be a second pi on it.
+			const mine = join(elsewhere, "src", "karst");
+			const theirs = join(elsewhere, "src", "theirs");
+			mkdirSync(mine, { recursive: true });
+			mkdirSync(theirs, { recursive: true });
+
+			const listed = listedFor(
+				[
+					ended("s-mine", mine, "detached"),
+					ended("s-moved-on", theirs, "detached"),
+				],
+				seen({ "s-mine": lastWeek, "s-moved-on": lastNight }),
+				(session) =>
+					session === "s-moved-on" ? "QEST-20260101-ANOTHR" : MISSION,
+			);
+
+			expect(listed?.resume).toEqual({ id: "s-mine", cwd: mine });
 		});
 
 		it("is none for a session pi never saved", () => {

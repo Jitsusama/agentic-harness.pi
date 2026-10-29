@@ -57,6 +57,7 @@ import {
 	orchestratorsIn,
 	writeOrchestrators,
 } from "./orchestrators.ts";
+import { loadRecords } from "./session-registry.ts";
 
 /** One document of a quest, as the desktop lists it. */
 export interface QuestIndexDocument {
@@ -133,7 +134,13 @@ export function keepDesktopListsCurrent(questsRoot: string): Promise<void> {
 				}
 				const snapshot = await snapshotOf(openSessions(index));
 				writeWhenChanged(questIndexPath(), {
-					quests: questsIn(index, snapshot, questsRoot),
+					quests: questsIn(
+						index,
+						snapshot,
+						questsRoot,
+						undefined,
+						lastQuests(),
+					),
 				});
 			} catch {
 				// The next quest action tries again.
@@ -154,6 +161,8 @@ export function questsIn(
 	snapshot: LivenessSnapshot,
 	store: string,
 	home?: string,
+	/** The quest each session was last on, by the session registry. */
+	lastQuestOf: (sessionId: string) => string | undefined = () => undefined,
 ): QuestIndexEntry[] {
 	const found: QuestIndexEntry[] = [];
 	const seen = new Set<string>();
@@ -181,6 +190,8 @@ export function questsIn(
 					questDir: entry.dir,
 					store,
 					sessions,
+					// A session the registry never knew is judged by the README.
+					stillOn: (session) => (lastQuestOf(session) ?? id) === id,
 				});
 				found.push({
 					id,
@@ -213,6 +224,15 @@ export function questsIn(
 	};
 	visit("");
 	return found;
+}
+
+/** Each recorded session's last quest, read once per pass. */
+function lastQuests(): (sessionId: string) => string | undefined {
+	const quests = new Map<string, string>();
+	for (const { record } of loadRecords()) {
+		if (record.quest) quests.set(record.sessionId, record.quest);
+	}
+	return (sessionId) => quests.get(sessionId);
 }
 
 function openSessions(index: QuestIndex): QuestSession[] {
