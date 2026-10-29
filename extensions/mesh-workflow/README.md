@@ -39,6 +39,15 @@ and can answer a question or a gate left open on screen.
   questions in `#all`, none of it their work. Named
   groups (`#harness`, `#optimus/power`) nest: a member of
   `#optimus/power` also hears `#optimus`.
+- **Realm:** a session's mesh is its realm's (see
+  `lib/internal/realm.ts`), and a machine in two realms keeps
+  two meshes that share nothing, with one exception. A hold
+  sent to `#machine` also reaches each other realm's
+  `#machine`, from `MACHINE`, in one fixed sentence holding
+  none of the sender's words. It ends there in fixed words
+  too, when its holder answers or replaces it, or the person
+  ends it, since a switch or a reboot takes every realm's
+  sessions alike (`lib/mesh/crossing.ts`).
 - **Scope:** a group a peer is in because of its work rather
   than because it joined: its quest's, named down the parent
   chain from the root (`#quest/5gv2ah/luq49e`), each
