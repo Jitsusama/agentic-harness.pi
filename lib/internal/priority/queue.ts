@@ -379,6 +379,11 @@ export interface Room {
 	readonly floorsPressure?: number;
 	/** A builder elsewhere Nix sends work to, while one stands. */
 	readonly offload?: Offload;
+	/**
+	 * Since when, in epoch milliseconds, a builder elsewhere has been
+	 * being lent, while none stands yet.
+	 */
+	readonly lendingSince?: number;
 }
 
 /**
@@ -595,7 +600,7 @@ export function nextTurn(
 			if (quick.left < 1 || queuedPast || !fits(job)) continue;
 			return Number.isFinite(quick.left) ? { ...job, capped: true } : job;
 		}
-		if (held) continue;
+		if (held || waitsForLending(job, room, now)) continue;
 		if (isVm(job) && vmWaits(job, { vmsHere, vmsElsewhere }, room, rules)) {
 			continue;
 		}
@@ -618,9 +623,39 @@ export function nextTurn(
  * Why a job waits: `memory`, the memory it needs isn't free; `vms`, the
  * VMs allowed at once are running; `behind`, a VM check runs and builds
  * beside one are at their limit; `order`, jobs ahead of it come first;
- * `planning`, its shell is asking Nix what it will build.
+ * `planning`, its shell is asking Nix what it will build; `lending`, a
+ * builder elsewhere is being lent and will take it.
  */
-export type WaitReason = "memory" | "vms" | "behind" | "order" | "planning";
+export type WaitReason =
+	| "memory"
+	| "vms"
+	| "behind"
+	| "order"
+	| "planning"
+	| "lending";
+
+/**
+ * The longest a job waits for a builder being lent, past the 70 to 130 s
+ * one takes to boot, so a lend that fails or hangs holds nobody long.
+ */
+export const LENDING_WAIT_MS = 180_000;
+
+/**
+ * Whether a job waits for the builder being lent. One `nix build` keeps
+ * the build hook it starts with, and a hook that found no builder then
+ * never offloads, so a build started while the builder boots ran wholly
+ * here: 2HN63P's guide-recover at 15:48 on 29 October (5FWIUS, from
+ * Nix's source). A VM check, or a build no quicker than its last run says,
+ * waits for it; a quick one goes, since the builder takes only big work.
+ */
+function waitsForLending(job: Job, room: Room, now: number): boolean {
+	return (
+		room.lendingSince !== undefined &&
+		now - room.lendingSince < LENDING_WAIT_MS &&
+		!isQuick(job) &&
+		(job.kind === "vm-check" || job.kind === "build")
+	);
+}
 
 /**
  * Why each waiting job waits, by its id, judged by {@link nextTurn}'s
@@ -670,6 +705,7 @@ export function waitReasons(
 				given = true;
 				return "order";
 			}
+			if (waitsForLending(job, room, now)) return "lending";
 			if (held || given) return "order";
 			if (isVm(job) && vmWaits(job, { vmsHere, vmsElsewhere }, room, rules)) {
 				return "vms";

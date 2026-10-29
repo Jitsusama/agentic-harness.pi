@@ -6,6 +6,7 @@ import {
 	EVERY_CHECK_GIB,
 	type Job,
 	kindOf,
+	LENDING_WAIT_MS,
 	MOST_CPU_PRESSURE_BESIDE_VMS,
 	MOST_FLOORS_PRESSURE,
 	MOST_MEMORY_PRESSURE,
@@ -420,6 +421,30 @@ describe("a builder elsewhere", () => {
 			waiting,
 		];
 		expect(nextTurn(evaluating, standing, NOW)).toBeUndefined();
+	});
+
+	it("holds big work for a builder being lent, a few minutes at most, and lets the rest go", () => {
+		// A nix build started while the builder boots keeps a hook that
+		// found none, and runs wholly here (15:48 on 29 October).
+		const lending = { ...ROOMY, lendingSince: NOW - 30_000 };
+		const check = job("check", { kind: "vm-check" });
+		const build = job("build");
+		expect(nextTurn([check], lending, NOW)).toBeUndefined();
+		expect(nextTurn([build], lending, NOW)).toBeUndefined();
+		expect(waitReasons([check, build], lending, NOW)).toEqual(
+			new Map([
+				["check", "lending"],
+				["build", "lending"],
+			]),
+		);
+
+		const quick = job("quick", { quick: true });
+		const test = job("test", { kind: "vm-test" });
+		expect(nextTurn([check, quick], lending, NOW)?.id).toBe("quick");
+		expect(nextTurn([check, test], lending, NOW)?.id).toBe("test");
+
+		const late = { ...ROOMY, lendingSince: NOW - LENDING_WAIT_MS };
+		expect(nextTurn([check], late, NOW)?.id).toBe("check");
 	});
 
 	it("counts a full builder as no room, since Nix then builds here", () => {
