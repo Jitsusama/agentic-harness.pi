@@ -83,18 +83,23 @@ describe("fanOutBy", () => {
 		]);
 	});
 
-	it("splits by UTC day of the run's start", () => {
+	it("splits by the machine's own day of the run's start", () => {
+		// A local noon and the local midnight that starts it, whatever the
+		// zone the tests run in.
+		const noon = new Date(2026, 8, 22, 12).getTime();
+		const midnight = new Date(2026, 8, 22).getTime();
 		const slices = fanOutBy(
 			[
-				run({ startedAt: DAY + 1000, cost: 1 }),
-				run({ startedAt: DAY - 1000, cost: 4 }),
+				run({ startedAt: noon, cost: 1 }),
+				run({ startedAt: midnight + 1000, cost: 2 }),
+				run({ startedAt: midnight - 1000, cost: 4 }),
 			],
 			"day",
 		);
 
 		expect(slices).toEqual([
 			{ key: "2026-09-21", cost: 4, runs: 1 },
-			{ key: "2026-09-22", cost: 1, runs: 1 },
+			{ key: "2026-09-22", cost: 3, runs: 2 },
 		]);
 	});
 });

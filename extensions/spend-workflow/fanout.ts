@@ -13,6 +13,7 @@ import type {
 	RunRecord,
 	SessionRecord,
 } from "../../lib/core/observability/index.ts";
+import { nowYmd } from "../../lib/internal/quest/dates.ts";
 
 /** One group of fan-out runs and what they cost. */
 export interface FanOutSlice {
@@ -81,7 +82,8 @@ export function summarizeFanOut(records: readonly RunRecord[]): FanOutSummary {
 
 /**
  * Split the run store by one of its own dimensions: model heaviest
- * first, day in calendar order.
+ * first, day in calendar order. A day is the machine's own, as the
+ * ledger's is, so a run's slice lines up with its session's.
  */
 export function fanOutBy(
 	records: readonly RunRecord[],
@@ -90,9 +92,9 @@ export function fanOutBy(
 	if (dimension === "model") {
 		return heaviestFirst(group(records, (r) => r.model || SETTINGS_DEFAULT));
 	}
-	return group(records, (r) =>
-		new Date(r.startedAt).toISOString().slice(0, 10),
-	).sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+	return group(records, (r) => nowYmd(() => new Date(r.startedAt))).sort(
+		(a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0),
+	);
 }
 
 /**
