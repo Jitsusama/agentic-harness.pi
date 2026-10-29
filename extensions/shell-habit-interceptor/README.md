@@ -22,6 +22,13 @@ test output with tail or head, 13 waited with sleep, and 5 ran
   from a stale copy; the learning sensor saw it in 45 sessions in the
   week to 2026-10-26. Each target is placed where the command's own
   `cd` puts it, and a new file, scratch or `/dev/null` goes ahead.
+- **`mixed-turn`** refuses one call that runs VM work beside other
+  heavy work, such as `changed-checks --no-vm` and then `run-subtests`,
+  and prints the split: each step its own call, the VM work last. The
+  machine queue gives a call one turn, as its heaviest step, for its
+  whole length, so the build held a VM slot the whole time: 32 of 41
+  VM-test jobs did on the night of 2026-10-28, 9.6 of 10.6 slot hours.
+  One build naming VM checks among others is one step, and goes ahead.
 
 Each guard redirects: the agent hears what to do instead, and sending
 the same command again goes ahead. Each reads the command with heredoc

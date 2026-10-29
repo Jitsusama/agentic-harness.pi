@@ -105,6 +105,14 @@ export const GUARDS = {
 		defaultMode: "redirect",
 		groups: ["shell"],
 	}),
+	mixedTurn: declare({
+		name: "mixed-turn",
+		class: "form",
+		description:
+			"Refuses VM work chained after a build in one call, which holds a VM slot through the build, printing the split",
+		defaultMode: "redirect",
+		groups: ["shell"],
+	}),
 	pr: declare({
 		name: "pr",
 		class: "approval",
