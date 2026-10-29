@@ -137,7 +137,11 @@ export function readQueue(
 	return record?.v === 1 && Array.isArray(record.jobs) ? record : undefined;
 }
 
-/** The whole queue, as queue.json holds it. */
+/**
+ * The whole queue, as queue.json holds it. mycelium's node reads `v`,
+ * `at`, `heartbeat`, `machine` and `room` from outside the harness, so a
+ * change to any of those five bumps `v`; the rest may change freely.
+ */
 export interface QueueRecord {
 	readonly v: 1;
 	readonly at: string;
