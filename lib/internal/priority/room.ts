@@ -272,6 +272,15 @@ function overOwnHigh(cgroup: string): boolean {
 /** A VM's process name, cut to the kernel's 15 characters. */
 const VM_PROCESS = /^qemu-(?:system-|kvm)/;
 
+/**
+ * Whether a command line, as {@link commandsIn} gives it, runs a VM: its
+ * program's name is a qemu's.
+ */
+export function isVmCommand(command: string): boolean {
+	const program = command.split(" ", 1)[0] ?? "";
+	return VM_PROCESS.test(program.slice(program.lastIndexOf("/") + 1));
+}
+
 /** How many VMs run on the machine, by their processes' names. */
 function vmsIn(proc: string): number {
 	let count = 0;

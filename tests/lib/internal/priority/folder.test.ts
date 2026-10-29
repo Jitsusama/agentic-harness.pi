@@ -592,6 +592,55 @@ describe("the machine's queue folder", () => {
 		expect(unread).not.toHaveProperty("ownPeakBytes");
 	});
 
+	it("says how long a VM job held its slot before a VM of its own ran", () => {
+		const file = join(dir, "..", "state", "outcomes.jsonl");
+		const commands = new Map<string, string[]>();
+		const queue = queueFolder(
+			dir,
+			{
+				isRunning: (pid) => running.has(pid),
+				cgroupOf: (pid) => `/work-${pid}.scope`,
+				commandsIn: (cgroup) => commands.get(cgroup) ?? [],
+			},
+			undefined,
+			file,
+		);
+		const ran = new Date(NOW - 60_000).toISOString();
+		queue.ask(job("check", { kind: "vm-check", started: ran }));
+		queue.ask(job("test", { kind: "vm-test", started: ran }));
+		queue.ask(job("none", { kind: "vm-check", started: ran }));
+		shellSays("check", 901);
+		shellSays("test", 902);
+		shellSays("none", 903);
+		const building = [
+			{ asker: "/work-901.scope", timed: false, memoryPeak: 1 },
+		];
+		commands.set("/work-902.scope", ["bash -c run-subtests"]);
+		queue.keep({ ...ROOMY, builds: building }, NOW, () => undefined);
+
+		// Half a minute on, the check's VM runs as a build with deadlines,
+		// and the test's driver has started its qemu.
+		commands.set("/work-902.scope", [
+			"bash -c run-subtests",
+			"/nix/store/abc-qemu-9.2.0/bin/qemu-system-x86_64 -name machine",
+		]);
+		const vm = [{ asker: "/work-901.scope", timed: true, memoryPeak: 1 }];
+		queue.keep({ ...ROOMY, builds: vm }, NOW + 30_000, () => undefined);
+		// The first sight holds, whatever comes after.
+		queue.keep({ ...ROOMY, builds: vm }, NOW + 40_000, () => undefined);
+		for (const pid of [901, 902, 903]) running.delete(pid);
+		queue.keep(ROOMY, NOW + 45_000, () => undefined);
+
+		const kept = readFileSync(file, "utf8")
+			.trim()
+			.split("\n")
+			.map((line) => JSON.parse(line));
+		const of = (id: string) => kept.find((outcome) => outcome.id === id);
+		expect(of("check")).toMatchObject({ vmAfterS: 90 });
+		expect(of("test")).toMatchObject({ vmAfterS: 90 });
+		expect(of("none")).not.toHaveProperty("vmAfterS");
+	});
+
 	it("learns from a job's builds whether it runs a check with deadlines, and how much memory they held", () => {
 		const file = join(dir, "..", "state", "outcomes.jsonl");
 		const GIB = 1024 ** 3;
