@@ -82,6 +82,22 @@ const shellSays = (id: string, pid: number) => {
 };
 
 describe("the machine's queue folder", () => {
+	it("holds a job while it plans, then queues it as what its plan found", () => {
+		const queue = folder();
+		queue.ask(job("cached", { kind: "vm-check", planning: true }));
+		shellSays("cached", 300);
+
+		queue.keep({ ...ROOMY, vms: MOST_VMS }, NOW, () => undefined);
+		expect(queue.hasTurn("cached")).toBe(false);
+		expect(record().jobs[0]).toMatchObject({ waitingOn: "planning" });
+		expect(record().jobs[0]?.place).toBeUndefined();
+
+		writeFileSync(join(dir, "cached.plan"), "cached\n");
+		queue.keep({ ...ROOMY, vms: MOST_VMS }, NOW + 5_000, () => undefined);
+		expect(queue.hasTurn("cached")).toBe(true);
+		expect(record().jobs[0]).toMatchObject({ kind: "build" });
+	});
+
 	it("gives a quest put first its turn first, and says so", () => {
 		const queue = folder();
 		queue.ask(job("older", { since: new Date(NOW - 60_000).toISOString() }));

@@ -59,6 +59,7 @@ import {
 	ranSAfter,
 	vmsFor,
 } from "./outcome.ts";
+import { withPlan } from "./plan.ts";
 import {
 	CLASS_OF,
 	type Class,
@@ -266,6 +267,8 @@ const JOB_FILES: readonly string[] = [
 	"began",
 	"capped",
 	"end",
+	"plan",
+	"plan.planning",
 ];
 
 /** How old a job's file without its .job must be to count as left over. */
@@ -451,6 +454,15 @@ export function queueFolder(
 		});
 	};
 
+	/** A planning job as its plan leaves it, kept once that changed it. */
+	const planned = (job: Job, now: number): Job => {
+		if (!job.planning) return job;
+		const after = withPlan(job, text(path(job.id, "plan")), now);
+		if (after !== job)
+			replace(path(job.id, "job"), `${JSON.stringify(after)}\n`);
+		return after;
+	};
+
 	let written: string | undefined;
 
 	return {
@@ -498,12 +510,14 @@ export function queueFolder(
 			ensure();
 			locked(now, () => {
 				const standing = noteBeside(
-					jobs().filter((job) => {
-						if (!ended(job, now)) return true;
-						remember(job, now);
-						drop(job.id);
-						return false;
-					}),
+					jobs()
+						.filter((job) => {
+							if (!ended(job, now)) return true;
+							remember(job, now);
+							drop(job.id);
+							return false;
+						})
+						.map((job) => planned(job, now)),
 					reading,
 				);
 				sweep(now);
@@ -606,48 +620,50 @@ export function queueRecord(
 		},
 		room: roomLeft(jobs, reading, now, rules),
 		quiet: null,
-		jobs: [...jobs.filter((job) => job.started !== undefined), ...waiting].map(
-			(job) => {
-				const shell = shellOf(job.id);
-				const slice =
-					job.started !== undefined && shell !== undefined
-						? processes.cgroupOf(shell)
-						: undefined;
-				const name =
-					(slice !== undefined
-						? workNameIn(processes.commandsIn?.(slice) ?? [])
-						: undefined) ?? workNameIn([job.what]);
-				const lastRanS = ranSAfter(job.what, outcomes);
-				const waitingOn =
-					job.started === undefined ? reasons.get(job.id) : undefined;
-				return {
-					id: job.id,
-					class: CLASS_OF[job.kind],
-					kind: job.kind,
-					state: job.started !== undefined ? "running" : "waiting",
-					owner: job.owner,
-					what: job.what,
-					memoryGib: needsGibOf(job),
-					since: job.started ?? job.since,
-					...(job.started === undefined
-						? { place: waiting.indexOf(job) + 1 }
-						: {}),
-					...(job.started === undefined && awaited.has(job.owner.session)
-						? { awaited: true as const }
-						: {}),
-					...(slice !== undefined ? { slice } : {}),
-					...(job.capped ? { capped: true as const } : {}),
-					...(job.quick ? { quick: true as const } : {}),
-					...(job.quest !== undefined ? { quest: job.quest } : {}),
-					...(job.quest !== undefined && first.has(job.quest)
-						? { first: true as const }
-						: {}),
-					...(name !== undefined ? { name } : {}),
-					...(lastRanS !== undefined ? { lastRanS } : {}),
-					...(waitingOn !== undefined ? { waitingOn } : {}),
-				};
-			},
-		),
+		jobs: [
+			...jobs.filter((job) => job.started !== undefined),
+			...waiting,
+			...jobs.filter((job) => job.started === undefined && job.planning),
+		].map((job) => {
+			const shell = shellOf(job.id);
+			const slice =
+				job.started !== undefined && shell !== undefined
+					? processes.cgroupOf(shell)
+					: undefined;
+			const name =
+				(slice !== undefined
+					? workNameIn(processes.commandsIn?.(slice) ?? [])
+					: undefined) ?? workNameIn([job.what]);
+			const lastRanS = ranSAfter(job.what, outcomes);
+			const waitingOn =
+				job.started === undefined ? reasons.get(job.id) : undefined;
+			return {
+				id: job.id,
+				class: CLASS_OF[job.kind],
+				kind: job.kind,
+				state: job.started !== undefined ? "running" : "waiting",
+				owner: job.owner,
+				what: job.what,
+				memoryGib: needsGibOf(job),
+				since: job.started ?? job.since,
+				...(job.started === undefined && !job.planning
+					? { place: waiting.indexOf(job) + 1 }
+					: {}),
+				...(job.started === undefined && awaited.has(job.owner.session)
+					? { awaited: true as const }
+					: {}),
+				...(slice !== undefined ? { slice } : {}),
+				...(job.capped ? { capped: true as const } : {}),
+				...(job.quick ? { quick: true as const } : {}),
+				...(job.quest !== undefined ? { quest: job.quest } : {}),
+				...(job.quest !== undefined && first.has(job.quest)
+					? { first: true as const }
+					: {}),
+				...(name !== undefined ? { name } : {}),
+				...(lastRanS !== undefined ? { lastRanS } : {}),
+				...(waitingOn !== undefined ? { waitingOn } : {}),
+			};
+		}),
 		wasted,
 	};
 }
