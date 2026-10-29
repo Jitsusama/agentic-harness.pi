@@ -14,9 +14,12 @@
  */
 
 import {
+	closeSync,
 	mkdirSync,
+	openSync,
 	readdirSync,
 	readFileSync,
+	readSync,
 	statSync,
 	unlinkSync,
 	utimesSync,
@@ -186,8 +189,21 @@ export function touchHeartbeat(sessionId: string): void {
  */
 const HEARTBEAT_INTERVAL_MS = 60_000;
 
-/** The running heartbeat, at most one per process. */
-let heartbeat: ReturnType<typeof setInterval> | undefined;
+/**
+ * The running heartbeat, at most one per process: kept on the process
+ * rather than the module, because a session switch can load this file
+ * afresh, and a timer the old copy started would then beat on after
+ * the new copy stopped its own, re-dating a session that had ended.
+ */
+const HEARTBEAT_SLOT = Symbol.for("agentic-harness.quest-workflow.heartbeat");
+
+function heartbeatSlot(): { timer?: ReturnType<typeof setInterval> } {
+	const holder = globalThis as {
+		[HEARTBEAT_SLOT]?: { timer?: ReturnType<typeof setInterval> };
+	};
+	holder[HEARTBEAT_SLOT] ??= {};
+	return holder[HEARTBEAT_SLOT];
+}
 
 /**
  * Start re-dating this session's record on a timer.
@@ -203,11 +219,12 @@ export function startHeartbeat(
 	check?: () => void,
 ): void {
 	stopHeartbeat();
-	heartbeat = setInterval(() => {
+	const timer = setInterval(() => {
 		touchHeartbeat(sessionId);
 		check?.();
 	}, intervalMs);
-	heartbeat.unref?.();
+	timer.unref?.();
+	heartbeatSlot().timer = timer;
 }
 
 /**
@@ -238,9 +255,10 @@ export function keepRecordTrue(input: OnQuestInput): void {
  * session that has already ended.
  */
 export function stopHeartbeat(): void {
-	if (!heartbeat) return;
-	clearInterval(heartbeat);
-	heartbeat = undefined;
+	const slot = heartbeatSlot();
+	if (!slot.timer) return;
+	clearInterval(slot.timer);
+	delete slot.timer;
 }
 
 /**
@@ -892,6 +910,80 @@ export function trackSession(input: OnQuestInput, release?: () => void): void {
 		keepRecordTrue(input),
 	);
 	followSessionForSignals(input.sessionId, release);
+}
+
+/** The first line of a pi session log, as much of it as a handover reads. */
+interface SessionLogHeader {
+	id: string;
+	cwd?: string;
+	parentSession?: string;
+}
+
+/** How much of a log is read for its header line, which is short. */
+const HEADER_BYTES = 64 * 1024;
+
+function sessionLogHeader(path: string): SessionLogHeader | undefined {
+	let fd: number | undefined;
+	try {
+		fd = openSync(path, "r");
+		const buffer = Buffer.alloc(HEADER_BYTES);
+		const read = readSync(fd, buffer, 0, HEADER_BYTES, 0);
+		const line = buffer.toString("utf8", 0, read).split("\n")[0] ?? "";
+		const header: unknown = JSON.parse(line);
+		if (typeof header !== "object" || header === null) return undefined;
+		const { id, cwd, parentSession } = header as Record<string, unknown>;
+		if (typeof id !== "string") return undefined;
+		return {
+			id,
+			...(typeof cwd === "string" ? { cwd } : {}),
+			...(typeof parentSession === "string" ? { parentSession } : {}),
+		};
+	} catch {
+		// No log there yet, or not one pi wrote: nothing to hand over to.
+		return undefined;
+	} finally {
+		if (fd !== undefined) closeSync(fd);
+	}
+}
+
+/**
+ * Hand this process's tab to the session it is switching into, when
+ * that session's log is already on disk: open the successor's record
+ * under this process, keep beating for it, and have a signal stamp it.
+ * Returns the successor's id, or undefined when there is no log to
+ * hand to, as for `/new`, whose session is written only once used.
+ *
+ * The successor's own start records it too, finding the record already
+ * its own. This covers a switch whose new session never starts: at
+ * 12:42:58Z on 2026-10-29 a rollover closed a session and its fresh log
+ * got no record, so the power-off eleven minutes later left it out of
+ * what restore offers. The quest carries over only when the successor
+ * names this session's log as its parent, as a rollover's and a fork's
+ * do; a resumed conversation from elsewhere says its own on start.
+ */
+export function handOverSession(
+	from: OnQuestInput & { sessionFile?: string },
+	targetSessionFile: string | undefined,
+): string | undefined {
+	if (!targetSessionFile) return undefined;
+	const header = sessionLogHeader(targetSessionFile);
+	if (!header || header.id === from.sessionId) return undefined;
+	const carriesQuest =
+		from.sessionFile !== undefined && header.parentSession === from.sessionFile;
+	const successor: OnQuestInput = {
+		sessionId: header.id,
+		cwd: header.cwd ?? from.cwd,
+		instanceId: from.instanceId,
+		...(carriesQuest && from.questId ? { questId: from.questId } : {}),
+		...(from.process ? { process: from.process } : {}),
+		...(from.terminal ? { terminal: from.terminal } : {}),
+	};
+	recordSession(successor);
+	startHeartbeat(successor.sessionId, HEARTBEAT_INTERVAL_MS, () =>
+		keepRecordTrue(successor),
+	);
+	setSignalStampSession(successor.sessionId);
+	return successor.sessionId;
 }
 
 /**

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	endReasonForShutdown,
 	forgetRecord,
+	handOverSession,
 	installSignalStamp,
 	keepRecordTrue,
 	loadRecords,
@@ -370,6 +371,100 @@ describe("stamping a session a signal takes away", () => {
 		expect(raised).toEqual([]);
 		for (const fire of scheduled) fire();
 		expect(raised).toEqual(["SIGHUP"]);
+	});
+});
+
+describe("handing the tab to the session a switch goes to", () => {
+	const identity = currentProcessIdentity();
+	const parentFile = "/sessions/work/2026-07-28_sess-parent.jsonl";
+	const outgoing = {
+		sessionId: "sess-parent",
+		instanceId: "inst-tab",
+		cwd: "/work",
+		questId: "QEST-1",
+		sessionFile: parentFile,
+		...(identity ? { process: identity } : {}),
+	};
+	/** A log with only its header, as a rollover leaves it before use. */
+	const log = (header: Record<string, string>) => {
+		const path = join(stateHome, `${header.id}.jsonl`);
+		writeFileSync(path, `${JSON.stringify({ type: "session", ...header })}\n`);
+		return path;
+	};
+
+	afterEach(() => {
+		stopHeartbeat();
+		setSignalStampSession(undefined);
+	});
+
+	it("opens the successor's record under this process, on the quest its parent was on", () => {
+		saveRecord(closeRecord(openRecord(base("sess-parent")), "swapped", NOW));
+		const rolled = log({
+			id: "sess-rolled",
+			cwd: "/work",
+			parentSession: parentFile,
+		});
+
+		expect(handOverSession(outgoing, rolled)).toBe("sess-rolled");
+
+		expect(readRecord("sess-rolled")).toMatchObject({
+			sessionId: "sess-rolled",
+			cwd: "/work",
+			quest: "QEST-1",
+			instanceId: "inst-tab",
+			...(identity ? { process: identity } : {}),
+		});
+		expect(readRecord("sess-rolled")?.closedAt).toBeUndefined();
+		expect(readRecord("sess-parent")?.endReason).toBe("swapped");
+	});
+
+	it("leaves one open record when the successor's own start comes after", () => {
+		const rolled = log({
+			id: "sess-rolled",
+			cwd: "/work",
+			parentSession: parentFile,
+		});
+		handOverSession(outgoing, rolled);
+
+		recordSession({ ...outgoing, sessionId: "sess-rolled" });
+
+		const open = loadRecords().filter(({ record }) => !record.closedAt);
+		expect(open.map(({ record }) => record.sessionId)).toEqual(["sess-rolled"]);
+	});
+
+	it("has a signal stamp the successor, as a power-off would", () => {
+		const rolled = log({
+			id: "sess-rolled",
+			cwd: "/work",
+			parentSession: parentFile,
+		});
+		handOverSession(outgoing, rolled);
+		installSignalStamp({ now: () => NOW, schedule: () => {}, raise: () => {} });
+
+		process.emit("SIGTERM");
+
+		expect(readRecord("sess-rolled")).toMatchObject({
+			endReason: "signalled",
+			closedAt: NOW.toISOString(),
+		});
+	});
+
+	it("keeps the quest to itself when the successor is another conversation", () => {
+		const resumed = log({ id: "sess-elsewhere", cwd: "/elsewhere" });
+
+		handOverSession(outgoing, resumed);
+
+		const record = readRecord("sess-elsewhere");
+		expect(record?.cwd).toBe("/elsewhere");
+		expect(record?.quest).toBeUndefined();
+	});
+
+	it("hands over nothing when the successor has no log yet, as for /new", () => {
+		expect(
+			handOverSession(outgoing, join(stateHome, "not-written.jsonl")),
+		).toBeUndefined();
+		expect(handOverSession(outgoing, undefined)).toBeUndefined();
+		expect(loadRecords()).toEqual([]);
 	});
 });
 

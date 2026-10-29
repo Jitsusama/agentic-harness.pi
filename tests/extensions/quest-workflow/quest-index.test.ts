@@ -130,11 +130,94 @@ describe("the quests the desktop lists", () => {
 						stage: "build",
 					},
 				],
-				sessions: ["s-gone"],
+				sessions: [],
 				start: elsewhere,
 				updated: "2026-01-01T03:00:00Z",
 			},
 		]);
+	});
+
+	describe("a closed quest's session to reopen", () => {
+		const lastWeek = "2026-01-01T00:00:00Z";
+		const lastNight = "2026-01-01T23:00:00Z";
+		// A session's process from the boot before, as a power-off leaves it.
+		const ended = (id: string, cwd: string, status: string) =>
+			[
+				`  - id: ${id}`,
+				`    cwd: ${cwd}`,
+				`    status: ${status}`,
+				"    process:",
+				"      hostId: optimus",
+				"      pid: 4816",
+				"      startToken: Mon Dec 29 09:00:00 2025",
+			].join("\n");
+		const seen = (activity: Record<string, string>): LivenessSnapshot => ({
+			...nothingKnown,
+			activity: new Map(Object.entries(activity)),
+			observations: new Map(
+				Object.keys(activity).map((id) => [id, { process: "gone" }]),
+			),
+		});
+		const listedFor = (sessions: string[], snapshot: LivenessSnapshot) => {
+			quest(
+				MISSION,
+				["status: active", "orchestrator: true", "sessions:", ...sessions].join(
+					"\n",
+				),
+				"# Bootstrap optimus",
+			);
+			return questsIn(
+				discoverQuests(root).index,
+				snapshot,
+				root,
+				"/home/someone",
+			)[0];
+		};
+
+		it("is its newest one, in its own folder, not a stale one still marked active", () => {
+			const gone = join(elsewhere, "a-tree-since-released");
+			const work = join(elsewhere, "src", "karst");
+			mkdirSync(work, { recursive: true });
+
+			const listed = listedFor(
+				[
+					ended("s-month-old", gone, "active"),
+					ended("s-last-night", work, "detached"),
+				],
+				seen({ "s-month-old": lastWeek, "s-last-night": lastNight }),
+			);
+
+			expect(listed?.sessions).toEqual([]);
+			expect(listed?.resume).toEqual({ id: "s-last-night", cwd: work });
+		});
+
+		it("is none when its newest one's folder is gone, rather than an older one", () => {
+			const gone = join(elsewhere, "a-tree-since-released");
+			const older = join(elsewhere, "src", "karst");
+			mkdirSync(older, { recursive: true });
+
+			const listed = listedFor(
+				[
+					ended("s-older", older, "detached"),
+					ended("s-newest", gone, "detached"),
+				],
+				seen({ "s-older": lastWeek, "s-newest": lastNight }),
+			);
+
+			expect(listed).not.toHaveProperty("resume");
+		});
+
+		it("is none for a session pi never saved", () => {
+			const work = join(elsewhere, "src", "karst");
+			mkdirSync(work, { recursive: true });
+
+			const listed = listedFor(
+				[ended("s-unsaved", work, "detached")],
+				nothingKnown,
+			);
+
+			expect(listed).not.toHaveProperty("resume");
+		});
 	});
 
 	it("are written with the orchestrators from one pass over the store", async () => {
