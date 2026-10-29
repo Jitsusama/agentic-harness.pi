@@ -109,6 +109,28 @@ describe("dependenciesReady", () => {
 		);
 	});
 
+	it("takes a version a link moved onto as ready once its own install is, whenever that was", async () => {
+		// pi-packages installs each version in its own folder, then moves the
+		// link: on 29 October every session waited the whole grace for an
+		// install that had already finished.
+		const dir = await repo();
+		const version = join(dir, "versions", "two");
+		mkdirSync(join(version, "node_modules"), { recursive: true });
+		writeFileSync(join(version, "pnpm-lock.yaml"), "lock\n");
+		const installed = join(version, "node_modules", ".modules.yaml");
+		writeFileSync(installed, "x\n");
+		utimesSync(join(version, "pnpm-lock.yaml"), 1_000, 1_000);
+		utimesSync(installed, 2_000, 2_000);
+		const current = join(dir, "current");
+		symlinkSync(version, current);
+		const movedAt = 5_000_000;
+
+		expect(dependenciesReady(current, movedAt, movedAt + 1_000)).toBe(true);
+		// Behind its own lockfile, it waits as any install does.
+		utimesSync(installed, 500, 500);
+		expect(dependenciesReady(current, movedAt, movedAt + 1_000)).toBe(false);
+	});
+
 	it("waits while no install has finished", async () => {
 		const dir = await repo();
 		writeFileSync(join(dir, "pnpm-lock.yaml"), "lock\n");
