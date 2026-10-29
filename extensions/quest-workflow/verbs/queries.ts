@@ -7,15 +7,23 @@
  * subdir.
  */
 
+import { stateDir } from "../../../lib/internal/paths.ts";
 import {
 	discoverQuests,
 	type QuestIndex,
 } from "../../../lib/internal/quest/discovery.ts";
+import { currentBootToken } from "../../../lib/internal/quest/process-liveness.ts";
 import {
 	restoreRecipe,
 	type SessionRecord,
 	wasLost,
 } from "../../../lib/internal/quest/session-registry.ts";
+import {
+	type BootWindows,
+	readWindowsNote,
+	windowsNotePath,
+	windowsToReopen,
+} from "../../../lib/internal/quest/windows-elsewhere.ts";
 import { count } from "../../../lib/ui/count.ts";
 import { OUTCOME_GLYPH } from "../../../lib/ui/outcome-glyphs.ts";
 import {
@@ -275,6 +283,24 @@ function olderLostSection(older: readonly SessionRecord[]): string[] {
 	];
 }
 
+/**
+ * The windows the last boot had open on sessions other machines hold.
+ * Those sessions still run there, so each is rejoined with its attach
+ * words rather than reopened: the launcher's row runs them, and this
+ * lists them so they can be run by hand.
+ */
+function elsewhereSection(joins: BootWindows | undefined): string[] {
+	if (!joins || joins.windows.length === 0) return [];
+	return [
+		"",
+		`Joined from here to a session another machine holds, still running there (${count(joins.windows.length, "window")}); rejoin each with:`,
+		...joins.windows.map(
+			(window) =>
+				`- ${window.quest ?? window.title} on ${window.machine}: ${window.attach.join(" ")}`,
+		),
+	];
+}
+
 function recentlyClosedSection(closed: readonly SessionRecord[]): string[] {
 	if (closed.length === 0) return [];
 	const shown = closed.slice(0, RECENTLY_CLOSED_SHOWN);
@@ -373,14 +399,26 @@ export async function restore(
 		closed = [];
 		olderLost = [];
 	}
+	const thisBoot = currentBootToken();
+	const joins =
+		opts.ids === undefined
+			? windowsToReopen(
+					readWindowsNote(windowsNotePath(stateDir("quest-workflow"))),
+					thisBoot,
+					offered[0]?.process?.bootToken,
+				)
+			: undefined;
 	const closedSection = [
+		...elsewhereSection(joins),
 		...olderLostSection(olderLost),
 		...recentlyClosedSection(closed),
 	];
 	if (toRestore.length === 0) {
 		return ok(
 			[
-				"No session was running when the last boot ended; nothing to restore.",
+				joins && joins.windows.length > 0
+					? "No session here was running when the last boot ended."
+					: "No session was running when the last boot ended; nothing to restore.",
 				...closedSection,
 			].join("\n"),
 			{ restore: { toRestore: [], recipe: [], recentlyClosed: closed } },

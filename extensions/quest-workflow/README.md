@@ -111,6 +111,16 @@ shipped and tested.
   spawns in turn opens a new window rather than a tab. `restore`
   refuses `machine` and `needs`: it reopens this machine's saved
   sessions.
+- **Windows on another machine's sessions**: a session another
+  machine holds keeps running through this machine's power-off, so
+  what the boot takes away is only the window joined to it.
+  `scripts/windows-elsewhere.ts`, run each minute by a user timer,
+  notes each window here whose foreground command is such a
+  session's attach words, as the mycelium node gives them, in
+  `windows-elsewhere.json` beside the session records. The next
+  boot's `restore.json` offers each as an entry with `machine` and
+  `attach`, for the launcher to rejoin, and `restore` lists the
+  words. A session joined again in a window now drops out.
 - **Spawn where it fits**: `spawn` with `needs`, each in
   mycelium's own `kind=value` words (`reach=home`,
   `system=macos`), asks the node where such work goes before
