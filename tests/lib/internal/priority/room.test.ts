@@ -314,6 +314,25 @@ describe("a builder elsewhere, from Nix's machines file", () => {
 		expect(offloadIn("\n   \n")).toBeUndefined();
 	});
 
+	it("says a builder is being lent while the lending file names one and none stands", () => {
+		const kernel = { proc: proc(8), cgroups: join(root, "cgroups") };
+		mkdirSync(kernel.cgroups, { recursive: true });
+		const machines = join(root, "machines");
+		const lending = join(root, "lending");
+		const read = () => readRoom([], { ...kernel, machines, lending });
+		expect(read().lendingSince).toBeUndefined();
+
+		writeFileSync(lending, "optimus-offload-lend-1793297142\n");
+		expect(read().lendingSince).toBeGreaterThan(0);
+
+		writeFileSync(machines, `${aquifer}\n`);
+		expect(read().lendingSince).toBeUndefined();
+
+		writeFileSync(machines, "");
+		writeFileSync(lending, "");
+		expect(read().lendingSince).toBeUndefined();
+	});
+
 	it("is read with the room, and absent while no file stands", () => {
 		const kernel = { proc: proc(8), cgroups: join(root, "cgroups") };
 		mkdirSync(kernel.cgroups, { recursive: true });

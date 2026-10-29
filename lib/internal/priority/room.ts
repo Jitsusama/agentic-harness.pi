@@ -87,6 +87,11 @@ export interface Kernel {
 	readonly machines?: string;
 	/** The Nix daemon's folder of builder slot locks, where it keeps one. */
 	readonly nixLoad?: string;
+	/**
+	 * The offload daemon's file naming the builder it is having lent, empty
+	 * once that builder stands or the lend failed.
+	 */
+	readonly lending?: string;
 }
 
 export const KERNEL: Kernel = {
@@ -96,6 +101,7 @@ export const KERNEL: Kernel = {
 	// when it goes.
 	machines: "/run/nix-offload/machines",
 	nixLoad: "/nix/var/nix/current-load",
+	lending: "/run/nix-offload/lending",
 };
 
 /** The system the builders' slots are counted for: this machine's. */
@@ -169,6 +175,23 @@ function offloadOf(kernel: Kernel): Offload | undefined {
 }
 
 /**
+ * Since when a builder has been being lent, by the lending file's change
+ * time while it names one, or nothing.
+ */
+export function lendingSinceIn(
+	kernel: Pick<Kernel, "lending">,
+): number | undefined {
+	if (kernel.lending === undefined) return undefined;
+	try {
+		if (readFileSync(kernel.lending, "utf8").trim() === "") return undefined;
+		return statSync(kernel.lending).mtimeMs;
+	} catch {
+		// No file: nothing is being lent.
+		return undefined;
+	}
+}
+
+/**
  * Whether a builder's slot is building now, by the lock Nix holds on its
  * file in the daemon's current-load folder while it builds there,
  * `<uri with / as _>-<slot>`, as the kernel's lock table shows it. Only
@@ -238,8 +261,11 @@ export function readRoom(
 	const cpu = pressure(kernel.proc, "cpu");
 	const builds = buildsIn(kernel);
 	const offload = offloadOf(kernel);
+	// Waiting for a lend is only while no builder stands yet.
+	const lendingSince = offload ? undefined : lendingSinceIn(kernel);
 	return {
 		...(offload ? { offload } : {}),
+		...(lendingSince !== undefined ? { lendingSince } : {}),
 		availableGib: Math.max(0, available - kept) / GIB,
 		// No cgroup stalls more than the whole machine, so the walk, 6 ms
 		// over optimus's 171 cgroups, is only made when it could matter.
