@@ -1,5 +1,5 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -94,6 +94,14 @@ function lostSession(sessionId: string, questId: string) {
 			instanceId: "inst-gone",
 			cwd: tmpRoot,
 			questId,
+			// It ran in the boot before this one, as a power-off leaves it:
+			// restore offers only what the last boot's end took away.
+			process: {
+				hostId: hostname(),
+				pid: 4242,
+				startToken: "Tue Oct 28 20:40:00 2026",
+				bootToken: "the-boot-before",
+			},
 			now: new Date(at.getTime() - 30 * 60_000),
 		}),
 		"died",

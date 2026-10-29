@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	closeRecord,
+	lastBootSessions,
 	lastOpenAt,
 	lastOpenOnQuest,
 	markSignalled,
@@ -270,6 +271,65 @@ describe("restorable", () => {
 			died("newer", LATER_STILL),
 		]);
 		expect(order.map((r) => r.sessionId)).toEqual(["newer", "older"]);
+	});
+});
+
+describe("lastBootSessions", () => {
+	/** A session that ran in `boot` and ended as `reason` at `at`. */
+	const ended = (
+		sessionId: string,
+		boot: string,
+		reason: "died" | "signalled" | "quit",
+		at: string,
+	) =>
+		closeRecord(
+			opened({
+				sessionId,
+				process: {
+					hostId: "here",
+					pid: 1,
+					startToken: "t",
+					bootToken: boot,
+				},
+			}),
+			reason,
+			new Date(at),
+		);
+	const running = opened({
+		sessionId: "now",
+		process: { hostId: "here", pid: 2, startToken: "t", bootToken: "third" },
+	});
+	const records = [
+		ended("long-gone", "first", "died", "2026-10-20T13:28:00Z"),
+		ended("crashed-midway", "second", "died", "2026-10-28T20:00:00Z"),
+		ended("quit", "second", "quit", "2026-10-29T00:50:00Z"),
+		ended("signalled", "second", "signalled", "2026-10-29T00:59:30Z"),
+		// A power-off left only its last heartbeat, a minute before.
+		ended("cut-off", "second", "died", "2026-10-29T00:58:40Z"),
+		ended("lost-today", "third", "died", "2026-10-29T11:00:00Z"),
+		running,
+	];
+
+	it("offers the sessions running when the boot before this one ended, and nothing older", () => {
+		const found = lastBootSessions(records, "third");
+
+		expect(found.boot).toBe("second");
+		expect(found.offered.map((r) => r.sessionId)).toEqual([
+			"signalled",
+			"cut-off",
+		]);
+		expect(found.older.map((r) => r.sessionId).sort()).toEqual([
+			"crashed-midway",
+			"long-gone",
+			"lost-today",
+		]);
+	});
+
+	it("offers nothing when this boot can't be told from the last", () => {
+		const found = lastBootSessions(records, undefined);
+
+		expect(found.offered).toEqual([]);
+		expect(found.older).toHaveLength(5);
 	});
 });
 

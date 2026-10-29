@@ -6,6 +6,7 @@ import {
 	endReasonForShutdown,
 	forgetRecord,
 	installSignalStamp,
+	keepRecordTrue,
 	loadRecords,
 	lostSessionCount,
 	observeRecords,
@@ -220,6 +221,59 @@ describe("following a session onto its quests", () => {
 		const record = readRecord("sess-1");
 		expect(record).toMatchObject({ cwd: "/work", openedAt: NOW.toISOString() });
 		expect(record?.quest).toBeUndefined();
+	});
+
+	it("takes over a record a power-off left open under the process it took away", () => {
+		// Nothing stamped it at shutdown, so it still reads as open.
+		saveRecord(sessionFromPreviousBoot("sess-1"));
+		const running = currentProcessIdentity();
+
+		recordSession({
+			sessionId: "sess-1",
+			cwd: "/work",
+			instanceId: "inst-now",
+			...(running ? { process: running } : {}),
+		});
+
+		expect(readRecord("sess-1")).toMatchObject({
+			instanceId: "inst-now",
+			process: running,
+		});
+		// A reader now finds it running, rather than calling it died.
+		expect(observeRecords(loadRecords()).repaired).toEqual([]);
+	});
+
+	it("puts right on its heartbeat a record a reader stamped died while it runs", () => {
+		const running = currentProcessIdentity();
+		const input = {
+			sessionId: "sess-1",
+			cwd: "/work",
+			instanceId: "inst-1",
+			...(running ? { process: running } : {}),
+		};
+		recordSession(input);
+		const record = readRecord("sess-1");
+		if (record === undefined) throw new Error("no record was written");
+		saveRecord(closeRecord(record, "died", NOW));
+
+		keepRecordTrue(input);
+
+		expect(readRecord("sess-1")?.closedAt).toBeUndefined();
+		expect(readRecord("sess-1")?.endings).toEqual([
+			{ closedAt: NOW.toISOString(), endReason: "died" },
+		]);
+	});
+
+	it("leaves a record the session ended itself, whatever the heartbeat says", () => {
+		const input = { sessionId: "sess-1", cwd: "/work", instanceId: "inst-1" };
+		recordSession(input);
+		const record = readRecord("sess-1");
+		if (record === undefined) throw new Error("no record was written");
+		saveRecord(closeRecord(record, "quit", NOW));
+
+		keepRecordTrue(input);
+
+		expect(readRecord("sess-1")?.endReason).toBe("quit");
 	});
 
 	it("keeps a session's quest when it is recorded again without one", () => {

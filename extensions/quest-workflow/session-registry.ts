@@ -21,18 +21,29 @@ import {
 	unlinkSync,
 	utimesSync,
 } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { sessionsDir } from "../../lib/internal/paths.ts";
 import { atomicWriteFile } from "../../lib/internal/quest/io.ts";
 import { sessionRegistryDir } from "../../lib/internal/quest/loaded.ts";
 import {
+	currentProcessIdentity,
 	localProcessDeps,
 	probeProcess,
 } from "../../lib/internal/quest/process-liveness.ts";
+import { extractTitle } from "../../lib/internal/quest/quest-doc.ts";
+import {
+	restoreFileOf,
+	restoreFilePath,
+	writeRestoreFile,
+} from "../../lib/internal/quest/restore-file.ts";
 import { indexSessionFiles } from "../../lib/internal/quest/session-liveness.ts";
 import {
 	closeRecord,
+	type LastBootSessions,
+	lastBootSessions,
 	markSignalled,
+	namesAnotherProcess,
 	openRecord,
 	parseSessionRecord,
 	pruneRecords,
@@ -45,6 +56,7 @@ import {
 	startedAgain,
 	switchQuest,
 	wasLost,
+	wronglyEnded,
 } from "../../lib/internal/quest/session-registry.ts";
 import type { QuestSession } from "../../lib/quest/index.ts";
 import {
@@ -188,10 +200,36 @@ let heartbeat: ReturnType<typeof setInterval> | undefined;
 export function startHeartbeat(
 	sessionId: string,
 	intervalMs: number = HEARTBEAT_INTERVAL_MS,
+	check?: () => void,
 ): void {
 	stopHeartbeat();
-	heartbeat = setInterval(() => touchHeartbeat(sessionId), intervalMs);
+	heartbeat = setInterval(() => {
+		touchHeartbeat(sessionId);
+		check?.();
+	}, intervalMs);
 	heartbeat.unref?.();
+}
+
+/**
+ * Put this session's record right when a reader got it wrong: closed
+ * as died or vanished while this process runs it, or naming another
+ * process. Only the running session can know either, and it says so
+ * on its next heartbeat.
+ */
+export function keepRecordTrue(input: OnQuestInput): void {
+	let record: SessionRecord | undefined;
+	try {
+		record = readRecord(input.sessionId);
+	} catch {
+		// An unreadable record is put right by the next tick, or by the
+		// session's next start.
+		return;
+	}
+	if (record === undefined) return;
+	const wrong =
+		(record.closedAt !== undefined && wronglyEnded(record)) ||
+		namesAnotherProcess(record, input.process);
+	if (wrong) recordSession(input);
 }
 
 /**
@@ -518,6 +556,64 @@ export function restorableSessions(
 }
 
 /**
+ * What restore offers after a boot: the lost sessions that were running
+ * when the last boot ended, and the rest of the lost, only to be named
+ * (see `lastBootSessions`).
+ */
+export function lastBootRestorable(
+	saved: (sessionId: string) => boolean = savedSessions(),
+	thisBoot: string | undefined = currentProcessIdentity()?.bootToken,
+): LastBootSessions {
+	const lost = new Set(
+		restorableSessions(saved).map((record) => record.sessionId),
+	);
+	const records = loadRecords().map((entry) => entry.record);
+	const found = lastBootSessions(records, thisBoot);
+	const kept = (list: SessionRecord[]) =>
+		list.filter((record) => lost.has(record.sessionId));
+	return { ...found, offered: kept(found.offered), older: kept(found.older) };
+}
+
+/**
+ * Rewrite the launcher's restore file from the records as they stand,
+ * probing nothing (see lib/internal/quest/restore-file.ts). A session
+ * starting calls it, so one reopened drops out of the launcher's list
+ * within moments. Best-effort: a file that can't be written leaves the
+ * last one in place, which only lists a session already back.
+ */
+export function refreshRestoreFile(
+	questsRoot: string,
+	// An empty XDG_STATE_HOME means the default, as the spec says; read as
+	// a path it would write into whatever folder the process stands in.
+	stateHome: string = process.env.XDG_STATE_HOME ||
+		join(homedir(), ".local", "state"),
+): void {
+	try {
+		const file = restoreFileOf(
+			loadRecords(),
+			currentProcessIdentity()?.bootToken,
+			(questId) => questTitle(questsRoot, questId),
+			savedSessions(),
+		);
+		writeRestoreFile(restoreFilePath(stateHome), file);
+	} catch {
+		// The launcher keeps the file it has; the next start writes again.
+	}
+}
+
+/** A quest's title from its README, or nothing when it can't be read. */
+function questTitle(questsRoot: string, questId: string): string | undefined {
+	try {
+		return extractTitle(
+			readFileSync(join(questsRoot, questId, "README.md"), "utf8"),
+		);
+	} catch {
+		// A quest folder gone or unreadable: the entry falls back to its folder.
+		return undefined;
+	}
+}
+
+/**
  * Which sessions pi has saved, and so can resume, read from its session
  * store once.
  *
@@ -749,8 +845,13 @@ export function recordSession(input: OnQuestInput, now = new Date()): void {
 		// A closed record here means the session was resumed: this
 		// process is running a conversation something else ended. Put it
 		// back in the open set under our identity, or restore would go on
-		// offering a tab the user has already brought back.
-		const live = existing.closedAt
+		// offering a tab the user has already brought back. So is an open
+		// one naming another process, as a power-off leaves it: kept, the
+		// next reader finds that process gone and calls this one died.
+		const resumed =
+			existing.closedAt !== undefined ||
+			namesAnotherProcess(existing, input.process);
+		const live = resumed
 			? reopenRecord(existing, {
 					instanceId: input.instanceId,
 					...(input.process ? { process: input.process } : {}),
@@ -787,7 +888,9 @@ export function recordSession(input: OnQuestInput, now = new Date()): void {
  */
 export function trackSession(input: OnQuestInput, release?: () => void): void {
 	recordSession(input);
-	startHeartbeat(input.sessionId);
+	startHeartbeat(input.sessionId, HEARTBEAT_INTERVAL_MS, () =>
+		keepRecordTrue(input),
+	);
 	followSessionForSignals(input.sessionId, release);
 }
 
