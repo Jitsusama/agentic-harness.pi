@@ -1,9 +1,14 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	normalise,
 	periodOf,
+	readLine,
 	renderReport,
 	type Sighting,
+	sense,
 	signalsFromCall,
 	signalsFromResult,
 	tally,
@@ -170,6 +175,68 @@ describe("counting and reporting", () => {
 			["sleep used to wait", 2, 4, { "2026-W43": 2, "2026-W44": 1 }],
 			["git stash run directly", 1, 1, { "2026-W44": 1 }],
 		]);
+	});
+
+	it("counts a session read back from Drive as one of its own", () => {
+		const root = mkdtempSync(join(tmpdir(), "sensor-"));
+		try {
+			const refused = (at: string) =>
+				JSON.stringify({
+					type: "message",
+					timestamp: at,
+					message: {
+						role: "toolResult",
+						toolName: "quest",
+						content: [{ type: "text", text: "⊘ Nothing is focused." }],
+					},
+				});
+			const sessionsDir = join(root, "sessions");
+			mkdirSync(join(sessionsDir, "--a--"), { recursive: true });
+			writeFileSync(
+				join(sessionsDir, "--a--", "2026-10-27T10-00-00-000Z_s-here.jsonl"),
+				`${refused("2026-10-27T10:00:00Z")}\n`,
+			);
+			const indexPath = join(root, "index.jsonl");
+			const away = (id: string) =>
+				JSON.stringify({
+					name: `h/--a--/${id}.age`,
+					id,
+					ended: "2026-07-01T00:00:00Z",
+				});
+			writeFileSync(indexPath, `${away("s-1")}\n${away("s-2")}\n`);
+
+			const { groups, read } = sense(Date.parse("2026-06-01"), "week", {
+				sessionsDir,
+				indexPath,
+				fetch: (_name, to) =>
+					writeFileSync(to, `${refused("2026-06-30T10:00:00Z")}\n`),
+			});
+
+			expect(groups.map((g) => [g.key, g.sessions])).toEqual([
+				["quest: Nothing is focused.", 3],
+			]);
+			expect(read).toEqual({ here: 1, away: 2, unread: 0 });
+			expect(
+				sense(Date.parse("2026-06-01"), "week", {
+					sessionsDir,
+					indexPath,
+					hereOnly: true,
+				}).read,
+			).toEqual({ here: 1, away: 0, unread: 2 });
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	it("says what it read, and what went unread and why", () => {
+		expect(readLine({ here: 3, away: 2, unread: 0 })).toBe(
+			"read 3 logs on the machine and 2 read back from Drive",
+		);
+		expect(
+			readLine({ here: 3, away: 0, unread: 2, why: "Drive stayed busy" }),
+		).toBe(
+			"read 3 logs on the machine and 0 read back from Drive; 2 on Drive only went unread: Drive stayed busy",
+		);
 	});
 
 	it("reports each kind's top groups beside the sessions active each week", () => {
