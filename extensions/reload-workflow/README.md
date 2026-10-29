@@ -69,7 +69,13 @@ loads the install and the install is `main`.
     somebody sits at follows: not a subagent, nor a print-mode run.
     `PI_FOLLOW_INSTALL=off` turns it off.
   - One `fs.watch` per install's git directory, read once the
-    checkout has been still for three seconds. Nothing is polled.
+    checkout has been still for three seconds. An install named by a
+    link is also read every 30 seconds and at every settle: a watch
+    can be lost without a word, and on 29 October nine sessions stayed
+    five installs behind for five hours.
+  - Its own reload, handed to the command and waiting ten minutes with
+    none under way, is asked again. The first time, a `reload-held`
+    entry in the session's log says what held it.
 - **`⇄` on the footer** while the session runs code other than the
   install pi's settings name, muted, and only then.
 - **`/harness`** says what runs, from where, at which commit, and

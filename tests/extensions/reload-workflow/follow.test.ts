@@ -4,11 +4,22 @@
  * somebody's to sit at never does.
  */
 
-import { writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createEventBus } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
-import { follow } from "../../../extensions/reload-workflow/follow.ts";
+import {
+	follow,
+	HELD_ENTRY,
+	HELD_MS,
+} from "../../../extensions/reload-workflow/follow.ts";
 import type { PackageSettings } from "../../../lib/internal/reload/settings.ts";
 import { reloadSlot } from "../../../lib/internal/reload/slot.ts";
 import { announceJobHost, type JobHost } from "../../../lib/jobs/index.ts";
@@ -28,8 +39,45 @@ afterEach(async () => {
 	const slot = reloadSlot();
 	slot.request = undefined;
 	slot.dispatched = false;
+	slot.dispatchedAt = undefined;
+	slot.performing = undefined;
 	for (const repo of repos.splice(0)) disposeRepo(repo);
+	for (const dir of dirs.splice(0))
+		rmSync(dir, { recursive: true, force: true });
 });
+
+const dirs: string[] = [];
+
+/**
+ * A session running one version of an install named by a link, whose
+ * link has moved onto another: no git, so no watch hears anything, as
+ * when a session's watch was lost.
+ */
+async function behind() {
+	const install = mkdtempSync(join(tmpdir(), "install-"));
+	dirs.push(install);
+	const was = join(install, "versions", "aaaa");
+	const now = join(install, "versions", "bbbb");
+	mkdirSync(was, { recursive: true });
+	mkdirSync(now, { recursive: true });
+	const link = join(install, "current");
+	symlinkSync(join("versions", "bbbb"), link);
+	const prompted: string[] = [];
+	const entries: { type: string; data: unknown }[] = [];
+	const pi = {
+		events: createEventBus(),
+		sendUserMessage: (text: string) => prompted.push(text),
+		appendEntry: (type: string, data: unknown) => entries.push({ type, data }),
+	};
+	const follower = await follow(
+		pi as never,
+		{ hasUI: true, isIdle: () => true } as never,
+		settingsFor(link),
+		() => ({ root: was, install: now }),
+		{ env: {}, quietMs: QUIET_MS },
+	);
+	return { follower, prompted, entries };
+}
 
 function settingsFor(root: string): PackageSettings {
 	return {
@@ -149,6 +197,48 @@ describe("following the install", () => {
 
 		await land(install, "feat: something to try");
 		await until("the reload is asked for", () => prompted.length > 0);
+	});
+
+	it("comes up to an install whose link moved without its watch hearing", async () => {
+		const { follower, prompted } = await behind();
+
+		follower?.consider();
+
+		await until("the reload is asked for", () => prompted.length > 0);
+		expect(prompted).toEqual(["/harness reload"]);
+	});
+
+	it("asks its own reload again once held with none under way, saying why", async () => {
+		const { follower, prompted, entries } = await behind();
+		const slot = reloadSlot();
+		slot.request = { reason: "the install moved", by: "self" };
+		slot.dispatched = true;
+		slot.dispatchedAt = Date.now() - HELD_MS;
+
+		follower?.consider();
+
+		await until("the reload is asked again", () => prompted.length > 0);
+		expect(entries).toMatchObject([
+			{ type: HELD_ENTRY, data: { dispatched: true, performing: false } },
+		]);
+	});
+
+	it("leaves a held reload under way alone, saying why once", async () => {
+		const { follower, prompted, entries } = await behind();
+		const slot = reloadSlot();
+		slot.request = { reason: "the install moved", by: "self" };
+		slot.dispatched = true;
+		slot.dispatchedAt = Date.now() - HELD_MS;
+		slot.performing = true;
+
+		follower?.consider();
+		follower?.consider();
+
+		await quietFor(QUIET_MS, 4);
+		expect(prompted).toEqual([]);
+		expect(entries).toMatchObject([
+			{ type: HELD_ENTRY, data: { performing: true } },
+		]);
 	});
 
 	it("never moves a session running a tree, or one nobody sits at", async () => {

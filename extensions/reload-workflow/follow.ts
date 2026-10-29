@@ -20,6 +20,7 @@ import {
 	dependenciesReady,
 	FOLLOW_ENV,
 	type Moved,
+	missedMove,
 	type Unwatch,
 	watchHeads,
 	whenToReload,
@@ -33,8 +34,22 @@ import { reloadSlot } from "../../lib/internal/reload/slot.ts";
 import { canonical } from "./lifecycle.ts";
 import { COMMAND, RELOAD_ARG } from "./transitions.ts";
 
-/** How often a reload that is waiting on an install looks again. */
+/**
+ * How often a reload that is waiting on an install looks again, and how
+ * often the follower reads the install's link itself, in case its watch
+ * was lost.
+ */
 const RECHECK_MS = 30_000;
+
+/**
+ * How long the session's own reload may wait, handed to the command and
+ * with no reload under way, before it is asked again. Nine sessions on
+ * 29 October heard the install move and never reloaded, silently.
+ */
+export const HELD_MS = 10 * 60_000;
+
+/** The entry that says why the session's own reload was held. */
+export const HELD_ENTRY = "reload-held";
 
 /** The process's one follower, so a reload replaces it rather than adding one. */
 const FOLLOWER_KEY = Symbol.for("agentic-harness.reload.follower");
@@ -133,6 +148,7 @@ export async function follow(
 		if (slot.request !== undefined) return;
 		slot.request = { reason, by: "self" };
 		slot.dispatched = true;
+		slot.dispatchedAt = Date.now();
 		try {
 			pi.sendUserMessage(`/${COMMAND} ${RELOAD_ARG}`, {
 				expandPromptTemplates: true,
@@ -143,12 +159,54 @@ export async function follow(
 		}
 	};
 
+	const roots = installedRoots(settings);
+	let heldNoted = false;
+
+	/**
+	 * Let go of the session's own reload once it has waited past
+	 * {@link HELD_MS} with none under way, so it is asked again, and say
+	 * once why it was held. One under way is left alone: two reloads that
+	 * overlap leave a runtime that never goes stale.
+	 */
+	const letGoIfHeld = (): boolean => {
+		const slot = reloadSlot();
+		const since = slot.dispatchedAt;
+		if (slot.request?.by !== "self" || since === undefined) return false;
+		const heldMs = Date.now() - since;
+		if (heldMs < HELD_MS) return false;
+		const stuck = slot.performing === true || slot.reloading === true;
+		if (!heldNoted) {
+			heldNoted = true;
+			try {
+				pi.appendEntry(HELD_ENTRY, {
+					heldMs,
+					dispatched: slot.dispatched === true,
+					performing: slot.performing === true,
+					reloading: slot.reloading === true,
+					at: new Date().toISOString(),
+				});
+			} catch {
+				// A stale runtime has no log to write to.
+			}
+		}
+		if (stuck) return false;
+		slot.request = undefined;
+		slot.dispatched = false;
+		slot.dispatchedAt = undefined;
+		return true;
+	};
+
 	const consider = (settled = false) => {
+		for (const root of roots) {
+			if (moved.has(root)) continue;
+			const missed = missedMove(running().root, root);
+			if (missed) moved.set(root, missed);
+		}
 		if (moved.size === 0) return;
 		const slot = reloadSlot();
 		// Somebody else's reload is waiting or under way, and it loads
 		// the install anyway unless it was asked for a tree.
-		if (slot.request !== undefined) return;
+		if (slot.request !== undefined && !letGoIfHeld()) return;
 		if (recheck) clearTimeout(recheck);
 		recheck = undefined;
 		let idle = false;
@@ -179,7 +237,7 @@ export async function follow(
 	};
 
 	const unwatch = await watchHeads(
-		installedRoots(settings),
+		roots,
 		(one) => {
 			const earlier = moved.get(one.root);
 			moved.set(one.root, earlier ? { ...one, from: earlier.from } : one);
@@ -188,8 +246,12 @@ export async function follow(
 		},
 		quietMs,
 	);
+	// Read the link itself every so often, whether or not the watch hears.
+	const look = setInterval(() => consider(), RECHECK_MS);
+	look.unref?.();
 	global[FOLLOWER_KEY] = () => {
 		unwatch();
+		clearInterval(look);
 		if (recheck) clearTimeout(recheck);
 	};
 	return { consider };
