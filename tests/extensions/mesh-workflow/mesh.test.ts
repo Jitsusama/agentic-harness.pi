@@ -749,6 +749,55 @@ describe("an act", () => {
 	});
 });
 
+describe("a session switched out", () => {
+	it("lets go of a message still being judged, never reading the old session's context", async () => {
+		// On 29 October a rollover switched a session out while its mesh
+		// was mid-way through work; that work then read the old context,
+		// which pi had made stale, and the throw cost the session its ears.
+		let answer: (value: unknown) => void = () => {};
+		let judged = false;
+		let stale = false;
+		let staleReads = 0;
+		const read = <T>(value: T): T => {
+			if (stale) staleReads += 1;
+			return value;
+		};
+		const first = await startSession(
+			{},
+			{
+				modelRegistry: {
+					getAvailableOfType: async () => [
+						{ provider: "typesafe", id: "jev-latest" },
+					],
+					classify: () =>
+						new Promise((resolve) => {
+							judged = true;
+							answer = resolve;
+						}),
+				},
+				isIdle: () => read(true),
+				sessionManager: {
+					getSessionId: () => read(session),
+					getSessionFile: () => read(join(root, `${session}.jsonl`)),
+					getBranch: () => read([]),
+					getSessionName: () => read(undefined),
+					getCwd: () => read(root),
+				},
+			},
+		);
+		fromElsewhere({ text: "merging core.nix#330 now" });
+		await vi.waitFor(() => expect(judged).toBe(true));
+
+		await first.fire("session_shutdown", { reason: "resume" });
+		stale = true;
+		answer({ stopReason: "stop", answers: { about: notYours } });
+		await new Promise((resolve) => setTimeout(resolve, 50));
+
+		expect(staleReads).toBe(0);
+		expect(first.sent).toEqual([]);
+	});
+});
+
 describe("a message never lost", () => {
 	const slow = { settleMs: 400, spreadMs: 0 };
 

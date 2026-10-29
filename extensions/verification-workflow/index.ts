@@ -111,6 +111,10 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 		// The next session offers its own; a stale one would answer for
 		// state nobody is keeping any more.
 		provideVerificationCheck(undefined);
+		// A check still in flight then finds no context to write its status
+		// to, rather than one pi has made stale (see mesh-workflow's
+		// session_shutdown for what a stale read cost on 29 October).
+		ctxRef = null;
 	});
 
 	// Collect the files pi changed this turn.

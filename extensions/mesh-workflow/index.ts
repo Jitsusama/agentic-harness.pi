@@ -629,6 +629,9 @@ export function meshWorkflow(
 		 */
 		const route = async (messages: readonly Message[], starting = false) => {
 			if (messages.length === 0 || !ctx || !peer) return;
+			// The peer this was routed for: a session that ends while it is
+			// judged leaves the rest undone (see session_shutdown).
+			const routedFor = peer;
 			peer.refresh();
 			identity();
 			// What it changes now tells its business from another's best.
@@ -659,6 +662,7 @@ export function meshWorkflow(
 						: judge(message, receiver),
 				),
 			);
+			if (peer !== routedFor) return;
 			// Never while starting: the first prompt is about to run, and pi
 			// refuses a second turn asked for beside it.
 			const idle = !starting && (ctx.isIdle?.() ?? false);
@@ -1327,6 +1331,14 @@ export function meshWorkflow(
 			untellAwaited = undefined;
 			steering?.stop();
 			steering = undefined;
+			// The peer goes with its session. Work still in flight from it, a
+			// count of who is live or a message being judged, finds no peer
+			// and stops: on 29 October one such refresh read the session's
+			// context after a rollover had switched it out, and pi took the
+			// throw as an uncaught exception 146 ms into the switch, after
+			// which the session heard nothing more (and on 22 October, a
+			// reload's landing note did the same).
+			peer = undefined;
 		});
 
 		/** Claim or give up heavy work, saying so when it overlaps another's. */
