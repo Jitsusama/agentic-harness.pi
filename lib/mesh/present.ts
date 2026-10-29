@@ -105,15 +105,20 @@ export function keepPresent(
 	attempt();
 }
 
-/** Whether this process is counted present by the node now. */
+/**
+ * Whether this process is counted present by the node now. Only tests ask
+ * it today; a status line may later.
+ */
 export function isKeptPresent(): boolean {
 	return (globalThis as PresentGlobal)[SLOT]?.present === true;
 }
 
 /**
  * Stops keeping this process present and closes its connection, which
- * the node reads as this process's end. Only a process done with the
- * mesh does this; one that exits needs nothing, since its end closes it.
+ * the node reads as this process's end. Only tests call it today, to
+ * start each from nothing. Never call it at `session_shutdown`: a reload
+ * fires that too, and the node would end a session that carries on. A
+ * process that exits needs nothing, since its end closes the connection.
  */
 export function stopPresent(): void {
 	const held = globalThis as PresentGlobal;
