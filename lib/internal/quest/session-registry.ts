@@ -439,6 +439,69 @@ export function restorable(records: readonly SessionRecord[]): SessionRecord[] {
 }
 
 /**
+ * How long before the last sighting of a boot a session may have been
+ * seen last and still count as running when that boot ended. A signal
+ * stamps the moment shutdown reached the session; a power-off leaves
+ * only the last heartbeat, up to a minute earlier; and a shutdown that
+ * stops its services one by one takes a few minutes more.
+ */
+export const SHUTDOWN_SPREAD_MS = 5 * 60_000;
+
+/** What restore offers after a boot, and what it only mentions. */
+export interface LastBootSessions {
+	/** The boot they ran in, when one can be told apart from this one. */
+	readonly boot?: string;
+	/** Sessions running when that boot ended, most recently seen first. */
+	readonly offered: SessionRecord[];
+	/** Every other lost session, kept to be named, never offered. */
+	readonly older: SessionRecord[];
+}
+
+/**
+ * The sessions that were running when the last boot before this one
+ * ended: the ones a power-off took away, and nothing lost before.
+ *
+ * Told from the records alone, so it reads the same on any platform.
+ * The last boot is the newest `bootToken` other than this one's, and
+ * its end the latest moment any of its records was seen. A session
+ * counts when it last ran in that boot, ended `died` or `signalled`
+ * rather than by a quit or a swap, and was seen within
+ * {@link SHUTDOWN_SPREAD_MS} of that end. Without this boot's token
+ * nothing can be told apart, and nothing is offered: restore's whole
+ * trouble was offering what should not come back.
+ */
+export function lastBootSessions(
+	records: readonly SessionRecord[],
+	thisBoot: string | undefined,
+): LastBootSessions {
+	const lost = restorable(records);
+	if (thisBoot === undefined) return { offered: [], older: lost };
+	let boot: string | undefined;
+	let end = Number.NEGATIVE_INFINITY;
+	for (const record of records) {
+		const token = record.process?.bootToken;
+		const seen = Date.parse(record.closedAt ?? "");
+		if (token === undefined || token === thisBoot || Number.isNaN(seen)) {
+			continue;
+		}
+		if (seen > end) {
+			end = seen;
+			boot = token;
+		}
+	}
+	if (boot === undefined) return { offered: [], older: lost };
+	const lastBoot = boot;
+	const ranToTheEnd = (record: SessionRecord) =>
+		record.process?.bootToken === lastBoot &&
+		end - Date.parse(record.closedAt ?? "") <= SHUTDOWN_SPREAD_MS;
+	return {
+		boot: lastBoot,
+		offered: lost.filter(ranToTheEnd),
+		older: lost.filter((record) => !ranToTheEnd(record)),
+	};
+}
+
+/**
  * Whether a session was taken away rather than closed: it crashed and
  * a reader found it gone, or a signal ended it. Every view that
  * separates a lost tab from a closed one asks this, so they cannot
@@ -522,6 +585,44 @@ export function reopenRecord(
 		...(input.process ? { process: input.process } : {}),
 		...(input.terminal ? { terminal: input.terminal } : {}),
 	};
+}
+
+/**
+ * Whether a record names a process other than the one running the
+ * session now, so the record is stale even though it reads as open.
+ *
+ * A power-off stamps nothing, so a session resumed after the boot found
+ * its record still open under the process the boot took away, and kept
+ * it: on 29 October a reader then probed that process, found it gone,
+ * and stamped four running sessions died, which restore offered back.
+ * Unknown on either side is not another process: an identity that
+ * could not be captured is no evidence of a mismatch.
+ */
+export function namesAnotherProcess(
+	record: SessionRecord,
+	running: ProcessIdentity | undefined,
+): boolean {
+	const recorded = record.process;
+	if (recorded === undefined || running === undefined) return false;
+	return (
+		recorded.hostId !== running.hostId ||
+		recorded.pid !== running.pid ||
+		recorded.startToken !== running.startToken ||
+		(recorded.bootToken !== undefined &&
+			running.bootToken !== undefined &&
+			recorded.bootToken !== running.bootToken)
+	);
+}
+
+/**
+ * Whether a record says its session ended when the session's own
+ * process is running, as only a reader that guessed wrong can stamp:
+ * `died` and `vanished` are written by whoever found the process
+ * gone, never by the session, which stops its heartbeat before it
+ * stamps an ending of its own.
+ */
+export function wronglyEnded(record: SessionRecord): boolean {
+	return record.endReason === "died" || record.endReason === "vanished";
 }
 
 /**

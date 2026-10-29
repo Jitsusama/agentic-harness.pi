@@ -97,6 +97,7 @@ import {
 	endReasonForShutdown,
 	lostSessionCount,
 	recordSessionEnd,
+	refreshRestoreFile,
 	setSignalStampSession,
 	stopHeartbeat,
 	trackSession,
@@ -772,6 +773,9 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 				},
 				() => releaseSessionOnShutdown(state, sid),
 			);
+			// Off the start path: the launcher's list of what the last boot's
+			// end took away, now without this session if it was one of them.
+			setImmediate(() => refreshRestoreFile(state.questsRoot)).unref();
 		}
 		updateScoreboard(state, ctx);
 		// A passive pointer, nothing more: list the few most recently

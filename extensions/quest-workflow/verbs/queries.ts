@@ -41,10 +41,10 @@ import {
 	renderRowBrief,
 } from "../render-rows.ts";
 import {
+	lastBootRestorable,
 	pruneClosedRecords,
 	recentlyClosedSessions,
 	reopenLostSessions,
-	restorableSessions,
 	savedSessions,
 	seedLiveSessions,
 } from "../session-registry.ts";
@@ -252,6 +252,29 @@ const RECENTLY_CLOSED_SHOWN = 10;
  * but pi reports some signals as a quit, so a tab that was taken away
  * can land here, and listing it keeps it one line away.
  */
+/** How many older lost sessions a listing names before it just counts. */
+const OLDER_LOST_SHOWN = 5;
+
+/**
+ * The lost sessions restore doesn't offer, since they ended before the
+ * last boot did: the newest few by name, so one can still be reopened
+ * with `id`, and the rest as a count.
+ */
+function olderLostSection(older: readonly SessionRecord[]): string[] {
+	if (older.length === 0) return [];
+	const shown = older.slice(0, OLDER_LOST_SHOWN);
+	const rest = older.length - shown.length;
+	return [
+		"",
+		`Lost before the last boot ended, so not offered; name one with id to reopen it (${count(older.length, "session")}):`,
+		...shown.map(
+			(record) =>
+				`- ${record.quest ?? "(no quest)"} ${record.cwd} (session ${record.sessionId}, lost ${record.closedAt})`,
+		),
+		...(rest > 0 ? [`- and ${count(rest, "older one")}`] : []),
+	];
+}
+
 function recentlyClosedSection(closed: readonly SessionRecord[]): string[] {
 	if (closed.length === 0) return [];
 	const shown = closed.slice(0, RECENTLY_CLOSED_SHOWN);
@@ -332,25 +355,34 @@ export async function restore(
 	// later read.
 	seedLiveSessions(claimedSessions(state));
 	const saved = savedSessions();
-	const allLost = restorableSessions(saved);
+	// Only what the last boot's end took away is offered: on 29 October
+	// restore offered 55 sessions going back to the 19th, and nobody
+	// could trust it to bring back just what was open.
+	const { offered, older } = lastBootRestorable(saved);
 	const allClosed = recentlyClosedSessions();
 	pruneClosedRecords(state.sessionRetentionDays);
 	// Naming sessions makes them the whole set: listed alone, and the
 	// ones force reopens, whichever list they came from.
-	let toRestore = allLost;
+	let toRestore = offered;
 	let closed = allClosed;
+	let olderLost = older;
 	if (opts.ids !== undefined) {
-		const named = namedSessions([...allLost, ...allClosed], opts.ids);
+		const named = namedSessions([...offered, ...older, ...allClosed], opts.ids);
 		if (!named.ok) return refuse(named.guidance);
 		toRestore = named.records;
 		closed = [];
+		olderLost = [];
 	}
-	const closedSection = recentlyClosedSection(closed);
+	const closedSection = [
+		...olderLostSection(olderLost),
+		...recentlyClosedSection(closed),
+	];
 	if (toRestore.length === 0) {
 		return ok(
-			["No sessions were lost; nothing to restore.", ...closedSection].join(
-				"\n",
-			),
+			[
+				"No session was running when the last boot ended; nothing to restore.",
+				...closedSection,
+			].join("\n"),
 			{ restore: { toRestore: [], recipe: [], recentlyClosed: closed } },
 		);
 	}
