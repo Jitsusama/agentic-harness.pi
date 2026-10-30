@@ -23,12 +23,11 @@ import {
 } from "../../../lib/terminal/index.ts";
 import { count } from "../../../lib/ui/count.ts";
 import {
-	attachSessionToLoaded,
+	attachSessionInQuestDir,
 	captureSessionIdentity,
-	detachSessionFromLoaded,
 	detachSessionInQuestDir,
 	reconcileSessionMembership,
-	renameSessionOnLoaded,
+	renameSessionInQuestDir,
 } from "../lifecycle.ts";
 import { buildSessionSnapshot } from "../liveness.ts";
 import {
@@ -39,6 +38,7 @@ import {
 } from "../lookup.ts";
 import type { QuestState } from "../state.ts";
 import { terminalOptions } from "../terminal.ts";
+import { addressOf } from "./address.ts";
 import { needsOf } from "./needs.ts";
 import {
 	currentSessionId,
@@ -134,12 +134,31 @@ export async function sessionAudit(
 	});
 }
 
+/**
+ * The quest a session verb acts on: the one `id` names, loaded or not,
+ * or else the loaded one. On 29 October a detach naming another quest
+ * acted on the loaded one and found nothing, leaving the session active
+ * on the quest it had left.
+ */
+function sessionQuest(
+	state: QuestState,
+	params: QuestToolParams,
+): { questId: string; questDir: string } | { refusal: string } {
+	if (!params.id?.trim() && !state.questId) {
+		return { refusal: "Load a quest first, or name it as `id`." };
+	}
+	const target = addressOf(state, params.id, { focused: false });
+	if ("refusal" in target) return target;
+	return { questId: target.questId, questDir: target.questDir };
+}
+
 export function sessionAttach(
 	state: QuestState,
 	ctx: ExtensionContext,
 	params: QuestToolParams,
 ): QuestResult {
-	if (!state.questId) return refuse("Load a quest first.");
+	const quest = sessionQuest(state, params);
+	if ("refusal" in quest) return refuse(quest.refusal);
 	const id = currentSessionId(ctx, params.sessionId);
 	if (!id) {
 		return refuse(
@@ -163,12 +182,12 @@ export function sessionAttach(
 		if (identity.process) session.process = identity.process;
 		if (identity.terminal) session.terminal = identity.terminal;
 	}
-	const result = attachSessionToLoaded(state, session);
+	const result = attachSessionInQuestDir(quest.questDir, session);
 	if (!result.ok) return refuse(result.guidance);
 	return ok(
 		result.added
-			? `Attached session ${id} to ${state.questId}.`
-			: `Session ${id} was already attached; refreshed status.`,
+			? `Attached session ${id} to ${quest.questId}.`
+			: `Session ${id} was already attached to ${quest.questId}; refreshed status.`,
 		{ session, added: result.added },
 	);
 }
@@ -178,21 +197,24 @@ export function sessionDetach(
 	ctx: ExtensionContext,
 	params: QuestToolParams,
 ): QuestResult {
-	if (!state.questId) return refuse("Load a quest first.");
+	const quest = sessionQuest(state, params);
+	if ("refusal" in quest) return refuse(quest.refusal);
 	const id = currentSessionId(ctx, params.sessionId);
 	if (!id) {
 		return refuse(
 			"Could not determine session id to detach. Pass it explicitly in `sessionId`.",
 		);
 	}
-	const result = detachSessionFromLoaded(state, id);
+	const result = detachSessionInQuestDir(quest.questDir, id);
 	if (!result.ok) return refuse(result.guidance);
 	if (!result.detached) {
 		return refuse(
-			`Session ${id} is not attached (or already detached) on this quest.`,
+			`Session ${id} is not attached (or already detached) on ${quest.questId}.`,
 		);
 	}
-	return ok(`Detached session ${id}.`, { sessionId: id });
+	return ok(`Detached session ${id} from ${quest.questId}.`, {
+		sessionId: id,
+	});
 }
 
 export function sessionRename(
@@ -200,16 +222,21 @@ export function sessionRename(
 	ctx: ExtensionContext,
 	params: QuestToolParams,
 ): QuestResult {
-	if (!state.questId) return refuse("Load a quest first.");
+	const quest = sessionQuest(state, params);
+	if ("refusal" in quest) return refuse(quest.refusal);
 	if (!params.name?.trim())
 		return refuse("Pass the new session name in `name`.");
 	const id = currentSessionId(ctx, params.sessionId);
 	if (!id) return refuse("Pass a session id in `sessionId`.");
-	const result = renameSessionOnLoaded(state, id, params.name.trim());
+	const result = renameSessionInQuestDir(
+		quest.questDir,
+		id,
+		params.name.trim(),
+	);
 	if (!result.ok) return refuse(result.guidance);
 	if (!result.renamed) {
 		return refuse(
-			`Session ${id} is not attached to this quest or already has that name.`,
+			`Session ${id} is not attached to ${quest.questId} or already has that name.`,
 		);
 	}
 	return ok(`Renamed session ${id} to "${params.name.trim()}".`, {

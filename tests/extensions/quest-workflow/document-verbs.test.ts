@@ -120,6 +120,24 @@ describe("section", () => {
 		expect(readFileSync(planPath, "utf8")).toBe(before);
 	});
 
+	it("refuses a body a read cut short, and changes nothing", async () => {
+		// 29 October: a plan's Work section lost its tail six times, each
+		// rewrite built from a read cut at 50 KB and too small a loss for
+		// the size guard.
+		const { run, planPath } = await questWithPlan();
+		const before = readFileSync(planPath, "utf8");
+		const body =
+			"- [ ] 1. Keep this.\n\n[Showing lines 1-165 of 211 (50.0KB limit). Use offset=166 to continue.]";
+
+		const result = await run({ action: "section", title: "Notes", body });
+
+		expect(refused(result).guidance).toContain("cut short");
+		expect(readFileSync(planPath, "utf8")).toBe(before);
+		succeeded(
+			await run({ action: "section", title: "Notes", body, force: true }),
+		);
+	});
+
 	it("shrinks a large section when told to with force", async () => {
 		const { run, planPath } = await questWithPlan();
 		const entries = Array.from(

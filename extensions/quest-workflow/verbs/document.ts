@@ -226,6 +226,32 @@ function droppingMost(
 	};
 }
 
+/**
+ * The note a read tool leaves where it cut a file short, as
+ * "[Showing lines 1-165 of 211 (50.0KB limit). Use offset=166 to
+ * continue.]" or "[81 more lines in file. Use offset=115 to continue.]".
+ */
+const CUT_NOTE = /\[[^\]\n]*Use offset=\d+ to continue\.\]/;
+
+/**
+ * A refusal when a new body holds a read's note that it was cut short.
+ * A body built from such a read loses everything past the cut, and when
+ * the cut drops only a tail the size guard can't tell: a 75 KB plan's
+ * Work section lost its tail six times on 29 October this way. `force`
+ * writes one on purpose, as a body quoting the note would.
+ */
+function cutShort(text: string, force: boolean): EditRefused | undefined {
+	const note = force ? null : CUT_NOTE.exec(text);
+	if (!note) return undefined;
+	return {
+		ok: false,
+		reason:
+			`This body holds a read's note that it was cut short ("${note[0]}"), so whatever came after that point is missing, and nothing was changed. ` +
+			"Read the rest with the offset it names, or read the section with `show` and `title`, then write it whole. " +
+			"Pass force: true if the note belongs in the text.",
+	};
+}
+
 /** What a failed read says, whatever was thrown. */
 function reasonOf(err: unknown): string {
 	return err instanceof Error ? err.message : String(err);
@@ -274,6 +300,7 @@ export function section(
 		state,
 		params,
 		(body, readme) =>
+			cutShort(text, params.force === true) ??
 			droppingMost(body, heading, text, params.force === true) ??
 			replaceSection(body, heading, text, readme ? "readme" : "append"),
 		{

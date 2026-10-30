@@ -45,6 +45,7 @@ import type { QuestState } from "./state.ts";
 export {
 	addAliasesToLoaded,
 	attachCurrentSession,
+	attachSessionInQuestDir,
 	attachSessionToLoaded,
 	buildQuestsAliasIndex,
 	captureSessionIdentity,
@@ -64,6 +65,7 @@ export {
 	refreshProgress,
 	removeAliasesFromLoaded,
 	removeAliasFromLoaded,
+	renameSessionInQuestDir,
 	renameSessionOnLoaded,
 	reorderSiblings,
 	sealQuestDocuments,

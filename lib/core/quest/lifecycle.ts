@@ -755,8 +755,16 @@ export function attachSessionToLoaded(
 	session: QuestSession,
 ): { ok: true; added: boolean } | { ok: false; guidance: string } {
 	if (!state.questDir) return { ok: false, guidance: "Load a quest first." };
+	return attachSessionInQuestDir(state.questDir, session);
+}
+
+/** Attach a session id to the quest in `questDir`, loaded or not. */
+export function attachSessionInQuestDir(
+	questDir: string,
+	session: QuestSession,
+): { ok: true; added: boolean } | { ok: false; guidance: string } {
 	let added = false;
-	const result = writeQuestFrontMatter(state.questDir, (fm) => {
+	const result = writeQuestFrontMatter(questDir, (fm) => {
 		const existing = fm.sessions.find((s) => s.id === session.id);
 		if (existing) {
 			// Refresh status to active and merge any new fields, but keep
@@ -991,8 +999,17 @@ export function renameSessionOnLoaded(
 	name: string,
 ): { ok: true; renamed: boolean } | { ok: false; guidance: string } {
 	if (!state.questDir) return { ok: false, guidance: "Load a quest first." };
+	return renameSessionInQuestDir(state.questDir, sessionId, name);
+}
+
+/** Rename a session on the quest in `questDir`, loaded or not. */
+export function renameSessionInQuestDir(
+	questDir: string,
+	sessionId: string,
+	name: string,
+): { ok: true; renamed: boolean } | { ok: false; guidance: string } {
 	let renamed = false;
-	const result = writeQuestFrontMatter(state.questDir, (fm) => {
+	const result = writeQuestFrontMatter(questDir, (fm) => {
 		let hit = false;
 		const next = fm.sessions.map((s) => {
 			if (s.id !== sessionId) return s;
