@@ -11,6 +11,14 @@
  * Both writes go through pi's `SettingsManager`, which takes a lock and
  * writes only the fields it changed, so a model chosen in another
  * session at the same moment survives.
+ *
+ * pi takes that lock to read the settings too, gives up after about
+ * 200 ms, and then hands back no settings at all, saying so only in its
+ * errors. When the install moves, every session following it reloads at
+ * once and reads them together, and on 30 October that read empty: a
+ * session said its settings named no install. So a read that pi says
+ * failed is tried again, and one that still fails is thrown, never taken
+ * for an empty list.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -58,15 +66,48 @@ export function packageName(root: string): string | undefined {
 	}
 }
 
+/** How long to wait before each further try at settings pi couldn't read. */
+const READ_PAUSES_MS = [50, 100, 200, 400] as const;
+
+/** Waits `ms` without yielding, since the settings are read synchronously. */
+function pause(ms: number): void {
+	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * pi's settings for `agentDir`, read whole: tried again while pi says the
+ * personal settings couldn't be read, and thrown when they still can't.
+ */
+function readSettings(agentDir: string): SettingsManager {
+	let failure = "";
+	for (const wait of [0, ...READ_PAUSES_MS]) {
+		if (wait > 0) pause(wait);
+		// The cwd is only where pi would look for project settings; the
+		// agent dir has none, so nothing from a project leaks into the list.
+		const settings = SettingsManager.create(agentDir, agentDir);
+		const global = settings
+			.drainErrors()
+			.find((error) => error.scope === "global");
+		if (global === undefined) return settings;
+		failure = global.error.message;
+	}
+	throw new Error(`pi's settings couldn't be read: ${failure}`);
+}
+
 /** The personal settings of the pi this process runs. */
 export function piPackageSettings(agentDir = getAgentDir()): PackageSettings {
-	// The cwd is only where pi would look for project settings; the
-	// agent dir has none, so nothing from a project leaks into the list.
-	const fresh = () => SettingsManager.create(agentDir, agentDir);
+	// Where a package is installed comes from its source and the agent
+	// dir, so the settings the last read made serve, and asking takes no
+	// lock of its own.
+	let last: SettingsManager | undefined;
+	const read = () => {
+		last = readSettings(agentDir);
+		return last;
+	};
 	return {
-		read: () => [...(fresh().getGlobalSettings().packages ?? [])],
+		read: () => [...(read().getGlobalSettings().packages ?? [])],
 		write: async (packages) => {
-			const settings = fresh();
+			const settings = read();
 			settings.setPackages(packages);
 			await settings.flush();
 		},
@@ -74,7 +115,7 @@ export function piPackageSettings(agentDir = getAgentDir()): PackageSettings {
 			new DefaultPackageManager({
 				cwd: agentDir,
 				agentDir,
-				settingsManager: fresh(),
+				settingsManager: last ?? read(),
 			}).getInstalledPath(source, "user"),
 	};
 }

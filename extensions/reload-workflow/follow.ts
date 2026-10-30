@@ -89,7 +89,15 @@ function isSubagent(env: NodeJS.ProcessEnv): boolean {
  */
 function installedRoots(settings: PackageSettings): string[] {
 	const roots = new Set<string>();
-	for (const entry of settings.read()) {
+	let entries: ReturnType<PackageSettings["read"]>;
+	try {
+		entries = settings.read();
+	} catch {
+		// Settings pi couldn't read: nothing is known yet, and the follower
+		// reads them again while it knows no install.
+		return [];
+	}
+	for (const entry of entries) {
 		try {
 			const root = settings.rootOf(sourceOf(entry));
 			if (root === undefined) continue;
