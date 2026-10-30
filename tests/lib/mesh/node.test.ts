@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	agentsFrom,
 	nodeSocket,
 	placeAt,
 	sessionsAt,
@@ -223,6 +224,24 @@ describe("asking the node where work goes", () => {
 			reason: `no mycelium node answered at ${none}`,
 		});
 		expect((await placeAt(undefined, [])).ok).toBe(false);
+	});
+});
+
+describe("what starts an agent session on each machine", () => {
+	it("is the one command each machine declares for the node's realm", () => {
+		// As optimus's personal node answered on 30 October.
+		const line = JSON.stringify({
+			Ok: {
+				Machines: [
+					{ name: "optimus", declared: { agents: { personal: "pi-claude" } } },
+					{ name: "penelope", declared: null },
+					{ name: "methuselah", declared: { agents: {} } },
+					{ name: "two", declared: { agents: { a: "x", b: "y" } } },
+				],
+			},
+		});
+		expect([...agentsFrom(line)]).toEqual([["optimus", "pi-claude"]]);
+		expect(agentsFrom("not json").size).toBe(0);
 	});
 });
 

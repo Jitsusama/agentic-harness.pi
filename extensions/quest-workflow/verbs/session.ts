@@ -4,7 +4,7 @@
  * window via the registered terminal driver.
  */
 
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	pickResumeSession,
@@ -47,7 +47,12 @@ import {
 	type QuestToolParams,
 	refuse,
 } from "./shared.ts";
-import { isThisMachine, machineFor, spawnHeld } from "./spawn-held.ts";
+import {
+	agentCommand,
+	isThisMachine,
+	machineFor,
+	spawnHeld,
+} from "./spawn-held.ts";
 
 /**
  * Repair session-to-quest membership across the store, in two
@@ -355,10 +360,17 @@ export async function spawn(
 		machine === undefined || isThisMachine(machine)
 			? pickResumeSession(sessions.filter((s) => s.id !== currentId))
 			: undefined;
-	const { command, resumedSessionId } = resolveSpawnCommand(
-		params.command,
-		resume,
-	);
+	const spawned = resolveSpawnCommand(params.command, resume);
+	const { resumedSessionId } = spawned;
+	// A realm whose node declares another command for its agent sessions,
+	// as Joel's personal one declares pi-claude, starts that instead.
+	const spawnsPi = !params.command?.trim();
+	const command = spawnsPi
+		? await agentCommand(
+				spawned.command,
+				machine ?? hostname().split(".")[0] ?? "",
+			)
+		: spawned.command;
 
 	// Pass the target quest id through to the spawned
 	// process via an env var. The new pi's quest-workflow
@@ -443,8 +455,7 @@ export async function spawn(
 	// history in resolveStartup, and the target was validated to exist
 	// above, so the load is deterministic. A non-pi command loads no
 	// quest, so the claim is withheld.
-	const spawnsPi = command === "pi" || command.startsWith("pi ");
-	if (spawnsPi) {
+	if (command === "pi" || command.startsWith("pi ")) {
 		message += ` The new session will load ${questIdForSpawn}; the spawn autoload wins over its own history.`;
 	}
 	return ok(message, {

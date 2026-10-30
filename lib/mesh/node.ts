@@ -264,6 +264,54 @@ export function sessionsFrom(line: string): NodeSessions | undefined {
 	return held;
 }
 
+/**
+ * The command each machine starts an agent session with in this realm,
+ * as its node declares it (`declared.agents`), by machine: pi-claude in
+ * the realm Joel's own Claude plan works in, pi elsewhere. A machine
+ * that declares none is left out, so its caller keeps plain pi. Nothing
+ * when no node answers.
+ */
+export async function agentsAt(
+	socket: string | undefined,
+	patience: number = PLACE_PATIENCE_MS,
+): Promise<ReadonlyMap<string, string> | undefined> {
+	const line = await askAt(socket, "Machines", patience);
+	return line === undefined ? undefined : agentsFrom(line);
+}
+
+/**
+ * The agent command each machine in a node's answer declares. A node
+ * tells only its own realm's entry, so a machine's is the one it names;
+ * one naming several, which no node sends, is left out rather than
+ * guessed at.
+ */
+export function agentsFrom(line: string): ReadonlyMap<string, string> {
+	const agents = new Map<string, string>();
+	let reply: unknown;
+	try {
+		reply = JSON.parse(line);
+	} catch {
+		// Not an answer this reader knows: no machine declares anything.
+		return agents;
+	}
+	const machines =
+		isRecord(reply) && isRecord(reply.Ok) ? reply.Ok.Machines : undefined;
+	if (!Array.isArray(machines)) return agents;
+	for (const machine of machines) {
+		if (!isRecord(machine) || typeof machine.name !== "string") continue;
+		const declared = isRecord(machine.declared)
+			? machine.declared.agents
+			: undefined;
+		if (!isRecord(declared)) continue;
+		const commands = Object.values(declared);
+		const [command] = commands;
+		if (commands.length === 1 && typeof command === "string" && command) {
+			agents.set(machine.name, command);
+		}
+	}
+	return agents;
+}
+
 /** The socket the machine's node serves, or nothing when no realm is named. */
 export function nodeSocket(
 	env: NodeJS.ProcessEnv = process.env,

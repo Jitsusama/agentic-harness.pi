@@ -20,6 +20,7 @@ import { hostname } from "node:os";
 import { relative } from "node:path";
 import { shellQuote } from "../../../lib/core/internal/terminal/drivers/shared.ts";
 import {
+	agentsAt,
 	type NodeStarted,
 	nodeSocket,
 	placeAt,
@@ -127,6 +128,31 @@ export async function machineFor(
 		};
 	}
 	return { ok: true, machine: answer.machine, needs };
+}
+
+/** How spawn asks which command starts an agent session on each machine. */
+export type AgentsOnNode = () => Promise<
+	ReadonlyMap<string, string> | undefined
+>;
+
+const askAgents: AgentsOnNode = () => agentsAt(nodeSocket());
+
+/**
+ * `command` as `machine` starts an agent session in this session's realm:
+ * spawn's own `pi`, fresh or resuming, becomes the command the machine's
+ * node declares, which is pi-claude in the realm Joel's own Claude plan
+ * works in, so a session there stays off the work mesh. A command the
+ * call named, a machine that declares none, and a node that doesn't
+ * answer all keep the command as it is.
+ */
+export async function agentCommand(
+	command: string,
+	machine: string,
+	agents: AgentsOnNode = askAgents,
+): Promise<string> {
+	if (command !== "pi" && !command.startsWith("pi ")) return command;
+	const agent = (await agents())?.get(machine);
+	return agent && agent !== "pi" ? `${agent}${command.slice(2)}` : command;
 }
 
 /** What a spawn's machine was chosen for, as a sentence, or nothing. */
