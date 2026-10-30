@@ -140,6 +140,13 @@ shipped and tested.
   own needs; either one named replaces them. A quest with none
   starts here, as before, and a subquest takes none from its
   parent.
+- **The realm's own agent**: a spawn that runs pi, fresh or
+  resuming, runs instead the command the chosen machine's node
+  declares for the session's realm (`declared.agents`), here or
+  held. On optimus the personal realm declares `pi-claude`, so a
+  session spawned there stays on Joel's Claude plan and off the
+  work mesh. A command the call names, a machine that declares
+  none, and a node that doesn't answer keep plain pi.
 - **Queries**: `find`, `who`, `links`, `locate` (the inverse
   index: resolve a document id, alias ref or session id to the
   quest that owns it), `ancestors` (trace a quest's parent chain

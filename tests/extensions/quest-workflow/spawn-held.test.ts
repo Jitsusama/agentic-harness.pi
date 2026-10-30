@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	agentCommand,
 	folderFor,
 	heldWords,
 	isThisMachine,
@@ -79,6 +80,34 @@ describe("the folder a start names", () => {
 
 	it("names this machine's own folder as it is", () => {
 		expect(folderFor("/tmp/scratch", "/home/joel", true)).toBe("/tmp/scratch");
+	});
+});
+
+describe("the command a spawn starts", () => {
+	const agents = async () => new Map([["optimus", "pi-claude"]]);
+
+	it("is the agent a machine's realm declares, fresh or resuming", async () => {
+		// Joel's personal realm on optimus starts pi-claude, off the work mesh.
+		expect(await agentCommand("pi", "optimus", agents)).toBe("pi-claude");
+		expect(await agentCommand("pi --session s1", "optimus", agents)).toBe(
+			"pi-claude --session s1",
+		);
+	});
+
+	it("stays pi where nothing is declared, or no node answers", async () => {
+		expect(await agentCommand("pi", "penelope", agents)).toBe("pi");
+		expect(await agentCommand("pi", "optimus", async () => undefined)).toBe(
+			"pi",
+		);
+		const plain = async () => new Map([["optimus", "pi"]]);
+		expect(await agentCommand("pi", "optimus", plain)).toBe("pi");
+	});
+
+	it("leaves a command the call named alone", async () => {
+		expect(await agentCommand("nvim", "optimus", agents)).toBe("nvim");
+		expect(await agentCommand("pip install", "optimus", agents)).toBe(
+			"pip install",
+		);
 	});
 });
 
