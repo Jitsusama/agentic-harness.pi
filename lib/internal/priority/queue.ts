@@ -607,10 +607,14 @@ export const RULES: Rules = { buildsWaitForVmChecks: true };
 /**
  * The version of how this code gives turns. Raise it with every change
  * to who gets a turn when, so a session on older code leaves keeping the
- * queue to one on this (keeper.ts). 1: VM starts paced (#884), builder
- * slots counted free (#881), slow builds held for a lend (#882, #883).
+ * queue to one on this (keeper.ts), and with a change to how it keeps
+ * the folder that older keepers would undo. 1: VM starts paced (#884),
+ * builder slots counted free (#881), slow builds held for a lend (#882,
+ * #883). 2: queue.json left to the heartbeat for pressure alone (#892),
+ * which eight sessions busy on older code since the morning of 30
+ * October kept undoing, at 70 writes in 20 s.
  */
-export const RULES_VERSION = 1;
+export const RULES_VERSION = 2;
 
 /**
  * The job to start now, if any: the first waiting in order that its
