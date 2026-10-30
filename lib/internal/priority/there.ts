@@ -61,6 +61,34 @@ export interface CheckBuild {
 	readonly redirections: readonly string[];
 }
 
+/**
+ * A step running `run-subtests` on a check of one flake whose folder is
+ * known, which `run-subtests --there` can have built and run on the
+ * builder, the pictures copied back.
+ */
+export interface SubtestsRun {
+	readonly step: Step;
+	/** The folder of the flake whose check it runs. */
+	readonly flake: string;
+}
+
+/** What `nix-offload there` takes, by the words `--takes` prints. */
+export interface Takes {
+	/** A tree's own folder: base..HEAD and its changes go as a bundle. */
+	readonly tree: boolean;
+	/** `--apply` and `--out`, which `run-subtests --there` needs. */
+	readonly subtests: boolean;
+	/** It asks for a builder to be lent itself, and waits for one. */
+	readonly wants: boolean;
+}
+
+/** An nix-offload that answers nothing, or is too old to say. */
+export const TAKES_NOTHING: Takes = {
+	tree: false,
+	subtests: false,
+	wants: false,
+};
+
 /** A ref naming the commit a build is pinned to, and where to read it. */
 export interface Pin {
 	readonly ref: string;
@@ -118,6 +146,73 @@ export function checkBuildsOf(
 		const build = checkBuildOf(step, home);
 		return build ? [build] : [];
 	});
+}
+
+/** run-subtests' flags that need a person at the run, or say elsewhere. */
+const HERE_ONLY = new Set([
+	"-I",
+	"--interactive",
+	"-K",
+	"--keep-machine-state",
+	"--there",
+	"--driver",
+	"-h",
+	"--help",
+]);
+
+/**
+ * The steps running `run-subtests` that could be sent: the program,
+ * optionally under `timeout <duration>`, `direnv exec .` or
+ * `nix develop [<flake>] -c`, on a flake whose folder is known, with no
+ * prompt asked for and no machines kept.
+ */
+export function subtestRunsOf(
+	steps: readonly Step[],
+	home: string,
+): SubtestsRun[] {
+	return steps.flatMap((step) => {
+		const run = subtestsRunOf(step, home);
+		return run ? [run] : [];
+	});
+}
+
+function subtestsRunOf(step: Step, home: string): SubtestsRun | undefined {
+	if (step.background) return undefined;
+	const all = wordsOf(step.text).filter(
+		(word, at, words) =>
+			!REDIRECTION.test(word) &&
+			!REDIRECTS_TO.test(word) &&
+			!REDIRECTS_TO.test(words[at - 1] ?? ""),
+	);
+	let rest = all;
+	if (rest[0] === "timeout" && DURATION.test(rest[1] ?? "")) {
+		rest = rest.slice(2);
+	}
+	if (rest[0] === "direnv" && rest[1] === "exec" && rest[2] === ".") {
+		rest = rest.slice(3);
+	} else if (rest[0] === "nix" && rest[1] === "develop") {
+		const run = rest.findIndex((word) => word === "-c" || word === "--command");
+		if (run < 2 || run > 3) return undefined;
+		rest = rest.slice(run + 1);
+	}
+	if (rest[0] !== "run-subtests") return undefined;
+	const args = rest.slice(1);
+	if (args.some((word) => HERE_ONLY.has(word))) return undefined;
+	const expand = expandWith(step.vars, step.cwd, home);
+	const at = args.indexOf("--flake");
+	const written = at === -1 ? "." : expand(args[at + 1] ?? "");
+	const folder =
+		written === undefined
+			? undefined
+			: folderOf(written.replace(/^path:/, ""), step.cwd);
+	const check = args.find(
+		(word, index) =>
+			!word.startsWith("-") &&
+			args[index - 1] !== "--flake" &&
+			args[index - 1] !== "--out",
+	);
+	if (folder === undefined || check === undefined) return undefined;
+	return { step, flake: folder };
 }
 
 function checkBuildOf(step: Step, home: string): CheckBuild | undefined {
@@ -332,14 +427,39 @@ export async function repositoryAt(
 export function flakeThere(
 	repository: Repository,
 	repos: readonly string[],
+	tree?: string,
 ): string | undefined {
-	if (!repository.atTop || !repository.clean || !repository.pushed) {
-		return undefined;
-	}
+	if (!repository.atTop) return undefined;
 	const repo = githubRepoOf(repository.origin);
 	if (!repo) return undefined;
 	const named = repos.some((one) => one.toLowerCase() === repo.toLowerCase());
-	return named ? `github:${repo}/${repository.head}` : undefined;
+	if (!named) return undefined;
+	if (repository.clean && repository.pushed) {
+		return `github:${repo}/${repository.head}`;
+	}
+	// A tree `there` takes as it is: base..HEAD and its changes as a bundle.
+	return tree;
+}
+
+/**
+ * What `nix-offload there` says it takes, asked with `--takes`, or
+ * nothing when it is missing, too old to say (64), or slow.
+ */
+export async function offloadTakes(): Promise<Takes> {
+	try {
+		const { stdout } = await run("nix-offload", ["there", "--takes"], {
+			timeout: GIT_MS,
+		});
+		const words = new Set(stdout.split(/\s+/));
+		return {
+			tree: words.has("tree"),
+			subtests: words.has("apply") && words.has("out"),
+			wants: words.has("wants"),
+		};
+	} catch {
+		// Not installed, or one that refuses --takes: it takes the commit only.
+		return TAKES_NOTHING;
+	}
 }
 
 /** The `nix-offload there` step building `build` from `flake`. */
@@ -362,20 +482,38 @@ export function thereStep(build: CheckBuild, flake: string): string {
 export function sentThere(
 	command: string,
 	sends: readonly { readonly build: CheckBuild; readonly flake: string }[],
+	runs: readonly SubtestsRun[] = [],
 ): string {
+	const rewrites = [
+		...sends.map(({ build, flake }) => ({
+			step: build.step,
+			as: thereStep(build, flake),
+		})),
+		...runs.map((run) => ({
+			step: run.step,
+			as: subtestsThere(run.step.text),
+		})),
+	].sort((a, b) => b.step.start - a.step.start);
 	let out = command;
-	const latestFirst = [...sends].sort(
-		(a, b) => b.build.step.start - a.build.step.start,
-	);
-	for (const { build, flake } of latestFirst) {
-		const { start, end, text } = build.step;
-		const lead = /^\s*/.exec(text)?.[0] ?? "";
-		const trail = /\s*$/.exec(text)?.[0] ?? "";
-		out = `${out.slice(0, start)}${lead}${thereStep(build, flake)}${trail}${out.slice(end)}`;
+	for (const { step, as } of rewrites) {
+		const lead = /^\s*/.exec(step.text)?.[0] ?? "";
+		const trail = /\s*$/.exec(step.text)?.[0] ?? "";
+		out = `${out.slice(0, step.start)}${lead}${as.trim()}${trail}${out.slice(step.end)}`;
 	}
 	const checks = sends.flatMap(({ build }) => build.attributes).length;
-	const said = `remote-check: ${count(checks, "check", "checks")} sent to the lent builder by commit, nothing uploaded`;
+	const what = [
+		...(checks > 0 ? [count(checks, "check", "checks")] : []),
+		...(runs.length > 0
+			? [count(runs.length, "subtests run", "subtests runs")]
+			: []),
+	].join(" and ");
+	const said = `remote-check: ${what} sent to the lent builder from its commit`;
 	return `printf '%s\\n' '${said}' >&2; ${out}`;
+}
+
+/** A `run-subtests` step, made to have it all built on the builder. */
+function subtestsThere(text: string): string {
+	return text.replace(/(^|\s)run-subtests(?=\s|$)/, "$1run-subtests --there");
 }
 
 /** Whether a builder stands now, by the offload daemon's machines file. */

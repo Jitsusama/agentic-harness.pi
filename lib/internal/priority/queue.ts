@@ -948,7 +948,7 @@ const KINDS: readonly (readonly [RegExp, Kind])[] = [
 		// Each as a program, not a store path or folder named after one, as
 		// `/nix/store/<hash>-nixos-test-driver-1.1/lib` is: a grep there
 		// waited for a turn as a VM test.
-		/\bqemu-system-[\w-]+(?![\w.*/-])|\bqemu-kvm(?![\w.*/-])|\bnixos-test-driver(?![\w.*/-])|\/bin\/run-[\w-]+-vm\b|(?<![\w./-])run-subtests(?![\w.-])/,
+		/\bqemu-system-[\w-]+(?![\w.*/-])|\bqemu-kvm(?![\w.*/-])|\bnixos-test-driver(?![\w.*/-])|\/bin\/run-[\w-]+-vm\b|(?<![\w./-])run-subtests(?![\w.-])(?!\s+--there\b)/,
 		"vm-test",
 	],
 	[/\bnix\s+build\b[^\n]*\.driver\b/, "build"],
