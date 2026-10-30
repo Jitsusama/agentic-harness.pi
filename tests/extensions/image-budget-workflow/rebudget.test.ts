@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { PIXEL_BUDGET } from "../../../extensions/image-budget-workflow/budget.ts";
 import {
 	type Block,
+	LIGHT_ENOUGH,
 	type Resize,
 	type Resized,
 	rebudget,
@@ -189,5 +190,72 @@ describe("rebudget", () => {
 			3,
 		);
 		expect(out.saved).toBeGreaterThan(9000);
+	});
+});
+
+/**
+ * A resizer that encodes as pi's does: PNG first, at `png` characters,
+ * and JPEG at `jpeg` once asked for less than the PNG takes, shrinking
+ * the picture by `shrink` when even that won't fit.
+ */
+function encoderFor(
+	width: number,
+	height: number,
+	{ png, jpeg, shrink = 1 }: { png: number; jpeg: number; shrink?: number },
+): Resize {
+	return async (_bytes, _mimeType, options) => {
+		const ratio = Math.min(
+			1,
+			options.maxWidth / width,
+			options.maxHeight / height,
+		);
+		const asJpeg = (options.maxBytes ?? Number.POSITIVE_INFINITY) <= png;
+		const by = asJpeg ? shrink : 1;
+		return {
+			data: (asJpeg ? "j" : "p").repeat(asJpeg ? jpeg : png),
+			mimeType: asJpeg ? "image/jpeg" : "image/png",
+			originalWidth: width,
+			originalHeight: height,
+			width: Math.floor(width * ratio * by),
+			height: Math.floor(height * ratio * by),
+			wasResized: ratio < 1 || asJpeg,
+		};
+	};
+}
+
+const imagesOf = (content: Block[] | null) =>
+	(content ?? []).filter((block) => block.type === "image");
+
+describe("sending an image in fewer bytes", () => {
+	// A one-megapixel terminal screenshot: 1.24 MB as PNG, 273 KB as JPEG.
+	const SCREENSHOT = { png: 1_238_316, jpeg: 273_432 };
+
+	it("sends a heavy screenshot as JPEG, at the size it was scaled to", async () => {
+		const out = await rebudget([image], encoderFor(1889, 2120, SCREENSHOT));
+
+		const [sent] = imagesOf(out.content);
+		expect(sent).toMatchObject({ mimeType: "image/jpeg" });
+		expect(sent?.type === "image" && sent.data.length).toBe(SCREENSHOT.jpeg);
+	});
+
+	it("sends a heavy image within the allowance as JPEG too", async () => {
+		const heavy: Block = { ...image, data: "p".repeat(SCREENSHOT.png) };
+		const out = await rebudget([heavy], encoderFor(SMALL, SMALL, SCREENSHOT));
+
+		expect(imagesOf(out.content)).toMatchObject([{ mimeType: "image/jpeg" }]);
+	});
+
+	it("keeps a light PNG as it is", async () => {
+		const light = { png: LIGHT_ENOUGH, jpeg: LIGHT_ENOUGH / 4 };
+		const out = await rebudget([image], encoderFor(SMALL, SMALL, light));
+
+		expect(out.content).toBeNull();
+	});
+
+	it("keeps the PNG where JPEG would shrink the picture", async () => {
+		const shrunk = { ...SCREENSHOT, shrink: 0.75 };
+		const out = await rebudget([image], encoderFor(1889, 2120, shrunk));
+
+		expect(imagesOf(out.content)).toMatchObject([{ mimeType: "image/png" }]);
 	});
 });

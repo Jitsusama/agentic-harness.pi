@@ -48,6 +48,7 @@ import {
 } from "../../lib/internal/priority/room.ts";
 import { darwinRoom } from "../../lib/internal/priority/room-darwin.ts";
 import { queueHeavyWork } from "../../lib/internal/priority/turn.ts";
+import { typedDir, typedTurns } from "../../lib/internal/priority/typed.ts";
 
 /** How often a session keeps the queue. */
 const KEEP_MS = 2_000;
@@ -75,6 +76,23 @@ export default function priorityWorkflow(pi: ExtensionAPI) {
 	const own = ownCgroup();
 	placeWork(pi, own);
 	keepQueue(pi, linuxMachine(own));
+	sayTypedTurns(pi);
+}
+
+/**
+ * Says, by a file of this pid, while a turn a person typed runs, so the
+ * traffic shaper sends its request ahead of autonomous sessions'
+ * (lib/internal/priority/typed.ts). A subagent never has one.
+ */
+function sayTypedTurns(pi: ExtensionAPI) {
+	if (process.env.SUBAGENT_RUN_ID) return;
+	const turns = typedTurns(typedDir());
+	pi.on("input", async (event) => {
+		if (event.source === "interactive") turns.typed();
+	});
+	pi.on("agent_start", async () => turns.began());
+	pi.on("agent_end", async () => turns.ended());
+	pi.on("session_shutdown", async () => turns.stop());
 }
 
 /** What the queue reads of the machine it keeps, on each kind of machine. */

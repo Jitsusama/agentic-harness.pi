@@ -75,6 +75,23 @@ The payload for a 1518x988 screenshot is still 1.4 MB of PNG and that
 costs nothing extra: billing is by pixels, so payload size affects
 upload time alone.
 
+## Why It Sends JPEG
+
+Upload time turned out to be the cost that hurt. Every call sends the
+whole conversation again, images included, and caching saves the
+provider's work, not the upload. On 30 October one window held 23
+screenshots, 11.7 MB of its 12.4 MB, over an upload of about 1.4 MB/s
+shared with thirty sessions; each of its calls took two to five
+minutes, and the one Joel typed hit pi's five minute timeout twice.
+
+So an image past `LIGHT_ENOUGH` (150,000 base64 characters) that is
+still a PNG is encoded again as JPEG at pi's quality of 80, at the same
+size, scaled or not. pi's resizer tries PNG first and keeps the first
+encoding under its limit, so this asks it for less than the PNG takes.
+A one-megapixel terminal screenshot went from 1.24 MB to 273 KB and
+read the same. Where JPEG would only fit by shrinking the picture, the
+PNG stays.
+
 ## Why It Exists At All
 
 Not for the money. All-time rent on pasted images is about $340.
