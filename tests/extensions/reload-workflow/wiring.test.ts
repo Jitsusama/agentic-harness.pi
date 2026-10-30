@@ -49,6 +49,24 @@ interface Command {
 
 const GIT_SOURCE = "git:github.com/Jitsusama/agentic-harness.pi";
 
+/**
+ * How long a landing may take to be said. Each asks git twice what this
+ * checkout is, each ask allowed 2 s, and a test lands several times, so
+ * beside other suites on a busy machine one ran past vitest's 5 s. Its
+ * landing then went on after the test was over and was said by the next
+ * test's runtime, failing that one too. They return as soon as it is
+ * said, so a quiet machine pays nothing for the room.
+ */
+const LANDING_MS = 20_000;
+
+/** Every test here waits on a landing, so each is given its room. */
+const LANDS = { timeout: LANDING_MS + 10_000 };
+
+/** Wait for a landing to be said, or kept, as `until` waits. */
+function untilSaid(what: string, predicate: () => boolean): Promise<void> {
+	return until(what, predicate, LANDING_MS);
+}
+
 let dir: string;
 let agentDir: string;
 let events: EventBus;
@@ -209,7 +227,7 @@ function runningATree(): string {
 	return install;
 }
 
-describe("the agent asking for a reload", () => {
+describe("the agent asking for a reload", LANDS, () => {
 	it("queues it for the end of the run and says to end the turn", async () => {
 		runningTheInstall();
 		const now = runtime();
@@ -301,7 +319,7 @@ describe("the agent asking for a reload", () => {
 
 		const next = runtime();
 		await now.command("reload", next);
-		await until("the reload is said", () => reported.length > 0);
+		await untilSaid("the reload is said", () => reported.length > 0);
 
 		expect(reported).toHaveLength(1);
 		expect(reported[0]).toMatch(
@@ -344,7 +362,7 @@ describe("the agent asking for a reload", () => {
 		await new Promise((done) => setTimeout(done, 1_500));
 		loaded();
 		await Promise.all([first, second]);
-		await until("the reload is said", () => reported.length > 0);
+		await untilSaid("the reload is said", () => reported.length > 0);
 		await new Promise((done) => setTimeout(done, 200));
 
 		expect(reloads).toBe(1);
@@ -352,7 +370,7 @@ describe("the agent asking for a reload", () => {
 		expect(now.notices).toContain(
 			"A reload is already under way, so this one did nothing.",
 		);
-	}, 15_000);
+	});
 
 	it("refuses a directory that is not this package", async () => {
 		runningTheInstall();
@@ -367,7 +385,7 @@ describe("the agent asking for a reload", () => {
 	});
 });
 
-describe("a reload that lands as the session is replaced", () => {
+describe("a reload that lands as the session is replaced", LANDS, () => {
 	// On 22 October a rollover replaced the session while a landing was
 	// still asking git what runs, and the stale pi's throw took pi down.
 	const landing = { reason: "feat: x", by: "person" } as const;
@@ -382,7 +400,7 @@ describe("a reload that lands as the session is replaced", () => {
 		await next.start("resume");
 
 		say?.(landing);
-		await until("the landing is said", () => next.hidden.length > 0);
+		await untilSaid("the landing is said", () => next.hidden.length > 0);
 
 		expect(next.hidden[0]).toContain("as asked: feat: x.");
 	});
@@ -393,7 +411,7 @@ describe("a reload that lands as the session is replaced", () => {
 		await now.start("startup");
 
 		reloadSlot().landed?.({ reason: "feat: y", by: "self" });
-		await until("the model is told", () => now.hidden.length > 0);
+		await untilSaid("the model is told", () => now.hidden.length > 0);
 
 		expect(now.hidden[0]).toContain(
 			"Reloaded between runs, because the install moved: feat: y.",
@@ -407,7 +425,7 @@ describe("a reload that lands as the session is replaced", () => {
 		reloadSlot().turnOwed = true;
 
 		reloadSlot().landed?.({ reason: "feat: z", by: "self" });
-		await until("a turn is started", () => reported.length > 0);
+		await untilSaid("a turn is started", () => reported.length > 0);
 
 		expect(reported[0]).toContain("because the install moved: feat: z.");
 		expect(reported[0]).toContain("Act on what reached you while it waited.");
@@ -422,7 +440,7 @@ describe("a reload that lands as the session is replaced", () => {
 		old.replace();
 
 		reloadSlot().landed?.(landing);
-		await until("it is kept", () => reloadSlot().unsaid !== undefined);
+		await untilSaid("it is kept", () => reloadSlot().unsaid !== undefined);
 		const next = runtime();
 		await next.start("resume");
 
@@ -432,7 +450,7 @@ describe("a reload that lands as the session is replaced", () => {
 	});
 });
 
-describe("a reload nobody asked the agent for", () => {
+describe("a reload nobody asked the agent for", LANDS, () => {
 	it("tells the model quietly which code now runs", async () => {
 		runningTheInstall();
 		const next = runtime();
@@ -467,7 +485,7 @@ describe("a reload nobody asked the agent for", () => {
 	});
 });
 
-describe("running a tree in place of the install", () => {
+describe("running a tree in place of the install", LANDS, () => {
 	it("shows the mark only while the tree runs", async () => {
 		runningATree();
 		const tree = runtime();
@@ -495,7 +513,7 @@ describe("running a tree in place of the install", () => {
 			},
 		});
 
-		await until("the reload is said", () => next.hidden.length > 0);
+		await untilSaid("the reload is said", () => next.hidden.length > 0);
 
 		expect(duringReload).toEqual([PACKAGE_ROOT]);
 		expect(packagesOnDisk()).toEqual([GIT_SOURCE]);
