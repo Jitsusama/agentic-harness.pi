@@ -152,7 +152,7 @@ export function checkBuildsOf(
 }
 
 /** run-subtests' flags that need a person at the run, or say elsewhere. */
-const HERE_ONLY = new Set([
+export const HERE_ONLY: ReadonlySet<string> = new Set([
 	"-I",
 	"--interactive",
 	"-K",

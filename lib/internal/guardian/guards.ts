@@ -269,6 +269,16 @@ export const GUARDS = {
 		defaultMode: "redirect",
 		groups: ["quest"],
 	}),
+	// A VM here only slows this machine, and the refusal says how to send
+	// it, so a run that truly needs this machine goes ahead when made again.
+	vmHere: declare({
+		name: "vm-here",
+		class: "form",
+		description:
+			"Refuses a public repo's VM check or test the builder could take but the interceptor can't send",
+		defaultMode: "redirect",
+		groups: ["shell"],
+	}),
 } as const;
 
 /** Declare the named guards, as an extension does on load. */
