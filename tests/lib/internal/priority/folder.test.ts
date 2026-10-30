@@ -470,6 +470,24 @@ describe("the machine's queue folder", () => {
 		expect(queue.hasJobs()).toBe(true);
 	});
 
+	it("leaves pressure alone to the heartbeat, whichever session keeps it", () => {
+		// Under ten VMs on 30 October it was replaced 123 times in 10 s,
+		// each costing the shell about 20 wakeups, for pressure alone.
+		folder().ask(job("waiting"));
+		shellSays("waiting", 501);
+		folder().keep(TIGHT, NOW, () => undefined);
+		const first = record().heartbeat;
+		const pressed = {
+			...TIGHT,
+			availableGib: TIGHT.availableGib + 0.3,
+			pressure: { ...TIGHT.pressure, cpu: TIGHT.pressure.cpu + 3 },
+		};
+		folder().keep(pressed, NOW + 1_000, () => undefined);
+		expect(record().heartbeat).toBe(first);
+		folder().keep(pressed, NOW + HEARTBEAT_MS, () => undefined);
+		expect(record().machine.pressure.cpu).toBe(TIGHT.pressure.cpu + 3);
+	});
+
 	it("keeps how each job ended and what ran beside it", () => {
 		const file = join(dir, "..", "state", "outcomes.jsonl");
 		// The check passed before, with no capped build beside it.

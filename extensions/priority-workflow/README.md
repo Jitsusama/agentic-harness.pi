@@ -247,7 +247,9 @@ is a build, never a VM check.
   for the minute after its turn.
 - **Every session keeps it** every 2 seconds while jobs stand, under a
   lock, and rewrites `queue.json` whole on each change and at least
-  every 30 seconds, with a `heartbeat` in epoch seconds. The launcher
+  every 30 seconds, with a `heartbeat` in epoch seconds. The machine's
+  pressure and free memory alone wait for the heartbeat, since they
+  change in nearly every reading. The launcher
   reads that file, and it counts the minutes a job waited today while
   the memory it needed stood free. A session whose code gives turns by
   older rules (`RULES_VERSION`, in `rules.json` beside the jobs) leaves

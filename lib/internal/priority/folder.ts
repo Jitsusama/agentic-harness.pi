@@ -523,8 +523,6 @@ export function queueFolder(
 		return after;
 	};
 
-	let written: string | undefined;
-
 	return {
 		dir,
 
@@ -639,16 +637,37 @@ export function queueFolder(
 					first,
 					recorded(),
 				);
-				const shape = JSON.stringify({ ...record, at: "", heartbeat: 0 });
-				const due = !before || now - before.heartbeat * 1000 >= HEARTBEAT_MS;
-				if (shape !== written || due) {
+				// One with no heartbeat isn't a record this wrote, so it's due.
+				const due =
+					typeof before?.heartbeat !== "number" ||
+					now - before.heartbeat * 1000 >= HEARTBEAT_MS;
+				if (due || shapeOf(record) !== shapeOf(before)) {
 					replace(join(dir, "room"), roomSaid(record.room));
 					replace(join(dir, "queue.json"), `${JSON.stringify(record)}\n`);
-					written = shape;
 				}
 			});
 		},
 	};
+}
+
+/**
+ * What a record says that is worth writing at once: everything but when
+ * it was written, the machine's pressure and its free memory, which
+ * change in nearly every reading and wait for the heartbeat. It is held
+ * against the file rather than what this session last wrote, since every
+ * session keeps the queue in turn. Under ten VMs on 30 October the file
+ * was replaced 123 times in 10 s, each costing the shell about 20
+ * wakeups; what pressure means for a turn still shows at once, in
+ * `over` and `room`.
+ */
+function shapeOf(record: QueueRecord | undefined): string {
+	if (!record?.machine) return "";
+	const {
+		pressure: _pressure,
+		availableGib: _free,
+		...machine
+	} = record.machine;
+	return JSON.stringify({ ...record, at: "", heartbeat: 0, machine });
 }
 
 /** The whole queue as queue.json holds it, counting a wasted minute. */
