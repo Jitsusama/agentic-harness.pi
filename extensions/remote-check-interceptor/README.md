@@ -41,6 +41,13 @@ when all of these hold:
   minutes from the lend's start. Where `--takes` says `wants`,
   `there` asks for a builder itself and waits, so this is skipped.
 
+A copy of a tree, as `git archive` and `git init` make one, has no
+origin to name. Where `--takes` says `folder`, such a copy goes as
+its files instead: a `path:` build as `path:<folder>`, whether or
+not git knows the folder, and any other build or `run-subtests` run
+from the top of a repository with no origin. A repository with an
+origin goes only as above, so a World tree's checks still build here.
+
 A `run-subtests` step becomes `run-subtests --there` where
 `--takes` says `tree`, `apply` and `out`: the run, its driver's
 machines included, is built on the builder and its pictures copied

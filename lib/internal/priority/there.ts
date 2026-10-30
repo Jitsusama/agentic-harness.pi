@@ -80,6 +80,8 @@ export interface Takes {
 	readonly subtests: boolean;
 	/** It asks for a builder to be lent itself, and waits for one. */
 	readonly wants: boolean;
+	/** A folder no commit of origin's names goes as its files. */
+	readonly folder: boolean;
 }
 
 /** An nix-offload that answers nothing, or is too old to say. */
@@ -87,6 +89,7 @@ export const TAKES_NOTHING: Takes = {
 	tree: false,
 	subtests: false,
 	wants: false,
+	folder: false,
 };
 
 /** A ref naming the commit a build is pinned to, and where to read it. */
@@ -112,7 +115,7 @@ export interface Repository {
 	readonly pushed: boolean;
 	/** HEAD's full commit id. */
 	readonly head: string;
-	/** Origin's URL. */
+	/** Origin's URL, or empty for a repository with none, such as a copy. */
 	readonly origin: string;
 }
 
@@ -387,9 +390,11 @@ export async function repositoryAt(
 	const git = async (cwd: string, ...args: string[]) =>
 		(await run("git", args, { cwd, timeout: GIT_MS })).stdout.trim();
 	try {
+		// A copy just made with `git init` has no commit yet: it is a
+		// repository still, as `--show-toplevel` says, with nothing pushed.
 		const head = pin
 			? await git(pin.folder, "rev-parse", "--verify", `${pin.ref}^{commit}`)
-			: await git(folder, "rev-parse", "HEAD");
+			: await git(folder, "rev-parse", "HEAD").catch(() => "");
 		const untracked = whole ? "normal" : "no";
 		const [top, status, remotes, origin] = await Promise.all([
 			git(folder, "rev-parse", "--show-toplevel"),
@@ -401,8 +406,11 @@ export async function repositoryAt(
 						"--porcelain",
 						`--untracked-files=${untracked}`,
 					),
-			git(folder, "branch", "-r", "--contains", head),
-			git(folder, "remote", "get-url", "origin"),
+			head === ""
+				? Promise.resolve("")
+				: git(folder, "branch", "-r", "--contains", head),
+			// A copy made with `git init` has none, which isn't a failure.
+			git(folder, "remote", "get-url", "origin").catch(() => ""),
 		]);
 		return {
 			atTop: realpathSync(top) === realpathSync(folder),
@@ -412,7 +420,7 @@ export async function repositoryAt(
 			origin,
 		};
 	} catch {
-		// Not a repository, no origin, or git too slow: run it as written.
+		// Not a repository, or git too slow: run it as written.
 		return undefined;
 	}
 }
@@ -442,6 +450,31 @@ export function flakeThere(
 }
 
 /**
+ * The flake to send for a copy of a tree, as `git archive` and `git init`
+ * make one, where `there` takes a folder. QGB4ON built four VM checks
+ * that way on optimus on 30 October while it was at load 43.
+ *
+ * A `path:` build is of the folder as it is, which is what `there` sends
+ * for `path:<folder>`, so it goes when no origin is known: a repository
+ * with none, one with no commit yet, or no repository. Any other build
+ * goes only from the top folder of a repository git says has no origin,
+ * as its tracked files; one git didn't answer for may be as big as a
+ * monorepo. A repository with an origin is `flakeThere`'s to decide.
+ */
+export function copyThere(
+	repository: Repository | undefined,
+	flake: string,
+	whole: boolean,
+	takes: Takes,
+): string | undefined {
+	if (!takes.folder || (repository && repository.origin !== "")) {
+		return undefined;
+	}
+	if (whole) return `path:${flake}`;
+	return repository?.atTop ? flake : undefined;
+}
+
+/**
  * What `nix-offload there` says it takes, asked with `--takes`, or
  * nothing when it is missing, too old to say (64), or slow.
  */
@@ -455,6 +488,7 @@ export async function offloadTakes(): Promise<Takes> {
 			tree: words.has("tree"),
 			subtests: words.has("apply") && words.has("out"),
 			wants: words.has("wants"),
+			folder: words.has("folder"),
 		};
 	} catch {
 		// Not installed, or one that refuses --takes: it takes the commit only.
