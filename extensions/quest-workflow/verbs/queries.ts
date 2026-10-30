@@ -13,9 +13,11 @@ import {
 	type QuestIndex,
 } from "../../../lib/internal/quest/discovery.ts";
 import { currentBootToken } from "../../../lib/internal/quest/process-liveness.ts";
+import type { RestoreEntry } from "../../../lib/internal/quest/restore-file.ts";
 import {
 	restoreRecipe,
 	type SessionRecord,
+	shellSingleQuote,
 	wasLost,
 } from "../../../lib/internal/quest/session-registry.ts";
 import {
@@ -49,6 +51,7 @@ import {
 	renderRowBrief,
 } from "../render-rows.ts";
 import {
+	carriedHome,
 	lastBootRestorable,
 	pruneClosedRecords,
 	recentlyClosedSessions,
@@ -301,6 +304,19 @@ function elsewhereSection(joins: BootWindows | undefined): string[] {
 	];
 }
 
+/** Sessions another machine carried here as it went away, not yet run here. */
+function carriedSection(carried: readonly RestoreEntry[]): string[] {
+	if (carried.length === 0) return [];
+	return [
+		"",
+		`Carried here from a machine that went away (${count(carried.length, "session")}); open each with:`,
+		...carried.map(
+			(entry) =>
+				`- ${entry.title} from ${entry.carried?.from ?? "another machine"}: (cd ${shellSingleQuote(entry.cwd)} && pi --session ${shellSingleQuote(entry.id)})`,
+		),
+	];
+}
+
 function recentlyClosedSection(closed: readonly SessionRecord[]): string[] {
 	if (closed.length === 0) return [];
 	const shown = closed.slice(0, RECENTLY_CLOSED_SHOWN);
@@ -410,6 +426,9 @@ export async function restore(
 			: undefined;
 	const closedSection = [
 		...elsewhereSection(joins),
+		...(opts.ids === undefined
+			? carriedSection(carriedHome(state.questsRoot))
+			: []),
 		...olderLostSection(olderLost),
 		...recentlyClosedSection(closed),
 	];

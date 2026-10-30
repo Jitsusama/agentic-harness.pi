@@ -24,9 +24,10 @@ import {
 	unlinkSync,
 	utimesSync,
 } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import { sessionsDir, stateDir } from "../../lib/internal/paths.ts";
+import { takeUpCarried } from "../../lib/internal/quest/carried.ts";
 import { atomicWriteFile } from "../../lib/internal/quest/io.ts";
 import { sessionRegistryDir } from "../../lib/internal/quest/loaded.ts";
 import {
@@ -36,6 +37,7 @@ import {
 } from "../../lib/internal/quest/process-liveness.ts";
 import { extractTitle } from "../../lib/internal/quest/quest-doc.ts";
 import {
+	type RestoreEntry,
 	restoreFileOf,
 	restoreFilePath,
 	writeRestoreFile,
@@ -66,6 +68,7 @@ import {
 	windowsNotePath,
 	windowsToReopen,
 } from "../../lib/internal/quest/windows-elsewhere.ts";
+import { questWorkspacesRoot } from "../../lib/internal/quest/workspace-root.ts";
 import type { QuestSession } from "../../lib/quest/index.ts";
 import {
 	describePlan,
@@ -620,11 +623,29 @@ export function refreshRestoreFile(
 			(questId) => questTitle(questsRoot, questId),
 			savedSessions(),
 			(lastBoot) => windowsToReopen(note, thisBoot, lastBoot),
+			carriedHome(questsRoot),
 		);
 		writeRestoreFile(restoreFilePath(stateHome), file);
 	} catch {
 		// The launcher keeps the file it has; the next start writes again.
 	}
+}
+
+/**
+ * The sessions other machines carried here, each placed in pi's store
+ * for the folder it reopens in, less any a pi has run here since
+ * (lib/internal/quest/carried.ts).
+ */
+export function carriedHome(questsRoot: string): RestoreEntry[] {
+	const ranHere = new Set(loadRecords().map(({ record }) => record.sessionId));
+	return takeUpCarried({
+		workspaces: questWorkspacesRoot(),
+		here: hostname(),
+		sessions: sessionsDir(),
+		known: indexSessionFiles(sessionsDir()),
+		quests: questsRoot,
+		titleOf: (questId) => questTitle(questsRoot, questId),
+	}).filter((entry) => !ranHere.has(entry.id));
 }
 
 /** A quest's title from its README, or nothing when it can't be read. */
