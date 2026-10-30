@@ -61,6 +61,12 @@ here instead and says so; that build takes no turn in the queue.
 Only VM checks go: a quick check here takes seconds, where a set
 of them took about 28 s on the builder.
 
+Where a call runs is decided once for it, in
+`lib/internal/priority/send.ts`, and the mesh reads the same
+answer. pi runs the mesh's handler first, so otherwise a check
+bound for the builder would be leased as VM work here, and a
+subagent under a hold on this machine's VM work held back.
+
 ## Config
 
 In the package config (`~/.config/pi/agentic-harness.pi/config.json`),

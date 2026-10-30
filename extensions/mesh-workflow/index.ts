@@ -50,6 +50,7 @@ import { stoppingFromOutside } from "../../lib/internal/away/state.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { dataDir, everyRealmsDir, stateDir } from "../../lib/internal/paths.ts";
 import { tellAwaited } from "../../lib/internal/priority/awaited.ts";
+import { whereItRuns } from "../../lib/internal/priority/send.ts";
 import { tickedOwnerNow } from "../../lib/internal/process-ticks.ts";
 import { onConcluded } from "../../lib/internal/quest/concluded.ts";
 import { withQuestLock } from "../../lib/internal/quest/io.ts";
@@ -1381,13 +1382,22 @@ export function meshWorkflow(
 			async (event, called): Promise<ToolCallEventResult | undefined> => {
 				try {
 					if (isToolCallEventType("bash", event)) {
-						const command = event.input.command;
+						const cwd = called?.cwd ?? ctx?.cwd ?? process.cwd();
+						// The command as it will run: a VM check bound for the
+						// builder is no VM work here to lease (send.ts).
+						const written = event.input.command;
+						const command =
+							typeof written === "string"
+								? ((await whereItRuns(
+										event.toolCallId,
+										written,
+										cwd,
+										called?.signal,
+									)) ?? written)
+								: written;
 						const why =
 							typeof command === "string"
-								? await leasing.rewrite(
-										command,
-										called?.cwd ?? ctx?.cwd ?? process.cwd(),
-									)
+								? await leasing.rewrite(command, cwd)
 								: undefined;
 						if (why) return { block: true, reason: why };
 						if (own && peer) heavyCalls.called(event.toolCallId, command);

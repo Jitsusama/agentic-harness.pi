@@ -3,7 +3,8 @@
  * and changes is claimed as the parent's, the holds reaching the parent
  * reach it before it starts what they name, and nothing else does.
  */
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -183,6 +184,75 @@ describe("a peer's hand", () => {
 		expect(first.reason).toContain("this runs a build");
 
 		expect(await bash("3", "nix build .#x")).toBeUndefined();
+	});
+
+	it("lets a VM check bound for the builder past a hold, as it doesn't run here", async () => {
+		// The remote check interceptor rewrites it after the mesh's handler
+		// runs, so the mesh reads the command as it will run (send.ts).
+		const repo = join(root, "public");
+		mkdirSync(repo);
+		const git = (...args: string[]) =>
+			execFileSync("git", ["-C", repo, ...args], { stdio: "ignore" });
+		git("init", "-q");
+		writeFileSync(join(repo, "flake.nix"), "{ }\n");
+		git("add", "flake.nix");
+		git(
+			"-c",
+			"user.email=t@t",
+			"-c",
+			"user.name=t",
+			"-c",
+			"commit.gpgsign=false",
+			"commit",
+			"-qm",
+			"one",
+		);
+		git("remote", "add", "origin", "https://github.com/Owner/public.git");
+		const config = join(root, "config", "pi", "agentic-harness.pi");
+		mkdirSync(config, { recursive: true });
+		writeFileSync(
+			join(config, "config.json"),
+			JSON.stringify({
+				version: 1,
+				sections: { "remote-checks": { repos: ["Owner/public"] } },
+			}),
+		);
+		const bin = join(root, "bin");
+		mkdirSync(bin);
+		writeFileSync(
+			join(bin, "nix-offload"),
+			"#!/bin/sh\nprintf 'tree\\napply\\nout\\nwants\\n'\n",
+			{ mode: 0o755 },
+		);
+		const before = {
+			path: process.env.PATH,
+			config: process.env.XDG_CONFIG_HOME,
+		};
+		process.env.PATH = `${bin}:${before.path ?? ""}`;
+		process.env.XDG_CONFIG_HOME = join(root, "config");
+		try {
+			othersHold("hold VM tests: rebooting");
+			const { fire } = await startHand();
+			const check = (id: string, cwd: string) =>
+				fire(
+					"tool_call",
+					{
+						toolName: "bash",
+						toolCallId: id,
+						input: {
+							command: "nix build --no-link .#checks.x86_64-linux.vm-a",
+						},
+					},
+					{ cwd },
+				);
+
+			expect(await check("sent", repo)).toBeUndefined();
+			expect(await check("here", root)).toMatchObject({ block: true });
+		} finally {
+			process.env.PATH = before.path;
+			if (before.config === undefined) delete process.env.XDG_CONFIG_HOME;
+			else process.env.XDG_CONFIG_HOME = before.config;
+		}
 	});
 
 	it("lets a command that only looks for heavy work past a hold, as the queue does", async () => {

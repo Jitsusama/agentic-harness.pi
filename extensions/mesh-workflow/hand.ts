@@ -17,6 +17,7 @@ import {
 	type ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
 import { kindOf, whatOf } from "../../lib/internal/priority/queue.ts";
+import { whereItRuns } from "../../lib/internal/priority/send.ts";
 import { onJobFinished } from "../../lib/jobs/index.ts";
 import {
 	handIn,
@@ -172,7 +173,18 @@ export function meshHand(
 				try {
 					const holds = standing();
 					if (isToolCallEventType("bash", event)) {
-						const command = event.input.command;
+						// The command as it will run: a VM check bound for the
+						// builder is no VM work here, held or leased (send.ts).
+						const written = event.input.command;
+						const command =
+							typeof written === "string"
+								? ((await whereItRuns(
+										event.toolCallId,
+										written,
+										called?.cwd ?? process.cwd(),
+										called?.signal,
+									)) ?? written)
+								: written;
 						const work =
 							typeof command === "string" ? kindOf(command) : undefined;
 						const unheard = holds.filter(
