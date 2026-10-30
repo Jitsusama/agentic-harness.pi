@@ -16,6 +16,7 @@ import {
 import {
 	builderReady,
 	checkBuildsOf,
+	copyThere,
 	flakeThere,
 	githubRepoOf,
 	parseRemoteChecks,
@@ -329,6 +330,53 @@ describe("the repository a flake is in", () => {
 
 	it("is nothing outside a repository", async () => {
 		expect(await repositoryAt(root)).toBeUndefined();
+	});
+
+	it("is a copy with no origin and no commit, as `git init` leaves one", async () => {
+		const copy = join(root, "copy");
+		mkdirSync(copy);
+		writeFileSync(join(copy, "flake.nix"), "{}\n");
+		git(copy, "init", "-q");
+		git(copy, "add", "-A");
+		expect(await repositoryAt(copy)).toMatchObject({
+			atTop: true,
+			pushed: false,
+			head: "",
+			origin: "",
+		});
+	});
+});
+
+describe("whether a copy of a tree may go as a folder", () => {
+	const TAKES = { tree: true, subtests: true, wants: true, folder: true };
+	const COPY: Repository = {
+		atTop: true,
+		clean: false,
+		pushed: false,
+		head: "",
+		origin: "",
+	};
+
+	it("goes as its folder, a path: build whole, where there takes one", () => {
+		// QGB4ON's four VM checks on optimus at load 43, on 30 October.
+		expect(copyThere(COPY, TREE, true, TAKES)).toBe(`path:${TREE}`);
+		expect(copyThere(COPY, TREE, false, TAKES)).toBe(TREE);
+		expect(copyThere(undefined, TREE, true, TAKES)).toBe(`path:${TREE}`);
+	});
+
+	it("stays where there takes no folder, or the copy is somebody's tree", () => {
+		expect(
+			copyThere(COPY, TREE, true, { ...TAKES, folder: false }),
+		).toBeUndefined();
+		// One with an origin is flakeThere's: a World tree's is Delta.
+		const world = { ...COPY, origin: "https://delta.example/world.git" };
+		expect(copyThere(world, TREE, true, TAKES)).toBeUndefined();
+		// Unknown to git, as a slow monorepo's can be, only a path: build
+		// is known to send just its folder.
+		expect(copyThere(undefined, TREE, false, TAKES)).toBeUndefined();
+		expect(
+			copyThere({ ...COPY, atTop: false }, TREE, false, TAKES),
+		).toBeUndefined();
 	});
 });
 

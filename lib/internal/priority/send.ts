@@ -17,6 +17,7 @@ import {
 	builderReady,
 	type CheckBuild,
 	checkBuildsOf,
+	copyThere,
 	flakeThere,
 	offloadTakes,
 	parseRemoteChecks,
@@ -114,7 +115,7 @@ async function sendingThere(
 	// run-subtests --there hands `there` its tree, whatever state it's in.
 	const runs =
 		takes.tree && takes.subtests
-			? await runsThere(asked, repos.value, gits)
+			? await runsThere(asked, repos.value, takes, gits)
 			: [];
 	if (sends.length === 0 && runs.length === 0) return undefined;
 	// One that asks for a builder itself waits for it; else wait here.
@@ -138,16 +139,23 @@ function repositoryOnce(
 	return repository;
 }
 
-/** Each run-subtests step whose tree is of a repository named to send. */
+/**
+ * Each run-subtests step whose tree is of a repository named to send, or
+ * a copy with no origin where `there` takes a folder.
+ */
 async function runsThere(
 	runs: readonly SubtestsRun[],
 	repos: readonly string[],
+	takes: Takes,
 	gits: Map<string, Promise<Repository | undefined>>,
 ): Promise<SubtestsRun[]> {
 	const going: SubtestsRun[] = [];
 	for (const run of runs) {
 		const found = await repositoryOnce(gits, run.flake, false);
-		if (found && flakeThere(found, repos, run.flake)) going.push(run);
+		const goes =
+			(found && flakeThere(found, repos, run.flake)) ??
+			copyThere(found, run.flake, false, takes);
+		if (goes) going.push(run);
 	}
 	return going;
 }
@@ -169,7 +177,10 @@ async function flakesThere(
 		);
 		// A pinned build is of its commit, which only GitHub can give.
 		const tree = takes.tree && !build.pin ? build.flake : undefined;
-		const flake = found ? flakeThere(found, repos, tree) : undefined;
+		const copy = build.pin
+			? undefined
+			: copyThere(found, build.flake, build.whole, takes);
+		const flake = (found && flakeThere(found, repos, tree)) ?? copy;
 		if (flake) sends.push({ build, flake });
 	}
 	return sends;
