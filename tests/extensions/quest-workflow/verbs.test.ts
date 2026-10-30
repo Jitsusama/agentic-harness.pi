@@ -273,6 +273,41 @@ describe("session verbs", () => {
 		text = readFileSync(a.path, "utf8");
 		expect(text).toMatch(/status: detached/);
 	});
+
+	it("acts on the quest `id` names, not the one loaded", async () => {
+		// 29 October: a detach naming another quest found nothing on the
+		// loaded one, and the moved session stayed active where it was.
+		const state = buildState();
+		const loaded = await createQuest(state, "Loaded");
+		const other = await createQuest(state, "Other");
+		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "load",
+			id: loaded.id,
+		});
+		const named = { id: other.id, sessionId: "sess-elsewhere" };
+		const attach = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "session-attach",
+			...named,
+		});
+		expect(attach.ok).toBe(true);
+		expect(readFileSync(other.path, "utf8")).toContain("id: sess-elsewhere");
+		expect(readFileSync(loaded.path, "utf8")).not.toContain("sess-elsewhere");
+
+		const rename = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "session-rename",
+			name: "moved",
+			...named,
+		});
+		expect(rename.ok).toBe(true);
+		const detach = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "session-detach",
+			...named,
+		});
+		expect(detach.ok).toBe(true);
+		const text = readFileSync(other.path, "utf8");
+		expect(text).toContain("name: moved");
+		expect(text).toMatch(/status: detached/);
+	});
 });
 
 describe("find / who / links", () => {
