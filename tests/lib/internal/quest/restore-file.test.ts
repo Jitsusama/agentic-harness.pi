@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+	carriedEntry,
 	RESTORE_FILE_VERSION,
 	type RestoreFile,
 	restoreFileOf,
@@ -139,6 +140,52 @@ describe("the restore file", () => {
 				},
 			],
 		});
+	});
+
+	it("offers a session carried home in this very boot, until a pi runs it here", () => {
+		const carried = carriedEntry(
+			{
+				id: "01a19111-sbx1",
+				quest: "QEST-20261025-85PKB2",
+				from: "sandbox-7",
+				at: "2026-10-30T22:20:00.000Z",
+				file: "/carried/x.jsonl",
+			},
+			"/home/me/src/harness",
+			(quest) => (quest === "QEST-20261025-85PKB2" ? "The Harness" : undefined),
+		);
+		const offered = restoreFileOf([], "now", undefined, undefined, undefined, [
+			carried,
+		]);
+
+		expect(offered).toEqual({
+			v: RESTORE_FILE_VERSION,
+			sessions: [
+				{
+					id: "01a19111-sbx1",
+					address: "85PKB2",
+					title: "The Harness",
+					quest: "QEST-20261025-85PKB2",
+					cwd: "/home/me/src/harness",
+					lostAt: "2026-10-30T22:20:00.000Z",
+					carried: { from: "sandbox-7", at: "2026-10-30T22:20:00.000Z" },
+				},
+			],
+		});
+		const ran = restoreFileOf(
+			[
+				{
+					record: ranIn("01a19111-sbx1", "now", "QEST-20261025-85PKB2"),
+					heartbeatAt: "2026-10-30T22:21:00Z",
+				},
+			],
+			"now",
+			undefined,
+			undefined,
+			undefined,
+			[carried],
+		);
+		expect(ran.sessions, "it ran here, so it isn't offered").toEqual([]);
 	});
 
 	it("is written whole where the launcher looks, its folder made if need be", () => {

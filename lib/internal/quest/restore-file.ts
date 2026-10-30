@@ -7,7 +7,10 @@
  * the sessions ran in, and one entry per session, which the launcher
  * reopens through its own resume, in a window of its own under a login
  * shell. The launcher compares `boot` with this boot's id, and while
- * they match, or `sessions` is empty, it has nothing to offer.
+ * they match, or `sessions` is empty, it has nothing to offer, but for
+ * an entry marked `carried` (Y2YBTS, 30 October): a session another
+ * machine carried home before it went away, offered whatever the boot
+ * until it runs here (carried.ts).
  *
  * Worked out without probing any process, since it is written as each
  * pi starts, and starting a session never shells out: a record from
@@ -19,6 +22,7 @@ import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { questAddress, sessionAddress } from "../../mesh/address.ts";
 import { realmSegments, type SessionRealm, sessionRealm } from "../realm.ts";
+import type { CarriedHome } from "./carried.ts";
 import { atomicWriteFile } from "./io.ts";
 import {
 	closeRecord,
@@ -49,6 +53,11 @@ export interface RestoreEntry {
 	 */
 	readonly machine?: string;
 	readonly attach?: readonly string[];
+	/**
+	 * For a session another machine carried here as it went away: that
+	 * machine, and when. It reopens like any session here, in `cwd`.
+	 */
+	readonly carried?: { readonly from: string; readonly at: string };
 }
 
 /** The whole file. */
@@ -92,7 +101,11 @@ export function restoreFileOf(
 	/** What the windows note says was left, read by `windowsToReopen`. */
 	elsewhere: (lastBoot: string | undefined) => BootWindows | undefined = () =>
 		undefined,
+	/** Sessions carried here, read by `carriedEntry`. */
+	carried: readonly RestoreEntry[] = [],
 ): RestoreFile {
+	// A record exists only once a pi has run the session on this machine.
+	const ranHere = new Set(stored.map(({ record }) => record.sessionId));
 	const records = stored.map(({ record, heartbeatAt }) => {
 		const boot = record.process?.bootToken;
 		const leftOpen =
@@ -127,7 +140,34 @@ export function restoreFileOf(
 					attach: window.attach,
 				}),
 			),
+			...carried.filter((entry) => !ranHere.has(entry.id)),
 		],
+	};
+}
+
+/**
+ * The entry for a session carried here, to reopen in `cwd`: its window's
+ * title as it left, else its quest's, else the folder's name.
+ */
+export function carriedEntry(
+	carried: CarriedHome,
+	cwd: string,
+	titleOf: (questId: string) => string | undefined = () => undefined,
+): RestoreEntry {
+	const folder = cwd.split("/").filter(Boolean).pop() ?? cwd;
+	return {
+		id: carried.id,
+		address: carried.quest
+			? questAddress(carried.quest)
+			: sessionAddress(carried.id),
+		title:
+			carried.title ??
+			(carried.quest ? titleOf(carried.quest) : undefined) ??
+			folder,
+		...(carried.quest ? { quest: carried.quest } : {}),
+		cwd,
+		lostAt: carried.at,
+		carried: { from: carried.from, at: carried.at },
 	};
 }
 
