@@ -49,6 +49,16 @@ is born there. pi itself stays where it was started.
 
 core.nix's slices module makes the cgroup and sets the variable.
 
+- **A turn a person typed goes first on the network.** While one runs,
+  the session keeps a file named by its pid in
+  `$XDG_RUNTIME_DIR/pi/typed/`, from the person's input until the turn
+  it started ends, or the next one when they typed during it. core.nix's
+  traffic shaper sends every other pi's requests as bulk. Every call
+  sends the whole conversation again, and on 30 October thirty
+  sessions doing so filled a 1.4 MB/s upload, so a turn Joel typed
+  waited behind them all and hit pi's five minute timeout twice. Node
+  can't mark its own sockets, so the file is the whole contract.
+
 ## The Machine's Queue
 
 Sessions used to take turns at heavy work by hand: they broadcast

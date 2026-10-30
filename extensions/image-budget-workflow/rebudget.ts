@@ -22,8 +22,56 @@ export interface Resized {
 export type Resize = (
 	bytes: Uint8Array,
 	mimeType: string,
-	options: { maxWidth: number; maxHeight: number },
+	options: { maxWidth: number; maxHeight: number; maxBytes?: number },
 ) => Promise<Resized | null>;
+
+/**
+ * How many base64 characters an image may take before it is worth
+ * re-encoding as JPEG. Billing is by pixels, but every byte is sent again
+ * on every call: on 30 October one window's 23 screenshots, 11.7 MB of
+ * PNG, took each call past pi's five minute timeout over an upload shared
+ * with thirty sessions. A one-megapixel terminal screenshot is about 1.2
+ * MB as PNG and 270 KB as JPEG at pi's quality of 80, and reads the same.
+ */
+export const LIGHT_ENOUGH = 150_000;
+
+/**
+ * `picture` in fewer bytes at the same size: as pi's resizer encodes it
+ * once a PNG is ruled out, by asking for less than the PNG takes. pi
+ * tries PNG first and keeps the first encoding under its limit, so a
+ * screenshot otherwise stays PNG. Kept as it is when it is small enough
+ * already, isn't a PNG, or no lighter encoding keeps its size, since
+ * pi's resizer shrinks the picture once no quality fits.
+ */
+async function lighter(
+	bytes: Uint8Array,
+	mimeType: string,
+	picture: Resized,
+	resize: Resize,
+): Promise<Resized> {
+	if (picture.mimeType !== "image/png") return picture;
+	if (picture.data.length <= LIGHT_ENOUGH) return picture;
+	const jpeg = await resize(bytes, mimeType, {
+		maxWidth: picture.width,
+		maxHeight: picture.height,
+		maxBytes: picture.data.length - 1,
+	});
+	// Asked for its own size again, the resizer may round an edge a pixel
+	// either way; anything more means it shrank the picture to fit.
+	const same =
+		jpeg !== null &&
+		Math.abs(jpeg.width - picture.width) <= 1 &&
+		Math.abs(jpeg.height - picture.height) <= 1 &&
+		jpeg.data.length < picture.data.length;
+	return same
+		? {
+				...jpeg,
+				originalWidth: picture.originalWidth,
+				originalHeight: picture.originalHeight,
+				wasResized: true,
+			}
+		: picture;
+}
 
 /**
  * The original bytes, when the caller can reach them. A `read` names a
@@ -139,16 +187,41 @@ export async function rebudget(
 				? { width: probe.originalWidth, height: probe.originalHeight }
 				: null;
 		const fit = original ? fitToBudget(original.width, original.height) : null;
-		if (!original || !fit) {
+		if (!original) {
 			next.push(block);
+			continue;
+		}
+		if (!fit) {
+			// Within the allowance already, but perhaps heavy to send.
+			const sent = piNote
+				? { width: piNote.width, height: piNote.height }
+				: original;
+			const as: Resized = {
+				data: block.data,
+				mimeType: block.mimeType,
+				originalWidth: original.width,
+				originalHeight: original.height,
+				...sent,
+				wasResized: false,
+			};
+			const light = await lighter(bytes, block.mimeType, as, resize);
+			if (light === as) {
+				next.push(block);
+				continue;
+			}
+			next.push({ type: "image", data: light.data, mimeType: light.mimeType });
+			const told = describeScaling(original, sent);
+			if (told) next.push({ type: "text", text: told });
+			changed = true;
 			continue;
 		}
 
-		const small = await resize(bytes, block.mimeType, fit);
-		if (!small?.wasResized) {
+		const scaled = await resize(bytes, block.mimeType, fit);
+		if (!scaled?.wasResized) {
 			next.push(block);
 			continue;
 		}
+		const small = await lighter(bytes, block.mimeType, scaled, resize);
 
 		// What was being paid was the payload pi handed over, so that is
 		// what the saving is measured against.
