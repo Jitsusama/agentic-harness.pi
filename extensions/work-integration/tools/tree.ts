@@ -65,6 +65,7 @@ import { objectionsTo, treeBroker } from "../broker.ts";
 import { FETCH_MS, refreshStart } from "../fresh-start.ts";
 import { GLYPH, treeLine } from "../render.ts";
 import { candidatesFor, machineSeams, warmStart } from "../warm-start.ts";
+import { carryHome } from "./carry.ts";
 import { recordMessage } from "./message.ts";
 import { settlingLines } from "./settling.ts";
 import {
@@ -469,6 +470,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 						Type.Literal("record"),
 						Type.Literal("branch"),
 						Type.Literal("push"),
+						Type.Literal("carry"),
 						Type.Literal("rebase"),
 						Type.Literal("resume"),
 						Type.Literal("abandon"),
@@ -482,7 +484,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 					],
 					{
 						description:
-							"tree: cut a worktree at a branch; snapshot: pin one at a commit; trees: list what is held (the default); release: give one back; status: what changed in it. tidy: report what is spent, removing nothing; reclaim: take back the unowned trees tidy found. record: stage and commit; branch: make and check out a branch; push: publish it. rebase onto a ref, halting on a conflict; resume or abandon a halted one. stack: what sits on what; track, untrack, reparent and reorder (lowest first) shape it; restack replays it onto trunk; sync fetches trunk first.",
+							"tree: cut a worktree at a branch; snapshot: pin one at a commit; trees: list what is held (the default); release: give one back; status: what changed in it. tidy: report what is spent, removing nothing; reclaim: take back the unowned trees tidy found. record: stage and commit; branch: make and check out a branch; push: publish it; carry: on a machine that is leaving and can't push, bundle what it couldn't push, with this session's file, into the quest's scratch handover/ folder for the share to take home. rebase onto a ref, halting on a conflict; resume or abandon a halted one. stack: what sits on what; track, untrack, reparent and reorder (lowest first) shape it; restack replays it onto trunk; sync fetches trunk first.",
 					},
 				),
 			),
@@ -597,6 +599,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 					| "record"
 					| "branch"
 					| "push"
+					| "carry"
 					| "rebase"
 					| "resume"
 					| "abandon"
@@ -919,6 +922,10 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 							...(args.from ? { fresh: stale === undefined } : {}),
 						},
 					);
+				}
+
+				if (action === "carry") {
+					return await carryHome(exec, found, ctx.sessionManager);
 				}
 
 				if (action === "push") {

@@ -37,6 +37,12 @@ export type {
 	TreeProvider,
 } from "./broker.ts";
 export { createTreeBroker } from "./broker.ts";
+export type {
+	CarriedSession,
+	CarriedTree,
+	CarryOutcome,
+} from "./carry.ts";
+export { carrySession, carryTree } from "./carry.ts";
 export type { TreeClaims, WorkApi } from "./events.ts";
 export {
 	WORK_READY,
