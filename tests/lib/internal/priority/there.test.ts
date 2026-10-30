@@ -22,6 +22,7 @@ import {
 	type Repository,
 	repositoryAt,
 	sentThere,
+	subtestRunsOf,
 } from "../../../../lib/internal/priority/there.ts";
 import { stepsOf } from "../../../../lib/internal/shell/steps.ts";
 import { count } from "../../../../lib/ui/index.ts";
@@ -43,7 +44,7 @@ function sent(command: string, cwd = TREE): string | undefined {
 }
 
 const SAID = (checks: number) =>
-	`printf '%s\\n' 'remote-check: ${count(checks, "check", "checks")} sent to the lent builder by commit, nothing uploaded' >&2; `;
+	`printf '%s\\n' 'remote-check: ${count(checks, "check", "checks")} sent to the lent builder from its commit' >&2; `;
 
 describe("finding the VM check builds a command could send", () => {
 	it("sends the forms sessions write, each step in its own place", () => {
@@ -159,6 +160,48 @@ describe("finding the VM check builds a command could send", () => {
 	});
 });
 
+describe("finding the run-subtests runs a command could send", () => {
+	const runs = (command: string, cwd = TREE) =>
+		subtestRunsOf(stepsOf(command, cwd, HOME) ?? [], HOME);
+
+	it("sends the forms sessions write, each in its own place", () => {
+		// Seven of fifteen VM jobs on the workstation in an hour.
+		const command = `cd ${TREE} && direnv exec . run-subtests vm-desktop-launcher-answers power_says >$TMPDIR/pw.log 2>&1; echo $?`;
+		const found = runs(command, "/elsewhere");
+		expect(found.map((run) => run.flake)).toEqual([TREE]);
+		const written = sentThere(command, [], found);
+		expect(written).toBe(
+			`printf '%s\\n' 'remote-check: ${count(1, "subtests run", "subtests runs")} sent to the lent builder from its commit' >&2; cd ${TREE} && direnv exec . run-subtests --there vm-desktop-launcher-answers power_says >$TMPDIR/pw.log 2>&1; echo $?`,
+		);
+		expect(kindOf(written)).toBeUndefined();
+		expect(runs("nix develop -c run-subtests vm-a x")).toHaveLength(1);
+		expect(
+			runs('nix develop "path:/t" -c run-subtests vm-a x').map(
+				(run) => run.flake,
+			),
+		).toEqual([TREE]);
+		expect(
+			runs(`run-subtests --flake ${TREE}/ vm-a x`, "/x").map(
+				(run) => run.flake,
+			),
+		).toEqual([TREE]);
+	});
+
+	it("runs here what needs a person at it, or isn't a run", () => {
+		for (const command of [
+			"run-subtests -I vm-a x",
+			"run-subtests -K vm-a x",
+			"run-subtests --there vm-a x",
+			"direnv exec . run-subtests --help 2>&1 | head -8",
+			"run-subtests vm-a x &",
+			"cat run-subtests.py",
+		]) {
+			expect(runs(command), command).toEqual([]);
+		}
+		expect(kindOf("run-subtests vm-a x")).toBe("vm-test");
+	});
+});
+
 describe("whether a repository's build may go", () => {
 	const READY: Repository = {
 		atTop: true,
@@ -178,6 +221,18 @@ describe("whether a repository's build may go", () => {
 		expect(flakeThere({ ...READY, clean: false }, REPOS)).toBeUndefined();
 		expect(flakeThere({ ...READY, pushed: false }, REPOS)).toBeUndefined();
 		expect(flakeThere({ ...READY, atTop: false }, REPOS)).toBeUndefined();
+	});
+
+	it("goes as the tree itself, unpushed or changed, where there takes one", () => {
+		// Four of fifteen VM jobs in an hour were of a commit not yet pushed.
+		const changed = { ...READY, clean: false, pushed: false };
+		expect(flakeThere(changed, REPOS, TREE)).toBe(TREE);
+		expect(flakeThere(READY, REPOS, TREE)).toBe(FLAKE);
+		expect(
+			flakeThere({ ...changed, atTop: false }, REPOS, TREE),
+		).toBeUndefined();
+		const other = { ...changed, origin: "git@github.com:Owner/private.git" };
+		expect(flakeThere(other, REPOS, TREE)).toBeUndefined();
 	});
 
 	it("goes only for repositories named, which none are by default", () => {
