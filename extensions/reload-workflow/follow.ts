@@ -25,7 +25,11 @@ import {
 	watchHeads,
 	whenToReload,
 } from "../../lib/internal/reload/follow.ts";
-import { isSwapped, type Loaded } from "../../lib/internal/reload/loaded.ts";
+import {
+	installOfVersion,
+	isSwapped,
+	type Loaded,
+} from "../../lib/internal/reload/loaded.ts";
 import {
 	type PackageSettings,
 	sourceOf,
@@ -50,6 +54,15 @@ export const HELD_MS = 10 * 60_000;
 
 /** The entry that says why the session's own reload was held. */
 export const HELD_ENTRY = "reload-held";
+
+/**
+ * The entry that says, once for each reason, why a session that heard
+ * its install move isn't asking to reload: it runs a tree, another
+ * reload is waiting, or its context has gone. On 30 October three idle
+ * sessions stayed six hours on the code the 08:26 restore loaded and
+ * said nothing of why.
+ */
+export const WAITING_ENTRY = "reload-waiting";
 
 /** The process's one follower, so a reload replaces it rather than adding one. */
 const FOLLOWER_KEY = Symbol.for("agentic-harness.reload.follower");
@@ -159,8 +172,40 @@ export async function follow(
 		}
 	};
 
-	const roots = installedRoots(settings);
+	// Read at start, and again while unread: a read that failed as thirty
+	// sessions started at once would leave nothing to follow for good.
+	let roots = installedRoots(settings);
 	let heldNoted = false;
+	const waitingNoted = new Set<string>();
+	const sayWhy = (reason: string, data: Record<string, unknown> = {}) => {
+		if (waitingNoted.has(reason)) return;
+		waitingNoted.add(reason);
+		try {
+			pi.appendEntry(WAITING_ENTRY, {
+				reason,
+				...data,
+				at: new Date().toISOString(),
+			});
+		} catch {
+			// A stale runtime has no log to write to.
+		}
+	};
+	/**
+	 * What runs, with its install read again when the start couldn't read
+	 * it, since a runtime with no install reads as running a tree.
+	 */
+	const runningNow = (): Loaded => {
+		const loaded = running();
+		if (loaded.install !== undefined) return loaded;
+		// A version of an install the settings name is that install, behind
+		// or not, so it runs its install.
+		const ours = installOfVersion(canonical(loaded.root));
+		const named = installedRoots(settings).some(
+			(root) =>
+				ours !== undefined && installOfVersion(canonical(root)) === ours,
+		);
+		return named ? { ...loaded, install: loaded.root } : loaded;
+	};
 
 	/**
 	 * Let go of the session's own reload once it has waited past
@@ -197,6 +242,7 @@ export async function follow(
 	};
 
 	const consider = (settled = false) => {
+		if (roots.length === 0) roots = installedRoots(settings);
 		for (const root of roots) {
 			if (moved.has(root)) continue;
 			const missed = missedMove(running().root, root);
@@ -206,7 +252,12 @@ export async function follow(
 		const slot = reloadSlot();
 		// Somebody else's reload is waiting or under way, and it loads
 		// the install anyway unless it was asked for a tree.
-		if (slot.request !== undefined && !letGoIfHeld()) return;
+		if (slot.request !== undefined && !letGoIfHeld()) {
+			if (slot.request?.by !== "self") {
+				sayWhy("another reload is waiting", { by: slot.request?.by });
+			}
+			return;
+		}
 		if (recheck) clearTimeout(recheck);
 		recheck = undefined;
 		let idle = false;
@@ -214,10 +265,16 @@ export async function follow(
 			idle = settled || ctx.isIdle();
 		} catch {
 			// A stale context belongs to a runtime that has gone.
+			sayWhy("its context has gone");
 			return;
 		}
+		const now = runningNow();
+		const swapped = isSwapped(now);
+		if (swapped) {
+			sayWhy("it runs a tree", { root: now.root, install: now.install });
+		}
 		const moment = whenToReload({
-			swapped: isSwapped(running()),
+			swapped,
 			idle,
 			ready: [...moved.values()].every((one) =>
 				dependenciesReady(one.root, one.at),

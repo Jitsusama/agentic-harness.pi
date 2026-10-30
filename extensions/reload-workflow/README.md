@@ -76,6 +76,17 @@ loads the install and the install is `main`.
   - Its own reload, handed to the command and waiting ten minutes with
     none under way, is asked again. The first time, a `reload-held`
     entry in the session's log says what held it.
+  - A session that heard its install move but holds back says why
+    once, in a `reload-waiting` entry: it runs another install, another
+    reload is waiting, or its context has gone. An install the start
+    couldn't read, as when thirty sessions start at once, is read
+    again rather than taken for a tree: on 30 October three idle
+    sessions stayed six hours on the code the restore loaded.
+- **MCP servers kept across a reload.** pi drops what an extension
+  registered as it loaded, so on 30 October every reloaded session
+  lost the tool gateway. The servers pi lists as a reload begins are
+  registered again once it lands, where the reload lost them, and pi
+  connects them at once. One the reload kept is left alone.
 - **`⇄` on the footer** while the session runs code other than the
   install pi's settings name, muted, and only then.
 - **`/harness`** says what runs, from where, at which commit, and

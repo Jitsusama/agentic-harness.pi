@@ -45,6 +45,7 @@ import {
 	tellPiPackages,
 	whatRuns,
 } from "./lifecycle.ts";
+import { keepMcpServersAcrossReloads } from "./mcp.ts";
 import {
 	COMMAND,
 	callOff,
@@ -73,6 +74,7 @@ function settledAborted(event: unknown): boolean {
 }
 
 export default function reloadWorkflow(pi: ExtensionAPI) {
+	keepMcpServersAcrossReloads(pi);
 	const settings = piPackageSettings();
 	let running: Loaded = { root: PACKAGE_ROOT };
 	let follower: Follower | undefined;

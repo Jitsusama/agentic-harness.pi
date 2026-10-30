@@ -19,6 +19,7 @@ import {
 	follow,
 	HELD_ENTRY,
 	HELD_MS,
+	WAITING_ENTRY,
 } from "../../../extensions/reload-workflow/follow.ts";
 import type { PackageSettings } from "../../../lib/internal/reload/settings.ts";
 import { reloadSlot } from "../../../lib/internal/reload/slot.ts";
@@ -53,7 +54,7 @@ const dirs: string[] = [];
  * link has moved onto another: no git, so no watch hears anything, as
  * when a session's watch was lost.
  */
-async function behind() {
+async function behind({ swapped = false, installUnread = false } = {}) {
 	const install = mkdtempSync(join(tmpdir(), "install-"));
 	dirs.push(install);
 	const was = join(install, "versions", "aaaa");
@@ -73,7 +74,16 @@ async function behind() {
 		pi as never,
 		{ hasUI: true, isIdle: () => true } as never,
 		settingsFor(link),
-		() => ({ root: was, install: now }),
+		// Swapped, it runs a version of another install than its settings
+		// name; an install the start couldn't read is none at all.
+		() => ({
+			root: was,
+			install: swapped
+				? join(install, "elsewhere", "versions", "cccc")
+				: installUnread
+					? undefined
+					: now,
+		}),
 		{ env: {}, quietMs: QUIET_MS },
 	);
 	return { follower, prompted, entries };
@@ -239,6 +249,45 @@ describe("following the install", () => {
 		expect(entries).toMatchObject([
 			{ type: HELD_ENTRY, data: { performing: true } },
 		]);
+	});
+
+	it("says once why it holds back from a session that runs another install", async () => {
+		const { follower, prompted, entries } = await behind({ swapped: true });
+
+		follower?.consider();
+		follower?.consider();
+
+		await quietFor(QUIET_MS, 4);
+		expect(prompted).toEqual([]);
+		expect(entries).toMatchObject([
+			{ type: WAITING_ENTRY, data: { reason: "it runs a tree" } },
+		]);
+	});
+
+	it("says once why it holds back while another's reload waits", async () => {
+		const { follower, prompted, entries } = await behind();
+		reloadSlot().request = { reason: "asked", by: "agent" };
+
+		follower?.consider();
+		follower?.consider();
+
+		await quietFor(QUIET_MS, 4);
+		expect(prompted).toEqual([]);
+		expect(entries).toMatchObject([
+			{
+				type: WAITING_ENTRY,
+				data: { reason: "another reload is waiting", by: "agent" },
+			},
+		]);
+	});
+
+	it("reads the install again when the start couldn't, rather than hold back", async () => {
+		// Thirty sessions started at once on 30 October; three never followed.
+		const { follower, prompted } = await behind({ installUnread: true });
+
+		follower?.consider();
+
+		await until("the reload is asked for", () => prompted.length > 0);
 	});
 
 	it("never moves a session running a tree, or one nobody sits at", async () => {
