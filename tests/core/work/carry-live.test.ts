@@ -117,23 +117,23 @@ describe("carrying a tree's work home", () => {
 
 	it("carries the commits of a tree with files not committed, naming what stays", async () => {
 		const { leaving } = await twoClones();
-		await git(leaving, "commit", "-q", "--allow-empty", "-m", "unpushed");
-		writeFileSync(join(leaving, "draft.txt"), "not yet\n");
+		writeFileSync(join(leaving, "kept.txt"), "kept\n");
+		await git(leaving, "add", "kept.txt");
+		await git(leaving, "commit", "-q", "-m", "unpushed");
+		await git(leaving, "mv", "kept.txt", "moved.txt");
+		writeFileSync(join(leaving, "draft one.txt"), "not yet\n");
 		const into = folder("handover");
 
 		const outcome = await carryTree(exec, leaving, into, "main-tree");
 
-		expect(
-			outcome,
-			"one stray file doesn't keep the commit behind",
-		).toMatchObject({
+		expect(outcome, "stray files don't keep the commit behind").toMatchObject({
 			kind: "carried",
-			carried: { commits: 1, left: ["draft.txt"] },
+			carried: { commits: 1 },
 		});
 		expect(
 			JSON.parse(readFileSync(join(into, "main-tree.json"), "utf8")).left,
-			"and the note names the file that stayed",
-		).toEqual(["draft.txt"]);
+			"and the note names the files that stayed as they are on disk",
+		).toEqual(["moved.txt", "draft one.txt"]);
 	});
 });
 

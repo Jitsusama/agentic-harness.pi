@@ -73,6 +73,23 @@ async function ask(
 	return said === "" ? undefined : said;
 }
 
+/**
+ * The paths `git status --porcelain -z` names, as written on disk: each
+ * entry is two status letters, a space and the path, and a rename or a
+ * copy is followed by the path it came from, which is passed over.
+ */
+function leftOut(status: string): string[] {
+	const entries = status.split("\0");
+	const paths: string[] = [];
+	for (let at = 0; at < entries.length; at++) {
+		const entry = entries[at] ?? "";
+		if (entry === "") continue;
+		paths.push(entry.slice(3));
+		if (/^[RC]/.test(entry)) at++;
+	}
+	return paths;
+}
+
 /** What `--not --remotes` leaves a bundle needing, with where each was. */
 async function needed(exec: Exec, treePath: string): Promise<Needed[]> {
 	const boundary = await ask(exec, treePath, [
@@ -136,6 +153,7 @@ export async function carryTree(
 		treePath,
 		"status",
 		"--porcelain",
+		"-z",
 		"--untracked-files=all",
 	]);
 	if (status.code !== 0) {
@@ -144,10 +162,7 @@ export async function carryTree(
 			reason: `git couldn't say what this tree holds: ${status.stderr.trim()}`,
 		};
 	}
-	const left = status.stdout
-		.split("\n")
-		.filter((line) => line !== "")
-		.map((line) => line.slice(3));
+	const left = leftOut(status.stdout);
 	const counted = await ask(exec, treePath, [
 		"rev-list",
 		"--count",
