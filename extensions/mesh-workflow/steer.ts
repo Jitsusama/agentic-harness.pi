@@ -10,7 +10,12 @@
  */
 
 import { type FSWatcher, watch } from "node:fs";
-import { inboxOf, type Steer, takeSteers } from "../../lib/mesh/steer.ts";
+import {
+	FROM_MACHINE,
+	inboxOf,
+	type Steer,
+	takeSteers,
+} from "../../lib/mesh/steer.ts";
 
 /** What steering needs from the session it delivers to. */
 export interface SteeringHost {
@@ -85,8 +90,14 @@ export function createSteering(host: SteeringHost): Steering {
 	};
 }
 
-/** What the session reads: the person's words, saying where they came from. */
+/**
+ * What the session reads: the person's words, saying where they came
+ * from, or the machine's, saying they aren't the person's.
+ */
 export function steerText(steer: Steer): string {
+	if (steer.from === FROM_MACHINE) {
+		return `[Said by this machine's mycelium node, not by the person, through this session's steer inbox.]\n\n${steer.text}`;
+	}
 	const who = steer.from ?? "the person";
 	return `[Steered by ${who} from outside this window, so a reply here may go unread until they come to it.]\n\n${steer.text}`;
 }

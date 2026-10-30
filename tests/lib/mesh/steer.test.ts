@@ -102,6 +102,22 @@ describe("the steer inbox", () => {
 		expect(steerFrom('{"act":"reboot"}', "f")).toBeUndefined();
 	});
 
+	it("lets only the person act, so a machine's steer can't pause or stop", () => {
+		// A machine about to leave says so through its node (4UHC5Q, d0038fd8).
+		expect(
+			steerFrom(
+				'{"from":"machine","act":"stop","text":"this machine leaves at 17:00"}',
+				"f",
+			),
+		).toEqual({
+			text: "this machine leaves at 17:00",
+			from: "machine",
+			file: "f",
+		});
+		expect(steerFrom('{"from":"machine","act":"pause"}', "f")).toBeUndefined();
+		expect(steerFrom('{"from":"Joel","act":"pause"}', "f")?.act).toBe("pause");
+	});
+
 	it("leaves a talk's replies folder in the inbox alone", () => {
 		const inbox = inboxOf(root, "wcjqsg");
 		mkdirSync(join(inbox, "replies"), { recursive: true });

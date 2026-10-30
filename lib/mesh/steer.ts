@@ -44,6 +44,18 @@ function isSteerAct(value: unknown): value is SteerAct {
 	return (STEER_ACTS as readonly unknown[]).includes(value);
 }
 
+/**
+ * The `from` a machine's mycelium node writes, for what the machine itself
+ * must say to a session it holds, as that it leaves at a set time. It is
+ * never the person's word, so it carries no act.
+ */
+export const FROM_MACHINE = "machine";
+
+/** Whether a steer's writer is the person: one who names nobody, or Joel. */
+export function isFromPerson(from: string | undefined): boolean {
+	return from === undefined || from === "" || from.toLowerCase() === "joel";
+}
+
 /** One thing the person said, as the inbox carries it. */
 export interface Steer {
 	/**
@@ -88,8 +100,13 @@ export function steerFrom(raw: string, file: string): Steer | undefined {
 		return undefined;
 	}
 	if (typeof parsed !== "object" || parsed === null) return undefined;
+	const from =
+		"from" in parsed && typeof parsed.from === "string" ? parsed.from : "";
+	// Only the person may pause, resume or stop a session.
 	const act =
-		"act" in parsed && isSteerAct(parsed.act) ? parsed.act : undefined;
+		"act" in parsed && isSteerAct(parsed.act) && isFromPerson(from)
+			? parsed.act
+			: undefined;
 	const said =
 		"text" in parsed && typeof parsed.text === "string"
 			? parsed.text.trim()
@@ -97,8 +114,6 @@ export function steerFrom(raw: string, file: string): Steer | undefined {
 	const text = act === "pause" || act === "stop" ? "" : said;
 	if (!act && text === "") return undefined;
 	const at = "at" in parsed && typeof parsed.at === "string" ? parsed.at : "";
-	const from =
-		"from" in parsed && typeof parsed.from === "string" ? parsed.from : "";
 	const id = "id" in parsed && isTalkId(parsed.id) ? parsed.id : undefined;
 	return {
 		text,
