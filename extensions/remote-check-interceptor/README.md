@@ -24,9 +24,12 @@ when all of these hold:
 - the flake's folder is known from the command alone: `.#`,
   `git+file://$PWD#` or `path:$T#`, following plain variables set
   earlier in the command and its `cd`s;
-- that folder is the repository's top, no tracked file differs from
-  HEAD (nor an untracked one, for `path:`, which builds them too),
-  and a remote branch contains HEAD. A `git+file://` flake pinned
+- that folder is the repository's top. With no tracked file
+  differing from HEAD (nor an untracked one, for `path:`), and HEAD
+  on a remote branch, it goes as `github:<owner>/<repo>/<rev>`.
+  Otherwise, where `nix-offload there --takes` says `tree`, it goes
+  as the folder itself, and `there` sends the commits GitHub lacks,
+  and the uncommitted changes, as a small git bundle. A `git+file://` flake pinned
   with `?rev=` is of that commit, whatever the tree holds, so only
   the commit need be pushed: written out, set earlier as
   `R=$(git rev-parse <ref>)`, or written in place as
@@ -35,14 +38,21 @@ when all of these hold:
 - origin is a GitHub repository named in config;
 - a builder stands in `/run/nix-offload/machines`. While one is
   being lent, the call waits for it, for at most the queue's three
-  minutes from the lend's start.
+  minutes from the lend's start. Where `--takes` says `wants`,
+  `there` asks for a builder itself and waits, so this is skipped.
+
+A `run-subtests` step becomes `run-subtests --there` where
+`--takes` says `tree`, `apply` and `out`: the run, its driver's
+machines included, is built on the builder and its pictures copied
+back. One asking for a prompt (`-I`) or kept machines (`-K`) runs
+here.
 
 A piped step is sent too, since `nix-offload there` prints the
 build's log as `nix build` would. A step in the background, in a
 subshell or loop, or naming its check through something only
 running it would show, runs as written.
 Its redirections are kept, and the call prints
-`remote-check: N checks sent to the lent builder by commit` on
+`remote-check: N checks sent to the lent builder from its commit` on
 stderr first. Anything else runs as written, through the machine queue,
 whose wait for VM room is what lends a builder. If the builder
 can't be reached when the command runs, `nix-offload there` builds
