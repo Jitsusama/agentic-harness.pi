@@ -17,6 +17,10 @@ export const SCOPES = [
 	// Drive - read-only
 	"https://www.googleapis.com/auth/drive.readonly",
 
+	// Drive - write only the files made or replaced here, so a file saved
+	// from the desktop's file picker can go up to Drive
+	"https://www.googleapis.com/auth/drive.file",
+
 	// Docs - read-only
 	"https://www.googleapis.com/auth/documents.readonly",
 
