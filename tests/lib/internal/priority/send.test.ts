@@ -8,7 +8,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { whereItRuns } from "../../../../lib/internal/priority/send.ts";
+import {
+	refusedHere,
+	whereItRuns,
+} from "../../../../lib/internal/priority/send.ts";
 
 describe("where a call runs", () => {
 	it("is as written for a command that sends nothing", async () => {
@@ -77,5 +80,49 @@ describe("where a copy of a tree's VM check runs", () => {
 			root,
 		);
 		expect(ran).toContain("run-subtests --there vm-a");
+	});
+
+	const repoWith = (name: string, origin: string) => {
+		const repo = join(root, name);
+		mkdirSync(repo);
+		writeFileSync(join(repo, "flake.nix"), "{ }\n");
+		const git = (...args: string[]) =>
+			execFileSync("git", args, { cwd: repo, stdio: "ignore" });
+		git("init", "-q");
+		git("add", "-A");
+		git(
+			"-c",
+			"user.email=t@t",
+			"-c",
+			"user.name=t",
+			"-c",
+			"commit.gpgsign=false",
+			"commit",
+			"-qm",
+			"one",
+		);
+		git("remote", "add", "origin", origin);
+		return repo;
+	};
+	// A loop's variable is one the interceptor can't read.
+	const LOOP =
+		'for c in a b; do nix build --no-link -L ".#checks.x86_64-linux.vm-$c"; done';
+
+	it("refuses a public repo's VM check it can't send, saying how to send it", async () => {
+		const repo = repoWith("public", "https://github.com/Owner/public.git");
+		expect(await whereItRuns("loop", LOOP, repo)).toBeUndefined();
+		const refused = await refusedHere("loop", LOOP, repo);
+		expect(refused).toContain("nix-offload there");
+		expect(refused).toContain("run-subtests --there");
+	});
+
+	it("leaves a World tree's VM tests here, and a run that needs this machine", async () => {
+		const world = repoWith("world", "https://delta.example/world.git");
+		expect(await refusedHere("world", LOOP, world)).toBeUndefined();
+		const repo = repoWith("public", "https://github.com/Owner/public.git");
+		expect(
+			await refusedHere("prompt", "run-subtests -I vm-a", repo),
+		).toBeUndefined();
+		expect(await refusedHere("ls", "ls -la", repo)).toBeUndefined();
 	});
 });

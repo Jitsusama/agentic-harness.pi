@@ -13,12 +13,16 @@ import { homedir } from "node:os";
 import { loadPackageConfig } from "../config/loader.ts";
 import { packageConfigPath } from "../paths.ts";
 import { stepsOf } from "../shell/steps.ts";
+import { kindOf } from "./queue.ts";
 import {
 	builderReady,
+	builderStands,
 	type CheckBuild,
 	checkBuildsOf,
 	copyThere,
 	flakeThere,
+	githubRepoOf,
+	HERE_ONLY,
 	offloadTakes,
 	parseRemoteChecks,
 	REMOTE_CHECKS_SLUG,
@@ -79,6 +83,68 @@ export function whereItRuns(
 	decided.set(key, { at: now, sent });
 	return sent;
 }
+
+/**
+ * Why a bash call may not run here, or nothing when it may: a VM check or
+ * VM test of a repository whose checks go to the builder, or a copy with
+ * no origin where `there` takes folders, that `whereItRuns` couldn't
+ * send as written (a loop, a `$(...)`, a flag it doesn't pass on), while
+ * a builder stands or `there` asks for one itself. A VM here starves the
+ * person's desktop: on 30 October ten of them took optimus to load 43,
+ * and prompts waited a minute. Anything else runs as written, a World
+ * tree's VM tests included, and a run-subtests run asking for a prompt
+ * or kept machines, which only work here.
+ */
+export async function refusedHere(
+	callId: string,
+	command: string,
+	cwd: string,
+	signal?: AbortSignal,
+): Promise<string | undefined> {
+	if (!isVmWork(command)) return undefined;
+	if ((await whereItRuns(callId, command, cwd, signal)) !== undefined) {
+		return undefined;
+	}
+	const loaded = await loadPackageConfig(packageConfigPath());
+	if (!loaded.ok) return undefined;
+	const repos = parseRemoteChecks(loaded.config.sections[REMOTE_CHECKS_SLUG]);
+	if (!repos.ok || repos.value.length === 0) return undefined;
+	const takes = await takesNow();
+	if (!takes.wants && !builderStands()) return undefined;
+	const home = homedir();
+	const folders = new Set(
+		(stepsOf(command, cwd, home) ?? [])
+			.filter((step) => isVmWork(step.text))
+			.map((step) => step.cwd ?? cwd),
+	);
+	if (folders.size === 0) folders.add(cwd);
+	for (const folder of folders) {
+		const found = await repositoryAt(folder);
+		const repo = found ? githubRepoOf(found.origin) : undefined;
+		const named =
+			repo !== undefined &&
+			repos.value.some((one) => one.toLowerCase() === repo.toLowerCase());
+		const copy = takes.folder && found !== undefined && found.origin === "";
+		if (named || copy) return REFUSAL;
+	}
+	return undefined;
+}
+
+/** Whether a command runs a VM here, as the queue would read it. */
+function isVmWork(command: string): boolean {
+	const kind = kindOf(command);
+	if (kind !== "vm-check" && kind !== "vm-test") return false;
+	return !command.split(/\s+/).some((word) => HERE_ONLY.has(word));
+}
+
+/** What a refused call is told: why, and how to send it instead. */
+const REFUSAL = [
+	"Remote check interceptor: this would run a VM on this machine, which slows the person's desktop, while the lent builder can take it.",
+	"It couldn't be sent as written: a loop, a `$(...)` or a flag the interceptor doesn't pass on keeps it here.",
+	"Send it yourself: `nix-offload there [-L] [--keep-going] <flake> checks.<system>.<name> ...`, with the flake as a tree's folder, `path:<folder>` or `github:<owner>/<repo>/<rev>`;",
+	"or `run-subtests --there <check> <words>` for a subtests run.",
+	"A run that needs this machine (`run-subtests -I` or `-K`) still runs here.",
+].join(" ");
 
 /** What `nix-offload there` takes, asked at most once a minute. */
 function takesNow(now = Date.now()): Promise<Takes> {

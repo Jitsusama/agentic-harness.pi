@@ -48,6 +48,17 @@ not git knows the folder, and any other build or `run-subtests` run
 from the top of a repository with no origin. A repository with an
 origin goes only as above, so a World tree's checks still build here.
 
+A VM check or test of such a repository, or of such a copy, that
+can't be sent as written (a loop's variable, a `$(...)`, a flag it
+doesn't pass on) is refused while a builder stands or `there` asks
+for one itself, with a reason naming `nix-offload there` and
+`run-subtests --there`, so the session sends it itself. A VM here
+starves the person's desktop: on 30 October ten took optimus to load
+43. A run asking for a prompt or kept machines (`-I`, `-K`), and
+any VM work of another repository, runs here as before. The refusal
+is the `vm-here` guard, which redirects: the same call made again
+unchanged runs here, for a run that truly needs this machine.
+
 A `run-subtests` step becomes `run-subtests --there` where
 `--takes` says `tree`, `apply` and `out`: the run, its driver's
 machines included, is built on the builder and its pictures copied
