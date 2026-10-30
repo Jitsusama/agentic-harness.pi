@@ -161,6 +161,28 @@ A push that changed nothing says so. Do not read that as a
 failure, and do not read it as success either: the commit you
 expected to publish may never have been made.
 
+## Carrying Work Home
+
+A machine lent for a while, such as a cloud sandbox, is destroyed
+with everything on it, and may not be allowed to push where the
+work belongs. When its machine says it is leaving and a push is
+refused, `work carry tree:NAME` instead:
+
+- It bundles the tree's commits that no remote has, beside a
+  note of their branch, and copies this session's file beside a
+  note of what Restore needs, into the loaded quest's scratch at
+  `handover/<this machine>/`.
+- The share carries that folder home wherever the quest is
+  shared with `handover` named, as
+  `mycelium share QEST-... --scratch handover`.
+- Uncommitted work is refused: `record` it first, since a bundle
+  holds only commits.
+- The session file is copied as it stands, so carry last, after
+  writing down what's next, and then stop.
+
+At home, fetch the branch from the bundle into the quest's tree,
+`git fetch <bundle> <branch>:<branch>`, after fetching origin.
+
 ## Replaying One Branch
 
 ```

@@ -20,6 +20,7 @@ provider, and exposes one tool.
 | `status` | What has changed inside a tree |
 | `record` | Stage and commit the work in a tree |
 | `branch` | Make a branch in a tree and check it out |
+| `carry` | Bundle what a tree couldn't push, with this session, for the share to take home |
 
 A worktree is checked out at a branch and is yours alone. A
 snapshot is pinned to a commit and may be shared with another
