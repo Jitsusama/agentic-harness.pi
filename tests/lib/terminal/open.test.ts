@@ -125,6 +125,62 @@ describe("opening several shells", () => {
 		]);
 	});
 
+	it("opens them one at a time, each begun a pace after the last, when paced", async () => {
+		const kitty = fakeDriver("kitty", { launch: true });
+		const began: number[] = [];
+		const launch = kitty.launch?.bind(kitty);
+		kitty.launch = async (...args) => {
+			began.push(Date.now());
+			if (!launch) throw new Error("the fake has no launch");
+			return launch(...args);
+		};
+		const pace = 80;
+
+		const outcomes = await openTerminals(
+			[
+				{ layout: "window", command: "one" },
+				{ layout: "window", command: "two" },
+				{ layout: "window", command: "three" },
+			],
+			{ ...here, settings, env: {}, drivers: [kitty], paceMs: pace },
+		);
+
+		expect(outcomes.every((each) => each.ok)).toBe(true);
+		expect(kitty.calls.typed.map((each) => each.text)).toEqual([
+			"one\n",
+			"two\n",
+			"three\n",
+		]);
+		const gaps = began.slice(1).map((at, index) => at - (began[index] ?? at));
+		// A timer may fire a millisecond early by the clock it is read on.
+		expect(
+			gaps.every((gap) => gap >= pace - 1),
+			`gaps ${gaps}`,
+		).toBe(true);
+	});
+
+	it("plans several without waiting, however paced", async () => {
+		const kitty = fakeDriver("kitty", { launch: true });
+		const started = Date.now();
+
+		await openTerminals(
+			[
+				{ layout: "window", command: "one" },
+				{ layout: "window", command: "two" },
+			],
+			{
+				...here,
+				settings,
+				env: {},
+				drivers: [kitty],
+				paceMs: 60_000,
+				dryRun: true,
+			},
+		);
+
+		expect(Date.now() - started).toBeLessThan(30_000);
+	});
+
 	it("reports each shell on its own, saying every way it was tried", async () => {
 		const kitty = fakeDriver("kitty", { launch: true, failLaunch: true });
 		const zellij = fakeDriver("zellij", {
