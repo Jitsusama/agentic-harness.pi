@@ -131,3 +131,32 @@ describe("pointing the package's entry at a tree", () => {
 		await expect(pointEntryAt(settings, NAME, tree)).rejects.toThrow(/-e /);
 	});
 });
+
+// Each read that can't be made waits out pi's own tries and these, about
+// 1.75 s, by design, so these allow for a busy machine.
+describe("reading the settings while another pi holds them", {
+	timeout: 20_000,
+}, () => {
+	// pi locks settings.json to read it, as a directory beside it; one
+	// made by hand is a pi holding the lock throughout.
+	const held = () => mkdirSync(join(agentDir, "settings.json.lock"));
+
+	it("says it couldn't read them, rather than reading no packages", () => {
+		held();
+
+		expect(() => settings.read()).toThrow(/settings couldn't be read/);
+		expect(() => installRoot(settings, NAME)).toThrow(
+			/settings couldn't be read/,
+		);
+	});
+
+	it("never writes back a list it couldn't read", async () => {
+		held();
+
+		await expect(pointEntryAt(settings, NAME, tree)).rejects.toThrow(
+			/settings couldn't be read/,
+		);
+		rmSync(join(agentDir, "settings.json.lock"), { recursive: true });
+		expect(onDisk().packages).toEqual(["npm:other", GIT_SOURCE]);
+	});
+});
