@@ -6,17 +6,33 @@
  * belongs. Mycelium's share carries a quest's folders to its other
  * machines, but a clone crosses only as its origin and branch, so commits
  * that were never pushed would stay behind. So the commits a tree holds
- * that no remote has go into a git bundle, one file, beside a note of the
- * branch they belong on, in a folder the share carries. At home the tree
- * fetches the branch from the bundle.
+ * that no remote has go into a git bundle, one file, in a folder the share
+ * carries. At home the tree fetches the branch from the bundle.
  *
- * Uncommitted work is refused rather than carried: a bundle holds only
- * commits, and a file left out silently is work lost.
+ * A carry leaves two kinds of note beside what it carries, in the folder
+ * it is given:
+ *
+ * - `<name>.json` beside `<name>.bundle`, for a tree: a {@link CarriedTree},
+ *   which taking the bundle up at home reads.
+ * - `sessions/<id>.json` beside the session's file, for a session: a
+ *   {@link CarriedSession}, which Restore reads.
+ *
+ * Files not committed are left behind and named, never a reason to carry
+ * nothing: on a machine with minutes left, one stray log refusing the
+ * whole carry would lose every commit with it.
  */
 
 import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { Exec } from "../exec/index.ts";
+
+/** A commit a bundle needs before it can be fetched from. */
+export interface Needed {
+	/** The commit. */
+	commit: string;
+	/** A remote branch on the leaving machine that held it, such as `origin/main`. */
+	on?: string;
+}
 
 /** What a tree's carry left, read by whoever takes it up at home. */
 export interface CarriedTree {
@@ -26,16 +42,23 @@ export interface CarriedTree {
 	head: string;
 	/** How many of its commits no remote has. */
 	commits: number;
+	/**
+	 * What the bundle leaves out because a remote held it, which home must
+	 * hold first: fetching the remote branch each was on brings it.
+	 */
+	needs: Needed[];
 	/** Where the tree's origin is, so home knows which tree takes it. */
 	origin?: string;
 	/** The bundle's file name, beside this note. */
 	bundle: string;
+	/** The files not committed, which stayed on the leaving machine. */
+	left: string[];
 }
 
 /** What carrying a tree did, or why it did nothing. */
 export type CarryOutcome =
 	| { kind: "carried"; carried: CarriedTree; note: string }
-	| { kind: "nothing"; branch: string }
+	| { kind: "nothing"; branch: string; left: string[] }
 	| { kind: "refused"; reason: string };
 
 /** Ask git one thing in the tree, or undefined when it says nothing. */
@@ -50,13 +73,45 @@ async function ask(
 	return said === "" ? undefined : said;
 }
 
+/** What `--not --remotes` leaves a bundle needing, with where each was. */
+async function needed(exec: Exec, treePath: string): Promise<Needed[]> {
+	const boundary = await ask(exec, treePath, [
+		"rev-list",
+		"--boundary",
+		"HEAD",
+		"--not",
+		"--remotes",
+	]);
+	const commits = (boundary ?? "")
+		.split("\n")
+		.filter((line) => line.startsWith("-"))
+		.map((line) => line.slice(1));
+	return Promise.all(
+		commits.map(async (commit) => {
+			// A remote's HEAD names no branch to fetch, so it is passed over.
+			const on = (
+				await ask(exec, treePath, [
+					"branch",
+					"--remotes",
+					"--contains",
+					commit,
+					"--format=%(refname)",
+				])
+			)
+				?.split("\n")
+				.filter((ref) => !ref.endsWith("/HEAD"))
+				.map((ref) => ref.replace(/^refs\/remotes\//, ""))[0];
+			return on === undefined ? { commit } : { commit, on };
+		}),
+	);
+}
+
 /**
  * Bundles the commits in the tree at `treePath` that no remote has into
  * `into`, as `<name>.bundle` beside a note `<name>.json`.
  *
  * The bundle leaves out what any remote holds, so it stays small, and
- * fetching from it at home needs those commits first, which a fetch from
- * origin brings.
+ * the note says which commits that leaves it needing.
  */
 export async function carryTree(
 	exec: Exec,
@@ -89,24 +144,19 @@ export async function carryTree(
 			reason: `git couldn't say what this tree holds: ${status.stderr.trim()}`,
 		};
 	}
-	const uncommitted = status.stdout.split("\n").filter((line) => line !== "");
-	if (uncommitted.length > 0) {
-		return {
-			kind: "refused",
-			reason: `${uncommitted.length} file(s) aren't committed, and a bundle carries only commits. Record them first: ${uncommitted
-				.slice(0, 5)
-				.map((line) => line.slice(3))
-				.join(", ")}${uncommitted.length > 5 ? ", and more" : ""}.`,
-		};
-	}
-	const unpushed = ["HEAD", "--not", "--remotes"];
+	const left = status.stdout
+		.split("\n")
+		.filter((line) => line !== "")
+		.map((line) => line.slice(3));
 	const counted = await ask(exec, treePath, [
 		"rev-list",
 		"--count",
-		...unpushed,
+		"HEAD",
+		"--not",
+		"--remotes",
 	]);
 	const commits = Number(counted ?? "0");
-	if (commits === 0) return { kind: "nothing", branch };
+	if (commits === 0) return { kind: "nothing", branch, left };
 	const head = await ask(exec, treePath, ["rev-parse", "HEAD"]);
 	if (head === undefined) {
 		return { kind: "refused", reason: "git couldn't say what HEAD is." };
@@ -138,8 +188,10 @@ export async function carryTree(
 		branch,
 		head,
 		commits,
+		needs: await needed(exec, treePath),
 		...(origin === undefined ? {} : { origin }),
 		bundle,
+		left,
 	};
 	const note = join(into, `${name}.json`);
 	writeFileSync(note, `${JSON.stringify(carried, null, 2)}\n`);

@@ -175,13 +175,15 @@ refused, `work carry tree:NAME` instead:
 - The share carries that folder home wherever the quest is
   shared with `handover` named, as
   `mycelium share QEST-... --scratch handover`.
-- Uncommitted work is refused: `record` it first, since a bundle
-  holds only commits.
+- A bundle holds only commits, so `record` first: files not
+  committed stay behind, named in the answer and the note, rather
+  than keeping every commit back with them.
 - The session file is copied as it stands, so carry last, after
   writing down what's next, and then stop.
 
-At home, fetch the branch from the bundle into the quest's tree,
-`git fetch <bundle> <branch>:<branch>`, after fetching origin.
+At home, fetch the remote branches the note's `needs` names, then
+the branch from the bundle into the quest's tree,
+`git fetch <bundle> <branch>:<branch>`.
 
 ## Replaying One Branch
 

@@ -72,14 +72,19 @@ describe("carrying a tree's work home", () => {
 			await git(leaving, "commit", "-q", "-m", `work ${n}`);
 		}
 		const head = await git(leaving, "rev-parse", "HEAD");
+		const base = await git(leaving, "rev-parse", "origin/main");
 		const into = folder("handover");
 
 		const outcome = await carryTree(exec, leaving, into, "topic-tree");
 
 		expect(outcome, "the two commits are carried").toMatchObject({
 			kind: "carried",
-			carried: { branch: "topic", head, commits: 2 },
+			carried: { branch: "topic", head, commits: 2, left: [] },
 		});
+		expect(
+			outcome.kind === "carried" ? outcome.carried.needs : [],
+			"it says what home must hold first, and where that was",
+		).toEqual([{ commit: base, on: "origin/main" }]);
 		const note = JSON.parse(
 			readFileSync(join(into, "topic-tree.json"), "utf8"),
 		);
@@ -102,6 +107,7 @@ describe("carrying a tree's work home", () => {
 		expect(outcome, "nothing needs carrying").toEqual({
 			kind: "nothing",
 			branch: "main",
+			left: [],
 		});
 		expect(
 			existsSync(join(into, "main-tree.bundle")),
@@ -109,7 +115,7 @@ describe("carrying a tree's work home", () => {
 		).toBe(false);
 	});
 
-	it("refuses a tree with work not committed, rather than leave it behind", async () => {
+	it("carries the commits of a tree with files not committed, naming what stays", async () => {
 		const { leaving } = await twoClones();
 		await git(leaving, "commit", "-q", "--allow-empty", "-m", "unpushed");
 		writeFileSync(join(leaving, "draft.txt"), "not yet\n");
@@ -117,15 +123,17 @@ describe("carrying a tree's work home", () => {
 
 		const outcome = await carryTree(exec, leaving, into, "main-tree");
 
-		expect(outcome.kind, "an untracked file is work").toBe("refused");
 		expect(
-			outcome.kind === "refused" ? outcome.reason : "",
-			"it names the file",
-		).toContain("draft.txt");
+			outcome,
+			"one stray file doesn't keep the commit behind",
+		).toMatchObject({
+			kind: "carried",
+			carried: { commits: 1, left: ["draft.txt"] },
+		});
 		expect(
-			existsSync(join(into, "main-tree.bundle")),
-			"and carries nothing",
-		).toBe(false);
+			JSON.parse(readFileSync(join(into, "main-tree.json"), "utf8")).left,
+			"and the note names the file that stayed",
+		).toEqual(["draft.txt"]);
 	});
 });
 

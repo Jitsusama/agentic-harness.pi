@@ -21,6 +21,7 @@ import {
 } from "../../../lib/core/work/index.ts";
 import { questLoadedIn } from "../../../lib/internal/quest/loaded.ts";
 import { questWorkspacesRoot } from "../../../lib/internal/quest/workspace-root.ts";
+import { count } from "../../../lib/ui/index.ts";
 import { GLYPH } from "../render.ts";
 import { type Answer, refuse, say } from "./shared.ts";
 
@@ -58,10 +59,16 @@ export async function carryHome(
 						? { title: sessions.getSessionName() }
 						: {}),
 				});
+	const left = tree.kind === "carried" ? tree.carried.left : tree.left;
 	const lines = [
 		tree.kind === "carried"
-			? `${GLYPH.tree} ${tree.carried.branch}'s ${tree.carried.commits} unpushed commit(s) are bundled in ${tree.carried.bundle}.`
+			? `${GLYPH.tree} ${tree.carried.branch}'s ${count(tree.carried.commits, "unpushed commit")} bundled in ${tree.carried.bundle}.`
 			: `${GLYPH.clean} ${tree.branch} has nothing a remote lacks, so no bundle was needed.`,
+		...(left.length === 0
+			? []
+			: [
+					`   ${GLYPH.dirty} ${count(left.length, "file")} not committed stay here: ${left.slice(0, 5).join(", ")}${left.length > 5 ? ", and more" : ""}. Record them and carry again to take them.`,
+				]),
 		session === undefined
 			? "   This session keeps no file, so it isn't carried."
 			: "   This session's file is beside it, as it stands now; later turns aren't in it.",
@@ -71,6 +78,7 @@ export async function carryHome(
 		ok: true,
 		into,
 		carried: tree.kind === "carried",
+		left,
 		...(session === undefined ? {} : { session }),
 	});
 }
