@@ -52,6 +52,16 @@ describe("a turn a person typed", () => {
 		expect(existsSync(file())).toBe(false);
 	});
 
+	it("says whether it holds, even where it can't write the file", () => {
+		const turns = typedTurns(undefined, 4242);
+		expect(turns.held()).toBe(false);
+		turns.typed(1);
+		expect(turns.held()).toBe(true);
+		turns.began(2);
+		turns.ended();
+		expect(turns.held()).toBe(false);
+	});
+
 	it("goes with the session, and says nothing with no runtime folder", () => {
 		const turns = typedTurns(dir, 4242);
 		turns.typed(1);
