@@ -228,6 +228,67 @@ describe("a record's body", () => {
 	});
 });
 
+describe("a seed left for the next process", () => {
+	// A process's memo starts empty, and so does one a reload clears: on
+	// 30 October that first walk took 17.2 s at CPU pressure 76%, over
+	// 772 quests, paid by every start and by 40 sessions at once after
+	// each install.
+	let seeds: string;
+	beforeEach(() => {
+		seeds = mkdtempSync(join(tmpdir(), "disc-seeds-"));
+	});
+	afterEach(() => rmSync(seeds, { recursive: true, force: true }));
+
+	const seeded = () => {
+		discoverQuests(root, { dir: seeds, after: 1 });
+		clearDiscoveryCache();
+		reads.mockClear();
+	};
+
+	it("lets a fresh memo read nothing the seed vouches for", () => {
+		seeded();
+
+		const entry = discoverQuests(root, { dir: seeds }).index.quests.get(ID);
+
+		expect(readsOf(readmePath)).toBe(0);
+		expect(readsOf(planPath)).toBe(0);
+		expect(entry?.doc.frontMatter.status).toBe("active");
+		expect(entry?.documents[0]?.doc.title).toBe("A Plan");
+		expect(entry?.doc.body).toContain("# Alpha");
+	});
+
+	it("still reads and parses a file changed since the seed was left", () => {
+		seeded();
+		writeSettled(planPath, plan("A New Plan"));
+
+		const entry = discoverQuests(root, { dir: seeds }).index.quests.get(ID);
+
+		expect(entry?.documents[0]?.doc.title).toBe("A New Plan");
+		expect(readsOf(planPath)).toBe(1);
+		expect(readsOf(readmePath)).toBe(0);
+	});
+
+	it("is not left by a walk that parsed only a few files", () => {
+		discoverQuests(root, { dir: seeds });
+
+		expect(fs.readdirSync(seeds)).toEqual([]);
+	});
+
+	it("is passed over when it can't be read, and the walk reads everything", () => {
+		discoverQuests(root, { dir: seeds, after: 1 });
+		for (const name of fs.readdirSync(seeds)) {
+			writeFileSync(join(seeds, name), "not a seed");
+		}
+		clearDiscoveryCache();
+		reads.mockClear();
+
+		const entry = discoverQuests(root, { dir: seeds }).index.quests.get(ID);
+
+		expect(entry?.doc.frontMatter.status).toBe("active");
+		expect(readsOf(readmePath)).toBe(1);
+	});
+});
+
 describe("one index for the whole process", () => {
 	// pi loads each extension through its own module graph and never
 	// unloads one, so several copies of discovery run in one process.
