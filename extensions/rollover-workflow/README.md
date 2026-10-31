@@ -56,6 +56,24 @@ log. `session_recall` reads every parent from disk when it is called,
 so the session's whole history is still one call away. Entry ids are
 kept, and the cost ledger bills a copied turn once.
 
+## Keeping the Model
+
+The fresh log records the model and thinking level, but pi restores
+them while it builds the fresh session, before that session's
+extensions have started. When the model's provider is one an
+extension registers and pi can't find it then, the session comes up
+on pi's placeholder, whose provider is `unknown`, and its next call
+fails with "Unknown provider: unknown" where nobody sees it. Four
+sessions went dead that way on 2026-10-31, though opening their logs
+afresh restored the model, so what kept it from pi then is not known.
+
+So the rollover carries what the session ran on across the switch
+itself, and sets the model and thinking level back once the fresh
+session's extensions have started. If the model can't be found even
+then, or any session that replaced another starts on no model, it
+says so in the window as an error, naming the model it had and
+`/model` to choose one. At startup pi says so itself.
+
 ## Logs Rolled Over Before the Fold
 
 A log rolled over before the fold kept no system message from before
@@ -82,3 +100,5 @@ log starts, `carriedBy(branch, name)` from
 - `index.ts`: when to roll over, and the `/rollover` command.
 - `lib/internal/session/rollover.ts`: what the fresh log holds, the
   record, and reading the parents back.
+- `lib/internal/session/carried-model.ts`: the model carried across
+  the switch.
