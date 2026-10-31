@@ -266,7 +266,8 @@ is a build, never a VM check.
   forgotten once the shell exits, and its memory counts as taken only
   for the minute after its turn.
 - **Every session keeps it** every 2 seconds while jobs stand, under a
-  lock, and rewrites `queue.json` whole on each change and at least
+  lock in `locks/`, a folder of its own inside the jobs' folder, so the
+  launcher's watch on that folder doesn't wake at each take. It rewrites `queue.json` whole on each change and at least
   every 30 seconds, with a `heartbeat` in epoch seconds. The machine's
   pressure and free memory alone wait for the heartbeat, since they
   change in nearly every reading. The launcher

@@ -624,9 +624,11 @@ export const RULES: Rules = { buildsWaitForVmChecks: true };
  * builder slots counted free (#881), slow builds held for a lend (#882,
  * #883). 2: queue.json left to the heartbeat for pressure alone (#892),
  * which eight sessions busy on older code since the morning of 30
- * October kept undoing, at 70 writes in 20 s.
+ * October kept undoing, at 70 writes in 20 s. 3: the lock taken in a
+ * folder of its own inside the queue's, where a keeper still taking the
+ * old one would keep beside a keeper taking the new.
  */
-export const RULES_VERSION = 2;
+export const RULES_VERSION = 3;
 
 /**
  * The job to start now, if any: the first waiting in order that its
