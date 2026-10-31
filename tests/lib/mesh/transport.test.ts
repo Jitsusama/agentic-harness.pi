@@ -6,6 +6,7 @@ import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { WRITING } from "../../../lib/internal/write-whole.ts";
 import { ALL } from "../../../lib/mesh/group.ts";
 import type { Draft } from "../../../lib/mesh/message.ts";
 import { folderTransport } from "../../../lib/mesh/transport.ts";
@@ -41,9 +42,11 @@ describe("the folder transport", () => {
 		expect(Date.parse(first.at)).not.toBeNaN();
 		expect(transport.ids()).toEqual([first.id, second.id]);
 		expect(transport.read(second.id)).toEqual(second);
+		// Staged out of the folder peers watch, and renamed out of that too.
 		expect(
 			readdirSync(join(dir, "messages")).filter((f) => f.startsWith(".")),
-		).toEqual([]);
+		).toEqual([WRITING]);
+		expect(readdirSync(join(dir, "messages", WRITING))).toEqual([]);
 	});
 
 	it("keeps two messages sent in the same millisecond", () => {

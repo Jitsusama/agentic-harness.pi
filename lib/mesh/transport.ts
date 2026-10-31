@@ -16,13 +16,12 @@ import {
 	mkdirSync,
 	readdirSync,
 	readFileSync,
-	renameSync,
 	rmSync,
 	statSync,
 	watch,
-	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { clearWriting, writeWhole } from "../internal/write-whole.ts";
 import { type Draft, ENVELOPE, type Message, messageFrom } from "./message.ts";
 
 /** What the mesh needs of wherever messages travel. */
@@ -167,11 +166,13 @@ function expireFolder(dir: string, before: number): void {
 }
 
 /**
- * Take away files staged for an atomic write (ending `.tmp`) and last
- * touched before this time: a writer that died between writing and
- * renaming leaves one, and nothing else ever would.
+ * Take away files staged for an atomic write and last touched before
+ * this time: a writer that died between writing and renaming leaves
+ * one, and nothing else ever would. They are staged in the folder's
+ * `.writing`; older code staged them beside it, ending `.tmp`.
  */
 export function removeStaged(dir: string, before: number): void {
+	clearWriting(dir, before);
 	let files: string[] = [];
 	try {
 		files = readdirSync(dir).filter((file) => file.endsWith(".tmp"));
@@ -202,12 +203,10 @@ export function removeQuietly(path: string): void {
 	}
 }
 
-/** Write a file whole, through a dot-file renamed into place. */
+/** Write a file whole, through the folder's `.writing`, renamed into place. */
 export function writeAtomically(dir: string, file: string, text: string): void {
 	mkdirSync(dir, { recursive: true });
-	const staged = join(dir, `.${file}.${process.pid}.tmp`);
-	writeFileSync(staged, text);
-	renameSync(staged, join(dir, file));
+	writeWhole(join(dir, file), text);
 }
 
 function readMarker(path: string): string | undefined {
