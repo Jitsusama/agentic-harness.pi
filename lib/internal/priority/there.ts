@@ -6,8 +6,11 @@
  * first: one took 1025 s that way, 16.7 minutes of it uploading at
  * 1.8 MB/s, against 60 s here. Built on the builder from the pushed
  * commit, which it fetches itself, the same check took 55 to 67 s warm
- * with 4 KB sent (5FWIUS, 29 October). `nix-offload there` does that,
- * and builds here instead when no builder can be reached.
+ * with 4 KB sent (5FWIUS, 29 October). `nix-offload there` does that.
+ * When no builder takes the build it builds nothing and exits 75, unless
+ * `--here` asks it to build here (core #1394): built here unasked after
+ * midnight on 30 October, every session's builds ran beside the person's
+ * work at a load of 145.
  *
  * This module finds the steps of a command that build VM checks, and
  * says what each becomes; the interceptor asks git and the builder's
@@ -82,6 +85,8 @@ export interface Takes {
 	readonly wants: boolean;
 	/** A folder no commit of origin's names goes as its files. */
 	readonly folder: boolean;
+	/** changed-checks sends its own whole run (`there --changed`). */
+	readonly changed: boolean;
 }
 
 /** An nix-offload that answers nothing, or is too old to say. */
@@ -90,6 +95,7 @@ export const TAKES_NOTHING: Takes = {
 	subtests: false,
 	wants: false,
 	folder: false,
+	changed: false,
 };
 
 /** A ref naming the commit a build is pinned to, and where to read it. */
@@ -151,8 +157,13 @@ export function checkBuildsOf(
 	});
 }
 
-/** run-subtests' flags that need a person at the run, or say elsewhere. */
+/**
+ * Flags that keep a run here: run-subtests' that need a person at the
+ * run or say elsewhere, and `--here`, with which `nix-offload there` and
+ * changed-checks are asked to build on this machine on purpose.
+ */
 export const HERE_ONLY: ReadonlySet<string> = new Set([
+	"--here",
 	"-I",
 	"--interactive",
 	"-K",
@@ -489,6 +500,7 @@ export async function offloadTakes(): Promise<Takes> {
 			subtests: words.has("apply") && words.has("out"),
 			wants: words.has("wants"),
 			folder: words.has("folder"),
+			changed: words.has("changed"),
 		};
 	} catch {
 		// Not installed, or one that refuses --takes: it takes the commit only.

@@ -8,7 +8,9 @@ first: one took 1025 s that way, almost all of it uploading,
 against 60 s here. Built on the builder from the pushed commit,
 which it fetches itself, the same check took 55 to 67 s with
 4 KB sent. `nix-offload there`, from core's nix-offload module,
-does that.
+does that. When no builder takes a build, `there` builds nothing and
+exits 75, unless `--here` asks it to build on this machine (core
+#1394), so a sent check fails rather than landing here unasked.
 
 ## What It Sends
 
@@ -54,8 +56,12 @@ doesn't pass on) is refused while a builder stands or `there` asks
 for one itself, with a reason naming `nix-offload there` and
 `run-subtests --there`, so the session sends it itself. A VM here
 starves the person's desktop: on 30 October ten took optimus to load
-43. A run asking for a prompt or kept machines (`-I`, `-K`), and
-any VM work of another repository, runs here as before. The refusal
+43. A run asking for a prompt or kept machines (`-I`, `-K`), one asked
+for here on purpose with `--here` (`nix-offload there --here`, or
+changed-checks'), and any VM work of another repository, runs here
+as before, taking its turn in the machine queue. changed-checks is
+never refused where `--takes` says `changed`: it sends its own run,
+and builds here only what nowhere took. The refusal
 is the `vm-here` guard, which redirects: the same call made again
 unchanged runs here, for a run that truly needs this machine.
 

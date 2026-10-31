@@ -94,6 +94,18 @@ export const EVALUATION_GIB = 20;
  */
 const CHANGED_CHECKS = /(?:(?<![\w./-])|(?<=\/bin\/))changed-checks(?![\w./-])/;
 
+/** Whether a command runs core.nix's changed-checks. */
+export function runsChangedChecks(command: string): boolean {
+	return CHANGED_CHECKS.test(command);
+}
+
+/**
+ * `nix-offload there --here`, which builds on this machine when no
+ * builder takes the build (core #1394), so it waits its turn here like
+ * the `nix build` it stands for; without `--here` it builds nothing here.
+ */
+const THERE_HERE = String.raw`\bnix-offload\s+there\b(?=[^\n]*\s--here\b)`;
+
 /**
  * What evaluating every check's derivation at once holds, in GiB: it
  * reached 24 GB on optimus inside changed-checks (2HN63P's run, 7SU7HB's
@@ -964,6 +976,10 @@ const KINDS: readonly (readonly [RegExp, Kind])[] = [
 		"vm-check",
 	],
 	[
+		new RegExp(`${THERE_HERE}[^\\n]*(?:\\bvm-|\\.vm\\b|nixosTests|vmTest)`),
+		"vm-check",
+	],
+	[
 		new RegExp(
 			`${CHANGED_CHECKS.source}(?=[^\\n]*\\s--build\\b)(?![^\\n]*\\s--no-vm\\b)`,
 		),
@@ -991,6 +1007,7 @@ const KINDS: readonly (readonly [RegExp, Kind])[] = [
 		"build",
 	],
 	[CHANGED_CHECKS, "build"],
+	[new RegExp(THERE_HERE), "build"],
 	[EVERY_CHECK, "build"],
 ];
 

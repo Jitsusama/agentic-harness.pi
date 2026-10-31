@@ -152,6 +152,16 @@ describe("the kind of heavy work a command runs", () => {
 			"build",
 		);
 		expect(kindOf("direnv exec . changed-checks --build")).toBe("vm-check");
+		// core #1394: `there` builds nothing here unless told `--here`.
+		expect(
+			kindOf("nix-offload there -L . checks.x86_64-linux.vm-a"),
+		).toBeUndefined();
+		expect(
+			kindOf("nix-offload there --here -L . checks.x86_64-linux.vm-a"),
+		).toBe("vm-check");
+		expect(
+			kindOf("nix-offload there --here . checks.x86_64-linux.formatting"),
+		).toBe("build");
 		expect(kindOf("nix eval --json .#checks.x86_64-linux --apply 'x: 1'")).toBe(
 			"build",
 		);
