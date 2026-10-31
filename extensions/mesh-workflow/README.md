@@ -161,10 +161,15 @@ and can answer a question or a gate left open on screen.
 - `mesh_wait`: say that this session's quest has something
   waiting on the person that only they can do, or with `done`
   that it no longer waits. It is kept in
-  `~/.local/state/mission/waiting/<ADDRESS>.json`, the file the
-  launcher's Waiting on you reads (the shape core.nix's
-  `mission-wait` wrote), so it outlives the session; presence
-  mirrors it as an `action` want.
+  `~/.local/state/mission/waiting/<ADDRESS>.json` (version 2), the
+  file the launcher's Needs You reads, so it outlives the session;
+  presence mirrors what is ready as an `action` want. Every item
+  says how it will be known done (`doneWhen`: a check, a signal
+  such as `boot` or `signin:google`, or `by: person`), and may say
+  what it waits for first (`readyWhen`). The desktop's daemon
+  writes what it found in `~/.local/state/mission/verdicts.json`;
+  a session applies those as it starts and as each run ends, so an
+  item clears itself. Sealing a quest removes its file.
 
 ## Context, Not a Prompt
 

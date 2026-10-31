@@ -2276,17 +2276,33 @@ describe("a message that names no group", () => {
 		const presence = () =>
 			createPresences(join(paths.mesh, "presence")).of(session);
 
+		const unknowable = await wait({
+			id: "eero-login",
+			title: "Log in to eero",
+			why: "Only Joel has the account",
+			minutes: 2,
+		});
+		expect(unknowable?.content[0]?.text).toContain(
+			"Nothing was kept: say how it will be known done",
+		);
+		expect(existsSync(file)).toBe(false);
+
 		const kept = await wait({
 			id: "eero-login",
 			title: "Log in to eero",
 			why: "Only Joel has the account",
 			minutes: 2,
 			when: "now",
-			ready: true,
+			doneWhen: { signal: "signin:eero" },
+			steps: ["Open the eero app", "Sign in"],
 		});
 
 		expect(kept?.content[0]?.text).toContain("Kept eero-login");
+		expect(kept?.content[0]?.text).toContain(
+			"clears itself once the desktop sees signin:eero",
+		);
 		expect(JSON.parse(readFileSync(file, "utf8"))).toMatchObject({
+			v: 2,
 			quest: "QEST-20261021-7M6JKG",
 			items: [
 				{
@@ -2297,6 +2313,10 @@ describe("a message that names no group", () => {
 					when: "now",
 					quest: "QEST-20261021-7M6JKG",
 					ready: true,
+					doneWhen: { signal: "signin:eero" },
+					steps: ["Open the eero app", "Sign in"],
+					owner: { session },
+					raisedAt: expect.any(String),
 				},
 			],
 		});

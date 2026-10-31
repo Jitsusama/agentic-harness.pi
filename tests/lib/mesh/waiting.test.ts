@@ -4,19 +4,27 @@
  */
 import {
 	existsSync,
+	mkdirSync,
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
 	rmSync,
+	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	addWaiting,
+	applyVerdicts,
+	clearWaiting,
+	isKnowing,
 	settleWaiting,
+	verdictsFile,
+	verdictsIn,
 	type WaitingItem,
 	waitingFile,
+	waitingFolder,
 	waitingOf,
 	wantFor,
 } from "../../../lib/mesh/waiting.ts";
@@ -41,6 +49,7 @@ const item = (over: Partial<WaitingItem> = {}): WaitingItem => ({
 	window: null,
 	quest: QUEST,
 	ready: false,
+	doneWhen: { check: "test -e /run/eero-joined" },
 	...over,
 });
 
@@ -82,6 +91,7 @@ describe("what waits on the person", () => {
 		expect(
 			JSON.parse(readFileSync(join(folder, "QCXZEB.json"), "utf8")),
 		).toEqual({
+			v: 2,
 			updated: "2026-10-26T03:00:00.000Z",
 			quest: QUEST,
 			items: [item()],
@@ -112,5 +122,107 @@ describe("what waits on the person", () => {
 
 	it("is nothing for a quest with no file", () => {
 		expect(waitingOf(folder, QUEST)).toEqual([]);
+	});
+
+	it("reads an item written before items said how as the person's to settle", () => {
+		const { doneWhen: _, ...before } = item();
+		writeFileSync(
+			waitingFile(folder, QUEST),
+			JSON.stringify({ updated: "x", quest: QUEST, items: [before] }),
+		);
+
+		expect(waitingOf(folder, QUEST)).toEqual([
+			item({ doneWhen: { by: "person" } }),
+		]);
+	});
+
+	it("goes with its quest", () => {
+		addWaiting(folder, item(), at);
+		clearWaiting(folder, QUEST);
+		expect(existsSync(waitingFile(folder, QUEST))).toBe(false);
+	});
+
+	it("is kept under the state home, or its default when that is empty", () => {
+		expect(waitingFolder({ XDG_STATE_HOME: "/s" }, "/h")).toBe(
+			"/s/mission/waiting",
+		);
+		expect(waitingFolder({ XDG_STATE_HOME: "" }, "/h")).toBe(
+			"/h/.local/state/mission/waiting",
+		);
+	});
+});
+
+describe("how an item is known done or ready", () => {
+	it("is one check, one signal the desktop knows, or the person", () => {
+		for (const said of [
+			{ check: "test -e /x" },
+			{ signal: "boot" },
+			{ signal: "switch" },
+			{ signal: "switch:da1523f9" },
+			{ signal: "signin:google" },
+			{ signal: "device:dock" },
+			{ signal: "file:/run/user/1000/done" },
+			{ by: "person" },
+		]) {
+			expect(isKnowing(said), JSON.stringify(said)).toBe(true);
+		}
+		for (const said of [
+			undefined,
+			{},
+			{ check: " " },
+			{ signal: "tomorrow" },
+			{ signal: "file:relative" },
+			{ by: "agent" },
+			{ check: "x", signal: "boot" },
+		]) {
+			expect(isKnowing(said), JSON.stringify(said)).toBe(false);
+		}
+	});
+});
+
+describe("the desktop's verdicts", () => {
+	const verdicts = (items: Record<string, unknown>) => {
+		const path = verdictsFile(join(folder, "waiting"));
+		mkdirSync(folder, { recursive: true });
+		writeFileSync(path, JSON.stringify({ v: 1, updated: "x", items }));
+		return verdictsIn(path);
+	};
+
+	it("settle what it found done and mark ready what it found ready", () => {
+		addWaiting(folder, item(), at);
+		addWaiting(folder, item({ id: "look" }), at);
+		addWaiting(folder, item({ id: "sign" }), at);
+
+		const { items, changed } = applyVerdicts(
+			folder,
+			QUEST,
+			verdicts({
+				[`${QUEST}:eero-login`]: {
+					state: "done",
+					at: "t",
+					how: { check: true },
+				},
+				[`${QUEST}:look`]: { state: "ready", at: "t", how: { signal: "boot" } },
+				"QEST-20261025-OTHERS:sign": { state: "done", at: "t" },
+			}),
+			at,
+		);
+
+		expect(changed).toBe(true);
+		expect(items.map((one) => [one.id, one.ready])).toEqual([
+			["look", true],
+			["sign", false],
+		]);
+		expect(waitingOf(folder, QUEST)).toEqual(items);
+	});
+
+	it("are none while the daemon has written none", () => {
+		expect(verdictsIn(join(folder, "verdicts.json")).size).toBe(0);
+		addWaiting(folder, item(), at);
+		expect(applyVerdicts(folder, QUEST, new Map(), at).changed).toBe(false);
+	});
+
+	it("sit beside the folder of quests' files", () => {
+		expect(verdictsFile("/s/mission/waiting")).toBe("/s/mission/verdicts.json");
 	});
 });
