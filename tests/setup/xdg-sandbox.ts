@@ -46,3 +46,5 @@ process.env.XDG_RUNTIME_DIR = join(sandbox, "runtime");
 // The desktop is the developer's too: a test that reaches someone
 // through a notification must not put one on their screen.
 process.env.PI_NOTIFY = "off";
+// Nor may a restore hand sessions to the desktop's launcher to open.
+process.env.PI_LAUNCHER = "off";

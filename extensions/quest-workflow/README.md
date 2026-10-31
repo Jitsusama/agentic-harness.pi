@@ -96,6 +96,15 @@ shipped and tested.
   instead, says so, and stops offering it once a session is
   running in its place. See the terminal library's README for
   the settings.
+- **Restore through the launcher**: `restore` with `force`
+  first hands the sessions pi saved to the desktop's launcher
+  (`qs ipc call sessions reopen`), which opens them one at a
+  time, each back on its workspace in its place, so one placer
+  orders the screen. It doesn't when the call names a terminal,
+  layout or nesting, in a realm other than the machine's home
+  one, or with `PI_LAUNCHER=off`, as the tests set. What the
+  launcher doesn't take, every one when it doesn't answer, and
+  a session pi never saved open as above, two seconds apart.
 - **Spawn on a machine**: `spawn` with `machine` asks this
   machine's mycelium node to start the session held on that
   machine, through that machine's own node when it is another,

@@ -28,6 +28,10 @@ import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import { sessionsDir, stateDir } from "../../lib/internal/paths.ts";
 import { takeUpCarried } from "../../lib/internal/quest/carried.ts";
+import {
+	type HandedSession,
+	launcherTakes,
+} from "../../lib/internal/quest/hand-over.ts";
 import { atomicWriteFile } from "../../lib/internal/quest/io.ts";
 import { sessionRegistryDir } from "../../lib/internal/quest/loaded.ts";
 import {
@@ -769,6 +773,11 @@ const REOPEN_POLL_MS = 250;
  * started on its quest instead (see `reopenCommand`). It counts as
  * back once a session in its place is running, and its record is then
  * forgotten, since the new session carries everything it held.
+ *
+ * Given `handOver`, the saved sessions go first to the desktop's
+ * launcher, which reopens them one at a time, each back where it sat
+ * (hand-over.ts). What it doesn't take, or every one when it doesn't
+ * answer, is opened here as above, and so is every one pi never saved.
  */
 export async function reopenLostSessions(
 	records: readonly SessionRecord[],
@@ -778,6 +787,10 @@ export async function reopenLostSessions(
 		/** How long between beginning one terminal and the next. */
 		readonly paceMs?: number;
 		readonly saved?: (sessionId: string) => boolean;
+		/** Hands sessions to the launcher, answering how many it took. */
+		readonly handOver?: (
+			sessions: readonly HandedSession[],
+		) => Promise<number | undefined>;
 	} = {},
 ): Promise<ReopenOutcome> {
 	const {
@@ -785,10 +798,16 @@ export async function reopenLostSessions(
 		confirmMs = REOPEN_CONFIRM_MS,
 		paceMs = REOPEN_PACE_MS,
 		saved = savedSessions(),
+		handOver,
 		...open
 	} = options;
+	const handed =
+		handOver && !open.dryRun
+			? await handedToLauncher(records, saved, handOver)
+			: [];
+	const here = records.filter((record) => !handed.includes(record));
 	const outcomes = await openTerminals(
-		records.map((record) => ({
+		here.map((record) => ({
 			...(layout ? { layout } : {}),
 			cwd: record.cwd,
 			...reopenCommand(record, saved(record.sessionId)),
@@ -802,9 +821,9 @@ export async function reopenLostSessions(
 		failed: [],
 		notes: [],
 	};
-	const opened: SessionRecord[] = [];
+	const opened: SessionRecord[] = [...handed];
 	outcomes.forEach((result, index) => {
-		const record = records[index];
+		const record = here[index];
 		if (!record) return;
 		if (!result.ok) {
 			outcome.failed.push({
@@ -825,8 +844,19 @@ export async function reopenLostSessions(
 			});
 		} else opened.push(record);
 	});
+	if (handed.length > 0) {
+		outcome.used = outcome.used
+			? `${LAUNCHER_USED}, and ${outcome.used}`
+			: LAUNCHER_USED;
+	}
 	if (outcome.planned) return outcome;
-	const back = await awaitCheckIn(opened, saved, confirmMs);
+	// The launcher waits for each window before the next, so each it took
+	// adds its pace to the wait.
+	const back = await awaitCheckIn(
+		opened,
+		saved,
+		confirmMs + handed.length * paceMs,
+	);
 	for (const record of opened) {
 		const id = record.sessionId;
 		if (!back.has(id)) outcome.unconfirmed.push(id);
@@ -840,6 +870,32 @@ export async function reopenLostSessions(
 		}
 	}
 	return outcome;
+}
+
+/** How restore says it opened the sessions the launcher took. */
+const LAUNCHER_USED = "the launcher, each where it sat";
+
+/**
+ * The records the launcher took: the saved ones it accepts, all or
+ * none, since its answer says how many but never which. A partial
+ * answer can't happen for sessions that pass its check, so one is read
+ * as taking them all and any it dropped are reported unconfirmed.
+ */
+async function handedToLauncher(
+	records: readonly SessionRecord[],
+	saved: (sessionId: string) => boolean,
+	handOver: (sessions: readonly HandedSession[]) => Promise<number | undefined>,
+): Promise<SessionRecord[]> {
+	const going = records.filter(
+		(record) =>
+			saved(record.sessionId) &&
+			launcherTakes({ id: record.sessionId, cwd: record.cwd }),
+	);
+	if (going.length === 0) return [];
+	const taken = await handOver(
+		going.map((record) => ({ id: record.sessionId, cwd: record.cwd })),
+	);
+	return taken === undefined ? [] : going;
 }
 
 /**
