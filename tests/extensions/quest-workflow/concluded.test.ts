@@ -2,13 +2,18 @@
  * An ending said on pi's bus, for the mesh to tell the orchestrator.
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
 import { QUEST_CONCLUDED } from "../../../lib/internal/quest/concluded";
+import {
+	addWaiting,
+	waitingFile,
+	waitingFolder,
+} from "../../../lib/mesh/waiting";
 import { createEnvGuard, refused, succeeded } from "./_helpers";
 
 let tmpRoot: string;
@@ -65,6 +70,37 @@ describe("an ending", () => {
 			ids: [planId],
 			said: expect.stringContaining(planId),
 		});
+	});
+
+	it("takes what the quest had waiting on the person with it", async () => {
+		const savedState = process.env.XDG_STATE_HOME;
+		process.env.XDG_STATE_HOME = join(tmpRoot, "state");
+		try {
+			const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
+			const run = (params: Parameters<typeof handle>[3]) =>
+				handle(state, fakePi(), fakeCtx(), params);
+			succeeded(await run({ action: "create", title: "Waiting Quest" }));
+			const quest = state.questId ?? "";
+			const folder = waitingFolder();
+			addWaiting(folder, {
+				id: "look",
+				title: "Look",
+				why: "His taste",
+				minutes: 1,
+				window: null,
+				quest,
+				ready: true,
+				doneWhen: { by: "person" },
+			});
+			expect(existsSync(waitingFile(folder, quest))).toBe(true);
+
+			succeeded(await run({ action: "conclude", id: quest }));
+
+			expect(existsSync(waitingFile(folder, quest))).toBe(false);
+		} finally {
+			if (savedState === undefined) delete process.env.XDG_STATE_HOME;
+			else process.env.XDG_STATE_HOME = savedState;
+		}
 	});
 
 	it("is not said for a refusal", async () => {

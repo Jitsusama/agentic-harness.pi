@@ -248,7 +248,7 @@ export function registerTools(
 		name: "mesh_wait",
 		label: "Mesh",
 		description:
-			"Say that this session's quest has something waiting on the person that only they can do (a login, a look, a decision, a yes), or that it no longer waits. It shows in the launcher's Waiting on you and outlives this session. Say it again with the same id to change it, with ready: true once they can do it now (which raises a notice and tells its orchestrator through presence), and with done: true once it is done.",
+			"Say that this session's quest has something waiting on the person that only they can do (a login, a look, a decision, a yes), or that it no longer waits. It shows in the launcher's Needs You and outlives this session. Every item says how it will be known done (doneWhen), so it clears itself: a check the desktop runs, a signal it hears, or the person saying so where nothing else can tell. An item is ready at once unless readyWhen says what it waits for; ready raises a notice. Say it again with the same id to change it, and with done: true to settle it sooner.",
 		parameters: Type.Object({
 			id: Type.String({
 				description:
@@ -265,11 +265,57 @@ export function registerTools(
 			),
 			when: Type.Optional(
 				Type.String({
-					description: "When they can do it: now, tonight, after 08:00",
+					description:
+						"When they can do it, in words: now, tonight, after 08:00. Say the time itself with at",
 				}),
 			),
 			ready: Type.Optional(
-				Type.Boolean({ description: "They can do it now: raises a notice" }),
+				Type.Boolean({
+					description:
+						"Whether they can do it now, raising a notice. Defaults to true unless readyWhen is given",
+				}),
+			),
+			doneWhen: Type.Optional(
+				Type.Object(
+					{
+						check: Type.Optional(Type.String()),
+						signal: Type.Optional(Type.String()),
+						by: Type.Optional(Type.Literal("person")),
+					},
+					{
+						description:
+							'How it will be known done, required for a new item: exactly one of check (a command that succeeds once it is done), signal ("boot", "switch", "switch:<core commit>", "signin:<service>", "device:<name>" or "file:<absolute path>"), or by: "person" where nothing else can tell',
+					},
+				),
+			),
+			readyWhen: Type.Optional(
+				Type.Object(
+					{
+						check: Type.Optional(Type.String()),
+						signal: Type.Optional(Type.String()),
+						by: Type.Optional(Type.Literal("person")),
+					},
+					{
+						description:
+							"What it waits for before they can do it, in doneWhen's form; leave it out when they can do it now",
+					},
+				),
+			),
+			at: Type.Optional(
+				Type.String({ description: "The time it is for, as an ISO time" }),
+			),
+			deadline: Type.Optional(
+				Type.String({
+					description: "The time it must be done by, as an ISO time",
+				}),
+			),
+			machine: Type.Optional(
+				Type.String({ description: "The machine it is done at, by name" }),
+			),
+			steps: Type.Optional(
+				Type.Array(Type.String(), {
+					description: "What they do, step by step, a few words each",
+				}),
 			),
 			done: Type.Optional(
 				Type.Boolean({ description: "It no longer waits: settles the item" }),

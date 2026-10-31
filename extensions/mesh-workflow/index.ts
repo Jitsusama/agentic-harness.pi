@@ -33,7 +33,6 @@
  */
 
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -132,6 +131,7 @@ import {
 	sentBy,
 } from "../../lib/mesh/thread.ts";
 import { folderTransport, type Transport } from "../../lib/mesh/transport.ts";
+import { waitingFolder } from "../../lib/mesh/waiting.ts";
 import { type Want, type WantKind, wantFrom } from "../../lib/mesh/want.ts";
 import {
 	SUBAGENT_READY,
@@ -176,7 +176,7 @@ import { createSteering, type Steering, steerText } from "./steer.ts";
 import { assistantText, createTalks, ended, userText } from "./talks.ts";
 import { tellOrchestrator } from "./tells.ts";
 import { type Local, registerTools } from "./tools.ts";
-import { seedWaiting, type Waiting } from "./wait.ts";
+import { seedWaiting, settleFromVerdicts, type Waiting } from "./wait.ts";
 
 /**
  * The environment variable naming the classifier that judges messages
@@ -268,11 +268,7 @@ export function machinePaths(): MeshPaths {
 	return {
 		mesh: stateDir("mesh-workflow"),
 		steer: stateDir("steer"),
-		waiting: join(
-			process.env.XDG_STATE_HOME || join(homedir(), ".local", "state"),
-			"mission",
-			"waiting",
-		),
+		waiting: waitingFolder(),
 		sessions: join(stateDir("quest-workflow"), "sessions"),
 		quests: join(dataDir("quest-workflow"), "quests"),
 	};
@@ -463,6 +459,10 @@ export function meshWorkflow(
 					quest: () =>
 						peer ? loadedQuest(peer.session, paths.sessions) : undefined,
 					window: () => (peer ? presences.of(peer.session)?.title : undefined),
+					owner: () =>
+						peer
+							? { session: peer.session, address: peer.signature }
+							: undefined,
 					locked: <T>(quest: string, change: () => T): T => {
 						const dir = join(paths.quests, quest);
 						return existsSync(dir) ? withQuestLock(dir, change) : change();
@@ -1303,6 +1303,8 @@ export function meshWorkflow(
 			lookAgain();
 			tidy();
 			peer?.setBusy(false);
+			// What the desktop's daemon found done or ready since (wait.ts).
+			if (peer && waiting) settleFromVerdicts(peer, waiting);
 			// What a run claimed is claimed only while it runs.
 			own?.releaseAll(RUN_KINDS);
 		});

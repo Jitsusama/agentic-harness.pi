@@ -41,6 +41,7 @@ import {
 	removeTreeFromQuest,
 	setPendingPrune,
 } from "../../../lib/internal/quest/trees.ts";
+import { clearWaiting, waitingFolder } from "../../../lib/mesh/waiting.ts";
 import {
 	checkboxProgress,
 	type DocumentFrontMatter,
@@ -883,6 +884,10 @@ async function sealLoadedQuest(
 		state.questPriority = "someday";
 	}
 	const sealedDocs = sealQuestDocuments(state.questDir, target);
+	// What it had waiting on the person goes with it, so Needs You never
+	// shows a sealed quest's item. Undo doesn't bring them back: a quest
+	// taken up again raises what still waits.
+	if (questId) clearWaiting(waitingFolder(), questId);
 	// Journal the seal so undo restores the status and the prior
 	// priority bucket, not just the bulk path's version of the same.
 	if (questId) {
