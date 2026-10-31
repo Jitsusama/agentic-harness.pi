@@ -13,9 +13,13 @@
  * Every item says how it will be known done, so it clears itself: the
  * desktop's daemon runs its check or hears its signal and says so in
  * its verdicts, which this side applies as the session starts and as
- * each run ends.
+ * each run ends. Until the daemon has written any, nothing judges a
+ * check or a signal, so the answer says the owner moves the item on
+ * itself: on 31 October QGB4ON's item waiting on a switch stayed not
+ * ready past that switch, read as a fault in how commits compare.
  */
 
+import { existsSync } from "node:fs";
 import type { Peer } from "../../lib/mesh/peer.ts";
 import {
 	addWaiting,
@@ -235,8 +239,11 @@ export function waitOnPerson(
 	});
 	mirror(peer, items, before.length > 0 ? undefined : now);
 	const replaced = before.some((one) => one.id === id);
+	const unjudged = existsSync(verdictsFile(waiting.folder))
+		? ""
+		: unjudgedOf(item.ready ? undefined : readyWhen, doneWhen);
 	return {
-		text: `${replaced ? "Replaced" : "Kept"} ${id} as waiting on the person: ${item.title} (${item.minutes} min). The launcher shows it${item.ready ? ", with a notice now, since it is ready" : " under Later until it is ready"}, and it clears itself once ${saidOf(doneWhen)}. Settle it sooner with done: true.`,
+		text: `${replaced ? "Replaced" : "Kept"} ${id} as waiting on the person: ${item.title} (${item.minutes} min). The launcher shows it${item.ready ? ", with a notice now, since it is ready" : " under Later until it is ready"}, and it clears itself once ${saidOf(doneWhen)}. Settle it sooner with done: true.${unjudged}`,
 		items,
 		written: true,
 	};
@@ -256,7 +263,24 @@ function mirror(
 
 /** The forms doneWhen and readyWhen take, as a refusal says them. */
 const KNOWING =
-	'{check: "<a command that succeeds once it is so>"}, {signal: "boot" | "switch" | "switch:<core commit>" | "signin:<service>" | "device:<name>" | "file:<absolute path>"}, or {by: "person"} where nothing else can tell';
+	'{check: "<a command that succeeds once it is so>"}, {signal: "boot" | "switch" | "switch:<core commit, or past it>" | "signin:<service>" | "device:<name>" | "file:<absolute path>"}, or {by: "person"} where nothing else can tell';
+
+/**
+ * What the owner must do itself while no daemon judges checks and
+ * signals: say it again with ready: true once it is ready, and settle it
+ * with done: true once it is done. Nothing for what only the person says.
+ */
+function unjudgedOf(readyWhen: Knowing | undefined, doneWhen: Knowing): string {
+	const judged = (knowing: Knowing | undefined) =>
+		knowing !== undefined && !("by" in knowing);
+	const moves = [
+		...(judged(readyWhen) ? ["say it again with ready: true once it is"] : []),
+		...(judged(doneWhen) ? ["settle it with done: true once it is done"] : []),
+	];
+	return moves.length === 0
+		? ""
+		: ` Nothing judges checks or signals yet, since the desktop's daemon hasn't written its verdicts, so ${moves.join(", and ")}.`;
+}
 
 /** How an item will be known done, in a few words. */
 function saidOf(knowing: Knowing): string {

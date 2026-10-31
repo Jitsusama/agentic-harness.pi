@@ -2301,6 +2301,36 @@ describe("a message that names no group", () => {
 		expect(kept?.content[0]?.text).toContain(
 			"clears itself once the desktop sees signin:eero",
 		);
+		// No daemon has judged anything yet, so the owner settles it itself.
+		expect(kept?.content[0]?.text).toContain(
+			"Nothing judges checks or signals yet, since the desktop's daemon hasn't written its verdicts, so settle it with done: true once it is done.",
+		);
+		const later = await wait({
+			id: "router-look",
+			title: "Look at the router",
+			why: "Only Joel is home",
+			minutes: 1,
+			readyWhen: { signal: "switch:d6f916e3" },
+			doneWhen: { by: "person" },
+		});
+		expect(later?.content[0]?.text).toContain(
+			"so say it again with ready: true once it is.",
+		);
+		await wait({ id: "router-look", done: true });
+		writeFileSync(
+			join(root, "verdicts.json"),
+			JSON.stringify({ v: 1, updated: new Date().toISOString(), items: {} }),
+		);
+		const judged = await wait({
+			id: "router-look",
+			title: "Look at the router",
+			why: "Only Joel is home",
+			minutes: 1,
+			readyWhen: { signal: "switch:d6f916e3" },
+			doneWhen: { by: "person" },
+		});
+		expect(judged?.content[0]?.text).not.toContain("Nothing judges");
+		await wait({ id: "router-look", done: true });
 		expect(JSON.parse(readFileSync(file, "utf8"))).toMatchObject({
 			v: 2,
 			quest: "QEST-20261021-7M6JKG",
