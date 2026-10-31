@@ -248,7 +248,7 @@ export function registerTools(
 		name: "mesh_wait",
 		label: "Mesh",
 		description:
-			"Say that this session's quest has something waiting on the person that only they can do (a login, a look, a decision, a yes), or that it no longer waits. It shows in the launcher's Needs You and outlives this session. Every item says how it will be known done (doneWhen), so it clears itself: a check the desktop runs, a signal it hears, or the person saying so where nothing else can tell. An item is ready at once unless readyWhen says what it waits for; ready raises a notice. Say it again with the same id to change it, and with done: true to settle it sooner.",
+			"Say that this session's quest has something waiting on the person that only they can do (a login, a look, a decision, a yes), or that it no longer waits. It shows in the launcher's Needs You and outlives this session. Every item says how it will be known done (doneWhen), so it can clear itself: a check the desktop's daemon runs, a signal it hears, or the person saying so where nothing else can tell. An item is ready at once unless readyWhen says what it waits for; ready raises a notice. The answer says when no daemon judges checks and signals yet, and then the item moves on only when you say it again. A switch signal with a commit means a switch to that commit or past it. Say it again with the same id to change it, and with done: true to settle it sooner.",
 		parameters: Type.Object({
 			id: Type.String({
 				description:
@@ -284,7 +284,7 @@ export function registerTools(
 					},
 					{
 						description:
-							'How it will be known done, required for a new item: exactly one of check (a command that succeeds once it is done), signal ("boot", "switch", "switch:<core commit>", "signin:<service>", "device:<name>" or "file:<absolute path>"), or by: "person" where nothing else can tell',
+							'How it will be known done, required for a new item: exactly one of check (a command that succeeds once it is done), signal ("boot", "switch", "switch:<core commit>" for a switch to it or past it, "signin:<service>", "device:<name>" or "file:<absolute path>"), or by: "person" where nothing else can tell',
 					},
 				),
 			),
