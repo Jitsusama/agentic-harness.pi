@@ -27,6 +27,10 @@ import { dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { stateDir } from "../../lib/internal/paths.ts";
 import {
+	backgroundDir,
+	backgroundTurns,
+} from "../../lib/internal/priority/background.ts";
+import {
 	machineQueueDir,
 	queueFolder,
 } from "../../lib/internal/priority/folder.ts";
@@ -76,23 +80,81 @@ export default function priorityWorkflow(pi: ExtensionAPI) {
 	const own = ownCgroup();
 	placeWork(pi, own);
 	keepQueue(pi, linuxMachine(own));
-	sayTypedTurns(pi);
+	sayBackgroundTurns(pi, sayTypedTurns(pi));
 }
+
+/** How often a turn looks again at whether its pi may yield the CPU. */
+const SETTLE_MS = 5_000;
 
 /**
  * Says, by a file of this pid, while a turn a person typed runs, so the
  * traffic shaper sends its request ahead of autonomous sessions'
  * (lib/internal/priority/typed.ts). A subagent never has one.
  */
-function sayTypedTurns(pi: ExtensionAPI) {
-	if (process.env.SUBAGENT_RUN_ID) return;
-	const turns = typedTurns(typedDir());
+function sayTypedTurns(pi: ExtensionAPI): ReturnType<typeof typedTurns> {
+	const turns = typedTurns(
+		process.env.SUBAGENT_RUN_ID ? undefined : typedDir(),
+	);
 	pi.on("input", async (event) => {
 		if (event.source === "interactive") turns.typed();
 	});
 	pi.on("agent_start", async () => turns.began());
 	pi.on("agent_end", async () => turns.ended());
 	pi.on("session_shutdown", async () => turns.stop());
+	return turns;
+}
+
+/**
+ * Says, by a file of this pid, while this pi in the terminal runs a turn
+ * nobody typed and the person hasn't touched it for a minute, so the
+ * jobs-sorter can give its scope a low CPU weight
+ * (lib/internal/priority/background.ts). A key takes the file away at
+ * once. A subagent, or a pi in RPC or print mode, never has one.
+ */
+function sayBackgroundTurns(
+	pi: ExtensionAPI,
+	typed: Pick<ReturnType<typeof typedTurns>, "held">,
+) {
+	if (process.env.SUBAGENT_RUN_ID) return;
+	let turns: ReturnType<typeof backgroundTurns> | undefined;
+	let unlisten: (() => void) | undefined;
+	let settling: NodeJS.Timeout | undefined;
+	const quiet = () => {
+		if (settling) clearInterval(settling);
+		settling = undefined;
+	};
+	pi.on("session_start", async (_event, ctx) => {
+		turns?.stop();
+		unlisten?.();
+		turns = undefined;
+		if (ctx.mode !== "tui") return;
+		const own = backgroundTurns(backgroundDir(), {
+			editorText: () => ctx.ui.getEditorText(),
+			typed: typed.held,
+		});
+		turns = own;
+		unlisten = ctx.ui.onTerminalInput(() => {
+			own.key();
+			return undefined;
+		});
+	});
+	pi.on("agent_start", async () => {
+		if (!turns) return;
+		const own = turns;
+		own.began();
+		quiet();
+		settling = setInterval(() => own.settle(), SETTLE_MS);
+		settling.unref();
+	});
+	pi.on("agent_end", async () => {
+		quiet();
+		turns?.ended();
+	});
+	pi.on("session_shutdown", async () => {
+		quiet();
+		turns?.stop();
+		unlisten?.();
+	});
 }
 
 /** What the queue reads of the machine it keeps, on each kind of machine. */

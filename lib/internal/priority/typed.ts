@@ -34,7 +34,9 @@ export function typedTurns(dir: string | undefined, pid = process.pid) {
 	const file = dir ? join(dir, String(pid)) : undefined;
 	let typedAt = 0;
 	let turnAt = 0;
+	let held = false;
 	const mark = () => {
+		held = true;
 		if (!file || !dir) return;
 		try {
 			mkdirSync(dir, { recursive: true });
@@ -44,6 +46,7 @@ export function typedTurns(dir: string | undefined, pid = process.pid) {
 		}
 	};
 	const unmark = () => {
+		held = false;
 		if (!file) return;
 		try {
 			rmSync(file, { force: true });
@@ -65,6 +68,8 @@ export function typedTurns(dir: string | undefined, pid = process.pid) {
 		ended() {
 			if (typedAt <= turnAt) unmark();
 		},
+		/** Whether a turn a person typed holds this pi now. */
+		held: () => held,
 		/** The session ends. */
 		stop: unmark,
 	};

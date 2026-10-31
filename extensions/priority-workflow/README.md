@@ -58,6 +58,16 @@ core.nix's slices module makes the cgroup and sets the variable.
   sessions doing so filled a 1.4 MB/s upload, so a turn Joel typed
   waited behind them all and hit pi's five minute timeout twice. Node
   can't mark its own sockets, so the file is the whole contract.
+- **A window nobody is at may yield the CPU.** A pi in the terminal
+  keeps a file named by its pid in `$XDG_RUNTIME_DIR/pi/background/`
+  only while it runs a turn nobody typed, no key has reached it for a
+  minute, and its editor is empty; it looks again every 5 seconds
+  during a turn, and its first key removes the file before anything
+  else. core.nix's jobs-sorter gives a scope a low CPU weight only
+  while every pi in it has one, so Joel's apps get the CPU first. The
+  typed file can't say this: a window he is writing in between turns
+  has none. A pi in RPC or print mode, a subagent, or one on an older
+  install never writes the file, and keeps its full weight.
 
 ## The Machine's Queue
 
