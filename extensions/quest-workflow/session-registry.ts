@@ -737,6 +737,14 @@ export interface ReopenOutcome {
  */
 export const REOPEN_CONFIRM_MS = 30_000;
 
+/**
+ * How long after one session's terminal is begun the next may be. At
+ * 17:50 on 30 October six were reopened four at once, and every pi
+ * starting together is the load Joel had said he'd rather wait out:
+ * "about a second or two between each individual launch".
+ */
+export const REOPEN_PACE_MS = 2_000;
+
 /** How often the records are read while waiting. */
 const REOPEN_POLL_MS = 250;
 
@@ -767,12 +775,15 @@ export async function reopenLostSessions(
 	options: OpenOptions & {
 		readonly layout?: TerminalLayout;
 		readonly confirmMs?: number;
+		/** How long between beginning one terminal and the next. */
+		readonly paceMs?: number;
 		readonly saved?: (sessionId: string) => boolean;
 	} = {},
 ): Promise<ReopenOutcome> {
 	const {
 		layout,
 		confirmMs = REOPEN_CONFIRM_MS,
+		paceMs = REOPEN_PACE_MS,
 		saved = savedSessions(),
 		...open
 	} = options;
@@ -782,7 +793,7 @@ export async function reopenLostSessions(
 			cwd: record.cwd,
 			...reopenCommand(record, saved(record.sessionId)),
 		})),
-		open,
+		{ ...open, paceMs },
 	);
 	const outcome: ReopenOutcome = {
 		reopened: [],

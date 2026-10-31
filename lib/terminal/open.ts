@@ -124,6 +124,17 @@ export async function openTerminal(
 	return openWith(context, request, {});
 }
 
+/** How several shells are opened, beside what one is opened with. */
+export interface OpenSeveral extends OpenOptions {
+	/** How many open at once; {@link OPEN_CONCURRENCY} unless paced. */
+	readonly concurrency?: number;
+	/**
+	 * When given, the shells open one at a time, each begun at least this
+	 * many milliseconds after the one before. A plan alone isn't paced.
+	 */
+	readonly paceMs?: number;
+}
+
 /**
  * Open several shells with one plan. Tabs with no window to hold them
  * are gathered into one new window. Each shell's outcome is reported
@@ -131,19 +142,38 @@ export async function openTerminal(
  */
 export async function openTerminals(
 	requests: readonly OpenRequest[],
-	options: OpenOptions & { readonly concurrency?: number } = {},
+	several: OpenSeveral = {},
 ): Promise<OpenedOutcome[]> {
 	const [first, ...rest] = requests;
 	if (!first) return [];
+	const paced = several.paceMs !== undefined && several.dryRun !== true;
+	const options: OpenSeveral = paced ? { ...several, concurrency: 1 } : several;
 	const context = await prepare(options);
+	const beganAt: number[] = [];
+	const pacedOpen =
+		<T>(open: (request: OpenRequest) => Promise<T>) =>
+		async (request: OpenRequest): Promise<T> => {
+			const last = beganAt.at(-1);
+			const wait =
+				paced && last !== undefined
+					? last + (several.paceMs ?? 0) - Date.now()
+					: 0;
+			if (wait > 0) await new Promise((done) => setTimeout(done, wait));
+			beganAt.push(Date.now());
+			return open(request);
+		};
 	let leader: OpenedTerminal;
 	try {
-		leader = await openWith(context, first, {});
+		leader = await pacedOpen((request) => openWith(context, request, {}))(
+			first,
+		);
 	} catch (error) {
 		// The first failing says nothing about the others, each of which
 		// is tried on its own.
-		const others = await inBatches(rest, options.concurrency, (request) =>
-			openWith(context, request, {}),
+		const others = await inBatches(
+			rest,
+			options.concurrency,
+			pacedOpen((request) => openWith(context, request, {})),
 		);
 		return [{ ok: false, error: messageOf(error) }, ...others];
 	}
@@ -155,10 +185,11 @@ export async function openTerminals(
 	const followers = await inBatches(
 		rest,
 		gather ? 1 : options.concurrency,
-		(request) =>
+		pacedOpen((request) =>
 			gather && leader.handle
 				? openBeside(context, leader, request)
 				: openWith(context, request, {}),
+		),
 	);
 	return [{ ok: true, ...leader }, ...followers];
 }
