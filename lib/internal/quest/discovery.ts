@@ -40,13 +40,20 @@
 import { createHash } from "node:crypto";
 import {
 	type Dirent,
+	mkdirSync,
 	readdirSync,
 	readFileSync,
 	realpathSync,
+	renameSync,
 	statSync,
+	writeFileSync,
 } from "node:fs";
-import { extname, join } from "node:path";
+import { createRequire } from "node:module";
+import { dirname, extname, join, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+import { deserialize, serialize } from "node:v8";
 import type { QuestDoc, QuestDocumentDoc } from "../../quest/types.ts";
+import { cacheDir } from "../paths.ts";
 import {
 	explainDocumentFrontMatter,
 	parseDocumentFrontMatter,
@@ -135,6 +142,8 @@ interface Pass {
 	hashes: Map<string, string>;
 	/** Every file the walk parsed or reused, so the memo keeps no others. */
 	parsed: Set<string>;
+	/** How many files the walk had to parse, reusing no record. */
+	parses: number;
 }
 
 function newPass(): Pass {
@@ -143,6 +152,7 @@ function newPass(): Pass {
 		listings: new Map(),
 		hashes: new Map(),
 		parsed: new Set(),
+		parses: 0,
 	};
 }
 
@@ -216,7 +226,10 @@ function parseDocumentFile(text: string): QuestDocumentDoc | undefined {
  * A body read later can be newer than the front matter beside it,
  * which the next walk's signature catches.
  */
-function kept<D extends QuestDoc | QuestDocumentDoc>(doc: D, path: string): D {
+function kept<D extends QuestDoc | QuestDocumentDoc>(
+	doc: Pick<D, "frontMatter" | "title">,
+	path: string,
+): D {
 	const copied = structuredClone({
 		frontMatter: doc.frontMatter,
 		title: doc.title,
@@ -272,6 +285,8 @@ interface Memo {
 	stamps: Map<string, Stamp>;
 	readmes: Map<string, Parsed<QuestDoc>>;
 	documents: Map<string, Parsed<QuestDocumentDoc>>;
+	/** The roots this memo has taken a seed for, so each is read once. */
+	seeded: Set<string>;
 }
 
 /**
@@ -300,6 +315,7 @@ function memo(): Memo {
 			stamps: new Map(),
 			readmes: new Map(),
 			documents: new Map(),
+			seeded: new Set(),
 		};
 		global[MEMO] = found;
 	}
@@ -336,15 +352,207 @@ export function clearDiscoveryCache(): void {
  * to a README, a document, or the set of quests invalidates the
  * cache on the next read.
  */
-export function discoverQuests(questsRoot: string): DiscoveryResult {
+export function discoverQuests(
+	questsRoot: string,
+	seed: SeedOptions = {},
+): DiscoveryResult {
 	const pass = newPass();
+	const seeds = seed.dir === undefined ? cacheDir(SEED_FOLDER) : seed.dir;
+	if (seeds) takeSeed(questsRoot, seeds);
 	const signature = discoverySignature(questsRoot, pass);
 	const { cache } = memo();
 	const cached = cache.get(questsRoot);
 	if (cached && cached.signature === signature) return cached.result;
 	const result = discoverQuestsUncached(questsRoot, pass);
 	cache.set(questsRoot, { signature, result });
+	if (seeds && pass.parses >= (seed.after ?? SEED_AFTER_PARSES)) {
+		leaveSeed(questsRoot, seeds);
+	}
 	return result;
+}
+
+/** Where discovery keeps what it learned, for the next process. */
+export interface SeedOptions {
+	/** The folder seeds are kept in, or null to keep none. */
+	readonly dir?: string | null;
+	/** How many files a walk must parse before its seed is written. */
+	readonly after?: number;
+}
+
+/**
+ * What one process learned of a quest tree, left for the next: each
+ * file's content hash under the stat it was taken at, and each README's
+ * and document's front matter and title under the hash it was parsed
+ * from.
+ *
+ * A process's memo starts empty, and so does one a reload clears, so
+ * its first walk read and parsed every file: 17.2 s at CPU pressure 76%
+ * on 30 October, over 772 quests and 1,517 documents, paid by every
+ * start and by each of 40 sessions at once after every install. Taken
+ * from a seed, a file is read only when its stat no longer matches, and
+ * parsed only when its hash doesn't, the checks the memo already makes.
+ * The seed carries the hash of the code that parsed it, so a change to
+ * the parsing never meets a record shaped by the old one.
+ */
+interface Seed {
+	readonly v: typeof SEED_VERSION;
+	readonly code: string;
+	readonly root: string;
+	readonly stamps: [path: string, stat: string, hash: string][];
+	readonly records: Record<"readmes" | "documents", SeedRecord[]>;
+}
+
+/** A parsed file as a seed keeps it. */
+type SeedRecord = [
+	path: string,
+	hash: string,
+	frontMatter: unknown,
+	title: string | undefined,
+];
+
+const SEED_VERSION = 1;
+
+/** The cache folder seeds go in. */
+const SEED_FOLDER = "quest-discovery";
+
+/**
+ * How many files a walk must have parsed before it leaves a seed. After
+ * one journal line every session reparses one README, and writing the
+ * seed for that would rewrite megabytes forty times over; a seed a few
+ * files behind costs its reader a few parses.
+ */
+const SEED_AFTER_PARSES = 50;
+
+function seedFile(questsRoot: string, dir: string): string {
+	const key = createHash("sha1").update(questsRoot).digest("hex");
+	return join(dir, `${key.slice(0, 16)}.v8`);
+}
+
+function isSeedRecord(value: unknown): value is SeedRecord {
+	return (
+		Array.isArray(value) &&
+		typeof value[0] === "string" &&
+		typeof value[1] === "string" &&
+		typeof value[2] === "object" &&
+		value[2] !== null &&
+		(value[3] === undefined || typeof value[3] === "string")
+	);
+}
+
+function isSeed(value: unknown): value is Seed {
+	if (typeof value !== "object" || value === null) return false;
+	const seed = value as Partial<Seed>;
+	return (
+		seed.v === SEED_VERSION &&
+		typeof seed.code === "string" &&
+		typeof seed.root === "string" &&
+		Array.isArray(seed.stamps) &&
+		seed.stamps.every(
+			(s) => Array.isArray(s) && s.every((part) => typeof part === "string"),
+		) &&
+		Array.isArray(seed.records?.readmes) &&
+		seed.records.readmes.every(isSeedRecord) &&
+		Array.isArray(seed.records?.documents) &&
+		seed.records.documents.every(isSeedRecord)
+	);
+}
+
+/** Fill a fresh memo for `questsRoot` from its seed, once per memo. */
+function takeSeed(questsRoot: string, dir: string): void {
+	const m = memo();
+	if (m.seeded.has(questsRoot)) return;
+	m.seeded.add(questsRoot);
+	let seed: unknown;
+	try {
+		seed = deserialize(readFileSync(seedFile(questsRoot, dir)));
+	} catch {
+		// No seed yet, or one cut short: the walk reads everything, as it
+		// did before seeds, and leaves one.
+		return;
+	}
+	if (!isSeed(seed) || seed.code !== codeKey() || seed.root !== questsRoot) {
+		return;
+	}
+	for (const [path, stat, hash] of seed.stamps) {
+		if (!m.stamps.has(path)) m.stamps.set(path, { stat, hash });
+	}
+	for (const [path, hash, frontMatter, title] of seed.records.readmes) {
+		if (m.readmes.has(path)) continue;
+		const doc = kept<QuestDoc>(
+			{ frontMatter: frontMatter as QuestDoc["frontMatter"], title },
+			path,
+		);
+		m.readmes.set(path, { hash, doc });
+	}
+	for (const [path, hash, frontMatter, title] of seed.records.documents) {
+		if (m.documents.has(path)) continue;
+		const doc = kept<QuestDocumentDoc>(
+			{ frontMatter: frontMatter as QuestDocumentDoc["frontMatter"], title },
+			path,
+		);
+		m.documents.set(path, { hash, doc });
+	}
+}
+
+/** Write what the memo holds of `questsRoot` as its seed. */
+function leaveSeed(questsRoot: string, dir: string): void {
+	const m = memo();
+	const under = (path: string) => path.startsWith(questsRoot + sep);
+	const records = <D extends QuestDoc | QuestDocumentDoc>(
+		table: Map<string, Parsed<D>>,
+	): SeedRecord[] =>
+		[...table]
+			.filter(([path]) => under(path))
+			.map(([path, { hash, doc }]) => [path, hash, doc.frontMatter, doc.title]);
+	const seed: Seed = {
+		v: SEED_VERSION,
+		code: codeKey(),
+		root: questsRoot,
+		stamps: [...m.stamps]
+			.filter(([path]) => under(path))
+			.map(([path, { stat, hash }]) => [path, stat, hash]),
+		records: {
+			readmes: records(m.readmes),
+			documents: records(m.documents),
+		},
+	};
+	const file = seedFile(questsRoot, dir);
+	const draft = `${file}.${process.pid}.tmp`;
+	try {
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(draft, serialize(seed));
+		renameSync(draft, file);
+	} catch {
+		// A seed that can't be written leaves the next process to walk
+		// everything, which is all it costs.
+	}
+}
+
+let code: string | undefined;
+
+/**
+ * A hash of the code that shapes a parsed record: every module beside
+ * this one and the version of the YAML parser they use.
+ */
+function codeKey(): string {
+	if (code) return code;
+	const hash = createHash("sha1");
+	const here = dirname(fileURLToPath(import.meta.url));
+	const names = readdirSync(here, { recursive: true, encoding: "utf8" })
+		.filter((name) => name.endsWith(".ts"))
+		.sort();
+	for (const name of names) {
+		hash.update(name);
+		hash.update(readFileSync(join(here, name)));
+	}
+	try {
+		const yaml: unknown = createRequire(import.meta.url)("yaml/package.json");
+		hash.update(JSON.stringify(yaml));
+	} catch {
+		// No version to read: the sources alone still key the seed.
+	}
+	code = hash.digest("hex");
+	return code;
 }
 
 /**
@@ -466,6 +674,7 @@ function parsedOnce<D>(
 	}
 	const text = bytes.toString("utf8");
 	if (!text) return undefined;
+	pass.parses += 1;
 	const doc = parse(text);
 	if (!doc) return { text };
 	table.set(path, { hash: hashOf(bytes), doc });
