@@ -95,6 +95,16 @@ export const PID_MS = 30_000;
 /** How old a lock is before it is taken as left by a session that died. */
 const STALE_LOCK_MS = 10_000;
 
+/**
+ * The folder inside the queue's that holds its lock. Every waiting
+ * session takes the lock each time it keeps, and taken in the queue's
+ * own folder it made 812 create and delete events there in 30 s on
+ * 31 October, each waking the desktop's shell, which watches that
+ * folder for queue.json. A watch isn't recursive, so one on the queue's
+ * folder hears nothing made inside this one.
+ */
+const LOCK_FOLDER = "locks";
+
 /** How often queue.json is written when nothing in it changes. */
 export const HEARTBEAT_MS = 30_000;
 
@@ -388,8 +398,9 @@ export function queueFolder(
 	};
 
 	const locked = (now: number, work: () => void) => {
-		const lock = join(dir, "queue.lock");
+		const lock = join(dir, LOCK_FOLDER, "queue");
 		try {
+			mkdirSync(join(dir, LOCK_FOLDER), { recursive: true });
 			mkdirSync(lock);
 		} catch {
 			let age = 0;

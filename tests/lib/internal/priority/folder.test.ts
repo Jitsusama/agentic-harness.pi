@@ -383,8 +383,8 @@ describe("the machine's queue folder", () => {
 	it("leaves the queue to a session keeping it, until its lock is stale", () => {
 		const queue = folder();
 		queue.ask(job("first", { since: new Date().toISOString() }));
-		const lock = join(dir, "queue.lock");
-		mkdirSync(lock);
+		const lock = join(dir, "locks", "queue");
+		mkdirSync(lock, { recursive: true });
 		queue.keep(ROOMY, Date.now(), () => undefined);
 		expect(queue.hasTurn("first")).toBe(false);
 		const old = (Date.now() - 11_000) / 1000;
