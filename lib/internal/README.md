@@ -102,3 +102,5 @@ may import from here, and any of it may change without notice.
   governance distiller reads.
 - **`unattended-exec.ts`**: running git and gh with nobody at the
   keyboard.
+- **`write-whole.ts`**: replacing a file whole through a `.writing`
+  subfolder, so a watcher of its folder hears one event a write.

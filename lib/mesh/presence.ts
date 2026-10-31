@@ -15,14 +15,7 @@
  * whose process has ended is gone, however recently it wrote.
  */
 
-import {
-	existsSync,
-	mkdirSync,
-	readdirSync,
-	readFileSync,
-	renameSync,
-	writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { isOwner } from "../core/process/index.ts";
@@ -32,6 +25,7 @@ import {
 	type Orchestration,
 	orchestrationOf,
 } from "../internal/quest/orchestration.ts";
+import { writeWhole } from "../internal/write-whole.ts";
 import type { QuestFrontMatter } from "../quest/types.ts";
 import type { TerminalSessionHandle } from "../terminal/index.ts";
 import { loadedQuest, type QuestRecords } from "./address.ts";
@@ -370,10 +364,7 @@ export function createPresences(dir: string): Presences {
 		of: (session) => read(file(session)),
 		publish(presence) {
 			mkdirSync(dir, { recursive: true });
-			const path = file(presence.session);
-			const staged = `${path}.${process.pid}.tmp`;
-			writeFileSync(staged, JSON.stringify(presence));
-			renameSync(staged, path);
+			writeWhole(file(presence.session), JSON.stringify(presence));
 		},
 		all() {
 			let files: string[] = [];

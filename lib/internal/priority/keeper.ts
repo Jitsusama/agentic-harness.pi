@@ -13,9 +13,10 @@
  * install is rolled back, the older keeps again.
  */
 
-import { readFileSync, renameSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { isRecord } from "../record.ts";
+import { writeWhole } from "../write-whole.ts";
 
 /** How long a newer keeper counts as keeping after it last kept. */
 export const NEWER_KEEPER_MS = 60_000;
@@ -70,10 +71,8 @@ export function mayKeep(dir: string, version: number, now: number): boolean {
 		return true;
 	}
 	const file = join(dir, RULES_FILE);
-	const next = `${file}.${process.pid}`;
 	try {
-		writeFileSync(next, `${JSON.stringify({ version, at: now })}\n`);
-		renameSync(next, file);
+		writeWhole(file, `${JSON.stringify({ version, at: now })}\n`);
 	} catch {
 		// Unwritten, the next keep says it; this one still keeps.
 	}

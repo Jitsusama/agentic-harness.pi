@@ -35,14 +35,13 @@ import {
 	mkdirSync,
 	readdirSync,
 	readFileSync,
-	renameSync,
 	rmdirSync,
 	rmSync,
 	statSync,
-	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
 import { runtimeDir } from "../paths.ts";
+import { clearWriting, writeWhole } from "../write-whole.ts";
 import { awaitedNow, NOBODY } from "./awaited.ts";
 import { mayKeep } from "./keeper.ts";
 import { workNameIn } from "./name.ts";
@@ -367,6 +366,7 @@ export function queueFolder(
 				// Gone as it was looked at.
 			}
 		}
+		clearWriting(dir, now - LEFTOVER_MS);
 	};
 
 	/** Keeps how the job ended, by its shell's word and when it said it. */
@@ -767,11 +767,12 @@ export function queueRecord(
 	};
 }
 
-/** Replaces a file whole, so a reader never sees half of it. */
+/**
+ * Replaces a file whole, so a reader never sees half of it, staged out
+ * of the folder the shell watches.
+ */
 function replace(file: string, content: string): void {
-	const temporary = `${file}.${process.pid}.tmp`;
-	writeFileSync(temporary, content);
-	renameSync(temporary, file);
+	writeWhole(file, content);
 }
 
 function parsed<T>(file: string): T | undefined {
