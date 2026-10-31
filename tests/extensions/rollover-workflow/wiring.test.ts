@@ -60,6 +60,9 @@ beforeEach(() => {
 			if (name === COMMAND) command = definition;
 		},
 		registerTool: () => {},
+		getThinkingLevel: () => "high",
+		setThinkingLevel: () => {},
+		setModel: async () => true,
 		sendUserMessage: (text: string) => {
 			sent.push(text);
 		},
@@ -123,7 +126,14 @@ function large(manager: SessionManager): void {
 }
 
 function contextOf(manager: SessionManager, idle = true) {
-	return { hasUI: true, sessionManager: manager, isIdle: () => idle };
+	return {
+		hasUI: true,
+		sessionManager: manager,
+		isIdle: () => idle,
+		model: { provider: "anthropic", id: "claude" },
+		modelRegistry: { find: () => undefined },
+		ui: { notify: () => {} },
+	};
 }
 
 /** A command context whose switch opens the log and starts extensions on it. */

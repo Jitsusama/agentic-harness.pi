@@ -13,7 +13,12 @@
  *
  * The switch goes through pi's own `switchSession`, so every extension
  * starts on the fresh log as it would on a resumed one, rebuilding its
- * state from the branch.
+ * state from the branch. The model and thinking level the session ran
+ * on are carried across and set back once the fresh session starts,
+ * since pi's own restore can come up on no model (see
+ * lib/internal/session/carried-model.ts). Any session that starts on no
+ * model says so in its window, rather than failing its next call out
+ * of sight; at startup pi says so itself.
  *
  * A log rolled over before the system messages were folded lost the
  * built-in tools on its next restart; when one starts, they are given
@@ -26,9 +31,16 @@ import type {
 	ExtensionAPI,
 	ExtensionCommandContext,
 	ExtensionContext,
+	SessionStartEvent,
 } from "@earendil-works/pi-coding-agent";
 import { formatSize } from "../../lib/internal/quest/footprint.ts";
 import { reloadSlot } from "../../lib/internal/reload/slot.ts";
+import {
+	carryModel,
+	hasNoModel,
+	NO_PROVIDER,
+	takeCarriedModel,
+} from "../../lib/internal/session/carried-model.ts";
 import {
 	builtInsLostToRollover,
 	type Carry,
@@ -110,6 +122,12 @@ export async function rollOverNow(
 	const after = sizeOf(path);
 	const size = (bytes: number) => formatSize({ bytes, complete: true });
 	const said = `Rolled this session over into a fresh log (${size(before)} to ${size(after)}); the earlier log is its parent, and session_recall still reads it.`;
+	carryModel({
+		path,
+		provider: ctx.model?.provider ?? NO_PROVIDER,
+		modelId: ctx.model?.id ?? "",
+		thinkingLevel: pi.getThinkingLevel(),
+	});
 	const { cancelled } = await ctx.switchSession(path, {
 		withSession: async (fresh) => {
 			fresh.ui.notify(said, "info");
@@ -145,6 +163,52 @@ export function restoreLostBuiltIns(
 	return lost;
 }
 
+/**
+ * Set back the model and thinking level a rollover carried into this
+ * session, and say so loudly when a session that replaced another is
+ * left on no model. pi's own start says when it has none, so a
+ * startup is left to it. Returns the model it ended on, as
+ * provider/id, or nothing.
+ */
+export async function restoreCarriedModel(
+	pi: Pick<ExtensionAPI, "setModel" | "getThinkingLevel" | "setThinkingLevel">,
+	ctx: Pick<
+		ExtensionContext,
+		"sessionManager" | "model" | "modelRegistry" | "hasUI" | "ui"
+	>,
+	reason: SessionStartEvent["reason"],
+): Promise<string | undefined> {
+	const carried = takeCarriedModel(ctx.sessionManager.getSessionFile());
+	let missing: string | undefined;
+	if (carried) {
+		const named = `${carried.provider}/${carried.modelId}`;
+		const on =
+			ctx.model?.provider === carried.provider &&
+			ctx.model.id === carried.modelId;
+		if (!on) {
+			const model = ctx.modelRegistry.find(carried.provider, carried.modelId);
+			if (!model || !(await pi.setModel(model))) missing = named;
+		}
+		if (!missing && pi.getThinkingLevel() !== carried.thinkingLevel) {
+			pi.setThinkingLevel(carried.thinkingLevel);
+		}
+	}
+	if (hasNoModel(ctx.model)) {
+		if (reason === "startup") return undefined;
+		const had = missing
+			? ` It ran on ${missing} before rolling over, which can't be found now.`
+			: "";
+		if (ctx.hasUI) {
+			ctx.ui.notify(
+				`This session has no model, so it can't answer.${had} Choose one with /model.`,
+				"error",
+			);
+		}
+		return undefined;
+	}
+	return ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+}
+
 export default function rolloverWorkflow(pi: ExtensionAPI) {
 	// A compaction has made the log's history dead weight; the next still
 	// moment hands the rollover to the command, which can switch logs.
@@ -160,9 +224,10 @@ export default function rolloverWorkflow(pi: ExtensionAPI) {
 		reloadSlot().request === undefined &&
 		(findJobHost(pi.events)?.pending?.() ?? 0) === 0;
 
-	pi.on("session_start", async (_event, ctx) => {
+	pi.on("session_start", async (event, ctx) => {
 		due = false;
 		restoreLostBuiltIns(pi, ctx);
+		await restoreCarriedModel(pi, ctx, event.reason);
 	});
 
 	pi.on("session_compact", async (_event, ctx) => {

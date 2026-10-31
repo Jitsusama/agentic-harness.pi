@@ -42,7 +42,7 @@ may import from here, and any of it may change without notice.
 - **`reload/`**: following the install, and reloading a session onto
   a worktree.
 - **`session/`**: rolling a session over into a fresh log that
-  keeps only what the model still sees.
+  keeps only what the model still sees, on the model it ran on.
 - **`shell/`**: what the agent's shell runs with, offered by the
   extensions that know.
 - **`stray/`**: catching writes that would land behind pi's screen.
