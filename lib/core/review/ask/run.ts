@@ -113,6 +113,15 @@ export interface AskRun {
 	 */
 	open?: true;
 	/**
+	 * The session that started it, while it is open.
+	 *
+	 * So the sweep at a session's start can tell that session of its
+	 * own rounds and nobody else's: on 30 October every session was
+	 * told of every round on the machine, on Joel's screen, and none of
+	 * them could collect another's.
+	 */
+	startedBy?: string;
+	/**
 	 * Given up on by a person, rather than finished.
 	 *
 	 * There are three states here, not two, and the third cannot be

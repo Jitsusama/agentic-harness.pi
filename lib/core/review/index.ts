@@ -167,7 +167,7 @@ export {
 	type StartResult,
 	startCouncil,
 } from "./ask/start.ts";
-export type { OpenRuns, RunStore } from "./ask/store.ts";
+export type { OpenRound, OpenRuns, RunStore } from "./ask/store.ts";
 export { createRunStore } from "./ask/store.ts";
 export type {
 	Attachment,
