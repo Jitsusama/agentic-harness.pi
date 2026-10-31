@@ -22,9 +22,12 @@ import {
 	lstatSync,
 	mkdirSync,
 	readlinkSync,
+	realpathSync,
+	renameSync,
 	symlinkSync,
 	unlinkSync,
 } from "node:fs";
+import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { questWorkspace } from "../../lib/core/internal/quest/workspace.ts";
@@ -46,6 +49,52 @@ import {
  * until its session's next command made the link again.
  */
 export const TEMP_LINK_PREFIX = "pi-quest-";
+
+/** The folder jiti keeps compiled TypeScript in, under a temp folder. */
+const JITI_FOLDER = "jiti";
+
+/**
+ * Point the quest's `tmp/jiti` at `shared`, the cache this pi's own start
+ * used, so a pi started under the quest's `TMPDIR` (a subagent, a load
+ * check, a test) finds the harness already compiled.
+ *
+ * jiti names each compiled file by a hash of its source, so one cache
+ * serves every quest and every install. Kept per quest, a first start
+ * compiled the whole harness again: 8 to 10 s cold against 2 s warm at
+ * low load, and about 25 s at CPU pressure 47%, on 30 October, when 35
+ * quests' copies held 1,064 MB beside the shared 777 MB. A quest's own
+ * copy is moved aside at once and removed in the background. A quest
+ * whose cache can't be shared keeps its own, which jiti makes.
+ */
+function shareJitiCache(tmp: string, shared: string): void {
+	const link = path.join(tmp, JITI_FOLDER);
+	try {
+		mkdirSync(shared, { recursive: true });
+		// A pi started inside the quest's TMPDIR would name the quest's
+		// own folder, which is no cache to share.
+		if (inside(realpathSync(shared), realpathSync(tmp))) return;
+		const stat = lstatSync(link, { throwIfNoEntry: false });
+		if (stat?.isSymbolicLink() && readlinkSync(link) === shared) return;
+		if (stat?.isDirectory()) {
+			const aside = `${link}.old-${process.pid}-${Date.now()}`;
+			renameSync(link, aside);
+			void rm(aside, { recursive: true, force: true }).catch(() => {
+				// What is left is in tmp/, which conclude and the disk guard clear.
+			});
+		} else if (stat) {
+			unlinkSync(link);
+		}
+		symlinkSync(shared, link);
+	} catch {
+		// Another command made the link meanwhile, or the shared folder
+		// can't be made: jiti compiles into the quest's own, as before.
+	}
+}
+
+/** Whether `child` is `folder` or lies inside it. */
+function inside(child: string, folder: string): boolean {
+	return child === folder || child.startsWith(folder + path.sep);
+}
 
 /** Where the short link goes: `/tmp` when there is one, else the OS temp. */
 function systemTemp(): string {
@@ -149,11 +198,13 @@ export function questTempDir(
 	questId: string | null,
 	linkRoot: string = systemTemp(),
 	folders: WorkspaceFolders = btrfsFolders,
+	jitiCache: string = path.join(tmpdir(), JITI_FOLDER),
 ): string | undefined {
 	if (!questId || !workspaceDirOf(workspaceRoot, questId)) return undefined;
 	const { dir, tmp } = questWorkspace(workspaceRoot, questId);
 	makeWorkspace(dir, folders);
 	mkdirSync(tmp, { recursive: true });
+	shareJitiCache(tmp, jitiCache);
 	try {
 		return (
 			linkTo(path.join(linkRoot, `${TEMP_LINK_PREFIX}${questId}`), tmp) ?? tmp

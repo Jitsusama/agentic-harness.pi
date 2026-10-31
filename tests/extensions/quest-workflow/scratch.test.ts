@@ -8,6 +8,7 @@ import {
 	lstatSync,
 	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	readlinkSync,
 	rmSync,
 	symlinkSync,
@@ -15,13 +16,14 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	dropTempLink,
 	questCommandEnvironment,
 	questTempDir,
 	TEMP_LINK_PREFIX,
 } from "../../../extensions/quest-workflow/scratch.ts";
+import { removeQuestWorkspace } from "../../../lib/core/internal/quest/workspace.ts";
 
 const QUEST = "QEST-20261022-ABC123";
 let root: string;
@@ -101,6 +103,53 @@ describe("a quest's TMPDIR", () => {
 
 	it("is nothing without a quest", () => {
 		expect(questTempDir(workspaces, null, links)).toBeUndefined();
+	});
+});
+
+describe("a quest's compiled TypeScript", () => {
+	const shared = () => join(root, "system", "jiti");
+	const cacheOf = () => join(tmpOf(), "jiti");
+	const made = () =>
+		questTempDir(workspaces, QUEST, links, undefined, shared());
+
+	it("goes in the cache every pi shares, so a first start finds it compiled", () => {
+		made();
+
+		expect(lstatSync(cacheOf()).isSymbolicLink()).toBe(true);
+		expect(readlinkSync(cacheOf())).toBe(shared());
+		expect(lstatSync(shared()).isDirectory()).toBe(true);
+	});
+
+	it("replaces a quest's own copy with the link", async () => {
+		mkdirSync(cacheOf(), { recursive: true });
+		writeFileSync(join(cacheOf(), "a.1234abcd.mjs"), "export {}");
+
+		made();
+
+		expect(readlinkSync(cacheOf())).toBe(shared());
+		await vi.waitFor(
+			() =>
+				expect(
+					readdirSync(tmpOf()).filter((name) => name.startsWith("jiti.old-")),
+				).toEqual([]),
+			{ timeout: 5_000 },
+		);
+	});
+
+	it("leaves the shared cache whole when the quest's scratch is removed", () => {
+		made();
+		writeFileSync(join(shared(), "a.1234abcd.mjs"), "export {}");
+
+		expect(removeQuestWorkspace(workspaces, QUEST, () => [])).toEqual({
+			removed: true,
+		});
+		expect(existsSync(join(shared(), "a.1234abcd.mjs"))).toBe(true);
+	});
+
+	it("keeps its own when the pi itself runs inside the quest's TMPDIR", () => {
+		questTempDir(workspaces, QUEST, links, undefined, cacheOf());
+
+		expect(lstatSync(cacheOf()).isDirectory()).toBe(true);
 	});
 });
 
