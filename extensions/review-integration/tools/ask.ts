@@ -29,6 +29,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
+import { withFileLock } from "../../../lib/core/internal/file-lock.ts";
 import {
 	type AnswerContext,
 	type AnswerLine,
@@ -57,6 +58,7 @@ import {
 	guidanceFor,
 	judgePrompt,
 	lensesFor,
+	type OpenRound,
 	overrideRoster,
 	type Participant,
 	type ParticipantOverride,
@@ -109,6 +111,7 @@ import {
 	reviewEngine,
 	runArtifactDir,
 	runDir,
+	sessionKey,
 } from "../engine.ts";
 import { answerWatching, type RoundWatch } from "../progress.ts";
 import { rangeProposal } from "../range.ts";
@@ -518,9 +521,9 @@ async function reportRuns(change: ChangeRef): Promise<Answer> {
  * disk, the supervisor records the stop the way it records any other,
  * and collect reads what they had.
  */
-async function stopRound(
+export async function stopRound(
 	change: ChangeRef,
-	params: AskParams,
+	params: Pick<AskParams, "run">,
 ): Promise<Answer> {
 	const store = createRunStore(runDir());
 	const open = (await store.list(change)).filter((run) => run.open === true);
@@ -554,11 +557,15 @@ async function stopRound(
 		`Stopped from a session on ${new Date().toISOString()}.`,
 	);
 
-	if ((await whyNotYet(artifacts, held)) !== undefined) {
+	// Waited out here, then collected, rather than handed back with
+	// "collect it once they are gone": on 30 October five of the ten
+	// rounds open on the machine were rounds somebody had stopped and
+	// nobody collected, each one nagging every session at its start.
+	if (!(await goneWithin(artifacts, held, STOP_SETTLE_MS))) {
 		return say(
 			[
 				`Asked every reviewer in ${held.id} to stop.`,
-				`They notice within a second or so and are killed if they do not. Collect it once they are gone: what they wrote down before stopping is kept.`,
+				`They had not all gone after ${STOP_SETTLE_MS / 1000} s. They are killed if they do not stop, and once they are gone the next session start of this one collects the round: what they wrote down before stopping is kept.`,
 			].join("\n"),
 			{ run: held },
 		);
@@ -572,11 +579,10 @@ async function stopRound(
 	// with no answer: the round sits in every listing forever. This is
 	// the answer, and it is a person saying so rather than a sweep
 	// deciding on their behalf.
-	const behind = await somethingLeftBehind(artifacts, held);
-	if (behind !== undefined) {
-		return refuse(
-			`Nothing is running in ${held.id}, but ${behind} left something behind, and it has been asked to stop. Collect the round rather than closing it, or its findings go in the bin with it.`,
-		);
+	// Something left behind is collected, so stopping a round never
+	// leaves it open: its findings are filed rather than binned.
+	if ((await somethingLeftBehind(artifacts, held)) !== undefined) {
+		return collectHeld(change, held, artifacts);
 	}
 
 	// Marked closed rather than merely un-opened. A round with no
@@ -641,14 +647,22 @@ async function readable(path: string): Promise<boolean> {
  * died. This asks nobody and spends nothing: it reads what is there,
  * files it the way the round would have, and settles the round.
  */
-async function collectOne(
+export async function collectOne(
 	change: ChangeRef,
-	params: AskParams,
+	params: Pick<AskParams, "run">,
 ): Promise<Answer> {
 	const store = createRunStore(runDir());
-	const unsettled = (await store.list(change)).filter(
-		(run) => run.open === true,
-	);
+	const everyRound = await store.list(change);
+	const unsettled = everyRound.filter((run) => run.open === true);
+	if (everyRound.length === 0) {
+		// Not "settled on its own": nothing is held here at all, which is
+		// what a reference resolved by another provider than the one that
+		// ran its rounds looks like.
+		return say(
+			`No rounds are held against ${change.label} as the ${change.provider} provider names it, so there is nothing to collect. If rounds ran on it, name the change the way the provider that ran them does, from a checkout of its repository.`,
+			{ runs: [] },
+		);
+	}
 	if (unsettled.length === 0) {
 		return say(
 			`Every round on ${change.label} settled on its own, so there is nothing to collect.`,
@@ -857,7 +871,8 @@ async function startRound(
 			// the only thing that will ever say these seven directories
 			// were a round, so failing to write it has to stop the round
 			// rather than cost it later.
-			opened: (opening) => store.keep(change, opening),
+			opened: (opening) =>
+				store.keep(change, { ...opening, startedBy: sessionKey() }),
 			async start(participant, asked, runId) {
 				await startReviewer({
 					reviewer: {
@@ -1025,6 +1040,78 @@ async function askJudge(
 		].join("\n"),
 		{ run, warnings },
 	);
+}
+
+/** How long a stop waits for its reviewers to go before collecting. */
+const STOP_SETTLE_MS = 15_000;
+
+/** How often a stop looks again while its reviewers go. */
+const STOP_POLL_MS = 250;
+
+/** Whether every reviewer of `held` is gone within `withinMs`. */
+async function goneWithin(
+	artifacts: ReviewerArtifactsStore,
+	held: AskRun,
+	withinMs: number,
+): Promise<boolean> {
+	const deadline = Date.now() + withinMs;
+	for (;;) {
+		if ((await whyNotYet(artifacts, held)) === undefined) return true;
+		if (Date.now() >= deadline) return false;
+		await new Promise((done) => setTimeout(done, STOP_POLL_MS));
+	}
+}
+
+/**
+ * How long a finished round may sit open before any session's sweep
+ * collects it. The session that started it collects its own at once;
+ * a day is the stated rule for a round whose session never comes back.
+ */
+export const ABANDONED_ROUND_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Collect, at a session's start, the open rounds it may: its own, and
+ * anybody's left open past {@link ABANDONED_ROUND_MS}, once every
+ * reviewer in them has finished and the ledger names the change.
+ * Answers the ids collected, and this session's own rounds it left,
+ * still running or with no change named, for its model to be told of.
+ */
+export async function collectSettled(
+	rounds: readonly OpenRound[],
+	now: number = Date.now(),
+): Promise<{ collected: string[]; leftMine: OpenRound[] }> {
+	const mine = sessionKey();
+	const artifacts = new ReviewerArtifactsStore(runArtifactDir());
+	const store = createRunStore(runDir());
+	const collected: string[] = [];
+	const leftMine: OpenRound[] = [];
+	for (const round of rounds) {
+		const own = round.startedBy === mine;
+		const abandoned = now - Date.parse(round.startedAt) > ABANDONED_ROUND_MS;
+		if (!own && !abandoned) continue;
+		const change = round.change;
+		if (change === undefined) {
+			if (own) leftMine.push(round);
+			continue;
+		}
+		// Under the ledger's own lock, read again, so two sessions starting
+		// together collect a round once between them.
+		const done = await withFileLock(
+			join(runArtifactDir(), `${round.id}.collecting`),
+			async () => {
+				const held = await store.byId(change, round.id);
+				if (held?.open !== true) return false;
+				if ((await whyNotYet(artifacts, held, undefined, now)) !== undefined) {
+					return undefined;
+				}
+				await collectHeld(change, held, artifacts);
+				return true;
+			},
+		);
+		if (done === true) collected.push(round.id);
+		if (done === undefined && own) leftMine.push(round);
+	}
+	return { collected, leftMine };
 }
 
 /**
@@ -2316,7 +2403,10 @@ function deps(
 		// replaced, since at this point the round is new.
 		async opened(run: AskRun) {
 			try {
-				await createRunStore(runDir()).keep(change, run);
+				await createRunStore(runDir()).keep(change, {
+					...run,
+					startedBy: sessionKey(),
+				});
 			} catch {
 				// Bookkeeping must not cost the round. A ledger that could
 				// not be written is worth less than seven reviews, and the

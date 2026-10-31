@@ -49,6 +49,7 @@ import {
 	sessionKey,
 } from "./engine.ts";
 import { guardPublishes } from "./guard-publish.ts";
+import { collectSettled } from "./tools/ask.ts";
 import {
 	registerAskTool,
 	registerDraftTool,
@@ -58,6 +59,9 @@ import {
 	registerSeeTool,
 } from "./tools.ts";
 import { forgetWorkLayer, watchForWorkLayer } from "./work.ts";
+
+/** The hidden message telling a session of its own open rounds. */
+const ROUNDS_MESSAGE = "review-rounds-open";
 
 /**
  * Whether a bus payload is a usable provider. The bus is
@@ -90,15 +94,33 @@ function isProvider(data: unknown): data is ReviewProvider {
  * said.
  */
 const ROUNDS_RETAIN = 100;
+/** Tell this session's model something, out of the person's sight. */
+type TellModel = (text: string) => void;
+
 /**
- * How many uncollected rounds before the sweep says so.
- *
- * Not one, because one is the ordinary state of somebody who started
- * a round this morning and has not read it yet, and a message at
- * every session start is a message nobody reads. Enough of them to be
- * a habit rather than a moment.
+ * Collect what rounds may be collected, and tell this session's model
+ * of its own open rounds that couldn't be, naming each and how to
+ * collect it. Never a screen notice: on 30 October every session told
+ * Joel of every round on the machine, and none of them was his to act
+ * on. Advisory, as the sweep is.
  */
-const ROUNDS_HELD_BEFORE_SAYING = 5;
+async function settleRounds(rounds: string, tell: TellModel): Promise<void> {
+	const { rounds: open } = await createRunStore(rounds).openRunIds();
+	if (open.length === 0) return;
+	const { leftMine } = await collectSettled(open);
+	if (leftMine.length === 0) return;
+	const named = leftMine.map(
+		(round) =>
+			`- ${round.id}${round.change ? ` on ${round.change.label}` : ""}, started ${round.startedAt}`,
+	);
+	tell(
+		[
+			`This session has ${count(leftMine.length, "review round")} still open, holding their reviewers' transcripts until collected:`,
+			...named,
+			"Once its reviewers are done, collect each with review_ask collect, naming its change and run, or stop it with review_ask stop, which collects what it left. Unattended, a finished round is collected at this session's next start, and by any session's a day after it began.",
+		].join("\n"),
+	);
+}
 /**
  * How many sweep failures to print before summarizing the rest.
  *
@@ -126,7 +148,10 @@ const ATTACHMENTS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
  * an answer somebody is waiting for, and advisory throughout: failing
  * to reclaim space is not a reason to fail a session.
  */
-async function reclaimRoundTranscripts(say: Aside): Promise<void> {
+async function reclaimRoundTranscripts(
+	say: Aside,
+	tell: TellModel,
+): Promise<void> {
 	// Every path up front, before anything is awaited. These resolve
 	// against the environment each time they are called, and this runs
 	// unawaited, so a second lookup after the first await is a lookup
@@ -147,7 +172,7 @@ async function reclaimRoundTranscripts(say: Aside): Promise<void> {
 	// transcript sweep has to be a decision about the transcript sweep,
 	// and a bare return inside this one was twice a decision about
 	// everything below it.
-	await sweepTranscripts(transcripts, rounds, say);
+	await sweepTranscripts(transcripts, rounds, say, tell);
 	try {
 		await pruneAttachments(attached, {
 			olderThanMs: ATTACHMENTS_MAX_AGE_MS,
@@ -175,8 +200,13 @@ async function sweepTranscripts(
 	transcripts: string,
 	rounds: string,
 	say: Aside,
+	tell: TellModel,
 ): Promise<void> {
 	try {
+		// What can be collected is, first, so what follows protects only
+		// what still waits (ask.ts collectSettled), and this session's
+		// model alone hears of its own that it couldn't.
+		await settleRounds(rounds, tell);
 		// Which rounds are still waiting to be collected. A detached
 		// round is finished on disk and unfinished to the person who
 		// started it, and this is the only thing that tells the two
@@ -213,17 +243,6 @@ async function sweepTranscripts(
 			abandonedAfterMs: ROUNDS_ABANDONED_AFTER_MS,
 			protect: open,
 		});
-		// How much protection is holding, once there is enough of it to
-		// be worth a person's attention. Nothing else can tell them: a
-		// protected round is one nobody collected, every listing is scoped
-		// to one change, and a round opened against a change nobody
-		// attaches again appears in none of them. Protection is absolute,
-		// so this is the only population here that grows without a limit.
-		if (swept.held >= ROUNDS_HELD_BEFORE_SAYING) {
-			say(
-				`[review-integration] ${swept.held} rounds are open and holding their reviewers' transcripts, which until a round is collected is the only copy of what its reviewers said, and is megabytes per reviewer. Attach the change a round was started on and collect it to file the findings, or stop it to close one that left nothing. Both need the change, so deal first with the changes you are about to stop thinking about.`,
-			);
-		}
 		// Said out loud, because the summary was being computed and
 		// dropped. A round is megabytes per reviewer, so a sweep that
 		// cannot delete what it decided to delete is a disk filling at a
@@ -411,6 +430,16 @@ export default function reviewIntegration(pi: ExtensionAPI) {
 		// registry the new session has not rebuilt yet.
 		forgetWorkLayer();
 		watchForWorkLayer(pi);
-		void reclaimRoundTranscripts(say);
+		void reclaimRoundTranscripts(say, (text) => {
+			try {
+				pi.sendMessage(
+					{ customType: ROUNDS_MESSAGE, content: text, display: false },
+					{ deliverAs: "nextTurn" },
+				);
+			} catch {
+				// The session this started in was replaced, and the sweep
+				// runs again in the one that replaced it.
+			}
+		});
 	});
 }

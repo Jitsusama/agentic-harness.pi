@@ -291,17 +291,26 @@ describe("replacing a run", () => {
 		// open on the ledger, and this is what stops the sweep deleting
 		// the answers it is still waiting to be asked for.
 		const store = createRunStore(root);
-		await store.keep(change, run({ id: "council-open", open: true }));
-		await store.keep(change, run({ id: "council-done" }));
 		await store.keep(
-			{ ...change, id: "999", label: "other#999" },
-			run({ id: "council-elsewhere", open: true }),
+			change,
+			run({ id: "council-open", open: true, startedBy: "session-a" }),
 		);
+		await store.keep(change, run({ id: "council-done" }));
+		const other = { ...change, id: "999", label: "other#999" };
+		await store.keep(other, run({ id: "council-elsewhere", open: true }));
 
-		expect(await store.openRunIds()).toEqual({
-			open: new Set(["council-open", "council-elsewhere"]),
-			unreadable: [],
-		});
+		const { open, rounds, unreadable } = await store.openRunIds();
+		expect(open).toEqual(new Set(["council-open", "council-elsewhere"]));
+		expect(unreadable).toEqual([]);
+		// Each with who started it and the change its ledger is under, so a
+		// sweep can tell a session of its own and collect what is left.
+		expect([...rounds].sort((a, b) => a.id.localeCompare(b.id))).toMatchObject([
+			{ id: "council-elsewhere", change: other },
+			{ id: "council-open", startedBy: "session-a", change },
+		]);
+		expect(
+			rounds.find((one) => one.id === "council-elsewhere"),
+		).not.toHaveProperty("startedBy");
 	});
 
 	it("refuses a change whose ledger is there and will not open", async () => {
@@ -365,7 +374,7 @@ describe("replacing a run", () => {
 		// rubbish. The catch used to be untyped and made no distinction.
 		expect(
 			await createRunStore(join(root, "nothing-here")).openRunIds(),
-		).toEqual({ open: new Set(), unreadable: [] });
+		).toEqual({ open: new Set(), rounds: [], unreadable: [] });
 
 		const shut = join(root, "shut");
 		await mkdir(shut);

@@ -28,6 +28,11 @@ import { readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	type AskRun,
+	type ChangeRef,
+	createRunStore,
+} from "../../lib/core/review/index.ts";
 import { ReviewerArtifactsStore } from "../../lib/subagent/index.ts";
 import { activate } from "./support/review-extension.ts";
 
@@ -121,8 +126,11 @@ function staleRound(id: string): string {
  * waits for the state it expects rather than for a fixed pause, which
  * is a race dressed as a delay.
  */
-async function startSession(): Promise<void> {
-	const started = activate().lifecycle.get("session_start");
+async function startSession(): Promise<{
+	sent: { content: unknown; display?: boolean }[];
+}> {
+	const extension = activate();
+	const started = extension.lifecycle.get("session_start");
 	if (started === undefined) {
 		throw new Error("the extension registered no session_start on pi.on");
 	}
@@ -135,6 +143,75 @@ async function startSession(): Promise<void> {
 			ui: { notify: (text: string) => said.push(text) },
 		},
 	);
+	return { sent: extension.sent };
+}
+
+/**
+ * How long a collect at session start may take: it reads the round
+ * back and files what it found, which on a busy machine is seconds.
+ */
+const SETTLES_MS = 10_000;
+
+const CHANGE: ChangeRef = {
+	provider: "github",
+	repo: { key: "github:Jitsusama/agentic-harness.pi" },
+	id: "7",
+	label: "Jitsusama/agentic-harness.pi#7",
+};
+
+/**
+ * A council open on the ledger whose one reviewer finished, as a round
+ * looks once somebody stopped it, or its session went, uncollected.
+ */
+async function openRound(
+	id: string,
+	over: Partial<AskRun> = {},
+): Promise<void> {
+	const paths = new ReviewerArtifactsStore(stateDir("transcripts")).paths(
+		id,
+		"hawk",
+	);
+	mkdirSync(paths.reviewerDir, { recursive: true });
+	writeFileSync(
+		paths.resultPath,
+		JSON.stringify({
+			schemaVersion: 1,
+			runId: id,
+			reviewerId: "hawk",
+			state: "complete",
+			exitCode: 0,
+			finalAssistantText: JSON.stringify({ findings: [] }),
+		}),
+		"utf8",
+	);
+	// Its supervisor said it finished, as a real one does: a reviewer with
+	// no lease reads as handed over and not yet begun.
+	const at = new Date().toISOString();
+	writeFileSync(
+		paths.leasePath,
+		JSON.stringify({
+			supervisorPid: 1,
+			supervisorStartedAt: Date.now() - 60_000,
+			updatedAt: at,
+			completedAt: at,
+		}),
+		"utf8",
+	);
+	await createRunStore(stateDir("runs")).keep(CHANGE, {
+		id,
+		round: "council",
+		startedAt: new Date().toISOString(),
+		participants: [{ id: "hawk", role: "reviewer" }],
+		outcomes: [],
+		open: true,
+		...over,
+	});
+}
+
+/** Whether the ledger still holds `id` open. */
+async function stillOpen(id: string): Promise<boolean> {
+	const held = await createRunStore(stateDir("runs")).byId(CHANGE, id);
+	return held?.open === true;
 }
 
 describe("housekeeping at session start", () => {
@@ -195,6 +272,83 @@ describe("housekeeping at session start", () => {
 		await vi.waitFor(async () =>
 			expect(await readdir(stateDir("attached"))).toEqual([]),
 		);
+	});
+
+	it("collects this session's own finished round, and shows nobody", async () => {
+		await openRound("council-mine", { startedBy: "this-session" });
+
+		const { sent } = await startSession();
+
+		await vi.waitFor(
+			async () => expect(await stillOpen("council-mine")).toBe(false),
+			{ timeout: SETTLES_MS },
+		);
+		expect(said).toEqual([]);
+		expect(sent).toEqual([]);
+	});
+
+	it("leaves another session's round of today alone, and says nothing of it", async () => {
+		// On 30 October every session was told, on Joel's screen, of the
+		// ten rounds open across the machine, none of them its own.
+		for (let n = 0; n < 10; n++) {
+			await openRound(`council-theirs-${n}`, { startedBy: "another-session" });
+		}
+		mkdirSync(stateDir("runs"), { recursive: true });
+		const round = staleRound("council-old");
+
+		const { sent } = await startSession();
+
+		await vi.waitFor(() => expect(existsSync(round)).toBe(false));
+		expect(await stillOpen("council-theirs-0")).toBe(true);
+		expect(said).toEqual([]);
+		expect(sent).toEqual([]);
+	});
+
+	it("collects anybody's finished round once it is a day old", async () => {
+		const before = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+		await openRound("council-abandoned", {
+			startedBy: "a-session-long-gone",
+			startedAt: before.toISOString(),
+		});
+
+		await startSession();
+
+		await vi.waitFor(
+			async () => expect(await stillOpen("council-abandoned")).toBe(false),
+			{ timeout: SETTLES_MS },
+		);
+		expect(said).toEqual([]);
+	});
+
+	it("tells this session's model, never the screen, of its own round it can't collect", async () => {
+		// A ledger written before ledgers named their change: the round
+		// can't be collected from here, so its session is told how.
+		mkdirSync(stateDir("runs"), { recursive: true });
+		writeFileSync(
+			stateDir("runs", "old-ledger.json"),
+			JSON.stringify({
+				runs: [
+					{
+						id: "council-unnamed",
+						round: "council",
+						startedAt: new Date().toISOString(),
+						participants: [],
+						outcomes: [],
+						open: true,
+						startedBy: "this-session",
+					},
+				],
+			}),
+			"utf8",
+		);
+
+		const { sent } = await startSession();
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.display).toBe(false);
+		expect(String(sent[0]?.content)).toContain("council-unnamed");
+		expect(String(sent[0]?.content)).toContain("review_ask collect");
+		expect(said).toEqual([]);
 	});
 
 	it("says nothing on an ordinary start", async () => {

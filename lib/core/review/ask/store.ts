@@ -72,9 +72,21 @@ export interface RunStore {
 	openRunIds(): Promise<OpenRuns>;
 }
 
+/** A round still open, with what the ledger says of it. */
+export interface OpenRound {
+	readonly id: string;
+	readonly startedAt: string;
+	/** The session that started it, when it said. */
+	readonly startedBy?: string;
+	/** The change its ledger is kept under, once the ledger says. */
+	readonly change?: ChangeRef;
+}
+
 /** Which rounds are open, and what could not be asked. */
 export interface OpenRuns {
 	readonly open: ReadonlySet<string>;
+	/** The same rounds, each with what the ledger says of it. */
+	readonly rounds: readonly OpenRound[];
 	/**
 	 * What exists and would not read, said the way a person can act on
 	 * it: a full path, since a caller that declines over this has to
@@ -88,8 +100,13 @@ export interface OpenRuns {
 	readonly unreadable: readonly string[];
 }
 
-/** What one change's file holds. */
+/**
+ * What one change's file holds. The change itself is written beside
+ * its rounds, so a sweep that finds a round nobody collected can name
+ * the change, and collect it, without a session that knows it.
+ */
 interface Ledger {
+	change?: ChangeRef;
 	runs: AskRun[];
 }
 
@@ -159,7 +176,8 @@ export function createRunStore(root: string): RunStore {
 		// process sharing a name tore the file, the shorter write landing
 		// over the start of the longer.
 		const pending = `${path}.${process.pid}.${randomUUID()}.tmp`;
-		await writeFile(pending, JSON.stringify(ledger, null, 2), "utf8");
+		const kept: Ledger = { change, runs: ledger.runs };
+		await writeFile(pending, JSON.stringify(kept, null, 2), "utf8");
 		await rename(pending, path);
 	}
 
@@ -191,6 +209,7 @@ export function createRunStore(root: string): RunStore {
 
 		async openRunIds() {
 			const open = new Set<string>();
+			const rounds: OpenRound[] = [];
 			const unreadable: string[] = [];
 			let files: string[];
 			try {
@@ -206,9 +225,13 @@ export function createRunStore(root: string): RunStore {
 				// The catch used to be untyped, so a permissions problem on
 				// this directory read as an empty history.
 				if (!isMissing(error)) {
-					return { open, unreadable: [`${root} (the whole ledger)`] };
+					return {
+						open,
+						rounds,
+						unreadable: [`${root} (the whole ledger)`],
+					};
 				}
-				return { open, unreadable };
+				return { open, rounds, unreadable };
 			}
 			for (const file of files) {
 				if (!file.endsWith(".json")) continue;
@@ -251,13 +274,25 @@ export function createRunStore(root: string): RunStore {
 					unreadable.push(path);
 					continue;
 				}
+				const change =
+					"change" in parsed && isChangeRef(parsed.change)
+						? parsed.change
+						: undefined;
 				for (const run of parsed.runs as AskRun[]) {
 					if (run?.open === true && typeof run.id === "string") {
 						open.add(run.id);
+						rounds.push({
+							id: run.id,
+							startedAt: run.startedAt,
+							...(typeof run.startedBy === "string"
+								? { startedBy: run.startedBy }
+								: {}),
+							...(change ? { change } : {}),
+						});
 					}
 				}
 			}
-			return { open, unreadable };
+			return { open, rounds, unreadable };
 		},
 
 		async latest(change, round) {
@@ -334,6 +369,24 @@ function isMissing(error: unknown): boolean {
  * Slugged because the key names a file: a change id is somebody
  * else's string and may hold a separator.
  */
+/** Whether a ledger's `change` is a change, as a later write left it. */
+function isChangeRef(value: unknown): value is ChangeRef {
+	if (typeof value !== "object" || value === null) return false;
+	const repo = "repo" in value ? value.repo : undefined;
+	return (
+		"provider" in value &&
+		typeof value.provider === "string" &&
+		"id" in value &&
+		typeof value.id === "string" &&
+		"label" in value &&
+		typeof value.label === "string" &&
+		typeof repo === "object" &&
+		repo !== null &&
+		"key" in repo &&
+		typeof repo.key === "string"
+	);
+}
+
 function fileFor(change: ChangeRef): string {
 	const safe = changeKey(change)
 		.replace(/[^A-Za-z0-9._-]/g, "_")
