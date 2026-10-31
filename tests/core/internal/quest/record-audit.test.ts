@@ -107,6 +107,15 @@ describe("auditQuestRecord", () => {
 		expect(audit.uncited).not.toContain("attachments/notes.md");
 	});
 
+	it("passes over the writer's .writing and lock, wherever they sit", () => {
+		put(".writing/quest.lock");
+		put(".writing/README.md.123.abcd0123");
+		put("plans/.writing/PLAN-20260924-RUE4Q4.md.123.abcd0123");
+		put(".quest.lock");
+		put(".README.md.tmp-123-abc");
+		expect(auditQuestRecord(questDir).strays).toEqual([]);
+	});
+
 	it("keeps the harness log without reading it for citations", () => {
 		put("attachments/notes.md");
 		put("harness.log", "2026-10-26T05:01:02Z Wrote attachments/notes.md.\n");

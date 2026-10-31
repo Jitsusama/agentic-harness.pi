@@ -15,6 +15,7 @@ import {
 	JOURNEY_POINTER,
 	recentJourney,
 } from "../../../lib/internal/quest/journey";
+import { WRITING } from "../../../lib/internal/write-whole";
 
 let questDir: string;
 
@@ -111,13 +112,12 @@ describe("appendJourneyByPath", () => {
 		);
 	});
 
-	it("writes atomically inside the quest lock (no .tmp- leftovers)", () => {
+	it("writes atomically inside the quest lock, leaving nothing behind", () => {
 		writeReadme(["---", "id: QEST-test", "---", "", "# Title", ""]);
 		appendJourneyByPath(questDir, "first", { now: fixedNow });
 		appendJourneyByPath(questDir, "second", { now: fixedNow });
-		const leftovers = readdirSync(questDir).filter(
-			(n) => n.includes(".tmp-") || n === ".quest.lock",
-		);
-		expect(leftovers).toHaveLength(0);
+		const dotted = readdirSync(questDir).filter((n) => n.startsWith("."));
+		expect(dotted).toEqual([WRITING]);
+		expect(readdirSync(join(questDir, WRITING))).toEqual([]);
 	});
 });
