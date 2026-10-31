@@ -28,7 +28,21 @@ export interface DigestOutcome {
 	 * spare these, since their stream is still the only copy.
 	 */
 	readonly failed: ReadonlySet<string>;
+	/**
+	 * Runs holding a subagent still writing its stream, left for a later
+	 * pass. The sweep spares these too, since nothing has captured them.
+	 */
+	readonly deferred: ReadonlySet<string>;
 }
+
+/**
+ * How long a stream with no result must have been quiet before it is
+ * digested. Every pi digests at its start, and on 30 October the 17
+ * streams that live subagents were still writing came to 73 MB, read
+ * and digested again by each start for a digest the next start would
+ * replace: about 1.2 s of CPU at every start.
+ */
+export const LIVE_STREAM_QUIET_MS = 5 * 60_000;
 
 const EVENTS = "events.ndjson";
 
@@ -88,17 +102,22 @@ async function subdirectories(path: string): Promise<string[]> {
  * digest was written.
  *
  * Re-digesting on change rather than once is what keeps this correct
- * without knowing whether a run has finished: a live stream is digested
- * as it stands and digested again when it grows, and the last pass
- * before the sweep sees it whole.
+ * without knowing for certain whether a run has finished: a stream is
+ * digested as it stands and again when it grows, and the last pass
+ * before the sweep sees it whole. A subagent with no result yet whose
+ * stream changed within `LIVE_STREAM_QUIET_MS` is still writing, so it
+ * is deferred rather than digested, and its run named for the sweep to
+ * spare.
  */
 export async function digestFleetRuns(
 	runs: string,
 	digests: string,
+	now: number = Date.now(),
 ): Promise<DigestOutcome> {
 	let written = 0;
 	let current = 0;
 	const failed = new Set<string>();
+	const deferred = new Set<string>();
 
 	for (const runId of await subdirectories(runs)) {
 		const reviewers = join(runs, runId, "reviewers");
@@ -110,6 +129,13 @@ export async function digestFleetRuns(
 				if (modified === 0) continue;
 				if (existsSync(target) && (await stat(target)).mtimeMs >= modified) {
 					current += 1;
+					continue;
+				}
+				const live =
+					!existsSync(join(dir, "result.json")) &&
+					now - modified < LIVE_STREAM_QUIET_MS;
+				if (live) {
+					deferred.add(runId);
 					continue;
 				}
 				const stream = await readEventStream(dir);
@@ -140,7 +166,7 @@ export async function digestFleetRuns(
 		}
 	}
 
-	return { written, current, failed };
+	return { written, current, failed, deferred };
 }
 
 /**

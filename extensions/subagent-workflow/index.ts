@@ -413,9 +413,14 @@ async function sweepFleetRuns(
 		// spend bought. A digest is under one percent of a stream and
 		// keeps every turn's usage, so the bytes can go and the index stay.
 		const digested = await digestFleetRuns(transcripts, join(runs, "digests"));
-		// A run that could not be digested is spared, since its stream is
-		// still the only copy: nothing is swept that was not first captured.
-		const protect = new Set([...kept, ...digested.failed]);
+		// A run that could not be digested, or whose subagent is still
+		// writing, is spared, since its stream is still the only copy:
+		// nothing is swept that was not first captured.
+		const protect = new Set([
+			...kept,
+			...digested.failed,
+			...digested.deferred,
+		]);
 		if (digested.failed.size > 0) {
 			say(
 				`[subagent-workflow] kept ${count(digested.failed.size, "fleet")} back from the sweep because ${digested.failed.size === 1 ? "its stream" : "their streams"} could not be digested, and a stream is the only copy of what a subagent did: ${[...digested.failed].join(", ")}`,

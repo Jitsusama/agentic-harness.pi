@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import {
 	mkdir,
 	mkdtemp,
@@ -10,7 +11,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { digestFleetRuns } from "../../../extensions/subagent-workflow/digests.ts";
+import {
+	digestFleetRuns,
+	LIVE_STREAM_QUIET_MS,
+} from "../../../extensions/subagent-workflow/digests.ts";
 
 const turn = (total: number, text = "answer") =>
 	JSON.stringify({
@@ -122,13 +126,43 @@ describe("digestFleetRuns", () => {
 		await subagent("fleet-bad", "a", {
 			"events.ndjson.1.gz": Buffer.from("not gzip at all"),
 			"events.ndjson": `${turn(1)}\n`,
+			"result.json": "{}",
 		});
-		await subagent("fleet-good", "a", { "events.ndjson": `${turn(1)}\n` });
+		await subagent("fleet-good", "a", {
+			"events.ndjson": `${turn(1)}\n`,
+			"result.json": "{}",
+		});
 
 		const outcome = await digestFleetRuns(runs, digests);
 
 		expect(outcome.failed).toEqual(new Set(["fleet-bad"]));
 		expect(outcome.written).toBe(1);
+	});
+
+	it("leaves a subagent still writing for later, and names its run for the sweep to spare", async () => {
+		// Every pi digests at its start. Read again each time, the streams
+		// live subagents were still writing came to 73 MB on 30 October,
+		// for a digest the next start would replace.
+		await subagent("fleet-live", "a", { "events.ndjson": `${turn(1)}\n` });
+
+		const outcome = await digestFleetRuns(runs, digests);
+
+		expect(outcome.written).toBe(0);
+		expect(outcome.deferred).toEqual(new Set(["fleet-live"]));
+		expect(existsSync(join(digests, "fleet-live", "a.jsonl"))).toBe(false);
+	});
+
+	it("digests a stream with no result once it has been quiet a while", async () => {
+		await subagent("fleet-quiet", "a", { "events.ndjson": `${turn(1)}\n` });
+
+		const outcome = await digestFleetRuns(
+			runs,
+			digests,
+			Date.now() + LIVE_STREAM_QUIET_MS + 1_000,
+		);
+
+		expect(outcome.written).toBe(1);
+		expect(outcome.deferred.size).toBe(0);
 	});
 
 	it("does nothing, and says so, when there are no runs yet", async () => {
