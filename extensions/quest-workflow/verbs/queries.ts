@@ -12,6 +12,12 @@ import {
 	discoverQuests,
 	type QuestIndex,
 } from "../../../lib/internal/quest/discovery.ts";
+import {
+	callLauncher,
+	type HandedSession,
+	handOver,
+	type LauncherCall,
+} from "../../../lib/internal/quest/hand-over.ts";
 import { currentBootToken } from "../../../lib/internal/quest/process-liveness.ts";
 import type { RestoreEntry } from "../../../lib/internal/quest/restore-file.ts";
 import {
@@ -26,6 +32,7 @@ import {
 	windowsNotePath,
 	windowsToReopen,
 } from "../../../lib/internal/quest/windows-elsewhere.ts";
+import { realmSegments } from "../../../lib/internal/realm.ts";
 import { count } from "../../../lib/ui/count.ts";
 import { OUTCOME_GLYPH } from "../../../lib/ui/outcome-glyphs.ts";
 import {
@@ -385,6 +392,31 @@ export interface RestoreOptions extends TerminalCall {
 	readonly act?: boolean;
 	/** Session ids or unique prefixes to narrow to. */
 	readonly ids?: string;
+	/** The desktop launcher's call; its own `qs` call by default. */
+	readonly launcher?: LauncherCall;
+}
+
+/**
+ * What hands the sessions to the launcher, or nothing when they open
+ * as the call or the settings say: when the call names a terminal, a
+ * layout or a nesting, since the launcher opens a kitty window of its
+ * own; and in a realm other than the machine's home one, since the
+ * launcher holds what it opens in that realm. `PI_LAUNCHER=off` leaves
+ * its own call out, as the test suite does so nothing it restores
+ * reaches the person's screen.
+ */
+function launcherFor(
+	opts: RestoreOptions,
+):
+	| ((sessions: readonly HandedSession[]) => Promise<number | undefined>)
+	| undefined {
+	if (opts.terminal?.trim() || opts.layout?.trim() || opts.nesting?.trim()) {
+		return undefined;
+	}
+	if (realmSegments().length > 0) return undefined;
+	if (!opts.launcher && process.env.PI_LAUNCHER === "off") return undefined;
+	const call = opts.launcher ?? callLauncher;
+	return (sessions) => handOver(sessions, call);
 }
 
 export async function restore(
@@ -456,10 +488,12 @@ export async function restore(
 		},
 	);
 	if (!read.ok) return refuse(read.refusal);
+	const launcher = launcherFor(opts);
 	const reopenWith = {
 		...read.options,
 		...(read.layout ? { layout: read.layout } : {}),
 		saved,
+		...(launcher ? { handOver: launcher } : {}),
 	};
 	if (!opts.act || opts.dryRun) {
 		// Planning opens nothing, so the listing can say how force would
@@ -469,6 +503,11 @@ export async function restore(
 			? [
 					"",
 					`force would open them through ${planned.used}.`,
+					...(launcher
+						? [
+								"First it would hand those pi saved to the launcher, which puts each back where it sat; any the launcher doesn't take open as above.",
+							]
+						: []),
 					...planned.notes.map((note) => `Note: ${note}.`),
 				]
 			: planned.failed.length > 0

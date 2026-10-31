@@ -9,6 +9,7 @@ import {
 } from "../../../extensions/quest-workflow/session-registry";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
+import { restore } from "../../../extensions/quest-workflow/verbs/queries";
 import {
 	closeRecord,
 	openRecord,
@@ -642,5 +643,108 @@ describe("restore verb", () => {
 			}),
 		);
 		expect((await restoreNow()).message).toContain("nothing to restore");
+	});
+});
+
+describe("restore through the desktop's launcher", () => {
+	/**
+	 * A launcher that takes what it's handed and, as its own reopening
+	 * does, starts each pi, or answers `answer` and starts nothing.
+	 */
+	function launcher(answer = "taken") {
+		const handed: { id: string; cwd: string }[][] = [];
+		const call = async (argument: string) => {
+			const { sessions } = JSON.parse(argument) as {
+				sessions: { id: string; cwd: string }[];
+			};
+			handed.push(sessions);
+			if (answer === "taken") {
+				for (const one of sessions) checkIn(`pi --session '${one.id}'`);
+			}
+			return answer;
+		};
+		return { handed, call };
+	}
+
+	it("hands the saved sessions to the launcher, which puts each where it sat", async () => {
+		const typed = recordingDriver();
+		const shell = launcher();
+		savedSessions("sess-A", "sess-B");
+		saveRecord(lostSession("sess-A", "QEST-1"));
+		saveRecord(lostSession("sess-B", "QEST-2"));
+		const { message } = succeeded(
+			await restore(buildState(), { act: true, launcher: shell.call }),
+		);
+		expect(shell.handed).toHaveLength(1);
+		expect(shell.handed[0]?.map((one) => one.id).sort()).toEqual([
+			"sess-A",
+			"sess-B",
+		]);
+		expect(shell.handed[0]?.[0]?.cwd).toBe(tmpRoot);
+		expect(typed).toEqual([]);
+		expect(message).toContain(
+			"Reopened 2 of 2 sessions, through the launcher, each where it sat.",
+		);
+	});
+
+	it("opens them itself, paced, when the launcher refuses them", async () => {
+		const typed = recordingDriver();
+		const shell = launcher("refused: no session with an id and a folder");
+		savedSessions("sess-A");
+		saveRecord(lostSession("sess-A", "QEST-1"));
+		const { message } = succeeded(
+			await restore(buildState(), { act: true, launcher: shell.call }),
+		);
+		expect(shell.handed).toHaveLength(1);
+		expect(typed.map((t) => t.text)).toEqual(["pi --session 'sess-A'\n"]);
+		expect(message).toContain("Reopened 1 of 1 session, through recording");
+	});
+
+	it("starts a session pi never saved itself, since the launcher only resumes", async () => {
+		const typed = recordingDriver();
+		const shell = launcher();
+		savedSessions("sess-A");
+		saveRecord(lostSession("sess-A", "QEST-1"));
+		saveRecord(lostSession("sess-new", "QEST-2"));
+		const { message } = succeeded(
+			await restore(buildState(), { act: true, launcher: shell.call }),
+		);
+		expect(shell.handed.flat().map((one) => one.id)).toEqual(["sess-A"]);
+		expect(typed.map((t) => t.text)).toEqual([
+			"QUEST_WORKFLOW_AUTOLOAD_ID='QEST-2' pi\n",
+		]);
+		expect(message).toContain(
+			"through the launcher, each where it sat, and recording",
+		);
+	});
+
+	it("leaves the launcher out when the call names how to open them", async () => {
+		const typed = recordingDriver();
+		const shell = launcher();
+		savedSessions("sess-A");
+		saveRecord(lostSession("sess-A", "QEST-1"));
+		succeeded(
+			await restore(buildState(), {
+				act: true,
+				layout: "window",
+				launcher: shell.call,
+			}),
+		);
+		expect(shell.handed).toEqual([]);
+		expect(typed).toHaveLength(1);
+	});
+
+	it("hands nothing over when it only lists them, and says it would", async () => {
+		recordingDriver();
+		const shell = launcher();
+		savedSessions("sess-A");
+		saveRecord(lostSession("sess-A", "QEST-1"));
+		const { message } = succeeded(
+			await restore(buildState(), { launcher: shell.call }),
+		);
+		expect(shell.handed).toEqual([]);
+		expect(message).toContain(
+			"First it would hand those pi saved to the launcher",
+		);
 	});
 });
