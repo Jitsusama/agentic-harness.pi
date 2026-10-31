@@ -6,12 +6,14 @@ import {
 	readFileSync,
 	rmSync,
 	utimesSync,
+	watch,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { atomicWriteFile, withQuestLock } from "../../../lib/internal/quest/io";
+import { WRITING } from "../../../lib/internal/write-whole";
 
 let dir: string;
 
@@ -30,11 +32,14 @@ describe("atomicWriteFile", () => {
 		expect(readFileSync(path, "utf8")).toBe("hello");
 	});
 
-	it("leaves no .tmp- artifacts on a successful write", () => {
+	it("makes nothing in the folder but the file and its .writing", () => {
+		// The shell watches some quest folders, and every name made or
+		// removed there wakes it.
 		const path = join(dir, "out.txt");
 		atomicWriteFile(path, "hello");
-		const remaining = readdirSync(dir).filter((n) => n.includes(".tmp-"));
-		expect(remaining).toHaveLength(0);
+		atomicWriteFile(path, "again");
+		expect(readdirSync(dir).sort()).toEqual([WRITING, "out.txt"]);
+		expect(readdirSync(join(dir, WRITING))).toEqual([]);
 	});
 
 	it("replaces an existing file (rename, not append)", () => {
@@ -42,6 +47,49 @@ describe("atomicWriteFile", () => {
 		writeFileSync(path, "old");
 		atomicWriteFile(path, "new");
 		expect(readFileSync(path, "utf8")).toBe("new");
+	});
+});
+
+/**
+ * The names a watcher of `folder` hears while `act` runs, as the shell's
+ * watch of a quest folder hears them. A file written after `act` marks
+ * the end: events come in order, so once it is heard all of `act`'s are.
+ */
+async function heardDuring(folder: string, act: () => void): Promise<string[]> {
+	const heard: string[] = [];
+	const watcher = watch(folder, (_, name) => {
+		if (name) heard.push(name);
+	});
+	try {
+		act();
+		writeFileSync(join(folder, "done"), "");
+		await vi.waitFor(() => expect(heard).toContain("done"));
+	} finally {
+		watcher.close();
+	}
+	return [...new Set(heard)].filter((name) => name !== "done").sort();
+}
+
+describe("what a watcher of the quest folder hears", () => {
+	it("hears a write only as the file itself", async () => {
+		const path = join(dir, "README.md");
+		atomicWriteFile(path, "first");
+		const heard = await heardDuring(dir, () => {
+			atomicWriteFile(path, "second");
+			atomicWriteFile(path, "third");
+		});
+		expect(heard).toEqual(["README.md"]);
+	});
+
+	it("hears nothing of the lock", async () => {
+		const questDir = join(dir, "QEST-20260603-FFF666");
+		mkdirSync(questDir, { recursive: true });
+		withQuestLock(questDir, () => undefined);
+		const heard = await heardDuring(questDir, () => {
+			withQuestLock(questDir, () => undefined);
+			withQuestLock(questDir, () => undefined);
+		});
+		expect(heard).toEqual([]);
 	});
 });
 
@@ -74,26 +122,48 @@ describe("withQuestLock", () => {
 		expect(readFileSync(counter, "utf8")).toBe("3");
 	});
 
-	it("waits on a fresh lock that has no owner written yet", () => {
-		// A holder creates the lock and then writes its pid, so for a
-		// moment every lock is empty. Reading that as abandoned took a
-		// live lock out from under its holder.
-		const questDir = join(dir, "QEST-20260603-CCC333");
+	it("holds its lock in .writing, never in the quest folder", () => {
+		const questDir = join(dir, "QEST-20260603-EEE555");
 		mkdirSync(questDir, { recursive: true });
-		writeFileSync(join(questDir, ".quest.lock"), "");
+		const during = withQuestLock(questDir, () => ({
+			folder: readdirSync(questDir).sort(),
+			writing: readdirSync(join(questDir, WRITING)),
+		}));
+		expect(during).toEqual({ folder: [WRITING], writing: ["quest.lock"] });
+		expect(readdirSync(join(questDir, WRITING))).toEqual([]);
+	});
 
-		expect(() =>
-			withQuestLock(questDir, () => {
-				atomicWriteFile(join(questDir, "ok.txt"), "y");
-			}),
-		).toThrow(/Timed out/);
-		expect(existsSync(join(questDir, "ok.txt"))).toBe(false);
-	}, 15_000);
+	it.each([
+		["its own", join(WRITING, "quest.lock")],
+		["an older session's", ".quest.lock"],
+	])(
+		"waits on %s fresh lock that has no owner written yet",
+		(_, lockName) => {
+			// A holder creates the lock and then writes its pid, so for a
+			// moment every lock is empty. Reading that as abandoned took a
+			// live lock out from under its holder. Sessions on code from
+			// before 31 October lock in the quest folder itself.
+			const questDir = join(dir, "QEST-20260603-CCC333");
+			mkdirSync(join(questDir, WRITING), { recursive: true });
+			writeFileSync(join(questDir, lockName), "");
 
-	it("steals an ownerless lock once it is older than any write takes", () => {
+			expect(() =>
+				withQuestLock(questDir, () => {
+					atomicWriteFile(join(questDir, "ok.txt"), "y");
+				}),
+			).toThrow(/Timed out/);
+			expect(existsSync(join(questDir, "ok.txt"))).toBe(false);
+		},
+		15_000,
+	);
+
+	it.each([
+		["its own", join(WRITING, "quest.lock")],
+		["an older session's", ".quest.lock"],
+	])("steals %s ownerless lock once it is older than any write takes", (_, lockName) => {
 		const questDir = join(dir, "QEST-20260603-DDD444");
-		mkdirSync(questDir, { recursive: true });
-		const lock = join(questDir, ".quest.lock");
+		mkdirSync(join(questDir, WRITING), { recursive: true });
+		const lock = join(questDir, lockName);
 		writeFileSync(lock, "");
 		const old = new Date(Date.now() - 60_000);
 		utimesSync(lock, old, old);
@@ -103,7 +173,8 @@ describe("withQuestLock", () => {
 		});
 
 		expect(existsSync(join(questDir, "ok.txt"))).toBe(true);
-		expect(readdirSync(questDir).sort()).toEqual(["ok.txt"]);
+		expect(readdirSync(questDir).sort()).toEqual([WRITING, "ok.txt"]);
+		expect(readdirSync(join(questDir, WRITING))).toEqual([]);
 	});
 
 	it("steals an obviously stale lock from a dead owner", () => {

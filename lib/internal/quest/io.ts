@@ -8,15 +8,21 @@
  * 1. Torn reads. The "read text, parse, mutate, write
  *    text" sequence is not atomic against a concurrent
  *    reader; on a slow disk a reader sees half a file.
- *    We write to a sibling temp file, fsync, then rename
- *    over the target so observers always see the old or
- *    new file in full.
+ *    We write to a temp file in the folder's `.writing`,
+ *    fsync, then rename over the target so observers
+ *    always see the old or new file in full.
  *
  * 2. Lost updates. Two pi sessions running in parallel
  *    both load the README, both mutate frontmatter
  *    in-memory, both write back: the second overwrites
  *    the first. We take a coarse per-quest lock around
  *    the read-modify-write so the second waits.
+ *
+ * Neither the temp file nor the lock is made in the quest
+ * folder itself: the shell watches the folders of quests
+ * with something waiting on Joel, and each file made and
+ * removed there woke it (6b, 31 October). Both live in
+ * the folder's `.writing`, which its watch doesn't reach.
  *
  * The lock is file-creation with `O_EXCL`. A short retry
  * loop covers the normal contention case; a stale-lock
@@ -33,6 +39,7 @@ import {
 	fstatSync,
 	fsyncSync,
 	linkSync,
+	mkdirSync,
 	openSync,
 	readFileSync,
 	renameSync,
@@ -40,7 +47,8 @@ import {
 	unlinkSync,
 	writeSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
+import { WRITING, writeWhole } from "../write-whole.ts";
 
 /** Lock-acquire retry budget per call. */
 const LOCK_TIMEOUT_MS = 5000;
@@ -49,40 +57,28 @@ const LOCK_RETRY_MS = 25;
 /** A lock older than this is considered stale and stolen. */
 const STALE_LOCK_MS = 30_000;
 
-const LOCK_NAME = ".quest.lock";
+/** The lock's name in the quest folder's `.writing`. */
+const LOCK_NAME = "quest.lock";
 
 /**
- * Write `data` to `path` atomically: write to a sibling
- * temp file in the same directory, fsync, then rename
- * over the target. The rename is atomic on POSIX
- * filesystems for files on the same volume.
+ * Where the lock was made, in the quest folder itself, by sessions on
+ * code from before 31 October. A session reloads onto new code only
+ * between runs, so for a while both kinds write the same quests: one
+ * holding the new lock waits while an older one holds this, and so
+ * never writes over it. An older session doesn't know the new lock,
+ * so the two can still overlap if it takes this one in the moment
+ * between that wait and the write, until every session has reloaded.
+ */
+const LEGACY_LOCK_NAME = ".quest.lock";
+
+/**
+ * Write `data` to `path` atomically: write a temp file in
+ * the folder's `.writing`, fsync, then rename over the
+ * target. The rename is atomic on POSIX filesystems for
+ * files on the same volume.
  */
 export function atomicWriteFile(path: string, data: string): void {
-	const dir = dirname(path);
-	const tmp = join(
-		dir,
-		`.${path.split("/").pop()}.tmp-${process.pid}-${Math.random()
-			.toString(36)
-			.slice(2, 10)}`,
-	);
-	const fd = openSync(tmp, "w");
-	try {
-		writeSync(fd, data);
-		fsyncSync(fd);
-	} finally {
-		closeSync(fd);
-	}
-	try {
-		renameSync(tmp, path);
-	} catch (err) {
-		try {
-			unlinkSync(tmp);
-		} catch {
-			// Best-effort cleanup; the temp's leftover state is
-			// safe to leave in place and is not user-visible.
-		}
-		throw err;
-	}
+	writeWhole(path, data, { durable: true });
 }
 
 interface LockRecord {
@@ -197,13 +193,40 @@ function acquireLock(lockPath: string): { fd: number; ino: number } {
 			tryStealStaleLock(lockPath, now);
 			lastStealCheck = now;
 		}
-		// Busy-wait inside the retry budget. Node has no
-		// blocking sleep without async, and the caller is
-		// already running a synchronous read-modify-write.
-		const sleepUntil = Date.now() + LOCK_RETRY_MS;
-		while (Date.now() < sleepUntil) {
-			// spin
+		pauseForRetry();
+	}
+}
+
+/**
+ * Wait until no older session holds the legacy lock, taking it over
+ * only when it is stale, as a holder of it would be; never making it.
+ */
+function awaitLegacyRelease(legacyPath: string): void {
+	const deadline = Date.now() + LOCK_TIMEOUT_MS;
+	let lastStealCheck = 0;
+	while (existsSync(legacyPath)) {
+		const now = Date.now();
+		if (now >= deadline) {
+			throw new Error(
+				`Timed out acquiring quest lock at ${legacyPath} after ${LOCK_TIMEOUT_MS}ms.`,
+			);
 		}
+		if (now - lastStealCheck > LOCK_RETRY_MS * 4) {
+			tryStealStaleLock(legacyPath, now);
+			lastStealCheck = now;
+		}
+		pauseForRetry();
+	}
+}
+
+/**
+ * Busy-wait between retries. Node has no blocking sleep without async,
+ * and the caller is already running a synchronous read-modify-write.
+ */
+function pauseForRetry(): void {
+	const sleepUntil = Date.now() + LOCK_RETRY_MS;
+	while (Date.now() < sleepUntil) {
+		// spin
 	}
 }
 
@@ -228,15 +251,18 @@ function releaseLock(
 
 /**
  * Run `fn` under an advisory lock on the given quest dir.
- * Acquires `<questDir>/.quest.lock`, runs fn, releases.
- * Steals locks older than `STALE_LOCK_MS` whose owner is
- * no longer alive.
+ * Acquires `<questDir>/.writing/quest.lock`, waits out any
+ * older session's `<questDir>/.quest.lock`, runs fn,
+ * releases. Steals locks older than `STALE_LOCK_MS` whose
+ * owner is no longer alive.
  */
 export function withQuestLock<T>(questDir: string, fn: () => T): T {
 	if (!existsSync(questDir)) {
 		throw new Error(`Quest directory ${questDir} does not exist.`);
 	}
-	const lockPath = join(questDir, LOCK_NAME);
+	const writing = join(questDir, WRITING);
+	mkdirSync(writing, { recursive: true });
+	const lockPath = join(writing, LOCK_NAME);
 	// Probe once before the loop so we don't wait the full
 	// retry budget on a clearly-stale lock.
 	if (existsSync(lockPath)) {
@@ -249,6 +275,7 @@ export function withQuestLock<T>(questDir: string, fn: () => T): T {
 	}
 	const held = acquireLock(lockPath);
 	try {
+		awaitLegacyRelease(join(questDir, LEGACY_LOCK_NAME));
 		return fn();
 	} finally {
 		releaseLock(lockPath, held);

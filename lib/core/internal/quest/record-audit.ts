@@ -19,6 +19,7 @@ import {
 	type Stats,
 } from "node:fs";
 import { basename, join } from "node:path";
+import { WRITING } from "../../../internal/write-whole.ts";
 import {
 	ATTACHMENT_LIMITS,
 	type AttachmentFile,
@@ -42,10 +43,13 @@ export interface RecordAudit {
 
 /**
  * Files the quest machinery and the system keep in a quest folder: the
- * quest lock, the atomic writer's half-written files and Finder's notes.
+ * quest lock and the atomic writer's half-written files (in `.writing`,
+ * or beside the file and in the folder by code before 31 October), and
+ * Finder's notes.
  */
 function isMachinery(name: string): boolean {
 	return (
+		name === WRITING ||
 		name === ".quest.lock" ||
 		name === ".DS_Store" ||
 		/^\..+\.tmp-\d+-/.test(name)
