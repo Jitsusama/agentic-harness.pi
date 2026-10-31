@@ -45,7 +45,7 @@ describe("where a copy of a tree's VM check runs", () => {
 		mkdirSync(bin);
 		writeFileSync(
 			join(bin, "nix-offload"),
-			"#!/bin/sh\nprintf 'tree\\napply\\nout\\nwants\\nfolder\\n'\n",
+			"#!/bin/sh\nprintf 'tree\\napply\\nout\\nwants\\nfolder\\nchanged\\n'\n",
 			{ mode: 0o755 },
 		);
 		before = { path: process.env.PATH, config: process.env.XDG_CONFIG_HOME };
@@ -124,5 +124,25 @@ describe("where a copy of a tree's VM check runs", () => {
 			await refusedHere("prompt", "run-subtests -I vm-a", repo),
 		).toBeUndefined();
 		expect(await refusedHere("ls", "ls -la", repo)).toBeUndefined();
+	});
+
+	it("leaves a build asked for here on purpose, with --here", async () => {
+		const repo = repoWith("public", "https://github.com/Owner/public.git");
+		const here =
+			'for c in a b; do nix-offload there --here -L . "checks.x86_64-linux.vm-$c"; done';
+		expect(await whereItRuns("here", here, repo)).toBeUndefined();
+		expect(await refusedHere("here", here, repo)).toBeUndefined();
+		expect(
+			await refusedHere("cc-here", "changed-checks --build --here", repo),
+		).toBeUndefined();
+	});
+
+	it("leaves changed-checks to send its own run, when it can", async () => {
+		const repo = repoWith("public", "https://github.com/Owner/public.git");
+		const cc = "direnv exec . changed-checks --build";
+		expect(await refusedHere("cc", cc, repo)).toBeUndefined();
+		expect(await refusedHere("cc-loop", `${cc} && ${LOOP}`, repo)).toContain(
+			"nix-offload there",
+		);
 	});
 });

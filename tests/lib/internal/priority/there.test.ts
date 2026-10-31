@@ -348,7 +348,13 @@ describe("the repository a flake is in", () => {
 });
 
 describe("whether a copy of a tree may go as a folder", () => {
-	const TAKES = { tree: true, subtests: true, wants: true, folder: true };
+	const TAKES = {
+		tree: true,
+		subtests: true,
+		wants: true,
+		folder: true,
+		changed: true,
+	};
 	const COPY: Repository = {
 		atTop: true,
 		clean: false,

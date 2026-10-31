@@ -13,7 +13,7 @@ import { homedir } from "node:os";
 import { loadPackageConfig } from "../config/loader.ts";
 import { packageConfigPath } from "../paths.ts";
 import { stepsOf } from "../shell/steps.ts";
-import { kindOf } from "./queue.ts";
+import { kindOf, runsChangedChecks } from "./queue.ts";
 import {
 	builderReady,
 	builderStands,
@@ -112,11 +112,15 @@ export async function refusedHere(
 	const takes = await takesNow();
 	if (!takes.wants && !builderStands()) return undefined;
 	const home = homedir();
-	const folders = new Set(
-		(stepsOf(command, cwd, home) ?? [])
-			.filter((step) => isVmWork(step.text))
-			.map((step) => step.cwd ?? cwd),
+	const vms = (stepsOf(command, cwd, home) ?? []).filter((step) =>
+		isVmWork(step.text),
 	);
+	// changed-checks sends its own run, and builds here only what nowhere took.
+	const held = vms.filter(
+		(step) => !(takes.changed && runsChangedChecks(step.text)),
+	);
+	if (vms.length > 0 && held.length === 0) return undefined;
+	const folders = new Set(held.map((step) => step.cwd ?? cwd));
 	if (folders.size === 0) folders.add(cwd);
 	for (const folder of folders) {
 		const found = await repositoryAt(folder);
