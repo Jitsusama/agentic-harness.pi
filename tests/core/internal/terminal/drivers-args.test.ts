@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	classifyKittyWindows,
+	createKittyDriver,
 	kittyLaunchArgs,
 	kittyLaunchSocket,
 	kittyTabLayoutOf,
@@ -40,6 +41,23 @@ const near = (
 });
 
 describe("kitty", () => {
+	it("sits in the window a holder names, reached through its socket", () => {
+		const kitty = createKittyDriver({ env: () => ({}) });
+
+		expect(
+			kitty.sightWindow?.({
+				terminal: "kitty",
+				id: "29",
+				within: "unix:@kitty-5344",
+			}),
+		).toMatchObject({
+			driverId: "kitty",
+			handle: { value: "29", scope: "unix:@kitty-5344" },
+			reachable: true,
+			source: "holder",
+		});
+	});
+
 	it("maps the vocabulary onto kitty's launch types", () => {
 		expect(kittyLaunchArgs({ layout: "window" }, "unix:@k")).toEqual([
 			"@",

@@ -263,6 +263,13 @@ export function createKittyDriver(
 			return locateBinary("kitty", "kitty") !== undefined;
 		},
 		sight,
+		sightWindow(window) {
+			const seen = sight({
+				KITTY_WINDOW_ID: window.id,
+				KITTY_LISTEN_ON: window.within,
+			});
+			return seen ? { ...seen, source: "holder" } : undefined;
+		},
 		async spawn(request) {
 			const scope = scopeFor(request);
 			let stdout: string;

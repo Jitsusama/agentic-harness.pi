@@ -80,6 +80,7 @@ export {
 	type TerminalSettingsParse,
 } from "./settings.ts";
 export type {
+	HeldWindow,
 	TerminalDriver,
 	TerminalKind,
 	TerminalLaunchCapability,

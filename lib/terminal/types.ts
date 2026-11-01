@@ -177,10 +177,22 @@ export interface TerminalSighting {
 	reachable: boolean;
 	/**
 	 * Where the sighting came from: the terminal's own variables, the
-	 * process ancestry, or a driver that predates sightings and said it
-	 * was available.
+	 * process ancestry, a driver that predates sightings and said it was
+	 * available, or the holder a session is held in, which names the
+	 * window shown joined to it.
 	 */
-	source: "environment" | "ancestry" | "driver";
+	source: "environment" | "ancestry" | "driver" | "holder";
+}
+
+/**
+ * The window a held session is shown in, as the machine's node names
+ * it: the terminal, its window's id, and how to reach that terminal
+ * (for kitty, its remote-control socket).
+ */
+export interface HeldWindow {
+	readonly terminal: string;
+	readonly id: string;
+	readonly within?: string;
 }
 
 /**
@@ -256,6 +268,13 @@ export interface TerminalDriver {
 	sight?(
 		env: Readonly<Record<string, string | undefined>>,
 	): TerminalSighting | undefined;
+	/**
+	 * The terminal a held session is shown in, from the window its
+	 * holder names, when that window is this driver's. A held session's
+	 * process runs under its holder, not the terminal, so its environment
+	 * names none.
+	 */
+	sightWindow?(window: HeldWindow): TerminalSighting | undefined;
 	/**
 	 * Dispatch the spawn. Resolves when the spawn command
 	 * has been sent; the actual lifetime of the spawned

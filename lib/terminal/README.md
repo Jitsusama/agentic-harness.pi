@@ -51,7 +51,11 @@ the next one down is tried and the answer says so.
 
 The terminals' own variables say, and on Linux the process ancestry
 confirms it, so a variable inherited from somewhere else is not
-believed. When you are inside more than one, such as pi in zellij in
+believed. A session a mycelium holder keeps (`MYCELIUM_HELD`), as
+one reopened after a boot is, runs under its holder rather than a
+terminal, so its variables name none; the machine's node is asked
+which window is joined to the holder, and that window is where the
+session sits. When you are inside more than one, such as pi in zellij in
 kitty, tabs and panes go to the innermost (the one you are looking
 at) and windows to the innermost that can make one. `nesting`
 changes that.

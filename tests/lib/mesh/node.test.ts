@@ -9,6 +9,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	agentsFrom,
+	heldWindowAt,
+	heldWindowFrom,
 	nodeSocket,
 	placeAt,
 	sessionsAt,
@@ -49,6 +51,39 @@ async function serving(answer: (line: string) => string | undefined) {
 
 const sessions = (...held: object[]) =>
 	JSON.stringify({ Ok: { Sessions: held } });
+
+describe("asking the node which window a held session is shown in", () => {
+	it("names the window joined to the holder it was asked about", async () => {
+		const socket = await serving(() =>
+			sessions(
+				{
+					id: "other",
+					held: "aaaa1111",
+					window: { terminal: "kitty", id: "3" },
+				},
+				{
+					id: "mine",
+					held: "7eff1f9e",
+					window: { terminal: "kitty", id: "29", within: "unix:@kitty-5344" },
+				},
+			),
+		);
+
+		expect(await heldWindowAt(socket, "7eff1f9e")).toEqual({
+			terminal: "kitty",
+			id: "29",
+			within: "unix:@kitty-5344",
+		});
+	});
+
+	it("names none for a holder no window has joined, or an answer it can't read", () => {
+		const line = sessions({ id: "mine", held: "7eff1f9e" });
+
+		expect(heldWindowFrom(line, "7eff1f9e")).toBeUndefined();
+		expect(heldWindowFrom(line, "nobody00")).toBeUndefined();
+		expect(heldWindowFrom("not json", "7eff1f9e")).toBeUndefined();
+	});
+});
 
 describe("asking the node who is there", () => {
 	it("hears every session it holds, by id, as it judges each", async () => {

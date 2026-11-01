@@ -242,6 +242,59 @@ function askAt(
 	});
 }
 
+/** The window a node says a held session is shown in. */
+export interface NodeWindow {
+	readonly terminal: string;
+	readonly id: string;
+	readonly within?: string;
+}
+
+/**
+ * The window the node serving `socket` says the session it holds as
+ * `held` is shown in, or nothing when none answers or none is joined.
+ */
+export async function heldWindowAt(
+	socket: string | undefined,
+	held: string,
+	patience: number = NODE_PATIENCE_MS,
+): Promise<NodeWindow | undefined> {
+	const line = await askAt(socket, "Sessions", patience);
+	return line === undefined ? undefined : heldWindowFrom(line, held);
+}
+
+/** The window a node's answer gives the session held as `held`. */
+export function heldWindowFrom(
+	line: string,
+	held: string,
+): NodeWindow | undefined {
+	let reply: unknown;
+	try {
+		reply = JSON.parse(line);
+	} catch {
+		// Not an answer this reader knows, so no window is named.
+		return undefined;
+	}
+	const sessions =
+		isRecord(reply) && isRecord(reply.Ok) ? reply.Ok.Sessions : undefined;
+	if (!Array.isArray(sessions)) return undefined;
+	const one: unknown = sessions.find(
+		(each) => isRecord(each) && each.held === held,
+	);
+	const window = isRecord(one) ? one.window : undefined;
+	if (
+		!isRecord(window) ||
+		typeof window.terminal !== "string" ||
+		typeof window.id !== "string"
+	) {
+		return undefined;
+	}
+	return {
+		terminal: window.terminal,
+		id: window.id,
+		...(typeof window.within === "string" ? { within: window.within } : {}),
+	};
+}
+
 /** The sessions a node's answer names, or nothing when it names none. */
 export function sessionsFrom(line: string): NodeSessions | undefined {
 	let reply: unknown;

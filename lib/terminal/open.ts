@@ -35,6 +35,7 @@ import {
 	startDetached,
 } from "../core/internal/terminal/launchers.ts";
 import { list } from "../core/internal/terminal/registry.ts";
+import { heldWindowAt, nodeSocket } from "../mesh/node.ts";
 import {
 	discoverTerminals,
 	isSelfReportingDriver,
@@ -54,6 +55,7 @@ import {
 	type TerminalSettings,
 } from "./settings.ts";
 import type {
+	HeldWindow,
 	TerminalDriver,
 	TerminalLaunchCapability,
 	TerminalLayout,
@@ -92,6 +94,12 @@ export interface OpenOptions {
 	 * there.
 	 */
 	readonly ancestry?: readonly string[] | false;
+	/**
+	 * The window a held session is shown in, or false to ask nobody.
+	 * Defaults to asking the machine's node, only when the environment
+	 * names the holder (`MYCELIUM_HELD`).
+	 */
+	readonly heldIn?: HeldWindow | false;
 }
 
 /** How a command reached its shell. */
@@ -208,6 +216,20 @@ interface Context {
 	readonly ancestryRead: boolean;
 }
 
+/**
+ * The window the machine's node says this held session is shown in.
+ * A session reopened after a boot runs under a holder whose environment
+ * names no terminal, so without this it opens a fresh one wherever the
+ * person is looking rather than beside itself.
+ */
+function heldWindow(
+	env: Readonly<Record<string, string | undefined>>,
+): Promise<HeldWindow | undefined> {
+	const held = env.MYCELIUM_HELD;
+	if (!held) return Promise.resolve(undefined);
+	return heldWindowAt(nodeSocket({ ...env }), held);
+}
+
 async function prepare(options: OpenOptions): Promise<Context> {
 	const env = options.env ?? process.env;
 	const platform = options.platform ?? currentPlatform();
@@ -224,6 +246,10 @@ async function prepare(options: OpenOptions): Promise<Context> {
 			selfReported.add(driver.id);
 		}
 	}
+	const heldIn =
+		options.heldIn === false
+			? undefined
+			: (options.heldIn ?? (await heldWindow(env)));
 	const landscape = discoverTerminals({
 		platform,
 		env,
@@ -231,6 +257,7 @@ async function prepare(options: OpenOptions): Promise<Context> {
 		launchers: mergedLaunchers(options.settings),
 		selfReported,
 		...(ancestry ? { ancestry } : {}),
+		...(heldIn ? { heldIn } : {}),
 	});
 	return {
 		env,
