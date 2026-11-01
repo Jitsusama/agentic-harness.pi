@@ -135,6 +135,7 @@ import {
 	type Self,
 	sentBy,
 } from "../../lib/mesh/thread.ts";
+import { toldIn } from "../../lib/mesh/told.ts";
 import { folderTransport, type Transport } from "../../lib/mesh/transport.ts";
 import { waitingFolder } from "../../lib/mesh/waiting.ts";
 import { type Want, type WantKind, wantFrom } from "../../lib/mesh/want.ts";
@@ -371,6 +372,7 @@ export function meshWorkflow(
 			sent: (message) => seen.add(message.id),
 			queueKept: () => queueKept(env),
 			booted: () => machineBooted(),
+			told: toldIn(join(paths.mesh, "told")),
 		});
 		// The sessions last counted still there, so a quest's address is
 		// left only to a peer that is (see address.ts).

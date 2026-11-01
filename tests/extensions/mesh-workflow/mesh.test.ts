@@ -2775,6 +2775,27 @@ describe("a lease", () => {
 		expect(told[0]?.text).toContain("reached for");
 	});
 
+	it("tells the holder once in the hour, across processes and its retaken claims", async () => {
+		// Each process kept its own memory, keyed by when the holder took
+		// its lease, so subagents, reloads and the holder's every new run
+		// told again: 327 fyis for one walgit file on 10-31.
+		peer("session-w", ["WCJQSG"], []);
+		leased("session-w", {});
+		const first = await startSession();
+		expect(await first.fire(...editing("a.ts"))).toMatchObject({
+			block: true,
+		});
+		await first.fire("agent_end");
+
+		leased("session-w", { since: new Date(Date.now() - 1000).toISOString() });
+		const next = await startSession();
+
+		expect(await next.fire(...editing("a.ts"))).toMatchObject({
+			block: true,
+		});
+		expect(sentOut()).toHaveLength(1);
+	});
+
 	it("never stops the peer changing the file, and lapses when its run ends", async () => {
 		peer("session-w", ["WCJQSG"], []);
 		const { fire } = await startSession();

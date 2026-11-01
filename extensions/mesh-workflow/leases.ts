@@ -55,6 +55,7 @@ import { clock, type Message, shortId } from "../../lib/mesh/message.ts";
 import type { Peer } from "../../lib/mesh/peer.ts";
 import type { Presence, Presences } from "../../lib/mesh/presence.ts";
 import { mayReplace, sentBy } from "../../lib/mesh/thread.ts";
+import type { Told } from "../../lib/mesh/told.ts";
 import type { Transport } from "../../lib/mesh/transport.ts";
 
 /** Whether the machine's queue is kept, as this environment finds it. */
@@ -117,6 +118,12 @@ export interface LeaseSurroundings {
 	 * not say: nothing anybody started before then is still under way.
 	 */
 	booted?(): number | undefined;
+	/**
+	 * Who this peer's processes have told of an overlap within the hour,
+	 * so a subagent, a hand, a reload or a new run of the holder's does
+	 * not tell the same holder of the same thing again (lib/mesh/told.ts).
+	 */
+	readonly told?: Told;
 }
 
 export interface Leasing {
@@ -157,8 +164,10 @@ export interface Leasing {
 
 export function createLeasing(at: LeaseSurroundings): Leasing {
 	const asking = at.asking ?? "ask with mesh_send";
-	// Each overlap is told once: a lease another peer took is known by its
-	// holder and when it was taken, so a new run's claim is told again.
+	// Each overlap is refused once in this process: a lease another peer
+	// took is known by its holder and when it was taken, so a new run's
+	// claim is refused again. Whether its holder is sent word is kept
+	// apart, on disk for every process of this peer (`at.told`).
 	const told = new Set<string>();
 	const key = (held: Held) =>
 		`${held.lease.kind}|${held.lease.subject}|${held.session}|${held.lease.since}`;
@@ -188,10 +197,19 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 		});
 	};
 
-	const tell = (holder: Presence, text: string) => {
+	const tell = (holder: Presence, about: Held, text: string) => {
 		const peer = at.peer();
 		const address = holder.addresses[0];
 		if (!peer || !address) return;
+		const telling = {
+			teller: peer.signature,
+			holder: holder.session,
+			kind: about.lease.kind,
+			subject: about.lease.subject,
+		};
+		const now = Date.now();
+		if (at.told?.already(telling, now)) return;
+		at.told?.note(telling, now);
 		at.sent(
 			at.transport.send({
 				from: peer.signature,
@@ -225,6 +243,7 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 						told.add(key(one));
 						tell(
 							one.holder,
+							one,
 							claimsCheckout(one.lease)
 								? `${peer.signature} reached for ${subject}, in the checkout this peer rewrote. It was told who did, and may go ahead beside this peer.`
 								: `${peer.signature} reached for ${subject}, which this peer is changing. It was told who is, and may go ahead beside this peer.`,
@@ -280,6 +299,7 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 					if (first) {
 						tell(
 							first.holder,
+							first,
 							`${peer.signature} is about to run \`${run}\` in ${checkout}, which rewrites its files while this peer is ${changingText(held.map(({ lease }) => lease))}. It was told, and running it again goes ahead.`,
 						);
 					}
@@ -471,6 +491,7 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 				told.add(key(one));
 				tell(
 					one.holder,
+					one,
 					`${peer.signature} started ${heavySaid(subject)} too${why ? ` (${why})` : ""}, beside this peer's.`,
 				);
 			}
