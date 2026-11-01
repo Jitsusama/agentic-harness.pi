@@ -17,7 +17,6 @@ subagent({
   jobs: [
     {
       id: "security",
-      model: "anthropic/claude-haiku-4-7",
       thinkingLevel: "high",
       cwd: "/path/to/repo",
       systemPrompt: "You are a security reviewer ...",
@@ -25,7 +24,6 @@ subagent({
     },
     {
       id: "performance",
-      model: "anthropic/claude-haiku-4-7",
       cwd: "/path/to/repo",
       systemPrompt: "You are a performance reviewer ...",
       userPrompt: "Walk src/auth for hot-path allocations.",
@@ -116,6 +114,16 @@ layers, first match winning:
    keyed the way `review.ask.projects` is;
 5. `subagent.defaults`;
 6. the session's own model, at `high` thinking.
+
+A fleet runs on one model, getting its spread from
+personas: on 1 November Joel judged fleets mixing GPT and
+Gemini with Claude worth nothing. So a model named on a job
+or in the run's `defaults` must be the one the job would run
+on without it, from the layers below those two; another is
+refused before anything starts, unless the person named
+that model in what they typed to the session. What the
+config names is the person's choice and always runs
+(`lib/internal/session/asked-models.ts`).
 
 A fleet past `subagent.maxJobs` (8 unless set) is refused
 before anything starts, saying how to raise it. A section

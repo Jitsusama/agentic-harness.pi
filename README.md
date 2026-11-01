@@ -94,7 +94,7 @@ provider for a private review system can live in a different
 package entirely. `review-guide` teaches the tools.
 
 **Ask other models about a change.** `review_ask` runs a
-conversation-first, multi-model review through the same
+conversation-first, multi-persona review through the same
 substrate: a council of reviewers fans out, a judge
 consolidates, an optional critique round pushes back, an audit
 weighs the threads already on the change, and a stack round

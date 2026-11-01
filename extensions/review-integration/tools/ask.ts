@@ -89,6 +89,10 @@ import {
 import { packageConfigPath } from "../../../lib/internal/paths.ts";
 import { questLoadedIn } from "../../../lib/internal/quest/loaded.ts";
 import { isRecord } from "../../../lib/internal/record.ts";
+import {
+	personsWords,
+	refusedModel,
+} from "../../../lib/internal/session/asked-models.ts";
 import type { ReviewerThinkingLevel } from "../../../lib/subagent/index.ts";
 import {
 	getParentPiInstall,
@@ -197,6 +201,8 @@ interface RoundSeat {
 	readonly place: RosterPlace;
 	/** The session's model as `provider/id`, when the session has one. */
 	readonly sessionModel?: string;
+	/** What the person typed to this session, for a model only they may ask for. */
+	readonly said: readonly string[];
 }
 
 /** Where this call is being asked from. */
@@ -207,6 +213,7 @@ async function seatFor(
 ): Promise<RoundSeat> {
 	const quest = await questLoadedIn(ctx.sessionManager.getSessionId());
 	return {
+		said: person.said,
 		place: {
 			...(params.set === undefined ? {} : { set: params.set }),
 			...(quest === undefined ? {} : { quest }),
@@ -218,8 +225,17 @@ async function seatFor(
 	};
 }
 
+/**
+ * What the person typed to this session, held for the process like the
+ * identity ledger above: one review_ask tool is registered per process.
+ */
+const person = personsWords();
+
 /** Register the `review_ask` tool. */
 export function registerAskTool(pi: ExtensionAPI): void {
+	pi.on("input", (event) => {
+		if (event.source === "interactive") person.heard(event.text);
+	});
 	pi.registerTool({
 		name: "review_ask",
 		// Called in 16 of 70 sessions from 18 October, and the review-guide
@@ -238,6 +254,7 @@ export function registerAskTool(pi: ExtensionAPI): void {
 			"An id that has raised findings is held to the model, thinking level, tools and persona it meant. Reconfiguring one is refused, and the refusal names both ways out: another id, or release this one and accept that its findings no longer identify who raised them.",
 			"A round reads a snapshot pinned to the commit under review. When none can be cut it reads the checkout only if that checkout is at the commit, and otherwise refuses, naming what to fetch or which checkout to pass as repo: a round against the wrong commit or the wrong repository returns findings that read plausibly and are about other code. Only when the provider reports no commit does the answer carry a caveat naming what was read instead: pass that on.",
 			"Reading findings is review_see findings and deciding them is review_draft decide. This tool only produces them.",
+			"A round runs on one model and gets its spread from personas, never from other models. A model in who other than the one that participant runs on without it is refused, unless the person asked for that model by name.",
 		],
 		parameters: Type.Object({
 			action: Type.Optional(
@@ -1784,16 +1801,19 @@ async function rosterOrThrow(
 	seat: RoundSeat,
 ): Promise<ChosenRoster> {
 	const path = packageConfigPath();
+	const loaded = await loadPackageConfig(path);
 	// Params rather than nothing, and required rather than optional, so
 	// every round kind picks the override up and none is left honouring
 	// a config nobody asked for. The compiler named all seven sites.
 	const { roster, source, max } = await rosterFromConfig(
-		await loadPackageConfig(path),
+		loaded,
 		path,
 		params.who,
 		asks,
 		seat.place,
 	);
+	const refused = await refusedWhoModel(params.who, loaded, path, asks, seat);
+	if (refused !== undefined) throw new Error(refused);
 	// Only for rounds that ask reviewers: a judge alone is one
 	// participant however large the roster it was read from.
 	if (asks !== "judge") {
@@ -1806,6 +1826,45 @@ async function rosterOrThrow(
 		roster: asItRuns(roster, seat.sessionModel),
 		chosen: sourceSentence(source, path),
 	};
+}
+
+/**
+ * Why a model `who` names is refused, or nothing: each must be the one
+ * that participant runs on without it, the config's or the session's,
+ * unless the person asked for it (lib/internal/session/asked-models.ts).
+ * What the config names is the person's choice, so it is never refused.
+ */
+export async function refusedWhoModel(
+	who: Record<string, ParticipantOverride> | undefined,
+	loaded: ConfigLoadResult,
+	path: string,
+	asks: RoundAsks,
+	seat: RoundSeat,
+): Promise<string | undefined> {
+	const named = Object.entries(who ?? {}).filter(
+		([, one]) => one.model !== undefined,
+	);
+	if (named.length === 0) return undefined;
+	const { roster } = await rosterFromConfig(
+		loaded,
+		path,
+		undefined,
+		asks,
+		seat.place,
+	);
+	const everybody = [
+		...roster.reviewers,
+		...(roster.judge === undefined ? [] : [roster.judge]),
+	];
+	for (const [id, one] of named) {
+		if (one.model === undefined) continue;
+		const usual =
+			everybody.find((participant) => participant.id === id)?.model ??
+			seat.sessionModel;
+		const refused = refusedModel(one.model, usual, seat.said);
+		if (refused !== undefined) return `${id}: ${refused}`;
+	}
+	return undefined;
 }
 
 /**
