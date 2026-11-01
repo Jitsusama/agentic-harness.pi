@@ -10,7 +10,8 @@
  * they match, or `sessions` is empty, it has nothing to offer, but for
  * an entry marked `carried` (Y2YBTS, 30 October): a session another
  * machine carried home before it went away, offered whatever the boot
- * until it runs here (carried.ts).
+ * until it runs here (carried.ts). An entry marked `fresh` is a session
+ * pi never saved, which the launcher starts afresh under its id.
  *
  * Worked out without probing any process, since it is written as each
  * pi starts, and starting a session never shells out: a record from
@@ -58,6 +59,13 @@ export interface RestoreEntry {
 	 * machine, and when. It reopens like any session here, in `cwd`.
 	 */
 	readonly carried?: { readonly from: string; readonly at: string };
+	/**
+	 * For a session pi never saved, as one that never answered: there is
+	 * no file for `pi --session` to resume, so the launcher starts it
+	 * afresh under its id with `pi --session-id`, its quest autoloaded
+	 * (Y2YBTS, 1 November).
+	 */
+	readonly fresh?: true;
 }
 
 /** The whole file. */
@@ -124,9 +132,11 @@ export function restoreFileOf(
 		v: RESTORE_FILE_VERSION,
 		...(boot !== undefined ? { boot } : {}),
 		sessions: [
-			...found.offered
-				.filter((record) => saved(record.sessionId))
-				.map((record) => entryOf(record, titleOf)),
+			...found.offered.map((record) =>
+				saved(record.sessionId)
+					? entryOf(record, titleOf)
+					: { ...entryOf(record, titleOf), fresh: true as const },
+			),
 			...(joins?.windows ?? []).map(
 				(window): RestoreEntry => ({
 					id: window.id,
