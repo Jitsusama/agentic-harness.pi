@@ -74,10 +74,22 @@ afresh restored the model, so what kept it from pi then is not known.
 
 So the rollover carries what the session ran on across the switch
 itself, and sets the model and thinking level back once the fresh
-session's extensions have started. If the model can't be found even
-then, or any session that replaced another starts on no model, it
-says so in the window as an error, naming the model it had and
-`/model` to choose one. At startup pi says so itself.
+session's extensions have started.
+
+That was not enough: on 2026-11-01 two sessions rolled over with the
+carry in place, came up on the placeholder anyway and logged no
+model change, and a rollover with the same extensions and packages
+kept its model when reproduced. So a session on no model is also set
+back, before each turn, to the model and thinking level its log
+chose last: on a typed prompt's `input`, which pi checks for a model
+before its turn prepares, and on `before_agent_start` for a turn a
+message starts, as the mesh's do.
+
+If the model can't be set back, the session says so in the window as
+an error, naming the model it had, why (pi has no such model, or its
+provider has no auth configured) and `/model` to choose one, and
+writes the same in its log as a `model-not-set-back` entry, so the
+cause outlives the window. At startup pi says so itself.
 
 ## Logs Rolled Over Before the Fold
 

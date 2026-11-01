@@ -17,9 +17,12 @@
  * state from the branch. The model and thinking level the session ran
  * on are carried across and set back once the fresh session starts,
  * since pi's own restore can come up on no model (see
- * lib/internal/session/carried-model.ts). Any session that starts on no
- * model says so in its window, rather than failing its next call out
- * of sight; at startup pi says so itself.
+ * lib/internal/session/carried-model.ts). A session still on no model
+ * when a turn starts is set back to the model its log chose last, since
+ * on 2026-11-01 two rolled-over sessions came up on none though the
+ * carry was there. One whose model can't be set back says so in its
+ * window and, with why, in its log (`model-not-set-back`), rather than
+ * failing its next call out of sight; at startup pi says so itself.
  *
  * A log rolled over before the system messages were folded lost the
  * built-in tools on its next restart; when one starts, they are given
@@ -37,8 +40,10 @@ import type {
 import { formatSize } from "../../lib/internal/quest/footprint.ts";
 import { reloadSlot } from "../../lib/internal/reload/slot.ts";
 import {
+	type ChosenModel,
 	carryModel,
 	hasNoModel,
+	modelOfBranch,
 	NO_PROVIDER,
 	takeCarriedModel,
 } from "../../lib/internal/session/carried-model.ts";
@@ -159,50 +164,117 @@ export function restoreLostBuiltIns(
 	return lost;
 }
 
+/** The custom entry a session's log gets when its model can't be set back. */
+export const MODEL_NOT_SET_BACK = "model-not-set-back";
+
+/** What setting a model back needs of pi. */
+type SetBackApi = Pick<
+	ExtensionAPI,
+	"setModel" | "getThinkingLevel" | "setThinkingLevel" | "appendEntry"
+>;
+
+/** What setting a model back needs of the session. */
+type SetBackContext = Pick<
+	ExtensionContext,
+	"sessionManager" | "model" | "modelRegistry" | "hasUI" | "ui"
+>;
+
+/**
+ * Put the session on `wanted` and its thinking level. Answers nothing
+ * once it is on it, or why it could not be: pi has no such model, or
+ * its provider has no auth configured.
+ */
+async function setBack(
+	pi: SetBackApi,
+	ctx: SetBackContext,
+	wanted: ChosenModel,
+): Promise<string | undefined> {
+	const on =
+		ctx.model?.provider === wanted.provider && ctx.model.id === wanted.modelId;
+	if (!on) {
+		const model = ctx.modelRegistry.find(wanted.provider, wanted.modelId);
+		if (!model) return "pi has no such model";
+		if (!(await pi.setModel(model))) {
+			const status = ctx.modelRegistry.getProviderAuthStatus(wanted.provider);
+			return `its provider has no auth configured (${JSON.stringify(status)})`;
+		}
+	}
+	if (wanted.thinkingLevel && pi.getThinkingLevel() !== wanted.thinkingLevel) {
+		pi.setThinkingLevel(wanted.thinkingLevel);
+	}
+	return undefined;
+}
+
+/**
+ * Say in the session's log, and loudly in its window, that it is on no
+ * model: which it ran on and why that could not be set back, so the
+ * cause outlives the window.
+ */
+function sayNoModel(
+	pi: SetBackApi,
+	ctx: SetBackContext,
+	when: string,
+	wanted: ChosenModel | undefined,
+	why: string | undefined,
+): void {
+	const named = wanted ? `${wanted.provider}/${wanted.modelId}` : undefined;
+	if (named && why) {
+		pi.appendEntry(MODEL_NOT_SET_BACK, { when, model: named, why });
+	}
+	if (!ctx.hasUI) return;
+	const had = named
+		? ` It ran on ${named}, which can't be set back: ${why ?? "unknown"}.`
+		: "";
+	ctx.ui.notify(
+		`This session has no model, so it can't answer.${had} Choose one with /model.`,
+		"error",
+	);
+}
+
 /**
  * Set back the model and thinking level a rollover carried into this
- * session, and say so loudly when a session that replaced another is
- * left on no model. pi's own start says when it has none, so a
- * startup is left to it. Returns the model it ended on, as
- * provider/id, or nothing.
+ * session, else the ones its log chose last, and say so loudly when a
+ * session that replaced another is left on no model. pi's own start
+ * says when it has none, so a startup is left to it. Returns the model
+ * it ended on, as provider/id, or nothing.
  */
 export async function restoreCarriedModel(
-	pi: Pick<ExtensionAPI, "setModel" | "getThinkingLevel" | "setThinkingLevel">,
-	ctx: Pick<
-		ExtensionContext,
-		"sessionManager" | "model" | "modelRegistry" | "hasUI" | "ui"
-	>,
+	pi: SetBackApi,
+	ctx: SetBackContext,
 	reason: SessionStartEvent["reason"],
 ): Promise<string | undefined> {
 	const carried = takeCarriedModel(ctx.sessionManager.getSessionFile());
-	let missing: string | undefined;
-	if (carried) {
-		const named = `${carried.provider}/${carried.modelId}`;
-		const on =
-			ctx.model?.provider === carried.provider &&
-			ctx.model.id === carried.modelId;
-		if (!on) {
-			const model = ctx.modelRegistry.find(carried.provider, carried.modelId);
-			if (!model || !(await pi.setModel(model))) missing = named;
-		}
-		if (!missing && pi.getThinkingLevel() !== carried.thinkingLevel) {
-			pi.setThinkingLevel(carried.thinkingLevel);
-		}
-	}
+	const wanted: ChosenModel | undefined =
+		carried ??
+		(hasNoModel(ctx.model)
+			? modelOfBranch(ctx.sessionManager.getBranch())
+			: undefined);
+	const why = wanted ? await setBack(pi, ctx, wanted) : undefined;
 	if (hasNoModel(ctx.model)) {
-		if (reason === "startup") return undefined;
-		const had = missing
-			? ` It ran on ${missing} before rolling over, which can't be found now.`
-			: "";
-		if (ctx.hasUI) {
-			ctx.ui.notify(
-				`This session has no model, so it can't answer.${had} Choose one with /model.`,
-				"error",
-			);
-		}
+		if (reason !== "startup") sayNoModel(pi, ctx, "start", wanted, why);
 		return undefined;
 	}
 	return ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+}
+
+/**
+ * Before a turn starts on no model, set back the one the log chose
+ * last, so the turn runs on it rather than failing with "Unknown
+ * provider: unknown". A session can come up on no model after its
+ * start set it back, or with nothing set back at its start, and this is
+ * the last moment it can be mended unseen. Returns why it could not,
+ * once it has said so, or nothing.
+ */
+export async function restoreModelBeforeTurn(
+	pi: SetBackApi,
+	ctx: SetBackContext,
+): Promise<string | undefined> {
+	if (!hasNoModel(ctx.model)) return undefined;
+	const wanted = modelOfBranch(ctx.sessionManager.getBranch());
+	if (!wanted) return undefined;
+	const why = await setBack(pi, ctx, wanted);
+	if (why) sayNoModel(pi, ctx, "before a turn", wanted, why);
+	return why;
 }
 
 export default function rolloverWorkflow(pi: ExtensionAPI) {
@@ -222,6 +294,15 @@ export default function rolloverWorkflow(pi: ExtensionAPI) {
 		due = false;
 		restoreLostBuiltIns(pi, ctx);
 		await restoreCarriedModel(pi, ctx, event.reason);
+	});
+
+	// A typed prompt is checked for a model before its turn prepares, so
+	// it is mended on its input; a turn a message starts, on its start.
+	pi.on("input", async (_event, ctx) => {
+		await restoreModelBeforeTurn(pi, ctx);
+	});
+	pi.on("before_agent_start", async (_event, ctx) => {
+		await restoreModelBeforeTurn(pi, ctx);
 	});
 
 	pi.on("session_compact", async (_event, ctx) => {

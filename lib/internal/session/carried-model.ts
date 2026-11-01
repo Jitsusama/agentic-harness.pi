@@ -62,6 +62,65 @@ export function carryModel(carried: CarriedModel): void {
 	global[SLOT_KEY] = carried;
 }
 
+/** The model a log chose last, and the thinking level it set last. */
+export interface ChosenModel {
+	/** The model's provider, as pi names it. */
+	readonly provider: string;
+	/** The model's id within its provider. */
+	readonly modelId: string;
+	/** The thinking level, when the log ever set one. */
+	readonly thinkingLevel?: ThinkingLevel;
+}
+
+const THINKING_LEVELS: readonly string[] = [
+	"off",
+	"minimal",
+	"low",
+	"medium",
+	"high",
+	"xhigh",
+];
+
+function isThinkingLevel(value: unknown): value is ThinkingLevel {
+	return typeof value === "string" && THINKING_LEVELS.includes(value);
+}
+
+/**
+ * The model a branch of a log last chose, and the thinking level it
+ * last set, read from its `model_change` and `thinking_level_change`
+ * entries. The log stays right when a running session loses its model,
+ * so it is what a session on no model is set back to. Answers nothing
+ * when the branch never chose a model.
+ */
+export function modelOfBranch(
+	branch: readonly object[],
+): ChosenModel | undefined {
+	let chosen: { provider: string; modelId: string } | undefined;
+	let thinkingLevel: ThinkingLevel | undefined;
+	for (const entry of branch) {
+		if (!("type" in entry)) continue;
+		if (
+			entry.type === "model_change" &&
+			"provider" in entry &&
+			"modelId" in entry &&
+			typeof entry.provider === "string" &&
+			typeof entry.modelId === "string" &&
+			!hasNoModel({ provider: entry.provider })
+		) {
+			chosen = { provider: entry.provider, modelId: entry.modelId };
+		}
+		if (
+			entry.type === "thinking_level_change" &&
+			"thinkingLevel" in entry &&
+			isThinkingLevel(entry.thinkingLevel)
+		) {
+			thinkingLevel = entry.thinkingLevel;
+		}
+	}
+	if (!chosen) return undefined;
+	return thinkingLevel ? { ...chosen, thinkingLevel } : chosen;
+}
+
 /**
  * Take what was carried for the log at `path`, leaving nothing behind.
  * Answers nothing when nothing was carried, or it was for another log:
