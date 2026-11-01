@@ -1339,6 +1339,7 @@ describe("asking again", () => {
 
 describe("sending", () => {
 	it("signs with the quest the session has loaded, and the mesh stamps it", async () => {
+		peer("session-p", ["P9R1KI"], []);
 		const { tools } = await startSession();
 
 		const answer = await send(tools, "p9r1ki, #optimus", "fyi", "hello");
@@ -1360,6 +1361,7 @@ describe("sending", () => {
 		// Two sessions on one quest both signed with its address, so each
 		// took the other's messages for its own and heard none of them.
 		peer("session-x", ["7M6JKG"], []);
+		peer("session-p", ["P9R1KI"], []);
 		const { sent, tools } = await startSession();
 
 		expect(await send(tools, "p9r1ki", "fyi", "hello")).toContain(
@@ -1406,6 +1408,7 @@ describe("sending", () => {
 
 	it("keeps its quest's address from a peer that held it and ended", async () => {
 		peer("session-x", ["7M6JKG"], [], true);
+		peer("session-p", ["P9R1KI"], []);
 		const { tools } = await startSession();
 
 		expect(await send(tools, "p9r1ki", "fyi", "hello")).toContain(
@@ -1417,6 +1420,7 @@ describe("sending", () => {
 
 	it("takes its quest's address back once the peer holding it ends", async () => {
 		peer("session-x", ["7M6JKG"], []);
+		peer("session-p", ["P9R1KI"], []);
 		const { tools } = await startSession(
 			{},
 			{},
@@ -1447,7 +1451,38 @@ describe("sending", () => {
 		const answer = await send(tools, "p9r1ki, p9rlki", "question", "ready?");
 
 		expect(answer).toContain("It goes to P9R1KI;");
-		expect(answer).toContain("No peer goes by P9RLKI");
+		expect(answer).toContain(
+			"Not written to @P9RLKI: no session in this realm goes by P9RLKI",
+		);
+		const transport = folderTransport(join(paths.mesh, "messages"));
+		const [id] = transport.ids();
+		expect(id && transport.read(id)?.to).toEqual(["@P9R1KI"]);
+	});
+
+	it("refuses a send no session in this realm goes by, writing nothing", async () => {
+		// On 2026-11-01 a methuselah session's findings for the work
+		// realm were written where nobody reads them, and it waited on them.
+		const { tools } = await startSession();
+
+		const answer = await send(tools, "16v6f4", "finding", "the link");
+
+		expect(answer).toContain(
+			"Not sent: no session in this realm goes by 16V6F4, there or ended. Realms are kept apart",
+		);
+		expect(folderTransport(join(paths.mesh, "messages")).ids()).toEqual([]);
+	});
+
+	it("still answers a message whose sender has no presence here", async () => {
+		// The machine's crossing holds come from an address no session
+		// here goes by, and a peer answers them once it has parked.
+		const { tools } = await startSession();
+		const hold = fromElsewhere({ from: "MACHINE", intent: "hold" });
+
+		const answer = await tools
+			.get("mesh_send")
+			?.execute("call-1", { intent: "fyi", text: "parked", re: hold.id });
+
+		expect(answer?.content[0]?.text).toContain("Sent as");
 	});
 
 	it("reaches a peer that once held this peer's quest", async () => {

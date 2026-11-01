@@ -119,7 +119,7 @@ export function registerTools(
 		promptSnippet:
 			"Message the other pi sessions on this machine; mesh_read, mesh_groups, mesh_join, mesh_leave and mesh_stop read the mesh and shape who hears what, and mesh_wait says what waits on the person.",
 		description:
-			"Send a message to other pi sessions (peers) on this machine without interrupting them: it joins their conversation as context, at the attention each gives it. Send only what changes what another peer should do (a hold before a reboot, a switch or a merge; a question only it can answer) or what concerns something it owns (a finding). Never send progress, acknowledgements or thanks, nor word of heavy work: builds, VM tests and benchmarks take turns in the machine's queue by themselves. Every message goes to a group: a peer's home group by its address (5GV2AH); a group a peer's work puts it in, its quest's (#quest/5gv2ah, which reaches the quests under it too) or its repository's (#repo/agentic-harness-pi); a group by name (#harness); or #machine (#all names it too), which every session hears and which takes only holds and the answers that end them: a question, finding or fyi sent there is refused. Pick the narrowest that reaches everyone affected: a question for one peer goes to its address alone (to: P9R1KI, not a group it shares), since every member of a group reads what is sent there; a question to several peers or a named group asks each of them, giving each a turn and counting only each one's own answer, and a message that opens by naming peers ('P9R1KI: may I') goes to them alone wherever it was sent. When the person asks to stop or pause other sessions' work, as before a reboot, send a hold to #machine asking each peer to answer it once parked, then answer the hold yourself (re) when work may resume: that hands every peer that answered its turn back, and a reboot since a hold was sent ends it by itself. When the person tells you a hold another peer sent is over, answer it with endsHold, which asks them to confirm. A question or an fyi hands no turn back, so a pause sent as one leaves sessions parked. Leave `to` out and the mesh picks from what the message names and who works on it. Sending to a named group joins it, so this peer hears the answers. mesh_groups lists the groups and who is in them.",
+			"Send a message to other pi sessions (peers) on this machine without interrupting them: it joins their conversation as context, at the attention each gives it. Send only what changes what another peer should do (a hold before a reboot, a switch or a merge; a question only it can answer) or what concerns something it owns (a finding). Never send progress, acknowledgements or thanks, nor word of heavy work: builds, VM tests and benchmarks take turns in the machine's queue by themselves. Every message goes to a group: a peer's home group by its address (5GV2AH); a group a peer's work puts it in, its quest's (#quest/5gv2ah, which reaches the quests under it too) or its repository's (#repo/agentic-harness-pi); a group by name (#harness); or #machine (#all names it too), which every session hears and which takes only holds and the answers that end them: a question, finding or fyi sent there is refused. Pick the narrowest that reaches everyone affected: a question for one peer goes to its address alone (to: P9R1KI, not a group it shares), since every member of a group reads what is sent there; a question to several peers or a named group asks each of them, giving each a turn and counting only each one's own answer, and a message that opens by naming peers ('P9R1KI: may I') goes to them alone wherever it was sent. When the person asks to stop or pause other sessions' work, as before a reboot, send a hold to #machine asking each peer to answer it once parked, then answer the hold yourself (re) when work may resume: that hands every peer that answered its turn back, and a reboot since a hold was sent ends it by itself. When the person tells you a hold another peer sent is over, answer it with endsHold, which asks them to confirm. A question or an fyi hands no turn back, so a pause sent as one leaves sessions parked. Leave `to` out and the mesh picks from what the message names and who works on it. Sending to a named group joins it, so this peer hears the answers. Realms are kept apart: an address no session in this realm goes by is left out, and a send left with nowhere to go is refused. mesh_groups lists the groups and who is in them.",
 		parameters: Type.Object({
 			to: Type.Optional(
 				Type.String({
@@ -583,10 +583,10 @@ async function send(
 		);
 	}
 	const barred = wanted.filter((group) => stoppedAt(group).length > 0);
-	const to = wanted.filter((group) => !barred.includes(group));
+	const unbarred = wanted.filter((group) => !barred.includes(group));
 	const barredText = () =>
 		`${stopsText(stops.filter(({ stopper }) => barred.some((group) => stopper.addresses.map(homeOf).includes(group))))} Only it can lift that; until it does, leave it be.`;
-	if (to.length === 0) {
+	if (unbarred.length === 0) {
 		return answer(`Not sent: ${barredText()}`, {
 			sent: false,
 			refused: barred,
@@ -594,6 +594,26 @@ async function send(
 	}
 	if (barred.length > 0) {
 		notes.push(`Not written to ${barred.join(", ")}: ${barredText()}`);
+	}
+	// Written to an address nobody here goes by, a message is read by
+	// nobody: on 2026-11-01 a methuselah session's findings for sessions
+	// in the work realm sat unread while it waited on them.
+	// Whoever wrote what this answers goes by its address here, presence
+	// or none, as the machine's crossing holds do.
+	const unheard = unheardOf(
+		unbarred,
+		standing,
+		asker ? [homeOf(asker.from)] : [],
+	);
+	const to = unbarred.filter((group) => !unheard.includes(group));
+	if (to.length === 0) {
+		return answer(`Not sent: ${unheardText(unheard)}`, {
+			sent: false,
+			refused: unheard,
+		} satisfies SendDetails);
+	}
+	if (unheard.length > 0) {
+		notes.push(`Not written to ${unheard.join(", ")}: ${unheardText(unheard)}`);
 	}
 	// Only peers still there count as in a group: one whose every other
 	// member has ended is one nobody hears this in until someone joins.
@@ -713,6 +733,33 @@ function questionTaken(at: Local, to: readonly string[]): Message | undefined {
 	return meant.length === 1 ? meant[0] : undefined;
 }
 
+/**
+ * The peers' home groups among `groups` that no session in this mesh
+ * goes by, there or ended. The node writes the presence of every
+ * session in this realm here, those on other machines too, so such an
+ * address is mistyped or belongs to a realm kept apart from this one.
+ * `known` names homes heard of otherwise, as a message's sender.
+ */
+function unheardOf(
+	groups: readonly string[],
+	standing: Census,
+	known: readonly string[] = [],
+): string[] {
+	const homes = new Set([
+		...known,
+		...[...standing.present, ...standing.gone].flatMap((one) =>
+			one.addresses.map(homeOf),
+		),
+	]);
+	return groups.filter((group) => group.startsWith("@") && !homes.has(group));
+}
+
+/** Why a send leaves out the addresses no session here goes by. */
+function unheardText(unheard: readonly string[]): string {
+	const names = unheard.map((group) => group.slice(1)).join(" or ");
+	return `no session in this realm goes by ${names}, there or ended. Realms are kept apart, so a session in another realm can't be reached from here, and a mistyped address reaches nobody. mesh_groups lists who is here; tell the person in your reply what it was for if it is meant for another realm.`;
+}
+
 /** Who a message just sent goes to, and which addressed peers it misses. */
 function reach(
 	message: Message,
@@ -732,9 +779,7 @@ function reach(
 	const gone = addressed
 		.filter((group) => !there.has(group) && ended.has(group))
 		.map((group) => group.slice(1));
-	const unknown = addressed
-		.filter((group) => !there.has(group) && !ended.has(group))
-		.map((group) => group.slice(1));
+	const unknown = unheardOf(addressed, standing).map((group) => group.slice(1));
 	// Waited on as though it were free to answer, it would hold its asker up.
 	const waiting = everyone.flatMap((one) =>
 		one.session !== peer.session &&
