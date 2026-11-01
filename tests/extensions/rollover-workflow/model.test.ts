@@ -25,6 +25,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import rolloverWorkflow, {
 	COMMAND,
+	MODEL_NOT_SET_BACK,
 } from "../../../extensions/rollover-workflow/index.ts";
 
 /** The provider and model the session runs on. */
@@ -211,7 +212,85 @@ describe("a session that rolls over", () => {
 
 		const errors = notices.filter((notice) => notice.kind === "error");
 		expect(errors.map((notice) => notice.text)).toEqual([
-			`This session has no model, so it can't answer. It ran on ${PROVIDER}/${MODEL} before rolling over, which can't be found now. Choose one with /model.`,
+			`This session has no model, so it can't answer. It ran on ${PROVIDER}/${MODEL}, which can't be set back: pi has no such model. Choose one with /model.`,
+		]);
+		expect(notSetBack(runtime)).toEqual([
+			{
+				when: "start",
+				model: `${PROVIDER}/${MODEL}`,
+				why: "pi has no such model",
+			},
+		]);
+	});
+
+	it("answers a message on its log's model when it comes up on none after the switch", async () => {
+		runtime = await compacted();
+		await runtime.session.prompt(`/${COMMAND}`);
+		loseModel(runtime);
+
+		faux.appendResponses([fauxAssistantMessage("answer to the message")]);
+		await runtime.session.sendCustomMessage(
+			{ customType: "mesh", content: "a finding", display: true },
+			{ triggerTurn: true },
+		);
+
+		expect(lastAnswer(runtime)).toBe("answer to the message");
+		expect(runtime.session.model?.provider).toBe(PROVIDER);
+		expect(runtime.session.model?.id).toBe(MODEL);
+		expect(runtime.session.thinkingLevel).toBe("high");
+	});
+
+	it("answers a typed prompt on its log's model when it comes up on none", async () => {
+		runtime = await compacted();
+		await runtime.session.prompt(`/${COMMAND}`);
+		loseModel(runtime);
+
+		await ask(runtime, "after");
+
+		expect(lastAnswer(runtime)).toBe("answer to after");
+		expect(runtime.session.model?.provider).toBe(PROVIDER);
+		expect(runtime.session.model?.id).toBe(MODEL);
+		expect(runtime.session.thinkingLevel).toBe("high");
+	});
+
+	it("says in its log why, when its turn finds no model to set back", async () => {
+		runtime = await compacted();
+		await runtime.session.prompt(`/${COMMAND}`);
+		runtime.session.modelRuntime.unregisterProvider(PROVIDER);
+		loseModel(runtime);
+
+		await expect(ask(runtime, "after")).rejects.toThrow();
+
+		expect(notSetBack(runtime)).toEqual([
+			{
+				when: "before a turn",
+				model: `${PROVIDER}/${MODEL}`,
+				why: "pi has no such model",
+			},
 		]);
 	});
 });
+
+/**
+ * Put the session on pi's placeholder, as two rolled-over sessions
+ * came up on 2026-11-01 though their logs named their model.
+ */
+function loseModel(host: AgentSessionRuntime): void {
+	host.session.agent.state.model = {
+		...host.session.agent.state.model,
+		id: "unknown",
+		provider: "unknown",
+		api: "unknown",
+	};
+}
+
+/** What the session's log says about models it could not set back. */
+function notSetBack(host: AgentSessionRuntime): unknown[] {
+	return host.session.sessionManager
+		.getEntries()
+		.flatMap((entry) =>
+			entry.type === "custom" && entry.customType === MODEL_NOT_SET_BACK
+				? [entry.data]
+				: [],
+		);
+}
