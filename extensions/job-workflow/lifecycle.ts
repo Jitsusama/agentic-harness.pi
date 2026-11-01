@@ -11,6 +11,13 @@
  * running, and the runtime the reload starts takes them over, saying
  * their results through its own `pi`. Jobs nobody takes over are
  * stopped as before once the wait for one runs out.
+ *
+ * Nor is a rollover: it switches into a fresh log that carries the same
+ * conversation on, naming this log as its parent, so the jobs are parked
+ * for the fresh session the same way. Rollovers used to wait for no job
+ * to be running, and a session that always waited on one in the
+ * background never rolled over: on 2026-11-01 a 70 MB log went nine
+ * hours and three compactions past the threshold.
  */
 
 import type {
@@ -81,11 +88,12 @@ export interface JobSession {
 	/** The session ended: stop every job and drop what waits. */
 	close(): void;
 	/**
-	 * The runtime is reloading: keep every job running, for the runtime
-	 * the reload starts to take over, and stop them only if none does
-	 * within `carryMs`.
+	 * The runtime is reloading, or the session rolling over: keep every
+	 * job running, for the runtime that starts next to take over, and stop
+	 * them only if none does within `carryMs`. They are parked for
+	 * `forSession`, the session carrying this one on, or this one itself.
 	 */
-	park(carryMs?: number): void;
+	park(carryMs?: number, forSession?: string): void;
 }
 
 /**
@@ -112,8 +120,16 @@ interface Runtime {
 }
 
 /**
- * The session's jobs: those a reload parked for this session when
- * there are any, and otherwise a fresh set, announced as the host.
+ * Why a session starts when a runtime may have parked jobs for it: a
+ * reload, or a rollover, which pi starts as a resume. A resume of
+ * another conversation finds nothing parked under its id.
+ */
+const TAKES_PARKED = new Set(["reload", "resume"]);
+
+/**
+ * The session's jobs: those a reload or a rollover parked for this
+ * session when there are any, and otherwise a fresh set, announced as
+ * the host.
  */
 export function openSession(
 	pi: ExtensionAPI,
@@ -123,7 +139,9 @@ export function openSession(
 	const id = sessionIdOf(ctx);
 	const yielded = askToYield(pi, id);
 	const carried =
-		reason === "reload" || yielded ? takeParked(id, pi, ctx) : undefined;
+		(reason !== undefined && TAKES_PARKED.has(reason)) || yielded
+			? takeParked(id, pi, ctx)
+			: undefined;
 	return carried ?? freshSession(pi, ctx);
 }
 
@@ -215,12 +233,12 @@ function freshSession(pi: ExtensionAPI, ctx: ExtensionContext): JobSession {
 			jobs.close();
 			show();
 		},
-		park(carryMs = CARRY_MS) {
+		park(carryMs = CARRY_MS, forSession) {
 			quiet();
 			unsaid = [];
 			parkJobs(
 				{
-					session: sessionIdOf(runtime.ctx),
+					session: forSession ?? sessionIdOf(runtime.ctx),
 					adopt(next, nextCtx) {
 						runtime = { pi: next, ctx: nextCtx };
 						const ends = unsaid ?? [];

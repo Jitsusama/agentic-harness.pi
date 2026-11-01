@@ -7,14 +7,16 @@
  * until no run, compaction or submitted prompt is under way, and goes
  * out as a prompt of its own. `/jobs` lists what is running and stops
  * one for the person; the deferred `jobs` tool does the same for the
- * agent. A reload hands the jobs to the runtime it starts, still running;
- * any other end of the session stops them.
+ * agent. A reload hands the jobs to the runtime it starts, still running,
+ * and a rollover to the fresh session carrying the conversation on; any
+ * other end of the session stops them.
  */
 
 import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { carriedOnIn } from "../../lib/internal/session/log-header.ts";
 import { showJobs } from "./command.ts";
 import {
 	CUT_OFF_ENTRY,
@@ -98,6 +100,16 @@ function recordCutOff(
 	}
 }
 
+/** The log a session writes, or nothing when it keeps none or can't say. */
+function sessionFileOf(ctx: ExtensionContext): string | undefined {
+	try {
+		return ctx.sessionManager.getSessionFile();
+	} catch {
+		// A context without a session manager: no log to be carried on from.
+		return undefined;
+	}
+}
+
 /** Give a returning session a turn when the machine cut it off. */
 function resumeIfCutOff(session: JobSession, ctx: ExtensionContext): void {
 	let branch: readonly unknown[];
@@ -159,7 +171,12 @@ export default function jobWorkflow(
 		}
 		signals?.stop();
 		signals = undefined;
+		const successor =
+			event.reason === "resume"
+				? carriedOnIn(event.targetSessionFile, sessionFileOf(ctx))
+				: undefined;
 		if (event.reason === "reload") session?.park();
+		else if (successor) session?.park(undefined, successor);
 		else session?.close();
 		session = undefined;
 	});
