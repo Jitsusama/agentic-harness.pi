@@ -119,8 +119,12 @@ and can answer a question or a gate left open on screen.
   named in `to`, or, with `to` left out, to those routing
   picks (see Routing). It says which peers the message goes
   to, which addressed peers have ended or wait on their
-  person, which addresses nobody
-  goes by and which named groups nobody else is in yet. A peer
+  person, and which named groups nobody else is in yet. An
+  address no session in this realm goes by, there or ended,
+  is left out and said, and a send left with nowhere to go is
+  refused, since realms are kept apart and nobody would read
+  it; an answer still goes to whoever wrote what it answers.
+  A peer
   reads what it writes to: sending to a named group it does
   not hear joins it, so the answers reach it. `re` names the
   message it answers and `supersedes` one of this peer's own
