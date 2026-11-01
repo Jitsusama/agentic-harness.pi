@@ -34,6 +34,7 @@ import {
 import { machineBooted } from "../../lib/mesh/liveness.ts";
 import { clock, shortId } from "../../lib/mesh/message.ts";
 import { createPresences } from "../../lib/mesh/presence.ts";
+import { toldIn } from "../../lib/mesh/told.ts";
 import { folderTransport } from "../../lib/mesh/transport.ts";
 import { NOTED } from "./delivery.ts";
 import { type MeshPaths, machinePaths, registerHands } from "./index.ts";
@@ -81,6 +82,9 @@ export function meshHand(
 			sent: () => {},
 			asking: ASKING,
 			queueKept: () => queueKept(env),
+			// Shared with the peer it works for, so a hand never tells its
+			// holder what the peer already has.
+			told: toldIn(join(paths.mesh, "told")),
 		});
 		const say = (content: string) =>
 			pi.sendMessage(

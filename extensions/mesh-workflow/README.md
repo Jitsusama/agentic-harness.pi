@@ -384,7 +384,10 @@ doing only when it is the easy thing:
   overlap. A peer reaching for a file another peer still there
   is changing is stopped once, with who, since when and their
   work, and the holder is sent an fyi; reaching again goes
-  ahead beside them. The holder itself is never stopped. It
+  ahead beside them. The holder hears of it once an hour from
+  this peer, whichever of its processes or hands reaches, and
+  however often it retakes its own claim (`told/`). The holder
+  itself is never stopped. It
   lapses when the run ends, or ten minutes after the last edit.
   A `bash` call running git that rewrites a checkout's files
   (`checkout` or `switch` to another commit, `reset --hard`,
@@ -596,6 +599,10 @@ Under `$XDG_STATE_HOME/pi/agentic-harness.pi/mesh-workflow/`:
   current leases, so each peer writes only its own. It is
   rewritten when a lease is taken, given up, or renewed by a
   minute or more, and taken away when the peer holds none.
+- `told/`: one file per overlap a peer told another of, by
+  teller, holder, kind and subject, so every process of the
+  teller, its hands among them, sends that fyi once an hour.
+  Files past their hour are removed as another is written.
 
 A session with `PI_MESH=off` stays off the mesh altogether, as
 one kept nowhere does: it joins no group, hears nothing and
