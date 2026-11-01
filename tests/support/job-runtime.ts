@@ -45,12 +45,13 @@ interface Tool {
 
 /**
  * job-workflow loaded into a runtime on `events`, for session
- * `sessionId`, whose history is `branch`.
+ * `sessionId`, whose history is `branch` and whose log is `sessionFile`.
  */
 export function jobRuntime(
 	events: EventBus,
 	sessionId = "s1",
 	branch: readonly unknown[] = [],
+	sessionFile?: string,
 ): JobRuntime {
 	const handlers = new Map<string, Handler[]>();
 	const tools = new Map<string, Tool>();
@@ -89,6 +90,7 @@ export function jobRuntime(
 		hasUI: true,
 		sessionManager: {
 			getSessionId: () => sessionId,
+			getSessionFile: () => sessionFile,
 			getBranch: () => branch,
 		},
 		isIdle: () => {

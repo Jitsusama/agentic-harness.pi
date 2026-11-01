@@ -166,6 +166,20 @@ its turn in the machine's queue alive through a reload: a bash
 command runs under its job's signal, so stopping the job used to kill
 the shell, and a job's place in the queue goes with its shell.
 
+## Through a Rollover
+
+A rollover carries the same conversation on in a fresh log, so its
+jobs go with it. pi switches into the fresh log as it would resume any
+session: `session_shutdown` with reason `resume` and the fresh log as
+its target, then a new runtime, as on a reload. When that target's
+header names the closing session's log as its `parentSession`, the
+host parks its jobs for the fresh session's id rather than stopping
+them, and the fresh session takes them over on `session_start` with
+reason `resume`. A resume into any other log stops them, as before.
+
+The mesh lets go of a session's heavy-work leases as it shuts down,
+reload or rollover, so a carried job runs on without one.
+
 ## When the Machine Ends a Session
 
 pi resumes nothing on its own. A session restored after a reboot sits
@@ -194,12 +208,11 @@ the turn comes once.
 
 ## Limits
 
-- **Nothing else outlives the session.** A new session, a resume, a
-  fork and a quit stop every job, with the reason `session`, and drop
-  whatever was waiting, since a result belongs to the conversation it
-  was started in. Rolling a log over switches sessions, so it waits
-  for jobs instead. A job's work should write its output somewhere
-  durable if it matters beyond the session.
+- **Nothing else outlives the session.** A new session, a resume of
+  another log, a fork and a quit stop every job, with the reason
+  `session`, and drop whatever was waiting, since a result belongs to
+  the conversation it was started in. A job's work should write its
+  output somewhere durable if it matters beyond the session.
 - **A narrow race remains.** If you press Enter in the milliseconds
   while the outbox's own prompt runs its `before_agent_start`
   handlers, pi refuses yours as already processing a prompt. pi's own

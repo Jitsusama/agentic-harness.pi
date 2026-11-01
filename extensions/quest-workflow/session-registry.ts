@@ -14,12 +14,9 @@
  */
 
 import {
-	closeSync,
 	mkdirSync,
-	openSync,
 	readdirSync,
 	readFileSync,
-	readSync,
 	statSync,
 	unlinkSync,
 	utimesSync,
@@ -73,6 +70,7 @@ import {
 	windowsToReopen,
 } from "../../lib/internal/quest/windows-elsewhere.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace-root.ts";
+import { sessionLogHeader } from "../../lib/internal/session/log-header.ts";
 import type { QuestSession } from "../../lib/quest/index.ts";
 import {
 	describePlan,
@@ -1006,40 +1004,6 @@ export function trackSession(input: OnQuestInput, release?: () => void): void {
 		keepRecordTrue(input),
 	);
 	followSessionForSignals(input.sessionId, release);
-}
-
-/** The first line of a pi session log, as much of it as a handover reads. */
-interface SessionLogHeader {
-	id: string;
-	cwd?: string;
-	parentSession?: string;
-}
-
-/** How much of a log is read for its header line, which is short. */
-const HEADER_BYTES = 64 * 1024;
-
-function sessionLogHeader(path: string): SessionLogHeader | undefined {
-	let fd: number | undefined;
-	try {
-		fd = openSync(path, "r");
-		const buffer = Buffer.alloc(HEADER_BYTES);
-		const read = readSync(fd, buffer, 0, HEADER_BYTES, 0);
-		const line = buffer.toString("utf8", 0, read).split("\n")[0] ?? "";
-		const header: unknown = JSON.parse(line);
-		if (typeof header !== "object" || header === null) return undefined;
-		const { id, cwd, parentSession } = header as Record<string, unknown>;
-		if (typeof id !== "string") return undefined;
-		return {
-			id,
-			...(typeof cwd === "string" ? { cwd } : {}),
-			...(typeof parentSession === "string" ? { parentSession } : {}),
-		};
-	} catch {
-		// No log there yet, or not one pi wrote: nothing to hand over to.
-		return undefined;
-	} finally {
-		if (fd !== undefined) closeSync(fd);
-	}
 }
 
 /**

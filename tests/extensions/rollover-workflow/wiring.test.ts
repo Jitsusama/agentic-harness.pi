@@ -187,22 +187,30 @@ describe("rolling over by itself", () => {
 		expect(sent).toEqual([]);
 	});
 
-	it("waits past a run the person stopped, and past running jobs", async () => {
+	it("waits past a run the person stopped", async () => {
 		const manager = compacted();
 		large(manager);
-		let pending = 1;
+		await emit("session_compact", {}, contextOf(manager, false));
+		await emit("agent_settled", { aborted: true }, contextOf(manager));
+		expect(sent).toEqual([]);
+
+		await emit("agent_settled", { aborted: false }, contextOf(manager));
+		expect(sent).toEqual([`/${COMMAND}`]);
+	});
+
+	it("goes ahead while background jobs run, since they carry across", async () => {
+		// A session waiting on its checks in the background always had one
+		// running: on 2026-11-01 a 70 MB log went nine hours and three
+		// compactions past the threshold without rolling over.
+		const manager = compacted();
+		large(manager);
 		const stop = announceJobHost(events, {
 			start: () => {
 				throw new Error("not started here");
 			},
-			pending: () => pending,
+			pending: () => 1,
 		});
 		await emit("session_compact", {}, contextOf(manager, false));
-		await emit("agent_settled", { aborted: true }, contextOf(manager));
-		await emit("agent_settled", { aborted: false }, contextOf(manager));
-		expect(sent).toEqual([]);
-
-		pending = 0;
 		await emit("agent_settled", { aborted: false }, contextOf(manager));
 		stop();
 		expect(sent).toEqual([`/${COMMAND}`]);

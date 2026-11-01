@@ -20,10 +20,15 @@ the provider's prompt cache carries on too.
 ## When
 
 - **By itself,** at the first still moment after a compaction of a log
-  of 64 MB or more: the run has settled, you did not stop it, no
-  background work is running (switching logs would end it) and no
+  of 64 MB or more: the run has settled, you did not stop it and no
   reload is waiting. A compaction you ask for between runs rolls over
   at once.
+- **Background work runs on through it.** The job host parks it for
+  the fresh session, as it does across a reload, and the fresh session
+  says each result. Rollovers used to wait for no job to be running,
+  so a session that always waited on one never rolled over: on
+  2026-11-01 a 70 MB log went nine hours and three compactions past
+  the threshold.
 - **On asking,** with `/rollover`, whatever the log's size, once the
   session has compacted at least once.
 

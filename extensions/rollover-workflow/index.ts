@@ -6,9 +6,10 @@
  *
  * It happens at the first still moment after a compaction of a log of
  * `ROLLOVER_BYTES` or more: the run has settled, the person has not
- * stopped it, no background job is running (a session switch ends
- * them) and no reload is waiting. `/rollover` does it at once, whatever
- * the log's size. Only a session somebody sits at rolls over; a
+ * stopped it and no reload is waiting. `/rollover` does it at once,
+ * whatever the log's size. Background jobs run on through it: the job
+ * host parks them for the fresh session, which carries the conversation
+ * on (see extensions/job-workflow/lifecycle.ts). Only a session somebody sits at rolls over; a
  * subagent or a print run is short. `PI_ROLLOVER=off` turns it off.
  *
  * The switch goes through pi's own `switchSession`, so every extension
@@ -51,7 +52,6 @@ import {
 	rollOver,
 	writeRolled,
 } from "../../lib/internal/session/rollover.ts";
-import { findJobHost } from "../../lib/jobs/index.ts";
 
 /** The command that rolls the session over. */
 export const COMMAND = "rollover";
@@ -102,10 +102,6 @@ export async function rollOverNow(
 	const parent = sessions.getSessionFile();
 	if (!parent)
 		return "This session keeps no log, so there is none to roll over.";
-	const jobs = findJobHost(pi.events)?.pending?.() ?? 0;
-	if (jobs > 0) {
-		return "Not rolled over: background work is running, and switching logs would end it.";
-	}
 	const carry: Carry = { carried: {} };
 	pi.events.emit(ROLLOVER_CARRY, carry);
 	const rolled = rollOver(sessions.getBranch() as unknown as Entry[], {
@@ -220,9 +216,7 @@ export default function rolloverWorkflow(pi: ExtensionAPI) {
 	};
 
 	/** Whether nothing would be lost by switching logs now. */
-	const still = () =>
-		reloadSlot().request === undefined &&
-		(findJobHost(pi.events)?.pending?.() ?? 0) === 0;
+	const still = () => reloadSlot().request === undefined;
 
 	pi.on("session_start", async (event, ctx) => {
 		due = false;
