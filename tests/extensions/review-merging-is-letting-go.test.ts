@@ -20,6 +20,7 @@ import {
 	clearTargetBindings,
 	registerReviewProvider,
 } from "../../lib/core/review/index.ts";
+import { SESSION_LANDED } from "../../lib/internal/session/landings.ts";
 import { stubProvider } from "../support/stub-provider.ts";
 import { activate, HEADLESS, toolNamed } from "./support/review-extension.ts";
 
@@ -122,7 +123,13 @@ async function attachThenMerge(outcome: { kind: "merged" | "enqueued" }) {
 		undefined,
 		HEADLESS,
 	);
-	return { merged: JSON.stringify(merged), listed: JSON.stringify(listed) };
+	return {
+		merged: JSON.stringify(merged),
+		listed: JSON.stringify(listed),
+		landed: stub.emitted
+			.filter((one) => one.event === SESSION_LANDED)
+			.map((one) => one.data),
+	};
 }
 
 afterEach(() => {
@@ -151,5 +158,26 @@ describe("what merging does to the attachment", () => {
 		const { listed } = await attachThenMerge({ kind: "enqueued" });
 
 		expect(listed).toContain("shop/world#438");
+	});
+});
+
+describe("what merging says it landed", () => {
+	// So the mesh keeps it in the session's presence, where an
+	// orchestrator reads it rather than being told.
+	it("names the change without its owner, and its title", async () => {
+		const { landed } = await attachThenMerge({ kind: "merged" });
+
+		expect(landed).toEqual([
+			expect.objectContaining({
+				ref: "world#438",
+				what: "Make a Panel Cover What It Is Drawn Over",
+			}),
+		]);
+	});
+
+	it("lands nothing the queue has only accepted", async () => {
+		const { landed } = await attachThenMerge({ kind: "enqueued" });
+
+		expect(landed).toEqual([]);
 	});
 });

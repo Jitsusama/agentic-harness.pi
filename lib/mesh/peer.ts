@@ -11,8 +11,9 @@
  *
  * Presence is published when something in it changes (its addresses,
  * its work, its groups, whether it is mid-run, what it waits on its
- * person for), never on a clock, so a peer at rest writes nothing
- * however long it rests.
+ * person for, what it landed), never on a clock, so a peer at rest
+ * writes nothing however long it rests. What it landed is kept, like
+ * its joined groups, across a reload and a rollover.
  *
  * What it waits on is never kept across a start, since whatever asked
  * belonged to the process that ended.
@@ -20,6 +21,11 @@
 
 import type { TickedOwner } from "../internal/process-ticks.ts";
 import type { Orchestration } from "../internal/quest/orchestration.ts";
+import {
+	type Landing,
+	standing,
+	withLanding,
+} from "../internal/session/landings.ts";
 import type { TerminalSessionHandle } from "../terminal/index.ts";
 import {
 	addressesOf,
@@ -85,6 +91,10 @@ export interface Peer {
 	 * already signed with it (see address.ts).
 	 */
 	readonly yieldedTo: Presence | undefined;
+	/** What it landed within the day, newest first. */
+	readonly landings: readonly Landing[];
+	/** Say it landed this, in place of any earlier landing of its ref. */
+	landed(landing: Landing): void;
 	/** Say it waits on its person for this, in place of any of its kind. */
 	want(want: Want): void;
 	/** Say it no longer waits for this kind; answers whether it did. */
@@ -204,6 +214,8 @@ export function localPeer(at: Surroundings): Peer {
 	const before = at.presences.of(at.session) ?? carried;
 	let joined = [...(before?.joined ?? before?.groups ?? [])].sort();
 	let stops: Stop[] = [...(before?.stops ?? [])];
+	const now = at.now ?? Date.now;
+	let landings: Landing[] = standing(before?.landings ?? [], now());
 	// A pause outlasts a reload, as its person left it.
 	let paused = before?.state === "paused";
 	let scopes: string[] = [];
@@ -220,7 +232,6 @@ export function localPeer(at: Surroundings): Peer {
 	let roles: { orchestratedBy?: string; orchestrates?: string } = {};
 	let quest: string | undefined;
 	let busy = false;
-	const now = at.now ?? Date.now;
 	// When the run in progress began, and the step it was last said on.
 	let since: string | undefined;
 	let step: { text: string; at: number } | undefined;
@@ -257,6 +268,7 @@ export function localPeer(at: Surroundings): Peer {
 			...(busy && since ? { since } : {}),
 			...(busy && step ? { step: step.text } : {}),
 			...(wanting.size > 0 ? { wants: longestStanding(wanting.values()) } : {}),
+			...(landings.length > 0 ? { landings } : {}),
 			...(at.owner ? { owner: at.owner } : {}),
 			...titled(at.title?.()),
 			...(at.terminal ? { terminal: at.terminal } : {}),
@@ -344,6 +356,13 @@ export function localPeer(at: Surroundings): Peer {
 		},
 		get yieldedTo() {
 			return yieldedTo;
+		},
+		get landings() {
+			return landings;
+		},
+		landed(landing) {
+			landings = withLanding(landings, landing, now());
+			publish();
 		},
 		want(want) {
 			if (!wantsThePerson(want.kind, roles.orchestratedBy)) return;

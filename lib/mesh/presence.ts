@@ -25,6 +25,7 @@ import {
 	type Orchestration,
 	orchestrationOf,
 } from "../internal/quest/orchestration.ts";
+import { isLanding, type Landing } from "../internal/session/landings.ts";
 import { writeWhole } from "../internal/write-whole.ts";
 import type { QuestFrontMatter } from "../quest/types.ts";
 import type { TerminalSessionHandle } from "../terminal/index.ts";
@@ -42,6 +43,11 @@ export type PeerState = (typeof PEER_STATES)[number];
 
 function isPeerState(value: unknown): value is PeerState {
 	return (PEER_STATES as readonly unknown[]).includes(value);
+}
+
+/** The well-formed landings in a presence's field, or none. */
+function landingsFrom(value: unknown): Landing[] {
+	return Array.isArray(value) ? value.filter(isLanding) : [];
 }
 
 /** One peer, as it is seen on the mesh. */
@@ -95,6 +101,12 @@ export interface Presence {
 	 * want stands (see want.ts).
 	 */
 	readonly wants?: Want;
+	/**
+	 * What it landed within the day, newest first, at most five (see
+	 * internal/session/landings.ts): its status, kept where an
+	 * orchestrator reads it rather than sent. Missing while it has none.
+	 */
+	readonly landings?: readonly Landing[];
 	/** The process holding it, when the machine would say. */
 	readonly owner?: TickedOwner;
 	/**
@@ -432,6 +444,9 @@ function presenceFrom(value: unknown): Presence | undefined {
 		...(typeof one.since === "string" ? { since: one.since } : {}),
 		...(typeof one.step === "string" ? { step: one.step } : {}),
 		...(wantFrom(one.wants) ? { wants: wantFrom(one.wants) } : {}),
+		...(landingsFrom(one.landings).length > 0
+			? { landings: landingsFrom(one.landings) }
+			: {}),
 		...(isOwner(one.owner) ? { owner: keepTicks(one.owner) } : {}),
 		...(typeof one.title === "string" ? { title: one.title } : {}),
 		...(isTerminalHandle(one.terminal) ? { terminal: one.terminal } : {}),

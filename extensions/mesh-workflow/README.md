@@ -762,6 +762,28 @@ nothing. The mesh listens from the moment it loads and holds
 what it heard until its peer is made, since a reload with a
 panel still open says its wants again as the session starts.
 
+What a session lands is its status, so presence keeps it
+rather than leaving it to be sent. Each change merged through
+`review_offer merge` and each plan item ticked with `quest tick`
+is said over the bus (`session:landed:v1`, see
+`lib/internal/session/landings.ts`), and presence carries the
+newest five from the last day as `landings`:
+
+```json
+[{ "at": "2026-11-01T15:00:00.000Z", "ref": "agentic-harness.pi#920", "what": "Carry Background Jobs Across a Rollover" }]
+```
+
+`ref` names a change as `repo#number` or a plan item as
+`DOCUMENT#item`; `what` is one line; an optional `person` says
+what it means to the session's person. A ref landing again takes
+the earlier one's place. Landings are read back from the
+session's own presence at start, and from the one it rolled over
+from, so they outlast a reload and a rollover. An fyi to the
+session heading an orchestration that names one of its sender's
+landings, by `#number`, `PR number` or the document's id, reaches
+it as a glance unless it answers that session: the orchestrator
+can read it in presence instead.
+
 ## Not Yet
 
 - A change lease covers files, not a pull request in progress.

@@ -37,6 +37,7 @@ import {
 import { awaitedNow } from "../../../lib/internal/priority/awaited.ts";
 import { QUEST_CONCLUDED } from "../../../lib/internal/quest/concluded.ts";
 import { reloadSlot } from "../../../lib/internal/reload/slot.ts";
+import { SESSION_LANDED } from "../../../lib/internal/session/landings.ts";
 import {
 	ROLLOVER_CARRY,
 	ROLLOVER_RECORD,
@@ -1853,6 +1854,34 @@ describe("groups", () => {
 		expect(kept()).toBeUndefined();
 	});
 
+	it("keeps in presence what this session landed, from the bus, held until it starts", async () => {
+		const kept = () =>
+			createPresences(join(paths.mesh, "presence"))
+				.of(session)
+				?.landings?.map((one) => one.ref);
+		const landing = (ref: string) => ({
+			at: new Date().toISOString(),
+			ref,
+			what: `${ref} landed`,
+		});
+
+		const { emit } = await startSession(
+			{},
+			{},
+			[],
+			undefined,
+			undefined,
+			(early) => early(SESSION_LANDED, landing("agentic-harness.pi#920")),
+		);
+		expect(kept()).toEqual(["agentic-harness.pi#920"]);
+
+		emit(SESSION_LANDED, landing("PLAN-20261030-QMUYBH#15"));
+		expect(kept()).toEqual([
+			"PLAN-20261030-QMUYBH#15",
+			"agentic-harness.pi#920",
+		]);
+	});
+
 	it("leaves out a peer whose session has ended, and says so", async () => {
 		peer("session-p", ["P9R1KI"], ["#optimus/power"], true);
 		const { tools } = await startSession();
@@ -2255,6 +2284,43 @@ describe("a message that names no group", () => {
 		emit(QUEST_CONCLUDED, { how: "concluded", ids: ["X"], said: "Done." });
 
 		expect(transport.ids()).toEqual([]);
+	});
+
+	it("glances, as an orchestrator, at an fyi naming what its sender's presence says it landed", async () => {
+		onQuest();
+		writeFileSync(
+			join(paths.quests, "QEST-20261021-7M6JKG", "README.md"),
+			"---\nid: QEST-20261021-7M6JKG\nkind: quest\nparent: null\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\norchestrator: true\n---\n# QEST-20261021-7M6JKG\n",
+		);
+		createPresences(join(paths.mesh, "presence")).publish({
+			session: "session-l",
+			addresses: ["85PKB2"],
+			groups: ["#orchestration/7m6jkg"],
+			landings: [
+				{
+					at: new Date().toISOString(),
+					ref: "agentic-harness.pi#920",
+					what: "Carry Background Jobs Across a Rollover",
+				},
+			],
+			worksOn: "",
+			owns: [],
+			busy: false,
+			at: new Date().toISOString(),
+		});
+		const { sent, entries } = await startSession();
+
+		fromElsewhere({ to: ["@7M6JKG"], from: "85PKB2", text: "#920 is merged." });
+		fromElsewhere({ to: ["@7M6JKG"], from: "85PKB2", text: "#921 is merged." });
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(JSON.stringify(sent[0]?.message.content)).toContain("#921");
+		expect(entries.find((entry) => entry.type === GLANCE)).toMatchObject({
+			data: {
+				message: { text: "#920 is merged." },
+				why: "status its sender's presence already carries",
+			},
+		});
 	});
 
 	it("tells nobody of an ending when no orchestrator is above the quest", async () => {
