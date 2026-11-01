@@ -37,7 +37,10 @@ import {
 import { awaitedNow } from "../../../lib/internal/priority/awaited.ts";
 import { QUEST_CONCLUDED } from "../../../lib/internal/quest/concluded.ts";
 import { reloadSlot } from "../../../lib/internal/reload/slot.ts";
-import { SESSION_LANDED } from "../../../lib/internal/session/landings.ts";
+import {
+	SESSION_LANDED,
+	SESSION_UNLANDED,
+} from "../../../lib/internal/session/landings.ts";
 import {
 	ROLLOVER_CARRY,
 	ROLLOVER_RECORD,
@@ -1880,6 +1883,9 @@ describe("groups", () => {
 			"PLAN-20261030-QMUYBH#15",
 			"agentic-harness.pi#920",
 		]);
+		// An untick takes its item back.
+		emit(SESSION_UNLANDED, { ref: "PLAN-20261030-QMUYBH#15" });
+		expect(kept()).toEqual(["agentic-harness.pi#920"]);
 	});
 
 	it("leaves out a peer whose session has ended, and says so", async () => {

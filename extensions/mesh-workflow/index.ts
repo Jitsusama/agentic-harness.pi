@@ -64,6 +64,8 @@ import {
 	type Landing,
 	namesLanding,
 	onLanded,
+	onUnlanded,
+	withoutLanding,
 } from "../../lib/internal/session/landings.ts";
 import {
 	carriedBy,
@@ -1465,6 +1467,11 @@ export function meshWorkflow(
 			onLanded(pi.events, (landing) => {
 				if (peer) peer.landed(landing);
 				else unlanded.push(landing);
+			});
+			onUnlanded(pi.events, (ref) => {
+				if (peer) peer.unlanded(ref);
+				else
+					unlanded.splice(0, unlanded.length, ...withoutLanding(unlanded, ref));
 			});
 		}
 

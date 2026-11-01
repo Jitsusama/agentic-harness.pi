@@ -22,7 +22,7 @@ import type {
 import { createMutex } from "../../lib/internal/async-mutex.ts";
 import { sayConcluded } from "../../lib/internal/quest/concluded.ts";
 import { setJournalSession } from "../../lib/internal/quest/structural-journal.ts";
-import { sayLanded } from "../../lib/internal/session/landings.ts";
+import { sayLanded, sayUnlanded } from "../../lib/internal/session/landings.ts";
 import type { QuestPriority } from "../../lib/quest/index.ts";
 import { suggestAction } from "./actions.ts";
 import { refuseIgnoredDryRun, refuseUndoElsewhere } from "./dry-run.ts";
@@ -30,8 +30,8 @@ import type { QuestState } from "./state.ts";
 import { aliasAdd, aliasRemove } from "./verbs/alias.ts";
 import { configReport } from "./verbs/config.ts";
 import {
+	checkedItem,
 	journal,
-	landingOfTick,
 	read,
 	retitle,
 	section,
@@ -156,16 +156,19 @@ function tellConcluded(
 /**
  * Say on the bus that a document's item was ticked, so the mesh keeps
  * it in the session's presence as a landing, where an orchestrator reads
- * it (lib/internal/session/landings.ts). An untick lands nothing.
+ * it (lib/internal/session/landings.ts), and that an untick takes one
+ * back, since the item it named is no longer done.
  */
 function tellLanded(
 	pi: ExtensionAPI,
 	params: QuestToolParams,
 	result: QuestResult,
 ): void {
-	if (params.action !== "tick" || !pi.events) return;
-	const landing = landingOfTick(result);
-	if (landing) sayLanded(pi.events, landing);
+	if (params.action !== "tick" && params.action !== "untick") return;
+	const item = checkedItem(result);
+	if (!item || !pi.events) return;
+	if (item.ticked) sayLanded(pi.events, item);
+	else sayUnlanded(pi.events, item.ref);
 }
 
 function idsNamed(id: string | undefined): string[] {

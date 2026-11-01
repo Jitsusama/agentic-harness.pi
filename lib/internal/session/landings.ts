@@ -24,6 +24,9 @@ import { oneLine } from "./wants.ts";
 /** Said on the bus when something lands. */
 export const SESSION_LANDED = "session:landed:v1";
 
+/** Said on the bus, with the ref, when something said landed is taken back. */
+export const SESSION_UNLANDED = "session:unlanded:v1";
+
 /** How many landings a presence keeps, newest first. */
 export const MOST_LANDINGS = 5;
 
@@ -75,6 +78,27 @@ export function sayLanded(
 	}
 }
 
+/** Say on `bus` that what landed as `ref` is taken back: a plan item unticked. */
+export function sayUnlanded(bus: Pick<EventBus, "emit">, ref: string): void {
+	try {
+		bus.emit(SESSION_UNLANDED, { ref });
+	} catch {
+		// A bus nobody can say on, after a reload: the landing lapses in a day.
+	}
+}
+
+/** Hear every landing taken back, by its ref. Returns a disposer. */
+export function onUnlanded(
+	bus: EventBus,
+	listener: (ref: string) => void,
+): () => void {
+	return bus.on(SESSION_UNLANDED, (data) => {
+		if (typeof data !== "object" || data === null) return;
+		const { ref } = data as Record<string, unknown>;
+		if (typeof ref === "string" && ref !== "") listener(ref);
+	});
+}
+
 /** Hear every landing. Returns a disposer. */
 export function onLanded(
 	bus: EventBus,
@@ -103,6 +127,14 @@ export function withLanding(
 		[landing, ...landings.filter((one) => one.ref !== landing.ref)],
 		now,
 	);
+}
+
+/** `landings` without the one of `ref`. */
+export function withoutLanding(
+	landings: readonly Landing[],
+	ref: string,
+): Landing[] {
+	return landings.filter((one) => one.ref !== ref);
 }
 
 /**

@@ -11,7 +11,10 @@ import { questVerdicts } from "../../../extensions/quest-workflow/enforce";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
 import { cutReadAdvice } from "../../../extensions/quest-workflow/verbs/document";
-import { SESSION_LANDED } from "../../../lib/internal/session/landings.ts";
+import {
+	SESSION_LANDED,
+	SESSION_UNLANDED,
+} from "../../../lib/internal/session/landings.ts";
 import { createEnvGuard, journeyOf, refused, succeeded } from "./_helpers";
 
 let tmpRoot: string;
@@ -93,7 +96,7 @@ describe("tick and untick", () => {
 		expect(result.ok).toBe(false);
 	});
 
-	it("says on the bus what a tick landed, and nothing for an untick", async () => {
+	it("says on the bus what a tick landed, and an untick takes it back", async () => {
 		// So the mesh keeps it in the session's presence for an
 		// orchestrator to read (lib/internal/session/landings.ts).
 		const { state, planPath } = await questWithPlan();
@@ -101,7 +104,7 @@ describe("tick and untick", () => {
 			planPath,
 			readFileSync(planPath, "utf8").replace(
 				"- [ ] Second item",
-				"- [ ] Second item\n- [ ] 14a. Carry jobs across a rollover. Done when one rolls.",
+				"- [ ] Second item\n- [ ] 14a. Carry jobs across a rollover. Done when one rolls.\n- [ ] 16. Piece 2, by P9R1KI [31759971]: told once. Done when merged.",
 			),
 		);
 		const landed: unknown[] = [];
@@ -111,6 +114,7 @@ describe("tick and untick", () => {
 				on: () => () => {},
 				emit: (event: string, data: unknown) => {
 					if (event === SESSION_LANDED) landed.push(data);
+					if (event === SESSION_UNLANDED) landed.push({ unlanded: data });
 				},
 			},
 		} as unknown as Parameters<typeof handle>[1];
@@ -121,6 +125,7 @@ describe("tick and untick", () => {
 		succeeded(await run({ action: "tick", query: "14a" }));
 		succeeded(await run({ action: "tick", query: "first" }));
 		succeeded(await run({ action: "untick", query: "first" }));
+		succeeded(await run({ action: "tick", query: "16" }));
 
 		expect(landed).toEqual([
 			expect.objectContaining({
@@ -128,6 +133,12 @@ describe("tick and untick", () => {
 				what: "Carry jobs across a rollover.",
 			}),
 			expect.objectContaining({ ref: plan, what: "First item" }),
+			{ unlanded: { ref: plan } },
+			// Its first sentence, whatever colon comes first.
+			expect.objectContaining({
+				ref: `${plan}#16`,
+				what: "Piece 2, by P9R1KI [31759971]: told once.",
+			}),
 		]);
 	});
 });
