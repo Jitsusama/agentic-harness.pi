@@ -1,12 +1,14 @@
 /**
  * The step between a fleet being asked for and its jobs being built:
- * read the config, refuse a fleet over the cap, and fill each job's
- * settings from the layers in `sizing.ts`.
+ * read the config, refuse a fleet over the cap, fill each job's
+ * settings from the layers in `sizing.ts`, and refuse a model the agent
+ * named that the person didn't (lib/internal/session/asked-models.ts).
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { loadPackageConfig } from "../../lib/internal/config/loader.ts";
 import { packageConfigPath } from "../../lib/internal/paths.ts";
+import { refusedModel } from "../../lib/internal/session/asked-models.ts";
 import { fleetPlace } from "./place.ts";
 import type { ToolJobInput } from "./run.ts";
 import {
@@ -23,11 +25,16 @@ export type SizedFleet =
 	| { readonly jobs: ToolJobInput[]; readonly ranOn: string }
 	| { readonly refusal: string };
 
-/** Size a fleet: its cap, then every job's settings. */
+/**
+ * Size a fleet: its cap, then every job's settings, then the model each
+ * runs on, held to the one it would use unnamed unless the person, in
+ * `said`, asked for another.
+ */
 export async function sizeFleet(
 	ctx: ExtensionContext,
 	jobs: readonly ToolJobInput[],
 	runDefaults: unknown,
+	said: readonly string[],
 ): Promise<SizedFleet> {
 	const path = packageConfigPath();
 	const loaded = await loadPackageConfig(path);
@@ -44,6 +51,16 @@ export async function sizeFleet(
 		job,
 		settled: settleJob(job, read.config, place),
 	}));
+	for (const { job, settled: s } of settled) {
+		if (s.model === undefined) continue;
+		if (s.modelFrom !== "job" && s.modelFrom !== "run") continue;
+		const unnamed = settleJob({ ...job, model: undefined }, read.config, {
+			...place,
+			...(place.run ? { run: { ...place.run, model: undefined } } : {}),
+		});
+		const refused = refusedModel(s.model, unnamed.model, said);
+		if (refused) return { refusal: `Job ${job.id}: ${refused}` };
+	}
 	return {
 		jobs: settled.map(({ job, settled: s }) => ({
 			...job,

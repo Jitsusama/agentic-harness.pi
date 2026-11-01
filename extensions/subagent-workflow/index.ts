@@ -16,8 +16,9 @@
  *   questions. Same `cwd`, different `userPrompt` per
  *   subagent.
  * - **Fleet brainstorming**: N copies of the same
- *   prompt across N models, asking for divergent
- *   answers. Same `userPrompt`, different `model`.
+ *   prompt across N personas, asking for divergent
+ *   answers. Same `userPrompt`, different `systemPrompt`,
+ *   one model (lib/internal/session/asked-models.ts).
  *
  * The tool's parameters cover all three with a flat
  * `jobs[]` array. No worktree provisioning, no session
@@ -43,6 +44,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { packageStateDir } from "../../lib/internal/package-state-dir.ts";
 import { tickFacts } from "../../lib/internal/process-ticks.ts";
+import { personsWords } from "../../lib/internal/session/asked-models.ts";
 import { ReviewerArtifactsStore } from "../../lib/subagent/artifacts.ts";
 import {
 	registerSubagentDefaultExtension,
@@ -476,6 +478,11 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 	// sides, so either points at the other without holding it.
 	const fleetDir = () => join(stateDir(), "fleets");
 	const cancellations = new FleetCancellationRegistry();
+	// What the person typed, for a job naming a model only they may ask for.
+	const person = personsWords();
+	pi.on("input", (event) => {
+		if (event.source === "interactive") person.heard(event.text);
+	});
 
 	// Prune old fleet run directories at session start so the raw
 	// artifacts they hold do not accumulate unbounded. A finished run
@@ -578,7 +585,7 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 			"directory. Use for persona sweeps (security/performance/" +
 			"readability of the same artifact), multi-angle investigation " +
 			"(data flow vs lifecycle vs config of the same bug), or fleet " +
-			"brainstorming (N answers from N models). Read the " +
+			"brainstorming (N answers from N personas). Read the " +
 			"subagent-fleet-guide skill for when and how. Returns each " +
 			"subagent's final assistant text plus aggregate token/cost " +
 			"figures.",
@@ -588,7 +595,8 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 			"is the substrate.",
 		promptGuidelines: [
 			"Size a fleet to the angles it needs: one job per angle the others do not cover. A fleet past subagent.maxJobs (8 by default) is refused; do not split it into two calls to get under the cap.",
-			"Leave model and thinkingLevel off a job unless it needs something different from the rest. They are filled, first match winning, from the run's defaults, the loaded quest's and the project's subagent settings, subagent.defaults, then the session's own model at high thinking; the answer says what each job ran on.",
+			"Leave model off every job, and thinkingLevel unless a job needs something different. They are filled, first match winning, from the run's defaults, the loaded quest's and the project's subagent settings, subagent.defaults, then the session's own model at high thinking; the answer says what each job ran on.",
+			"A fleet runs on one model and gets its spread from personas, never from other models. A job or run default naming another model than the fleet would use unnamed is refused, unless the person asked for that model by name.",
 		],
 		parameters: Type.Object({
 			jobs: Type.Array(
@@ -750,7 +758,12 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 			// The conversation waiting on this fleet, so that if this process
 			// ends under it, the same conversation hears when it comes back.
 			const session = sessionOf(ctx);
-			const sized = await sizeFleet(ctx, params.jobs, params.defaults);
+			const sized = await sizeFleet(
+				ctx,
+				params.jobs,
+				params.defaults,
+				person.said,
+			);
 			if ("refusal" in sized) {
 				return {
 					content: [{ type: "text" as const, text: sized.refusal }],

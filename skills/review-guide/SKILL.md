@@ -67,7 +67,7 @@ Start here. Find the row, make the call.
 | Reopen one you closed too early | `review_say unresolve thread:N` |
 | Say one thing on the change | `review_say comment` |
 | Put a reaction on a comment | `review_say react comment:C3 reaction:rocket` |
-| Get several models to review it | `review_ask council` |
+| Get several reviewers to read it | `review_ask council` |
 | Boil their findings down to one list | `review_ask judge` |
 | Have them argue with that list | `review_ask critique` |
 | Know which inbound threads are already fixed | `review_ask audit` |
@@ -513,6 +513,12 @@ prints are the only ids an override may name.
 
 It takes `model`, `thinkingLevel`, `tools`, `persona` and the three
 clocks, by participant id, and every round kind honours it.
+
+A round runs on one model, its spread coming from personas, never
+from other models: the person judged a council mixing models worth
+nothing. A `model` in `who` must be the one that participant runs on
+without it, the roster's or the session's; another is refused unless
+the person asked for that model by name. Vary `persona` instead.
 
 The clocks are `backstopMs`, `idleMs` and `answerMs`, the same three
 that bound a round, and they are worth knowing about because a round's

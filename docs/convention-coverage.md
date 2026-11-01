@@ -385,12 +385,21 @@ is followed by judgment, not by a regex.
   ends with the check-and-group reminder.
 
   `subagent-fleet-guide`'s sizing rules split the same way. One
-  job per uncovered angle, and leaving `model` off a job that
-  needs nothing different, are ⚪. A fleet over
+  job per uncovered angle is ⚪. A fleet over
   `subagent.maxJobs` and a malformed `subagent` section are
   refused in `extensions/subagent-workflow/sizing.ts`, and every
   answer opens by saying what the jobs ran on and which layer
   chose it.
+
+  🟢 One model per fleet and per round, its spread coming from
+  personas, the rule both `subagent-fleet-guide` and
+  `review-guide` state: a job, a run's `defaults` or a round's
+  `who` naming another model than the one it would run on
+  unnamed is refused unless the person named that model, in
+  `lib/internal/session/asked-models.ts`, called from
+  `extensions/subagent-workflow/fleet-settings.ts` and
+  `extensions/review-integration/tools/ask.ts`. Which persona
+  each job takes stays ⚪.
 - **Project-local guides**: `extension-dev-guide`, under
   `.pi/skills/`, for working on this package. Its rules for
   trying a change live (reload onto the tree, end the turn, try

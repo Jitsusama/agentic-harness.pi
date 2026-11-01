@@ -44,8 +44,9 @@ may import from here, and any of it may change without notice.
 - **`session/`**: rolling a session over into a fresh log that
   keeps only what the model still sees, on the model it ran on, and
   reading a log's header to tell a log that carries a session on
-  from another conversation's, and what a session landed, said on
-  the bus for its presence to keep.
+  from another conversation's, what a session landed, said on
+  the bus for its presence to keep, and whether a fleet or a round
+  may run on a model the agent named rather than the person.
 - **`shell/`**: what the agent's shell runs with, offered by the
   extensions that know.
 - **`stray/`**: catching writes that would land behind pi's screen.

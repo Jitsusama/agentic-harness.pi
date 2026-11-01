@@ -3,11 +3,12 @@ name: subagent-fleet-guide
 description: >
   Run N pi processes at once with the `subagent` tool:
   persona sweeps of one artifact, one bug from several
-  angles, or N models on one question. Use when asked to
-  "examine from various angles", "get multiple
-  perspectives", "fan out across personas", "parallel
-  investigation", "have N models try this", or for anything
-  that gains from independent passes.
+  angles, or N personas on one question, all on one model.
+  Use when asked to "examine from various angles", "get
+  multiple perspectives", "fan out across personas",
+  "parallel investigation", "brainstorm this several
+  ways", or for anything that gains from independent
+  passes.
 ---
 
 # Subagent Fleet Guide
@@ -36,11 +37,17 @@ Three patterns earn the cost of N subprocesses:
   framings. "Walk the data flow", "trace the lifecycle"
   and "audit the configuration" applied to the same bug
   yield independent evidence; convergence is signal.
-- **Fleet brainstorming**: same prompt, several models.
+- **Fleet brainstorming**: same prompt, several personas.
   When you want divergence (naming candidates, design
-  alternatives, edge case enumeration), N models with the
-  same instruction beat one model asked N times because
-  each model brings its own priors.
+  alternatives, edge case enumeration), give each job a
+  persona with its own priors (a minimalist, a sceptic, a
+  newcomer) rather than asking one prompt N times.
+
+A fleet runs on one model, its spread coming from personas,
+never from other models: the person judged a mix of models
+worth nothing. A job or a run's `defaults` naming a model
+other than the one the fleet would use unnamed is refused,
+unless the person asked for that model by name.
 
 Anti-patterns, so don't reach for the fleet when:
 
@@ -199,9 +206,9 @@ otherwise) is refused. Raise the cap in the config when a
 bigger fleet is genuinely meant; do not split one fleet into
 two calls to get under it.
 
-Leave `model` and `thinkingLevel` off a job unless that job
-needs something different from the rest. Each is filled in
-layers, first match winning:
+Leave `model` off every job, and `thinkingLevel` off unless
+that job needs something different from the rest. Each is
+filled in layers, first match winning:
 
 1. the job itself;
 2. the run's `defaults` parameter;
@@ -375,7 +382,6 @@ subagent({
   jobs: [
     {
       id: "security",
-      model: "anthropic/claude-haiku-4-7",
       thinkingLevel: "high",
       tools: ["read", "grep", "glob"],
       cwd: "/path/to/repo",
@@ -391,7 +397,6 @@ subagent({
     },
     {
       id: "performance",
-      model: "anthropic/claude-haiku-4-7",
       tools: ["read", "grep"],
       cwd: "/path/to/repo",
       systemPrompt:
@@ -405,7 +410,6 @@ subagent({
     },
     {
       id: "readability",
-      model: "anthropic/claude-haiku-4-7",
       tools: ["read"],
       cwd: "/path/to/repo",
       systemPrompt:
@@ -436,7 +440,6 @@ subagent({
   jobs: [
     {
       id: "data-flow",
-      model: "anthropic/claude-haiku-4-7",
       thinkingLevel: "high",
       tools: ["read", "grep", "glob"],
       cwd: "/path/to/repo",
@@ -452,7 +455,6 @@ subagent({
     },
     {
       id: "lifecycle",
-      model: "anthropic/claude-haiku-4-7",
       thinkingLevel: "high",
       tools: ["read", "grep"],
       cwd: "/path/to/repo",
@@ -468,7 +470,6 @@ subagent({
     },
     {
       id: "config",
-      model: "anthropic/claude-haiku-4-7",
       tools: ["read", "grep", "glob"],
       cwd: "/path/to/repo",
       isolated: true,
@@ -501,7 +502,7 @@ convergent findings plus the three full investigations.
 |-------------------------------------------|---------------------------|
 | Several roles on the same artifact        | Persona sweep (this skill) |
 | Several framings of the same problem      | Multi-angle (this skill)   |
-| Multiple model takes on the same prompt   | Fleet brainstorm (this skill) |
+| Several persona takes on the same prompt  | Fleet brainstorm (this skill) |
 | Sequential investigation                  | The agent's main loop      |
 | Code review with structured findings      | `review_ask` tool          |
 | One subagent with a tight contract        | `subagent` with a single job |

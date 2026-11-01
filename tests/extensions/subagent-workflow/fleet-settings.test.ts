@@ -56,10 +56,17 @@ function flag(args: string[] | undefined, name: string): string | undefined {
 	return at < 0 ? undefined : args[at + 1];
 }
 
-async function fleet(params: Record<string, unknown>) {
+/** Run a fleet, after the person has typed `typed`, when given. */
+async function fleet(params: Record<string, unknown>, typed?: string) {
 	const stub = activateWith(
 		(await import("../../../extensions/subagent-workflow/index.ts")).default,
 	);
+	if (typed !== undefined) {
+		stub.lifecycle.get("input")?.(
+			{ type: "input", text: typed, source: "interactive" },
+			{},
+		);
+	}
 	const tool = stub.definitions.get("subagent");
 	if (!tool) throw new Error("no subagent tool was registered");
 	const answer = (await tool.execute("c", params, undefined, undefined, {
@@ -96,13 +103,59 @@ describe("a fleet whose jobs name no model", () => {
 
 	it("takes the run's defaults before the config's", async () => {
 		configure({ defaults: { model: "openai/gpt-5.5", thinkingLevel: "low" } });
-		await fleet({
-			runId: "f2",
-			defaults: { model: "anthropic/claude-sonnet-5" },
-			jobs: [job("a")],
-		});
+		await fleet(
+			{
+				runId: "f2",
+				defaults: { model: "anthropic/claude-sonnet-5" },
+				jobs: [job("a")],
+			},
+			"run this one on sonnet",
+		);
 		expect(flag(started[0], "--model")).toBe("anthropic/claude-sonnet-5");
 		expect(flag(started[0], "--thinking")).toBe("low");
+	});
+
+	it("runs on the model the config names, which is the person's to set", async () => {
+		configure({ defaults: { model: "openai/gpt-5.5" } });
+		await fleet({ runId: "f5", jobs: [job("a")] });
+		expect(flag(started[0], "--model")).toBe("openai/gpt-5.5");
+	});
+});
+
+describe("a fleet naming another model than its usual one", () => {
+	it("is refused before anything starts, on a job or the run's defaults", async () => {
+		const onJob = await fleet({
+			runId: "f6",
+			jobs: [job("a"), job("b", { model: "openai/gpt-5.5" })],
+		});
+		expect(onJob).toContain("Job b: openai/gpt-5.5 is refused");
+		const onRun = await fleet(
+			{
+				runId: "f7",
+				defaults: { model: "google/gemini-3-pro" },
+				jobs: [job("a")],
+			},
+			"get a few angles on this",
+		);
+		expect(onRun).toContain("google/gemini-3-pro is refused");
+		expect(onRun).toContain("anthropic/claude-opus-5-5");
+		expect(started).toEqual([]);
+	});
+
+	it("runs on it when the person asked for it by name", async () => {
+		await fleet(
+			{ runId: "f8", jobs: [job("a", { model: "openai/gpt-5.5" })] },
+			"have GPT take a pass too",
+		);
+		expect(flag(started[0], "--model")).toBe("openai/gpt-5.5");
+	});
+
+	it("runs when the job names the usual model itself", async () => {
+		await fleet({
+			runId: "f9",
+			jobs: [job("a", { model: "anthropic/claude-opus-5-5" })],
+		});
+		expect(flag(started[0], "--model")).toBe("anthropic/claude-opus-5-5");
 	});
 });
 
