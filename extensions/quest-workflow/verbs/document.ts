@@ -279,29 +279,37 @@ export function tick(
 	});
 }
 
-/** A ticked item's line: its number, when it has one, and its text. */
-const TICKED_ITEM = /^\s*[-*]\s+\[[xX]\]\s+(?:(\w+)\.\s+)?(.*)$/;
+/** A checkbox item's line: whether it is ticked, its number when it has one, and its text. */
+const CHECKBOX_ITEM = /^\s*[-*]\s+\[([ xX])\]\s+(?:(\w+)\.\s+)?(.*)$/;
+
+/** A checkbox item a tick or untick changed. */
+export interface CheckedItem {
+	/** The item, as `DOC#14a`, or the document's id for an item with no number. */
+	readonly ref: string;
+	/** Its first sentence. */
+	readonly what: string;
+	readonly ticked: boolean;
+}
 
 /**
- * What a tick in a document landed, by reference (`DOC#14a`, or the
- * document's id for an item with no number) and its first line; nothing
- * for a README's tick, an untick, or a result that changed nothing.
+ * The item a tick or untick in a document changed; nothing for a README's,
+ * or a result that changed nothing.
  */
-export function landingOfTick(
-	result: QuestResult,
-): { ref: string; what: string } | undefined {
+export function checkedItem(result: QuestResult): CheckedItem | undefined {
 	if (!result.ok) return undefined;
 	const { documentId, line } = result.details ?? {};
 	if (typeof documentId !== "string" || typeof line !== "string") {
 		return undefined;
 	}
-	const item = TICKED_ITEM.exec(line);
+	const item = CHECKBOX_ITEM.exec(line);
 	if (!item) return undefined;
-	const [, number, text = ""] = item;
-	const first = text.split(/(?<=[.:])\s/)[0] ?? text;
+	const [, box, number, text = ""] = item;
+	// Up to the first full stop: a colon often comes before what the item is.
+	const first = text.split(/(?<=\.)\s/)[0] ?? text;
 	return {
 		ref: number ? `${documentId}#${number}` : documentId,
 		what: first,
+		ticked: box !== " ",
 	};
 }
 

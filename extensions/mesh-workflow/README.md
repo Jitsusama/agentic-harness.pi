@@ -783,7 +783,8 @@ newest five from the last day as `landings`:
 `ref` names a change as `repo#number` or a plan item as
 `DOCUMENT#item`; `what` is one line; an optional `person` says
 what it means to the session's person. A ref landing again takes
-the earlier one's place. Landings are read back from the
+the earlier one's place, and an unticked plan item is taken back
+(`session:unlanded:v1`). Landings are read back from the
 session's own presence at start, and from the one it rolled over
 from, so they outlast a reload and a rollover. An fyi to the
 session heading an orchestration that names one of its sender's

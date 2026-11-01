@@ -25,6 +25,7 @@ import {
 	type Landing,
 	standing,
 	withLanding,
+	withoutLanding,
 } from "../internal/session/landings.ts";
 import type { TerminalSessionHandle } from "../terminal/index.ts";
 import {
@@ -95,6 +96,8 @@ export interface Peer {
 	readonly landings: readonly Landing[];
 	/** Say it landed this, in place of any earlier landing of its ref. */
 	landed(landing: Landing): void;
+	/** Take back what landed as `ref`, when it did. */
+	unlanded(ref: string): void;
 	/** Say it waits on its person for this, in place of any of its kind. */
 	want(want: Want): void;
 	/** Say it no longer waits for this kind; answers whether it did. */
@@ -362,6 +365,10 @@ export function localPeer(at: Surroundings): Peer {
 		},
 		landed(landing) {
 			landings = withLanding(landings, landing, now());
+			publish();
+		},
+		unlanded(ref) {
+			landings = withoutLanding(landings, ref);
 			publish();
 		},
 		want(want) {
