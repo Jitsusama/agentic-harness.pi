@@ -42,6 +42,31 @@ const standing: Standing = {
 };
 
 describe("attention", () => {
+	it("glances at an fyi restating what its sender's presence says it landed", () => {
+		const sent = message({ to: ["5GV2AH"] });
+		const idle = { ...standing, idle: true, concern: "receiver" as const };
+
+		expect(attend(sent, { ...idle, restates: true })).toMatchObject({
+			attention: "glance",
+			why: "status its sender's presence already carries",
+		});
+		expect(attend(sent, idle).attention).toBe("note");
+	});
+
+	it("still hears a restating fyi that answers it, and anything not an fyi", () => {
+		const restating = { ...standing, restates: true };
+
+		expect(attend(message(), { ...restating, answers: true }).attention).toBe(
+			"note",
+		);
+		const finding = message({ intent: "finding" });
+		const idle = { ...standing, idle: true, concern: "receiver" as const };
+		expect(attend(finding, { ...idle, restates: true })).toEqual(
+			attend(finding, idle),
+		);
+		expect(attend(finding, idle).attention).toBe("act");
+	});
+
 	it("glances at another peer's own business, never passing it by", () => {
 		const heed = attend(message(), { ...standing, concern: "other" });
 		expect(heed.attention).toBe("glance");

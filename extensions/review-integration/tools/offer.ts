@@ -15,7 +15,7 @@
  * CLI's help to find the door that is open.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { EventBus, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type { Exec } from "../../../lib/core/exec/index.ts";
 import type {
@@ -44,6 +44,7 @@ import {
 	createGitStacks,
 } from "../../../lib/core/work/index.ts";
 import { GUARDS } from "../../../lib/internal/guardian/guards.ts";
+import { sayLanded } from "../../../lib/internal/session/landings.ts";
 import { count } from "../../../lib/ui/index.ts";
 import { REVIEW_COMMANDS } from "../commands.ts";
 import { attachments } from "../engine.ts";
@@ -706,7 +707,7 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 					case "retarget-stack":
 						return retargetStack(ctx, bound, change, authoring);
 					case "merge":
-						return merge(ctx, bound, change, authoring, params);
+						return merge(ctx, bound, change, authoring, params, pi.events);
 					case "reviewers":
 						return reviewers(ctx, change, authoring, params);
 				}
@@ -1489,6 +1490,27 @@ async function headGuard(
 	};
 }
 
+/**
+ * Say on the bus that a change landed, so the mesh keeps it in this
+ * session's presence for an orchestrator to read rather than be told
+ * (lib/internal/session/landings.ts). Named as `repo#number`, without
+ * the owner, as people write it.
+ */
+async function sayMerged(
+	bus: EventBus,
+	bound: BoundTarget,
+	change: NonNullable<ReturnType<typeof hostedChange>>,
+): Promise<void> {
+	let title: string | undefined;
+	try {
+		title = (await bound.proposal())?.title;
+	} catch {
+		// A change that can't be read now still landed; it is named alone.
+	}
+	const ref = change.label.slice(change.label.lastIndexOf("/") + 1);
+	sayLanded(bus, { ref, what: title ?? `${change.label} merged` });
+}
+
 /** Land the change. */
 async function merge(
 	ctx: Parameters<Parameters<ExtensionAPI["registerTool"]>[0]["execute"]>[4],
@@ -1496,6 +1518,7 @@ async function merge(
 	change: NonNullable<ReturnType<typeof hostedChange>>,
 	authoring: NonNullable<BoundTarget["provider"]["authoring"]>,
 	params: OfferParams,
+	bus?: EventBus,
 ): Promise<Answer> {
 	// Checked here, before the gate, rather than left to the backend. Two
 	// reasons. The backend that has this guard answers "Head branch was
@@ -1549,6 +1572,7 @@ async function merge(
 	// checks fail, which is exactly the state in which it is still
 	// yours to watch.
 	const letGo = await attachments().detach(change.label);
+	if (bus) await sayMerged(bus, bound, change);
 	return say(
 		`${GLYPH.lands} ${change.label} merged${outcome.commit ? ` at ${outcome.commit.slice(0, 12)}` : ""}.${letGo ? " Detached, since it is no longer what you are working on." : ""}`,
 		{

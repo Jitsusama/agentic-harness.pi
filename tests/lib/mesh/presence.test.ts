@@ -594,4 +594,83 @@ describe("this session's peer", () => {
 		expect(again.wants).toBeUndefined();
 		expect(surroundings().presences.of(session)?.wants).toBeUndefined();
 	});
+
+	describe("what it landed", () => {
+		const noon = Date.parse("2026-11-01T12:00:00.000Z");
+		const at = (minutes: number) =>
+			new Date(noon + minutes * 60_000).toISOString();
+		const landing = (ref: string, minutes = 0) => ({
+			at: at(minutes),
+			ref,
+			what: `${ref} landed`,
+		});
+		const clocked = (over: { session?: string; previous?: string } = {}) => ({
+			...surroundings(),
+			...over,
+			now: () => noon + 60 * 60_000,
+		});
+
+		it("publishes each landing, newest first, one per ref", () => {
+			const peer = localPeer(clocked());
+
+			peer.landed(landing("agentic-harness.pi#920", 0));
+			peer.landed(landing("core.nix#1491", 5));
+			peer.landed({ ...landing("agentic-harness.pi#920", 10), what: "again" });
+
+			expect(
+				surroundings()
+					.presences.of(session)
+					?.landings?.map((one) => one.ref),
+			).toEqual(["agentic-harness.pi#920", "core.nix#1491"]);
+			expect(peer.landings[0]?.what).toBe("again");
+		});
+
+		it("keeps them across a reload and into the log a rollover starts", () => {
+			localPeer(clocked()).landed(landing("PLAN-20261030-QMUYBH#14a"));
+
+			expect(localPeer(clocked()).landings.map((one) => one.ref)).toEqual([
+				"PLAN-20261030-QMUYBH#14a",
+			]);
+			const rolled = localPeer(
+				clocked({ session: "01a19244-rolled", previous: session }),
+			);
+			expect(rolled.landings.map((one) => one.ref)).toEqual([
+				"PLAN-20261030-QMUYBH#14a",
+			]);
+		});
+
+		it("lets one older than a day go at its next start", () => {
+			localPeer(clocked()).landed(landing("core.nix#1400", -25 * 60));
+
+			expect(localPeer(clocked()).landings).toEqual([]);
+		});
+	});
+});
+
+describe("a presence's landings, read back", () => {
+	it("keep the well-formed ones and drop what isn't one", () => {
+		const good = {
+			at: "2026-11-01T12:00:00.000Z",
+			ref: "core.nix#1",
+			what: "x",
+		};
+		writeFileSync(
+			join(root, "s-1.json"),
+			JSON.stringify({
+				...presence(),
+				landings: [good, { ref: "no time" }, "text", { ...good, person: 3 }],
+			}),
+		);
+
+		expect(createPresences(root).of("s-1")?.landings).toEqual([good]);
+	});
+
+	it("are left out when there are none", () => {
+		writeFileSync(
+			join(root, "s-1.json"),
+			JSON.stringify({ ...presence(), landings: [] }),
+		);
+
+		expect(createPresences(root).of("s-1")).not.toHaveProperty("landings");
+	});
 });

@@ -95,6 +95,12 @@ export interface Standing {
 	 * come under either.
 	 */
 	readonly orchestrator?: readonly string[];
+	/**
+	 * This peer orchestrates, and the message is an fyi naming something
+	 * its sender's presence already says it landed: status this peer can
+	 * read there (see internal/session/landings.ts).
+	 */
+	readonly restates?: boolean;
 }
 
 /** The attention a message gets, and why, for the screen and the tests. */
@@ -151,6 +157,14 @@ export function attend(message: Message, at: Standing): Heed {
 		at.now - Date.parse(message.at) > MOST_HOLD_MS
 	) {
 		return { attention: "glance", why: "a hold past the longest one stands" };
+	}
+	// Status an orchestrator reads from its sender's presence costs it
+	// nothing more as one line; an fyi that answers it is still heard.
+	if (message.intent === "fyi" && at.restates && !at.answers) {
+		return {
+			attention: "glance",
+			why: "status its sender's presence already carries",
+		};
 	}
 	// A pivot carries its orchestrator's authority, so it is steered into
 	// a run under way like a hold. From anyone else it is only news.

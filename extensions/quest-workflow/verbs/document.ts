@@ -279,6 +279,32 @@ export function tick(
 	});
 }
 
+/** A ticked item's line: its number, when it has one, and its text. */
+const TICKED_ITEM = /^\s*[-*]\s+\[[xX]\]\s+(?:(\w+)\.\s+)?(.*)$/;
+
+/**
+ * What a tick in a document landed, by reference (`DOC#14a`, or the
+ * document's id for an item with no number) and its first line; nothing
+ * for a README's tick, an untick, or a result that changed nothing.
+ */
+export function landingOfTick(
+	result: QuestResult,
+): { ref: string; what: string } | undefined {
+	if (!result.ok) return undefined;
+	const { documentId, line } = result.details ?? {};
+	if (typeof documentId !== "string" || typeof line !== "string") {
+		return undefined;
+	}
+	const item = TICKED_ITEM.exec(line);
+	if (!item) return undefined;
+	const [, number, text = ""] = item;
+	const first = text.split(/(?<=[.:])\s/)[0] ?? text;
+	return {
+		ref: number ? `${documentId}#${number}` : documentId,
+		what: first,
+	};
+}
+
 /**
  * Replace the body of one `##` section, or add it: at the end of a
  * document other than the README, and in a README, whose sections are
@@ -420,5 +446,7 @@ function editBody(
 	stamp(state, target);
 	return ok(say.changed(shown, outcome.line, outcome.added), {
 		path: target.path,
+		...(target.documentId ? { documentId: target.documentId } : {}),
+		...(outcome.line ? { line: outcome.line } : {}),
 	});
 }

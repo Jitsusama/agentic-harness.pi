@@ -61,6 +61,11 @@ import {
 	takeOwedTurn,
 } from "../../lib/internal/reload/hold.ts";
 import {
+	type Landing,
+	namesLanding,
+	onLanded,
+} from "../../lib/internal/session/landings.ts";
+import {
 	carriedBy,
 	ROLLOVER_CARRY,
 } from "../../lib/internal/session/rollover.ts";
@@ -470,6 +475,7 @@ export function meshWorkflow(
 				}
 			: undefined;
 		const wanting = new Map<WantKind, Want>();
+		const unlanded: Landing[] = [];
 		let classifier: Promise<FoundClassifier> | undefined;
 		let stopWatching: (() => void) | undefined;
 		// Every id already looked at, so a watcher that reports one twice,
@@ -653,6 +659,19 @@ export function meshWorkflow(
 				isStopped(message, peer?.stops ?? [], everyone),
 			);
 			const answering = messages.map((message) => answers(message, read, self));
+			// What an orchestrator can read from a sender's presence rather than
+			// its message: only an orchestrator is spared, since only it is sent
+			// status (RSCH-20261031-GUDOJV, piece 1).
+			const restating = messages.map(
+				(message) =>
+					peer?.orchestrates !== undefined &&
+					message.intent === "fyi" &&
+					namesLanding(
+						message.text,
+						everyone.find((one) => one.addresses.includes(message.from))
+							?.landings ?? [],
+					),
+			);
 			const asked = messages.map((message) =>
 				answersQuestion(message, read, self),
 			);
@@ -677,6 +696,7 @@ export function meshWorkflow(
 					asked: answeringAt(asked, at),
 					askedEach: asksEach(message, listener),
 					now: Date.now(),
+					...(restating[at] ? { restates: true } : {}),
 					...(orchestrator ? { orchestrator } : {}),
 					...(concerns[at] ? { concern: concerns[at] } : {}),
 				});
@@ -1134,6 +1154,7 @@ export function meshWorkflow(
 				...terminalOf(),
 			});
 			for (const want of wanting.values()) peer.want(want);
+			for (const landing of unlanded.splice(0)) peer.landed(landing);
 			if (waiting) seedWaiting(peer, waiting);
 			// Named to whatever this process starts, so a subagent knows whose
 			// hands it is.
@@ -1436,6 +1457,15 @@ export function meshWorkflow(
 		// over the bus. Heard from load, since a reload with a panel still
 		// open says its wants again as the session starts, perhaps before
 		// this peer is made; held until then.
+		// What this session lands, kept in its presence; held until the peer
+		// is made, as its wants are.
+		if (pi.events) {
+			onLanded(pi.events, (landing) => {
+				if (peer) peer.landed(landing);
+				else unlanded.push(landing);
+			});
+		}
+
 		if (pi.events) {
 			onWants(pi.events, (event) => {
 				if (event.said === null) {
