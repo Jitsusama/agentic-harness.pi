@@ -147,8 +147,7 @@ export function discoverTerminals(inputs: DiscoveryInputs): TerminalLandscape {
 	return {
 		platform: inputs.platform,
 		chain: [
-			...sighted,
-			...heldSighting(inputs.drivers, inputs.heldIn, sighted),
+			...withHolder(inputs.drivers, inputs.heldIn, sighted),
 			...inputs.drivers
 				.filter(
 					(driver) =>
@@ -170,19 +169,25 @@ export function discoverTerminals(inputs: DiscoveryInputs): TerminalLandscape {
 }
 
 /**
- * The terminal the session's holder shows it in, unless the session
- * already sighted that terminal itself.
+ * The sightings with the terminal the session's holder shows it in.
+ * Its own reachable sighting of that terminal wins; one it can't reach,
+ * as when the holder was started from a kitty that the ancestry names
+ * with no variables to reach it by, gives way to the holder's window
+ * in its place.
  */
-function heldSighting(
+function withHolder(
 	drivers: readonly TerminalDriver[],
 	heldIn: HeldWindow | undefined,
 	sighted: readonly TerminalSighting[],
 ): TerminalSighting[] {
-	if (!heldIn) return [];
-	if (sighted.some((one) => one.driverId === heldIn.terminal)) return [];
+	if (!heldIn) return [...sighted];
+	const own = sighted.findIndex((one) => one.driverId === heldIn.terminal);
+	if (own >= 0 && sighted[own]?.reachable) return [...sighted];
 	const driver = drivers.find((one) => one.id === heldIn.terminal);
 	const seen = driver?.sightWindow?.(heldIn);
-	return seen ? [seen] : [];
+	if (!seen) return [...sighted];
+	if (own < 0) return [...sighted, seen];
+	return sighted.map((one, at) => (at === own ? seen : one));
 }
 
 /**
