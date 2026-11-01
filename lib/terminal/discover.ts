@@ -27,6 +27,7 @@ import {
 	launcherOn,
 } from "../core/internal/terminal/launchers.ts";
 import type {
+	HeldWindow,
 	TerminalDriver,
 	TerminalLayout,
 	TerminalPlatform,
@@ -86,6 +87,12 @@ export interface DiscoveryInputs {
 	 * package registered by hand is still used, as it was before.
 	 */
 	readonly selfReported?: ReadonlySet<string>;
+	/**
+	 * The window the session's holder says it is shown in, when it runs
+	 * held. Its environment and ancestry name no terminal then, so this
+	 * is the only word on which one it sits in.
+	 */
+	readonly heldIn?: HeldWindow;
 }
 
 /**
@@ -136,10 +143,12 @@ export function discoverTerminals(inputs: DiscoveryInputs): TerminalLandscape {
 			layouts: launcherLayouts(form),
 		});
 	}
+	const sighted = sightChain(inputs.drivers, inputs.env, inputs.ancestry);
 	return {
 		platform: inputs.platform,
 		chain: [
-			...sightChain(inputs.drivers, inputs.env, inputs.ancestry),
+			...sighted,
+			...heldSighting(inputs.drivers, inputs.heldIn, sighted),
 			...inputs.drivers
 				.filter(
 					(driver) =>
@@ -158,6 +167,22 @@ export function discoverTerminals(inputs: DiscoveryInputs): TerminalLandscape {
 		launchers,
 		missingLaunchers,
 	};
+}
+
+/**
+ * The terminal the session's holder shows it in, unless the session
+ * already sighted that terminal itself.
+ */
+function heldSighting(
+	drivers: readonly TerminalDriver[],
+	heldIn: HeldWindow | undefined,
+	sighted: readonly TerminalSighting[],
+): TerminalSighting[] {
+	if (!heldIn) return [];
+	if (sighted.some((one) => one.driverId === heldIn.terminal)) return [];
+	const driver = drivers.find((one) => one.id === heldIn.terminal);
+	const seen = driver?.sightWindow?.(heldIn);
+	return seen ? [seen] : [];
 }
 
 /**

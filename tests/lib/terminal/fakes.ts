@@ -69,6 +69,20 @@ export function fakeDriver(
 				source: "environment",
 			};
 		},
+		sightWindow(window) {
+			return {
+				driverId: id,
+				handle: {
+					driverId: id,
+					kind: `${id}-pane`,
+					hostId: "host",
+					...(window.within ? { scope: window.within } : {}),
+					value: window.id,
+				},
+				reachable: window.within !== undefined,
+				source: "holder",
+			};
+		},
 		async spawn(request) {
 			calls.spawned.push(request);
 			if (options.failSpawn) throw new Error(`${id} refused`);

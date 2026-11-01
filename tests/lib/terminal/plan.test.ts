@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	discoverTerminals,
+	type HeldWindow,
 	planTerminal,
 	resolveTerminalChoice,
 	type TerminalChoice,
@@ -27,6 +28,7 @@ function landscape(
 		found?: string[];
 		ancestry?: string[];
 		platform?: "linux" | "darwin";
+		heldIn?: HeldWindow;
 	} = {},
 ): TerminalLandscape {
 	return discoverTerminals({
@@ -38,6 +40,7 @@ function landscape(
 			...(options.found ?? ["kitty", "zellij", "tmux", "foot", "alacritty"]),
 		),
 		...(options.ancestry ? { ancestry: options.ancestry } : {}),
+		...(options.heldIn ? { heldIn: options.heldIn } : {}),
 	});
 }
 
@@ -83,6 +86,42 @@ describe("which terminals the session sits in", () => {
 			{ ancestry: ["zsh", "zellij", "systemd"] },
 		).chain;
 		expect(chain.map((each) => each.driverId)).toEqual(["zellij", "kitty"]);
+	});
+
+	it("sits in the window its holder shows it in, when it runs held", () => {
+		// A session reopened after a boot runs under its holder, whose
+		// environment names no terminal, so a spawn opened a fresh kitty on
+		// whatever workspace the person was looking at.
+		const held = landscape(
+			{},
+			{
+				ancestry: ["zsh", "mycelium", "systemd"],
+				heldIn: { terminal: "kitty", id: "29", within: "unix:@kitty-5344" },
+			},
+		);
+
+		expect(held.chain).toEqual([
+			expect.objectContaining({
+				driverId: "kitty",
+				reachable: true,
+				source: "holder",
+			}),
+		]);
+		expect(plan(held, { layout: "tab" })).toMatchObject({
+			ok: true,
+			plan: { terminal: "kitty", tier: "attached" },
+		});
+	});
+
+	it("goes by its own variables over its holder's word", () => {
+		const chain = landscape(
+			{ KITTY_PANE: "7" },
+			{ heldIn: { terminal: "kitty", id: "29", within: "unix:@kitty-5344" } },
+		).chain;
+
+		expect(chain).toEqual([
+			expect.objectContaining({ driverId: "kitty", source: "environment" }),
+		]);
 	});
 
 	it("adds a terminal the ancestry shows but whose variables are gone, as unreachable", () => {
