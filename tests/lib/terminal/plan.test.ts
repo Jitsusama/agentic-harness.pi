@@ -113,6 +113,30 @@ describe("which terminals the session sits in", () => {
 		});
 	});
 
+	it("takes its holder's window over a kitty the ancestry shows but can't reach", () => {
+		// The holder was started from a kitty, so the ancestry names one,
+		// with no variables to reach it by.
+		const held = landscape(
+			{},
+			{
+				ancestry: ["bash", "node", "mycelium", "mycelium", "kitty", "systemd"],
+				heldIn: { terminal: "kitty", id: "12", within: "unix:@kitty-5344" },
+			},
+		);
+
+		expect(held.chain).toEqual([
+			expect.objectContaining({
+				driverId: "kitty",
+				reachable: true,
+				source: "holder",
+			}),
+		]);
+		expect(plan(held, { layout: "tab" })).toMatchObject({
+			ok: true,
+			plan: { terminal: "kitty", tier: "attached" },
+		});
+	});
+
 	it("goes by its own variables over its holder's word", () => {
 		const chain = landscape(
 			{ KITTY_PANE: "7" },
