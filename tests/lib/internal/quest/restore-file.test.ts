@@ -74,7 +74,7 @@ describe("the restore file", () => {
 		});
 	});
 
-	it("drops a session once it runs again in this boot, and one pi never saved", () => {
+	it("drops a session once it runs again in this boot", () => {
 		const back = reopenRecord(ranIn("back", "last"), {
 			instanceId: "inst-now",
 			process: { hostId: "here", pid: 2, startToken: "t", bootToken: "this" },
@@ -93,7 +93,34 @@ describe("the restore file", () => {
 			(id) => id !== "unsaved",
 		);
 
-		expect(file.sessions.map((entry) => entry.id)).toEqual(["left"]);
+		expect(file.sessions.map((entry) => entry.id)).toEqual(["unsaved", "left"]);
+	});
+
+	it("offers one pi never saved to start afresh under its id, rather than leaving it out", () => {
+		// A session that never answered has no file for `pi --session` to
+		// resume, so it was left out and lost without a word (01a18f19, at
+		// the 14:00 restart on 10-31).
+		const file = restoreFileOf(
+			[
+				{
+					record: ranIn("unsaved", "last", "QEST-20260626-P7CLU8"),
+					heartbeatAt: "2026-10-29T05:00:00Z",
+				},
+				{ record: ranIn("saved", "last"), heartbeatAt: "2026-10-29T05:00:00Z" },
+			],
+			"this",
+			undefined,
+			(id) => id !== "unsaved",
+		);
+
+		expect(file.sessions).toEqual([
+			expect.objectContaining({
+				id: "unsaved",
+				quest: "QEST-20260626-P7CLU8",
+				fresh: true,
+			}),
+			expect.not.objectContaining({ fresh: expect.anything() }),
+		]);
 	});
 
 	it("offers a window on another machine's session by its attach, beside this machine's sessions", () => {

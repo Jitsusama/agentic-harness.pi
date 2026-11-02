@@ -116,8 +116,9 @@ shipped and tested.
   its home when there is none there or the folder is outside
   home, and it starts fresh, since a session's history is saved
   on its own machine. A dry run asks the node nothing. A held
-  session's terminal is its holder, not kitty, so a session it
-  spawns in turn opens a new window rather than a tab. `restore`
+  session runs under its holder, not kitty, so a session it
+  spawns in turn opens beside the window the node says it is
+  shown in (see the terminal library's README). `restore`
   refuses `machine` and `needs`: it reopens this machine's saved
   sessions.
 - **Windows on another machine's sessions**: a session another
@@ -130,6 +131,9 @@ shipped and tested.
   boot's `restore.json` offers each as an entry with `machine` and
   `attach`, for the launcher to rejoin, and `restore` lists the
   words. A session joined again in a window now drops out.
+  A session pi never saved is offered too, marked `fresh`, which
+  the launcher starts afresh under its id with `pi --session-id`,
+  its quest autoloaded, since there is no file to resume.
 - **Spawn where it fits**: `spawn` with `needs`, each in
   mycelium's own `kind=value` words (`reach=home`,
   `system=macos`), asks the node where such work goes before
