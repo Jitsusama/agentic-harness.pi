@@ -21,6 +21,12 @@ the four sections as separate fields and writes the headings
 itself. Everything else is judgement, which the skill's Before You
 Submit questions carry.
 
+A change of 10,000 changed lines or more may go deeper inside
+Problem, Solution and Validation, below openings held to the
+ordinary ceilings, so the two-minute description stays two
+minutes. `review_offer` measures the size itself; `gh` can't, so
+it holds every description to the ordinary shape.
+
 [study]: ../../docs/pr-descriptions.md
 
 Pairs with the [review-integration extension](../../extensions/review-integration/)

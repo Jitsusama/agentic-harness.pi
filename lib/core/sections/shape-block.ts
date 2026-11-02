@@ -23,7 +23,9 @@ function line(v: ShapeViolation): string {
 	const quoted = v.excerpt ? ` ("${v.excerpt}")` : "";
 	switch (v.rule) {
 		case "words":
-			return `${name} is ${v.actual} words; it may be at most ${v.limit}, so cut ${plural(v.actual - v.limit, "word", "words")}. Keep what the reader needs and cut the rest.`;
+			return v.deeper
+				? `${name} opens with ${v.actual} words; its opening may be at most ${v.limit}. This change is large enough to go deeper, so keep the opening to what every reader needs, naming each part, and move the detail into #### parts below it.`
+				: `${name} is ${v.actual} words; it may be at most ${v.limit}, so cut ${plural(v.actual - v.limit, "word", "words")}. Keep what the reader needs and cut the rest.`;
 		case "sentences":
 			return `${name} is ${plural(v.actual, "sentence", "sentences")}; it may be at most ${v.limit}.`;
 		case "codeSpans":
@@ -48,6 +50,22 @@ function line(v: ShapeViolation): string {
 			return `${name} opens with "${v.word}"; open with the thing that changed.`;
 		case "emphasis":
 			return `${name} uses bold; leave emphasis out of it.`;
+		case "depth":
+			return `${name} has ${plural(v.actual, "subheading", "subheadings")}, which only a change of ${v.limit} changed lines or more may carry, and this one gets none: ${v.why ?? "its size is not known"}. Fold the parts into the section's own prose.`;
+		case "parts":
+			return `${name} has ${v.actual} parts; it may have at most ${v.limit}. Merge the smallest into their neighbours.`;
+		case "tableRows":
+			return `${name} has a table of ${v.actual} rows; it may have at most ${v.limit}. Keep the results a reader compares and say the rest in prose.`;
+		case "cellWords":
+			return `${name} has a table cell of ${v.actual} words; a cell may hold at most ${v.limit}. A table holds values; the reasons go in prose.`;
+		case "tableNumbers":
+			return `${name} has ${plural(v.actual, "table row", "table rows")} with no number${quoted}. A results table holds measured values; say anything else in prose.`;
+		case "tableAfter":
+			return `${name} ends on a table; follow it with a sentence saying where those checks stop.`;
+		case "tablePlace":
+			return `${name} has ${plural(v.actual, "table", "tables")}; only Validation may hold one, for measured results. Say the rest in prose.`;
+		case "docLinks":
+			return `${name} points to a document in the repository${quoted}. The description has to stand alone, so bring what the reader needs from it into the body.`;
 	}
 }
 

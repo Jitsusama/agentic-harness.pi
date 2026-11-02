@@ -13,7 +13,8 @@
  * anybody rewriting the description around it.
  */
 
-import { PR_SECTIONS } from "./sanctioned.ts";
+import { PR_SECTIONS, PR_SHAPE } from "./sanctioned.ts";
+import { isPartHeading } from "./shape.ts";
 
 /** The four sections of a PR description, as the text under each heading. */
 export interface PrFields {
@@ -115,7 +116,9 @@ export function composePrBody(
 /**
  * The fields a body holds under the sanctioned headings, and the context
  * blocks under its TL;DR. A section the body does not have is absent
- * rather than empty, and a body in another shape reads as no fields.
+ * rather than empty, and a body in another shape reads as no fields. A
+ * large change's part stays in the field of the section it sits under,
+ * so an edit of one section keeps every part of the others.
  */
 export function readPrFields(body: string): {
 	fields: Partial<PrFields>;
@@ -141,14 +144,16 @@ export function readPrFields(body: string): {
 		}
 	};
 
+	let within: string | undefined;
 	for (const [i, line] of lines.entries()) {
 		const match = HEADING.exec(maskedLines[i] ?? "");
-		if (!match) {
+		if (!match || isPartHeading(match[1] ?? "", within, PR_SHAPE.depth)) {
 			held.push(line);
 			continue;
 		}
 		flush();
 		const heading = `${match[1]} ${match[2]}`.replace(VARIATION_SELECTOR, "");
+		within = heading;
 		const at = PR_SECTIONS.findIndex(
 			(h) => h.replace(VARIATION_SELECTOR, "") === heading,
 		);

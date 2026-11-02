@@ -50,7 +50,9 @@ See `github-cli-convention` for title formatting rules
 
 A PR description has exactly four sections, in this order. Each
 heading is the emoji and the name together, written precisely as
-shown. The set is closed: no other headings, no optional ones.
+shown. The set is closed: no other headings, no optional ones. The
+one exception is the parts a large change may carry inside three of
+them, under A Large Change below.
 
 The word limits below are ceilings, not targets. Most changes
 need well under half of them. Say what the reader needs and stop.
@@ -187,6 +189,53 @@ before-and-after values rather than percentages alone. No hedges
 tested", "robust"). At most 100 words and five bullets. Code spans,
 commands and short output excerpts belong here when they help.
 
+## A Large Change
+
+A change of 10,000 changed lines or more, about one PR in two
+hundred, can't be told in two minutes, and a reviewer who will
+spend days on it needs a working model before reading code. It
+keeps the four sections in their order and may go deeper inside
+Problem, Solution and Validation. The tool measures the size, from
+the checkout's diff on a propose and from the backend on an edit;
+the writer never claims it. When the size can't be measured, the
+refusal says why and the ordinary shape holds.
+
+- **The opening is today's section.** Each section opens with a
+  paragraph held to its ordinary ceiling (120, 200 and 100 words),
+  so the TL;DR and the three openings are the two-minute
+  description. The opening names every part, risk, limit and
+  action owed that the depth below works through. Nothing deeper
+  may hold what the opening doesn't at least name.
+- **Parts below it.** Under the opening, up to 8 parts a section,
+  each under a `####` subheading and at most 150 words, with the
+  same 40-word sentence and no artifact lists. Open with the model
+  (what the system is, in a paragraph), then each part in the order
+  a request or a write flows through it. In Validation: the
+  evidence, then where the checks stop.
+- **One kind of table, in Validation only.** Measured results side
+  by side: at most 12 rows, cells of at most 12 words, a number in
+  every row, and a sentence after it saying where those checks
+  stop. The reasons go in prose, never in cells.
+- **It stands alone.** No link or code span to a document in the
+  repository. Bring what the reader needs from it into the body.
+- **Splitting comes first.** If the change splits into smaller PRs
+  that each make sense, split it. The depth is for a change that
+  has to land as one.
+
+```markdown
+### 🔧 Solution
+
+An opening of at most 200 words that names every part below.
+
+#### The Sequencer
+
+At most 150 words on the first part a write meets.
+```
+
+`gh pr create` and `gh pr edit` can't measure a change, so they hold
+every description to the ordinary shape; propose or edit a large
+one through `review_offer`.
+
 ## Writing for a Person
 
 These are what make the four sections readable rather than merely
@@ -276,14 +325,24 @@ checks and costs the reader's trust.
    instead of recovering".
 5. **Can the reader reach every piece of evidence?** Name the
    test, command or CI job, or link the document a number comes
-   from. A figure from something only you can see is a claim the
-   reader has to take on faith.
+   from (in a large description, bring the number into the body
+   instead). A figure from something only you can see is a claim
+   the reader has to take on faith.
 6. **Can you point at the line that shows each claim?** The diff,
    a commit message or output you ran. If you cannot, cut the
    claim. A plausible inference is still an invention.
 7. **What would the reviewer ask first?** If the answer is not in
    the description, put it there, or cut something less useful
    to make room.
+8. **Read in order, do the sections leave holes?** Read the four
+   sections top to bottom as someone building the design in their
+   head. Where a part arrives before what it depends on, or a step
+   is missing between two, fix the order or fill the gap. This
+   matters most for a large change.
+9. **Do the TL;DR and the openings carry readiness and who must
+   act?** Whether it can merge or switch yet, whose approval it
+   waits on, and what someone must do after it lands. Most readers
+   stop at the openings, so these never live only in the depth.
 
 ## Issue and Stack Context
 

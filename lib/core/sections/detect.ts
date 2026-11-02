@@ -10,6 +10,7 @@
  */
 
 import type { Violation } from "../../gate/index.ts";
+import { type DepthShape, isPartHeading } from "./shape.ts";
 
 /** A single section convention violation. */
 export interface SectionViolation extends Violation {
@@ -46,11 +47,15 @@ function maskFences(body: string): string {
 
 /**
  * Find every heading in a body that is not sanctioned (invented)
- * and every sanctioned heading the body omits (missing).
+ * and every sanctioned heading the body omits (missing). A part's
+ * subheading under a section the depth names belongs to that section
+ * and is no heading of its own; whether the change may have parts at
+ * all is the shape's to say.
  */
 export function detectSectionViolations(
 	body: string,
 	sanctioned: readonly string[],
+	depth?: DepthShape,
 ): SectionViolation[] {
 	const sanctionedSet = new Set(
 		sanctioned.map((h) => h.replace(VARIATION_SELECTOR, "")),
@@ -62,9 +67,12 @@ export function detectSectionViolations(
 	// reordering can be compared against the canonical sequence.
 	const presentInOrder: string[] = [];
 	const violations: SectionViolation[] = [];
+	let within: string | undefined;
 
 	for (const match of masked.matchAll(HEADING_REGEX)) {
+		if (isPartHeading(match[1], within, depth)) continue;
 		const heading = canonical(match[1], match[2]);
+		within = heading;
 		if (sanctionedSet.has(heading)) {
 			if (!present.has(heading)) presentInOrder.push(heading);
 			present.add(heading);
