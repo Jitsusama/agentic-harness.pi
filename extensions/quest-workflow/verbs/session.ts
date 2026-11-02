@@ -53,6 +53,11 @@ import {
 	machineFor,
 	spawnHeld,
 } from "./spawn-held.ts";
+import {
+	launcherOpens,
+	launcherSession,
+	spawnedByLauncher,
+} from "./spawn-launcher.ts";
 
 /**
  * Repair session-to-quest membership across the store, in two
@@ -418,12 +423,52 @@ export async function spawn(
 	// The command is typed into a login shell the terminal opens, so the
 	// person's startup files put the right pi on PATH; handed to the
 	// terminal directly it would run without them.
+	const request = {
+		...(read.layout ? { layout: read.layout } : {}),
+		command,
+		cwd,
+		env,
+	};
+	// A kitty window of plain pi is the launcher's to open, so one placer
+	// orders every pi window on the screen; it opens here when it doesn't
+	// answer.
+	const forLauncher = launcherSession({
+		command,
+		cwd,
+		questId: questIdForSpawn,
+		...(resumedSessionId ? { resumedSessionId } : {}),
+		named: Boolean(params.terminal?.trim() || asked || params.nesting?.trim()),
+	});
+	const resumeNote = params.command?.trim()
+		? undefined
+		: resumeMessage(resume, sessions, now);
+	if (
+		forLauncher &&
+		!params.dryRun &&
+		(await spawnedByLauncher(forLauncher, request, read.options))
+	) {
+		const what = forLauncher.fresh
+			? `a new session, ${forLauncher.id}, which loads ${questIdForSpawn} as it starts`
+			: `session ${forLauncher.id}, which brings back its own quest`;
+		return ok(
+			`Handed ${what}, to the desktop's launcher, which opens it in a kitty window in ${cwd} (${resolved.source}), back where it sat or else beside where you are.${resolved.healed ? " A recorded path was missing; healed to this one." : ""}${resumeNote ? ` ${resumeNote}` : ""}`,
+			{
+				how: "launcher",
+				sessionId: forLauncher.id,
+				fresh: forLauncher.fresh === true,
+				layout: "window",
+				cwd,
+				cwdSource: resolved.source,
+				healed: resolved.healed ?? false,
+				command,
+				resumedSessionId,
+				autoloadQuestId: questIdForSpawn,
+			},
+		);
+	}
 	let opened: OpenedTerminal;
 	try {
-		opened = await openTerminal(
-			{ ...(read.layout ? { layout: read.layout } : {}), command, cwd, env },
-			read.options,
-		);
+		opened = await openTerminal(request, read.options);
 	} catch (err) {
 		return refuse(`Spawn failed: ${(err as Error).message}`);
 	}
@@ -432,8 +477,12 @@ export async function spawn(
 	const used = describePlan(plan);
 	const noted = opened.notes.map((note) => ` Note: ${note}.`).join("");
 	if (opened.how === "planned") {
+		const first =
+			forLauncher && launcherOpens(plan)
+				? " Run for real, it goes first to the desktop's launcher, which opens that window itself, and opens as planned only when the launcher doesn't answer."
+				: "";
 		return ok(
-			`Would spawn a ${layout} in ${cwd} through ${used}, running: ${command}.${noted}`,
+			`Would spawn a ${layout} in ${cwd} through ${used}, running: ${command}.${noted}${first}`,
 			{ plan, cwd, command, autoloadQuestId: questIdForSpawn },
 		);
 	}
@@ -445,9 +494,6 @@ export async function spawn(
 	// Only narrate resume when the spawn used pi's default command;
 	// an explicit command overrides the resume decision, so the
 	// idle/live/ambiguous note would not describe what actually ran.
-	const resumeNote = params.command?.trim()
-		? undefined
-		: resumeMessage(resume, sessions, now);
 	if (resumeNote) message += ` ${resumeNote}`;
 	// State the quest the new session will load, not merely the one
 	// requested. When the spawned command is pi (fresh or a resume),

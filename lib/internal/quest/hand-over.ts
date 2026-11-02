@@ -7,15 +7,25 @@
  * `qs ipc call sessions reopen`, and answers "taken", "taken N of M" or
  * "refused: ..." at once. It opens each as
  * `mycelium --realm <its realm> hold -- pi --session <id>`, one at a
- * time, waiting for each window, so only sessions pi saved can go.
+ * time, waiting for each window. One marked `fresh` is started instead
+ * as `pi --session-id <id>`, under its `quest` when it names one, so a
+ * session pi hasn't saved yet, a new one `quest spawn` starts, can go
+ * too (core.nix #1544).
  */
 
 import { execFile } from "node:child_process";
 
-/** A session the launcher can reopen: pi saved it, and it has a folder. */
+/**
+ * A session the launcher can open: one pi saved, or one it starts
+ * fresh, in a folder.
+ */
 export interface HandedSession {
 	readonly id: string;
 	readonly cwd: string;
+	/** Started afresh under `id`, since pi has no record of it to resume. */
+	readonly fresh?: boolean;
+	/** The quest a fresh session loads as it starts. */
+	readonly quest?: string;
 }
 
 /** Runs the launcher's call with its one argument, answering its words. */
@@ -71,7 +81,12 @@ export async function handOver(
 ): Promise<number | undefined> {
 	if (sessions.length === 0) return undefined;
 	const argument = JSON.stringify({
-		sessions: sessions.map(({ id, cwd }) => ({ id, cwd })),
+		sessions: sessions.map(({ id, cwd, fresh, quest }) => ({
+			id,
+			cwd,
+			...(fresh ? { fresh: true } : {}),
+			...(fresh && quest ? { quest } : {}),
+		})),
 	});
 	try {
 		return takenBy(await call(argument), sessions.length);
