@@ -469,14 +469,22 @@ export interface LastBootSessions {
  * {@link SHUTDOWN_SPREAD_MS} of that end. Without this boot's token
  * nothing can be told apart, and nothing is offered: restore's whole
  * trouble was offering what should not come back.
+ *
+ * A session run again takes this boot's token, so once every one the
+ * last boot lost is back, the newest other token is a boot before it.
+ * `ended`, the boot already worked out as the last this boot, is kept
+ * instead, so what is offered empties rather than turning to an older
+ * boot's sessions.
  */
 export function lastBootSessions(
 	records: readonly SessionRecord[],
 	thisBoot: string | undefined,
+	ended?: string,
 ): LastBootSessions {
 	const lost = restorable(records);
 	if (thisBoot === undefined) return { offered: [], older: lost };
-	let boot: string | undefined;
+	const named = ended !== undefined && ended !== thisBoot ? ended : undefined;
+	let boot: string | undefined = named;
 	let end = Number.NEGATIVE_INFINITY;
 	for (const record of records) {
 		const token = record.process?.bootToken;
@@ -484,6 +492,7 @@ export function lastBootSessions(
 		if (token === undefined || token === thisBoot || Number.isNaN(seen)) {
 			continue;
 		}
+		if (named !== undefined && token !== named) continue;
 		if (seen > end) {
 			end = seen;
 			boot = token;

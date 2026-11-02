@@ -38,6 +38,7 @@ import {
 } from "../../lib/internal/quest/process-liveness.ts";
 import { extractTitle } from "../../lib/internal/quest/quest-doc.ts";
 import {
+	bootEndedBefore,
 	type RestoreEntry,
 	restoreFileOf,
 	restoreFilePath,
@@ -71,6 +72,7 @@ import {
 } from "../../lib/internal/quest/windows-elsewhere.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace-root.ts";
 import { sessionLogHeader } from "../../lib/internal/session/log-header.ts";
+import { machineBooted } from "../../lib/mesh/liveness.ts";
 import type { QuestSession } from "../../lib/quest/index.ts";
 import {
 	describePlan,
@@ -596,7 +598,7 @@ export function lastBootRestorable(
 		restorableSessions(saved).map((record) => record.sessionId),
 	);
 	const records = loadRecords().map((entry) => entry.record);
-	const found = lastBootSessions(records, thisBoot);
+	const found = lastBootSessions(records, thisBoot, endedBoot(thisBoot));
 	const kept = (list: SessionRecord[]) =>
 		list.filter((record) => lost.has(record.sessionId));
 	return { ...found, offered: kept(found.offered), older: kept(found.older) };
@@ -611,10 +613,7 @@ export function lastBootRestorable(
  */
 export function refreshRestoreFile(
 	questsRoot: string,
-	// An empty XDG_STATE_HOME means the default, as the spec says; read as
-	// a path it would write into whatever folder the process stands in.
-	stateHome: string = process.env.XDG_STATE_HOME ||
-		join(homedir(), ".local", "state"),
+	stateHome: string = defaultStateHome(),
 ): void {
 	try {
 		const thisBoot = currentProcessIdentity()?.bootToken;
@@ -626,11 +625,32 @@ export function refreshRestoreFile(
 			savedSessions(),
 			(lastBoot) => windowsToReopen(note, thisBoot, lastBoot),
 			carriedHome(questsRoot),
+			endedBoot(thisBoot, stateHome),
 		);
 		writeRestoreFile(restoreFilePath(stateHome), file);
 	} catch {
 		// The launcher keeps the file it has; the next start writes again.
 	}
+}
+
+/**
+ * The state folder the restore file sits under. An empty XDG_STATE_HOME
+ * means the default, as the spec says; read as a path it would write
+ * into whatever folder the process stands in.
+ */
+function defaultStateHome(): string {
+	return process.env.XDG_STATE_HOME || join(homedir(), ".local", "state");
+}
+
+/**
+ * The boot this boot already named as the last in the restore file, so
+ * every later reading keeps it (see `bootEndedBefore`).
+ */
+function endedBoot(
+	thisBoot: string | undefined,
+	stateHome: string = defaultStateHome(),
+): string | undefined {
+	return bootEndedBefore(restoreFilePath(stateHome), thisBoot, machineBooted());
 }
 
 /**
