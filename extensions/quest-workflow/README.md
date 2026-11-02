@@ -105,6 +105,15 @@ shipped and tested.
   one, or with `PI_LAUNCHER=off`, as the tests set. What the
   launcher doesn't take, every one when it doesn't answer, and
   a session pi never saved open as above, two seconds apart.
+- **Spawn through the launcher**: a `spawn` the settings would
+  open as a kitty window of plain pi, on this machine, goes to
+  the launcher the same way, so it places that window too: a
+  resumed session by its id, a new one marked fresh with an id
+  minted for it and its quest, which the launcher starts with
+  `pi --session-id`. The same cases as restore's leave it out,
+  and so do another terminal or layout, another command and
+  another machine; a launcher that doesn't take it leaves the
+  window to open as above. A dry run asks it nothing.
 - **Spawn on a machine**: `spawn` with `machine` asks this
   machine's mycelium node to start the session held on that
   machine, through that machine's own node when it is another,
