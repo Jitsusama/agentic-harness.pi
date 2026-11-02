@@ -27,6 +27,7 @@
 
 import { detectProseViolations, formatProseBlock } from "../../prose/index.ts";
 import {
+	type ChangeSize,
 	detectBodyViolations,
 	formatBodyBlock,
 	PR_SECTIONS,
@@ -41,10 +42,15 @@ import { detectTitleViolations, formatTitleBlock } from "../title/index.ts";
  * prose. There is no point polishing the words in a section that should
  * not exist, and a wrong title should be caught alongside the structure
  * rather than after the writing has been redone.
+ *
+ * The size is the change's, as the caller measured it from the checkout
+ * or the backend. It is what lets a large change go deeper inside its
+ * sections; left out, the body is held to the ordinary shape.
  */
 export function proposalComplaint(
 	title: string | undefined,
 	body: string | undefined,
+	size?: ChangeSize,
 ): string | undefined {
 	const written = body !== undefined && body.trim() !== "";
 	const named = title !== undefined && title.trim() !== "";
@@ -57,10 +63,11 @@ export function proposalComplaint(
 	const blocks = [
 		written
 			? formatBodyBlock(
-					detectBodyViolations(body, {
-						sanctioned: PR_SECTIONS,
-						shape: PR_SHAPE,
-					}),
+					detectBodyViolations(
+						body,
+						{ sanctioned: PR_SECTIONS, shape: PR_SHAPE },
+						size,
+					),
 					"pull request",
 					"github-pr-format",
 				)

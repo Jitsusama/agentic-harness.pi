@@ -22,7 +22,12 @@ import {
 	readPrFields,
 } from "../../lib/core/sections/index.ts";
 import { stubProvider } from "../support/stub-provider.ts";
-import { activate, HEADLESS, toolNamed } from "./support/review-extension.ts";
+import {
+	activate,
+	type ExecAnswers,
+	HEADLESS,
+	toolNamed,
+} from "./support/review-extension.ts";
 
 const world: RepoLocator = { key: "meteorite:shop/world" };
 
@@ -55,7 +60,10 @@ const SECTIONS = {
 };
 
 /** A provider that records what it is asked to open and to edit. */
-function recordingProvider(current: string = composePrBody(SECTIONS)) {
+function recordingProvider(
+	current: string = composePrBody(SECTIONS),
+	size: Pick<Change, "additions" | "deletions"> = {},
+) {
 	const proposed: { body: string; title?: string }[] = [];
 	const edited: (string | undefined)[] = [];
 	const existing: Change = {
@@ -68,6 +76,7 @@ function recordingProvider(current: string = composePrBody(SECTIONS)) {
 		base: "main",
 		head: "topic",
 		url: "https://example.invalid/7",
+		...size,
 	};
 	const provider = stubProvider({
 		id: "meteorite",
@@ -104,8 +113,11 @@ function recordingProvider(current: string = composePrBody(SECTIONS)) {
 	return { provider, proposed, edited };
 }
 
-async function offer(params: Record<string, unknown>) {
-	const stub = activate();
+async function offer(
+	params: Record<string, unknown>,
+	answers: ExecAnswers = {},
+) {
+	const stub = activate(answers);
 	const tool = toolNamed(stub, "review_offer");
 	return await tool.execute("1", params, undefined, undefined, HEADLESS);
 }
@@ -281,5 +293,112 @@ describe("editing some sections", () => {
 		await offer({ action: "edit", change: "7", ...SECTIONS });
 
 		expect(readPrFields(edited[0] ?? "").fields).toEqual(SECTIONS);
+	});
+});
+
+/** A Solution that goes deeper, as only a large change may. */
+const DEEP_SOLUTION = [
+	"A commit now writes one log record, and readers build the rest from it.",
+	"#### The Sequencer\n\nThe sequencer orders every write before it lands.",
+	"#### The Reader\n\nThe reader rebuilds a repository from its records.",
+].join("\n\n");
+
+const shortstat = (lines: number) => ({
+	"diff --shortstat": {
+		stdout: ` 708 files changed, ${lines} insertions(+), 0 deletions(-)\n`,
+	},
+});
+
+describe("a large change going deeper", () => {
+	it("proposes a description with parts once the checkout's diff makes it large", async () => {
+		const { provider, proposed } = recordingProvider();
+		registerReviewProvider(provider);
+
+		await offer(
+			{ ...proposing, ...SECTIONS, solution: DEEP_SOLUTION },
+			shortstat(252_790),
+		);
+
+		expect(proposed).toHaveLength(1);
+		expect(readPrFields(proposed[0]?.body ?? "").fields.solution).toBe(
+			DEEP_SOLUTION,
+		);
+	});
+
+	it("refuses the parts of a small change, saying how many lines it has", async () => {
+		const { provider, proposed } = recordingProvider();
+		registerReviewProvider(provider);
+
+		const answer = JSON.stringify(
+			await offer(
+				{ ...proposing, ...SECTIONS, solution: DEEP_SOLUTION },
+				shortstat(412),
+			),
+		);
+
+		expect(answer).toContain("412 changed lines");
+		expect(proposed).toHaveLength(0);
+	});
+
+	it("says why when the checkout cannot compare its ends", async () => {
+		const { provider, proposed } = recordingProvider();
+		registerReviewProvider(provider);
+
+		const answer = JSON.stringify(
+			await offer(
+				{ ...proposing, ...SECTIONS, solution: DEEP_SOLUTION },
+				{ "diff --shortstat": { code: 128 } },
+			),
+		);
+
+		expect(answer).toContain("git could not compare origin/main or main");
+		expect(proposed).toHaveLength(0);
+	});
+
+	it("edits one section deeper when the backend reports the change as large", async () => {
+		const { provider, edited } = recordingProvider(undefined, {
+			additions: 246_678,
+			deletions: 6_112,
+		});
+		registerReviewProvider(provider);
+
+		await offer({ action: "edit", change: "7", solution: DEEP_SOLUTION });
+
+		expect(readPrFields(edited[0] ?? "").fields).toEqual({
+			...SECTIONS,
+			solution: DEEP_SOLUTION,
+		});
+	});
+
+	it("measures a whole-body edit against the change before taking it", async () => {
+		const large = recordingProvider(undefined, {
+			additions: 246_678,
+			deletions: 6_112,
+		});
+		registerReviewProvider(large.provider);
+		await offer({
+			action: "edit",
+			change: "7",
+			...SECTIONS,
+			solution: DEEP_SOLUTION,
+		});
+		expect(large.edited).toHaveLength(1);
+
+		clearReviewProviders();
+		clearTargetBindings();
+		const unmeasured = recordingProvider();
+		registerReviewProvider(unmeasured.provider);
+		const answer = JSON.stringify(
+			await offer({
+				action: "edit",
+				change: "7",
+				...SECTIONS,
+				solution: DEEP_SOLUTION,
+			}),
+		);
+		expect(answer).toContain(
+			"the meteorite provider does not report how many lines",
+		);
+		expect(unmeasured.edited).toHaveLength(0);
 	});
 });

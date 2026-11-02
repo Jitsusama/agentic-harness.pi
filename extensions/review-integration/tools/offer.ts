@@ -34,7 +34,12 @@ import {
 	retargetPlan,
 	retargetRoute,
 } from "../../../lib/core/review/index.ts";
-import { composePrBody } from "../../../lib/core/sections/index.ts";
+import {
+	type ChangeSize,
+	composePrBody,
+	PR_SHAPE,
+	usesDepth,
+} from "../../../lib/core/sections/index.ts";
 import {
 	detectTitleViolations,
 	toTitleCase,
@@ -50,6 +55,7 @@ import { REVIEW_COMMANDS } from "../commands.ts";
 import { attachments } from "../engine.ts";
 import { confirmWrite as confirmUnder } from "../gate.ts";
 import { type GatePanel, GLYPH, proposalLine } from "../render.ts";
+import { checkoutSize, hostedSize } from "./change-size.ts";
 import {
 	draftKey,
 	filledFromRefused,
@@ -446,6 +452,7 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 				// only some sections has to read the change first, so its body is
 				// checked once the change is known.
 				let revising: SectionFields | undefined;
+				let deferredBody = false;
 				if (params.action === "propose") params = resubmitted(params);
 				if (params.title !== undefined) {
 					params = { ...params, title: inTitleCase(params.title) };
@@ -458,7 +465,21 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 					if (sections.kind === "body")
 						params = { ...params, body: sections.body };
 					if (sections.kind === "revise") revising = sections.fields;
-					const complaint = proposalComplaint(params.title, params.body);
+					// A body that goes deeper is held to the room its change's size
+					// gives it. A proposal's size is the checkout's, read here; an
+					// edit's is the backend's, so its body waits for the change.
+					const deep =
+						params.body !== undefined && usesDepth(params.body, PR_SHAPE);
+					deferredBody = deep && params.action === "edit";
+					const size =
+						deep && params.action === "propose"
+							? await proposalSize(params)
+							: undefined;
+					const complaint = proposalComplaint(
+						params.title,
+						deferredBody ? undefined : params.body,
+						size,
+					);
 					if (complaint) {
 						const said = sayRefusal(complaint, params.title, params.body);
 						if (params.action !== "propose" || asSections === undefined) {
@@ -594,10 +615,23 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 
 				switch (params.action) {
 					case "edit": {
-						if (revising === undefined) {
+						if (revising === undefined && !deferredBody) {
 							return edit(ctx, change, authoring, params, caution);
 						}
 						const current = await bound.provider.changes?.fetch(change);
+						if (revising === undefined) {
+							const size =
+								current === undefined
+									? {
+											unknown: `the ${bound.provider.id} provider cannot read this change`,
+										}
+									: hostedSize(current, bound.provider.id);
+							const complaint = proposalComplaint(undefined, params.body, size);
+							if (complaint) {
+								return refuse(sayRefusal(complaint, undefined, params.body));
+							}
+							return edit(ctx, change, authoring, params, caution);
+						}
 						if (current === undefined) {
 							return refuse(
 								`The ${bound.provider.id} provider cannot read this change's description, so there is nothing to keep the other sections from. Give all four sections to replace it.`,
@@ -605,7 +639,13 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 						}
 						const next = revised(current.body, revising);
 						if ("refusal" in next) return refuse(next.refusal);
-						const complaint = proposalComplaint(undefined, next.body);
+						const complaint = proposalComplaint(
+							undefined,
+							next.body,
+							usesDepth(next.body, PR_SHAPE)
+								? hostedSize(current, bound.provider.id)
+								: undefined,
+						);
 						if (complaint) {
 							return refuse(sayRefusal(complaint, undefined, next.body));
 						}
@@ -830,6 +870,26 @@ async function withCheckoutEnds(params: OfferParams): Promise<OfferParams> {
 }
 
 /**
+ * The size of what a propose would put up: its head's diff from where it
+ * parts with its base, the base read from its remote first. Unknown, with
+ * the reason, when the checkout names no ends to compare.
+ */
+async function proposalSize(params: OfferParams): Promise<ChangeSize> {
+	const ends = await withCheckoutEnds(params);
+	if (ends.base === undefined || ends.head === undefined) {
+		return {
+			unknown: "this checkout names no base and head to compare, so name both",
+		};
+	}
+	return checkoutSize(
+		REVIEW_COMMANDS,
+		params.repo ?? process.cwd(),
+		[`origin/${ends.base}`, ends.base],
+		ends.head,
+	);
+}
+
+/**
  * A refusal when the repo being proposed to is not the one you are in.
  *
  * The repo comes from the attached change, and the branch comes from the
@@ -939,16 +999,6 @@ async function proposeStack(
 		);
 	}
 
-	// Every body, not just the first, and before anything is sent. The stack
-	// path is not a way around the conventions the single path enforces.
-	for (const [at, body] of (bodies ?? []).entries()) {
-		const complaint = proposalComplaint(undefined, body);
-		if (complaint) {
-			const said = sayRefusal(complaint, heads[at], body);
-			return refuse(`The body for ${heads[at]} is not usable.\n\n${said}`);
-		}
-	}
-
 	const repeated = heads.filter((one, at) => heads.indexOf(one) !== at);
 	if (repeated.length > 0) {
 		// A branch twice in a stack would be proposed onto itself, and the
@@ -975,6 +1025,23 @@ async function proposeStack(
 		return refuse(
 			`This checkout has no branch called ${missing.join(" or ")}, so there is nothing to propose for it.`,
 		);
+	}
+
+	// Every body, not just the first, and before anything is sent. The stack
+	// path is not a way around the conventions the single path enforces. A
+	// body that goes deeper is held to its own change's size: the diff from
+	// the branch below it, or for the root from the trunk.
+	for (const [at, body] of (bodies ?? []).entries()) {
+		const head = heads[at] ?? "";
+		const below = at === 0 ? [`origin/${base}`, base] : [heads[at - 1] ?? base];
+		const size = usesDepth(body, PR_SHAPE)
+			? await checkoutSize(REVIEW_COMMANDS, cwd, below, head)
+			: undefined;
+		const complaint = proposalComplaint(undefined, body, size);
+		if (complaint) {
+			const said = sayRefusal(complaint, head, body);
+			return refuse(`The body for ${head} is not usable.\n\n${said}`);
+		}
 	}
 
 	// Each onto the one before it, which is what makes this a stack rather

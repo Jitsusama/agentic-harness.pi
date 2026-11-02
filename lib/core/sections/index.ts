@@ -23,12 +23,15 @@ export {
 export { ISSUE_SECTIONS, PR_SECTIONS, PR_SHAPE } from "./sanctioned.ts";
 export {
 	type BodyShape,
+	type ChangeSize,
 	countWords,
+	type DepthShape,
 	detectShapeViolations,
 	type SectionShape,
 	type ShapeRule,
 	type ShapeViolation,
 	sentencesOf,
+	usesDepth,
 } from "./shape.ts";
 export { formatShapeBlock } from "./shape-block.ts";
 export type { SectionWording, WordingRule } from "./wording.ts";

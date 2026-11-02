@@ -11,6 +11,7 @@ import { formatSectionBlock } from "./block.ts";
 import { detectSectionViolations, type SectionViolation } from "./detect.ts";
 import {
 	type BodyShape,
+	type ChangeSize,
 	detectShapeViolations,
 	type ShapeViolation,
 } from "./shape.ts";
@@ -34,14 +35,20 @@ export interface SectionGateConfig {
 /** A heading problem or a shape problem, as one set the gate can sign. */
 export type BodyViolation = SectionViolation | ShapeViolation;
 
-/** Every way a body breaks its sections and, where it has one, its shape. */
+/**
+ * Every way a body breaks its sections and, where it has one, its
+ * shape. The size is the change's as the caller measured it, which is
+ * what lets a large change go deeper; left out, the ordinary shape
+ * holds.
+ */
 export function detectBodyViolations(
 	body: string,
 	config: Pick<SectionGateConfig, "sanctioned" | "shape">,
+	size?: ChangeSize,
 ): BodyViolation[] {
 	return [
-		...detectSectionViolations(body, config.sanctioned),
-		...(config.shape ? detectShapeViolations(body, config.shape) : []),
+		...detectSectionViolations(body, config.sanctioned, config.shape?.depth),
+		...(config.shape ? detectShapeViolations(body, config.shape, size) : []),
 	];
 }
 
