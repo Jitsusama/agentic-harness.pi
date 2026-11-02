@@ -439,6 +439,11 @@ function proseViolations(
 	return found;
 }
 
+/** A count of lines as the skill writes one, with its thousands grouped. */
+export function grouped(n: number): string {
+	return n.toLocaleString("en-CA");
+}
+
 /** Whether a change of this size is given the room its depth allows. */
 function isLarge(depth: DepthShape, size: ChangeSize | undefined): boolean {
 	return size !== undefined && "lines" in size && size.lines >= depth.fromLines;
@@ -448,7 +453,7 @@ function isLarge(depth: DepthShape, size: ChangeSize | undefined): boolean {
 function whyShallow(depth: DepthShape, size: ChangeSize | undefined): string {
 	if (size === undefined) return UNMEASURED;
 	if ("unknown" in size) return size.unknown;
-	return `it has ${size.lines} changed lines, and depth starts at ${depth.fromLines}`;
+	return `it has ${grouped(size.lines)} changed lines, and depth starts at ${grouped(depth.fromLines)}`;
 }
 
 /** Every way a results table breaks its limits, or sits where none may. */

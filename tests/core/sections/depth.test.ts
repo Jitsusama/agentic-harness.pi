@@ -147,6 +147,15 @@ describe("a large change's depth", () => {
 		expect(
 			formatShapeBlock(violations, "pull request", "github-pr-format"),
 		).toContain("812 changed lines");
+		const near = formatShapeBlock(
+			detectShapeViolations(deep(), PR_SHAPE, { lines: 9_876 }),
+			"pull request",
+			"github-pr-format",
+		);
+		expect(near).toContain("9,876 changed lines");
+		expect(
+			formatShapeBlock(violations, "pull request", "github-pr-format"),
+		).toContain("a change of 10,000 changed lines or more");
 	});
 
 	it("says why when the size could not be measured, and holds the ordinary shape", () => {
