@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+	bootEndedBefore,
 	carriedEntry,
 	RESTORE_FILE_VERSION,
 	type RestoreFile,
@@ -246,5 +247,76 @@ describe("the restore file", () => {
 
 		writeRestoreFile(path, { ...file, boot: "another" });
 		expect(statSync(path).ino).not.toBe(first);
+	});
+
+	it("keeps naming the boot that ended once its sessions all run again, rather than offering an older boot's", () => {
+		// At 18:41 on 11-02 the last of 38 reopened sessions rewrote the file
+		// to name a boot two before, since every record of the boot that
+		// ended now carried this boot's token; the launcher, which keeps
+		// places only for this boot and the one the file names, dropped the
+		// ended boot's.
+		const back = reopenRecord(ranIn("back", "last"), {
+			instanceId: "inst-now",
+			process: { hostId: "here", pid: 2, startToken: "t", bootToken: "this" },
+		});
+		const records = [
+			{ record: back, heartbeatAt: "2026-10-29T11:00:00Z" },
+			{ record: ranIn("old", "older"), heartbeatAt: "2026-10-28T21:00:00Z" },
+		];
+
+		const file = restoreFileOf(
+			records,
+			"this",
+			undefined,
+			undefined,
+			undefined,
+			[],
+			"last",
+		);
+
+		expect(file).toEqual({
+			v: RESTORE_FILE_VERSION,
+			boot: "last",
+			sessions: [],
+		});
+	});
+
+	it("still offers what the named boot lost and hasn't run again", () => {
+		const file = restoreFileOf(
+			[
+				{ record: ranIn("left", "last"), heartbeatAt: "2026-10-29T05:00:00Z" },
+				{ record: ranIn("old", "older"), heartbeatAt: "2026-10-29T06:00:00Z" },
+			],
+			"this",
+			undefined,
+			undefined,
+			undefined,
+			[],
+			"last",
+		);
+
+		expect(file.boot).toBe("last");
+		expect(file.sessions.map((entry) => entry.id)).toEqual(["left"]);
+	});
+
+	it("takes the boot the file names only when this boot wrote it", () => {
+		const home = mkdtempSync(join(tmpdir(), "restore-file-"));
+		dirs.push(home);
+		const path = restoreFilePath(home);
+		writeRestoreFile(path, {
+			v: RESTORE_FILE_VERSION,
+			boot: "last",
+			sessions: [],
+		});
+		const written = statSync(path).mtimeMs;
+
+		expect(bootEndedBefore(path, "this", written - 1000)).toBe("last");
+		// Written before this boot began, it names the boot before that.
+		expect(bootEndedBefore(path, "this", written + 1000)).toBeUndefined();
+		// A file naming this boot, or a machine that can't say when it
+		// booted, leaves the boot to be worked out from the records.
+		expect(bootEndedBefore(path, "last", written - 1000)).toBeUndefined();
+		expect(bootEndedBefore(path, "this", undefined)).toBeUndefined();
+		expect(bootEndedBefore(join(home, "none.json"), "this", 0)).toBeUndefined();
 	});
 });

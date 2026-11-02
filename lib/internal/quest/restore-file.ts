@@ -19,7 +19,7 @@
  * left open ended at its last heartbeat, as a probe would decide.
  */
 
-import { mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { questAddress, sessionAddress } from "../../mesh/address.ts";
 import { realmSegments, type SessionRealm, sessionRealm } from "../realm.ts";
@@ -111,6 +111,8 @@ export function restoreFileOf(
 		undefined,
 	/** Sessions carried here, read by `carriedEntry`. */
 	carried: readonly RestoreEntry[] = [],
+	/** The boot this boot already named as the last, by `bootEndedBefore`. */
+	ended?: string,
 ): RestoreFile {
 	// A record exists only once a pi has run the session on this machine.
 	const ranHere = new Set(stored.map(({ record }) => record.sessionId));
@@ -125,7 +127,7 @@ export function restoreFileOf(
 			? closeRecord(record, "died", new Date(heartbeatAt))
 			: record;
 	});
-	const found = lastBootSessions(records, thisBoot);
+	const found = lastBootSessions(records, thisBoot, ended);
 	const joins = elsewhere(found.boot);
 	const boot = found.boot ?? joins?.boot;
 	return {
@@ -196,6 +198,32 @@ function entryOf(
 		cwd: record.cwd,
 		lostAt: record.closedAt ?? "",
 	};
+}
+
+/**
+ * The boot the file at `path` names as the last, when it was written
+ * since this boot began (`bootedAt`, in milliseconds) and names another:
+ * the boot this boot already worked out, kept so a session run again
+ * can't move it to an older one. Undefined when the file is older than
+ * this boot, names this one, is unreadable, or the machine can't say
+ * when it booted; the records decide then.
+ */
+export function bootEndedBefore(
+	path: string,
+	thisBoot: string | undefined,
+	bootedAt: number | undefined,
+): string | undefined {
+	if (bootedAt === undefined || thisBoot === undefined) return undefined;
+	try {
+		if (statSync(path).mtimeMs < bootedAt) return undefined;
+		const boot: unknown = JSON.parse(readFileSync(path, "utf8"))?.boot;
+		return typeof boot === "string" && boot !== "" && boot !== thisBoot
+			? boot
+			: undefined;
+	} catch {
+		// No file, or not one this shape: the records decide.
+		return undefined;
+	}
 }
 
 /**
