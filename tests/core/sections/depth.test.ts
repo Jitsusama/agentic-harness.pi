@@ -68,6 +68,30 @@ describe("a large change's depth", () => {
 		);
 	});
 
+	it("tells a large change written long that it may move detail into parts", () => {
+		const limit = PR_SHAPE.sections[VALIDATION]?.words ?? 0;
+		const said = formatShapeBlock(
+			detectShapeViolations(
+				deep({ [VALIDATION]: `${words(limit + 50)}.` }),
+				PR_SHAPE,
+				LARGE,
+			),
+			"pull request",
+			"github-pr-format",
+		);
+		expect(said).toContain("move the detail into #### parts");
+		const ordinary = formatShapeBlock(
+			detectShapeViolations(
+				deep({ [VALIDATION]: `${words(limit + 50)}.` }),
+				PR_SHAPE,
+				SMALL,
+			),
+			"pull request",
+			"github-pr-format",
+		);
+		expect(ordinary).not.toContain("#### parts below");
+	});
+
 	it("still needs an opening above the first part", () => {
 		expect(rules(deep({ [SOLUTION]: part("The Sequencer") }), LARGE)).toContain(
 			"empty",

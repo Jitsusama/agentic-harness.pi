@@ -134,6 +134,8 @@ export interface ShapeViolation extends Violation {
 	readonly word?: string;
 	/** For the depth rule, why this change was not given any. */
 	readonly why?: string;
+	/** For a large change's opening, that its detail may move into parts below. */
+	readonly deeper?: boolean;
 }
 
 const FENCE = /```[\s\S]*?```/g;
@@ -497,7 +499,11 @@ function deepViolations(
 	const found: ShapeViolation[] = [];
 
 	const top = tablesOf(opening);
-	found.push(...proseViolations(heading, top.rest, rules, shape.sentenceWords));
+	found.push(
+		...proseViolations(heading, top.rest, rules, shape.sentenceWords).map(
+			(v) => (v.rule === "words" ? { ...v, deeper: true } : v),
+		),
+	);
 	found.push(...tableViolations(heading, top.tables, tablesAllowed, depth));
 	found.push(...over(heading, "parts", depth.parts, parts.length));
 

@@ -23,7 +23,9 @@ function line(v: ShapeViolation): string {
 	const quoted = v.excerpt ? ` ("${v.excerpt}")` : "";
 	switch (v.rule) {
 		case "words":
-			return `${name} is ${v.actual} words; it may be at most ${v.limit}, so cut ${plural(v.actual - v.limit, "word", "words")}. Keep what the reader needs and cut the rest.`;
+			return v.deeper
+				? `${name} opens with ${v.actual} words; its opening may be at most ${v.limit}. This change is large enough to go deeper, so keep the opening to what every reader needs, naming each part, and move the detail into #### parts below it.`
+				: `${name} is ${v.actual} words; it may be at most ${v.limit}, so cut ${plural(v.actual - v.limit, "word", "words")}. Keep what the reader needs and cut the rest.`;
 		case "sentences":
 			return `${name} is ${plural(v.actual, "sentence", "sentences")}; it may be at most ${v.limit}.`;
 		case "codeSpans":
