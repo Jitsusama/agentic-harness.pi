@@ -5,7 +5,7 @@
  * rewrite; a refusal per rule costs one each.
  */
 
-import type { ShapeViolation } from "./shape.ts";
+import { grouped, type ShapeViolation } from "./shape.ts";
 
 /** The section's name as a reader says it: the heading without hashes or emoji. */
 function nameOf(heading: string): string {
@@ -51,7 +51,7 @@ function line(v: ShapeViolation): string {
 		case "emphasis":
 			return `${name} uses bold; leave emphasis out of it.`;
 		case "depth":
-			return `${name} has ${plural(v.actual, "subheading", "subheadings")}, which only a change of ${v.limit} changed lines or more may carry, and this one gets none: ${v.why ?? "its size is not known"}. Fold the parts into the section's own prose.`;
+			return `${name} has ${plural(v.actual, "subheading", "subheadings")}, which only a change of ${grouped(v.limit)} changed lines or more may carry, and this one gets none: ${v.why ?? "its size is not known"}. Fold the parts into the section's own prose.`;
 		case "parts":
 			return `${name} has ${v.actual} parts; it may have at most ${v.limit}. Merge the smallest into their neighbours.`;
 		case "tableRows":
