@@ -22,19 +22,23 @@
  *   reads it before its next step; an idle one with its next turn.
  * - act: in full, and a turn of its own once the mesh has settled, for
  *   what an idle peer should act on but need not drop everything for: a
- *   finding sent to it, or a question to a group about its work, which
- *   whichever peer answers first settles for the rest.
+ *   question to a group about its work, which whichever peer answers
+ *   first settles for the rest.
  * - turn: in full and a turn at once, for a question or hold put to
  *   this peer, idle or busy, or an answer to one it asked, since
  *   someone is waiting on it. (Called wake until 2026-10-25, renamed
  *   because on Joel's screen wake means resuming from sleep.)
  *
  * A message answering one this peer sent is taken as sent to it, since
- * it is, wherever it went. An fyi or a hold never takes a turn: neither
- * asks for anything an idle peer has to do. The exception is an answer
- * to a question this peer asked, which gets a turn however it was sent,
- * since the peer is waiting on it: an answer sent as an fyi would
- * otherwise sit until something else started a turn. Any other fyi more
+ * it is, wherever it went. An fyi or a finding never takes a turn, nor
+ * does a hold not put to this peer: none asks for anything an idle peer
+ * has to do now, so each waits in the session for the turn something
+ * else starts. A finding was an act until 2026-11-03, when 764 of 1,518
+ * messages reaching a peer started a turn and 287 of those turns did
+ * nothing but acknowledge. The exception is an answer to a question this
+ * peer asked, which gets a turn however it was sent, since the peer is
+ * waiting on it: an answer sent as an fyi would otherwise sit until
+ * something else started a turn. Any other fyi more
  * than {@link FYI_MS} old when it reaches the peer is a glance, and so is
  * a hold older than the longest a hold stands ({@link MOST_HOLD_MS}),
  * which no longer holds anything.
@@ -190,10 +194,9 @@ export function attend(message: Message, at: Standing): Heed {
 		) {
 			return { attention: "turn", why, addressed: true };
 		}
-		if (!at.idle) return { attention: "note", why };
-		if (message.intent === "question") return { attention: "turn", why };
-		if (message.intent === "finding") return { attention: "act", why };
-		return { attention: "note", why };
+		return at.idle && message.intent === "question"
+			? { attention: "turn", why }
+			: { attention: "note", why };
 	}
 	const concern =
 		at.concern ?? (mentions(message, at.receiver) ? "receiver" : undefined);
@@ -204,9 +207,7 @@ export function attend(message: Message, at: Standing): Heed {
 		return { attention: "glance", why: "about another peer's own work" };
 	}
 	const acts =
-		at.idle &&
-		concern === "receiver" &&
-		(message.intent === "question" || message.intent === "finding");
+		at.idle && concern === "receiver" && message.intent === "question";
 	return {
 		attention: acts ? "act" : "note",
 		why:

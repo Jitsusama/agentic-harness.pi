@@ -64,7 +64,7 @@ describe("attention", () => {
 		expect(attend(finding, { ...idle, restates: true })).toEqual(
 			attend(finding, idle),
 		);
-		expect(attend(finding, idle).attention).toBe("act");
+		expect(attend(finding, idle).attention).toBe("note");
 	});
 
 	it("glances at another peer's own business, never passing it by", () => {
@@ -135,11 +135,11 @@ describe("attention", () => {
 		expect(attend(group, each)).toEqual(put);
 	});
 
-	it("starts a turn only for questions, holds and findings", () => {
+	it("starts a turn only for questions and holds, never for an fyi or a finding", () => {
 		const idle = { ...standing, idle: true };
 		const to = ["@5GV2AH"];
 		expect(attend(message({ intent: "finding", to }), idle).attention).toBe(
-			"act",
+			"note",
 		);
 		expect(attend(message({ intent: "hold", to }), idle).attention).toBe(
 			"turn",
@@ -151,6 +151,24 @@ describe("attention", () => {
 		expect(attend(message({ intent: "finding", to }), standing).attention).toBe(
 			"note",
 		);
+	});
+
+	it("notes a finding about an idle peer's work, waiting for its next turn", () => {
+		const finding = message({
+			intent: "finding",
+			text: "the harness drops a lease",
+		});
+		const idle = { ...standing, idle: true };
+
+		expect(attend(finding, { ...idle, concern: "receiver" })).toEqual({
+			attention: "note",
+			why: "about this peer's work",
+		});
+		expect(attend(finding, idle).attention).toBe("note");
+		expect(
+			attend(message({ intent: "finding" }), { ...idle, answers: true })
+				.attention,
+		).toBe("note");
 	});
 
 	it("takes an answer to this peer's own message as sent to it", () => {
