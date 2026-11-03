@@ -337,9 +337,9 @@ export async function spawn(
 
 	// Resolve the working directory: prefer a quest-owned
 	// tree, then a recent session's cwd, then a tree's repo
-	// root, then where its ancestors work, then the repo this
-	// session works in, then home, never a folder of the quest
-	// store. A recorded path that no longer exists self-heals to
+	// root, then the repo its ancestors work in (never their
+	// trees, which are theirs alone), then the repo this session
+	// works in, then home, never a folder of the quest store. A recorded path that no longer exists self-heals to
 	// the next candidate.
 	const now = new Date();
 	const snapshot = await buildSessionSnapshot(fm.sessions, { now });

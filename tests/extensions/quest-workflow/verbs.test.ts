@@ -469,12 +469,22 @@ describe("spawn verbs", () => {
 	});
 
 	// A builder subquest is spawned before it has a tree or a session, and
-	// opening it in home leaves it without its repo's AGENTS.md.
-	it("opens a subquest with no tree of its own in its parent's tree", async () => {
+	// opening it in home leaves it without its repo's AGENTS.md. Its
+	// parent's worktree is the parent's alone, so it opens in the checkout
+	// that worktree was cut from.
+	it("opens a subquest with no tree of its own in its parent's repo", async () => {
 		const state = buildState();
 		const parent = await createQuest(state, "Parent");
+		const checkout = join(tmpRoot, "checkout");
+		mkdirSync(join(checkout, ".git", "worktrees", "parent-tree"), {
+			recursive: true,
+		});
 		const treeDir = join(tmpRoot, "parent-tree");
 		mkdirSync(treeDir, { recursive: true });
+		writeFileSync(
+			join(treeDir, ".git"),
+			`gitdir: ${join(checkout, ".git", "worktrees", "parent-tree")}\n`,
+		);
 		const parsed = parseQuestFrontMatter(readFileSync(parent.path, "utf8"));
 		if (!parsed) throw new Error("could not parse quest frontmatter");
 		parsed.frontMatter.trees = [{ path: treeDir, providerId: "git-worktree" }];
@@ -514,10 +524,10 @@ describe("spawn verbs", () => {
 			id: (child.details as { id: string }).id,
 		});
 		if (!result.ok) throw new Error(result.guidance);
-		expect(calls[0].cwd).toBe(treeDir);
-		expect(result.message).toContain("(a parent quest's tree)");
+		expect(calls[0].cwd).toBe(checkout);
+		expect(result.message).toContain("(a parent quest's repo)");
 		expect((result.details as { cwdSource?: string }).cwdSource).toBe(
-			"ancestorTree",
+			"ancestorRepoRoot",
 		);
 	});
 

@@ -138,18 +138,70 @@ describe("resolveSpawnCwd", () => {
 
 	// A builder subquest starts with no tree and no session of its own, and
 	// on 2026-11-03 seventeen opened in home that way, loading no repo's
-	// AGENTS.md: where its parent works is the next best place.
-	it("opens a quest with nothing of its own in its parent's newest tree", () => {
+	// AGENTS.md: the repo its parent works in is the next best place.
+	it("opens a quest with nothing of its own in its parent's newest repo", () => {
 		const result = resolveSpawnCwd({
 			questDir: "/store/QEST-2",
 			store: "/store",
 			home: "/home/joel",
 			trees: [],
 			sessions: [],
-			ancestors: [[tree("/parent/old"), tree("/parent/new", "/src/repo")]],
+			ancestors: [
+				[tree("/parent/old", "/src/old"), tree("/parent/new", "/src/repo")],
+			],
 			exists: all,
+			checkoutOf: (dir) => dir,
 		});
-		expect(result).toEqual({ cwd: "/parent/new", source: "ancestorTree" });
+		expect(result).toEqual({ cwd: "/src/repo", source: "ancestorRepoRoot" });
+	});
+
+	// A parent's worktree is its own: a builder opened in it would edit the
+	// parent's files. An adopted tree records itself as its repoRoot, so the
+	// repo is the checkout the worktree was cut from.
+	it("never opens in a parent's tree, even one recorded as its own repo", () => {
+		const result = resolveSpawnCwd({
+			questDir: "/store/QEST-2",
+			store: "/store",
+			home: "/home/joel",
+			trees: [],
+			sessions: [],
+			ancestors: [[tree("/trees/parent", "/trees/parent")]],
+			exists: all,
+			checkoutOf: (dir) => (dir === "/trees/parent" ? "/src/core" : dir),
+		});
+		expect(result).toEqual({ cwd: "/src/core", source: "ancestorRepoRoot" });
+	});
+
+	it("goes home rather than into a parent's tree whose checkout is unknown", () => {
+		const result = resolveSpawnCwd({
+			questDir: "/store/QEST-2",
+			store: "/store",
+			home: "/home/joel",
+			trees: [],
+			sessions: [],
+			ancestors: [
+				[tree("/trees/parent", "/trees/parent")],
+				[tree("/trees/gp")],
+			],
+			spawner: "/trees/parent/lib",
+			exists: all,
+			checkoutOf: (dir) => (dir.startsWith("/trees/") ? undefined : dir),
+		});
+		expect(result).toEqual({ cwd: "/home/joel", source: "home" });
+	});
+
+	it("passes over a checkout that is itself a parent's adopted tree", () => {
+		const result = resolveSpawnCwd({
+			questDir: "/store/QEST-2",
+			store: "/store",
+			home: "/home/joel",
+			trees: [],
+			sessions: [],
+			ancestors: [[tree("/src/core", "/src/core")]],
+			exists: all,
+			checkoutOf: (dir) => dir,
+		});
+		expect(result).toEqual({ cwd: "/home/joel", source: "home" });
 	});
 
 	it("takes a parent's repo when its trees are gone", () => {
@@ -175,10 +227,12 @@ describe("resolveSpawnCwd", () => {
 			sessions: [],
 			ancestors: [[], [tree("/grandparent/tree")]],
 			exists: all,
+			checkoutOf: (dir) =>
+				dir === "/grandparent/tree" ? "/src/grandparent" : dir,
 		});
 		expect(result).toEqual({
-			cwd: "/grandparent/tree",
-			source: "ancestorTree",
+			cwd: "/src/grandparent",
+			source: "ancestorRepoRoot",
 		});
 	});
 
@@ -205,6 +259,21 @@ describe("resolveSpawnCwd", () => {
 			exists: onlyAt("/src/repo/lib", "/src/repo/.git"),
 		});
 		expect(result).toEqual({ cwd: "/src/repo/lib", source: "spawner" });
+	});
+
+	// The spawner's worktree belongs to the spawner's quest, not the new one.
+	it("opens in the checkout a spawning session's worktree was cut from", () => {
+		const result = resolveSpawnCwd({
+			questDir: "/store/QEST-2",
+			store: "/store",
+			home: "/home/joel",
+			trees: [],
+			sessions: [],
+			spawner: "/trees/spawner/lib",
+			exists: onlyAt("/trees/spawner/lib", "/trees/spawner/.git", "/src/repo"),
+			checkoutOf: (dir) => (dir === "/trees/spawner" ? "/src/repo" : dir),
+		});
+		expect(result).toEqual({ cwd: "/src/repo", source: "spawner" });
 	});
 
 	it("passes over a spawning session that is not in a repo", () => {
@@ -263,8 +332,8 @@ describe("ancestorTreesOf", () => {
 });
 
 describe("describeCwdSource", () => {
-	it("says where a parent's tree chose the folder", () => {
-		expect(describeCwdSource("ancestorTree")).toBe("a parent quest's tree");
+	it("says where a parent's repo chose the folder", () => {
+		expect(describeCwdSource("ancestorRepoRoot")).toBe("a parent quest's repo");
 	});
 });
 

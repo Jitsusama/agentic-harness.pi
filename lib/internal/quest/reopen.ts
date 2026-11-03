@@ -9,9 +9,9 @@
  * session that was driving it.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, sep } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import type { QuestTree } from "../../quest/types.ts";
 import type { SessionView } from "./session-liveness.ts";
 import { treePlace } from "./tree-place.ts";
@@ -29,7 +29,6 @@ export type CwdSource =
 	| "tree"
 	| "session"
 	| "repoRoot"
-	| "ancestorTree"
 	| "ancestorRepoRoot"
 	| "spawner"
 	| "home";
@@ -38,7 +37,6 @@ const SOURCE_WORDS: Record<CwdSource, string> = {
 	tree: "the quest's newest tree",
 	session: "its latest session's folder",
 	repoRoot: "a tree's repo",
-	ancestorTree: "a parent quest's tree",
 	ancestorRepoRoot: "a parent quest's repo",
 	spawner: "the spawning session's repo",
 	home: "home, as nothing better was known",
@@ -52,10 +50,14 @@ export function describeCwdSource(source: CwdSource): string {
 /**
  * Resolve the working directory to reopen a quest in. Preference
  * order: an existing tree path (newest first), then the most-recent
- * session's cwd, then a tree repoRoot, then each ancestor's newest
- * tree and repoRoot (nearest ancestor first), then the spawning
+ * session's cwd, then a tree repoRoot, then the repo each ancestor's
+ * newest tree was cut from (nearest ancestor first), then the spawning
  * session's folder when it sits in a repository, then the home
- * folder. A recorded path of the quest's own that no longer exists is
+ * folder. An ancestor's tree is never chosen itself, nor anything
+ * inside one: it is that quest's alone, and a builder opened there
+ * would edit its files. A tree or spawner in a linked worktree is
+ * taken back to the checkout it was cut from, as an adopted tree
+ * records itself as its own repoRoot. A recorded path of the quest's own that no longer exists is
  * skipped and the result is flagged as healed so the caller can offer
  * to rewrite the record; an ancestor's is not the quest's to heal.
  *
@@ -87,8 +89,15 @@ export function resolveSpawnCwd(opts: {
 	/** The spawning session's folder, taken only when it is in a repository. */
 	spawner?: string;
 	exists?: (p: string) => boolean;
+	/**
+	 * The checkout a folder belongs to: itself unless it is a linked
+	 * worktree, then the checkout it was cut from, or undefined when that
+	 * cannot be told. Reads `.git` on disk unless a test names one.
+	 */
+	checkoutOf?: (dir: string) => string | undefined;
 }): ResolvedCwd {
 	const exists = opts.exists ?? existsSync;
+	const checkoutOf = opts.checkoutOf ?? checkoutOnDisk;
 	const inStore = (p: string) =>
 		[opts.questDir, opts.store].some(
 			(root) => root !== undefined && (p === root || p.startsWith(root + sep)),
@@ -146,27 +155,32 @@ export function resolveSpawnCwd(opts: {
 		...(healed ? { healed } : {}),
 	});
 
-	// Where the nearest ancestor works: its newest tree, else its repo.
+	// Never inside an ancestor's tree, which is that quest's alone.
+	const theirTrees = (opts.ancestors ?? []).flat().map((t) => t.path);
+	const inTheirTree = (p: string) =>
+		theirTrees.some((t) => p === t || p.startsWith(t + sep));
+	const usable = (p: string | undefined): p is string =>
+		p !== undefined && !inStore(p) && !inTheirTree(p) && exists(p);
+
+	// The repo the nearest ancestor works in, newest tree first.
 	for (const ancestor of opts.ancestors ?? []) {
-		const theirs = here(ancestor);
-		const tree = theirs.find((t) => !inStore(t.path) && exists(t.path));
-		if (tree) return found(tree.path, "ancestorTree");
-		const repo = theirs.find(
-			(t) => t.repoRoot && !inStore(t.repoRoot) && exists(t.repoRoot),
-		)?.repoRoot;
-		if (repo) return found(repo, "ancestorRepoRoot");
+		for (const tree of here(ancestor)) {
+			const root = tree.repoRoot ?? tree.path;
+			const repo = exists(root) ? checkoutOf(root) : undefined;
+			if (usable(repo)) return found(repo, "ancestorRepoRoot");
+		}
 	}
 
 	// The repo the spawning session works in, which is likely this
 	// quest's too, rather than home, where no repo's rules load.
+	// A spawner in a linked worktree opens the checkout it was cut from,
+	// since that worktree belongs to the spawner's quest.
 	const spawner = opts.spawner;
-	if (
-		spawner &&
-		!inStore(spawner) &&
-		exists(spawner) &&
-		withinRepo(spawner, exists)
-	) {
-		return found(spawner, "spawner");
+	const top = spawner && exists(spawner) ? repoTop(spawner, exists) : undefined;
+	if (spawner && top !== undefined) {
+		const checkout = checkoutOf(top);
+		const place = checkout === top ? spawner : checkout;
+		if (usable(place)) return found(place, "spawner");
 	}
 
 	return {
@@ -176,12 +190,39 @@ export function resolveSpawnCwd(opts: {
 	};
 }
 
-/** Whether a folder or one above it holds a `.git`, as a checkout or worktree does. */
-function withinRepo(dir: string, exists: (p: string) => boolean): boolean {
+/** The nearest folder at or above `dir` holding a `.git`, as a checkout or worktree does. */
+function repoTop(
+	dir: string,
+	exists: (p: string) => boolean,
+): string | undefined {
 	for (let at = dir; ; at = dirname(at)) {
-		if (exists(join(at, ".git"))) return true;
-		if (dirname(at) === at) return false;
+		if (exists(join(at, ".git"))) return at;
+		if (dirname(at) === at) return undefined;
 	}
+}
+
+/**
+ * The checkout a folder belongs to, read from its `.git`: itself when
+ * that is a directory or absent, the checkout above `.git/worktrees/`
+ * when it is a linked worktree's pointer, and undefined when the
+ * pointer names anything else, such as a bare repository's worktree.
+ */
+function checkoutOnDisk(dir: string): string | undefined {
+	const dotGit = join(dir, ".git");
+	let pointer: string;
+	try {
+		if (statSync(dotGit).isDirectory()) return dir;
+		pointer = readFileSync(dotGit, "utf8");
+	} catch {
+		// No `.git` at all: a folder such as a World root, which is its own repo.
+		return dir;
+	}
+	const gitdir = /^gitdir:\s*(.+)$/m.exec(pointer)?.[1]?.trim();
+	if (!gitdir) return undefined;
+	const linked = /^(.*)[\\/]\.git[\\/]worktrees[\\/][^\\/]+$/.exec(
+		resolve(dir, gitdir),
+	);
+	return linked?.[1];
 }
 
 /**
