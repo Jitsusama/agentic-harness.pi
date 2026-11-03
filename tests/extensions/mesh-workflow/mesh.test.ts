@@ -1317,6 +1317,34 @@ describe("asking again", () => {
 		expect(sent[1]?.message.content).toContain("ready?");
 	});
 
+	it("asks nothing again while this peer's run goes on", async () => {
+		// pi queues what reaches a busy session and gives it one at a time,
+		// so asking again meanwhile queued reminders that arrived only after
+		// the answer they asked for (WJATIN, 3 November).
+		let idle = false;
+		const { sent } = await startSession(
+			{},
+			{ isIdle: () => idle },
+			[],
+			undefined,
+			undefined,
+			undefined,
+			20,
+		);
+		fromElsewhere({ intent: "question", to: ["@7M6JKG"], text: "ready?" });
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+
+		vi.useFakeTimers({ toFake: ["Date"] });
+		later();
+		await new Promise((done) => setTimeout(done, 100));
+		expect(sent).toHaveLength(1);
+
+		// Its run ended with no answer sent: now it is asked again.
+		idle = true;
+		await vi.waitFor(() => expect(sent).toHaveLength(2));
+		expect(sent[1]?.message.content).toMatch(/^Asked again: this question/);
+	});
+
 	it("asks nothing again once this peer has answered", async () => {
 		const { sent, tools } = await start();
 		peer("session-w", ["WCJQSG"], []);

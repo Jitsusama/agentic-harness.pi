@@ -1005,7 +1005,11 @@ export function meshWorkflow(
 		 * and to its model, once each.
 		 */
 		const chase = () => {
-			const again = owing.due();
+			// A busy session reads what it was handed when pi gets to it, one
+			// at a time; asking again meanwhile only queues reminders that
+			// arrive after the answer they ask for. Its run ending unanswered
+			// is what the asking again is for.
+			const again = (ctx?.isIdle?.() ?? true) ? owing.due() : [];
 			if (again.length > 0) {
 				const minutes = Math.round(ASK_AGAIN_MS / 60_000);
 				note(
