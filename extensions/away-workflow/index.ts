@@ -62,6 +62,7 @@ import {
 	takeStoppedFromOutside,
 } from "../../lib/internal/away/state.ts";
 import { type Notice, notify } from "../../lib/internal/notify.ts";
+import { sessionLeft } from "../../lib/internal/session/left.ts";
 import { ownWants, sessionWants } from "../../lib/internal/session/wants.ts";
 import { findJobHost, type Job } from "../../lib/jobs/index.ts";
 import {
@@ -355,6 +356,12 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 	};
 
 	pi.on("session_start", async (_event, ctx) => {
+		// A log this process rolled away from is the live session's no
+		// longer, so its copy neither follows the absence nor writes it.
+		if (sessionLeft(ctx.sessionManager.getSessionId())) {
+			disposeListener();
+			return;
+		}
 		latest = ctx;
 		restoring = true;
 		try {
