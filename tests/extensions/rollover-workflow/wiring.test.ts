@@ -258,6 +258,41 @@ describe("the command", () => {
 		expect(spend).toBe(7);
 	});
 
+	it("stops a turn on the log it left, should that log start again", async () => {
+		const manager = compacted();
+		await emit("session_start", { reason: "startup" }, contextOf(manager));
+		const { ctx, switched } = commandContext(manager);
+		await command?.handler("", ctx);
+		const stopped: string[] = [];
+		const turnOn = (on: SessionManager, name: string) =>
+			emit(
+				"turn_start",
+				{},
+				{ ...contextOf(on), abort: () => stopped.push(name) },
+			);
+
+		await turnOn(SessionManager.open(manager.getSessionFile() ?? ""), "left");
+		await turnOn(switched[0] as SessionManager, "fresh");
+
+		expect(stopped).toEqual(["left"]);
+	});
+
+	it("leaves the session a called-off switch stayed in to run", async () => {
+		const manager = compacted();
+		const { ctx } = commandContext(manager);
+		ctx.switchSession = async () => ({ cancelled: true });
+		await command?.handler("", ctx);
+		const stopped: string[] = [];
+
+		await emit(
+			"turn_start",
+			{},
+			{ ...contextOf(manager), abort: () => stopped.push("stayed") },
+		);
+
+		expect(stopped).toEqual([]);
+	});
+
 	it("says why it did not, for a session with no compaction", async () => {
 		const manager = SessionManager.create(dir, dir);
 		manager.appendMessage(user("question"));

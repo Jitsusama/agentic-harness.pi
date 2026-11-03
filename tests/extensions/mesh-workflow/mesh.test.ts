@@ -42,6 +42,10 @@ import {
 	SESSION_UNLANDED,
 } from "../../../lib/internal/session/landings.ts";
 import {
+	leaveSession,
+	stayInSession,
+} from "../../../lib/internal/session/left.ts";
+import {
 	ROLLOVER_CARRY,
 	ROLLOVER_RECORD,
 } from "../../../lib/internal/session/rollover.ts";
@@ -2208,6 +2212,23 @@ describe("a rollover", () => {
 			"hold",
 		]);
 		expect(board.of(session)).toBeUndefined();
+	});
+
+	it("keeps the log it rolled away from off the mesh, should it start again", async () => {
+		// Seen live on 3 November: the left log started again with each of
+		// the live session's reloads, and caught up on 13 messages the live
+		// session never got.
+		leaveSession(session);
+		try {
+			const { sent } = await startSession();
+			fromElsewhere({ text: "for everyone" });
+
+			await new Promise((resolve) => setTimeout(resolve, 200));
+			expect(sent).toEqual([]);
+			expect(createPresences(join(paths.mesh, "presence")).all()).toEqual([]);
+		} finally {
+			stayInSession(session);
+		}
 	});
 });
 

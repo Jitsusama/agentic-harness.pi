@@ -71,6 +71,7 @@ import {
 	onUnlanded,
 	withoutLanding,
 } from "../../lib/internal/session/landings.ts";
+import { sessionLeft } from "../../lib/internal/session/left.ts";
 import {
 	carriedBy,
 	ROLLOVER_CARRY,
@@ -1129,6 +1130,10 @@ export function meshWorkflow(
 			if (isEphemeral(started.sessionManager) || env[MESH_ENV] === "off") {
 				return;
 			}
+			// A session this process rolled away from, started again, is no
+			// peer: on 3 November one caught up on 13 messages the live
+			// session it had become never got (lib/internal/session/left.ts).
+			if (sessionLeft(started.sessionManager.getSessionId())) return;
 			ctx = started;
 			// The node hears this process end the moment it does, crash or
 			// not; a reload keeps the one connection it already holds.
