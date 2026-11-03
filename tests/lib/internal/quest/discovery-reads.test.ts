@@ -287,6 +287,38 @@ describe("a seed left for the next process", () => {
 		expect(entry?.doc.frontMatter.status).toBe("active");
 		expect(readsOf(readmePath)).toBe(1);
 	});
+
+	// Three versions of this code ran at once on 3 November, each
+	// rejecting the others' seed and writing its own over it: 19 times
+	// in 45 minutes, each after a walk that parsed everything.
+	it("is kept for each version of the code, so one never displaces another's", () => {
+		discoverQuests(root, { dir: seeds, after: 1, code: "older" });
+		clearDiscoveryCache();
+		discoverQuests(root, { dir: seeds, after: 1, code: "newer" });
+		clearDiscoveryCache();
+		reads.mockClear();
+
+		discoverQuests(root, { dir: seeds, code: "older" });
+
+		expect(readsOf(readmePath)).toBe(0);
+		expect(readsOf(planPath)).toBe(0);
+	});
+
+	it("lets go of another version's seed once nothing has left it for a day", () => {
+		discoverQuests(root, { dir: seeds, after: 1, code: "older" });
+		const lastWeek = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+		for (const name of fs.readdirSync(seeds)) {
+			utimesSync(join(seeds, name), lastWeek, lastWeek);
+		}
+		clearDiscoveryCache();
+		discoverQuests(root, { dir: seeds, after: 1, code: "newer" });
+		clearDiscoveryCache();
+		reads.mockClear();
+
+		discoverQuests(root, { dir: seeds, code: "older" });
+
+		expect(readsOf(readmePath)).toBe(1);
+	});
 });
 
 describe("one index for the whole process", () => {

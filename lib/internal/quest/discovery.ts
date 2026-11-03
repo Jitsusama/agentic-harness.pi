@@ -46,6 +46,7 @@ import {
 	realpathSync,
 	renameSync,
 	statSync,
+	unlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { createRequire } from "node:module";
@@ -358,7 +359,8 @@ export function discoverQuests(
 ): DiscoveryResult {
 	const pass = newPass();
 	const seeds = seed.dir === undefined ? cacheDir(SEED_FOLDER) : seed.dir;
-	if (seeds) takeSeed(questsRoot, seeds);
+	const code = seeds ? (seed.code ?? codeKey()) : "";
+	if (seeds) takeSeed(questsRoot, seeds, code);
 	const signature = discoverySignature(questsRoot, pass);
 	const { cache } = memo();
 	const cached = cache.get(questsRoot);
@@ -366,7 +368,7 @@ export function discoverQuests(
 	const result = discoverQuestsUncached(questsRoot, pass);
 	cache.set(questsRoot, { signature, result });
 	if (seeds && pass.parses >= (seed.after ?? SEED_AFTER_PARSES)) {
-		leaveSeed(questsRoot, seeds);
+		leaveSeed(questsRoot, seeds, code);
 	}
 	return result;
 }
@@ -377,6 +379,8 @@ export interface SeedOptions {
 	readonly dir?: string | null;
 	/** How many files a walk must parse before its seed is written. */
 	readonly after?: number;
+	/** The version of the code a seed is kept for: by default, this code's own hash. */
+	readonly code?: string;
 }
 
 /**
@@ -423,9 +427,49 @@ const SEED_FOLDER = "quest-discovery";
  */
 const SEED_AFTER_PARSES = 50;
 
-function seedFile(questsRoot: string, dir: string): string {
-	const key = createHash("sha1").update(questsRoot).digest("hex");
-	return join(dir, `${key.slice(0, 16)}.v8`);
+/**
+ * How long another version's seed is kept after it was last left. A
+ * version still running leaves its seed again after any walk that
+ * parses much, so one left alone this long belongs to code nothing
+ * runs, and costs megabytes of disk for nothing.
+ */
+const SEED_KEPT_MS = 24 * 60 * 60 * 1000;
+
+/** The start of every seed file's name for `questsRoot`. */
+function seedStem(questsRoot: string): string {
+	return createHash("sha1").update(questsRoot).digest("hex").slice(0, 16);
+}
+
+/**
+ * The seed for `questsRoot` as `code` reads it. Each version of the
+ * code keeps its own, because sessions on several installs run at once
+ * and each rejects a seed another version left.
+ */
+function seedFile(questsRoot: string, dir: string, code: string): string {
+	return join(dir, `${seedStem(questsRoot)}-${code.slice(0, 12)}.v8`);
+}
+
+/** Remove the seeds for `questsRoot` that no version has left for a day. */
+function clearStaleSeeds(questsRoot: string, dir: string, kept: string): void {
+	const stem = seedStem(questsRoot);
+	const before = Date.now() - SEED_KEPT_MS;
+	let names: string[];
+	try {
+		names = readdirSync(dir);
+	} catch {
+		// No folder to list: there is nothing in it to clear.
+		return;
+	}
+	for (const name of names) {
+		const path = join(dir, name);
+		if (!name.startsWith(stem) || path === kept) continue;
+		try {
+			if (statSync(path).mtimeMs < before) unlinkSync(path);
+		} catch {
+			// Gone already, or another process is clearing it: either way the
+			// next seed left tries again.
+		}
+	}
 }
 
 function isSeedRecord(value: unknown): value is SeedRecord {
@@ -458,19 +502,19 @@ function isSeed(value: unknown): value is Seed {
 }
 
 /** Fill a fresh memo for `questsRoot` from its seed, once per memo. */
-function takeSeed(questsRoot: string, dir: string): void {
+function takeSeed(questsRoot: string, dir: string, code: string): void {
 	const m = memo();
 	if (m.seeded.has(questsRoot)) return;
 	m.seeded.add(questsRoot);
 	let seed: unknown;
 	try {
-		seed = deserialize(readFileSync(seedFile(questsRoot, dir)));
+		seed = deserialize(readFileSync(seedFile(questsRoot, dir, code)));
 	} catch {
 		// No seed yet, or one cut short: the walk reads everything, as it
 		// did before seeds, and leaves one.
 		return;
 	}
-	if (!isSeed(seed) || seed.code !== codeKey() || seed.root !== questsRoot) {
+	if (!isSeed(seed) || seed.code !== code || seed.root !== questsRoot) {
 		return;
 	}
 	for (const [path, stat, hash] of seed.stamps) {
@@ -495,7 +539,7 @@ function takeSeed(questsRoot: string, dir: string): void {
 }
 
 /** Write what the memo holds of `questsRoot` as its seed. */
-function leaveSeed(questsRoot: string, dir: string): void {
+function leaveSeed(questsRoot: string, dir: string, code: string): void {
 	const m = memo();
 	const under = (path: string) => path.startsWith(questsRoot + sep);
 	const records = <D extends QuestDoc | QuestDocumentDoc>(
@@ -506,7 +550,7 @@ function leaveSeed(questsRoot: string, dir: string): void {
 			.map(([path, { hash, doc }]) => [path, hash, doc.frontMatter, doc.title]);
 	const seed: Seed = {
 		v: SEED_VERSION,
-		code: codeKey(),
+		code,
 		root: questsRoot,
 		stamps: [...m.stamps]
 			.filter(([path]) => under(path))
@@ -516,7 +560,7 @@ function leaveSeed(questsRoot: string, dir: string): void {
 			documents: records(m.documents),
 		},
 	};
-	const file = seedFile(questsRoot, dir);
+	const file = seedFile(questsRoot, dir, code);
 	const draft = `${file}.${process.pid}.tmp`;
 	try {
 		mkdirSync(dir, { recursive: true });
@@ -525,7 +569,9 @@ function leaveSeed(questsRoot: string, dir: string): void {
 	} catch {
 		// A seed that can't be written leaves the next process to walk
 		// everything, which is all it costs.
+		return;
 	}
+	clearStaleSeeds(questsRoot, dir, file);
 }
 
 let code: string | undefined;
