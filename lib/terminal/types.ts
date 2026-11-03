@@ -94,6 +94,13 @@ export interface TerminalRequest {
 export const SPAWNED_CLASS = "pi-spawned";
 
 /**
+ * The systemd user slice a terminal started for sessions runs in, beside
+ * the person's apps at their weight rather than among them, so the
+ * sessions' wakeups meet the apps as one group.
+ */
+export const AGENTS_SLICE = "agents.slice";
+
+/**
  * A stable, probeable reference to a terminal surface a pi session
  * was observed in. Recorded on the session so a later reader can ask
  * the same driver whether that surface still exists. `scope` is the

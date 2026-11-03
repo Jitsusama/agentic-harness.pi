@@ -56,6 +56,13 @@ zellij opens a tab with `--no-focus`, and wezterm and a zellij pane
 give focus back to the pane they came from. A terminal launched
 blind takes whatever focus the compositor gives it.
 
+A kitty the driver starts afresh starts in the systemd user slice
+`agents.slice` when a user manager answers, through `systemd-run
+--scope`. Kitty puts each window's scope in its own slice, so the
+sessions it holds sit beside the person's apps rather than among
+them, and compete with them for the processor as one group.
+Elsewhere, as on macOS, kitty starts directly.
+
 ## Which Terminal You Are In
 
 The terminals' own variables say, and on Linux the process ancestry
