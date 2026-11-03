@@ -139,6 +139,16 @@ export interface AskRun {
 	 */
 	closed?: true;
 	/**
+	 * The round this one read: the council a judge consolidated, or the
+	 * judge a critique pushed back on.
+	 *
+	 * A change can hold several councils, one an area, and a judge asked
+	 * of one by name has to be retried against that one, not whichever
+	 * finished last. Rounds recorded before this carry none, and their
+	 * retry reads the latest council as it always did.
+	 */
+	basis?: string;
+	/**
 	 * What the reviewers were reading, when the round pinned one.
 	 *
 	 * Written down because an interrupted round is collected from

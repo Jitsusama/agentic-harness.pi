@@ -144,6 +144,7 @@ import {
 	tooMany,
 } from "../roster.ts";
 import { watchStartedRound } from "../round-job.ts";
+import { roundToRead } from "../round-to-read.ts";
 import { type ReadableTree, readFrom, treeForRound } from "../work.ts";
 import {
 	type Answer,
@@ -314,7 +315,7 @@ export function registerAskTool(pi: ExtensionAPI): void {
 			run: Type.Optional(
 				Type.String({
 					description:
-						"Which round to retry into. Defaults to the latest council.",
+						"Which round, by id: for judge, the council to consolidate; for critique, the judge to push back on; for retry, the round to retry into. Defaults to the latest council, or for critique the latest judge.",
 				}),
 			),
 			set: Type.Optional(
@@ -1001,8 +1002,9 @@ async function askJudge(
 
 	const store = createRunStore(runDir());
 	const collected = await collectFinished(change);
-	const council = await store.latest(change, "council");
-	if (council === undefined) {
+	const chosen = await roundToRead(store, change, "council", params.run);
+	if ("refusal" in chosen) return refuse(chosen.refusal);
+	if ("none" in chosen) {
 		// A started round is on the ledger and unfinished, and `latest`
 		// only returns finished ones, so without this the answer to "a
 		// council is running, judge it" is "run a council": the one
@@ -1014,6 +1016,7 @@ async function askJudge(
 		);
 	}
 
+	const council = chosen.run;
 	await claimIdentities(change, "judge", [roster.judge]);
 	const raised = await findingsOf(change, council);
 	const { proposal, diff } = await material(bound);
@@ -1048,10 +1051,11 @@ async function askJudge(
 	// leaves the first copy open forever: protected, never swept, and
 	// nagging at every session start. A settle is the same round
 	// arriving in its finished state, which is what `keep` means.
-	await store.keep(change, run);
+	await store.keep(change, { ...run, basis: council.id });
 	return say(
 		[
 			...collected.said,
+			`It consolidated ${council.id}.`,
 			answerFor(run, warnings, tree.caveat),
 			...judgeHandOff(run),
 		].join("\n"),
@@ -1205,12 +1209,14 @@ async function askCritique(
 	await claimIdentities(change, "reviewer", roster.reviewers);
 
 	const store = createRunStore(runDir());
-	const judged = await store.latest(change, "judge");
-	if (judged === undefined) {
+	const chosen = await roundToRead(store, change, "judge", params.run);
+	if ("refusal" in chosen) return refuse(chosen.refusal);
+	if ("none" in chosen) {
 		return refuse(
 			`No judge has consolidated anything on ${change.label}, so there is nothing settled enough to push back on. Run a council, then a judge.`,
 		);
 	}
+	const judged = chosen.run;
 
 	const raised = await findingsOf(change, judged);
 	const { proposal, diff } = await material(bound);
@@ -1245,9 +1251,10 @@ async function askCritique(
 		},
 	);
 
-	await store.record(change, run);
+	await store.record(change, { ...run, basis: judged.id });
 	return say(
 		[
+			`It pushed back on ${judged.id}.`,
 			answerFor(run, warnings, tree.caveat),
 			...(critiques.length === 0
 				? ["Nobody took a position."]
@@ -1669,7 +1676,7 @@ async function retryOne(
 							proposal,
 							diff,
 							findings: renderFindings(
-								await councilFindingsBehind(change, store),
+								await councilFindingsBehind(change, store, held.basis),
 							),
 							...intent,
 							...conventions,
@@ -2526,7 +2533,9 @@ async function keptOnLedger(change: ChangeRef, run: AskRun): Promise<string[]> {
 }
 
 /**
- * What the latest council raised, for a judge being asked again.
+ * What the council a judge consolidated raised, for that judge being
+ * asked again: the one it recorded, or the latest for a judge recorded
+ * before it said.
  *
  * A retried judge has to see the same material it saw the first time,
  * or it is answering a different question and its substituted outcome
@@ -2535,9 +2544,10 @@ async function keptOnLedger(change: ChangeRef, run: AskRun): Promise<string[]> {
 async function councilFindingsBehind(
 	change: ChangeRef,
 	store: RunStore,
+	basis: string | undefined,
 ): Promise<Finding[]> {
-	const council = await store.latest(change, "council");
-	return council === undefined ? [] : await findingsOf(change, council);
+	const chosen = await roundToRead(store, change, "council", basis);
+	return "run" in chosen ? await findingsOf(change, chosen.run) : [];
 }
 
 /** The findings one round raised, in the order it raised them. */
