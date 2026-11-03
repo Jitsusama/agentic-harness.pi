@@ -1,8 +1,8 @@
 /**
  * Which dependencies' build scripts an install skipped.
  *
- * pnpm 10 runs a dependency's install script only when the package
- * allows it in `pnpm.onlyBuiltDependencies`, and records each one it
+ * pnpm 10 on runs a dependency's install script only when the package
+ * allows it (`allowBuilds` in `pnpm-workspace.yaml`), and records each one it
  * skipped under `ignoredBuilds` in `node_modules/.modules.yaml`. A
  * native module skipped that way installs without its binding, and
  * nothing fails until it is imported. On 26 October pi updated the

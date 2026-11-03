@@ -1,0 +1,41 @@
+# pnpm's settings for this package, where pnpm 10 and every pnpm since
+# read them. pnpm 12 reads none of them from package.json or .npmrc:
+# under the old `pnpm` field it dropped the overrides, resolved a
+# different lockfile and left sqlite3 unbuilt. docs/dependencies.md says
+# why each is here.
+
+# pi installs this package from git with
+# `pnpm install --prod --config.auto-install-peers=false`, so the
+# lockfile is resolved the same way here. A lockfile written with peers
+# auto-installed comes back from that install rewritten.
+autoInstallPeers: false
+
+# The pi version that runs, for the whole @earendil-works family, and
+# one google-auth-library: googleapis-common pins an older 10.x exactly,
+# and two copies' OAuth2Client types don't typecheck against each other.
+overrides:
+  '@earendil-works/chord': 1.4.0
+  '@earendil-works/pi-agent-core': 1.4.0
+  '@earendil-works/pi-ai': 1.4.0
+  '@earendil-works/pi-codemode': 1.4.0
+  '@earendil-works/pi-mcp': 1.4.0
+  '@earendil-works/pi-telemetry': 1.4.0
+  '@earendil-works/pi-tui': 1.4.0
+  'google-auth-library': 10.9.0
+
+# Which dependencies' install scripts run, under both of pnpm's names:
+# pnpm 11 on reads allowBuilds, pnpm 10 the two lists. sqlite3 needs
+# its native build. The two pi's own dependencies bring in need none,
+# and were never run here; pnpm 12 refuses an install that leaves a
+# script neither allowed nor denied.
+allowBuilds:
+  sqlite3: true
+  '@google/genai': false
+  protobufjs: false
+
+onlyBuiltDependencies:
+  - sqlite3
+
+ignoredBuiltDependencies:
+  - '@google/genai'
+  - protobufjs
