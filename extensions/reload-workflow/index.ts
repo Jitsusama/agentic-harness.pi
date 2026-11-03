@@ -31,6 +31,7 @@ import {
 } from "../../lib/internal/reload/loaded.ts";
 import { piPackageSettings } from "../../lib/internal/reload/settings.ts";
 import { reloadSlot } from "../../lib/internal/reload/slot.ts";
+import { sessionLeft } from "../../lib/internal/session/left.ts";
 import {
 	asText,
 	drawInto,
@@ -96,6 +97,12 @@ export default function reloadWorkflow(pi: ExtensionAPI) {
 
 	pi.on("session_start", async (event, ctx) => {
 		tellPiPackages(settings);
+		// A session this process rolled away from, started again, follows
+		// nothing: on 3 November one ran code older than the install, so it
+		// saw a move every 30 seconds and reloaded the live session each
+		// time, and its start stopped the live session's own follower.
+		const id = ctx.sessionManager?.getSessionId?.();
+		if (id !== undefined && sessionLeft(id)) return;
 		await startRuntime(pi, ctx, event.reason, settings, (loaded) => {
 			running = loaded;
 		});

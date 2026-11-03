@@ -119,6 +119,17 @@ the reload landed; the old command calls it once `reload()` returns.
 A runtime started any other way drops a request left there, so pi's
 own `/reload` cannot set off a second one.
 
+A reload and a rollover never overlap. pi's `reload()` loads for
+seconds before it starts the new runtime, and on 2026-11-03 one begun
+as a rollover switched finished on the log left behind: a live
+runtime on the old log, its follower on older code, reloading the
+live session every 30 seconds. The rollover now marks the slot
+(`rolling`) while it switches and declines while a reload is asked
+for or under way; the follower waits out the mark, and the command
+does nothing under it, saying so. A session the process rolled away
+from (`lib/internal/session/left.ts`) that starts again follows
+nothing, since its start would stop the live session's follower.
+
 A landing the agent asked for is said through the job host, the only
 thing that starts a turn nobody typed. One the person asked for is a
 hidden custom message.

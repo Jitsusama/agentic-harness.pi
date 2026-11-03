@@ -206,6 +206,22 @@ export async function performReload(
 		}
 		return;
 	}
+	// A reload begun while a rollover switches finishes on the session
+	// left behind (lib/internal/reload/slot.ts, `rolling`).
+	if (slot.rolling) {
+		slot.request = undefined;
+		slot.dispatched = false;
+		slot.dispatchedAt = undefined;
+		try {
+			ctx.ui.notify(
+				"The session is rolling over into a fresh log, so this reload did nothing. The fresh session reloads by itself if the install moved; ask again for a tree.",
+				"info",
+			);
+		} catch {
+			// A context with no screen to say it on.
+		}
+		return;
+	}
 	slot.performing = true;
 	try {
 		await reloadOnce(ctx, running, settings, run);

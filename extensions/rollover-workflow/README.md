@@ -116,6 +116,12 @@ session is now stopped before its request, and the mesh keeps it
 off (see the mesh workflow). The mark lives in
 `lib/internal/session/left.ts`.
 
+What started it again was a reload: pi's reload of the old session
+was still loading when the rollover switched, and finished on it. So
+a rollover declines while a reload is asked for or under way, leaving
+the next compaction to roll over, and holds reloads off while it
+switches (see the reload workflow).
+
 ## Carrying State Over
 
 An extension that keeps a figure in memory rather than in the log

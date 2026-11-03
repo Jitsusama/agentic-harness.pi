@@ -27,6 +27,10 @@ import {
 	STATUS_KEY,
 } from "../../../extensions/reload-workflow/lifecycle.ts";
 import { reloadSlot } from "../../../lib/internal/reload/slot.ts";
+import {
+	leaveSession,
+	stayInSession,
+} from "../../../lib/internal/session/left.ts";
 import { announceJobHost, type Job } from "../../../lib/jobs/index.ts";
 import { FOOTER_GLYPH } from "../../../lib/ui/footer-mark.ts";
 import { until } from "../../support/until.ts";
@@ -192,6 +196,7 @@ beforeEach(() => {
 	slot.dispatched = undefined;
 	slot.reloading = undefined;
 	slot.performing = undefined;
+	slot.rolling = undefined;
 	slot.landed = undefined;
 	slot.unsaid = undefined;
 	slot.turnOwed = undefined;
@@ -468,6 +473,43 @@ describe("a reload nobody asked the agent for", LANDS, () => {
 		const now = runtime();
 		await now.start("startup");
 		expect(now.hidden).toEqual([]);
+	});
+
+	it("does nothing while the session rolls over, saying why", async () => {
+		// On 3 November a reload begun as a rollover switched finished on
+		// the log left behind, a runtime that went on reloading the live
+		// session every 30 seconds.
+		runningTheInstall();
+		const now = runtime();
+		await now.start("startup");
+		const next = runtime();
+		reloadSlot().rolling = true;
+
+		await now.command("reload", next);
+
+		expect(next.hidden).toEqual([]);
+		expect(now.notices).toEqual([
+			expect.stringMatching(/^The session is rolling over/),
+		]);
+		expect(reloadSlot().request).toBeUndefined();
+	});
+
+	it("starts nothing on a log this process rolled away from", async () => {
+		runningTheInstall();
+		const left = runtime();
+		leaveSession("left-1");
+		try {
+			await left.fire(
+				"session_start",
+				{ reason: "reload" },
+				{ sessionManager: { getSessionId: () => "left-1" } },
+			);
+		} finally {
+			stayInSession("left-1");
+		}
+
+		expect(left.hidden).toEqual([]);
+		expect(left.statuses.has(STATUS_KEY)).toBe(false);
 	});
 
 	it("drops a request the old code was still waiting to run", async () => {
