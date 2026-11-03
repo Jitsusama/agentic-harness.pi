@@ -119,6 +119,10 @@ shipped and tested.
   that asked, so its window opens unfocused where its quest's
   sessions are; one they open themselves leaves focus where it is
   (lib/terminal). Only the person's own press focuses a window.
+- **Behind a lock**: while the shell's lock is up, nothing is
+  handed to the launcher, since the compositor drops what it asks
+  and the window would never open; restore and spawn open their
+  own terminal window instead.
 - **Spawn on a machine**: `spawn` with `machine` asks this
   machine's mycelium node to start the session held on that
   machine, through that machine's own node when it is another,

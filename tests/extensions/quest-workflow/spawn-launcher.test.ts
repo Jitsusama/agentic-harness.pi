@@ -19,8 +19,10 @@ import {
 import { createEnvGuard } from "./_helpers";
 
 // The launcher is asked through `qs` on PATH, so a stand-in `qs` writes
-// down what it was asked and answers what the test tells it to.
+// down what it was asked and answers what the test tells it to. Asked
+// whether the lock is up, it says what QS_LOCKED says, else no.
 const FAKE_QS = `#!/bin/sh
+if [ "$3" = lock ]; then printf '%s\\n' "\${QS_LOCKED:-false}"; exit 0; fi
 printf '%s\\n' "$@" > "$QS_ASKED"
 printf '%s\\n' "$QS_SAYS"
 `;
@@ -33,6 +35,7 @@ const KEPT = [
 	"XDG_CONFIG_HOME",
 	"QS_ASKED",
 	"QS_SAYS",
+	"QS_LOCKED",
 ];
 let tmpRoot: string;
 let opened: string | undefined;
@@ -150,6 +153,21 @@ describe("spawn through the desktop's launcher", () => {
 		});
 		if (!result.ok) throw new Error(result.guidance);
 		expect(handed()).toBeDefined();
+		expect(opened).toBe("pi");
+		expect(result.message).toContain("Spawned a window");
+	});
+
+	it("opens the window itself while the screen is locked", async () => {
+		// niri drops what the launcher asks while locked, so a session it
+		// took would never open.
+		process.env.QS_LOCKED = "true";
+		const { state, id } = await quest();
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "spawn",
+			id,
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		expect(handed()).toBeUndefined();
 		expect(opened).toBe("pi");
 		expect(result.message).toContain("Spawned a window");
 	});
