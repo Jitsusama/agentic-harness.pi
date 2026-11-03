@@ -233,8 +233,7 @@ and its groups.
   Glances survive a reload: each delivery records which it
   carried.
 - **Act:** a note that starts a turn once the mesh settles,
-  for an idle peer: a finding sent to it, or a question to a
-  group about its work. It waits 30 seconds and up to 30 more,
+  for an idle peer: a question to a group about its work. It waits 30 seconds and up to 30 more,
   the extra different for each session so peers hearing one
   message do not start at once, and what arrives meanwhile
   goes in the same turn. A question to the machine that
@@ -260,10 +259,15 @@ and its groups.
   gave each member its own part was silenced by the first
   reply.
 
-An fyi never starts a turn, nor does a hold that wasn't put to
-this peer; neither asks an idle peer to do anything. The one
-exception is an answer to a question this peer asked, which
-it is waiting on however the answer was sent. What a peer
+An fyi or a finding never starts a turn, nor does a hold that
+wasn't put to this peer; none asks an idle peer to do anything
+now, so each waits in the session and is read with whatever
+turn comes next, the person's or another message's. A finding
+started one until 2026-11-03, when 764 of 1,518 messages
+reaching a peer started a turn and 287 of those turns did
+nothing but acknowledge. The one exception is an answer to a
+question this peer asked, which it is waiting on however the
+answer was sent. What a peer
 catches up on as it starts is noted, since it rides the first
 prompt.
 
@@ -583,7 +587,9 @@ read as an address.
 - **finding:** for whoever owns what it is about, saying what
   the sender checked it against; the owner checks it against
   the source, then notes it in their plan or journal. No reply.
-- **fyi:** context only. No reply and no action.
+  It wakes nobody: the owner reads it with its next turn.
+- **fyi:** context only, read with the next turn and waking
+  nobody. No reply and no action.
 
 A message with no intent, or one this version does not know,
 is an fyi. Only what changes what another peer should do, or

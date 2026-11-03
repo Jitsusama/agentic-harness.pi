@@ -713,17 +713,69 @@ describe("a turn", () => {
 	});
 });
 
-describe("an act", () => {
-	it("starts one turn for findings to an idle peer once the mesh settles", async () => {
+describe("news for an idle peer", () => {
+	// On 2026-11-03, 764 of 1,518 messages reaching a peer started a turn,
+	// and 287 of those turns did nothing but acknowledge (P9R1KI
+	// [6bdab129]). What asks nothing waits for the turn something else
+	// starts, which pi's own rules hand it: appended while idle, it is in
+	// the context that turn reads.
+	it("puts an fyi or a finding sent to it in without starting a turn", async () => {
+		const { sent } = await startSession({}, { isIdle: () => true });
+
+		fromElsewhere({ intent: "fyi", to: ["@7M6JKG"], text: "merged #950" });
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		fromElsewhere({ intent: "finding", to: ["@7M6JKG"], text: "your bug" });
+		await vi.waitFor(() => expect(sent).toHaveLength(2));
+
+		expect(sent.map(({ options }) => options)).toEqual([
+			{ triggerTurn: false },
+			{ triggerTurn: false },
+		]);
+		expect(sent[0]?.message.content).toContain("merged #950");
+		expect(sent[1]?.message.content).toContain("your bug");
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(sent).toHaveLength(2);
+	});
+
+	it("puts a finding about its work in without starting a turn", async () => {
+		const { sent } = await startSession({}, { isIdle: () => true });
+
+		fromElsewhere({ intent: "finding", text: "7M6JKG drops a lease" });
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.options).toEqual({ triggerTurn: false });
+		expect(sent[0]?.message.details).toMatchObject({
+			why: ["about this peer's work"],
+		});
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(sent).toHaveLength(1);
+	});
+
+	it("still starts a turn for a question put to it after the news", async () => {
 		const { sent } = await startSession({}, { isIdle: () => true });
 
 		fromElsewhere({ intent: "finding", to: ["@7M6JKG"], text: "your bug" });
-		fromElsewhere({ intent: "finding", to: ["@7M6JKG"], text: "and another" });
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		fromElsewhere({ intent: "question", to: ["@7M6JKG"], text: "why?" });
+		await vi.waitFor(() => expect(sent).toHaveLength(2));
+
+		expect(sent[1]?.options).toEqual({ triggerTurn: true });
+		expect(sent[1]?.message.content).toContain("why?");
+		expect(sent[1]?.message.content).not.toContain("your bug");
+	});
+});
+
+describe("an act", () => {
+	it("starts one turn for questions about an idle peer's work once the mesh settles", async () => {
+		const { sent } = await startSession({}, { isIdle: () => true });
+
+		fromElsewhere({ intent: "question", text: "can 7M6JKG fix its bug?" });
+		fromElsewhere({ intent: "question", text: "and 7M6JKG's other one?" });
 
 		await vi.waitFor(() => expect(sent).toHaveLength(1));
 		expect(sent[0]?.options).toEqual({ triggerTurn: true });
-		expect(sent[0]?.message.content).toContain("your bug");
-		expect(sent[0]?.message.content).toContain("and another");
+		expect(sent[0]?.message.content).toContain("its bug");
+		expect(sent[0]?.message.content).toContain("other one");
 		await new Promise((resolve) => setTimeout(resolve, 100));
 		expect(sent).toHaveLength(1);
 	});
@@ -734,7 +786,7 @@ describe("an act", () => {
 			spreadMs: 0,
 		});
 
-		fromElsewhere({ intent: "finding", to: ["@7M6JKG"], text: "your bug" });
+		fromElsewhere({ intent: "question", text: "7M6JKG: your bug?" });
 		// Long enough to be waiting, well short of the turn it waits for.
 		await new Promise((resolve) => setTimeout(resolve, 150));
 		const opened = (await fire("before_agent_start")) as
@@ -835,7 +887,7 @@ describe("a message never lost", () => {
 	it("is handed over at the next start when it was waiting to act as the session went", async () => {
 		// Marked read as it arrived, it was lost with the process that held it.
 		const first = await startSession({}, { isIdle: () => true }, [], slow);
-		fromElsewhere({ intent: "finding", to: ["@7M6JKG"], text: "your bug" });
+		fromElsewhere({ intent: "question", text: "7M6JKG: your bug?" });
 		await new Promise((resolve) => setTimeout(resolve, 100));
 		await first.fire("session_shutdown");
 		expect(first.sent).toEqual([]);
@@ -848,7 +900,7 @@ describe("a message never lost", () => {
 
 	it("is handed over once, even when it was handed over while another waited", async () => {
 		const first = await startSession({}, { isIdle: () => true }, [], slow);
-		fromElsewhere({ intent: "finding", to: ["@7M6JKG"], text: "your bug" });
+		fromElsewhere({ intent: "question", text: "7M6JKG: your bug?" });
 		await new Promise((resolve) => setTimeout(resolve, 20));
 		fromElsewhere({ to: ["@7M6JKG"], text: "done here" });
 		await vi.waitFor(() => expect(first.sent).toHaveLength(1));
@@ -876,7 +928,7 @@ describe("a message never lost", () => {
 		);
 		fromElsewhere({ text: "merging core.nix#330 now" });
 		await vi.waitFor(() => expect(first.entries).toHaveLength(1));
-		fromElsewhere({ intent: "finding", to: ["@7M6JKG"], text: "your bug" });
+		fromElsewhere({ intent: "question", text: "7M6JKG: your bug?" });
 		await new Promise((resolve) => setTimeout(resolve, 100));
 		await first.fire("before_agent_start");
 		await first.fire("session_shutdown");
@@ -1165,27 +1217,6 @@ describe("a withdrawal", () => {
 });
 
 describe("damping", () => {
-	it("starts no more turns for one sender past its share of the hour", async () => {
-		const { sent } = await startSession({}, { isIdle: () => true });
-
-		for (let one = 1; one <= MOST_TURNS_FROM_ONE + 1; one += 1) {
-			fromElsewhere({
-				intent: "finding",
-				to: ["@7M6JKG"],
-				text: `the cache is poisoned, ${one}`,
-			});
-			await vi.waitFor(() => expect(sent).toHaveLength(one));
-		}
-
-		expect(sent.map((one) => one.options)).toEqual([
-			...Array.from({ length: MOST_TURNS_FROM_ONE }, () => ({
-				triggerTurn: true,
-			})),
-			{ triggerTurn: false },
-		]);
-		expect(sent.at(-1)?.message.content).not.toContain("spent");
-	});
-
 	it("starts a turn for every question put to this peer, past the hour's share", async () => {
 		const { sent } = await startSession({}, { isIdle: () => true });
 
@@ -1216,31 +1247,6 @@ describe("damping", () => {
 			{ triggerTurn: true },
 			{ triggerTurn: false },
 		]);
-	});
-
-	it("remembers the hour's turns across a reload", async () => {
-		const turns = Array.from({ length: MOST_TURNS_FROM_ONE }, (_, one) => ({
-			type: "custom_message",
-			customType: NOTED,
-			details: {
-				messages: [
-					fromElsewhere({ intent: "finding", text: `poisoned ${one}` }),
-				],
-				glanced: [],
-				at: Date.now(),
-				turn: true,
-			},
-		}));
-		writeFileSync(
-			join(paths.mesh, "messages", ".read-7M6JKG"),
-			folderTransport(join(paths.mesh, "messages")).ids().at(-1) ?? "",
-		);
-		const { sent } = await startSession({}, { isIdle: () => true }, turns);
-
-		fromElsewhere({ intent: "finding", to: ["@7M6JKG"], text: "and now" });
-
-		await vi.waitFor(() => expect(sent).toHaveLength(1));
-		expect(sent[0]?.options).toEqual({ triggerTurn: false });
 	});
 
 	it("glances at what a sender said already", async () => {
@@ -2977,7 +2983,7 @@ describe("a stop", () => {
 			{ settleMs: 300, spreadMs: 0 },
 		);
 
-		fromElsewhere({ intent: "finding", to: ["@7M6JKG"], text: "your bug" });
+		fromElsewhere({ intent: "question", text: "7M6JKG: your bug?" });
 		await new Promise((resolve) => setTimeout(resolve, 100));
 		await stopping(tools, { peer: "WCJQSG" });
 
