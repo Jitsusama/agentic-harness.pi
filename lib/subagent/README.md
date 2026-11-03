@@ -110,6 +110,11 @@ companion skill.
   "nothing to keep", and two spellings of an id mean the
   ledger and the transcripts can disagree about which run
   a record is for.
+- `first-in-window.ts`: whether this session is the first
+  on the machine to take a walk in the current window. A
+  restart or an install starts every session at once, and
+  a walk about the machine rather than the session needs
+  doing by one of them, not all.
 - `recovery.ts`: replay on-disk artifacts back into
   `RecoverySummary`/`RecoveredReviewerProgress` records for
   the parent to surface in-flight work, and stop a child

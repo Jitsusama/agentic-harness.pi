@@ -18,6 +18,15 @@ import {
 import type { ReviewerUsage } from "./subagent.ts";
 
 /** Compact recovered result for a supervised reviewer job. */
+/**
+ * How long one session's look for orphaned reviewers stands for every
+ * session on the machine (`first-in-window.ts`). Long enough to cover
+ * a restart's or an install's whole wave of starts, which land within
+ * a minute or two; short beside the three quarters of an hour an
+ * orphan can run.
+ */
+export const ORPHAN_LOOK_WINDOW_MS = 5 * 60 * 1000;
+
 export interface RecoveredReviewerResult {
 	readonly runId: string;
 	readonly reviewerId: string;
@@ -150,12 +159,18 @@ export async function recoverReviewerRuns(
 					// that survives the process that wrote it.
 					const told =
 						(await store.readJson<unknown>(paths.cancelPath)) !== null;
-					if (!told) stale.push(progress);
-					await store.requestReviewerCancellation(
-						runId,
-						reviewerId,
-						"startup-stale",
-					);
+					// Asked once. A request already there is what the supervisor
+					// would read, and keeps the reason of whoever asked first;
+					// writing it again at every start rewrote two thousand files
+					// apiece on 3 November.
+					if (!told) {
+						stale.push(progress);
+						await store.requestReviewerCancellation(
+							runId,
+							reviewerId,
+							"startup-stale",
+						);
+					}
 					// The cancellation above is read by the supervisor, and
 					// the supervisor is what just failed to answer. Its child
 					// is a reviewer nobody is watching, holding a model open

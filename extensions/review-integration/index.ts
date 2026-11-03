@@ -30,10 +30,12 @@ import {
 	registerReviewProvider,
 } from "../../lib/core/review/index.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
+import { firstInWindow } from "../../lib/subagent/first-in-window.ts";
 import {
 	ReviewerArtifactsStore,
 	recoverReviewerRuns,
 } from "../../lib/subagent/index.ts";
+import { ORPHAN_LOOK_WINDOW_MS } from "../../lib/subagent/recovery.ts";
 import { type Aside, asideFor } from "../../lib/ui/aside.ts";
 import { count } from "../../lib/ui/index.ts";
 import { withToolCallSignals } from "./call-signal.ts";
@@ -343,6 +345,15 @@ async function reapOrphanedReviewers(
 	transcripts: string,
 	say: Aside,
 ): Promise<void> {
+	// Once a window for the whole machine, by whichever session starts
+	// first in it. Every session starts or reloads at once after a
+	// restart or an install, and each walked all 2,597 reviewers kept on
+	// 3 November to find what the first had just found. An orphan is
+	// only ever looked for at a start, so one left in a window waits for
+	// the first start after it.
+	if (!(await firstInWindow(transcripts, "orphans", ORPHAN_LOOK_WINDOW_MS))) {
+		return;
+	}
 	const store = new ReviewerArtifactsStore(transcripts);
 	const { reaped } = await recoverReviewerRuns(store);
 	if (reaped.length === 0) return;

@@ -112,6 +112,36 @@ describe("recoverReviewerRuns", () => {
 		).toMatchObject({ reason: "startup-stale" });
 	});
 
+	it("leaves a cancellation already asked for as it was", async () => {
+		// Two thousand of these sat in the review store on 3 November, and
+		// every session start wrote each one again. The request on disk is
+		// already what the supervisor would read, and whoever asked first,
+		// a person included, keeps their reason.
+		const store = await tempStore();
+		const paths = await store.ensureReviewerDir("run", "fast");
+		await store.writeJsonAtomic(paths.progressPath, {
+			state: "running",
+			updatedAt: "2026-01-01T00:00:00Z",
+		});
+		await store.writeJsonAtomic(paths.leasePath, {
+			state: "running",
+			supervisorPid: 4242,
+			supervisorStartedAt: 1_000_000,
+			updatedAt: new Date().toISOString(),
+		});
+		await store.requestReviewerCancellation("run", "fast", "person");
+		const asked = await store.readJson(paths.cancelPath);
+
+		await recoverReviewerRuns(store, {
+			alive: () => false,
+			startedAt: async () => undefined,
+			kill: () => {},
+			wait: async () => {},
+		});
+
+		expect(await store.readJson(paths.cancelPath)).toEqual(asked);
+	});
+
 	it("files a supervisor whose pid the machine reissued as gone", async () => {
 		// Recovery used to ask only whether the pid was alive, which the
 		// collect path had already learned not to trust. The asymmetry
