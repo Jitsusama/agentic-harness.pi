@@ -423,7 +423,11 @@ describe("spawn verbs", () => {
 		// The spawn ships the loaded quest id so the new
 		// pi can name its session after the quest without
 		// the wezterm/tmux tab-title plumbing.
-		expect(calls[0].env).toEqual({ QUEST_WORKFLOW_AUTOLOAD_ID: a.id });
+		// It also names the words the new session is told first.
+		expect(calls[0].env).toEqual({
+			QUEST_WORKFLOW_AUTOLOAD_ID: a.id,
+			QUEST_WORKFLOW_FIRST_WORDS: expect.stringMatching(/^[0-9a-f-]{36}$/),
+		});
 	});
 
 	it("prefers a registered tree path over the quest dir", async () => {
@@ -490,7 +494,10 @@ describe("spawn verbs", () => {
 			id: other.id,
 		});
 		expect(result.ok).toBe(true);
-		expect(calls[0].env).toEqual({ QUEST_WORKFLOW_AUTOLOAD_ID: other.id });
+		expect(calls[0].env).toEqual({
+			QUEST_WORKFLOW_AUTOLOAD_ID: other.id,
+			QUEST_WORKFLOW_FIRST_WORDS: expect.stringMatching(/^[0-9a-f-]{36}$/),
+		});
 		// The quest is named by the autoload, never by where it opens: a
 		// session in a quest's folder loads no repo's skills.
 		expect(calls[0].cwd).not.toContain(state.questsRoot);

@@ -19,6 +19,7 @@
 import { hostname } from "node:os";
 import { relative } from "node:path";
 import { shellQuote } from "../../../lib/core/internal/terminal/drivers/shared.ts";
+import { FIRST_WORDS_VARIABLE } from "../../../lib/internal/quest/first-words.ts";
 import {
 	agentsAt,
 	type NodeStarted,
@@ -55,6 +56,11 @@ export interface HeldSpawn {
 	readonly home: string;
 	/** The quest the new session loads. */
 	readonly questId: string;
+	/**
+	 * The token naming the first words spawn left for the session, when
+	 * it left some (lib/internal/quest/first-words.ts).
+	 */
+	readonly firstWords?: string;
 	readonly layout?: TerminalLayout;
 	readonly options: OpenOptions;
 }
@@ -191,11 +197,23 @@ export function folderFor(
 
 /**
  * The words a node runs: the command through `sh`, with the quest to
- * load said in its environment, since the node's environment is not
- * this session's.
+ * load, and the token naming its first words when spawn left some, said
+ * in its environment, since the node's environment is not this
+ * session's.
  */
-export function heldWords(command: string, questId: string): string[] {
-	return ["env", `QUEST_WORKFLOW_AUTOLOAD_ID=${questId}`, "sh", "-c", command];
+export function heldWords(
+	command: string,
+	questId: string,
+	firstWords?: string,
+): string[] {
+	return [
+		"env",
+		`QUEST_WORKFLOW_AUTOLOAD_ID=${questId}`,
+		...(firstWords ? [`${FIRST_WORDS_VARIABLE}=${firstWords}`] : []),
+		"sh",
+		"-c",
+		command,
+	];
 }
 
 /** The node's attach words as a line a login shell runs as given. */
@@ -237,7 +255,7 @@ export async function spawnHeld(
 		machine: asked.machine,
 		needs: asked.needs,
 		...(folder !== undefined ? { folder } : {}),
-		command: heldWords(asked.command, asked.questId),
+		command: heldWords(asked.command, asked.questId, asked.firstWords),
 	});
 	if (!answer.ok) {
 		return {

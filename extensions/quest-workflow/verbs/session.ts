@@ -7,6 +7,11 @@
 import { homedir, hostname } from "node:os";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
+	FIRST_WORDS_VARIABLE,
+	leaveFirstWords,
+	spawnedWords,
+} from "../../../lib/internal/quest/first-words.ts";
+import {
 	pickResumeSession,
 	resolveSpawnCwd,
 } from "../../../lib/internal/quest/reopen.ts";
@@ -15,6 +20,7 @@ import {
 	formatRelativeAge,
 	type SessionView,
 } from "../../../lib/internal/quest/session-liveness.ts";
+import { uuidv7 } from "../../../lib/internal/session/rollover.ts";
 import type { QuestSession } from "../../../lib/quest/index.ts";
 import {
 	describePlan,
@@ -384,7 +390,26 @@ export async function spawn(
 	// after the quest. A resumed session restores its own
 	// loaded quest from history, but the env var is harmless
 	// and covers a fresh pi.
-	const env = { QUEST_WORKFLOW_AUTOLOAD_ID: questIdForSpawn };
+	const env: Record<string, string> = {
+		QUEST_WORKFLOW_AUTOLOAD_ID: questIdForSpawn,
+	};
+	// What the new session is told first, so it sets to work on its quest
+	// by itself rather than waiting to be poked (P9R1KI [76e6439f]). A
+	// command of the caller's own is left as it is.
+	const firstWords =
+		spawnsPi && !params.dryRun
+			? spawnedWords(questIdForSpawn, params.note)
+			: undefined;
+	const leftUnder = (key: string): string | undefined => {
+		if (!firstWords) return undefined;
+		try {
+			leaveFirstWords(key, firstWords);
+			return key;
+		} catch {
+			// The session still starts, only without being told to carry on.
+			return undefined;
+		}
+	};
 	const read = await terminalOptions(
 		{
 			...(params.terminal ? { terminal: params.terminal } : {}),
@@ -396,6 +421,9 @@ export async function spawn(
 	);
 	if (!read.ok) return refuse(read.refusal);
 	if (machine !== undefined) {
+		// Words are left on this machine, so only a session held here can
+		// take them.
+		const token = isThisMachine(machine) ? leftUnder(uuidv7()) : undefined;
 		const held = await spawnHeld({
 			machine,
 			needs,
@@ -403,6 +431,7 @@ export async function spawn(
 			cwd,
 			home: homedir(),
 			questId: questIdForSpawn,
+			...(token ? { firstWords: token } : {}),
 			...(read.layout ? { layout: read.layout } : {}),
 			options: read.options,
 		});
@@ -420,15 +449,6 @@ export async function spawn(
 			autoloadQuestId: questIdForSpawn,
 		});
 	}
-	// The command is typed into a login shell the terminal opens, so the
-	// person's startup files put the right pi on PATH; handed to the
-	// terminal directly it would run without them.
-	const request = {
-		...(read.layout ? { layout: read.layout } : {}),
-		command,
-		cwd,
-		env,
-	};
 	// A kitty window of plain pi is the launcher's to open, so one placer
 	// orders every pi window on the screen; it opens here when it doesn't
 	// answer.
@@ -441,6 +461,20 @@ export async function spawn(
 		named: Boolean(params.terminal?.trim() || asked || params.nesting?.trim()),
 		...(asking ? { fromSessionId: asking } : {}),
 	});
+	// The launcher carries only the session's id through, so its words are
+	// left under that; a window opened here names the same key in its
+	// environment, which also covers the launcher not answering.
+	const token = leftUnder(forLauncher?.id ?? uuidv7());
+	if (token) env[FIRST_WORDS_VARIABLE] = token;
+	// The command is typed into a login shell the terminal opens, so the
+	// person's startup files put the right pi on PATH; handed to the
+	// terminal directly it would run without them.
+	const request = {
+		...(read.layout ? { layout: read.layout } : {}),
+		command,
+		cwd,
+		env,
+	};
 	const resumeNote = params.command?.trim()
 		? undefined
 		: resumeMessage(resume, sessions, now);

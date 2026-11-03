@@ -119,6 +119,16 @@ shipped and tested.
   that asked, so its window opens unfocused where its quest's
   sessions are; one they open themselves leaves focus where it is
   (lib/terminal). Only the person's own press focuses a window.
+- **Sets to work by itself**: a session a spawn starts running
+  pi, fresh or resumed, is told first to carry on with its quest
+  from its README and focused plan, and, when the spawn gives
+  `note`, what it was started for. The spawn leaves the words in
+  the quest workflow's state folder, named by the session's id for
+  the launcher and by a token in the new pi's environment
+  otherwise; the session takes them as it starts and sends them
+  as an automated turn, unless its command line already gave pi a
+  first prompt. Words wait 15 minutes at most. A session held on
+  another machine can't reach them and starts without.
 - **Behind a lock**: while the shell's lock is up, nothing is
   handed to the launcher, since the compositor drops what it asks
   and the window would never open; restore and spawn open their

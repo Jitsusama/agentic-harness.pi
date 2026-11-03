@@ -79,6 +79,7 @@ import {
 	refreshProgress,
 	releaseSessionOnShutdown,
 	resolveStartup,
+	sayFirstWords,
 } from "./lifecycle.ts";
 import { recentSessionHints, showLoaded } from "./lookup.ts";
 import { sayPeersOnStartup } from "./peers.ts";
@@ -161,7 +162,7 @@ const QUEST_PARAMETERS = Type.Object({
 	note: Type.Optional(
 		Type.String({
 			description:
-				"think: what this document is about, or what sent you back to thinking. create: optional Summary prose. journal: the Journey entry to add; the date is put in front of it.",
+				"think: what this document is about, or what sent you back to thinking. create: optional Summary prose. journal: the Journey entry to add; the date is put in front of it. spawn: what the new session is started for, the spec it is told first after carrying on its quest.",
 		}),
 	),
 	body: Type.Optional(
@@ -731,6 +732,8 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		// loaded quest and focused document), then the cwd for a
 		// fresh session launched inside a quest or its tree.
 		resolveStartup(state, pi, ctx);
+		// A session a spawn started sets to work on its quest by itself.
+		sayFirstWords(pi, ctx, currentSessionId(ctx, undefined));
 		// Once a quest is loaded (restored, autoloaded or
 		// resolved from the cwd), record this session on it so
 		// the sessions frontmatter reflects where work happens.

@@ -31,6 +31,10 @@ import {
 import { sessionsDir } from "../../lib/internal/paths.ts";
 import { appendJourneyByPath } from "../../lib/internal/quest/append-journey.ts";
 import { discoverQuests } from "../../lib/internal/quest/discovery.ts";
+import {
+	FIRST_WORDS_VARIABLE,
+	takeFirstWords,
+} from "../../lib/internal/quest/first-words.ts";
 import { appendHarnessLog } from "../../lib/internal/quest/harness-log.ts";
 import { mutateQuestFrontMatter } from "../../lib/internal/quest/mutate.ts";
 import { questIdForCwd } from "../../lib/internal/quest/resolve-cwd.ts";
@@ -38,6 +42,7 @@ import {
 	indexSessionFiles,
 	prunePhantomSessions,
 } from "../../lib/internal/quest/session-liveness.ts";
+import { firstPromptPending } from "../../lib/internal/session/first-prompt.ts";
 import { getLastEntry } from "../../lib/internal/state.ts";
 import { sessionNameFor } from "./render.ts";
 import type { QuestState } from "./state.ts";
@@ -452,6 +457,33 @@ export function resolveStartup(
 		source: state.questId ? "cwd" : "none",
 		questId: state.questId,
 	};
+}
+
+/**
+ * Tell a session a spawn started what the spawn left it to say first
+ * (lib/internal/quest/first-words.ts), as a turn of its own once start
+ * is done, so it sets to work without being poked. Words left for it
+ * are taken either way, so none wait for a later start; a session
+ * whose own command line gave pi a first prompt is told nothing more,
+ * since that prompt is its first turn.
+ */
+export function sayFirstWords(
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+	sessionId: string | undefined,
+	pending: () => boolean = firstPromptPending,
+	dir?: string,
+): void {
+	const token = process.env[FIRST_WORDS_VARIABLE];
+	delete process.env[FIRST_WORDS_VARIABLE];
+	const words = takeFirstWords([token, sessionId], dir);
+	if (!words || pending()) return;
+	// After every extension has had its session_start, as pi submits a
+	// first prompt of its own then.
+	setImmediate(() => {
+		const idle = ctx.isIdle?.() ?? true;
+		pi.sendUserMessage(words, idle ? undefined : { deliverAs: "followUp" });
+	});
 }
 
 /** Restore on session_start by re-reading from disk if a quest dir was remembered. */
