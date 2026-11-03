@@ -21,24 +21,23 @@
  *   That leaves only an answer the peer awaited, since nothing else but a
  *   question starts one (see attention.ts): two peers asking each other
  *   and answering would otherwise go round with a turn each time.
- *
- * The mesh once also held a peer to twelve turns an hour, and six from
- * any one sender. Once a finding stopped starting turns (2026-11-03),
- * nothing those limits applied to could start one, so they went.
  * - Repeats: what a sender already said, word for word, within the
  *   hour, is a glance, since the peer has it. The same message handed
  *   again is no repeat: it comes back because it needs more than it
  *   had, such as a question the peer answering it let go.
  * - News: once one sender has had {@link MOST_IN_FULL_FROM_ONE} of its
  *   messages handed over in full within the hour, its next fyi is a
- *   glance. Turns are limited, but a note mid-run costs the peer its
- *   reading too, and Skynet's six messages in ten seconds were each
- *   read. An answer the peer waits on is never held back this way.
+ *   glance. A note mid-run starts no turn, but it costs the peer its
+ *   reading, and Skynet's six messages in ten seconds were each read. An answer the peer waits on is never held back this way.
  * - Catch-up: a peer starting with more than {@link MOST_CAUGHT_UP}
  *   messages to take in is handed in full only the newest of them,
  *   what is addressed to it, what answers it and what holds; the rest
  *   are glances. A session back from a night away would otherwise
  *   start its work under a night of other peers' news.
+ *
+ * The mesh once also held a peer to twelve turns an hour, and six from
+ * any one sender. Once a finding stopped starting turns (2026-11-03),
+ * nothing those limits applied to could start one, so they went.
  *
  * A damped message is never dropped. One that would have started a
  * turn is noted instead, in full, with the next turn there is; a
