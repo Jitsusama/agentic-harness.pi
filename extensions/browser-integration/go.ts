@@ -10,7 +10,9 @@
 import { readFile, writeFile } from "node:fs/promises";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { KnownDevices } from "puppeteer-core";
+// The catalogue's own module, rather than puppeteer's root, which
+// would load all of puppeteer to read one table.
+import { KnownDevices } from "puppeteer-core/internal/common/Device.js";
 import { count } from "../../lib/core/web/audit/verdict.ts";
 import {
 	deviceEmulation,

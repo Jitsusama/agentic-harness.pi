@@ -80,7 +80,7 @@ export async function handleGoogleAuthCommand(
 				abortController.signal,
 			);
 
-			const client = createOAuth2Client(oauthConfig);
+			const client = await createOAuth2Client(oauthConfig);
 			setCredentials(client, result.credentials);
 			const email = await extractEmailFromToken(client);
 

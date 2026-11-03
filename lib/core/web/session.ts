@@ -53,7 +53,6 @@ import {
 } from "./a11y/index.ts";
 import { bounded } from "./bound.ts";
 import { holdWhile, newContextPage } from "./browser.ts";
-import { compareImages, readPng } from "./compare/images.ts";
 import type { Comparison } from "./compare/index.ts";
 import {
 	type BaselineProvenance,
@@ -307,6 +306,16 @@ import {
 	type SocketRecord,
 	toHar,
 } from "./telemetry/index.ts";
+
+/**
+ * The image comparison, loaded the first time a session compares or
+ * reads a capture. Its PNG codec took 135 to 222 ms to load on 3
+ * November, and every pi start paid that while most never look at an
+ * image.
+ */
+function images(): Promise<typeof import("./compare/images.ts")> {
+	return import("./compare/images.ts");
+}
 
 /** How a page should be laid out for reading. */
 export type PageForm = "outline" | "reading";
@@ -1410,6 +1419,7 @@ export class BrowserSession {
 			await this.hideText(objectId, true);
 			try {
 				const second = await this.capture(backendNodeId, {});
+				const { readPng } = await images();
 				const withText = readPng(readFileSync(first.paths[0] ?? ""));
 				const bare = readPng(readFileSync(second.paths[0] ?? ""));
 				return {
@@ -3541,6 +3551,7 @@ export class BrowserSession {
 			},
 		}));
 
+		const { compareImages, readPng } = await images();
 		const { comparison, image } = compareImages(
 			readPng(readFileSync(baselinePath)),
 			readPng(shot),

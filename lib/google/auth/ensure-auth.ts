@@ -51,7 +51,7 @@ export async function ensureAuthenticated(
 	// Try to build a client from stored credentials.
 	const stored = getCredentials(accountName);
 	if (stored) {
-		const client = createOAuth2Client(oauthConfig);
+		const client = await createOAuth2Client(oauthConfig);
 		setCredentials(client, stored);
 
 		const refreshed = await refreshTokenIfNeeded(client);
@@ -76,7 +76,7 @@ export async function ensureAuthenticated(
 	);
 	if (!flowResult) throw new Error(AUTH_MESSAGES.cancelled);
 
-	const client = createOAuth2Client(oauthConfig);
+	const client = await createOAuth2Client(oauthConfig);
 	setCredentials(client, flowResult.credentials);
 	const email = await extractEmailSafe(client);
 
