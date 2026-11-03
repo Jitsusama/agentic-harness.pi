@@ -911,7 +911,11 @@ async function handedToLauncher(
 	);
 	if (going.length === 0) return [];
 	const taken = await handOver(
-		going.map((record) => ({ id: record.sessionId, cwd: record.cwd })),
+		going.map((record) => ({
+			id: record.sessionId,
+			cwd: record.cwd,
+			...(record.quest ? { quest: record.quest } : {}),
+		})),
 	);
 	return taken === undefined ? [] : going;
 }

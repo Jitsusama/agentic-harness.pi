@@ -432,12 +432,14 @@ export async function spawn(
 	// A kitty window of plain pi is the launcher's to open, so one placer
 	// orders every pi window on the screen; it opens here when it doesn't
 	// answer.
+	const asking = currentSessionId(ctx, undefined);
 	const forLauncher = launcherSession({
 		command,
 		cwd,
 		questId: questIdForSpawn,
 		...(resumedSessionId ? { resumedSessionId } : {}),
 		named: Boolean(params.terminal?.trim() || asked || params.nesting?.trim()),
+		...(asking ? { fromSessionId: asking } : {}),
 	});
 	const resumeNote = params.command?.trim()
 		? undefined

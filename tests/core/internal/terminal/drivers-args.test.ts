@@ -4,6 +4,7 @@ import {
 	createKittyDriver,
 	kittyLaunchArgs,
 	kittyLaunchSocket,
+	kittyProcessArgs,
 	kittyTabLayoutOf,
 	kittyWindowIdFromLaunch,
 	kittyWindowIds,
@@ -15,12 +16,14 @@ import {
 	tmuxTypeCalls,
 } from "../../../../lib/core/internal/terminal/drivers/tmux.ts";
 import {
+	weztermRefocusArgs,
 	weztermSocketDir,
 	weztermSpawnArgs,
 } from "../../../../lib/core/internal/terminal/drivers/wezterm.ts";
 import {
 	zellijActionArgs,
 	zellijPaneId,
+	zellijRefocusArgs,
 	zellijTerminalPanes,
 } from "../../../../lib/core/internal/terminal/drivers/zellij.ts";
 import {
@@ -59,15 +62,14 @@ describe("kitty", () => {
 	});
 
 	it("maps the vocabulary onto kitty's launch types", () => {
-		expect(kittyLaunchArgs({ layout: "window" }, "unix:@k")).toEqual([
-			"@",
-			"--to",
-			"unix:@k",
-			"launch",
-			"--type=os-window",
-		]);
 		expect(
-			kittyLaunchArgs({ layout: "tab", near: near("kitty", "4") }, "unix:@k"),
+			kittyLaunchArgs({ layout: "window", takeFocus: true }, "unix:@k"),
+		).toEqual(["@", "--to", "unix:@k", "launch", "--type=os-window"]);
+		expect(
+			kittyLaunchArgs(
+				{ layout: "tab", near: near("kitty", "4"), takeFocus: true },
+				"unix:@k",
+			),
 		).toEqual([
 			"@",
 			"--to",
@@ -79,7 +81,7 @@ describe("kitty", () => {
 		]);
 		expect(
 			kittyLaunchArgs(
-				{ layout: "pane", cwd: "/w", env: { A: "1" } },
+				{ layout: "pane", cwd: "/w", env: { A: "1" }, takeFocus: true },
 				"unix:@k",
 			),
 		).toEqual([
@@ -93,6 +95,32 @@ describe("kitty", () => {
 			"--env",
 			"A=1",
 		]);
+	});
+
+	it("leaves focus where it is unless the person's own press asked for it", () => {
+		// Joel, 2 November: sessions opening windows took his keys.
+		for (const layout of ["tab", "pane"] as const) {
+			expect(kittyLaunchArgs({ layout }, "x")).toContain("--keep-focus");
+			expect(kittyLaunchArgs({ layout }, "x")).not.toContain(
+				"--os-window-class",
+			);
+		}
+		// An OS window's focus is the compositor's, so it carries the class
+		// whose rule opens it unfocused.
+		const window = kittyLaunchArgs({ layout: "window" }, "x");
+		expect(window).toContain("--keep-focus");
+		expect(window.slice(window.indexOf("--os-window-class"))[1]).toBe(
+			"pi-spawned",
+		);
+		expect(
+			kittyLaunchArgs({ layout: "window", takeFocus: true }, "x"),
+		).not.toContain("--keep-focus");
+		// A kitty started afresh is an OS window too.
+		const started = kittyProcessArgs({ layout: "window" }, "unix:@k");
+		expect(started.slice(started.indexOf("--class"))[1]).toBe("pi-spawned");
+		expect(
+			kittyProcessArgs({ layout: "window", takeFocus: true }, "unix:@k"),
+		).not.toContain("--class");
 	});
 
 	it("runs a command directly only when one is given", () => {
@@ -173,6 +201,21 @@ describe("wezterm", () => {
 		).toEqual(["cli", "--no-auto-start", "split-pane", "--pane-id", "5"]);
 	});
 
+	it("gives focus back to the pane it came from, unless the press was the person's", () => {
+		const back = ["cli", "--no-auto-start", "activate-pane", "--pane-id"];
+		expect(
+			weztermRefocusArgs({ layout: "tab", near: near("wezterm", "5") }, "9"),
+		).toEqual([...back, "5"]);
+		expect(weztermRefocusArgs({ layout: "window" }, "9")).toEqual([
+			...back,
+			"9",
+		]);
+		expect(
+			weztermRefocusArgs({ layout: "pane", takeFocus: true }, "9"),
+		).toBeUndefined();
+		expect(weztermRefocusArgs({ layout: "pane" }, undefined)).toBeUndefined();
+	});
+
 	it("finds the socket directory per platform", () => {
 		expect(
 			weztermSocketDir("linux", { XDG_RUNTIME_DIR: "/run/user/1" }, "/home/u"),
@@ -192,7 +235,9 @@ describe("tmux", () => {
 	});
 
 	it("prints the pane it creates, and places a tab after the window it is near", () => {
-		expect(tmuxSpawnArgs({ layout: "tab", cwd: "/w" }, "@2")).toEqual([
+		expect(
+			tmuxSpawnArgs({ layout: "tab", cwd: "/w", takeFocus: true }, "@2"),
+		).toEqual([
 			"new-window",
 			"-P",
 			"-F",
@@ -203,10 +248,22 @@ describe("tmux", () => {
 			"-c",
 			"/w",
 		]);
-		expect(tmuxSpawnArgs({ layout: "pane", near: near("tmux", "%3") })).toEqual(
-			["split-window", "-P", "-F", "#{pane_id}", "-t", "%3"],
-		);
+		expect(
+			tmuxSpawnArgs({
+				layout: "pane",
+				near: near("tmux", "%3"),
+				takeFocus: true,
+			}),
+		).toEqual(["split-window", "-P", "-F", "#{pane_id}", "-t", "%3"]);
 		expect(tmuxPaneIdFromSpawn("%12\n")).toBe("%12");
+	});
+
+	it("opens behind the pane the person is in unless their press asked", () => {
+		expect(tmuxSpawnArgs({ layout: "tab" })).toContain("-d");
+		expect(tmuxSpawnArgs({ layout: "pane" })).toContain("-d");
+		expect(tmuxSpawnArgs({ layout: "pane", takeFocus: true })).not.toContain(
+			"-d",
+		);
 	});
 
 	it("types each line literally and presses Enter between them", () => {
@@ -223,21 +280,23 @@ describe("tmux", () => {
 describe("zellij", () => {
 	it("opens a tab or a pane, and runs a command with its variables inside it", () => {
 		// Zellij honours --cwd only alongside a command, so the shell is named.
-		expect(zellijActionArgs({ layout: "tab", cwd: "/w" }, "/bin/zsh")).toEqual([
-			"action",
-			"new-tab",
-			"--cwd",
-			"/w",
-			"--",
-			"/bin/zsh",
-			"-l",
-		]);
-		expect(zellijActionArgs({ layout: "pane" })).toEqual([
+		expect(
+			zellijActionArgs(
+				{ layout: "tab", cwd: "/w", takeFocus: true },
+				"/bin/zsh",
+			),
+		).toEqual(["action", "new-tab", "--cwd", "/w", "--", "/bin/zsh", "-l"]);
+		expect(zellijActionArgs({ layout: "pane", takeFocus: true })).toEqual([
 			"action",
 			"new-pane",
 		]);
 		expect(
-			zellijActionArgs({ layout: "pane", command: "pi", env: { A: "1" } }),
+			zellijActionArgs({
+				layout: "pane",
+				command: "pi",
+				env: { A: "1" },
+				takeFocus: true,
+			}),
 		).toEqual([
 			"action",
 			"new-pane",
@@ -246,6 +305,21 @@ describe("zellij", () => {
 			"-c",
 			"A='1' exec sh -c 'pi'",
 		]);
+	});
+
+	it("opens a tab behind and gives a pane's focus back, unless the press was the person's", () => {
+		expect(zellijActionArgs({ layout: "tab" })).toContain("--no-focus");
+		expect(zellijActionArgs({ layout: "pane" })).not.toContain("--no-focus");
+		expect(zellijRefocusArgs({ layout: "pane" }, "3")).toEqual([
+			"action",
+			"focus-pane-id",
+			"terminal_3",
+		]);
+		expect(zellijRefocusArgs({ layout: "tab" }, "3")).toBeUndefined();
+		expect(
+			zellijRefocusArgs({ layout: "pane", takeFocus: true }, "3"),
+		).toBeUndefined();
+		expect(zellijRefocusArgs({ layout: "pane" }, undefined)).toBeUndefined();
 	});
 
 	it("reads terminal panes, leaving plugins out, optionally by tab", () => {

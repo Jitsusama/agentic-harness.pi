@@ -20,6 +20,7 @@ import { randomUUID } from "node:crypto";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	SPAWNED_CLASS,
 	type TerminalDriver,
 	type TerminalLaunchCapability,
 	type TerminalLivenessCapability,
@@ -141,6 +142,15 @@ export function kittyLaunchArgs(
 		"launch",
 		`--type=${LAUNCH_TYPE[request.layout]}`,
 	];
+	// Unless the person's own press asked for it, focus stays on the
+	// window they're in, and a new OS window carries the class the
+	// compositor opens unfocused, since kitty can't hold focus there.
+	if (!request.takeFocus) {
+		args.push("--keep-focus");
+		if (request.layout === "window") {
+			args.push("--os-window-class", SPAWNED_CLASS);
+		}
+	}
 	// A tab or pane goes beside the surface it was asked to be near, or
 	// beside the window remote control was run from, which kitty takes
 	// to be the active one.
@@ -161,6 +171,25 @@ export function kittyLaunchArgs(
 		args.push("--", "/bin/sh", "-c", request.command);
 	}
 	return args;
+}
+
+/**
+ * The arguments that start a kitty of its own for a request, listening
+ * on `scope`. Unless the person's own press asked for focus, it carries
+ * the class the compositor opens unfocused.
+ */
+export function kittyProcessArgs(
+	request: TerminalRequest,
+	scope: string,
+): string[] {
+	return [
+		"--listen-on",
+		scope,
+		"-o",
+		"allow_remote_control=socket-only",
+		...(request.takeFocus ? [] : ["--class", SPAWNED_CLASS]),
+		...(request.cwd ? ["--directory", request.cwd] : []),
+	];
 }
 
 /** The window id `kitty @ launch` prints, or undefined. */
@@ -314,13 +343,7 @@ export function createKittyDriver(
 		},
 		async launch(request, context) {
 			const scope = kittyLaunchSocket(context.platform);
-			const args = [
-				"--listen-on",
-				scope,
-				"-o",
-				"allow_remote_control=socket-only",
-				...(request.cwd ? ["--directory", request.cwd] : []),
-			];
+			const args = kittyProcessArgs(request, scope);
 			// Detached into a session of its own, so the kitty outlives the
 			// pi that launched it and belongs to the person from the start.
 			const child = nodeSpawn(context.binary, args, {

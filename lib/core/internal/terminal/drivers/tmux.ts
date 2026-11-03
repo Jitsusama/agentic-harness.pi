@@ -55,6 +55,9 @@ export function tmuxSpawnArgs(
 		request.layout === "pane"
 			? ["split-window", ...PRINT_PANE]
 			: ["new-window", ...PRINT_PANE];
+	// Unless the person's own press asked for it, the new pane or window
+	// opens behind the one they're in.
+	if (!request.takeFocus) args.push("-d");
 	if (request.layout === "pane" && request.near) {
 		args.push("-t", request.near.value);
 	} else if (nearWindow) {

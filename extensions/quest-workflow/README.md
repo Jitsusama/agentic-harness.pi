@@ -114,6 +114,11 @@ shipped and tested.
   and so do another terminal or layout, another command and
   another machine; a launcher that doesn't take it leaves the
   window to open as above. A dry run asks it nothing.
+- **Without taking focus**: every session restore and spawn hand
+  the launcher goes with `focus: false`, its quest and the session
+  that asked, so its window opens unfocused where its quest's
+  sessions are; one they open themselves leaves focus where it is
+  (lib/terminal). Only the person's own press focuses a window.
 - **Spawn on a machine**: `spawn` with `machine` asks this
   machine's mycelium node to start the session held on that
   machine, through that machine's own node when it is another,

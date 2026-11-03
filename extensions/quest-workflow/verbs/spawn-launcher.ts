@@ -35,6 +35,8 @@ export interface LauncherSpawn {
 	readonly resumedSessionId?: string;
 	/** Whether the call named a terminal, a layout or a nesting. */
 	readonly named: boolean;
+	/** The session asking for it, which its window goes beside. */
+	readonly fromSessionId?: string;
 }
 
 /**
@@ -51,11 +53,17 @@ export function launcherSession(
 	if (spawn.named || realmSegments().length > 0) return undefined;
 	if (process.env.PI_LAUNCHER === "off") return undefined;
 	const resumed = spawn.resumedSessionId;
+	// Its quest and the session asking say where its window goes.
+	const placed = {
+		cwd: spawn.cwd,
+		quest: spawn.questId,
+		...(spawn.fromSessionId ? { from: spawn.fromSessionId } : {}),
+	};
 	const session: HandedSession | undefined =
 		resumed !== undefined && spawn.command === `pi --session ${resumed}`
-			? { id: resumed, cwd: spawn.cwd }
+			? { id: resumed, ...placed }
 			: spawn.command === "pi"
-				? { id: uuidv7(), cwd: spawn.cwd, fresh: true, quest: spawn.questId }
+				? { id: uuidv7(), fresh: true, ...placed }
 				: undefined;
 	return session && launcherTakes(session) ? session : undefined;
 }

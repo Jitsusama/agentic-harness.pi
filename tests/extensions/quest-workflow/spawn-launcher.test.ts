@@ -128,7 +128,14 @@ describe("spawn through the desktop's launcher", () => {
 		};
 		expect(given.sessions).toHaveLength(1);
 		const [session] = given.sessions;
-		expect(session).toMatchObject({ cwd: tmpRoot, fresh: true, quest: id });
+		// Without focus, beside the session that asked, which is "spawner".
+		expect(session).toMatchObject({
+			cwd: tmpRoot,
+			fresh: true,
+			quest: id,
+			from: "spawner",
+			focus: false,
+		});
 		expect(session?.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7/);
 		expect(opened).toBeUndefined();
 		expect(result.message).toContain(`Handed a new session, ${session?.id}`);

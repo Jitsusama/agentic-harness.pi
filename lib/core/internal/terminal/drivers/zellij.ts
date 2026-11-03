@@ -70,6 +70,10 @@ export function zellijActionArgs(
 ): string[] {
 	const args =
 		request.layout === "pane" ? ["action", "new-pane"] : ["action", "new-tab"];
+	// Unless the person's own press asked for it, a tab opens behind the
+	// one they're in; a pane can't, so focus is given back after it
+	// (zellijRefocusArgs).
+	if (request.layout !== "pane" && !request.takeFocus) args.push("--no-focus");
 	if (request.cwd) args.push("--cwd", request.cwd);
 	if (request.title) args.push("--name", request.title);
 	// No command means the person's own shell. Zellij 0.45 honours
@@ -89,6 +93,21 @@ export function zellijActionArgs(
 		wrapCommandWithEnv(request.command, request.env),
 	);
 	return args;
+}
+
+/**
+ * The `action` arguments that give focus back to the pane a new pane
+ * was split from, or undefined for a tab, which opens without focus,
+ * when the person's own press asked for the focus, or when no pane is
+ * known to give it back to.
+ */
+export function zellijRefocusArgs(
+	request: TerminalRequest,
+	from: string | undefined,
+): string[] | undefined {
+	const pane = request.near?.value ?? (from ? zellijPaneId(from) : undefined);
+	if (request.layout !== "pane" || request.takeFocus || !pane) return undefined;
+	return ["action", "focus-pane-id", pane];
 }
 
 /** What a zellij driver can be built with. */
@@ -172,6 +191,15 @@ export function createZellijDriver(
 				value,
 			});
 			if (request.layout === "pane") {
+				const refocus = zellijRefocusArgs(request, env().ZELLIJ_PANE_ID);
+				if (refocus) {
+					try {
+						await run(session, refocus);
+					} catch {
+						// The pane it came from has closed since: there's no focus to
+						// give back, and the new pane opened all the same.
+					}
+				}
 				return /^terminal_\d+$/.test(printed) ? handle(printed) : undefined;
 			}
 			// A new tab prints its tab id; its pane shows up in the listing

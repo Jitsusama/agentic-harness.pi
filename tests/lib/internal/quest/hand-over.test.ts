@@ -24,8 +24,32 @@ describe("handing sessions to the launcher", () => {
 		expect(sent[0]?.startsWith("{")).toBe(true);
 		expect(JSON.parse(sent[0] ?? "")).toEqual({
 			sessions: [
-				{ id: "01a1-one", cwd: "/work/one" },
-				{ id: "01a1-two", cwd: "/work/two" },
+				{ id: "01a1-one", cwd: "/work/one", focus: false },
+				{ id: "01a1-two", cwd: "/work/two", focus: false },
+			],
+		});
+	});
+
+	it("asks for each without focus, where its quest's sessions are or beside the one that asked", async () => {
+		// Joel, 2 November: windows sessions opened took his keys, so the
+		// launcher focuses only what his own press opens.
+		const sent: string[] = [];
+		await handOver(
+			[{ id: "01a1-one", cwd: "/w", quest: "QEST-1", from: "01a1-me" }],
+			async (argument) => {
+				sent.push(argument);
+				return "taken";
+			},
+		);
+		expect(JSON.parse(sent[0] ?? "")).toEqual({
+			sessions: [
+				{
+					id: "01a1-one",
+					cwd: "/w",
+					quest: "QEST-1",
+					from: "01a1-me",
+					focus: false,
+				},
 			],
 		});
 	});
