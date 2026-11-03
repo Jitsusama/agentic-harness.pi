@@ -25,6 +25,7 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { createReloadHold } from "../../lib/internal/reload/hold.ts";
+import { firstPromptPending } from "../../lib/internal/session/first-prompt.ts";
 import {
 	announceJobHost,
 	JOBS_FINISHED,
@@ -168,6 +169,9 @@ function freshSession(pi: ExtensionAPI, ctx: ExtensionContext): JobSession {
 		},
 		now: Date.now,
 	});
+	// pi's own first prompt is on its way, as a typed one would be: what
+	// the outbox holds, a cut-off notice above all, waits for its run.
+	if (firstPromptPending()) outbox.promptSubmitted();
 	const show = () => {
 		try {
 			runtime.ctx.ui.setStatus(
