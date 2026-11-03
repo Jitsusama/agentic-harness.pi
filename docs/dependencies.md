@@ -31,16 +31,26 @@ for its own reason, and all three are enforced by
   satisfied. Consumers never receive them, since
   `--omit=dev` skips the list entirely. Pin them to the
   pi version that runs, and pin the rest of the
-  `@earendil-works` family to it under `pnpm.overrides`:
+  `@earendil-works` family to it under `overrides` in
+  `pnpm-workspace.yaml`:
   pi's own manifest asks for its siblings with a caret,
   so a newer sibling arrives beside an older pi, and
   pi 1.1.0 would not import beside pi-codemode 1.2.0.
-- `pnpm.onlyBuiltDependencies`, naming every dependency
-  with a native build (sqlite3). pnpm 10 runs no
+- `allowBuilds` and `onlyBuiltDependencies` in
+  `pnpm-workspace.yaml`, pnpm 12's and pnpm 10's names,
+  naming every dependency with a native build (sqlite3)
+  and denying the scripts that need not run. pnpm 10 runs no
   dependency's install script that the package does not
   allow, and pi installs with whichever pnpm it finds, so
   on 26 October sqlite3 arrived without its binding.
   `pnpm load-check` fails when an install skips a build.
+- `packageManager` naming the pnpm the machine's own
+  installer runs (12.9.0), with every pnpm setting in
+  `pnpm-workspace.yaml`. pnpm 12 reads none of them from
+  `package.json` or `.npmrc`, and a pnpm that sees an
+  older pin downloads a prebuilt copy of it, which
+  NixOS won't run without nix-ld: penelope never
+  installed the harness while the pin said 9.15.0.
 
 Pi's loader also aliases the older `@mariozechner/*`
 spelling, which this repo imported until every site was

@@ -87,7 +87,7 @@ function builtAll(root: string): boolean {
 	const unbuilt = unbuiltDependencies(root);
 	if (unbuilt.length === 0) return true;
 	console.log(
-		`The install skipped building ${unbuilt.join(", ")}. Allow ${unbuilt.length === 1 ? "it" : "them"} in package.json's pnpm.onlyBuiltDependencies.`,
+		`The install skipped building ${unbuilt.join(", ")}. Allow ${unbuilt.length === 1 ? "it" : "them"} under allowBuilds and onlyBuiltDependencies in pnpm-workspace.yaml.`,
 	);
 	return false;
 }
