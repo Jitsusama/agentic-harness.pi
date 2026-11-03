@@ -319,7 +319,12 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 			if (!own || !peer) return;
 			const self = { addresses: peer.addresses, pid: process.pid };
 			for (const message of messages) {
-				if (message.intent === "question" && !sentBy(message, self)) {
+				// One that crossed from another realm is answered nowhere here.
+				if (
+					message.intent === "question" &&
+					message.fromRealm === undefined &&
+					!sentBy(message, self)
+				) {
 					own.take("answer", message.id, RUN_LEASE_MS, cut(message.text));
 				}
 			}

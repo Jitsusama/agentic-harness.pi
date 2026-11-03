@@ -64,6 +64,12 @@ export interface Message {
 	 * a holder ends its hold otherwise (see thread.ts).
 	 */
 	readonly endsHold?: true;
+	/**
+	 * The realm it crossed from, written by the node that carried it in
+	 * (see flow.ts). Nothing said here reaches back there, so nobody here
+	 * can answer it.
+	 */
+	readonly fromRealm?: string;
 }
 
 /** What a sender says; the mesh adds the rest. */
@@ -95,10 +101,15 @@ export interface Listener {
 /**
  * A message read from outside, or nothing when it is not one. The one
  * place an envelope is checked; past here it is trusted.
+ *
+ * One waiting to cross into another realm (`forRealm`) is none of this
+ * realm's: a machine that doesn't cross keeps it only until a link
+ * carries it to one that does, and nobody here is to read it.
  */
 export function messageFrom(value: unknown): Message | undefined {
 	if (typeof value !== "object" || value === null) return undefined;
 	const one = value as Record<string, unknown>;
+	if (one.forRealm !== undefined) return undefined;
 	const valid =
 		typeof one.id === "string" &&
 		typeof one.at === "string" &&
@@ -124,6 +135,9 @@ export function messageFrom(value: unknown): Message | undefined {
 			: {}),
 		...(one.endsHold === true && typeof one.re === "string"
 			? { endsHold: true as const }
+			: {}),
+		...(typeof one.fromRealm === "string" && one.fromRealm !== ""
+			? { fromRealm: one.fromRealm }
 			: {}),
 	};
 }
@@ -210,5 +224,12 @@ export function clock(
 
 /** A message on one line, for listings and glances. */
 export function line(message: Message): string {
-	return `${clock(message)} [${shortId(message)}] ${message.intent} from ${message.from} to ${message.to.join(", ")}: ${message.text}`;
+	return `${clock(message)} [${shortId(message)}] ${message.intent} from ${sender(message)} to ${message.to.join(", ")}: ${message.text}`;
+}
+
+/** Who sent a message, with the realm it crossed from when it did. */
+export function sender(message: Pick<Message, "from" | "fromRealm">): string {
+	return message.fromRealm
+		? `${message.from} in the ${message.fromRealm} realm`
+		: message.from;
 }

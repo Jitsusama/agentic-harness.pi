@@ -10,7 +10,8 @@
  * anything in its thread: the orchestrator's first use of this view
  * listed 21 questions, most settled by an answer to a follow-up. One
  * the asker withdrew (`supersedes`) or moved on from, by asking again in
- * answer to it, is closed. An orchestrator sees only those of its own
+ * answer to it, is closed. One that crossed from another realm waits on
+ * nobody, since no answer reaches back there. An orchestrator sees only those of its own
  * orchestration ({@link withinOrchestration}), since the rest of the
  * mesh is not its to unstick.
  */
@@ -90,7 +91,13 @@ export function unanswered(
 	}
 	const open: Open[] = [];
 	for (const message of recent) {
-		if (message.intent !== "question" || withdrawn.has(message.id)) continue;
+		if (
+			message.intent !== "question" ||
+			message.fromRealm !== undefined ||
+			withdrawn.has(message.id)
+		) {
+			continue;
+		}
 		const by = answeredBy.get(message.id) ?? new Set<string>();
 		const waitingOn = message.to
 			.filter((group) => group.startsWith("@"))
