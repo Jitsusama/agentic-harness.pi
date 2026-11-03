@@ -261,8 +261,13 @@ describe("the memory work needs, by its latest runs", () => {
 			],
 			['nix flake check --keep-going "path:$PWD" > $ws/check.log 2>&1', 20],
 			[
-				'nix eval --json "path:$zc#checks.x86_64-linux" --apply builtins.attrNames',
+				`nix eval --json "path:$zc#checks.x86_64-linux" --apply 'builtins.mapAttrs (n: v: v.drvPath)'`,
 				24,
+			],
+			// Names alone force no check: 169 MB for core's 678 (16V6F4).
+			[
+				'nix eval --json "path:$zc#checks.x86_64-linux" --apply builtins.attrNames',
+				4,
 			],
 			[
 				"timeout 2700 nix develop -c changed-checks --build --no-vm > $T/cc.log 2>&1",

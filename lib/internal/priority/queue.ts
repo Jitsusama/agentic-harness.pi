@@ -141,6 +141,91 @@ const EVERY_CHECK =
 	/\bnix(?:\s+--?\S+)*\s+eval\b[^\n]*#checks(?:\.[\w-]+)?(?![\w.-])/;
 
 /**
+ * The argument a `nix eval` applies to what it evaluates, unquoted as
+ * the shell would: `'c: builtins.attrNames c'` or `builtins.attrNames`.
+ */
+const APPLIED = /\s--apply\s+(?:'([^']*)'|"((?:[^"\\]|\\.)*)"|([^\s'"|;&]+))/;
+
+/**
+ * The builtins that read a set's names, or the names and strings they
+ * give, without forcing a value in the set.
+ */
+const NAME_BUILTINS: ReadonlySet<string> = new Set([
+	"attrNames",
+	"filter",
+	"match",
+	"map",
+	"mapAttrs",
+	"length",
+	"elem",
+	"sort",
+	"lessThan",
+	"head",
+	"tail",
+	"any",
+	"all",
+	"concatLists",
+	"concatMap",
+	"concatStringsSep",
+	"stringLength",
+	"substring",
+	"replaceStrings",
+]);
+
+/** The words of a Nix expression that name no value. */
+const NIX_WORDS: ReadonlySet<string> = new Set([
+	"null",
+	"true",
+	"false",
+	"if",
+	"then",
+	"else",
+	"with",
+	"builtins",
+]);
+
+/** A Nix string: double-quoted with its escapes, or `''` to `''`. */
+const NIX_STRING = /"(?:[^"\\]|\\.)*"|''[\s\S]*?''/g;
+
+/** A name or a path of names, such as `builtins.attrNames` or `c.foo`. */
+const NIX_NAME = /[A-Za-z_][\w'-]*(?:\.[A-Za-z_][\w'-]*)*/g;
+
+/** A lambda's parameter, as `n` in `n: ...`, never a URL's scheme. */
+const NIX_PARAMETER = /([A-Za-z_][\w'-]*)\s*:(?!\/)/g;
+
+/**
+ * Whether a `nix eval` of every check applies only what reads their
+ * names, as `--apply builtins.attrNames` or a `builtins.filter` with
+ * `builtins.match` over them does, so no check is evaluated: 16V6F4
+ * measured core's 678 check names listed in 1.1 s at 169 MB, while the
+ * queue held such an evaluation (mw13l2lv) to 24 GiB for 4,473 s on 3
+ * November. Read from the words alone, so a step naming anything else,
+ * a check's attribute, a `let` or a string with `${` in it, still counts
+ * as evaluating every check.
+ */
+function appliesNamesOnly(step: string): boolean {
+	const applied = APPLIED.exec(step);
+	if (applied === null) return false;
+	const expression =
+		applied[1] ?? applied[2]?.replace(/\\(.)/g, "$1") ?? applied[3] ?? "";
+	if (expression.includes("${")) return false;
+	const bare = expression.replace(NIX_STRING, '""');
+	const parameters = new Set(
+		[...bare.matchAll(NIX_PARAMETER)].map((match) => match[1]),
+	);
+	const names = bare.match(NIX_NAME) ?? [];
+	const builtin = (name: string) => name.replace(/^builtins\./, "");
+	const readsNames = (name: string) =>
+		NAME_BUILTINS.has(builtin(name)) ||
+		NIX_WORDS.has(name) ||
+		parameters.has(name);
+	return (
+		names.some((name) => builtin(name) === "attrNames") &&
+		names.every(readsNames)
+	);
+}
+
+/**
  * A command that evaluates a whole flake's checks: `nix flake check`,
  * changed-checks, and an evaluation of every check.
  */
@@ -166,7 +251,9 @@ export function needsGibOf(
 	if (job.needsGib !== undefined) return job.needsGib;
 	const kind = NEEDS_GIB[job.kind];
 	if (CHANGED_CHECKS.test(job.what)) return Math.max(kind, CHANGED_CHECKS_GIB);
-	if (EVERY_CHECK.test(job.what)) return Math.max(kind, EVERY_CHECK_GIB);
+	if (EVERY_CHECK.test(job.what)) {
+		return appliesNamesOnly(job.what) ? kind : Math.max(kind, EVERY_CHECK_GIB);
+	}
 	return WHOLE_FLAKE.test(job.what) ? Math.max(kind, EVALUATION_GIB) : kind;
 }
 
@@ -617,6 +704,57 @@ export const QUICK_OUTRUN_MS = 120_000;
 export const RULES: Rules = { buildsWaitForVmChecks: true };
 
 /**
+ * How long a job waits on memory before jobs that fit may pass it, while
+ * it needs more than the running jobs could free (see {@link passable}).
+ */
+export const PASS_AFTER_MS = 5 * 60_000;
+
+/**
+ * Whether jobs behind `job`, which memory holds back, may pass it: it has
+ * waited on memory past {@link PASS_AFTER_MS}, and it needs more than can
+ * be freed, the memory available now and what the running jobs past
+ * their ramp are held to need, since only they hand memory back to the
+ * queue. A job still in its ramp has yet to take its need, which the
+ * memory available counts as free already.
+ *
+ * A job the queue's own work holds back keeps the line, so the memory
+ * those jobs give back goes to it; a job held back by what the queue
+ * doesn't run held everyone for nothing. On 3 November a 24 GiB
+ * evaluation of every check (mw13l2lv) waited 4,473 s on memory from
+ * 19:45Z; from 20:05Z no queued job but one of 10 s ran, so nothing the
+ * queue ran could free its room. By the time it was given up, at
+ * 21:00:06Z, the day's ended jobs had waited 35.7 hours on the order and
+ * 32 had been given up; ten behind it waited 7.1 hours of that from
+ * 20:05Z, five of them given up. It keeps its place and
+ * starts once it fits, and once the jobs passing it hold enough that
+ * their end would fit it, it holds the line again, so it never starves.
+ */
+function passable(
+	job: Job,
+	jobs: readonly Job[],
+	room: Room,
+	now: number,
+): boolean {
+	if (memoryWaitedMs(job, now) <= PASS_AFTER_MS) return false;
+	const held = jobs
+		.filter(
+			(one) =>
+				one.started !== undefined && now - Date.parse(one.started) >= RAMP_MS,
+		)
+		.reduce((sum, one) => sum + needsGibOf(one), 0);
+	return needsGibOf(job) > room.availableGib + held;
+}
+
+/** How long a job has waited on memory, every stretch of it, by `now`. */
+function memoryWaitedMs(job: Job, now: number): number {
+	const before = job.waitedOnMs?.memory ?? 0;
+	const was = job.waitingSince;
+	return was?.reason === "memory"
+		? before + Math.max(0, now - Date.parse(was.at))
+		: before;
+}
+
+/**
  * The version of how this code gives turns. Raise it with every change
  * to who gets a turn when, so a session on older code leaves keeping the
  * queue to one on this (keeper.ts), and with a change to how it keeps
@@ -626,9 +764,11 @@ export const RULES: Rules = { buildsWaitForVmChecks: true };
  * which eight sessions busy on older code since the morning of 30
  * October kept undoing, at 70 writes in 20 s. 3: the lock taken in a
  * folder of its own inside the queue's, where a keeper still taking the
- * old one would keep beside a keeper taking the new.
+ * old one would keep beside a keeper taking the new. 4: jobs that fit
+ * pass one memory has held past {@link PASS_AFTER_MS} and the running
+ * jobs can't free room for (see {@link passable}).
  */
-export const RULES_VERSION = 3;
+export const RULES_VERSION = 4;
 
 /**
  * The job to start now, if any: the first waiting in order that its
@@ -684,7 +824,7 @@ export function nextTurn(
 			job.kind === "build" &&
 			(builds < 1 || (Number.isFinite(builds) && !job.cappable));
 		if (ruledOut || !fits(job)) {
-			held = true;
+			held = ruledOut || !passable(job, jobs, room, now);
 			continue;
 		}
 		return job.kind === "build" && Number.isFinite(builds)
@@ -800,7 +940,7 @@ export function waitReasons(
 				job.kind === "build" &&
 				(builds < 1 || (Number.isFinite(builds) && !job.cappable));
 			if (ruledOut || !fits(job)) {
-				held = true;
+				held = ruledOut || !passable(job, jobs, room, now);
 				return ruledOut ? "behind" : "memory";
 			}
 			given = true;

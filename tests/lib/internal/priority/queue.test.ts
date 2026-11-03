@@ -12,7 +12,9 @@ import {
 	MOST_MEMORY_PRESSURE,
 	MOST_VMS,
 	needsGibOf,
+	needsGibOfCommand,
 	nextTurn,
+	PASS_AFTER_MS,
 	QUICK_OUTRUN_MS,
 	RAMP_MS,
 	roomLeft,
@@ -614,6 +616,96 @@ describe("whose turn it is", () => {
 		const jobs = [job("vm", { kind: "vm-test" }), job("small")];
 		expect(nextTurn(jobs, { ...ROOMY, availableGib: 5 }, NOW)).toBeUndefined();
 		expect(nextTurn(jobs, { ...ROOMY, availableGib: 6 }, NOW)?.id).toBe("vm");
+	});
+
+	describe("a job memory can't free", () => {
+		// 11-03: a 24 GiB evaluation of every check waited 4,473 s on memory
+		// with nothing queued running from 20:05Z, and everything behind it
+		// waited on the order.
+		const stuck = (memoryMs: number, over: Partial<Job> = {}) =>
+			job("every", {
+				what: "nix eval --json .#checks.x86_64-linux --apply f",
+				since: startedAgo(memoryMs + 60_000),
+				waitingSince: { reason: "memory", at: startedAgo(memoryMs) },
+				...over,
+			});
+		const small = job("small");
+		const short = { ...ROOMY, availableGib: 10 };
+
+		it("lets a job that fits pass one that waited on memory past the wait", () => {
+			const jobs = [stuck(PASS_AFTER_MS + 1_000), small];
+			expect(nextTurn(jobs, short, NOW)?.id).toBe("small");
+			expect(Object.fromEntries(waitReasons(jobs, short, NOW))).toEqual({
+				every: "memory",
+				small: "order",
+			});
+		});
+
+		it("counts the memory it waited on before as well as now", () => {
+			const half = PASS_AFTER_MS / 2 + 1_000;
+			const jobs = [
+				stuck(half, { waitedOnMs: { memory: half, order: 60_000 } }),
+				small,
+			];
+			expect(nextTurn(jobs, short, NOW)?.id).toBe("small");
+		});
+
+		it("lets pass only a job that fits now", () => {
+			const jobs = [stuck(PASS_AFTER_MS + 1_000), job("mid", { needsGib: 12 })];
+			expect(nextTurn(jobs, short, NOW)).toBeUndefined();
+			expect(waitReasons(jobs, short, NOW).get("mid")).toBe("memory");
+		});
+
+		it("holds the line for a job the running jobs will free room for", () => {
+			const running = job("running", {
+				needsGib: 16,
+				started: startedAgo(RAMP_MS + 1_000),
+			});
+			const jobs = [running, stuck(PASS_AFTER_MS + 1_000), small];
+			expect(nextTurn(jobs, short, NOW)).toBeUndefined();
+			expect(Object.fromEntries(waitReasons(jobs, short, NOW))).toEqual({
+				every: "memory",
+				small: "order",
+			});
+		});
+
+		it("holds the line for a job that has waited on memory under the wait", () => {
+			const jobs = [stuck(PASS_AFTER_MS - 1_000), small];
+			expect(nextTurn(jobs, short, NOW)).toBeUndefined();
+			expect(waitReasons(jobs, short, NOW).get("small")).toBe("order");
+		});
+
+		it("starts the job it passed as soon as that one fits", () => {
+			const jobs = [stuck(PASS_AFTER_MS + 1_000), small];
+			const room = { ...ROOMY, availableGib: EVERY_CHECK_GIB };
+			expect(nextTurn(jobs, room, NOW)?.id).toBe("every");
+			expect(waitReasons(jobs, room, NOW).get("every")).toBe("order");
+		});
+	});
+
+	it("holds an evaluation of every check that reads only their names to a build's", () => {
+		// mw13l2lv waited 4,473 s for 24 GiB on 3 November; listing core's
+		// 678 names held 169 MB at most (16V6F4).
+		const named = [
+			`nix eval --json .#checks.x86_64-linux --apply 'c: builtins.filter (n: builtins.match "vm-(screens|greeter|boot).*" n != null) (builtins.attrNames c)'`,
+			`nix eval --json "path:$PWD#checks" --apply 'builtins.mapAttrs (s: c: builtins.attrNames c)' 2>/dev/null`,
+			`nix eval --json "$f#checks.x86_64-linux" --apply builtins.attrNames | jq -M -r '.[]'`,
+			`nix eval --json "path:$t#checks" --apply 'c: builtins.mapAttrs (_: builtins.attrNames) c'`,
+		];
+		for (const command of named) {
+			expect(needsGibOfCommand("build", command)).toBe(4);
+		}
+		const forced = [
+			"nix eval --json .#checks.x86_64-linux",
+			`nix eval --json .#checks.x86_64-linux --apply 'c: map (n: c.\${n}.drvPath) (builtins.attrNames c)'`,
+			`nix eval --json .#checks --apply 'builtins.mapAttrs (s: c: builtins.mapAttrs (n: v: v.drvPath) c)'`,
+			`nix eval --json .#checks.x86_64-linux --apply 'c: builtins.attrValues c'`,
+			// Cut short, so what it applies can't be read.
+			`nix eval --raw '.#checks.x86_64-linux' --apply 'c: b...`,
+		];
+		for (const command of forced) {
+			expect(needsGibOfCommand("build", command)).toBe(EVERY_CHECK_GIB);
+		}
 	});
 
 	it("holds a whole flake's check to what its evaluation keeps", () => {
