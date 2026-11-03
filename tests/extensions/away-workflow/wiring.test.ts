@@ -25,6 +25,10 @@ import {
 } from "../../../lib/internal/away/state.ts";
 import type { Notice } from "../../../lib/internal/notify.ts";
 import {
+	leaveSession,
+	stayInSession,
+} from "../../../lib/internal/session/left.ts";
+import {
 	forgetWants,
 	onWants,
 	type WantEvent,
@@ -65,7 +69,7 @@ interface FakeJob {
 
 const disposers: (() => unknown)[] = [];
 
-function activate({ hasUI = true } = {}) {
+function activate({ hasUI = true, sessionId = "live" } = {}) {
 	const handlers = new Map<string, Handler[]>();
 	const events = createEventBus();
 	const said: Said[] = [];
@@ -117,7 +121,7 @@ function activate({ hasUI = true } = {}) {
 	const ctx = {
 		hasUI,
 		isIdle: () => !session.busy,
-		sessionManager: { getBranch: () => entries },
+		sessionManager: { getBranch: () => entries, getSessionId: () => sessionId },
 		ui: {
 			setStatus: () => {},
 			notify: (text: string) => notices.push(text),
@@ -173,6 +177,27 @@ afterEach(async () => {
 	for (const dispose of disposers.splice(0)) await dispose();
 	resetAway();
 	rmSync(machineAwayPath(), { force: true });
+});
+
+describe("a session this process rolled away from", () => {
+	// On 3 November a copy left running on a log that had rolled over
+	// kept writing the person's absence into it, hours after the switch.
+	it("writes nothing of an absence into its old log", async () => {
+		const live = activate();
+		const left = activate({ sessionId: "left-1" });
+		leaveSession("left-1");
+		try {
+			await left.fire("session_start");
+			await live.fire("session_start");
+
+			await live.goAway("finish the subquests");
+		} finally {
+			stayInSession("left-1");
+		}
+
+		expect(live.entries).not.toEqual([]);
+		expect(left.entries).toEqual([]);
+	});
 });
 
 describe("while away", () => {
