@@ -61,6 +61,10 @@ import {
 	takeOwedTurn,
 } from "../../lib/internal/reload/hold.ts";
 import {
+	firstPromptPending,
+	runStarted,
+} from "../../lib/internal/session/first-prompt.ts";
+import {
 	type Landing,
 	namesLanding,
 	onLanded,
@@ -823,7 +827,8 @@ export function meshWorkflow(
 			}
 			const carried = glances.take();
 			const content = noted(messages, carried, peer?.orchestratedBy);
-			const putOff = turn && putOffTurn();
+			// pi's own first prompt, still to come, is the turn that reads it.
+			const putOff = turn && (firstPromptPending() || putOffTurn());
 			pi.sendMessage(
 				{
 					customType: NOTED,
@@ -1083,7 +1088,7 @@ export function meshWorkflow(
 			if (!ctx || ends.length === 0) return;
 			const turn = (ctx.isIdle?.() ?? false) && !pausing.paused;
 			const carried = glances.take();
-			const putOff = turn && putOffTurn();
+			const putOff = turn && (firstPromptPending() || putOffTurn());
 			pi.sendMessage(
 				{
 					customType: NOTED,
@@ -1301,6 +1306,7 @@ export function meshWorkflow(
 		});
 		// Whether a peer is mid-run is part of what others see of it.
 		pi.on("agent_start", async () => {
+			runStarted();
 			peer?.setBusy(true);
 			// Whatever woke a paused session, it sleeps on.
 			pausing.started();

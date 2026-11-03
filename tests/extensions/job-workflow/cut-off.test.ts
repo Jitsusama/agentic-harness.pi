@@ -13,7 +13,7 @@ import {
 	createEventBus,
 	type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	CUT_OFF_ENTRY,
 	cutOffIn,
@@ -203,6 +203,46 @@ describe("the job workflow, at a session's end and its return", () => {
 		);
 		await reloaded.fire("session_start", { reason: "reload" });
 		expect(reloaded.said).toHaveLength(0);
+	});
+
+	it("holds the cut-off notice until the first prompt pi was started with has run", async () => {
+		// Reopen Them All starts a session with its carry-on words; a
+		// notice sent before pi submits them takes their turn, and pi
+		// refuses the words (Y2YBTS [6508f771], 11-02 at 18:41).
+		const argv = process.argv;
+		process.argv = [
+			argv[0] ?? "node",
+			"pi",
+			"--session",
+			"s1",
+			"--",
+			"Carry on",
+		];
+		const uptime = vi.spyOn(process, "uptime").mockReturnValue(5);
+		delete (globalThis as Record<symbol, unknown>)[
+			Symbol.for("agentic-harness.pi/first-prompt")
+		];
+		try {
+			const record = { at: Date.parse(AT), running: true, jobs: [] };
+			const pi = activate(
+				[message("user"), ended(record), aborted],
+				new EventEmitter(),
+			);
+			await pi.fire("session_start", { reason: "startup" });
+			expect(pi.said).toHaveLength(0);
+
+			await pi.fire("input", { text: "Carry on", source: "interactive" });
+			pi.session.busy = true;
+			await pi.fire("agent_start");
+			expect(pi.said).toHaveLength(0);
+			pi.session.busy = false;
+			await pi.fire("agent_settled");
+			expect(pi.said).toHaveLength(1);
+			expect(pi.said[0]).toMatch(/mid-run/);
+		} finally {
+			process.argv = argv;
+			uptime.mockRestore();
+		}
 	});
 
 	it("listens for signals only while its session runs", async () => {

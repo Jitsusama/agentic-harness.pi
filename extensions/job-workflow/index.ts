@@ -16,6 +16,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { runStarted } from "../../lib/internal/session/first-prompt.ts";
 import { carriedOnIn } from "../../lib/internal/session/log-header.ts";
 import { showJobs } from "./command.ts";
 import {
@@ -191,7 +192,10 @@ export default function jobWorkflow(
 		return undefined;
 	});
 
-	pi.on("agent_start", () => session?.outbox.runStarted());
+	pi.on("agent_start", () => {
+		runStarted();
+		session?.outbox.runStarted();
+	});
 
 	pi.on("agent_settled", () => session?.outbox.runSettled());
 

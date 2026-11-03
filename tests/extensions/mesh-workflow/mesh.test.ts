@@ -658,6 +658,27 @@ describe("a turn", () => {
 		expect(sent[1]?.options).toEqual({ triggerTurn: false });
 	});
 
+	it("leaves a question's turn to the first prompt pi was started with, while it has yet to run", async () => {
+		// A turn started before pi submits its command line's words takes
+		// their place, and pi refuses them (Y2YBTS [6508f771]).
+		const argv = process.argv;
+		process.argv = [argv[0] ?? "node", "pi", "--", "Carry on"];
+		const uptime = vi.spyOn(process, "uptime").mockReturnValue(5);
+		delete (globalThis as Record<symbol, unknown>)[
+			Symbol.for("agentic-harness.pi/first-prompt")
+		];
+		try {
+			const { sent } = await startSession({}, { isIdle: () => true });
+
+			fromElsewhere({ intent: "question", to: ["@7M6JKG"], text: "why?" });
+			await vi.waitFor(() => expect(sent).toHaveLength(1));
+			expect(sent[0]?.options).toEqual({ triggerTurn: false });
+		} finally {
+			process.argv = argv;
+			uptime.mockRestore();
+		}
+	});
+
 	it("puts a question's turn off for a waiting reload, owing it to the landing", async () => {
 		const slot = reloadSlot();
 		slot.request = { reason: "the install moved", by: "self" };
