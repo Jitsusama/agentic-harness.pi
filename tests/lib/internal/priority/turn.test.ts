@@ -143,7 +143,7 @@ describe("heavy work waiting for its turn", () => {
 		queueing(ROOMY);
 		const rev = "fbbe51d2220badda56d82cfc6b681cd0213876c8";
 		queuedCommand(
-			`nix eval --json "git+file:///home/jitsusama/.local/state/pi/agentic-harness.pi/work/trees/worktree-github-Jitsusama-core.nix-main?rev=${rev}#checks.x86_64-linux" --apply builtins.attrNames > names.json`,
+			`nix eval --json "git+file:///home/jitsusama/.local/state/pi/agentic-harness.pi/work/trees/worktree-github-Jitsusama-core.nix-main?rev=${rev}#checks.x86_64-linux" --apply 'builtins.mapAttrs (n: v: v.drvPath)' > drvs.json`,
 		);
 		const [id] = jobIds();
 		const job = JSON.parse(readFileSync(join(dir, `${id}.job`), "utf8"));
