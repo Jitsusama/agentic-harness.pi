@@ -10,7 +10,10 @@
  * - The peer asked owes an answer until it sends one (`re` set to the
  *   question). Unpaid {@link ASK_AGAIN_MS} after it was last handed
  *   over, it is handed again, at most {@link MOST_ASKED_AGAIN} times
- *   and only within {@link OWED_FOR_MS} of being asked.
+ *   and only within {@link OWED_FOR_MS} of being asked. Its session is
+ *   asked only once its run has ended: pi gives a busy session what it
+ *   was handed one at a time, so a reminder queued meanwhile arrived
+ *   after the answer it asked for.
  * - The asker awaits an answer from each address it put the question
  *   to by name. Unanswered by one of them {@link ASK_AGAIN_MS} after
  *   it was sent, it is told once that the question is stuck, and with
