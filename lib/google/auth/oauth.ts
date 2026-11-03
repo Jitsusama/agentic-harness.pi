@@ -3,8 +3,7 @@
  * Uses OAuth 2.0 Device Flow for universal compatibility.
  */
 
-import type { Credentials } from "google-auth-library";
-import { OAuth2Client } from "google-auth-library";
+import type { Credentials, OAuth2Client } from "google-auth-library";
 
 /** OAuth2 scopes required for the extension. */
 export const SCOPES = [
@@ -60,9 +59,14 @@ interface DeviceFlowTokenResponse {
 }
 
 /**
- * Create an OAuth2 client for device flow.
+ * Create an OAuth2 client for device flow. The library is loaded here,
+ * at the first Google call, rather than with the extension: it took 107
+ * to 179 ms to load on 3 November, and most pi starts never use it.
  */
-export function createOAuth2Client(config: OAuth2Config): OAuth2Client {
+export async function createOAuth2Client(
+	config: OAuth2Config,
+): Promise<OAuth2Client> {
+	const { OAuth2Client } = await import("google-auth-library");
 	return new OAuth2Client(config.clientId, config.clientSecret);
 }
 
