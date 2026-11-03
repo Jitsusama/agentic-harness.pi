@@ -691,6 +691,8 @@ describe("whose turn it is", () => {
 			`nix eval --json "path:$PWD#checks" --apply 'builtins.mapAttrs (s: c: builtins.attrNames c)' 2>/dev/null`,
 			`nix eval --json "$f#checks.x86_64-linux" --apply builtins.attrNames | jq -M -r '.[]'`,
 			`nix eval --json "path:$t#checks" --apply 'c: builtins.mapAttrs (_: builtins.attrNames) c'`,
+			`nix eval --json .#checks --apply 'c: builtins.mapAttrs (s: v: builtins.attrNames v) c'`,
+			`nix eval --json .#checks.x86_64-linux --apply 'a: builtins.filter (n: n != "penelope") (builtins.attrNames a)'`,
 		];
 		for (const command of named) {
 			expect(needsGibOfCommand("build", command)).toBe(4);
@@ -700,6 +702,12 @@ describe("whose turn it is", () => {
 			`nix eval --json .#checks.x86_64-linux --apply 'c: map (n: c.\${n}.drvPath) (builtins.attrNames c)'`,
 			`nix eval --json .#checks --apply 'builtins.mapAttrs (s: c: builtins.mapAttrs (n: v: v.drvPath) c)'`,
 			`nix eval --json .#checks.x86_64-linux --apply 'c: builtins.attrValues c'`,
+			// Each returns a set of checks beside their names, which --json forces.
+			`nix eval --json .#checks.x86_64-linux --apply 'c: [ (builtins.attrNames c) c ]'`,
+			`nix eval --json .#checks --apply 'builtins.mapAttrs (s: c: [ (builtins.attrNames c) c ])'`,
+			`nix eval --json .#checks --apply 'c: builtins.mapAttrs (s: v: v) c'`,
+			`nix eval --json .#checks --apply 'c: builtins.mapAttrs (_: (x: [ (builtins.attrNames x) x ])) c'`,
+			`nix eval --json .#checks.x86_64-linux --apply 'c: map (n: c) (builtins.attrNames c)'`,
 			// Cut short, so what it applies can't be read.
 			`nix eval --raw '.#checks.x86_64-linux' --apply 'c: b...`,
 		];
