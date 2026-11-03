@@ -34,7 +34,7 @@ import type { CarriedSession } from "../../core/work/carry.ts";
 import type { QuestTree } from "../../quest/types.ts";
 import { atomicWriteFile } from "./io.ts";
 import { parseQuestDoc } from "./quest-doc.ts";
-import { resolveSpawnCwd } from "./reopen.ts";
+import { ancestorTreesOf, resolveSpawnCwd } from "./reopen.ts";
 import { carriedEntry, type RestoreEntry } from "./restore-file.ts";
 
 /** A session another machine carried here, found in a handover folder. */
@@ -141,7 +141,8 @@ export interface TakingUp {
 /**
  * Takes up every session carried here and says what Restore offers for
  * them. Each is placed for the folder spawn would open its quest in (its
- * newest tree here, else a tree's repo, else home), and one that can't be
+ * newest tree here, else a tree's repo, else where a parent quest works,
+ * else home), and one that can't be
  * placed is left out, so it is tried again next time.
  */
 export function takeUpCarried(where: TakingUp): RestoreEntry[] {
@@ -163,23 +164,31 @@ export function takeUpCarried(where: TakingUp): RestoreEntry[] {
 /** The folder a quest's session opens in here, as spawn would choose it. */
 function homeFolder(where: TakingUp, quest: string | undefined): string {
 	const questDir = quest === undefined ? undefined : join(where.quests, quest);
-	let trees: QuestTree[] = [];
-	if (questDir !== undefined) {
-		try {
-			trees =
-				parseQuestDoc(readFileSync(join(questDir, "README.md"), "utf8"))
-					?.frontMatter.trees ?? [];
-		} catch {
-			// No such quest here: it opens at home.
-		}
-	}
+	const own = quest === undefined ? undefined : questHere(where.quests, quest);
 	return resolveSpawnCwd({
 		questDir: questDir ?? where.quests,
 		store: where.quests,
 		...(where.home !== undefined ? { home: where.home } : {}),
-		trees,
+		trees: own?.trees ?? [],
 		sessions: [],
+		ancestors: ancestorTreesOf(own?.parent ?? undefined, (id) =>
+			questHere(where.quests, id),
+		),
 	}).cwd;
+}
+
+/** A quest's trees and parent as its README here says, if it is here. */
+function questHere(
+	quests: string,
+	id: string,
+): { trees?: QuestTree[]; parent?: string | null } | undefined {
+	try {
+		return parseQuestDoc(readFileSync(join(quests, id, "README.md"), "utf8"))
+			?.frontMatter;
+	} catch {
+		// No such quest here: it has nowhere of its own to open.
+		return undefined;
+	}
 }
 
 /** A note and its file, when both hold up. */

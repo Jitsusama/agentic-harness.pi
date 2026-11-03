@@ -88,6 +88,16 @@ shipped and tested.
   quest, by project or by default, and the answer names the
   layer that chose. The command is typed into a login shell
   so the person's startup files put the right pi on PATH.
+  A spawn opens in the quest's newest tree, else its latest
+  live session's folder, else a tree's repo, else the
+  checkout a parent quest's newest tree was cut from, else
+  the spawning session's folder when it is in a repo (its
+  checkout, when that is a linked worktree), and only then
+  home. It never opens in the quest store or inside a parent
+  quest's tree, which is that quest's alone, and says which
+  chose: pi loads a repo's
+  AGENTS.md only when it starts inside it, and a new builder
+  subquest has nothing of its own yet.
   Restore gathers tabs with no window to hold them into one
   new window, and counts a session reopened only once its pi
   has started. A lost session pi never saved, since it was

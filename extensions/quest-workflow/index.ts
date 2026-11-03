@@ -267,7 +267,7 @@ const QUEST_PARAMETERS = Type.Object({
 	cwd: Type.Optional(
 		Type.String({
 			description:
-				"Working directory: where spawn starts, the repo tree-add cuts from, a path inside the tree tree-adopt registers, or which tree tree-release and tree-expand act on when the quest has several. Defaults: spawn takes the quest's newest tree, else a recent session's folder, else a tree's repo, else home, never a quest folder; the rest take the loaded quest's directory or the pi cwd.",
+				"Working directory: where spawn starts, the repo tree-add cuts from, a path inside the tree tree-adopt registers, or which tree tree-release and tree-expand act on when the quest has several. Defaults: spawn takes the quest's newest tree, else a recent session's folder, else a tree's repo, else the checkout a parent quest's newest tree was cut from, else this session's folder when it is in a repo, else home, never a quest folder or a parent quest's tree; the rest take the loaded quest's directory or the pi cwd.",
 		}),
 	),
 	sessionId: Type.Optional(

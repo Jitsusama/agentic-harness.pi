@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -8,7 +8,7 @@ import {
 	clearTreeProviders,
 	registerBuiltinTreeProviders,
 } from "../../../lib/core/tree/index.ts";
-import { freshRepo } from "../../support/git-fixture.ts";
+import { freshRepo, git } from "../../support/git-fixture.ts";
 import { createEnvGuard } from "./_helpers";
 
 let tmpRoot: string;
@@ -60,5 +60,42 @@ describe("tree-add from a repo subdirectory", () => {
 			cwd: subdir,
 		});
 		expect(result.ok).toBe(true);
+	});
+});
+
+// pi read no AGENTS.md from a repo the session did not start in, so the
+// tree's answer is where the session learns that repo's rules.
+describe("tree-add in a repo the session did not start in", () => {
+	it("says the repo's rules once, and not again for a second tree", async () => {
+		writeFileSync(join(repoRoot, "AGENTS.md"), "Run the test pyramid.\n");
+		await git(repoRoot, "add", "AGENTS.md");
+		await git(repoRoot, "commit", "-q", "-m", "rules");
+		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
+		const created = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "create",
+			title: "Builder",
+		});
+		if (!created.ok) throw new Error(created.guidance);
+		const id = `rules-${process.pid}-${Date.now()}`;
+		const session = {
+			cwd: tmpRoot,
+			sessionManager: { getSessionId: () => id },
+		} as unknown as Parameters<typeof handle>[2];
+
+		const first = await handle(state, fakePi(), session, {
+			action: "tree-add",
+			name: "first",
+			cwd: repoRoot,
+		});
+		if (!first.ok) throw new Error(first.guidance);
+		expect(first.message).toContain("Run the test pyramid.");
+
+		const second = await handle(state, fakePi(), session, {
+			action: "tree-add",
+			name: "second",
+			cwd: repoRoot,
+		});
+		if (!second.ok) throw new Error(second.guidance);
+		expect(second.message).not.toContain("Run the test pyramid.");
 	});
 });

@@ -6,12 +6,15 @@
 
 import { homedir, hostname } from "node:os";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { discoverQuests } from "../../../lib/internal/quest/discovery.ts";
 import {
 	FIRST_WORDS_VARIABLE,
 	leaveFirstWords,
 	spawnedWords,
 } from "../../../lib/internal/quest/first-words.ts";
 import {
+	ancestorTreesOf,
+	describeCwdSource,
 	pickResumeSession,
 	resolveSpawnCwd,
 } from "../../../lib/internal/quest/reopen.ts";
@@ -334,19 +337,32 @@ export async function spawn(
 
 	// Resolve the working directory: prefer a quest-owned
 	// tree, then a recent session's cwd, then a tree's repo
-	// root, then home, never a folder of the quest store. A
-	// recorded path that no longer exists self-heals to the
-	// next candidate.
+	// root, then the repo its ancestors work in (never their
+	// trees, which are theirs alone), then the repo this session
+	// works in, then home, never a folder of the quest store. A recorded path that no longer exists self-heals to
+	// the next candidate.
 	const now = new Date();
 	const snapshot = await buildSessionSnapshot(fm.sessions, { now });
 	const sessions = fm.sessions.map((s) => deriveLiveness(s, snapshot));
+	const { index } = discoverQuests(state.questsRoot);
 	const resolved = resolveSpawnCwd({
 		questDir: entry.dir,
 		store: state.questsRoot,
 		trees: fm.trees ?? [],
 		sessions,
+		ancestors: ancestorTreesOf(
+			fm.parent ?? undefined,
+			(id) => index.quests.get(id)?.doc.frontMatter,
+		),
+		...(ctx.cwd ? { spawner: ctx.cwd } : {}),
 	});
-	const cwd = params.cwd?.trim() || resolved.cwd;
+	const given = params.cwd?.trim();
+	const cwd = given || resolved.cwd;
+	// What chose it, as the answer says it: the call's own cwd wins.
+	const cwdSource = given ? "given" : resolved.source;
+	const chosenBy = given
+		? "the folder the call named"
+		: describeCwdSource(resolved.source);
 
 	// Pick the session to resume, excluding the one doing the
 	// spawning. pickResumeSession prefers a live session, falls back
@@ -487,14 +503,14 @@ export async function spawn(
 			? `a new session, ${forLauncher.id}, which loads ${questIdForSpawn} as it starts`
 			: `session ${forLauncher.id}, which brings back its own quest`;
 		return ok(
-			`Handed ${what}, to the desktop's launcher, which opens it in a kitty window in ${cwd} (${resolved.source}), back where it sat or else beside where you are.${resolved.healed ? " A recorded path was missing; healed to this one." : ""}${resumeNote ? ` ${resumeNote}` : ""}`,
+			`Handed ${what}, to the desktop's launcher, which opens it in a kitty window in ${cwd} (${chosenBy}), back where it sat or else beside where you are.${resolved.healed ? " A recorded path was missing; healed to this one." : ""}${resumeNote ? ` ${resumeNote}` : ""}`,
 			{
 				how: "launcher",
 				sessionId: forLauncher.id,
 				fresh: forLauncher.fresh === true,
 				layout: "window",
 				cwd,
-				cwdSource: resolved.source,
+				cwdSource,
 				healed: resolved.healed ?? false,
 				command,
 				resumedSessionId,
@@ -518,12 +534,12 @@ export async function spawn(
 				? " Run for real, it goes first to the desktop's launcher, which opens that window itself, and opens as planned only when the launcher doesn't answer."
 				: "";
 		return ok(
-			`Would spawn a ${layout} in ${cwd} through ${used}, running: ${command}.${noted}${first}`,
-			{ plan, cwd, command, autoloadQuestId: questIdForSpawn },
+			`Would spawn a ${layout} in ${cwd} (${chosenBy}) through ${used}, running: ${command}.${noted}${first}`,
+			{ plan, cwd, cwdSource, command, autoloadQuestId: questIdForSpawn },
 		);
 	}
 
-	let message = `Spawned a ${layout} in ${cwd} (${resolved.source}) through ${used}.${noted}`;
+	let message = `Spawned a ${layout} in ${cwd} (${chosenBy}) through ${used}.${noted}`;
 	if (resolved.healed) {
 		message += ` A recorded path was missing; healed to this one.`;
 	}
@@ -547,7 +563,7 @@ export async function spawn(
 		...(opened.handle ? { handle: opened.handle } : {}),
 		layout,
 		cwd,
-		cwdSource: resolved.source,
+		cwdSource,
 		healed: resolved.healed ?? false,
 		command,
 		resumedSessionId,

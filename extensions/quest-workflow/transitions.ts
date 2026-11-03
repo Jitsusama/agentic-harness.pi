@@ -89,6 +89,7 @@ import {
 	treeExpand,
 	treeList,
 	treeRelease,
+	withRepoRules,
 } from "./verbs/tree-ops.ts";
 
 export type { QuestResult, QuestToolParams };
@@ -276,9 +277,15 @@ async function dispatch(
 		case "tree":
 			return tree(state, params);
 		case "tree-add":
-			return treeAdd(state, { ...params, cwd: params.cwd ?? ctx.cwd }, signal);
+			return withRepoRules(
+				await treeAdd(state, { ...params, cwd: params.cwd ?? ctx.cwd }, signal),
+				ctx,
+			);
 		case "tree-adopt":
-			return treeAdopt(state, { ...params, cwd: params.cwd ?? ctx.cwd });
+			return withRepoRules(
+				treeAdopt(state, { ...params, cwd: params.cwd ?? ctx.cwd }),
+				ctx,
+			);
 		case "tree-list":
 			return treeList(state);
 		case "tree-release":
