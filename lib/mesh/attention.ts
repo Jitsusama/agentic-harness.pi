@@ -113,14 +113,14 @@ export interface Heed {
 	readonly why: string;
 	/**
 	 * The peer is waiting on it, as on an answer to its own question, so
-	 * damping does not hold it to the hour's turns.
+	 * it starts a turn however it was sent.
 	 */
 	readonly awaited?: boolean;
 	/**
 	 * A question or hold put to this peer, by its own address or as one
-	 * of each a question went to. It gets its turn whatever the hour has
-	 * spent, and a busy peer has it steered into the run under way, since
-	 * one held to the end of a run waits for the person to speak.
+	 * of each a question went to. It gets its turn however deep its thread,
+	 * and a busy peer has it steered into the run under way, since one held
+	 * to the end of a run waits for the person to speak.
 	 */
 	readonly addressed?: boolean;
 }

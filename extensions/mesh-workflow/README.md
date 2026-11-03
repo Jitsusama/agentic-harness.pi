@@ -226,31 +226,31 @@ and its groups.
   expanded, so a session waiting its turn keeps its own work
   in sight.
 - **Glance:** another peer's own business. Nothing on screen;
-  handed to the model as one line with its next turn: at the end of the current step while it runs, or
-  at the start of its next run while it is idle, or carried
-  along with the next message noted in full. A digest spells
+  handed to the model as one line with its next turn: at the
+  end of the current step while it runs, or at the start of
+  its next run while it is idle, or carried along with the
+  next message noted in full. A digest spells
   out six and counts the rest, each cut to 160 characters.
   Glances survive a reload: each delivery records which it
   carried.
 - **Act:** a note that starts a turn once the mesh settles,
-  for an idle peer: a question to a group about its work. It waits 30 seconds and up to 30 more,
-  the extra different for each session so peers hearing one
-  message do not start at once, and what arrives meanwhile
-  goes in the same turn. A question to the machine that
-  another peer has answered by then is noted instead, and so
-  is one another peer is answering, until that peer lets it
-  go. When its run
-  ends, or it does, with no answer sent, the question waits to
-  act here after all, up to an hour after it was asked. A run
-  that starts first,
-  from the person or a turn, takes it along.
+  for an idle peer: a question to a group about its work. It
+  waits 30 seconds and up to 30 more, the extra different for
+  each session so peers hearing one message do not start at
+  once, and what arrives meanwhile goes in the same turn. A
+  question to the machine that another peer has answered by
+  then is noted instead, and so is one another peer is
+  answering, until that peer lets it go. When its run ends, or
+  it does, with no answer sent, the question waits to act here
+  after all, up to an hour after it was asked. A run that
+  starts first, from the person or a turn, takes it along.
 - **Turn:** a note that starts a turn at once (called a wake
-  until 2026-10-25, when wake read as resuming from sleep). That covers a
-  question or hold put to this peer, by its address or as one
-  of each a question went to, and any answer to a question it
-  asked, whether the peer is idle or busy. It also covers an
-  answer to one it sent, while idle. A busy peer
-  has it steered into the run under way, read after the
+  until 2026-10-25, when wake read as resuming from sleep).
+  That covers a question or hold put to this peer, by its
+  address or as one of each a question went to, and any answer
+  to a question it asked, whether the peer is idle or busy. It
+  also covers a question answering one it sent, while idle. A
+  busy peer has it steered into the run under way, read after the
   current tool, since a note waits for the model's current call
   to end, and when that call was the run's last, it waited for
   the person to speak. A question sent to several peers, or to
@@ -267,9 +267,8 @@ started one until 2026-11-03, when 764 of 1,518 messages
 reaching a peer started a turn and 287 of those turns did
 nothing but acknowledge. The one exception is an answer to a
 question this peer asked, which it is waiting on however the
-answer was sent. What a peer
-catches up on as it starts is noted, since it rides the first
-prompt.
+answer was sent. What a peer catches up on as it starts is
+noted, since it rides the first prompt.
 
 A question put to this peer that it hasn't answered (no message
 from it with `re` set to the question) is asked again five
@@ -321,11 +320,12 @@ afford, so no sender and no conversation wears it out:
 - **Questions:** none of these limits holds back a question
   that would start a turn: on 2026-10-25 one put to an idle
   peer sat unstarted as too deep in its thread while Joel
-  watched it wait. A hold put to the peer passes depth too.
-- **Turns:** the mesh starts at most 12 turns of a peer an
-  hour, and at most 6 for any one sender.
+  watched it wait. A hold or pivot put to the peer passes
+  depth too.
 - **Depth:** any other answer more than 4 deep in its thread
-  never starts a turn.
+  never starts a turn. That leaves an awaited answer, the only
+  other message that starts one, so two peers cannot ask and
+  answer each other round and round.
 - **Repeats:** what a sender already said, word for word,
   within the hour, is a glance. The same message handed again,
   as a question let go comes back, is no repeat.
@@ -337,21 +337,18 @@ afford, so no sender and no conversation wears it out:
   is addressed to it, answers it or holds; the rest are
   glances, so a session back from a night away does not start
   under a night of other peers' news.
-- **Awaited:** an answer to a question the peer asked starts
-  its turn whatever the hour has spent, and the turn still
-  counts. Depth and repeats still hold it back, so two peers
-  cannot ask and answer each other past them. Nor is an
-  awaited fyi glanced for its sender's news.
-- **Addressed:** a question or hold put to this peer starts its
-  turn past the hour's turns in the same way, and the turn
-  still counts. The orchestrator, whom every quest asks, spent
-  its twelve early on 2026-10-25 and left questions waiting for
-  the person.
+- **Awaited:** an awaited fyi is never glanced for its
+  sender's news.
 
 A damped message is never dropped: one that would have started
 a turn is noted instead. The model is never told; the screen
 says what was held back. The hour survives a reload, read back
 from the session's own deliveries.
+
+The mesh also held a peer to 12 turns an hour, and 6 from any
+one sender, until 2026-11-03. Once a finding stopped starting
+turns, nothing those limits applied to could start one, so
+they went.
 
 ## Stop
 

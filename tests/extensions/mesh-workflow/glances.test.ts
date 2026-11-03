@@ -1,10 +1,10 @@
 /**
- * What a session's own entries say its deliveries counted, so damping
+ * What a session's own entries say its deliveries handed over, so damping
  * carries on across a reload as if none had happened.
  */
 import { describe, expect, it } from "vitest";
 import { NOTED } from "../../../extensions/mesh-workflow/delivery.ts";
-import { countedIn } from "../../../extensions/mesh-workflow/glances.ts";
+import { saidIn } from "../../../extensions/mesh-workflow/glances.ts";
 import { ALL } from "../../../lib/mesh/group.ts";
 import type { Message } from "../../../lib/mesh/message.ts";
 
@@ -19,9 +19,9 @@ const asked: Message = {
 	pid: 7,
 };
 
-describe("what deliveries counted", () => {
-	it("are the turns they started and each message they handed, by id", () => {
-		const counted = countedIn([
+describe("what deliveries handed over", () => {
+	it("is each message they handed, by id", () => {
+		const said = saidIn([
 			{
 				type: "custom_message",
 				customType: NOTED,
@@ -29,9 +29,8 @@ describe("what deliveries counted", () => {
 			},
 		]);
 
-		expect(counted).toEqual({
-			turns: [{ at: 5, from: ["WCJQSG"] }],
-			said: [{ at: 5, from: "WCJQSG", text: "who has qemu?", id: asked.id }],
-		});
+		expect(said).toEqual([
+			{ at: 5, from: "WCJQSG", text: "who has qemu?", id: asked.id },
+		]);
 	});
 });

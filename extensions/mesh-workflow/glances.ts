@@ -8,7 +8,7 @@
  * waiting in its own entries, and none is lost or handed over twice.
  */
 
-import type { Said, Turn } from "../../lib/mesh/damping.ts";
+import type { Said } from "../../lib/mesh/damping.ts";
 import { type Message, messageFrom } from "../../lib/mesh/message.ts";
 import { type Delivered, GLANCE, GLANCES, NOTED } from "./delivery.ts";
 
@@ -99,14 +99,10 @@ export function leftToIn(entries: readonly Entry[]): string | undefined {
 }
 
 /**
- * What deliveries in these entries counted against the peer's limits:
- * the turns they started, and the messages they handed over in full.
+ * What deliveries in these entries handed over in full, which damping
+ * counts against a sender's news and tells a repeat by.
  */
-export function countedIn(entries: readonly Entry[]): {
-	turns: Turn[];
-	said: Said[];
-} {
-	const turns: Turn[] = [];
+export function saidIn(entries: readonly Entry[]): Said[] {
 	const said: Said[] = [];
 	for (const entry of entries) {
 		if (entry.type !== "custom_message" || entry.customType !== NOTED) {
@@ -117,14 +113,11 @@ export function countedIn(entries: readonly Entry[]): {
 		const messages = (Array.isArray(details.messages) ? details.messages : [])
 			.map(messageFrom)
 			.filter((one): one is Message => one !== undefined);
-		if (details.turn === true) {
-			turns.push({ at: details.at, from: messages.map((one) => one.from) });
-		}
 		for (const one of messages) {
 			said.push({ at: details.at, from: one.from, text: one.text, id: one.id });
 		}
 	}
-	return { turns, said };
+	return said;
 }
 
 /** The ids of the glances a delivery carried, if it is one. */

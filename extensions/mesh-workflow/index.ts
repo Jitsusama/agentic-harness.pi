@@ -168,11 +168,11 @@ import {
 } from "./delivery.ts";
 import { confirmEnd } from "./end-hold.ts";
 import {
-	countedIn,
 	createGlances,
 	type Entry,
 	handedIn,
 	leftToIn,
+	saidIn,
 } from "./glances.ts";
 import {
 	createHeavyCalls,
@@ -859,7 +859,6 @@ export function meshWorkflow(
 			);
 			handedOver(messages);
 			damper.handed(messages);
-			if (turn) damper.started(messages.map((one) => one.from));
 		};
 
 		/**
@@ -1101,8 +1100,7 @@ export function meshWorkflow(
 		/**
 		 * Holds this peer waited on that are over: a turn to carry on while
 		 * idle, and a note mid-run. It is this peer's own work resuming, not
-		 * another's interruption, so damping leaves it be; it still counts
-		 * toward the hour.
+		 * another's interruption, so damping leaves it be.
 		 */
 		const resumed = (ends: HoldEnd[]) => {
 			if (!ctx || ends.length === 0) return;
@@ -1121,7 +1119,6 @@ export function meshWorkflow(
 				},
 				{ triggerTurn: turn && !putOff },
 			);
-			if (turn) damper.started(ends.map(({ hold }) => hold.from));
 		};
 
 		/** Whether the holds waited on still stand, asked while any is. */
@@ -1196,8 +1193,7 @@ export function meshWorkflow(
 			// hands it is.
 			env[MESH_SESSION_ENV] = peer.session;
 			glances.recover(branch);
-			const counted = countedIn(branch);
-			damper.recover(counted.turns, counted.said);
+			damper.recover(saidIn(branch));
 			acts?.stop();
 			acts = createActs(peer.session, settling, (waiting) => {
 				void settled(waiting);
