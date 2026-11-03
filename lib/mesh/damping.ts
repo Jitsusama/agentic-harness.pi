@@ -9,25 +9,22 @@
  * prose was talked past. So the limits live here, in the receiver, and are
  * enforced rather than asked for:
  *
- * - Turns: the mesh starts at most {@link MOST_TURNS_AN_HOUR} turns of
- *   a peer an hour, and at most {@link MOST_TURNS_FROM_ONE} for any
- *   one sender, so one chatty peer cannot spend another's hour.
- * - Awaited: an answer to a question the peer asked starts its turn
- *   whatever the hour has spent, though the turn still counts, since
- *   the peer is waiting on it and is the one that asked. Depth and
- *   repeats still hold it back, so two peers cannot ask and answer
- *   each other past them.
- * - Addressed: a question or hold put to this peer is let past the
- *   hour's turns and its thread's depth. The orchestrator, which
- *   everyone asks, spent its twelve early and left questions waiting
- *   for the person.
  * - Questions: a question that would start a turn always does, whatever
- *   the hour, its depth or its words. On 2026-10-25 at 23:20 a question
- *   the orchestrator put to one idle peer sat unstarted, as "an answer
- *   too deep in its thread", while Joel watched it wait: a question is
- *   the one message whose sender is parked on the answer.
+ *   its depth or its words. On 2026-10-25 at 23:20 a question the
+ *   orchestrator put to one idle peer sat unstarted, as "an answer too
+ *   deep in its thread", while Joel watched it wait: a question is the
+ *   one message whose sender is parked on the answer.
+ * - Addressed: a hold or pivot put to this peer starts its turn however
+ *   deep its thread.
  * - Depth: any other answer more than {@link MOST_REPLY_DEPTH} deep never
  *   starts a turn, which ends two peers answering each other's answers.
+ *   That leaves only an answer the peer awaited, since nothing else but a
+ *   question starts one (see attention.ts): two peers asking each other
+ *   and answering would otherwise go round with a turn each time.
+ *
+ * The mesh once also held a peer to twelve turns an hour, and six from
+ * any one sender. Once a finding stopped starting turns (2026-11-03),
+ * nothing those limits applied to could start one, so they went.
  * - Repeats: what a sender already said, word for word, within the
  *   hour, is a glance, since the peer has it. The same message handed
  *   again is no repeat: it comes back because it needs more than it
@@ -53,12 +50,6 @@
 import type { Attention, Heed } from "./attention.ts";
 import type { Message } from "./message.ts";
 
-/** The most turns the mesh starts of one peer in an hour. */
-export const MOST_TURNS_AN_HOUR = 12;
-
-/** The most of those any one sender may start. */
-export const MOST_TURNS_FROM_ONE = 6;
-
 /** The deepest an answer may be and still start a turn. */
 export const MOST_REPLY_DEPTH = 4;
 
@@ -70,12 +61,6 @@ export const MOST_CAUGHT_UP = 20;
 
 /** How long the limits look back. */
 export const HOUR_MS = 60 * 60 * 1000;
-
-/** One turn the mesh started, and the senders it was for. */
-export interface Turn {
-	readonly at: number;
-	readonly from: readonly string[];
-}
 
 /** One message handed over in full, for telling a repeat. */
 export interface Said {
@@ -100,21 +85,17 @@ export interface Damper {
 		now?: number,
 		earlier?: readonly Message[],
 	): Heed;
-	/** Count a turn the mesh started, for these senders. */
-	started(from: readonly string[], now?: number): void;
 	/** Count messages handed over in full. */
 	handed(messages: readonly Message[], now?: number): void;
-	/** Take back what an earlier start of this session counted. */
-	recover(turns: readonly Turn[], said: readonly Said[]): void;
+	/** Take back what an earlier start of this session handed over. */
+	recover(said: readonly Said[]): void;
 }
 
 const TURNS: readonly Attention[] = ["act", "turn"];
 
 export function createDamper(): Damper {
-	let turns: Turn[] = [];
 	let said: Said[] = [];
 	const forget = (now: number) => {
-		turns = turns.filter((one) => now - one.at < HOUR_MS);
 		said = said.filter((one) => now - one.at < HOUR_MS);
 	};
 	return {
@@ -145,23 +126,13 @@ export function createDamper(): Damper {
 					why: `${heed.why}, the hour's news from ${message.from} spent`,
 				};
 			}
-			if (!TURNS.includes(heed.attention)) return heed;
-			const why = heed.addressed
-				? undefined
-				: depth > MOST_REPLY_DEPTH
-					? "an answer too deep in its thread"
-					: heed.awaited
-						? undefined
-						: turns.length >= MOST_TURNS_AN_HOUR
-							? "the hour's turns spent"
-							: turns.filter((one) => one.from.includes(message.from)).length >=
-									MOST_TURNS_FROM_ONE
-								? `the hour's turns for ${message.from} spent`
-								: undefined;
-			return why ? { attention: "note", why: `${heed.why}, ${why}` } : heed;
-		},
-		started(from, now = Date.now()) {
-			turns.push({ at: now, from: [...new Set(from)] });
+			if (!TURNS.includes(heed.attention) || heed.addressed) return heed;
+			return depth > MOST_REPLY_DEPTH
+				? {
+						attention: "note",
+						why: `${heed.why}, an answer too deep in its thread`,
+					}
+				: heed;
 		},
 		handed(messages, now = Date.now()) {
 			for (const message of messages) {
@@ -173,8 +144,7 @@ export function createDamper(): Damper {
 				});
 			}
 		},
-		recover(before, saidBefore) {
-			turns = [...before];
+		recover(saidBefore) {
 			said = [...saidBefore];
 		},
 	};

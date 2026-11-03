@@ -55,7 +55,6 @@ import { JOBS_FINISHED } from "../../../lib/jobs/index.ts";
 import {
 	MOST_CAUGHT_UP,
 	MOST_IN_FULL_FROM_ONE,
-	MOST_TURNS_FROM_ONE,
 } from "../../../lib/mesh/damping.ts";
 import { ALL } from "../../../lib/mesh/group.ts";
 import { MESH_SESSION_ENV } from "../../../lib/mesh/hand.ts";
@@ -998,24 +997,16 @@ describe("an answer", () => {
 		expect(sent[0]?.message.content).toMatch(/answering \[[0-9a-f]{8}\]/);
 	});
 
-	it("to this peer's question gets a turn however it was sent, whatever the hour spent", async () => {
+	it("to this peer's question gets a turn however it was sent", async () => {
 		const { sent, tools } = await startSession({}, { isIdle: () => true });
 		peer("session-w", ["WCJQSG"], []);
 		await send(tools, "#optimus", "question", "who has qemu?");
 		const [asked = ""] = folderTransport(join(paths.mesh, "messages")).ids();
-		for (let one = 1; one <= MOST_TURNS_FROM_ONE; one += 1) {
-			fromElsewhere({
-				intent: "question",
-				to: ["@7M6JKG"],
-				text: `why ${one}?`,
-			});
-			await vi.waitFor(() => expect(sent).toHaveLength(one));
-		}
 
 		fromElsewhere({ intent: "fyi", re: asked, text: "I do, until 03:00." });
 
-		await vi.waitFor(() => expect(sent).toHaveLength(MOST_TURNS_FROM_ONE + 1));
-		expect(sent.at(-1)?.options).toEqual({ triggerTurn: true });
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.options).toEqual({ triggerTurn: true });
 	});
 
 	it("names the question this peer took up when its answer names none", async () => {
@@ -1217,10 +1208,11 @@ describe("a withdrawal", () => {
 });
 
 describe("damping", () => {
-	it("starts a turn for every question put to this peer, past the hour's share", async () => {
+	it("starts a turn for every question put to this peer, however many", async () => {
 		const { sent } = await startSession({}, { isIdle: () => true });
+		const many = 13;
 
-		for (let one = 1; one <= MOST_TURNS_FROM_ONE + 1; one += 1) {
+		for (let one = 1; one <= many; one += 1) {
 			fromElsewhere({
 				intent: "question",
 				to: ["@7M6JKG"],
@@ -1230,9 +1222,7 @@ describe("damping", () => {
 		}
 
 		expect(sent.map((one) => one.options)).toEqual(
-			Array.from({ length: MOST_TURNS_FROM_ONE + 1 }, () => ({
-				triggerTurn: true,
-			})),
+			Array.from({ length: many }, () => ({ triggerTurn: true })),
 		);
 	});
 

@@ -10,8 +10,6 @@ import {
 	MOST_CAUGHT_UP,
 	MOST_IN_FULL_FROM_ONE,
 	MOST_REPLY_DEPTH,
-	MOST_TURNS_AN_HOUR,
-	MOST_TURNS_FROM_ONE,
 } from "../../../lib/mesh/damping.ts";
 import { ALL } from "../../../lib/mesh/group.ts";
 import type { Message } from "../../../lib/mesh/message.ts";
@@ -36,24 +34,8 @@ const act: Heed = { attention: "act", why: "sent to this peer" };
 const at = 10 * HOUR_MS;
 
 describe("a peer's turns", () => {
-	it("stop being started by one sender past its share of the hour", () => {
+	it("are started by an awaited answer unless too deep or said already", () => {
 		const damper = createDamper();
-		for (let one = 0; one < MOST_TURNS_FROM_ONE; one += 1) {
-			damper.started(["WCJQSG"], at);
-		}
-
-		expect(damper.damp(message(), turn, 0, at)).toEqual({
-			attention: "note",
-			why: "sent to this peer, the hour's turns for WCJQSG spent",
-		});
-		expect(damper.damp(message({ from: "P9R1KI" }), act, 0, at)).toEqual(act);
-	});
-
-	it("are started for an awaited answer whatever the hour has spent", () => {
-		const damper = createDamper();
-		for (let one = 0; one < MOST_TURNS_AN_HOUR; one += 1) {
-			damper.started(["WCJQSG"], at);
-		}
 		const awaited: Heed = { ...turn, awaited: true };
 		const answer = message({ intent: "fyi", text: "I do." });
 
@@ -70,26 +52,6 @@ describe("a peer's turns", () => {
 		expect(damper.damp(said, awaited, 1, at).attention).toBe("glance");
 	});
 
-	it("stop being started by anyone past the hour's", () => {
-		const damper = createDamper();
-		for (let one = 0; one < MOST_TURNS_AN_HOUR; one += 1) {
-			damper.started([`PEER${one}`], at);
-		}
-
-		expect(damper.damp(message(), act, 0, at).attention).toBe("note");
-	});
-
-	it("come back as the hour passes", () => {
-		const damper = createDamper();
-		for (let one = 0; one < MOST_TURNS_AN_HOUR; one += 1) {
-			damper.started(["WCJQSG"], at);
-		}
-
-		expect(damper.damp(message(), turn, 0, at + HOUR_MS).attention).toBe(
-			"turn",
-		);
-	});
-
 	it("are never started by an answer too deep in its thread", () => {
 		const damper = createDamper();
 		const finding = message({ intent: "finding" });
@@ -100,13 +62,10 @@ describe("a peer's turns", () => {
 		});
 	});
 
-	it("are always started by a question, however deep, spent or repeated", () => {
+	it("are always started by a question, however deep or repeated", () => {
 		// 23:20, 2026-10-25: the orchestrator's question to one idle peer
 		// sat unstarted as an answer too deep in its thread.
 		const damper = createDamper();
-		for (let one = 0; one < MOST_TURNS_AN_HOUR; one += 1) {
-			damper.started(["WCJQSG"], at);
-		}
 		const asked = message({ intent: "question" });
 		damper.handed([asked], at);
 		const again = message({ id: "2-WCJQSG-7-bbbbbbbb", intent: "question" });
@@ -120,19 +79,6 @@ describe("a peer's turns", () => {
 		const hold = message({ intent: "hold", text: "hold builds" });
 
 		expect(damper.damp(hold, held, MOST_REPLY_DEPTH + 1, at)).toEqual(held);
-	});
-
-	it("are counted again from what an earlier start recorded", () => {
-		const damper = createDamper();
-		damper.recover(
-			Array.from({ length: MOST_TURNS_FROM_ONE }, () => ({
-				at,
-				from: ["WCJQSG"],
-			})),
-			[],
-		);
-
-		expect(damper.damp(message(), turn, 0, at).attention).toBe("note");
 	});
 });
 
@@ -155,7 +101,7 @@ describe("a repeat", () => {
 
 	it("is not the same message handed again, as one let go comes back", () => {
 		const damper = createDamper();
-		damper.recover([], [{ at, from: "P9R1KI", text: "why?", id: "3-P9R1KI" }]);
+		damper.recover([{ at, from: "P9R1KI", text: "why?", id: "3-P9R1KI" }]);
 		damper.handed([message()], at);
 
 		expect(damper.damp(message(), act, 0, at)).toEqual(act);
@@ -233,9 +179,6 @@ describe("a long catch-up", () => {
 describe("damping", () => {
 	it("leaves alone what starts no turn", () => {
 		const damper = createDamper();
-		for (let one = 0; one < MOST_TURNS_AN_HOUR; one += 1) {
-			damper.started(["WCJQSG"], at);
-		}
 		const note: Heed = { attention: "note", why: "about the whole machine" };
 		const glance: Heed = { attention: "glance", why: "about another's work" };
 

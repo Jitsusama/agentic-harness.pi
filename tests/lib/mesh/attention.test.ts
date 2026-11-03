@@ -16,7 +16,7 @@ import {
 } from "../../../lib/mesh/attention.ts";
 import { ALL } from "../../../lib/mesh/group.ts";
 import { MOST_HOLD_MS } from "../../../lib/mesh/lease.ts";
-import type { Message } from "../../../lib/mesh/message.ts";
+import { INTENTS, type Message } from "../../../lib/mesh/message.ts";
 
 function message(over: Partial<Message> = {}): Message {
 	return {
@@ -40,6 +40,35 @@ const standing: Standing = {
 	},
 	idle: false,
 };
+
+/**
+ * The receiver standing every way that changes what a message gets:
+ * idle or busy, whatever it judged, answered, asked, asked of each, and
+ * with the sender as its orchestrator or not.
+ */
+function everyStanding(): Standing[] {
+	const flags = [false, true];
+	const concerns = [undefined, "receiver", "machine", "other"] as const;
+	return flags.flatMap((idle) =>
+		concerns.flatMap((concern) =>
+			flags.flatMap((answers) =>
+				flags.flatMap((asked) =>
+					flags.flatMap((askedEach) =>
+						flags.map((orchestrated) => ({
+							...standing,
+							idle,
+							concern,
+							answers,
+							asked,
+							askedEach,
+							orchestrator: orchestrated ? ["2HN63P"] : undefined,
+						})),
+					),
+				),
+			),
+		),
+	);
+}
 
 describe("attention", () => {
 	it("glances at an fyi restating what its sender's presence says it landed", () => {
@@ -169,6 +198,39 @@ describe("attention", () => {
 			attend(message({ intent: "finding" }), { ...idle, answers: true })
 				.attention,
 		).toBe("note");
+	});
+
+	it("starts a turn for nothing but a question unless it is put to this peer or awaited", () => {
+		// Damping's hour turn caps held back only what was neither: once a
+		// finding stopped acting (2026-11-03), nothing reached them, and they
+		// went. A turn for anything else would come back uncapped.
+		const messages = INTENTS.filter((intent) => intent !== "question").flatMap(
+			(intent) =>
+				[[ALL], ["@5GV2AH"]].flatMap((to) =>
+					["the harness drops a lease", "merging core"].map((text) =>
+						message({ intent, to, text }),
+					),
+				),
+		);
+		const standings = everyStanding();
+
+		const uncapped = messages.flatMap((sent) =>
+			standings
+				.map((at) => ({ at, heed: attend(sent, at) }))
+				.filter(
+					({ heed }) =>
+						(heed.attention === "act" || heed.attention === "turn") &&
+						!heed.addressed &&
+						!heed.awaited,
+				)
+				.map(
+					({ at, heed }) =>
+						`${sent.intent} to ${sent.to} "${sent.text}", ${heed.attention} when ${JSON.stringify({ ...at, receiver: undefined })}`,
+				),
+		);
+
+		expect(standings).toHaveLength(128);
+		expect(uncapped).toEqual([]);
 	});
 
 	it("takes an answer to this peer's own message as sent to it", () => {
