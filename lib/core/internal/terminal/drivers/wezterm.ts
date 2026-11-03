@@ -103,6 +103,21 @@ export function weztermPaneIds(listing: unknown): Set<string> {
 	return ids;
 }
 
+/**
+ * The `wezterm cli` arguments that give focus back to the pane a
+ * request came from, which wezterm's spawn and split take from it, or
+ * undefined when the person's own press asked for the focus or no pane
+ * is known to give it back to.
+ */
+export function weztermRefocusArgs(
+	request: TerminalRequest,
+	from: string | undefined,
+): string[] | undefined {
+	const pane = request.near?.value ?? from;
+	if (request.takeFocus || !pane) return undefined;
+	return ["cli", "--no-auto-start", "activate-pane", "--pane-id", pane];
+}
+
 /** The `wezterm cli` arguments that open a request's surface. */
 export function weztermSpawnArgs(request: TerminalRequest): string[] {
 	const args: string[] = ["cli", "--no-auto-start"];
@@ -258,6 +273,15 @@ export function createWeztermDriver(
 			// does not wait on the pane's own lifetime.
 			const pane = paneIdFromSpawn(await cli(scope, weztermSpawnArgs(request)));
 			if (!pane) return undefined;
+			const refocus = weztermRefocusArgs(request, env().WEZTERM_PANE);
+			if (refocus) {
+				try {
+					await cli(scope, refocus);
+				} catch {
+					// The pane it came from has closed since: there's no focus to
+					// give back, and the new pane opened all the same.
+				}
+			}
 			return {
 				driverId: "wezterm",
 				kind: WEZTERM_HANDLE_KIND,

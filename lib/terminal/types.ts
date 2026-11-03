@@ -74,7 +74,24 @@ export interface TerminalRequest {
 	 * surface it is attached to.
 	 */
 	near?: TerminalSessionHandle;
+	/**
+	 * Whether the new surface takes focus. Off unless the person's own
+	 * press opened it: a session opening one while they type into another
+	 * would take their keys (Joel, 2 November: "i often end up typing
+	 * into them by accident"). Kept off, a driver leaves focus where it
+	 * is, and a window it opens carries `SPAWNED_CLASS` so the
+	 * compositor can open it unfocused.
+	 */
+	takeFocus?: boolean;
 }
+
+/**
+ * The window class (the app id on Wayland) a window opened without
+ * focus carries, which the desktop's compositor rule matches to open
+ * it without focus. The desktop's launcher gives the sessions handed to
+ * it the same class.
+ */
+export const SPAWNED_CLASS = "pi-spawned";
 
 /**
  * A stable, probeable reference to a terminal surface a pi session

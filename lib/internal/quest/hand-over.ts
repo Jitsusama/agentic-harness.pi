@@ -11,6 +11,14 @@
  * as `pi --session-id <id>`, under its `quest` when it names one, so a
  * session pi hasn't saved yet, a new one `quest spawn` starts, can go
  * too (core.nix #1544).
+ *
+ * Every one goes with `focus: false`, its quest and the session that
+ * asked (`from`), so the launcher opens it without taking focus or
+ * switching workspace, where its quest's sessions are, else beside the
+ * session that asked: a session that opens a window while the person
+ * types into another would take their keys, so only their own press
+ * of the launcher focuses one (P9R1KI [e7379980], agreed with Y2YBTS
+ * [bb4761d5]).
  */
 
 import { execFile } from "node:child_process";
@@ -24,8 +32,13 @@ export interface HandedSession {
 	readonly cwd: string;
 	/** Started afresh under `id`, since pi has no record of it to resume. */
 	readonly fresh?: boolean;
-	/** The quest a fresh session loads as it starts. */
+	/**
+	 * The session's quest: the one a fresh session loads as it starts,
+	 * and for every session, where the launcher places its window.
+	 */
 	readonly quest?: string;
+	/** The session that asked for it, which the window goes beside. */
+	readonly from?: string;
 }
 
 /** Runs the launcher's call with its one argument, answering its words. */
@@ -81,11 +94,13 @@ export async function handOver(
 ): Promise<number | undefined> {
 	if (sessions.length === 0) return undefined;
 	const argument = JSON.stringify({
-		sessions: sessions.map(({ id, cwd, fresh, quest }) => ({
+		sessions: sessions.map(({ id, cwd, fresh, quest, from }) => ({
 			id,
 			cwd,
 			...(fresh ? { fresh: true } : {}),
-			...(fresh && quest ? { quest } : {}),
+			...(quest ? { quest } : {}),
+			...(from ? { from } : {}),
+			focus: false,
 		})),
 	});
 	try {

@@ -47,6 +47,15 @@ command typed once its prompt has settled; otherwise it runs
 through `$SHELL -l -i -c`. If a tier fails before anything opened,
 the next one down is tried and the answer says so.
 
+Nothing opened takes focus unless the request sets `takeFocus`,
+for a person's own press: a session that opens a window while you
+type into another would take your keys. Kitty launches with
+`--keep-focus`, and its OS windows carry the class `pi-spawned`,
+which the compositor's rule opens unfocused. Tmux opens with `-d`,
+zellij opens a tab with `--no-focus`, and wezterm and a zellij pane
+give focus back to the pane they came from. A terminal launched
+blind takes whatever focus the compositor gives it.
+
 ## Which Terminal You Are In
 
 The terminals' own variables say, and on Linux the process ancestry
