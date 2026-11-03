@@ -59,6 +59,7 @@ import {
 	sum,
 } from "../../../lib/internal/quest/footprint.ts";
 import { gitTreeRootOf } from "../../../lib/internal/quest/git-signals.ts";
+import { repoRulesNote } from "../../../lib/internal/session/repo-rules.ts";
 import { unattendedExec } from "../../../lib/internal/unattended-exec.ts";
 import { count, displayPath } from "../../../lib/ui/index.ts";
 import { objectionsTo, treeBroker } from "../broker.ts";
@@ -699,8 +700,15 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 					const warmed = warmedFrom
 						? `\n   target/ cloned from ${displayPath(warmedFrom)}`
 						: "";
+					// pi read AGENTS.md only where this session started, so a tree
+					// in another repo comes with that repo's rules, once a repo.
+					const rules = repoRulesNote({
+						tree: held.path,
+						cwd: ctx?.cwd ?? process.cwd(),
+						session: ctx?.sessionManager?.getSessionId?.() ?? "",
+					});
 					return say(
-						`${glyph} ${held.identity.key}\n   ${displayPath(held.path)} · ${held.providerId}${warmed}`,
+						`${glyph} ${held.identity.key}\n   ${displayPath(held.path)} · ${held.providerId}${warmed}${rules ? `\n\n${rules}` : ""}`,
 						// The details keep the absolute path on purpose. A tilde is a
 						// courtesy for a reader, not something a caller can open, and
 						// this is the value another call gets fed.

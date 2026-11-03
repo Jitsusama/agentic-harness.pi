@@ -66,6 +66,24 @@ On a 58 GiB walgit-rs target the clone took 1.3 seconds and
 compiled 30 packages in 32 seconds: the workspace's own crates,
 and the gix family above its `gix-hash` patched from a path.
 
+## A Tree Comes With Its Repo's Rules
+
+pi loads AGENTS.md only from the folder a session starts in and
+its parents, so a session started in home, or in one repo, that
+cuts a tree in another works without that repo's rules. On
+2026-11-03 seventeen sessions started in home, builders among
+them, and none read core.nix's test pyramid. So `tree` and
+`snapshot` (and `quest tree-add` and `tree-adopt`) say the tree's
+rules after the tree, when pi loaded none from that repo at the
+session's start, once a repo a session. A repo is known by its git
+common directory, so every worktree of a checkout is one repo;
+rules pi loaded with the same text count as loaded too. A World
+tree's rules are read from its one checkout below, `src/`. Rules
+up to 16 KB are said whole, as pi would have put them in the
+system prompt; past that, as one repo's 422 KB file is, the answer
+names the file and asks for it read. The answer adds to what the
+model was sent and edits none of it.
+
 ## Why a Provider Registry
 
 The plain-git provider cuts a `git worktree` and is right for

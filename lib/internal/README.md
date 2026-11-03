@@ -45,8 +45,10 @@ may import from here, and any of it may change without notice.
   keeps only what the model still sees, on the model it ran on, and
   reading a log's header to tell a log that carries a session on
   from another conversation's, what a session landed, said on
-  the bus for its presence to keep, and whether a fleet or a round
-  may run on a model the agent named rather than the person.
+  the bus for its presence to keep, whether a fleet or a round
+  may run on a model the agent named rather than the person, and
+  the rules of a repo a session takes a tree in but pi loaded none
+  of at its start.
 - **`shell/`**: what the agent's shell runs with, offered by the
   extensions that know.
 - **`stray/`**: catching writes that would land behind pi's screen.

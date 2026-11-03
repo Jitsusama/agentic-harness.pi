@@ -37,6 +37,7 @@ import {
 } from "../../lib/internal/quest/process-liveness.ts";
 import { extractSectionParagraph } from "../../lib/internal/quest/quest-doc.ts";
 import {
+	ancestorTreesOf,
 	resolveSpawnCwd,
 	sessionToReopen,
 } from "../../lib/internal/quest/reopen.ts";
@@ -185,6 +186,7 @@ export function questsIn(
 					...(home ? { home } : {}),
 					trees: fm.trees ?? [],
 					sessions,
+					ancestors: ancestorTreesOf(fm.parent ?? undefined, read),
 				}).cwd;
 				const resume = sessionToReopen({
 					questDir: entry.dir,

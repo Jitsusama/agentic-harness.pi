@@ -8,6 +8,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	getTreeProvider,
 	resolveTreeProvider,
@@ -32,17 +33,44 @@ import {
 	removeTreeFromQuest,
 	setPendingPrune,
 } from "../../../lib/internal/quest/trees.ts";
+import { repoRulesNote } from "../../../lib/internal/session/repo-rules.ts";
 import type { QuestSession, QuestTree } from "../../../lib/quest/index.ts";
 import { count, noun } from "../../../lib/ui/count.ts";
 import { displayPath } from "../../../lib/ui/path.ts";
 import { inventoryWorktrees, logHarnessEntry } from "../lifecycle.ts";
 import type { QuestState } from "../state.ts";
 import {
+	currentSessionId,
 	ok,
 	type QuestResult,
 	type QuestToolParams,
 	refuse,
 } from "./shared.ts";
+
+/**
+ * A tree-add or tree-adopt answer, with the tree's repo rules said
+ * after it when pi loaded none from that repo at the session's start,
+ * once a repo a session. A refusal, or a tree already tracked, is
+ * answered as it was.
+ */
+export function withRepoRules(
+	result: QuestResult,
+	ctx: ExtensionContext,
+): QuestResult {
+	if (!result.ok) return result;
+	const tree = result.details?.tree;
+	const path =
+		typeof tree === "object" && tree !== null && "path" in tree
+			? tree.path
+			: undefined;
+	if (typeof path !== "string") return result;
+	const note = repoRulesNote({
+		tree: path,
+		cwd: ctx.cwd ?? process.cwd(),
+		session: currentSessionId(ctx, undefined) ?? "",
+	});
+	return note ? { ...result, message: `${result.message}\n\n${note}` } : result;
+}
 
 function defaultRepoRoot(_state: QuestState, params: QuestToolParams): string {
 	if (params.cwd) return params.cwd;

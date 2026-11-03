@@ -468,6 +468,84 @@ describe("spawn verbs", () => {
 		expect((result.details as { cwdSource?: string }).cwdSource).toBe("tree");
 	});
 
+	// A builder subquest is spawned before it has a tree or a session, and
+	// opening it in home leaves it without its repo's AGENTS.md.
+	it("opens a subquest with no tree of its own in its parent's tree", async () => {
+		const state = buildState();
+		const parent = await createQuest(state, "Parent");
+		const treeDir = join(tmpRoot, "parent-tree");
+		mkdirSync(treeDir, { recursive: true });
+		const parsed = parseQuestFrontMatter(readFileSync(parent.path, "utf8"));
+		if (!parsed) throw new Error("could not parse quest frontmatter");
+		parsed.frontMatter.trees = [{ path: treeDir, providerId: "git-worktree" }];
+		writeFileSync(
+			parent.path,
+			`${serializeQuestFrontMatter(parsed.frontMatter)}\n${parsed.body}`,
+		);
+		const child = await handle(
+			state,
+			fakePi(),
+			{
+				cwd: tmpRoot,
+				sessionManager: {
+					getSessionId: () => undefined,
+					isPersisted: () => false,
+				},
+			} as unknown as Parameters<typeof handle>[2],
+			{
+				action: "create",
+				title: "Builder",
+				parent: parent.id,
+				kind: "subquest",
+			},
+		);
+		if (!child.ok) throw new Error(child.guidance);
+		const calls: { cwd?: string }[] = [];
+		registerTerminalDriver({
+			id: "test",
+			available: () => true,
+			async spawn(req) {
+				calls.push({ cwd: req.cwd });
+			},
+		});
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "spawn-tab",
+			id: (child.details as { id: string }).id,
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		expect(calls[0].cwd).toBe(treeDir);
+		expect(result.message).toContain("(a parent quest's tree)");
+		expect((result.details as { cwdSource?: string }).cwdSource).toBe(
+			"ancestorTree",
+		);
+	});
+
+	it("opens a quest with nowhere of its own in the spawner's repo", async () => {
+		const state = buildState();
+		const lone = await createQuest(state, "Lone");
+		const repo = join(tmpRoot, "repo");
+		mkdirSync(join(repo, ".git"), { recursive: true });
+		const calls: { cwd?: string }[] = [];
+		registerTerminalDriver({
+			id: "test",
+			available: () => true,
+			async spawn(req) {
+				calls.push({ cwd: req.cwd });
+			},
+		});
+
+		const result = await handle(state, fakePi(), fakeCtx(repo), {
+			action: "spawn-tab",
+			id: lone.id,
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		expect(calls[0].cwd).toBe(repo);
+		expect((result.details as { cwdSource?: string }).cwdSource).toBe(
+			"spawner",
+		);
+	});
+
 	it("spawn-tab id:OTHER targets the other quest without mutating loaded state", async () => {
 		const state = buildState();
 		const loaded = await createQuest(state, "Loaded");

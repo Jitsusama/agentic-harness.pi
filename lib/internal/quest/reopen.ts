@@ -11,7 +11,7 @@
 
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { sep } from "node:path";
+import { dirname, join, sep } from "node:path";
 import type { QuestTree } from "../../quest/types.ts";
 import type { SessionView } from "./session-liveness.ts";
 import { treePlace } from "./tree-place.ts";
@@ -19,17 +19,52 @@ import { treePlace } from "./tree-place.ts";
 /** The resolved working directory and how it was chosen. */
 export interface ResolvedCwd {
 	cwd: string;
-	source: "tree" | "session" | "repoRoot" | "home";
+	source: CwdSource;
 	/** True when a recorded candidate was missing and we fell through. */
 	healed?: boolean;
+}
+
+/** What chose the folder a quest's session opens in. */
+export type CwdSource =
+	| "tree"
+	| "session"
+	| "repoRoot"
+	| "ancestorTree"
+	| "ancestorRepoRoot"
+	| "spawner"
+	| "home";
+
+const SOURCE_WORDS: Record<CwdSource, string> = {
+	tree: "the quest's newest tree",
+	session: "its latest session's folder",
+	repoRoot: "a tree's repo",
+	ancestorTree: "a parent quest's tree",
+	ancestorRepoRoot: "a parent quest's repo",
+	spawner: "the spawning session's repo",
+	home: "home, as nothing better was known",
+};
+
+/** What chose the folder, as a person reads it in what spawn answers. */
+export function describeCwdSource(source: CwdSource): string {
+	return SOURCE_WORDS[source];
 }
 
 /**
  * Resolve the working directory to reopen a quest in. Preference
  * order: an existing tree path (newest first), then the most-recent
- * session's cwd, then a tree repoRoot, then the home folder. A
- * recorded path that no longer exists is skipped and the result is
- * flagged as healed so the caller can offer to rewrite the record.
+ * session's cwd, then a tree repoRoot, then each ancestor's newest
+ * tree and repoRoot (nearest ancestor first), then the spawning
+ * session's folder when it sits in a repository, then the home
+ * folder. A recorded path of the quest's own that no longer exists is
+ * skipped and the result is flagged as healed so the caller can offer
+ * to rewrite the record; an ancestor's is not the quest's to heal.
+ *
+ * pi loads AGENTS.md only from the folder it starts in and its
+ * parents, so the folder decides which repo's rules a session follows.
+ * On 2026-11-03 seventeen sessions opened in home, builders among
+ * them, because a new builder subquest has no tree or session of its
+ * own: its parent's tree, or the repo the spawner works in, is where
+ * its work is.
  *
  * It never lands in the quest's own folder, nor in any folder of the
  * quest store, even where an older session ran there: pi started in
@@ -47,6 +82,10 @@ export function resolveSpawnCwd(opts: {
 	home?: string;
 	trees: QuestTree[];
 	sessions: SessionView[];
+	/** Each ancestor's trees, nearest first, as ancestorTreesOf lists them. */
+	ancestors?: QuestTree[][];
+	/** The spawning session's folder, taken only when it is in a repository. */
+	spawner?: string;
 	exists?: (p: string) => boolean;
 }): ResolvedCwd {
 	const exists = opts.exists ?? existsSync;
@@ -62,9 +101,11 @@ export function resolveSpawnCwd(opts: {
 	// Newest tree first: the trees array is appended to, so the
 	// last entry is the most recently added. Never another machine's,
 	// which a shared quest lists too: its folder and repo are there.
-	const trees = opts.trees
-		.filter((tree) => treePlace(tree, { exists }) !== "elsewhere")
-		.reverse();
+	const here = (list: QuestTree[]) =>
+		list
+			.filter((tree) => treePlace(tree, { exists }) !== "elsewhere")
+			.reverse();
+	const trees = here(opts.trees);
 	for (const tree of trees) {
 		if (exists(tree.path)) {
 			return { cwd: tree.path, source: "tree", ...(healed ? { healed } : {}) };
@@ -99,11 +140,71 @@ export function resolveSpawnCwd(opts: {
 		}
 	}
 
+	const found = (cwd: string, source: CwdSource): ResolvedCwd => ({
+		cwd,
+		source,
+		...(healed ? { healed } : {}),
+	});
+
+	// Where the nearest ancestor works: its newest tree, else its repo.
+	for (const ancestor of opts.ancestors ?? []) {
+		const theirs = here(ancestor);
+		const tree = theirs.find((t) => !inStore(t.path) && exists(t.path));
+		if (tree) return found(tree.path, "ancestorTree");
+		const repo = theirs.find(
+			(t) => t.repoRoot && !inStore(t.repoRoot) && exists(t.repoRoot),
+		)?.repoRoot;
+		if (repo) return found(repo, "ancestorRepoRoot");
+	}
+
+	// The repo the spawning session works in, which is likely this
+	// quest's too, rather than home, where no repo's rules load.
+	const spawner = opts.spawner;
+	if (
+		spawner &&
+		!inStore(spawner) &&
+		exists(spawner) &&
+		withinRepo(spawner, exists)
+	) {
+		return found(spawner, "spawner");
+	}
+
 	return {
 		cwd: opts.home ?? homedir(),
 		source: "home",
 		...(healed ? { healed } : {}),
 	};
+}
+
+/** Whether a folder or one above it holds a `.git`, as a checkout or worktree does. */
+function withinRepo(dir: string, exists: (p: string) => boolean): boolean {
+	for (let at = dir; ; at = dirname(at)) {
+		if (exists(join(at, ".git"))) return true;
+		if (dirname(at) === at) return false;
+	}
+}
+
+/**
+ * Each ancestor's trees, nearest first, for resolveSpawnCwd. The walk
+ * stops at a parent it cannot find or one it has met before, so a
+ * store that drifted into a cycle ends rather than loops.
+ */
+export function ancestorTreesOf(
+	parent: string | undefined,
+	questOf: (
+		id: string,
+	) => { trees?: QuestTree[]; parent?: string | null } | undefined,
+): QuestTree[][] {
+	const chain: QuestTree[][] = [];
+	const seen = new Set<string>();
+	for (let id = parent; id && !seen.has(id); ) {
+		seen.add(id);
+		const quest = questOf(id);
+		if (!quest) break;
+		chain.push(quest.trees ?? []);
+		id = quest.parent ?? undefined;
+	}
+	return chain;
 }
 
 /**
