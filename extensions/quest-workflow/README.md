@@ -139,10 +139,9 @@ shipped and tested.
   as an automated turn, unless its command line already gave pi a
   first prompt. Words wait 15 minutes at most. A session held on
   another machine can't reach them and starts without.
-- **Behind a lock**: while the shell's lock is up, nothing is
-  handed to the launcher, since the compositor drops what it asks
-  and the window would never open; restore and spawn open their
-  own terminal window instead.
+- **Behind a lock**: a session handed to the launcher while the
+  screen is locked starts behind the lock and goes to its place
+  once the lock is gone.
 - **Spawn on a machine**: `spawn` with `machine` asks this
   machine's mycelium node to start the session held on that
   machine, through that machine's own node when it is another,

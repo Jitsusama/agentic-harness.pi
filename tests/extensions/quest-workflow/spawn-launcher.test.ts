@@ -213,9 +213,10 @@ describe("spawn through the desktop's launcher", () => {
 		expect(result.message).toContain("Spawned a window");
 	});
 
-	it("opens the window itself while the screen is locked", async () => {
-		// niri drops what the launcher asks while locked, so a session it
-		// took would never open.
+	it("hands the session to the launcher while the screen is locked", async () => {
+		// The shell starts it behind the lock and places it once the lock
+		// is gone (core.nix #1632), where a window opened here would sit
+		// wherever the terminal put it.
 		process.env.QS_LOCKED = "true";
 		const { state, id } = await quest();
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
@@ -223,9 +224,8 @@ describe("spawn through the desktop's launcher", () => {
 			id,
 		});
 		if (!result.ok) throw new Error(result.guidance);
-		expect(handed()).toBeUndefined();
-		expect(opened).toBe("pi");
-		expect(result.message).toContain("Spawned a window");
+		expect(handed()).toBeDefined();
+		expect(opened).toBeUndefined();
 	});
 
 	it("leaves a layout the call names to the terminal", async () => {

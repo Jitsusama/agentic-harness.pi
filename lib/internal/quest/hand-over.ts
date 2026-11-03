@@ -20,11 +20,9 @@
  * of the launcher focuses one (P9R1KI [e7379980], agreed with Y2YBTS
  * [bb4761d5]).
  *
- * Nothing is handed over while the shell's lock is up: niri drops every
- * action it's asked while locked, so the launcher would answer "taken"
- * and the window would never open, even after unlocking (Y2YBTS
- * [afadc6d6]). The caller opens it itself instead, as a terminal's own
- * window, which a lock doesn't stop.
+ * A session handed over while the screen is locked is started behind
+ * the lock and placed once it is gone (core.nix #1632), so the hand-over
+ * doesn't ask about the lock.
  */
 
 import { execFile } from "node:child_process";
@@ -78,34 +76,8 @@ export function takenBy(answer: string, asked: number): number | undefined {
 	return taken > 0 ? taken : undefined;
 }
 
-/** What the launcher's call answers while the screen is locked. */
-const LOCKED = "refused: the screen is locked";
-
-/**
- * Whether the shell's lock is up, as `qs ipc call lock isLocked` says.
- * A shell that doesn't answer counts as unlocked, so the hand-over
- * fails or succeeds on its own terms.
- */
-function shellLocked(): Promise<boolean> {
-	return new Promise((resolve) => {
-		execFile(
-			"qs",
-			["ipc", "call", "lock", "isLocked"],
-			{ timeout: ANSWER_MS },
-			(error, stdout) => resolve(!error && String(stdout).trim() === "true"),
-		);
-	});
-}
-
-/**
- * The launcher's own call, through the Quickshell instance running now,
- * refused without asking while the screen is locked.
- */
-export const callLauncher: LauncherCall = async (argument) =>
-	(await shellLocked()) ? LOCKED : reopen(argument);
-
-/** The launcher's reopen call with its one argument. */
-const reopen = (argument: string): Promise<string> =>
+/** The launcher's own call, through the Quickshell instance running now. */
+export const callLauncher: LauncherCall = (argument) =>
 	new Promise((resolve, reject) => {
 		execFile(
 			"qs",
