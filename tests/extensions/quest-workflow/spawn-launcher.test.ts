@@ -13,6 +13,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQuestState } from "../../../extensions/quest-workflow/state";
 import { handle } from "../../../extensions/quest-workflow/transitions";
 import {
+	FIRST_WORDS_VARIABLE,
+	firstWordsDir,
+} from "../../../lib/internal/quest/first-words";
+import {
 	clearTerminalDrivers,
 	registerTerminalDriver,
 } from "../../../lib/terminal/index";
@@ -39,6 +43,14 @@ const KEPT = [
 ];
 let tmpRoot: string;
 let opened: string | undefined;
+let openedEnv: Record<string, string> | undefined;
+
+/** The words a spawn left for the session under `key`, if any. */
+function wordsFor(key: string): string | undefined {
+	const path = join(firstWordsDir(), `${key}.json`);
+	if (!existsSync(path)) return undefined;
+	return (JSON.parse(readFileSync(path, "utf8")) as { words: string }).words;
+}
 const envGuard = createEnvGuard();
 
 function fakePi() {
@@ -99,12 +111,15 @@ beforeEach(() => {
 	);
 	process.env.XDG_CONFIG_HOME = config;
 	opened = undefined;
+	openedEnv = undefined;
+	rmSync(firstWordsDir(), { recursive: true, force: true });
 	clearTerminalDrivers();
 	registerTerminalDriver({
 		id: "kitty",
 		available: () => true,
 		async spawn(req) {
 			opened = req.command;
+			openedEnv = req.env;
 		},
 	});
 });
@@ -142,6 +157,47 @@ describe("spawn through the desktop's launcher", () => {
 		expect(session?.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7/);
 		expect(opened).toBeUndefined();
 		expect(result.message).toContain(`Handed a new session, ${session?.id}`);
+	});
+
+	it("tells the session it hands over to carry on with its quest, and what for", async () => {
+		// 7 of 9 builders spawned on 11-03 sat idle until pivoted.
+		const { state, id } = await quest();
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "spawn",
+			id,
+			note: "Build the slice weights from 5FWIUS's numbers.",
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		const given = handed() as { sessions: { id: string }[] };
+		const words = wordsFor(given.sessions[0]?.id as string);
+		expect(words).toMatch(/^\[Automated message, no human input: /);
+		expect(words).toContain(`Carry on with ${id}`);
+		expect(words).toContain("Build the slice weights from 5FWIUS's numbers.");
+	});
+
+	it("names the words in the window's environment when it opens one itself", async () => {
+		process.env.QS_SAYS = "refused: no session with an id and a folder";
+		const { state, id } = await quest();
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "spawn",
+			id,
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		const token = openedEnv?.[FIRST_WORDS_VARIABLE] as string;
+		expect(wordsFor(token)).toContain(`Carry on with ${id}`);
+	});
+
+	it("leaves no words for a command of the caller's own", async () => {
+		const { state, id } = await quest();
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "spawn",
+			id,
+			command: "htop",
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		expect(opened).toBe("htop");
+		expect(openedEnv?.[FIRST_WORDS_VARIABLE]).toBeUndefined();
+		expect(existsSync(firstWordsDir())).toBe(false);
 	});
 
 	it("opens the window itself when the launcher refuses", async () => {
@@ -194,5 +250,6 @@ describe("spawn through the desktop's launcher", () => {
 		expect(handed()).toBeUndefined();
 		expect(opened).toBeUndefined();
 		expect(result.message).toContain("it goes first to the desktop's launcher");
+		expect(existsSync(firstWordsDir())).toBe(false);
 	});
 });
