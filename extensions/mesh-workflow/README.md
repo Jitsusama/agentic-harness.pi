@@ -716,6 +716,9 @@ characters, the groups it joined, the stops it set, and the
 holds and waits it stood on. The old presence is then
 forgotten, so nobody else signs with those addresses and a
 hold nobody has let go of does not read as its holder ending.
+Should the old log start again in the same process, it joins
+nothing: no presence, no catch-up and no turns, since on
+2026-11-03 one took 13 messages the fresh session never got.
 
 Two sessions can have one quest loaded at once, which happens
 often, as when a second session is opened on it.

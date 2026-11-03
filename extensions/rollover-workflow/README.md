@@ -104,6 +104,18 @@ pi's built-in tools that its first compaction still declared and that
 no system message has declared since, and says which. It touches only
 those tools: an extension's tool comes back through pi itself.
 
+## The Log Left Behind
+
+The workflow marks the session it rolls away from as left, for the
+rest of the process, before it switches; a switch called off takes
+the mark back. pi should never start that session again, yet on
+2026-11-03 one was, with each reload of the live session, and its
+runs printed "turn_end could not resolve the persisted assistant
+entry ID" for hours, a model call each. A turn that starts on a left
+session is now stopped before its request, and the mesh keeps it
+off (see the mesh workflow). The mark lives in
+`lib/internal/session/left.ts`.
+
 ## Carrying State Over
 
 An extension that keeps a figure in memory rather than in the log
@@ -119,3 +131,5 @@ log starts, `carriedBy(branch, name)` from
   record, and reading the parents back.
 - `lib/internal/session/carried-model.ts`: the model carried across
   the switch.
+- `lib/internal/session/left.ts`: the sessions this process has
+  rolled away from.

@@ -48,6 +48,11 @@ import {
 	takeCarriedModel,
 } from "../../lib/internal/session/carried-model.ts";
 import {
+	leaveSession,
+	sessionLeft,
+	stayInSession,
+} from "../../lib/internal/session/left.ts";
+import {
 	builtInsLostToRollover,
 	type Carry,
 	type Entry,
@@ -129,11 +134,20 @@ export async function rollOverNow(
 		modelId: ctx.model?.id ?? "",
 		thinkingLevel: pi.getThinkingLevel(),
 	});
-	const { cancelled } = await ctx.switchSession(path, {
-		withSession: async (fresh) => {
-			fresh.ui.notify(said, "info");
-		},
-	});
+	// Marked before the switch, since the session left can be started
+	// again before the switch returns (see lib/internal/session/left.ts).
+	const left = sessions.getSessionId();
+	leaveSession(left);
+	let cancelled = true;
+	try {
+		({ cancelled } = await ctx.switchSession(path, {
+			withSession: async (fresh) => {
+				fresh.ui.notify(said, "info");
+			},
+		}));
+	} finally {
+		if (cancelled) stayInSession(left);
+	}
 	return cancelled ? "Not rolled over: the switch was called off." : said;
 }
 
@@ -303,6 +317,13 @@ export default function rolloverWorkflow(pi: ExtensionAPI) {
 	});
 	pi.on("before_agent_start", async (_event, ctx) => {
 		await restoreModelBeforeTurn(pi, ctx);
+	});
+
+	// A session rolled away from that is started again runs no turn: pi
+	// saves nothing it says, and on 3 November one repeated the same turn
+	// for hours, a model call each time (lib/internal/session/left.ts).
+	pi.on("turn_start", async (_event, ctx) => {
+		if (sessionLeft(ctx.sessionManager.getSessionId())) ctx.abort();
 	});
 
 	pi.on("session_compact", async (_event, ctx) => {
