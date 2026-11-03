@@ -99,6 +99,17 @@ describe("newestTimestamp via sessionActivity", () => {
 			"2026-06-04T18:00:00.000Z",
 		);
 	});
+
+	it("finds the newest entry when it is longer than a short read of the tail", async () => {
+		// A tool result can make the last entry tens of kilobytes long.
+		await writeSession("019long", "--c--", [
+			{ timestamp: "2026-06-04T10:00:00.000Z" },
+			{ timestamp: "2026-06-04T18:00:00.000Z", output: "x".repeat(40_000) },
+		]);
+		expect(sessionActivity("019long", dir)?.lastActivity).toBe(
+			"2026-06-04T18:00:00.000Z",
+		);
+	});
 });
 
 describe("activityFromIndex", () => {

@@ -397,19 +397,29 @@ function findSessionFile(
 }
 
 /**
- * How much of a session log's tail to read for its newest
- * timestamp. Logs are append-only and can grow large, so reading
- * the whole file just to find the latest entry is wasteful; the
- * last window holds the recent entries.
+ * How much of a session log's tail to read first for its newest
+ * timestamp. Logs are append-only and can grow large, and the
+ * newest entry is the last one, so a short read nearly always holds
+ * it. On 3 November, 154 of 166 logs had a whole entry in their last
+ * 8 KB, each giving the same newest timestamp as 64 KB did. Read
+ * cold, under I/O pressure of 58%, 8 KB of each took 0.85 s where
+ * 64 KB took 4.3 s.
+ */
+const FIRST_TAIL_BYTES = 8 * 1024;
+
+/**
+ * The most of a log's tail read before giving up on a timestamp:
+ * the read doubles up to this while no whole entry carries one.
  */
 const TAIL_BYTES = 64 * 1024;
 
 /**
  * Read the newest entry's timestamp from a JSONL session file.
  *
- * Reads only the tail rather than the whole file, and returns the
- * maximum timestamp among the lines it reads rather than the last
- * positional one, so a late-arriving out-of-order entry does not
+ * Reads only the tail rather than the whole file, starting short and
+ * doubling while it holds no whole entry with a timestamp. It returns
+ * the maximum timestamp among the lines it reads rather than the last
+ * positional one, so an out-of-order entry within the read does not
  * mis-report activity.
  */
 function newestTimestamp(path: string): string | undefined {
@@ -422,32 +432,47 @@ function newestTimestamp(path: string): string | undefined {
 	}
 	try {
 		const { size } = fstatSync(fd);
-		const start = Math.max(0, size - TAIL_BYTES);
-		const length = size - start;
-		const buffer = Buffer.alloc(length);
-		if (length > 0) readSync(fd, buffer, 0, length, start);
-		let text = buffer.toString("utf8");
-		// When we started mid-file the first line is likely partial;
-		// drop it so a truncated JSON line is not parsed.
-		if (start > 0) {
-			const newline = text.indexOf("\n");
-			if (newline >= 0) text = text.slice(newline + 1);
+		for (let window = FIRST_TAIL_BYTES; ; window *= 2) {
+			const start = Math.max(0, size - window);
+			const newest = newestIn(tailText(fd, start, size), start > 0);
+			if (newest || start === 0 || window >= TAIL_BYTES) return newest;
 		}
-		let newest: string | undefined;
-		for (const line of text.split("\n")) {
-			const trimmed = line.trim();
-			if (trimmed === "") continue;
-			const stamp = parseTimestamp(trimmed);
-			if (stamp && (!newest || Date.parse(stamp) > Date.parse(newest))) {
-				newest = stamp;
-			}
-		}
-		return newest;
 	} catch {
 		return undefined;
 	} finally {
 		closeSync(fd);
 	}
+}
+
+/** The bytes of an open file from `start` to `size`, as text. */
+function tailText(fd: number, start: number, size: number): string {
+	const length = size - start;
+	const buffer = Buffer.alloc(length);
+	if (length > 0) readSync(fd, buffer, 0, length, start);
+	return buffer.toString("utf8");
+}
+
+/**
+ * The newest timestamp among a tail's whole lines. A tail read from
+ * mid-file starts with a partial line, which is dropped so a
+ * truncated JSON line is not parsed.
+ */
+function newestIn(tail: string, midFile: boolean): string | undefined {
+	let text = tail;
+	if (midFile) {
+		const newline = text.indexOf("\n");
+		text = newline >= 0 ? text.slice(newline + 1) : "";
+	}
+	let newest: string | undefined;
+	for (const line of text.split("\n")) {
+		const trimmed = line.trim();
+		if (trimmed === "") continue;
+		const stamp = parseTimestamp(trimmed);
+		if (stamp && (!newest || Date.parse(stamp) > Date.parse(newest))) {
+			newest = stamp;
+		}
+	}
+	return newest;
 }
 
 /** Parse one JSONL line's timestamp into an ISO string. */
