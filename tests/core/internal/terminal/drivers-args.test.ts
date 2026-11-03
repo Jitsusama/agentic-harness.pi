@@ -5,6 +5,7 @@ import {
 	kittyLaunchArgs,
 	kittyLaunchSocket,
 	kittyProcessArgs,
+	kittyStartCommand,
 	kittyTabLayoutOf,
 	kittyWindowIdFromLaunch,
 	kittyWindowIds,
@@ -121,6 +122,46 @@ describe("kitty", () => {
 		expect(
 			kittyProcessArgs({ layout: "window", takeFocus: true }, "unix:@k"),
 		).not.toContain("--class");
+	});
+
+	it("starts a kitty of its own in the agents' slice under systemd", () => {
+		const systemd = {
+			platform: "linux" as const,
+			systemdRun: "/bin/systemd-run",
+			userManager: true,
+		};
+		expect(kittyStartCommand("/bin/kitty", ["-1"], systemd)).toEqual({
+			command: "/bin/systemd-run",
+			args: [
+				"--user",
+				"--scope",
+				"--quiet",
+				"--slice=agents.slice",
+				"--",
+				"/bin/kitty",
+				"-1",
+			],
+		});
+		// Without a user manager to ask, as on macOS, kitty starts itself.
+		const direct = { command: "/bin/kitty", args: ["-1"] };
+		expect(
+			kittyStartCommand("/bin/kitty", ["-1"], {
+				...systemd,
+				userManager: false,
+			}),
+		).toEqual(direct);
+		expect(
+			kittyStartCommand("/bin/kitty", ["-1"], {
+				...systemd,
+				platform: "darwin",
+			}),
+		).toEqual(direct);
+		expect(
+			kittyStartCommand("/bin/kitty", ["-1"], {
+				...systemd,
+				systemdRun: undefined,
+			}),
+		).toEqual(direct);
 	});
 
 	it("runs a command directly only when one is given", () => {

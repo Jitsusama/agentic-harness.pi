@@ -17,9 +17,11 @@
 
 import { spawn as nodeSpawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	AGENTS_SLICE,
 	SPAWNED_CLASS,
 	type TerminalDriver,
 	type TerminalLaunchCapability,
@@ -192,6 +194,51 @@ export function kittyProcessArgs(
 	];
 }
 
+/** Where a kitty is started from, as far as its slice goes. */
+export interface KittyStartHost {
+	readonly platform: TerminalPlatform;
+	/** systemd-run's path, when it is on the PATH. */
+	readonly systemdRun: string | undefined;
+	/** Whether the person's systemd user manager answers. */
+	readonly userManager: boolean;
+}
+
+/**
+ * The program and arguments that start a kitty of its own. Under a
+ * systemd user manager it starts in `AGENTS_SLICE`, and every window
+ * scope kitty makes goes into the slice kitty runs in; anywhere else,
+ * as on macOS, kitty starts directly.
+ */
+export function kittyStartCommand(
+	binary: string,
+	args: readonly string[],
+	host: KittyStartHost,
+): { command: string; args: string[] } {
+	if (host.platform !== "linux" || !host.systemdRun || !host.userManager) {
+		return { command: binary, args: [...args] };
+	}
+	return {
+		command: host.systemdRun,
+		args: [
+			"--user",
+			"--scope",
+			"--quiet",
+			`--slice=${AGENTS_SLICE}`,
+			"--",
+			binary,
+			...args,
+		],
+	};
+}
+
+/** Whether a systemd user manager answers for this environment. */
+function userManagerAnswers(
+	env: Readonly<Record<string, string | undefined>>,
+): boolean {
+	const runtime = env.XDG_RUNTIME_DIR;
+	return runtime !== undefined && existsSync(join(runtime, "systemd/private"));
+}
+
 /** The window id `kitty @ launch` prints, or undefined. */
 export function kittyWindowIdFromLaunch(stdout: string): string | undefined {
 	const trimmed = stdout.trim();
@@ -343,10 +390,18 @@ export function createKittyDriver(
 		},
 		async launch(request, context) {
 			const scope = kittyLaunchSocket(context.platform);
-			const args = kittyProcessArgs(request, scope);
+			const start = kittyStartCommand(
+				context.binary,
+				kittyProcessArgs(request, scope),
+				{
+					platform: context.platform,
+					systemdRun: locateBinary("systemd-run", "systemd-run"),
+					userManager: userManagerAnswers(context.env),
+				},
+			);
 			// Detached into a session of its own, so the kitty outlives the
 			// pi that launched it and belongs to the person from the start.
-			const child = nodeSpawn(context.binary, args, {
+			const child = nodeSpawn(start.command, start.args, {
 				detached: true,
 				stdio: "ignore",
 				env: { ...context.env },
