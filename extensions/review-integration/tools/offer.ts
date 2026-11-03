@@ -482,15 +482,17 @@ export function registerOfferTool(pi: ExtensionAPI): void {
 					);
 					if (complaint) {
 						const said = sayRefusal(complaint, params.title, params.body);
-						if (params.action !== "propose" || asSections === undefined) {
-							return refuse(said);
+						// A refused proposal's sections are kept, so its resubmission
+						// need send only what changes.
+						if (params.action === "propose" && asSections !== undefined) {
+							keepRefusedDraft(
+								draftKey(params.repo, params.head),
+								params.title,
+								asSections,
+							);
+							return refuse(`${said}\n\n${RESUBMIT_ONLY_CHANGES}`);
 						}
-						keepRefusedDraft(
-							draftKey(params.repo, params.head),
-							params.title,
-							asSections,
-						);
-						return refuse(`${said}\n\n${RESUBMIT_ONLY_CHANGES}`);
+						return refuse(said);
 					}
 				}
 
