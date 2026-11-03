@@ -334,9 +334,13 @@ The one orphan a fleet can have is a child whose
 supervisor was itself killed. That child was spawned into
 its own process group, so it outlives the supervisor,
 holding a model against a wall clock nothing is watching,
-and its pid was known only to the process that died. Each
-session start asks the same recovery the review side uses
-to stop those, and says which ones it stopped.
+and its pid was known only to the process that died. The
+first session start on the machine in each five minutes
+asks the same recovery the review side uses to stop
+those, and says which ones it stopped. The rest skip it:
+the look walks every run kept, and a restart or an
+install starts every session at once, each of which
+found what the first had just found.
 
 One gap is known and open. A record for a fleet that
 never wrote a transcript is protected like any other and

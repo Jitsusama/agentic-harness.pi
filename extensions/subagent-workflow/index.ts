@@ -55,6 +55,7 @@ import {
 	SUBAGENT_REGISTER_DEFAULT_EXTENSION,
 	SUBAGENT_REGISTER_DEFAULT_SKILL,
 } from "../../lib/subagent/events.ts";
+import { firstInWindow } from "../../lib/subagent/first-in-window.ts";
 import {
 	abandonedFleets,
 	createFleetLedger,
@@ -64,7 +65,10 @@ import {
 	whoIsWaiting,
 } from "../../lib/subagent/fleet.ts";
 import { getParentPiInstall } from "../../lib/subagent/install.ts";
-import { recoverReviewerRuns } from "../../lib/subagent/recovery.ts";
+import {
+	ORPHAN_LOOK_WINDOW_MS,
+	recoverReviewerRuns,
+} from "../../lib/subagent/recovery.ts";
 import { createSupervisorRunPi } from "../../lib/subagent/runpi/supervisor.ts";
 import { THINKING_LEVELS } from "../../lib/thinking/index.ts";
 import { type Aside, asideFor } from "../../lib/ui/aside.ts";
@@ -313,6 +317,15 @@ async function exists(path: string): Promise<boolean> {
  */
 async function stopOrphanedSubagents(runs: string, say: Aside): Promise<void> {
 	try {
+		// Once a window for the whole machine, by whichever session starts
+		// first in it. Every session starts or reloads at once after a
+		// restart or an install, and each walked every run kept to find
+		// what the first had just found: a second and a half of CPU apiece
+		// on 3 November. An orphan is only ever looked for at a start, so
+		// one left in a window waits for the first start after it.
+		if (!(await firstInWindow(runs, "orphans", ORPHAN_LOOK_WINDOW_MS))) {
+			return;
+		}
 		const { reaped, stale, warnings } = await recoverReviewerRuns(
 			new ReviewerArtifactsStore(runs),
 		);
@@ -393,7 +406,8 @@ async function sweepFleetRuns(
 		// record, once. Only a decisive "gone" counts: a reading the
 		// machine would not settle changes nothing, so it can never undo
 		// what another session already proved.
-		for (const run of await abandonedFleets(before.runs, tickFacts)) {
+		const abandoned = await abandonedFleets(before.runs, tickFacts);
+		for (const run of abandoned) {
 			await recordOrSay(
 				() => ledger.cutOff(run.id, "owner-gone"),
 				`could not record that ${run.id} was cut off when its session ended, so it stays held as open`,
@@ -403,8 +417,10 @@ async function sweepFleetRuns(
 		// One walk after those writes, answering every question below. Two
 		// reads inside one handler can disagree, and the pair that
 		// disagrees is a protect set that kept a run beside a listing that
-		// no longer mentions it.
-		const { runs: held } = await ledger.everyFleet();
+		// no longer mentions it. With nothing cut off there were no such
+		// writes, and the first walk already is that one.
+		const held =
+			abandoned.length === 0 ? before.runs : (await ledger.everyFleet()).runs;
 		const kept = stillHeld(
 			held,
 			new Date(Date.now() - FLEET_RUNS_ABANDONED_AFTER_MS),

@@ -62,6 +62,7 @@ beforeEach(() => {
 
 afterEach(() => {
 	expect(behind).toEqual([]);
+	vi.useRealTimers();
 	vi.unstubAllEnvs();
 	vi.restoreAllMocks();
 	rmSync(root, { recursive: true, force: true });
@@ -94,7 +95,15 @@ function staleFleet(id: string): string {
  * the sweep that runs before them.
  */
 async function alsoOrphaned(store: ReviewerArtifactsStore): Promise<void> {
-	const paths = await store.ensureReviewerDir("zz-orphan", "one");
+	await orphaned(store, "zz-orphan");
+}
+
+/** A run whose supervisor is plainly gone, under the run id given. */
+async function orphaned(
+	store: ReviewerArtifactsStore,
+	runId: string,
+): Promise<void> {
+	const paths = await store.ensureReviewerDir(runId, "one");
 	await store.writeJsonAtomic(paths.progressPath, {
 		state: "running",
 		activity: "thinking",
@@ -106,6 +115,20 @@ async function alsoOrphaned(store: ReviewerArtifactsStore): Promise<void> {
 		supervisorStartedAt: 1_000_000,
 		updatedAt: new Date().toISOString(),
 	});
+}
+
+/** A day, which holds a whole number of every window these tests cross. */
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Hold the clock at the start of the next day, and hand back that
+ * moment, so a minute after it is still in the window it opens.
+ */
+function holdTheClock(): number {
+	vi.useFakeTimers({ toFake: ["Date"] });
+	const opens = Math.ceil(Date.now() / DAY_MS) * DAY_MS;
+	vi.setSystemTime(opens);
+	return opens;
 }
 
 /** Wait until the housekeeping has said what it did. */
@@ -285,6 +308,44 @@ describe("a fleet child whose supervisor died", () => {
 
 		await finished();
 		expect(existsSync(paths.cancelPath)).toBe(false);
+	});
+
+	it("is looked for by the first session start in a window, not by every one", async () => {
+		// A restart reopens every session at once and an install reloads
+		// every one, and each look walks every run ever kept. The first
+		// start in a window looks for the whole machine.
+		const opens = holdTheClock();
+		const store = new ReviewerArtifactsStore(stateDir());
+		await alsoOrphaned(store);
+		await startSession();
+		await finished();
+
+		// Left after that look. The next start in the window is seen to
+		// be done when it tells its conversation of a fleet cut off.
+		await orphaned(store, "fleet-later");
+		await createFleetLedger(stateDir("fleets")).open({
+			id: "fleet-0",
+			startedAt: new Date().toISOString(),
+			jobs: ["one"],
+			session: "conversation-a",
+			owner: { pid: noSuchProcess(), startedAt: 1_000 },
+		});
+		staleFleet("fleet-0");
+		vi.setSystemTime(opens + 60_000);
+		const second = await startSession("conversation-a");
+		await vi.waitFor(() => expect(second).toHaveLength(1));
+
+		// The next window's first start finds it, so nobody had before:
+		// a run is named only by the first look that finds it.
+		await orphaned(store, "zz-third");
+		vi.setSystemTime(opens + DAY_MS);
+		await startSession();
+		await vi.waitFor(() => expect(said.join(" ")).toContain("zz-third/one"), {
+			timeout: 30_000,
+		});
+		expect(said.filter((line) => line.includes("fleet-later/one"))).toEqual([
+			expect.stringContaining("zz-third/one"),
+		]);
 	});
 
 	it("leaves a job that has not written its lease yet", async () => {
@@ -493,6 +554,11 @@ describe("the fleet retention sweep", () => {
 		);
 		expect(said.filter(aboutFleets)).toEqual([]);
 
+		// Restored at a later start, past the window in which the first
+		// one looked for orphans, so this one looks too and finishes by
+		// saying so.
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(Date.now() + DAY_MS);
 		await alsoOrphaned(new ReviewerArtifactsStore(stateDir()));
 		const again = await startSession("conversation-a");
 		await finished();

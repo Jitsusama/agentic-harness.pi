@@ -13,6 +13,11 @@ export function isNotFound(error: unknown): boolean {
 	return codeOf(error) === "ENOENT";
 }
 
+/** Whether this failed because something is already at that path. */
+export function isAlreadyThere(error: unknown): boolean {
+	return codeOf(error) === "EEXIST";
+}
+
 /** Whether this failed because the path is a directory. */
 export function isDirectory(error: unknown): boolean {
 	return codeOf(error) === "EISDIR";

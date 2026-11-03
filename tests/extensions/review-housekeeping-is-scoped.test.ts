@@ -34,6 +34,7 @@ import {
 	createRunStore,
 } from "../../lib/core/review/index.ts";
 import { ReviewerArtifactsStore } from "../../lib/subagent/index.ts";
+import { noSuchProcess } from "../support/processes.ts";
 import { activate } from "./support/review-extension.ts";
 
 let root: string;
@@ -59,6 +60,7 @@ beforeEach(() => {
 
 afterEach(() => {
 	expect(behind).toEqual([]);
+	vi.useRealTimers();
 	vi.restoreAllMocks();
 	if (wasState === undefined) delete process.env.XDG_STATE_HOME;
 	else process.env.XDG_STATE_HOME = wasState;
@@ -207,6 +209,29 @@ async function openRound(
 		...over,
 	});
 }
+
+/**
+ * A reviewer whose supervisor is plainly gone, and where the request
+ * to stop it goes.
+ */
+async function orphanedReviewer(id: string): Promise<string> {
+	const store = new ReviewerArtifactsStore(stateDir("transcripts"));
+	const paths = await store.ensureReviewerDir(id, "hawk");
+	await store.writeJsonAtomic(paths.progressPath, {
+		state: "running",
+		updatedAt: new Date().toISOString(),
+	});
+	await store.writeJsonAtomic(paths.leasePath, {
+		state: "running",
+		supervisorPid: noSuchProcess(),
+		supervisorStartedAt: 1_000_000,
+		updatedAt: new Date().toISOString(),
+	});
+	return paths.cancelPath;
+}
+
+/** A day, which holds a whole number of every window these tests cross. */
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Whether the ledger still holds `id` open. */
 async function stillOpen(id: string): Promise<boolean> {
@@ -362,5 +387,46 @@ describe("housekeeping at session start", () => {
 
 		await vi.waitFor(() => expect(existsSync(round)).toBe(false));
 		expect(said).toEqual([]);
+	});
+});
+
+describe("the look for orphaned reviewers", () => {
+	it("is taken by the first session start in a window, not by every one", async () => {
+		// A restart reopens every session at once and an install reloads
+		// every one, and each look walks every reviewer kept. The first
+		// start in a window looks for the whole machine.
+		vi.useFakeTimers({ toFake: ["Date"] });
+		const opens = Math.ceil(Date.now() / DAY_MS) * DAY_MS;
+		vi.setSystemTime(opens);
+		const early = await orphanedReviewer("round-early");
+		await startSession();
+		await vi.waitFor(() => expect(existsSync(early)).toBe(true), {
+			timeout: SETTLES_MS,
+		});
+
+		// Left after that look. The next start in the window is seen to
+		// be done once it has pruned an attachment, its step before.
+		const later = await orphanedReviewer("round-later");
+		const attachment = staleAttachment("another-session");
+		vi.setSystemTime(opens + 60_000);
+		await startSession();
+		await vi.waitFor(() => expect(existsSync(attachment)).toBe(false), {
+			timeout: SETTLES_MS,
+		});
+
+		// A request to stop is written once, so its time says which look
+		// found the run: the next window's first. A wait moves a held
+		// clock on as it polls, so the time is a day on or a little after.
+		vi.setSystemTime(opens + DAY_MS);
+		await startSession();
+		await vi.waitFor(() => expect(existsSync(later)).toBe(true), {
+			timeout: SETTLES_MS,
+		});
+		const asked = await new ReviewerArtifactsStore(
+			stateDir("transcripts"),
+		).readJson<{ requestedAt: string }>(later);
+		expect(Date.parse(asked?.requestedAt ?? "")).toBeGreaterThanOrEqual(
+			opens + DAY_MS,
+		);
 	});
 });
