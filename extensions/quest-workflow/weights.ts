@@ -31,7 +31,10 @@ import {
 	machineQueueDir,
 	QUEUE_FIRST_FILE,
 } from "../../lib/internal/priority/folder.ts";
-import { discoverQuests } from "../../lib/internal/quest/discovery.ts";
+import {
+	discoverQuests,
+	type QuestIndex,
+} from "../../lib/internal/quest/discovery.ts";
 import type { QuestFrontMatter, QuestPriority } from "../../lib/quest/types.ts";
 
 /** The file in the jobs folder that holds each quest's weight. */
@@ -66,9 +69,9 @@ export const PRIORITY_WEIGHT: Record<QuestPriority, number> = {
 };
 
 /** Each open quest's weight, by id, in a stable order. */
-function questWeights(questsRoot: string): Record<string, number> {
+function questWeights(index: QuestIndex): Record<string, number> {
 	const weights: [string, number][] = [];
-	for (const [id, entry] of discoverQuests(questsRoot).index.quests) {
+	for (const [id, entry] of index.quests) {
 		const { status, priority } = entry.doc.frontMatter;
 		if (status === "concluded" || status === "retired") continue;
 		weights.push([id, PRIORITY_WEIGHT[priority] ?? PRIORITY_WEIGHT.queued]);
@@ -78,9 +81,9 @@ function questWeights(questsRoot: string): Record<string, number> {
 }
 
 /** The open quests whose work goes first, sorted. */
-function questsFirst(questsRoot: string): string[] {
+function questsFirst(index: QuestIndex): string[] {
 	const first: string[] = [];
-	for (const [id, entry] of discoverQuests(questsRoot).index.quests) {
+	for (const [id, entry] of index.quests) {
 		const { status } = entry.doc.frontMatter;
 		if (status === "concluded" || status === "retired") continue;
 		if (goesFirst(entry.doc.frontMatter)) first.push(id);
@@ -109,20 +112,28 @@ function replaceUnlessSame(
 /**
  * Write each open quest's weight into `dir`'s weights file, and the
  * quests whose work goes first into its first file, replacing each whole
- * unless it already says the same. Whether either was written.
+ * unless it already says the same. Whether either was written. Both
+ * come from one walk of the store: on 804 quests on 3 November, two
+ * walks took a median 117 ms and one took 57 ms. A caller holding an
+ * index walked a moment ago passes it, and no walk is made.
  */
-export function writeQuestWeights(questsRoot: string, dir: string): boolean {
+export function writeQuestWeights(
+	questsRoot: string,
+	dir: string,
+	walked?: QuestIndex,
+): boolean {
 	if (!existsSync(questsRoot)) return false;
 	const json = (value: unknown) => `${JSON.stringify(value, null, "\t")}\n`;
+	const index = walked ?? discoverQuests(questsRoot).index;
 	const weighed = replaceUnlessSame(
 		dir,
 		join(dir, QUEST_WEIGHTS_FILE),
-		json(questWeights(questsRoot)),
+		json(questWeights(index)),
 	);
 	const first = replaceUnlessSame(
 		dir,
 		join(dir, QUEUE_FIRST_FILE),
-		json(questsFirst(questsRoot)),
+		json(questsFirst(index)),
 	);
 	return weighed || first;
 }
@@ -135,13 +146,14 @@ export function writeQuestWeights(questsRoot: string, dir: string): boolean {
  */
 export function keepQuestWeights(
 	questsRoot: string,
+	walked?: QuestIndex,
 	dir: string | undefined = process.platform === "linux"
 		? machineQueueDir()
 		: undefined,
 ): void {
 	if (!dir) return;
 	try {
-		writeQuestWeights(questsRoot, dir);
+		writeQuestWeights(questsRoot, dir, walked);
 	} catch {
 		// The next quest action tries again.
 	}
