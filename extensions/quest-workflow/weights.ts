@@ -114,12 +114,17 @@ function replaceUnlessSame(
  * quests whose work goes first into its first file, replacing each whole
  * unless it already says the same. Whether either was written. Both
  * come from one walk of the store: on 804 quests on 3 November, two
- * walks took a median 117 ms and one took 57 ms.
+ * walks took a median 117 ms and one took 57 ms. A caller holding an
+ * index walked a moment ago passes it, and no walk is made.
  */
-export function writeQuestWeights(questsRoot: string, dir: string): boolean {
+export function writeQuestWeights(
+	questsRoot: string,
+	dir: string,
+	walked?: QuestIndex,
+): boolean {
 	if (!existsSync(questsRoot)) return false;
 	const json = (value: unknown) => `${JSON.stringify(value, null, "\t")}\n`;
-	const { index } = discoverQuests(questsRoot);
+	const index = walked ?? discoverQuests(questsRoot).index;
 	const weighed = replaceUnlessSame(
 		dir,
 		join(dir, QUEST_WEIGHTS_FILE),
@@ -141,13 +146,14 @@ export function writeQuestWeights(questsRoot: string, dir: string): boolean {
  */
 export function keepQuestWeights(
 	questsRoot: string,
+	walked?: QuestIndex,
 	dir: string | undefined = process.platform === "linux"
 		? machineQueueDir()
 		: undefined,
 ): void {
 	if (!dir) return;
 	try {
-		writeQuestWeights(questsRoot, dir);
+		writeQuestWeights(questsRoot, dir, walked);
 	} catch {
 		// The next quest action tries again.
 	}

@@ -22,6 +22,7 @@ import {
 	writeQuestWeights,
 } from "../../../extensions/quest-workflow/weights";
 import { QUEUE_FIRST_FILE } from "../../../lib/internal/priority/folder";
+import { discoverQuests } from "../../../lib/internal/quest/discovery";
 import {
 	clearRefTypes,
 	registerBuiltinRefTypes,
@@ -187,6 +188,19 @@ describe("each quest's weight", () => {
 		expect(readdirSync(jobs).sort()).toEqual(
 			[QUEST_WEIGHTS_FILE, QUEUE_FIRST_FILE].sort(),
 		);
+	});
+
+	it("is written from a walk the caller already made, walking nothing more", async () => {
+		const s = state();
+		const a = await act(s, { action: "create", title: "A" });
+		const { index } = discoverQuests(questsRoot);
+		// Changed after the walk, so a second walk would see it.
+		await act(s, { action: "load", id: a.id });
+		await act(s, { action: "park" });
+
+		writeQuestWeights(questsRoot, jobs, index);
+
+		expect(weights()[a.id]).toBe(PRIORITY_WEIGHT.active);
 	});
 
 	it("is not written where there is no quests root to read", () => {

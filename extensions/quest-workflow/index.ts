@@ -706,7 +706,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		// user needs to know those quests didn't load so they
 		// can move them back into place rather than noticing
 		// later that a quest "vanished."
-		const { errors } = discoverQuests(state.questsRoot);
+		const { index, errors } = discoverQuests(state.questsRoot);
 		// As one notice through the session's screen, never straight to
 		// the terminal, which pi is drawing (lib/ui/aside.ts).
 		if (errors.length > 0) {
@@ -721,9 +721,9 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			];
 			asideFor(ctx)(lines.join("\n"));
 		}
-		// From the walk just made, so it costs a look, and it catches a
-		// priority edited by hand while no session was running.
-		keepQuestWeights(state.questsRoot);
+		// From the walk just made, so it walks nothing more, and it catches
+		// a priority edited by hand while no session was running.
+		keepQuestWeights(state.questsRoot, index);
 		void keepDesktopListsCurrent(state.questsRoot);
 
 		// Resolve which quest to load through the one startup
