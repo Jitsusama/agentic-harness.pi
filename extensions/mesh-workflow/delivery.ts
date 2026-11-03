@@ -9,6 +9,7 @@ import {
 	type Intent,
 	line,
 	type Message,
+	sender,
 	shortId,
 } from "../../lib/mesh/message.ts";
 import type { HoldEnd } from "./leases.ts";
@@ -85,6 +86,14 @@ export interface Delivered {
 	readonly leftTo?: string;
 }
 
+/**
+ * What a message that crossed from another realm asks instead of what
+ * its intent does: no answer on the mesh, since none reaches back.
+ */
+export function crossedText(realm: string): string {
+	return `It crossed from the ${realm} realm, which nothing said here reaches, so it can't be answered on the mesh, whatever its intent asks. If it needs an answer or holds something for the person, tell them in your reply.`;
+}
+
 /** Messages in full, with any glances waiting carried along. */
 export function noted(
 	messages: readonly Message[],
@@ -99,7 +108,10 @@ export function noted(
 				: "",
 		].filter(Boolean);
 		const thread = threads.length > 0 ? `, ${threads.join(", ")}` : "";
-		return `Mesh message [${shortId(message)}] (${message.intent}) from ${message.from} to ${message.to.join(", ")} at ${clock(message)}${thread}:\n\n${message.text}`;
+		const crossed = message.fromRealm
+			? `\n\n${crossedText(message.fromRealm)}`
+			: "";
+		return `Mesh message [${shortId(message)}] (${message.intent}) from ${sender(message)} to ${message.to.join(", ")} at ${clock(message)}${thread}:\n\n${message.text}${crossed}`;
 	});
 	const asks = INTENTS.filter((intent) =>
 		messages.some((message) => message.intent === intent),

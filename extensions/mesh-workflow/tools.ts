@@ -8,6 +8,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type { QueueRecord } from "../../lib/internal/priority/folder.ts";
 import { answeringTo, namedAtStart } from "../../lib/mesh/address.ts";
+import type { CrossAnswer, Crossed, Crossing } from "../../lib/mesh/flow.ts";
 import {
 	ALL,
 	groupNamed,
@@ -68,6 +69,10 @@ export interface Local {
 	readonly route?: Judge;
 	/** The machine queue's jobs, while some session keeps it. */
 	readonly queue?: () => QueueRecord["jobs"] | undefined;
+	/** The realms the node lets this one send to (see lib/mesh/flow.ts). */
+	readonly flows?: () => Promise<readonly string[]>;
+	/** Hand a message to the node to send into another realm. */
+	readonly cross?: (crossing: Crossing) => Promise<CrossAnswer>;
 	/** Note a message this peer sent, so it is never handed back to it. */
 	sent(message: Message): void;
 	/**
@@ -91,6 +96,10 @@ export interface SendDetails {
 	readonly reached?: readonly string[];
 	/** The peers it was addressed to whose sessions have ended. */
 	readonly gone?: readonly string[];
+	/** What crossed into another realm, as the node sent it. */
+	readonly crossed?: Crossed;
+	/** Why the node refused a crossing, as it said it. */
+	readonly crossRefused?: { readonly code: string; readonly why: string };
 }
 
 export function registerTools(
@@ -119,7 +128,7 @@ export function registerTools(
 		promptSnippet:
 			"Message the other pi sessions on this machine; mesh_read, mesh_groups, mesh_join, mesh_leave and mesh_stop read the mesh and shape who hears what, and mesh_wait says what waits on the person.",
 		description:
-			"Send a message to other pi sessions (peers) on this machine without interrupting them: it joins their conversation as context, at the attention each gives it. Send only what changes what another peer should do (a hold before a reboot, a switch or a merge; a question only it can answer) or what concerns something it owns (a finding). Never send progress, acknowledgements or thanks, nor word of heavy work: builds, VM tests and benchmarks take turns in the machine's queue by themselves. Every message goes to a group: a peer's home group by its address (5GV2AH); a group a peer's work puts it in, its quest's (#quest/5gv2ah, which reaches the quests under it too) or its repository's (#repo/agentic-harness-pi); a group by name (#harness); or #machine (#all names it too), which every session hears and which takes only holds and the answers that end them: a question, finding or fyi sent there is refused. Pick the narrowest that reaches everyone affected: a question for one peer goes to its address alone (to: P9R1KI, not a group it shares), since every member of a group reads what is sent there; a question to several peers or a named group asks each of them, giving each a turn and counting only each one's own answer, and a message that opens by naming peers ('P9R1KI: may I') goes to them alone wherever it was sent. When the person asks to stop or pause other sessions' work, as before a reboot, send a hold to #machine asking each peer to answer it once parked, then answer the hold yourself (re) when work may resume: that hands every peer that answered its turn back, and a reboot since a hold was sent ends it by itself. When the person tells you a hold another peer sent is over, answer it with endsHold, which asks them to confirm. A question or an fyi hands no turn back, so a pause sent as one leaves sessions parked. Leave `to` out and the mesh picks from what the message names and who works on it. Sending to a named group joins it, so this peer hears the answers. Realms are kept apart: an address no session in this realm goes by is left out, and a send left with nowhere to go is refused. mesh_groups lists the groups and who is in them.",
+			"Send a message to other pi sessions (peers) on this machine without interrupting them: it joins their conversation as context, at the attention each gives it. Send only what changes what another peer should do (a hold before a reboot, a switch or a merge; a question only it can answer) or what concerns something it owns (a finding). Never send progress, acknowledgements or thanks, nor word of heavy work: builds, VM tests and benchmarks take turns in the machine's queue by themselves. Every message goes to a group: a peer's home group by its address (5GV2AH); a group a peer's work puts it in, its quest's (#quest/5gv2ah, which reaches the quests under it too) or its repository's (#repo/agentic-harness-pi); a group by name (#harness); or #machine (#all names it too), which every session hears and which takes only holds and the answers that end them: a question, finding or fyi sent there is refused. Pick the narrowest that reaches everyone affected: a question for one peer goes to its address alone (to: P9R1KI, not a group it shares), since every member of a group reads what is sent there; a question to several peers or a named group asks each of them, giving each a turn and counting only each one's own answer, and a message that opens by naming peers ('P9R1KI: may I') goes to them alone wherever it was sent. When the person asks to stop or pause other sessions' work, as before a reboot, send a hold to #machine asking each peer to answer it once parked, then answer the hold yourself (re) when work may resume: that hands every peer that answered its turn back, and a reboot since a hold was sent ends it by itself. When the person tells you a hold another peer sent is over, answer it with endsHold, which asks them to confirm. A question or an fyi hands no turn back, so a pause sent as one leaves sessions parked. Leave `to` out and the mesh picks from what the message names and who works on it. Sending to a named group joins it, so this peer hears the answers. Realms are kept apart: an address no session in this realm goes by is left out, and a send left with nowhere to go is refused. Pass realm only to reach peers by address in another realm this one's node has a flow to; a refusal names those realms. mesh_groups lists the groups and who is in them.",
 		parameters: Type.Object({
 			to: Type.Optional(
 				Type.String({
@@ -152,8 +161,16 @@ export function registerTools(
 						"true only when the person has told you that the hold another peer sent, named by re, is over: it ends that hold for every peer waiting on it, once the person confirms. Never on your own judgement",
 				}),
 			),
+			realm: Type.Optional(
+				Type.String({
+					description:
+						"Another realm to send it into, such as work, through this machine's node, which allows only the realms it has a flow to: to peers there by address, as an fyi, finding or question, and nothing there can answer back. Leave it out for this realm",
+				}),
+			),
 		}),
-		execute: using(send),
+		execute: using((at, params: SendParams) =>
+			params.realm?.trim() ? sendAcross(at, params) : send(at, params),
+		),
 	});
 
 	pi.registerTool({
@@ -400,19 +417,108 @@ function routedWide(
 	return routed !== undefined && aimed === undefined && chosen.length === 0;
 }
 
-async function send(
+/** What mesh_send is asked. */
+interface SendParams {
+	readonly to?: string;
+	readonly intent: Message["intent"];
+	readonly text: string;
+	readonly re?: string;
+	readonly supersedes?: string;
+	readonly endsHold?: boolean;
+	readonly realm?: string;
+}
+
+/**
+ * Why a send may not answer `re`, when it names a message that crossed
+ * from another realm: nothing said here reaches back there, so an answer
+ * would be written where nobody who asked could read it.
+ */
+function crossedAnswerRefused(
 	at: Local,
-	params: {
-		to?: string;
-		intent: Message["intent"];
-		text: string;
-		re?: string;
-		supersedes?: string;
-		endsHold?: boolean;
-	},
-): Promise<Answer> {
+	re: string | undefined,
+): Answer | undefined {
+	const asked = re ? at.transport.read(re) : undefined;
+	if (!asked?.fromRealm) return undefined;
+	return answer(
+		`Not sent: [${shortId(asked)}] crossed from the ${asked.fromRealm} realm, and nothing said on the mesh reaches back there, so it can't be answered. If it needs an answer, tell the person in your reply.`,
+		{ sent: false } satisfies SendDetails,
+	);
+}
+
+/**
+ * Send into another realm through the machine's node, which alone may
+ * carry it, and only along a flow it was told of. Refused here when no
+ * flow goes there, and otherwise refused by the node as it says, never
+ * dropped without a word. Nothing is written into this realm's mesh.
+ */
+async function sendAcross(at: Local, params: SendParams): Promise<Answer> {
+	const realm = params.realm?.trim() ?? "";
+	const flows = (await at.flows?.()) ?? [];
+	if (!flows.includes(realm) || !at.cross) {
+		return answer(
+			`Not sent: this realm's node has no flow to ${realm}, so nothing sent here reaches it. ${flowsText(flows)}`,
+			{ sent: false, refused: [realm] } satisfies SendDetails,
+		);
+	}
+	const to = groupsNamed(params.to ?? "");
+	if (to.length === 0) {
+		return answer(
+			`Not sent: a message to the ${realm} realm goes to peers there by address, and the mesh can't pick them from here. Name them with to.`,
+			{ sent: false } satisfies SendDetails,
+		);
+	}
+	const re = params.re
+		? (idNamed(params.re, at.transport.ids()) ?? params.re)
+		: undefined;
+	const refused = crossedAnswerRefused(at, re);
+	if (refused) return refused;
+	const sent = await at.cross({
+		realm,
+		from: at.peer.signature,
+		to,
+		intent: params.intent,
+		text: params.text,
+		...(re ? { re } : {}),
+	});
+	if (!sent.ok) {
+		return answer(`Not sent: the node refused it (${sent.code}): ${sent.why}`, {
+			sent: false,
+			crossRefused: { code: sent.code, why: sent.why },
+		} satisfies SendDetails);
+	}
+	const { crossed } = sent;
+	const left = [
+		params.supersedes ? "supersedes" : "",
+		params.endsHold ? "endsHold" : "",
+	].filter(Boolean);
+	const notes = [
+		`It went to the ${realm} realm through this machine's node, and no copy is kept here.`,
+		crossed.intent === "question"
+			? "Nothing there can answer it on the mesh, so wait on no answer."
+			: "",
+		left.length > 0
+			? `${left.join(" and ")} can't cross, so ${left.length === 1 ? "it was" : "they were"} left out.`
+			: "",
+	].filter(Boolean);
+	return answer(
+		`Sent to the ${realm} realm as ${crossed.from}: [${shortId(crossed)}] ${crossed.intent} to ${crossed.to.join(", ")}: ${crossed.text}\n${notes.join(" ")}`,
+		{ sent: true, crossed } satisfies SendDetails,
+	);
+}
+
+/** Which realms this one may send to, as a refusal says it. */
+function flowsText(flows: readonly string[]): string {
+	return flows.length === 0
+		? "Its node lets it send to no other realm."
+		: `Its node lets it send to ${flows.join(" and ")}: pass that as realm, with the peers there by address.`;
+}
+
+async function send(at: Local, params: SendParams): Promise<Answer> {
 	const ids = at.transport.ids();
 	const answersNamed = params.re ? idNamed(params.re, ids) : undefined;
+	const crossedAnswer = crossedAnswerRefused(at, answersNamed);
+	if (crossedAnswer) return crossedAnswer;
+
 	const ended = endedOnWord(at, params.endsHold, answersNamed);
 	if (ended.hold) {
 		const refused = at.confirmEnd
@@ -606,14 +712,17 @@ async function send(
 		asker ? [homeOf(asker.from)] : [],
 	);
 	const to = unbarred.filter((group) => !unheard.includes(group));
+	const flows = unheard.length > 0 ? ((await at.flows?.()) ?? []) : [];
 	if (to.length === 0) {
-		return answer(`Not sent: ${unheardText(unheard)}`, {
+		return answer(`Not sent: ${unheardText(unheard, flows)}`, {
 			sent: false,
 			refused: unheard,
 		} satisfies SendDetails);
 	}
 	if (unheard.length > 0) {
-		notes.push(`Not written to ${unheard.join(", ")}: ${unheardText(unheard)}`);
+		notes.push(
+			`Not written to ${unheard.join(", ")}: ${unheardText(unheard, flows)}`,
+		);
 	}
 	// Only peers still there count as in a group: one whose every other
 	// member has ended is one nobody hears this in until someone joins.
@@ -755,9 +864,16 @@ function unheardOf(
 }
 
 /** Why a send leaves out the addresses no session here goes by. */
-function unheardText(unheard: readonly string[]): string {
+function unheardText(
+	unheard: readonly string[],
+	flows: readonly string[] = [],
+): string {
 	const names = unheard.map((group) => group.slice(1)).join(" or ");
-	return `no session in this realm goes by ${names}, there or ended. Realms are kept apart, so a session in another realm can't be reached from here, and a mistyped address reaches nobody. mesh_groups lists who is here; tell the person in your reply what it was for if it is meant for another realm.`;
+	const elsewhere =
+		flows.length > 0
+			? `. This realm's node lets it send to ${flows.join(" and ")}: if it is meant for a session there, send it again with realm set to that realm.`
+			: "; tell the person in your reply what it was for if it is meant for another realm.";
+	return `no session in this realm goes by ${names}, there or ended. Realms are kept apart, so a session in another realm can't be reached from here, and a mistyped address reaches nobody. mesh_groups lists who is here${elsewhere}`;
 }
 
 /** Who a message just sent goes to, and which addressed peers it misses. */

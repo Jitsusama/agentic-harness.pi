@@ -7,6 +7,7 @@ import {
 	isKeptPresent,
 	keepPresent,
 	stopPresent,
+	whenPresent,
 } from "../../../lib/mesh/present.ts";
 
 let dir: string;
@@ -119,5 +120,37 @@ describe("being present on the node", () => {
 
 		await until(isKeptPresent, "present once a node is named");
 		expect(heard.connections).toBe(1);
+	});
+});
+
+describe("hearing when the node counts this process present", () => {
+	afterEach(() => {
+		for (const stop of unhearing.splice(0)) stop();
+	});
+	const unhearing: (() => void)[] = [];
+
+	it("says so once present, and again after the node drops it, as a restart does", async () => {
+		const heard = await node('{"Ok":"Present"}');
+		let times = 0;
+		unhearing.push(whenPresent(() => (times += 1)));
+		keepPresent(() => path, 10);
+		await until(() => times === 1, "heard the first time");
+
+		heard.open[0]?.destroy();
+
+		await until(() => times === 2, "heard again once present anew");
+	});
+
+	it("says nothing to a listener stopped, as a reload's old load is", async () => {
+		await node('{"Ok":"Present"}');
+		let old = 0;
+		let fresh = 0;
+		whenPresent(() => (old += 1))();
+		unhearing.push(whenPresent(() => (fresh += 1)));
+
+		keepPresent(() => path, 10);
+
+		await until(() => fresh === 1, "the new load heard");
+		expect(old).toBe(0);
 	});
 });

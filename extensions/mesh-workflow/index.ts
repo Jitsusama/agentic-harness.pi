@@ -96,6 +96,7 @@ import {
 	createDamper,
 	MOST_CAUGHT_UP,
 } from "../../lib/mesh/damping.ts";
+import { crossAt, flowsAt } from "../../lib/mesh/flow.ts";
 import { groupNamed, homeOf, isJoinable } from "../../lib/mesh/group.ts";
 import { isSubagent, MESH_SESSION_ENV } from "../../lib/mesh/hand.ts";
 import {
@@ -129,7 +130,7 @@ import {
 } from "../../lib/mesh/owed.ts";
 import { localPeer, type Peer } from "../../lib/mesh/peer.ts";
 import { createPresences, windowTitle } from "../../lib/mesh/presence.ts";
-import { keepPresent } from "../../lib/mesh/present.ts";
+import { keepPresent, whenPresent } from "../../lib/mesh/present.ts";
 import { createReadFront } from "../../lib/mesh/reading.ts";
 import { sweeper } from "../../lib/mesh/retention.ts";
 import type { Judge } from "../../lib/mesh/routing.ts";
@@ -408,6 +409,14 @@ export function meshWorkflow(
 					),
 			);
 		let untellAwaited: (() => void) | undefined;
+		// The realms this one may send to, as the node last said; asked as
+		// the session starts and again each time the node counts this
+		// process present anew, as after it restarts (see lib/mesh/flow.ts).
+		let flows: Promise<readonly string[]> = Promise.resolve([]);
+		let unhearPresent: (() => void) | undefined;
+		const askFlows = () => {
+			flows = flowsAt(nodeSocket(env));
+		};
 		// Whose quest address this peer was told it left, and what it last
 		// signed as, so each is said once.
 		let leftTo: string | undefined;
@@ -822,7 +831,13 @@ export function meshWorkflow(
 			const messages = all.map(({ message }) => message);
 			if (turn) leasing.answering(messages);
 			for (const { message, heed } of all) {
-				if (turn && heed.addressed && message.intent === "question") {
+				if (
+					turn &&
+					heed.addressed &&
+					message.intent === "question" &&
+					// No answer reaches back to another realm, so none is owed.
+					message.fromRealm === undefined
+				) {
 					owing.owe(message);
 				}
 			}
@@ -1138,6 +1153,9 @@ export function meshWorkflow(
 			// The node hears this process end the moment it does, crash or
 			// not; a reload keeps the one connection it already holds.
 			keepPresent(() => nodeSocket(env));
+			askFlows();
+			unhearPresent?.();
+			unhearPresent = whenPresent(askFlows);
 			// Named on its presence so others can ask the machine whether this
 			// peer is still there; a peer the machine will not name is taken
 			// as there, which only costs a sender a line.
@@ -1372,6 +1390,8 @@ export function meshWorkflow(
 			stopWatching = undefined;
 			untellAwaited?.();
 			untellAwaited = undefined;
+			unhearPresent?.();
+			unhearPresent = undefined;
 			steering?.stop();
 			steering = undefined;
 			// The peer goes with its session. Work still in flight from it, a
@@ -1554,6 +1574,8 @@ export function meshWorkflow(
 						board,
 						route: routing,
 						queue: () => queueJobs(env),
+						flows: () => flows,
+						cross: (crossing) => crossAt(nodeSocket(env), crossing),
 						sent: (message) => {
 							seen.add(message.id);
 							if (message.re !== undefined) owing.paid(message.re);

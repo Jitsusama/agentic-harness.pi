@@ -43,7 +43,30 @@ interface Keeping {
 
 const SLOT = Symbol.for("agentic-harness.mesh.present.v1");
 
-type PresentGlobal = { [SLOT]?: Keeping };
+/**
+ * Who hears each time the node counts this process present, kept apart
+ * from the connection: a reload keeps the connection, but its listeners
+ * are the new load's.
+ */
+const HEARING = Symbol.for("agentic-harness.mesh.present.hearing.v1");
+
+type PresentGlobal = {
+	[SLOT]?: Keeping;
+	[HEARING]?: Set<() => void>;
+};
+
+/**
+ * Calls `heard` each time the node counts this process present: once
+ * the first connection is, and again after each that dropped, as one
+ * does when the node restarts. Answers what stops it.
+ */
+export function whenPresent(heard: () => void): () => void {
+	const held = globalThis as PresentGlobal;
+	const hearing = held[HEARING] ?? new Set();
+	held[HEARING] = hearing;
+	hearing.add(heard);
+	return () => hearing.delete(heard);
+}
 
 /**
  * Keeps this process present on the node `at` names, from now until it
@@ -89,6 +112,13 @@ export function keepPresent(
 			if (end < 0) return;
 			if (isPresent(heard.slice(0, end))) {
 				keeping.present = true;
+				for (const listener of [...(held[HEARING] ?? [])]) {
+					try {
+						listener();
+					} catch {
+						// One listener's fault is its own; the connection stands.
+					}
+				}
 				return;
 			}
 			refused = true;

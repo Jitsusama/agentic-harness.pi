@@ -48,6 +48,16 @@ and can answer a question or a gate left open on screen.
   too, when its holder answers or replaces it, or the person
   ends it, since a switch or a reboot takes every realm's
   sessions alike (`lib/mesh/crossing.ts`).
+- **Flow:** a one-way road the node is told of, in Nix, from
+  its realm into another (`lib/mesh/flow.ts`). The session
+  asks its node for its flows as it starts and again each
+  time the node counts it present anew, as after a restart; a
+  node too old to know them has none. A message sent along
+  one goes only through the node, text only, to peers there
+  by address, and leaves no copy here. One that crossed in
+  carries `fromRealm`, is shown with it, and can't be
+  answered on the mesh, since nothing reaches back; one
+  waiting to cross elsewhere (`forRealm`) is shown to nobody.
 - **Scope:** a group a peer is in because of its work rather
   than because it joined: its quest's, named down the parent
   chain from the root (`#quest/5gv2ah/luq49e`), each
@@ -124,7 +134,11 @@ and can answer a question or a gate left open on screen.
   is left out and said, and a send left with nowhere to go is
   refused, since realms are kept apart and nobody would read
   it; an answer still goes to whoever wrote what it answers.
-  A peer
+  With `realm`, it goes into that realm through the node
+  instead, if the node has a flow there (see Flow): refused
+  here, naming the realms it may send to, when it has none,
+  and refused with the node's why when the node won't carry
+  it. A peer
   reads what it writes to: sending to a named group it does
   not hear joins it, so the answers reach it. `re` names the
   message it answers and `supersedes` one of this peer's own

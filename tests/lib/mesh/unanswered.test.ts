@@ -51,6 +51,12 @@ describe("questions still unanswered", () => {
 		]);
 	});
 
+	it("waits on nobody for a question that crossed from another realm", () => {
+		// No answer reaches back there, so its receiver is never stuck on it.
+		const crossed = message({ fromRealm: "personal" });
+		expect(unanswered([crossed], aliases, now)).toEqual([]);
+	});
+
 	it("counts an answer from any address the peer goes by", () => {
 		const asked = message({ from: "5FWIUS", to: ["@P9R1KI"] });
 		const answer = message({ from: "WCJQSG", intent: "fyi", re: asked.id });

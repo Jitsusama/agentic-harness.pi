@@ -211,7 +211,7 @@ export function startedFrom(line: string): StartAnswer {
  * Asks the node serving `socket` one request, answering its one line, or
  * nothing when none answers there within `patience`.
  */
-function askAt(
+export function askAt(
 	socket: string | undefined,
 	request: unknown,
 	patience: number,
