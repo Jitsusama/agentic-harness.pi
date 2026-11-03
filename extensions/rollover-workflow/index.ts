@@ -112,6 +112,27 @@ export async function rollOverNow(
 	const parent = sessions.getSessionFile();
 	if (!parent)
 		return "This session keeps no log, so there is none to roll over.";
+	// Checked and marked with nothing awaited between, so a reload and a
+	// rollover never overlap (lib/internal/reload/slot.ts, `rolling`).
+	const slot = reloadSlot();
+	if (slot.request !== undefined || slot.performing || slot.reloading) {
+		return "Not rolled over: a reload is waiting or under way, and switching logs during it would leave this session running on the old one too. The next compaction rolls over.";
+	}
+	slot.rolling = true;
+	try {
+		return await switchToRolled(pi, ctx, parent);
+	} finally {
+		slot.rolling = false;
+	}
+}
+
+/** Write the fresh log and switch to it, once nothing else is switching. */
+async function switchToRolled(
+	pi: ExtensionAPI,
+	ctx: ExtensionCommandContext,
+	parent: string,
+): Promise<string> {
+	const sessions = ctx.sessionManager;
 	const carry: Carry = { carried: {} };
 	pi.events.emit(ROLLOVER_CARRY, carry);
 	const rolled = rollOver(sessions.getBranch() as unknown as Entry[], {

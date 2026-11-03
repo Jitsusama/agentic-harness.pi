@@ -258,6 +258,14 @@ export async function follow(
 		}
 		if (moved.size === 0) return;
 		const slot = reloadSlot();
+		// A rollover is switching logs: the fresh session's follower takes
+		// the move up, or this one does once the switch was called off.
+		if (slot.rolling) {
+			if (recheck) clearTimeout(recheck);
+			recheck = setTimeout(() => consider(), RECHECK_MS);
+			recheck.unref?.();
+			return;
+		}
 		// Somebody else's reload is waiting or under way, and it loads
 		// the install anyway unless it was asked for a tree.
 		if (slot.request !== undefined && !letGoIfHeld()) {

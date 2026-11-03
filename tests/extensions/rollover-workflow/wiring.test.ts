@@ -22,6 +22,7 @@ import rolloverWorkflow, {
 import spendWorkflow, {
 	COST_READING,
 } from "../../../extensions/spend-workflow/index.ts";
+import { reloadSlot } from "../../../lib/internal/reload/slot.ts";
 import {
 	ROLLOVER_BYTES,
 	ROLLOVER_ENV,
@@ -291,6 +292,39 @@ describe("the command", () => {
 		);
 
 		expect(stopped).toEqual([]);
+	});
+
+	it("waits for a reload asked for or under way", async () => {
+		const manager = compacted();
+		const { ctx, switched, notices } = commandContext(manager);
+		const slot = reloadSlot();
+		slot.request = { reason: "the install moved", by: "self" };
+		try {
+			await command?.handler("", ctx);
+		} finally {
+			slot.request = undefined;
+		}
+
+		expect(switched).toEqual([]);
+		expect(notices).toEqual([
+			expect.stringMatching(/^Not rolled over: a reload/),
+		]);
+	});
+
+	it("holds reloads off while it switches, and lets go after", async () => {
+		const manager = compacted();
+		const { ctx } = commandContext(manager);
+		const during: (boolean | undefined)[] = [];
+		const switchSession = ctx.switchSession;
+		ctx.switchSession = async (path, options) => {
+			during.push(reloadSlot().rolling);
+			return switchSession(path, options);
+		};
+
+		await command?.handler("", ctx);
+
+		expect(during).toEqual([true]);
+		expect(reloadSlot().rolling).toBe(false);
 	});
 
 	it("says why it did not, for a session with no compaction", async () => {

@@ -51,6 +51,14 @@ export interface ReloadSlot {
 	 */
 	performing?: boolean;
 	/**
+	 * A rollover is switching the session to a fresh log. pi's reload
+	 * waits on loading before it starts the new runtime, and on 3 November
+	 * one begun as a rollover switched finished on the session left
+	 * behind: a live runtime on the old log, reloading the session it
+	 * had become every 30 seconds. So neither starts while the other runs.
+	 */
+	rolling?: boolean;
+	/**
 	 * A delivery that would have started a turn was said without one, to
 	 * let a waiting reload go first (hold.ts): the landing starts it.
 	 */

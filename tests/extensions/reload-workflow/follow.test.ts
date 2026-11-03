@@ -42,6 +42,7 @@ afterEach(async () => {
 	slot.dispatched = false;
 	slot.dispatchedAt = undefined;
 	slot.performing = undefined;
+	slot.rolling = undefined;
 	for (const repo of repos.splice(0)) disposeRepo(repo);
 	for (const dir of dirs.splice(0))
 		rmSync(dir, { recursive: true, force: true });
@@ -216,6 +217,19 @@ describe("following the install", () => {
 
 		await until("the reload is asked for", () => prompted.length > 0);
 		expect(prompted).toEqual(["/harness reload"]);
+	});
+
+	it("asks nothing while a rollover switches the session's log", async () => {
+		// On 3 November a reload begun as a rollover switched finished on
+		// the log left behind.
+		const { follower, prompted } = await behind();
+		reloadSlot().rolling = true;
+
+		follower?.consider();
+
+		await quietFor(QUIET_MS, 4);
+		expect(prompted).toEqual([]);
+		expect(reloadSlot().request).toBeUndefined();
 	});
 
 	it("asks its own reload again once held with none under way, saying why", async () => {
