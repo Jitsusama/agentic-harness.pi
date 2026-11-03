@@ -193,6 +193,53 @@ const NIX_NAME = /[A-Za-z_][\w'-]*(?:\.[A-Za-z_][\w'-]*)*/g;
 /** A lambda's parameter, as `n` in `n: ...`, never a URL's scheme. */
 const NIX_PARAMETER = /([A-Za-z_][\w'-]*)\s*:(?!\/)/g;
 
+/** The parameter of the lambda a whole expression is, as `c` in `c: ...`. */
+const OUTER_PARAMETER = /^\s*([A-Za-z_][\w'-]*)\s*:(?!\/)/;
+
+/** The value a `mapAttrs` gives its function, as `c` in `mapAttrs (s: c: ...)`. */
+const MAPPED_VALUE =
+	/\bmapAttrs\s*\(\s*[A-Za-z_][\w'-]*\s*:\s*([A-Za-z_][\w'-]*)\s*:(?!\/)/g;
+
+/** What `attrNames` is given by name, as `c` in `attrNames c`. */
+const NAMES_OF = /\battrNames\s+([A-Za-z_][\w'-]*)/g;
+
+/**
+ * The parameters bound to a set of checks, or of systems' checks: the
+ * one the whole expression takes, the value a `mapAttrs` maps, and what
+ * `attrNames` is given.
+ */
+function setParameters(
+	bare: string,
+	parameters: ReadonlySet<string>,
+): Set<string> {
+	const sets = new Set<string>();
+	const outer = OUTER_PARAMETER.exec(bare);
+	if (outer !== null) sets.add(outer[1]);
+	for (const match of bare.matchAll(MAPPED_VALUE)) sets.add(match[1]);
+	for (const match of bare.matchAll(NAMES_OF)) {
+		if (parameters.has(match[1])) sets.add(match[1]);
+	}
+	return sets;
+}
+
+/**
+ * Whether a set parameter's use at `at` reads only its names: where it
+ * is bound, given to `attrNames`, or the set the whole expression's
+ * `mapAttrs` maps last, as `c` in `c: builtins.mapAttrs (...) c`.
+ */
+function usesOnlyNames(bare: string, name: string, at: number): boolean {
+	const before = bare.slice(0, at);
+	const after = bare.slice(at + name.length);
+	if (/^\s*:(?!\/)/.test(after)) return true;
+	if (/\battrNames\s+$/.test(before)) return true;
+	const outer = OUTER_PARAMETER.exec(bare);
+	return (
+		outer?.[1] === name &&
+		after.trim() === "" &&
+		/^\s*[A-Za-z_][\w'-]*\s*:\s*(?:builtins\.)?mapAttrs\b/.test(before)
+	);
+}
+
 /**
  * Whether a `nix eval` of every check applies only what reads their
  * names, as `--apply builtins.attrNames` or a `builtins.filter` with
@@ -201,7 +248,9 @@ const NIX_PARAMETER = /([A-Za-z_][\w'-]*)\s*:(?!\/)/g;
  * queue held such an evaluation (mw13l2lv) to 24 GiB for 4,473 s on 3
  * November. Read from the words alone, so a step naming anything else,
  * a check's attribute, a `let` or a string with `${` in it, still counts
- * as evaluating every check.
+ * as evaluating every check, as does one using a set of checks other
+ * than through its names, as `c: [ (builtins.attrNames c) c ]` does,
+ * since `--json` forces every check in a set it returns.
  */
 function appliesNamesOnly(step: string): boolean {
 	const applied = APPLIED.exec(step);
@@ -214,6 +263,12 @@ function appliesNamesOnly(step: string): boolean {
 		[...bare.matchAll(NIX_PARAMETER)].map((match) => match[1]),
 	);
 	const names = bare.match(NIX_NAME) ?? [];
+	const sets = setParameters(bare, parameters);
+	for (const use of bare.matchAll(NIX_NAME)) {
+		if (sets.has(use[0]) && !usesOnlyNames(bare, use[0], use.index)) {
+			return false;
+		}
+	}
 	const builtin = (name: string) => name.replace(/^builtins\./, "");
 	const readsNames = (name: string) =>
 		NAME_BUILTINS.has(builtin(name)) ||
