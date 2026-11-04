@@ -5,6 +5,7 @@ import {
 	EVALUATION_GIB,
 	EVERY_CHECK_GIB,
 	type Job,
+	KEEPS_LINE_FOR_MS,
 	kindOf,
 	LENDING_WAIT_MS,
 	MOST_CPU_PRESSURE_BESIDE_VMS,
@@ -680,6 +681,70 @@ describe("whose turn it is", () => {
 			const room = { ...ROOMY, availableGib: EVERY_CHECK_GIB };
 			expect(nextTurn(jobs, room, NOW)?.id).toBe("every");
 			expect(waitReasons(jobs, room, NOW).get("every")).toBe("order");
+		});
+
+		describe("while a long run holds the memory it waits for", () => {
+			// 11-03: a 20 GiB flake check and a 24 GiB evaluation waited on the
+			// memory a changed-checks --build held, 13 GiB for its 6,402 s, and
+			// 30 tests of 1 to 171 s that fit waited behind them on the order.
+			const check = (endsInMs: number) =>
+				job("check", {
+					kind: "vm-check",
+					what: "changed-checks --build",
+					needsGib: 13,
+					lastRanS: 6_400,
+					started: startedAgo(6_400_000 - endsInMs),
+				});
+			const flake = stuck(PASS_AFTER_MS + 1_000, { needsGib: 20 });
+			const room = { ...ROOMY, availableGib: 9 };
+
+			it("lets work that fits pass, when how long it runs is unknown", () => {
+				const jobs = [check(KEEPS_LINE_FOR_MS * 10), flake, small];
+				expect(nextTurn(jobs, room, NOW)?.id).toBe("small");
+				expect(Object.fromEntries(waitReasons(jobs, room, NOW))).toEqual({
+					every: "memory",
+					small: "order",
+				});
+			});
+
+			it("holds work that would still run when that memory comes back", () => {
+				const long = job("long", { lastRanS: 7_200 });
+				const short = job("short", {
+					since: startedAgo(30_000),
+					lastRanS: 30,
+				});
+				const jobs = [check(KEEPS_LINE_FOR_MS * 10), flake, long, short];
+				expect(nextTurn(jobs, room, NOW)?.id).toBe("short");
+				expect(waitReasons(jobs, room, NOW).get("long")).toBe("order");
+			});
+
+			it("holds the line once that memory is due back within the wait", () => {
+				const jobs = [check(KEEPS_LINE_FOR_MS - 1_000), flake, small];
+				expect(nextTurn(jobs, room, NOW)).toBeUndefined();
+				expect(waitReasons(jobs, room, NOW).get("small")).toBe("order");
+			});
+
+			it("counts a run past the length its last one took as due as long again", () => {
+				// mw192vak's last run took 1,010 s; it ran 6,402.
+				const outran = { ...check(-60_000), lastRanS: 1_010 };
+				expect(nextTurn([outran, flake, small], room, NOW)?.id).toBe("small");
+				const young = job("young", {
+					needsGib: 13,
+					started: startedAgo(KEEPS_LINE_FOR_MS / 2),
+				});
+				expect(nextTurn([young, flake, small], room, NOW)).toBeUndefined();
+			});
+
+			it("holds the line again once work that passed it would free its room", () => {
+				const passed = job("passed", {
+					needsGib: 4,
+					started: startedAgo(RAMP_MS + 1_000),
+				});
+				const jobs = [check(KEEPS_LINE_FOR_MS * 10), passed, flake, small];
+				const left = { ...room, availableGib: 16 };
+				expect(nextTurn(jobs, left, NOW)).toBeUndefined();
+				expect(waitReasons(jobs, left, NOW).get("small")).toBe("order");
+			});
 		});
 	});
 

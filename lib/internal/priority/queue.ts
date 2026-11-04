@@ -26,7 +26,9 @@
  *   oldest first. A job its limit holds back lets the next one past; a
  *   job memory holds back holds everyone behind it but quick work, one
  *   quick job at a time, so a big job is never starved by small ones
- *   slipping in and a check of seconds never waits on it.
+ *   slipping in and a check of seconds never waits on it; once the
+ *   memory it waits for is held by a long run, it holds only the work
+ *   that would still run when that ends.
  * - **One at a time, a little apart**: memory is read a moment after
  *   it is taken, and everyone reacting at once to one reading is what
  *   makes a group overshoot and swing back, so turns are given out one
@@ -443,6 +445,13 @@ export interface Job {
 	 * job evaluates every check, holding it to a build's 4.
 	 */
 	readonly needsGib?: number;
+	/**
+	 * How long the same work took the last time it ran, in seconds, as it
+	 * asked (outcome.ts's `ranSAfter`): when the memory it holds is due
+	 * back once it runs, and whether it would still run by then while it
+	 * waits (see {@link lineKept}). Nothing for work not yet seen.
+	 */
+	readonly lastRanS?: number;
 	/** The pi session that started it, and pi's pid. */
 	readonly owner: { readonly session: string; readonly pid: number };
 	/** When it asked for its turn. */
@@ -760,21 +769,52 @@ export const RULES: Rules = { buildsWaitForVmChecks: true };
 
 /**
  * How long a job waits on memory before jobs that fit may pass it, while
- * it needs more than the running jobs could free (see {@link passable}).
+ * it needs more than the running jobs could free (see {@link lineKept}).
  */
 export const PASS_AFTER_MS = 5 * 60_000;
 
 /**
- * Whether jobs behind `job`, which memory holds back, may pass it: it has
- * waited on memory past {@link PASS_AFTER_MS}, and it needs more than can
- * be freed, the memory available now and what the running jobs past
- * their ramp are held to need, since only they hand memory back to the
- * queue. A job still in its ramp has yet to take its need, which the
- * memory available counts as free already.
+ * How soon the memory a job waits for must be due back for it to hold
+ * everyone behind it: past this, it holds back only work that would
+ * still run by then (see {@link lineKept}).
+ */
+export const KEEPS_LINE_FOR_MS = 5 * 60_000;
+
+/** Which of the jobs behind it a job holds back. */
+type Holds = (job: Job) => boolean;
+
+const HOLDS_ALL: Holds = () => true;
+const HOLDS_NONE: Holds = () => false;
+
+/** What either holds back. */
+function either(one: Holds, other: Holds): Holds {
+	return (job) => one(job) || other(job);
+}
+
+/**
+ * Which jobs behind `job`, which memory holds back, it holds back too.
+ * Everyone, until it has waited on memory past {@link PASS_AFTER_MS}.
+ * Then nobody, while it needs more than can be freed, the memory
+ * available now and what the running jobs past their ramp are held to
+ * need, since only they hand memory back to the queue. A job still in
+ * its ramp has yet to take its need, which the memory available counts
+ * as free already.
  *
  * A job the queue's own work holds back keeps the line, so the memory
- * those jobs give back goes to it; a job held back by what the queue
- * doesn't run held everyone for nothing. On 3 November a 24 GiB
+ * those jobs give back goes to it, but only for what would be in its
+ * way: everyone while that memory is due back within
+ * {@link KEEPS_LINE_FOR_MS}, and past that only work whose last run
+ * says it would still run when the memory comes back. On 3 November a
+ * changed-checks --build (mw192vak) held 13 GiB from 22:58Z to 00:45Z,
+ * and a 20 GiB flake check (mw196uoj)
+ * and a 24 GiB evaluation (mw18aruy) waiting on that memory held 30
+ * tests of 1 to 171 s that fit, each waiting 4,300 to 4,570 s on the
+ * order (16V6F4). Work never seen passes too: once running, it counts
+ * as due once it has run as long again (see {@link endsAt}), so the job
+ * it passed holds the line again as soon as that end would fit it.
+ *
+ * A job held back by what the queue doesn't run held everyone for
+ * nothing. On 3 November a 24 GiB
  * evaluation of every check (mw13l2lv) waited 4,473 s on memory from
  * 19:45Z; from 20:05Z no queued job but one of 10 s ran, so nothing the
  * queue ran could free its room. By the time it was given up, at
@@ -784,20 +824,62 @@ export const PASS_AFTER_MS = 5 * 60_000;
  * starts once it fits, and once the jobs passing it hold enough that
  * their end would fit it, it holds the line again, so it never starves.
  */
-function passable(
+function lineKept(
 	job: Job,
 	jobs: readonly Job[],
 	room: Room,
 	now: number,
-): boolean {
-	if (memoryWaitedMs(job, now) <= PASS_AFTER_MS) return false;
-	const held = jobs
+): Holds {
+	if (memoryWaitedMs(job, now) <= PASS_AFTER_MS) return HOLDS_ALL;
+	const back = roomBackAt(job, jobs, room, now);
+	if (back === undefined) return HOLDS_NONE;
+	if (back - now <= KEEPS_LINE_FOR_MS) return HOLDS_ALL;
+	return (behind) =>
+		behind.lastRanS !== undefined && now + behind.lastRanS * 1000 > back;
+}
+
+/**
+ * When `job` would fit, as the running jobs past their ramp end, those
+ * due first counted first (see {@link endsAt}), or nothing when it
+ * wouldn't fit with all of them ended.
+ */
+function roomBackAt(
+	job: Job,
+	jobs: readonly Job[],
+	room: Room,
+	now: number,
+): number | undefined {
+	const short = needsGibOf(job) - room.availableGib;
+	if (short <= 0) return now;
+	const ending = jobs
 		.filter(
 			(one) =>
 				one.started !== undefined && now - Date.parse(one.started) >= RAMP_MS,
 		)
-		.reduce((sum, one) => sum + needsGibOf(one), 0);
-	return needsGibOf(job) > room.availableGib + held;
+		.map((one) => ({ at: endsAt(one, now), gib: needsGibOf(one) }))
+		.sort((one, other) => one.at - other.at);
+	let freed = 0;
+	for (const one of ending) {
+		freed += one.gib;
+		if (freed >= short) return one.at;
+	}
+	return undefined;
+}
+
+/**
+ * When a running job is due to end: by how long its work last took, or,
+ * when that is unknown or already past, as long again as it has run. The
+ * same work's runs vary too widely to trust past their length: the
+ * changed-checks --build of 3 November ran 6,402 s, its last 1,010 s,
+ * and its runs that day 2 to 12,197 s. Work just started is due soon,
+ * so a job it passed holds the line again once its end would fit.
+ */
+function endsAt(job: Job, now: number): number {
+	if (job.started === undefined) return now;
+	const started = Date.parse(job.started);
+	const byLast =
+		job.lastRanS === undefined ? -Infinity : started + job.lastRanS * 1000;
+	return byLast > now ? byLast : now + (now - started);
 }
 
 /** How long a job has waited on memory, every stretch of it, by `now`. */
@@ -821,9 +903,11 @@ function memoryWaitedMs(job: Job, now: number): number {
  * folder of its own inside the queue's, where a keeper still taking the
  * old one would keep beside a keeper taking the new. 4: jobs that fit
  * pass one memory has held past {@link PASS_AFTER_MS} and the running
- * jobs can't free room for (see {@link passable}).
+ * jobs can't free room for (see {@link lineKept}). 5: past
+ * {@link KEEPS_LINE_FOR_MS}, a job memory holds back holds only the work
+ * that would still run when its memory is due back.
  */
-export const RULES_VERSION = 4;
+export const RULES_VERSION = 5;
 
 /**
  * The job to start now, if any: the first waiting in order that its
@@ -860,14 +944,14 @@ export function nextTurn(
 			(other) =>
 				!isQuick(other) && Date.parse(other.since) < Date.parse(job.since),
 		);
-	let held = false;
+	let holds = HOLDS_NONE;
 	for (const job of waiting) {
 		if (isQuick(job)) {
 			const queuedPast = passes(job) && quick.running >= QUICK_AT_ONCE;
 			if (quick.left < 1 || queuedPast || !fits(job)) continue;
 			return Number.isFinite(quick.left) ? { ...job, capped: true } : job;
 		}
-		if (held || waitsForLending(job, room, now)) continue;
+		if (holds(job) || waitsForLending(job, room, now)) continue;
 		if (
 			isVm(job) &&
 			vmWaits(job, { vmsHere, vmsElsewhere, vmSettling: settling }, room, rules)
@@ -879,7 +963,10 @@ export function nextTurn(
 			job.kind === "build" &&
 			(builds < 1 || (Number.isFinite(builds) && !job.cappable));
 		if (ruledOut || !fits(job)) {
-			held = ruledOut || !passable(job, jobs, room, now);
+			holds = either(
+				holds,
+				ruledOut ? HOLDS_ALL : lineKept(job, jobs, room, now),
+			);
 			continue;
 		}
 		return job.kind === "build" && Number.isFinite(builds)
@@ -967,7 +1054,7 @@ export function waitReasons(
 			(other) =>
 				!isQuick(other) && Date.parse(other.since) < Date.parse(job.since),
 		);
-	let held = false;
+	let holds = HOLDS_NONE;
 	let given = false;
 	for (const job of waiting) {
 		const reason = ((): WaitReason => {
@@ -979,7 +1066,7 @@ export function waitReasons(
 				return "order";
 			}
 			if (waitsForLending(job, room, now)) return "lending";
-			if (held || given) return "order";
+			if (holds(job) || given) return "order";
 			if (
 				isVm(job) &&
 				vmWaits(
@@ -995,7 +1082,10 @@ export function waitReasons(
 				job.kind === "build" &&
 				(builds < 1 || (Number.isFinite(builds) && !job.cappable));
 			if (ruledOut || !fits(job)) {
-				held = ruledOut || !passable(job, jobs, room, now);
+				holds = either(
+					holds,
+					ruledOut ? HOLDS_ALL : lineKept(job, jobs, room, now),
+				);
 				return ruledOut ? "behind" : "memory";
 			}
 			given = true;
