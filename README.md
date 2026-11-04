@@ -127,9 +127,10 @@ driving a real browser.
 
 **Live in the terminal.** Widgets round out the experience:
 `content-viewer-widget`, `mermaid-widget`, `panel-zoom-widget`,
-`status-line-widget` and `claude-plan-widget`, and `terminal-modes-widget`
+`status-line-widget` and `claude-plan-widget`, `terminal-modes-widget`
 says pi's terminal modes again to a terminal that joins a held
-session, while `panel-lifecycle-workflow`
+session, `link-click-widget` opens the URL, path, pull request or
+quest a click lands on, while `panel-lifecycle-workflow`
 closes every panel when its session ends so none is left
 waiting on a key. And `observability-workflow` records
 run telemetry for subagent and council fan-outs so you can see

@@ -90,6 +90,23 @@ export function findIds(text: string): string[] {
 	return out;
 }
 
+/** Where in a text an ID stands: the ID, and its start and end offsets. */
+export interface IdSpan {
+	id: string;
+	start: number;
+	end: number;
+}
+
+/** Find every ID in a body of text, with where each one stands. */
+export function findIdSpans(text: string): IdSpan[] {
+	const scan = new RegExp(`\\b${ID_REGEX_BODY}\\b`, "g");
+	return [...text.matchAll(scan)].map((m) => ({
+		id: m[0],
+		start: m.index,
+		end: m.index + m[0].length,
+	}));
+}
+
 /**
  * How an inline ID mention reads. A bare `QEST-...` reads
  * as a `reference`. An id preceded by the `→` sigil

@@ -26,6 +26,9 @@ may import from here, and any of it may change without notice.
 - **`install/`**: whether the installed dependencies and checkout
   are the ones on disk, and which builds the install skipped, for
   `install-check-workflow` and `pnpm load-check`.
+- **`links/`**: what a click on pi's fullscreen lands on: the
+  places plain text names, where each opens, and the one wrap of
+  pi-tui's press that lets `link-click-widget` open them.
 - **`people/`**: the built-in handle types (Slack, GitHub, email),
   the resolvers and where people are stored.
 - **`priority/`**: the machine queue: when a session's heavy work
