@@ -100,7 +100,12 @@ The extension registers the tools; the skills teach the method.
 ## Shape
 
 - `index.ts` registers the four tools and the browser registry
-- `go.ts`, `see.ts`, `do.ts`, `check.ts`: one file per verb
+- `go-tool.ts`, `see-tool.ts`, `do-tool.ts`, `check-tool.ts`: each
+  verb as pi sees it, its words, parameters and rendering, kept
+  light so a start that never opens a browser loads no engine
+- `go.ts`, `see.ts`, `do.ts`, `check.ts`: what each verb does,
+  loaded on its first call
+- `sessions.ts`: the registry, made on the first call that needs it
 - `registry.ts`: named browsers, their turns and their lifetimes
 - `limits.ts`: how long a call may ask the page to keep at something
 - `result.ts`: the one answer shape all four return

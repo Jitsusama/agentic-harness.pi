@@ -8,14 +8,14 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import { registerCheck } from "../../../extensions/browser-integration/check.ts";
-import { registerDo } from "../../../extensions/browser-integration/do.ts";
-import { registerGo } from "../../../extensions/browser-integration/go.ts";
+import { registerCheck } from "../../../extensions/browser-integration/check-tool.ts";
+import { registerDo } from "../../../extensions/browser-integration/do-tool.ts";
+import { registerGo } from "../../../extensions/browser-integration/go-tool.ts";
 import {
 	createSessionRegistry,
 	DEFAULT_SESSION,
 } from "../../../extensions/browser-integration/registry.ts";
-import { registerSee } from "../../../extensions/browser-integration/see.ts";
+import { registerSee } from "../../../extensions/browser-integration/see-tool.ts";
 import type { BrowserSession } from "../../../lib/core/web/session.ts";
 
 /** Long enough that a call nothing held back would plainly have run. */
@@ -67,16 +67,25 @@ async function tools() {
 	const page = hangingSession();
 	const registry = createSessionRegistry({ open: async () => page.session });
 	await registry.acquire(DEFAULT_SESSION);
+	// What each tool does loads on its first call. Loaded here, so the
+	// window below measures turns rather than a first import.
+	await Promise.all([
+		import("../../../extensions/browser-integration/go.ts"),
+		import("../../../extensions/browser-integration/see.ts"),
+		import("../../../extensions/browser-integration/do.ts"),
+		import("../../../extensions/browser-integration/check.ts"),
+	]);
+	const sessions = async () => registry;
 	const registered = new Map<string, Execute>();
 	const pi = {
 		registerTool(tool: { name: string; execute: Execute }) {
 			registered.set(tool.name, tool.execute);
 		},
 	} as unknown as ExtensionAPI;
-	registerGo(pi, registry);
-	registerSee(pi, registry);
-	registerDo(pi, registry);
-	registerCheck(pi, registry);
+	registerGo(pi, sessions);
+	registerSee(pi, sessions);
+	registerDo(pi, sessions);
+	registerCheck(pi, sessions);
 	const tool = (name: string): Execute => {
 		const execute = registered.get(name);
 		if (!execute) throw new Error(`${name} was not registered`);
