@@ -67,6 +67,11 @@ import {
 } from "./config.ts";
 import { QUEST_CONTEXT, renderQuestContext } from "./context.ts";
 import { isFocusedDocWrite, questVerdicts } from "./enforce.ts";
+import {
+	spawnedBy,
+	stopFirstTurnWatches,
+	watchFirstTurn,
+} from "./first-turn-watch.ts";
 import { adoptTree, applyQuestGuards } from "./guard.ts";
 import {
 	attachCurrentSession,
@@ -415,6 +420,9 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 				};
 			}
 			updateScoreboard(state, ctx);
+			// A session a spawn started is looked for a minute on.
+			const spawned = spawnedBy(params.action, result.details);
+			if (spawned) watchFirstTurn(pi, ctx, spawned);
 			return {
 				content: [
 					{
@@ -801,6 +809,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		// would touch the file again and re-date a session that has
 		// already ended.
 		stopHeartbeat();
+		stopFirstTurnWatches();
 		// End the session's registry record, but only for the reasons
 		// that actually end something. A reload keeps the same session
 		// running in the same process, so stamping it would date a tab

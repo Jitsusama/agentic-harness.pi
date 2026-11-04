@@ -1,9 +1,16 @@
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	FIRST_WORDS_FOR_MS,
+	firstTurnOf,
 	leaveFirstWords,
 	spawnedWords,
 	takeFirstWords,
@@ -59,5 +66,89 @@ describe("a spawned session's first words", () => {
 		expect(spawnedWords("QEST-1", "build it")).toMatch(
 			/What it was started for:\n\nbuild it$/,
 		);
+	});
+});
+
+describe("whether a spawned session took its first turn", () => {
+	let sessions: string;
+	beforeEach(() => {
+		sessions = join(dir, "sessions");
+		mkdirSync(join(sessions, "--home--"), { recursive: true });
+	});
+
+	/** A session log pi wrote for `id`, holding `entries`. */
+	function logOf(id: string, entries: object[]): void {
+		writeFileSync(
+			join(sessions, "--home--", `2026-11-04T12-00-00-000Z_${id}.jsonl`),
+			[{ type: "session", id }, ...entries]
+				.map((entry) => JSON.stringify(entry))
+				.join("\n"),
+		);
+	}
+	const userSaid = {
+		type: "message",
+		message: { role: "user", content: [{ type: "text", text: "carry on" }] },
+	};
+
+	it("says it did once its log holds the turn its words started", () => {
+		leaveFirstWords("token-1", "carry on", dir);
+		takeFirstWords(["token-1", "019a-new"], dir, Date.now(), {
+			sessionId: "019a-new",
+			said: true,
+		});
+		logOf("019a-new", [userSaid]);
+		expect(firstTurnOf("token-1", { dir, sessions })).toEqual({
+			started: true,
+			sessionId: "019a-new",
+		});
+	});
+
+	it("says no session took the words a spawn left waiting", () => {
+		leaveFirstWords("token-1", "carry on", dir);
+		expect(
+			firstTurnOf("token-1", { dir, sessions, sessionId: "019a-handed" }),
+		).toEqual({
+			started: false,
+			sessionId: "019a-handed",
+			found: expect.stringMatching(/no session has taken the first words/),
+		});
+	});
+
+	it("says a session took its words but has no log, so no turn", () => {
+		leaveFirstWords("token-1", "carry on", dir);
+		takeFirstWords(["token-1"], dir, Date.now(), {
+			sessionId: "019a-mute",
+			said: true,
+		});
+		expect(firstTurnOf("token-1", { dir, sessions })).toEqual({
+			started: false,
+			sessionId: "019a-mute",
+			found: expect.stringMatching(/took its first words .* no session log/),
+		});
+	});
+
+	it("says when a session put its words off for a prompt that never ran", () => {
+		leaveFirstWords("token-1", "carry on", dir);
+		takeFirstWords(["token-1"], dir, Date.now(), {
+			sessionId: "019a-waits",
+			said: false,
+		});
+		logOf("019a-waits", [{ type: "model_change" }]);
+		expect(firstTurnOf("token-1", { dir, sessions })).toEqual({
+			started: false,
+			sessionId: "019a-waits",
+			found: expect.stringMatching(/put them off .* holds no turn/),
+		});
+	});
+
+	it("is asked once: the record of a taking goes with the answer", () => {
+		leaveFirstWords("token-1", "carry on", dir);
+		takeFirstWords(["token-1"], dir, Date.now(), {
+			sessionId: "019a-new",
+			said: true,
+		});
+		logOf("019a-new", [userSaid]);
+		firstTurnOf("token-1", { dir, sessions });
+		expect(readdirSync(dir)).toEqual(["sessions"]);
 	});
 });

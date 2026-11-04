@@ -13,9 +13,15 @@
  * environment. A file is taken once, by renaming it away first, and one
  * left too long is dropped, so a session reopened days later is never
  * told what a spawn meant for it then.
+ *
+ * The session that takes them leaves a record of it beside them, its id
+ * and whether it said them, so the spawn can look a minute later for
+ * the turn they started in that session's log, and say so when there
+ * is none (QEST-20261104-ECNIS5).
  */
 
 import {
+	existsSync,
 	mkdirSync,
 	readFileSync,
 	renameSync,
@@ -24,7 +30,8 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { automatedText } from "../automated.ts";
-import { stateDir } from "../paths.ts";
+import { sessionsDir, stateDir } from "../paths.ts";
+import { indexSessionFiles } from "./session-liveness.ts";
 
 /** The variable naming a spawned pi's first words, when it has a token. */
 export const FIRST_WORDS_VARIABLE = "QUEST_WORKFLOW_FIRST_WORDS";
@@ -77,14 +84,24 @@ export function leaveFirstWords(
 	renameSync(writing, path);
 }
 
+/** Who took a spawn's words, and whether it said them as its first turn. */
+export interface Taken {
+	readonly sessionId?: string;
+	/** False when the session gave way to its command line's own prompt. */
+	readonly said: boolean;
+}
+
 /**
  * Take the words left under any of `keys`, each file once, answering
  * the first still fresh. Every file found is removed, fresh or not.
+ * Given `taken`, it leaves the record of who took the fresh ones under
+ * their key, for the spawn that left them.
  */
 export function takeFirstWords(
 	keys: readonly (string | undefined)[],
 	dir: string = firstWordsDir(),
 	now: number = Date.now(),
+	taken?: Taken,
 ): string | undefined {
 	let found: string | undefined;
 	for (const key of keys) {
@@ -99,9 +116,146 @@ export function takeFirstWords(
 		}
 		const words = wordsIn(taking, now);
 		rmSync(taking, { force: true });
+		if (words !== undefined && found === undefined && taken) {
+			recordTaken(join(dir, `${key}.taken`), taken, now);
+		}
 		found ??= words;
 	}
 	return found;
+}
+
+/** Leave the record of a taking, never failing the session that took them. */
+function recordTaken(path: string, taken: Taken, now: number): void {
+	try {
+		writeFileSync(
+			path,
+			JSON.stringify({ v: 1, ...taken, at: new Date(now).toISOString() }),
+		);
+	} catch {
+		// The session still says its words; its spawn only can't tell it did.
+	}
+}
+
+/**
+ * What a spawn's look at its session found: whether the session took a
+ * first turn, which session it is when that is known, and otherwise
+ * what the records show, as a clause the spawner is told.
+ */
+export type FirstTurn =
+	| { readonly started: true; readonly sessionId: string }
+	| {
+			readonly started: false;
+			readonly sessionId?: string;
+			readonly found: string;
+	  };
+
+/** Where a look at a spawned session's first turn reads. */
+export interface FirstTurnPlaces {
+	readonly dir?: string;
+	/** pi's session logs. */
+	readonly sessions?: string;
+	/** The session's id when the spawn knows it, as the launcher's are. */
+	readonly sessionId?: string;
+}
+
+/**
+ * Whether the session started under `key` took its first turn: its
+ * words were taken, and its log holds a turn. Asked once a spawn: the
+ * record of the taking goes with the answer.
+ */
+export function firstTurnOf(
+	key: string,
+	places: FirstTurnPlaces = {},
+): FirstTurn {
+	const dir = places.dir ?? firstWordsDir();
+	if (!SAFE_KEY.test(key)) {
+		return {
+			started: false,
+			found: `${key} is not a key words are left under`,
+		};
+	}
+	if (existsSync(join(dir, `${key}.json`))) {
+		return notStarted(
+			places.sessionId,
+			"no session has taken the first words the spawn left it, so none started on them",
+		);
+	}
+	const receipt = join(dir, `${key}.taken`);
+	const taken = takenIn(receipt);
+	rmSync(receipt, { force: true });
+	const sessionId = taken?.sessionId ?? places.sessionId;
+	if (!sessionId) {
+		return notStarted(
+			undefined,
+			taken
+				? "a session took its first words but gave no id to find its log by"
+				: "its first words are neither waiting nor recorded as taken",
+		);
+	}
+	const log = indexSessionFiles(places.sessions ?? sessionsDir()).get(
+		sessionId,
+	);
+	if (log && holdsTurn(log)) return { started: true, sessionId };
+	const where = log ? "its log holds no turn" : "there is no session log";
+	if (!taken) {
+		return notStarted(
+			sessionId,
+			`its first words are gone with no record of a taking, and ${where}`,
+		);
+	}
+	return notStarted(
+		sessionId,
+		taken.said
+			? `it took its first words at ${taken.at} and said them, but ${where}`
+			: `it took its first words at ${taken.at} but put them off for its command line's own prompt, and ${where}`,
+	);
+}
+
+function notStarted(sessionId: string | undefined, found: string): FirstTurn {
+	return { started: false, ...(sessionId ? { sessionId } : {}), found };
+}
+
+/** The record of a taking, when there is a whole one. */
+function takenIn(path: string): (Taken & { at: string }) | undefined {
+	let read: unknown;
+	try {
+		read = JSON.parse(readFileSync(path, "utf8"));
+	} catch {
+		// No record, or half of one: the look reads as if none was left.
+		return undefined;
+	}
+	if (typeof read !== "object" || read === null) return undefined;
+	const { sessionId, said, at } = read as Record<string, unknown>;
+	if (typeof said !== "boolean" || typeof at !== "string") return undefined;
+	return {
+		...(typeof sessionId === "string" ? { sessionId } : {}),
+		said,
+		at,
+	};
+}
+
+/** Whether a session log holds a user message, the start of a turn. */
+function holdsTurn(log: string): boolean {
+	let text: string;
+	try {
+		text = readFileSync(log, "utf8");
+	} catch {
+		// A log that can't be read shows no turn.
+		return false;
+	}
+	return text.split("\n").some((line) => {
+		if (!line.includes('"user"')) return false;
+		try {
+			const entry = JSON.parse(line) as {
+				type?: unknown;
+				message?: { role?: unknown };
+			};
+			return entry.type === "message" && entry.message?.role === "user";
+		} catch {
+			// A torn last line, still being written: not a turn yet.
+			return false;
+		}
+	});
 }
 
 /** The words a taken file holds, when it is whole and still fresh. */
