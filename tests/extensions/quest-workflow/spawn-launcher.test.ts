@@ -187,6 +187,24 @@ describe("spawn through the desktop's launcher", () => {
 		expect(wordsFor(token)).toContain(`Carry on with ${id}`);
 	});
 
+	it("tells a pi the caller names its own way to carry on too", async () => {
+		// 11-03 22:02: CF3ZG0 was spawned as `pi --model ...` and sat
+		// untold for 44 minutes, its spec dropped.
+		const { state, id } = await quest();
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "spawn",
+			id,
+			command: "pi --model anthropic/claude-opus-5-5:high",
+			note: "Audit the checks.",
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		expect(opened).toBe("pi --model anthropic/claude-opus-5-5:high");
+		const token = openedEnv?.[FIRST_WORDS_VARIABLE] as string;
+		expect(wordsFor(token)).toContain(`Carry on with ${id}`);
+		expect(wordsFor(token)).toContain("Audit the checks.");
+		expect(result.details).toMatchObject({ firstWordsKey: token });
+	});
+
 	it("leaves no words for a command of the caller's own", async () => {
 		const { state, id } = await quest();
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {

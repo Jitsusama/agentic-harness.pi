@@ -130,7 +130,8 @@ shipped and tested.
   sessions are; one they open themselves leaves focus where it is
   (lib/terminal). Only the person's own press focuses a window.
 - **Sets to work by itself**: a session a spawn starts running
-  pi, fresh or resumed, is told first to carry on with its quest
+  pi, fresh, resumed or with flags the call's `command` gives it
+  (`pi --model ...`), is told first to carry on with its quest
   from its README and focused plan, and, when the spawn gives
   `note`, what it was started for. The spawn leaves the words in
   the quest workflow's state folder, named by the session's id for
@@ -139,6 +140,12 @@ shipped and tested.
   as an automated turn, unless its command line already gave pi a
   first prompt. Words wait 15 minutes at most. A session held on
   another machine can't reach them and starts without.
+- **Or its spawner hears**: a minute after a spawn that left
+  words, the spawning session looks once for the new session's
+  first turn: the record it left of taking its words, and a user
+  message in its log. When there is none it starts its own turn,
+  naming the session, the quest and what the records show; when
+  the session ran, it says nothing.
 - **Behind a lock**: a session handed to the launcher while the
   screen is locked starts behind the lock and goes to its place
   once the lock is gone.

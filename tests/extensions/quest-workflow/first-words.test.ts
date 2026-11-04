@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -18,6 +18,9 @@ let pi: ExtensionAPI;
 let idle: boolean;
 const ctx = { isIdle: () => idle } as unknown as ExtensionContext;
 const settled = () => new Promise((done) => setImmediate(done));
+/** The record a session leaves of taking the words under `key`. */
+const takenRecord = (key: string): unknown =>
+	JSON.parse(readFileSync(join(dir, `${key}.taken`), "utf8"));
 
 beforeEach(() => {
 	dir = mkdtempSync(join(tmpdir(), "first-words-start-"));
@@ -43,7 +46,12 @@ describe("a session a spawn started", () => {
 		expect(said).toEqual([
 			{ text: "carry on with QEST-1", options: undefined },
 		]);
-		expect(readdirSync(dir)).toEqual([]);
+		// Only the record that it took them, for its spawner to look at.
+		expect(readdirSync(dir)).toEqual(["019a-spawned.taken"]);
+		expect(takenRecord("019a-spawned")).toMatchObject({
+			sessionId: "019a-spawned",
+			said: true,
+		});
 	});
 
 	it("takes the words its environment names, once", async () => {
@@ -61,7 +69,8 @@ describe("a session a spawn started", () => {
 		sayFirstWords(pi, ctx, "019a-told", () => true, dir);
 		await settled();
 		expect(said).toEqual([]);
-		expect(readdirSync(dir)).toEqual([]);
+		expect(readdirSync(dir)).toEqual(["019a-told.taken"]);
+		expect(takenRecord("019a-told")).toMatchObject({ said: false });
 	});
 
 	it("follows a run already under way rather than cutting into it", async () => {

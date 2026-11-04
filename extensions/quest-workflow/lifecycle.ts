@@ -465,7 +465,8 @@ export function resolveStartup(
  * is done, so it sets to work without being poked. Words left for it
  * are taken either way, so none wait for a later start; a session
  * whose own command line gave pi a first prompt is told nothing more,
- * since that prompt is its first turn.
+ * since that prompt is its first turn. Either way it leaves word that
+ * it took them, for the spawn that looks for its first turn.
  */
 export function sayFirstWords(
 	pi: ExtensionAPI,
@@ -476,8 +477,12 @@ export function sayFirstWords(
 ): void {
 	const token = process.env[FIRST_WORDS_VARIABLE];
 	delete process.env[FIRST_WORDS_VARIABLE];
-	const words = takeFirstWords([token, sessionId], dir);
-	if (!words || pending()) return;
+	const putOff = pending();
+	const words = takeFirstWords([token, sessionId], dir, Date.now(), {
+		...(sessionId ? { sessionId } : {}),
+		said: !putOff,
+	});
+	if (!words || putOff) return;
 	// After every extension has had its session_start, as pi submits a
 	// first prompt of its own then.
 	setImmediate(() => {

@@ -156,9 +156,14 @@ export async function agentCommand(
 	machine: string,
 	agents: AgentsOnNode = askAgents,
 ): Promise<string> {
-	if (command !== "pi" && !command.startsWith("pi ")) return command;
+	if (!runsPi(command)) return command;
 	const agent = (await agents())?.get(machine);
 	return agent && agent !== "pi" ? `${agent}${command.slice(2)}` : command;
+}
+
+/** Whether a command starts pi itself, as `pi` or `pi` with its flags. */
+export function runsPi(command: string): boolean {
+	return command === "pi" || command.startsWith("pi ");
 }
 
 /** What a spawn's machine was chosen for, as a sentence, or nothing. */

@@ -60,6 +60,7 @@ import {
 	agentCommand,
 	isThisMachine,
 	machineFor,
+	runsPi,
 	spawnHeld,
 } from "./spawn-held.ts";
 import {
@@ -410,10 +411,12 @@ export async function spawn(
 		QUEST_WORKFLOW_AUTOLOAD_ID: questIdForSpawn,
 	};
 	// What the new session is told first, so it sets to work on its quest
-	// by itself rather than waiting to be poked (P9R1KI [76e6439f]). A
-	// command of the caller's own is left as it is.
+	// by itself rather than waiting to be poked (P9R1KI [76e6439f]). A pi
+	// the caller starts its own way is told too, since `pi --model ...`
+	// left CF3ZG0 untold for 44 minutes on 11-03; any other command is
+	// left as it is.
 	const firstWords =
-		spawnsPi && !params.dryRun
+		(spawnsPi || runsPi(spawned.command)) && !params.dryRun
 			? spawnedWords(questIdForSpawn, params.note)
 			: undefined;
 	const leftUnder = (key: string): string | undefined => {
@@ -459,6 +462,7 @@ export async function spawn(
 				: resumeMessage(resume, sessions, now);
 		return ok(resumed ? `${held.message} ${resumed}` : held.message, {
 			...held.details,
+			...(token && !held.planned ? { firstWordsKey: token } : {}),
 			cwd,
 			command,
 			resumedSessionId,
@@ -507,6 +511,7 @@ export async function spawn(
 			{
 				how: "launcher",
 				sessionId: forLauncher.id,
+				...(token ? { firstWordsKey: token } : {}),
 				fresh: forLauncher.fresh === true,
 				layout: "window",
 				cwd,
@@ -553,7 +558,7 @@ export async function spawn(
 	// history in resolveStartup, and the target was validated to exist
 	// above, so the load is deterministic. A non-pi command loads no
 	// quest, so the claim is withheld.
-	if (command === "pi" || command.startsWith("pi ")) {
+	if (runsPi(command)) {
 		message += ` The new session will load ${questIdForSpawn}; the spawn autoload wins over its own history.`;
 	}
 	return ok(message, {
@@ -568,5 +573,6 @@ export async function spawn(
 		command,
 		resumedSessionId,
 		autoloadQuestId: questIdForSpawn,
+		...(token ? { firstWordsKey: token } : {}),
 	});
 }
